@@ -14,6 +14,32 @@
   every mechanism it proves: a turn where a matching mood brought a memory closer lights
   Emotion beside Retrieval, and a dream that wrote a gist and merged near-copies lights
   Gist, Interference and Consolidation beside Dreaming.
+- **A long self page is kept, not refused, and the wake steps down to something whole.**
+  0.3.15 refused a page past 6,078 bytes. Now the page is kept whole up to 16,384 bytes,
+  and the wake shows the first of these that fits, each one whole: the page; a short
+  version its writer wrote with it; each section's heading and first sentence; the
+  headings alone; or one line saying where to read it. Each starts with a line giving the
+  page's size and the line it ends with — "if you don't see that line, it was cut off:
+  read it whole with the self_page tool or `counterparts self-page`" — and ends with that
+  line. The page's room at the default 9,000-byte ceiling is now 5,681 bytes (it was
+  6,078; the new top and end lines and the wake's opening line take the difference): a
+  page within it always shows whole, even on a day the wake also holds handoffs and
+  "Work here" lines, and a longer one still shows whole on most days, borrowing the room
+  held for "Work here". The nightly writer, the reflection and the self_page tool are told
+  to aim under it and, when a page runs past it, asked for a short version in the same
+  call (the tool's new `short`, the console's new `--short <file>`). A short version
+  belongs to the page it was written with — a page rewritten without one shows its
+  headings and first sentences, never an old short version — and crosses the same checks
+  as the page, a reflection's included (no confidential memory's words, no dream marks).
+  Adding a short version on its own never undoes a page written in between, and the
+  wake's own top and end lines are never stored as part of the page. Doctor's Self page
+  line says what the last wake showed: green for the page or its short version, amber
+  below, with what to do. Every wake's opening line now also says: if a note says this
+  was too large and saved to a file, read that file — which is what Claude Code does with
+  a hook's output past 10,000 characters (measured on 2.1.296: the model then sees only
+  the first 2,000 characters and is not told to look). Past 16,384 bytes a page is
+  refused, never cut. Below a ceiling of about 530 bytes the wake is now larger than its
+  ceiling, because of those fixed lines; the default is 9,000.
 
 ## 0.3.15 — 2026-10-10
 

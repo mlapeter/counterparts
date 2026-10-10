@@ -1,23 +1,27 @@
 /**
- * THE SELF PAGE IS NEVER CUT IN THE WAKE (2026-10-09).
+ * THE SELF PAGE IS NEVER CUT IN THE WAKE (2026-10-09), AND NEVER REFUSED FOR
+ * LENGTH UNDER ITS CEILING (2026-10-10).
  *
  * #350's second reviewer measured the gap: at the 9,000-byte default, under
- * the widest delivery reserves (the preface's 160, and an eighth of the ceiling
+ * the widest delivery reserves (the preface's, and an eighth of the ceiling
  * each for the handoff pointer and "Work here"), the wake's page cap came to
- * 6,078 bytes — while the writer accepted pages up to 16,384, and the cap
- * formula itself allowed 6,144. A page between them printed cut.
+ * 6,078 bytes — while the writer accepted pages up to 16,384. A page between
+ * them printed cut. #358 then refused every page past that room, and the
+ * page's history showed the stopgap losing by a few hundred bytes each time.
  *
- * Now one number serves both ends: `PAGE_LIMIT_BYTES`, the room the wake
- * guarantees at 9,000 under the widest reserves (`pageRoomBytes`), and the
- * default write limit (`PAGE_MAX_BYTES`). Proved here through the real paths:
- * the reserves ENGINEERED to their widest — a handoff block and a work block of
- * exactly ⌊9,000/8⌋ − 48 bytes, so each reserves exactly 1,125, and the
- * boundary's own row shows the composition at 6,590 — then a page of exactly
- * the limit, in ASCII and in multi-byte prose, delivered whole, byte for byte,
- * by Claude Code's SessionStart hook and by Claude Desktop's `wake` tool (the
- * same bundle: Desktop reads the same configuration's ceiling). A ceiling
- * configured below what the page needs gets one line naming both doors, never
- * a part of the page. The writer is told the limit and refused past it.
+ * Now one number serves both ends as a TARGET: `PAGE_ROOM_BYTES`, the room the
+ * wake guarantees at 9,000 under the widest reserves, top and end lines
+ * counted (`pageRoomBytes`). A page within it prints whole there; a page past
+ * it is KEPT and, on a day the wake cannot hold it, steps down a ladder of
+ * whole texts — its short version, its outline, its headings, one line.
+ * Proved here through the real paths: the reserves ENGINEERED to their widest
+ * — a handoff block and a work block of exactly ⌊9,000/8⌋ − 48 bytes, so each
+ * reserves exactly 1,125, and the boundary's own row shows the composition —
+ * then a page of exactly the room, in ASCII and in multi-byte prose, delivered
+ * whole, byte for byte, by Claude Code's SessionStart hook and by Claude
+ * Desktop's `wake` tool. The owner's own page sizes from the history (5,904,
+ * 6,085, 6,767) borrow "Work here" and print whole; 7,012 steps down to its
+ * short version or its outline.
  *
  * In Denver (UTC−6) and Kiritimati (UTC+14), on a frozen clock. Hermetic: a
  * fresh temp data dir per test, removed afterwards; every word is invented.
@@ -35,20 +39,20 @@ import { DESKTOP_HOST } from "../src/adapters/hosts.js";
 import { openServer, toolDefinitions } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
 import { selfPageFindings } from "../src/adapters/claude-code/doctor.js";
-import { episodeGate } from "../src/core/bridge.js";
 import { SELF_BRIEFING_EVENT } from "../src/core/counterpart.js";
 import { HANDOFF_RESERVE_MARGIN_BYTES, HANDOFF_RESERVE_MIN_BUDGET_MULTIPLE } from "../src/core/handoff/index.js";
 import {
   BRIEFING_KEY,
   FRAMING,
+  PAGE_END_LINES,
   PAGE_HOST_BUDGET_BYTES,
-  PAGE_LIMIT_BYTES,
+  PAGE_ROOM_BYTES,
   PAGE_WRITING_RULE,
+  PREFACE_RESERVE_BYTES,
   SELF_TUNABLES,
-  Self,
   WORK_HERE_HEADING,
   deliveryReserveBound,
-  pageTooLargeLine,
+  pageTopLine,
   readSentinel,
   rotateWork,
   settledOver,
@@ -65,7 +69,7 @@ const ZONES = ["America/Denver", "Pacific/Kiritimati"] as const;
 const SHARE = Math.floor(BUDGET / HANDOFF_RESERVE_MIN_BUDGET_MULTIPLE);
 /** The block that reserves exactly that: the share less the reserve's margin. */
 const WIDEST_BLOCK = SHARE - HANDOFF_RESERVE_MARGIN_BYTES;
-/** The composition at 9,000 under the widest reserves: 6,590. */
+/** The composition at 9,000 under the widest reserves. */
 const COMPOSE = BUDGET - deliveryReserveBound(BUDGET);
 
 let dir: string;
@@ -119,22 +123,28 @@ function bytes(s: string): number {
   return Buffer.byteLength(s, "utf8");
 }
 
+/** The page whole as "Who I am" prints it: its top line, then the page. */
+function whole(page: string): string {
+  return `${FRAMING.identity}\n${pageTopLine("whole", bytes(page)) ?? ""}\n${page}\n`;
+}
+
 /**
- * A page of EXACTLY `PAGE_LIMIT_BYTES`, in paragraphs, as a page is written.
- * `multibyte`: accented letters, em dashes, CJK and an emoji (two, three,
- * three and four bytes), so its characters and its bytes differ by a lot.
+ * A page of EXACTLY `size` bytes (the room, by default), in paragraphs, as a
+ * page is written. `multibyte`: accented letters, em dashes, CJK and an emoji
+ * (two, three, three and four bytes), so its characters and its bytes differ
+ * by a lot.
  */
-function pageAtLimit(kind: "ascii" | "multibyte"): string {
+function pageOfSize(kind: "ascii" | "multibyte", size = PAGE_ROOM_BYTES): string {
   const para =
     kind === "ascii"
       ? "I keep a careful account of the studio and the people in it, and I say what I do not know before I guess."
       : "Je garde un compte précis de l'atelier — 工房の記録を丁寧に残す — et je dis ce que j'ignore avant de deviner 🌿.";
   let page = "## Core\n\n";
-  while (bytes(page) + bytes(para) + 2 <= PAGE_LIMIT_BYTES - 40) page += `${para}\n\n`;
+  while (bytes(page) + bytes(para) + 2 <= size - 40) page += `${para}\n\n`;
   page += "## Lately\n\n";
-  page += "x".repeat(PAGE_LIMIT_BYTES - bytes(page) - 1) + ".";
-  expect(bytes(page)).toBe(PAGE_LIMIT_BYTES);
-  if (kind === "multibyte") expect(page.length).toBeLessThan(PAGE_LIMIT_BYTES - 1_000);
+  page += "x".repeat(size - bytes(page) - 1) + ".";
+  expect(bytes(page)).toBe(size);
+  if (kind === "multibyte") expect(page.length).toBeLessThan(size - 1_000);
   return page;
 }
 
@@ -201,36 +211,39 @@ function lastBriefing(a: ReturnType<typeof openAdapter>): Record<string, unknown
   return JSON.parse(row?.payload ?? "{}") as Record<string, unknown>;
 }
 
-/** A store at the owner's 9,000, a page at the limit, the reserves at their widest, and the boundary run. */
+/** A store at the owner's 9,000, a page at the room, the reserves at their widest, and the boundary run. */
 async function evening(zone: string, kind: "ascii" | "multibyte"): Promise<{ a: ReturnType<typeof openAdapter>; page: string }> {
   clock(zone, "2026-10-08", 21);
   const a = adapter(zone);
-  const page = pageAtLimit(kind);
-  const written = a.counterpart.revisePage(page, { by: "session", reason: "a page at the limit" });
+  const page = pageOfSize(kind);
+  const written = a.counterpart.revisePage(page, { by: "session", reason: "a page at the room" });
   expect(written.written).toBe(true);
-  expect(written.bytes).toBe(PAGE_LIMIT_BYTES);
+  expect(written.bytes).toBe(PAGE_ROOM_BYTES);
+  expect(written.overRoom).toBeNull();
   widestReserves(a);
   await worker(zone);
   // THE PROOF THE RESERVES LANDED AT THEIR WIDEST: the boundary composed at
-  // 9,000 − (160 + 1,125 + 1,125) — with nothing lent, there being nothing
+  // 9,000 − (preface + 1,125 + 1,125) — with nothing lent, there being nothing
   // open for "Still open" to keep.
-  expect(COMPOSE).toBe(6_590);
+  expect(COMPOSE).toBe(9_000 - PREFACE_RESERVE_BYTES - 2 * SHARE);
   expect(lastBriefing(a)["budget"]).toBe(COMPOSE);
   return { a, page };
 }
 
-describe("the page at its limit prints whole at 9,000 under the widest reserves (2026-10-09)", () => {
+describe("the page at its room prints whole at 9,000 under the widest reserves (2026-10-09; a target since 2026-10-10)", () => {
   for (const zone of ZONES) {
     for (const kind of ["ascii", "multibyte"] as const) {
-      test(`${zone}: a ${kind} page of exactly ${String(PAGE_LIMIT_BYTES)} bytes — Claude Code's SessionStart delivers it whole, byte for byte`, async () => {
+      test(`${zone}: a ${kind} page of exactly ${String(PAGE_ROOM_BYTES)} bytes — Claude Code's SessionStart delivers it whole, byte for byte, between its top and end lines`, async () => {
         const { a, page } = await evening(zone, kind);
         const stored = a.counterpart.store.getMeta(BRIEFING_KEY) ?? "";
-        expect(stored).toContain(`${FRAMING.identity}\n${page}\n`);
+        expect(stored).toContain(whole(page));
         expect(bytes(stored)).toBeLessThanOrEqual(COMPOSE);
+        expect((lastBriefing(a)["page"] as Record<string, unknown>)["rung"]).toBe("whole");
 
         clock(zone, "2026-10-09", 8);
         const text = sessionStart(a, zone, "s-morning");
-        expect(text).toContain(`${FRAMING.identity}\n${page}\n`);
+        expect(text).toContain(whole(page));
+        expect(text).toContain(`\n${PAGE_END_LINES.whole}\n`);
         expect(text).not.toContain("My page is");
         expect(text).not.toContain("the wake shows the first");
         expect(readSentinel(text).intact).toBe(true);
@@ -238,6 +251,10 @@ describe("the page at its limit prints whole at 9,000 under the widest reserves 
         // The room the delivery held was used: this directory's handoffs and work.
         expect(text).toContain("Where the work in this directory was left off");
         expect(text).toContain(WORK_HERE_HEADING);
+        // Doctor: green, and it says the last wake showed it whole.
+        const f = selfPageFindings(a.counterpart.store)[0];
+        expect(f?.severity).toBe("green");
+        expect(f?.detail).toContain("the last wake showed it whole");
       });
     }
 
@@ -255,7 +272,7 @@ describe("the page at its limit prints whole at 9,000 under the widest reserves 
       closers.push(s.counterpart);
       const woke = await s.call("wake", {});
       const wake = String(woke.structuredContent["wake"] ?? "");
-      expect(wake).toContain(`${FRAMING.identity}\n${page}\n`);
+      expect(wake).toContain(whole(page));
       expect(wake).not.toContain("My page is");
       const block = wake.slice(wake.indexOf("<!-- counterparts:wake "));
       expect(readSentinel(block.slice(0, block.lastIndexOf("-->") + 3)).intact).toBe(true);
@@ -263,33 +280,40 @@ describe("the page at its limit prints whole at 9,000 under the widest reserves 
       expect(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "").toContain(page);
     });
 
-    test(`${zone}: a ceiling configured too small for the page says so in one line, names both doors, and prints none of it`, async () => {
+    test(`${zone}: a ceiling configured too small for the page steps down to its outline — whole sentences, both doors named, none of the rest`, async () => {
       const small = 6_000;
       clock(zone, "2026-10-08", 21);
       const a = adapter(zone, small);
-      const page = pageAtLimit("multibyte");
-      expect(a.counterpart.revisePage(page, { by: "session", reason: "a page at the limit" }).written).toBe(true);
+      const page = pageOfSize("multibyte");
+      expect(a.counterpart.revisePage(page, { by: "session", reason: "a page at the room" }).written).toBe(true);
       await worker(zone, small);
       clock(zone, "2026-10-09", 8);
       const text = sessionStart(a, zone, "s-small");
-      expect(text).toContain(pageTooLargeLine(PAGE_LIMIT_BYTES));
-      expect(pageTooLargeLine(PAGE_LIMIT_BYTES)).toContain("the self_page tool");
-      expect(pageTooLargeLine(PAGE_LIMIT_BYTES)).toContain("'counterparts self-page'");
-      expect(text).not.toContain(page.slice(0, 200));
+      const top = pageTopLine("outline", PAGE_ROOM_BYTES) ?? "";
+      expect(text).toContain(`${FRAMING.identity}\n${top}\n## Core\nJe garde un compte précis de l'atelier — 工房の記録を丁寧に残す — et je dis ce que j'ignore avant de deviner 🌿.\n## Lately\n`);
+      expect(top).toContain("the self_page tool");
+      expect(top).toContain("'counterparts self-page'");
+      expect(text).toContain(`\n${PAGE_END_LINES.outline}\n`);
+      expect(text).not.toContain(page.slice(0, 400));
       expect(text).not.toContain("the wake shows the first");
       expect(readSentinel(text).intact).toBe(true);
       expect(bytes(text)).toBeLessThanOrEqual(small);
+      // The page is within its room: the ceiling is what is too small, and doctor says so.
+      const f = selfPageFindings(a.counterpart.store)[0];
+      expect(f?.severity).toBe("amber");
+      expect(f?.detail).toContain("only each section's heading and first sentence");
+      expect(f?.fix).toContain("injectionBudgetBytes");
     });
   }
 
   /**
-   * A page PAST the limit — written before it, at the seam's old 16 KB — under
-   * the widest reserves: it borrows the room held for "Work here" and prints
-   * whole whenever page and furniture fit the composition plus that room
-   * (review of #358). Master printed a 6,100-byte page whole on most days; the
-   * one line is only for a page that does not fit even borrowing.
+   * A page PAST the room under the widest reserves: it borrows the room held
+   * for "Work here" and prints whole whenever page, frame and furniture fit
+   * the composition plus that room (review of #358). The sizes are the page's
+   * own history: 5,904 (version 17), 6,085 (this morning's reflection) and
+   * 6,767 (a nightly writer), each of which #358 would have refused.
    */
-  function pastLimit(bytesWanted: number): string {
+  function pastRoom(bytesWanted: number): string {
     const para = "I keep a careful account of the studio and the people in it, and I say what I do not know before I guess.";
     let page = "## Core\n\n";
     while (bytes(page) + bytes(para) + 2 <= bytesWanted - 40) page += `${para}\n\n`;
@@ -297,23 +321,24 @@ describe("the page at its limit prints whole at 9,000 under the widest reserves 
     expect(bytes(page)).toBe(bytesWanted);
     return page;
   }
-  async function widestWith(zone: string, page: string): Promise<ReturnType<typeof openAdapter>> {
+  async function widestWith(zone: string, page: string, short?: string): Promise<ReturnType<typeof openAdapter>> {
     clock(zone, "2026-10-08", 21);
     const a = adapter(zone);
-    const old = new Self({ store: a.counterpart.store, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } });
-    expect(old.revisePage(page, { by: "owner", reason: "written before the limit" }).written).toBe(true);
+    const written = a.counterpart.revisePage(page, { by: "owner", reason: "past its room", ...(short === undefined ? {} : { short }) });
+    expect(written.written).toBe(true);
+    expect(written.overRoom).toBe(PAGE_ROOM_BYTES);
     widestReserves(a);
     await worker(zone);
     return a;
   }
   for (const zone of ZONES) {
-    for (const size of [6_100, 6_144, 7_000]) {
-      test(`${zone}: a ${String(size)}-byte page, past the limit, borrows "Work here" under the widest reserves and prints whole — doctor stays amber`, async () => {
-        const page = pastLimit(size);
+    for (const size of [5_904, 6_085, 6_767]) {
+      test(`${zone}: a ${String(size)}-byte page, past the room, is kept, borrows "Work here" under the widest reserves and prints whole — doctor green`, async () => {
+        const page = pastRoom(size);
         const a = await widestWith(zone, page);
         const stored = a.counterpart.store.getMeta(BRIEFING_KEY) ?? "";
-        expect(stored).toContain(`${FRAMING.identity}\n${page}\n`);
-        // Composed past 6,590 by what it borrowed, and by no more than the room held for "Work here".
+        expect(stored).toContain(whole(page));
+        // Composed past the widest composition by what it borrowed, and by no more than the room held for "Work here".
         const composed = Number(lastBriefing(a)["budget"]);
         expect(composed).toBeGreaterThan(COMPOSE);
         expect(composed).toBeLessThanOrEqual(COMPOSE + SHARE);
@@ -321,34 +346,57 @@ describe("the page at its limit prints whole at 9,000 under the widest reserves 
 
         clock(zone, "2026-10-09", 8);
         const text = sessionStart(a, zone, "s-morning");
-        expect(text).toContain(`${FRAMING.identity}\n${page}\n`);
+        expect(text).toContain(whole(page));
         expect(text).not.toContain("My page is");
         expect(readSentinel(text).intact).toBe(true);
         expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
         // The handoff is chosen before "Work here" and never gives way to it.
         expect(text).toContain("Where the work in this directory was left off");
-        // Over the writer's limit, so doctor asks for the next revision to come in under it.
+        // Whole is green, past its room or not; the detail says the room.
         const f = selfPageFindings(a.counterpart.store)[0];
-        expect(f?.severity).toBe("amber");
-        expect(f?.fix).toContain(`under ${String(PAGE_LIMIT_BYTES)} bytes`);
+        expect(f?.severity).toBe("green");
+        expect(f?.detail).toContain(`past its ${String(PAGE_ROOM_BYTES)}-byte room`);
+        expect(f?.detail).toContain("the last wake showed it whole");
       });
     }
 
-    test(`${zone}: a page that does not fit even borrowing "Work here" is one line under the widest reserves — never cut`, async () => {
-      // 9,000 − 160 − 1,125 − 512 = 7,203 is the most it can borrow its way to.
-      const page = pastLimit(7_300);
-      const a = await widestWith(zone, page);
+    test(`${zone}: a 7,012-byte page with a short version shows the short version under the widest reserves — marked, with the way to the whole`, async () => {
+      const page = pastRoom(7_012);
+      const short = "## Core\n\nI keep a careful account of the studio, and I say what I do not know before I guess.";
+      const a = await widestWith(zone, page, short);
       clock(zone, "2026-10-09", 8);
       const text = sessionStart(a, zone, "s-morning");
-      expect(text).toContain(`${FRAMING.identity}\n${pageTooLargeLine(7_300)}\n`);
+      const top = pageTopLine("short", 7_012) ?? "";
+      expect(top).toContain("short version of my 7,012-byte page");
+      expect(text).toContain(`${FRAMING.identity}\n${top}\n${short}\n`);
+      expect(text).toContain(`\n${PAGE_END_LINES.short}\n`);
       expect(text).not.toContain(page.slice(0, 200));
       expect(readSentinel(text).intact).toBe(true);
       expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
       expect(text).toContain(WORK_HERE_HEADING);
+      const f = selfPageFindings(a.counterpart.store)[0];
+      expect(f?.severity).toBe("green");
+      expect(f?.detail).toContain("the last wake showed its short version");
+    });
+
+    test(`${zone}: a 7,012-byte page with no short version shows its outline under the widest reserves — doctor amber, and says what to do`, async () => {
+      const page = pastRoom(7_012);
+      const a = await widestWith(zone, page);
+      clock(zone, "2026-10-09", 8);
+      const text = sessionStart(a, zone, "s-morning");
+      expect(text).toContain(`${FRAMING.identity}\n${pageTopLine("outline", 7_012) ?? ""}\n## Core\nI keep a careful account of the studio and the people in it, and I say what I do not know before I guess.\n## Lately\n`);
+      expect(text).not.toContain(page.slice(0, 300));
+      expect(readSentinel(text).intact).toBe(true);
+      expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
+      const f = selfPageFindings(a.counterpart.store)[0];
+      expect(f?.severity).toBe("amber");
+      expect(f?.detail).toContain("only each section's heading and first sentence");
+      expect(f?.fix).toContain("short version");
+      expect(f?.fix).toContain(`under ${String(PAGE_ROOM_BYTES)} bytes`);
     });
   }
 
-  test("the root never holds back more than the bound the limit is sized under — and holds exactly it at 9,000", async () => {
+  test("the root never holds back more than the bound the room is sized under — and holds exactly it at 9,000", async () => {
     const zone = ZONES[0];
     clock(zone, "2026-10-08", 21);
     const a = adapter(zone);
@@ -361,37 +409,59 @@ describe("the page at its limit prints whole at 9,000 under the widest reserves 
   });
 });
 
-describe("the writer is told the limit, and refused past it — never cut (2026-10-09)", () => {
-  test("the self_page tool: at the limit it is stored whole; one byte over it is refused with the limit and how much to take out", async () => {
+describe("the writer is told the room as a target, and never refused under the ceiling (2026-10-10)", () => {
+  test("the self_page tool: at the room it is stored whole; one byte past it is KEPT, and the answer asks for a short version", async () => {
     const s = openServer({ dir, owner: true });
     closers.push(s.counterpart);
-    const page = pageAtLimit("multibyte");
-    const over = await s.call("self_page", { body: `${page}!` });
-    const refused = over.structuredContent;
-    expect(refused["stored"]).toBe(false);
-    expect(refused["reason"]).toBe("too-large");
-    expect(refused["bytes"]).toBe(PAGE_LIMIT_BYTES + 1);
-    expect(refused["limit"]).toBe(PAGE_LIMIT_BYTES);
-    expect(refused["over"]).toBe(1);
-    expect(String(refused["detail"])).toContain("Say the same thing shorter");
-    expect(s.counterpart.selfPage()).toBeNull();
+    const page = pageOfSize("multibyte");
+    const at = await s.call("self_page", { body: page });
+    expect(at.structuredContent["stored"]).toBe(true);
+    expect(at.structuredContent["overRoom"]).toBeUndefined();
+    expect(at.structuredContent["roomNote"]).toBeUndefined();
 
-    const ok = await s.call("self_page", { body: page });
-    expect(ok.structuredContent["stored"]).toBe(true);
-    expect(s.counterpart.selfPage()?.body).toBe(page);
+    const past = await s.call("self_page", { body: `${page}!`, ifVersion: 0 });
+    const kept = past.structuredContent;
+    expect(kept["stored"]).toBe(true);
+    expect(kept["bytes"]).toBe(PAGE_ROOM_BYTES + 1);
+    expect(kept["room"]).toBe(PAGE_ROOM_BYTES);
+    expect(kept["overRoom"]).toBe(true);
+    expect(String(kept["roomNote"])).toContain(`past its ${String(PAGE_ROOM_BYTES)}-byte room`);
+    expect(String(kept["roomNote"])).toContain("call self_page again with `short` alone and `ifVersion: 1`");
+    expect(s.counterpart.selfPage()?.body).toBe(`${page}!`);
+
+    // …and a short version added on its own is kept beside that version.
+    const added = await s.call("self_page", { short: "## Core\n\nI keep a careful account.", ifVersion: 1 });
+    expect(added.structuredContent["stored"]).toBe(true);
+    expect((added.structuredContent["short"] as Record<string, unknown>)["kept"]).toBe(true);
+    expect(s.counterpart.selfPage()?.short?.body).toBe("## Core\n\nI keep a careful account.");
+    expect(s.counterpart.selfPage()?.body).toBe(`${page}!`);
+
+    // Past the 16 KB ceiling, and only there, it is refused.
+    const over = await s.call("self_page", { body: "x".repeat(16_385) });
+    expect(over.structuredContent["stored"]).toBe(false);
+    expect(over.structuredContent["reason"]).toBe("too-large");
+    expect(over.structuredContent["limit"]).toBe(16_384);
   });
 
-  test("the limit is said BEFORE the page is written: the writing rule, the tool's body field and the writer's block", () => {
-    expect(PAGE_WRITING_RULE).toContain(`within ${String(PAGE_LIMIT_BYTES)} bytes`);
-    expect(PAGE_WRITING_RULE).toContain("refused, never cut");
-    const spec = toolDefinitions().find((t) => t["name"] === "self_page") as { inputSchema: { properties: Record<string, { description: string }> } } | undefined;
-    expect(spec?.inputSchema.properties["body"]?.description ?? "").toContain(`At most ${String(PAGE_LIMIT_BYTES)} bytes`);
-    const page = { id: "sch_x", body: "## Core\n\nShort.", bytes: 15, revisedOn: "2026-10-08", revisedDay: 3, by: "session" as const, reason: null, version: 4 };
+  test("the room is said BEFORE the page is written, as a target with the short version beside it: the writing rule, the tool's fields and the writer's block", () => {
+    expect(PAGE_WRITING_RULE).toContain(`Aim to keep the whole page under ${String(PAGE_ROOM_BYTES)} bytes`);
+    expect(PAGE_WRITING_RULE).toContain("also write a short version");
+    expect(PAGE_WRITING_RULE).not.toContain("refused");
+    const spec = toolDefinitions().find((t) => t["name"] === "self_page") as
+      | { description: string; inputSchema: { properties: Record<string, { description: string }> } }
+      | undefined;
+    expect(spec?.inputSchema.properties["body"]?.description ?? "").toContain(`Aim under ${String(PAGE_ROOM_BYTES)} bytes`);
+    expect(spec?.inputSchema.properties["short"]?.description ?? "").toContain(`under ${String(PAGE_ROOM_BYTES)} bytes`);
+    // The essentials sit inside the host's 2,048-character cut of the description.
+    const description = spec?.description ?? "";
+    expect(description.indexOf("send `short` too")).toBeGreaterThan(0);
+    expect(description.indexOf("send `short` too")).toBeLessThan(2_048);
+    const page = { id: "sch_x", body: "## Core\n\nShort.", bytes: 15, revisedOn: "2026-10-08", revisedDay: 3, by: "session" as const, reason: null, version: 4, short: null };
     const block = writerInstruction(
       { about: "2026-10-08", today: "2026-10-09", page, memories: [], dropped: 0, omitted: 0, bytes: 0 },
       { tool: "self_page", pageInline: true },
     );
-    expect(block).toContain(`15 bytes of at most ${String(PAGE_LIMIT_BYTES)}`);
+    expect(block).toContain(`15 bytes (aim under ${String(PAGE_ROOM_BYTES)})`);
     expect(block).toContain(PAGE_WRITING_RULE);
   });
 });

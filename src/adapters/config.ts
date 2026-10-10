@@ -132,8 +132,29 @@ export const TUNABLES = {
    * escaping to leave room for (PR #192 review, MAJOR 1); with one, the JSON
    * envelope is held to `ENVELOPE_CHARS` below. It is also why the write-up's
    * words travel through the MCP door.
+   *
+   * MEASURED AGAIN on Claude Code 2.1.296, 2026-10-10 (notes:
+   * `~/counterparts-notes/2026-10-10-session-start-limits.md`): the cap is
+   * per STRING FIELD (`additionalContext`, `systemMessage`), in CHARACTERS —
+   * exactly 10,000 passes, 10,001 is replaced — and per HOOK: two SessionStart
+   * hooks of 7,000 each both arrived whole. SessionStart and UserPromptSubmit
+   * behave alike. An over-long JSON envelope is no longer fatal (a
+   * 10,488-character envelope carrying a 9,910-character wake arrived whole).
+   * Bytes stay the safe measure here: bytes ≥ characters.
    */
   HOST_OUTPUT_CHARS: 10_000,
+  /**
+   * WHAT THE MODEL SEES OF A FIELD PAST `HOST_OUTPUT_CHARS`, in characters —
+   * measured on Claude Code 2.1.296, 2026-10-10 (same notes): a "too large,
+   * saved to <path>" line, then the field's first ≤ 2,000 characters cut back
+   * to a line end, about 2,300 in all. Nothing tells the model to read the
+   * file, which holds all of it. So whatever must survive such a cut sits in
+   * the field's first 2,000 characters: the wake's preface says to read that
+   * file (`self/briefing.ts#WAKE_WHOLE_SENTENCE`), and the self page's top
+   * line names its end line and both doors to it (`pageTopLine`). Nothing
+   * composes against this number; tests simulate the cut with it.
+   */
+  HOST_PREVIEW_CHARS: 2_000,
   /**
    * The same budget for the JSON form (`bin/hook.ts#ENVELOPE_MAX_CHARS`): 500
    * characters under the host's cap, for the escaping (a newline is two

@@ -90,8 +90,8 @@ export const HANDOFF_CLEARED_EVENT = "handoff.cleared";
  * THE WRITE CAP. Refused past it, never cut: what gets cut at write time is the
  * only copy (the page's rule, `self/index.ts#revisePage`). A handoff is a
  * paragraph or two about where a directory stands — 2 KB is a generous ceiling
- * for that and a small one against the 6 KB the page may have
- * (`self/briefing.ts#PAGE_LIMIT_BYTES`, 6,078; 16 KB before 2026-10-09).
+ * for that and a small one against the page's (about 6 KB of room,
+ * `self/briefing.ts#PAGE_ROOM_BYTES`, under a 16 KB write ceiling).
  */
 export const HANDOFF_MAX_BYTES = 2048;
 

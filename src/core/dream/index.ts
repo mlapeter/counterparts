@@ -1331,7 +1331,7 @@ export class Dreams {
       ],
       writer: (n) => [
         "The page writer — sleep's quiet self-update, a different job from reflecting: amend who you are from the day just lived, keeping every sentence that still holds.",
-        `${String(n())}. Call the counterparts dream tool: phase "writer", session: ${input.session}${dreamFirst ? ", dream: <id>" : ""}. If it hands you a day to read, do what it says — rewrite your self page with the self_page tool, or leave it as it stands (that is an answer too). A page refused as too-large says how many bytes over it is: tighten it and send it again before you go on. If it says there is no page writing tonight, go on.`,
+        `${String(n())}. Call the counterparts dream tool: phase "writer", session: ${input.session}${dreamFirst ? ", dream: <id>" : ""}. If it hands you a day to read, do what it says — rewrite your self page with the self_page tool, or leave it as it stands (that is an answer too). A page past its room is kept, and wants a short version with it: if self_page's answer has a roomNote, do what it says before you go on. If it says there is no page writing tonight, go on.`,
       ],
       reflection: (n) => [
         "The reflection — waking up and thinking about yourself: awake, lived, your own.",

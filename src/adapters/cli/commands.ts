@@ -765,7 +765,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // There is deliberately no flag that CARRIES the page: a page on the command
   // line is a page in shell history, and prose that is injected into every
   // session does not belong there.
-  "self-page": ["write", "file", "stdin", "reason", "versions", "version", "restore", "clear", "if-version"],
+  "self-page": ["write", "file", "stdin", "short", "reason", "versions", "version", "restore", "clear", "if-version"],
   dream: ["list", "show", "undo", "all", "setting"],
   core: ["list", "demote", "reason", "reflected-feeling"],
   settle: ["list", "pair", "holds", "against", "how", "why", "undo"],
@@ -833,7 +833,7 @@ export const COMMAND_BLURB: Record<Command, string> = {
   scope:
     "Which directories this memory is for: on, observer, off, or paused until you resume it. It writes the host's own registry beside claude-code.json, opens no store, and needs no --dir. A subdirectory inherits its nearest ancestor's entry. On this one command --observer names the MODE, not the console's stance.",
   "self-page":
-    "The written page the wake opens with. With no flags it prints the page, its date and its size; --write --file <path> or --write --stdin replaces it whole, keeping every earlier version; --versions lists those and --version <seq> prints one. Reading works under observer; writing refuses there.",
+    "The written page the wake opens with. With no flags it prints the page, its date and its size; --write --file <path> or --write --stdin replaces it whole, keeping every earlier version; --short <file> beside them gives a page past its room the short version sessions read on a day the wake has no room for it whole (alone, with --write, it is added to the page as it stands); --versions lists those and --version <seq> prints one. Reading works under observer; writing refuses there.",
   dream:
     "What each dream did, and its undo — and what the waking self made of it. With no flags (or --list), the newest 20 dreams (--list --all for every one): date, state, title and what changed, then the recent reflections; --show <id> prints one dream's journal, every change it made and the reflection after it (--show <rfl_…> prints one reflection: its questions, entry, what it rests on and its morning share); --undo <id> reverses that dream's whole batch (merges come apart, links and gists go, replays and nominations are taken back) and keeps its journal, marked undone — a reflection is lived and stays. Reading works under observer; --undo refuses there.",
   core:
@@ -982,6 +982,7 @@ const FLAG_HELP: Record<string, string> = {
   restore: "put an earlier version back, by its seq — itself a new version, itself undoable",
   clear: "unwrite the page: it is kept as a version and the wake goes back to having none",
   "if-version": "only write if the page is still at this version (or 'none' if there was no page); otherwise refuse and change nothing",
+  short: "a file holding the page's short version, read on a day the wake has no room for a page past its room; with --write alone, added to the page as it stands",
   file: "the file to read the page from",
   versions: "list the earlier versions, newest first",
   version: "print one earlier version in full, by its seq from --versions",
@@ -2601,10 +2602,29 @@ async function selfPageCommand(
     }
   }
 
+  // THE SHORT VERSION (2026-10-10): a file, read before the store opens like
+  // the page. With --file or --stdin it goes beside the page; alone, it is
+  // added to the page as it stands.
+  const shortFlag = parsed.flags["short"];
+  if (shortFlag !== undefined && (!write || typeof shortFlag !== "string")) {
+    io.err("refused: --short <file> is the page's short version, and goes with --write.");
+    return EXIT.usage;
+  }
+  let short: string | null = null;
+  if (typeof shortFlag === "string") {
+    const read = bodyFrom({ file: shortFlag }, () => "");
+    if ("error" in read) {
+      io.err(`refused: ${read.error}`);
+      return read.missing === true ? EXIT.usage : EXIT.failed;
+    }
+    short = read.body;
+  }
+  const shortAlone = short !== null && parsed.flags["file"] === undefined && parsed.flags["stdin"] === undefined;
+
   // THE PAGE IS READ FROM STDIN BEFORE THE STORE OPENS, so a pipe that never
   // closes cannot leave a store open behind it.
   let body: string | null = null;
-  if (write) {
+  if (write && !shortAlone) {
     const from = parsed.flags["file"];
     const wantsStdin = parsed.flags["stdin"] === true;
     if (typeof from === "string" && wantsStdin) {
@@ -2648,6 +2668,7 @@ async function selfPageCommand(
   }
   try {
     const cap = counterpart.self.tunables.PAGE_MAX_BYTES;
+    const room = counterpart.self.tunables.PAGE_ROOM_BYTES;
     const say = (out: ReturnType<typeof writeLines>): number => {
       for (const line of out.lines) (out.ok ? io.out : io.err)(line);
       return out.ok ? EXIT.ok : EXIT.refused;
@@ -2656,6 +2677,23 @@ async function selfPageCommand(
     const why = (fallback: string): string =>
       typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : fallback;
 
+    if (write && shortAlone) {
+      if (counterpart.selfPage() === null) {
+        io.err("refused: there is no page to add a short version to. Write the page first (--write --file <path>), with --short beside it.");
+        return EXIT.refused;
+      }
+      return say(
+        writeLines(
+          counterpart.addPageShort(short ?? "", {
+            reason: why("owner added a short version"),
+            by: "owner",
+            ...(ifVersion === undefined ? {} : { ifVersion }),
+          }),
+          cap,
+          room,
+        ),
+      );
+    }
     if (write) {
       return say(
         writeLines(
@@ -2663,8 +2701,10 @@ async function selfPageCommand(
             reason: why("owner edit"),
             by: "owner",
             ...(ifVersion === undefined ? {} : { ifVersion }),
+            ...(short === null ? {} : { short }),
           }),
           cap,
+          room,
         ),
       );
     }

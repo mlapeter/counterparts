@@ -217,6 +217,10 @@ export function fit(candidates: readonly FitCandidate[], opts: FitOptions): FitO
  * (2026-10-09): the nightly run reads its child's transcript for the host's
  * marker on our results (`claude-code/transcript.ts#readToolSpills`), so a
  * lowered line shows up in doctor and in the morning, not in nothing. CAL.
+ *
+ * Re-measured on Claude Code 2.1.296, 2026-10-10: 25,000 tokens and 50,000
+ * characters, as here (a hook field's own cap and preview are
+ * `adapters/config.ts#HOST_OUTPUT_CHARS` and `HOST_PREVIEW_CHARS`).
  */
 export const TOOL_RESULT_CEILING = {
   HOST_CHARS: 50_000,

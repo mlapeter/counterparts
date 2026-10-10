@@ -76,9 +76,13 @@ import {
   applyPreface,
   arrivingTense,
   flatten,
+  isPageFrameLine,
   PAGE_FLOOR_RESERVE_BYTES,
+  pageBlockBytes,
   pageDateline,
+  pageEndLine,
   pageTooLargeLine,
+  pageTopLine,
   PREFACE_RESERVE_BYTES,
   prefaceLine,
   readSentinel,
@@ -88,6 +92,7 @@ import type {
   BriefingRequest,
   BriefingResult,
   PageBlock,
+  PageRung,
   Resolve,
   Resolved,
   SentinelReading,
@@ -99,13 +104,18 @@ import {
   PAGE_META_REVISED_ON,
   PAGE_CLEARED_BODY,
   PAGE_META_CLEARED,
+  PAGE_META_SHORT,
   PAGE_TITLE,
   SELF_PAGE_REFUSED_EVENT,
   SELF_PAGE_REVISED_EVENT,
   SELF_PAGE_ROLE,
   findPageRow,
   findSelfPage,
+  headingsText,
+  outlineText,
+  pageOutline,
   readSelfPage,
+  shortOf,
   stripRevisedLines,
 } from "./page.js";
 import type { SelfPage, SelfPageAuthor } from "./page.js";
@@ -421,7 +431,11 @@ export type PageRefusal =
   | "no-page"
   | "page-appeared"
   | "forged-markers"
-  | "no-such-version";
+  | "no-such-version"
+  // A short version added on its own (`addPageShort`, 2026-10-10): not
+  // needed — the page is within its room — or not kept by its gates.
+  | "short-not-needed"
+  | "short-refused";
 
 /**
  * The `ifVersion` a caller passes to mean "I read NO PAGE". A version is a
@@ -459,6 +473,68 @@ export interface PageRevision {
   /** On `version-moved` only: what is actually there now, so the caller can
    *  re-read and merge instead of guessing. */
   readonly current: { readonly version: number; readonly body: string } | null;
+  /**
+   * WRITTEN PAST ITS ROOM (2026-10-10): the room (`PAGE_ROOM_BYTES`) when the
+   * page landed larger than it — kept whole, and on a day the wake cannot hold
+   * it, sessions read its short version or its outline instead. Null when it
+   * is within the room, or nothing was written. The caller says so, and asks
+   * for a short version when none was kept.
+   */
+  readonly overRoom: number | null;
+  /** What became of the short version sent with it; null when none was sent. */
+  readonly short: PageShortOutcome | null;
+}
+
+/**
+ * WHAT BECAME OF A SHORT VERSION (2026-10-10). `kept` — stored beside this
+ * version of the page; `not-needed` — the page is within its room, so the
+ * wake shows it whole and a short version would never be read; `too-large` —
+ * past the room itself (`room`); `gate-refused` / `forged-markers` — the
+ * page's own gates, applied to it. A short version that is not kept never
+ * costs the page: the page is written either way.
+ */
+export interface PageShortOutcome {
+  readonly kept: boolean;
+  readonly reason: "kept" | "not-needed" | "too-large" | "gate-refused" | "forged-markers";
+  /** Its bytes as stored, or as sent when it was not kept. */
+  readonly bytes: number;
+  /** The room it has to fit (`PAGE_ROOM_BYTES`). */
+  readonly room: number;
+  /** The gate's redaction, when it changed the short version on the way in. */
+  readonly redacted: boolean;
+}
+
+/** Why a short version was not kept, in the words every door says it in. */
+const SHORT_NOT_KEPT: Readonly<Record<Exclude<PageShortOutcome["reason"], "kept">, string>> = {
+  "not-needed": "the page is within its room, so the wake shows it whole",
+  "too-large": "it is past the room itself",
+  "gate-refused": "the credential gate turned it away",
+  "forged-markers": "it carries the wake's own markers (`<!-- counterparts:wake`)",
+};
+
+/**
+ * WHAT A WRITE IS TOLD ABOUT ITS ROOM (2026-10-10), one sentence or two, the
+ * same at every door — the self_page tool, the console, the reflection —
+ * each passing its own way to add a short version (`howToAdd`). Null for a
+ * page within its room with no short version sent. Pure.
+ */
+export function pageRoomNote(
+  written: Pick<PageRevision, "written" | "bytes" | "overRoom" | "short">,
+  room: number,
+  howToAdd: string,
+): string | null {
+  const s = written.short;
+  if (written.overRoom === null) {
+    if (s === null || s.kept) return null;
+    return `The short version was not kept: ${SHORT_NOT_KEPT[s.reason as Exclude<PageShortOutcome["reason"], "kept">]}.`;
+  }
+  const over = `The page is ${String(written.bytes)} bytes, past its ${String(room)}-byte room. It is kept whole`;
+  if (s !== null && s.kept) {
+    return `${over}, and on a day the wake has no room for it, sessions read the short version (${String(s.bytes)} bytes) instead, marked as such.`;
+  }
+  const outline = "on a day the wake has no room for it, sessions read only each section's heading and first sentence";
+  if (s === null) return `${over}, but ${outline}. Add a short version under ${String(room)} bytes — the whole of it, condensed: ${howToAdd}.`;
+  return `${over}, but the short version was not kept (${String(s.bytes)} bytes: ${SHORT_NOT_KEPT[s.reason as Exclude<PageShortOutcome["reason"], "kept">]}), so ${outline}. Send one under ${String(room)} bytes: ${howToAdd}.`;
 }
 
 /** The structural markers a page body may not carry (adversarial review m3). */
@@ -486,6 +562,13 @@ export interface PageWriteOptions {
    * model leave it out, and the row records NULL.
    */
   readonly model?: string;
+  /**
+   * A SHORT VERSION of this page, written with it (2026-10-10): kept only when
+   * the page is past its room (`PAGE_ROOM_BYTES`) and the short version is
+   * within it, after the same gates the page passes. The wake shows it on a
+   * day the page does not fit whole, and only while this exact text stands.
+   */
+  readonly short?: string;
 }
 
 export interface PageVersion {
@@ -500,6 +583,48 @@ export interface PageVersion {
   readonly by: string | null;
   /** What `store.revise` recorded: the reason the write that REPLACED it gave. */
   readonly replacedBy: string;
+}
+
+/** A text as the store will hold it — the UTF-8 round trip `store/prose.ts#bodyForStorage`
+ *  makes — so a hash taken here is the hash of what lands. */
+function storedAs(text: string): string {
+  return new TextDecoder().decode(new TextEncoder().encode(text));
+}
+
+/** A fenced code block's opening or closing line, as `page.ts` reads one. */
+const FENCE_LINE = /^\s{0,3}(?:```|~~~)/u;
+
+/**
+ * THE PAGE IN ITS OWN WORDS (review of #363): without its own "last revised"
+ * lines (`stripRevisedLines`, counted in `stripped`), and without the frame
+ * the wake prints around every rung — a top line, an end line, the one line
+ * (`briefing.ts#isPageFrameLine`, counted in `framed`) — which a page copied
+ * out of a wake carries. Outside code fences, and only the line: when it stood
+ * between two blank lines, one of them goes with it. Applied where the page
+ * and its short version are written and where the page is rendered, so a
+ * stored page heals the next time it is written and never prints its frame
+ * twice meanwhile. Pure.
+ */
+function ownWords(text: string): { body: string; stripped: number; framed: number } {
+  const dated = stripRevisedLines(text);
+  const lines = dated.body.split("\n");
+  const out: string[] = [];
+  let fenced = false;
+  let framed = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (FENCE_LINE.test(line)) fenced = !fenced;
+    if (fenced || !isPageFrameLine(line)) {
+      out.push(line);
+      continue;
+    }
+    framed += 1;
+    const before = out[out.length - 1];
+    if ((before === undefined || before.trim() === "") && (lines[i + 1] ?? "x").trim() === "") i += 1;
+  }
+  return framed === 0
+    ? { ...dated, framed: 0 }
+    : { body: out.join("\n").trim(), stripped: dated.stripped, framed };
 }
 
 /** Whole days between two `YYYY-MM-DD` dates, or null when either is unreadable. */
@@ -652,27 +777,18 @@ export class Self {
     // the room for its first item comes out of the other lanes, in the
     // renderer (`briefing.ts#keepFirstOpen`).
     //
-    // **AND IT BORROWS BEFORE IT POINTS** (review of #358, 2026-10-09): a page
-    // that does not fit this composition whole takes the room the delivery
-    // holds for "Work here" (`lendBytes`, the owner's wake only) — the first
-    // thing that gives way in `keepFirstOpen` too — before the wake falls back
-    // to the one line. It takes only what it needs (its bytes and the
-    // furniture's reserve, less the budget), so a page a few bytes over its
+    // **AND IT BORROWS BEFORE IT STEPS DOWN** (review of #358, 2026-10-09; a
+    // ladder since 2026-10-10, `pageBlock`): a rung that does not fit this
+    // composition takes the room the delivery holds for "Work here"
+    // (`lendBytes`, the owner's wake only) before the page steps down to the
+    // next rung. It takes only what it needs, so a page a few bytes over its
     // room costs "Work here" a few bytes; what is left of the lend is still
-    // "Still open"'s. Only a page that does not fit even then gets the line.
+    // "Still open"'s.
     const lend = req.lendBytes === undefined || req.omit !== undefined ? 0 : Math.max(0, Math.floor(req.lendBytes));
-    let block =
+    const { block, took } =
       req.omit !== undefined && !this.tunables.PAGE_ON_EGRESS
-        ? null
-        : this.pageBlock(req.budgetBytes);
-    let took = 0;
-    if (block !== null && (block === NO_ROOM || block.truncated) && lend > 0) {
-      const borrowed = this.pageBlock(req.budgetBytes + lend);
-      if (borrowed !== null && borrowed !== NO_ROOM && !borrowed.truncated) {
-        block = borrowed;
-        took = Math.min(lend, Math.max(0, borrowed.wholeBytes + PAGE_FLOOR_RESERVE_BYTES - req.budgetBytes));
-      }
-    }
+        ? { block: null, took: 0 }
+        : this.pageBlock(req.budgetBytes, lend);
     // A page that will not FIT is not a page that does not EXIST: the renderer
     // is told `pageExists` so the still-forming line stays off a store that has
     // one, whatever the ceiling did (MINOR-D).
@@ -850,14 +966,21 @@ export class Self {
       gate: null,
       redacted: null,
       current: null,
+      overRoom: null,
+      short: null,
     } as const;
     // Two different absences, named apart: no page has ever been written here,
     // and there is no version by that number. A caller reaching this seam
     // directly (S2) gets the one that is true.
     if (id === null) return { ...none, written: false, reason: "empty" };
     let body: string;
+    let short: string | null = null;
     try {
-      body = this.store.readVersion(id, seq).body;
+      const doc = this.store.readVersion(id, seq);
+      body = doc.body;
+      // ITS SHORT VERSION COMES BACK WITH IT (2026-10-10), when that version
+      // kept one written with its own text.
+      short = shortOf(doc.meta, doc.body)?.body ?? null;
     } catch {
       return { ...none, written: false, reason: "no-such-version" };
     }
@@ -865,7 +988,112 @@ export class Self {
       reason: opts.reason ?? `restored version ${seq}`,
       by: "owner",
       ...(opts.day === undefined ? {} : { day: opts.day }),
+      ...(short === null ? {} : { short }),
     });
+  }
+
+  /**
+   * ADD A SHORT VERSION to the page as it stands (2026-10-10) — for a writer
+   * told its page landed past its room with none kept. It is an ordinary
+   * revision of the same text with the short version beside it, so it is
+   * versioned like every other write and the history says so. `ifVersion`, as
+   * on any write, refuses it when the page moved since the caller read it.
+   * Refused with nothing written when there is no page, when the page is
+   * within its room (`not-needed`: the wake shows it whole), or when the short
+   * version itself is not kept — a version that changed nothing is not
+   * written.
+   */
+  addPageShort(short: string, opts: Omit<PageWriteOptions, "short" | "reason"> & { reason?: string }): PageRevision {
+    const page = this.page();
+    const none = {
+      id: null,
+      version: null,
+      gate: null,
+      redacted: null,
+      current: null,
+      overRoom: null,
+    } as const;
+    if (this.observer) {
+      this.emit("self.observer.standdown", undefined, { site: "addPageShort" });
+      return { ...none, written: false, reason: "observer", bytes: 0, short: null };
+    }
+    // Every refusal leaves its durable row, as `revisePage`'s do: there is no
+    // silent no-op on the page's path.
+    const refuse = (reason: PageRefusal, detail: Record<string, string | number | boolean>): void => {
+      this.emit("self.page.refused", undefined, { reason, by: opts.by, ...detail });
+      try {
+        this.store.appendEvent({
+          name: SELF_PAGE_REFUSED_EVENT,
+          day: opts.day ?? this.store.livedDay(),
+          payload: { reason, by: opts.by, session: opts.session ?? null, ...detail },
+        });
+      } catch {
+        /* a refusal that cannot be recorded is still a refusal (§5 G7) */
+      }
+    };
+    if (page === null) {
+      refuse("no-page", { short: true });
+      return { ...none, written: false, reason: "no-page", bytes: 0, short: null };
+    }
+    if (short.trim().length === 0) {
+      refuse("empty", { short: true });
+      return { ...none, written: false, reason: "empty", bytes: 0, short: null };
+    }
+    if (opts.ifVersion !== undefined && opts.ifVersion !== page.version) {
+      return this.revisePage(page.body, { ...opts, reason: opts.reason ?? "added a short version", short });
+    }
+    const verdict = this.shortVerdict(short, page.bytes, opts.by);
+    if (!verdict.outcome.kept) {
+      const reason = verdict.outcome.reason === "not-needed" ? "short-not-needed" : "short-refused";
+      refuse(reason, { short: verdict.outcome.reason, bytes: verdict.outcome.bytes, room: verdict.outcome.room });
+      return {
+        ...none,
+        written: false,
+        reason,
+        id: page.id,
+        version: page.version,
+        bytes: page.bytes,
+        short: verdict.outcome,
+      };
+    }
+    // A REVISION OF THE PAGE AS IT WAS READ (review of #363): held to that
+    // version even when the caller passed none, so a page another process
+    // wrote since is refused (`version-moved`), never reverted to this one.
+    return this.revisePage(page.body, {
+      ...opts,
+      ifVersion: opts.ifVersion ?? page.version,
+      reason: opts.reason ?? "added a short version",
+      short,
+    });
+  }
+
+  /**
+   * THE SHORT VERSION'S GATES (2026-10-10): the page's own, in its order —
+   * its datelines left out, no wake markers, the credential battery (whose
+   * redaction it takes), and the room, measured after the redaction. Kept
+   * only when the page it goes with is past that room. Pure but for the gate.
+   */
+  private shortVerdict(
+    raw: string,
+    pageBytes: number,
+    by: SelfPageAuthor,
+  ): { outcome: PageShortOutcome; text: string | null } {
+    const room = this.tunables.PAGE_ROOM_BYTES;
+    const draft = ownWords(raw.replace(/\r\n/g, "\n").trim()).body;
+    const sent = byteLength(draft);
+    const out = (reason: PageShortOutcome["reason"], bytes = sent, redacted = false): { outcome: PageShortOutcome; text: null } => ({
+      outcome: { kept: false, reason, bytes, room, redacted },
+      text: null,
+    });
+    if (pageBytes <= room) return out("not-needed");
+    if (draft.includes(WAKE_MARKER)) return out("forged-markers");
+    if (sent > room) return out("too-large");
+    const verdict = this.gate({ text: draft, handles: [], sessionId: `page-short:${by}` });
+    if (!verdict.ok) return out("gate-refused");
+    const text = verdict.text !== undefined && verdict.text.length > 0 ? verdict.text : draft;
+    const bytes = byteLength(text);
+    if (bytes > room) return out("too-large", bytes, text !== draft);
+    return { outcome: { kept: true, reason: "kept", bytes, room, redacted: text !== draft }, text };
   }
 
   /**
@@ -904,7 +1132,7 @@ export class Self {
     // caps and the gate see it: the wake dates the page, and a stored page that
     // carried one printed two. The revision row counts what went
     // (`datelines`), so a hand-written page edited here says so.
-    const own = stripRevisedLines(body.replace(/\r\n/g, "\n").trim());
+    const own = ownWords(body.replace(/\r\n/g, "\n").trim());
     const draft = own.body;
     let bytes = byteLength(draft);
     const session = opts.session ?? null;
@@ -914,6 +1142,8 @@ export class Self {
       gate: null,
       redacted: null,
       current: null,
+      overRoom: null,
+      short: null,
     } as const;
     const refuse = (
       reason: PageRefusal,
@@ -944,15 +1174,16 @@ export class Self {
       return { ...none, written: false, reason: "observer", bytes };
     }
     if (draft.length === 0) return refuse("empty", { bytes: 0 });
-    // THE LIMIT IS THE WAKE'S (2026-10-09): `PAGE_MAX_BYTES` defaults to
-    // `briefing.ts#PAGE_LIMIT_BYTES`, the page the wake prints whole at the
-    // 9,000-byte ceiling under the widest reserves — so what this accepts is
-    // never cut there. In BYTES, as the wake counts them: a page of multi-byte
-    // prose reaches it in fewer characters.
+    // THE CEILING, NOT THE ROOM (2026-10-10). `PAGE_MAX_BYTES` is the sanity
+    // ceiling (16,384); the room the wake guarantees (`PAGE_ROOM_BYTES`) is a
+    // target the writer is told, and a page past it is KEPT — #358 refused it,
+    // a stopgap the page's history kept losing to by a few hundred bytes. On a
+    // day the wake cannot hold it whole, the wake steps down a ladder of whole
+    // texts (`pageBlock`). In BYTES, as the wake counts them.
     const limit = this.tunables.PAGE_MAX_BYTES;
+    const room = this.tunables.PAGE_ROOM_BYTES;
     if (bytes > limit) {
-      // Refused, never cut: what gets cut at write time is the only copy. The
-      // writer is told the limit and says it shorter.
+      // Refused, never cut: what gets cut at write time is the only copy.
       return refuse("too-large", { bytes, limit });
     }
     // NO FORGED WAKE STRUCTURE. The page is injected verbatim and FIRST inside
@@ -1015,12 +1246,19 @@ export class Self {
     const redacted = text === draft ? null : { gate: "secrets", bytesBefore: bytes };
     bytes = byteLength(text);
     // ...and measured AGAIN after it (2026-10-09): `[REDACTED:family]` can be
-    // longer than what it replaced, so a page at the limit could land over it.
+    // longer than what it replaced, so a page at the ceiling could land over it.
     if (bytes > limit) return refuse("too-large", { bytes, limit, redacted: true });
+
+    // THE SHORT VERSION, through the page's own gates (2026-10-10), and kept
+    // only when this page is past its room — after the redaction, as the wake
+    // will measure it. One that is not kept never costs the page.
+    const sent = opts.short === undefined || opts.short.trim().length === 0 ? null : this.shortVerdict(opts.short, bytes, opts.by);
 
     // THE PAGE'S ROW, cleared or not: a write after a clear revives the SAME row
     // and its whole version chain rather than minting a fresh one beside it.
-    // `store.revise` merges meta, so the cleared flag is dropped explicitly.
+    // `store.revise` merges meta, so the cleared flag is dropped explicitly —
+    // and so is a short version this write did not bring: one written with
+    // the text before is not a short version of this one (`PAGE_META_SHORT`).
     const existing = findPageRow(this.store);
     const meta: Record<string, unknown> = {
       role: SELF_PAGE_ROLE,
@@ -1029,6 +1267,7 @@ export class Self {
       [PAGE_META_REVISED_ON]: this.store.today(),
       [PAGE_META_REVISED_DAY]: day,
       [PAGE_META_CLEARED]: null,
+      [PAGE_META_SHORT]: sent === null || sent.text === null ? null : { body: sent.text, of: hashText(storedAs(text)), bytes },
     };
     let id: string;
     let version: number;
@@ -1079,7 +1318,12 @@ export class Self {
         version,
         created: existing === null,
         limit,
+        // The room it was written against, and what became of a short
+        // version sent with it (2026-10-10).
+        room,
+        ...(sent === null ? {} : { short: sent.outcome.reason, shortBytes: sent.outcome.bytes }),
         ...(own.stripped === 0 ? {} : { datelines: own.stripped }),
+        ...(own.framed === 0 ? {} : { frameLines: own.framed }),
       },
     });
     this.emit("self.page.revised", id, {
@@ -1087,6 +1331,8 @@ export class Self {
       bytes,
       version,
       created: existing === null,
+      overRoom: bytes > room,
+      short: sent?.outcome.reason ?? null,
     });
     // The wake leads with this page, so it is now behind (`behind.ts`): the
     // next process with a budget re-renders rather than the next lived day.
@@ -1100,6 +1346,8 @@ export class Self {
       gate: null,
       redacted,
       current: null,
+      overRoom: bytes > room ? room : null,
+      short: sent?.outcome ?? null,
     };
   }
 
@@ -1296,6 +1544,8 @@ export class Self {
       gate: null,
       redacted: null,
       current: null,
+      overRoom: null,
+      short: null,
     } as const;
     if (this.observer) {
       this.emit("self.observer.standdown", undefined, { site: "clearPage" });
@@ -1304,12 +1554,14 @@ export class Self {
     const page = readSelfPage(this.store);
     if (page === null) return { ...none, written: false, reason: "empty" };
     // `revise` archives what was there FIRST, so the page that was cleared is a
-    // version on this same row and `--restore <seq>` reaches it.
+    // version on this same row and `--restore <seq>` reaches it — with its
+    // short version, which goes with it (2026-10-10).
     const version = this.store.revise(page.id, {
       body: PAGE_CLEARED_BODY,
       meta: {
         [PAGE_META_REASON]: opts.reason,
         [PAGE_META_CLEARED]: { on: this.store.today(), reason: opts.reason },
+        [PAGE_META_SHORT]: null,
       },
       reason: opts.reason,
     });
@@ -1334,27 +1586,44 @@ export class Self {
   }
 
   /**
-   * The page as the wake will print it, or null. Pure.
+   * The page as the wake will print it — on the first rung of its ladder that
+   * fits — and how much of `lend` it took to fit. Null when there is no page.
+   * Pure.
    *
-   * WHOLE, OR ONE LINE — NEVER CUT (2026-10-09). The room is the caller's
-   * ceiling LESS the furniture that wake will wrap the page in
-   * (`PAGE_FLOOR_RESERVE_BYTES`), and not the whole ceiling: the page is
-   * furniture the trim loop cannot pop, so a page sized against the whole budget
-   * puts the composition over it with nothing left to trim (adversarial review
-   * B2). A page that fits the room prints as it is, byte for byte. One that does
-   * not — under a configured ceiling too small for it, or a page written before
-   * the limit — is replaced by one line that says so and names the two doors to
-   * it (`pageTooLargeLine`): a fragment of a self is not a smaller self, and
-   * #350's second review found the cut it used to print (at
-   * `min(6,144, room)`) reachable at the default ceiling. The writer's limit
-   * (`briefing.ts#PAGE_LIMIT_BYTES`) is this room at 9,000 under the widest
-   * reserves, so a page written today always fits there. `build` asks a
-   * second time with the "Work here" lend added before it settles for the
-   * line (review of #358): a page a little over its room borrows, whole.
+   * THE LADDER (2026-10-10, `briefing.ts#PageRung`), every rung whole text:
+   * the page; the short version its writer wrote with this text; each `##`
+   * section's heading and first sentence; the headings alone; one line. The
+   * first four carry a top line (what this is, the page's size, the exact
+   * line it ends with, both doors) and that end line after the dateline, all
+   * counted (`pageBlockBytes`). #358 had two rungs, the page or the line; the
+   * owner's page kept landing a few hundred bytes past the room, and a
+   * session woke to one line about itself.
+   *
+   * THE ROOM is the caller's ceiling LESS the furniture that wake will wrap
+   * the page in (`PAGE_FLOOR_RESERVE_BYTES`), and not the whole ceiling: the
+   * page is furniture the trim loop cannot pop, so a page sized against the
+   * whole budget puts the composition over it with nothing left to trim
+   * (adversarial review B2). NOT CUT FOR THE LANES BESIDE IT (review of #350):
+   * they give way to it — "Still open" gets its first item out of the other
+   * lanes (`briefing.ts#keepFirstOpen`), never out of the page.
+   *
+   * IT BORROWS BEFORE IT STEPS DOWN (review of #358, kept): each rung that
+   * does not fit is tried again with `lend` — the room the delivery holds for
+   * "Work here", the first thing that gives way in `keepFirstOpen` too —
+   * before the next rung down; it takes only what it needs (`took`), the rest
+   * is still "Still open"'s. The page is worth more than a directory's work
+   * lines, and so is the writer's own short version.
+   *
+   * `NO_ROOM` when not even the line fits, and not `null`: a page that does
+   * not FIT and a page that does not EXIST must not reach the renderer as the
+   * same thing — with `PAGE_EMPTY_SHOWS_LIST` off, `null` made a store that
+   * HAS a page print "no page has been written here yet" (adversarial review
+   * MINOR-D). A ceiling that small has every lane empty too, and the floor's
+   * own over-budget tripwire is left for a host that really is misconfigured.
    */
-  private pageBlock(budgetBytes: number): PageBlock | typeof NO_ROOM | null {
+  private pageBlock(budgetBytes: number, lend = 0): { block: PageBlock | typeof NO_ROOM | null; took: number } {
     const page = this.page();
-    if (page === null) return null;
+    if (page === null) return { block: null, took: 0 };
     const dateline = pageDateline(
       page.revisedOn,
       this.pageStale(page),
@@ -1362,33 +1631,39 @@ export class Self {
     );
     // THE PAGE'S OWN "LAST REVISED" LINE IS NOT PRINTED (2026-10-09): the
     // dateline above is the wake's, and a page that carried one of its own
-    // printed two. A page that is nothing else is printed as it is.
-    const own = stripRevisedLines(page.body);
+    // printed two. A page that is nothing else is printed as it is. Nor the
+    // wake's own frame around it, copied in from an older wake (review of
+    // #363, `ownWords`): the frame below is this wake's.
+    const own = ownWords(page.body);
     const body = own.body.length === 0 ? page.body : own.body;
-    const bodyBytes = byteLength(body);
+    const wholeBytes = byteLength(body);
     const room = budgetBytes - PAGE_FLOOR_RESERVE_BYTES;
-    // A ceiling with no room for the wake's OWN furniture has none for a line
-    // about the page either, so "Who I am" carries nothing at all rather than a
-    // sentence that puts the bundle over. At this size every lane is empty too,
-    // and the floor's own over-budget tripwire is left for a host that really is
-    // misconfigured rather than spent on prose about prose.
-    //
-    // `NO_ROOM` and not `null`: a page that does not FIT and a page that does not
-    // EXIST must not reach the renderer as the same thing. With
-    // `PAGE_EMPTY_SHOWS_LIST` off, `null` here made a store that HAS a page print
-    // "no page has been written here yet" — the class of lie PR #71's rule
-    // forbids, moved from identity to the page (adversarial review MINOR-D).
-    if (room <= 0) return NO_ROOM;
-    // NOT CUT FOR THE LANES BESIDE IT (review of #350, 2026-10-09): the lines
-    // that compete with the page give way to it, never the other way round —
-    // "Still open" gets its first item out of the other lanes
-    // (`briefing.ts#keepFirstOpen`), not out of the page.
-    if (bodyBytes <= room) return { text: body, dateline, truncated: false, wholeBytes: bodyBytes };
-    // NOT CUT FOR THE CEILING EITHER: the line, when the room holds it; when
-    // it does not, nothing, for the reason `NO_ROOM` gives above.
-    const line = pageTooLargeLine(bodyBytes);
-    if (byteLength(line) > room) return NO_ROOM;
-    return { text: line, dateline: null, truncated: true, wholeBytes: bodyBytes };
+    const outline = pageOutline(body);
+    const rung = (r: PageRung, text: string | null): PageBlock | null =>
+      text === null || text.trim().length === 0
+        ? null
+        : {
+            text,
+            top: pageTopLine(r, wholeBytes),
+            end: pageEndLine(r),
+            dateline: r === "line" ? null : dateline,
+            rung: r,
+            truncated: r !== "whole",
+            wholeBytes,
+          };
+    const ladder = [
+      rung("whole", body),
+      rung("short", page.short?.body ?? null),
+      rung("outline", outlineText(outline)),
+      rung("headings", headingsText(outline)),
+      rung("line", pageTooLargeLine(wholeBytes)),
+    ].filter((b): b is PageBlock => b !== null);
+    for (const block of ladder) {
+      const cost = pageBlockBytes(block);
+      if (cost <= room) return { block, took: 0 };
+      if (lend > 0 && cost <= room + lend) return { block, took: cost - room };
+    }
+    return { block: NO_ROOM, took: 0 };
   }
 
   /**
@@ -1429,6 +1704,10 @@ export class Self {
       page: briefing.page?.bytes ?? 0,
       pageWhole: briefing.page?.wholeBytes ?? 0,
       pageTruncated: briefing.page?.truncated ?? false,
+      // WHICH RUNG OF ITS LADDER IT PRINTED ON (2026-10-10) — what doctor's
+      // Self page line reports. "none": a page this ceiling had no room to
+      // say a word about; "": no page at all.
+      pageRung: briefing.page?.rung ?? (this.page() === null ? "" : "none"),
       hash,
     });
     // A budget gets an event when APPROACHED and an event when crossed; a number

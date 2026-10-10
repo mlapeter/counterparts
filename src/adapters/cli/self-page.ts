@@ -20,7 +20,7 @@
 import { readFileSync } from "node:fs";
 
 import type { Counterpart } from "../../core/counterpart.js";
-import { PAGE_TEMPLATE, pageSections } from "../../core/self/index.js";
+import { PAGE_ROOM_BYTES, PAGE_TEMPLATE, pageRoomNote, pageSections } from "../../core/self/index.js";
 import type { PageVersion, SelfPage } from "../../core/self/index.js";
 
 /** What a read prints when the store holds no page. Honest, and not a page. */
@@ -49,6 +49,15 @@ export function pageLines(page: SelfPage, stale: boolean, versions: number): str
     `Who I am — ${page.bytes} bytes, version ${page.version}, last revised ${when}` +
       `${page.by === null ? "" : ` by ${page.by}`}${stale ? " — STALE" : ""}.`,
     ...(page.reason === null ? [] : [`Last change: ${page.reason}`]),
+    // ITS ROOM AND ITS SHORT VERSION (2026-10-10): what a session reads on a
+    // day the wake has no room for the whole page.
+    ...(page.bytes <= PAGE_ROOM_BYTES
+      ? []
+      : [
+          page.short === null
+            ? `Past its ${PAGE_ROOM_BYTES}-byte room, with no short version: on a day the wake has no room for it, sessions read each section's heading and first sentence. Add one: ${ADD_SHORT}.`
+            : `Past its ${PAGE_ROOM_BYTES}-byte room, with a ${page.short.bytes}-byte short version written with it: sessions read that on a day the wake has no room for the whole page.`,
+        ]),
     ...(versions === 0
       ? ["No earlier versions yet."]
       : [`${versions} earlier version${versions === 1 ? "" : "s"} — 'self-page --versions'.`]),
@@ -131,12 +140,17 @@ export interface WrittenLines {
   readonly ok: boolean;
 }
 
+/** How the console adds a short version, in the words `pageRoomNote` ends with. */
+const ADD_SHORT = "counterparts self-page --write --short <file> (alone, it is added to the page as it stands)";
+
 /** What the console says about a write, accepted or not. `limit` is the
- *  page's write limit in bytes (`PAGE_MAX_BYTES`), named in a refusal so the
- *  owner knows how much shorter to make it. */
+ *  page's write ceiling in bytes (`PAGE_MAX_BYTES`), named in a refusal so the
+ *  owner knows how much shorter to make it; `room` the page's room
+ *  (`PAGE_ROOM_BYTES`, 2026-10-10), named when the page is past it. */
 export function writeLines(
   written: ReturnType<Counterpart["revisePage"]>,
   limit: number,
+  room: number = PAGE_ROOM_BYTES,
 ): WrittenLines {
   if (!written.written) {
     switch (written.reason) {
@@ -148,8 +162,14 @@ export function writeLines(
       case "too-large":
         return {
           lines: [
-            `refused: the page is ${written.bytes} bytes, past the ${limit}-byte limit — the most the wake prints whole. Refused rather than cut — what gets cut at write time is the only copy. Say it in ${written.bytes - limit} fewer bytes and write it again.`,
+            `refused: the page is ${written.bytes} bytes, past the ${limit}-byte write ceiling. Refused rather than cut — what gets cut at write time is the only copy. Say it in ${written.bytes - limit} fewer bytes and write it again.`,
           ],
+          ok: false,
+        };
+      case "short-not-needed":
+      case "short-refused":
+        return {
+          lines: [`refused: nothing was written. ${pageRoomNote(written, room, ADD_SHORT) ?? "The short version was not kept."}`],
           ok: false,
         };
       case "empty":
@@ -219,6 +239,12 @@ export function writeLines(
         : [
             `NOTE: the gate redacted the page before storing it (${written.redacted.gate}) — ${written.redacted.bytesBefore} bytes in, ${written.bytes} out. Read it back before you rely on it: counterparts self-page.`,
           ]),
+      // PAST ITS ROOM, SAID (2026-10-10): kept whole, and what sessions read
+      // on a day the wake cannot hold it.
+      ...((): string[] => {
+        const note = pageRoomNote(written, room, ADD_SHORT);
+        return note === null ? [] : [`NOTE: ${note}`];
+      })(),
       // The write marks the wake behind (2026-09-30, `self/behind.ts`), and
       // the worker the next turn's end starts re-renders it. With no session
       // running, `rebrief` is the lever.

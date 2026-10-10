@@ -54,6 +54,7 @@ import {
   MCP_SPILLED_EVENT,
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
+  SELF_BRIEFING_EVENT,
   SLEEP_CYCLE_EVENT,
   SNAPSHOT_FAILED_EVENT,
   SNAPSHOT_TAKEN_EVENT,
@@ -3849,21 +3850,20 @@ export function selfPageFindings(store: Store): Finding[] {
     ];
   }
   const stale = pageStaleOn(page.revisedOn, store.today(), SELF_TUNABLES.PAGE_STALE_DAYS);
-  // WHAT THE WAKE SHOWS OF IT (2026-10-02, the "nobody saw it" review; since
-  // 2026-10-09 the wake never cuts the page). Every write since is held to
-  // `PAGE_MAX_BYTES`, the page the wake prints whole at 9,000 bytes, so a page
-  // past it was written before the limit. The wake still prints it whole when
-  // it fits with the room held for "Work here" borrowed (review of #358), and
-  // one line instead of it when even that is not enough. Amber either way,
-  // and said with what to do: the next revision tightens it.
-  const overLimit = page.bytes > SELF_TUNABLES.PAGE_MAX_BYTES;
-  const wakeShows = overLimit
-    ? `; past the ${String(SELF_TUNABLES.PAGE_MAX_BYTES)}-byte limit, so the wake prints it whole only by borrowing the room held for "Work here", and says so in one line when even that is not enough (the self_page tool reads it whole)`
-    : "";
+  const room = SELF_TUNABLES.PAGE_ROOM_BYTES;
+  const overRoom = page.bytes > room;
+  // WHAT THE LAST WAKE SHOWED OF IT (2026-10-02, the "nobody saw it" review;
+  // a ladder of whole texts since 2026-10-10, `self/briefing.ts#PageRung`):
+  // read off the newest wake render's own row. Green for the page whole or
+  // the short version its writer wrote with it; amber for the outline, the
+  // headings, one line or nothing — with what to do.
+  const shown = lastPageRung(store);
+  const said = shown === null ? "" : `; the last wake showed ${PAGE_RUNG_WORDS[shown] ?? shown}`;
   const detail =
-    `${page.bytes} bytes, version ${page.version}, last revised ${page.revisedOn === "" ? "(unrecorded)" : page.revisedOn}` +
-    `${page.by === null ? "" : ` by ${page.by}`}${wakeShows}`;
-  // The day count and the limit ride along so a surface can say it in words
+    `${page.bytes} bytes${overRoom ? ` (past its ${String(room)}-byte room)` : ""}, version ${page.version}` +
+    `${page.short === null ? "" : `, with a ${String(page.short.bytes)}-byte short version`}, last revised ${page.revisedOn === "" ? "(unrecorded)" : page.revisedOn}` +
+    `${page.by === null ? "" : ` by ${page.by}`}${said}`;
+  // The day count and the room ride along so a surface can say it in words
   // ("not rewritten in 16 days") without re-deriving either (dashboard health).
   const data = {
     present: true,
@@ -3872,12 +3872,22 @@ export function selfPageFindings(store: Store): Finding[] {
     revisedOn: page.revisedOn,
     stale,
     // True when the wake prints it whole at 9,000 bytes whatever it reserves.
-    wakeShowsAll: !overLimit,
-    limit: SELF_TUNABLES.PAGE_MAX_BYTES,
+    wakeShowsAll: !overRoom,
+    room,
+    hasShort: page.short !== null,
+    rung: shown,
     daysSince: calendarDaysSince(page.revisedOn, store.today()),
     staleAfter: SELF_TUNABLES.PAGE_STALE_DAYS,
   };
-  const shorten = `Its next revision has to come in under ${String(SELF_TUNABLES.PAGE_MAX_BYTES)} bytes: counterparts self-page --write, or the self_page tool.`;
+  // WHAT TO DO when the wake stepped below the short version: give it one, or
+  // bring the page under its room. A page within its room that still did not
+  // fit is the ceiling's doing, not the page's.
+  const short = shown === "outline" || shown === "headings" || shown === "line" || shown === "none";
+  const fix = !short
+    ? ""
+    : overRoom
+      ? `Sessions are not reading the page whole. Give it a short version under ${String(room)} bytes (the self_page tool's \`short\`), or bring it under ${String(room)} bytes: counterparts self-page --write.`
+      : `The page is within its room, so the wake's ceiling is too small for it: raise injectionBudgetBytes in the configuration (9000 is the default), or give the page a short version.`;
   return [
     stale
       ? finding(
@@ -3885,13 +3895,42 @@ export function selfPageFindings(store: Store): Finding[] {
           "amber",
           "Self page",
           `${detail} — stale (over ${SELF_TUNABLES.PAGE_STALE_DAYS} days)`,
-          `Nothing has revised it lately: check the page writer, or amend it yourself with counterparts self-page --write.${overLimit ? ` ${shorten}` : ""}`,
+          `Nothing has revised it lately: check the page writer, or amend it yourself with counterparts self-page --write.${fix === "" ? "" : ` ${fix}`}`,
           data,
         )
-      : overLimit
-        ? finding("self-page", "amber", "Self page", detail, shorten, data)
+      : short
+        ? finding("self-page", "amber", "Self page", detail, fix, data)
         : finding("self-page", "green", "Self page", detail, "", data),
   ];
+}
+
+/** How doctor names each rung the last wake printed the page on (`self/briefing.ts#PageRung`). */
+const PAGE_RUNG_WORDS: Readonly<Record<string, string>> = {
+  whole: "it whole",
+  short: "its short version",
+  outline: "only each section's heading and first sentence",
+  headings: "only its section headings",
+  line: "one line about it",
+  none: "nothing of it — no room even for a line",
+};
+
+/**
+ * THE RUNG THE NEWEST WAKE RENDER PRINTED THE PAGE ON (2026-10-10), from its
+ * durable `self.briefing` row (`counterpart.ts#recordSelfBriefing`), or null
+ * when no row carries one — a render before the ladder, or none yet. Never
+ * throws.
+ */
+function lastPageRung(store: Store): string | null {
+  try {
+    const row = store.eventLog({ name: SELF_BRIEFING_EVENT, order: "desc", limit: 1 })[0];
+    if (row === undefined) return null;
+    const page = (JSON.parse(row.payload ?? "{}") as Record<string, unknown>)["page"];
+    if (typeof page !== "object" || page === null) return null;
+    const rung = (page as Record<string, unknown>)["rung"];
+    return typeof rung === "string" && rung.length > 0 ? rung : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
