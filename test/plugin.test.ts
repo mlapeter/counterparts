@@ -25,7 +25,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { HOOK_SCRIPT, HOST_EVENTS, MCP_SCRIPT, MCP_SERVER_NAME, readHost } from "../src/adapters/cli/install.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
@@ -573,6 +573,45 @@ describe("plugin-run.sh", () => {
     expect(prompt.stdout).toBe("");
     expect(existsSync(join(home, ".counterparts"))).toBe(false);
   });
+
+  // THE SHAPES AN NPM INSTALL WIRES, each of which must make the plugin stand
+  // down (2026-10-09: a plugin copy that predated #349 could not read the
+  // `--no-env-file "--config=…"` shape 0.3.14's `connect` writes, did not stand
+  // down, and Mike got a second wake and a second recall on every prompt).
+  for (const shape of ["0.3.13 and before", "0.3.14 (--no-env-file, --config=)", "single binary"] as const) {
+    test(`all five npm hooks live in the ${shape} shape: the plugin stands down, says so once, wakes nothing, opens no store`, () => {
+      const npm = join(work, "npm-install");
+      const hookTs = join(npm, "src", "adapters", "claude-code", "bin", "hook.ts");
+      mkdirSync(dirname(hookTs), { recursive: true });
+      writeFileSync(hookTs, "// a stand-in hook\n");
+      writeFileSync(join(npm, "src", "adapters", "empty-bunfig.toml"), "");
+      const bin = join(work, "npm-bin");
+      mkdirSync(bin, { recursive: true });
+      if (!existsSync(join(bin, "bun"))) symlinkSync(process.execPath, join(bin, "bun"));
+      const binary = join(bin, "counterparts");
+      writeFileSync(binary, "#!/bin/sh\nexit 0\n");
+      chmodSync(binary, 0o755);
+      const command =
+        shape === "0.3.13 and before"
+          ? `"bun" run "${hookTs}"`
+          : shape === "0.3.14 (--no-env-file, --config=)"
+            ? `"bun" --no-env-file "--config=${join(npm, "src", "adapters", "empty-bunfig.toml")}" run "${hookTs}"`
+            : `"${binary}" hook`;
+      writeSettings({ SessionStart: [command], UserPromptSubmit: [command], Stop: [command], SessionEnd: [command], PreCompact: [command] });
+      const env = pluginEnv({ PATH: `${bin}:${emptyBin}`, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" });
+      const start = launch("hook", payload("SessionStart"), env);
+      expect(start.code).toBe(0);
+      expect(start.stderr).toContain("plugin hook stood down");
+      const said = systemMessage(start.stdout) ?? "";
+      expect(said).toContain("running from a folder");
+      expect(said).toContain("Nothing to do.");
+      expect(start.stdout).not.toContain("additionalContext"); // no wake
+      const prompt = launch("hook", payload("UserPromptSubmit"), env);
+      expect(prompt.code).toBe(0);
+      expect(prompt.stdout).toBe(""); // no recall
+      expect(existsSync(join(home, ".counterparts"))).toBe(false); // no store opened or made
+    });
+  }
 
   test("not launched as the plugin (no CLAUDE_PLUGIN_ROOT): no first run", () => {
     const env = pluginEnv();
