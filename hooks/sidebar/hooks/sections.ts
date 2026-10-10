@@ -211,8 +211,9 @@ const SAVED_DOWN = [savedLines1, savedTo(3), savedTo(2), savedTo(1), savedFold]
  */
 const LADDERS: Readonly<Record<'default' | 'open' | 'mech' | 'dream', readonly Step[]>> = {
   default: [...SAVED_DOWN, dreamTo(2), subTo(3), subTo(2), dreamTo(1), subTo(1), memTo(2), subTo(0), chartFold, mindFold, dreamFold],
-  // An item opens in place only when its text is short (EXPAND_MAX_LINES), so its text is the last to give way.
-  open: [...SAVED_DOWN, dreamTo(1), subTo(1), subTo(0), chartFold, dreamFold, textTo(8), textTo(5)],
+  // An item opens in place only when its text is short (EXPAND_MAX_LINES), so its text is the last to give way;
+  // the dream (two rows) folds before the chart (twelve).
+  open: [...SAVED_DOWN, dreamTo(1), subTo(1), subTo(0), dreamFold, chartFold, textTo(8), textTo(5)],
   mech: [...SAVED_DOWN, dreamTo(1), mindFold, eventsTo(4), eventsTo(2), dreamFold, eventsTo(1)],
   dream: [chartFold, excerptTo(7), excerptTo(5), excerptTo(3), ...SAVED_DOWN, subTo(1), subTo(0), mindFold],
 }
@@ -453,7 +454,7 @@ export function layoutBody(s: BodyState): { lines: Line[]; folds: string[] } {
   const ladder = ladderFor(s).filter(st => !(mine(st) && (st.fold || st.label === 'subconscious 0')))
   const steps = [...ladder.filter(st => !mine(st)), ...ladder.filter(mine)]
   const build = (on: ReadonlySet<number>): Line[][] => sectionsOf(s, steps.reduce((f, st, i) => (on.has(i) ? st.apply(f) : f), FULL))
-  for (const gaps of [true, false]) {
+  const fit = (gaps: boolean): { on: Set<number>; secs: Line[][] } | null => {
     for (let k = 0; k <= steps.length; k++) {
       let on = new Set(Array.from({ length: k }, (_, i) => i))
       let secs = build(on)
@@ -467,8 +468,13 @@ export function layoutBody(s: BodyState): { lines: Line[]; folds: string[] } {
           secs = b
         }
       }
-      return { lines: joined(secs, gaps), folds: [...on].sort((a, b) => a - b).map(i => steps[i]?.label ?? '') }
+      return { on, secs }
     }
+    return null
+  }
+  for (const gaps of [true, false]) {
+    const got = fit(gaps)
+    if (got !== null) return { lines: joined(got.secs, gaps), folds: [...got.on].sort((a, b) => a - b).map(i => steps[i]?.label ?? '') }
   }
   const all = new Set(steps.map((_, i) => i))
   return { lines: joined(build(all), false), folds: steps.map(st => st.label) }
