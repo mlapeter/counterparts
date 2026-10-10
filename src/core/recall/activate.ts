@@ -52,7 +52,7 @@
  * fail.
  */
 import type { Kind, MemoryPhysics } from "../types.js";
-import { TUNABLES as PHYSICS, belowReach, sal, salArm, softenedFeeling, strength } from "../physics/index.js";
+import { TUNABLES as PHYSICS, belowReach, curveSal, salArm, softenedFeeling, strength } from "../physics/index.js";
 import type { FeelingRow, Hit, ProseDoc, Store } from "../store/index.js";
 import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, stampCores } from "./feeling-ask.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
@@ -375,7 +375,9 @@ export function gatedSal(p: MemoryPhysics, selfFelt: boolean): number {
   // I — and only on a self-felt turn. Decided by g1a-builder, 2026-10-10,
   // lightly held; revisit after ~5 lived days. Why: keep G10 (a feeling
   // matters to the bar only when the turn states one) with the dimension gone.
-  return selfFelt ? salArm(p) : sal(p.salience);
+  // `curveSal`, not `sal`: the old-claims era (2026-10-10) reads the same
+  // claim on a felt turn and an unfelt one.
+  return selfFelt ? salArm(p) : curveSal(p);
 }
 
 export function activate(

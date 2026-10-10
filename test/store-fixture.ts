@@ -159,7 +159,7 @@ export function findable<T extends Pick<Store, "put">>(store: T, claimed = 0.5):
 
 /**
  * TURN A CURRENT FILE BACK INTO A v12 ONE (2026-10-10): drop what store v13
- * added — its four triggers and its indexes first (SQLite will not drop a
+ * added — its triggers (four, and the old-claims era's fifth) and its indexes first (SQLite will not drop a
  * column an index or a trigger names), then the `derivations` table and the
  * six columns. For the fixtures that fake an OLDER file by stripping a fresh
  * one: without this, the v13 columns sit before the re-added ones and a
@@ -167,7 +167,7 @@ export function findable<T extends Pick<Store, "put">>(store: T, claimed = 0.5):
  * caller's to set.
  */
 export function stripV13(db: { run(sql: string): unknown }): void {
-  for (const t of ["memories_next_change_inputs", "feelings_next_change_insert", "feelings_next_change_update", "feelings_next_change_delete"]) {
+  for (const t of ["memories_next_change_inputs", "memories_next_change_era", "feelings_next_change_insert", "feelings_next_change_update", "feelings_next_change_delete"]) {
     db.run(`DROP TRIGGER IF EXISTS ${t}`);
   }
   for (const i of ["memories_next_change", "memories_dream_shown", "memories_birth", "feelings_created", "edges_last_day", "edges_weight", "edges_dst", "derivations_parent"]) {

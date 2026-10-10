@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 
 import { remapV10Feeling } from "../feelings-wheel.js";
-import { TUNABLES as PHYSICS_TUNABLES, spacingWeight } from "../physics/index.js";
+import { TUNABLES as PHYSICS_TUNABLES, defaultClaimFor, spacingWeight } from "../physics/index.js";
 import { addDays, daysBetween, isDay, isRecurrence, occurrenceBetween, parseCalendarDate } from "../time.js";
 import type { Band, DatedHold, Kind, MemoryPhysics, Salience } from "../types.js";
 import type { Db, Row } from "./db.js";
@@ -994,6 +994,13 @@ export interface FeelingPeak {
    * (`datedHold`) needs no second read. Absent on a bare `SELECT *`.
    */
   today_date?: string | null;
+  /**
+   * NOT A COLUMN (2026-10-10, the old-claims era): the store's
+   * `claims.era.cutoff` meta value (UTC ms), read beside the row so the era
+   * (`eraClaimOf`) needs no second read. Null when the era is off; absent on a
+   * bare `SELECT *`, which then reads every claim as stored.
+   */
+  claims_era_cutoff?: string | null;
   feeling_peak?: number | null;
   /** v9: the same peak without the feelings a reflection recorded later. */
   feeling_peak_lived?: number | null;
@@ -1495,9 +1502,11 @@ export function openOperational(path: string, opts: OpenOperationalOptions = {})
  */
 export function ensureCurrentTables(db: Db): void {
   const have = new Set(
-    db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'").map((r) => r.name),
+    db.all<{ name: string }>("SELECT name FROM sqlite_master WHERE type IN ('table', 'trigger')").map((r) => r.name),
   );
-  const missing = CREATED_TABLES.filter((t) => !have.has(t));
+  // A TRIGGER too (2026-10-10, the old-claims era's `memories_next_change_era`,
+  // added after v13 was stamped on development stores): the same exception.
+  const missing = [...CREATED_TABLES, ...CREATED_TRIGGERS].filter((t) => !have.has(t));
   if (missing.length === 0) return;
   db.transaction(() => {
     for (const sql of DDL) db.exec(sql);
@@ -1592,7 +1601,25 @@ export const DDL_AFTER_COLUMNS: readonly string[] = [
    BEGIN
      UPDATE memories SET next_change_day = NULL WHERE id = OLD.memory_id AND next_change_day IS NOT NULL;
    END`,
+  // THE OLD-CLAIMS ERA's inputs (2026-10-10): what a memory is about, who said
+  // it, its status, its protection and its moment decide whether the curve
+  // reads its claim or its default (`eraClaimOf`). Its own trigger, so a store
+  // already at v13 gains it at its next writable open (`ensureCurrentTables`
+  // checks `CREATED_TRIGGERS`) instead of keeping the first one's column list.
+  `CREATE TRIGGER IF NOT EXISTS memories_next_change_era
+     AFTER UPDATE OF about, status, said_by, protected, created_at, type
+     ON memories
+     WHEN NEW.next_change_day IS NOT NULL
+   BEGIN
+     UPDATE memories SET next_change_day = NULL WHERE id = NEW.id;
+   END`,
 ];
+
+/** Every trigger `DDL_AFTER_COLUMNS` creates, read off the statements (`ensureCurrentTables`). */
+export const CREATED_TRIGGERS: readonly string[] = DDL_AFTER_COLUMNS.flatMap((sql) => {
+  const m = /CREATE TRIGGER IF NOT EXISTS (\w+)/.exec(sql);
+  return m === null ? [] : [m[1] as string];
+});
 
 /**
  * Columns added to a table AFTER it first shipped. `CREATE TABLE IF NOT EXISTS`
@@ -2230,14 +2257,93 @@ export function reachExempt(row: Pick<MemoryRow, "type" | "source" | "origin_ref
 }
 
 /**
+ * THE OLD-CLAIMS ERA's meta keys (2026-10-10; physics §5.1, CONTRACT). Both
+ * hold a moment in UTC ms, compared with a row's `created_at`:
+ *
+ *   - `CLAIMS_ERA_CUTOFF_KEY` — the switch the curve reads. Present: a
+ *     memory written before it under the old claim text is read at its
+ *     default (`eraClaimOf`). Deleted (`counterparts claims-era --off`): every
+ *     claim reads as stored, exactly as before the era — the stored claim was
+ *     never touched.
+ *   - `CLAIMS_ERA_RECORDED_KEY` — the moment first recorded, kept so a store
+ *     whose switch was turned off is not re-recorded at its next open, and so
+ *     `--on` restores the same cutoff. Deleting BOTH re-records "now" at the
+ *     next writable open (every memory then is old).
+ *
+ * Recorded ONCE, at the first writable open by a build that knows the era
+ * (`Store` constructor) — on a v12 store that is the open that migrates it to
+ * v13, the moment the new claim text reached its writers; on a store that was
+ * already v13, its next open; on a new store, its birth (nothing is older).
+ */
+export const CLAIMS_ERA_CUTOFF_KEY = "claims.era.cutoff";
+export const CLAIMS_ERA_RECORDED_KEY = "claims.era.recorded";
+/** `mint.ts#CLAIMED_DEFAULT_META_KEY`, spelled here (store imports no core module); a test holds them equal. */
+export const CLAIMED_DEFAULT_SPELLED = "claimedDefault";
+
+/**
+ * THE CLAIM THE CURVE READS FOR AN OLD MEMORY (2026-10-10, the old-claims era;
+ * decided by Mike, 2026-10-10, loosely held), or null to read the stored claim.
+ * The default for what it is about (`physics#defaultClaimFor`) when ALL hold:
+ *
+ *   - the era is on (`cutoff` a moment) and the row is a `memory` written
+ *     before it (`created_at` earlier, or unrecorded — older than v7);
+ *   - it carries an explicit claim (`claimed` set, `meta.claimedDefault` not
+ *     true) — a default was already a default;
+ *   - it is none of the exempt: the core (`promoted_identity`), about the owner
+ *     or us, said by the owner, `protected`, a pending date (`hold` pending:
+ *     its date and grace still ahead) or a repeating date (a `recurring` rule);
+ *   - the default is LOWER than the claim. A scale-down only: an explicit
+ *     claim below its default (a 0.3 world reading) reads as written.
+ *
+ * Pure: the caller hands it the row, the cutoff and the hold it computed.
+ */
+export function eraClaimOf(
+  row: Pick<
+    MemoryRow,
+    "type" | "kind" | "claimed" | "created_at" | "meta" | "about" | "status" | "said_by" | "promoted_identity" | "protected" | "event_date"
+  >,
+  cutoff: string | number | null | undefined,
+  hold: DatedHold | null,
+): number | null {
+  const at = typeof cutoff === "number" ? cutoff : typeof cutoff === "string" && cutoff !== "" ? Number(cutoff) : Number.NaN;
+  if (!Number.isFinite(at)) return null;
+  if (row.type !== "memory" || row.claimed === null || row.claimed === undefined) return null;
+  if (typeof row.created_at === "number" && row.created_at >= at) return null;
+  if (row.promoted_identity === 1 || row.protected === 1) return null;
+  const about = row.about ?? null;
+  if (about === "owner" || about === "us" || (row.said_by ?? null) === "owner") return null;
+  if (hold !== null && hold.state === "pending") return null;
+  let meta: Record<string, unknown> | null = null;
+  if (typeof row.meta === "string" && row.meta.length > 0) {
+    try {
+      const parsed = JSON.parse(row.meta) as unknown;
+      if (parsed !== null && typeof parsed === "object") meta = parsed as Record<string, unknown>;
+    } catch {
+      /* unreadable meta: no default mark, no repeat */
+    }
+  }
+  if (meta !== null && meta[CLAIMED_DEFAULT_SPELLED] === true) return null;
+  if (row.event_date !== null && row.event_date !== undefined && row.event_date !== "" && meta !== null && isRecurrence(meta[RECURRING_META])) {
+    return null;
+  }
+  const claim = defaultClaimFor({ about, status: row.status ?? null, saidBy: row.said_by ?? null, kind: row.kind }).claim;
+  return claim < row.claimed ? claim : null;
+}
+
+/**
  * A row as physics reads it. `today` is the calendar day the dated hold is
  * judged on (`datedHold`); absent, the row's own `today_date` — the store's
  * `lastActiveDate`, which `Store.row()` reads beside it, so every
- * `rowToPhysics(store.row(id))` carries the hold without asking.
+ * `rowToPhysics(store.row(id))` carries the hold without asking. The
+ * old-claims era's cutoff rides the same way (`claims_era_cutoff`); a bare
+ * `SELECT *` carries none, and reads every claim as stored.
  */
 export function rowToPhysics(row: MemoryRow & FeelingPeak, today?: string | null): MemoryPhysics {
+  const hold = datedHold(row, today ?? row.today_date ?? null);
+  const eraClaim = eraClaimOf(row, row.claims_era_cutoff, hold);
   return {
-    hold: datedHold(row, today ?? row.today_date ?? null),
+    hold,
+    ...(eraClaim === null ? {} : { eraClaim }),
     kind: row.kind,
     salience: rowToSalience(row),
     birthDay: row.birth_day,

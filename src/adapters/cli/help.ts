@@ -143,6 +143,7 @@ export const SHORT: Record<string, string | readonly string[]> = {
   "backfill-claims": "One-off repair: give old memories their default footing",
   "repair-dates": "One-off repair: give imported memories their real dates",
   "repair-merged-beliefs": "One-off repair: put back beliefs a cleanup pass filed away",
+  "claims-era": "Old claims read as defaults: on or off, and how many",
   "probe-oq4": "A measurement: which footnotes were opened again later",
   // ── the ones that are on no page, and `UNLISTED` says why ──
   help: "What it does, and every flag it takes",
@@ -194,6 +195,7 @@ export const ADVANCED: readonly string[] = [
   "backfill-claims",
   "repair-dates",
   "repair-merged-beliefs",
+  "claims-era",
   "probe-oq4",
 ];
 

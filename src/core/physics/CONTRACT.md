@@ -131,6 +131,17 @@ the owner, us or me (or said by the owner, or kind self/person). Every row stays
 on `FELT_HEIGHT_CAP` (§5.10) rather than on the sum. `salience.defaulted` carries the row's
 `class`. NOTES "2026-10-10 — the default by what a memory is about".
 
+**The old-claims era, since 2026-10-10 (decided by Mike, loosely held; working default).** A
+memory written before the store's `claims.era.cutoff` (meta, UTC ms; recorded once at the
+first writable open by this build) with an explicit claim is read by the CURVE —
+`curveSal(m)`, through `salArm` and `steepnessInput` — at `defaultClaimFor(...)` when that is
+lower, carried on `MemoryPhysics.eraClaim` from the read seam (`store/operational.ts#eraClaimOf`).
+Exempt: the core, about owner/us, said by the owner, protected, a pending or repeating date.
+The stored claim is never rewritten (`eraClaim` is not a column), so "an explicit claim is
+never overridden" holds for the claim as stored; `sal(m.salience)` still reads it. Deleting
+the key (`counterparts claims-era --off`) restores the old reading exactly; the cutoff is in
+the decay pass's curve signature, so a toggle recomputes every next-change day once.
+
 ### 5.2 Strength — the one number
 
 ```

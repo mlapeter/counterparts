@@ -65,7 +65,7 @@
 import { NEVER_CHANGES, band, bandMove, nextChangeDay, strength } from "../physics/index.js";
 import { TUNABLES as PHYSICS } from "../physics/index.js";
 import type { Band, DatedHold } from "../physics/index.js";
-import { reachExempt, rowToPhysics } from "../store/operational.js";
+import { CLAIMS_ERA_CUTOFF_KEY, reachExempt, rowToPhysics } from "../store/operational.js";
 import { TUNABLES } from "./tunables.js";
 import type { BandTransition, PhaseCtx, PhaseOutcome } from "./types.js";
 import { countSkip, emptyOutcome, isEntityCard, isHandoffRow, isJournal, isJournalCopy, isSelfPageRow, recordBandTransition } from "./types.js";
@@ -93,8 +93,19 @@ const DECAY_PHASE: Phase = "decay";
  * a constant added to `salArm` or `base` later joins it too.
  */
 export const CURVE_META_KEY = "decay.curve";
-export function curveSignature(): string {
+export function curveSignature(eraCutoff: string | null = null): string {
   return JSON.stringify({
+    // THE OLD-CLAIMS ERA (2026-10-10): the cutoff the curve reads, and the
+    // defaults it reads old claims at (`operational.ts#eraClaimOf`). Turning
+    // the era on or off, or moving its cutoff, changes the effective claim of
+    // every old memory, so every next-change day is forgotten once.
+    era: eraCutoff,
+    defaults: [
+      PHYSICS.DEFAULT_CLAIM_WORK_EVENT,
+      PHYSICS.AUTHORED_DEFAULT_CLAIM,
+      PHYSICS.DEFAULT_CLAIM_WORLD,
+      PHYSICS.DEFAULT_CLAIM_PERSONAL,
+    ],
     shape: PHYSICS.DECAY_SHAPE,
     psi: PHYSICS.POWER_LAW_PSI,
     s0: PHYSICS.S0,
@@ -227,7 +238,7 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
   // under another curve forgets every next-change day first (`CURVE_META_KEY`);
   // an observer, which writes nothing, walks the whole store as before, and so
   // does a port without the turn-down.
-  const signature = curveSignature();
+  const signature = curveSignature(store.getMeta(CLAIMS_ERA_CUTOFF_KEY) ?? null);
   const sameCurve = store.getMeta(CURVE_META_KEY) === signature;
   const turnDown =
     typeof store.turnDownDue === "function" && typeof store.setNextChangeDays === "function" && (sameCurve || ctx.apply);

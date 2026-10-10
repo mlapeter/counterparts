@@ -58,6 +58,27 @@ come first. Nothing here quotes a memory.
 The rest are not reversals of Mike's rulings as far as b2, f8 and the builders know. Some
 reverse older defaults and contract lines; those go to the rules audit.
 
+### Decided by Mike, 2026-10-10, loosely held
+
+- **Old claims are read as defaults, by what they are about — an era, not a rewrite.** Mike,
+  2026-10-10, loosely held: a memory written before the store's cutoff with an explicit claim
+  (not a default) is read by the forgetting curve at the default for what it is about — 0.20
+  a done work event, 0.25 other work or unmarked, 0.35 the world, 0.40 me (or a person or self
+  kind) — when that is lower than the claim. The stored claim is never rewritten: an explicit
+  claim is kept as written, and only the curve's reading of it changes. **Exempt** (read as
+  claimed): the core, memories about the owner or us, said by the owner, protected, and dated
+  ones still pending or repeating. **Only down:** an explicit claim below its default (a 0.3
+  world reading) reads as written. **The cutoff** is the moment of the first writable open by
+  this build, kept in `meta` as `claims.era.cutoff`: on a v12 store that is the open that
+  upgrades it to v13, when the new claim text reaches its writers. **Reversible** by deleting
+  that key — `counterparts claims-era --off` (`--on` puts the same cutoff back); doctor's "Old
+  claims" line says whether it is on and how many memories it reads at their default. Why:
+  497 of ~770 live memories were claimed 0.5 or more under the old field text ("set it on
+  anything that should last"), so under the new curve they would stay in reach for months.
+  On a copy of the 10-10 store: 408 memories read at their default; in reach 621/770 at +0,
+  564/768 at +7, 479/697 at +30 lived days (729/770 and 660/747 without the era); the core
+  13/13, memories about the owner or us and the pending tax reminders unchanged.
+
 ### Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days
 
 3. **The forgetting curve and its numbers.** A power law, steep at first and flat later, with
