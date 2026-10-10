@@ -17,7 +17,7 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
 import { DEFAULT_DATA_DIR_NAME, FORBIDDEN_ROOT_NAMES } from '../../src/core/store/paths.js';
-import { findDock, findText, parseCapture, sliceGrid, type Grid, type Rect } from './grid.js';
+import { findDock, findLastText, parseCapture, sliceGrid, type Grid, type Rect } from './grid.js';
 import { ITERM_MENLO_13, gridPixels, renderHtml } from './render.js';
 import {
   ALLOWED_COMMANDS,
@@ -243,8 +243,11 @@ async function putBack(s: Session, path: string, before: Prefs | null): Promise<
     }
     const l = await s.steady();
     const dock = l.dock;
-    const label = dock === null ? undefined : MEMORY_SWITCH_LABELS.find(t => findText(l.grid, t, dock.x0 + 1) !== null);
-    const at = dock === null || label === undefined ? null : findText(l.grid, label, dock.x0 + 1);
+    // the footer's switch is the bottom-most match in the dock: a memory's title in the body can say "Claude
+    // memory" too, and a click there opens that memory (or the browser), not the switch
+    const find = (t: string) => (dock === null ? null : findLastText(l.grid, t, dock.x0 + 1, dock.y0, dock.y1));
+    const label = MEMORY_SWITCH_LABELS.find(t => find(t) !== null);
+    const at = label === undefined ? null : find(label);
     if (at !== null && dock !== null && at.y >= dock.y0 && at.y < dock.y1) {
       console.log(`  putting back the stored preference: a click on "${label ?? ''}"`);
       const [press, release] = mouseBytes('click', at.x, at.y);

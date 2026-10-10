@@ -239,21 +239,38 @@ export function rowText(g: Grid, y: number): string {
   return (g.cells[y] ?? []).map(c => c.ch).join('');
 }
 
+/** The column where `needle` starts in one row, from `fromCol` on; null if it isn't there. */
+function findInRow(row: readonly Cell[], needle: string, fromCol: number): number | null {
+  // column of each character of the row's text
+  let text = '';
+  const colOf: number[] = [];
+  for (let x = fromCol; x < row.length; x++) {
+    const c = row[x];
+    if (c === undefined || c.width === 0) continue;
+    for (let k = 0; k < c.ch.length; k++) colOf.push(x);
+    text += c.ch;
+  }
+  const i = text.indexOf(needle);
+  return i >= 0 ? (colOf[i] ?? fromCol) : null;
+}
+
 /** The first cell (0-based column, row) where `needle` starts, searching rows top-down; columns from `fromCol`. */
 export function findText(g: Grid, needle: string, fromCol = 0): { x: number; y: number } | null {
   for (let y = 0; y < g.rows; y++) {
-    const row = g.cells[y] ?? [];
-    // column of each character of the row's text
-    let text = '';
-    const colOf: number[] = [];
-    for (let x = fromCol; x < row.length; x++) {
-      const c = row[x];
-      if (c === undefined || c.width === 0) continue;
-      for (let k = 0; k < c.ch.length; k++) colOf.push(x);
-      text += c.ch;
-    }
-    const i = text.indexOf(needle);
-    if (i >= 0) return { x: colOf[i] ?? fromCol, y };
+    const x = findInRow(g.cells[y] ?? [], needle, fromCol);
+    if (x !== null) return { x, y };
+  }
+  return null;
+}
+
+/**
+ * The bottom-most cell where `needle` starts in rows [y0, y1), columns from
+ * `fromCol`: a footer's label, under any body text that says the same words.
+ */
+export function findLastText(g: Grid, needle: string, fromCol = 0, y0 = 0, y1 = g.rows): { x: number; y: number } | null {
+  for (let y = Math.min(y1, g.rows) - 1; y >= Math.max(0, y0); y--) {
+    const x = findInRow(g.cells[y] ?? [], needle, fromCol);
+    if (x !== null) return { x, y };
   }
   return null;
 }

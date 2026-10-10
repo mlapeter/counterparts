@@ -8,7 +8,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 
-import { charCells, findDock, findText, parseCapture, rowText, sliceGrid, type Grid } from '../tools/term-loop/grid.js';
+import { charCells, findDock, findLastText, findText, parseCapture, rowText, sliceGrid, type Grid } from '../tools/term-loop/grid.js';
 import { ITERM_MENLO_13, cellColours, paletteColour, renderHtml, renderRow } from '../tools/term-loop/render.js';
 import {
   MEMORY_SWITCH,
@@ -131,6 +131,14 @@ describe('ANSI → cell grid', () => {
     // the wide character's second half alone becomes a blank
     expect(cell(s, 0, 0)).toMatchObject({ ch: ' ', width: 1 });
     expect(findText(g, 'fgh')).toEqual({ x: 3, y: 2 });
+  });
+
+  test('a footer label is found bottom-most in the dock, under body text that says the same', () => {
+    const g = parseCapture(['x│Claude memory note', 'x│body', 'x│* Claude memory', 'x│view'].join('\n'), 20, 4);
+    expect(findText(g, 'Claude memory', 2)).toEqual({ x: 2, y: 0 });
+    expect(findLastText(g, 'Claude memory', 2, 0, 4)).toEqual({ x: 4, y: 2 });
+    expect(findLastText(g, 'Claude memory', 2, 0, 2)).toEqual({ x: 2, y: 0 });
+    expect(findLastText(g, 'nowhere', 2)).toBeNull();
   });
 
   test('no divider, no dock', () => {
