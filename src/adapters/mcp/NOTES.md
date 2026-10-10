@@ -1575,8 +1575,34 @@ nothing that has happened.
   - Tested in Denver and on Kiritimati, at 10-09 and across the 12-01 edge (11-30 in
     Denver, 12-01 on Kiritimati: both now read this year's 12-20, where Denver read last
     year's).
-- **Not done:** the year-end mirror. "By 1/5" asked on 12-28 is through this year's 01-05,
+- **Not done:** the year-end mirror (*done* 2026-10-10, the next section). "By 1/5" asked on 12-28 is through this year's 01-05,
   nearly a year back, where the person likely means the coming one; moving it would also
   move "finish by 1/2" asked in October, which the amount tests pin as this year's. "By
   the end of December" and "through December" asked in October are read as a month
   (`yearFor`, last year's), not as a bound; unchanged.
+
+## 2026-10-10 — facts mode: "by 1/5" asked on 12-28 (the year-end mirror)
+
+The section before left the mirror of #352's rule undone. Under "before", "until", "up
+to" and "by", a yearless date now takes the year, last, this or next, whose date is
+nearest today (`time-ask.ts#nearestYear`): "by 1/5" asked on 12-28 is through 2027-01-05,
+eight days ahead, where it was through 2026-01-05, 357 days back, which hid the whole year
+since. #352's rule is the same rule over two years instead of three, so every case it
+pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "until Dec
+30" asked on Jan 3 (four days back), "before 1/2" asked on 01-10 (eight days back), a Feb
+29 a year lacks.
+
+- *What moved, and was pinned before:* three answers asked in early October, where the
+  coming date is now the nearer. "Finish by 1/2" reads through 2027-01-02 (91 days ahead
+  against 274 back), "cut costs by 3/15" through 2027-03-15 (163 against 202), and "by
+  1/5" through 2027-01-05 (88 against 277). The amount test's point stands: "by 1/2" there
+  is still January 2, a date. The section before named this cost and stopped there; a
+  deadline written without a year in October means the coming one more often than the
+  last, and a cutoff moved ahead hides nothing that has happened.
+- *Unchanged:* "since" and "after" still reach back to the last time the day came round
+  ("since 1/5" asked on 12-28 runs from this year's 01-05): a "since" ahead would be
+  empty. A date alone ("on 1/5") keeps `yearFor`'s year, and a written year is the year
+  meant.
+- Tested in Denver and on Kiritimati on 12-28, and across the new-year edge (12-31 in
+  Denver, already 01-01 on Kiritimati: both read 2027-01-05, where Denver read
+  2026-01-05); midyear the nearer decides (07-01: last January's; 07-10: next).

@@ -331,6 +331,11 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "start a chat with the \"Start with Counterparts\" prompt, or ask it to",
     "call the counterparts wake tool. In Claude Desktop, set the counterparts",
     "tools to Always allow, or a chat cannot wake on its own.",
+    "",
+    "Once Desktop is connected, `install` at a terminal brings that entry's",
+    "command up to date the way `counterparts connect` does, keeping the store",
+    "it names. Not while Desktop is open: it asks you to quit Desktop and run",
+    "connect again.",
   ],
   init: [
     "No host config, nothing under ~/.counterparts/ — that",

@@ -11,7 +11,7 @@
  * says whether Desktop is open). The real Desktop file is never named.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -318,6 +318,161 @@ describe("connect and Claude Desktop's entry", () => {
       "/Applications/Claude.app/Contents/MacOS/Claude --enable-logging",
     ];
     for (const line of open) expect([line, DESKTOP_APP_PROCESS.test(line)]).toEqual([line, true]);
+  });
+});
+
+/**
+ * `install` AT A TERMINAL REPAIRS DESKTOP'S ENTRY TOO (2026-10-10, left open
+ * by #354): it is the other caller of `wire()`, and a person who re-runs it
+ * after an upgrade should not need to know `connect` exists. Same path as
+ * `connect` (`commands.ts#repairDesktopEntry`). The console says it is a
+ * terminal; `claude` is the fake spawner, the process list the fake lister,
+ * and the local table is pinned so the closing line does not depend on what
+ * this checkout's `node_modules` holds.
+ */
+describe("install at a terminal and Claude Desktop's entry", () => {
+  async function installAtTerminal(processes: ProcessLister, spawn: Spawner = spawner): Promise<{ code: number; said: string }> {
+    const table = join(work, "table");
+    mkdirSync(table, { recursive: true });
+    writeFileSync(join(table, "model.safetensors"), "");
+    const out: string[] = [];
+    const err: string[] = [];
+    const io: Io = {
+      out: (l) => out.push(l),
+      err: (l) => err.push(l),
+      prompt: async () => "",
+      promptHidden: async () => "",
+      // Wide, and no colour: the lines below are matched whole.
+      tty: { stdin: true, stdout: true, columns: 1000 },
+    };
+    const code = await run(["install", "--config", cfg], {
+      io,
+      env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", COUNTERPARTS_STATIC_WEIGHTS_DIR: table, NO_COLOR: "1" },
+      home,
+      spawner: spawn,
+      processes,
+    });
+    return { code, said: `${out.join("\n")}\n${err.join("\n")}` };
+  }
+
+  test("Desktop closed: the entry gets today's command, its env and every other server untouched, one backup; again, nothing", async () => {
+    writeDesktop(oldEntry());
+    const r = await installAtTerminal(lister(false));
+    expect(r.code).toBe(EXIT.ok);
+    expect(r.said).toContain("Connecting Claude Code…");
+    expect(r.said).toContain("Claude Desktop: rewrote its counterparts entry");
+    expect(r.said).toContain("it should be all green");
+    const entry = desktopEntry();
+    expect(entry["command"]).toBe(BUN);
+    expect(entry["args"]).toEqual(scriptArgs(MCP_SCRIPT, BUN));
+    expect(entry["env"]).toEqual(oldEntry()["env"]);
+    const whole = JSON.parse(desktopFile()) as { globalShortcut: string; mcpServers: Record<string, unknown> };
+    expect(whole.globalShortcut).toBe("Cmd+K");
+    expect(whole.mcpServers["other"]).toEqual(OTHER);
+    expect(backups()).toHaveLength(1);
+    // Doctor's Runtime line no longer counts Desktop's entry as wired before the flags.
+    expect(readHost(home, home, {}).runtimes.find((row) => row.used.includes("desktop"))?.projectEnv).toEqual([]);
+
+    const again = await installAtTerminal(lister(false));
+    expect(again.said).not.toContain("Claude Desktop");
+    expect(backups()).toHaveLength(1);
+  });
+
+  test("Desktop open: the file is left byte for byte, the person is told to quit it and connect, and the ending promises no green", async () => {
+    writeDesktop(oldEntry());
+    const before = desktopFile();
+    const r = await installAtTerminal(lister(true));
+    expect(r.code).toBe(EXIT.ok);
+    expect(r.said).toContain("Claude Desktop is open");
+    expect(r.said).toContain("Quit Claude Desktop, run `counterparts connect` again");
+    expect(r.said).not.toContain("it should be all green");
+    expect(r.said).toContain("its Runtime line stays amber until Claude Desktop's entry is rewritten");
+    expect(desktopFile()).toBe(before);
+    expect(backups()).toHaveLength(0);
+  });
+
+  test("the process list could not be read: treated as open, nothing written", async () => {
+    writeDesktop(oldEntry());
+    const before = desktopFile();
+    const r = await installAtTerminal(lister(undefined, false));
+    expect(r.said).toContain("whether Desktop is open could not be checked");
+    expect(desktopFile()).toBe(before);
+  });
+
+  test("an entry already current, an entry not ours, and no Desktop at all: nothing said, nothing written", async () => {
+    writeDesktop({ ...oldEntry(), args: scriptArgs(MCP_SCRIPT, BUN) });
+    let before = desktopFile();
+    let r = await installAtTerminal(lister(true));
+    expect(r.said).not.toContain("Claude Desktop");
+    expect(r.said).toContain("it should be all green");
+    expect(desktopFile()).toBe(before);
+
+    writeDesktop({ command: "npx", args: ["-y", "someone-elses-server"] });
+    before = desktopFile();
+    r = await installAtTerminal(lister(false));
+    expect(r.said).not.toContain("Claude Desktop");
+    expect(desktopFile()).toBe(before);
+
+    rmSync(dirname(desktopConfigPath(home)), { recursive: true });
+    r = await installAtTerminal(lister(false));
+    expect(r.said).not.toContain("Claude Desktop");
+    expect(existsSync(desktopConfigPath(home))).toBe(false);
+  });
+
+  // Review of #356: a Desktop file that does not parse is left alone and said,
+  // and doctor cannot read an entry in it (its Runtime line is green), so the
+  // ending promises neither green nor amber for Desktop.
+  test("a Desktop file with a trailing comma: left byte for byte, said, and the ending promises no green", async () => {
+    const path = desktopConfigPath(home);
+    mkdirSync(dirname(path), { recursive: true });
+    const raw = `{\n  "mcpServers": {\n    "${MCP_SERVER_NAME}": ${JSON.stringify(oldEntry())},\n  }\n}\n`;
+    writeFileSync(path, raw);
+    const r = await installAtTerminal(lister(false));
+    expect(r.code).toBe(EXIT.ok);
+    expect(r.said).toContain("has a comma just before a closing } or ]");
+    expect(r.said).not.toContain("it should be all green");
+    expect(r.said).toContain("Claude Desktop's config was left as it was, as said above");
+    expect(readFileSync(path, "utf8")).toBe(raw);
+    expect(backups()).toHaveLength(0);
+  });
+
+  // Review of #356: a write that fails is a fail line and no green from
+  // `install` (exit 0, like its other host steps), and exit 1 from `connect`.
+  test.skipIf(process.getuid?.() === 0)("a write that fails: install exits 0 with a fail line and no green; connect exits 1", async () => {
+    writeDesktop(oldEntry());
+    const before = desktopFile();
+    const folder = dirname(desktopConfigPath(home));
+    chmodSync(folder, 0o555);
+    try {
+      const r = await installAtTerminal(lister(false));
+      expect(r.code).toBe(EXIT.ok);
+      expect(r.said).toContain("Claude Desktop's entry could not be rewritten");
+      expect(r.said).not.toContain("it should be all green");
+      expect(r.said).toContain("its Runtime line stays amber until Claude Desktop's entry is rewritten");
+      const c = await connect(lister(false));
+      expect(c.code).toBe(EXIT.failed);
+      expect(c.said).toContain("Claude Desktop's entry could not be rewritten");
+    } finally {
+      chmodSync(folder, 0o755);
+    }
+    expect(desktopFile()).toBe(before);
+  });
+
+  test("with no Claude Code on this machine, Desktop's entry is still brought up to date", async () => {
+    writeDesktop(oldEntry());
+    const r = await installAtTerminal(lister(false), () => ({ missing: true, code: null, out: "", err: "" }));
+    expect(r.said).toContain("Claude Code is not on this machine");
+    expect(r.said).toContain("Claude Desktop: rewrote its counterparts entry");
+    expect(desktopEntry()["args"]).toEqual(scriptArgs(MCP_SCRIPT, BUN));
+  });
+
+  test("the scripted install (no terminal) reads no host file: Desktop's entry is left as it was", async () => {
+    writeDesktop(oldEntry());
+    const before = desktopFile();
+    const c = consoleWith();
+    expect(await run(["install", "--config", cfg], { io: c.io, env: { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" }, home, spawner, processes: lister(false) })).toBe(EXIT.ok);
+    expect(desktopFile()).toBe(before);
+    expect(backups()).toHaveLength(0);
   });
 });
 

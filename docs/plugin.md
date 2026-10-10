@@ -199,8 +199,8 @@ becomes a second way to get master.
 
 ## Releasing: move the pin
 
-The release process itself lives outside this repository (each release's brief and
-PUBLISH sheet). For the plugin it adds one edit and one tag:
+The release as a whole, in order, is in [RELEASING.md](RELEASING.md). For the plugin it
+adds one edit and one tag:
 
 1. **In the release commit**, next to `package.json`'s version: set `"version"` in
    `.claude-plugin/plugin.json` to the same version, and the entry's `"ref"` in
