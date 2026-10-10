@@ -123,6 +123,12 @@ export interface TurnExpansion {
   readonly ids: readonly string[];
 }
 
+/** One tool call's input as text, positioned like a `TurnExpansion` (`claude-code/transcript.ts#ToolInput`). */
+export interface TurnToolInput {
+  readonly atTurn: number;
+  readonly text: string;
+}
+
 /**
  * ONE MOMENT OF A SESSION, as any host reports it. A host with more to say
  * extends this (`claude-code/hooks.ts#HookInput` adds its transcript's path and
@@ -139,6 +145,9 @@ export interface SessionInput {
   readonly turnsUnread?: boolean;
   /** Deliberate-recall calls positioned against `turns`. */
   readonly expansions?: readonly TurnExpansion[];
+  /** Other tool calls' inputs as text, positioned against `turns` like
+   *  `expansions` — what the replies DID, for the engaged door (2026-10-10). */
+  readonly toolInputs?: readonly TurnToolInput[];
   /** What the user typed this turn (`user-prompt-submit`). */
   readonly prompt?: string;
   /** The model that wrote the transcript's last assistant entry, when known. */
@@ -1070,6 +1079,13 @@ export class Lifecycle implements HostLifecycle {
     const raw = (input.expansions ?? [])
       .filter((e) => e.atTurn > from && e.atTurn <= to)
       .flatMap((e) => [...e.ids]);
+    // THE ENGAGED DOOR'S TWO OTHER INPUTS (2026-10-10, G1b): what the person
+    // typed in the slice (a title word they said first is theirs, not the
+    // memory's) and what the replies DID — tool inputs, sliced like expansions.
+    const userTurns = slice
+      .filter((t) => t.role === "user" && (t.source === undefined || t.source === "conversation"))
+      .map((t) => t.text);
+    const toolInputs = (input.toolInputs ?? []).filter((e) => e.atTurn > from && e.atTurn <= to).map((e) => e.text);
     // G50: a handle the recall tool RESOLVED becomes the id it resolved to.
     // The transcript still decides WHICH handles and WHEN; what it cannot say is
     // whose answer resolved them, so the translation is filtered to THIS
@@ -1121,6 +1137,8 @@ export class Lifecycle implements HostLifecycle {
       const summary = this.counterpart.creditReferences(input.sessionId, {
         assistantTurns,
         expansions,
+        userTurns,
+        toolInputs,
         deadline: started + TUNABLES.CREDIT_BUDGET_MS,
         now: this.nowFn,
       });
@@ -1129,6 +1147,7 @@ export class Lifecycle implements HostLifecycle {
         considered: summary.considered,
         expanded: summary.expanded,
         quoted: summary.quoted,
+        engaged: summary.engaged,
         credited: summary.credited,
         elapsedMs: this.nowFn() - started,
       });
@@ -1141,6 +1160,9 @@ export class Lifecycle implements HostLifecycle {
         considered: summary.considered,
         expanded: summary.expanded,
         quoted: summary.quoted,
+        /** Footnoted or loud memories the replies DREW ON (2026-10-10, G1b;
+         *  `reference.ts#resolveEngagement`), decided — credited or refused. */
+        engaged: summary.engaged,
         credited: summary.credited,
         /** Uses refused strength credit for their day cadence that still joined
          *  the turn's links (2026-09-28). */
@@ -1160,6 +1182,12 @@ export class Lifecycle implements HostLifecycle {
         refused: summary.refused,
         ids: summary.ids.slice(0, 64),
         idsTotal: summary.ids.length,
+        /** HOW EACH CREDIT WAS EARNED (2026-10-10, G1b, review 05 C3), aligned
+         *  with `ids`: `expanded` | `quoted` | `engaged`. The plan's decision
+         *  rule 4 ("a footnote I act on gets strength") reads it. */
+        how: summary.how.slice(0, 64),
+        /** Engaged candidates the boundary's cap of 3 left uncredited. */
+        engagedCapped: summary.engagedCapped,
         expandedIds: summary.expandedIds.slice(0, 64),
         expandedTotal: summary.expandedIds.length,
         /** Of the expanded, how many this session had seen as a QUIET POINTER

@@ -368,6 +368,34 @@ export interface Expansion {
 }
 
 /**
+ * WHAT A REPLY DID, as evidence for the engaged door (2026-10-10, G1b;
+ * `recall/reference.ts#resolveEngagement`): one tool call's input as text,
+ * positioned like an `Expansion` and kept beside the turn list for the same
+ * reason — a live cursor indexes that list. Never captured, never paced: the
+ * credit seam is the only reader.
+ *
+ * THIS PACKAGE'S OWN TOOLS ARE LEFT OUT. Decided by g1b-builder, 2026-10-10,
+ * lightly held; revisit after ~5 lived days. Why: the write-up and the
+ * chapter are the ask's answer, restating the session — crediting a footnote
+ * because the hand-back restated it would let the ask train what it asks
+ * about. A deliberate `recall` is credited by its own door (`Expansion`).
+ */
+export interface ToolInput {
+  readonly atTurn: number;
+  readonly text: string;
+}
+
+/**
+ * The most of one tool call's input (characters of its JSON) the engaged door
+ * reads. A `Write` can
+ * carry a whole file; the evidence of drawing on a title is near the top or
+ * nowhere. Decided by g1b-builder, 2026-10-10, lightly held; revisit after ~5
+ * lived days. Why: it is the cap the transcript measurement used, and it
+ * bounds what a hook process holds per call.
+ */
+export const TOOL_INPUT_CHARS = 4096;
+
+/**
  * A turn as this reader emits it. `entry` is the ordinal of the transcript line
  * it came from: one line with several text blocks yields several turns (the
  * cursor indexes blocks), and pacing counts the LINE once (`hooks.ts#substanceOf`).
@@ -384,6 +412,9 @@ export interface TranscriptRead {
   readonly corrupt: number;
   /** Deliberate-recall calls, in order, positioned against `turns`. */
   readonly expansions: Expansion[];
+  /** Other tools' inputs, in order, positioned against `turns` (G1b). Absent
+   *  on a read that found no file. */
+  readonly toolInputs?: ToolInput[];
   /** `message.model` of the last assistant entry the model wrote (not a host
    *  stand-in, not a sidechain). Absent when none carried one. */
   readonly model?: string;
@@ -422,6 +453,19 @@ export function readTranscript(path: string | undefined): TranscriptRead {
   return parseTranscript(raw);
 }
 
+/** One tool call's input as text for the engaged door, capped; undefined when there is none. */
+function toolInputText(input: unknown): string | undefined {
+  if (input === undefined || input === null) return undefined;
+  let text: string;
+  try {
+    text = typeof input === "string" ? input : JSON.stringify(input);
+  } catch {
+    return undefined;
+  }
+  if (typeof text !== "string" || text.length === 0) return undefined;
+  return text.length > TOOL_INPUT_CHARS ? text.slice(0, TOOL_INPUT_CHARS) : text;
+}
+
 /** A parsed line that can be read as an entry: a plain object, nothing else. */
 function isEntry(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -431,6 +475,7 @@ function isEntry(value: unknown): value is Record<string, unknown> {
 export function parseTranscript(raw: string): TranscriptRead {
   const turns: TranscriptTurn[] = [];
   const expansions: Expansion[] = [];
+  const toolInputs: ToolInput[] = [];
   let corrupt = 0;
   let ordinal = -1;
   // Queued prompts already emitted, by their text. Open until a twin consumes
@@ -501,11 +546,14 @@ export function parseTranscript(raw: string): TranscriptRead {
       if (piece.expansion !== undefined && role === "assistant" && piece.expansion.length > 0) {
         expansions.push({ atTurn: turns.length, ids: piece.expansion });
       }
+      if (piece.toolInput !== undefined && role === "assistant" && author !== "host") {
+        toolInputs.push({ atTurn: turns.length, text: piece.toolInput });
+      }
       if (piece.text.trim().length === 0) continue;
       turns.push({ role, text: piece.text, source: piece.source, entry: ordinal });
     }
   }
-  return { turns, ok: true, reason: "read", corrupt, expansions, ...(model === undefined ? {} : { model }) };
+  return { turns, ok: true, reason: "read", corrupt, expansions, toolInputs, ...(model === undefined ? {} : { model }) };
 }
 
 /**
@@ -534,7 +582,7 @@ function typedText(pieces: readonly Piece[]): string {
     .trim();
 }
 
-type Piece = { text: string; source: TurnSource; expansion?: string[] };
+type Piece = { text: string; source: TurnSource; expansion?: string[]; toolInput?: string };
 
 /**
  * One text block, classified and — where it carries peer messages — attributed.
@@ -615,7 +663,13 @@ function blocksOf(content: unknown, role: "user" | "assistant", author: EntryAut
       const name = b["name"];
       const expansion =
         typeof name === "string" && RECALL_TOOL_NAME.test(name) ? expansionIdsOf(b["input"]) : undefined;
-      out.push({ text: "", source: "tool", ...(expansion === undefined ? {} : { expansion }) });
+      const toolInput = typeof name === "string" && !COUNTERPARTS_TOOL.test(name) ? toolInputText(b["input"]) : undefined;
+      out.push({
+        text: "",
+        source: "tool",
+        ...(expansion === undefined ? {} : { expansion }),
+        ...(toolInput === undefined ? {} : { toolInput }),
+      });
     } else if (type === "tool_result") {
       out.push({ text: "", source: "tool" });
     } else if (type === "image") {

@@ -38,6 +38,18 @@
 export const FOOTNOTE_HEADER_STEP_0 = "Quietly available (ignorable):";
 export const FOOTNOTE_HEADER_STEP_1 =
   "Quietly available (ignorable; expand an id with recall before citing one):";
+/**
+ * STEP 2 (2026-10-10, G1b, review 05 C4). "Ignorable" told the model to
+ * ignore what it may now draw on — a reply that uses a footnote earns it half
+ * a use (`reference.ts#resolveEngagement`). The step-1 instruction stays: open
+ * an id before relying on its details. The "Quietly available" opening stays
+ * too: the sidebar mod finds the lane by it (`hooks/sidebar/hooks/feed.ts`).
+ * Decided by g1b-builder, 2026-10-10, lightly held; revisit after ~5 lived
+ * days (read `counterparts probe-oq4` before and after). Why: an instruction
+ * to ignore is the opposite of what the engaged tier rewards.
+ */
+export const FOOTNOTE_HEADER_STEP_2 =
+  "Quietly available (in the background; draw on what helps, open an id before relying on one):";
 
 /**
  * Framing is load-bearing and part of the spec (§9 G17). The footnote header
@@ -47,7 +59,7 @@ export const FRAMING = {
   /** Content-free by construction: no ids, no bodies, no feeling named. */
   affect: "Something here carries weight.",
   surfacedHeader: "Came to mind:",
-  footnoteHeader: FOOTNOTE_HEADER_STEP_1,
+  footnoteHeader: FOOTNOTE_HEADER_STEP_2,
   /**
    * ONE WORD, IN FRONT OF A CHAPTER (owner ruling, 2026-09-04 — LAUNCH-STATUS
    * §I14). A journal entry is the first-person ACCOUNT a memory was made from,

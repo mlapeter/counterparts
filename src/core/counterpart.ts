@@ -61,8 +61,15 @@ import {
   markJudged,
   saveSessionSemantic,
 } from "./recall/index.js";
-import { resolveReferences } from "./recall/reference.js";
-import type { ReferenceCandidate } from "./recall/reference.js";
+import {
+  ENGAGED_MAX_PER_BOUNDARY,
+  ENGAGED_TURN_WINDOW,
+  engagementTitleWords,
+  resolveEngagement,
+  resolveReferences,
+} from "./recall/reference.js";
+import type { EngagedUse, EngagementCandidate, ReferenceCandidate } from "./recall/reference.js";
+import { clip as clipTitle } from "./recall/render.js";
 import type {
   CandidateVerdict,
   CreditResult,
@@ -200,7 +207,7 @@ import type {
   AboutMark,
   AddFeelingsResult,
   FeelingInput, Embedder, StoreEvent, TraitInput, MemoryRow, MemoryStatus, SaidBy } from "./store/index.js";
-import { TUNABLES as PHYSICS, band as bandOf } from "./physics/index.js";
+import { TUNABLES as PHYSICS, band as bandOf, fadeOf } from "./physics/index.js";
 import type { UseTier } from "./physics/index.js";
 import type { Kind } from "./types.js";
 
@@ -504,6 +511,10 @@ export const SEMANTIC_LAG_EVENT = "adapter.semantic.lag";
  * is readable from the store, not inferred. Ids only, never body text.
  */
 export const RECALL_CREDIT_EVENT = "recall.credit";
+
+/** How a credit was earned: the three doors (`recall/reference.ts`). */
+export type ReferenceHowAny = "expanded" | "quoted" | "engaged";
+
 /**
  * ONE ROW PER APPLY OF CARRIED CO-ACTIVATION, written by the process that
  * applies it — the boundary's detached worker.
@@ -772,6 +783,11 @@ export const STORE_EXPORT_EVENT = "store.export";
 export interface CreditReferencesInput {
   readonly assistantTurns: readonly string[];
   readonly expansions: readonly string[];
+  /** What the person typed in the slice — the engaged door's "new to the
+   *  prompt" test (2026-10-10, G1b). Absent: no engaged credit can land. */
+  readonly userTurns?: readonly string[];
+  /** Tool-call inputs the replies made, as text (G1b). */
+  readonly toolInputs?: readonly string[];
   readonly deadline?: number;
   readonly now?: () => number;
 }
@@ -782,6 +798,10 @@ export interface CreditSummary {
   readonly considered: number;
   readonly expanded: number;
   readonly quoted: number;
+  /** Shown memories the replies DREW ON (G1b), before credit and its refusals. */
+  readonly engaged: number;
+  /** Engaged uses past the boundary's cap (`ENGAGED_MAX_PER_BOUNDARY`), not attempted. */
+  readonly engagedCapped: number;
   readonly credited: number;
   readonly unresolvedHandles: number;
   readonly skippedForBudget: number;
@@ -790,6 +810,8 @@ export interface CreditSummary {
   /** Refusals keyed by the physics `CreditReason` (or recall's own gate reason). */
   readonly refused: Record<string, number>;
   readonly ids: string[];
+  /** How each of `ids` was earned, aligned with it (review 05 C3). */
+  readonly how: ReferenceHowAny[];
   /** Uses refused strength credit only for their day cadence that still joined
    *  the turn's links (2026-09-28; associate NOTES §13). */
   readonly linkedDespite: number;
@@ -3116,8 +3138,19 @@ export class Counterpart {
    * §5, closed). Candidates are what this session surfaced LOUD — read from the
    * gate state, bodies from prose — plus whatever the assistant expanded by id.
    * Decision is `reference.ts` (pure); credit is `resolveUses` (the gate state's
-   * two refusals, then physics). Nothing here trains on a footnote, a wake line
-   * or a name in prose.
+   * two refusals, then physics). Nothing here trains on a footnote for being
+   * SHOWN, on a wake line, or on a bare name in prose.
+   *
+   * THE THIRD DOOR (2026-10-10, G1b). Revised by b2+f8, 2026-10-10, from
+   * Mike's 09-14 ruling, lightly held. Why: deposit can't work otherwise; the
+   * ~0.8 precision bar and the saturating cap keep the anti-rich-get-richer
+   * intent. A footnoted or loud memory shown on the judged stretch (or the
+   * `ENGAGED_TURN_WINDOW` turns before it) that the replies DREW ON — a rare
+   * title phrase or two rare title words, new to what the person typed
+   * (`reference.ts#resolveEngagement`) — is credited at the `engaged` tier:
+   * half a use, half a return, no core-lane day, at most
+   * `ENGAGED_MAX_PER_BOUNDARY` per boundary, after the expanded and quoted
+   * uses (a memory opened or quoted is credited by that door, not this one).
    */
   creditReferences(sessionId: string, input: CreditReferencesInput): CreditSummary {
     const day = this.store.livedDay();
@@ -3179,16 +3212,25 @@ export class Counterpart {
       ...(input.deadline === undefined ? {} : { deadline: input.deadline }),
       ...(input.now === undefined ? {} : { now: input.now }),
     });
+    // THE THIRD DOOR (G1b): read BEFORE the showings move the `judged` mark,
+    // since its window is measured from that mark.
+    const opened = new Set(refs.uses.map((u) => u.memoryId));
+    const engagement = this.engagedUses(sessionId, state, input, opened, now);
+    if (engagement.budgetExceeded) budgetExceeded = true;
+    const decided: { memoryId: string; how: ReferenceHowAny }[] = [
+      ...refs.uses,
+      ...engagement.engaged.map((e) => ({ memoryId: e.memoryId, how: "engaged" as const })),
+    ];
     // SHOWN, AND NOT USED (2026-10-09). Recall predicts on every turn that what
     // it shows will help the reply, and until now a miss left no record per
     // memory. The ambient showings since the last boundary that judged are
-    // scored once, here: used when a reply expanded or quoted them (whether or
-    // not credit then landed), otherwise listed. Measurement only. A boundary
-    // whose slice holds no reply and no expansion judges nothing (review of
-    // #329): a capture that failed or found nothing new is not a reply that
-    // ignored what it was shown.
+    // scored once, here: used when a reply expanded, quoted or (since
+    // 2026-10-10) drew on them, whether or not credit then landed; otherwise
+    // listed. Measurement only. A boundary whose slice holds no reply and no
+    // expansion judges nothing (review of #329): a capture that failed or found
+    // nothing new is not a reply that ignored what it was shown.
     const replied = input.assistantTurns.length > 0 || input.expansions.length > 0;
-    const showings = this.scoreShowings(sessionId, state, refs.uses, day, replied);
+    const showings = this.scoreShowings(sessionId, state, decided, day, replied);
     // An expansion is an ADDRESS the assistant typed into a tool call, and a
     // well-shaped address can still name nothing: a typo, or a memory removed
     // since it was footnoted. Physics would throw on it (`requireRow`) and take
@@ -3198,7 +3240,7 @@ export class Counterpart {
     const refuse = (why: string): void => {
       refused[why] = (refused[why] ?? 0) + 1;
     };
-    const uses = refs.uses.filter((u) => {
+    const uses = decided.filter((u) => {
       const row = this.store.row(u.memoryId);
       if (row === undefined) {
         refuse("unknown-id");
@@ -3221,6 +3263,25 @@ export class Counterpart {
         refuse("handoff");
         return false;
       }
+      // ENGAGEMENT NEVER REVIVES WHAT A NEWER MEMORY REPLACED (2026-10-10, G1b;
+      // synthesis collision G). A superseded row, or one faded under a newer
+      // one (`fade` < 1: a `changed` settle, later the slot detector or a
+      // fold), is not credited for being drawn on: the reply drew on its title,
+      // and the newer memory is the one that holds. An expansion still credits
+      // it, as before — opening an old memory on purpose is a deliberate act.
+      // Decided by g1b-builder, 2026-10-10, lightly held; revisit after ~5
+      // lived days. Why: a use resets decay, and a faded "earlier" memory held
+      // up by half-credits would keep winning slots it lost.
+      if (u.how === "engaged") {
+        if (row.superseded_by !== null) {
+          refuse("superseded");
+          return false;
+        }
+        if (fadeOf({ fade: row.fade }) < 1) {
+          refuse("faded-under-newer");
+          return false;
+        }
+      }
       return true;
     });
     // ONE USE AT A TIME, each inside its own try. `resolveUse` reaches physics
@@ -3231,14 +3292,38 @@ export class Counterpart {
     // `failed` for a boundary that half-succeeded (review of #99, finding 1).
     // A throw is a refusal keyed by its code; the batch goes on.
     const ids: string[] = [];
+    const how: ReferenceHowAny[] = [];
     const coactivated: Credited[] = [];
     let credited = 0;
+    let engagedCredited = 0;
+    let engagedCapped = 0;
     /** Uses whose strength credit was refused for its day cadence and that
      *  joined the turn's links anyway (2026-09-28) — counted, so the decoupling
      *  is visible on the credit row. */
     let linkedDespite = 0;
     for (const u of uses) {
+      // THE CAP COUNTS WHAT LANDED: an engaged use refused for its day cadence
+      // does not use up a slot. Opened and quoted uses come first in `decided`
+      // and are never capped.
+      if (u.how === "engaged" && engagedCredited >= ENGAGED_MAX_PER_BOUNDARY) {
+        engagedCapped += 1;
+        continue;
+      }
       try {
+        if (u.how === "engaged") {
+          // Strength only (G1b): the engaged tier joins no pair set yet — the
+          // edge deposit from engagement is the association group's.
+          const r = this.resolveUse(sessionId, u.memoryId, "engaged");
+          if (r.credited) {
+            credited += 1;
+            engagedCredited += 1;
+            ids.push(u.memoryId);
+            how.push("engaged");
+            continue;
+          }
+          refuse(r.outcome?.reason ?? r.reason);
+          continue;
+        }
         // A QUOTED use was a loud candidate recall surfaced on a turn's own cue
         // this session: organic, whatever the wake's hints lane was showing. An
         // EXPANDED id may have been read off the wake — the display decides
@@ -3257,6 +3342,7 @@ export class Counterpart {
         if (r.credited) {
           credited += 1;
           ids.push(u.memoryId);
+          how.push(u.how);
           continue;
         }
         // The physics enum where physics refused, recall's own reason
@@ -3271,7 +3357,7 @@ export class Counterpart {
       ? "budget-exceeded"
       : credited > 0
         ? "credited"
-        : candidates.length === 0 && refs.uses.length === 0
+        : candidates.length === 0 && refs.uses.length === 0 && engagement.considered === 0
           ? "no-candidates"
           : "nothing-to-credit";
     const expandedIds = refs.uses.filter((u) => u.how === "expanded").map((u) => u.memoryId);
@@ -3284,12 +3370,15 @@ export class Counterpart {
       considered: refs.considered,
       expanded: refs.expanded,
       quoted: refs.quoted,
+      engaged: engagement.engaged.length,
+      engagedCapped,
       credited,
       unresolvedHandles: refs.unresolvedHandles,
       skippedForBudget: refs.skippedForBudget,
       unreadable,
       refused,
       ids,
+      how,
       linkedDespite,
       shown: showings.shown,
       unused: showings.unused,
@@ -3302,6 +3391,7 @@ export class Counterpart {
       considered: summary.considered,
       expanded: summary.expanded,
       quoted: summary.quoted,
+      engaged: summary.engaged,
       credited,
       linkedDespite,
       pointersExpanded,
@@ -3331,6 +3421,62 @@ export class Counterpart {
    * scored and the mark stays, so the showings wait for the first boundary
    * that read a reply (review of #329).
    */
+  private engagedUses(
+    sessionId: string,
+    state: GateState,
+    input: CreditReferencesInput,
+    opened: ReadonlySet<string>,
+    now: () => number,
+  ): { engaged: readonly EngagedUse[]; considered: number; budgetExceeded: boolean } {
+    const none = { engaged: [], considered: 0, budgetExceeded: false };
+    // No prompt text, no "new to the prompt" test: precision over recall.
+    if (input.userTurns === undefined) return none;
+    const toolTexts = input.toolInputs ?? [];
+    if (input.assistantTurns.length === 0 && toolTexts.length === 0) return none;
+    let from = 0;
+    try {
+      from = judgedThrough(this.store, sessionId);
+    } catch {
+      from = 0;
+    }
+    const since = from + 1 - ENGAGED_TURN_WINDOW;
+    const titleBytes = this.recall.tunables.FOOTNOTE_TITLE_BYTES;
+    const candidates: EngagementCandidate[] = [];
+    let budgetExceeded = false;
+    for (const [id, rec] of Object.entries(state.surfaced)) {
+      if (!rec.trains || rec.turn < since || opened.has(id)) continue;
+      if (input.deadline !== undefined && now() > input.deadline) {
+        budgetExceeded = true;
+        break;
+      }
+      const row = this.store.row(id);
+      if (row === undefined || row.archived === 1) continue;
+      // The title AS SHOWN (`recall/index.ts#resolveDoc`, then the footnote's clip).
+      const firstLine = row.body.split("\n").find((l) => l.trim().length > 0) ?? "";
+      candidates.push({ id, title: clipTitle(row.title ?? firstLine, titleBytes), shownTurn: rec.turn });
+    }
+    if (candidates.length === 0) return { ...none, budgetExceeded };
+    let df: ReadonlyMap<string, number>;
+    let storeSize: number;
+    try {
+      df = this.store.docFrequency([...new Set(candidates.flatMap((c) => engagementTitleWords(c.title)))]);
+      storeSize = this.store.countMemories({ archived: false });
+    } catch {
+      return { ...none, budgetExceeded };
+    }
+    const result = resolveEngagement({
+      replyTexts: input.assistantTurns,
+      toolTexts,
+      promptTexts: input.userTurns,
+      candidates,
+      df,
+      storeSize,
+      ...(input.deadline === undefined ? {} : { deadline: input.deadline }),
+      now,
+    });
+    return { engaged: result.engaged, considered: result.considered, budgetExceeded: budgetExceeded || result.budgetExceeded };
+  }
+
   private scoreShowings(
     sessionId: string,
     state: GateState,

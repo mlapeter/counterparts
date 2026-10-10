@@ -28,8 +28,21 @@ export type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 
 export const TUNABLES = {
   // --- §5.2 strength ---
-  /** Repetition credit per use [v0, verbatim]. */
+  /** Repetition credit per use [v0, verbatim]. RETIRED from `rep()` on
+   *  2026-10-10 (G1b, engaged credit): the arm saturates instead (below). Kept
+   *  so the old linear arm can be named in the NOTES and restored in one line. */
   REP_PER_USE: 0.12,
+  /**
+   * THE REPETITION ARM SATURATES (2026-10-10, G1b): `rep = REP_CAP x (1 −
+   * e^(−uses / REP_SCALE_USES))` — 0.14 after one use, 0.24 after two, 0.40
+   * after five, never a cliff at the cap. Was `min(0.12 x uses, 0.5)`, linear
+   * to a wall. With engaged credit (half a use for drawing on a footnote) use
+   * can come more often, and each further use must add less.
+   * Decided by g1b-builder, 2026-10-10, lightly held; revisit after ~5 lived
+   * days. Why: review 05 C2/D3; the shape keeps "the 5th use adds clearly less
+   * than the 1st" (its decision rule 2) at any intake.
+   */
+  REP_SCALE_USES: 3,
   /** Repetition cap [v0; v1 §10 G11]. Repetition is also no road to the
    *  identity band for any kind but `self`/`person` — guarantee 4, now a rule of
    *  `promotionEligibility` rather than a threshold (§5.3, 2026-09-26). */
@@ -75,6 +88,15 @@ export const TUNABLES = {
    * durability (spacing-scaled like any return). CAL.
    */
   REFLECTION_RETURN_WEIGHT: 1.0,
+  /**
+   * An ENGAGED use's return (2026-10-10, G1b): a reply drew on a footnote
+   * without opening it. Half a return, spacing-scaled like the others, and no
+   * core-lane day of its own (`returns.source = 'engaged'` is outside the
+   * lanes' `awake`/`reflection`). Decided by g1b-builder, 2026-10-10, lightly
+   * held; revisit after ~5 lived days. Why: review 05 D1; engagement without
+   * opening is weaker evidence than opening.
+   */
+  ENGAGED_RETURN_WEIGHT: 0.5,
   /**
    * A reflection counts a memory as returned at most once every this many
    * lived days (working default 2026-09-27): "the reflection can't cite the
@@ -242,6 +264,13 @@ export const TUNABLES = {
   // --- §5.5 reinforcement ---
   /** Retrospective credit weights by tier. The ignorable tier never trains. */
   W_REFERENCED: 1.0,
+  /**
+   * The reply DREW ON a shown memory without opening it (2026-10-10, G1b;
+   * `recall/reference.ts#resolveEngagement`): half a use. Display alone still
+   * trains nothing — `W_FOOTNOTED` stays 0. Decided by g1b-builder,
+   * 2026-10-10, lightly held; revisit after ~5 lived days. Why: review 05 D1.
+   */
+  W_ENGAGED: 0.5,
   W_SURFACED: 0.25,
   W_FOOTNOTED: 0.0,
 
@@ -530,7 +559,8 @@ export function clampSalienceAtSeam(
 // ---------------------------------------------------------------------------
 
 export function rep(m: Pick<MemoryPhysics, "uses">): number {
-  return Math.min(TUNABLES.REP_PER_USE * m.uses, TUNABLES.REP_CAP);
+  if (!(m.uses > 0)) return 0;
+  return TUNABLES.REP_CAP * (1 - Math.exp(-m.uses / TUNABLES.REP_SCALE_USES));
 }
 
 export function cons(m: Pick<MemoryPhysics, "consolidated">): number {
@@ -1018,7 +1048,7 @@ export function promote(m: MemoryPhysics, d: number, ctx: CoreContext): Promotio
  * #238 gave `awake` — do not "fix" it back to `on-display` (physics
  * CONTRACT §5.11).
  */
-export type ReturnSource = "awake" | "dream" | "reflection";
+export type ReturnSource = "awake" | "dream" | "reflection" | "engaged";
 
 export type ReturnReason =
   | "counted"
@@ -1120,11 +1150,31 @@ export function creditReturn(
       ? TUNABLES.DREAM_RETURN_WEIGHT
       : opts.source === "reflection"
         ? TUNABLES.REFLECTION_RETURN_WEIGHT
-        : (opts.tierWeight ?? TUNABLES.W_REFERENCED);
+        : opts.source === "engaged"
+          ? TUNABLES.ENGAGED_RETURN_WEIGHT
+          : (opts.tierWeight ?? TUNABLES.W_REFERENCED);
   if (tier <= 0) return refuse("ignorable-tier");
   if (opts.source === "awake" && tier < TUNABLES.W_REFERENCED) return refuse("not-referenced");
   if (d <= m.birthDay) return refuse("birth-day");
   if (opts.source === "awake" && opts.onDisplay === true) return refuse("on-display");
+  // AN ENGAGED RETURN (2026-10-10, G1b): half a return, spaced from the last
+  // return of ANY kind (the caller passes the last engaged day as `since`), and
+  // refused on a day that already counted one of any kind. It touches only the
+  // `returns` sum: no lane day, no `lastReturnDay` (those are the core lanes'),
+  // no `lastDreamDay`. The memory was footnoted on the turn's own cue, so the
+  // wake's display rule does not apply (as for a quoted loud memory).
+  if (opts.source === "engaged") {
+    if (gap <= 0) return refuse("already-returned-today");
+    const weight = tier * spacingWeight(gap);
+    return {
+      counted: true,
+      reason: "counted",
+      source: "engaged",
+      gap,
+      weight,
+      next: { ...unchanged, returns: unchanged.returns + weight },
+    };
+  }
   // "Already today" is asked of the SAME kind of return for an awake one: a
   // dream that replayed the memory earlier this lived day (the ask comes
   // mid-session, and the day goes on) takes the spacing — the awake return
@@ -1222,10 +1272,11 @@ export function symmetryCheck(kind: Kind, counts: { up: number; down: number }):
 // §5.5 Reinforcement
 // ---------------------------------------------------------------------------
 
-export type UseTier = "referenced" | "surfaced" | "footnoted";
+export type UseTier = "referenced" | "engaged" | "surfaced" | "footnoted";
 
 export const USE_TIER_WEIGHT: Record<UseTier, number> = {
   referenced: TUNABLES.W_REFERENCED,
+  engaged: TUNABLES.W_ENGAGED,
   surfaced: TUNABLES.W_SURFACED,
   footnoted: TUNABLES.W_FOOTNOTED,
 };
@@ -1253,15 +1304,31 @@ export interface CreditOutcome {
  *
  * A credited use also resets the forgetting curve: `lastUsedDay := d` raises
  * S through `uses`, so the next interval is longer — the testing effect.
+ *
+ * THE TIER ONLY GOES UP WITHIN A DAY (2026-10-10, G1b). `upgradeFrom` names a
+ * lower tier the SAME memory was credited at earlier this lived day (the
+ * caller knows it; physics carries no tier). Then the day's credit is lifted
+ * to `tier`: `uses` gains the difference, the clock is already today's, and
+ * the reinforced day is not counted twice. Without it an engaged credit at
+ * one boundary would refuse the expansion at the next as
+ * `already-credited-today`. Decided by g1b-builder, 2026-10-10, lightly held;
+ * revisit after ~5 lived days. Why: review 05 C2 ("a referenced use the same
+ * day supersedes it").
  */
-export function creditUse(m: MemoryPhysics, d: number, tier: UseTier): CreditOutcome {
+export function creditUse(m: MemoryPhysics, d: number, tier: UseTier, opts: { upgradeFrom?: UseTier } = {}): CreditOutcome {
   const w = USE_TIER_WEIGHT[tier];
   const days = reinforcedDays(m);
   const unchanged = { uses: m.uses, lastUsedDay: m.lastUsedDay, reinforcedDays: days };
   if (w <= 0) return { credited: false, reason: "ignorable-tier", w, next: unchanged };
   if (d === m.birthDay) return { credited: false, reason: "birth-day", w, next: unchanged };
   if (d < m.lastUsedDay) return { credited: false, reason: "stale-day", w, next: unchanged };
-  if (d === m.lastUsedDay) return { credited: false, reason: "already-credited-today", w, next: unchanged };
+  if (d === m.lastUsedDay) {
+    const from = opts.upgradeFrom === undefined ? 0 : USE_TIER_WEIGHT[opts.upgradeFrom];
+    if (from > 0 && from < w) {
+      return { credited: true, reason: "credited", w, next: { uses: m.uses + (w - from), lastUsedDay: d, reinforcedDays: days } };
+    }
+    return { credited: false, reason: "already-credited-today", w, next: unchanged };
+  }
   return {
     credited: true,
     reason: "credited",
