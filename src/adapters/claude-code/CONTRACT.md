@@ -838,11 +838,12 @@ terminal; "dream on your own" sets it again. Any setting chosen on this version 
 ### One size budget per hook envelope (2026-09-29 — a working default)
 
 **[M] Everything one SessionStart or one UserPromptSubmit prints is measured against one
-budget**, the host's cap (`TUNABLES.HOST_OUTPUT_CHARS`, 10,000, counted in bytes; the JSON
-form `ENVELOPE_CHARS`, 9,500), and a crowded envelope gives way in a stated order, first to
+budget**, the host's cap (`TUNABLES.HOST_OUTPUT_CHARS`, 10,000, counted in bytes; in the JSON
+form each field is held to it on its own, as the host measures it — 2026-10-10, it was 9,500
+characters of whole envelope before), and a crowded envelope gives way in a stated order, first to
 last. Each part that gives way is DEFERRED, never cut, and never spent on a line the session
 did not get.
-- **SessionStart:** the owner's notices (dropped before the JSON envelope passes 9,500) →
+- **SessionStart:** the owner's notices (dropped when a field of the JSON form would pass the cap) →
   the write-up pointer → the first-launch question (measured against this budget, no
   longer the reported injection budget) → plain reminders due today (they wait for the
   first prompt, unclaimed) → the wake, which is never cut at delivery: it was composed to
@@ -917,7 +918,7 @@ session, because an MCP result is not under the host's 10,000-character cap on a
 output and the wake is. The pointer is measured against that cap as PLAIN stdout
 (`HOST_OUTPUT_CHARS` = 10,000; bytes ≥ characters): with no owner notice
 `bin/hook.ts#hostDelivery` prints plain text, and with one it drops the notice before it
-lets the JSON envelope pass `ENVELOPE_MAX_CHARS`. It is NOT held to the reported budget,
+lets either field of the JSON form pass the cap (`fieldsFit`). It is NOT held to the reported budget,
 which is what the wake is composed to; a 9,038-byte wake leaves room (tested with host
 ids). Past the cap it DEFERS, claims nothing, and records the deferral DURABLY
 (`sessions.ts#WRITE_UP_POINTER_KEY`, one meta row: outcome, need, room), which doctor

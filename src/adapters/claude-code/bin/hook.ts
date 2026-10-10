@@ -76,26 +76,30 @@ import { HOST_SESSION_START, HOST_USER_PROMPT_SUBMIT, envelopeJson } from "../en
 export { HOST_SESSION_START, HOST_USER_PROMPT_SUBMIT } from "../envelope.js";
 
 /**
- * THE MOST STDOUT THIS HOOK MAY PRINT AS JSON, and why the number is 9,500.
+ * WHAT THE JSON FORM MUST FIT: EACH FIELD, NOT THE WHOLE ENVELOPE (measured
+ * 2026-10-10 on Claude Code 2.1.296; adapter NOTES, "The notice is capped").
  *
- * The host's own cap, verbatim (https://code.claude.com/docs/en/hooks): "Hook
- * output strings, including `additionalContext`, `systemMessage`, and plain
- * stdout, are capped at 10,000 characters. Output that exceeds this limit is
- * saved to a file and replaced with a preview and file path."
+ * The host's cap (https://code.claude.com/docs/en/hooks#json-output): "A hook's
+ * `additionalContext`, `systemMessage`, and `initialUserMessage` strings, and
+ * its plain stdout, are capped at 10,000 characters … For JSON output, each
+ * field is measured separately; plain stdout is measured whole." Measured: a
+ * 10,488-character envelope in this hook's own shape (`systemMessage` 376,
+ * `additionalContext` 9,910) and a 12,637-character escape-heavy one both
+ * parsed, every field whole; a field past 10,000 is previewed and the JSON
+ * still parses. So the JSON form's escaping costs nothing: what must fit is
+ * the model's text and the person's line, each under `TUNABLES.HOST_OUTPUT_CHARS`
+ * (the one place the host's number lives), in characters, as the host counts.
  *
- * Which is survivable for PLAIN stdout — a truncated wake is still a wake — and
- * fatal for the JSON form: replace the printed object with a preview and the
- * stdout no longer parses as JSON, so `additionalContext` is never read and the
- * ENTIRE WAKE is dropped. And the envelope is bigger than the wake it carries:
- * JSON escaping turns every newline into two characters, so a 9,038-byte wake
- * plus a 352-character notice measured 9,618 characters of stdout — one bad day
- * away from losing the wake on exactly the morning something was red.
- *
- * So the JSON form is used only while it demonstrably fits, with 500 characters
- * of margin for the escaping, and the fallback is the plain wake: the notice is
- * what gets dropped, never the memory. `counterparts doctor` still prints it.
+ * Until then (2026-09-14) the rule was 9,500 characters of WHOLE envelope —
+ * read from the same docs as fatal past 10,000, since a previewed object would
+ * no longer parse — so on a full-wake day the notice was dropped though both
+ * fields fit. Now the notice is kept whenever both fields fit, and the fallback
+ * is still the plain wake: a notice that does not fit is dropped, never the
+ * memory, and `counterparts doctor` still prints it.
  */
-export const ENVELOPE_MAX_CHARS: number = TUNABLES.ENVELOPE_CHARS;
+function fieldsFit(context: string, message: string): boolean {
+  return context.length <= TUNABLES.HOST_OUTPUT_CHARS && message.length <= TUNABLES.HOST_OUTPUT_CHARS;
+}
 
 /**
  * HOW A DUE STOP ASK LEAVES THIS PROCESS — ONE shape (owner, 2026-09-24).
@@ -1344,15 +1348,16 @@ export function hostDelivery(
     );
     if (name === "session-start" && notices.length > 0) {
       const envelopeOf = (message: string): string => envelopeJson(HOST_SESSION_START, message, out);
-      // THE WAKE WINS. Over `ENVELOPE_MAX_CHARS` the host would replace this
-      // whole string with a preview, the JSON would stop parsing, and the
-      // session would start with no memory at all — a worse outcome than not
-      // seeing the warning, which `counterparts doctor` prints on request.
-      // And the notices go in in the order given, each only if it still fits.
+      // THE WAKE WINS. Each field must fit the host's cap on its own
+      // (`fieldsFit`): a wake past it is previewed in either form, and then the
+      // plain form is printed and `overCap` says so. The notices go in in the
+      // order given, each only while the person's field still fits.
+      // `envelopeChars` stays what it was, the whole object's length — a fact
+      // for the record, no longer the test.
       const kept: string[] = [];
       const left: string[] = [];
       for (const n of notices) {
-        if (envelopeOf([...kept, n].join("\n")).length <= ENVELOPE_MAX_CHARS) kept.push(n);
+        if (fieldsFit(out, [...kept, n].join("\n"))) kept.push(n);
         else left.push(n);
       }
       const dropped =
@@ -1361,7 +1366,7 @@ export function hostDelivery(
           : {
               noticeChars: left.join("\n").length,
               envelopeChars: envelopeOf(notices.join("\n")).length,
-              limitChars: ENVELOPE_MAX_CHARS,
+              limitChars: TUNABLES.HOST_OUTPUT_CHARS,
             };
       if (kept.length === 0) return plainOut(out, dropped);
       return { stdout: envelopeOf(kept.join("\n")), stderr: "", exitCode: 0, dropped };
@@ -1382,8 +1387,8 @@ export function hostDelivery(
           ? {}
           : { hookSpecificOutput: { hookEventName: HOST_USER_PROMPT_SUBMIT, additionalContext: out } }),
       });
-      if (envelope.length > ENVELOPE_MAX_CHARS) {
-        return plainOut(out, { noticeChars: message.length, envelopeChars: envelope.length, limitChars: ENVELOPE_MAX_CHARS });
+      if (!fieldsFit(out, message)) {
+        return plainOut(out, { noticeChars: message.length, envelopeChars: envelope.length, limitChars: TUNABLES.HOST_OUTPUT_CHARS });
       }
       return { stdout: envelope, stderr: "", exitCode: 0, dropped: null };
     }

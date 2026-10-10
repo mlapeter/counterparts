@@ -466,6 +466,29 @@ own last line is telling the owner to run anyway. The alternative is a session
 that starts with no memory at all, and memory is the thing the session cannot be
 had without.
 
+**2026-10-10: measured, and the cap is per field.** On Claude Code 2.1.296, with 19
+`claude -p` probes in an isolated project, each checked against its session transcript
+(`~/counterparts-notes/2026-10-10-session-start-limits.md`): the 10,000-character cap
+applies to each STRING FIELD (`additionalContext`, `systemMessage`) and to plain stdout,
+not to the JSON stdout as a whole; it counts characters (9,800 accented characters, 23,483
+bytes, arrived whole); exactly 10,000 passes. An over-long envelope parses: a 12,637-
+character escape-heavy one carrying a 9,900-character field, and a 10,488-character one in
+this hook's own shape (`systemMessage` 376 + `additionalContext` 9,910), both arrived with
+every field whole. A field past 10,000 is replaced by a ~2,000-character preview and a file
+path, and the JSON still parses. The current docs say the same ("For JSON output, each field
+is measured separately"). Whether the 09-14 host behaved the 09-14 way was never measured.
+So `ENVELOPE_MAX_CHARS` (9,500 of whole envelope) is gone: `bin/hook.ts#fieldsFit` holds
+the model's text and the person's line each to `TUNABLES.HOST_OUTPUT_CHARS`, the one place
+the host's number lives, and the notice is kept whenever both fit — on the measured 9,038-
+byte red morning it now shows. The adapter sizes the same way (`hooks.ts#sessionStart`'s
+room and `recallRoom`): the model's field in bytes against the cap in either form, the
+person's lines costing it nothing, and no escape reserve (`ENVELOPE_ESCAPE_RESERVE` and
+`envelope.ts#escapedBytes` went too). What follows in practice: a plain reminder, the dream
+offer and the update notice ride beside a full wake or a full recall instead of waiting for a
+roomier turn; they wait only when the model's own field would pass the cap. The
+`adapter.notice.dropped` row keeps its shape: `envelopeChars` is still the whole object's
+length, a fact for the record, and `limitChars` is now the per-field cap.
+
 ## "Newest row" can be unknown, and says so (2026-09-14)
 
 `Store.eventLog` is `ORDER BY seq ASC LIMIT` (the missing DESC read is filed in

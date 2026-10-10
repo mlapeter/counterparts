@@ -9,8 +9,10 @@
  *   question, then today's plain reminders (to the first prompt); the wake is
  *   never cut at delivery (it trims itself at the boundary, identity last).
  *   Proved through the real delivery (`deliverTurn`): a reminder reaches the
- *   person only in the JSON form, so the asks are measured against THAT form
- *   when one is due (review of #285, S2).
+ *   person only in the JSON form, and the asks give way before it (review of
+ *   #285, S2). Since 2026-10-10 each field of that form is measured on its
+ *   own, as the host measures it, so the reminder's line costs the model's
+ *   field nothing.
  *
  *   UserPromptSubmit — the update notice, then the turn's recall (sized to what
  *   the other lines leave), and last the reserved lines: the dream's, today's
@@ -142,6 +144,13 @@ interface Delivered {
   stillDue: boolean;
 }
 
+/** The model's field of a printed envelope: `additionalContext`, or the plain stdout. */
+function contextOf(stdout: string): string {
+  return stdout.startsWith("{")
+    ? (JSON.parse(stdout) as { hookSpecificOutput: { additionalContext: string } }).hookSpecificOutput.additionalContext
+    : stdout;
+}
+
 /** One SessionStart THROUGH THE REAL DELIVERY (`deliverTurn`), in an unset directory. */
 function startDelivered(sessionId: string, wakeBytes: number): Delivered {
   // A fresh day's pointer allowance for each start, so a walk over wake sizes
@@ -186,7 +195,9 @@ describe("SessionStart, THROUGH THE DELIVERY: the reminder is the last thing to 
     // store each step, since a reminder shown once is claimed for the day.
     let largest: { w: number; d: Delivered } | null = null;
     let oneAsk: Delivered | null = null;
-    for (let w = 9_400; w >= 7_000 && oneAsk === null; w -= 10) {
+    // From just under the host's cap: since 2026-10-10 the reminder's line is
+    // its own field, so it rides whenever the wake and its lead fit the model's.
+    for (let w = 9_990; w >= 7_000 && oneAsk === null; w -= 10) {
       storeDir = join(root, `store-${String(w)}`);
       seed();
       const d = startDelivered(`s-walk-${String(w)}`, w);
@@ -203,22 +214,31 @@ describe("SessionStart, THROUGH THE DELIVERY: the reminder is the last thing to 
     // The reminder is shown and claimed, and it is the ASKS that gave way.
     expect(largest?.d).toMatchObject({ json: true, reminderShown: true, question: false, pointer: false, stillDue: false });
     expect(largest?.d.gaveWay).toEqual(["question", "pointer"]);
-    expect(largest?.d.stdout.length ?? 0).toBeLessThanOrEqual(TUNABLES.ENVELOPE_CHARS);
+    // Each field within the host's cap, in characters as the host counts; the whole object may be longer.
+    expect(contextOf(largest?.d.stdout ?? "{}").length).toBeLessThanOrEqual(TUNABLES.HOST_OUTPUT_CHARS);
     // With room for one of the two, the question has it and the pointer waits.
     expect(oneAsk).not.toBeNull();
     expect(oneAsk).toMatchObject({ reminderShown: true, question: true, pointer: false });
     expect(oneAsk?.gaveWay).toEqual(["pointer"]);
   });
 
-  test("the review's P3 morning — a 9,000-byte wake of ordinary lines: the reminder cannot fit beside the WAKE even alone, so it waits for the first prompt (unclaimed, recorded by the delivery), and the asks use the plain room", () => {
+  test("the review's P3 morning — a 9,000-byte wake of ordinary lines: the reminder rides beside it now (each field on its own, measured 2026-10-10), and the asks use what is left of the model's field", () => {
     seed();
     const d = startDelivered("s-full", 9_000);
+    expect(d).toMatchObject({ json: true, reminderShown: true, stillDue: false, question: true });
+    expect(d.gaveWay).not.toContain("plain");
+    expect(bytes(contextOf(d.stdout))).toBeLessThanOrEqual(TUNABLES.HOST_OUTPUT_CHARS);
+    // The escaped object is past the old 9,500-character rule, which cost this morning its reminder.
+    expect(d.stdout.length).toBeGreaterThan(9_500);
+  });
+
+  test("a wake that leaves the model's field no room even alone: the reminder waits for the first prompt (unclaimed, recorded by the delivery)", () => {
+    seed();
+    const d = startDelivered("s-overfull", 10_200);
     expect(d.json).toBe(false);
     expect(d.reminderShown).toBe(false);
     expect(d.stillDue).toBe(true);
-    expect(d.gaveWay).toEqual(["plain"]);
-    expect(d.question).toBe(true);
-    expect(bytes(d.stdout)).toBeLessThanOrEqual(TUNABLES.HOST_OUTPUT_CHARS);
+    expect(d.gaveWay).toContain("plain");
   });
 
 });

@@ -35,7 +35,8 @@ import {
 } from "../src/adapters/claude-code/index.js";
 import { ClaudeCodeAdapter } from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig, HookInput, SpawnPlan } from "../src/adapters/claude-code/index.js";
-import { ENVELOPE_MAX_CHARS, deliverTurn, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
+import { deliverTurn, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
+import { TUNABLES as ADAPTER_TUNABLES } from "../src/adapters/config.js";
 import { nightRunFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
 import { readSession, recordSession } from "../src/adapters/sessions.js";
@@ -141,7 +142,7 @@ describe("A. the day's ask is shown to the person, and claimed only when it leav
     const turn = a.userPromptSubmit(input());
     const told = turn.dream;
     if (told === undefined) throw new Error("no dream line");
-    const full = { ...turn, injection: `${turn.injection ?? ""}\n${"x".repeat(ENVELOPE_MAX_CHARS)}` };
+    const full = { ...turn, injection: `${turn.injection ?? ""}\n${"x".repeat(ADAPTER_TUNABLES.HOST_OUTPUT_CHARS)}` };
     const out = deliverTurn("user-prompt-submit", full, {}, null, doorsOf(a), input());
     expect(out.stdout).not.toContain("dream on your own");
     expect(out.dropped).not.toBeNull();
@@ -599,7 +600,7 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
     expect(turn.injection).toContain("Tell Mike this once, in your first reply, as one plain sentence of your own.");
     expect(turn.injection).toContain("Mike may also see it in the terminal");
     // With no room, the run has still started, the model's line stays, and only the terminal line waits.
-    const full = { ...turn, injection: `${turn.injection ?? ""}\n${"x".repeat(ENVELOPE_MAX_CHARS)}` };
+    const full = { ...turn, injection: `${turn.injection ?? ""}\n${"x".repeat(ADAPTER_TUNABLES.HOST_OUTPUT_CHARS)}` };
     const crowded = deliverTurn("user-prompt-submit", full, {}, null, doorsOf(a as unknown as ReturnType<typeof openAdapter>), input());
     expect(crowded.stdout).toContain("there is nothing for you to launch");
     expect(crowded.stdout).not.toContain("systemMessage");
