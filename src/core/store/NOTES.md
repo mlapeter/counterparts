@@ -794,10 +794,13 @@ and in WAL a reader no longer blocks the writer.
 - A handle opened while the file was in DELETE mode keeps reading **and writing**
   correctly after another connection flips it to WAL. That is deploy day for the
   MCP server: no restart needed.
-- A **read-only** connection cannot create the `-shm`, so a WAL database whose
+- On macOS a **read-only** connection cannot create the `-shm`, so a WAL database whose
   sidecars are BOTH missing is unreadable to one (`SQLITE_CANTOPEN`; with the
   `-wal` still there and only the `-shm` gone it succeeds — SQLite's read-only
-  fallback). Every handle in this codebase is read-write — the dashboard's and
+  fallback). On Linux it can: bun:sqlite binds bun's own SQLite there (3.51.2,
+  against Apple's 3.39.5), whose read-only connection creates both sidecars and
+  reads, and is refused only in a directory it cannot write
+  (`SQLITE_READONLY_DIRECTORY`; measured 2026-10-09, when CI first ran on Linux). Every handle in this codebase is read-write — the dashboard's and
   the census's included — so the exposure is `tools/parallel/readers.ts` alone,
   and any ordinary open puts the sidecars back. **How often that state occurs is
   a property of the SQLite build, not of this code**: Apple's system SQLite

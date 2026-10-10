@@ -48,7 +48,9 @@ describe("a moment, in a zone", () => {
     const at = Date.UTC(2026, 8, 25, 19, 40); // 1:40 pm MDT
     expect(localClock(at, "America/Denver")).toBe("Fri 25 Sep 2026, 1:40 pm MDT");
     expect(localClock(at, "America/New_York")).toBe("Fri 25 Sep 2026, 3:40 pm EDT");
-    expect(localClock(at, "Pacific/Honolulu")).toBe("Fri 25 Sep 2026, 9:40 am HST");
+    // The zone's short name is the system ICU's: HST on macOS 14 and on Linux
+    // (bun's own ICU), HAST on macOS 26 (the CI runner, 2026-10-09).
+    expect(localClock(at, "Pacific/Honolulu")).toMatch(/^Fri 25 Sep 2026, 9:40 am HA?ST$/);
   });
 
   test("daylight saving is the zone's rules, not an offset", () => {
