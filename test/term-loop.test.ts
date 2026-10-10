@@ -72,6 +72,18 @@ describe('ANSI → cell grid', () => {
     expect(cell(g, 2, 0)).toMatchObject({ italic: false, underline: false, inverse: false });
   });
 
+  test('colon sub-parameters stay with their code: 4:3 is a curly underline, 38:2::r:g:b a colour', () => {
+    const g = parseCapture(`${E}[4:3mA${E}[4:0mB${E}[38:2::1:2:3;48:2:4:5:6mC${E}[1;38:5:9;4:3mD${E}[0;58:2::7:8:9mE${E}[31;4:2;22mF`, 6, 1);
+    expect(cell(g, 0, 0)).toMatchObject({ underline: true, italic: false });
+    expect(cell(g, 1, 0)).toMatchObject({ underline: false, italic: false });
+    expect(cell(g, 2, 0).fg).toEqual({ kind: 'rgb', r: 1, g: 2, b: 3 });
+    expect(cell(g, 2, 0).bg).toEqual({ kind: 'rgb', r: 4, g: 5, b: 6 });
+    expect(cell(g, 3, 0)).toMatchObject({ bold: true, fg: { kind: 'index', n: 9 }, underline: true, italic: false });
+    // an underline colour changes neither foreground nor background
+    expect(cell(g, 4, 0)).toMatchObject({ fg: { kind: 'default' }, bg: { kind: 'default' }, underline: false });
+    expect(cell(g, 5, 0)).toMatchObject({ fg: { kind: 'index', n: 1 }, underline: true, bold: false, italic: false, dim: false });
+  });
+
   test("the SGR state carries from one line to the next, as tmux's capture expects", () => {
     const g = parseCapture(`${E}[48;2;5;8;12mA\nB`, 2, 2);
     expect(cell(g, 0, 1).bg).toEqual({ kind: 'rgb', r: 5, g: 8, b: 12 });

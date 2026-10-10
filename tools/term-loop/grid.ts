@@ -85,9 +85,49 @@ export function charCells(cp: number): 0 | 1 | 2 {
   return 1;
 }
 
+/**
+ * One colon group (ITU T.416 sub-parameters, as tmux writes `4:3` for a curly
+ * underline and `58:2::r:g:b` for an underline colour): its parts belong to
+ * that one code and never spill into the next, as semicolon parameters do.
+ */
+function applySubParams(a: Attrs, parts: readonly string[]): void {
+  const v = parts.map(s => (s === '' ? 0 : Number(s)));
+  const code = v[0] ?? 0;
+  if (code === 4) {
+    a.underline = (v[1] ?? 1) !== 0; // 4:0 off; 4:1 to 4:5 a style, drawn single
+    return;
+  }
+  if (code === 38 || code === 48 || code === 58) {
+    let c: Colour | null = null;
+    const ch = (n: number | undefined): number => Math.max(0, Math.min(255, n ?? 0));
+    if (v[1] === 5 && v.length >= 3) c = { kind: 'index', n: ch(v[2]) };
+    // 38:2:<colour space>:r:g:b, or 38:2:r:g:b without the colour space
+    else if (v[1] === 2 && v.length >= 6) c = { kind: 'rgb', r: ch(v[3]), g: ch(v[4]), b: ch(v[5]) };
+    else if (v[1] === 2 && v.length === 5) c = { kind: 'rgb', r: ch(v[2]), g: ch(v[3]), b: ch(v[4]) };
+    if (c !== null && code === 38) a.fg = c;
+    if (c !== null && code === 48) a.bg = c;
+    return;
+  }
+  // any other code with sub-parameters: the code alone
+  applySgr(a, String(code));
+}
+
 /** Applies one SGR parameter list to `a` (in place). Unknown codes are ignored, as a terminal does. */
 export function applySgr(a: Attrs, params: string): void {
-  const p = params === '' ? [0] : params.split(/[;:]/).map(s => (s === '' ? 0 : Number(s)));
+  const groups = params === '' ? ['0'] : params.split(';');
+  const p: number[] = [];
+  for (const g of groups) {
+    if (g.includes(':')) {
+      // a colon group stands alone: apply what came before it, then it
+      applyCodes(a, p.splice(0));
+      applySubParams(a, g.split(':'));
+    } else p.push(g === '' ? 0 : Number(g));
+  }
+  applyCodes(a, p);
+}
+
+/** Semicolon parameters, where 38;5;n and 38;2;r;g;b take the parameters after them. */
+function applyCodes(a: Attrs, p: readonly number[]): void {
   for (let i = 0; i < p.length; i++) {
     const n = p[i] ?? 0;
     if (n === 0) Object.assign(a, plainAttrs());
