@@ -1635,3 +1635,27 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
 - **For the rules audit, not changed here:** `remember`'s privilege "Your own words ride the
   buffer as their own span, so the end-of-session sweep does not mint them a second time"
   still names the sweep, whose code is there and does not run (keyless since 09-24).
+
+## 2026-10-10 — facts mode ranks faded matches inline (bench R2-2)
+
+- **What changed.** A matched memory below reach was a title line after the main results,
+  five a page, no body. Now it is ranked with the live matches by how strongly it matched,
+  its body shown, its heading line ending `faded: not used for a long while`; the header says
+  `N of them faded` (`all faded` when every match is). `FactsResult.faded` is that count
+  (it was the list of title lines); `FactItem.faded` the label. `FACTS_FADED_LINES` and
+  `FadedLine` are gone. The dashboard's ask box and the console's `ask` follow (a row's facts
+  line and its metadata line say faded).
+- **Why.** The benchmark caught Group 1 dropping 15 (426 vs 441), almost all multi-session
+  counting questions one item short: the missing item was a faded title line past the pages
+  the reader read. On the bench's scratch branch (`bench/faded-variants`, f9a47ebd) three
+  variants — fill after, inline, inline with a fade-scaled penalty — each recovered the 15
+  with no single-fact cost; inline is the simplest. Revised by b2+f8, 2026-10-10, from Mike's
+  2026-10-03 ruling, lightly held (`docs/IMPROVEMENTS.md`, Decisions to review, item 1).
+- **What did not change.** Ambient channels (turn recall's tiers, spreading, the wake) still
+  leave below-reach memories out. Being shown strengthens nothing; a faded result is now in
+  the answer's shown ids, so quoting its words credits it at the boundary, as opening it by
+  id always did. Meaning mode keeps its faded moments after the arc with "+N faded" in its
+  header: an arc is ordered by time, not by match, and a moment there is a pointer, not the
+  answer to a count.
+- **Fallback.** Variant (a″): a faded match's score × (1 − 0.3 × (1 − strength/REACH)) for
+  the ORDER only — if faded matches are ever seen crowding fresh ones on a live store.

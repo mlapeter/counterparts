@@ -250,9 +250,11 @@ export function timeWords(t) {
 /** A facts answer's head: how many answer it, then the quieter notes. Markup. */
 export function factsHead(r) {
   const lead = r.matched === 0
-    ? (r.fadedTotal > 0 ? "only faded memories answer it" : "nothing answers it")
+    ? "nothing answers it"
     : plural(r.matched, "memory answers it", "memories answer it") + (r.matched > 1 ? ", best first" : "");
   const notes = [];
+  // Faded matches rank with the rest, each labelled (2026-10-10, `facts.ts`).
+  if (r.faded > 0) notes.push(r.faded === r.matched ? (r.matched === 1 ? "it has faded" : "all faded") : r.faded + " of them faded");
   if (r.subjects.length > 0) notes.push("about " + r.subjects.map((s) => s.name).join(", "));
   const t = timeWords(r.time);
   if (t) notes.push(t);
@@ -289,6 +291,7 @@ export function factLines(m) {
     if (m.occurredOn && m.learned && m.learned !== m.occurredOn) said.push("learned " + dateOr(m.learned));
   }
   const parts = said.map(esc);
+  if (m.faded) parts.push(esc("faded: not used for a long while"));
   if (!m.current) {
     parts.push(/^(mem|epi|sch)_/.test(m.now || "") ? "an earlier version — now " + withIdMarks(m.now) : "an earlier version — a later one holds now");
   }
@@ -327,17 +330,14 @@ export function factRow(m, words) {
   }, { mark: words, under: factLines(m) });
 }
 
-/** A facts answer's rows: the page's results, then its faded ones. Markup. */
+/** A facts answer's rows: the page's results, faded ones among them, labelled. Markup. */
 export function factsRows(r, q) {
   const words = questionWords(q);
   const rows = r.memories.map((m) => factRow(m, words)).join("");
-  const faded = r.faded.length === 0 ? "" :
-    '<div class="mclose-h">Faded <span>· ' + esc(plural(r.fadedTotal, "memory", "memories") + " not used for a long while") + "</span></div>" +
-    r.faded.map((f) => memRow({ id: f.id, title: f.line, text: "", date: f.date, dateFrom: "learned", feelings: [] }, { mark: words })).join("");
-  if (!rows && !faded) {
+  if (!rows) {
     return '<div class="empty">Nothing I hold answers that. Try the words the memory itself would use, a person or a project it names, or a wider time.</div>';
   }
-  return rows + faded;
+  return rows;
 }
 
 /** A name asked about that has no card (`MeaningResult.noCard`), said first, on its own line. */

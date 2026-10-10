@@ -2099,7 +2099,7 @@ export class McpServer {
         matched: r.matched,
         page: r.page,
         pages: r.pages,
-        ...(r.fadedTotal > 0 ? { faded: r.fadedTotal } : {}),
+        ...(r.faded > 0 ? { faded: r.faded } : {}),
       };
       row = {
         path: "question",
@@ -2112,7 +2112,7 @@ export class McpServer {
         mode,
         matched: r.matched,
         shown: r.memories.length,
-        faded: r.fadedTotal,
+        faded: r.faded,
         page: r.page,
         ...(r.time === null ? {} : { time: r.time.anchor?.kind ?? "window" }),
       };

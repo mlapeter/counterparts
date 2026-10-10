@@ -7,7 +7,7 @@
  * a time window filters and counts what fell outside; each fact's labeled
  * lines (who said it, its status, when it happened and was learned, CURRENT);
  * earlier versions folded, corrected ones named as wrong (never a result); faded ones
- * listed after; a count header, pages, the 12,000-character room; and a
+ * ranked with the rest, bodies shown, labeled (2026-10-10); a count header, pages, the 12,000-character room; and a
  * quote of a shown memory credited at the boundary.
  *
  * Hermetic: every test makes its own temp store and removes it.
@@ -770,19 +770,82 @@ describe("time filters", () => {
 });
 
 describe("what never comes back, and what comes back labeled", () => {
-  test("faded memories are listed after, a line each, never in the main slots", () => {
+  // Revised 2026-10-10 (bench R2-2): faded matches rank WITH the live ones,
+  // bodies shown, each labeled — they were title lines after the results, and
+  // multi-session counting questions came out one item short.
+  test("a count whose items are half faded gets every item in the main ranking, with bodies, faded ones labeled", () => {
+    const c = brain();
+    seed(c);
+    const visits = [
+      "Visited the zqmuseum with Han to see the clocks.",
+      "Went back to the zqmuseum for the map exhibit.",
+      "Took the nephews to the zqmuseum on a rainy Saturday.",
+      "A late evening at the zqmuseum for the lecture on tides.",
+    ].map((body) => c.store.put({ type: "memory", kind: "fact", body }));
+    const fadedOnes = [visits[1]!, visits[3]!];
+    for (const id of fadedOnes) c.store.updatePhysics(id, { fade: 0.1 });
+    for (const id of visits) expect(hasFaded(c.store.physicsOf(id), c.store.livedDay())).toBe(fadedOnes.includes(id));
+    const r = ask(c, "how many times did I go to the zqmuseum?");
+    expect(new Set(r.memories.map((m) => m.id))).toEqual(new Set(visits));
+    expect(r.matched).toBe(4);
+    expect(r.faded).toBe(2);
+    expect(r.pages).toBe(1);
+    for (const m of r.memories) {
+      expect(m.faded).toBe(fadedOnes.includes(m.id));
+      expect(m.body).toContain("zqmuseum");
+    }
+    const text = renderFacts(r);
+    expect(text.split("\n")[0]).toBe("4 match · showing 4 · 2 of them faded");
+    expect(text).not.toContain("listed after");
+    for (const id of fadedOnes) {
+      const heading = text.split("\n").find((l) => l.includes(` · ${id} · `));
+      expect(heading).toContain("· faded: not used for a long while");
+    }
+    for (const id of visits.filter((v) => !fadedOnes.includes(v))) {
+      expect(text.split("\n").find((l) => l.includes(` · ${id} · `))).not.toContain("faded");
+    }
+    expect(text).toContain("Went back to the zqmuseum for the map exhibit.");
+    expect(text).toContain("A late evening at the zqmuseum for the lecture on tides.");
+  });
+
+  test("a faded match ranks by how well it matched: a stronger faded match comes before a weaker live one", () => {
     const c = brain();
     seed(c);
     const live = c.store.put({ type: "memory", kind: "fact", body: "The zqlamp needs a new bulb." });
-    const faded = c.store.put({ type: "memory", kind: "fact", title: "Old zqlamp", body: "The zqlamp was bought at the market." });
+    const faded = c.store.put({ type: "memory", kind: "fact", title: "Old zqlamp zqbrass", body: "The zqbrass zqlamp was bought at the market." });
     c.store.updatePhysics(faded, { fade: 0.1 });
     expect(hasFaded(c.store.physicsOf(faded), c.store.livedDay())).toBe(true);
-    const r = ask(c, "zqlamp");
-    expect(r.memories.map((m) => m.id)).toEqual([live]);
-    expect(r.faded.map((f) => f.id)).toEqual([faded]);
-    const text = renderFacts(r);
-    expect(text.split("\n")[0]).toContain("1 faded, listed after");
-    expect(text).toContain(`- Old zqlamp · 10-03 · ${faded} · faded`);
+    const r = ask(c, "zqbrass zqlamp");
+    expect(r.memories.map((m) => m.id)).toEqual([faded, live]);
+    expect(r.faded).toBe(1);
+    const only = ask(c, "zqbrass");
+    expect(only.matched).toBe(1);
+    expect(only.reason).toBe("answered");
+    expect(renderFacts(only).split("\n")[0]).toBe("1 match · showing 1 · faded");
+  });
+
+  test("ambient recall still leaves a below-reach memory out; facts mode still finds it", () => {
+    const c = brain();
+    const body = "The rotary zqtumbler jammed after the winter freeze; a mallet on the drum frees it.";
+    const id = c.store.put({
+      type: "memory",
+      kind: "fact",
+      title: "Zqtumbler jam",
+      body,
+      salience: { novelty: null, relevance: 0.8, emotional: 0.5, predictive: 0.6 },
+    });
+    const turn = "the rotary zqtumbler jammed again after the freeze";
+    const reached = (session: string): string[] => {
+      const d = c.recallForTurn({ sessionId: session, text: turn }).decision;
+      return [...d.surfaced, ...d.footnotes];
+    };
+    expect(reached("s-in-reach")).toContain(id);
+    c.store.updatePhysics(id, { fade: 0.1 });
+    expect(hasFaded(c.store.physicsOf(id), c.store.livedDay())).toBe(true);
+    expect(reached("s-below-reach")).not.toContain(id);
+    const r = ask(c, "zqtumbler");
+    expect(r.memories.map((m) => m.id)).toEqual([id]);
+    expect(r.memories[0]?.faded).toBe(true);
   });
 
   test("confidential memories are silently absent for a non-owner, counted only for the durable row", () => {
@@ -943,6 +1006,41 @@ describe("through the tool", () => {
     expect(quoted.quoted).toBe(1);
     expect(quoted.ids).toContain(id);
     expect(c.store.physicsOf(id).uses).toBeGreaterThan(before);
+  });
+
+  test("a faded result is credited on a quote or an open, never for being shown", async () => {
+    const c = brain();
+    seed(c);
+    const quotedId = c.store.put({ type: "memory", kind: "fact", body: "The zqquince hedge was planted along the north wall the spring we moved in." });
+    const openedId = c.store.put({ type: "memory", kind: "fact", body: "The zqquince jelly recipe wants twice the lemon the book says." });
+    for (const id of [quotedId, openedId]) c.store.updatePhysics(id, { fade: 0.1 });
+    const s = server(c);
+    const out = body(await s.call("recall", { question: "zqquince", mode: "facts" }));
+    expect(new Set(out["ids"] as string[])).toEqual(new Set([quotedId, openedId]));
+    expect(out["faded"]).toBe(2);
+    expect(String(out["answer"])).toContain("the north wall the spring we moved in");
+    c.store.advanceClock("2026-10-04");
+    const uses = (id: string): number => c.store.physicsOf(id).uses;
+    const before = { q: uses(quotedId), o: uses(openedId) };
+    // Shown, and the reply says nothing of it: no credit, and still faded.
+    const silent = c.creditReferences(SESSION, { assistantTurns: ["Nothing about it."], expansions: [] });
+    expect(silent.quoted).toBe(0);
+    expect(uses(quotedId)).toBe(before.q);
+    expect(uses(openedId)).toBe(before.o);
+    expect(hasFaded(c.store.physicsOf(quotedId), c.store.livedDay())).toBe(true);
+    // Quoted: credited.
+    const quoted = c.creditReferences(SESSION, {
+      assistantTurns: ["You planted the hedge along the north wall the spring we moved in, so it is old now."],
+      expansions: [],
+    });
+    expect(quoted.ids).toContain(quotedId);
+    expect(quoted.ids).not.toContain(openedId);
+    expect(uses(quotedId)).toBeGreaterThan(before.q);
+    expect(uses(openedId)).toBe(before.o);
+    // Opened by id: credited.
+    const opened = c.creditReferences(SESSION, { assistantTurns: ["Read it."], expansions: [openedId] });
+    expect(opened.ids).toContain(openedId);
+    expect(uses(openedId)).toBeGreaterThan(before.o);
   });
 });
 

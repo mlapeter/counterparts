@@ -280,7 +280,8 @@ export const TUNABLES = {
    * BELOW REACH (2026-10-10, Group 1, review 03 C2): strength under this and a
    * memory is left out of every AMBIENT channel — turn recall's surfaced and
    * footnote tiers, spreading's landings, the wake's work lines — while
-   * deliberate recall still finds it, listed after the main results as faded.
+   * deliberate recall still finds it (facts mode: ranked with the rest, its
+   * words shown, labeled faded — 2026-10-10; meaning mode: after the arc).
    * A computed state, never stored, never a deletion: a use, a deliberate open
    * or a dream replay brings it back. One threshold for "faded" everywhere
    * (it replaces deliberate recall's `FADED_RETAINED`). The identity band is

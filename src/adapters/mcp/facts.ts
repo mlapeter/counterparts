@@ -52,13 +52,25 @@
  *
  * FADED. A matched memory BELOW REACH (physics `REACH`, 2026-10-10 — the line
  * ambient recall leaves out; `hasFaded`, the rule meaning mode uses too) is
- * listed AFTER the main results, a title line
- * each, labeled faded — never in the main slots. Journal chapters and schemas
- * never fade here. Opening one by id credits it, which brings it back.
+ * ranked WITH the live matches, by how strongly it matched, with its body,
+ * and labeled faded; the header counts how many of the matches are faded.
+ * Journal chapters and schemas never fade here. Being shown strengthens
+ * nothing; opening it by id, or quoting the words shown, credits it as for
+ * any result, which brings it back. Forgetting lives in the ambient channels
+ * (turn recall, spreading, the wake); this effortful door reaches weak traces.
+ *
+ * Revised by b2+f8, 2026-10-10, from Mike's 2026-10-03 ruling (faded matches
+ * listed after the main results as title lines), lightly held. Why: the
+ * benchmark dropped 15 (multi-session counts one item short — the missing
+ * item was a faded title line past the pages read); inline-with-bodies
+ * recovered it with no single-fact cost (bench R2-2,
+ * ~/counterparts-bench/TUNING-LOG.md). Fallback if faded matches are ever
+ * seen crowding fresh ones on a live store: variant (a″), a mild fade-scaled
+ * penalty on the ORDER only (score × (1 − 0.3 × (1 − strength/REACH))).
  *
  * THE ANSWER (what `renderFacts` writes; the server ships it as `answer`):
  *
- *   12 match · showing 10 · 2 more → page 2 · 3 faded, listed after
+ *   12 match · showing 10 · 2 more → page 2 · 3 of them faded
  *   time: last week → 09-21..09-27, stretched 2 days each side · 4 more match outside it
  *   about: Han
  *   may not be everything: meaning search hit its cap (100) · 3 weak matches not shown
@@ -70,8 +82,8 @@
  *      corrected (was wrong): "gym on Tuesdays" (learned 09-10), corrected 09-11 · mem_…
  *      <the body whole when short, else a 300-character excerpt>
  *
- *   faded (3):
- *   - Old gym schedule · 2026-06-02 · mem_… · faded
+ *   2. Old gym schedule · mem_… · words · faded: not used for a long while
+ *      …its lines and body, as for any result
  *
  * The header counts DISTINCT facts (folded versions are not counted apart).
  * "may not be everything" is said only when a cap cut or a weak tail was left
@@ -116,8 +128,6 @@ import {
 export const FACTS_PAGE_SIZE = 10;
 /** The meaning search's cap: the only one of the four ways that is capped. */
 export const FACTS_MEANING_CAP = 100;
-/** Faded title lines on one page (faded: `deliberate.ts#hasFaded`, shared with meaning mode). */
-export const FACTS_FADED_LINES = 5;
 /**
  * WEAK: a match scoring below this share of the best match's score is left
  * out, and counted ("3 weak matches not shown"). Not applied to a question
@@ -214,6 +224,8 @@ export interface CorrectedVersion {
 
 export interface FactItem {
   readonly id: string;
+  /** Below reach (`deliberate.ts#hasFaded`): ranked with the rest, body shown, labeled faded. */
+  readonly faded: boolean;
   readonly title: string | null;
   /** The title, or the start of the words when there is none. */
   readonly line: string;
@@ -256,12 +268,6 @@ export interface FactItem {
   readonly score: number;
 }
 
-export interface FadedLine {
-  readonly id: string;
-  readonly line: string;
-  readonly date: string | null;
-}
-
 export interface FactsTime {
   readonly cue: string;
   readonly said: DayWindow | null;
@@ -289,8 +295,8 @@ export interface FactsResult {
   readonly pages: number;
   /** The page's results, in order. */
   readonly memories: readonly FactItem[];
-  readonly faded: readonly FadedLine[];
-  readonly fadedTotal: number;
+  /** How many of the `matched` facts are faded (below reach): ranked with the rest, each labeled. */
+  readonly faded: number;
   readonly weak: number;
   readonly duplicates: number;
   readonly meaningCapped: boolean;
@@ -671,20 +677,18 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   for (const c of beyond.values()) if (onlyTime || topAll <= 0 || c.score >= FACTS_WEAK_FRACTION * topAll) outside += 1;
 
   // ── faded, and the order ────────────────────────────────────────────────
-  const main: Candidate[] = [];
-  const faded: Candidate[] = [];
-  for (const c of pool.values()) {
+  // One ranking: a faded match is ranked with the live ones by how strongly
+  // it matched, and only labeled (revised 2026-10-10, see the header's FADED).
+  const main: Candidate[] = [...pool.values()];
+  const fadedIds = new Set<string>();
+  for (const c of main) {
     const r = rows.get(c.id) as RecallRow;
-    let isFaded = false;
-    if (r.type === "memory") {
-      try {
-        const p = store.physicsOf(c.id);
-        isFaded = hasFaded(p, day);
-      } catch {
-        isFaded = false;
-      }
+    if (r.type !== "memory") continue;
+    try {
+      if (hasFaded(store.physicsOf(c.id), day)) fadedIds.add(c.id);
+    } catch {
+      // No physics row: not faded.
     }
-    (isFaded ? faded : main).push(c);
   }
   const moment = (id: string): number => {
     const r = rows.get(id);
@@ -693,7 +697,6 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   const order = (a: Candidate, b: Candidate): number =>
     b.score - a.score || moment(b.id) - moment(a.id) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   main.sort(order);
-  faded.sort(order);
 
   // ── near-duplicates, walked in order as far as this page needs ─────────
   const bodies = new Map<string, { title: string | null; body: string }>();
@@ -738,7 +741,10 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   if (outside > 0) blockedBy["outside-window"] = outside;
 
   const shown = kept.slice((page - 1) * FACTS_PAGE_SIZE, page * FACTS_PAGE_SIZE);
-  const pages = Math.max(1, Math.ceil(matched / FACTS_PAGE_SIZE), Math.ceil(faded.length / FACTS_FADED_LINES));
+  const pages = Math.max(1, Math.ceil(matched / FACTS_PAGE_SIZE));
+  // Faded among the matched: those kept, and those past the walk (not yet
+  // checked for near-duplicates, as `matched` counts them).
+  const fadedMatched = [...kept, ...main.slice(walked)].filter((c) => fadedIds.has(c.id)).length;
 
   /**
    * May this asker be told this id exists? A pair line names its other side
@@ -751,23 +757,19 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     const r = rows.get(id) ?? safe(() => store.row(id), undefined);
     return r !== undefined && r.confidential !== 1;
   };
-  const memories = shown.map((c) => factItem(ctx, c, rows.get(c.id) as RecallRow, read(c.id) as { title: string | null; body: string }, pairs, w.tokens, today, zone, window, canName));
-  const fadedLines: FadedLine[] = faded.slice((page - 1) * FACTS_FADED_LINES, page * FACTS_FADED_LINES).map((c) => {
-    const r = rows.get(c.id) as RecallRow;
-    const title = r.title ?? read(c.id)?.body ?? c.id;
-    return { id: c.id, line: plainLine(title, 80), date: parseCalendarDate(r.occurred_on ?? "")?.text ?? learnedOf(r, zone) };
-  });
+  const memories = shown.map((c) =>
+    factItem(ctx, c, rows.get(c.id) as RecallRow, read(c.id) as { title: string | null; body: string }, pairs, w.tokens, today, zone, window, canName, fadedIds.has(c.id)),
+  );
 
   return {
     mode: "facts",
-    reason: matched + faded.length === 0 ? "nothing-came" : "answered",
+    reason: matched === 0 ? "nothing-came" : "answered",
     semantic: ctx.vector !== null && ctx.vector.length > 0 ? "in-line" : ctx.semantic,
     matched,
     page,
     pages,
     memories,
-    faded: fadedLines,
-    fadedTotal: faded.length,
+    faded: fadedMatched,
     weak,
     duplicates,
     meaningCapped,
@@ -802,6 +804,7 @@ function factItem(
   zone: string,
   window: DayWindow | null,
   canName: (id: string) => boolean,
+  faded: boolean,
 ): FactItem {
   const store = ctx.counterpart.store;
   const journal = row.type === "episode";
@@ -900,6 +903,7 @@ function factItem(
   const title = row.title ?? doc.title;
   return {
     id: c.id,
+    faded,
     title,
     line: title !== null && title.trim().length > 0 ? plainLine(title, 100) : plainLine(text, 80),
     kind: row.kind,
@@ -1031,7 +1035,7 @@ function itemLines(m: FactItem, i: number, today: string, excerptChars: number):
   const out: string[] = [];
   const mark = m.journal ? "[journal] " : "";
   const ch = m.chapter === undefined ? "" : ` (chapter ${String(m.chapter.n)} of ${String(m.chapter.of)})`;
-  out.push(`${String(i)}. ${mark}${m.line} · ${m.id}${ch} · ${m.ways.join(", ")}`);
+  out.push(`${String(i)}. ${mark}${m.line} · ${m.id}${ch} · ${m.ways.join(", ")}${m.faded ? " · faded: not used for a long while" : ""}`);
   if (m.journal) {
     out.push(`   my journal · written ${shortDate(m.learned, today)}${m.lastWritten === undefined || m.lastWritten === null ? "" : `..${shortDate(m.lastWritten, today)}`}${m.where === null ? "" : ` in ${m.where}`}${m.who === null ? "" : ` · ${m.who}`}`);
   } else {
@@ -1097,7 +1101,7 @@ function renderAt(r: FactsResult, today: string, excerpt: number): string {
   if (r.page > 1) head.push(`page ${String(r.page)}`);
   if (shown > 0) head.push(r.page > 1 ? `showing ${String(first + 1)}–${String(first + shown)}` : `showing ${String(shown)}`);
   if (r.page < r.pages) head.push(`${after > 0 ? `${String(after)} more` : "more"} → page ${String(r.page + 1)}`);
-  if (r.fadedTotal > 0) head.push(`${String(r.fadedTotal)} faded, listed after`);
+  if (r.faded > 0) head.push(r.faded === r.matched ? (r.matched === 1 ? "faded" : "all faded") : `${String(r.faded)} of them faded`);
   lines.push(head.join(" · "));
   if (r.time !== null) {
     const t = r.time;
@@ -1138,7 +1142,7 @@ function renderAt(r: FactsResult, today: string, excerpt: number): string {
   if (r.duplicates > 0) {
     lines.push(`${String(r.duplicates)} near-duplicate${r.duplicates === 1 ? "" : "s"} of a result shown left out`);
   }
-  if (r.matched === 0 && r.fadedTotal === 0) {
+  if (r.matched === 0) {
     lines.push("");
     lines.push("Nothing matched. Try the words the memory itself would use, a person or project it names, or a wider time.");
     return lines.join("\n");
@@ -1147,11 +1151,6 @@ function renderAt(r: FactsResult, today: string, excerpt: number): string {
     lines.push("");
     lines.push(...itemLines(m, first + i + 1, today, excerpt));
   });
-  if (r.faded.length > 0) {
-    lines.push("");
-    lines.push(`faded (${String(r.fadedTotal)}): not used for a long while; opening one by id brings it back`);
-    for (const f of r.faded) lines.push(`- ${f.line} · ${f.date === null ? "date unknown" : shortDate(f.date, today)} · ${f.id} · faded`);
-  }
   lines.push("");
   const foot: string[] = [];
   if (r.memories.some((m) => !m.whole)) foot.push(`read any whole with ids: [...] (up to ${String(RECALL_MAX_IDS)})`);
