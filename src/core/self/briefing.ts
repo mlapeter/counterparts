@@ -1037,9 +1037,9 @@ export function render(
     }
     if (fits || cut === null) {
       // "STILL OPEN" KEEPS ITS FIRST ITEM AND ITS COUNT (review of #350,
-      // 2026-10-09), out of Arriving's later lines and the Yesterday line's
-      // titles, never out of the page — or the render stays as the trim
-      // loop left it (`keepFirstOpen`).
+      // 2026-10-09), out of the room held for "Work here", Arriving's later
+      // lines and the Yesterday line's titles, never out of the page — or the
+      // render stays as the trim loop left it (`keepFirstOpen`).
       const first = fits
         ? keepFirstOpen(lanes.threads, lanes.horizon.length, lanes.overflow?.threads ?? [], kept, trimmed, yesterday, req, resolve, coreName, identity)
         : null;
