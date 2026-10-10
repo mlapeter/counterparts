@@ -17,6 +17,7 @@ import {
   mouseBytes,
   parseStep,
   parseSteps,
+  refuseAllowCmd,
   refuseEnter,
   refuseKey,
   refuseType,
@@ -258,6 +259,14 @@ describe('steps and the keyboard guard', () => {
     expect(refuseKey('S-a', { focus: 'empty', typed: '', pick: null }, ALLOWED)).toMatch(/refused/);
     expect(refuseKey('Space', { focus: 'empty', typed: '', pick: null }, ALLOWED)).toMatch(/refused/);
     expect(refuseKey('q', { focus: 'pane', typed: '', pick: null }, ALLOWED)).toBeNull();
+  });
+
+  test('--allow-cmd: a mod’s own bare command, never a plugin’s namespaced skill or command', () => {
+    expect(refuseAllowCmd('/mymod')).toBeNull();
+    expect(refuseAllowCmd('/my-mod_2')).toBeNull();
+    expect(refuseAllowCmd('/counterparts:doctor')).toMatch(/skill/);
+    expect(refuseAllowCmd('mymod')).not.toBeNull();
+    expect(refuseAllowCmd('/a b')).not.toBeNull();
   });
 
   test('typing: into the pane, or a slash command’s words; never a prompt', () => {

@@ -196,6 +196,16 @@ export function isSubmitKey(raw: string): boolean {
 /** The slash commands an Enter may run: the mod's own. A skill's or a custom command's would prompt the model. */
 export const ALLOWED_COMMANDS: readonly string[] = ['/counterparts'];
 
+/**
+ * Why `--allow-cmd` may not add this command, or null when it may: a mod's
+ * own command is one bare name. A plugin's skill or command is namespaced
+ * (`/counterparts:doctor`) and would prompt the model.
+ */
+export function refuseAllowCmd(name: string): string | null {
+  if (!/^\/[\w-]+$/.test(name)) return `--allow-cmd ${name}: a mod's own command, one bare name like /mymod (a plugin:name is a skill or command that prompts the model)`;
+  return null;
+}
+
 /** Where the keyboard is, what the prompt holds, and what the typeahead would run. */
 export type Keyboard = { readonly focus: Focus; readonly typed: string; readonly pick: string | null };
 

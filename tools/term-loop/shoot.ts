@@ -19,7 +19,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { DEFAULT_DATA_DIR_NAME, FORBIDDEN_ROOT_NAMES } from '../../src/core/store/paths.js';
 import { findDock, parseCapture, sliceGrid, type Grid, type Rect } from './grid.js';
 import { ITERM_MENLO_13, gridPixels, renderHtml } from './render.js';
-import { ALLOWED_COMMANDS, STEP_HELP, keyboardOf, locate, mouseBytes, parseSteps, refuseEnter, refuseKey, refuseType, screenText, type Keyboard, type Step } from './steps.js';
+import { ALLOWED_COMMANDS, STEP_HELP, keyboardOf, locate, mouseBytes, parseSteps, refuseAllowCmd, refuseEnter, refuseKey, refuseType, screenText, type Keyboard, type Step } from './steps.js';
 
 const HERE = import.meta.dir;
 const REPO = resolve(HERE, '..', '..');
@@ -107,7 +107,8 @@ function parseArgs(argv: readonly string[]): Opts {
     else if (a === '--render') o.render = resolve(val());
     else if (a === '--allow-cmd') {
       const c = val();
-      if (!/^\/[\w:-]+$/.test(c)) throw new Error('--allow-cmd: a command name, e.g. /mymod');
+      const why = refuseAllowCmd(c);
+      if (why !== null) throw new Error(why);
       o.allowed.push(c);
     }
     else if (a === '-h' || a === '--help') {
