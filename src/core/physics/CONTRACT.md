@@ -116,6 +116,14 @@ semantic band — the arithmetic form of the F5 scar. A default is recorded as `
 (`salience.defaulted`, plus `meta.claimedDefault` on the row), never as a lift, and an
 explicit claim — however low — is never overridden. See NOTES.md item 16.
 
+**By what it is about, since 2026-10-10 (Group 1c; review 01 C2; working default).** The
+lived channel's default is `defaultClaimFor(about, status, saidBy, kind)`: 0.10 a done
+work event, 0.25 other work and unmarked (`AUTHORED_DEFAULT_CLAIM`), 0.35 the world, 0.40
+the owner, us or me (or said by the owner, or kind self/person). Every row stays under
+`THETA_SEM`; the 0.40 row plus a strong feeling would not (0.535), so the bound now rests
+on `FELT_HEIGHT_CAP` (§5.10) rather than on the sum. `salience.defaulted` carries the row's
+`class`. NOTES "2026-10-10 — the default by what a memory is about".
+
 ### 5.2 Strength — the one number
 
 ```
@@ -400,6 +408,7 @@ simulation and the reasons.)*
 ```
 I(m)        = max( emotional(m), max strength of the feelings recorded on m )   # his or mine
 salArm(m)   = clamp01( sal(m) + EMO_LIFT × I(m) )          EMO_LIFT  = 0.15   # TUNABLE
+            capped at FELT_HEIGHT_CAP = 0.49 when sal(m) < THETA_SEM   # 2026-10-10; TUNABLE
 base(m)     = max( ω_sal(k) × salArm(m), ω_rep(k) × rep(m) ) + cons(m)       # §5.2, arm lifted
 S(m)        = §5.4's S × (1 + EMO_SLOPE × I(m))            EMO_SLOPE = 0.5    # TUNABLE
 feeling now = strength × exp( −(d − birth_day(m)) / S(v) )                        # read only
@@ -408,6 +417,12 @@ S(v)        = S_FEELING + |v| × (S_FEELING_NEGATIVE − S_FEELING)   for v < 0
               S_FEELING = 20, S_FEELING_NEGATIVE = 14, S_FEELING_POSITIVE = 28    # TUNABLE
 ```
 
+- **Feeling sets height and slope, never the band (2026-10-10, Group 1c).** A memory whose
+  own `sal` is under the semantic floor is lifted by feeling at most to `FELT_HEIGHT_CAP`,
+  so no feeling — at the write or recorded later — carries it into the semantic band; use
+  still has to. One at or above the floor keeps the whole lift. The core's fast lane reads
+  "strongly felt" as `I ≥ CORE_FAST_FEELING` or a feeling `CORE_FAST_ABOVE_DEFAULT` (0.1)
+  above its word's stored default (`CoreContext.stronglyFelt`, review 08 C3).
 - **Height ADDS.** Before this, a lone `emotional: 0.9` on a note read as a mean of 0.3
   under a claimed floor of 0.25 — the feeling averaged away. Now intensity adds on top of
   whatever the mean-with-floor is. `sal()` itself is v0's verbatim mean and stays that way.
