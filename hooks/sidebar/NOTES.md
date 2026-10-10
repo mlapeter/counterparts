@@ -41,7 +41,7 @@ paused here; `/counterparts fps [n]` reports the brain's rate (or sets its
 target). `caps` is gone: the footer's switches are dots, with no ends to draw.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (97 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (109 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME. **See it:**
 `tools/term-loop/` (its README), at `--size 200x60` and `--size 160x48`. A
 term-loop session sends no message, so nothing comes to mind and nothing is
@@ -93,7 +93,9 @@ The shots and the side-by-sides are in
 - **Saved this session ──── N**: what `note`, `session_end` and `chapter`
   saved this session, newest first, each with its stage dot on its first line
   only (Salience's cyan for a new memory, Reconsolidation's lilac for an
-  update), wrapped lines back at the left edge, titles to two lines. An update
+  update), wrapped lines back at the left edge, titles to two lines. Never cut
+  to one line each: when they don't all fit, fewer show, each keeping its two
+  lines (twelve at most; the heading counts them all). An update
   (`updates: <id>`, unless `how: open` or a held settle) adds `replaces <old
   title>`, the old title read from `/api/memory?id=`; unread, `replaces an
   earlier memory`. The v0.1 toast on a kept note is gone: the pane, the strip
@@ -103,8 +105,9 @@ The shots and the side-by-sides are in
   longest at 12 cells; a zero dim with no bar; Schemas `○ not built yet`.
   Counts: `firedToday` from `/api/mechanisms` (below). A click on one lists
   its newest firings from `/api/mechanism?id=` (one read, 6–8 KB), grouped
-  (`faded at 8:07:`) with each title on a line; each opens in place like a
-  memory. No tagline, no link.
+  (`faded at 8:07:`), each title on up to two lines (no bullet between
+  firings, so a wrapped line draws a shade softer than a firing's first);
+  each opens in place like a memory. No tagline, no link.
 - **Last Dream ──── 8:15**: the newest dream from `/api/dreams?limit=1`, its
   first sentence in italic, full width; its time is its `dream.journaled`
   row's. A click opens a few more lines of it (to nine, cut at a word) and
@@ -117,7 +120,10 @@ The shots and the side-by-sides are in
   each dot and its word one Button. What a click on either memory switch does
   shows, while it is hovered, in a card drawn `position: absolute` over the
   two rows above the rule (`display: none`, revealed by its hover group), so
-  nothing moves under the pointer. The pause confirm and a switch's note draw
+  nothing moves under the pointer; its words are whole sentences in those two
+  rows at 32 columns (a test per folder state). No card while the pause
+  confirm or a note shows: those rows are the confirm's [Pause] [Cancel], and
+  the pointer is still on the switch it just pressed. The pause confirm and a switch's note draw
   as rows just above the rule, pushing the body up; the paused banner sits
   under the header.
 
@@ -131,8 +137,12 @@ The shots and the side-by-sides are in
   page) and nothing opens here. **Measured** on 77 of the live store's newest
   memories: the median text is 626 characters (about 20 lines), so about one
   in nine opens in place. That is the threshold doing what Mike asked, and
-  the first thing to judge by use. An opened item closes itself after a
-  minute.
+  the first thing to judge by use. Measured again in review (2026-10-10,
+  the newest saved memories of three sessions): 2 of 29 open in place, so a
+  click on a saved item nearly always opens a browser tab. An opened item
+  closes itself after a minute. At a short pane the `open` ladder can still
+  cut an in-place text to 8 or 5 lines (`textTo`), with no link to the rest
+  (no link, by decision).
 - **The reads.** The text comes from `/api/memory?id=`
   (`views/memory.ts#memoryDetail`): `readProse`, `row`, `physicsOf`,
   `reveal`, all reads; the dashboard's source is typed so a write method fails
@@ -141,14 +151,21 @@ The shots and the side-by-sides are in
   it showed for crediting.
 - **A section's heading** is a click too: it gives that section the room (it
   folds last and shortens only after every other section has folded); again,
-  and it is back as it was.
+  and it is back as it was. Its costs, from the review: a click on a heading
+  that isn't folded changes nothing you can see, but the next click undoes
+  it; the focus never closes by itself (an opened item does, after a
+  minute); and Last Dream's heading opens the dream while it is unfolded
+  (its key is the dream's), unlike the others.
 - **Folding.** `layoutBody` takes the least folding that fits, with a blank
   row between sections, else without; then opens again any fold the last one
-  made unnecessary (compose3.ts's ladder): saved items go to one line, then
-  fewer, then the section folds to `Saved this session ──── 9 ›`; the dream
+  made unnecessary (compose3.ts's ladder, less its "saved 1 line each"
+  step): saved items go fewer, one at a time, each keeping its two lines,
+  then the section folds to `Saved this session ──── 9 ›`; the dream
   shortens; the subconscious shows fewer; the chart and the memories fold
   last. An opened item keeps its room longest (its text gives way only after
-  the chart and the dream have folded), and is never folded away.
+  the chart and the dream have folded), and is never folded away. An opened
+  dream: the chart folds, then the saved list goes down to two, then the
+  excerpt shortens (to 7, 5, 3 lines), then the last two saved go.
 - **Search** is v0.1's (Enter is a `recall` in facts mode), restyled: the
   results take the sections' place under `“query” ──── 2 found ✕`, each title
   and what it is; a click opens its excerpt in place; a click on the heading
@@ -187,7 +204,11 @@ under one `ref`). The calendar day, not the lived day: a lived day can start
 after midnight, at the day's first sleep, and "today" in the sidebar is the
 date on the clock. Computed from the seven-lived-day window's rows the view
 already reads (30–50 ms on the live store). Tests:
-`test/dashboard-mechanisms.test.ts`, `test/mechanism-evidence.test.ts`.
+`test/dashboard-mechanisms.test.ts` (one pins the zone: a minute either side
+of Honolulu's midnight, both on one UTC date), `test/mechanism-evidence.test.ts`.
+Events only: master's decay `census` (2026-10-10) adds a part to a light,
+never a row, so it is not counted; a trial merge of the two conflicted only
+in CHANGELOG.md and passed the mechanism and dashboard tests.
 
 A dashboard older than this (0.3.16, Mike's install until the next release)
 says no `firedToday`. The sidebar then counts from the feed itself on a cold
@@ -198,7 +219,14 @@ same way (`countToday`); polls add what arrives. On 2026-10-10 that was about
 per cold read); it goes away with the new dashboard.
 
 The sidebar re-reads `/api/mechanisms` when a poll brings a row that proves a
-mechanism.
+mechanism, and on the first poll after this machine's date changes, rows or
+none (the dashboard's `today` is its store's zone, so the check is the day
+the counts were last read on this clock, not that). The older-dashboard
+cold read counts rows only up to the seq the polls then go on from, so a
+row landing during it is counted once. Measured against the live 0.3.16
+dashboard in review: the cold read is about 5.5 MB in about 24 requests
+(about 0.2 s; every `/api/activity` answer carries about 16 KB of
+vocabulary), a warm poll about 19 KB and 38 ms.
 
 ### Views, the tail, and the status line
 
@@ -229,9 +257,15 @@ mechanism.
   to row 57 and the hint line sat right under the prompt; set again, the rule
   went back to row 56.
 - **Migration.** A stored view from v0.1 reads as: `full` (or none) the
-  sidebar; `quiet`, `rail` and `hidden` quiet. Nothing is rewritten on load;
-  the next choice writes v0.2's word. The pane's `✕` (a close by the person)
-  goes to quiet, for this session and the next.
+  sidebar; `quiet`, `rail` and `hidden` quiet. Opening the pane writes
+  `sidebar`, unasked opens included (a v0.1 copy writes `full` back when it
+  opens; each reads the other's word as the pane), and a choice writes
+  v0.2's word. v0.1 reads a stored `strip` as its full pane and v0.2's
+  `quiet` as its narrow quiet pane, so after a v0.2 close a v0.1 session
+  opens narrow rather than closed; left so (v0.1 is a trial copy). Both
+  write one key at a time, so neither drops the other's (`brain`, `caps`,
+  `fpsShown`, `rail`). The pane's `✕` (a close by the person) goes to
+  quiet, for this session and the next.
 
 ### The brain
 
@@ -296,6 +330,17 @@ mechanism.
   the Memories page there, not on the memory, until the release.
 - The paused state (`g`) was not shot live: a shot would mean pausing a folder
   in Mike's live registry. The tests cover it.
+- From the review (2026-10-10): saved items never go to one line each (the
+  round-3 ladder's first step), by Mike's rule that fewer readable items beat
+  more cut ones; an opened dream keeps its excerpt while the saved list goes
+  down to two (the round-3 order cut the excerpt first, which with two-line
+  items cut it to five lines beside eight saved ones at 200x60); a
+  mechanism's firings wrap to two lines, the second a shade softer (the
+  mockup cut each to one); the hover words are shorter, to fit their card.
+- "Claude memory off" shows only in the footer while the pane is open, and on
+  the amber line only beside a pause: closed, nothing says it (v0.1's status
+  line did, in every view). By the round-2 rule (the amber line only for a
+  paused or off folder); worth Mike's look.
 
 ### Footprint of the build's runs
 
@@ -303,14 +348,26 @@ Mike's shared sidebar store read `view: "full"` before the runs and reads
 `view: "sidebar"` with a new `brain: "turning"` after: the same view and the
 default brain to both versions (term-loop compares them by meaning, so it put
 nothing back). No other key moved; the Counterparts and Claude memory
-switches were never clicked.
+switches were never clicked. The review's five runs (2026-10-10, from frozen
+copies, `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`) found it reading
+`{"fpsShown": true, "rail": false, "view": "sidebar", "claudeMemory": true,
+"brain": "turning"}` and left it so after each; they hovered both switches
+and clicked neither.
 
 ### Not done, assumed
 
 - The strip's buttons were pressed in the test kit, not clicked live.
-- The hover cards' reveal is the surface's (assumed from the reference, as in
-  v0.1); the test kit draws them hidden.
+- The hover cards' reveal is the surface's; the test kit draws them hidden.
+  Seen live in review: hovering either switch shows its card over the two rows
+  above the rule, and nothing in the footer moves (`hover-cp`, `hover-mem` in
+  the shots' folders).
 - Inline above the prompt (the main screen), the layout is held to 64 columns.
+- **The search box's placeholder is not fainter.** Measured (Claude Code
+  2.1.296): the engine draws an `Input`'s placeholder `#999999`, brighter
+  than the day and count beside it (`#66717c`) and than the `⌕` (`#8e98a2`);
+  `Input` takes no colour. Drawing our own dim word and the `Input` only
+  while the pane holds the keyboard would change where the keyboard goes
+  after any click in the pane; not done.
 - The desktop has no Raster: it draws the brain-off header.
 
 # v0.1 (2026-10-09/10), the record
