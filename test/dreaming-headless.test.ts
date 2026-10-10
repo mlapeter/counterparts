@@ -22,7 +22,7 @@ import {
   NIGHT_MCP_SCRIPT,
   NIGHT_RUN_ENV,
   REAP_GRACE_MS,
-  SCOPE_ASK,
+  SCOPE_ASK_OPEN,
   loadConfig,
   nightMcpConfig,
   nightTimeoutMs,
@@ -936,9 +936,9 @@ describe("gaps: the quiet child at SessionStart, SessionEnd and PreCompact", () 
       { role: "assistant" as const, text: "And a long enough answer that would ordinarily be captured as well, with more words.", entry: 2 },
     ];
     // An ordinary session in an unregistered directory is asked the scope question…
-    expect(a.sessionStart(input({ sessionId: "ordinary" })).ask ?? "").toContain(SCOPE_ASK);
+    expect(a.sessionStart(input({ sessionId: "ordinary" })).ask ?? "").toContain(SCOPE_ASK_OPEN);
     // …the headless run's child is not.
-    expect(a.sessionStart(input({ sessionId: "child", nightRun: true })).ask ?? "").not.toContain(SCOPE_ASK);
+    expect(a.sessionStart(input({ sessionId: "child", nightRun: true })).ask ?? "").not.toContain(SCOPE_ASK_OPEN);
     expect(a.sessionEnd({ ...input({ sessionId: "child", nightRun: true }), turns }).spansAppended).toBe(0);
     expect(a.preCompact({ ...input({ sessionId: "child2", nightRun: true }), turns }).spansAppended).toBe(0);
     expect(a.sessionEnd({ ...input({ sessionId: "ordinary" }), turns }).spansAppended).toBeGreaterThan(0);

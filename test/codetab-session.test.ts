@@ -39,7 +39,7 @@ import {
 import type { McpServer, Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { TUNABLES } from "../src/adapters/config.js";
 import { SESSION_TTL_MS, grantWriteUps, hostOf, readSession, recordSession } from "../src/adapters/sessions.js";
-import { lookupScope, readScopes, setScope, writeScopes } from "../src/adapters/scopes.js";
+import { canonicalScopePath, lookupScope, readScopes, setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import { CODE_TAB_ENTRYPOINT, codeTabSessionLine } from "../src/adapters/claude-code/hooks.js";
@@ -362,7 +362,9 @@ describe("Desktop's server serves a Code-tab session that names itself", () => {
     // Every other tool, named, now refuses there in Claude Code's words.
     const refused = payload(await s.call("note", { session: "tab-1", text: "Should not land." }));
     expect(refused["reason"]).toBe("scope-off");
-    expect(refused["detail"]).toBe(wordingFor(DEFAULT_HOST).offRefusal);
+    // Claude Code's words, naming the project and its console line (never `.`).
+    expect(String(refused["detail"])).toStartWith("Counterparts is off for this directory (");
+    expect(String(refused["detail"])).toContain(`run \`counterparts scope ${canonicalScopePath(project)} --on\``);
     // The Desktop chat is not off.
     expect(payload(await s.call("note", { session: chat, text: "The bakery opens at seven on weekdays." }))["stored"]).toBe(true);
     expectUnbound(s);

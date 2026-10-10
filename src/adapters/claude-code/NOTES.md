@@ -2284,3 +2284,34 @@ INTERFACE-GAPS §15.
   lines, because the claim that would dedupe them is a write a paused folder may not make.
   A second claim outside the store was not built (guards loose-first); doctor's "Installed
   twice" line is what names that shape.
+
+## 2026-10-10 — every printed `counterparts scope` line names its folder (follow-up to #362)
+
+- **What was left.** #362 named the folder in the paused notice. Two other texts a model
+  reads still said `.`: the MCP refusal in an off or paused folder (`hosts.ts`, "run
+  `counterparts scope . --resume`") and the first-launch question (`hooks.ts`, "`counterparts
+  scope . --on`"). `.` is wherever the line is run: the model's shell after a `cd`, or
+  another terminal. From a subfolder of a paused entry, `--resume` is refused outright.
+- **One helper.** `scopes.ts#scopeCommand(folder, flag, ctx)` builds the line all three
+  print, with #362's `shortPath`/`shellWord` moved beside it. `ScopeCommandContext` carries
+  `home`, the plugin's root (its launcher, since a plugin install puts no `counterparts` on
+  PATH) and the configuration to name with `--config` when the registry read is not the
+  default's (`scopeCommandContext`). The hook builds it once (`bin/hook.ts#hookScopeContext`)
+  for the paused notice and the adapter (`AdapterOptions.scopeCommand`); `mcp/bin/serve.ts`
+  builds it for the server (`McpServerOptions.scopeCommand`). Absent (tests, embedders): the
+  npm install's `counterparts`, with `--config` only for a non-default `configPath`.
+- **The refusal names the entry that set it.** `HostWording.offRefusal`/`pausedRefusal` are
+  functions of a `RefusalPlace` now (`hosts.ts` cannot import `scopes.ts`, which imports it,
+  so the lines arrive built). Own entry: "paused for this directory (~/p) … call `scope`
+  with mode `resume`, or run `counterparts scope ~/p --resume`". A parent's pause: "paused
+  for ~/p, which includes this directory (~/p/sub) … run `counterparts scope ~/p --resume`",
+  and it says the `scope` tool sets only this directory (its `resume` refuses there, its
+  `on` turns this one on alone). A parent's `off` offers both lines: this folder alone, or
+  the whole parent. Desktop's `claude-desktop:` is never inherited and keeps its own words.
+- **The first-launch question** names the session's folder. An `unset` folder has no entry
+  above it, so there is nothing inherited to name instead. Its bytes are measured from the
+  text it prints (`SCOPE_ASK_BYTES` is gone with the constant).
+- **Proved.** A refusal's printed line, run through the console from another directory,
+  resumes the parent and the next call is served (`scopes.test.ts`); the healthy
+  SessionStart stdout in `hook-standdown.test.ts` now carries the run's folder and
+  `--config`.

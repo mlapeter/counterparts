@@ -14,7 +14,7 @@
  */
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { DATA_DIR_ENV, dataDir, describeGuardRefusal } from "../../../core/store/index.js";
@@ -32,10 +32,13 @@ import {
   lookupScope,
   mostRestrictiveVerdict,
   readScopes,
+  scopeCommand,
+  scopeCommandContext,
   scopesPath,
+  shortPath,
   stanceOfMode,
 } from "../../scopes.js";
-import type { ScopeRead, ScopeVerdict } from "../../scopes.js";
+import type { ScopeCommandContext, ScopeRead, ScopeVerdict } from "../../scopes.js";
 import { canonicalScope, isEntrypoint, readSession } from "../../sessions.js";
 import { openLog } from "../../log/index.js";
 import type { LogEvent, ProcessLog } from "../../log/index.js";
@@ -414,13 +417,12 @@ export function pausedNotice(
     : opts.whose === "folder"
       ? `for ${named}, which includes this folder`
       : `for ${named}, which covers this session`;
-  const target = shellWord(entry, opts.home);
-  // `--config <path>` as two words, so an unquoted `~/…` expands (`--config=~/…` would not).
-  const config = opts.configPath === undefined || opts.configPath === null ? "" : ` --config ${shellWord(opts.configPath, opts.home)}`;
-  const command =
-    opts.pluginRoot === null
-      ? `counterparts scope ${target} --resume${config}`
-      : `sh ${shellWord(join(opts.pluginRoot, "src", "adapters", "plugin-run.sh"), opts.home)} cli scope ${target} --resume${config}`;
+  // The one console line every model- and person-facing text prints (`scopes.ts#scopeCommand`).
+  const command = scopeCommand(entry, "--resume", {
+    home: opts.home,
+    pluginRoot: opts.pluginRoot,
+    configPath: opts.configPath ?? null,
+  });
   return {
     person: `Counterparts memory is paused ${where}; \`${command}\` turns it back on.`,
     model:
@@ -429,24 +431,17 @@ export function pausedNotice(
   };
 }
 
-/** `path` with the home directory as `~`, for reading. Both spellings of home
- *  are tried, since `path` arrives canonical (realpathed). */
-function shortPath(path: string, home: string): string {
-  for (const h of new Set([resolve(home), canonicalScopePath(home)])) {
-    if (path === h) return "~";
-    if (path.startsWith(`${h}/`)) return `~${path.slice(h.length)}`;
-  }
-  return path;
-}
-
-/** `path` as one shell word: `~/…` when that needs no quoting (a quoted `~`
- *  does not expand), else the absolute path, single-quoted only if it must be. */
-function shellWord(path: string, home: string): string {
-  const plain = /^[A-Za-z0-9_./@%+=:,-]+$/;
-  const short = shortPath(path, home);
-  if (short !== path && (short === "~" || plain.test(short.slice(1)))) return short;
-  if (plain.test(path)) return path;
-  return `'${path.replace(/'/g, "'\\''")}'`;
+/**
+ * What a console line this hook prints needs to work where it is typed: the
+ * plugin's launcher when this is the plugin's process, and `--config` when the
+ * registry it read is not the default's (`scopes.ts#scopeCommandContext`).
+ */
+export function hookScopeContext(configPath: string, env: Record<string, string | undefined> = process.env): ScopeCommandContext {
+  return scopeCommandContext({
+    configPath,
+    pluginRoot: runningAsPlugin(env) ? (env[PLUGIN_ROOT_ENV] ?? null) : null,
+    home: homedir(),
+  });
 }
 
 /**
@@ -466,15 +461,7 @@ function sayPaused(
 ): void {
   if (name !== "session-start") return;
   if ((process.env[NIGHT_RUN_ENV] ?? "").trim().length > 0) return;
-  const home = homedir();
-  const notice = pausedNotice(verdict, here, {
-    whose,
-    home,
-    pluginRoot: runningAsPlugin(process.env) ? (process.env[PLUGIN_ROOT_ENV] ?? "").trim() || null : null,
-    // The console's default registry is the one beside `defaultConfigPath()`;
-    // any other is named on the command.
-    configPath: scopesPath(configPath) === scopesPath(defaultConfigPath(home)) ? null : configPath,
-  });
+  const notice = pausedNotice(verdict, here, { whose, ...hookScopeContext(configPath) });
   if (notice === null) return;
   // The SessionStart envelope every notice rides (`hostDelivery`): the person's
   // line as `systemMessage`, the model's as `additionalContext`.
@@ -909,6 +896,9 @@ async function runHook(
     // instead. It is also pinned onto the worker's environment, so the child
     // reads the same file its parent did rather than resolving one of its own.
     configPath: choice.path,
+    // How the first-launch question's console line must read here: the
+    // plugin's launcher under the plugin, `--config` for another registry.
+    scopeCommand: hookScopeContext(choice.path),
     // The verdict travels IN: it is a fact about this process's startup, decided before anything opened, and
     // the adapter's jobs with it are to record it and — when it is `unset` — to
     // ask the question once (G41).

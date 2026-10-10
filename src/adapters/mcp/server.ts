@@ -71,18 +71,24 @@ import type { Band, Kind } from "../../core/types.js";
 import { UNBOUND_SESSION, isKnownSession } from "../../core/types.js";
 import { recordHandleResolution } from "../expansions.js";
 import {
+  canonicalScopePath,
   lookupScope,
   readScopes,
   ownEntry,
   resumeTarget,
+  scopeCommand,
+  scopeCommandContext,
   setScope,
+  shortPath,
   stanceOfMode,
   writeScopes,
 } from "../scopes.js";
-import type { ScopeMode, ScopeRegistry, ScopeVerdict } from "../scopes.js";
+import type { ScopeCommandContext, ScopeMode, ScopeRegistry, ScopeVerdict } from "../scopes.js";
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 
 import { CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, claudeCodeEnvMarker, hostOfClient, wordingFor } from "../hosts.js";
+import type { RefusalPlace } from "../hosts.js";
 import { TUNABLES as ADAPTER_TUNABLES } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { Lifecycle, plainContextLine } from "../lifecycle.js";
@@ -287,6 +293,15 @@ export interface McpServerOptions {
    * process. The launch stderr line is the one thing computed once.
    */
   scopesFile?: string;
+  /**
+   * What the console line a scope refusal names needs to work where it is
+   * typed (`scopes.ts#ScopeCommandContext`, 2026-10-10): the plugin's launcher
+   * when this is the plugin's server, and `--config` when `scopesFile` is not
+   * the default registry. Set by `bin/serve.ts`. Absent: the npm install's
+   * `counterparts`, with `--config` only when `lifecycle.configPath` names
+   * another registry.
+   */
+  scopeCommand?: ScopeCommandContext;
   /**
    * WHICH HOST THIS SERVER SERVES (`hosts.ts`, 2026-09-30), for the words a
    * result says about the host — today, how to reconnect after an update.
@@ -539,6 +554,7 @@ export class McpServer {
   private readonly embedderGiven: QuestionEmbedder | null;
   private readonly registryDir: string;
   private readonly scopesFile: string | null;
+  private readonly scopeCommandCtx: ScopeCommandContext | undefined;
   private readonly sessionTtlMs: number;
   private readonly resultCeilingChars: number;
   private readonly onEvent: ((e: McpEvent) => void) | undefined;
@@ -606,6 +622,7 @@ export class McpServer {
     this.registryDir = opts.registryDir ?? opts.counterpart.store.dir;
     this.scopesFile =
       opts.scopesFile !== undefined && opts.scopesFile.length > 0 ? opts.scopesFile : null;
+    this.scopeCommandCtx = opts.scopeCommand;
     this.sessionTtlMs = opts.sessionTtlMs ?? SESSION_TTL_MS;
     this.resultCeilingChars = opts.resultCeilingChars ?? TOOL_RESULT_CEILING.CHARS;
     this.host = opts.host ?? DEFAULT_HOST;
@@ -1394,13 +1411,34 @@ export class McpServer {
   /** The named refusal every tool but `scope` gets in a directory set `off`. */
   private refuseScopeOff(tool: string, verdict: ScopeVerdict): ToolResult {
     this.emit("mcp.scope.off", undefined, { tool, matched: verdict.matched, mode: verdict.mode });
+    const words = wordingFor(this.placeHost);
     return this.refuse(tool, "scope-off", {
       scope: this.scope,
       ...(verdict.matched === null ? {} : { setBy: verdict.matched }),
-      // In the host's words (`hosts.ts`): Claude Code's name a directory and
-      // `counterparts scope .`; Desktop's name its own place.
-      detail: verdict.mode === "paused" ? wordingFor(this.placeHost).pausedRefusal : wordingFor(this.placeHost).offRefusal,
+      // In the host's words (`hosts.ts`): Claude Code's name the directory and
+      // the entry that set it; Desktop's name its own place. Never `.`.
+      detail: (verdict.mode === "paused" ? words.pausedRefusal : words.offRefusal)(this.refusalPlace(verdict)),
     });
+  }
+
+  /**
+   * THE PLACE A SCOPE REFUSAL NAMES (2026-10-10): this place and, when an
+   * ancestor's entry set it, that ancestor, each with its console line built
+   * here (`scopes.ts#scopeCommand`) — the folder named, the plugin's launcher
+   * and `--config` when this install needs them.
+   */
+  private refusalPlace(verdict: ScopeVerdict): RefusalPlace {
+    const ctx =
+      this.scopeCommandCtx ??
+      scopeCommandContext({ configPath: this.lifecycleOpts.configPath, pluginRoot: null, home: homedir() });
+    const here = canonicalScopePath(this.scope);
+    const entry = verdict.matched === null ? here : canonicalScopePath(verdict.matched);
+    return {
+      here: shortPath(here, ctx.home),
+      inherited: entry === here ? null : shortPath(entry, ctx.home),
+      entryCommand: (flag) => scopeCommand(entry, flag, ctx),
+      hereCommand: (flag) => scopeCommand(here, flag, ctx),
+    };
   }
 
   /**

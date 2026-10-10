@@ -32,7 +32,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { CUE_MODE_META } from "../src/core/prospective/index.js";
 import { SELF_TUNABLES } from "../src/core/self/index.js";
 import type { WakeResult } from "../src/core/self/index.js";
-import { SCOPE_ASK, TUNABLES, openAdapter } from "../src/adapters/claude-code/index.js";
+import { SCOPE_ASK_OPEN, TUNABLES, openAdapter } from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig, ClaudeCodeAdapter, HookInput } from "../src/adapters/claude-code/index.js";
 import { WRITE_UP_ASK_COUNT_KEY, WRITE_UP_ASK_DATE_KEY, WRITE_UP_OPEN } from "../src/adapters/claude-code/hooks.js";
 import { deliverTurn, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
@@ -163,7 +163,7 @@ function startDelivered(sessionId: string, wakeBytes: number): Delivered {
       stdout: d.stdout,
       json,
       reminderShown: message.includes("pay the quarterly estimate"),
-      question: context.includes(SCOPE_ASK),
+      question: context.includes(SCOPE_ASK_OPEN),
       pointer: context.includes(WRITE_UP_OPEN),
       gaveWay: a.events("adapter.envelope.gave-way").map((e) => String(e.data["part"])),
       stillDue: a.counterpart.plainDueToday({ at: today() }).length > 0,

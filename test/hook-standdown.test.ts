@@ -750,23 +750,30 @@ function withoutNow(text: string): string {
   return text.replace(NOW_LINE, "");
 }
 
-const HEALTHY_SESSION_START_STDOUT = [
-  "No briefing has been composed yet — this store has not lived a boundary.",
-  "",
-  "<counterparts-scope>",
-  "No setting yet for this directory, so Counterparts is remembering here by default.",
-  "Early on, ask the user once which they want: on, observer (reads and recalls, records",
-  "nothing), or off (nothing at all). Record the answer with the `scope` tool (mode: on |",
-  "observer | off), or with `counterparts scope . --on`, `--observer` or `--off`. Then",
-  "do not ask again.",
-  "</counterparts-scope>",
-].join("\n");
+/**
+ * What a healthy SessionStart in `work` prints. Since 2026-10-10 the question's
+ * console line NAMES the session's folder (never `.`) and carries `--config`,
+ * because this test's configuration is not the default one under its HOME.
+ */
+function healthySessionStartStdout(): string {
+  return [
+    "No briefing has been composed yet — this store has not lived a boundary.",
+    "",
+    "<counterparts-scope>",
+    "No setting yet for this directory, so Counterparts is remembering here by default.",
+    "Early on, ask the user once which they want: on, observer (reads and recalls, records",
+    "nothing), or off (nothing at all). Record the answer with the `scope` tool (mode: on |",
+    `observer | off), or with \`counterparts scope ${canonicalScopePath(work)} --on --config ${configPath}\` (\`--observer\` or \`--off\``,
+    "in place of `--on`). Then do not ask again.",
+    "</counterparts-scope>",
+  ].join("\n");
+}
 
 describe("a hook on a working store", () => {
   test("SessionStart emits exactly what it emitted on master", () => {
     const run = runHook("SessionStart", "h1-fixed-session");
     expect(run.code).toBe(0);
-    expect(withoutNow(run.stdout)).toBe(HEALTHY_SESSION_START_STDOUT);
+    expect(withoutNow(run.stdout)).toBe(healthySessionStartStdout());
     expect(run.stderr).toBe("");
   });
 
@@ -1331,16 +1338,16 @@ describe("the update notice is fail-open", () => {
   const input = { sessionId: "n4", scope: "/tmp/n4" };
 
   test("a throwing door at SessionStart: the wake prints byte for byte", () => {
-    expect(HEALTHY_SESSION_START_STDOUT.length).toBeGreaterThan(400);
+    expect(healthySessionStartStdout().length).toBeGreaterThan(400);
     const d = deliverTurn(
       "session-start",
-      { injection: HEALTHY_SESSION_START_STDOUT, ask: null },
+      { injection: healthySessionStartStdout(), ask: null },
       {},
       [null, null],
       throwing,
       input,
     );
-    expect(d.stdout).toBe(HEALTHY_SESSION_START_STDOUT);
+    expect(d.stdout).toBe(healthySessionStartStdout());
   });
 
   test("a throwing decision or mark at a prompt: the recall prints, without the notice", () => {
@@ -1413,8 +1420,8 @@ describe("the write-up pointer never costs the wake", () => {
     const run = runHook("SessionStart", "h1-next-session");
     expect(run.code).toBe(0);
     const stdout = withoutNow(run.stdout);
-    expect(stdout.startsWith(HEALTHY_SESSION_START_STDOUT)).toBe(true);
-    const tail = stdout.slice(HEALTHY_SESSION_START_STDOUT.length);
+    expect(stdout.startsWith(healthySessionStartStdout())).toBe(true);
+    const tail = stdout.slice(healthySessionStartStdout().length);
     expect(tail.startsWith(`\n\n${WRITE_UP_OPEN}`)).toBe(true);
     expect(tail).toContain("writeUp: ended-owing");
     // A pointer: the words come from the MCP door, never beside the wake.
@@ -1426,7 +1433,8 @@ describe("the write-up pointer never costs the wake", () => {
     owedSessionInWork();
     const a = openAdapter(
       { dataDir: store, injectionBudgetBytes: BUDGET_BYTES },
-      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }) },
+      // The console line as the hook process here would print it: this test's configuration named.
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }), scopeCommand: { home, pluginRoot: null, configPath } },
     );
     try {
       (a.counterpart.spans as unknown as { scopes: () => string[] }).scopes = () => {
@@ -1435,7 +1443,7 @@ describe("the write-up pointer never costs the wake", () => {
       const out = a.sessionStart({ sessionId: "h1-thrown", scope: canonicalScope(work) });
       expect(a.events("adapter.writeup.failed").length).toBe(1);
       const d = hostDelivery("session-start", { injection: out.injection, ask: out.ask }, {}, [null, null]);
-      expect(withoutNow(d.stdout)).toBe(HEALTHY_SESSION_START_STDOUT);
+      expect(withoutNow(d.stdout)).toBe(healthySessionStartStdout());
     } finally {
       a.counterpart.close();
     }

@@ -59,9 +59,11 @@ import type { PlainReminder } from "../../core/counterpart.js";
 import { newNightRunId } from "../../core/dream/index.js";
 import type { DreamOffer } from "../../core/dream/index.js";
 import type { BoundaryKind } from "../../core/remember/index.js";
+import { homedir } from "node:os";
 
 import { CODE_TAB_ENTRYPOINT, isDesktopScratchWorkspace } from "../hosts.js";
-import { stanceOfMode } from "../scopes.js";
+import { scopeCommand, scopeCommandContext, stanceOfMode } from "../scopes.js";
+import type { ScopeCommandContext } from "../scopes.js";
 import {
   NON_INTERACTIVE_ENTRYPOINTS,
   decideUpdateNotice,
@@ -304,6 +306,14 @@ export interface AdapterOptions extends LifecycleOptions {
    * the day's line asks instead (`could-not-start`, reason `runner`).
    */
   readonly nightArgs?: readonly string[];
+  /**
+   * What the console line the first-launch question names needs to work where
+   * it is typed (`scopes.ts#ScopeCommandContext`): the plugin's launcher under
+   * the plugin, and `--config` when the registry this hook read is not the
+   * default's. Absent (a test, an embedder): the npm install's `counterparts`,
+   * with `--config` only when `configPath` names another registry.
+   */
+  readonly scopeCommand?: ScopeCommandContext;
 }
 
 /**
@@ -317,22 +327,32 @@ export interface AdapterOptions extends LifecycleOptions {
  * again. So the block asks the MODEL to ask the PERSON, and names the console
  * line that records the reply.
  *
+ * THE LINE NAMES THE FOLDER (2026-10-10, the follow-up to #362). It said
+ * `counterparts scope . --on`, and `.` is wherever the shell stands when the
+ * line is run: after a `cd` into a subfolder the answer landed on the
+ * subfolder, and the session's own folder stayed unset. So it names the
+ * session's folder, with the plugin's launcher and `--config` when this
+ * install needs them (`scopes.ts#scopeCommand`). An `unset` folder has no
+ * entry above it, so there is no inherited setting to name instead.
+ *
  * Advisory wording, mechanized existence (CONTRACT §5 G9): what is guaranteed
  * is that an `unset` directory raises the question exactly once per session and
  * that setting any mode ends it, not the sentences.
  */
-export const SCOPE_ASK = [
-  "<counterparts-scope>",
-  "No setting yet for this directory, so Counterparts is remembering here by default.",
-  "Early on, ask the user once which they want: on, observer (reads and recalls, records",
-  "nothing), or off (nothing at all). Record the answer with the `scope` tool (mode: on |",
-  "observer | off), or with `counterparts scope . --on`, `--observer` or `--off`. Then",
-  "do not ask again.",
-  "</counterparts-scope>",
-].join("\n");
+export function scopeAsk(folder: string, ctx: ScopeCommandContext): string {
+  return [
+    SCOPE_ASK_OPEN,
+    "No setting yet for this directory, so Counterparts is remembering here by default.",
+    "Early on, ask the user once which they want: on, observer (reads and recalls, records",
+    "nothing), or off (nothing at all). Record the answer with the `scope` tool (mode: on |",
+    `observer | off), or with \`${scopeCommand(folder, "--on", ctx)}\` (\`--observer\` or \`--off\``,
+    "in place of `--on`). Then do not ask again.",
+    "</counterparts-scope>",
+  ].join("\n");
+}
 
-/** The room the question needs, separator included. Measured, never guessed. */
-export const SCOPE_ASK_BYTES = Buffer.byteLength(`\n\n${SCOPE_ASK}`, "utf8");
+/** The first-launch question's opening tag, which no other block uses. */
+export const SCOPE_ASK_OPEN = "<counterparts-scope>";
 
 /**
  * The room a prompt's JSON envelope keeps for the escaping of RECALL'S OWN
@@ -514,12 +534,14 @@ export const STOP_HUMAN_LINE = "Counterparts: asking the assistant to write up t
  */
 export class ClaudeCodeAdapter extends Lifecycle {
   private readonly nightArgs: readonly string[] | undefined;
+  private readonly scopeCommandCtx: ScopeCommandContext | undefined;
   /** The anti-loop guard: one hook per session in flight at a time. */
   private readonly inFlight = new Set<string>();
 
   constructor(opts: AdapterOptions) {
     super(opts);
     this.nightArgs = opts.nightArgs;
+    this.scopeCommandCtx = opts.scopeCommand;
   }
 
   // ── session start: the wake ────────────────────────────────────────────────
@@ -733,7 +755,11 @@ export class ClaudeCodeAdapter extends Lifecycle {
    * reported injection budget before, a second ceiling beside the pointer's.
    */
   private deliverScopeAsk(input: HookInput, room: EnvelopeRoom): string {
-    const need = room.cost(`\n\n${SCOPE_ASK}`);
+    const ask = scopeAsk(
+      input.scope,
+      this.scopeCommandCtx ?? scopeCommandContext({ configPath: this.configPath, pluginRoot: null, home: homedir() }),
+    );
+    const need = room.cost(`\n\n${ask}`);
     if (room.spent + need > room.limit) {
       this.emit("adapter.scope.ask.deferred", {
         wakeBytes: room.spent,
@@ -756,8 +782,8 @@ export class ClaudeCodeAdapter extends Lifecycle {
       askedScope: true,
       ...this.recordStamp(),
     });
-    this.emit("adapter.scope.ask", { bytes: SCOPE_ASK_BYTES, recorded: marked !== null });
-    return SCOPE_ASK;
+    this.emit("adapter.scope.ask", { bytes: Buffer.byteLength(`\n\n${ask}`, "utf8"), recorded: marked !== null });
+    return ask;
   }
 
   // ── the turn ───────────────────────────────────────────────────────────────
