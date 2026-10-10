@@ -13,7 +13,7 @@ The repository root is the plugin. Claude Code reads four things from it:
 | :- | :- |
 | `.claude-plugin/plugin.json` | The manifest: name `counterparts`, version (kept equal to `package.json`), and the MCP server, declared inline |
 | `.claude-plugin/marketplace.json` | A one-plugin marketplace, so `mlapeter/counterparts` can be added as a marketplace. Its entry names this repository on GitHub at a release tag, not master (below, "Releases only") |
-| `hooks/hooks.json` | The five events `counterparts install` wires: SessionStart, UserPromptSubmit, Stop, SessionEnd, PreCompact |
+| `hooks/hooks.json` | The five events `counterparts install` wires: SessionStart, UserPromptSubmit, Stop, SessionEnd, PreCompact; and, under `"modules"`, the sidebar mod (`hooks/sidebar/`, see its `NOTES.md`) |
 | `commands/doctor.md` | `/counterparts:doctor`, because a plugin install puts no `counterparts` on PATH |
 
 Every hook and the server run `sh ${CLAUDE_PLUGIN_ROOT}/src/adapters/plugin-run.sh hook|mcp`.
@@ -37,10 +37,13 @@ Why the root, and why it leaves npm alone:
   `plugin.json` instead.
 - There is no top-level `bin/`. Claude Code puts a plugin's `bin/` on PATH, but chat
   and Cowork refuse to install a plugin that has one.
-- A mod would go in the same `hooks/hooks.json`, as `"modules": ["./<file>.ts"]`
-  beside `"hooks"`. `claude plugin validate` accepts both together. In a throwaway
-  probe (2.1.295, `--init-only`), the classic SessionStart hook ran and the mod
-  loaded and registered beside it.
+- The sidebar mod is in the same `hooks/hooks.json`, as
+  `"modules": ["./sidebar/hooks/register.tsx"]` beside `"hooks"`, and the manifest
+  names its state contract (`"types"`). `claude plugin validate` accepts both
+  together. A `-p` load registers the five command hooks and the module side by
+  side. The mod draws even when the classic hooks and the server stand down for
+  an npm install. Its checks are `sh hooks/sidebar/check.sh`; `bun test` skips
+  its tests (`bunfig.toml`, `root = "./test"`).
 
 ## How it behaves
 
@@ -95,8 +98,13 @@ side by side. It drops a plugin's MCP server as a duplicate only when the comman
 identical, and ours never is. So when the npm wiring is live, the plugin stands down:
 
 - Hooks: if a live hook of ours is in user, project or local settings, the plugin's
-  hooks exit at once. At SessionStart the person sees one line about it:
-  "installed twice … run `counterparts disconnect` …".
+  hooks exit at once. At SessionStart the person sees one line about it. For a real
+  install (under Claude Code's plugins directory, or the path `installed_plugins.json`
+  records): "installed twice … nothing needs to change. Optional, only if you want
+  the plugin alone: `counterparts disconnect` …". For a plugin run from a folder
+  (`claude --plugin-dir <checkout>`): "running from a folder … as expected. Nothing to
+  do." It never suggests `disconnect` there: that would leave the live memory wired to
+  a development copy, and every session started without `--plugin-dir` memoryless.
 - Server: if a live `counterparts` server is registered in user or local scope, the
   plugin's server answers the protocol with no tools. It puts the reason in
   `instructions`, so `/mcp` shows connected, not failed.
@@ -294,7 +302,8 @@ not the real one. Then:
 - Tell it something specific. Then `/counterparts:doctor` and `/mcp`: the server is
   connected, with nine tools.
 - Quit, start again, and ask what it remembers.
-- With the npm install also wired there, see one wake and the "installed twice" line.
+- With the npm install also wired there, see one wake and the "installed twice" line
+  (from a `--plugin-dir` checkout, the "running from a folder" line instead).
 
 B. **Claude Desktop, Code tab.** Same plugin, installed with `/plugin` in the Code
 tab or in the terminal on the same machine. This is the one to watch: a Desktop

@@ -60,7 +60,7 @@ import { readTranscript } from "../transcript.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
 import type { Binary } from "../../runtime.js";
 import { npmWiring } from "../../host-wiring.js";
-import { ensureFirstRun, hookGate, runningAsPlugin } from "../../plugin.js";
+import { ensureFirstRun, hookGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 import { claimDelivery, deliveryClaimKey, finishClaim } from "../claim.js";
 
 /**
@@ -570,7 +570,12 @@ async function main(): Promise<void> {
   if (runningAsPlugin(process.env)) {
     const home = homedir();
     const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? eventDirectory(payload);
-    const gate = hookGate(npmWiring({ home, env: process.env, cwd: projectDir, read: { mcp: false } }), home);
+    const gate = hookGate(
+      npmWiring({ home, env: process.env, cwd: projectDir, read: { mcp: false } }),
+      home,
+      // Where the plugin was loaded from changes only the session-start line.
+      name === "session-start" ? pluginOrigin({ home, env: process.env, cwd: projectDir }) : undefined,
+    );
     if (gate.standDown) {
       process.stderr.write("[counterparts] plugin hook stood down: the npm install's hooks are live in this host\n");
       if (name === "session-start" && gate.line !== null) process.stdout.write(JSON.stringify({ systemMessage: gate.line }));

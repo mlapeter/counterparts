@@ -1,0 +1,18 @@
+{
+  "//": "Type-checks the sidebar mod on its own: `tsc -p hooks/sidebar` (check.sh lays the engine's declarations in .claude-plugin/types first). The options are the ones the engine's types file gives a hooks module. The repository's own tsconfig never sees this folder.",
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "types": [],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment"
+  },
+  "include": [".claude-plugin/types", "hooks", "types", "tests"]
+}

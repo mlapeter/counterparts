@@ -1,0 +1,7 @@
+{
+  "name": "counterparts",
+  "version": "0.1.0",
+  "description": "The Counterparts sidebar mod on its own, for `claude plugin test hooks/sidebar` and `tsc -p hooks/sidebar`. The plugin at the repository root loads the same module (hooks/hooks.json, \"modules\"); this folder only gives its tests a plugin root that holds nothing else. Named counterparts so its $.state keys are the same either way.",
+  "author": { "name": "Mike LaPeter", "url": "https://counterparts.ai" },
+  "types": "./types/index.d.ts"
+}

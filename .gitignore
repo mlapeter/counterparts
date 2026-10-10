@@ -13,6 +13,13 @@ credentials.env
 # The session-to-session handoff note is written locally and stays out of the public repo (2026-10-02)
 docs/HANDOFF.md
 
+# The engine's declarations, laid beside a mod it loads (and by hooks/sidebar/check.sh): generated, per build
+.claude-plugin/types/
+hooks/sidebar/.claude-plugin/types/
+
+# The brain lab's rendered rounds stay on disk, not in git (the repository is public; tools/brain-lab/README in NOTES)
+tools/brain-lab/out/**/*.png
+
 # The single binary (spike): the generated embed manifest and the build output
 tools/single-binary/assets.gen.ts
 dist/

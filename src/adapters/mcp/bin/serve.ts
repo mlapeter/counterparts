@@ -63,7 +63,7 @@ import type { LogEvent, ProcessLog } from "../../log/index.js";
 import { serveStdio } from "../stdio.js";
 import { stoodDownServer } from "../stood-down.js";
 import { npmWiring } from "../../host-wiring.js";
-import { ensureFirstRun, mcpGate, runningAsPlugin } from "../../plugin.js";
+import { ensureFirstRun, mcpGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
 import type { Binary } from "../../runtime.js";
@@ -331,7 +331,11 @@ async function main(): Promise<void> {
   if (runningAsPlugin(process.env)) {
     const home = homedir();
     const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
-    const gate = mcpGate(npmWiring({ home, env: process.env, cwd: projectDir, read: { hooks: false } }), home);
+    const gate = mcpGate(
+      npmWiring({ home, env: process.env, cwd: projectDir, read: { hooks: false } }),
+      home,
+      pluginOrigin({ home, env: process.env, cwd: projectDir }),
+    );
     if (gate.standDown) {
       process.stderr.write("[counterparts] plugin server stood down: the npm install's server is registered in this host\n");
       await serveStdio(stoodDownServer(gate.instructions ?? ""), process.stdin, {

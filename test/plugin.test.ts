@@ -12,6 +12,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -24,7 +25,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { HOOK_SCRIPT, HOST_EVENTS, MCP_SCRIPT, MCP_SERVER_NAME, readHost } from "../src/adapters/cli/install.js";
 import { doctorFindings } from "../src/adapters/claude-code/doctor.js";
@@ -40,6 +41,8 @@ import {
   firstRunLockPath,
   hookGate,
   mcpGate,
+  npmDoctorCommand,
+  pluginOrigin,
   runningAsPlugin,
 } from "../src/adapters/plugin.js";
 import type { ConfigChoice } from "../src/adapters/config-path.js";
@@ -272,18 +275,57 @@ describe("npmWiring and the two gates", () => {
     expect(mcpGate(w, home)).toEqual({ standDown: false, instructions: null });
   });
 
-  test("live npm hooks: the plugin's hooks stand down, and say how to move", () => {
+  test("live npm hooks, an installed plugin: its hooks stand down, and moving is offered as optional", () => {
     writeSettings({ SessionStart: [liveHookCommand()], Stop: [liveHookCommand()] });
     const w = npmWiring({ home, env: {}, cwd: project });
     expect(w.hooks.map((h) => [h.event, h.live])).toEqual([
       ["SessionStart", true],
       ["Stop", true],
     ]);
-    const gate = hookGate(w, home);
+    const gate = hookGate(w, home, { installed: true, root: join(home, ".claude", "plugins", "cache", "m", "counterparts", "0.3.13") });
     expect(gate.standDown).toBe(true);
     expect(gate.line).toContain("installed twice");
     expect(gate.line).toContain("~/.claude/settings.json");
-    expect(gate.line).toContain("counterparts disconnect");
+    expect(gate.line).toContain("nothing needs to change");
+    expect(gate.line).toContain("Optional, only if you want the plugin alone: `counterparts disconnect`");
+  });
+
+  test("live npm wiring, the plugin run from a folder (--plugin-dir): expected, and nothing is suggested", () => {
+    writeSettings({ SessionStart: [liveHookCommand()] });
+    const dev = { installed: false, root: join(home, "src", "counterparts") };
+    const gate = hookGate(npmWiring({ home, env: {}, cwd: project }), home, dev);
+    expect(gate.standDown).toBe(true);
+    expect(gate.line).toContain("running from a folder (~/src/counterparts)");
+    expect(gate.line).toContain("Nothing to do.");
+    expect(gate.line).not.toContain("disconnect");
+    const entry = { type: "stdio", command: process.execPath, args: ["run", MCP_SCRIPT], env: {} };
+    writeFileSync(join(home, ".claude.json"), JSON.stringify({ mcpServers: { counterparts: entry } }));
+    const server = mcpGate(npmWiring({ home, env: {}, cwd: project }), home, dev);
+    expect(server.standDown).toBe(true);
+    expect(server.instructions).toContain("Nothing needs to change");
+    expect(server.instructions).not.toContain("`counterparts disconnect`");
+    // An install's server says moving is the person's choice, never one to make for them.
+    expect(mcpGate(npmWiring({ home, env: {}, cwd: project }), home).instructions).toContain("never one to make for them");
+  });
+
+  test("pluginOrigin: under Claude Code's plugins directory, or the recorded install path, is an install; anything else is a folder", () => {
+    const cached = join(home, ".claude", "plugins", "cache", "m", "counterparts", "0.3.13");
+    mkdirSync(cached, { recursive: true });
+    expect(pluginOrigin({ home, env: {}, root: cached }).installed).toBe(true);
+    const dev = join(work, "checkout");
+    mkdirSync(dev, { recursive: true });
+    expect(pluginOrigin({ home, env: {}, root: dev })).toEqual({ installed: false, root: dev });
+    // A folder marketplace is read in place: the recorded installPath is an install too.
+    writeFileSync(
+      join(home, ".claude", "plugins", "installed_plugins.json"),
+      JSON.stringify({ version: 2, plugins: { "counterparts@local": [{ scope: "user", installPath: dev, version: "0.3.13" }] } }),
+    );
+    expect(pluginOrigin({ home, env: {}, root: dev }).installed).toBe(true);
+    // CLAUDE_CODE_PLUGIN_CACHE_DIR moves the plugins directory.
+    const moved = join(work, "plugin-cache");
+    mkdirSync(join(moved, "cache", "x"), { recursive: true });
+    expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: join(moved, "cache", "x") }).installed).toBe(true);
+    expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: cached }).installed).toBe(false);
   });
 
   test("a dead npm entry runs nothing, so the plugin carries on and names it", () => {
@@ -513,6 +555,66 @@ describe("ensureFirstRun", () => {
 // ── the launcher, end to end (no Claude Code; the plugin's processes as it runs them) ──
 
 describe("plugin-run.sh", () => {
+  /** An npm install's layout in the work dir: its hook script and, unless told not to, its console printing what it was asked. */
+  function fakeInstall(withCli = true): string {
+    const root = join(work, "npm-install");
+    mkdirSync(join(root, "src", "adapters", "claude-code", "bin"), { recursive: true });
+    writeFileSync(join(root, "src", "adapters", "claude-code", "bin", "hook.ts"), "// a stand-in hook\n");
+    if (withCli) {
+      mkdirSync(join(root, "src", "adapters", "cli", "bin"), { recursive: true });
+      writeFileSync(
+        join(root, "src", "adapters", "cli", "bin", "counterparts.ts"),
+        'console.log(`wired doctor ran: ${process.argv.slice(2).join(" ")} (plugin root: ${process.env.CLAUDE_PLUGIN_ROOT ?? "none"})`);\n',
+      );
+    }
+    writeSettings({ SessionStart: [`"${process.execPath}" run "${join(root, "src", "adapters", "claude-code", "bin", "hook.ts")}" --config "${join(work, "claude-code.json")}"`] });
+    return root;
+  }
+
+  function pathCounterparts(): string {
+    const bin = join(work, "path-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "counterparts"), '#!/bin/sh\necho "PATH doctor ran: $*"\n');
+    chmodSync(join(bin, "counterparts"), 0o755);
+    return bin;
+  }
+
+  function doctor(env: Record<string, string>): { status: number | null; stdout: string } {
+    const e = { ...env };
+    delete e["CLAUDE_PLUGIN_ROOT"]; // a Bash call from the command carries none; the launcher sets it
+    const r = spawnSync("/bin/sh", [LAUNCHER, "cli", "doctor"], { encoding: "utf8", env: e, timeout: 60_000 });
+    return { status: r.status, stdout: r.stdout ?? "" };
+  }
+
+  test("/counterparts:doctor beside a live npm install: says the plugin stands down, then runs THAT install's doctor with its runtime and config", () => {
+    fakeInstall();
+    const r = doctor(pluginEnv({ PATH: `${pathCounterparts()}:${emptyBin}` }));
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("is standing down: the npm install is the live one here (its hooks in ~/.claude/settings.json)");
+    expect(r.stdout).toContain("This plugin (running from "); // this checkout is a folder, not an install
+    expect(r.stdout).toContain(`wired doctor ran: doctor --config ${join(work, "claude-code.json")} (plugin root: none)`);
+    expect(r.stdout).not.toContain("PATH doctor"); // PATH's `counterparts` might be another install
+  });
+
+  test("/counterparts:doctor: the wired install's console can't be found, so PATH's `counterparts`; neither, so how to run it", () => {
+    fakeInstall(false);
+    expect(doctor(pluginEnv({ PATH: `${pathCounterparts()}:${emptyBin}` })).stdout).toContain("PATH doctor ran: doctor");
+    const none = doctor(pluginEnv());
+    expect(none.status).toBe(0);
+    expect(none.stdout).toContain("is standing down");
+    expect(none.stdout).toContain("Run `counterparts doctor` in a terminal.");
+  });
+
+  test("npmDoctorCommand reads a node-wired entry too, and skips one it can't read", () => {
+    const root = fakeInstall();
+    const hook = join(root, "src", "adapters", "claude-code", "bin", "hook.ts");
+    const hooksMjs = join(root, "src", "adapters", "node-hooks.mjs");
+    expect(
+      npmDoctorCommand({ hooks: [{ file: "f", event: "Stop", command: `"/usr/bin/node" --import "${hooksMjs}" "${hook}"`, live: true }], mcp: [] }),
+    ).toEqual({ exe: "/usr/bin/node", args: ["--import", hooksMjs, join(root, "src", "adapters", "cli", "bin", "counterparts.ts"), "doctor"] });
+    expect(npmDoctorCommand({ hooks: [{ file: "f", event: "Stop", command: "~/bin/wrapper.sh", live: true }], mcp: [] })).toBeNull();
+  });
+
   test("SessionStart on a machine with no install: first run, then the wake", () => {
     const r = launch("hook", payload("SessionStart"), pluginEnv());
     expect(r.code).toBe(0);
@@ -529,12 +631,61 @@ describe("plugin-run.sh", () => {
     writeSettings({ SessionStart: [liveHookCommand()], UserPromptSubmit: [liveHookCommand()] });
     const start = launch("hook", payload("SessionStart"), pluginEnv());
     expect(start.code).toBe(0);
-    expect(systemMessage(start.stdout)).toContain("installed twice");
+    // Launched from this checkout, not from Claude Code's plugins directory: a
+    // folder beside the npm install, which is expected and needs nothing done.
+    expect(systemMessage(start.stdout)).toContain("running from a folder");
+    expect(systemMessage(start.stdout)).not.toContain("disconnect");
     expect(start.stdout).not.toContain("additionalContext");
     const prompt = launch("hook", payload("UserPromptSubmit"), pluginEnv());
     expect(prompt.stdout).toBe("");
     expect(existsSync(join(home, ".counterparts"))).toBe(false);
   });
+
+  // THE SHAPES AN NPM INSTALL WIRES, each of which must make the plugin stand
+  // down (2026-10-09: a plugin copy that predated #349 could not read the
+  // `--no-env-file "--config=…"` shape 0.3.14's `connect` writes, did not stand
+  // down, and Mike got a second wake and a second recall on every prompt).
+  for (const shape of ["0.3.13 and before", "0.3.14 (--no-env-file, --config=)", "single binary"] as const) {
+    test(`all five npm hooks live in the ${shape} shape: the plugin stands down, says so once, wakes nothing, opens no store`, () => {
+      const npm = join(work, "npm-install");
+      const hookTs = join(npm, "src", "adapters", "claude-code", "bin", "hook.ts");
+      mkdirSync(dirname(hookTs), { recursive: true });
+      writeFileSync(hookTs, "// a stand-in hook\n");
+      writeFileSync(join(npm, "src", "adapters", "empty-bunfig.toml"), "");
+      const bin = join(work, "npm-bin");
+      mkdirSync(bin, { recursive: true });
+      if (!existsSync(join(bin, "bun"))) symlinkSync(process.execPath, join(bin, "bun"));
+      const binary = join(bin, "counterparts");
+      writeFileSync(binary, "#!/bin/sh\nexit 0\n");
+      chmodSync(binary, 0o755);
+      const command =
+        shape === "0.3.13 and before"
+          ? `"bun" run "${hookTs}"`
+          : shape === "0.3.14 (--no-env-file, --config=)"
+            ? `"bun" --no-env-file "--config=${join(npm, "src", "adapters", "empty-bunfig.toml")}" run "${hookTs}"`
+            : `"${binary}" hook`;
+      writeSettings({ SessionStart: [command], UserPromptSubmit: [command], Stop: [command], SessionEnd: [command], PreCompact: [command] });
+      const env = pluginEnv({ PATH: `${bin}:${emptyBin}`, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" });
+      const start = launch("hook", payload("SessionStart"), env);
+      expect(start.code).toBe(0);
+      expect(start.stderr).toContain("plugin hook stood down");
+      const said = systemMessage(start.stdout) ?? "";
+      expect(said).toContain("running from a folder");
+      expect(said).toContain("Nothing to do.");
+      expect(start.stdout).not.toContain("additionalContext"); // no wake
+      const prompt = launch("hook", payload("UserPromptSubmit"), env);
+      expect(prompt.code).toBe(0);
+      expect(prompt.stdout).toBe(""); // no recall
+      expect(prompt.stderr).toContain("plugin hook stood down");
+      // No store opened: the gate stops the hook before the plugin's first run,
+      // which is where a store would be chosen. (With the gate broken, the
+      // explicit-dir guard above refuses that first run, so the folder below
+      // stays absent either way; the "first run" lines are what tell.)
+      expect(start.stderr).not.toContain("first run");
+      expect(prompt.stderr).not.toContain("first run");
+      expect(existsSync(join(home, ".counterparts"))).toBe(false);
+    });
+  }
 
   test("a plugin that did not stand down beside a settings hook: each event once, by claim", async () => {
     // The 2026-10-09 shape: both wirings run, over one store. (Here the plugin

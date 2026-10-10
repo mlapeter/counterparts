@@ -11,6 +11,7 @@
   "repository": "https://github.com/mlapeter/counterparts",
   "license": "MIT",
   "keywords": ["memory", "local-first", "mcp", "hooks"],
+  "types": "./hooks/sidebar/types/index.d.ts",
   "mcpServers": {
     "counterparts": {
       "command": "sh",

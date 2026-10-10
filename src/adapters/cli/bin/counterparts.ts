@@ -28,11 +28,16 @@
  * a stdin that closes under the question both reject with `PromptAborted`
  * rather than resolving as an answer nobody gave.
  */
+import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { BINARY } from "../../runtime.js";
 import type { Binary } from "../../runtime.js";
+import { npmWiring } from "../../host-wiring.js";
+import { npmDoctorCommand, pluginDoctorLine, pluginOrigin, runningAsPlugin } from "../../plugin.js";
+
 import { run } from "../commands.js";
 import { echoPrompt, hiddenPrompt } from "../ui.js";
 
@@ -58,7 +63,40 @@ async function readStdin(): Promise<string> {
  */
 const ask = echoPrompt(process.stdin, process.stdout);
 
+/**
+ * `doctor` launched from the plugin (`plugin-run.sh cli doctor`, the plugin's
+ * /counterparts:doctor) while the npm install's wiring is live: say so, then
+ * run THAT install's own doctor, with the runtime and the install its live
+ * hook names (`plugin.ts#npmDoctorCommand`); PATH's `counterparts` only when
+ * the wiring can't be read that way. Null when this is not that case and the
+ * ordinary console runs.
+ */
+function doctorFromStoodDownPlugin(): number | null {
+  if (process.argv[2] !== "doctor" || !runningAsPlugin(process.env)) return null;
+  const home = homedir();
+  const cwd = process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
+  const wiring = npmWiring({ home, env: process.env, cwd });
+  const line = pluginDoctorLine(wiring, home, pluginOrigin({ home, env: process.env, cwd }));
+  if (line === null) return null;
+  process.stdout.write(`${line}\n\n`);
+  // Not the plugin any more: the npm install's doctor must not take itself for it.
+  const env = { ...process.env };
+  delete env["CLAUDE_PLUGIN_ROOT"];
+  const wired = npmDoctorCommand(wiring);
+  const r =
+    wired !== null
+      ? spawnSync(wired.exe, [...wired.args], { stdio: "inherit", env })
+      : spawnSync("counterparts", process.argv.slice(2), { stdio: "inherit", env });
+  if (r.error !== undefined) {
+    process.stdout.write("The npm install's `counterparts` is not on this PATH. Run `counterparts doctor` in a terminal.\n");
+    return 0;
+  }
+  return r.status ?? 0;
+}
+
 async function main(): Promise<number> {
+  const redirected = doctorFromStoodDownPlugin();
+  if (redirected !== null) return redirected;
   return run(process.argv.slice(2), {
     io: {
       out: (line) => {

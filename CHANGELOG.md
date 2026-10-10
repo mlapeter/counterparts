@@ -41,6 +41,18 @@
   quarter of a millisecond.
   Doctor has a new amber line, "Installed twice", when a hook stepped aside this way in
   the last week, and says how to keep just one install. No change to the store's format.
+- **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
+  layout, a pane beside the transcript shows the brain turning in braille, the twelve
+  mechanisms, search, and what this session kept and recalled (with the night's dreams and
+  fading, and other sessions folded into one line). It also has two switches,
+  "Counterparts memory · this folder" and "Claude Code's own memory". Pausing Counterparts
+  asks first; a folder paused for every session shows it in amber in the pane and says so
+  in the status line; a state the sidebar hasn't read yet never shows as on. `‹` makes it
+  quiet (narrow, nothing moving); its `✕` hides it to one status line; `/counterparts`
+  opens it anywhere. Beside an npm install, a plugin run from a folder
+  (`claude --plugin-dir`) now says that is expected, instead of suggesting
+  `counterparts disconnect`, and the plugin's `/counterparts:doctor` shows the npm
+  install's own doctor.
 
 ## 0.3.14 — 2026-10-09
 

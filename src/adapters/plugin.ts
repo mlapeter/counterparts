@@ -24,9 +24,13 @@
  *      only by identical command). The npm installs already out there cannot
  *      learn about the plugin, so the rule has to live on THIS side: **the
  *      plugin stands down wherever the npm wiring is live** — hooks for
- *      hooks, the server for the server — and says once, at session start,
- *      how to move (`counterparts disconnect`). Same store either way, so
- *      moving loses nothing.
+ *      hooks, the server for the server — and says so once, at session
+ *      start. Same store either way, so nothing needs to change. Where the
+ *      plugin is a real install, the line adds that moving to it alone is
+ *      optional (`counterparts disconnect`); where it runs from a folder
+ *      (`--plugin-dir`, a checkout), it says this is expected and suggests
+ *      nothing (`pluginOrigin`) — disconnecting there would leave the live
+ *      memory wired to a development folder.
  *   3. **First run without a terminal.** The npm way creates the store and
  *      `~/.counterparts/claude-code.json` at `install`. A plugin has no
  *      install step we run, so the first hook or server to start runs that
@@ -45,8 +49,9 @@ import { fileURLToPath } from "node:url";
 
 import { implicitConfigRefusal } from "./config-path.js";
 import type { ConfigChoice } from "./config-path.js";
+import { pluginInstall } from "./host-wiring.js";
 import type { NpmWiring } from "./host-wiring.js";
-import { BINARY, CLI_SCRIPT, scriptArgs } from "./runtime.js";
+import { BINARY, CLI_SCRIPT, parseScriptInvocation, scriptArgs, shellTokens } from "./runtime.js";
 import type { Binary } from "./runtime.js";
 
 /** Set by Claude Code on a plugin's hook, MCP and LSP processes. */
@@ -106,6 +111,42 @@ function tildeOf(path: string, home: string): string {
   return p === h ? "~" : p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p;
 }
 
+/**
+ * Where this copy of the plugin was loaded from. `installed`: Claude Code put
+ * it there — it lies under Claude Code's plugins directory (its install cache;
+ * `CLAUDE_CODE_PLUGIN_CACHE_DIR`, else `<config dir>/plugins`), or it is the
+ * path `installed_plugins.json` records for `counterparts@…` (a folder
+ * marketplace is read in place). Anything else is a folder somebody pointed
+ * `claude --plugin-dir` (or `CLAUDE_CODE_PLUGIN_DIRS`) at: a development copy.
+ * READ-ONLY.
+ */
+export interface PluginOrigin {
+  readonly installed: boolean;
+  readonly root: string;
+}
+
+export function pluginOrigin(input: {
+  readonly home: string;
+  readonly env: Record<string, string | undefined>;
+  readonly cwd?: string | null;
+  readonly root?: string;
+}): PluginOrigin {
+  // CLAUDE_PLUGIN_ROOT first: the single binary has no package root on disk.
+  const named = (input.env[PLUGIN_ROOT_ENV] ?? "").trim();
+  const root = realOrResolved(input.root ?? (named.length > 0 ? named : PACKAGE_ROOT)).replace(/\/+$/, "");
+  const moved = (input.env["CLAUDE_CONFIG_DIR"] ?? "").trim();
+  const configDir = moved.length > 0 ? moved : join(input.home, ".claude");
+  const cacheRoot = (input.env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] ?? "").trim();
+  const pluginsRoot = realOrResolved(cacheRoot.length > 0 ? cacheRoot : join(configDir, "plugins")).replace(/\/+$/, "");
+  if (root === pluginsRoot || root.startsWith(`${pluginsRoot}/`)) return { installed: true, root };
+  const recorded = pluginInstall({ home: input.home, env: input.env, cwd: input.cwd ?? null })?.installPath ?? null;
+  if (recorded !== null && realOrResolved(recorded).replace(/\/+$/, "") === root) return { installed: true, root };
+  return { installed: false, root };
+}
+
+/** An install's origin, for a caller that has not read one (the tests' default). */
+const INSTALLED: PluginOrigin = { installed: true, root: "" };
+
 /** What the plugin's hook does about the npm wiring, and what it says. */
 export interface PluginGate {
   readonly standDown: boolean;
@@ -122,15 +163,18 @@ export interface PluginGate {
  * plugin down. Whatever this misses, the per-event claim in the store catches
  * (`claude-code/claim.ts`): of two hooks that run one event, one delivers.
  */
-export function hookGate(wiring: NpmWiring, home: string): PluginGate {
+export function hookGate(wiring: NpmWiring, home: string, origin: PluginOrigin = INSTALLED): PluginGate {
   const live = wiring.hooks.find((h) => h.live);
   if (live !== undefined) {
     return {
       standDown: true,
-      line:
-        `Counterparts is installed twice: the npm install's hooks in ${tildeOf(live.file, home)} and this plugin. ` +
-        "The plugin is standing down so nothing is captured twice. To keep only the plugin, run " +
-        "`counterparts disconnect` and restart Claude Code; the memory is the same either way.",
+      line: origin.installed
+        ? `Counterparts is installed twice: the npm install's hooks in ${tildeOf(live.file, home)} and this plugin. ` +
+          "The plugin is standing down so nothing is captured twice; both use the same memory, so nothing needs to change. " +
+          "Optional, only if you want the plugin alone: `counterparts disconnect`, then restart Claude Code."
+        : `Counterparts: this plugin is running from a folder (${tildeOf(origin.root, home)}), beside the npm install's hooks in ` +
+          `${tildeOf(live.file, home)}. Its own hooks and server stand down and the npm install keeps your memory, ` +
+          "as expected. Nothing to do.",
     };
   }
   const dead = wiring.hooks[0];
@@ -150,17 +194,81 @@ export function hookGate(wiring: NpmWiring, home: string): PluginGate {
  * scope wins. The words become the stood-down server's `instructions`, which
  * is the only thing a model sees of a server with no tools.
  */
-export function mcpGate(wiring: NpmWiring, home: string): { readonly standDown: boolean; readonly instructions: string | null } {
+export function mcpGate(
+  wiring: NpmWiring,
+  home: string,
+  origin: PluginOrigin = INSTALLED,
+): { readonly standDown: boolean; readonly instructions: string | null } {
   const live = wiring.mcp.find((m) => m.live);
   if (live === undefined) return { standDown: false, instructions: null };
+  const head =
+    `This plugin's Counterparts server is standing down: the npm install already registers a ` +
+    `"counterparts" memory server (${live.scope} scope, ${tildeOf(live.file, home)}), and two servers ` +
+    "over one memory would offer every tool twice. Use that server's tools. ";
   return {
     standDown: true,
-    instructions:
-      `This plugin's Counterparts server is standing down: the npm install already registers a ` +
-      `"counterparts" memory server (${live.scope} scope, ${tildeOf(live.file, home)}), and two servers ` +
-      "over one memory would offer every tool twice. Use that server's tools. To use the plugin's " +
-      "instead, run `counterparts disconnect` and restart Claude Code.",
+    instructions: origin.installed
+      ? head +
+        "Nothing needs to change: both use the same memory. Only if the person asks to keep the plugin alone, " +
+        "`counterparts disconnect` and a restart of Claude Code do it; it is their choice, never one to make for them."
+      : head +
+        `This plugin is running from a folder (${tildeOf(origin.root, home)}), not an install, which is expected ` +
+        "beside the npm install. Nothing needs to change; do not suggest disconnecting or uninstalling anything.",
   };
+}
+
+/**
+ * `/counterparts:doctor` run from the plugin while the npm wiring is live
+ * here: the plugin is standing down, so its own copy's doctor would describe
+ * an install that is not the one keeping the memory (a different version, a
+ * development folder). The console then says so and runs the npm install's
+ * `counterparts doctor` instead (`cli/bin/counterparts.ts`). Null when nothing
+ * of the npm install's is live, and the plugin's doctor is the right one.
+ */
+export function pluginDoctorLine(wiring: NpmWiring, home: string, origin: PluginOrigin = INSTALLED): string | null {
+  const hook = wiring.hooks.find((h) => h.live);
+  const mcp = wiring.mcp.find((m) => m.live);
+  if (hook === undefined && mcp === undefined) return null;
+  const where =
+    hook !== undefined
+      ? `its hooks in ${tildeOf(hook.file, home)}`
+      : `its "counterparts" server (${mcp?.scope ?? "user"} scope, ${tildeOf(mcp?.file ?? "", home)})`;
+  const copy = origin.installed ? "This plugin" : `This plugin (running from ${tildeOf(origin.root, home)})`;
+  return (
+    `${copy} is standing down: the npm install is the live one here (${where}). ` +
+    "What follows is the wired npm install's own doctor (`counterparts doctor`), the one that knows your memory."
+  );
+}
+
+/**
+ * The npm install's own `counterparts doctor`, as the live wiring names it:
+ * the runtime and the install of the live hook (else the live server), with
+ * `cli/bin/counterparts.ts` beside that entry, and the `--config` the wiring
+ * passes. Null when no live entry can be read that way (then PATH's
+ * `counterparts` is the fallback). PATH alone could find another install than
+ * the one actually wired (a second global, a stale checkout).
+ */
+export function npmDoctorCommand(wiring: NpmWiring): { readonly exe: string; readonly args: readonly string[] } | null {
+  const entries = [...wiring.hooks.filter((h) => h.live), ...wiring.mcp.filter((m) => m.live)];
+  for (const entry of entries) {
+    const tokens = shellTokens(entry.command);
+    const call = parseScriptInvocation(tokens);
+    if (call === null) continue;
+    const at = call.rest.indexOf("--config");
+    const config = at >= 0 && call.rest[at + 1] !== undefined ? ["--config", call.rest[at + 1] as string] : [];
+    // The single binary is its own install: `<binary> cli doctor`.
+    if (call.runtime === "binary") return { exe: call.exe, args: ["cli", "doctor", ...config] };
+    // `<root>/src/adapters/claude-code/bin/hook.ts` or `<root>/src/adapters/mcp/bin/serve.ts`.
+    const cli = join(dirname(call.script), "..", "..", "cli", "bin", "counterparts.ts");
+    if (!existsSync(cli)) continue;
+    // Whatever the wiring put between the runtime and its script, as written:
+    // Bun's `--no-env-file "--config=…/empty-bunfig.toml" run`, or Node's
+    // `--import …/node-hooks.mjs`.
+    const scriptAt = tokens.indexOf(call.script, 1);
+    const prefix = scriptAt > 0 ? tokens.slice(1, scriptAt) : ["run"];
+    return { exe: call.exe, args: [...prefix, resolve(cli), "doctor", ...config] };
+  }
+  return null;
 }
 
 // ── first run ───────────────────────────────────────────────────────────────
