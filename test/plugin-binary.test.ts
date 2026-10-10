@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -30,6 +30,8 @@ let pluginRoot: string;
 let data: string;
 let server: ReturnType<typeof Bun.serve> | null = null;
 let requests = 0;
+/** The paths the stand-in release was asked for. */
+let asked: string[] = [];
 let hold: Promise<void> | null = null;
 /** When set, the asset's URL answers with a redirect to this. */
 let redirect: string | null = null;
@@ -110,6 +112,7 @@ beforeEach(() => {
   data = join(work, "home", ".claude", "plugins", "data", "counterparts-counterparts");
   mkdirSync(join(work, "home"), { recursive: true });
   requests = 0;
+  asked = [];
   hold = null;
   redirect = null;
   server = Bun.serve({
@@ -117,6 +120,7 @@ beforeEach(() => {
     hostname: "127.0.0.1",
     fetch: async (req) => {
       requests += 1;
+      asked.push(new URL(req.url).pathname);
       if (hold !== null) await hold;
       if (redirect !== null && new URL(req.url).pathname.endsWith(".gz")) return Response.redirect(redirect, 302);
       return new URL(req.url).pathname.endsWith(".gz") ? new Response(Bun.file(join(work, "asset.gz"))) : new Response("no", { status: 404 });
@@ -241,6 +245,49 @@ describe.skipIf(process.platform === "win32")("plugin-run.sh with no runtime: th
     expect(statSync(bin()).mode & 0o777).toBe(0o700);
     const st = statSync(bin());
     expect(readFileSync(verified(), "utf8")).toBe(`${sha(FAKE)} ${String(st.ino)} ${String(st.size)} ${String(Math.floor(st.mtimeMs / 1000))}\n`);
+  });
+
+  test("directories that were already there, open to others, are closed: by the download, and by a full check of a kept program", async () => {
+    plugin();
+    const dirs = [join(data, "bin"), join(data, "bin", VERSION)];
+    for (const d of dirs) {
+      mkdirSync(d, { recursive: true });
+      chmodSync(d, 0o755);
+    }
+    launch("hook", sessionStart());
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    for (const d of dirs) expect(statSync(d).mode & 0o077).toBe(0);
+
+    for (const d of dirs) chmodSync(d, 0o755);
+    expect(launch("mcp", "").stdout).toBe("fake counterparts mcp\n"); // the server's start: a full check
+    for (const d of dirs) expect(statSync(d).mode & 0o077).toBe(0);
+  });
+
+  test("paths with spaces (and a backslash), and a host PATH without /usr/sbin: this computer's own program, found and checked", async () => {
+    pluginRoot = join(work, "my plugin");
+    data = join(work, "home", "Application Support", "data \\ dir");
+    plugin();
+    const e = env({ PATH: "/usr/bin:/bin" });
+    expect(message(launch("hook", sessionStart(), e).stdout)).toContain("getting ready");
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    expect(asked).toEqual([`/${assetName(VERSION, hostPlatform())}`]);
+    expect(launch("hook", sessionStart("s2"), e).stdout).toBe("fake counterparts hook\n");
+    expect(launch("mcp", "", e).stdout).toBe("fake counterparts mcp\n");
+    expect(requests).toBe(1);
+  });
+
+  test("a partial download whose process still runs is left to it; one whose process is gone is swept", async () => {
+    plugin();
+    const live = join(data, "bin", `.partial-${VERSION}-${String(process.pid)}`);
+    const dead = join(data, "bin", `.partial-9.9.8-99999`);
+    for (const d of [live, dead]) {
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, "download.gz"), "half");
+    }
+    launch("hook", sessionStart());
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    expect(existsSync(join(live, "download.gz"))).toBe(true);
+    expect(existsSync(dead)).toBe(false);
   });
 
   test("a kept program that changed is never run: it is deleted and fetched again", async () => {
