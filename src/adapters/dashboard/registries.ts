@@ -45,6 +45,7 @@ import {
   RECALL_DECISION_EVENT,
   RECALL_DELIVERED_EVENT,
   RUNNER_FAILED_EVENT,
+  HOOK_CLAIM_LOST_EVENT,
   SELF_BRIEFING_EVENT,
   SEMANTIC_LAG_EVENT,
   SLEEP_CYCLE_EVENT,
@@ -204,6 +205,7 @@ export type DurableEventName =
   | typeof SPAWN_FAILED_EVENT
   | typeof SPAWN_STARTED_EVENT
   | typeof RUNNER_FAILED_EVENT
+  | typeof HOOK_CLAIM_LOST_EVENT
   | typeof WRITE_UP_FAILED_EVENT
   | typeof CAPTURE_FAILED_EVENT
   | typeof MCP_RECALL_EVENT
@@ -258,6 +260,7 @@ export const DURABLE_EVENTS = {
   // worker was refused at every boundary and the only record was a ring that
   // died with the hook process. One row per reason per date.
   "adapter.runner.failed": "the detached worker failed after opening the store (which step, and the code)",
+  "adapter.hook.claim.lost": "two Counterparts wirings ran one event and this hook found it already claimed, so it delivered nothing (which hook, which side gave way)",
   "adapter.writeup.failed": "a session start could not compose the pointer to an earlier session's write-up (the code) — that session was not offered its write-up this time",
   "remember.capture.failed": "a turn's words could not be kept for its write-up (which step of the capture, and the code) — the next boundary reads the same turns again",
   "adapter.spawn.failed": "the detached worker could not be started at all (the OS said why)",
