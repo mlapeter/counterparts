@@ -139,8 +139,13 @@ const COUNT_EVENTS = new Set(['gate.deposit', 'gate.chunk', 'memory.pruned', 'me
 const FALLBACK_LIMIT = 150
 const FALLBACK_MAX = 1200
 
-/** The panel's own black, the brain's empty cells included; the dock's grey would read as a box. */
-const BG: readonly [number, number, number] = [5, 8, 12]
+/**
+ * The brain's cells take the terminal's default background (`bg: null` in
+ * `frameCells`), so the panel's own black (`P.panel`) shows through them.
+ * Measured: the engine draws a Raster's colours at 4 bits a channel, and the
+ * panel colour given to the cells came out `#000011`, a navy box round the
+ * brain.
+ */
 /** The search box: a shade above the panel, so it reads as a field without a border. */
 const SEARCH_BG = '#121a22'
 const CYAN_DIM = '#0b6f7c'
