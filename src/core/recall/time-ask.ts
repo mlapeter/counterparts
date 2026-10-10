@@ -33,9 +33,11 @@
  *     An open end is `OPEN_START` / `OPEN_END`, and a bounded window never
  *     stretches. A month and day with no year under "since" or "after" that
  *     has not come yet this year is last year's ("since 10/25" asked on
- *     10-03); under "before", "until" or "by" one whose month has not begun
- *     is this year's when that is nearer than last year's ("by 12/20" asked
- *     on 10-09; "until Dec 30" asked on Jan 3 is still last year's). An amount is not a date: "7-8 hours", "3/4 cup", "$5-10", and a
+ *     10-03); under "before", "until" or "by" it is the year whose date is
+ *     nearest today, last, this or next ("by 12/20" asked on 10-09 is this
+ *     year's; "by 1/5" asked on 12-28 is next year's; "until Dec 30" asked on
+ *     Jan 3 is still last year's; 2026-10-10). An amount is not a date: "7-8
+ *     hours", "3/4 cup", "$5-10", and a
  *     fraction after a word of quantity ("cut it by 1/2"; "finish by 1/2" is
  *     still January 2) (2026-10-09); a leading zero ("09-28 minutes") keeps
  *     it a date (review of #345);
@@ -293,21 +295,17 @@ function dated(
   // "until" and "by" keep this year's, which hides nothing that has happened
   // (review of #338, 2026-10-09).
   const roll = opts.yearless === true && (b.bound === "since" || b.bound === "after") && firstDay > today;
-  // And the other way (review of #345): "by 12/20" asked on 10-09 is THIS
-  // year's 12/20, though its month has not begun. `yearFor` put it last year,
-  // which cut the window at 2025-12-20 and hid the ten months since; a cutoff
-  // still ahead hides nothing. Only when this year's is the nearer of the two,
-  // so "until Dec 30" asked on Jan 3 is still the one four days back. A Feb 29
-  // this year lacks stays where it was.
-  const thisYears = `${today.slice(0, 4)}${firstDay.slice(4)}`;
-  const ahead =
-    opts.yearless === true &&
-    (b.bound === "before" || b.bound === "through") &&
-    firstDay.slice(0, 4) < today.slice(0, 4) &&
-    isDay(thisYears) &&
-    daysBetween(today, thisYears) <= daysBetween(firstDay, today);
-  const first = roll ? lastCome(firstDay, today) : ahead ? thisYears : firstDay;
-  const last = roll || ahead ? first : lastDay;
+  // And the other way: "before", "until" and "by" take the year whose date is
+  // NEAREST today — last year's, this year's or next year's. "By 12/20" asked
+  // on 10-09 is this year's 12/20, though its month has not begun (review of
+  // #345: `yearFor` put it last year, which hid the ten months since); "by
+  // 1/5" asked on 12-28 is the coming January's, not the one nearly a year
+  // back (the year-end mirror, 2026-10-10); "until Dec 30" asked on Jan 3 is
+  // still the one four days back. A cutoff moved ahead hides nothing that has
+  // happened. A Feb 29 a year lacks is not a choice.
+  const moved = opts.yearless === true && (b.bound === "before" || b.bound === "through") ? nearestYear(firstDay, today) : firstDay;
+  const first = roll ? lastCome(firstDay, today) : moved;
+  const last = roll || moved !== firstDay ? first : lastDay;
   if (b.event !== null) {
     // The date names a thing on that day ("before the 7/22 flight"): the bound
     // keeps that day, where the thing happened, and only the date leaves the
@@ -332,6 +330,27 @@ function dated(
 function yearFor(month: number, today: string): number {
   const [y, m] = today.split("-").map(Number) as [number, number];
   return month <= m ? y : y - 1;
+}
+
+/**
+ * The month and day of `day` in whichever year puts it nearest `today`: last
+ * year, this year or next. On a tie the later (it hides less, under a cutoff);
+ * a year with no such day (a Feb 29) is skipped, and with none left, `day`.
+ */
+function nearestYear(day: string, today: string): string {
+  const year = Number(today.slice(0, 4));
+  let best = day;
+  let gap = Number.POSITIVE_INFINITY;
+  for (const y of [year - 1, year, year + 1]) {
+    const candidate = `${String(y).padStart(4, "0")}${day.slice(4)}`;
+    if (!isDay(candidate)) continue;
+    const away = Math.abs(daysBetween(candidate, today));
+    if (away <= gap) {
+      best = candidate;
+      gap = away;
+    }
+  }
+  return best;
 }
 
 /**
