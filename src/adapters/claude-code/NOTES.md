@@ -2345,8 +2345,8 @@ INTERFACE-GAPS §15.
   foreign `hook-claims.sqlite` failed every claim: a "delivered unclaimed" line on stderr at
   every event, and the backstop off until somebody deleted the file. Now the write that meets
   `SQLITE_NOTADB`, `SQLITE_CORRUPT` or `SQLITE_IOERR_SHORT_READ` (`db.ts#isUnreadableDatabase`)
-  checks the file is still unreadable (a twin may have rebuilt it already), moves it with its
-  `-wal` and `-shm` to `hook-claims.unreadable-<epoch ms>.sqlite` beside it, then removes any
+  checks the path still holds the file it met (a twin may have rebuilt it already), moves it
+  with its `-wal` and `-shm` to `hook-claims.unreadable-<epoch ms>.sqlite` beside it, then removes any
   older copy, and runs the transaction once more on a fresh file. Fail-open still: a
   set-aside that cannot be made, or a second failure, delivers unclaimed as before.
   **Review of #366: two twins meeting one bad file.** Both passed the still-unreadable
@@ -2355,7 +2355,19 @@ INTERFACE-GAPS §15.
   because older copies were removed before the move it once removed the winner's copy. Now
   a move that finds the file gone returns no copy, `SQLITE_IOERR_VNODE` also retries once,
   and older copies go after the move: 40 of 40 rounds one delivery, every copy kept
-  (`hook-claim.test.ts`, "two twins meet one bad file").
+  (`hook-claim.test.ts`, "two twins meet one bad file"). CI's macOS runner then met
+  `SQLITE_IOERR_FSTAT` in that test, and under load (12 busy loops) about 1 round in 70 still
+  delivered twice: both twins checked the file and then moved it, so the later one moved the
+  first one's NEW file, or its `-wal`. Now: (a) each write notes which file (device and inode)
+  it met, and when a write fails and the path holds another file or none, a twin moved it,
+  whatever the driver called that, and the write runs once more on the twin's file; (b) only
+  the twin that makes `hook-claims.setting-aside/` beside the file moves it, sidecars first
+  while the bad file still holds the path, then the file; a twin that finds the lock waits up
+  to `CLAIM_WAIT_MS` for the file to go, then tries the new one; a lock older than 5 s is a dead
+  holder's and is taken over. The still-unreadable probe went, and with it the 0644 file it
+  could create. Measured after: macOS under 12 busy loops 0 doubles in 2,400 rounds (1 in 800
+  in a run where a wait likely passed its 500 ms), quiet 0 in 200; Linux, 2 CPUs and 2 busy
+  loops (`cp-ci-linux` container), 0 in 450.
   `SQLITE_IOERR_SHORT_READ` is in the list because that is what a garbage file reads as when
   a WAL from the healthy one is still beside it, which on macOS it is: Apple's SQLite keeps
   `-wal` and `-shm` after the last connection closes (measured while writing the test). So

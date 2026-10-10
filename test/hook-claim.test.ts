@@ -14,7 +14,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -23,6 +23,7 @@ import {
   CLAIM_KEEP,
   CLAIM_WAIT_MS,
   CLAIM_WINDOW_MS,
+  SET_ASIDE_LOCK,
   claimDelivery,
   claimsPath,
   deliveryClaimKey,
@@ -741,6 +742,32 @@ describe("a claims file that is not a database", () => {
     },
     60_000,
   );
+
+  test("the set-aside lock: a live one is waited on and the event still delivers; one a dead holder left is taken over", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      corrupt();
+      const lock = join(dirname(claimsPath(store)), SET_ASIDE_LOCK);
+      mkdirSync(lock);
+      // A twin is setting it aside (its lock is fresh) but never finishes: this
+      // one waits its bound, finds the bad file still there, and delivers.
+      const t0 = Date.now();
+      const waited = claimDelivery(cp, base);
+      expect(waited.outcome).toBe("unclaimed");
+      expect(waited.setAside).toBeUndefined();
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(CLAIM_WAIT_MS - 50);
+      expect(readFileSync(claimsPath(store), "utf8")).toBe(garbage);
+      // The holder died: past 5 s its lock is taken over, once, and the file is mended.
+      const old = (Date.now() - 6_000) / 1000;
+      utimesSync(lock, old, old);
+      const mended = claimDelivery(cp, { ...base, key: "k2" });
+      expect(mended.outcome).toBe("won");
+      expect(basename(mended.setAside ?? "")).toMatch(/^hook-claims\.unreadable-\d+\.sqlite$/);
+      expect(existsSync(lock)).toBe(false);
+    } finally {
+      cp.close();
+    }
+  });
 
   test("the directory is 0700 and the file 0600, and SQLite's log and index take the file's mode", () => {
     const cp = Counterpart.open({ dir: store });

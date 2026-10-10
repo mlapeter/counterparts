@@ -92,7 +92,7 @@
  * pays is the two small writes, on a file nothing else writes.
  */
 import { createHash } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { HOOK_CLAIM_LOST_EVENT } from "../../core/counterpart.js";
@@ -142,17 +142,26 @@ const CLAIMS_DDL = "CREATE TABLE IF NOT EXISTS claims (key TEXT PRIMARY KEY, val
  */
 function updateClaims(dataDir: string, fn: (current: string | undefined) => string | undefined): { readonly setAside: string | null } {
   const path = claimsPath(dataDir);
+  // WHICH FILE this attempt meets, so a failure can tell "this file is bad"
+  // from "a twin moved it while this attempt had it open".
+  const met = fileIdentity(path);
   try {
     transactClaims(path, fn);
     return { setAside: null };
   } catch (err) {
-    if (!isUnreadableDatabase(err) && !movedWhileOpen(err)) throw err;
-    // A twin that met the same file may have set it aside and rebuilt it in
-    // the meantime (and on macOS a connection whose file it moved says
-    // SQLITE_IOERR_VNODE); then this one only tries again, on the file the
-    // twin made, and loses to the twin's claim there rather than delivering
-    // beside it.
-    const setAside = isUnreadableDatabase(err) && stillUnreadable(path) ? setClaimsAside(path) : null;
+    let setAside: string | null = null;
+    // A TWIN MOVED IT (review of #366) when another file, or none, holds the
+    // path now: a twin that met the same bad file set it aside while this
+    // attempt had it open. What the driver says then varies by platform and
+    // moment (`SQLITE_IOERR_VNODE`, `SQLITE_IOERR_FSTAT`, the old file's own
+    // `SQLITE_NOTADB`), so the test is the file, not the code. Then this one
+    // only tries again, on the twin's file, and loses to the twin's claim.
+    if (fileIdentity(path) === met) {
+      if (isUnreadableDatabase(err)) setAside = setClaimsAside(path, met);
+      // A twin is moving it right now (its sidecars go first, so the file is
+      // still here): wait for it to be gone, then try the twin's new file.
+      else if (!awaitSetAside(path, met)) throw err;
+    }
     transactClaims(path, fn);
     return { setAside };
   }
@@ -162,61 +171,100 @@ function updateClaims(dataDir: string, fn: (current: string | undefined) => stri
 export const CLAIMS_SET_ASIDE_PREFIX = "hook-claims.unreadable-";
 const CLAIMS_SET_ASIDE_SUFFIX = ".sqlite";
 
-/** True when the file at `path` still cannot be read as a database (it may
- *  have been set aside and rebuilt by a twin since this process met it). */
-function stillUnreadable(path: string): boolean {
+/**
+ * WHO SETS IT ASIDE: the one twin that makes this directory beside the file
+ * (review of #366). Without it two twins that met the same bad file both
+ * moved "the" file, and the second, a moment late, moved the first one's new
+ * file and its `-wal` — measured, about 1 round in 70 under load, each a
+ * second delivery. A holder that died leaves it; past `SET_ASIDE_STALE_MS`
+ * the next one takes it over.
+ */
+export const SET_ASIDE_LOCK = "hook-claims.setting-aside";
+const SET_ASIDE_STALE_MS = 5_000;
+
+/** The file at `path` as device and inode, or null when there is none. */
+function fileIdentity(path: string): string | null {
   try {
-    const db = openDb(path, { wal: true });
-    try {
-      db.get("SELECT count(*) AS n FROM sqlite_master");
-    } finally {
-      db.close();
-    }
-    return false;
-  } catch (err) {
-    return isUnreadableDatabase(err);
+    const st = statSync(path, { bigint: true });
+    return `${String(st.dev)}:${String(st.ino)}`;
+  } catch {
+    return null;
   }
 }
 
 /**
- * Move the unreadable claims file aside, with its `-wal` and `-shm` (a stale
- * log replayed into a new file would be the corruption all over again), to
+ * Move the unreadable claims file (`met`, the one this attempt failed on)
+ * aside, with its `-wal` and `-shm` (a stale log replayed into a new file
+ * would be the corruption all over again), to
  * `hook-claims.unreadable-<epoch ms>.sqlite`, then remove any older copy: one
  * is kept, so it is evidence and never a pile. Returns the copy's path, or
- * null when the file is already gone — a twin moved it first, and its copy
- * is the one kept (review of #366: removing older copies BEFORE the move let
- * the twin that lost the move delete the copy the winner had just made).
- * Throws when the file is there and cannot be moved.
+ * null when a twin set it aside instead: then this waits, up to
+ * `CLAIM_WAIT_MS`, for the twin to have moved it, so the caller's next try
+ * meets the twin's new file. Throws when the file cannot be moved.
+ *
+ * Under the lock the order matters: the sidecars go while the bad file still
+ * holds the path, because the moment it is gone a twin may make a new file
+ * there, and nothing of that file may be moved.
  */
-function setClaimsAside(path: string, now: number = Date.now()): string | null {
+function setClaimsAside(path: string, met: string | null, now: number = Date.now()): string | null {
   const dir = dirname(path);
-  const name = `${CLAIMS_SET_ASIDE_PREFIX}${String(now)}${CLAIMS_SET_ASIDE_SUFFIX}`;
-  const aside = join(dir, name);
+  const lock = join(dir, SET_ASIDE_LOCK);
+  if (!takeSetAsideLock(lock)) {
+    awaitSetAside(path, met);
+    return null;
+  }
   try {
-    renameSync(path, aside);
-  } catch (err) {
-    if ((err as { code?: unknown } | null)?.code === "ENOENT") return null;
-    throw err;
-  }
-  for (const sidecar of ["-wal", "-shm"]) {
-    try {
-      renameSync(`${path}${sidecar}`, `${aside}${sidecar}`);
-    } catch {
-      /* not there: nothing to carry */
+    if (met === null || fileIdentity(path) !== met) return null;
+    const name = `${CLAIMS_SET_ASIDE_PREFIX}${String(now)}${CLAIMS_SET_ASIDE_SUFFIX}`;
+    const aside = join(dir, name);
+    for (const sidecar of ["-wal", "-shm"]) {
+      try {
+        renameSync(`${path}${sidecar}`, `${aside}${sidecar}`);
+      } catch {
+        /* not there: nothing to carry */
+      }
     }
+    renameSync(path, aside);
+    for (const other of readdirSync(dir)) {
+      if (other.startsWith(CLAIMS_SET_ASIDE_PREFIX) && !other.startsWith(name)) rmSync(join(dir, other), { force: true });
+    }
+    return aside;
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
   }
-  for (const other of readdirSync(dir)) {
-    if (other.startsWith(CLAIMS_SET_ASIDE_PREFIX) && !other.startsWith(name)) rmSync(join(dir, other), { force: true });
-  }
-  return aside;
 }
 
-/** SQLITE_IOERR_VNODE (macOS): the file this connection opened was renamed or
- *  removed while it was open — here, only ever by a twin's `setClaimsAside`.
- *  bun names it in `code`; `node:sqlite` gives the extended number. */
-function movedWhileOpen(err: unknown): boolean {
-  const e = err as { code?: unknown; errcode?: unknown } | null | undefined;
-  return e?.code === "SQLITE_IOERR_VNODE" || e?.errcode === 6922;
+/**
+ * When a twin holds the set-aside lock, wait (up to `CLAIM_WAIT_MS`) for the
+ * file this attempt met to leave the path. False when no twin is setting it
+ * aside, so the caller's error is its own.
+ */
+function awaitSetAside(path: string, met: string | null): boolean {
+  if (fileIdentity(join(dirname(path), SET_ASIDE_LOCK)) === null) return false;
+  const until = Date.now() + CLAIM_WAIT_MS;
+  while (fileIdentity(path) === met && Date.now() < until) sleepSync(5);
+  return true;
+}
+
+function takeSetAsideLock(lock: string): boolean {
+  try {
+    mkdirSync(lock);
+    return true;
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code !== "EEXIST") throw err;
+  }
+  try {
+    if (Date.now() - statSync(lock).mtimeMs <= SET_ASIDE_STALE_MS) return false;
+    rmSync(lock, { recursive: true, force: true });
+    mkdirSync(lock);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 /**
