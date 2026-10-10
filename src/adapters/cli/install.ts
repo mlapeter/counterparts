@@ -58,9 +58,9 @@ export const DEFAULT_STORE_DIR = "store";
 import { EMBEDDER_KINDS } from "../config.js";
 import type { EmbedderKind } from "../config.js";
 import { CONFIG_ENV, CONFIG_FLAG, defaultConfigPath } from "../config-path.js";
-import { parseScriptInvocation, runtimePresent, scriptArgs, shellTokens } from "../runtime.js";
+import { parseScriptInvocation, runtimeOf, runtimePresent, scriptArgs, shellTokens } from "../runtime.js";
 import type { RuntimeKind } from "../runtime.js";
-import { pluginInstall } from "../host-wiring.js";
+import { pluginInstall, readOurHook } from "../host-wiring.js";
 import type { PluginInstallRead } from "../host-wiring.js";
 // `preRowsMarkersIn` reads FILENAMES and opens nothing, which is the only
 // reason a module that promises never to open a parked store may call it —
@@ -644,10 +644,13 @@ export interface HostRuntime {
  * counterparts-hook` read as an installed hook. It still cannot resolve an
  * arbitrary shell command — that is out of scope, and deliberately so — but it
  * no longer matches prose. The third shape is the single binary's own
- * (`"<…>/counterparts" hook`, `runtime.ts#parseScriptInvocation`).
+ * (`"<…>/counterparts" hook`, `runtime.ts#parseScriptInvocation`). It matches
+ * the entry's `.mjs` shim as well as `hook.ts` (2026-10-09, with
+ * `host-wiring.ts#readOurHook`): a line that runs our hook is ours to report,
+ * whatever flags or entry file a later version writes.
  */
 export const HOOK_COMMAND_MARK =
-  /(^|[\s"'=/\\])counterparts-hook(\s|$|")|claude-code[/\\]bin[/\\]hook\.ts|[/\\]counterparts(\.exe)?"?\s+hook(\s|$)/;
+  /(^|[\s"'=/\\])counterparts-hook(\s|$|")|claude-code[/\\]bin[/\\]hook\.(ts|mjs)|[/\\]counterparts(\.exe)?"?\s+hook(\s|$)/;
 
 /**
  * The absolute path a hook command runs, when it names one — the first token
@@ -775,6 +778,23 @@ export function readHost(
     if (run.projectEnv === "read") row.projectEnv.add(used);
     runtimes.set(run.exe, row);
   };
+  // A HOOK LINE IS READ BY ITS SCRIPT when the strict parser does not know its
+  // flags (`host-wiring.ts#readOurHook`): a line a later `connect` wrote keeps
+  // its Runtime row instead of vanishing from it. The shim names no runtime.
+  const noteHookRuntime = (command: string): void => {
+    const tokens = shellTokens(command);
+    if (parseScriptInvocation(tokens) !== null) return noteRuntime(tokens, "hooks");
+    const ours = readOurHook(command);
+    if (ours === null || ours.shape === "shim") return;
+    const row = runtimes.get(ours.exe) ?? {
+      kind: ours.shape === "binary" ? "binary" : runtimeOf(ours.exe),
+      used: new Set<HostUse>(),
+      projectEnv: new Set<HostUse>(),
+    };
+    row.used.add("hooks");
+    if (ours.projectEnv === "read") row.projectEnv.add("hooks");
+    runtimes.set(ours.exe, row);
+  };
   for (const path of hostSettingsFiles(hostSettingsDir(home, env), cwd)) {
     const read = readJsonFile(path);
     if (read.state === "unreadable") settingsUnreadable.push(path);
@@ -793,7 +813,7 @@ export function readHost(
           const command = (h as Record<string, unknown>)["command"];
           if (typeof command !== "string" || !HOOK_COMMAND_MARK.test(command)) continue;
           events.add(event);
-          noteRuntime(shellTokens(command), "hooks");
+          noteHookRuntime(command);
           // A BLOCK THAT NAMES A PATH THAT IS NOT THERE fails at every session
           // start, silently. One event can carry several entries, so a live one
           // anywhere wins and a stale one is only reported when nothing on that

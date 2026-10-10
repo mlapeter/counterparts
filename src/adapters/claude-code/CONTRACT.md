@@ -595,6 +595,46 @@ row, saying which source answered, existed until the keys were removed — §1a.
     back immediately. Doctor prints these steps as the remedy on any Snapshot
     finding that is not green.
 
+26. **[M] ONE DELIVERY PER EVENT, HOWEVER MANY WIRINGS FIRE IT (2026-10-09).**
+    Claude Code runs every hook registered for an event — settings and plugins
+    alike — at once, with the same input. Two wirings of Counterparts in one host
+    (the npm install's hooks and the plugin's; two settings files naming two
+    builds) would otherwise give every session two wakes, two recall blocks per
+    prompt, two Stop asks, two boundaries and two background workers. Seen live on
+    2026-10-09. Two layers:
+
+    - **The plugin stands down** (`adapters/plugin.ts#hookGate`): a plugin hook
+      that finds a LIVE hook of ours in user, project or local settings exits at
+      once and says so at SessionStart. "Ours" is read by the SCRIPT
+      (`host-wiring.ts#readOurHook`): a runtime given `claude-code/bin/hook.ts` or
+      its `.mjs` shim, `counterparts-hook`, or `<binary> hook`, whatever one-token
+      flags come before or after `run`, and nothing with a shell operator in it.
+      So a plugin reads what a newer `connect` writes. (The plugin's server stands
+      down the same way, by the registration's NAME.) `connect`'s own rewrite keeps
+      the strict reading (`isOurHookCommand`): it rewrites only what it can fully
+      parse. A writer that adds a flag writes it as ONE token, or older readers
+      take its value for the script.
+    - **The claim is the backstop** (`claim.ts`), for whatever the stand-down
+      misses: after the store opens and before anything else, each hook process
+      claims its event in one `BEGIN IMMEDIATE` read-and-write of the
+      `adapter.hook.claims` meta row, keyed by the session id, the event, the
+      host's `prompt_id` and the event's own fields (the prompt text's hash,
+      `source`, `stop_hook_active` and the last assistant message's hash, `reason`,
+      `trigger`). A process is the holder's TWIN when its key matches and it
+      STARTED (`performance.timeOrigin`) before the holder finished — the winner
+      stamps its claim when it exits, and a holder that never stamps holds for
+      `CLAIM_WINDOW_MS` (15 s) at most. The twin exits 0 with nothing on stdout —
+      no wake, recall, ask, boundary or worker — writes one
+      `adapter.hook.claim.lost` row, and leaves one stderr line. All five events
+      are claimed. A matching key from a process that started after the holder
+      finished is a separate event (a host with no `prompt_id` sending the same
+      words twice) and delivers. **Fail-open:** no session id, an observer, or a
+      store that will not take the write, and the process delivers, so one wiring
+      behaves exactly as before (two small writes: about 0.25 ms measured in
+      process, within noise end to end). Doctor's `Installed twice` line (amber)
+      reads the week's `claim.lost` rows. The transcript's size is not in the key:
+      the host may write between the twins starting.
+
 ### The nightly run, and the page writer inside it (2026-09-28 — working defaults, held lightly)
 
 **[M] Once per local calendar day, the first session's line starts the nightly run.** On the

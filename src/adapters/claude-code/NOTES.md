@@ -2079,3 +2079,42 @@ INTERFACE-GAPS §15.
   page writer's `calendarDaysSince` subtracts two such instants, which is date arithmetic
   and zone-free, and `futureNamesIn` compares snapshot folder names, which are UTC by
   design (`snapshots.ts`).
+
+## 2026-10-09 — two wirings, one delivery: the stand-down reads the script, and a claim backs it
+
+- **What happened.** On the owner's machine 0.3.14's `connect` rewrote the npm hooks to
+  `"<bun>" --no-env-file "--config=<…>" run "<…/hook.ts>"`. The plugin beside it was built
+  before those flags, its `parseScriptInvocation` returned null, and its hooks did not stand
+  down. Every session got two wakes and two recall blocks per prompt. A read-only look at
+  the store that night (the coordinator's) found most writes already idempotent (the capture
+  cursor gave the second Stop nothing new; session records are a file per id; `gate_session`
+  has a primary key; `wakeChecked` stopped a second delivered row). What still doubled:
+  `adapter.wake.injected`, `adapter.boundary` (two `boundaries.jsonl` lines per boundary),
+  `recall.decision`, `adapter.recall`, `adapter.ask`, `recall.credit`,
+  `adapter.semantic.lag`, and the worker: `sleep.cycle`, `sweep.gate` and
+  `adapter.embed.backfill` ran about twice, and the two builds' workers rewrote the wake
+  bundle back and forth six times.
+- **Layer 1: read the script, not the flags** (`host-wiring.ts#readOurHook`). Used by the
+  plugin's stand-down (`npmWiring`, `hookCommandLive`) and by doctor's Runtime row.
+  `isOurHookCommand` stays strict, for `connect`'s rewrite only.
+- **Layer 2: the claim** (`claim.ts`, CONTRACT §5 G26). It sits before `adapter.hook`, so a
+  twin writes none of the rows above and spawns no worker. No worker lock was added:
+  this file's "No lock between two workers, on purpose" still stands, and with one hook
+  process per event there is one worker per boundary again. Two builds' workers can still
+  meet across DIFFERENT events (one wins a Stop, the other the next one) while two builds
+  are wired; doctor's `Installed twice` line is what says to keep one.
+- **Twins, not a clock.** The first cut called an identical key inside 15 s a duplicate.
+  Seven tests failed at once, all of them firing the same payload twice in a row (no
+  `prompt_id`): a host without `prompt_id` sending the same words twice would have lost the
+  second. The rule became "same key AND started before the holder finished". The winner
+  stamps its claim as it exits; `performance.timeOrigin` is the process's start (Bun: 3–4
+  ms after the spawn, measured). The suite then passed unchanged.
+- **Cost, measured on an M3 Pro beside a running benchmark.** Claim plus finish in process:
+  median 0.24 ms, p95 0.29 ms over 300 events, with the row at its 64-entry bound. The
+  UserPromptSubmit hook end to end, this branch against master alternating, 30 each:
+  median 100.9 ms against 99.4 ms, minimum 95.1 against 95.3. Within noise.
+- **Not measured here:** that a Stop twin exiting 0 beside a winner exiting with the ask
+  leaves Claude Code's merge blocking the stop (it should, since any blocking hook blocks),
+  and that `prompt_id` is present at UserPromptSubmit itself (the schema says "absent until
+  the first user input of the process lifetime"; the key also carries the prompt's hash, so
+  either way works).

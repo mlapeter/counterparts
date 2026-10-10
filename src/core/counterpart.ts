@@ -584,6 +584,16 @@ export const SPAWN_REFUSED_EVENT = "adapter.spawn.refused";
 export const SPAWN_FAILED_EVENT = "adapter.spawn.failed";
 export const RUNNER_FAILED_EVENT = "adapter.runner.failed";
 /**
+ * A HOOK THAT FOUND ITS EVENT ALREADY TAKEN (2026-10-09): two wirings of
+ * Counterparts are live in one host (the npm install's hooks and the
+ * plugin's, any two builds), both fired, and this one lost the per-event
+ * claim and delivered nothing. One row per suppressed duplicate — the hook,
+ * the session, which side lost and which won; never a word of the prompt.
+ * Written by `adapters/claude-code/claim.ts`; read by doctor's `Installed
+ * twice` line.
+ */
+export const HOOK_CLAIM_LOST_EVENT = "adapter.hook.claim.lost";
+/**
  * A WRITE-UP POINTER THAT COULD NOT BE COMPOSED (2026-09-30), durable because
  * "was this session ever offered its write-up" is a fact a later reading needs
  * and the ring that said so died with the SessionStart that failed.
@@ -853,6 +863,7 @@ export type AdapterDurableEventName =
   | typeof SPAWN_FAILED_EVENT
   | typeof SPAWN_STARTED_EVENT
   | typeof RUNNER_FAILED_EVENT
+  | typeof HOOK_CLAIM_LOST_EVENT
   | typeof WRITE_UP_FAILED_EVENT
   | typeof MCP_RECALL_EVENT
   | typeof MCP_PART_EVENT

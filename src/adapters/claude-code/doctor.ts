@@ -48,6 +48,7 @@ import {
   NOTICE_DROPPED_EVENT,
   GATE_CHUNK_EVENT,
   GATE_DEPOSIT_EVENT,
+  HOOK_CLAIM_LOST_EVENT,
   MCP_OVERSIZE_EVENT,
   MCP_PART_EVENT,
   MCP_SPILLED_EVENT,
@@ -3153,6 +3154,65 @@ const WAKE_WINDOW_DAYS = 7;
  * notice dropped to keep the envelope under the cap, parts that waited for room (`adapter.envelope.gave-way`), a handoff
  * or "Last here" line with no room, and "Work here" lines that did not fit.
  */
+/** How far back the `Installed twice` line looks, in lived days, and how many rows it reads. */
+const CLAIM_WINDOW_DAYS = 7;
+const CLAIM_ROWS = 500;
+
+/**
+ * INSTALLED TWICE, AND THE CLAIM HELD (2026-10-09, `claim.ts`). Silent unless a
+ * hook stood down by claim inside the window: two wirings of Counterparts are
+ * live in Claude Code, both ran an event, and the second to claim it delivered
+ * nothing. The plugin stands down by itself when it can read the npm wiring
+ * (`plugin.ts#hookGate`), so a row here means that reading failed — an older
+ * plugin beside a newer `connect`, or two settings files naming two builds.
+ * AMBER: nothing reached the session twice, but every event still starts two
+ * hook processes, and the two builds' workers take turns at the store. One
+ * bounded read of an indexed name.
+ */
+export function claimFindings(store: Store, plugin: PluginInstallRead | null = null): Finding[] {
+  let rows: EventRow[];
+  try {
+    rows = store.eventLog({
+      name: HOOK_CLAIM_LOST_EVENT,
+      sinceDay: Math.max(0, store.livedDay() - (CLAIM_WINDOW_DAYS - 1)),
+      order: "desc",
+      limit: CLAIM_ROWS,
+    });
+  } catch {
+    return [];
+  }
+  const newest = rows[0];
+  if (newest === undefined) return [];
+  const sides = new Set<string>();
+  const hooks = new Set<string>();
+  for (const row of rows) {
+    const p = payloadOf(row);
+    for (const side of [str(p, "lost"), str(p, "won")]) if (side !== null) sides.add(side);
+    const hook = str(p, "hook");
+    if (hook !== null) hooks.add(hook);
+  }
+  const who =
+    sides.has("plugin") && sides.has("settings")
+      ? "the Claude Code plugin's hooks and the hooks in your settings"
+      : sides.has("plugin")
+        ? "the Claude Code plugin's hooks, twice"
+        : "two sets of hooks in your settings";
+  const count = rows.length >= CLAIM_ROWS ? `${String(CLAIM_ROWS)}+` : String(rows.length);
+  const fix = sides.has("plugin")
+    ? `Keep one: to keep only the plugin, run \`counterparts disconnect\` and restart Claude Code; to keep only the npm install, run \`claude plugin uninstall ${plugin?.id ?? "counterparts@<marketplace>"}\`. Same memory either way.`
+    : "Keep one: remove the extra Counterparts hook lines from the project's .claude/settings.json or .claude/settings.local.json (or run `counterparts disconnect` and then `counterparts connect`), then restart Claude Code.";
+  return [
+    finding(
+      "claim",
+      "amber",
+      "Installed twice",
+      `two Counterparts wirings are live (${who}): ${count} hook ${rows.length === 1 ? "run" : "runs"} in the last ${String(CLAIM_WINDOW_DAYS)} days found the event already taken and stood down by claim, so nothing was delivered twice; newest ${localStamp(newest.at, store.zone())} (${[...hooks].sort().join(", ")})`,
+      fix,
+      { stoodDown: rows.length, sides: [...sides].sort().join(","), hooks: [...hooks].sort().join(","), newestAt: newest.at },
+    ),
+  ];
+}
+
 export function wakeArrivalFindings(store: Store): Finding[] {
   const since = Math.max(0, store.livedDay() - WAKE_WINDOW_DAYS);
   let wakes: EventRow[];
@@ -4780,6 +4840,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["results", () => resultFindings(store)],
     // 2026-10-02: whether the wake reached the session whole (`adapter.wake.delivered`).
     ["wake", () => wakeArrivalFindings(store)],
+    // 2026-10-09: two wirings live, the second held off by the per-event claim.
+    ["claim", () => claimFindings(store, input.host?.plugin ?? null)],
     // Association build 1 (2026-09-28): what spreading did, and the edges.
     ["association", () => associationFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,

@@ -116,7 +116,11 @@ export interface PluginGate {
 /**
  * THE HOOKS' RULE: live npm hooks win. A DEAD npm entry (its runtime or script
  * gone — an uninstalled package, a deleted checkout) runs nothing, so the
- * plugin carries on and says the stale lines are there.
+ * plugin carries on and says the stale lines are there. "Ours" is read by the
+ * script the line runs (`host-wiring.ts#readOurHook`), so a line a newer
+ * `connect` wrote, with flags this build never heard of, still stands the
+ * plugin down. Whatever this misses, the per-event claim in the store catches
+ * (`claude-code/claim.ts`): of two hooks that run one event, one delivers.
  */
 export function hookGate(wiring: NpmWiring, home: string): PluginGate {
   const live = wiring.hooks.find((h) => h.live);

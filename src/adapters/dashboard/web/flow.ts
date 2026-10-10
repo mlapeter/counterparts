@@ -420,6 +420,7 @@ export const EVENT_NODE = {
   // the flush and the cycle; when it cannot start or cannot finish, the node
   // that did not happen is the sweep's.
   "adapter.spawn.refused": "sweep",
+  "adapter.hook.claim.lost": "session",
   "adapter.spawn.failed": "sweep",
   "adapter.runner.failed": "sweep",
   // The two failures the process log promoted to rows (2026-09-30): a turn the
