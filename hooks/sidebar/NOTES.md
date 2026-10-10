@@ -288,10 +288,22 @@ mechanism.
   mockups froze a lit moment.
 - An opened memory: the mockup `c` opened a 684-character memory in place;
   with the 12-line threshold that one opens the dashboard instead (shot `c`
-  opens a 328-character one).
-- Live data: words, counts and which sections have anything differ.
+  opens a saved 328-character one). At 160x48 the shot clicks `Saved this
+  session` first: the item is the fifth saved one, folded away otherwise.
+- Live data: words, counts and which sections have anything differ. Every
+  count in the shots came through the older-dashboard path (Mike's 0.3.16
+  dashboard has no `firedToday`), and a long item's dashboard link lands on
+  the Memories page there, not on the memory, until the release.
 - The paused state (`g`) was not shot live: a shot would mean pausing a folder
   in Mike's live registry. The tests cover it.
+
+### Footprint of the build's runs
+
+Mike's shared sidebar store read `view: "full"` before the runs and reads
+`view: "sidebar"` with a new `brain: "turning"` after: the same view and the
+default brain to both versions (term-loop compares them by meaning, so it put
+nothing back). No other key moved; the Counterparts and Claude memory
+switches were never clicked.
 
 ### Not done, assumed
 
