@@ -59,6 +59,7 @@ import { CORE_EMOTIONS } from "../../core/feelings-wheel.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
 import { FACTS_MEANING_CAP, FACTS_PAGE_SIZE } from "./facts.js";
 import { RECURRENCES } from "../../core/time.js";
+import { PAGE_LIMIT_BYTES } from "../../core/self/briefing.js";
 
 /**
  * A MEMORY'S TITLE, ASKED FOR AS ONE LINE (2026-09-28, build B). Indexes — the
@@ -1180,9 +1181,9 @@ const SELF_PAGE: ToolSpec = {
       mechanizedBy: "src/core/self/index.ts#revisePage (SELF_PAGE_REVISED_EVENT / SELF_PAGE_REFUSED_EVENT -> store.appendEvent)",
     },
     {
-      claim:
-        "The page is kept whole and the WAKE shows as much of it as its byte cap allows, cut at a section or paragraph boundary with a marker naming what it left out. A page past the hard limit is refused rather than trimmed, because what gets trimmed at write time is the only copy.",
-      mechanizedBy: "src/core/self/page.ts#renderPage + src/core/self/tunables.ts (PAGE_WAKE_BYTES, PAGE_MAX_BYTES)",
+      claim: `The wake prints the page WHOLE, never cut. A page past ${String(PAGE_LIMIT_BYTES)} bytes (UTF-8) — the most the wake prints whole — is refused rather than trimmed, with the limit in the answer, because what gets trimmed at write time is the only copy: say it shorter and send it again. A wake configured too small for the page says so in one line and names this tool.`,
+      mechanizedBy:
+        "src/core/self/index.ts#revisePage (PAGE_MAX_BYTES -> too-large) + #pageBlock (whole, or briefing.ts#pageTooLargeLine) + src/core/self/briefing.ts#PAGE_LIMIT_BYTES",
     },
     {
       claim:
@@ -1205,7 +1206,7 @@ const SELF_PAGE: ToolSpec = {
       body: {
         type: "string",
         description:
-          "The WHOLE page, first person, in your own voice — `## Core` and `## Lately` by convention, and any other `##` section the page has grown. Omit it to read the page instead of writing it.",
+          `The WHOLE page, first person, in your own voice — \`## Core\` and \`## Lately\` by convention, and any other \`##\` section the page has grown. At most ${String(PAGE_LIMIT_BYTES)} bytes (UTF-8; an em dash or an accented letter is more than one): a longer page is refused, never cut, so tighten it before you send it. Omit it to read the page instead of writing it.`,
       },
       reason: {
         type: "string",

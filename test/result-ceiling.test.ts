@@ -33,7 +33,18 @@ import { Counterpart, MCP_OVERSIZE_EVENT, MCP_PART_EVENT } from "../src/core/cou
 import { DREAM_TUNABLES, REFLECT_TUNABLES } from "../src/core/dream/index.js";
 import { TOOL_RESULT_CEILING, wireChars } from "../src/core/fit/index.js";
 import { BRIEFING_KEY, pageWriterNight } from "../src/core/self/index.js";
+import { Self } from "../src/core/self/index.js";
+import { episodeGate } from "../src/core/bridge.js";
 import type { PutInput } from "../src/core/store/index.js";
+
+/**
+ * A page written BEFORE the limit (2026-10-09, `PAGE_LIMIT_BYTES`), when the
+ * seam took up to 16 KB: a store can still hold one, and the night has to
+ * carry it whole. Written the way it was then — the seam at its old limit.
+ */
+function longPageWritten(c: Counterpart, body: string, reason = "a long page"): boolean {
+  return new Self({ store: c.store, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } }).revisePage(body, { reason, by: "owner" }).written;
+}
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -110,7 +121,7 @@ function busyNight(c: Counterpart, script: "quoted" | "cjk"): void {
     });
   }
   const page = script === "quoted" ? `## Core\n\n${"\"A\" \"quoted\" \"page\". ".repeat(700)}` : `## Core\n\n${"我是谁，我如何工作。".repeat(500)}`;
-  expect(c.revisePage(page, { reason: "a long page", by: "owner" }).written).toBe(true);
+  expect(longPageWritten(c, page)).toBe(true);
   // The wake the dream carries is the last one rendered: a long one.
   c.store.setMeta(BRIEFING_KEY, `${page}\n\n## Open threads\n\n${said.repeat(10)}`);
 }
@@ -178,7 +189,7 @@ describe("the nightly writer's block fits beside a page carried whole", () => {
     const c = brain();
     const about = pageWriterNight(c.store).about;
     // About 15 KB of page, quote-heavy, and ~90 KB of the day in 300 memories.
-    expect(c.revisePage(`## Core\n\n${"\"I\" say \"so\".\n".repeat(1_100)}`, { reason: "a full page", by: "owner" }).written).toBe(true);
+    expect(longPageWritten(c, `## Core\n\n${"\"I\" say \"so\".\n".repeat(1_100)}`, "a full page")).toBe(true);
     for (let i = 0; i < 300; i += 1) {
       c.store.put({ type: "memory", kind: "fact", body: `Noticed ${String(i)}: "a thing" said "plainly", at some length. ${"More of it. ".repeat(20)}`, learnedOn: about });
     }

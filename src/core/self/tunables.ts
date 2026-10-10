@@ -11,11 +11,15 @@
  * one host's injection cliff; in v2 the ceiling is a host capability the caller
  * reports (contract §4, scar §2.18). `BriefingRequest.budgetBytes` is required at
  * the call, and there is no constant anywhere in this module to fall back to.
+ * (`briefing.ts#PAGE_HOST_BUDGET_BYTES` sizes the page's write limit; nothing
+ * composes against it.)
  *
  * Structural (never tunable, never ablatable): the composed budget, the
  * header/sentinel pair, the trim order existing and being declared, the freeze
  * itself, the observer refusal, pre-render-not-render-on-wake.
  */
+
+import { PAGE_LIMIT_BYTES } from "./briefing.js";
 
 export interface SelfTunables {
   // ── briefing lanes ────────────────────────────────────────────────────────
@@ -83,23 +87,17 @@ export interface SelfTunables {
 
   // ── the self page (plan 2026-09-18, S1) ───────────────────────────────────
   /**
-   * Bytes of the WAKE the page may take. A page longer than this renders cut, at
-   * a paragraph or line boundary, with a marker naming both numbers
-   * (`page.ts#renderPage`).
+   * THE WRITE LIMIT, in BYTES (UTF-8). A revision larger than this is refused
+   * with a durable row rather than cut, because the thing that gets cut at
+   * write time is the only copy — the writer says it shorter and sends it
+   * again.
    *
-   * Starting value: about 6 KB of the owner's 9,000-byte ceiling, which is the
-   * plan's own number and a number to tune rather than a rule. It is clamped to
-   * the caller's budget at the render so a page can never on its own be larger
-   * than the whole wake; when page plus furniture still will not fit, the floor
-   * publishes with `overBudget: true`, which is the tripwire that already exists
-   * for an under-floor ceiling.
-   */
-  PAGE_WAKE_BYTES: number;
-  /**
-   * The HARD write limit. A revision larger than this is refused with a durable
-   * row rather than silently cut, because the thing that gets cut at write time
-   * is the only copy. Between this and `PAGE_WAKE_BYTES` a write is accepted and
-   * WARNED: the page is kept whole and the wake shows a cut of it.
+   * Defaults to `briefing.ts#PAGE_LIMIT_BYTES` (2026-10-09): the page the wake
+   * prints whole at the 9,000-byte ceiling under the widest delivery reserves,
+   * so a page any door accepts is never cut in the wake. It was 16,384 beside a
+   * separate wake cap of 6,144 (`PAGE_WAKE_BYTES`, gone): a page between the
+   * two was accepted, warned, and printed cut. Overridden only by tests; a
+   * value above the default gives up that guarantee.
    */
   PAGE_MAX_BYTES: number;
   /** Calendar days after which the wake says the page has not been revised.
@@ -132,7 +130,7 @@ export interface SelfTunables {
    * a transcript, so what it writes is not a stranger's paraphrase — and the
    * transcript it is being handed already goes to the same provider on the same
    * call. What goes out is exactly the page: the owner's and the session's own
-   * standing account of the self, cut to the same cap the wake uses.
+   * standing account of the self, whole, by the same rule the wake uses.
    *
    * `false`: a filtering composition gets NO page, and its "Who I am" falls back
    * to the identity list the `omit` predicate left standing — which is what that
@@ -224,8 +222,7 @@ export const SELF_TUNABLES: SelfTunables = {
   HINT_RECOVERY_DAYS: 3,
   HINT_HABITUATION: 1,
 
-  PAGE_WAKE_BYTES: 6_144,
-  PAGE_MAX_BYTES: 16_384,
+  PAGE_MAX_BYTES: PAGE_LIMIT_BYTES,
   PAGE_STALE_DAYS: 14,
   PAGE_EMPTY_SHOWS_LIST: true,
   PAGE_ON_EGRESS: true,

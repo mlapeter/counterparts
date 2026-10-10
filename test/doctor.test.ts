@@ -64,6 +64,8 @@ import {
   JOURNAL_COPY_FAILED_EVENT,
   JOURNAL_COPY_WRITTEN_EVENT,
 } from "../src/core/self/journal-file.js";
+import { PAGE_LIMIT_BYTES, Self } from "../src/core/self/index.js";
+import { episodeGate } from "../src/core/bridge.js";
 import { journalModeOf, openDb } from "../src/core/store/db.js";
 // @ts-expect-error — a plain browser module, no declarations
 import { PLAIN } from "../src/adapters/dashboard/web/pages/health/sections/checks.js";
@@ -2876,15 +2878,34 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("amber");
   });
 
-  test("Self page: a page past what the wake carries says the wake shows only its start", () => {
+  test("Self page: a page past the limit (written before it) is amber, and says the wake prints it whole only by borrowing, or one line instead", () => {
+    // The seam refuses such a page now (2026-10-09); one written before the
+    // limit, when it took up to 16 KB, is still in a store.
+    const s0 = Store.open({ dir });
+    const old = new Self({ store: s0, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } });
+    expect(old.revisePage(`## Core\n\n${"A line the page keeps. ".repeat(400)}`, { reason: "long", by: "owner" }).written).toBe(true);
+    s0.close();
+    writeConfig();
+    const f = by(doctorFindings(input({ store: store() })), "self-page");
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain(`past the ${String(PAGE_LIMIT_BYTES)}-byte limit`);
+    expect(f.detail).toContain("only by borrowing the room held for \"Work here\"");
+    expect(f.detail).toContain("says so in one line when even that is not enough");
+    expect(f.fix).toContain(`under ${String(PAGE_LIMIT_BYTES)} bytes`);
+    expect(f.data["wakeShowsAll"]).toBe(false);
+    expect(f.data["limit"]).toBe(PAGE_LIMIT_BYTES);
+  });
+
+  test("Self page: a page at the limit is green — the wake prints it whole", () => {
     const c = Counterpart.open({ dir, owner: true });
-    expect(c.revisePage(`## Core\n\n${"A line the page keeps. ".repeat(400)}`, { reason: "long", by: "owner" }).written).toBe(true);
+    const body = `## Core\n\n${"A line the page keeps. ".repeat(400)}`.slice(0, PAGE_LIMIT_BYTES - 1).trimEnd() + ".";
+    expect(c.revisePage(body, { reason: "at the limit", by: "owner" }).written).toBe(true);
     c.close();
     writeConfig();
     const f = by(doctorFindings(input({ store: store() })), "self-page");
     expect(f.severity).toBe("green");
-    expect(f.detail).toContain("the wake shows its first 6144 bytes");
-    expect(f.data["wakeShowsAll"]).toBe(false);
+    expect(f.detail).not.toContain("limit");
+    expect(f.data["wakeShowsAll"]).toBe(true);
   });
 });
 

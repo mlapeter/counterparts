@@ -1979,7 +1979,9 @@ export class Counterpart {
         });
         return written.written && written.version !== null
           ? { ok: true, version: written.version }
-          : { ok: false, reason: written.reason };
+          : written.reason === "too-large"
+            ? { ok: false, reason: written.reason, bytes: written.bytes, limit: this.self.tunables.PAGE_MAX_BYTES }
+            : { ok: false, reason: written.reason };
       },
       emit: (name, ref, data) => this.emit(name, ref, data),
     });
@@ -4064,9 +4066,10 @@ export class Counterpart {
 
   /**
    * THE RUN MOVED PAST THE WRITER WITHOUT A WRITE (review of #271): this
-   * session's open claim is closed as `nothing-to-say`, so the night is
-   * answered and a later `self_page` write by the session is an ordinary
-   * amendment, not the writer's. Called at the phase after the writer (the
+   * session's open claim is closed as `nothing-to-say` — or as `failed` when
+   * the session's write was refused and not sent again (review of #358) — so
+   * the night is answered and a later `self_page` write by the session is an
+   * ordinary amendment, not the writer's. Called at the phase after the writer (the
    * dream's `begin`, the reflection's `begin`). Nothing when there is no open
    * claim — the writer wrote, or never claimed. Never throws.
    */
@@ -4076,11 +4079,24 @@ export class Counterpart {
       const open = this.self.nightClaimFor(input.session);
       if (open === null) return false;
       const page = this.self.page();
+      // A REFUSED WRITE IS NOT "NOTHING TO SAY" (review of #358). A refusal
+      // keeps the claim open so the same run can send the page again; a run
+      // that moved on instead had something to say and did not get it
+      // written, so the night closes as `failed`, carrying the refusal — for a
+      // page refused for length, its bytes and how far over the limit it was.
+      // Closed as `nothing-to-say`, it read as a quiet night and doctor went
+      // green over a page that was never written.
+      const refused = this.self
+        .pageWriterRuns({ about: open.about })
+        .find((r) => r.outcome === "refused" && (r.at > open.at || (r.at === open.at && r.seq > open.seq)));
       return this.self.recordPageWriterRun({
         about: open.about,
         mode: open.mode,
-        outcome: "nothing-to-say",
-        detail: `the run moved on to ${input.phase} without writing`,
+        outcome: refused === undefined ? "nothing-to-say" : "failed",
+        detail:
+          refused === undefined
+            ? `the run moved on to ${input.phase} without writing`
+            : `${refused.detail === "" ? "refused" : refused.detail}; not sent again before the run moved on to ${input.phase}`,
         bytesBefore: open.bytesBefore,
         bytesAfter: page === null ? 0 : byteLength(page.body),
         considered: open.considered,

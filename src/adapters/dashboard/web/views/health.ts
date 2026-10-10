@@ -131,9 +131,10 @@ export interface WakeBudget {
  * it is green; amber only when being full cost something, and the amber names
  * it). Each from a record that already exists:
  *
- *   page       — the published wake itself: a page cut to fit carries
- *                `page.ts#truncationMarker`, and a page with no room at all is
- *                replaced by `briefing.ts#pageTooLargeLine`. Both name bytes.
+ *   page       — the published wake itself: a page with no room for it
+ *                whole is replaced by `briefing.ts#pageTooLargeLine`; a wake
+ *                published before 2026-10-09 may carry a cut page's
+ *                `page.ts#truncationMarker` instead. Both name bytes.
  *   handoffs   — `handoff.refused` rows with reason `no-room` (durable, one per
  *                handoff per lived day) since the published wake was rendered:
  *                how many distinct handoffs a session start could not carry.
@@ -159,9 +160,11 @@ export interface WakeCosts {
   readonly writerHeld: boolean;
 }
 
-/** `page.ts#truncationMarker` and `briefing.ts#pageTooLargeLine`, as the wake prints them. */
+/** `page.ts#truncationMarker` (a wake published before 2026-10-09, when the
+ *  page could be cut) and `briefing.ts#pageTooLargeLine` ("whole" since then),
+ *  as the wake prints them. */
 const PAGE_CUT = /\[This page is (\d+) bytes; the wake shows the first (\d+)\./;
-const PAGE_LEFT_OUT = /\(My page is (\d+) bytes — no room for it in this wake\./;
+const PAGE_LEFT_OUT = /\(My page is (\d+) bytes — no room for it (?:whole )?in this wake\./;
 
 /** The self page's cost, read off the published wake's own words. Pure. */
 export function pageCostOf(text: string): WakeCosts["page"] {

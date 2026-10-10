@@ -142,7 +142,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       session_end: { total: 7218, beforeList: 811 },
       chapter: { total: 2097, beforeList: 746 },
       scope: { total: 1510, beforeList: 751 },
-      self_page: { total: 4522, beforeList: 1737 },
+      self_page: { total: 4592, beforeList: 1737 },
       dream: { total: 3785, beforeList: 1782 },
       reflect: { total: 2815, beforeList: 1331 },
       wake: { total: 1958, beforeList: 1229 },

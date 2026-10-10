@@ -46,7 +46,7 @@ import { CLAIMED_DEFAULT_META_KEY } from "../../core/mint.js";
 // band with this exact function, and two implementations of "which band is this
 // row in today" is how the two surfaces disagreed in the first place.
 import { TUNABLES, band } from "../../core/physics/index.js";
-import { LANE_ORDER, PREFACE_RESERVE_BYTES, readChapterLead, readableDate } from "../../core/self/index.js";
+import { LANE_ORDER, PAGE_HOST_BUDGET_BYTES, PREFACE_RESERVE_BYTES, readChapterLead, readableDate } from "../../core/self/index.js";
 // The ONE predicate for "this row is the journal, not a memory" — the same one
 // the sleep phases and the dashboard's census use. A second copy of that test
 // living here is how the console drifted away from them in the first place.
@@ -2647,7 +2647,7 @@ async function selfPageCommand(
     return EXIT.failed;
   }
   try {
-    const cap = counterpart.self.tunables.PAGE_WAKE_BYTES;
+    const cap = counterpart.self.tunables.PAGE_MAX_BYTES;
     const say = (out: ReturnType<typeof writeLines>): number => {
       for (const line of out.lines) (out.ok ? io.out : io.err)(line);
       return out.ok ? EXIT.ok : EXIT.refused;
@@ -4143,9 +4143,12 @@ function blankBeside(u: Ui, usable: readonly ParkedSighting[], home: string): "b
 
 /**
  * The interactive install's ceiling, and the ONLY default this package has for
- * one (scar §2.18 holds everywhere else, the scripted arm included).
+ * one (scar §2.18 holds everywhere else, the scripted arm included). It is the
+ * ceiling the self page's write limit is sized against
+ * (`self/briefing.ts#PAGE_HOST_BUDGET_BYTES`, 2026-10-09), read from there so
+ * the two cannot drift: 9,000.
  */
-const DEFAULT_BUDGET_BYTES = 9000;
+const DEFAULT_BUDGET_BYTES = PAGE_HOST_BUDGET_BYTES;
 
 /** A configuration is "custom" by its PATH, not by how it was named — the same
  *  test `installCommand` and `startFreshCommand` each make. Hoisted here so

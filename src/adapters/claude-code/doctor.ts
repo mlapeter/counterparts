@@ -3849,13 +3849,17 @@ export function selfPageFindings(store: Store): Finding[] {
     ];
   }
   const stale = pageStaleOn(page.revisedOn, store.today(), SELF_TUNABLES.PAGE_STALE_DAYS);
-  // WHAT THE WAKE SHOWS OF IT (2026-10-02, the "nobody saw it" review): a page
-  // past `PAGE_WAKE_BYTES` is kept whole but the wake carries only its start,
-  // so a session never reads the rest unless it asks. A chosen state, said.
-  const wakeShows =
-    page.bytes > SELF_TUNABLES.PAGE_WAKE_BYTES
-      ? `; the wake shows its first ${String(SELF_TUNABLES.PAGE_WAKE_BYTES)} bytes (the self_page tool reads it whole)`
-      : "";
+  // WHAT THE WAKE SHOWS OF IT (2026-10-02, the "nobody saw it" review; since
+  // 2026-10-09 the wake never cuts the page). Every write since is held to
+  // `PAGE_MAX_BYTES`, the page the wake prints whole at 9,000 bytes, so a page
+  // past it was written before the limit. The wake still prints it whole when
+  // it fits with the room held for "Work here" borrowed (review of #358), and
+  // one line instead of it when even that is not enough. Amber either way,
+  // and said with what to do: the next revision tightens it.
+  const overLimit = page.bytes > SELF_TUNABLES.PAGE_MAX_BYTES;
+  const wakeShows = overLimit
+    ? `; past the ${String(SELF_TUNABLES.PAGE_MAX_BYTES)}-byte limit, so the wake prints it whole only by borrowing the room held for "Work here", and says so in one line when even that is not enough (the self_page tool reads it whole)`
+    : "";
   const detail =
     `${page.bytes} bytes, version ${page.version}, last revised ${page.revisedOn === "" ? "(unrecorded)" : page.revisedOn}` +
     `${page.by === null ? "" : ` by ${page.by}`}${wakeShows}`;
@@ -3867,10 +3871,13 @@ export function selfPageFindings(store: Store): Finding[] {
     version: page.version,
     revisedOn: page.revisedOn,
     stale,
-    wakeShowsAll: page.bytes <= SELF_TUNABLES.PAGE_WAKE_BYTES,
+    // True when the wake prints it whole at 9,000 bytes whatever it reserves.
+    wakeShowsAll: !overLimit,
+    limit: SELF_TUNABLES.PAGE_MAX_BYTES,
     daysSince: calendarDaysSince(page.revisedOn, store.today()),
     staleAfter: SELF_TUNABLES.PAGE_STALE_DAYS,
   };
+  const shorten = `Its next revision has to come in under ${String(SELF_TUNABLES.PAGE_MAX_BYTES)} bytes: counterparts self-page --write, or the self_page tool.`;
   return [
     stale
       ? finding(
@@ -3878,10 +3885,12 @@ export function selfPageFindings(store: Store): Finding[] {
           "amber",
           "Self page",
           `${detail} — stale (over ${SELF_TUNABLES.PAGE_STALE_DAYS} days)`,
-          "Nothing has revised it lately: check the page writer, or amend it yourself with counterparts self-page --write.",
+          `Nothing has revised it lately: check the page writer, or amend it yourself with counterparts self-page --write.${overLimit ? ` ${shorten}` : ""}`,
           data,
         )
-      : finding("self-page", "green", "Self page", detail, "", data),
+      : overLimit
+        ? finding("self-page", "amber", "Self page", detail, shorten, data)
+        : finding("self-page", "green", "Self page", detail, "", data),
   ];
 }
 

@@ -137,7 +137,7 @@ import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, nightNext, nightOrder } from "..
 import type { DreamBundle, DreamingSetting, NightPart } from "../../core/dream/index.js";
 import { TOOL_RESULT_CEILING, clipWire, noteLookups, wireChars } from "../../core/fit/index.js";
 import type { FitMechanism } from "../../core/fit/index.js";
-import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, WAKE_BUILD_KEY, pageSections } from "../../core/self/index.js";
+import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, WAKE_BUILD_KEY, pageSections, pageTooLargeDetail } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { toolDefinitions, toolSpec } from "./tools.js";
 import { writeUpDoor } from "./write-up.js";
@@ -486,7 +486,7 @@ export type ScopeSource = "flag" | "project" | "cwd" | "store" | "host";
 const PAGE_REFUSAL_DETAIL: Record<string, string> = {
   empty: "A page has to say something. Nothing worth writing is a real answer — leave the page alone instead.",
   "too-large":
-    "That page is past the hard limit, so it was refused rather than cut: what gets cut at write time is the only copy. Say the same thing shorter and send it again.",
+    "That page is past its limit (`limit` bytes, UTF-8; `bytes` is what was sent, `over` how much to take out) — the most the wake prints whole, so a page is never cut there. It was refused rather than cut: what gets cut at write time is the only copy. Say the same thing shorter — tighten, merge or drop what no longer holds, do not just chop the end — and send the whole page again.",
   "gate-refused":
     "The gate battery turned it away — most often because what was sent was nothing but a credential, or too short to be a page. Nothing was written.",
   "forged-markers":
@@ -3390,7 +3390,11 @@ export class McpServer {
               about: out.about,
               ifVersion: out.version ?? NO_PAGE_VERSION,
               read: out.text,
-              how: `Read the block. If something about who you are moved on ${out.about}, call the self_page tool with the WHOLE page, reason, ifVersion: ${String(out.version ?? NO_PAGE_VERSION)} and session: ${session}; if nothing moved, write nothing — that is an answer too.`,
+              // THE RETRY, IN THE SAME RUN (review of #358): a page refused
+              // for length is the writer still trying, and the run is an agent
+              // that reads the refusal — so it is told to tighten and send it
+              // again before it goes on, rather than leave the night unwritten.
+              how: `Read the block. If something about who you are moved on ${out.about}, call the self_page tool with the WHOLE page, reason, ifVersion: ${String(out.version ?? NO_PAGE_VERSION)} and session: ${session}; if nothing moved, write nothing — that is an answer too. If self_page refuses the page as too-large, its answer says how many bytes over the limit it is: tighten it (merge, drop what no longer holds — do not just cut the end) and send the whole page again before you go on.`,
               ...(next === null ? {} : { next: `Then: ${next}` }),
             },
             false,
@@ -3679,7 +3683,14 @@ export class McpServer {
           about: writerFor.about,
           mode: writerFor.mode,
           outcome: written.written ? "revised" : "refused",
-          detail: written.written ? "" : written.reason,
+          // A refusal for length carries its numbers (review of #358), so the
+          // row — and the night's close, if the run moves on without a
+          // shorter page — says how far over it was.
+          detail: written.written
+            ? ""
+            : written.reason === "too-large"
+              ? pageTooLargeDetail(written.bytes, this.counterpart.self.tunables.PAGE_MAX_BYTES)
+              : written.reason,
           bytesAfter: written.written ? written.bytes : 0,
         });
       } catch {
@@ -3687,8 +3698,13 @@ export class McpServer {
       }
     }
     if (!written.written) {
+      // THE LIMIT, IN NUMBERS (2026-10-09): a writer told only "past the
+      // limit" guesses how much to take out; told both numbers, it tightens
+      // once and sends the page again.
+      const limit = this.counterpart.self.tunables.PAGE_MAX_BYTES;
       return this.refuse("self_page", written.reason, {
         bytes: written.bytes,
+        ...(written.reason === "too-large" ? { limit, over: written.bytes - limit } : {}),
         ...(written.gate === null ? {} : { gate: written.gate }),
         // On a stale write, hand back what is actually there so the session can
         // merge rather than guess — the whole point of the check.
@@ -3715,7 +3731,6 @@ export class McpServer {
               redactedBy: written.redacted.gate,
               bytesBeforeRedaction: written.redacted.bytesBefore,
             }),
-        ...(written.warning === null ? {} : { warning: written.warning }),
         // WHEN IT WILL BE READ, precisely. The bundle every session wakes with
         // is composed by a worker and served unchanged until the next render,
         // so "it is live now" would be false for as long as this session lasts.
