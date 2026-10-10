@@ -29,7 +29,7 @@ import type {
   SidebarSearch,
   SidebarToday,
 } from '../types'
-import { hm } from './feed'
+import { dateOf, hm } from './feed'
 import { MECHS, STAGES, hex, stageOf } from './mechanisms'
 import type { MechId } from './mechanisms'
 import { cells, headCells } from './width'
@@ -376,7 +376,8 @@ function mechEvents(s: BodyState, f: Fold): Line[] {
 function dream(s: BodyState, f: Fold): Line[] {
   const d = s.dream
   if (d === null) return []
-  const when = d.at !== null ? hm(d.at, s.now) : d.date !== null ? hm(new Date(`${d.date}T12:00:00`).getTime(), s.now) : ''
+  // its journal row's time; failing that its date before today, and nothing for today (no made-up time)
+  const when = d.at !== null ? hm(d.at, s.now) : d.date !== null && d.date !== dateOf(s.now) ? hm(new Date(`${d.date}T12:00:00`).getTime(), s.now) : ''
   if (f.dreamFolded) return [heading('Last Dream', when, s.w, { folded: true, key: 'head:dream' })]
   const out: Line[] = [heading('Last Dream', when, s.w, { key: 'dream' })]
   if (s.open?.key !== 'dream') return [...out, ...plain(wrapN(d.first, s.w, f.dreamLines), P.text, 'dream', { i: true })]

@@ -522,6 +522,13 @@ describe('the body, laid out', () => {
     expect(openedLines(Array.from({ length: 80 }, () => 'word').join(' '), W)).toBeGreaterThan(12)
   })
 
+  test('a dream whose journal row was not found: no made-up time today, its date before today', () => {
+    const today = textOf(layoutBody({ ...BASE, dream: { ...BASE.dream!, at: null, date: '2026-10-09' } }).lines)
+    expect(today.find(l => l.startsWith('Last Dream'))).toBe('Last Dream ' + '─'.repeat(21))
+    const before = textOf(layoutBody({ ...BASE, dream: { ...BASE.dream!, at: null, date: '2026-10-07' } }).lines)
+    expect(before.find(l => l.startsWith('Last Dream'))).toBe('Last Dream ' + '─'.repeat(15) + ' Oct 7')
+  })
+
   test('the dashboard down: the chart says how to start it', () => {
     const lines = textOf(layoutBody({ ...BASE, today: null, dash: 'down' }).lines)
     expect(lines.join(' ')).toContain('counterparts dashboard')

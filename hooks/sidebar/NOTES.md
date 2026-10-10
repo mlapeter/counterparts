@@ -41,7 +41,7 @@ paused here; `/counterparts fps [n]` reports the brain's rate (or sets its
 target). `caps` is gone: the footer's switches are dots, with no ends to draw.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (96 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (97 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME. **See it:**
 `tools/term-loop/` (its README), at `--size 200x60` and `--size 160x48`. A
 term-loop session sends no message, so nothing comes to mind and nothing is
