@@ -1050,7 +1050,8 @@ describe("doctor's Claude Code line knows the plugin", () => {
 
 describe("a paused folder with two wirings", () => {
   const SOURCES = ["startup", "resume", "clear", "compact"] as const;
-  const PAUSED = "Counterparts memory is paused in this folder;";
+  // `project` is `<HOME>/project`, so the folder is named `~/project` (review of #362).
+  const PAUSED = "Counterparts memory is paused in ~/project;";
 
   /** The npm wiring's environment: no plugin variables, no explicit-dir guard. */
   function npmEnv(): Record<string, string> {
@@ -1112,7 +1113,7 @@ describe("a paused folder with two wirings", () => {
       // The plugin's own stand-down line, and no pause notice of its own.
       expect(systemMessage(plugin.stdout) ?? "").toContain("running from a folder");
       expect(count(plugin.stdout)).toBe(0);
-      expect(systemMessage(npm.stdout)).toBe(`${PAUSED} \`counterparts scope . --resume\` turns it back on.`);
+      expect(systemMessage(npm.stdout)).toBe(`${PAUSED} \`counterparts scope ~/project --resume\` turns it back on.`);
       // Once across both: the person's line, in the npm hook's systemMessage only.
       expect(count(`${systemMessage(plugin.stdout) ?? ""}\n${systemMessage(npm.stdout) ?? ""}`)).toBe(1);
     }
@@ -1153,9 +1154,9 @@ describe("a paused folder with two wirings", () => {
     // The plugin's command is its own launcher: a plugin install puts no
     // `counterparts` on PATH.
     expect(systemMessage(plugin.stdout)).toBe(
-      `${PAUSED} \`sh ${join(ROOT, "src", "adapters", "plugin-run.sh")} cli scope . --resume\` turns it back on.`,
+      `${PAUSED} \`sh ${join(ROOT, "src", "adapters", "plugin-run.sh")} cli scope ~/project --resume\` turns it back on.`,
     );
-    expect(systemMessage(settings.stdout)).toBe(`${PAUSED} \`counterparts scope . --resume\` turns it back on.`);
+    expect(systemMessage(settings.stdout)).toBe(`${PAUSED} \`counterparts scope ~/project --resume\` turns it back on.`);
     expect(snapshot(base)).toEqual(before);
     expect(existsSync(join(base, "store", "sessions", "claims"))).toBe(false);
   }, 120_000);

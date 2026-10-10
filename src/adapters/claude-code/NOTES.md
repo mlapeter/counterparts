@@ -2235,11 +2235,13 @@ INTERFACE-GAPS §15.
   10-09 three `~/random` sessions ran without memory for ten minutes before anyone noticed.
   Ruled: one SessionStart line for `paused`; `off` stays silent, because it is a deliberate
   opt-out and a line every session would nag.
-- **The words.** Own entry: `Counterparts memory is paused in this folder; \`counterparts
-  scope . --resume\` turns it back on.` A parent's: `… is paused for ~/random, which
+- **The words.** Own entry: `Counterparts memory is paused in ~/random; \`counterparts
+  scope ~/random --resume\` turns it back on.` A parent's: `… is paused for ~/random, which
   includes this folder; \`counterparts scope ~/random --resume\` …` — the command has to
   name the entry that paused it, since `--resume` refuses a directory that only inherits a
-  pause. The session's own folder paused while the shell stands elsewhere (a compaction, or
+  pause. The folder is always named, never `.` (review of #362): `.` is wherever the person
+  types it — another terminal, or a shell that moved after a compaction — and from a
+  subfolder of the entry `--resume` refuses it. The session's own folder paused while the shell stands elsewhere (a compaction, or
   a start whose `CLAUDE_PROJECT_DIR` is not the payload's `cwd`): `… paused for ~/proj,
   which covers this session; …`. Under the plugin the command is `sh <plugin root>/src/
   adapters/plugin-run.sh cli scope … --resume`, because a plugin install puts no

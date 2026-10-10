@@ -185,8 +185,15 @@ function contextOf(stdout: string): string | null {
   return typeof v === "string" ? v : null;
 }
 
-/** The person's line in a folder paused by its own entry, verbatim. */
-const PAUSED_HERE = "Counterparts memory is paused in this folder; `counterparts scope . --resume` turns it back on.";
+/**
+ * The person's line in a folder paused by its own entry, verbatim. The folder is
+ * NAMED (review of #362): `dir` is outside the test's HOME, so it is written out
+ * whole, realpathed as the registry key is.
+ */
+function pausedHere(dir: string): string {
+  const named = canonicalScopePath(dir);
+  return `Counterparts memory is paused in ${named}; \`counterparts scope ${named} --resume\` turns it back on.`;
+}
 
 /** Every file under `dir` with its size and mtime — "nothing was written", as bytes on disk. */
 function snapshot(dir: string): Record<string, string> {
@@ -565,7 +572,7 @@ describe("a directory set OFF: no output, no write", () => {
       },
     });
     // Its one line at session start (rulings brief #19), and nothing else.
-    expect(systemMessageOf(runHook("SessionStart", "paused-1", project).stdout)).toBe(PAUSED_HERE);
+    expect(systemMessageOf(runHook("SessionStart", "paused-1", project).stdout)).toBe(pausedHere(project));
     expect(runHook("UserPromptSubmit", "paused-1", project).stdout).toBe("");
     expect(existsSync(store)).toBe(false);
 
@@ -603,7 +610,7 @@ describe("a directory set OFF: no output, no write", () => {
     // byte on disk.
     for (const event of ["SessionStart", "Stop", "Stop"]) {
       const out = runHook(event, "one-session", project, [], transcript).stdout;
-      if (event === "SessionStart") expect(systemMessageOf(out)).toBe(PAUSED_HERE);
+      if (event === "SessionStart") expect(systemMessageOf(out)).toBe(pausedHere(project));
       else expect(out).toBe("");
     }
     expect(existsSync(store)).toBe(false);
@@ -707,13 +714,14 @@ describe("a PAUSED folder says so at session start, and does nothing else", () =
       const r = start({ session: `paused-${source}`, cwd: project, source });
       expect({ source, code: r.code, stderr: r.stderr }).toEqual({ source, code: 0, stderr: "" });
       // ONE JSON object: the person's line, and the model's.
+      const named = canonicalScopePath(project);
       expect(JSON.parse(r.stdout)).toEqual({
-        systemMessage: PAUSED_HERE,
+        systemMessage: pausedHere(project),
         hookSpecificOutput: {
           hookEventName: "SessionStart",
           additionalContext:
-            "Counterparts memory is paused in this folder: no memories are loaded and nothing said here is remembered " +
-            "until the person resumes it (`counterparts scope . --resume`). Don't act as if you remember earlier sessions.",
+            `Counterparts memory is paused in ${named}: no memories are loaded and nothing said here is remembered ` +
+            `until the person resumes it (\`counterparts scope ${named} --resume\`). Don't act as if you remember earlier sessions.`,
         },
       });
       // Once: the person's line is in the output one time, the model's one time.
@@ -736,7 +744,7 @@ describe("a PAUSED folder says so at session start, and does nothing else", () =
     const before = snapshot(store);
     expect(Object.keys(before).length).toBeGreaterThan(0);
     for (const source of SOURCES) {
-      expect(systemMessageOf(start({ session: "no-write", cwd: project, source }).stdout)).toBe(PAUSED_HERE);
+      expect(systemMessageOf(start({ session: "no-write", cwd: project, source }).stdout)).toBe(pausedHere(project));
     }
     for (const event of OTHER_EVENTS) expect(start({ session: "no-write", cwd: project, event }).stdout).toBe("");
     expect(snapshot(store)).toEqual(before);
@@ -850,7 +858,7 @@ describe("pausedNotice, the words", () => {
     const root = join(home, ".claude", "plugins", "cache", "counterparts", "counterparts", "0.3.15");
     const n = pausedNotice(paused(project), project, { whose: "folder", home, pluginRoot: root });
     expect(n?.person).toBe(
-      "Counterparts memory is paused in this folder; `sh ~/.claude/plugins/cache/counterparts/counterparts/0.3.15/src/adapters/plugin-run.sh cli scope . --resume` turns it back on.",
+      "Counterparts memory is paused in ~/p; `sh ~/.claude/plugins/cache/counterparts/counterparts/0.3.15/src/adapters/plugin-run.sh cli scope ~/p --resume` turns it back on.",
     );
   });
 });

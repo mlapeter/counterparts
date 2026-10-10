@@ -376,8 +376,10 @@ function verdictOver(read: ScopeRead, scopes: readonly string[]): ScopeVerdict {
  * `additionalContext`, so it does not act as if it remembers).
  *
  * The command has to target the entry that PAUSED it: `--resume` refuses a
- * directory that only inherits a parent's pause. So a parent's pause is named,
- * and the command names it; only a folder's own entry gets `.`. A plugin
+ * directory that only inherits a parent's pause. So the folder is always NAMED,
+ * and the command names it — never `.`, which means wherever the person types
+ * it (another terminal, or a shell that moved after a compaction) and, from a
+ * subfolder of the entry, is refused outright (review of #362). A plugin
  * install puts no `counterparts` on PATH (`commands/doctor.md`), so under the
  * plugin the command is the plugin's own launcher.
  *
@@ -395,11 +397,11 @@ export function pausedNotice(
   const own = opts.whose === "folder" && entry === canonicalScopePath(here);
   const named = shortPath(entry, opts.home);
   const where = own
-    ? "in this folder"
+    ? `in ${named}`
     : opts.whose === "folder"
       ? `for ${named}, which includes this folder`
       : `for ${named}, which covers this session`;
-  const target = own ? "." : shellWord(entry, opts.home);
+  const target = shellWord(entry, opts.home);
   const command =
     opts.pluginRoot === null
       ? `counterparts scope ${target} --resume`

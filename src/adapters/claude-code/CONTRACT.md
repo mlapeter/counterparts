@@ -428,8 +428,9 @@ row, saying which source answered, existed until the keys were removed — §1a.
     compact), prints one envelope from the registry already read: a `systemMessage`
     for the person — the folder is paused and the command that resumes it — and an
     `additionalContext` line for the model, so it does not act as if it remembers
-    (`bin/hook.ts#pausedNotice`). A pause set on a PARENT is named, and the command
-    names it, because `--resume` refuses a directory that only inherits one. It
+    (`bin/hook.ts#pausedNotice`). The folder whose entry paused it is NAMED, and the
+    command names it — never `.`, which is wherever the person types it — because
+    `--resume` refuses a directory that only inherits a pause. It
     writes nothing anywhere — not the store, not a session record, not the per-event
     claim, which comes after this return — so beside the npm install it is the
     plugin's gate, not the claim, that keeps it to one line. Every other event, `off`
