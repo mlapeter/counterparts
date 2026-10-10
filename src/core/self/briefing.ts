@@ -109,7 +109,12 @@ export const TRIM_ORDER: readonly LaneName[] = [
  *
  *   - `hints`, `craft`, `threads` — "Nearby", store-wide craft, and "Still
  *     open" past its first item: the trim loop's (`TRIM_ORDER`), whole
- *     elements from the end of each lane;
+ *     elements from the end of each lane — with ONE line between the first
+ *     two:
+ *   - `elsewhere` — the "Today, elsewhere" line (2026-10-10, composed at
+ *     session start only, `BriefingRequest.elsewhere`): it gives way after
+ *     "Nearby" and before anything else, its titles first
+ *     (`elsewhereShorter`), then the whole line;
  *   - `work` — "Work here": the delivery's room for this directory's work
  *     lines (`lendBytes`), which then shows fewer of them;
  *   - `openCount` — "Still open"'s count beside the items the trim kept,
@@ -148,6 +153,7 @@ export const TRIM_ORDER: readonly LaneName[] = [
  */
 export const ROOM_ORDER = [
   "hints",
+  "elsewhere",
   "craft",
   "threads",
   "work",
@@ -529,6 +535,21 @@ export interface BriefingRequest {
    * Absent: nothing to lend.
    */
   readonly handoffKeepBytes?: number;
+  /**
+   * THE "TODAY, ELSEWHERE" LINE (2026-10-10): one line, composed by the caller
+   * at session start from the host's session registry and the store — which
+   * other directories were worked in today, when, the chapter written there
+   * (scope and confidential gates), and how many memories, as counts. Never
+   * a word of a span, a work memory's title or a handoff from there.
+   * Furniture, printed above "Nearby"; it gives way after "Nearby" and before
+   * every other lane (`ROOM_ORDER`'s `elsewhere`). Absent: no line — which is
+   * every render at a boundary, since the line is about the moment a session
+   * starts.
+   */
+  readonly elsewhere?: string;
+  /** Its shorter forms, widest first: the counts without the titles. Ignored
+   *  without `elsewhere`. */
+  readonly elsewhereShorter?: readonly string[];
 }
 
 export interface TrimEvent {
@@ -576,6 +597,9 @@ export interface BriefingResult extends Composed {
     readonly wholeBytes: number;
     readonly rung: PageRung;
   } | null;
+  /** The "Today, elsewhere" line as it printed (the form the room allowed),
+   *  or absent when none was asked for or none fit. */
+  readonly elsewhere?: string;
 }
 
 
@@ -760,6 +784,8 @@ export function compose(
   more: Partial<Record<LaneName, string>> = {},
   /** The "Yesterday" line (`BriefingRequest.yesterday`), under the framing. */
   yesterday?: string,
+  /** The "Today, elsewhere" line (`BriefingRequest.elsewhere`), above "Nearby". */
+  elsewhere?: string,
 ): Composed {
   const counts = emptyCounts();
   for (const lane of LANE_ORDER) counts[lane] = kept[lane].length;
@@ -780,6 +806,7 @@ export function compose(
     if (yesterday !== undefined && yesterday.length > 0) lines.push(flatten(yesterday));
     for (const lane of LANE_ORDER) {
       const items = kept[lane];
+      if (lane === "hints" && elsewhere !== undefined && elsewhere.length > 0) lines.push("", flatten(elsewhere));
       if (lane === "identity") {
         const furniture = page !== null || forming !== null || dayZero !== null;
         if (items.length === 0 && !furniture && more.identity === undefined) continue;
@@ -895,13 +922,14 @@ function offerLeftover(
   coreName: string | undefined,
   identity: IdentityBlock,
   yesterday?: string,
+  elsewhere?: string,
 ): Composed {
   let current = composed;
   while (held.length > 0) {
     const next = held[0];
     if (next === undefined) break;
     kept.identity.push(next);
-    const candidate = compose(kept, req.day, resolve, coreName, identity, {}, yesterday);
+    const candidate = compose(kept, req.day, resolve, coreName, identity, {}, yesterday, elsewhere);
     if (candidate.bytes > req.budgetBytes) {
       kept.identity.pop();
       break;
@@ -949,6 +977,8 @@ interface Rescued {
   readonly kept: Kept;
   readonly trimmed: TrimEvent[];
   readonly yesterday: string | undefined;
+  /** The "Today, elsewhere" line as it stands (`BriefingRequest.elsewhere`). */
+  readonly elsewhere: string | undefined;
   readonly pinned: Partial<Record<LaneName, string[]>>;
   readonly composed: Composed;
   readonly lent: number;
@@ -962,6 +992,8 @@ interface RescueCtx {
   /** How many of Arriving's first lines no rescue below them may take
    *  (`arrivingHead`). */
   readonly head: number;
+  /** The "Today, elsewhere" line's forms, widest first (`narrowerElsewhere`). */
+  readonly elsewhereForms: readonly string[];
 }
 
 function copyKept(k: Kept): Kept {
@@ -1004,6 +1036,12 @@ export function arrivingHead(horizon: readonly Pick<Ranked, "due">[]): number {
   let n = 0;
   while (horizon[n]?.due === true) n += 1;
   return Math.min(horizon.length, Math.max(1, n));
+}
+
+/** The "Today, elsewhere" line's next form after `line` in `forms`, or none. */
+function narrowerElsewhere(line: string, forms: readonly string[]): string | undefined {
+  const at = forms.indexOf(line);
+  return at < 0 ? undefined : forms[at + 1];
 }
 
 /** The Yesterday line's shorter forms, widest first, each narrower than `line`. */
@@ -1057,16 +1095,24 @@ function takeRoom(
   }
   let limit = req.budgetBytes + from.lent;
   let y = from.yesterday;
+  let e = from.elsewhere;
   const attempt = (): Rescued | null => {
-    const c = compose(k, req.day, ctx.resolve, ctx.coreName, ctx.identity, pinnedLines(pins, k), y);
+    const c = compose(k, req.day, ctx.resolve, ctx.coreName, ctx.identity, pinnedLines(pins, k), y, e);
     return c.bytes <= limit
-      ? { kept: k, trimmed: t, yesterday: y, pinned: pins, composed: c, lent: Math.max(0, c.bytes - req.budgetBytes) }
+      ? { kept: k, trimmed: t, yesterday: y, elsewhere: e, pinned: pins, composed: c, lent: Math.max(0, c.bytes - req.budgetBytes) }
       : null;
   };
   let got = attempt();
   for (const lane of ROOM_ORDER) {
     if (got !== null || lane === target) break;
     switch (lane) {
+      case "elsewhere":
+        // Its titles first, then the line (2026-10-10).
+        while (got === null && e !== undefined) {
+          e = narrowerElsewhere(e, ctx.elsewhereForms);
+          got = attempt();
+        }
+        break;
       case "work":
         if (req.budgetBytes + work > limit) {
           limit = req.budgetBytes + work;
@@ -1174,7 +1220,7 @@ function keepArrivingCount(overflow: readonly string[], from: Rescued, ctx: Resc
   const pinned = { ...from.pinned, horizon: rest };
   // Room as the composition stands: `withMoreLines` adds it then, as it adds every lane's.
   const { req } = ctx;
-  if (from.lent === 0 && compose(from.kept, req.day, ctx.resolve, ctx.coreName, ctx.identity, pinnedLines(pinned, from.kept), from.yesterday).bytes <= req.budgetBytes) {
+  if (from.lent === 0 && compose(from.kept, req.day, ctx.resolve, ctx.coreName, ctx.identity, pinnedLines(pinned, from.kept), from.yesterday, from.elsewhere).bytes <= req.budgetBytes) {
     return null;
   }
   return takeRoom(overflow.length > 0 ? "openFirst" : "arriving", from, from.kept, pinned, from.trimmed, ctx);
@@ -1234,7 +1280,7 @@ function keepFirstOpen(
     // does not fit as the composition stands.
     if (rest.length === 0) return null;
     const { req } = ctx;
-    const asIs = compose(k, req.day, ctx.resolve, ctx.coreName, ctx.identity, pinnedLines(pinned, k), from.yesterday);
+    const asIs = compose(k, req.day, ctx.resolve, ctx.coreName, ctx.identity, pinnedLines(pinned, k), from.yesterday, from.elsewhere);
     if (from.lent === 0 && asIs.bytes <= req.budgetBytes) return null;
     return takeRoom("openCount", from, k, pinned, t, ctx);
   }
@@ -1256,6 +1302,7 @@ function withMoreLines(
     coreName: string | undefined;
     identity: IdentityBlock;
     yesterday?: string;
+    elsewhere?: string;
     /** Lines already in `composed`, paid for before the others are offered
      *  room (a rescue's count, `takeRoom`): kept, never re-tried. */
     pinned?: Partial<Record<LaneName, string[]>>;
@@ -1275,7 +1322,7 @@ function withMoreLines(
     // A lane that kept nothing gets the one collapsed line instead: "N more"
     // over no item is neither a list nor a count (2026-10-09).
     lines[lane] = lane !== "identity" && ctx.kept[lane].length === 0 ? collapsedLine(lane, ids) : moreLine(lane, ids);
-    const candidate = compose(ctx.kept, ctx.req.day, ctx.resolve, ctx.coreName, ctx.identity, lines, ctx.yesterday);
+    const candidate = compose(ctx.kept, ctx.req.day, ctx.resolve, ctx.coreName, ctx.identity, lines, ctx.yesterday, ctx.elsewhere);
     if (candidate.bytes > ctx.req.budgetBytes) {
       delete lines[lane];
       continue;
@@ -1380,13 +1427,25 @@ export function render(
   const yesterday = forms.find((y) => floorWith(y) <= req.budgetBytes + lendOf(req.lendBytes));
   // What the line borrowed, the trim loop composes inside.
   const base = yesterday === undefined ? req.budgetBytes : Math.max(req.budgetBytes, floorWith(yesterday));
+  // THE "TODAY, ELSEWHERE" LINE (2026-10-10): its widest form, stepped down —
+  // its titles, then the line — after "Nearby" and before any other lane
+  // gives an element (`ROOM_ORDER`'s `elsewhere`). Not a lane: no trim row.
+  const elsewhereForms =
+    req.elsewhere === undefined || req.elsewhere.length === 0 ? [] : [req.elsewhere, ...shorterThan(req.elsewhere, req.elsewhereShorter)];
+  let elsewhere: string | undefined = elsewhereForms[0];
 
   for (;;) {
-    const c = compose(kept, req.day, resolve, coreName, identity, {}, yesterday);
+    const c = compose(kept, req.day, resolve, coreName, identity, {}, yesterday, elsewhere);
     const fits = c.bytes <= base;
     let cut: TrimEvent | null = null;
+    let stepped = false;
     if (!fits) {
       for (const lane of TRIM_ORDER) {
+        if (lane !== "hints" && elsewhere !== undefined) {
+          elsewhere = narrowerElsewhere(elsewhere, elsewhereForms);
+          stepped = true;
+          break;
+        }
         const items = kept[lane];
         if (items.length === 0) continue;
         const dropped = items.pop();
@@ -1395,6 +1454,7 @@ export function render(
         break;
       }
     }
+    if (stepped) continue;
     if (fits || cut === null) {
       // WHAT THE TRIM COULD NOT POP GIVES WAY, IN `ROOM_ORDER` (2026-10-10):
       // the head of "Arriving:" — every plain reminder due the day the wake is
@@ -1403,10 +1463,10 @@ export function render(
       // only from the lanes below it: "Work here", the Yesterday line's
       // titles, the room for "Last here" and the handoffs — never the page. A
       // rescue that finds no room leaves the render as it was.
-      const ctx: RescueCtx = { req, resolve, coreName, identity, head: arrivingHead(lanes.horizon) };
+      const ctx: RescueCtx = { req, resolve, coreName, identity, head: arrivingHead(lanes.horizon), elsewhereForms };
       const dueHead = lanes.horizon[0]?.due === true;
       const overflow = lanes.overflow;
-      let state: Rescued = { kept, trimmed: [...trimmed], yesterday, pinned: {}, composed: c, lent: base - req.budgetBytes };
+      let state: Rescued = { kept, trimmed: [...trimmed], yesterday, elsewhere, pinned: {}, composed: c, lent: base - req.budgetBytes };
       let first: Rescued | null = null;
       if (fits) {
         const steps: ((s: Rescued) => Rescued | null)[] = [
@@ -1427,6 +1487,7 @@ export function render(
         trimmed.splice(0, trimmed.length, ...first.trimmed);
       }
       const said = first === null ? yesterday : first.yesterday;
+      const away = first === null ? elsewhere : first.elsewhere;
       // The leftover clause. Only when NOTHING had to be trimmed: a lane that
       // lost an element wanted the room, and handing it to identity instead
       // would make the share decide the opposite of what it was set for. When
@@ -1438,7 +1499,7 @@ export function render(
         first !== null
           ? first.composed
           : trimmed.length === 0
-            ? offerLeftover(kept, held, c, req, resolve, coreName, identity, yesterday)
+            ? offerLeftover(kept, held, c, req, resolve, coreName, identity, yesterday, elsewhere)
             : c;
       // THE "N MORE" LINES, last: they take only room nothing else wanted.
       const told = withMoreLines(offered, {
@@ -1449,6 +1510,7 @@ export function render(
         coreName,
         identity,
         ...(said === undefined ? {} : { yesterday: said }),
+        ...(away === undefined ? {} : { elsewhere: away }),
         ...(first === null ? {} : { pinned: first.pinned }),
       });
       // AN ARRIVING ID THE COUNT COULD NOT NAME LEAVES A TRIM ROW (review of
@@ -1485,6 +1547,7 @@ export function render(
         more: told.more,
         pressure: composed.bytes >= budgetBytes * t.BUDGET_PRESSURE,
         overBudget: !fits,
+        ...(away === undefined ? {} : { elsewhere: away }),
         page:
           identity.page === null
             ? null
@@ -1846,6 +1909,13 @@ export interface PrefaceFacts {
    *  `countMemories({ type: "memory", archived: false })`. */
   readonly memories: number;
   /**
+   * TRUE when the body was ASSEMBLED at session start (2026-10-10,
+   * `Self#assemble`) rather than read as the last boundary composed it: the
+   * line then says so — fewer bytes than the words it replaces, so the
+   * reserve holds.
+   */
+  readonly assembled?: boolean;
+  /**
    * EVERY live row at delivery — memories, journal episodes, beliefs and
    * entities: `countMemories({ archived: false })` (IMPROVEMENTS U4).
    *
@@ -1882,7 +1952,7 @@ export function prefaceLine(f: PrefaceFacts): string {
   const when = f.date === undefined ? `day ${f.day}` : `day ${f.day} (${f.date})`;
   return (
     `${f.system} memory, ${when}, ${groupDigits(f.memories)} memories of ` +
-    `${groupDigits(f.liveRows)} live rows — composed at the last boundary. ${WAKE_WHOLE_SENTENCE}`
+    `${groupDigits(f.liveRows)} live rows — ${f.assembled === true ? "assembled at session start" : "composed at the last boundary"}. ${WAKE_WHOLE_SENTENCE}`
   );
 }
 

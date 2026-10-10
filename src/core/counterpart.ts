@@ -39,7 +39,7 @@ import { randomUUID } from "node:crypto";
 
 import { Associate, appendPendingDeltas, claimPending, pairKey, planContiguity, releasePending } from "./associate/index.js";
 import type { CoactivateResult, Credited, FlushReport, PairDelta, PendingClaim } from "./associate/index.js";
-import { selfRenderer } from "./briefing.js";
+import { horizonFor, selfRenderer } from "./briefing.js";
 import { batteryGate, episodeGate, gateSweepChunk } from "./bridge.js";
 import { Dreams, Reflections } from "./dream/index.js";
 import type { VectorSource } from "./bridge.js";
@@ -141,9 +141,9 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere, workSince } from "./coverage/index.js";
-import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
-import type { ChapterHere, LastHere } from "./handoff/last-here.js";
-import { addDays, isDay, localStamp, localStampAfter } from "./time.js";
+import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, todayElsewhereLines, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
+import type { ChapterHere, LastHere, TodayElsewhere } from "./handoff/last-here.js";
+import { addDays, isDay, localStamp, localStampAfter, startOfLocalDay } from "./time.js";
 import type { Recurrence } from "./time.js";
 import { EPISODE_REGROWN_REASON, leftAs } from "./leaving.js";
 import type { LeftAs } from "./leaving.js";
@@ -160,6 +160,7 @@ import {
   noteWakeBuild,
   noteWakeCaught,
   pageRoomNote,
+  readSentinel,
   settledOver,
   threadsShown,
   spliceBeforeSentinel,
@@ -174,6 +175,7 @@ import {
   fitNightWriter,
 } from "./self/index.js";
 import type {
+  BriefingResult,
   ChapterAppend,
   ChapterAsk,
   IdentityCoreSpec,
@@ -1015,6 +1017,23 @@ export interface WakeHere {
    * setting, or no way to ask (absent) keep its chapters where they were made.
    */
   readonly exportsFrom?: (scope: string) => boolean;
+  /**
+   * THE HOST'S SESSIONS, for the "Today, elsewhere" line (2026-10-10): every
+   * session its registry holds — which directory, when it started, its last
+   * boundary, whether it ended or is still live. Host state, no content; the
+   * line keeps today's, in other directories, that may be named here
+   * (`exportsFrom`). Absent: the line names no session.
+   */
+  readonly sessions?: () => readonly WakeSession[];
+}
+
+/** One session in the host's registry, as `WakeHere.sessions` hands it. */
+export interface WakeSession {
+  readonly session: string;
+  readonly scope: string;
+  readonly startedAt: number;
+  readonly lastAt: number;
+  readonly live: boolean;
 }
 
 /**
@@ -1767,6 +1786,18 @@ export class Counterpart {
    * holds no store handle and must not grow one (SEAMS G).
    */
   private briefingEvents: CounterpartEvent[] | null = null;
+  /**
+   * WHAT THE WAKE BEING DELIVERED LISTS UNDER "Still open:" (2026-10-10), set
+   * for the length of one delivery when the wake was assembled at session
+   * start (`assembleWake`): the handoff's "since" line reads it in place of
+   * the published bundle's (`THREADS_SHOWN_KEY`), so it leaves out what THIS
+   * wake says is open. Null otherwise.
+   */
+  private deliveredThreads: Set<string> | null = null;
+  /** True for the length of one delivery; the chapter walk it made, kept
+   *  for the rest of it (`chaptersInWindow`). */
+  private delivering = false;
+  private deliveryWalk: { day: number; chapters: Map<string, ChapterHere> } | null = null;
 
   private constructor(opts: CounterpartOptions) {
     // THE PATH GUARD, BEFORE ANYTHING OPENS (scar §2.13). `dataDir()` asserts
@@ -1903,7 +1934,7 @@ export class Counterpart {
       settled: () => settledOver(this.store),
       // …and nothing the published wake already lists under "Still open:"
       // (review of #332): one place for an open question.
-      listed: () => threadsShown(this.store),
+      listed: () => this.deliveredThreads ?? threadsShown(this.store),
     });
     this.spans = new SpanBuffer({
       dir: this.store.dir,
@@ -2050,8 +2081,24 @@ export class Counterpart {
     // preface that states which system, which day, which date and what size —
     // the facts the body was composed too early to know. A read that is not a
     // delivery (the dashboard, replay) gets the published bundle untouched.
-    const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery);
-    const withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
+    // THE WAKE ASSEMBLED NOW (2026-10-10): at a delivery, "Still open",
+    // "Arriving:", the Yesterday line and the page are read for this moment
+    // and composed by the same rules as the published bundle, around what
+    // it showed of the stateful lanes (`assembleWake`). Null — a bundle an
+    // older build published, no budget, another ceiling, anything that
+    // throws — delivers the published bundle as it always was.
+    let withPointer: WakeResult;
+    this.delivering = delivery !== undefined;
+    try {
+      const assembled = delivery === undefined ? null : this.assembleWake(delivery, here);
+      const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
+      this.deliveredThreads = assembled === null ? null : new Set(assembled.kept.threads);
+      withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
+    } finally {
+      this.deliveredThreads = null;
+      this.delivering = false;
+      this.deliveryWalk = null;
+    }
     this.emit("counterpart.wake", undefined, {
       ok: withPointer.ok,
       reason: withPointer.reason,
@@ -2060,6 +2107,148 @@ export class Counterpart {
       budgetBytes: this.reportedBudget,
     });
     return { ...withPointer, budgetBytes: this.reportedBudget };
+  }
+
+  /**
+   * THE WAKE, ASSEMBLED AT SESSION START (2026-10-10; Mike approved the option
+   * that day, details b2's and random-f8's). The published bundle was composed
+   * at the last turn-end — the evening before, for a morning's first sessions
+   * — so its Yesterday line named the day before yesterday, and a note's open
+   * question or reminder waited for the next render. Now the lanes that are
+   * plain reads are read for THIS moment and THIS date: "Still open" (an
+   * indexed read of the open memories), "Arriving:" (`prospective/`'s horizon
+   * for the session's date), the Yesterday line (`yesterdayFor`) and the page;
+   * "Who I am", craft and "Nearby" are what the published bundle showed,
+   * because showing them writes state the turn-end owns (the rotation's
+   * stamps, Nearby's habituation). Plus the "Today, elsewhere" line
+   * (`elsewhereFor`). Composed by `Self#assemble` under the published room,
+   * by the published rules (`ROOM_ORDER`, the page's ladder).
+   *
+   * Reads only (self CONTRACT §5 G1): no scan of the store, no model, no
+   * embedding, no write — a ring event says what it cost. Null when there is
+   * nothing to assemble from or anything throws; the caller then delivers the
+   * published bundle, exactly as before. A damaged published bundle is
+   * delivered as found, so its damage stays readable.
+   */
+  private assembleWake(delivery: WakeDelivery, here?: WakeHere): BriefingResult | null {
+    const budget = this.reportedBudget;
+    const at = delivery.date;
+    if (budget === null || at === undefined || !isDay(at)) return null;
+    const started = performance.now();
+    try {
+      const stored = this.store.getMeta(BRIEFING_KEY);
+      if (stored === undefined || stored.length === 0 || !readSentinel(stored).intact) return null;
+      const day = this.store.livedDay();
+      const asked = horizonFor(this.prospective, at, day);
+      const out = this.self.assemble({
+        day,
+        ceilingBytes: budget,
+        horizon: asked.items,
+        ...(asked.more.length === 0 ? {} : { horizonMore: asked.more }),
+        ...this.yesterdayFor(at),
+        ...this.elsewhereFor(at, here),
+      });
+      if (out === null) return null;
+      this.emit("counterpart.wake.assembled", undefined, {
+        ms: performance.now() - started,
+        bytes: out.bytes,
+        threads: out.kept.threads.length,
+        horizon: out.kept.horizon.length,
+        elsewhere: out.elsewhere !== undefined,
+        page: out.page?.rung ?? "",
+      });
+      return out;
+    } catch (err) {
+      this.emit("counterpart.wake.assemble.failed", undefined, { code: errCode(err) });
+      return null;
+    }
+  }
+
+  /**
+   * THE "TODAY, ELSEWHERE" LINE for a session starting on `at` in
+   * `here.scope` (2026-10-10): the other directories worked in today, from
+   * the host's session registry (when, live or ended), the store's count of
+   * memories written there today, and today's newest chapter there.
+   *
+   * THE GATES, held firmly (the brief's privacy lines):
+   *   - a directory is named only when the host's scope setting lets its
+   *     chapters be named elsewhere (`exportsFrom`) — with no way to ask,
+   *     there is no line;
+   *   - this session's own directory, this session, and the nightly run's
+   *     directory (the store's own) are never named — "Last here" and the
+   *     handoffs speak for this directory;
+   *   - a chapter's title only on the "About me, from another directory"
+   *     line's gate: not confidential, and a copy marked about me, us or the
+   *     owner — never one the line already names;
+   *   - memories as COUNTS only (confidential ones to the owner only); never
+   *     a work memory's title, a word of a span, or a handoff's body.
+   *
+   * Empty when there is nothing to say; never throws.
+   */
+  private elsewhereFor(at: string, here?: WakeHere): { elsewhere?: string; elsewhereShorter?: string[] } {
+    const exportsFrom = here?.exportsFrom;
+    if (exportsFrom === undefined) return {};
+    try {
+      const norm = (scope: string): string => scope.trim().replace(/\/+$/, "");
+      const own = norm(here?.scope ?? "");
+      const reader = here?.session ?? null;
+      const zone = this.store.zone();
+      const since = startOfLocalDay(at, zone);
+      const until = startOfLocalDay(addDays(at, 1), zone);
+      const allowed = new Map<string, boolean>();
+      const named = (scope: string): boolean => {
+        const key = norm(scope);
+        if (key.length === 0 || key === own || key === norm(this.store.dir)) return false;
+        let open = allowed.get(key);
+        if (open === undefined) {
+          try {
+            open = exportsFrom(scope) === true;
+          } catch {
+            open = false;
+          }
+          allowed.set(key, open);
+        }
+        return open;
+      };
+      type Dir = { scope: string; firstAt: number | null; lastAt: number | null; live: boolean; chapter: ChapterHere | null; memories: number };
+      const dirs = new Map<string, Dir>();
+      const dirOf = (scope: string): Dir => {
+        const key = norm(scope);
+        let d = dirs.get(key);
+        if (d === undefined) {
+          d = { scope: key, firstAt: null, lastAt: null, live: false, chapter: null, memories: 0 };
+          dirs.set(key, d);
+        }
+        return d;
+      };
+      for (const s of here?.sessions?.() ?? []) {
+        if (s.session === reader || s.lastAt < since || s.startedAt >= until || !named(s.scope)) continue;
+        const d = dirOf(s.scope);
+        d.firstAt = d.firstAt === null ? s.startedAt : Math.min(d.firstAt, s.startedAt);
+        d.lastAt = d.lastAt === null ? s.lastAt : Math.max(d.lastAt, s.lastAt);
+        d.live = d.live || s.live;
+      }
+      for (const { scope, count } of this.store.memoryCountsByScopeSince(since, { confidential: this.owner })) {
+        if (named(scope)) dirOf(scope).memories = count;
+      }
+      const chapters = this.chaptersInWindow(this.store.livedDay());
+      // The chapter the "About me, from another directory" line names: not
+      // named twice.
+      const aboutMe = this.selfChapterElsewhere(chapters, new Set(), reader, exportsFrom);
+      for (const c of chapters.values()) {
+        if (c.scope === null || c.writtenAt < since || c.writtenAt >= until) continue;
+        if (c.confidential === true || c.aboutMe !== true || c.id === aboutMe?.id) continue;
+        if (reader !== null && c.session === reader) continue;
+        if (!named(c.scope)) continue;
+        const d = dirOf(c.scope);
+        if (d.chapter === null || d.chapter.writtenAt < c.writtenAt) d.chapter = c;
+      }
+      const lines = todayElsewhereLines([...dirs.values()] as TodayElsewhere[], zone);
+      if (lines === null) return {};
+      return lines.shorter.length === 0 ? { elsewhere: lines.line } : { elsewhere: lines.line, elsewhereShorter: lines.shorter };
+    } catch {
+      return {};
+    }
   }
 
   /**
@@ -2438,10 +2627,14 @@ export class Counterpart {
   /** Every session's latest chapter among the episodes born inside the
    *  fortnight — the SQL bound on the walk (review of #300 MINOR-5). */
   private chaptersInWindow(day: number): Map<string, ChapterHere> {
+    // One walk per delivery (2026-10-10): the "Today, elsewhere" line and
+    // the handoff pointer read the same chapters.
+    if (this.delivering && this.deliveryWalk?.day === day) return this.deliveryWalk.chapters;
     const all = chaptersBySession(this.store, { fromDay: Math.max(0, day - LAST_HERE_LIFE_DAYS + 1) });
     // A confidential chapter is named to the owner only (review of #311).
-    if (this.owner) return all;
-    return new Map([...all].filter(([, c]) => c.confidential !== true));
+    const out = this.owner ? all : new Map([...all].filter(([, c]) => c.confidential !== true));
+    if (this.delivering) this.deliveryWalk = { day, chapters: out };
+    return out;
   }
 
   /**
@@ -4368,6 +4561,9 @@ export class Counterpart {
       lendBytes: work,
       handoffLendBytes: handoff.lend,
       handoffKeepBytes: handoff.keep,
+      // The ceiling this room was cut from, kept with what the bundle shows,
+      // so a session start assembles under the same one (2026-10-10).
+      ...(budgetBytes === null ? {} : { ceilingBytes: budgetBytes }),
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // The PHYSICS date key, and the host's to supply — every live entry point
@@ -4775,6 +4971,7 @@ export class Counterpart {
       lendBytes: work,
       handoffLendBytes: handoff.lend,
       handoffKeepBytes: handoff.keep,
+      ceilingBytes: budgetBytes,
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // Read before the render, as the boundary reads it (`self/behind.ts`).

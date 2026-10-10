@@ -1468,6 +1468,22 @@ export const DDL_AFTER_COLUMNS: readonly string[] = [
   // v7: `Store.datedMemories` without a scan (prospective/INTERFACE-GAPS §2).
   // Partial, because almost no memory carries one.
   `CREATE INDEX IF NOT EXISTS memories_event_date ON memories (event_date) WHERE event_date IS NOT NULL`,
+  // 2026-10-10: `Store.openThreadIds` — "Still open:" read at session start.
+  // Partial, because few memories are open. NO schema bump: a store already on
+  // this version gains it at the next migration (batched with the next format
+  // change, 10-09), and until then the read scans one column — 1.7 ms at a
+  // synthetic 9,250 live memories.
+  `CREATE INDEX IF NOT EXISTS memories_open ON memories (birth_day) WHERE archived = 0 AND meta LIKE '%"unresolved":true%'`,
+  // 2026-10-10: `Store.memoryCountsByScopeSince` — the "Today, elsewhere"
+  // line's counts — reads today's rows, not the store. The same terms as
+  // `memories_open`: a store on this version gains it at its next migration,
+  // and until then the count scans (1.8 ms at a synthetic 9,250).
+  `CREATE INDEX IF NOT EXISTS memories_created ON memories (created_at) WHERE created_at IS NOT NULL`,
+  // 2026-10-10: the chapter walks a session start makes (the Yesterday line,
+  // "Last here", "Today, elsewhere") read each fortnight episode's copies by
+  // `origin_ref` (`Store#copiesOf`) — a scan of the store without this
+  // (≈3 ms at a synthetic 9,250). Same terms as above.
+  `CREATE INDEX IF NOT EXISTS memories_origin_ref ON memories (origin_ref) WHERE origin_ref IS NOT NULL`,
 ];
 
 /**

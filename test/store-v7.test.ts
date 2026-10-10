@@ -92,6 +92,8 @@ function makeV6(at: string): { mem: string; ver: string } {
   stripToV7(at);
   const db = new Database(paths.operational(at));
   db.run("DROP INDEX IF EXISTS memories_event_date");
+  // 2026-10-10: an index over a v7 column, which a v6 file never had.
+  db.run("DROP INDEX IF EXISTS memories_created");
   db.run("DROP TABLE feelings");
   for (const [table, column] of V7_DROPPED) db.run(`ALTER TABLE ${table} DROP COLUMN ${column}`);
   db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('schemaVersion', '6')");

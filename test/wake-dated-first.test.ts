@@ -309,7 +309,9 @@ async function morning(
   const dataDir = freshDir();
   clock(zone, "2026-10-07", 20);
   const a = adapter(dataDir, zone);
-  chapters(a, "2026-10-07");
+  // Dated the day before the morning the wake is read: the Yesterday line is
+  // assembled at session start for that morning's date (2026-10-10).
+  chapters(a, "2026-10-08");
   await worker(dataDir, zone);
   clock(zone, "2026-10-08", 21);
   openQuestions(a);
@@ -366,8 +368,10 @@ describe("one ordered list of who gives way to whom", () => {
     expect(at("arrivingFirst")).toBeLessThan(at("handoffsKept"));
     expect(at("handoffsKept")).toBeLessThan(at("due"));
     expect(at("due")).toBeLessThan(at("page"));
-    // The trim loop's lanes are the bottom of the same list, in the same order.
-    expect(ROOM_ORDER.slice(0, 3)).toEqual(TRIM_ORDER.slice(0, 3) as never);
+    // The trim loop's lanes are the bottom of the same list, in the same order —
+    // with the "Today, elsewhere" line between "Nearby" and the rest (2026-10-10).
+    expect(ROOM_ORDER.filter((l) => l !== "elsewhere").slice(0, 3)).toEqual(TRIM_ORDER.slice(0, 3) as never);
+    expect(at("elsewhere")).toBe(at("hints") + 1);
     // The head of Arriving: its due-day plain reminders, or else its first line.
     expect(arrivingHead([])).toBe(0);
     expect(arrivingHead([{}, {}])).toBe(1);
@@ -402,6 +406,8 @@ describe("at 9,000, an over-room page, four handoffs, yesterday's titles — eve
           expect(m.text).not.toContain(`Arriving: ${String(dated)} — ${COLLAPSED_WORDS}`);
           expect(readSentinel(m.text).intact).toBe(true);
           expect(bytes(m.text)).toBeLessThanOrEqual(BUDGET);
+          // Through the wake assembled at session start (2026-10-10).
+          expect(m.text).toContain("assembled at session start");
           // The page is borrowing past its room, and an ordinary dated line
           // never pushes it down a rung: it prints on the rung it prints on without them.
           expect((m.row["page"] as Record<string, unknown>)["rung"]).toBe((twin.row["page"] as Record<string, unknown>)["rung"]);

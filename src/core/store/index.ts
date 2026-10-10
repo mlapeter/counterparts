@@ -4906,6 +4906,46 @@ export class Store {
       .map((r) => ({ id: r.id, session: r.origin_session, at: r.created_at, bornDay: r.birth_day, nightly: r.nightly === 1 }));
   }
 
+  /**
+   * WHAT EACH DIRECTORY WROTE SINCE A MOMENT, as COUNTS (2026-10-10, the
+   * wake's "Today, elsewhere" line): live memories by `origin_scope`, born at
+   * or after `at` (epoch ms), not the nightly run's (`NIGHTLY_SQL`), and not
+   * confidential unless `confidential`. Numbers only — no id, no title, no
+   * word of any memory leaves this read. Largest first, then the scope.
+   */
+  memoryCountsByScopeSince(at: number, opts: { confidential?: boolean } = {}): { scope: string; count: number }[] {
+    return this.ops
+      .all<{ origin_scope: string; n: number }>(
+        `SELECT origin_scope, COUNT(*) AS n FROM memories
+          WHERE type = 'memory' AND created_at IS NOT NULL AND created_at >= ? AND origin_scope IS NOT NULL AND origin_scope != ''
+            AND archived = 0 AND superseded_by IS NULL AND NOT ${NIGHTLY_SQL}
+            ${opts.confidential === true ? "" : "AND confidential = 0"}
+          GROUP BY origin_scope
+          ORDER BY n DESC, origin_scope`,
+        at,
+      )
+      .map((r) => ({ scope: r.origin_scope, count: r.n }));
+  }
+
+  /**
+   * THE OPEN QUESTIONS, by id (2026-10-10): live memories whose meta says
+   * `unresolved` — what the wake's "Still open:" lane is drawn from, read at
+   * session start without the full scan (`self/#assemble`). The SQL match is
+   * the loose text match `planCandidates` uses, and the caller confirms on the
+   * prose. Answered by the partial index `memories_open` where the store has
+   * it (a fresh store, or one migrated by a later schema change); a plain scan
+   * of one column where it does not. Oldest-born first, then id.
+   */
+  openThreadIds(): string[] {
+    return this.ops
+      .all<{ id: string }>(
+        `SELECT id FROM memories
+          WHERE type = 'memory' AND archived = 0 AND meta LIKE '%"unresolved":true%'
+          ORDER BY birth_day, id`,
+      )
+      .map((r) => r.id);
+  }
+
   /** The same rows for ONE session, in write order — the neighbours a newly
    *  written memory sits beside (2026-09-28). The nightly run's rows are left
    *  out, so a note made after the dream sits next to the note made before

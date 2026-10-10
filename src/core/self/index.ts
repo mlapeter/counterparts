@@ -54,7 +54,9 @@ import {
   hintReading,
   identityCoreName,
   rankLanes,
+  rankedAs,
   scanActive,
+  scanOne,
   schemaBytes,
 } from "./identity.js";
 import { coveredByPage } from "./covered.js";
@@ -230,6 +232,93 @@ export function threadsShown(store: Pick<Store, "getMeta">): Set<string> {
 }
 
 /**
+ * WHAT THE PUBLISHED BUNDLE SHOWED, AND IN WHAT ROOM (2026-10-10): a JSON
+ * record written beside `BRIEFING_KEY` at each publish, so a session start can
+ * ASSEMBLE its wake (`Self#assemble`) rather than read one composed at the last
+ * turn-end. The stateful lanes stay the turn-end's — the identity rotation and
+ * "Nearby", whose showing is written at publish (`recordHintDisplay`, the
+ * rotation stamps) — so their ids are kept here, in order; the stateless ones
+ * ("Still open", "Arriving", "Yesterday", the page) are read fresh. The room
+ * is the turn-end's too: the budget the composition had and what the
+ * delivery's rooms lent it, decided where reading every directory's handoffs,
+ * chapters and work lines is affordable. `ceiling` is the host's reported
+ * budget that room was cut from; a session start under another ceiling
+ * delivers the published bundle as it is.
+ */
+export const WAKE_SHOWN_KEY = "self.briefing.shown";
+
+export interface WakeShown {
+  readonly v: 1;
+  /** The host's reported budget the render was composed under, or null. */
+  readonly ceiling: number | null;
+  /** The composition's budget (`BriefingRequest.budgetBytes`). */
+  readonly budget: number;
+  readonly lend: number;
+  readonly handoffLend: number;
+  readonly handoffKeep: number;
+  /** Kept ids, in rendered order. */
+  readonly identity: readonly string[];
+  readonly craft: readonly string[];
+  readonly hints: readonly string[];
+  /** What each list lane left out, by id — its "N more" line's. */
+  readonly more: { readonly identity: readonly string[]; readonly craft: readonly string[] };
+}
+
+/** The record `WAKE_SHOWN_KEY` holds, or null — absent (a bundle published
+ *  before it), unreadable, or of another version. Never throws. */
+export function wakeShown(store: Pick<Store, "getMeta">): WakeShown | null {
+  try {
+    const raw: unknown = JSON.parse(store.getMeta(WAKE_SHOWN_KEY) ?? "null");
+    if (raw === null || typeof raw !== "object") return null;
+    const r = raw as Record<string, unknown>;
+    const ids = (v: unknown): string[] | null =>
+      Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : null;
+    const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+    const more = (r["more"] ?? {}) as Record<string, unknown>;
+    const identity = ids(r["identity"]);
+    const craft = ids(r["craft"]);
+    const hints = ids(r["hints"]);
+    const moreIdentity = ids(more["identity"] ?? []);
+    const moreCraft = ids(more["craft"] ?? []);
+    const budget = num(r["budget"]);
+    if (r["v"] !== 1 || identity === null || craft === null || hints === null || moreIdentity === null || moreCraft === null || budget === null) {
+      return null;
+    }
+    return {
+      v: 1,
+      ceiling: num(r["ceiling"]),
+      budget,
+      lend: num(r["lend"]) ?? 0,
+      handoffLend: num(r["handoffLend"]) ?? 0,
+      handoffKeep: num(r["handoffKeep"]) ?? 0,
+      identity,
+      craft,
+      hints,
+      more: { identity: moreIdentity, craft: moreCraft },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * WHAT A SESSION START HANDS `Self#assemble` (2026-10-10): what the turn-end
+ * render was handed, read again for the moment the session starts — the
+ * arriving items and the Yesterday line for the session's own date — plus the
+ * "Today, elsewhere" line, and the host's ceiling now. The room is the
+ * published one (`WakeShown`).
+ */
+export interface AssembleRequest
+  extends Pick<
+    BriefingRequest,
+    "day" | "yesterday" | "yesterdayShorter" | "elsewhere" | "elsewhereShorter"
+  > {
+  readonly ceilingBytes: number;
+  readonly horizon?: readonly HorizonItem[];
+  readonly horizonMore?: readonly string[];
+}
+
+/**
  * The honest bootstrap line, and the ONLY case that may be shown in place of a
  * bundle: no bundle has ever been published. A present-but-damaged bundle is an
  * error with its own reason — never this line.
@@ -297,6 +386,13 @@ export interface HorizonItem {
 }
 
 export interface BoundaryRequest extends BriefingRequest {
+  /**
+   * THE HOST'S REPORTED BUDGET this composition's `budgetBytes` was cut from
+   * (2026-10-10), recorded with what it showed (`WAKE_SHOWN_KEY`) so a
+   * session start assembles only under the same ceiling. Absent: recorded as
+   * unknown, and a session start delivers the bundle as published.
+   */
+  readonly ceilingBytes?: number;
   readonly horizon?: readonly HorizonItem[];
   /**
    * ARRIVING ITEMS PAST THE CALLER'S COUNT, by id (review of #367,
@@ -715,6 +811,12 @@ export class Self {
    * callable — a private half is a promise, not a seam.
    */
   build(req: BoundaryRequest): BriefingResult {
+    return this.buildWithLanes(req).briefing;
+  }
+
+  /** `build`, and the ranked lanes it composed from — what the publish keeps
+   *  of the stateful lanes (`WAKE_SHOWN_KEY`). */
+  private buildWithLanes(req: BoundaryRequest): { briefing: BriefingResult; lanes: Lanes } {
     const all = scanActive(this.store, req.day);
     // `omit` (see the field): the owner's wake passes none and this is a no-op;
     // a composition bound for a model call outside this machine passes one.
@@ -739,6 +841,125 @@ export class Self {
       docs.set(s.id, s.doc);
       sources.set(s.id, s.source);
     }
+    return { briefing: this.composeLanes(lanes, docs, sources, req), lanes };
+  }
+
+  /**
+   * THE WAKE, ASSEMBLED AT SESSION START (2026-10-10), from reads only: no
+   * scan of the store, no model, no embedding, and no write — not even the
+   * rotation's stamps or Nearby's showing, which stay the turn-end's (self
+   * CONTRACT §5 G1). What it reads:
+   *
+   *   - "Still open": the open memories (`Store#openThreadIds`), each read
+   *     once and ranked as the turn-end ranks them (`rankLanes`);
+   *   - "Arriving:": the caller's horizon, asked for the session's own date;
+   *   - the Yesterday line: the caller's, for the session's own date;
+   *   - the self page: read fresh, on the rung its room allows (`pageBlock`);
+   *   - "Who I am" (without a page), craft and "Nearby": the ids the
+   *     published bundle showed, in its order (`WAKE_SHOWN_KEY`), less any
+   *     that has since gone, become open, arriving or settled over, or — a
+   *     hint — that the page now covers;
+   *   - the room: the published one, so the delivery's rooms are what the
+   *     turn-end sized them to.
+   *
+   * Then the SAME composition as the turn-end's (`composeLanes`: `render`,
+   * `ROOM_ORDER`, the page's ladder), so a session start keeps every rule
+   * the published bundle keeps. Null when there is nothing to assemble from
+   * — no record (a bundle an older build published), another ceiling — and
+   * the caller then delivers the published bundle as it is.
+   */
+  assemble(req: AssembleRequest): BriefingResult | null {
+    const shown = wakeShown(this.store);
+    if (shown === null || shown.ceiling === null || shown.ceiling !== req.ceilingBytes) return null;
+    const day = req.day;
+    const settled = settledOver(this.store);
+    const docs = new Map<string, ProseDoc>();
+    const sources = new Map<string, string | null>();
+    const note = (s: Scanned): Scanned => {
+      docs.set(s.id, s.doc);
+      sources.set(s.id, s.source);
+      return s;
+    };
+    const bandOf = (id: string): string | null => {
+      try {
+        return this.store.row(id)?.band ?? null;
+      } catch {
+        return null;
+      }
+    };
+    // Arriving, as the turn-end ranks it: a due-day plain reminder first, an
+    // identity element left to its own lane.
+    const supplied = (req.horizon ?? []).filter((h) => bandOf(h.id) !== "identity").map((h) => this.horizonRank(h, day));
+    const horizon: Ranked[] = [...supplied.filter((r) => r.due === true), ...supplied.filter((r) => r.due !== true)];
+    // Still open, from the open memories alone.
+    const openIds = this.store.openThreadIds();
+    const open: Scanned[] = [];
+    for (const id of openIds) {
+      const s = scanOne(this.store, id, day);
+      if (s !== null && s.unresolved && s.band !== "identity") open.push(note(s));
+    }
+    const fresh = rankLanes(open, horizon, this.tunables, {
+      settledOver: settled,
+      workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
+      ...(req.horizonMore === undefined ? {} : { horizonMore: req.horizonMore }),
+    });
+    // The stateful lanes, as the published bundle showed them.
+    const opened = new Set(openIds);
+    const arriving = new Set(fresh.horizon.map((r) => r.id));
+    const carried = (ids: readonly string[], lane: "identity" | "craft" | "hints"): Scanned[] => {
+      const out: Scanned[] = [];
+      for (const id of ids) {
+        if (lane !== "identity" && (opened.has(id) || arriving.has(id) || settled.has(id))) continue;
+        const s = scanOne(this.store, id, day);
+        if (s === null || s.doc.body.trim().length === 0) continue;
+        if ((lane === "identity") !== (s.band === "identity")) continue;
+        out.push(s);
+      }
+      return out;
+    };
+    const hintsScanned = carried(shown.hints, "hints");
+    const covered = hintsScanned.length === 0 ? new Set<string>() : this.pageCovers(hintsScanned);
+    const lanes: Lanes = {
+      identity: carried(shown.identity, "identity").map((s) => rankedAs(note(s), "identity")),
+      craft: carried(shown.craft, "craft").map((s) => rankedAs(note(s), "craft")),
+      hints: hintsScanned.filter((s) => !covered.has(s.id)).map((s) => rankedAs(note(s), "hints")),
+      threads: fresh.threads,
+      horizon: fresh.horizon,
+      overflow: {
+        identity: [...shown.more.identity],
+        craft: [...shown.more.craft],
+        hints: [],
+        threads: fresh.overflow?.threads ?? [],
+        horizon: fresh.overflow?.horizon ?? [],
+      },
+    };
+    return this.composeLanes(lanes, docs, sources, {
+      day,
+      budgetBytes: shown.budget,
+      ...(req.horizon === undefined ? {} : { horizon: req.horizon }),
+      ...(req.yesterday === undefined ? {} : { yesterday: req.yesterday }),
+      ...(req.yesterdayShorter === undefined ? {} : { yesterdayShorter: req.yesterdayShorter }),
+      ...(req.elsewhere === undefined ? {} : { elsewhere: req.elsewhere }),
+      ...(req.elsewhereShorter === undefined ? {} : { elsewhereShorter: req.elsewhereShorter }),
+      ...(shown.lend > 0 ? { lendBytes: shown.lend } : {}),
+      ...(shown.handoffLend > 0 ? { handoffLendBytes: shown.handoffLend } : {}),
+      ...(shown.handoffKeep > 0 ? { handoffKeepBytes: shown.handoffKeep } : {}),
+    });
+  }
+
+  /**
+   * RANKED LANES TO A BRIEFING — the half of `build` after the scan, shared
+   * with `assemble` (2026-10-10) so the two compose by one set of rules: the
+   * page's ladder and its borrowing, `render` and `ROOM_ORDER`, and the page
+   * giving its borrowing back to a due-day plain reminder. Pure: it reads the
+   * page and, for a memory not in `docs`, its prose; it writes nothing.
+   */
+  private composeLanes(
+    lanes: Lanes,
+    docs: Map<string, ProseDoc>,
+    sources: Map<string, string | null>,
+    req: BoundaryRequest,
+  ): BriefingResult {
     const base: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
     // An arriving occasion's due date, beside its learned one (2026-10-01).
     // A repeating one says how often, beside it (2026-10-09).
@@ -846,6 +1067,11 @@ export class Self {
           ...(req.handoffKeepBytes === undefined || req.omit !== undefined
             ? {}
             : { handoffKeepBytes: Math.max(0, Math.floor(req.handoffKeepBytes)) }),
+          // "Today, elsewhere" (2026-10-10): asked for at session start only.
+          ...(req.elsewhere === undefined || req.omit !== undefined ? {} : { elsewhere: req.elsewhere }),
+          ...(req.elsewhereShorter === undefined || req.elsewhere === undefined || req.omit !== undefined
+            ? {}
+            : { elsewhereShorter: req.elsewhereShorter }),
         },
         resolve,
         this.tunables,
@@ -1738,7 +1964,7 @@ export class Self {
    */
   boundary(req: BoundaryRequest): BoundaryResult {
     if (req.identityCore !== undefined) this.ensureIdentityCore(req.identityCore);
-    const briefing = this.build(req);
+    const { briefing, lanes } = this.buildWithLanes(req);
     const schema = schemaBytes(this.store, req.day, this.tunables);
     const hash = hashText(briefing.text);
 
@@ -1818,6 +2044,9 @@ export class Self {
     // does not name it again (review of #332). Written at every publish, an
     // empty lane included, so it never describes an older bundle.
     this.store.setMeta(THREADS_SHOWN_KEY, JSON.stringify(briefing.kept.threads));
+    // What it showed of the stateful lanes, and in what room (2026-10-10), so
+    // a session start can assemble its wake around them (`assemble`).
+    this.store.setMeta(WAKE_SHOWN_KEY, JSON.stringify(shownRecord(briefing, lanes, req)));
     // The rotation's memory: the identity ids this bundle KEPT, stamped with
     // the day. Kept, not ranked — an element the budget trimmed did not render
     // and keeps its place at the front of the next rotation.
@@ -1902,8 +2131,10 @@ export class Self {
    * and a caller that passes nothing pays exactly the old one meta row
    * (INTERFACE-GAPS #2).
    */
-  wake(delivery?: WakeDelivery): WakeResult {
-    const raw = this.store.getMeta(BRIEFING_KEY);
+  wake(delivery?: WakeDelivery, assembled?: string): WakeResult {
+    // A wake ASSEMBLED at session start (`assemble`, 2026-10-10) is delivered
+    // in place of the published one, with the same preface and tense.
+    const raw = assembled ?? this.store.getMeta(BRIEFING_KEY);
     if (raw === undefined) {
       this.emit("self.wake", undefined, { ok: false, reason: "absent", bytes: 0 });
       return {
@@ -1951,6 +2182,7 @@ export class Self {
             // same filter minus the type clause, so "live rows" here and
             // `storeSize` there cannot mean two things.
             liveRows: this.store.countMemories({ archived: false }),
+            ...(assembled === undefined ? {} : { assembled: true }),
           });
     // THE TENSE, at the same moment and from the same date (2026-10-09): an
     // Arriving line whose date is behind the person's today says it WAS due —
@@ -2888,6 +3120,27 @@ export { BRIEFING_TRIM_LOG_CAP, COUNTER_PREFIX, FRAMING, FROZEN_KINDS, LANE_ORDE
  * hides nothing, and the `over` stays visible. Never throws — a store that
  * will not answer has settled nothing.
  */
+/** The `WAKE_SHOWN_KEY` record for a published briefing and its lanes. */
+function shownRecord(briefing: BriefingResult, lanes: Lanes, req: BoundaryRequest): WakeShown {
+  const lost = (lane: "identity" | "craft"): string[] => {
+    const kept = new Set(briefing.kept[lane]);
+    return [...lanes[lane].map((r) => r.id), ...(lanes.overflow?.[lane] ?? [])].filter((id) => !kept.has(id));
+  };
+  const whole = (n: number | undefined): number => Math.max(0, Math.floor(n ?? 0));
+  return {
+    v: 1,
+    ceiling: req.ceilingBytes === undefined || req.omit !== undefined ? null : req.ceilingBytes,
+    budget: req.budgetBytes,
+    lend: req.omit !== undefined ? 0 : whole(req.lendBytes),
+    handoffLend: req.omit !== undefined ? 0 : whole(req.handoffLendBytes),
+    handoffKeep: req.omit !== undefined ? 0 : whole(req.handoffKeepBytes),
+    identity: briefing.kept.identity,
+    craft: briefing.kept.craft,
+    hints: briefing.kept.hints,
+    more: { identity: lost("identity"), craft: lost("craft") },
+  };
+}
+
 export function settledOver(store: Pick<Store, "contradictions" | "row">): Set<string> {
   const out = new Set<string>();
   try {

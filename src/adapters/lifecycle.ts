@@ -87,6 +87,8 @@ import type { ScopeVerdict } from "./scopes.js";
 import {
   ASK_ROW_COUNTING,
   claimedByOther,
+  isLive,
+  listSessions,
   owedWriteUps,
   progressKey,
   pruneSessions,
@@ -551,6 +553,19 @@ export class Lifecycle implements HostLifecycle {
         installed: manifestVersionOnDisk(),
         openedWith: (session) => readSession(dir, session)?.opened?.build.version ?? null,
         exportsFrom: this.chapterExports(),
+        // The registry, for the "Today, elsewhere" line (2026-10-10): host
+        // state only — which directory, when, live or ended. The core keeps
+        // today's, elsewhere, that the scope setting lets it name.
+        sessions: () => {
+          const now = this.nowFn();
+          return listSessions(dir).map((r) => ({
+            session: r.sessionId,
+            scope: r.scope,
+            startedAt: r.startedAt,
+            lastAt: Math.max(r.lastBoundaryAt, r.endedAt ?? 0),
+            live: isLive(r, now),
+          }));
+        },
       },
     );
     this.noteWakeExpectation(input, woke.sentinel);
