@@ -88,10 +88,11 @@ Things learned driving it (2026-10-10, Claude Code 2.1.296):
   `full` throughout.
 - **`--permission-mode default`**, so the session asks before any tool: a
   prompt that slipped past the guard would stall at a permission dialog,
-  not run tools unattended. So the shots lack the line his own sessions
-  draw under the status line, `▸▸ auto mode on (shift+tab to cycle)`. For
-  shots with it, `--mode auto` (or `--mode own`: no `--permission-mode` at
-  all, his settings decide). `--mode` takes `default`, `manual`, `plan`,
+  not run tools unattended. So the line under the status line differs from
+  his sessions': `⏸ manual mode on · ? for shortcuts · ← for agents` where
+  his draw `▸▸ auto mode on (shift+tab to cycle)` (Claude Code 2.1.296). For
+  shots with his line, `--mode auto` (or `--mode own`: no
+  `--permission-mode` at all, his settings decide). `--mode` takes `default`, `manual`, `plan`,
   `acceptEdits`, `auto`, `dontAsk` or `own`; never `bypassPermissions`.
 - **Truecolor.** Under `$TMUX`, Claude Code clamps itself to 256 colours,
   whatever `COLORTERM` says (found in its source; `CLAUDE_CODE_TMUX_TRUECOLOR`
