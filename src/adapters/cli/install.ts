@@ -584,6 +584,43 @@ export interface HostRead {
   readonly plugin: PluginInstallRead | null;
 }
 
+/** Which of our host entries a runtime row came from: Claude Code's hooks, its
+ *  MCP registration, or Claude Desktop's `counterparts` server entry. */
+export type HostUse = "hooks" | "mcp" | "desktop";
+
+/**
+ * Where Claude Desktop keeps its MCP servers, under a home directory (macOS).
+ * Here rather than in `desktop.ts` (which re-exports it) because `readHost`
+ * reads Desktop's entry too, and `desktop.ts` imports this file.
+ */
+export function desktopConfigPath(home: string): string {
+  return join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
+}
+
+/**
+ * Is a `counterparts` entry in Desktop's file one this package wrote? Its
+ * command must read back as ours (`runtime.ts#parseScriptInvocation`) and run
+ * the memory server — a hand-made entry under the same name is somebody's
+ * own, and `connect` leaves it alone (`desktop.ts#repairDesktop`), so doctor's
+ * Runtime line does not grade it either (`readHost`): an amber whose fix,
+ * `connect`, never touches the entry would never clear.
+ *
+ * NOTHING AFTER THE SCRIPT (review of #354). `desktop.ts#desktopEntry` never
+ * writes a tail — the configuration travels in `env` — so an entry with
+ * arguments after `serve.ts` (or after the binary's `mcp`) is somebody's edit
+ * of ours, and the rewrite, which replaces `args` whole, would drop them
+ * without a word. The line `host-wiring.ts#isOurHookCommand` holds for hooks.
+ */
+export function isOurDesktopEntry(entry: unknown): entry is { command: string; args: string[] } & Record<string, unknown> {
+  if (entry === null || typeof entry !== "object" || Array.isArray(entry)) return false;
+  const command = (entry as Record<string, unknown>)["command"];
+  const args = (entry as Record<string, unknown>)["args"];
+  if (typeof command !== "string" || !Array.isArray(args) || !args.every((a) => typeof a === "string")) return false;
+  const run = parseScriptInvocation([command, ...(args as string[])]);
+  if (run === null || run.rest.length > 0) return false;
+  return run.mode === "mcp" || (run.mode === undefined && /mcp[/\\]bin[/\\]serve\.ts$/.test(run.script));
+}
+
 /** One runtime a host's configuration launches us with. */
 export interface HostRuntime {
   readonly exe: string;
@@ -591,11 +628,11 @@ export interface HostRuntime {
   readonly kind: RuntimeKind | "binary";
   readonly present: boolean;
   /** `hooks`, `mcp`, or both. */
-  readonly used: readonly ("hooks" | "mcp")[];
+  readonly used: readonly HostUse[];
   /** Of `used`, the ones whose command lets Bun read the project's `.env` or
    *  `bunfig.toml` — wired before `--no-env-file` and an empty `--config=`
    *  (`runtime.ts#BUN_NO_ENV_FILE`, `#EMPTY_BUNFIG`). */
-  readonly projectEnv: readonly ("hooks" | "mcp")[];
+  readonly projectEnv: readonly HostUse[];
 }
 
 /**
@@ -729,11 +766,11 @@ export function readHost(
   const settingsUnreadable: string[] = [];
   // WHICH RUNTIME the host launches us with — read off the same commands, never
   // spawned: `bun run <script>` or `node --import <node-hooks.mjs> <script>`.
-  const runtimes = new Map<string, { kind: RuntimeKind | "binary"; used: Set<"hooks" | "mcp">; projectEnv: Set<"hooks" | "mcp"> }>();
-  const noteRuntime = (tokens: readonly string[], used: "hooks" | "mcp"): void => {
+  const runtimes = new Map<string, { kind: RuntimeKind | "binary"; used: Set<HostUse>; projectEnv: Set<HostUse> }>();
+  const noteRuntime = (tokens: readonly string[], used: HostUse): void => {
     const run = parseScriptInvocation(tokens);
     if (run === null) return;
-    const row = runtimes.get(run.exe) ?? { kind: run.runtime, used: new Set<"hooks" | "mcp">(), projectEnv: new Set<"hooks" | "mcp">() };
+    const row = runtimes.get(run.exe) ?? { kind: run.runtime, used: new Set<HostUse>(), projectEnv: new Set<HostUse>() };
     row.used.add(used);
     if (run.projectEnv === "read") row.projectEnv.add(used);
     runtimes.set(run.exe, row);
@@ -785,6 +822,16 @@ export function readHost(
         noteRuntime([command, ...(args as string[])], "mcp");
       }
     }
+  }
+  // CLAUDE DESKTOP'S ENTRY (`install --host claude-desktop`, 2026-10-10): the
+  // third command we write into a host's configuration, read the same way, so
+  // the Runtime line says when Desktop's server still lets Bun read a
+  // project's `.env` (`connect` rewrites it too, while Desktop is closed).
+  // Only an entry `connect` would rewrite (`isOurDesktopEntry`, review of #354).
+  const desktopServers = readJsonFile(desktopConfigPath(home)).value["mcpServers"];
+  if (desktopServers !== null && typeof desktopServers === "object" && !Array.isArray(desktopServers)) {
+    const entry = (desktopServers as Record<string, unknown>)[MCP_SERVER_NAME];
+    if (isOurDesktopEntry(entry)) noteRuntime([entry.command, ...entry.args], "desktop");
   }
   return {
     expected: [...HOST_EVENTS],

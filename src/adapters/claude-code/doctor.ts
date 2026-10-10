@@ -4301,6 +4301,19 @@ export interface HostReading {
   readonly plugin?: PluginInstallRead | null;
 }
 
+/** How a Runtime row names where a command was wired: `desktop` is Claude
+ *  Desktop's `counterparts` entry (`cli/install.ts#readHost`, 2026-10-10).
+ *  It is read after "the" ("the Claude Desktop server was wired…"), so no
+ *  possessive (review of #354). */
+function useLabel(use: string): string {
+  return use === "desktop" ? "Claude Desktop server" : use;
+}
+
+/** Claude Code's hooks and registration first, Claude Desktop's entry last. */
+function byUse(a: string, b: string): number {
+  return Number(a === "desktop") - Number(b === "desktop") || a.localeCompare(b);
+}
+
 /**
  * WHICH RUNTIME the host starts us with (2026-10-01, Node support): Bun or
  * Node, read off the commands `install` wrote, and whether that executable is
@@ -4314,8 +4327,14 @@ function runtimeFindings(reading: HostReading): Finding[] {
   const rows = reading.runtimes ?? [];
   if (rows.length === 0) return [];
   const said = rows
-    .map((r) => `${r.used.join(" and ")} ${r.kind === "binary" ? "run as the single binary" : `run under ${r.kind}`} (${r.exe})`)
+    .map((r) => `${r.used.map(useLabel).join(" and ")} ${r.kind === "binary" ? "run as the single binary" : `run under ${r.kind}`} (${r.exe})`)
     .join("; ");
+  // CLAUDE DESKTOP rewrites its own config file while it is open, so `connect`
+  // leaves Desktop's entry alone until it is quit (`cli/desktop.ts#repairDesktop`):
+  // any fix that has to reach that entry says so first.
+  const quitDesktop = (uses: readonly string[]): string =>
+    uses.includes("desktop") ? "Quit Claude Desktop first (it rewrites its config file while it runs). " : "";
+  const reopenDesktop = (uses: readonly string[]): string => (uses.includes("desktop") ? " and reopen Claude Desktop" : "");
   const console_ = reading.consoleRuntime === undefined ? "" : `; this console is ${reading.consoleRuntime}`;
   const data: Record<string, string | number | boolean | null> = {
     runtimes: rows.map((r) => `${r.kind}:${r.exe}:${r.present ? "present" : "missing"}`).join(","),
@@ -4332,14 +4351,14 @@ function runtimeFindings(reading: HostReading): Finding[] {
   const readsEnv = rows.flatMap((r) => r.projectEnv ?? []);
   data["projectEnv"] = readsEnv.length === 0 ? "ignored" : [...new Set(readsEnv)].sort().join(",");
   if (missing.length === 0 && readsEnv.length > 0) {
-    const what = [...new Set(readsEnv)].sort().join(" and ");
+    const what = [...new Set(readsEnv)].sort(byUse).map(useLabel).join(" and ");
     return [
       finding(
         "runtime",
         "amber",
         "Runtime",
         `${said}${console_}; the ${what} ${what.includes(" and ") ? "were" : "was"} wired before Counterparts told Bun to skip a project's .env and bunfig.toml, so a project whose .env sets COUNTERPARTS_DATA_DIR or COUNTERPARTS_CONFIG could point them at another memory, and its bunfig.toml could run its own code inside them`,
-        "Run: counterparts connect — it rewrites the commands with --no-env-file and an empty --config. Then restart Claude Code.",
+        `${quitDesktop(readsEnv)}Run: counterparts connect — it rewrites the commands with --no-env-file and an empty --config${readsEnv.includes("desktop") ? ", Claude Desktop's entry included" : ""}. Then restart Claude Code${reopenDesktop(readsEnv)}.`,
         data,
       ),
     ];
@@ -4354,7 +4373,7 @@ function runtimeFindings(reading: HostReading): Finding[] {
       // `counterparts` itself runs under bun whenever bun is on PATH (the
       // launcher prefers it), so "run it under the runtime you want" would be
       // advice nobody can follow for Node. The explicit Node line is printed.
-      `Run: counterparts connect — it rewrites them with the runtime it runs under (bun when bun is on PATH, else Node). To wire Node with bun also installed: node --import "${NODE_HOOKS}" "${CLI_SCRIPT}" connect. Then restart Claude Code.`,
+      `${quitDesktop(missing.flatMap((r) => r.used))}Run: counterparts connect — it rewrites them with the runtime it runs under (bun when bun is on PATH, else Node). To wire Node with bun also installed: node --import "${NODE_HOOKS}" "${CLI_SCRIPT}" connect. Then restart Claude Code${reopenDesktop(missing.flatMap((r) => r.used))}.`,
       data,
     ),
   ];

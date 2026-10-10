@@ -464,6 +464,11 @@ export const COMMAND_DETAIL: Record<string, readonly string[]> = {
     "",
     "Hooks start with your next turn in any open session; the memory tools",
     "appear after you restart Claude Code.",
+    "",
+    "If you connected Claude Desktop (see `counterparts help install`), connect",
+    "brings its entry's command up to date too, keeping the store it names. Not",
+    "while Desktop is open: Desktop rewrites that file while it runs, so",
+    "connect leaves it alone and asks you to quit Desktop and connect again.",
   ],
   disconnect: [
     "It removes only the entries it recognises as its own — another tool's hooks",
