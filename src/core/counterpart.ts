@@ -2546,14 +2546,28 @@ export class Counterpart {
     body: string,
     ctx: { scope: string; session?: string | null; model?: string | null; build?: string | null; day?: number },
   ): HandoffWrite {
-    return this.handoffs.write({
-      body,
-      scope: ctx.scope,
-      ...(ctx.session === undefined ? {} : { session: ctx.session }),
-      ...(ctx.model === undefined ? {} : { model: ctx.model }),
-      ...(ctx.build === undefined ? {} : { build: ctx.build }),
-      ...(ctx.day === undefined ? {} : { day: ctx.day }),
-    });
+    return this.handoffBehind(
+      this.handoffs.write({
+        body,
+        scope: ctx.scope,
+        ...(ctx.session === undefined ? {} : { session: ctx.session }),
+        ...(ctx.model === undefined ? {} : { model: ctx.model }),
+        ...(ctx.build === undefined ? {} : { build: ctx.build }),
+        ...(ctx.day === undefined ? {} : { day: ctx.day }),
+      }),
+    );
+  }
+
+  /**
+   * A HANDOFF CHANGED, SO THE WAKE IS BEHIND IT (2026-10-10): the bundle's
+   * room for the handoff pointer is sized at render time, so a new, retired
+   * or cleared handoff waited for the next lived day to get its room or give
+   * it back. The mark is set here because `handoff/` does not import `self/`.
+   * Only on a write that landed: a refusal changed nothing.
+   */
+  private handoffBehind(out: HandoffWrite): HandoffWrite {
+    if (out.written) markWakeBehind(this.store, "handoff");
+    return out;
   }
 
   /**
@@ -2561,11 +2575,13 @@ export class Counterpart {
    * `session_end` tool's `retireHandoff` field. See `Handoffs.retire`.
    */
   retireHandoff(id: string, ctx: { scope: string; session?: string | null; day?: number }): HandoffWrite {
-    return this.handoffs.retire(id, {
-      scope: ctx.scope,
-      ...(ctx.session === undefined ? {} : { session: ctx.session }),
-      ...(ctx.day === undefined ? {} : { day: ctx.day }),
-    });
+    return this.handoffBehind(
+      this.handoffs.retire(id, {
+        scope: ctx.scope,
+        ...(ctx.session === undefined ? {} : { session: ctx.session }),
+        ...(ctx.day === undefined ? {} : { day: ctx.day }),
+      }),
+    );
   }
 
   /**
@@ -2574,10 +2590,12 @@ export class Counterpart {
    * `Handoffs.clear`.
    */
   clearHandoff(ctx: { scope: string; session?: string | null; day?: number }): HandoffWrite {
-    return this.handoffs.clear(ctx.scope, {
-      ...(ctx.session === undefined ? {} : { session: ctx.session }),
-      ...(ctx.day === undefined ? {} : { day: ctx.day }),
-    });
+    return this.handoffBehind(
+      this.handoffs.clear(ctx.scope, {
+        ...(ctx.session === undefined ? {} : { session: ctx.session }),
+        ...(ctx.day === undefined ? {} : { day: ctx.day }),
+      }),
+    );
   }
 
   /** A named, durable refusal raised by a door — see `Handoffs.refuseWrite`. */
@@ -3630,13 +3648,12 @@ export class Counterpart {
 
   /** The experiencer's end-of-session dump. Channel: `authored` (SEAMS N). */
   async submitSessionEnd(draft: unknown, ctx: SessionEndDepositContext): Promise<DepositResult> {
-    const result = await this.deposit(draft, "session-end", ctx);
     // A WRITE-UP LANDED — this door is the one both the Stop ask's answer and
     // the next-session write-up take — so the wake is behind it (2026-09-30,
     // `self/behind.ts`). The host re-fires Stop after the answer, and that
-    // Stop's worker catches the wake up.
-    if (result.deposited) markWakeBehind(this.store, "write-up");
-    return result;
+    // Stop's worker catches the wake up. The mark is set in `deposit` since
+    // 2026-10-10, for every door; this one names it `write-up`.
+    return this.deposit(draft, "session-end", ctx);
   }
 
   /**
@@ -5772,6 +5789,13 @@ export class Counterpart {
     const keepOpen = thread?.refused === "confidential" || thread?.refused === "other-directory";
     const revision = this.applyDeclaredRevision(keepOpen ? withoutHow(proposal) : proposal, mint, source, ctx.session);
     if (held !== null) this.recordHold(held, mint.id, source, ctx, proposal.day);
+    // THE WAKE IS BEHIND EVERY ACCEPTED MEMORY (2026-10-10), whatever door it
+    // came through. Only `session_end` marked it before, so a `note` — the
+    // most common write mid-session — left Still open, Nearby and Arriving as
+    // they were for up to a day, a thread it closed included. The turn-end
+    // worker re-renders (`refreshWake`): no model call, ~0.45 s on the
+    // owner's store, in the detached worker. A write-up keeps its own name.
+    markWakeBehind(this.store, source === "session-end" ? "write-up" : "memory");
     return {
       deposited: true,
       reason: "minted",

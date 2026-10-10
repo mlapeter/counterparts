@@ -455,10 +455,12 @@ not fire: they look for a chapter by ANOTHER session, or a newer install. What w
   last boundary, or past its cap of the oldest — is still named here, which is when the
   line is the only place it shows.
 - **Sized to the line that exists, at the boundary** (`liveBlockBytesByScope` asks
-  `plansSince` as delivery does). A `note` does not mark the wake behind, so a plan written
-  after the last boundary is carried only where the bundle has room until the next one;
-  `session_end` does mark it, and the Stop that follows re-renders. The one-boundary lag
-  every handoff fact has.
+  `plansSince` as delivery does). Until 2026-10-10 a `note` did not mark the wake behind,
+  so a plan written after the last boundary was carried only where the bundle had room
+  until the next one. Now every accepted memory marks it (`memory`), and so does every
+  handoff written, retired or cleared (`handoff`, `Counterpart.handoffBehind`); the next
+  turn-end's worker re-renders. What lag remains is the worker's: about a second after
+  the Stop.
 - **Cost.** One SQL read per directory with a live handoff, at each delivery and each
   boundary (no index on `origin_scope`, as `workCandidates`), and prose reads only for
   what it returns; `settledOver` only when there is something to name. Timed against the
