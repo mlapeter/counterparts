@@ -268,6 +268,23 @@ class Session {
     return { grid, dock, kb: keyboardOf(grid, cap.cursor, dock), cap };
   }
 
+  /**
+   * The screen once the keyboard reads the same twice, 150 ms apart: a key
+   * just sent (Escape out of the pane) can leave the cursor where it was for
+   * a frame, and a guard that read that frame would judge the wrong place.
+   * Never steady within 2 s reads as `unknown`, which the guards refuse.
+   */
+  async steady(): Promise<Look> {
+    let a = this.look();
+    for (let i = 0; i < 13; i++) {
+      await sleep(150);
+      const b = this.look();
+      if (a.kb.focus === b.kb.focus && a.kb.typed === b.kb.typed && a.kb.pick === b.kb.pick) return b;
+      a = b;
+    }
+    return { ...a, kb: { focus: 'unknown', typed: '', pick: null } };
+  }
+
   keys(...keys: string[]): void {
     const r = tmux('send-keys', '-t', this.name, ...keys);
     if (r.code !== 0) throw new Error(`send-keys failed: ${r.err.trim()}`);
@@ -305,17 +322,17 @@ class Session {
    * command); returns once the prompt is empty again.
    */
   async command(text: string, allowed: readonly string[]): Promise<void> {
-    let l = this.look();
+    let l = await this.steady();
     if (l.kb.focus === "pane") {
       this.keys("Escape");
       await sleep(300);
-      l = this.look();
+      l = await this.steady();
     }
     if (l.kb.focus !== "empty") throw new Error(`cmd:${text}: the prompt isn't empty and holding the keyboard (it is "${l.kb.focus}")`);
     this.literal(text);
     await this.waitFor(`"${text}" in the prompt`, s => s.kb.focus === "slash" && s.kb.typed === text, 5000);
-    await sleep(250);
-    const why = refuseEnter(this.look().kb, allowed);
+    await sleep(100);
+    const why = refuseEnter((await this.steady()).kb, allowed);
     if (why !== null) {
       this.keys("C-u");
       throw new Error(`cmd:${text}: ${why}; nothing sent`);
@@ -456,7 +473,7 @@ async function runSteps(s: Session, o: Opts, captures: Capture[]): Promise<void>
         break;
       case 'keys':
         for (const k of step.keys) {
-          const why = refuseKey(k, s.look().kb, o.allowed);
+          const why = refuseKey(k, (await s.steady()).kb, o.allowed);
           if (why !== null) throw new Error(`keys:${k}: ${why}`);
           s.keys(k);
           await sleep(150);
@@ -464,7 +481,7 @@ async function runSteps(s: Session, o: Opts, captures: Capture[]): Promise<void>
         await sleep(400);
         break;
       case 'type': {
-        const why = refuseType(step.text, s.look().kb.focus);
+        const why = refuseType(step.text, (await s.steady()).kb.focus);
         if (why !== null) throw new Error(why);
         s.literal(step.text);
         await sleep(400);
