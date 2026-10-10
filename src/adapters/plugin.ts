@@ -373,12 +373,23 @@ export function firstRunLine(configPath: string, home: string): string {
   );
 }
 
-/** Leave the notice; false when it could not be written (then the maker says the line itself). */
+/**
+ * Leave the notice; false when it could not be written (then the maker says the line itself).
+ *
+ * CREATED, NEVER OPENED (`wx`, O_EXCL). On Linux the temp directory is a shared
+ * `/tmp` and this name is predictable from the home path, so a file or symlink
+ * somebody else put there first must not be written through — a plain write
+ * follows a planted symlink onto whatever it names. A notice of our own that a
+ * dead first run left is removed first, so `wx` refuses only what is not ours
+ * (sticky `/tmp` lets nobody else remove it), and the maker says the line itself.
+ */
 function leaveFirstRunNotice(noticePath: string, configPath: string): boolean {
+  takeFirstRunNotice(noticePath);
   try {
     writeFileSync(noticePath, `${JSON.stringify({ config: resolve(configPath), at: new Date().toISOString(), pid: process.pid })}\n`, {
       encoding: "utf8",
       mode: 0o600,
+      flag: "wx",
     });
     return true;
   } catch {

@@ -14,6 +14,7 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -589,6 +590,18 @@ describe("ensureFirstRun", () => {
     });
     expect(r.state).toBe("created");
     expect(r.line).toContain("first run");
+  });
+
+  test("a symlink waiting at the notice's name (a shared /tmp) is never written through", () => {
+    const target = join(work, "somebody-elses-file");
+    writeFileSync(target, "keep\n");
+    symlinkSync(target, noticeIn());
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn() });
+    expect(r.state).toBe("created");
+    expect(readFileSync(target, "utf8")).toBe("keep\n");
+    // Ours to remove here (this test's own directory), so a fresh notice replaced it.
+    expect(lstatSync(noticeIn()).isSymbolicLink()).toBe(false);
+    expect(r.line).toBeNull();
   });
 
   test("a concurrent first run is waited for, and joined", async () => {
