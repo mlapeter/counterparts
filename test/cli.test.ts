@@ -25,7 +25,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { EMPTY_BUNFIG } from "../src/adapters/runtime.js";
 
 import { TUNABLES } from "../src/core/physics/index.js";
@@ -648,7 +648,10 @@ describe("backup", () => {
     // The v1 shape: a trailing slash and a relative segment pointing back at
     // live data. `assertSafeTarget` resolves before it compares.
     expect(() => assertSafeTarget(dir, join(dir, "backups/"))).toThrow();
-    expect(() => assertSafeTarget(dir, join(dir, "..", "..", "..", "..", "..", "..", "tmp"))).not.toThrow();
+    // A relative segment that climbs OUT, to the sibling temp dir. Not a fixed
+    // climb to `/tmp`: on Linux the store itself lives in `/tmp`, so `/tmp`
+    // contains it and is rightly refused.
+    expect(() => assertSafeTarget(dir, join(dir, "..", basename(outside)))).not.toThrow();
     expect(() => assertSafeTarget(dir, join(homedir(), ".bansai"))).toThrow();
     const report = snapshot(s, join(dir, "inside"));
     expect(report.ok).toBe(false);

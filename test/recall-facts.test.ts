@@ -309,12 +309,16 @@ describe("time in a question (time-ask.ts)", () => {
       for (const q of ["cut it by 1/2", "we reduced the dose by 1/2", "how much did prices drop by 1/3", "grew to 3/4", "reduced the dose to 1/3"]) {
         expect({ q, ask: readTimeAsk(q, at) }).toEqual({ q, ask: null });
       }
+      // January 2, a date. Asked on 10-03, the coming one (91 days ahead) is
+      // nearer than the last (274 back), so "by" reads through next year's
+      // (2026-10-10, the year-end mirror; it read this year's before).
       const finish = readTimeAsk("what do I have to finish by 1/2", at);
-      expect(finish?.window).toEqual({ from: OPEN_START, to: "2026-01-02" });
+      expect(finish?.window).toEqual({ from: OPEN_START, to: "2027-01-02" });
       expect(finish?.cue).toBe("by 1/2");
       expect(readTimeAsk("what happened on 1/2", at)?.window).toEqual({ from: "2026-01-02", to: "2026-01-02" });
-      // Not a common fraction (over 10 below it), so a deadline: "cut costs by 3/15".
-      expect(readTimeAsk("cut costs by 3/15", at)?.window).toEqual({ from: OPEN_START, to: "2026-03-15" });
+      // Not a common fraction (over 10 below it), so a deadline: "cut costs by
+      // 3/15" — next March's, 163 days ahead against 202 back.
+      expect(readTimeAsk("cut costs by 3/15", at)?.window).toEqual({ from: OPEN_START, to: "2027-03-15" });
       // "By" as part of a verb still reads as through (review of #338, item 5).
       expect(readTimeAsk("drop by 7/22", at)?.window).toEqual({ from: OPEN_START, to: "2026-07-22" });
     }
@@ -376,13 +380,15 @@ describe("time in a question (time-ask.ts)", () => {
       expect(readTimeAsk("what did I eat before the 12/20 flight", at)?.window).toEqual({ from: OPEN_START, to: "2026-12-20" });
       // Unchanged: since and after reach back to the last 12/20 there was; a
       // date alone keeps `yearFor`'s year; a written year is the year meant; a
-      // month already begun was this year's all along.
+      // month already begun and nearest this year stays this year's.
       expect(readTimeAsk("since 12/20", at)?.said).toEqual({ from: "2025-12-20", to: "2026-10-09" });
       expect(readTimeAsk("after 12/20", at)?.window).toEqual({ from: "2025-12-21", to: OPEN_END });
       expect(readTimeAsk("on 12/20", at)?.window).toEqual({ from: "2025-12-20", to: "2025-12-20" });
       expect(readTimeAsk("by 12/20/2025", at)?.window).toEqual({ from: OPEN_START, to: "2025-12-20" });
       expect(readTimeAsk("before 9/30", at)?.window).toEqual({ from: OPEN_START, to: "2026-09-29" });
-      expect(readTimeAsk("by 1/5", at)?.window).toEqual({ from: OPEN_START, to: "2026-01-05" });
+      // The year-end mirror (2026-10-10): the coming 1/5 (88 days ahead) is
+      // nearer than the last (277 back). It read this year's 01-05 before.
+      expect(readTimeAsk("by 1/5", at)?.window).toEqual({ from: OPEN_START, to: "2027-01-05" });
     }
     // On the person's own day: 04:00 UTC on 12-01 is still 11-30 in Denver
     // (December not begun) and already 12-01 on Kiritimati. Both read this
@@ -398,6 +404,48 @@ describe("time in a question (time-ask.ts)", () => {
     // A Feb 29 this year lacks keeps the year it had (2028's, asked in 2029).
     const leap = { now: Date.parse("2029-01-10T19:00:00Z"), zone: "America/Denver" };
     expect(readTimeAsk("by 2/29", leap)?.window).toEqual({ from: OPEN_START, to: "2028-02-29" });
+  });
+
+  // The year-end mirror #352 left undone: "by 1/5" asked on 12-28 was through
+  // this year's 01-05, 357 days back, which hid the whole year since.
+  test("by / until / before at the year's end reach the coming January, the nearer year; since, after and a date alone still reach back (Denver, Kiritimati)", () => {
+    const december: [string, { now: number; zone: string }][] = [
+      ["America/Denver", { now: Date.parse("2026-12-28T18:00:00Z"), zone: "America/Denver" }],
+      ["Pacific/Kiritimati", { now: Date.parse("2026-12-27T22:00:00Z"), zone: "Pacific/Kiritimati" }],
+    ];
+    for (const [zone, at] of december) {
+      const due = readTimeAsk("what's due by 1/5", at);
+      expect({ zone, window: due?.window, cue: due?.cue, rest: due?.rest }).toEqual({
+        zone,
+        window: { from: OPEN_START, to: "2027-01-05" },
+        cue: "by 1/5",
+        rest: "what's due",
+      });
+      expect(readTimeAsk("before 1/5", at)?.window).toEqual({ from: OPEN_START, to: "2027-01-04" });
+      expect(readTimeAsk("until Jan 5", at)?.window).toEqual({ from: OPEN_START, to: "2027-01-05" });
+      expect(readTimeAsk("up to the 5th of January", at)?.window).toEqual({ from: OPEN_START, to: "2027-01-05" });
+      expect(readTimeAsk("prior to 2/1", at)?.window).toEqual({ from: OPEN_START, to: "2027-01-31" });
+      // The date names a thing on its day: the coming one, the day kept.
+      expect(readTimeAsk("what do I pack before the 1/5 flight", at)?.window).toEqual({ from: OPEN_START, to: "2027-01-05" });
+      // A day just past is nearer than next year's: kept.
+      expect(readTimeAsk("by 12/20", at)?.window).toEqual({ from: OPEN_START, to: "2026-12-20" });
+      // Unchanged: since and after reach back to the last 1/5 there was; a date
+      // alone keeps `yearFor`'s year; a written year is the year meant.
+      expect(readTimeAsk("since 1/5", at)?.said).toEqual({ from: "2026-01-05", to: "2026-12-28" });
+      expect(readTimeAsk("after 1/5", at)?.window).toEqual({ from: "2026-01-06", to: OPEN_END });
+      expect(readTimeAsk("on 1/5", at)?.window).toEqual({ from: "2026-01-05", to: "2026-01-05" });
+      expect(readTimeAsk("by 1/5/2026", at)?.window).toEqual({ from: OPEN_START, to: "2026-01-05" });
+    }
+    // On the person's own day: 04:00 UTC on 2027-01-01 is still 12-31 in
+    // Denver and already 01-01 on Kiritimati. Both read the 01-05 four or five
+    // days ahead — before, Denver read the one 360 days back.
+    const edge = Date.parse("2027-01-01T04:00:00Z");
+    expect(readTimeAsk("by 1/5", { now: edge, zone: "America/Denver" })?.window).toEqual({ from: OPEN_START, to: "2027-01-05" });
+    expect(readTimeAsk("by 1/5", { now: edge, zone: "Pacific/Kiritimati" })?.window).toEqual({ from: OPEN_START, to: "2027-01-05" });
+    // Midyear, the nearer decides: on 07-01 last January's 1/5 is 177 days back
+    // against 188 ahead; on 07-10, 186 back against 179 ahead.
+    expect(readTimeAsk("by 1/5", { now: Date.parse("2026-07-01T18:00:00Z"), zone: "America/Denver" })?.window).toEqual({ from: OPEN_START, to: "2026-01-05" });
+    expect(readTimeAsk("by 1/5", { now: Date.parse("2026-07-10T18:00:00Z"), zone: "America/Denver" })?.window).toEqual({ from: OPEN_START, to: "2027-01-05" });
   });
 
   test("the event-day rule of #338 holds in both zones: \"before the 7/22 flight\" keeps 07-22, \"before 7/22\" does not", () => {
@@ -673,6 +721,18 @@ describe("time filters", () => {
     expect(new Set(by.memories.map((m) => m.id))).toEqual(new Set([spring, last]));
     expect(by.time?.outside).toBe(0);
     expect(by.time?.window).toEqual({ from: OPEN_START, to: "2026-12-20" });
+  });
+
+  // The year-end mirror (2026-10-10): through this year's 1/5 hid the year since it.
+  test("\"by 1/5\" asked on 12-28 keeps the year since last January", () => {
+    const c = brain(Date.parse("2026-12-28T20:00:00Z"));
+    seed(c);
+    const spring = c.store.put({ type: "memory", kind: "fact", body: "Patched the zqcanoe hull.", occurredOn: "2026-03-14" });
+    const winter = c.store.put({ type: "memory", kind: "fact", body: "Bought the zqcanoe.", occurredOn: "2025-11-02" });
+    const by = ask(c, "zqcanoe by 1/5");
+    expect(new Set(by.memories.map((m) => m.id))).toEqual(new Set([spring, winter]));
+    expect(by.time?.outside).toBe(0);
+    expect(by.time?.window).toEqual({ from: OPEN_START, to: "2027-01-05" });
   });
 
   test("a question that is only a time answers with everything in the window", () => {

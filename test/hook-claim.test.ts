@@ -380,9 +380,10 @@ describe("two processes claim in the same millisecond", () => {
           `  const at = t0 + i * gap;`,
           `  while (Date.now() < at) {}`,
           `  const key = "race-" + i;`,
+          `  const late = Date.now() - at;`,
           `  const c = claimDelivery(cp, { hook: "user-prompt-submit", key, sessionId: "race", side, observer: false, started: at - 1 });`,
           `  if (c.outcome === "won" && i % 2 === 0) finishClaim(cp, key, c.at);`,
-          `  out.push([i, c.outcome, Date.now() - at]);`,
+          `  out.push([i, c.outcome, late]);`,
           `}`,
           `cp.close();`,
           `process.stdout.write(JSON.stringify(out));`,
@@ -414,8 +415,12 @@ describe("two processes claim in the same millisecond", () => {
       for (let i = 0; i < rounds; i += 1) {
         expect({ i, outcomes: [ra[i]?.[1], rb[i]?.[1]].sort() }).toEqual({ i, outcomes: ["lost", "won"] });
       }
-      // And they really did meet: in most rounds both were done within a few
-      // milliseconds of the instant (loose, so a loaded machine does not flake it).
+      // And they really did meet: in most rounds both had ENTERED the claim
+      // within a few milliseconds of the instant (loose, so a loaded machine
+      // does not flake it), so neither was still starting while the other
+      // claimed alone. Entered, not finished: a finish waits on the disk (an
+      // fsync per commit, nearly free on macOS and not on Linux, where a CI
+      // runner finished both within 5 ms in only 23 of 50 rounds, 2026-10-09).
       const close = ra.filter((x, i) => x[2] <= 5 && (rb[i]?.[2] ?? 99) <= 5).length;
       expect(close).toBeGreaterThan(rounds / 2);
       expect(events(HOOK_CLAIM_LOST_EVENT)).toBe(rounds);

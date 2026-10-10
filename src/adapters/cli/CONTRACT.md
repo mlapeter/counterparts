@@ -636,6 +636,11 @@ or no entry in it; green with the last wake and the last Desktop session when th
 amber only when the entry names another store, directly or through the Code tab's name clash
 with `~/.claude.json`'s `counterparts`. `counterparts coverage` names a day's Desktop sessions
 as unmeasured — never lost.
+**[M]** `connect`, and `install` at a terminal, bring an entry of ours in an older shape up
+to today's command (2026-10-10, `commands.ts#repairDesktopEntry`): only `command` and
+`args` change, the store its `env` names is kept, the file is backed up first and written
+whole, and nothing is written while Desktop is open or could not be ruled out — the person
+is told to quit it and run `connect` again. The scripted install reads no host file.
 
 ## 7. Open questions
 

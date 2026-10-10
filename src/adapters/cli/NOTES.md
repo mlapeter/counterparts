@@ -1997,3 +1997,28 @@ into my voice is mine.
   only; in review it learned `hostSettingsDir` too, so with
   `CLAUDE_CONFIG_DIR=~/.claude-work` an `--config` inside that directory is refused the
   same way (`configDirRefusal`'s optional `env`, passed through `planUninstall`).
+
+## 2026-10-10 — `install` at a terminal repairs Claude Desktop's entry too
+
+#354 taught `connect` to rewrite Desktop's entry in today's shape and left `install` at a
+terminal, the other caller of `wire()`, without it. A person who re-runs `install` after an
+upgrade now gets the same repair. The block moved out of `hostWiringCommand` into
+`repairDesktopEntry`, which both call: the process look, `desktop.ts#repairDesktop`, one
+line about it.
+
+- *Choices:*
+  - It runs whether or not Claude Code is on this machine: Desktop's file is there or not
+    either way.
+  - A Desktop that is open (or not ruled out) leaves the entry as it was, as with `connect`,
+    and the message still says to quit Desktop and run `connect` again. That is the
+    command that does it alone, without the install conversation.
+  - Exit stays 0 on a failed write, like every other host step of `install` at a terminal
+    (a `wire()` that fails is a hint, not an exit). `connect` still exits 1.
+  - The closing line no longer says "it should be all green" while Desktop's entry is left
+    in the old shape: doctor's Runtime line is amber then (review M1's rule).
+  - In review: a Desktop file that does not parse (`refused`) fell through to "all green".
+    Doctor cannot read an entry in it, so its Runtime line really is green, which is why
+    the ending can't say amber either: it says the file was left as it was and that
+    `connect` brings the entry up to date once it's fixed. Tested with a trailing comma,
+    and a write that fails (a read-only folder: install exits 0, connect 1).
+  - The scripted install (`--no-connect`, a pipe, CI) reads no host file, as before.

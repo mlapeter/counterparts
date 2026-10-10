@@ -545,9 +545,10 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   else last year's ("before 1/5" asked on 01-03 is through this year's 01-04) — except
   that under "since" or "after" a day that has not come yet is last year's ("since 10/25"
   asked on 10-03 runs from last year's 10-25; 2026-10-09), and under "before", "until"
-  or "by" a month not yet begun is this year's when that is the nearer ("by 12/20" asked
-  on 10-09 is through this year's 12-20; "until Dec 30" asked on 01-03 is still last
-  year's; review of #345). An amount is not a date: a
+  or "by" it is the year, last, this or next, whose date is nearest today ("by 12/20"
+  asked on 10-09 is through this year's 12-20, review of #345; "by 1/5" asked on 12-28 is
+  through next year's 01-05, 2026-10-10; "until Dec 30" asked on 01-03 is still last
+  year's). An amount is not a date: a
   `7-8` or `1/2` with a unit after it ("7-8 hours", "3/4 cup", "1/2 of it"), a price
   ("$5-10"), or a fraction after a word of quantity ("cut it by 1/2"; "finish by 1/2" is
   still January 2); one written with a leading zero ("09-28 minutes") is a date. A range

@@ -11,6 +11,19 @@
   Desktop running `connect` leaves the entry as it was and asks you to quit Desktop and
   run `connect` again. Doctor's Runtime line now reads Desktop's entry too, and stays
   amber until it's done.
+- **`counterparts install` at a terminal fixes Claude Desktop's entry the same way.**
+  Running `install` again after an upgrade now rewrites Desktop's entry as `connect`
+  does: only the command changes, a backup is kept, and nothing is written while Desktop
+  is open. Its last line no longer promises a green doctor while Desktop's entry is left
+  as it was. The scripted install (`--no-connect`, or not at a terminal) still reads no
+  host file.
+- **Facts recall reads "by 1/5" asked in late December as the coming January.** A date
+  with no year after "by", "until" or "before" now takes whichever year puts it nearest
+  today: "by 1/5" asked on 12-28 runs through next year's January 5, where it ran through
+  this year's and left out the year since. "Until Dec 30" asked on January 3 is still the
+  one four days back. Asked in early October, "by 1/5" and "finish by 1/2" now mean the
+  coming January too. "Since" and "after" still reach back to the last time the date came
+  round.
 - **Going back to an earlier version is in the quickstart** ("Going back to an earlier
   version"): `disconnect` first, then the reinstall, then `connect`, and
   `install --host claude-desktop` again if you use Claude Desktop. Done in the other
