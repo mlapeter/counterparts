@@ -7,7 +7,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
 import { decodeCells } from '../hooks/cells'
-import { BAND_PROPS, HERE, HOME, PANE, PANE_PROPS, PLUGIN, PLUGIN_TOOLS, RECALL_BLOCK, SCOPES_FILE, SESSION, VIEWPORT, ev, settle, start, world } from './world'
+import { BAND_PROPS, HERE, HOME, PANE, PANE_PROPS, PLUGIN, PLUGIN_TOOLS, RECALL_BLOCK, SCOPES_FILE, SESSION, T0, VIEWPORT, ev, settle, start, world } from './world'
 import type { World } from './world'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -408,6 +408,24 @@ test('one event lights every mechanism it proves: a mood-matched recall lights E
   expect(await report()).toContain('now in a burst')
   await w.clock.advance(1100)
   expect(await report()).toContain('now swaying')
+  await ui.unmount()
+})
+
+test('a reload keeps the state: a `firing` v0.1 wrote ({ id, at }, no list) draws the pane with nothing lit', async ($, on) => {
+  const w = world(on)
+  // the state answers `firing` as v0.1 left it, this moment (inside the legend's 2.6 s light)
+  let reads = 0
+  on('state.get', { plugin: PLUGIN, key: 'firing' } as never, (() => {
+    reads += 1
+    return { value: { value: { id: 'retrieval', at: T0 }, version: 1 } }
+  }) as never)
+  await start($, w)
+  const ui = await mount($, w, 'terminal') // before the guard, the drawing failed: firing.ids was undefined
+  expect(reads).toBeGreaterThan(0)
+  const b = await ui.find({ type: 'Button', key: 'm:retrieval' })
+  expect(b).toBeDefined()
+  const kids = (b?.children ?? []).filter((c): c is { props: Record<string, unknown> } => typeof c === 'object' && c !== null)
+  expect(kids.some(c => c.props['color'] === '#ffffff' && c.props['bold'] === true)).toBe(false)
   await ui.unmount()
 })
 

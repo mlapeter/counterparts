@@ -32,7 +32,7 @@ hides it (as its `✕` does), `/counterparts resume` resumes a folder paused
 here, `/counterparts caps` swaps the switch ends.
 
 **Check it:** `sh hooks/sidebar/check.sh`, which runs validate on both manifests,
-`claude plugin test hooks/sidebar` (73 tests, terminal and desktop) and
+`claude plugin test hooks/sidebar` (74 tests, terminal and desktop) and
 `tsc -p hooks/sidebar`, all with a throwaway HOME.
 
 ## Layout, and why
@@ -338,7 +338,9 @@ Mike's first real run is the real measurement.
     0.6 s longer than one; the calm and rest rates are unchanged. Done with
     `$.clock.after` in `register.tsx`; `brain.ts` is untouched;
   - **the legend lights each one** the read proved (`firing` holds a list now),
-    and the brain's tag still names the newest row's own;
+    and the brain's tag still names the newest row's own. A reload keeps the
+    state, so a `firing` v0.1 wrote (`{ id, at }`) can be read by this code: it
+    lights nothing (before that guard, it failed the pane's drawing for 2.6 s);
   - **a live came-to-mind row takes on its twin's** mechanisms when the
     dashboard's `recall.decision` for that turn lands (`mergeRows`). The
     recall block says nothing of mood, so Emotion lights for that turn one poll

@@ -1344,7 +1344,9 @@ export const register: Register = on => {
     look.mono = paused
     look.sel = sel === null ? null : (sel.id as MechId)
     // Every mechanism the last read proved lights in the legend; the brain's tag names the newest row's own.
-    const firingNow: readonly MechId[] = !paused && firing !== null && now - firing.at < FIRING_MS ? firing.ids : []
+    // A reload keeps the state: a `firing` written by v0.1 (`{ id, at }`, no `ids`) lights nothing.
+    const firingNow: readonly MechId[] =
+      !paused && firing !== null && now - firing.at < FIRING_MS && Array.isArray(firing.ids) ? firing.ids : []
     look.firing = firingNow[0] ?? null
     const W = Math.max(e.props.bodyColumns, 1)
     const fill = Math.max(1, e.props.scroll?.bodyRows ?? 1)
