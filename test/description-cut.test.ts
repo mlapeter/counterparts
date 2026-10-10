@@ -70,21 +70,27 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
    * loads the tool up front cuts.
    */
   const LEADS: Readonly<Record<string, readonly string[]>> = {
-    note: [
-      "`updates` is a FIELD",
-      "`eventDate` is a FIELD",
-      "A salience you claim is a FLOOR",
-      "Claim nothing and this still counts",
-      "You may score the three dimensions",
-      "A stub is refused",
-    ],
+    // THE PIN MOVED (2026-10-10, Group 1c). 01 C1's summary, admission and
+    // negatives, verbatim, plus f8's "in the moment, as things catch your
+    // attention", take 1,387 characters before the list (951 before), so three
+    // how-to-call claims fit, not six. The three that left are each said on a
+    // field the host serves whole: the default floor on `salience` ("A floor:
+    // unset, a default by what it is about applies"), the dimensions on their
+    // own fields, and a stub is refused by name when it is sent. Decided by
+    // g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why:
+    // the brief's words are verbatim unless a measured limit forces a change,
+    // and the limit here binds the privileges, not the words that invite.
+    remember: ["`updates` is a FIELD", "`eventDate` is a FIELD", "A salience you claim is a FLOOR"],
     recall: ["A question needs mode", "A handle expands exactly that memory", "Pass ids to read those memories whole"],
     session_end: [
       "It is bound to ONE session",
       "`updates` is a FIELD on an entry",
       "A salience you claim is a floor",
       "An entry that claims no salience",
-      "An EMPTY `memories` array is a real answer",
+      // "An EMPTY `memories` array is a real answer" left the cut on
+      // 2026-10-10 (the head grew from 811 to 1,088 with 01 C1's text); the
+      // `memories` field says it, served whole: "`[]` only when nothing
+      // happened since you last wrote".
     ],
     chapter: [
       "It is bound to ONE session exactly as `session_end` is",
@@ -136,12 +142,15 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       }),
     );
     expect(lengths).toEqual({
-      note: { total: 5091, beforeList: 951 },
+      // `note` became `remember` on 2026-10-10 (Group 1c, 01 C1's text): the
+      // head grew from 951 to 1,387 and session_end's from 811 to 1,088, both
+      // well inside the cut with their leading claims.
+      remember: { total: 5612, beforeList: 1387 },
       recall: { total: 6263, beforeList: 1200 },
       status: { total: 1212, beforeList: 501 },
-      session_end: { total: 7218, beforeList: 811 },
-      chapter: { total: 2097, beforeList: 746 },
-      scope: { total: 1510, beforeList: 751 },
+      session_end: { total: 7519, beforeList: 1088 },
+      chapter: { total: 2079, beforeList: 728 },
+      scope: { total: 1514, beforeList: 755 },
       self_page: { total: 4846, beforeList: 1772 },
       dream: { total: 3785, beforeList: 1782 },
       reflect: { total: 2815, beforeList: 1331 },

@@ -783,7 +783,7 @@ export const MECHANISMS: readonly Mechanism[] = [
     // evidence is the settle rows; the flags and the undos are covered.
     id: "contradictions",
     label: "two memories that disagree were settled — changed, corrected or kept open — or flagged, or a settle undone",
-    module: "core/contradictions.ts (revision.ts, dream/, mcp note, cli settle)",
+    module: "core/contradictions.ts (revision.ts, dream/, mcp remember, cli settle)",
     cadence: { kind: "occasion", when: "two memories disagree" },
     evidence: { kind: "event", names: ["contradiction.settled"] },
     covers: ["contradiction.flagged", "contradiction.undone", "contradiction.held"],

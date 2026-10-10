@@ -103,7 +103,7 @@ describe("the three kinds, written as a new memory with updates + how", () => {
     const before = strengthOf(store, old);
     const lastUsed = store.physicsOf(old).lastUsedDay;
     const r = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "I used to build everything in React; now Vue is my default framework for frontends.",
         updates: old,
         how: "changed",
@@ -146,7 +146,7 @@ describe("the three kinds, written as a new memory with updates + how", () => {
     const store = s.counterpart.store;
     aged(store);
     const old = put(store, "The team standup happens at nine every morning.");
-    const r = payload(await s.call("note", { text: "The team standup moved from nine to ten in the morning.", updates: old }));
+    const r = payload(await s.call("remember", { text: "The team standup moved from nine to ten in the morning.", updates: old }));
     expect((r["settled"] as Record<string, unknown>)["how"]).toBe("changed");
     expect(store.contradictionBetween(old, String(r["id"]))?.how).toBe("changed");
   });
@@ -157,7 +157,7 @@ describe("the three kinds, written as a new memory with updates + how", () => {
     aged(store);
     const old = put(store, "Dana works at Google on the search team.");
     const r = payload(
-      await s.call("note", { text: "Dana works at Meta, not Google — I had it wrong.", updates: old, how: "corrected" }),
+      await s.call("remember", { text: "Dana works at Meta, not Google — I had it wrong.", updates: old, how: "corrected" }),
     );
     const settled = r["settled"] as Record<string, unknown>;
     expect(settled["how"]).toBe("corrected");
@@ -183,7 +183,7 @@ describe("the three kinds, written as a new memory with updates + how", () => {
     const old = put(store, "Tabs are the right indentation for this codebase.");
     const before = strengthOf(store, old);
     const r = payload(
-      await s.call("note", { text: "Spaces are the right indentation for this codebase; we still disagree.", updates: old, how: "open" }),
+      await s.call("remember", { text: "Spaces are the right indentation for this codebase; we still disagree.", updates: old, how: "open" }),
     );
     const settled = r["settled"] as Record<string, unknown>;
     expect(settled["how"]).toBe("open");
@@ -201,7 +201,7 @@ describe("the three kinds, written as a new memory with updates + how", () => {
     const store = s.counterpart.store;
     aged(store);
     const old = put(store, "The deploy runs on Fridays.");
-    const r = payload(await s.call("note", { text: "The deploy runs on Tuesdays now.", updates: old, how: "sideways" }));
+    const r = payload(await s.call("remember", { text: "The deploy runs on Tuesdays now.", updates: old, how: "sideways" }));
     expect(r["stored"]).toBe(false);
     expect(r["reason"]).toBe("malformed");
   });
@@ -234,7 +234,7 @@ describe("the three kinds, written as a new memory with updates + how", () => {
     aged(store);
     const guarded = put(store, "The owner's birthday is in March.");
     store.updatePhysics(guarded, { protected: true });
-    const r = payload(await s.call("note", { text: "The owner's birthday is in April.", updates: guarded, how: "corrected" }));
+    const r = payload(await s.call("remember", { text: "The owner's birthday is in April.", updates: guarded, how: "corrected" }));
     const settled = r["settled"] as Record<string, unknown>;
     expect(settled["applied"]).toBe(false);
     expect(String(settled["detail"])).toContain("protected");
@@ -269,7 +269,7 @@ describe("settling a pair that already exists", () => {
     const bodyA = store.row(a)?.body;
     const bodyB = store.row(b)?.body;
     const r = payload(
-      await s.call("note", { settle: { pair: pairId, holds: b, how: "corrected", why: "The patch notes say 16." } }),
+      await s.call("remember", { settle: { pair: pairId, holds: b, how: "corrected", why: "The patch notes say 16." } }),
     );
     expect(r["reason"]).toBe("settle-only");
     const out = r["settle"] as Record<string, unknown>;
@@ -282,7 +282,7 @@ describe("settling a pair that already exists", () => {
     expect(trail[0]?.why).toBe("The patch notes say 16.");
     expect(trail[0]?.actor_id).toBe(SESSION);
     // Settled once; a second settle is refused and says how to undo.
-    const again = payload(await s.call("note", { settle: { pair: pairId, holds: b, how: "changed" } }));
+    const again = payload(await s.call("remember", { settle: { pair: pairId, holds: b, how: "changed" } }));
     expect((again["settle"] as Record<string, unknown>)["reason"]).toBe("already-settled");
   });
 
@@ -411,7 +411,7 @@ describe("undo", () => {
     const f = flag(store, { x: a, y: b, source: "dream" });
     const flagId = f.ok ? f.pair : "";
     const r = payload(
-      await s.call("note", { text: "The launch date moved from October 3 to October 10.", updates: a, how: "changed" }),
+      await s.call("remember", { text: "The launch date moved from October 3 to October 10.", updates: a, how: "changed" }),
     );
     const settled = r["settled"] as Record<string, unknown>;
     expect(settled["closedFlags"]).toEqual([flagId]);
@@ -468,7 +468,7 @@ describe("noticing at write time", () => {
     const x = put(store, "The Pine building office has a rooftop garden and a small library.");
     const y = put(store, "The Pine building office rooftop garden is closed in winter.");
     put(store, "Bought hiking boots that finally fit properly.");
-    const r = await s.call("note", { text: "The Pine building office rooftop garden now opens in winter too.", updates: y });
+    const r = await s.call("remember", { text: "The Pine building office rooftop garden now opens in winter too.", updates: y });
     const body = payload(r);
     const neighbours = body["neighbours"] as Record<string, unknown>[];
     expect(Array.isArray(neighbours)).toBe(true);

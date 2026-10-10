@@ -224,14 +224,14 @@ describe("the three fields on note and session_end", () => {
   test("note stores them, says what it stored, and a revision carries them over unless sent", async () => {
     const s = server();
     const first = payload(
-      await s.call("note", { text: "Mike said the gym moved from seven to six in the morning.", occurredOn: "2026-09-28", saidBy: "owner", status: "done" }),
+      await s.call("remember", { text: "Mike said the gym moved from seven to six in the morning.", occurredOn: "2026-09-28", saidBy: "owner", status: "done" }),
     );
     expect(first["stored"]).toBe(true);
     expect(first["facts"]).toEqual({ stored: true, occurredOn: "2026-09-28", saidBy: "owner", status: "done" });
     const id = first["id"] as string;
     expect(s.counterpart.store.row(id)?.said_by).toBe("owner");
 
-    const second = payload(await s.call("note", { text: "The gym is at six now, and on Saturdays at eight.", updates: id, status: "planned" }));
+    const second = payload(await s.call("remember", { text: "The gym is at six now, and on Saturdays at eight.", updates: id, status: "planned" }));
     expect(second["stored"]).toBe(true);
     const next = second["id"] as string;
     const row = s.counterpart.store.row(next);
@@ -241,7 +241,7 @@ describe("the three fields on note and session_end", () => {
     expect(s.counterpart.store.row(id)?.occurred_on).toBe("2026-09-28");
 
     // Null is "none": nothing is carried for it.
-    const third = payload(await s.call("note", { text: "The gym time is not settled after all, ask again.", updates: next, occurredOn: null }));
+    const third = payload(await s.call("remember", { text: "The gym time is not settled after all, ask again.", updates: next, occurredOn: null }));
     expect(s.counterpart.store.row(third["id"] as string)?.occurred_on).toBeNull();
     expect(s.counterpart.store.row(third["id"] as string)?.said_by).toBe("owner");
   });
@@ -249,7 +249,7 @@ describe("the three fields on note and session_end", () => {
   test("an unreadable date or an unknown word is dropped and said; the memory is stored all the same", async () => {
     const s = server();
     const out = payload(
-      await s.call("note", { text: "We shipped the dashboard fix to everyone this morning.", occurredOn: "last week", saidBy: "the owner", status: "done" }),
+      await s.call("remember", { text: "We shipped the dashboard fix to everyone this morning.", occurredOn: "last week", saidBy: "the owner", status: "done" }),
     );
     expect(out["stored"]).toBe(true);
     const facts = out["facts"] as Record<string, unknown>;
@@ -264,14 +264,14 @@ describe("the three fields on note and session_end", () => {
 
   test("a date in the future is kept, with a note that a reminder date is eventDate", async () => {
     const s = server();
-    const out = payload(await s.call("note", { text: "The offsite with the whole team is set for the spring.", occurredOn: "2027-04" }));
+    const out = payload(await s.call("remember", { text: "The offsite with the whole team is set for the spring.", occurredOn: "2027-04" }));
     expect((out["facts"] as Record<string, unknown>)["occurredOn"]).toBe("2027-04");
     expect(String((out["facts"] as Record<string, unknown>)["note"])).toContain("eventDate");
   });
 
   test("a note that sends none of them says nothing about them", async () => {
     const s = server();
-    const out = payload(await s.call("note", { text: "Prefers short pull requests with one idea each." }));
+    const out = payload(await s.call("remember", { text: "Prefers short pull requests with one idea each." }));
     expect(out["stored"]).toBe(true);
     expect(out["facts"]).toBeUndefined();
   });
@@ -296,7 +296,7 @@ describe("the three fields on note and session_end", () => {
   });
 
   test("the tool schemas publish the three fields, and the eventDate text points at occurredOn", () => {
-    const note = JSON.stringify(TOOLS.find((t) => t.name === "note")?.inputSchema);
+    const note = JSON.stringify(TOOLS.find((t) => t.name === "remember")?.inputSchema);
     const end = JSON.stringify(TOOLS.find((t) => t.name === "session_end")?.inputSchema);
     for (const text of [note, end]) {
       expect(text).toContain('"occurredOn"');
@@ -385,7 +385,7 @@ describe("subject links", () => {
     const s = server();
     const c = s.counterpart;
     const mira = card(c, "Mira");
-    const out = payload(await s.call("note", { text: "Mira wants the bench numbers checked twice before anything is published." }));
+    const out = payload(await s.call("remember", { text: "Mira wants the bench numbers checked twice before anything is published." }));
     const id = out["id"] as string;
     expect(c.store.subjectsOf(id)).toEqual([mira]);
     c.store.appendRemovalRecord({ memoryId: id, stage: "requested", actor: "owner", reason: "test" });
@@ -605,8 +605,8 @@ describe("chapter addresses", () => {
 describe("doctor's Write fields line", () => {
   test("informational: the share of each field among the memories the write doors wrote, and the links", async () => {
     const s = server();
-    await s.call("note", { text: "Mike said the bench numbers stay private for now.", saidBy: "owner", status: "done", occurredOn: "2026-10-02" });
-    await s.call("note", { text: "I think the s500 losses are mostly breadth, not ranking.", saidBy: "inferred" });
+    await s.call("remember", { text: "Mike said the bench numbers stay private for now.", saidBy: "owner", status: "done", occurredOn: "2026-10-02" });
+    await s.call("remember", { text: "I think the s500 losses are mostly breadth, not ranking.", saidBy: "inferred" });
     // A memory no write door wrote is not counted (a bare put is unrecorded).
     s.counterpart.store.put({ type: "memory", kind: "fact", body: "Written by no door that takes the fields." });
     const [f] = writeFieldFindings(s.counterpart.store);

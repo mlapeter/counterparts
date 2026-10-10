@@ -100,6 +100,24 @@ export const TUNABLES = {
    *  feeling or mine. CAL. */
   CORE_FAST_FEELING: 0.6,
   /**
+   * CAL. "STRONGLY FELT", RELATIVE TO THE WORD (2026-10-10, Group 1c; review
+   * 08 C3). Wheel v2 (09-30) gave every word a default strength, and every
+   * core's default is at or under 0.55, so a feeling written without a number
+   * could not reach `CORE_FAST_FEELING` and the fast lane shut on day 10 (1 of
+   * 44 feelings after it was at 0.6). A feeling now counts as strongly felt
+   * when it is at least this much above its own word's default — the writer
+   * meant more than ordinary — or at `CORE_FAST_FEELING` absolute. The default
+   * is the one the store writes (`store/feelings.ts#defaultStrength`, capped at
+   * 0.55), so a feeling nobody weighed still never opens the lane. Read off the
+   * feelings themselves in consolidation (`sleep/consolidate.ts#stronglyFelt`,
+   * `CoreContext.stronglyFelt`); a bare `emotional` score has no word and is
+   * read at `CORE_FAST_FEELING` alone. Decided by g1c-builder, 2026-10-10,
+   * lightly held; revisit after ~5 lived days. Why: 08 C3's own reading
+   * ("`strength − feelingNumbers(word) ≥ 0.1`"), so a defaulted word does not
+   * pass and a writer who raised it does.
+   */
+  CORE_FAST_ABOVE_DEFAULT: 0.1,
+  /**
    * Does the fast lane's feeling read feelings a REFLECTION recorded later
    * (v9, `feelings.source = 'reflection'`; since 2026-10-02 an awake one too,
    * `'awake'`)? Default OPEN — the owner's call of
@@ -171,6 +189,29 @@ export const TUNABLES = {
    * explicit claim, however low, is never overridden. WORKING DEFAULT.
    */
   AUTHORED_DEFAULT_CLAIM: 0.25,
+  /**
+   * CAL. THE DEFAULT BY WHAT A MEMORY IS ABOUT (2026-10-10, Group 1c; review
+   * 01 C2). One constant gave every unclaimed memory 0.25 whatever it was, and
+   * the claims the writers DID make ran backwards — work events 0.54 against
+   * readings 0.41 on the 10-10 snapshot. Keyed on fields the writer already
+   * fills (`about`, `status`, `said_by`, `kind`), `defaultClaimFor`:
+   *
+   *   - a done work event (`about=work`, `status=done`): `DEFAULT_CLAIM_WORK_EVENT`;
+   *   - other work, and an unmarked memory: `AUTHORED_DEFAULT_CLAIM` (unchanged);
+   *   - the world (readings, news): `DEFAULT_CLAIM_WORLD`;
+   *   - the owner, us or me — or said by the owner, or kind self/person:
+   *     `DEFAULT_CLAIM_PERSONAL`.
+   *
+   * Every default stays below `THETA_SEM`. It sets HEIGHT and (through the
+   * curve) stability, never the band: a strong feeling on top cannot carry it
+   * across the semantic floor either (`salArm`'s `FELT_HEIGHT_CAP`), so a
+   * silent memory reaches the semantic band only by being used. Decided by
+   * g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why:
+   * 01 D2's table as written; f8: "that sets stability, not the band".
+   */
+  DEFAULT_CLAIM_WORK_EVENT: 0.1,
+  DEFAULT_CLAIM_WORLD: 0.35,
+  DEFAULT_CLAIM_PERSONAL: 0.4,
 
   // --- §5.4 decay ---
   /** Stability base, lived days. Reproduces v0's -0.015/day over ~a month. */
@@ -199,12 +240,29 @@ export const TUNABLES = {
    * the claimed floor. 0.15 is chosen so the lift is felt but cannot on its
    * own carry a silent note across a band: `AUTHORED_DEFAULT_CLAIM + EMO_LIFT
    * = 0.40 < THETA_SEM` (a strong feeling alone does not make a silent note
-   * semantic at birth; use still has to). The lift is height only: identity
+   * semantic at birth; use still has to) — since 2026-10-10 that is held by
+   * `FELT_HEIGHT_CAP`, not by this sum, because the default by what a memory
+   * is about reaches 0.40. The lift is height only: identity
    * reads the FEELING itself, in the core fast lane (§5.3, 2026-09-26), and
    * only for memories about me or about us. NOTES.md "Emotion, part A" has
    * the simulation. CAL.
    */
   EMO_LIFT: 0.15,
+  /**
+   * CAL. THE HIGHEST A FEELING ALONE CAN LIFT A MEMORY (2026-10-10, Group 1c):
+   * just under `THETA_SEM`. The lift used to be safe by arithmetic — the only
+   * silent default was 0.25, and 0.25 + EMO_LIFT = 0.40 — but the default by
+   * what a memory is about reaches 0.40 for the owner, us and me, and 0.40 +
+   * 0.15 x 0.9 = 0.535 would start a silent, strongly felt memory semantic.
+   * Feeling sets stability, not the band (b2 and f8's decision #7): a memory
+   * whose own salience is below the floor is lifted at most to here, and one
+   * already at or above it keeps the whole lift. Decided by g1c-builder,
+   * 2026-10-10, lightly held; revisit after ~5 lived days. Why: a cap on the
+   * lift rather than on the default keeps the default's height and needs no
+   * new column or meta read; it also covers a feeling recorded later (a
+   * reflection's, an awake one), which a cap at the mint could not.
+   */
+  FELT_HEIGHT_CAP: 0.49,
   /**
    * How much the same intensity slows decay: stability x (1 + EMO_SLOPE x I).
    * At I = 0.9 that is x1.45 — a fact with S = 60 lived days gets S = 87. It
@@ -441,6 +499,53 @@ export interface SalienceDefaultEvent {
   readonly applied: number;
 }
 
+/** Which row of the default table an unclaimed memory took (`defaultClaimFor`). */
+export type DefaultClaimClass = "work-event" | "work" | "unmarked" | "world" | "personal";
+
+/** What `defaultClaimFor` reads: fields the writer fills, never the text. */
+export interface DefaultClaimInput {
+  readonly about?: string | null;
+  readonly status?: string | null;
+  readonly saidBy?: string | null;
+  readonly kind?: string | null;
+}
+
+/**
+ * THE DEFAULT FLOOR FOR AN UNCLAIMED AUTHORED MEMORY, BY WHAT IT IS ABOUT
+ * (2026-10-10, Group 1c; review 01 C2; `TUNABLES.DEFAULT_CLAIM_*`). Pure.
+ *
+ * Order: personal first — the owner, us or me, or said by the owner, or kind
+ * self/person — so the owner's ruling about work is not a work event (f8:
+ * "Mike's rulings, preferences and corrections stay high even about work");
+ * then the world; then a done work event; then other work. An unmarked memory
+ * keeps the old 0.25: the `about` field says an unmarked fact written in a
+ * project counts as that project's work, but `status: done` alone is not
+ * enough to call an unmarked memory a routine work event. Decided by
+ * g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why:
+ * 01's table is keyed on `about=work` for the low row, and 201 legacy rows
+ * carry no mark at all.
+ */
+export function defaultClaimFor(input: DefaultClaimInput): { readonly claim: number; readonly class: DefaultClaimClass } {
+  const about = input.about ?? null;
+  if (
+    about === "owner" ||
+    about === "us" ||
+    about === "me" ||
+    input.saidBy === "owner" ||
+    input.kind === "self" ||
+    input.kind === "person"
+  ) {
+    return { claim: TUNABLES.DEFAULT_CLAIM_PERSONAL, class: "personal" };
+  }
+  if (about === "world") return { claim: TUNABLES.DEFAULT_CLAIM_WORLD, class: "world" };
+  if (about === "work") {
+    return input.status === "done"
+      ? { claim: TUNABLES.DEFAULT_CLAIM_WORK_EVENT, class: "work-event" }
+      : { claim: TUNABLES.AUTHORED_DEFAULT_CLAIM, class: "work" };
+  }
+  return { claim: TUNABLES.AUTHORED_DEFAULT_CLAIM, class: "unmarked" };
+}
+
 export interface SeamClamp {
   /** The salience to store: dimensions untouched, claim recorded as the floor. */
   salience: Salience;
@@ -577,7 +682,11 @@ export function emotionalIntensity(m: { salience: Salience; feelingPeak?: number
  * identity" (§3) is untouched.
  */
 export function salArm(m: Pick<MemoryPhysics, "salience" | "feelingPeak">): number {
-  return clamp01(sal(m.salience) + TUNABLES.EMO_LIFT * emotionalIntensity(m));
+  const own = sal(m.salience);
+  const lifted = clamp01(own + TUNABLES.EMO_LIFT * emotionalIntensity(m));
+  // Feeling sets stability, not the band (2026-10-10, `FELT_HEIGHT_CAP`): below
+  // the semantic floor, the lift stops just under it.
+  return own >= TUNABLES.THETA_SEM ? lifted : Math.min(lifted, Math.max(own, TUNABLES.FELT_HEIGHT_CAP));
 }
 
 /**
@@ -835,6 +944,16 @@ export interface CoreContext {
    * about me; the slow lane still needs the mark. Absent: false.
    */
   readonly selfRelevantFeeling?: boolean;
+  /**
+   * 2026-10-10 (Group 1c, review 08 C3): a feeling on the memory is STRONGLY
+   * FELT by its own word's measure — at least `CORE_FAST_ABOVE_DEFAULT` above
+   * the word's default, or at `CORE_FAST_FEELING` — read by the caller, which
+   * can see the words (`sleep/consolidate.ts#stronglyFelt`), from the same
+   * feelings the intensity reads (the lived ones only when the door to later
+   * feelings is closed). Either this or the intensity opens the fast lane's
+   * feeling half. Absent: false — the intensity alone decides, as before.
+   */
+  readonly stronglyFelt?: boolean;
 }
 
 /**
@@ -868,7 +987,10 @@ export function promotionEligibility(m: MemoryPhysics, ctx: CoreContext): Promot
   // return must be an ordinary use, not a reflection's citation.
   const fastLast = !accepts && ctx.organicReturnDay !== undefined ? ctx.organicReturnDay : last;
   const fastGap = fastLast === null ? null : fastLast - m.birthDay;
-  const fastMet = intensity >= TUNABLES.CORE_FAST_FEELING && fastGap !== null && fastGap >= TUNABLES.CORE_FAST_GAP_DAYS;
+  // Strongly felt (2026-10-10): the intensity at the absolute bar, or a
+  // feeling above its own word's default (`CoreContext.stronglyFelt`).
+  const felt = intensity >= TUNABLES.CORE_FAST_FEELING || ctx.stronglyFelt === true;
+  const fastMet = felt && fastGap !== null && fastGap >= TUNABLES.CORE_FAST_GAP_DAYS;
   const now = ctx.day === undefined ? null : strength(m, ctx.day);
   const slowMet =
     days >= TUNABLES.CORE_SLOW_DAYS &&

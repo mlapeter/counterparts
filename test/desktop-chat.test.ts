@@ -350,7 +350,7 @@ describe("binding, per call", () => {
     const refused = payload(await s.call("chapter", { text: "Nothing to bind to." }));
     expect(refused["reason"]).toBe("session-required");
     expect(String(refused["detail"])).toContain("wake");
-    const noted = payload(await s.call("note", { text: "The library closes early on Sundays now, at four." }));
+    const noted = payload(await s.call("remember", { text: "The library closes early on Sundays now, at four." }));
     expect(noted["stored"]).toBe(true);
     expect(noted["boundTo"]).toBeUndefined();
   });
@@ -405,7 +405,7 @@ describe("binding, per call", () => {
     const named = [
       payload(await s.call("status", { session: a })),
       payload(await s.call("scope", { session: a })),
-      payload(await s.call("note", { session: a, text: "Chat A's own note about the relief valve and the pump." })),
+      payload(await s.call("remember", { session: a, text: "Chat A's own note about the relief valve and the pump." })),
     ];
     expect(named.map((o) => o["boundTo"])).toEqual([undefined, undefined, undefined]);
     expect(named[0]?.["writeUpAsk"]).toBeUndefined();
@@ -490,7 +490,7 @@ describe("binding, per call", () => {
       expect(props(t)["session"]).toBeDefined();
       expect(((t["inputSchema"] as { required?: string[] }).required ?? []).includes("session")).toBe(false);
     }
-    for (const name of ["note", "recall", "status", "scope"]) {
+    for (const name of ["remember", "recall", "status", "scope"]) {
       expect(props(toolDefinitions(false).find((t) => t["name"] === name) as Record<string, unknown>)["session"]).toBeUndefined();
     }
   });
@@ -560,7 +560,7 @@ describe("the wake's parts", () => {
   test("a server left open across an install says so on every result, not only the wake (2026-10-02)", async () => {
     // Desktop: the package on disk moved on.
     const s = desktopServer({ manifestVersion: () => "99.0.0" });
-    const noted = payload(await s.call("note", { content: "A fact noted while the server was stale, about the build." }));
+    const noted = payload(await s.call("remember", { content: "A fact noted while the server was stale, about the build." }));
     expect(String(noted["updated"])).toContain(`Counterparts was updated. ${wordingFor(DESKTOP_HOST).reconnect}`);
     expect(String(noted["updated"])).toContain("a field added to a tool since");
     expect(String(payload(await s.call("status", {}))["updated"])).toContain("Counterparts was updated.");
@@ -664,12 +664,12 @@ describe("the place: `claude-desktop:` is a name, not a directory", () => {
     mkdirSync(dirname(scopesFile), { recursive: true });
     const s = desktopServer({ scopesFile });
     await s.call("scope", { mode: "off" });
-    const refused = payload(await s.call("note", { text: "Should not land." }));
+    const refused = payload(await s.call("remember", { text: "Should not land." }));
     expect(refused["detail"]).toBe(wordingFor(DESKTOP_HOST).offRefusal);
     expect(String(refused["detail"])).toContain("counterparts scope claude-desktop: --on");
     expect(String(refused["detail"])).not.toContain("scope . ");
     await s.call("scope", { mode: "pause" });
-    expect(String(payload(await s.call("note", { text: "Nor this." }))["detail"])).toContain("claude-desktop: --resume");
+    expect(String(payload(await s.call("remember", { text: "Nor this." }))["detail"])).toContain("claude-desktop: --resume");
     // Claude Code's refusal is what it was.
     expect(wordingFor("claude-code").offRefusal).toBe(
       "Counterparts is off for this directory. Nothing is recorded or read here — call `scope` with mode `on`, or run `counterparts scope . --on`.",
@@ -684,11 +684,11 @@ describe("the place: `claude-desktop:` is a name, not a directory", () => {
     expect(payload(await s.call("scope", { mode: "observer" }))["set"]).toBe(true);
     expect(s.observer).toBe(true);
     expect(s.owner).toBe(false);
-    expect(payload(await s.call("note", { session, text: "An observer writes nothing." }))["stoodDown"]).toBe(true);
+    expect(payload(await s.call("remember", { session, text: "An observer writes nothing." }))["stoodDown"]).toBe(true);
     expect(payload(await s.call("wake", {}))["stoodDown"]).toBe(true);
     expect(payload(await s.call("scope", { mode: "on" }))["set"]).toBe(true);
     expect(s.observer).toBe(false);
-    expect(payload(await s.call("note", { session, text: "Back on: this note lands in Desktop's place." }))["stored"]).toBe(true);
+    expect(payload(await s.call("remember", { session, text: "Back on: this note lands in Desktop's place." }))["stored"]).toBe(true);
   });
 
   test("Desktop never inherits the launch directory's observer; any other client still gets it", async () => {
@@ -707,7 +707,7 @@ describe("the place: `claude-desktop:` is a name, not a directory", () => {
     const other = server({ scope: cwd, scopesFile, launchObserver: true, env: {} });
     await pump(other, [rpc(1, "initialize", { clientInfo: { name: "cursor" } })]);
     expect(other.observer).toBe(true);
-    expect(payload(await other.call("note", { text: "An observer directory writes nothing." }))["stoodDown"]).toBe(true);
+    expect(payload(await other.call("remember", { text: "An observer directory writes nothing." }))["stoodDown"]).toBe(true);
   });
 
   test("a root `off` does not reach it — it has no parent directory", () => {

@@ -86,7 +86,7 @@ describe("B1: the changed cut is a strength multiplier", () => {
     const d = store.livedDay();
     const s0 = strength(store.physicsOf(old), d);
     await s.call("recall", { ids: [old] });
-    await s.call("note", { text: "I used to build everything in React; now Vue is my default.", updates: old, how: "changed" });
+    await s.call("remember", { text: "I used to build everything in React; now Vue is my default.", updates: old, how: "changed" });
     s.counterpart.creditReferences("sessA", { assistantTurns: ["ok, Vue now."], expansions: [old] });
     const p2 = store.physicsOf(old);
     expect(p2.fade).toBe(0.5);
@@ -231,7 +231,7 @@ describe("S5: undoing a settle nobody flagged withdraws the pair", () => {
     const store = s.counterpart.store;
     days(store, 4);
     const old = put(store, "My editor is VS Code.");
-    const r = payload(await s.call("note", { text: "I switched my editor to Zed.", updates: old, how: "changed" }));
+    const r = payload(await s.call("remember", { text: "I switched my editor to Zed.", updates: old, how: "changed" }));
     const pairId = String((r["settled"] as Record<string, unknown>)["pair"]);
     const u = undo(store, { pair: pairId, actor: "owner", why: "not a change, just more detail" });
     expect(u.ok && u.state).toBe("withdrawn");
@@ -330,8 +330,8 @@ describe("the minors", () => {
     const a = put(store, "Retro is on Fridays.");
     const b = put(store, "Retro is on Thursdays.");
     const text = "Retro moved from Fridays to Thursdays this sprint.";
-    await s.call("note", { text });
-    const dup = await s.call("note", { text, settle: { holds: b, over: a, how: "changed", why: "moved" } });
+    await s.call("remember", { text });
+    const dup = await s.call("remember", { text, settle: { holds: b, over: a, how: "changed", why: "moved" } });
     expect(payload(dup)["stored"]).toBe(false);
     expect((payload(dup)["settle"] as Record<string, unknown>)["ok"]).toBe(true);
     expect(dup.isError ?? false).toBe(false);
@@ -382,7 +382,7 @@ describe("the minors", () => {
     const core = put(store, "Mike works at Google.", { relevance: 0.9, emotional: 0.5, predictive: 0.9 }, { kind: "person" });
     store.updatePhysics(core, { promotedIdentity: true });
     store.setBand(core, "identity", store.livedDay());
-    const r = payload(await s.call("note", { text: "Mike works at Meta; I had Google wrong.", updates: core, how: "corrected" }));
+    const r = payload(await s.call("remember", { text: "Mike works at Meta; I had Google wrong.", updates: core, how: "corrected" }));
     const settled = r["settled"] as Record<string, unknown>;
     expect(settled["applied"]).toBe(false);
     expect(String(settled["detail"])).toContain("recorded unsettled");

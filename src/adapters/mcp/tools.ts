@@ -73,7 +73,7 @@ const TITLE_TEXT =
   "Optional, and asked for: one line saying what this memory is — the line an index shows when it lists memories without their words, so it is worth choosing. Also a handle: recall can expand a memory by its exact title.";
 
 export type ToolName =
-  | "note"
+  | "remember"
   | "recall"
   | "status"
   | "session_end"
@@ -117,7 +117,7 @@ export type ToolName =
  * that locks from the outside.
  */
 export const TOOL_NAMES: readonly ToolName[] = [
-  "note",
+  "remember",
   "recall",
   "status",
   "session_end",
@@ -154,7 +154,7 @@ export interface ToolSpec {
 }
 
 /**
- * `feelings` on a `note` or a `session_end` entry (schema v7, 2026-09-25): one
+ * `feelings` on a `remember` or a `session_end` entry (schema v7, 2026-09-25): one
  * object per feeling, spelled on the feelings wheel (`core/feelings-wheel.ts`).
  * Since emotion part A (2026-09-26) they weigh: the strongest one, or
  * `emotional` if that is stronger, raises the memory and slows its fading
@@ -163,7 +163,7 @@ export interface ToolSpec {
  * whatever the word, and `strength` and `valence` default from the word.
  */
 /**
- * `about` on a `note` or a `session_end` entry (schema v9, 2026-09-27): what
+ * `about` on a `remember` or a `session_end` entry (schema v9, 2026-09-27): what
  * the memory is about, by meaning — a neutral, descriptive mark, not a topic.
  * Only `me`, `us` and `owner` can become core; a work lesson is `work`.
  */
@@ -175,7 +175,7 @@ const ABOUT_PROPERTY = {
 };
 
 /**
- * `unresolved` on a `note` or a `session_end` entry (2026-10-01, lane 8): the
+ * `unresolved` on a `remember` or a `session_end` entry (2026-10-01, lane 8): the
  * wake's "Still open:" lane reads this flag, and until now no write tool could
  * set it, so the lane never fired. Closed by a later write that `updates` the
  * memory and says `unresolved: false` (`counterpart.ts#closeThread`), or by
@@ -189,8 +189,8 @@ const UNRESOLVED_PROPERTY = {
 
 /**
  * WHAT GOES IN `emotion` AND WHAT IN `carried_by` — said the same way at every
- * door a model writes a feeling through (note, session_end, a dream's
- * feeling-now, a reflection's feelings; note's feelingsNow since 2026-10-02),
+ * door a model writes a feeling through (remember, session_end, a dream's
+ * feeling-now, a reflection's feelings; remember's feelingsNow since 2026-10-02),
  * 2026-09-28: a dream put a phrase in `emotion` because nothing it read said
  * the word goes there and the nuance in `carried_by`. A phrase that still arrives there is split, not refused.
  */
@@ -243,11 +243,11 @@ const FEELINGS_PROPERTY = {
 } as const;
 
 /**
- * `feelingsNow` on a `note` (2026-10-02, lane B, owner pick 2): RE-FEELING
+ * `feelingsNow` on a `remember` (2026-10-02, lane B, owner pick 2): RE-FEELING
  * WHILE AWAKE. When an old memory comes up in a session and feels different
  * now, a later feeling beside the first — the nightly reflection's
- * feeling-now, from an ordinary session. On `note` and not `session_end`: the
- * moment it comes up is mid-session, and `note` already acts on existing
+ * feeling-now, from an ordinary session. On `remember` and not `session_end`: the
+ * moment it comes up is mid-session, and `remember` already acts on existing
  * memories without writing one (`settle`).
  */
 const FEELINGS_NOW_PROPERTY = {
@@ -271,7 +271,7 @@ const FEELINGS_NOW_PROPERTY = {
 } as const;
 
 /**
- * `traits` on a `note` or a `session_end` entry (folded into schema v9,
+ * `traits` on a `remember` or a `session_end` entry (folded into schema v9,
  * 2026-09-27): trait nudges — where this memory shows how I acted, on one of
  * seven fixed axes (`store/traits.ts`, which the enums below must match; a
  * test holds them equal). Display only: nothing in the core reads them.
@@ -311,14 +311,14 @@ const TRAITS_PROPERTY = {
 } as const;
 
 /**
- * `eventDate` and `remind` on a `note` or a `session_end` entry (2026-09-26,
+ * `eventDate` and `remind` on a `remember` or a `session_end` entry (2026-09-26,
  * owner decisions: an explicit date field only, never a date read out of the
  * text; plain or quiet, default quiet, stored in the memory's meta).
  */
 const EVENT_DATE_PROPERTY = {
   type: ["string", "null"],
   description:
-    'Optional: the calendar date this memory is ABOUT, when that is a future date — so it comes back around then (when it already happened, that is occurredOn). Write it yourself, in one of four shapes: a day "2026-10-15", a month "2026-10", a range of two days "2026-10-20..2026-10-31" (that is how to say "late October"), or a year "2026" (a year alone never comes back on its own). Say "before the 15th" as the day or a range ending on it. Leave it out when nothing is dated; a date written only in the text is never read. An unreadable date is refused, and nothing is stored. Revising a dated memory by its id with `updates`: its date, remind and recurring carry over unless you send new ones; send null to drop the date (done, cancelled).',
+    'Optional: the calendar date this memory is ABOUT, when that is a future date — so it comes back around then (when it already happened, that is occurredOn). Decision, kill/renew dates and outside deadlines are eventDates. Write it yourself, in one of four shapes: a day "2026-10-15", a month "2026-10", a range of two days "2026-10-20..2026-10-31" (that is how to say "late October"), or a year "2026" (a year alone never comes back on its own). Say "before the 15th" as the day or a range ending on it. Leave it out when nothing is dated; a date written only in the text is never read. An unreadable date is refused, and nothing is stored. Revising a dated memory by its id with `updates`: its date, remind and recurring carry over unless you send new ones; send null to drop the date (done, cancelled).',
 } as const;
 
 /**
@@ -334,7 +334,7 @@ const RECURRING_PROPERTY = {
 } as const;
 
 /**
- * v12 (2026-10-03): the writer's three fields on a `note` or a `session_end`
+ * v12 (2026-10-03): the writer's three fields on a `remember` or a `session_end`
  * entry — what deliberate recall's facts answer will show for each memory
  * (when it happened, who said it, what kind of thing it is). Filled at write
  * time because the context is here now; recall does not guess them.
@@ -359,7 +359,7 @@ const STATUS_PROPERTY = {
     'Optional: what kind of thing it is — "done" (it happened), "planned" (decided, not done yet), "proposed" (put forward, not decided), "asked" (a question or request still open).',
 } as const;
 
-/** The privilege `note` and `session_end` share for the three fields (v12). */
+/** The privilege `remember` and `session_end` share for the three fields (v12). */
 const WRITE_FACTS_PRIVILEGE: Privilege = {
   claim:
     "`occurredOn`, `saidBy` and `status` are FIELDS you fill, never read out of your text. One that cannot be read is dropped and said beside the memory, which is stored all the same; revising a memory by its id with `updates` carries all three over unless you send your own (occurredOn null: no date carried).",
@@ -376,7 +376,7 @@ const REMIND_PROPERTY = {
 
 /**
  * The date field's own privilege — how to CALL it — kept apart from the two
- * about what a reminder then does, so `note` can lead with it (inside the
+ * about what a reminder then does, so `remember` can lead with it (inside the
  * host's 2,048-character cut, `renderDescription`).
  */
 const EVENT_DATE_FIELD_PRIVILEGE: Privilege = {
@@ -386,7 +386,7 @@ const EVENT_DATE_FIELD_PRIVILEGE: Privilege = {
     "src/adapters/mcp/server.ts#readReminder -> src/core/remember/proposals.ts#intake (EVENT_DATE_UNREADABLE) -> src/core/time.ts#parseCalendarDate",
 };
 
-/** The two privileges `note` and `session_end` share about what a reminder does. */
+/** The two privileges `remember` and `session_end` share about what a reminder does. */
 const REMINDER_PRIVILEGES: readonly Privilege[] = [
   {
     claim:
@@ -403,12 +403,12 @@ const REMINDER_PRIVILEGES: readonly Privilege[] = [
 ];
 
 /**
- * `note`'s privileges. Each one is a sentence v1 would have shipped in a prompt
+ * `remember`'s privileges. Each one is a sentence v1 would have shipped in a prompt
  * and left unenforced; each one names the file that enforces it here.
  */
 /**
  * HOW a new memory settles the one it `updates` (2026-09-29, contradictions).
- * Shared by `note` and each `session_end` entry. Working defaults, held
+ * Shared by `remember` and each `session_end` entry. Working defaults, held
  * lightly: the words say what each kind does and ask for the journey.
  */
 const HOW_PROPERTY = {
@@ -418,7 +418,7 @@ const HOW_PROPERTY = {
     "With `updates`: how this settles the memory it revises. `changed` (the default): both were true at their time — the old one fades once and is shown as earlier. `corrected`: the old one was wrong — it leaves recall, still readable by its id. `open`: a real disagreement — both stay, each shown with the other. For changed or corrected, say the journey in your own words (\"I used to think X, now Y\"). If the memory you name looks unrelated to what you wrote, nothing is settled and you are shown it: settle it yourself if you meant it.",
 } as const;
 
-/** Settling two memories that already exist, on `note` (2026-09-29). */
+/** Settling two memories that already exist, on `remember` (2026-09-29). */
 const SETTLE_PROPERTY = {
   type: "object",
   description:
@@ -434,7 +434,7 @@ const SETTLE_PROPERTY = {
   additionalProperties: false,
 } as const;
 
-/** The privileges `note` and `session_end` share about settling. */
+/** The privileges `remember` and `session_end` share about settling. */
 const SETTLE_PRIVILEGES: readonly Privilege[] = [
   {
     claim:
@@ -453,15 +453,48 @@ const SETTLE_PRIVILEGES: readonly Privilege[] = [
   },
 ];
 
-const NOTE: ToolSpec = {
-  name: "note",
+/**
+ * THE SALIENCE SCALE, ANCHORED, AND FRAMED BY ATTENTION (2026-10-10, Group 1c;
+ * 01 C1's scale with f8's framing). Shared by `remember` and each `session_end`
+ * entry. Measured on the 10-10 snapshot: work events claimed 0.52 on average
+ * and readings 0.34, because the old text said a claim was "the only way what
+ * you lived outranks what a sweep noticed" — at the ask, about work. The
+ * anchors run the other way: a routine merge low, a line that struck you high,
+ * and the owner's rulings, preferences and corrections high even about work.
+ * Decided by g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived
+ * days. Why: f8 asked for attention, not category, and these are 01's anchors
+ * with f8's three lines (struck or engaged ≥ 0.4, skimmed not, routine
+ * 0.1–0.2) folded in; "they", not a name (01 D5).
+ */
+const SALIENCE_TEXT =
+  "Optional, 0-1: how much this caught your attention, as you felt it — not what category it is. About 0.1–0.2 a routine work event or status change (merged, cut, deployed); 0.3 an ordinary fact or step, or a reading you only skimmed; 0.4 or more a line that struck you or a reading you engaged with; 0.5 a lesson or decision that changes how you'll work; 0.7 something they told you about their life, a line or moment that moved you; 0.9 rare. Their rulings, preferences and corrections stay high even about work. A floor: unset, a default by what it is about applies.";
+
+/** `relevance`, redefined (01 C3, 2026-10-10): it used to read "how much this
+ *  bears on what is being worked on" — a work bias in one of the averaged
+ *  dimensions (measured: work 0.54, readings 0.34). Rows already stored keep
+ *  their values. */
+const RELEVANCE_TEXT = "Optional 0-1: how much this bears on them, on you, or on the two of you — not only on the task at hand.";
+
+/**
+ * `remember` — WAS `note` UNTIL 2026-10-10 (Group 1c, encoding). The old name
+ * still answers (`TOOL_ALIASES`), so a session whose host cached the old tool
+ * list does not break. The words are 01 C1's (the mechanisms review,
+ * 2026-10-10), taken as written: the old summary told the model memory was
+ * "ambient" and that a sweep would notice what it did not write, which has been
+ * false since the keyless sweep came out on 2026-09-24, and its negatives kept
+ * out exactly the passing things — a line read, news, something said in
+ * passing — that only this door could keep. f8's addition: write in the moment,
+ * as things catch your attention; the end-of-session ask is the backstop.
+ */
+const REMEMBER: ToolSpec = {
+  name: "remember",
   summary:
-    "Remember this deliberately. Memory here is ambient — it forms from experience without being asked — so this is the exception, for the thing you would otherwise have to hope the sweep noticed.",
+    "Remember something now, while it is in front of you. Memory forms only from what you write here and at the end-of-session ask — nothing reads the transcript afterwards, so what you don't write is not kept. Write what caught your attention: a line you read and why it struck you, something they said about themselves or you, news you passed on, a decision, a work event. One idea per call; keep the exact words when the words matter.",
   admission:
-    "Call it when something just became true and would be expensive to re-derive later: a correction the user made, a decision reached, a preference stated once and meant.",
+    "Call it whenever something would be worth having back, however small — in the moment, as things catch your attention, rather than saving it for the end; the end-of-session ask is the backstop. Err toward too many: weak memories fade on their own within days unless they are used, so a routine one costs little. Leave salience unset for routine things; set it when something mattered.",
   negativeExamples: [
-    "Do NOT call it to record what you are about to do, or just did, in this session — that is a plan, not a memory.",
-    "Do NOT call it to re-state something you were told earlier in this same conversation; it is already in your context and the ambient path already has it.",
+    "Do NOT fold several things into one call: three quotes from one chapter are three memories (they stay linked as neighbours), a fact and a decision are two.",
+    "Do NOT write what you are about to do as if it were done: a plan is `status: planned`.",
     "Do NOT call it to store a credential, key or token 'for later' — the gate redacts it and the note is refused as empty.",
     "Do NOT use `feelingsNow` for a feeling in this moment about something new — that is `feelings` on the note that remembers it — nor to restate how an old memory felt: only when it feels DIFFERENT now.",
   ],
@@ -470,7 +503,7 @@ const NOTE: ToolSpec = {
   privileges: [
     {
       claim:
-        "`updates` is a FIELD, not prose: name the id of the memory this revises and the engine resolves it, writes the resolved id, and leaves the note unlinked rather than refusing it when the address does not hold.",
+        "`updates` is a FIELD, not prose: name the id of the memory this revises and the engine resolves it, writes the resolved id, and leaves the memory unlinked rather than refusing it when the address does not hold.",
       mechanizedBy:
         "src/core/remember/updates.ts#resolveUpdates -> src/core/mint.ts#mintProposal (UPDATES_META_KEY)",
     },
@@ -482,8 +515,8 @@ const NOTE: ToolSpec = {
     },
     {
       claim:
-        "Claim nothing and this still counts as something: an unclaimed note gets an ordinary default floor, not zero. An explicit claim, however low, is kept as you wrote it.",
-      mechanizedBy: "src/core/mint.ts#mintProposal -> src/core/physics/index.ts#clampSalienceAtSeam",
+        "Claim nothing and this still counts as something: an unclaimed memory gets a default floor by what it is about — lowest for a work event that is done, higher for the world, highest for the owner, the two of you or you — never zero. An explicit claim, however low, is kept as you wrote it.",
+      mechanizedBy: "src/core/mint.ts#mintProposal -> src/core/physics/index.ts#defaultClaimFor + clampSalienceAtSeam",
     },
     {
       claim:
@@ -491,17 +524,17 @@ const NOTE: ToolSpec = {
       mechanizedBy: "src/core/remember/proposals.ts#submitProposal (novelty stripped; dims carried)",
     },
     {
-      claim: "A stub is refused: a note has to say something.",
+      claim: "A stub is refused: a memory has to say something.",
       mechanizedBy: "src/core/encode/floor.ts#contentFloor",
     },
     {
       claim:
-        "It takes the same road as ambient memory: one write chokepoint, the full gate battery, no exceptions for being asked politely.",
+        "It takes the same road as every other write: one chokepoint, the full gate battery.",
       mechanizedBy: "src/core/counterpart.ts#deposit -> bridge.batteryGate()",
     },
     {
       claim:
-        "Credentials are redacted before anything is stored, and a note that was nothing but a credential is refused outright.",
+        "Credentials are redacted before anything is stored, and a memory that was nothing but a credential is refused outright.",
       mechanizedBy: "src/core/encode/secrets.ts + src/core/encode/floor.ts#contentFloor",
     },
     {
@@ -535,7 +568,11 @@ const NOTE: ToolSpec = {
   inputSchema: {
     type: "object",
     properties: {
-      text: { type: "string", description: "What to remember, in your own words. Required unless `settle` is sent." },
+      text: {
+        type: "string",
+        description:
+          "One thing to remember, in your own words — with the exact quote, number or name when the words matter. Required unless `settle` or `feelingsNow` is sent.",
+      },
       updates: {
         type: "string",
         description:
@@ -543,19 +580,8 @@ const NOTE: ToolSpec = {
       },
       how: HOW_PROPERTY,
       settle: SETTLE_PROPERTY,
-      salience: {
-        type: "number",
-        minimum: 0,
-        maximum: 1,
-        description:
-          "Optional floor on how strongly this is held, 0-1. A floor, never a ceiling. Omit it and an ordinary default floor applies; say a number and yours is kept.",
-      },
-      relevance: {
-        type: "number",
-        minimum: 0,
-        maximum: 1,
-        description: "Optional 0-1: how much this bears on what is being worked on.",
-      },
+      salience: { type: "number", minimum: 0, maximum: 1, description: SALIENCE_TEXT },
+      relevance: { type: "number", minimum: 0, maximum: 1, description: RELEVANCE_TEXT },
       emotional: {
         type: "number",
         minimum: 0,
@@ -769,13 +795,13 @@ const STATUS: ToolSpec = {
 const SESSION_END: ToolSpec = {
   name: "session_end",
   summary:
-    "The MEMORIES half of the Stop ask's return channel: hand back what this session taught, as memories, in your own words. This is the primary way memory forms — the sweep is the fallback for when you never got the pen. The other half is `chapter`.",
+    "The memories half of the end-of-session ask: hand back what caught your attention since you last wrote, one idea per entry, in your own words. With `remember`, this is the only road from conversation to memory — nothing sweeps the transcript. The other half is `chapter`.",
   admission:
-    "Call it when the Stop ask arrives, with one entry per thing that will still be true next week, and one that `updates` anything dated or open now done.",
+    "Call it when the ask arrives, with one entry per thing you noticed: what you read (a line and why it struck you), what they said, news, what happened, what was decided, what you learned. Routine work events too, one short line each with the exact number; they start weak and fade unless used. Err toward too many. Add one that `updates` anything dated or open now done.",
   negativeExamples: [
-    "Do NOT call it mid-session because something interesting happened — that is `note`.",
+    "Do NOT fold several things into one entry: a quote, a fact and a decision are three memories.",
     "Do NOT call it for another session's id, or for an id you guessed at: pass the id the end-of-session ask named, and nothing else. The one exception is `writeUp`, and only for the ended session a session-start write-up pointer named.",
-    "Do NOT summarize the conversation; a transcript is not a memory. Write what was LEARNED.",
+    "Do NOT retell the conversation turn by turn; say what each thing was, the way you would want to find it again.",
   ],
   // How to call it first, inside the host's 2,048-character cut
   // (`renderDescription`); the salience claims stay inside it
@@ -798,12 +824,12 @@ const SESSION_END: ToolSpec = {
     },
     {
       claim:
-        "An entry that claims no salience gets an ordinary default floor rather than zero, and each entry may score relevance, emotional and predictive itself.",
-      mechanizedBy: "src/core/mint.ts#mintProposal -> src/core/physics/index.ts#clampSalienceAtSeam",
+        "An entry that claims no salience gets a default floor by what it is about rather than zero, and each entry may score relevance, emotional and predictive itself.",
+      mechanizedBy: "src/core/mint.ts#mintProposal -> src/core/physics/index.ts#defaultClaimFor + clampSalienceAtSeam",
     },
     {
       claim:
-        "An EMPTY `memories` array is a real answer, not an error: nothing worth keeping here. It mints nothing, is recorded against this session as answered, and counts what this session said so far as written up, whatever happens to a `handoff` sent with it — the handoff's own outcome rides beside the answer. Only a call that leaves `memories` out and lands no handoff is refused.",
+        "An EMPTY `memories` array is a real answer, not an error: nothing happened since you last wrote. It mints nothing, is recorded against this session as answered, and counts what this session said so far as written up, whatever happens to a `handoff` sent with it — the handoff's own outcome rides beside the answer. Only a call that leaves `memories` out and lands no handoff is refused.",
       mechanizedBy:
         "src/adapters/mcp/server.ts#sessionEndTool (nothing-new, handoff-only) -> src/adapters/sessions.ts#markNothingNew, src/core/coverage/index.ts#claimUnwritten",
     },
@@ -813,7 +839,7 @@ const SESSION_END: ToolSpec = {
       mechanizedBy: "src/adapters/sessions.ts#readSession + isLive + sameScope",
     },
     {
-      claim: "Each entry takes the same road as ambient memory, gate battery included.",
+      claim: "Each entry takes the same road as every other write, gate battery included.",
       mechanizedBy: "src/core/counterpart.ts#submitSessionEnd -> bridge.batteryGate()",
     },
     {
@@ -897,29 +923,21 @@ const SESSION_END: ToolSpec = {
       memories: {
         type: "array",
         description:
-          "One entry per thing learned — one idea each, in the words you would want to find it by again. Send `[]` when nothing here is worth keeping. An entry that is refused does not fail its siblings.",
+          "One entry per thing — one idea each: a quote is one, a fact is one, a decision is one. `[]` only when nothing happened since you last wrote.",
         items: {
           type: "object",
           properties: {
-            content: { type: "string", description: "What was learned, in your own words." },
+            content: {
+              type: "string",
+              description: "One thing, in your own words — with the exact quote, number or name when the words matter.",
+            },
             kind: {
               type: "string",
               enum: ["self", "person", "entity", "skill", "place", "fact"],
             },
             title: { type: "string", description: TITLE_TEXT },
-            salience: {
-              type: "number",
-              minimum: 0,
-              maximum: 1,
-              description:
-                "Optional floor, 0-1. Omit it and an ordinary default floor applies; say a number and yours is kept. Set it on anything that should last: your claim is the only way what you lived outranks what a sweep noticed.",
-            },
-            relevance: {
-              type: "number",
-              minimum: 0,
-              maximum: 1,
-              description: "Optional 0-1: how much this bears on what was being worked on.",
-            },
+            salience: { type: "number", minimum: 0, maximum: 1, description: SALIENCE_TEXT },
+            relevance: { type: "number", minimum: 0, maximum: 1, description: RELEVANCE_TEXT },
             emotional: {
               type: "number",
               minimum: 0,
@@ -982,7 +1000,7 @@ const CHAPTER: ToolSpec = {
     "Call it when the boundary ask arrives, and again whenever something happens afterwards that the chapter you already wrote does not contain.",
   negativeExamples: [
     "Do NOT call it to report status or summarize the work — an episode is what happened and what it was like, not a changelog.",
-    "Do NOT call it for the things you learned that will still be true next week; those are memories, and they go back through `session_end`.",
+    "Do NOT use it instead of memories: what caught your attention goes through `session_end` or `remember`, one idea each.",
     "Do NOT manufacture depth: a short true chapter beats a deep-sounding one, and not every session changes you.",
   ],
   privileges: [
@@ -1067,7 +1085,7 @@ const SCOPE: ToolSpec = {
   admission:
     "Call it to READ when a session starts in a directory nothing is set for and the wake asks you to; call it to SET the moment the user answers 'remember here', 'just read', 'not here' or 'pause this'.",
   negativeExamples: [
-    "Do NOT call it to remember something — that is `note`, and this tool stores no content of any kind.",
+    "Do NOT call it to remember something — that is `remember`, and this tool stores no content of any kind.",
     "Do NOT call it to set a directory the user has not been asked about; the question is theirs to answer, not yours to guess.",
     "Do NOT call it repeatedly to check state; the setting changes only when somebody changes it.",
   ],
@@ -1519,7 +1537,7 @@ const REFLECT: ToolSpec = {
 };
 
 export const TOOLS: readonly ToolSpec[] = [
-  NOTE,
+  REMEMBER,
   RECALL,
   STATUS,
   SESSION_END,
@@ -1576,7 +1594,7 @@ export const WAKE: ToolSpec = {
 
 /**
  * THE `session` A DESKTOP CHAT CAN ALWAYS NAME (review of #294, finding 1). In
- * Claude Code `note`, `recall`, `status` and `scope` take no session — the
+ * Claude Code `remember`, `recall`, `status` and `scope` take no session — the
  * server binds by the Stop ask's id — and their schemas forbid extra fields.
  * In Desktop every call binds per call, and a call that cannot name its session
  * falls back to the most recent one, which may be ANOTHER chat's. So the
@@ -1603,12 +1621,36 @@ function withDesktopSession(spec: ToolSpec): ToolSpec {
 export const DESKTOP_TOOLS: readonly ToolSpec[] = [...TOOLS.map(withDesktopSession), WAKE];
 
 /**
+ * OLD NAMES THAT STILL ANSWER (2026-10-10, Group 1c). `note` became `remember`;
+ * a host caches the tool list a server gave it at launch, so a session that
+ * was running when the package was upgraded — or a server that restarted under
+ * it — still calls `note`. The alias is resolved before anything else
+ * (`toolSpec`, `McpServer#call`), is never listed in `tools/list` (the model is
+ * offered one door, not two), and is served exactly as the new name.
+ *
+ * Decided by g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived
+ * days. Why: dispatch-only keeps the audit's "the shipped list is exactly
+ * TOOL_NAMES" true and keeps two descriptions of one door out of the model's
+ * context; a cached list only needs the CALL to land. Kept for at least one
+ * release (the brief: "a release or two"); the `mcp.tool.alias` row counts the
+ * calls that still use it, so dropping it is a read, not a guess.
+ */
+export const TOOL_ALIASES: Readonly<Record<string, ToolName>> = { note: "remember" };
+
+/** The registry name a client's name stands for: itself, or what an alias points at. */
+export function canonicalToolName(name: string): string {
+  return Object.prototype.hasOwnProperty.call(TOOL_ALIASES, name) ? (TOOL_ALIASES[name] as string) : name;
+}
+
+/**
  * The spec a CLIENT may call by this name. `desktop` is whether this server is
  * talking to Claude Desktop (`McpServer`'s host); only then is `wake` a tool,
- * so a Claude Code client calling it gets today's unknown-tool answer.
+ * so a Claude Code client calling it gets today's unknown-tool answer. An old
+ * name (`TOOL_ALIASES`) finds its new spec.
  */
 export function toolSpec(name: string, desktop = false): ToolSpec | undefined {
-  return (desktop ? DESKTOP_TOOLS : TOOLS).find((t) => t.name === name);
+  const canonical = canonicalToolName(name);
+  return (desktop ? DESKTOP_TOOLS : TOOLS).find((t) => t.name === canonical);
 }
 
 /**

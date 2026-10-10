@@ -525,9 +525,11 @@ describe("the pace is what the person typed; conversation text from both roles i
 
 describe("the person reads one line, the model reads two (decision 1)", () => {
   test("PINNED: the model's ask, word for word — it may not grow without this test changing", () => {
+    // 01 C1's text, verbatim (2026-10-10, Group 1c): what caught your
+    // attention, one idea each, not what is "worth keeping".
     expect(stopAsk("SID", 3)).toBe(
-      "Counterparts, before this session closes: 1) hand back what's worth keeping with the counterparts session_end tool, session: SID — `handoff` only if work here is unfinished, `retireHandoff` any here, anyone's, now done, and `updates` anything dated or open now done.\n" +
-        "2) Write chapter 3 with the counterparts chapter tool, session: SID. Nothing worth keeping is a real answer: send `memories: []`.",
+      "Counterparts, before this session closes: 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: SID. `handoff` only if work here is unfinished; `retireHandoff` any now done; `updates` anything dated or open now done.\n" +
+        "2) Write chapter 3 with the counterparts chapter tool, session: SID.",
     );
   });
 
@@ -555,14 +557,19 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
     // on the field's own description.
     expect(text).toContain("`handoff` only if work here is unfinished");
     expect(text).toContain("`updates` anything dated or open now done");
-    expect(text).toContain("Nothing worth keeping is a real answer");
+    // The filter sentence is gone (01 D4, 2026-10-10): `[]` stays a legal
+    // answer, said on the `memories` field itself.
+    expect(text).not.toContain("worth keeping");
+    expect(text).toContain("what caught your attention since you last wrote, one idea each");
     expect(text).not.toContain("salience");
     expect(text).not.toContain("eventDate");
     // Less than two fifths of the nine-line text it replaces (~1,250
     // characters with a real id). 450 until 2026-10-01, when the retire
     // clause was added (random-f2's item 1); the close clause the same day
-    // fit inside it, by words taken out elsewhere.
+    // fit inside it, by words taken out elsewhere. 474 since 2026-10-10 (the
+    // attention ask, with a real id; a four-digit chapter is measured below).
     expect(text.length).toBeLessThanOrEqual(480);
+    expect(stopAsk(UUID, 1234).length).toBeLessThanOrEqual(480);
   });
 
   test("the chapter number is the store's, on every chapter including the first", () => {
@@ -590,15 +597,19 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
     // Inside the 2,048 characters the host serves:
     expect(served).toContain("`updates` is a FIELD");
     expect(served).toContain("A salience you claim is a floor");
-    expect(served).toContain("An entry that claims no salience gets an ordinary default floor");
+    expect(served).toContain("An entry that claims no salience gets a default floor by what it is about");
     // On the fields themselves, which the host serves whole:
     const item = ["properties", "memories", "items", "properties"];
     expect(fieldDescription("session_end", ...item, "updates")).toContain("A field — never written into `content`");
+    // The anchored scale, framed by attention (2026-10-10, Group 1c).
     expect(fieldDescription("session_end", ...item, "salience")).toContain(
-      "your claim is the only way what you lived outranks what a sweep noticed",
+      "how much this caught your attention, as you felt it — not what category it is",
+    );
+    expect(fieldDescription("session_end", ...item, "salience")).toContain(
+      "Their rulings, preferences and corrections stay high even about work",
     );
     expect(fieldDescription("session_end", "properties", "memories")).toContain(
-      "Send `[]` when nothing here is worth keeping",
+      "`[]` only when nothing happened since you last wrote",
     );
     expect(fieldDescription("session_end", "properties", "handoff")).toContain("not a memory");
     // The chapter's "short and true" is in its first screen.

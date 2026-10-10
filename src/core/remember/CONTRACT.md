@@ -256,8 +256,8 @@ INTERFACE-GAPS §2a; this module still never gates and never reads them).
     `core/coverage/`'s, read by `planRetention` once per session across every scope: an
     unwritten stretch (pieces with no claim in `coverage.jsonl`) of three pieces over
     fifteen minutes or more, in a session that is not at work (it ended, or it has captured
-    nothing since the date changed), that has not lapsed (two days of use after the day of
-    its latest piece). It replaced the asked / answered predicate and #285's short debt:
+    nothing since the date changed), that has not lapsed (fourteen days of use after the day of
+    its latest piece; two until 2026-10-10, review 01 C4). It replaced the asked / answered predicate and #285's short debt:
     an accepted memory, "nothing new" and a chapter claim; a handoff alone does not. A
     session that owes is kept however old until it is written up or lapses, and one the host's registry still
     holds open is kept for as long as the registry keeps its record; one that owes nothing

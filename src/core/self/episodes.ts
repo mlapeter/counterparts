@@ -360,7 +360,18 @@ export function askDue(
   // The cap is this session's own, per calendar day, and a backstop: the pacing
   // below sets the cadence. A session that did no real work is refused by
   // substance, one gate down.
-  if (asksSpentOn(state, opts.today) >= t.MAX_ASKS_PER_SESSION) return no("session-ask-cap");
+  //
+  // A DUE STRETCH IS NOT CAPPED (2026-10-10, Group 1c; review 01 C5): the cap
+  // refused 84 asks in 4 sessions, 35 of them while the session held pieces
+  // nobody had written, and two 10-09 sessions ended owed. At the cap, the
+  // third arm alone still asks — it needs three unwritten pieces and half an
+  // hour since the later of the first of them and the last ask, so it paces
+  // itself. Decided by g1c-builder, 2026-10-10, lightly held; revisit after ~5
+  // lived days. Why: 01 offered this or a cap of 20; this one asks only when
+  // something is owed, where a higher cap would also let turns and bytes ask.
+  if (asksSpentOn(state, opts.today) >= t.MAX_ASKS_PER_SESSION) {
+    return unwrittenDue() ? yes("due-unwritten") : no("session-ask-cap");
+  }
 
   // Turns OR text, whichever comes first. Turns are what the person typed, so
   // the assistant's own writing reaches an ask only through the (larger) text

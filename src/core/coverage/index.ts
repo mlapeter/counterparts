@@ -22,9 +22,13 @@
  *     fifteen minutes, in a session that is not active, that has not lapsed.
  *     `remember/owes.ts` reads it for retention and the write-up; nothing else
  *     decides it.
- *   - **Lapse**: at the first turn-end of the third day of use after the day the
- *     stretch's latest piece was lived. Nothing is deleted by a lapse; the
- *     session only stops owing, so its text goes on retention's ordinary week.
+ *   - **Lapse** — a LOSS, and said as one (2026-10-10): at the first turn-end
+ *     of `LAPSE_DAYS_OF_USE` (14) days of use after the day the stretch's
+ *     latest piece was lived; until then it stays owed, and the nightly
+ *     write-up takes the oldest first. Nothing is deleted by a lapse; the
+ *     session only stops owing, so its text goes on retention's ordinary week
+ *     — and what it said never becomes memory. (Three days of use until
+ *     2026-10-10, review 01 C4.)
  *   - **Rows** (`recordCoverage`): one durable row per stretch per state —
  *     owed, written up (and by whom), lapsed — written by the turn-end worker.
  *

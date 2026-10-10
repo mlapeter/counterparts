@@ -309,7 +309,7 @@ describe("note and session_end take eventDate + remind", () => {
   test("a note with a date and remind: plain lands on the column and in meta, and says so", async () => {
     const s = server();
     const body = (
-      await s.call("note", {
+      await s.call("remember", {
         text: "Mike has to pay his quarterly estimated taxes before the deadline on the fifteenth.",
         title: "pay your taxes",
         eventDate: "2026-10-15",
@@ -328,7 +328,7 @@ describe("note and session_end take eventDate + remind", () => {
   test("an unreadable date is REFUSED before anything is stored, and the refusal lists the shapes", async () => {
     const s = server();
     const before = s.counterpart.store.list().length;
-    const result = await s.call("note", {
+    const result = await s.call("remember", {
       text: "The launch happens sometime in late October, after the beta closes.",
       eventDate: "late October",
     });
@@ -341,7 +341,7 @@ describe("note and session_end take eventDate + remind", () => {
   test("no date is ever read out of the TEXT", async () => {
     const s = server();
     const body = (
-      await s.call("note", { text: "The dentist appointment is on 2026-10-03 at nine in the morning, downtown." })
+      await s.call("remember", { text: "The dentist appointment is on 2026-10-03 at nine in the morning, downtown." })
     ).structuredContent;
     expect(body["stored"]).toBe(true);
     expect(s.counterpart.store.readProse(body["id"] as string).eventDate).toBeUndefined();
@@ -351,7 +351,7 @@ describe("note and session_end take eventDate + remind", () => {
   test("remind with no date is kept out and said, and the memory still lands", async () => {
     const s = server();
     const body = (
-      await s.call("note", { text: "Always double-check the invoice totals before sending them out.", remind: "plain" })
+      await s.call("remember", { text: "Always double-check the invoice totals before sending them out.", remind: "plain" })
     ).structuredContent;
     expect(body["stored"]).toBe(true);
     expect((body["reminder"] as Record<string, unknown>)["ignored"]).toBe("remind");
@@ -381,7 +381,7 @@ describe("note and session_end take eventDate + remind", () => {
   });
 
   test("the published schemas carry both fields on note and on every session_end entry", () => {
-    const note = (toolSpec("note")?.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties;
+    const note = (toolSpec("remember")?.inputSchema as { properties: Record<string, { enum?: string[] }> }).properties;
     const entry = (
       toolSpec("session_end")?.inputSchema as {
         properties: { memories: { items: { properties: Record<string, { enum?: string[] }> } } };

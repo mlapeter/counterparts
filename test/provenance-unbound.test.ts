@@ -166,7 +166,7 @@ describe("the unbound server's id names no session", () => {
     recordSession(storeDir, { sessionId: A, scope: HERE, phase: "start", at: at(16, 0), model: "claude-opus-5-5" });
     k.talk(A, at(16, 1));
     k.set(at(16, 5));
-    const n = await k.unbound().call("note", { text: "The cold frame lid needs a new hinge before the frost." });
+    const n = await k.unbound().call("remember", { text: "The cold frame lid needs a new hinge before the frost." });
     expect(n.isError).not.toBe(true);
     expect(k.c.store.row(idOf(n))?.origin_session).toBe(UNBOUND_SESSION);
     const here = sessionsHere(k.c.spans, HERE).map((s) => s.session);
@@ -181,7 +181,7 @@ describe("`from` on a note written before the bind", () => {
     recordSession(storeDir, { sessionId: A, scope: HERE, phase: "start", at: at(16, 0), model: "claude-opus-5-5" });
     k.talk(A, at(16, 1));
     k.set(at(16, 5));
-    const n = await k.unbound().call("note", { text: "The cold frame lid needs a new hinge before the frost." });
+    const n = await k.unbound().call("remember", { text: "The cold frame lid needs a new hinge before the frost." });
     const id = idOf(n);
     const want = `${UNIDENTIFIED_SESSION_WORDS}, ${HERE}, 09-30 16:05`;
 
@@ -219,10 +219,10 @@ describe("the last session, asked in facts mode, and a session's notes from befo
     const a = k.unbound();
     k.talk(A, at(16, 1));
     k.set(at(16, 5));
-    const early = idOf(await a.call("note", { text: "The garlic goes in on the full moon, a family habit." }));
+    const early = idOf(await a.call("remember", { text: "The garlic goes in on the full moon, a family habit." }));
     k.talk(A, at(16, 11));
     k.set(at(16, 15));
-    const mid = idOf(await a.call("note", { text: "Sam's sister lent us her broadfork for the autumn beds." }));
+    const mid = idOf(await a.call("remember", { text: "Sam's sister lent us her broadfork for the autumn beds." }));
     k.talk(A, at(16, 21));
     k.talk(A, at(16, 31));
     k.set(at(16, 35));
@@ -230,7 +230,7 @@ describe("the last session, asked in facts mode, and a session's notes from befo
     expect(ch.isError).not.toBe(true);
     const chapter = (ch.structuredContent as Record<string, unknown>)["episodeId"] as string;
     k.set(at(16, 36));
-    const late = idOf(await a.call("note", { text: "The fence needs a second wire before the goats find the kale again." }));
+    const late = idOf(await a.call("remember", { text: "The fence needs a second wire before the goats find the kale again." }));
     k.talk(A, at(16, 41));
     k.c.boundary({ session: A, scope: HERE, kind: "session-end" });
     return { early, mid, late, chapter };
@@ -269,10 +269,10 @@ describe("the last session, asked in facts mode, and a session's notes from befo
       const a = k.unbound();
       k.talk(A, at(16, 1));
       k.set(at(16, 5));
-      const e = idOf(await a.call("note", { text: "The garlic goes in on the full moon, a family habit." }));
+      const e = idOf(await a.call("remember", { text: "The garlic goes in on the full moon, a family habit." }));
       k.talk(C, at(16, 10));
       k.set(at(16, 15));
-      const m = idOf(await a.call("note", { text: "Sam's sister lent us her broadfork for the autumn beds." }));
+      const m = idOf(await a.call("remember", { text: "Sam's sister lent us her broadfork for the autumn beds." }));
       k.talk(C, at(16, 20));
       k.talk(A, at(16, 31));
       k.set(at(16, 35));
@@ -303,7 +303,7 @@ describe("the last session, asked in facts mode, and a session's notes from befo
     mkdirSync(elsewhere, { recursive: true });
     k.set(at(16, 20));
     const away = new McpServer({ counterpart: k.c, scope: elsewhere, owner: true, registryDir: storeDir, now: () => at(16, 20) });
-    const other = idOf(await away.call("note", { text: "The bike chain was waxed on the 28th." }));
+    const other = idOf(await away.call("remember", { text: "The bike chain was waxed on the 28th." }));
     recordSession(storeDir, { sessionId: B, scope: HERE, phase: "start", at: at(17, 0), model: "claude-opus-5-5" });
     k.talk(B, at(17, 1));
     k.set(at(17, 2));
@@ -340,7 +340,7 @@ describe("a note written before the bind is filed under its host's session (2026
     const a = launch(k, 90001);
     k.set(at(16, 2));
     // Before any turn-end: the first turn's note that #307 tried to place by time.
-    const n = idOf(await a.call("note", { text: "The garlic goes in on the full moon, a family habit." }));
+    const n = idOf(await a.call("remember", { text: "The garlic goes in on the full moon, a family habit." }));
     expect(k.c.store.row(n)?.origin_session).toBe(A);
     expect(k.c.store.row(n)?.model).toBe("claude-opus-5-5");
     // Nothing was frozen: a chapter for A still binds as it always did.
@@ -358,7 +358,7 @@ describe("a note written before the bind is filed under its host's session (2026
     opened(B, at(16, 0));
     const b = launch(k, 90002);
     k.set(at(16, 1));
-    const n = idOf(await b.call("note", { text: "Sam's sister lent us her broadfork for the autumn beds." }));
+    const n = idOf(await b.call("remember", { text: "Sam's sister lent us her broadfork for the autumn beds." }));
     expect(k.c.store.row(n)?.origin_session).toBe(B);
     b.forgetLaunch();
   });
@@ -369,11 +369,11 @@ describe("a note written before the bind is filed under its host's session (2026
     for (const s of [A, B]) opened(s, at(16, 0));
     const two = launch(k, 90003);
     k.set(at(16, 1));
-    const n = idOf(await two.call("note", { text: "The cold frame lid needs a new hinge before the frost." }));
+    const n = idOf(await two.call("remember", { text: "The cold frame lid needs a new hinge before the frost." }));
     expect(k.c.store.row(n)?.origin_session).toBe(UNBOUND_SESSION);
     two.forgetLaunch();
     // A server with no launch record knows no host.
-    const m = idOf(await k.unbound(CODE).call("note", { text: "The fence needs a second wire before the goats find the kale." }));
+    const m = idOf(await k.unbound(CODE).call("remember", { text: "The fence needs a second wire before the goats find the kale." }));
     expect(k.c.store.row(m)?.origin_session).toBe(UNBOUND_SESSION);
   });
 
@@ -383,7 +383,7 @@ describe("a note written before the bind is filed under its host's session (2026
     opened(A, at(16, 0));
     const other = launch(k, 90004, {});
     k.set(at(16, 1));
-    const n = idOf(await other.call("note", { text: "The rain barrel overflowed onto the path again last night." }));
+    const n = idOf(await other.call("remember", { text: "The rain barrel overflowed onto the path again last night." }));
     expect(k.c.store.row(n)?.origin_session).toBe(UNBOUND_SESSION);
     other.forgetLaunch();
   });
@@ -396,7 +396,7 @@ describe("a note written before the bind is filed under its host's session (2026
     k.set(at(16, 0));
     const s = launch(k, 90005);
     k.set(at(16, 1));
-    const n = idOf(await s.call("note", { text: "The compost wants turning before the cold comes in." }));
+    const n = idOf(await s.call("remember", { text: "The compost wants turning before the cold comes in." }));
     expect(k.c.store.row(n)?.origin_session).toBe(UNBOUND_SESSION);
     s.forgetLaunch();
   });
@@ -412,7 +412,7 @@ describe("a note written before the bind is filed under its host's session (2026
     stampSessionOpened(storeDir, A, { build: installedBuild(), hookPpid: HOST, at: at(16, 1) });
     recordSession(storeDir, { sessionId: A, scope: HERE, phase: "boundary", at: at(16, 1) });
     k.set(at(16, 2));
-    const n = idOf(await s.call("note", { text: "The seed order goes in before the end of the month." }));
+    const n = idOf(await s.call("remember", { text: "The seed order goes in before the end of the month." }));
     expect(k.c.store.row(n)?.origin_session).toBe(A);
     s.forgetLaunch();
   });

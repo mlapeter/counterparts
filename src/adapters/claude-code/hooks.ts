@@ -413,13 +413,13 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  *     launched from a static config and never learn which session they are
  *     serving, so the id has to travel in the ask — it is what the server binds
  *     itself with (`adapters/sessions.ts`, `mcp/server.ts#requireBoundSession`).
- *     Without it the model reached for `note` 34 times in one session and no
+ *     Without it the model reached for `note` (now `remember`) 34 times in one session and no
  *     session's dump ever landed. On the Stops where only the episode half
  *     fired, the model got no id and no tool name at all.
  *   - **`updates` is a FIELD.** The old wording said "say `updates: <id>`",
  *     and four notes duly arrived with `updates: mem_x.` as the first words of
  *     their prose — unlinked, because prose is not a field. It is a field on a
- *     `session_end` entry AND on `note`, and since B1 it is the tool
+ *     `session_end` entry AND on `remember`, and since B1 it is the tool
  *     description that says so, not this text.
  *   - **The chapter number is the store's.** It is one past what was WRITTEN,
  *     never one past what was asked, so an unanswered ask does not silently
@@ -450,10 +450,19 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  *     because nothing prompted the session to close it; how (`eventDate:
  *     null`, `unresolved: false`) is on the field's own description,
  *     and "nothing worth keeping is a real answer", which the server now
- *     accepts as `memories: []`. The words that clause needed came out of
- *     the rest ("what's worth keeping", and "Write chapter N with" for
- *     "Write chapter N of this session's episode with"), so with a real id and a
- *     four-digit chapter number it is 465 characters, inside the 480 pin.
+ *     accepts as `memories: []`.
+ *
+ * **WHAT CAUGHT YOUR ATTENTION, NOT WHAT'S WORTH KEEPING (2026-10-10, Group
+ * 1c; 01 C1's text, verbatim).** "What's worth keeping" and "nothing worth
+ * keeping is a real answer" were the filter: measured on the 10-10 snapshot,
+ * what reached memory at the ask was work status rephrased as lasting fact,
+ * and what it kept out was the passing material — a line read, news, a thing
+ * said in passing — which nothing else would ever write, since the sweep has
+ * been off since 09-24. The ask now asks for what caught attention since the
+ * last write, one idea each, and names the three kinds. `[]` stays a legal
+ * answer, said on the `memories` field, not here (01 D4). The ask is the
+ * BACKSTOP: `remember`'s own text asks for the moment. With a real id and a
+ * four-digit chapter number it is 474 characters, inside the 480 pin.
  *
  * Everything else the old text said — `updates` is a FIELD, salience is a floor
  * and the author's to claim, what an episode is for, what a handoff is — is
@@ -469,8 +478,8 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  */
 export function stopAsk(sessionId: string, chapter: number): string {
   return [
-    `${STOP_ASK_OPENER} 1) hand back what's worth keeping with the counterparts session_end tool, session: ${sessionId} — \`handoff\` only if work here is unfinished, \`retireHandoff\` any here, anyone's, now done, and \`updates\` anything dated or open now done.`,
-    `2) Write chapter ${String(chapter)} with the counterparts chapter tool, session: ${sessionId}. Nothing worth keeping is a real answer: send \`memories: []\`.`,
+    `${STOP_ASK_OPENER} 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: ${sessionId}. \`handoff\` only if work here is unfinished; \`retireHandoff\` any now done; \`updates\` anything dated or open now done.`,
+    `2) Write chapter ${String(chapter)} with the counterparts chapter tool, session: ${sessionId}.`,
   ].join("\n");
 }
 

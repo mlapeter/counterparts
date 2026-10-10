@@ -139,7 +139,7 @@ import { TOOL_RESULT_CEILING, clipWire, noteLookups, wireChars } from "../../cor
 import type { FitMechanism } from "../../core/fit/index.js";
 import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, WAKE_BUILD_KEY, pageRoomNote, pageSections, pageTooLargeDetail } from "../../core/self/index.js";
 import type { PageRevision, PageWriterMode } from "../../core/self/index.js";
-import { toolDefinitions, toolSpec } from "./tools.js";
+import { canonicalToolName, toolDefinitions, toolSpec } from "./tools.js";
 import { writeUpDoor } from "./write-up.js";
 import type { ToolName } from "./tools.js";
 import { scriptArgs } from "../runtime.js";
@@ -571,7 +571,7 @@ export class McpServer {
    * WHAT EACH SESSION WAS SHOWN through this server (2026-10-02, lane B): the
    * memories `recall` DELIVERED (not the ids left waiting) and the neighbours
    * a write showed. With the ambient recall's record for the session, it is
-   * what `note`'s `feelingsNow` may feel again. KEYED BY SESSION (review of
+   * what `remember`'s `feelingsNow` may feel again. KEYED BY SESSION (review of
    * #316): Desktop's one server serves many sessions, and a Claude Code
    * process starts a new session on /clear. In memory only, the newest
    * `SEEN_SESSIONS` sessions.
@@ -899,7 +899,12 @@ export class McpServer {
   // ── the tools ──────────────────────────────────────────────────────────────
 
   /** Direct tool invocation, transport-free. The wire calls this; so do tests. */
-  async call(name: string, args: Record<string, unknown>): Promise<ToolResult> {
+  async call(asked: string, args: Record<string, unknown>): Promise<ToolResult> {
+    // AN OLD NAME IS SERVED AS ITS NEW ONE, before anything reads the name
+    // (2026-10-10: `note` is `remember`, `tools.ts#TOOL_ALIASES`). Every
+    // refusal, row and result below names the tool by its new name.
+    const name = canonicalToolName(asked);
+    if (name !== asked) this.emit("mcp.tool.alias", undefined, { asked, served: name });
     // THE SCHEMA GATE, FIRST OF ALL — before the scope gate, before the
     // stand-down, before any argument is looked at. See `schemaGate`.
     const stale = this.schemaGate(name);
@@ -994,7 +999,7 @@ export class McpServer {
    *
    * A named id that is not a live Desktop session binds nothing: the tools
    * that need a session refuse by name (`requireBoundSession`), and say to call
-   * `wake`; the ones that do not (`note`, `recall`, `status`, …) run unbound, as
+   * `wake`; the ones that do not (`remember`, `recall`, `status`, …) run unbound, as
    * they always could. Reads only.
    */
   private bindDesktopCall(args: Record<string, unknown>): void {
@@ -1101,7 +1106,7 @@ export class McpServer {
   /**
    * A NAMED SESSION THAT DID NOT BIND, SAID ON THE RESULT (review of #309). A
    * tool that needs a session already refuses with the reason; one that does
-   * not (`note`, `recall`, `status`, …) runs unbound under `claude-desktop:`,
+   * not (`remember`, `recall`, `status`, …) runs unbound under `claude-desktop:`,
    * and used to say nothing — so a Code-tab note under a stale id came back
    * `stored: true` with nobody the wiser. Now the result carries why.
    */
@@ -1155,7 +1160,7 @@ export class McpServer {
     }
     // A WRITE-UP RUNNER WRITES UP AND NOTHING ELSE (2026-10-01, review of #308,
     // HIGH). The nightly catch-up's runner is bound to the launching session's
-    // directory, so an ordinary `session_end` — or a `note`, a `chapter`, a
+    // directory, so an ordinary `session_end` — or a `remember`, a `chapter`, a
     // handoff — from it would mint first-hand memories there in nobody's name.
     // Any session whose record carries a grant (`mayWriteUp`), and any id with
     // the runner's prefix, may call `session_end` WITH `writeUp`, and read
@@ -1166,8 +1171,8 @@ export class McpServer {
       });
     }
     switch (name) {
-      case "note":
-        return this.noteTool(args);
+      case "remember":
+        return this.rememberTool(args);
       case "recall":
         return await this.recallTool(args);
       case "status":
@@ -1225,7 +1230,7 @@ export class McpServer {
    *
    * Entry is not the only moment that matters, because three tools can WAIT
    * between here and their writes: `recall` embeds its question in line, and
-   * `note` and `session_end` embed at write time — once per entry, in a loop —
+   * `remember` and `session_end` embed at write time — once per entry, in a loop —
    * whenever this server's counterpart has a live embedder (#187 re-review,
    * N5). So the same verdict is asked again at EVERY store write, by the
    * store itself (`writeGuard`, installed in the constructor), and `recall`
@@ -1566,7 +1571,9 @@ export class McpServer {
   }
 
   /**
-   * `note` — deliberate remembering, the ambient exception (constitution 8).
+   * `remember` (was `note` until 2026-10-10) — deliberate remembering in the
+   * moment; with the end-of-session ask, the only road from conversation to
+   * memory since the keyless sweep came out (2026-09-24).
    *
    * Two steps, and the ORDER is the point: the words ride the buffer as their
    * own span first, then the deposit claims that span by hash. Without the
@@ -1575,14 +1582,14 @@ export class McpServer {
    * memories — which is how a "remember this" channel becomes a duplication
    * engine.
    */
-  private async noteTool(args: Record<string, unknown>): Promise<ToolResult> {
-    if (this.observer) return this.standDown("note");
+  private async rememberTool(args: Record<string, unknown>): Promise<ToolResult> {
+    if (this.observer) return this.standDown("remember");
     const text = args["text"];
     // SETTLE (2026-09-29, contradictions): two memories that already exist,
     // settled without writing a new one. With `text` too, both happen.
     const settleArg = args["settle"];
     if (settleArg !== undefined && (settleArg === null || typeof settleArg !== "object" || Array.isArray(settleArg))) {
-      return this.refuse("note", "settle-malformed", {
+      return this.refuse("remember", "settle-malformed", {
         detail: "settle is an object: {pair} or {holds, over}, with how (changed, corrected or open) and a short why.",
       });
     }
@@ -1591,7 +1598,7 @@ export class McpServer {
     // feels now, recorded beside the first. With `text` too, both happen.
     const nowArg = args["feelingsNow"];
     if (nowArg !== undefined && !Array.isArray(nowArg)) {
-      return this.refuse("note", "feelings-now-malformed", {
+      return this.refuse("remember", "feelings-now-malformed", {
         detail: "feelingsNow is a list: one object each, {id, emotion, core?, strength?, carried_by?, whose?}.",
       });
     }
@@ -1601,15 +1608,15 @@ export class McpServer {
       return nowArg === undefined ? settled : this.withFeelingsNow(settled, nowArg as unknown[]);
     }
     if (typeof text !== "string" || text.trim().length === 0) {
-      return this.refuse("note", "text-required", {});
+      return this.refuse("remember", "text-required", {});
     }
     const salience = args["salience"];
     if (salience !== undefined && (typeof salience !== "number" || !Number.isFinite(salience))) {
-      return this.refuse("note", "salience-not-a-number", {});
+      return this.refuse("remember", "salience-not-a-number", {});
     }
     const dims = readDimensions(args);
     if (dims === null) {
-      return this.refuse("note", "dimension-out-of-range", {
+      return this.refuse("remember", "dimension-out-of-range", {
         detail: "relevance, emotional and predictive are each a number from 0 to 1.",
       });
     }
@@ -1617,7 +1624,7 @@ export class McpServer {
     // anything is captured, so an unreadable one is a refusal that says which
     // shapes ARE readable rather than a note that lands without its date.
     const dated = readReminder(args);
-    if ("refused" in dated) return this.refuse("note", dated.refused, { detail: dated.detail });
+    if ("refused" in dated) return this.refuse("remember", dated.refused, { detail: dated.detail });
     // Unbound, the note is filed under the session this server's host is
     // running here, found by its process (2026-10-01, `hostSession`), and
     // under nobody only when that is not exact.
@@ -1649,12 +1656,12 @@ export class McpServer {
     const model = this.sessionModel(session);
     const feelings = readFeelings(args["feelings"]);
     if ("refused" in feelings) {
-      return this.refuse("note", "feelings-malformed", { detail: feelings.refused });
+      return this.refuse("remember", "feelings-malformed", { detail: feelings.refused });
     }
     const about = readAbout(args["about"]);
-    if ("refused" in about) return this.refuse("note", "about-malformed", { detail: about.refused });
+    if ("refused" in about) return this.refuse("remember", "about-malformed", { detail: about.refused });
     const traits = readTraits(args["traits"]);
-    if ("refused" in traits) return this.refuse("note", "traits-malformed", { detail: traits.refused });
+    if ("refused" in traits) return this.refuse("remember", "traits-malformed", { detail: traits.refused });
     // v12: when it happened, who said it, what kind — never a refusal: what
     // cannot be read is dropped and said beside the memory that landed.
     const facts = readWriteFacts(args, this.today());
@@ -1663,6 +1670,8 @@ export class McpServer {
       scope: this.scope,
       ownSpanHash,
       facts: facts.sent,
+      // What it is about sets an unclaimed memory's default floor (2026-10-10).
+      about: about.mark,
       ...(model === undefined ? {} : { model }),
       // This call's stance, which a Code-tab call on Desktop's server can hold
       // when the store opened as a guest (2026-10-02).
@@ -1675,7 +1684,7 @@ export class McpServer {
     // NOTHING landed — a refused note beside a settle that landed is not one,
     // so a retry does not run into `already-settled`.
     const settle = settleArg === undefined ? null : this.settleOutcome(settleArg as Record<string, unknown>);
-    return this.depositResult("note", deposit, {
+    return this.depositResult("remember", deposit, {
       ...this.recordFeelings(deposit, feelings.inputs, model),
       ...this.recordAbout(deposit, about.mark),
       ...this.recordTraits(deposit, traits.inputs, model),
@@ -1695,7 +1704,7 @@ export class McpServer {
   }
 
   /**
-   * `note` with `feelingsNow` and no `text` (2026-10-02, lane B): record how
+   * `remember` with `feelingsNow` and no `text` (2026-10-02, lane B): record how
    * memories this session was shown feel now, and write nothing else. The
    * path is the reflection's (`Reflections#feelAgain`); an error only when
    * nothing was recorded.
@@ -1774,7 +1783,7 @@ export class McpServer {
       });
       if (!done.ok) return { recorded: 0, reason: done.reason };
       const recorded = done.feelings.filter((f) => f.ok && f.reason === "recorded-later").length;
-      this.emit("mcp.note.feelingsNow", undefined, { sent: list.length, recorded });
+      this.emit("mcp.remember.feelingsNow", undefined, { sent: list.length, recorded });
       return { recorded, results: done.feelings };
     } catch (err) {
       return { recorded: 0, reason: "threw", detail: String((err as Error).message ?? err) };
@@ -1782,14 +1791,14 @@ export class McpServer {
   }
 
   /**
-   * `note` with `settle` and no `text` (2026-09-29): settle two memories that
+   * `remember` with `settle` and no `text` (2026-09-29): settle two memories that
    * already exist — a flagged pair, or two a write showed — and write nothing
    * else. The settle is `contradictions.ts#settle`'s, attributed to this
    * session on the trail.
    */
   private settleOnly(arg: Record<string, unknown>): ToolResult {
     const outcome = this.settleOutcome(arg);
-    this.emit("mcp.note.settle", typeof outcome["pair"] === "string" ? outcome["pair"] : undefined, {
+    this.emit("mcp.remember.settle", typeof outcome["pair"] === "string" ? outcome["pair"] : undefined, {
       ok: outcome["ok"] === true,
       reason: typeof outcome["reason"] === "string" ? outcome["reason"] : null,
     });
@@ -2527,7 +2536,7 @@ export class McpServer {
   /**
    * THE SAME LINE ON EVERY OTHER RESULT (2026-10-02). A server left open
    * across an install keeps the tool list it loaded, so an argument the new
-   * version added — `note`'s `about`, `unresolved` — is dropped without a
+   * version added — `remember`'s `about`, `unresolved` — is dropped without a
    * word until the host reconnects, and Desktop had no notice at all outside
    * `wake`. Now every result says it, in `updated`, while the two builds
    * differ: one manifest read and one meta read per call. The line names what
@@ -2928,6 +2937,8 @@ export class McpServer {
           scope: scope ?? this.scope,
           owner: this.owner,
           facts: facts.sent,
+          // What it is about sets an unclaimed entry's default floor (2026-10-10).
+          about: about.mark,
           ...(cover === undefined ? {} : { cover }),
           ...(model === undefined ? {} : { model }),
           ...(writeUp === undefined ? {} : { writeUp }),
@@ -3150,7 +3161,7 @@ export class McpServer {
     const title = args["title"];
     // WHAT THE SESSION WAS ABOUT (2026-10-01, lane 8), carried to the
     // chapter's memory copy: a malformed one refuses the call before anything
-    // is written, as on `note`.
+    // is written, as on `remember`.
     const about = readAbout(args["about"]);
     if ("refused" in about) return this.refuse("chapter", "about-malformed", { detail: about.refused });
     // The model the hooks last saw answer in this session. A Stop records it
@@ -3623,7 +3634,7 @@ export class McpServer {
   /**
    * `self_page` — read the page, or write it whole.
    *
-   * **It binds no session, exactly as `note` does not.** The page is not one
+   * **It binds no session, exactly as `remember` does not.** The page is not one
    * session's account of itself the way a chapter is; it is the standing one,
    * and a session that can write a note about the world can write the page about
    * itself. The `by` field on the row says `session` for everything that comes
@@ -3693,7 +3704,7 @@ export class McpServer {
     const common = {
       ...(model === undefined ? {} : { model }),
       by: writerFor === null ? ("session" as const) : ("writer" as const),
-      // WHICH SESSION, when this server has one. `note` resolves it the same
+      // WHICH SESSION, when this server has one. `remember` resolves it the same
       // way; null is recorded rather than a guess (adversarial review M3).
       session: this.session,
       ...(ifVersion === undefined ? {} : { ifVersion }),
@@ -3886,7 +3897,7 @@ export class McpServer {
     // `requireBoundSession`, which sets `lazySession` and FREEZES it for the
     // life of the process — so a page write naming another live in-scope
     // session would have bound this server to that session, and every later
-    // `note` and `chapter` from it would have been attributed there. The page's
+    // `remember` and `chapter` from it would have been attributed there. The page's
     // door needs one thing and one thing only: is this id a session I may
     // label a write with. That is a question, not a binding.
     const ok = this.corroborate(claimed);
@@ -3907,9 +3918,9 @@ export class McpServer {
    * The model the hooks last saw answer in THIS server's bound session — the
    * relay a chapter's model takes (self NOTES §24), used since 2026-09-25 for
    * the `model` column on every row a tool writes (schema v7). Undefined when
-   * no session is bound (`note` and `self_page` work unbound) or the record
+   * no session is bound (`remember` and `self_page` work unbound) or the record
    * names none; the row then records NULL rather than a guess. On the live
-   * host the server is launched with no session, so a `note` before the first
+   * host the server is launched with no session, so a `remember` before the first
    * `chapter` / `session_end` binds it records NULL — accepted (review N3).
    */
   private sessionModel(session: string | null = this.session): string | undefined {
@@ -4558,7 +4569,7 @@ const YEAR_ALONE_NOTE =
 const DATE_PASSED_NOTE = "That date has already passed — it won't come back as a reminder.";
 
 /**
- * `eventDate` and `remind` off a `note` or a `session_end` entry, CHECKED
+ * `eventDate` and `remind` off a `remember` or a `session_end` entry, CHECKED
  * before anything mints: the date by `time.ts` (the one module that reads
  * dates), `remind` against its two words. Never a date parsed from prose — the
  * model writes the field (owner decision 2026-09-25/26).
@@ -4699,7 +4710,7 @@ type AboutRead = { mark: AboutMark | null } | { refused: string };
 type TraitsRead = { inputs: TraitInput[] } | { refused: string };
 
 /**
- * `traits: [{ axis, toward, strength, carried_by? }]` off a `note` or a
+ * `traits: [{ axis, toward, strength, carried_by? }]` off a `remember` or a
  * `session_end` entry (folded into v9), read and CHECKED before anything
  * mints (`store/traits.ts#checkTraits`, pure). Absent is none; an unknown
  * axis or pole is a refusal that names the item, the reason and what is
@@ -4757,7 +4768,7 @@ function threadOf(deposit: DepositResult): Record<string, unknown> {
 }
 
 /**
- * v12 (2026-10-03): THE WRITER'S THREE FIELDS off a `note` or a
+ * v12 (2026-10-03): THE WRITER'S THREE FIELDS off a `remember` or a
  * `session_end` entry — `occurredOn` (when it happened: read by `time.ts`,
  * the one module that reads dates), `saidBy` and `status` (against their
  * words). LOOSE FIRST: nothing here refuses the memory. What cannot be read
@@ -4843,7 +4854,7 @@ function readAbout(raw: unknown): AboutRead {
 
 /**
  * `feelings: [{ whose, core?, emotion, strength?, valence?, carried_by, beneath?, other_word? }]`
- * off a `note` or a `session_end` entry, read and CHECKED before anything
+ * off a `remember` or a `session_end` entry, read and CHECKED before anything
  * mints (`store/feelings.ts#checkFeelings`, pure). `beneath` is another
  * feeling's index in the same list. Absent is no feelings; anything that will
  * not store is a refusal naming the item and the reason.

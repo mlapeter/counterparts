@@ -1049,6 +1049,13 @@ export interface DepositContext {
   scope: string;
   /** v12: the writer's three fields, as sent (`SentFacts`). Absent: none sent. */
   facts?: SentFacts;
+  /**
+   * What the memory is about, as the writer marked it (`me`, `us`, `owner`,
+   * `work`, `world`), or null/absent when unmarked. Read at the mint only for
+   * an UNCLAIMED memory's default floor (`physics.defaultClaimFor`, 2026-10-10);
+   * the mark itself is recorded after the deposit, as before (`recordAbout`).
+   */
+  about?: string | null;
   /** The span this deposit IS (a jot's own words), withheld from the sweep. */
   ownSpanHash?: string | null;
   /** The model writing it, from host state (`MintOptions.model`); absent = NULL. */
@@ -3709,6 +3716,7 @@ export class Counterpart {
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
       ...(ctx.owner === undefined ? {} : { owner: ctx.owner }),
       ...(ctx.facts === undefined ? {} : { facts: ctx.facts }),
+      ...(ctx.about === undefined ? {} : { about: ctx.about }),
     });
   }
 
@@ -5729,6 +5737,7 @@ export class Counterpart {
     const mint = mintProposal(this.store, proposal, {
       self: this.self,
       channel: "authored",
+      ...(ctx.about === undefined ? {} : { about: ctx.about }),
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
       ...(ctx.writeUp === undefined ? {} : { writeUp: ctx.writeUp }),
       onEvent: (name, data) => this.emit(name, undefined, data),
