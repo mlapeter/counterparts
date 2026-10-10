@@ -1,0 +1,104 @@
+# The whole suite, on every pull request and every push to master.
+#   - typecheck: `tsc --noEmit`, once (the types do not depend on the platform);
+#   - suite: `bun test`, all of it, under two time zones on Linux (America/Denver,
+#     UTC-6/-7, and Pacific/Kiritimati, UTC+14: a local date and the UTC date
+#     disagree for part of every day in both, in opposite directions), and under
+#     Denver on macOS, where the owner develops;
+#   - node: `bun run test:node`, the Node smoke test, on the floor package.json
+#     names (22.15.0) and on 24.
+# The same checks, run locally: CONTRIBUTING.md, "Continuous integration".
+name: tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Read-only, and `pull_request` (never `pull_request_target`): a fork's pull
+# request runs with a read-only token and no secrets, and none are used.
+permissions:
+  contents: read
+
+# A new push to a pull request cancels the run it supersedes. On master a new
+# push does not cancel a run already going: that merge keeps its verdict.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Nothing here may fall back to a default store (CLAUDE.md).
+  COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1"
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Actions pinned by commit, the tag beside it: a moved tag changes nothing here.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # No token left in .git/config for the steps after it.
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+
+  suite:
+    name: suite (${{ matrix.os }}, ${{ matrix.tz }})
+    runs-on: ${{ matrix.os }}
+    # TIMEOUT_NOTE
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, tz: America/Denver }
+          - { os: ubuntu-latest, tz: Pacific/Kiritimati }
+          - { os: macos-latest, tz: America/Denver }
+    env:
+      TZ: ${{ matrix.tz }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      # test/old-floor-fixture.ts builds a real v5 store with the build at the tag
+      # floor/v5-last (`git archive`), and fails loudly without it. A depth-1
+      # checkout has no tags; fetch that one, anonymously (the repository is public).
+      - name: Fetch the pinned old build (floor/v5-last)
+        run: git fetch --no-tags --depth=1 origin +refs/tags/floor/v5-last:refs/tags/floor/v5-last
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile
+      # --timeout 30000, not bun's default 5 s per test. The 5 s default has
+      # flaked on a loaded laptop, and a shared runner (3-4 vCPU, spawning bun,
+      # git and sh children) is more loaded. In CI the per-test limit is there to
+      # catch a hang, not to time a test: a hang still fails, at 30 s. Tests that
+      # set their own limit keep it (the flag is only the default), and every
+      # test is hermetic, so a longer wait cannot hide one leaking into another.
+      - run: bun test --timeout 30000
+
+  node:
+    name: node smoke (${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22.15.0", "24"]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile
+      - run: node --version
+      - run: bun run test:node

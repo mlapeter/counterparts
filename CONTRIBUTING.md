@@ -37,6 +37,18 @@ bun run typecheck
 you change install, connect, disconnect or uninstall, also run `tools/install-loop/run.sh`,
 which installs the package into a throwaway home directory and checks it end to end.
 
+## Continuous integration
+
+Every pull request and every push to master runs
+[`.github/workflows/tests.yml`](.github/workflows/tests.yml): the typecheck, the whole suite
+on Linux in two time zones (`America/Denver` and `Pacific/Kiritimati`) and on macOS in
+Denver, and the Node smoke test on Node 22.15 and 24. To run the same checks locally (the
+Node one needs `node` 22.15 or later on your `PATH`):
+
+```sh
+bun run typecheck && TZ=America/Denver bun test --timeout 30000 && TZ=Pacific/Kiritimati bun test --timeout 30000 && bun run test:node
+```
+
 ## Two safety rules
 
 1. **Tests are hermetic.** Every test runs against a fresh temporary data directory that it
