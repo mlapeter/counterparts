@@ -2329,7 +2329,7 @@ describe("WAL, the busy timeout, and I39", () => {
     reader.close();
 
     // THE ONE THING WAL COSTS A READER, pinned so it is known rather than met on
-    // a Tuesday: a read-only connection cannot CREATE the `-shm`, so a WAL
+    // a Tuesday: on macOS a read-only connection cannot CREATE the `-shm`, so a WAL
     // database whose sidecars have been removed is unreadable to it (floor plan
     // risk 1). Nothing in the product removes them; `sqlite3 <file> .quit` does
     // — after checkpointing, which is why the checkpoint is part of the fixture:
@@ -2340,10 +2340,11 @@ describe("WAL, the busy timeout, and I39", () => {
     rmSync(`${opPath()}-wal`, { force: true });
     rmSync(`${opPath()}-shm`, { force: true });
     let refused = "";
+    let rows: number | null = null;
     let orphan: InstanceType<typeof Database> | null = null;
     try {
       orphan = new Database(opPath(), { readonly: true });
-      orphan.prepare("SELECT COUNT(*) AS n FROM memories").get();
+      rows = (orphan.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
     } catch (err) {
       refused = String((err as { code?: string }).code ?? (err as Error).message);
     } finally {
@@ -2353,7 +2354,16 @@ describe("WAL, the busy timeout, and I39", () => {
         /* it never opened */
       }
     }
-    expect(refused).toContain("SQLITE_CANTOPEN");
+    // Which SQLite answers is the platform's (measured 2026-10-09): on macOS
+    // bun:sqlite binds Apple's system SQLite (3.39.5 here), which refuses. On
+    // Linux it binds bun's own (3.51.2), whose read-only connection creates the
+    // `-shm` itself where the directory lets it, and reads; only a directory it
+    // cannot write in refuses it (`SQLITE_READONLY_DIRECTORY`).
+    if (process.platform === "darwin") {
+      expect(refused).toContain("SQLITE_CANTOPEN");
+    } else {
+      expect({ refused, rows }).toEqual({ refused: "", rows: 1 });
+    }
 
     // And the repair is any ordinary open: every handle this codebase takes on
     // box 2 is read-WRITE, the dashboard's and the census's included, which is

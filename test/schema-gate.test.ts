@@ -864,12 +864,16 @@ describe("the hook's door to the notice (ClaudeCodeAdapter#updateNotice / #markU
     return a;
   }
   const turn = { sessionId: "s1", scope: projectDir, prompt: "hello", at: "2026-09-23" };
+  /** A host that is not this process's parent. The hook here reads its host as
+   *  `process.ppid`, and that IS 1 when the suite runs under a container's init
+   *  (`docker run … sh -c "bun test"`): pid 1 would then match as this host. */
+  const OTHER_HOST = process.ppid === 1 ? 2 : 1;
 
   test("due once on a stale server, then never again once marked, and the ring says so", () => {
     liveSession();
     // Alive (this test's own pid), in this scope, started by some OTHER host:
     // the scope fallback, which is what a hook behind a shell sees.
-    recordServerLaunch(dir, { scope: projectDir, build: STALE, pid: process.pid, hostPid: 1 });
+    recordServerLaunch(dir, { scope: projectDir, build: STALE, pid: process.pid, hostPid: OTHER_HOST });
     const a = hookAdapter();
     expect(a.updateNotice(turn)).toBe(UPDATE_NOTICE);
     expect(a.markUpdateNotice(turn)).toBe(true);
@@ -884,7 +888,7 @@ describe("the hook's door to the notice (ClaudeCodeAdapter#updateNotice / #markU
 
   test("never when the server runs the installed build", () => {
     liveSession();
-    recordServerLaunch(dir, { scope: projectDir, build: installedBuild(), pid: process.pid, hostPid: 1 });
+    recordServerLaunch(dir, { scope: projectDir, build: installedBuild(), pid: process.pid, hostPid: OTHER_HOST });
     const a = hookAdapter();
     for (let i = 0; i < 3; i++) expect(a.updateNotice(turn)).toBeNull();
     expect(a.events("adapter.update.notice")).toHaveLength(0);
@@ -892,7 +896,7 @@ describe("the hook's door to the notice (ClaudeCodeAdapter#updateNotice / #markU
   });
 
   test("a broken record never blocks the turn: null, and userPromptSubmit still answers", () => {
-    recordServerLaunch(dir, { scope: projectDir, build: STALE, pid: process.pid, hostPid: 1 });
+    recordServerLaunch(dir, { scope: projectDir, build: STALE, pid: process.pid, hostPid: OTHER_HOST });
     mkdirSync(sessionsDir(dir), { recursive: true });
     writeFileSync(join(sessionsDir(dir), "s1.json"), "{ torn");
     const a = hookAdapter();
@@ -903,7 +907,7 @@ describe("the hook's door to the notice (ClaudeCodeAdapter#updateNotice / #markU
 
   test("an observer is never told and marks nothing", () => {
     liveSession();
-    recordServerLaunch(dir, { scope: projectDir, build: STALE, pid: process.pid, hostPid: 1 });
+    recordServerLaunch(dir, { scope: projectDir, build: STALE, pid: process.pid, hostPid: OTHER_HOST });
     const watcher = hookAdapter(true);
     expect(watcher.updateNotice(turn)).toBeNull();
     expect(watcher.markUpdateNotice(turn)).toBe(false);
