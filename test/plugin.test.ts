@@ -609,7 +609,14 @@ describe("plugin-run.sh", () => {
       const prompt = launch("hook", payload("UserPromptSubmit"), env);
       expect(prompt.code).toBe(0);
       expect(prompt.stdout).toBe(""); // no recall
-      expect(existsSync(join(home, ".counterparts"))).toBe(false); // no store opened or made
+      expect(prompt.stderr).toContain("plugin hook stood down");
+      // No store opened: the gate stops the hook before the plugin's first run,
+      // which is where a store would be chosen. (With the gate broken, the
+      // explicit-dir guard above refuses that first run, so the folder below
+      // stays absent either way; the "first run" lines are what tell.)
+      expect(start.stderr).not.toContain("first run");
+      expect(prompt.stderr).not.toContain("first run");
+      expect(existsSync(join(home, ".counterparts"))).toBe(false);
     });
   }
 
