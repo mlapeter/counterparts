@@ -126,6 +126,15 @@ export interface Salience {
 
 /** The physics-relevant state of one memory. Days are lived-day integers
  *  (active-day clock, scar E8) — never calendar timestamps. */
+/** A dated memory's hold (`MemoryPhysics.hold`). */
+export type DatedHold =
+  | { readonly state: "pending" }
+  | {
+      readonly state: "spent";
+      /** Calendar days since the window closed — an upper bound on the lived days since. */
+      readonly closedDaysAgo: number;
+    };
+
 export interface MemoryPhysics {
   kind: Kind;
   salience: Salience;
@@ -187,6 +196,16 @@ export interface MemoryPhysics {
   lastReturnDay?: number | null;
   /** The last lived day a dream replayed it; null when never. */
   lastDreamDay?: number | null;
+  /**
+   * THE DATED HOLD (2026-10-10, physics §5.4, review 07 C1/C2) — NOT a column:
+   * computed at the read seam (`store/operational.ts#datedHold`) from
+   * `event_date`, `learned_on`, the row's repeat rule and the store's calendar
+   * today. `pending` while the memory's date (and its grace) is still ahead, or
+   * while its date repeats: decay reads t = 0. `spent` once that window has
+   * closed: the steep slope, t counted from the close at the latest. Absent or
+   * null: an ordinary memory.
+   */
+  hold?: DatedHold | null;
   /** Set only by the explicit promotion crossing or revision inheritance (§5.3). */
   promotedIdentity: boolean;
   protected: boolean;

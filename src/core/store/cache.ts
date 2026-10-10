@@ -1131,7 +1131,28 @@ export interface Hit {
  * integer mean length, `1 * len / avg` would truncate — silently, and only for
  * some values of the tunables, which is the worst way for arithmetic to be wrong.
  */
-export function searchIndex(db: Db, cue: string, limit = 10, norm: LengthNorm = DEFAULT_LENGTH_NORM): Hit[] {
+/**
+ * THE AMBIENT PREFILTER (2026-10-10, Group 1, review 03 C2): the SQL that keeps
+ * a row the last decay pass read as BELOW REACH out of a top-K, so it cannot
+ * take a slot an in-reach memory would have had. Read off box 3's own
+ * `ranking` table, at most one decay pass stale: a row never ranked (born
+ * since) passes, the identity band passes, and the caller rechecks the exact
+ * strength (`recall/activate.ts`). A memory revived since the last pass waits
+ * for the next one to come back through here — deliberate recall, which does
+ * not prefilter, finds it meanwhile.
+ */
+function reachJoin(alias: string): string {
+  return `LEFT JOIN ranking rk ON rk.memory_id = ${alias}.memory_id`;
+}
+const REACH_WHERE = `(rk.memory_id IS NULL OR rk.strength >= ? OR rk.band = 'identity')`;
+
+export function searchIndex(
+  db: Db,
+  cue: string,
+  limit = 10,
+  norm: LengthNorm = DEFAULT_LENGTH_NORM,
+  minStrength: number | null = null,
+): Hit[] {
   const tokens = [...new Set(tokenize(cue))];
   if (tokens.length === 0) return [];
   const placeholders = tokens.map(() => "?").join(",");
@@ -1139,13 +1160,15 @@ export function searchIndex(db: Db, cue: string, limit = 10, norm: LengthNorm = 
   const lengthFactor =
     `CAST(? AS REAL) + CAST(? AS REAL) * COALESCE(dl.len, CAST(? AS REAL)) / CAST(? AS REAL)`;
   const clamped = norm.oneSided === true ? `MAX(1.0, ${lengthFactor})` : lengthFactor;
+  const reach = minStrength !== null && Number.isFinite(minStrength);
   const rows = db.all<{ memory_id: string; score: number }>(
     `SELECT dt.memory_id AS memory_id,
             SUM(CAST(dt.tf AS REAL) * CAST(? AS REAL)
                 / (dt.tf + CAST(? AS REAL) * (${clamped}))) AS score
        FROM doc_tokens dt
        LEFT JOIN doc_lens dl ON dl.memory_id = dt.memory_id
-      WHERE dt.token IN (${placeholders})
+       ${reach ? reachJoin("dt") : ""}
+      WHERE dt.token IN (${placeholders})${reach ? ` AND ${REACH_WHERE}` : ""}
       GROUP BY dt.memory_id
       ORDER BY score DESC, dt.memory_id ASC
       LIMIT ?`,
@@ -1156,6 +1179,7 @@ export function searchIndex(db: Db, cue: string, limit = 10, norm: LengthNorm = 
     avg,
     avg,
     ...tokens,
+    ...(reach ? [minStrength as number] : []),
     limit,
   );
   return rows.map((r) => ({ id: r.memory_id, score: r.score }));
@@ -1211,8 +1235,15 @@ export function docFrequency(db: Db, tokens: readonly string[]): Map<string, num
  * old treatment — it scores 0 through `cosine`'s zero-norm arm, and the census
  * names it — because that is a different fault with its own reporting.
  */
-export function nearest(db: Db, vec: readonly number[], limit = 10): Hit[] {
-  const rows = db.all<{ memory_id: string; vec: SqlValue }>("SELECT memory_id, vec FROM embeddings");
+export function nearest(db: Db, vec: readonly number[], limit = 10, minStrength: number | null = null): Hit[] {
+  // The ambient prefilter (`reachJoin`, 2026-10-10): below-reach rows take no slot.
+  const rows =
+    minStrength !== null && Number.isFinite(minStrength)
+      ? db.all<{ memory_id: string; vec: SqlValue }>(
+          `SELECT e.memory_id AS memory_id, e.vec AS vec FROM embeddings e ${reachJoin("e")} WHERE ${REACH_WHERE}`,
+          minStrength,
+        )
+      : db.all<{ memory_id: string; vec: SqlValue }>("SELECT memory_id, vec FROM embeddings");
   const hits: Hit[] = [];
   for (const row of rows) {
     const other = decodeVector(row.vec);

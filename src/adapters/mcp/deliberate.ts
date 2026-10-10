@@ -27,7 +27,7 @@ import type { Counterpart } from "../../core/counterpart.js";
 import { sessionsHere } from "../../core/coverage/index.js";
 import { wireChars } from "../../core/fit/index.js";
 import { handoffAuthorship, sessionWords } from "../../core/handoff/index.js";
-import { decay, fadeOf, strength } from "../../core/physics/index.js";
+import { belowReach, strength } from "../../core/physics/index.js";
 import type { MemoryPhysics } from "../../core/types.js";
 import { isConfidential, isSelfPage, standingOf } from "../../core/recall/index.js";
 import { parseChapterAddress, resolveChapter } from "../../core/self/chapter-address.js";
@@ -174,20 +174,17 @@ export function boundById(
 
 /**
  * FADED, for both question modes (Release B, 2026-10-03; agreed between the
- * facts and meaning builders): a memory has faded when it has kept
- * `FADED_RETAINED` of its strength or less — its decay since its last use,
- * times a `changed` settle's fade (physics §5.12) — whatever its height. A
- * share rather than an absolute strength, because a quiet memory written today
- * is LOW, not faded (a bare write measures about 0.09), and physics' prune
- * floor (`PHI_PRUNE`, 0.02) sits too near the prune to name anything before it
- * goes. An identity-band memory does not decay, so never fades. CAL: a working
- * default with no measurement behind it; on the revisit list.
+ * facts and meaning builders): since 2026-10-10 (Group 1, review 03 C2) a
+ * memory has faded when it is BELOW REACH — strength under physics' `REACH`,
+ * the one threshold ambient recall leaves out and deliberate recall lists
+ * after its main results, labelled faded. It replaces `FADED_RETAINED` (kept
+ * 0.2 of its strength, which with S >= 60 could not fire before ~96 lived
+ * days), so "faded" means one thing everywhere. The identity band is never
+ * faded. A memory written low (a 0.25 note of a kind whose salience weighs
+ * 0.4, about 0.10) reads faded from birth: it was never in reach.
  */
-export const FADED_RETAINED = 0.2;
-
-/** Has this memory faded (`FADED_RETAINED`)? Pure. */
 export function hasFaded(p: MemoryPhysics, day: number): boolean {
-  return decay(p, day) * fadeOf(p) <= FADED_RETAINED;
+  return belowReach(p, day);
 }
 
 /**

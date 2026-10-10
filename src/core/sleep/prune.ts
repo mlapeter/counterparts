@@ -12,8 +12,13 @@
  * is archival, and the store settles it structurally: there is no delete, no
  * unlink, no remove anywhere in `store/`, so there is no verb to call. A pruned
  * memory keeps its prose, keeps its id, stays resolvable, and carries
- * `archived_reason = "pruned"`. Fading is not deletion; a strong enough cue can
- * still reach it, and the exit is countable (scar §2.17). See NOTES.md §2.
+ * `archived_reason = "pruned"`. Fading is not deletion — but an archived row is
+ * out of every recall path except a lookup by its id (`recall/activate.ts`),
+ * so "a strong enough cue can still reach it" was never true of an EXITED row;
+ * it is true of one BELOW REACH (physics `REACH`, 2026-10-10), which deliberate
+ * recall still finds and a use revives. Two states: below reach (computed,
+ * revivable) and exited (archived here, readable by id). The exit is countable
+ * (scar §2.17). See NOTES.md §2.
  *
  * **Record first, move second (§5 G8).** The record is counts, kind, and dates —
  * NEVER a body and NEVER a content hash (scar §2.20; hashing low-entropy content
@@ -28,7 +33,7 @@ import { recurrenceOfRow } from "../store/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { PRUNE_ARCHIVE_REASON, PRUNE_RECORD_PREFIX } from "./tunables.js";
 import type { MemoryRow, PhaseCtx, PhaseOutcome, PrunedRecord } from "./types.js";
-import { countSkip, emptyOutcome, isEntityCard, isJournal } from "./types.js";
+import { countSkip, emptyOutcome, isEntityCard, isJournal, isJournalCopy, isLiveHandoffRow } from "./types.js";
 import type { Phase } from "./types.js";
 import { readCursor, resumeIndex, writeCursor } from "./markers.js";
 
@@ -76,6 +81,8 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
   out.skipped["removed"] = 0;
   out.skipped["journal"] = 0;
   out.skipped["entity-card"] = 0;
+  out.skipped["journal-copy"] = 0;
+  out.skipped["handoff-live"] = 0;
   const blocked: Record<string, number> = {};
   const pruned: PrunedRecord[] = [];
   const recordFailures: { id: string; error: string }[] = [];
@@ -119,6 +126,24 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
     // minted would never exist (`types.ts#isJournal`).
     if (isJournal(row)) {
       countSkip(out, "journal");
+      continue;
+    }
+    // NOR IS A CHAPTER'S COPY (2026-10-10, review 03 C4a): recall folds it
+    // into its chapter (U13), and at salience 0 it would reach the floor on the
+    // first night the 14-day dwell allowed — 71 rows of the live store's first
+    // let-go wave would have been copies.
+    if (isJournalCopy(row)) {
+      countSkip(out, "journal-copy");
+      continue;
+    }
+    // A LIVE HANDOFF is never let go at the floor (2026-10-10, review 03 C4b):
+    // it is a schema row at salience 0, born at strength 0, and its own
+    // lived-day expiry (`handoff/index.ts#HANDOFF_LIFE_DAYS`) is its clock. A
+    // session revising its pointer day after day keeps its birth day, so a
+    // 14-day dwell from the last use would take a pointer still being shown.
+    // Once expired, it is left to the prune, as the handoff module says.
+    if (isLiveHandoffRow(row, day)) {
+      countSkip(out, "handoff-live");
       continue;
     }
     // An entity card fades in the next phase, under `schemas/`' gentler verdict

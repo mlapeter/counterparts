@@ -62,12 +62,12 @@
  * history, and is the price of having exactly one definition of a crossing.
  */
 
-import { band, bandMove, strength } from "../physics/index.js";
+import { NEVER_CHANGES, band, bandMove, nextChangeDay, strength } from "../physics/index.js";
 import { TUNABLES as PHYSICS } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { TUNABLES } from "./tunables.js";
 import type { BandTransition, PhaseCtx, PhaseOutcome } from "./types.js";
-import { countSkip, emptyOutcome, isJournal, recordBandTransition } from "./types.js";
+import { countSkip, emptyOutcome, isHandoffRow, isJournal, isJournalCopy, recordBandTransition } from "./types.js";
 import { censusDue, upgradeCensus } from "./upgrade.js";
 import type { StrengthCache, StrengthRow } from "./strength-cache.js";
 import type { Phase } from "./types.js";
@@ -76,12 +76,43 @@ import { readCursor, resumeIndex, writeCursor } from "./markers.js";
 /** This phase's own name, for the cursor it keeps (typed: a rename fails `tsc`). */
 const DECAY_PHASE: Phase = "decay";
 
+/**
+ * THE CURVE A STORE'S NEXT-CHANGE DAYS WERE COMPUTED UNDER (2026-10-10). The
+ * turn-down trusts `memories.next_change_day` only while the constants that
+ * produced it are the ones this build runs; a build with another curve forgets
+ * them all once (`clearNextChangeDays`) and looks at every row on its first
+ * pass. Meta key + the signature it holds.
+ */
+export const CURVE_META_KEY = "decay.curve";
+export function curveSignature(): string {
+  return JSON.stringify({
+    shape: PHYSICS.DECAY_SHAPE,
+    psi: PHYSICS.POWER_LAW_PSI,
+    s0: PHYSICS.S0,
+    g: PHYSICS.STABILITY_GAIN,
+    q: PHYSICS.EMO_Q,
+    lift: PHYSICS.EMO_LIFT,
+    beta: PHYSICS.BETA,
+    ret: PHYSICS.RETURN_GAIN,
+    sem: PHYSICS.THETA_SEM,
+    reach: PHYSICS.REACH,
+    floor: PHYSICS.PHI_PRUNE,
+    dwell: PHYSICS.D_FLOOR_DAYS,
+    grace: PHYSICS.HOLD_GRACE_DAYS,
+    kappa: Object.fromEntries(Object.entries(PHYSICS.KINDS).map(([k, v]) => [k, v.kappa])),
+  });
+}
+
 /** Skip categories, enumerated so a zero is distinguishable from an absence. */
 export const DECAY_SKIPS = [
   "archived",
   "removed",
   /** The journal, which is a source and not a memory (`types.ts#isJournal`). */
   "journal",
+  /** A chapter's copy — journal too (2026-10-10, review 03 C4a; `types.ts#isJournalCopy`). */
+  "journal-copy",
+  /** A handoff — its own lived-day expiry is its clock (2026-10-10, review 03 C4b). */
+  "handoff",
   "identity-band",
   "reinforced-today",
   "at-floor",
@@ -137,7 +168,27 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
   const written: StrengthRow[] = [];
   const transitions: BandTransition[] = [];
   let bandsReconciled = 0;
-  const ids = store.list();
+  // THE TURN-DOWN (2026-10-10, Group 1, review 13 C2): only the rows whose
+  // band, reach or prune eligibility changes today — their stored next-change
+  // day has come — and the rows with none (new, or an input of their curve was
+  // written since: a trigger clears it). Everything else reads exactly what it
+  // read at its last pass, so there is nothing to recompute. A store written
+  // under another curve forgets every next-change day first (`CURVE_META_KEY`);
+  // an observer, which writes nothing, walks the whole store as before, and so
+  // does a port without the turn-down.
+  const signature = curveSignature();
+  const sameCurve = store.getMeta(CURVE_META_KEY) === signature;
+  const turnDown =
+    typeof store.turnDownDue === "function" && typeof store.setNextChangeDays === "function" && (sameCurve || ctx.apply);
+  // Forgotten and re-signed together: every row is then NULL, so it stays due
+  // until a pass reaches it, however many passes a budget takes.
+  if (turnDown && !sameCurve && ctx.apply) {
+    store.clearNextChangeDays?.();
+    store.setMeta(CURVE_META_KEY, signature);
+  }
+  const ids = turnDown && store.turnDownDue !== undefined ? store.turnDownDue(day) : store.list();
+  const nextChanges: { id: string; day: number }[] = [];
+  const dropped: string[] = [];
   // WHERE THE LAST RUN STOPPED (2026-09-28, build B; the audit's #4). `store.list()`
   // is `ORDER BY id` and ids are random, so without a resume point a budget
   // smaller than the store examined the same slice every night and the rest
@@ -160,6 +211,7 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     if (row === undefined) continue;
     if (denied.has(id)) {
       countSkip(out, "removed");
+      nextChanges.push({ id, day: NEVER_CHANGES });
       continue;
     }
     if (row.archived === 1) {
@@ -170,6 +222,17 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     // move a band or write a strength row (`types.ts#isJournal`).
     if (isJournal(row)) {
       countSkip(out, "journal");
+      nextChanges.push({ id, day: NEVER_CHANGES });
+      continue;
+    }
+    // A chapter's copy is the journal too, and a handoff keeps its own clock
+    // (2026-10-10, review 03 C4): neither is examined, and any ranking row an
+    // earlier build wrote for one is dropped, so the ambient prefilter never
+    // reads it as below reach.
+    if (isJournalCopy(row) || isHandoffRow(row)) {
+      countSkip(out, isJournalCopy(row) ? "journal-copy" : "handoff");
+      nextChanges.push({ id, day: NEVER_CHANGES });
+      if (prior.has(id)) dropped.push(id);
       continue;
     }
     out.examined += 1;
@@ -177,6 +240,7 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     const p = rowToPhysics(row);
     const s = strength(p, day);
     const b = band(p, day);
+    nextChanges.push({ id, day: nextChangeDay(p, day) });
 
     // The named skip categories. They are reported, not branched on: the
     // arithmetic already produces the right number for each.
@@ -205,10 +269,13 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     }
 
     const was = prior.get(id);
+    // Crossing REACH is a move however small the step (2026-10-10): the
+    // ambient prefilter reads the cache's side of the line.
     const moved =
       was === undefined ||
       was.band !== b ||
-      Math.abs(was.strength - s) >= TUNABLES.DECAY_QUANTUM;
+      Math.abs(was.strength - s) >= TUNABLES.DECAY_QUANTUM ||
+      was.strength < PHYSICS.REACH !== s < PHYSICS.REACH;
     if (!moved) {
       // A ROW THE PASS ACTED ON IS NOT AN UNCHANGED ROW, even when the cache had
       // nothing to say about it. On the exact U8 shape — the column wrong and
@@ -249,6 +316,10 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
   // cache alone, so the U8 catch-up — 869 columns rewritten, no strength row
   // moved — left no ring event at all, and the one pass worth watching was the
   // one the log could not see.
+  if (ctx.apply && cache !== null && dropped.length > 0) cache.drop?.(dropped);
+  if (ctx.apply && turnDown) {
+    store.setNextChangeDays?.(nextChanges);
+  }
   if (ctx.apply && cache !== null && (written.length > 0 || bandsReconciled > 0)) {
     if (written.length > 0) cache.write(written);
     ctx.event("sleep.decay.materialized", undefined, {

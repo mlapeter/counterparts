@@ -150,10 +150,19 @@ export const MECHANISM_EVIDENCE: readonly MechanismEvidence[] = [
       // The decay site also records the CROSSING into identity (direction up),
       // which is not a fade; only a move down counts.
       { key: "faded", event: "band.transition", where: (p) => p["site"] === "decay" && p["direction"] !== "up", says: ["memory faded a band", "memories faded a band"] },
-      { key: "pruned", event: "memory.pruned", says: ["memory archived at the floor", "memories archived at the floor"] },
+      // EXITED (2026-10-10): archived at the floor — still readable by id, never deleted.
+      { key: "pruned", event: "memory.pruned", says: ["memory exited (archived at the floor)", "memories exited (archived at the floor)"] },
       // The entity-card fade has no row of its own; it is a count on the cycle row.
       { key: "cards", event: "sleep.cycle", sum: "faded", says: ["unused card faded", "unused cards faded"] },
     ],
+    // BELOW REACH (2026-10-10, Group 1, review 03 C3): a state, not an event —
+    // how many live memories ambient recall leaves out right now. Counted apart
+    // from the exits above, which are archived.
+    census: {
+      key: "belowReach",
+      count: (store) => store.belowReachCount(),
+      says: ["memory below reach now", "memories below reach now"],
+    },
   },
   {
     // PARTLY (2026-09-29, after the review of #284): similar memories meet

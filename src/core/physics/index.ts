@@ -18,7 +18,7 @@ import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 import { BOUNDARY_HOUR_DEFAULT } from "./clock.js";
 
 export { dayKey, livedDay, livedDaysBetween } from "./clock.js";
-export type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
+export type { Band, DatedHold, Kind, MemoryPhysics, Salience } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // The TUNABLE table — every constant in physics, in one visible place.
@@ -164,28 +164,94 @@ export const TUNABLES = {
    *     staying silent says strictly less than speaking.
    *   - 0.25 < SWEEP_CLAIM_CEILING = 0.6: the default is a floor under the
    *     lived channel, not a promotion of it over the retelling channel.
-   *   - It buys survival rather than rank: at kind `fact` (S = 60 lived days)
-   *     strength falls below PHI_PRUNE = 0.02 after ~152 lived days instead of
-   *     being prunable from birth.
+   *   - It buys survival rather than rank: at kind `fact` it is not prunable
+   *     from birth. (Under the 2026-10-10 curve a never-used 0.25 fact leaves
+   *     reach in ~2 lived days and reaches PHI_PRUNE = 0.02 in ~34; it was ~152
+   *     under the old exponential with S = 60.)
    * ENGINE-SET off the mint CHANNEL, exactly like `SWEEP_CLAIM_CEILING`; an
    * explicit claim, however low, is never overridden. WORKING DEFAULT.
    */
   AUTHORED_DEFAULT_CLAIM: 0.25,
 
-  // --- §5.4 decay ---
-  /** Stability base, lived days. Reproduces v0's -0.015/day over ~a month. */
-  S_BASE: 60,
+  // --- §5.4 decay (2026-10-10, Group 1: the curve, mechanisms review 03 C1) ---
+  /**
+   * Stability at q = 0, in lived days: `S = S0 · e^(G·q) · uses · returns / κ`
+   * (`stability`). 0.4 makes a memory nobody claimed or felt leave reach the
+   * day after it was written; a default 0.25 note (S ≈ 3) leaves in ~2 lived
+   * days; a 0.5 one (S ≈ 22) in ~7 weeks; a 0.7 fact (S ≈ 109) in about a
+   * year. Was `S_BASE = 60` for every memory, so nothing fell below anything
+   * for ~100 lived days (review 03 §3).
+   *
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Why: steep early, flat for strong — routine items leave the working layer
+   * in days, readings and felt things stay for months (03 §5 design table).
+   */
+  S0: 0.4,
+  /**
+   * How steeply stability grows with q (salience, plus half the feeling):
+   * `e^(G·q)`, ×7.4 per 0.25 of q, ×3000 across the whole range. Decided by
+   * b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days. Why: the
+   * spread between a routine note and a felt reading has to be seen in DAYS
+   * vs MONTHS, and kind spans only ×2 (03 D2).
+   */
+  STABILITY_GAIN: 8,
+  /**
+   * How much a memory's emotional intensity adds to q, the input that sets its
+   * steepness: `q = clamp01(sal + EMO_Q · I)`. Replaces `EMO_SLOPE` (stability
+   * × (1 + 0.5·I), at most ×1.45 — a factor nobody could see). Through
+   * `e^(G·q)` a 0.6 feeling now multiplies stability by e^2.4 ≈ ×11.
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Why: feeling was the one signal that separated readings from changelog on
+   * the live store (38/49 vs 6/131, review 02/03), so it sets the slope; it is
+   * counted ONCE for height (`EMO_LIFT`) and once for slope (here) — not also
+   * in `sal()`'s mean (02 C1).
+   */
+  EMO_Q: 0.5,
   /** Use-stability coupling; logarithmic so a well-used memory slows without
    *  becoming immortal. */
   BETA: 0.5,
   /** Local rollover hour for the active-day clock (see clock.ts). */
   BOUNDARY_HOUR: BOUNDARY_HOUR_DEFAULT,
-  /** CAL / open question 1 — a three-way decided by replay, not by taste.
-   *  v1 ran flat, this page defaults exponential, engram upgraded to power-law
-   *  (Ebbinghaus / Wixted / Jost). `tools/replay` runs all three. */
-  DECAY_SHAPE: "exponential" as DecayShape,
-  /** CAL. Power-law exponent, used only when DECAY_SHAPE === "power-law". */
+  /**
+   * The curve's shape. Power-law (hyperbolic) since 2026-10-10: steep early and
+   * flat late INSIDE one memory's curve, which an exponential cannot be (03 D1;
+   * Wickelgren, Murre & Dros, and the site's own "retention fits a power law").
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Revision PRESSURE stays exponential (`pressureAt` names its shape): the
+   * pressure curve is the revision model's, not this one, and Group 2 owns it
+   * (decided by g1a-builder, 2026-10-10, lightly held).
+   */
+  DECAY_SHAPE: "power-law" as DecayShape,
+  /** The power-law exponent ψ: `(1 + t/S)^−ψ`. 1 = hyperbolic (03 D1). */
   POWER_LAW_PSI: 1.0,
+  /**
+   * BELOW REACH (2026-10-10, Group 1, review 03 C2): strength under this and a
+   * memory is left out of every AMBIENT channel — turn recall's surfaced and
+   * footnote tiers, spreading's landings, the wake's work lines — while
+   * deliberate recall still finds it, listed after the main results as faded.
+   * A computed state, never stored, never a deletion: a use, a deliberate open
+   * or a dream replay brings it back. One threshold for "faded" everywhere
+   * (it replaces deliberate recall's `FADED_RETAINED`). The identity band is
+   * never below reach. Must sit below encoding's routine default or routine
+   * items are born out of reach (03 D3).
+   *
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Why: forgetting in awareness, never in storage — strength has to gate what
+   * comes to mind, or decay changes nothing anybody sees.
+   */
+  REACH: 0.15,
+  /**
+   * THE DATED HOLD's grace (2026-10-10, review 07 C1): a memory with a future
+   * date is held (t = 0) through its date and this many calendar days after,
+   * the same window `prospective/` keeps open for its grace beat — so the
+   * reminder is not below reach while its window can still fire. Prospective's
+   * `GRACE_DAYS` defaults to this number (one rule, one owner).
+   * Decided by g1a-builder, 2026-10-10, lightly held; revisit after ~5 lived
+   * days. Why: the synthesis says "while event_date ≥ today"; a missed day's
+   * late beat (Group 5) and the open window's quiet fire both need the memory
+   * in reach for the grace week too.
+   */
+  HOLD_GRACE_DAYS: 7,
 
   // --- §5.1 salience ---
   /** CAL. Size of the nearest-neighbour slice in E(m) for novelty (v1's top-M). */
@@ -206,19 +272,12 @@ export const TUNABLES = {
    */
   EMO_LIFT: 0.15,
   /**
-   * How much the same intensity slows decay: stability x (1 + EMO_SLOPE x I).
-   * At I = 0.9 that is x1.45 — a fact with S = 60 lived days gets S = 87. It
-   * changes decay on EXISTING stores (every row with an `emotional` score or a
-   * feeling), which is why it is modest: a strongly felt, never-used note
-   * reaches the prune floor after ~255 lived days instead of ~150. CAL.
-   */
-  EMO_SLOPE: 0.5,
-  /**
    * How fast a recorded FEELING softens, in lived days: `strength x
-   * exp(-age / S)`, age counted from the memory's birth day. 20 < 60 = S_BASE
-   * is the owner's "the feeling softens faster than the fact" as arithmetic:
-   * half the feeling is gone in ~14 lived days, while the fact itself is still
-   * at ~0.8 of its height. Softening is READ-SIDE ONLY — the table keeps the
+   * exp(-age / S)`, age counted from the lived day the feeling was RECORDED
+   * (`feelings.recorded_day`, v13 — before v13, the memory's birth day, so a
+   * feeling a reflection added weeks later read as already softened). 20 lived
+   * days is the owner's "the feeling softens faster than the fact": half the
+   * feeling is gone in ~14 lived days. Softening is READ-SIDE ONLY — the table keeps the
    * strength as recorded, and height and slope use that recorded peak; the
    * softened value is what mood-matching, recall's feeling lane and the
    * displays read. S_FEELING is the clock of a NEUTRAL feeling (valence 0, or
@@ -273,9 +332,18 @@ export const TUNABLES = {
   /** CAL, and the one constant here with NO ancestry — v1 never pruned, so there
    *  is no measurement to inherit (open question 5). */
   PHI_PRUNE: 0.02,
-  /** CAL, same provenance gap as PHI_PRUNE. Lived days of dwell before a floor
-   *  memory may be pruned. */
-  D_FLOOR_DAYS: 90,
+  /**
+   * Lived days of dwell (since the last use, return or replay — `decayAnchor`)
+   * before a memory under `PHI_PRUNE` may be archived. 90 until 2026-10-10,
+   * which made the first possible exit lived day 91 on every store (review 03
+   * §3). Exit is ARCHIVAL, never deletion: an archived row keeps its words and
+   * stays readable by id (`sleep/prune.ts`; synthesis §8 A).
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Why: exit should follow reach — a default note leaves reach in ~2 lived
+   * days and reaches the floor in ~34; felt or salient memories take months
+   * to years (03 C3).
+   */
+  D_FLOOR_DAYS: 14,
 
   // --- guarantee 12: the symmetry counter (scar §2.10) ---
   /** Stated expected ceiling on up-moves : down-moves. v1's ratchet read
@@ -392,12 +460,22 @@ export function isBlindEncoding(s: Salience): boolean {
 /**
  * sal(m) = mean of the salience dimensions, floored by the author's claim.
  *
- * With novelty present that is v0's verbatim mean of four. With novelty null it
- * is the mean of the THREE author-supplied dimensions — the null case specified,
- * not implicit (review finding 2), and never a defaulted zero or one.
+ * FEELING IS NOT IN THE MEAN (2026-10-10, Group 1, review 02 C1). Until then
+ * this was v0's mean of four — novelty, relevance, emotional, predictive — and
+ * the same feeling counted again in height (`EMO_LIFT`) and slope. Now emotion
+ * reaches a memory's strength twice and only twice, each once: its height
+ * through `salArm` (`EMO_LIFT x I`) and its steepness through `stability`'s q
+ * (`EMO_Q x I`). The numeric `emotional` score stays on the row as an input to
+ * `emotionalIntensity` (I is the max of it and the recorded feelings).
+ * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+ * Why: one feeling, one count for height (02 D1).
+ *
+ * With novelty present the mean is of three; with novelty null it is the mean
+ * of the TWO author-supplied dimensions — the null case specified, not
+ * implicit (review finding 2), and never a defaulted zero or one.
  */
 export function sal(s: Salience): number {
-  const dims: number[] = [s.relevance, s.emotional, s.predictive];
+  const dims: number[] = [s.relevance, s.predictive];
   if (s.novelty !== null) dims.unshift(s.novelty);
   let sum = 0;
   for (const x of dims) sum += clamp01(x);
@@ -571,8 +649,9 @@ export function emotionalIntensity(m: { salience: Salience; feelingPeak?: number
 
 /**
  * The salience ARM of `base`: `sal(m)` with the emotion ADDED on top of it.
- * `sal()` itself stays v0's verbatim mean-with-floor — it is also what recall's
- * turn gate (§9 G10) and `challengeForce` read, and neither may see this lift.
+ * `sal()` itself is the mean-with-floor of the non-emotional dimensions (since
+ * 2026-10-10) — it is also what `challengeForce` reads, which may not see this
+ * lift; recall's turn gate (§9 G10) adds it only on a self-felt turn.
  * The repetition arm gets no lift at all, so "repetition is capped below
  * identity" (§3) is untouched.
  */
@@ -600,20 +679,46 @@ export function feelingSofteningDays(valence?: number): number {
 }
 
 /**
- * Stability S, in lived days. kappa DIVIDES (§5.4); emotion lengthens it
- * (§5.10); spaced RETURNS lengthen it (§5.11) — a factor of exactly 1 at zero
- * returns, so a memory that has never returned fades exactly as before.
+ * q — what sets a memory's STEEPNESS (2026-10-10, review 03 C1): its salience
+ * (`sal`, the claimed floor included) plus half its emotional intensity,
+ * clamped to [0, 1]. Height is `base` (with `EMO_LIFT`); this is the slope.
+ */
+export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak">): number {
+  return clamp01(sal(m.salience) + TUNABLES.EMO_Q * emotionalIntensity(m));
+}
+
+/**
+ * Stability S, in lived days (2026-10-10, Group 1, review 03 C1):
+ *
+ *   S = S0 · e^(G·q) · (1 + β·ln(1 + uses)) · (1 + ln(1 + returns)) / κ_kind
+ *
+ * q = clamp01(sal + EMO_Q · I) (`steepnessInput`). kappa DIVIDES (§5.4); use
+ * lengthens it (deposit); spaced RETURNS lengthen it (§5.11) — a factor of
+ * exactly 1 at zero returns. Feeling enters through q — `EMO_SLOPE`'s
+ * multiplier is folded in and gone.
+ *
+ * NEVER FADES = S = ∞: an identity-band memory (the core), and any kind whose
+ * κ is 0 (none today; the owner's records later). `(1 + t/∞)^−1 = 1`, so the
+ * exemption is the arithmetic, not a branch in every reader (03 D6).
+ *
+ * `spent` is the steep slope of a dated memory whose window has closed (07
+ * C2, `DatedHold`): q is taken as 0 — the completed intention is inhibited —
+ * while use, returns and kind still count.
  */
 export function stability(
-  m: Pick<MemoryPhysics, "kind" | "uses"> & Partial<Pick<MemoryPhysics, "salience" | "feelingPeak" | "returns">>,
+  m: Pick<MemoryPhysics, "kind" | "uses" | "salience"> &
+    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity">>,
+  opts: { spent?: boolean } = {},
 ): number {
-  const felt = m.salience === undefined ? 0 : emotionalIntensity({ salience: m.salience, feelingPeak: m.feelingPeak });
+  const kappa = kindPhysics(m.kind).kappa;
+  if (m.promotedIdentity === true || !(kappa > 0)) return Number.POSITIVE_INFINITY;
+  const q = opts.spent === true ? 0 : steepnessInput(m);
   return (
-    (TUNABLES.S_BASE *
+    (TUNABLES.S0 *
+      Math.exp(TUNABLES.STABILITY_GAIN * q) *
       (1 + TUNABLES.BETA * Math.log(1 + Math.max(0, m.uses))) *
-      (1 + TUNABLES.EMO_SLOPE * felt) *
       returnFactor(m.returns ?? 0)) /
-    kindPhysics(m.kind).kappa
+    kappa
   );
 }
 
@@ -623,13 +728,14 @@ export function returnFactor(returns: number): number {
   return 1 + TUNABLES.RETURN_GAIN * Math.log(1 + r);
 }
 
-/** The decay curve itself, over an elapsed lived-day interval. */
+/** The decay curve itself, over an elapsed lived-day interval. S = ∞ never decays. */
 export function decayCurve(
   elapsedDays: number,
   s: number,
   shape: DecayShape = TUNABLES.DECAY_SHAPE,
 ): number {
   const dt = Math.max(0, elapsedDays);
+  if (s === Number.POSITIVE_INFINITY) return 1;
   switch (shape) {
     case "flat":
       return Math.max(0, 1 - dt / s);
@@ -642,20 +748,132 @@ export function decayCurve(
 }
 
 /**
- * D(m, d) — Ebbinghaus over LIVED days.
+ * THE LIVED DAY A MEMORY'S CURVE COUNTS FROM (2026-10-10, review 03 C2): its
+ * last credited use, its last counted return, or its last counted dream
+ * replay, whichever is latest. A use was always the anchor; a RETURN — a
+ * reflection that cited it, a dream that replayed it — now re-anchors it too,
+ * which is how a replay "revives" a memory below reach without being a use
+ * (no `uses`, no rep arm, no credit-today latch: `creditUse` still reads
+ * `lastUsedDay` alone). The prune's dwell counts from the same day.
+ * Decided by g1a-builder, 2026-10-10, lightly held; revisit after ~5 lived
+ * days. Why: the synthesis says a dream replay revives; a return's ×(1 +
+ * ln 1.4) on S alone lifts a faded default note by ~0.01 — not back in reach.
+ */
+export function decayAnchor(
+  m: Pick<MemoryPhysics, "lastUsedDay"> & Partial<Pick<MemoryPhysics, "lastReturnDay" | "lastDreamDay">>,
+): number {
+  return Math.max(m.lastUsedDay, m.lastReturnDay ?? Number.NEGATIVE_INFINITY, m.lastDreamDay ?? Number.NEGATIVE_INFINITY);
+}
+
+/**
+ * The elapsed lived days the curve reads on day d, and whether the steep
+ * (spent) slope applies — the one place the dated hold acts (07 C1/C2):
  *
- * Identity-band memories are decay-exempt (D = 1): the named deviation of §2 —
- * flashbulb memories do fade in humans, here they do not. Everything else rides
- * the curve from its last credited use. Idempotent by construction: D is a pure
- * function of d, so there is no step to run twice (guarantee 5, scar E8).
+ *   - PENDING (a future date, or its window still open; a live repeat): t = 0.
+ *     The memory holds at its height until its window closes. No use is
+ *     credited — `uses`, `lastUsedDay` and returns are untouched.
+ *   - SPENT (its window closed): t counts from the window's close at the
+ *     latest (`closedDaysAgo`, calendar days, an upper bound on the lived days
+ *     since), on the steep slope.
+ *   - otherwise: t = d − `decayAnchor`.
+ */
+export function elapsed(m: MemoryPhysics, d: number): { t: number; spent: boolean } {
+  const t = Math.max(0, d - decayAnchor(m));
+  const hold = m.hold ?? null;
+  if (hold === null) return { t, spent: false };
+  if (hold.state === "pending") return { t: 0, spent: false };
+  return { t: Math.min(t, Math.max(0, hold.closedDaysAgo)), spent: true };
+}
+
+/**
+ * D(m, d) — the curve over LIVED days, from the memory's anchor.
+ *
+ * Identity-band memories are decay-exempt (D = 1) through S = ∞ — the named
+ * deviation of §2 (flashbulb memories do fade in humans, here they do not).
+ * Idempotent by construction: D is a pure function of d, so there is no step
+ * to run twice (guarantee 5, scar E8).
  */
 export function decay(m: MemoryPhysics, d: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): number {
   if (m.promotedIdentity) return 1;
-  return decayCurve(d - m.lastUsedDay, stability(m), shape);
+  const { t, spent } = elapsed(m, d);
+  return decayCurve(t, stability(m, { spent }), shape);
+}
+
+/** The memory's height before decay: `base x fade` (03 C1's h). */
+export function height(m: MemoryPhysics): number {
+  return clamp01(base(m) * fadeOf(m));
 }
 
 export function strength(m: MemoryPhysics, d: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): number {
   return clamp01(base(m) * decay(m, d, shape) * fadeOf(m));
+}
+
+/**
+ * IS IT BELOW REACH on lived day d? (2026-10-10, review 03 C2.) Strength under
+ * `REACH`, and not in the identity band (the core never leaves reach). A
+ * computed state, never stored. Pure.
+ */
+export function belowReach(m: MemoryPhysics, d: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): boolean {
+  if (m.promotedIdentity) return false;
+  return strength(m, d, shape) < TUNABLES.REACH;
+}
+
+/**
+ * The first whole lived day, counting from the memory's anchor, on which its
+ * strength is BELOW `theta` — assuming nothing about it changes (no use, no
+ * return, no new feeling). `null` when it never gets there (S = ∞, or it holds
+ * at t = 0), `0` when it is already below at t = 0. Closed form on the
+ * power-law (`h/(1 + t/S) < θ ⇔ t > S·(h/θ − 1)`); the other shapes are
+ * stepped, since only a replay tool asks them.
+ */
+export function daysUntilBelow(m: MemoryPhysics, theta: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): number | null {
+  if (m.promotedIdentity) return null;
+  const h = height(m);
+  if (h < theta) return 0;
+  if ((m.hold ?? null) !== null && m.hold?.state === "pending") return null;
+  const S = stability(m, { spent: m.hold?.state === "spent" });
+  if (S === Number.POSITIVE_INFINITY) return null;
+  if (shape === "power-law" && TUNABLES.POWER_LAW_PSI === 1) {
+    return Math.floor(S * (h / theta - 1)) + 1;
+  }
+  for (let t = 1; t <= 100_000; t++) if (h * decayCurve(t, S, shape) < theta) return t;
+  return null;
+}
+
+/** `next_change_day`'s "nothing will change": a lived day no store reaches. */
+export const NEVER_CHANGES = 1_000_000_000;
+
+/**
+ * THE NEXT LIVED DAY THIS MEMORY'S BAND, REACH OR PRUNE ELIGIBILITY CHANGES
+ * (2026-10-10, Group 1, review 13 C2), assuming nothing about it changes —
+ * the day the nightly turn-down has to look at it again. Strictly after `d`.
+ *
+ *   - the identity band, S = ∞: `NEVER_CHANGES`;
+ *   - a dated memory (pending or spent): `d + 1` — its hold turns on the
+ *     CALENDAR, which a lived day cannot predict, so it is looked at daily
+ *     (there are few of them);
+ *   - otherwise the first day it falls under the next of `THETA_SEM`, `REACH`
+ *     and `PHI_PRUNE` below where it stands, or — once under the floor — the
+ *     day its dwell reaches `D_FLOOR_DAYS`.
+ *
+ * Every input change (a use, a return, a feeling, a fade) is the WRITER's to
+ * signal by clearing the stored day (store v13's trigger does it for all of
+ * them); this function never guesses one.
+ */
+export function nextChangeDay(m: MemoryPhysics, d: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): number {
+  if (m.promotedIdentity) return NEVER_CHANGES;
+  if ((m.hold ?? null) !== null) return d + 1;
+  const anchor = decayAnchor(m);
+  const now = strength(m, d, shape);
+  const candidates: number[] = [];
+  for (const theta of [TUNABLES.THETA_SEM, TUNABLES.REACH, TUNABLES.PHI_PRUNE]) {
+    if (now < theta) continue;
+    const t = daysUntilBelow(m, theta, shape);
+    if (t !== null) candidates.push(anchor + t);
+  }
+  if (now < TUNABLES.PHI_PRUNE || candidates.length > 0) candidates.push(anchor + TUNABLES.D_FLOOR_DAYS);
+  const next = candidates.filter((x) => x > d).sort((a, b) => a - b)[0];
+  return next === undefined ? NEVER_CHANGES : next;
 }
 
 /**
@@ -1342,7 +1560,9 @@ export function challengeForce(
 export function pressureAt(
   m: Pick<MemoryPhysics, "pressure" | "lastChallengedDay">,
   d: number,
-  shape: DecayShape = TUNABLES.DECAY_SHAPE,
+  // Pinned exponential (2026-10-10): the memory curve went power-law; the
+  // pressure curve is the revision model's and stays as it was (`DECAY_SHAPE`).
+  shape: DecayShape = "exponential",
 ): number {
   if (m.pressure <= 0 || m.lastChallengedDay === null) return 0;
   return m.pressure * decayCurve(d - m.lastChallengedDay, TUNABLES.S_PRESSURE, shape);
@@ -1376,7 +1596,7 @@ export function applyChallenge(
   shape: DecayShape = TUNABLES.DECAY_SHAPE,
 ): ChallengeOutcome {
   const bar = revisionBar(target, d, shape);
-  const pressureBefore = pressureAt(target, d, shape);
+  const pressureBefore = pressureAt(target, d);
   const unchanged = { pressure: target.pressure, lastChallengedDay: target.lastChallengedDay };
   const refuse = (reason: ChallengeReason): ChallengeOutcome => ({
     verdict: "hold",
@@ -1613,7 +1833,9 @@ export function pruneVerdict(
 ): PruneVerdict {
   const s = strength(m, d, shape);
   const b = band(m, d, shape);
-  const dwellDays = d - m.lastUsedDay;
+  // Dwell from the curve's own anchor (2026-10-10): a dream replay or a
+  // reflection that revived a memory restarts its dwell as a use does.
+  const dwellDays = d - decayAnchor(m);
   const blockedBy: PruneReason[] = [];
   if (s >= TUNABLES.PHI_PRUNE) blockedBy.push("above-floor");
   if (dwellDays < TUNABLES.D_FLOOR_DAYS) blockedBy.push("dwell-too-short");

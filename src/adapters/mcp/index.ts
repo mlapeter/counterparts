@@ -30,7 +30,6 @@ export {
   RECALL_ID_RESULT_CHARS,
   RECALL_MAX_IDS,
   RECALL_RESULT_CHARS,
-  FADED_RETAINED,
   boundById,
   hasFaded,
   deliberateRecall,

@@ -45,7 +45,12 @@ export interface ProspectiveTunables {
   RAMP_CLOSE: number;
   /** Strength at or below which an unfired, closed window exits as FADED rather
    *  than EXPIRED (§5 G12's four named exits). Defaults to physics' prune floor:
-   *  one rule, one owner. CAL by inheritance — PHI_PRUNE is itself uncalibrated. */
+   *  one rule, one owner. CAL by inheritance — PHI_PRUNE is itself uncalibrated.
+   *  Since 2026-10-10 it never refuses a memory whose date is still pending
+   *  (physics' dated hold; `index.ts`'s load): decay holds it until its window
+   *  closes, so "faded before arrival" cannot happen — G10 reversed, lightly
+   *  held, on the rules audit. NOT `REACH`: below reach is ambient recall's
+   *  line, and a pending reminder is never below it on the way. */
   FADED_STRENGTH: number;
   /** Bound on the in-process session-dedup set (INTERFACE-GAPS #3). */
   MAX_SESSION_WINDOWS: number;
@@ -72,7 +77,9 @@ export const TEMPORAL_MAX_TIER: UseTier = "footnoted";
 export const TUNABLES: ProspectiveTunables = {
   SALIENCE_FLOOR: 0.6,
   LEAD_DAYS: 3,
-  GRACE_DAYS: 7,
+  // One rule, one owner (2026-10-10): decay holds a dated memory through the
+  // same grace (physics `HOLD_GRACE_DAYS`), so the window and the hold close together.
+  GRACE_DAYS: PHYSICS.HOLD_GRACE_DAYS,
   CUE_STRENGTH: 0.5,
   FIRES_PER_WINDOW: 2,
   HORIZON_ITEMS: 2,

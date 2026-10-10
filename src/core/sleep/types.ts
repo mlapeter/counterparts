@@ -17,6 +17,7 @@
  */
 
 import type { Band, Kind, MemoryPhysics } from "../types.js";
+import { HANDOFF_KIND, HANDOFF_LIFE_DAYS, HANDOFF_META_WRITTEN_DAY, HANDOFF_ROLE } from "../handoff/index.js";
 import type {
   EventLogCensus,
   EventPruneReport,
@@ -63,6 +64,18 @@ export interface SleepStore {
   returnsOf?(id: string): readonly { source: string; day?: number }[];
   versions(id: string): VersionRow[];
   deniedIds(): string[];
+
+  /**
+   * The turn-down (2026-10-10, review 13 C2), OPTIONAL so this port stays
+   * satisfiable by any store-shaped object: the live rows whose next-change day
+   * has come or is unknown, and the days written back. A port without them is
+   * walked whole every lived day, as before.
+   */
+  turnDownDue?(day: number): string[];
+  /** Rows born on lived day `day`, by kind, chapters left out — the census's one grouped read (optional). */
+  bornOn?(day: number): { kind: Kind; n: number }[];
+  setNextChangeDays?(rows: readonly { id: string; day: number }[]): void;
+  clearNextChangeDays?(): void;
 
   // writes
   advanceClock(date: string): number;
@@ -595,6 +608,52 @@ export function isSchemaRow(row: MemoryRow): boolean {
  * and current-state rows stay ordinary prune candidates. Read structurally —
  * `meta.role` — rather than by importing `schemas/` (NOTES §17).
  */
+/**
+ * A CHAPTER'S COPY — the ordinary memory every journal chapter is also
+ * ingested as (`self/index.ts#ingestEpisode`: source `episode`, `origin_ref`
+ * the chapter's id). Journal, not a memory to forget (2026-10-10, review 03
+ * C4a): the decay pass and the prune both skip it, as they skip the chapter.
+ * Read off the row's own columns, the shape `recall/activate.ts#journalCopyOf`
+ * reads (sleep does not import recall).
+ */
+export function isJournalCopy(row: Pick<MemoryRow, "type" | "source" | "origin_ref">): boolean {
+  return row.type === "memory" && row.source === "episode" && row.origin_ref !== null && row.origin_ref.length > 0;
+}
+
+/**
+ * A HANDOFF ROW (`handoff/index.ts#isHandoffDoc`): a schema row of the place
+ * kind whose meta says `role: handoff`. Read structurally, like
+ * `isEntityCard`.
+ */
+export function isHandoffRow(row: Pick<MemoryRow, "type" | "kind" | "meta">): boolean {
+  if (row.type !== "schema" || row.kind !== HANDOFF_KIND || !row.meta.includes(HANDOFF_ROLE)) return false;
+  try {
+    const meta = JSON.parse(row.meta) as { role?: unknown } | null;
+    return meta !== null && typeof meta === "object" && meta.role === HANDOFF_ROLE;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A handoff STILL LIVE on lived day `day` — written fewer than
+ * `HANDOFF_LIFE_DAYS` lived days ago (`handoff/index.ts#expired`, the same
+ * arithmetic). The prune never archives one (2026-10-10, review 03 C4b): its
+ * own expiry is its clock, and under a 14-day dwell the floor could otherwise
+ * take a pointer a session is still revising. An EXPIRED handoff is left to the
+ * prune, as the handoff module has always said. A handoff with no recorded day
+ * has expired (`expired`'s rule).
+ */
+export function isLiveHandoffRow(row: Pick<MemoryRow, "type" | "kind" | "meta">, day: number): boolean {
+  if (!isHandoffRow(row)) return false;
+  try {
+    const written = (JSON.parse(row.meta) as Record<string, unknown>)[HANDOFF_META_WRITTEN_DAY];
+    return typeof written === "number" && Number.isFinite(written) && HANDOFF_LIFE_DAYS - (day - written) > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function isEntityCard(row: MemoryRow): boolean {
   if (row.type !== "schema") return false;
   try {

@@ -600,15 +600,24 @@ export function census(
   const kinds = Object.keys(PHYSICS.KINDS) as Kind[];
   const created = new Map<Kind, number>();
   const exited = new Map<Kind, number>();
-  for (const id of store.list()) {
-    const row = store.row(id);
-    if (row === undefined) continue;
-    // MEMORIES. A chapter written today is not a memory born today, and
-    // counting it as one would give every journal kind a permanent
-    // created-without-exit imbalance — the exact signal G13 exists to raise
-    // (`sleep/types.ts#isJournal`).
-    if (isJournal(row)) continue;
-    if (row.birth_day === day) created.set(row.kind, (created.get(row.kind) ?? 0) + 1);
+  // ONE GROUPED READ where the port has it (2026-10-10, review 13 C2): this
+  // runs at every boundary, outside the phases' once-a-lived-day markers, and
+  // walked every row — archived ones too — with a two-subquery read each.
+  // The grouped count is the same number, indexed by birth day.
+  const born = store.bornOn?.(day);
+  if (born !== undefined) {
+    for (const b of born) created.set(b.kind, (created.get(b.kind) ?? 0) + b.n);
+  } else {
+    for (const id of store.list()) {
+      const row = store.row(id);
+      if (row === undefined) continue;
+      // MEMORIES. A chapter written today is not a memory born today, and
+      // counting it as one would give every journal kind a permanent
+      // created-without-exit imbalance — the exact signal G13 exists to raise
+      // (`sleep/types.ts#isJournal`).
+      if (isJournal(row)) continue;
+      if (row.birth_day === day) created.set(row.kind, (created.get(row.kind) ?? 0) + 1);
+    }
   }
   for (const p of pruned) exited.set(p.record.kind, (exited.get(p.record.kind) ?? 0) + 1);
   for (const m of merged) {
