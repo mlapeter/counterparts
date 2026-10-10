@@ -108,8 +108,14 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
 - **The hold runs through the grace week, not just to the date.** A dated memory is held
   through its date plus prospective's 7-day grace, so the window can still fire. Why: the
   late beat and the open window's quiet fire both need it in reach.
-- **A date that repeats is always held.** Why: a yearly date used once a year would otherwise
-  be below reach on the day it comes round.
+- **A date that repeats is held around each occurrence** — from 3 days before to the grace week
+  after — and fades between them, as Mike's 2026-10-09 design says. Why: a yearly date used once
+  a year would otherwise be below reach on the very day it comes round.
+- **Entity cards now fade on the steepest slope.** A card is a stub at salience 0, so a card used
+  a few times reaches the floor within weeks of lived days of its last use; its calendar floor
+  (180 days, 365 for people) is what keeps an unused card now. Before, a card used once stayed
+  over the floor for months. Cards are rarely born today (the title-vs-name bug, Group 3), so
+  this is noted rather than changed; review 03 C5 (one clock for cards) is where it belongs.
 - **"Fades steeply after" = the steepest slope (no salience, no feeling), counted from the
   window's close.** Use, returns and kind still count. A spent reminder at 0.6 leaves reach
   about two lived days after its window closes and exits about 12 lived days after that.

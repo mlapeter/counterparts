@@ -254,7 +254,9 @@ below anything, and strength tracked age and claimed salience rather than what m
 **§5.4a The dated hold (2026-10-10, review 07 C1/C2; decided by b2+f8, lightly held — it
 reverses prospective G10, "no decay exemption before arrival").** A memory whose
 `event_date` is still ahead is HELD at t = 0 through its last day plus `HOLD_GRACE_DAYS = 7`
-(prospective's grace, one owner); a date that still repeats is always held. After the window
+(prospective's grace, one owner); a date that still repeats is held through each occurrence's
+window (`HOLD_LEAD_DAYS = 3` before to the grace after) and fades on its curve between them, as
+the owner's 2026-10-09 design says. After the window
 closes it is SPENT: the steep slope (q = 0) with t counted from the close at the latest, so it
 leaves reach in a day or two. A date already past when the memory was written is not a
 reminder and is not held. Computed at the read seam from `event_date`, `learned_on`, the

@@ -2014,6 +2014,10 @@ Groups 2–4 are pre-provisioned so none of them bumps again.
   memory's birth day — what softening read until now, so nothing moves; a feeling recorded
   later (dream, reflection, awake) gets the lived day of the last logged event at or before its
   `created_at`, never before its memory's birth; with none, the birth day.
+- **No row is re-scored** (b2+f8, 2026-10-10, "judge by new users, no one-off fixes"): neither the
+  migration nor the first turn-down writes a salience dimension or a claim — a defaulted claim
+  (`meta.claimedDefault`) stays at 0.25, and new encoding defaults apply only to rows written
+  after the upgrade. The old store meets the new curve as it stands (`test/strength.test.ts`).
 - **`next_change_day` starts NULL on every row**, so the first turn-down after the upgrade
   reads every live row once — the night the new curve is first read.
 - **The observer floor stays at 11** (v12's reasoning): a v12 row read `m.*` has no new

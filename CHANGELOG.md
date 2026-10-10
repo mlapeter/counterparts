@@ -11,7 +11,7 @@
   using it, opening it or a dream replaying it brings it back. A memory that has sat under
   the floor for 14 lived days (was 90) is archived — never deleted, still readable by id.
   A reminder is held at full strength until its date and the week after, then fades fast;
-  a repeating date is always held. Chapters, their copies and live handoffs are never let
+  a repeating date is held around each time it comes round. Chapters, their copies and live handoffs are never let
   go. A feeling now counts once for how high a memory stands and once for how slowly it
   fades, and softens from the day it was recorded. The nightly pass reads only the
   memories whose standing changes that day. The dashboard counts "below reach now" and

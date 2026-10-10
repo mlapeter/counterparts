@@ -559,8 +559,9 @@ anything, and the first possible exit at lived day 91. What changed here, all li
   store's calendar today (`meta.lastActiveDate`, read beside the row by `Store.row()` as
   `today_date`). Pending → t = 0; spent → q = 0 and t from the window's close at the latest
   (calendar days since the close, an upper bound on the lived days since). Held through
-  `HOLD_GRACE_DAYS` (= prospective's 7-day grace) and always for a repeating date
-  (g1a-builder). A memory read without the store's today (a bare `SELECT *`) carries no hold;
+  `HOLD_GRACE_DAYS` (= prospective's 7-day grace); a repeating date through each occurrence's
+  window, `HOLD_LEAD_DAYS` (3) before to the grace after, fading between (the owner's 10-09
+  design: "its strength still decays for recall and display") — g1a-builder. A memory read without the store's today (a bare `SELECT *`) carries no hold;
   every `Store.row()` / `read()` / `physicsOf()` does.
 - **Below reach** (b2+f8, 03 C2): `REACH = 0.15`, `belowReach(m, d)`; never for the identity
   band. `nextChangeDay(m, d)`: the next band / reach / prune-eligibility day (13 C2), d + 1 for

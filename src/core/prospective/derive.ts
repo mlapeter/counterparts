@@ -13,7 +13,8 @@
  *     decided by b2+f8, lightly held; on the rules audit): physics now holds a
  *     memory whose date is ahead at t = 0 (`DatedHold`), at the read seam, so
  *     a pending reminder cannot fade on the way and `faded` is never set for
- *     one (`index.ts`'s load). A date that still REPEATS is held the same way.
+ *     one (`index.ts`'s load). A date that still REPEATS is held through each
+ *     occurrence's window, and fades between them.
  *
  * The dates come from the CALLER. This module does no NLP: it reads the shape of
  * a date string and nothing else (`windows.ts`). Whoever extracted "September"

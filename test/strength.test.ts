@@ -436,6 +436,43 @@ describe("store v13 — the one additive migration (synthesis §3)", () => {
     }
   });
 
+  test("neither the migration nor the first turn-down re-scores a row: claims and dimensions stay as stored", () => {
+    // b2+f8, 2026-10-10 ("judge by new users, no one-off fixes"): an old store
+    // goes through the new curve as it stands; a defaulted claim stays 0.25.
+    const s0 = Store.open({ dir, snapshotsDir: join(root, "snaps") });
+    s0.advanceClock("2026-10-01");
+    const ids = [
+      s0.put({ type: "memory", kind: "fact", body: "A silent note.", salience: { claimed: 0.25 }, meta: { claimedDefault: true } }),
+      s0.put({ type: "memory", kind: "skill", body: "A claimed skill.", salience: { relevance: 0.7, emotional: 0.4, predictive: 0.6, claimed: 0.6 } }),
+    ];
+    s0.close();
+    const cols = "id, novelty, relevance, emotional, predictive, claimed, meta";
+    const read = (): unknown[] => {
+      const d = new Database(paths.operational(dir), { readonly: true });
+      try {
+        return d.query(`SELECT ${cols} FROM memories ORDER BY id`).all();
+      } finally {
+        d.close();
+      }
+    };
+    const db = new Database(paths.operational(dir));
+    for (const t of V13_TRIGGERS) db.run(`DROP TRIGGER ${t}`);
+    for (const i of V13_INDEXES) db.run(`DROP INDEX ${i}`);
+    db.run("DROP TABLE derivations");
+    for (const [t, c] of V13_COLUMNS) db.run(`ALTER TABLE ${t} DROP COLUMN ${c}`);
+    db.run("UPDATE meta SET value = '12' WHERE key = 'schemaVersion'");
+    db.close();
+    const before = read();
+    const s = store();
+    expect(s.getMeta("schemaVersion")).toBe("13");
+    runCycle({ store: s, date: "2026-10-02" });
+    runCycle({ store: s, date: "2026-10-03" });
+    expect(s.row(ids[0] as string)?.claimed).toBe(0.25);
+    s.close();
+    open.splice(0);
+    expect(read()).toEqual(before);
+  });
+
   test("the copy taken before migrating is the way back: restored, it is the v12 store as it was", () => {
     const { id } = v12Store();
     const s = store();

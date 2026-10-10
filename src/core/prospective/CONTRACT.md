@@ -112,7 +112,8 @@ clothes. **Hold debts, lose deadlines.**
   curve a quiet reminder set a month out would have decayed and been refused `faded` before
   its day; people hold pending intentions. Physics now HOLDS a dated memory at t = 0 while
   its window is ahead (its date plus `GRACE_DAYS`, physics' `HOLD_GRACE_DAYS`) — computed at
-  the store's read seam, no column, no use credited — and a repeating date always; after the
+  the store's read seam, no column, no use credited — and a repeating date through each
+  occurrence's window (lead to grace; between windows it fades, as decided 2026-10-09); after the
   window closes it fades steeply. `faded` refuses only a memory whose hold is not pending.
   The 2026-10-09 carve-out for repeats stands.
 - **Firing state is not canonical memory**, and the write budget is set by that cost:

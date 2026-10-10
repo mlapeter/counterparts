@@ -523,7 +523,9 @@ Review 03 C4c / 07 C1: under the new curve (power-law, a default note out of rea
 days) G10's "no decay exemption before arrival" would have refused every quiet reminder set
 more than a few days out. Physics now HOLDS a dated memory at t = 0 while its window is ahead
 (`DatedHold`, computed at the store's read seam), through the date plus `GRACE_DAYS`, which now
-defaults to physics' `HOLD_GRACE_DAYS` (one owner); a repeating date is always held. After the
+defaults to physics' `HOLD_GRACE_DAYS` (one owner), as `LEAD_DAYS` defaults to `HOLD_LEAD_DAYS`; a
+repeating date is held through each occurrence's window (lead to grace) and fades between them, as
+the 2026-10-09 design says — so every occurrence finds it in reach. After the
 window closes the memory fades steeply. `load()` sets `faded` only when the hold is not
 pending, so a pending reminder whose height alone sits at the floor is still asked for.
 G10 is reversed, lightly held (decided by b2+f8; on the rules audit; it may also revise the
