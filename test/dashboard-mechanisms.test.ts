@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
+import { sourceOf } from "../src/adapters/dashboard/source.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
 import { router } from "../src/adapters/dashboard/web/server.js";
 import {
@@ -283,6 +284,32 @@ describe("times fired today (the sidebar's “Mechanisms today”, 2026-10-10)",
     const by = Object.fromEntries(v.mechanisms.map((m) => [m.id, m]));
     expect(by["salience"]?.evidence).toStartWith("8 memories scored as they were written");
     expect(by["retrieval"]?.status).toBe("green");
+  });
+
+  test("today is the person's zone's calendar day: a minute before its midnight is yesterday, a minute after is today", () => {
+    // Honolulu (UTC-10, no summer time): both rows fall on 2026-10-10 in UTC, a day apart on the person's clock.
+    const zone = "Pacific/Honolulu";
+    const dir = tempDir("counterparts-mech-today-zone-");
+    let t = Date.parse("2026-10-10T09:59:00Z"); // Oct 9, 23:59 in Honolulu
+    const c = Counterpart.open({ dir, owner: true, timeZone: zone, now: () => t });
+    try {
+      for (let i = 1; i <= 9; i++) c.store.advanceClock(`2026-10-0${String(i)}`);
+      const day = c.store.livedDay();
+      c.store.appendEvent({ name: "associate.flush", day, payload: { rows: 2 } });
+      t = Date.parse("2026-10-10T10:01:00Z"); // Oct 10, 00:01 in Honolulu
+      c.store.appendEvent({ name: "associate.flush", day, payload: { rows: 2 } });
+    } finally {
+      c.close();
+    }
+    const now = Date.parse("2026-10-10T20:00:00Z"); // Oct 10, 10:00 in Honolulu
+    const o = Counterpart.open({ dir, observer: true, timeZone: zone, now: () => now });
+    try {
+      const v = mechanismsView(sourceOf(o));
+      expect(v.today).toBe("2026-10-10");
+      expect(v.mechanisms.find((m) => m.id === "association")?.firedToday).toBe(1);
+    } finally {
+      o.close();
+    }
   });
 
   test("the route carries it, and reads nothing it should not: not a byte of the store moves", () => {
