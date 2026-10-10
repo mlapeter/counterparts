@@ -7,7 +7,8 @@
  * the day's first worker run, and a page written after that, a write-up that
  * landed, or the nightly run's page reached no wake until the next lived day:
  * on 2026-09-30 the owner's first session of the morning woke with the page
- * from one version back. Now the page write and the write-up set this mark,
+ * from one version back. Now the page write and the write-up set this mark
+ * (and, since 2026-10-10, every accepted memory and every handoff change),
  * and the turn-end worker re-renders when it finds it
  * (`Counterpart.refreshWake`); the nightly process re-renders at the run's end
  * without a mark, naming `run-end` as its trigger. Not at SessionStart: the
@@ -38,10 +39,14 @@ export const WAKE_BUILD_KEY = "self.wake.build";
  *  nightly run ended, the bundle was published by another build, or a plain
  *  reminder was told on its day (`told`, 2026-10-09) — told, it leaves
  *  "Arriving:", and a wake composed before the telling would still list it
- *  the next morning. */
-export type WakeTrigger = "page" | "write-up" | "run-end" | "version" | "told";
+ *  the next morning. Since 2026-10-10, also a memory accepted through any
+ *  other door (`memory`: `note`, the CLI's note — whatever reaches
+ *  `Counterpart.deposit` that is not a write-up) and a handoff written,
+ *  retired or cleared (`handoff`). Before, a note left Still open, Nearby and
+ *  Arriving stale for up to a day. */
+export type WakeTrigger = "page" | "write-up" | "run-end" | "version" | "told" | "memory" | "handoff";
 
-export const WAKE_TRIGGERS: readonly WakeTrigger[] = ["page", "write-up", "run-end", "version", "told"];
+export const WAKE_TRIGGERS: readonly WakeTrigger[] = ["page", "write-up", "run-end", "version", "told", "memory", "handoff"];
 
 /** The mark as it stands, with its raw value — the thing a render records as caught. */
 export interface WakeBehind {

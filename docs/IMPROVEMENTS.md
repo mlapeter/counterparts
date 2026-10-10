@@ -27,6 +27,12 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ---
 
+## Decisions to review — the mechanisms work, groups 1–5 (2026-10-10)
+
+- Decided by b2, 2026-10-10, lightly held: every accepted memory and handoff change marks the wake for re-render (was: only write-ups, chapters, page, told, version, run-end). Why: a hermetic repro showed note-written memories stale in Still open/Nearby/Arriving for up to a day; cost ~0.45 s per writing turn-end in the detached worker, no model calls.
+
+---
+
 ## U14 — The night run still can't open bundles over ~50 KB: the fix ships in 0.3.12 (2026-10-07)
 
 **Status 2026-10-09:** `built` (#315, merged 2026-10-02), **in 0.3.12** (published

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **A memory written with `note` reaches the next session's wake the same day.** Only
+  write-ups, chapters and the self page used to bring the wake up to date between days, so
+  a note left Still open, Nearby and Arriving as they were for up to a day, in every
+  directory, a question it answered included. Now every memory that lands, and every
+  handoff written or retired, re-renders the wake at that turn's end, in the background.
 - **Recall counts the memories instead of listing them on every turn.** At ten times
   today's size that list was about a sixth of a turn. A second speed-up, not looking up
   words found in almost every memory, is built but off: it changed what recall showed on
