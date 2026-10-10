@@ -236,8 +236,9 @@ import {
 import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
 // A's two modules: the host's files, and leaving. They import nothing from here
 // but the `Io` type, so this direction is one-way.
-import { realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } from "./wire.js";
-import { connectDesktop, desktopUnavailable, readDesktop } from "./desktop.js";
+import { look, realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } from "./wire.js";
+import { connectDesktop, desktopUnavailable, readDesktop, repairDesktop } from "./desktop.js";
+import type { DesktopRepair } from "./desktop.js";
 import { BINARY, bundledModelDir, packagePath, runtimeLabel } from "../runtime.js";
 import type { Binary } from "../runtime.js";
 import { DESKTOP_ALWAYS_ALLOW, DESKTOP_HOST, upgradeWords } from "../hosts.js";
@@ -4274,6 +4275,22 @@ async function hostWiringCommand(
     lister,
   };
   const result = command === "connect" ? await wire(input) : await unwire(input);
+  // CLAUDE DESKTOP'S ENTRY TOO (2026-10-10): `install --host claude-desktop`
+  // wrote a server command into Desktop's own file, and it needs the same
+  // repair the hooks just got — but never while Desktop is open
+  // (`desktop.ts#repairDesktop`).
+  let desktopFailed = false;
+  if (command === "connect") {
+    const sighting = look(lister);
+    const repair = repairDesktop({
+      home: home_,
+      exe: process.execPath,
+      desktopRunning: sighting.looked ? (sighting.desktopRunning ?? null) : null,
+      dryRun: input.dryRun === true,
+      now: now(),
+    });
+    desktopFailed = sayDesktopRepair(ui(io, env), repair, home_);
+  }
   // WHAT AN OPEN SESSION DOES NOW, printed by the CALLER (2026-09-22). `wire()`
   // used to say it itself, which put it in the middle of `install`'s screen two
   // lines above install's own "restart Claude Code, then run doctor". A
@@ -4292,7 +4309,38 @@ async function hostWiringCommand(
   ) {
     sessionsNote(ui(io, env), lister, { dataDir: store, env });
   }
-  return exitFor(result.outcome);
+  return desktopFailed && result.outcome === "ok" ? EXIT.failed : exitFor(result.outcome);
+}
+
+/** One line about Claude Desktop's entry, or none. True when the write failed. */
+function sayDesktopRepair(u: ReturnType<typeof ui>, repair: DesktopRepair, home_: string): boolean {
+  const where = tilde(repair.path, home_);
+  switch (repair.outcome) {
+    case "none":
+    case "current":
+      return false;
+    case "repaired":
+      u.ok(
+        `Claude Desktop: rewrote its counterparts entry to start the memory server the way Claude Code's now does${repair.backup === null ? "" : ` (backup: ${tilde(repair.backup, home_)})`}. It takes effect when Desktop next opens.`,
+      );
+      return false;
+    case "would-repair":
+      u.hint(`Claude Desktop: would rewrite its counterparts entry in ${where} to start the memory server the way Claude Code's does. Nothing was written.`);
+      return false;
+    case "desktop-running":
+      u.warn(
+        repair.unknownRunning === true
+          ? `Claude Desktop's counterparts entry was left as it was: whether Desktop is open could not be checked, and Desktop rewrites ${where} while it runs. Quit Claude Desktop, then run \`${BIN.cli} connect\` again.`
+          : `Claude Desktop is open, so its counterparts entry was left in the old shape: Desktop rewrites ${where} while it runs. Quit Claude Desktop, run \`${BIN.cli} connect\` again, then reopen it.`,
+      );
+      return false;
+    case "refused":
+      u.warn(`Claude Desktop: ${repair.detail ?? `${where} could not be read, and was left as it was.`}`);
+      return false;
+    case "failed":
+      u.fail(`Claude Desktop's entry could not be rewritten: ${repair.detail ?? "unknown error"}`);
+      return true;
+  }
 }
 
 /** `wire.ts` returns words, not numbers, so that it never has to import this

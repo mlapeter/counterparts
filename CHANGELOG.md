@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **`counterparts connect` now fixes Claude Desktop's entry too.** 0.3.14 told Bun to
+  skip a project's `.env` and `bunfig.toml`, and `connect` rewrote the hooks and Claude
+  Code's server registration to match. It left alone the entry that
+  `install --host claude-desktop` puts in Claude Desktop's own config file. Now `connect`
+  rewrites that entry as well: only the command that starts the server changes, and the
+  store it names stays the same. Desktop rewrites that file while it's open, so with
+  Desktop running `connect` leaves the entry as it was and asks you to quit Desktop and
+  run `connect` again. Doctor's Runtime line now reads Desktop's entry too, and stays
+  amber until it's done.
+- **Going back to an earlier version is in the quickstart** ("Going back to an earlier
+  version"): `disconnect` first, then the reinstall, then `connect`, and
+  `install --host claude-desktop` again if you use Claude Desktop. Done in the other
+  order, every hook breaks and the older version's doctor still reads green.
 - **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
   layout, a pane beside the transcript shows the brain turning in braille, the twelve
   mechanisms, search, and what this session kept and recalled (with the night's dreams and

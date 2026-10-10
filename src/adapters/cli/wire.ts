@@ -997,7 +997,18 @@ export interface ProcessSighting {
    * Absent when the look could not say, and from a lister that does not.
    */
   readonly parents?: ReadonlyMap<number, number>;
+  /**
+   * Whether Claude Desktop itself is running (its app's main process, not a
+   * server of ours) — `connect` will not rewrite Desktop's config file under
+   * it, because Desktop rewrites that file while it runs. Absent when the
+   * look could not say, and from a lister that does not.
+   */
+  readonly desktopRunning?: boolean;
 }
+
+/** Claude Desktop's main process on macOS: the app's own executable, not its
+ *  "Claude Helper" processes and not a path that merely mentions the app. */
+export const DESKTOP_APP_PROCESS = /(^|\/)Claude\.app\/Contents\/MacOS\/Claude(\s|$)/;
 
 export type ProcessLister = () => ProcessSighting;
 
@@ -1061,6 +1072,7 @@ export function realProcessLister(env: Record<string, string | undefined>): Proc
       if (res.status !== 0) return NO_LOOK;
       const out: RunningProcess[] = [];
       const parents = new Map<number, number>();
+      let desktopRunning = false;
       for (const line of String(res.stdout ?? "").split("\n")) {
         const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
         if (m === null) continue;
@@ -1068,12 +1080,13 @@ export function realProcessLister(env: Record<string, string | undefined>): Proc
         const ppid = Number(m[2]);
         const command = m[3] ?? "";
         parents.set(pid, ppid);
+        if (DESKTOP_APP_PROCESS.test(command)) desktopRunning = true;
         if (pid === process.pid) continue;
         const what = processMark(command);
         if (what === null) continue;
         out.push({ pid, what, command, ppid });
       }
-      return { looked: true, processes: out, parents };
+      return { looked: true, processes: out, parents, desktopRunning };
     } catch {
       return NO_LOOK;
     }

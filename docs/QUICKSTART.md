@@ -107,6 +107,18 @@ bun add -g counterparts@latest
 Your memory isn't changed by an upgrade. Open sessions keep running the old version until
 they restart.
 
+Coming from 0.3.13 or earlier, run this once after upgrading. If you connected Claude
+Desktop, quit it first:
+
+```
+counterparts connect
+```
+
+It rewrites the hooks, the memory server's registration and Claude Desktop's entry so
+that Bun no longer reads a project's `.env` or `bunfig.toml` into them. Until then
+`counterparts doctor`'s Runtime line is amber. Desktop rewrites its own config file while
+it's open, so `connect` leaves Desktop's entry alone while Desktop runs, and says so.
+
 If you set it up before search by meaning was built in, it turns on by itself after the
 upgrade. An older setup that used a Voyage or Anthropic key keeps working without it:
 those settings are ignored now, and `counterparts doctor --all` lists them as old
@@ -117,6 +129,16 @@ kept):
 ```
 counterparts install --force --embedder
 ```
+
+### Going back to an earlier version
+
+Go back in this order. The other order breaks every hook, and the older version's
+`doctor` still reads green.
+
+1. `counterparts disconnect`, while the newer version is still installed.
+2. Install the older version, for example `bun add -g counterparts@0.3.13`.
+3. `counterparts connect`.
+4. If you connected Claude Desktop: quit it, then run `counterparts install --host claude-desktop`.
 
 ## Start over
 
