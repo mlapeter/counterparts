@@ -56,8 +56,14 @@
  *     twin. A process that started after the holder finished is a separate event
  *     that happens to look the same — a host with no `prompt_id` sending the same
  *     words twice, a session resumed twice in a row — and it delivers. So the
- *     time a hook takes, the store's busy timeout or a slow start-up cannot turn
- *     a twin into a second delivery, and no repeat is ever swallowed by a clock.
+ *     time a hook takes or the store's busy timeout cannot turn a twin into a
+ *     second delivery, and no repeat is ever swallowed by a clock. A slow
+ *     START-UP can, and did (2026-10-10, measured under load: a twin's runtime
+ *     came up 45 ms after the winner finished, and the session got two wakes).
+ *     So an event the host sends ONCE per key (`firesOnce`: a session's first
+ *     start, a prompt with its id) is a twin whenever it started; the rest keep
+ *     the start-time rule, and there the claim is a backstop that a very late
+ *     twin can still pass.
  *   - A holder that never says it finished (killed, crashed) holds for
  *     `CLAIM_WINDOW_MS` and no longer.
  *
@@ -280,6 +286,27 @@ export function deliveryClaimKey(name: HookName, payload: Record<string, unknown
   return digest(JSON.stringify(parts));
 }
 
+/**
+ * DOES THE HOST SEND THIS EVENT ONCE PER KEY? (2026-10-10, the 0.3.15 release
+ * check.) A SessionStart that opens a session id — `startup`, `clear`, `fork`,
+ * each a new id — and a prompt carrying its `prompt_id`, one per prompt, are
+ * never sent twice. So for these a same-key process inside the window is the
+ * holder's twin WHENEVER it started. Measured: with two settings wirings on a
+ * machine loaded by the suite, the second hook's runtime came up 45 ms after
+ * the first had finished its SessionStart, the start-time rule read a new
+ * event, and the session got two wakes (1 session of 6; 5 of 5 were single on
+ * a quiet machine). `resume`, `compact`, a Stop, SessionEnd, PreCompact and a
+ * prompt with no id can legitimately repeat with the same key, so they keep the
+ * start-time rule, and for them a twin that starts late still delivers: the
+ * plugin's stand-down (`plugin.ts#hookGate`) is the main guard, the claim a
+ * backstop. Pure.
+ */
+export function firesOnce(name: HookName, payload: Record<string, unknown>): boolean {
+  if (name === "session-start") return ["startup", "clear", "fork"].includes(text(payload, "source"));
+  if (name === "user-prompt-submit") return text(payload, "prompt_id").length > 0;
+  return false;
+}
+
 /** One held claim: when it was made, by which side, when its process started,
  *  and when it finished (absent while it runs). */
 interface Held {
@@ -333,6 +360,9 @@ export interface ClaimInput {
   readonly observer: boolean;
   /** When this process started (epoch ms); `performance.timeOrigin` by default. */
   readonly started?: number;
+  /** The host sends this event once per key (`firesOnce`): a same-key claim in
+   *  the window is a twin whenever this process started. */
+  readonly once?: boolean;
   readonly now?: number;
 }
 
@@ -388,8 +418,10 @@ export function claimDelivery(doors: ClaimDoors, input: ClaimInput): Claim {
       seen.heldBy = null;
       const claims = readClaims(current);
       const held = claims[key];
-      // A TWIN: the same event, and this process began before the holder ended.
-      if (held !== undefined && fresh(held) && (held.ended === undefined || started < held.ended)) {
+      // A TWIN: the same event, and this process began before the holder ended
+      // — or the host sends this event only once, so any same-key process in
+      // the window is one, however late its runtime came up (`firesOnce`).
+      if (held !== undefined && fresh(held) && (input.once === true || held.ended === undefined || started < held.ended)) {
         seen.heldBy = held.side;
         return undefined;
       }

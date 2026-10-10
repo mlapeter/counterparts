@@ -3166,9 +3166,13 @@ const CLAIM_ROWS = 500;
  * nothing. The plugin stands down by itself when it can read the npm wiring
  * (`plugin.ts#hookGate`), so a row here means that reading failed — an older
  * plugin beside a newer `connect`, or two settings files naming two builds.
- * AMBER: nothing reached the session twice, but every event still starts two
- * hook processes, and the two builds' workers take turns at the store. One
- * bounded read of an indexed name.
+ * AMBER: every event still starts two hook processes, the two builds' workers
+ * take turns at the store, and the claim is a BACKSTOP, not a guarantee — it
+ * stops the twins it sees, and this line can count only those (the 0.3.15
+ * release check measured one late twin delivering a second wake under load,
+ * 2026-10-10; `claim.ts#firesOnce` closes that case for a session's first
+ * start and an identified prompt). So it does not say "nothing was delivered
+ * twice". One bounded read of an indexed name.
  */
 export function claimFindings(store: Store, plugin: PluginInstallRead | null = null): Finding[] {
   return [...setAsideFindings(store), ...twiceFindings(store, plugin)];
@@ -3229,13 +3233,13 @@ function twiceFindings(store: Store, plugin: PluginInstallRead | null): Finding[
   const count = rows.length >= CLAIM_ROWS ? `${String(CLAIM_ROWS)}+` : String(rows.length);
   const fix = sides.has("plugin")
     ? `Keep one: to keep only the plugin, run \`counterparts disconnect\` and restart Claude Code; to keep only the npm install, run \`claude plugin uninstall ${plugin?.id ?? "counterparts@<marketplace>"}\`. Same memory either way.`
-    : "Keep one: remove the extra Counterparts hook lines from the project's .claude/settings.json or .claude/settings.local.json (or run `counterparts disconnect` and then `counterparts connect`), then restart Claude Code.";
+    : "Keep one: remove the extra Counterparts hook lines from ~/.claude/settings.json or the project's .claude/settings.json or .claude/settings.local.json (or run `counterparts disconnect` and then `counterparts connect`), then restart Claude Code.";
   return [
     finding(
       "claim",
       "amber",
       "Installed twice",
-      `two Counterparts wirings are live (${who}): ${count} hook ${rows.length === 1 ? "run" : "runs"} in the last ${String(CLAIM_WINDOW_DAYS)} days found the event already taken and stood down by claim, so nothing was delivered twice; newest ${localStamp(newest.at, store.zone())} (${[...hooks].sort().join(", ")})`,
+      `two Counterparts wirings are live (${who}): ${count} hook ${rows.length === 1 ? "run" : "runs"} in the last ${String(CLAIM_WINDOW_DAYS)} days found the event already taken and stood down by claim (the claim is a backstop: it counts the twins it stopped, not one that came too late for it); newest ${localStamp(newest.at, store.zone())} (${[...hooks].sort().join(", ")})`,
       fix,
       { stoodDown: rows.length, sides: [...sides].sort().join(","), hooks: [...hooks].sort().join(","), newestAt: newest.at },
     ),

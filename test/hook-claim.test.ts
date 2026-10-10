@@ -27,6 +27,7 @@ import {
   claimsPath,
   deliveryClaimKey,
   finishClaim,
+  firesOnce,
 } from "../src/adapters/claude-code/claim.js";
 import type { ClaimDoors } from "../src/adapters/claude-code/claim.js";
 import { claimFindings, doctorFindings } from "../src/adapters/claude-code/doctor.js";
@@ -145,6 +146,40 @@ describe("claimDelivery", () => {
     } finally {
       cp.close();
     }
+  });
+
+  test("an event the host sends ONCE: a twin whose runtime came up after the holder finished still loses (the 0.3.15 check's 45 ms)", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      const t0 = 1_800_000_000_000;
+      const base = { hook: "session-start" as const, sessionId: "s1", observer: false };
+      // Measured 2026-10-10 under load: the twin's runtime started 45 ms after the winner finished.
+      for (const key of ["by-start-time", "sent-once"]) {
+        const first = claimDelivery(cp, { ...base, key, side: "settings", started: t0, now: t0 + 90, once: key === "sent-once" });
+        expect(finishClaim(cp, key, first.at ?? 0, t0 + 200)).toBe(true);
+      }
+      // By start time alone it reads as a new event, and delivers a second wake…
+      expect(claimDelivery(cp, { ...base, key: "by-start-time", side: "plugin", started: t0 + 245, now: t0 + 260 }).outcome).toBe("won");
+      // …unless the host sends it once: then any same-key process in the window is the twin.
+      expect(claimDelivery(cp, { ...base, key: "sent-once", side: "plugin", started: t0 + 245, now: t0 + 260, once: true })).toEqual({
+        outcome: "lost",
+        heldBy: "settings",
+      });
+      // The window still bounds it.
+      expect(
+        claimDelivery(cp, { ...base, key: "sent-once", side: "plugin", started: t0 + CLAIM_WINDOW_MS + 300, now: t0 + CLAIM_WINDOW_MS + 300, once: true }).outcome,
+      ).toBe("won");
+    } finally {
+      cp.close();
+    }
+  });
+
+  test("which events the host sends once: a start that opens a session id, and a prompt with its id", () => {
+    for (const source of ["startup", "clear", "fork"]) expect(firesOnce("session-start", { source })).toBe(true);
+    for (const source of ["resume", "compact", ""]) expect(firesOnce("session-start", { source })).toBe(false);
+    expect(firesOnce("user-prompt-submit", { prompt: "x", prompt_id: "p-1" })).toBe(true);
+    expect(firesOnce("user-prompt-submit", { prompt: "x" })).toBe(false);
+    for (const name of ["stop", "session-end", "pre-compact"] as const) expect(firesOnce(name, { prompt_id: "p-1", source: "startup" })).toBe(false);
   });
 
   test("a holder that never finished holds for the window and no longer; the row keeps only the window", () => {
@@ -304,6 +339,33 @@ describe("two wirings fire one event", () => {
       }
       expect((runs[0]?.stdout ?? "").length).toBeGreaterThan(0);
       expect(events(HOOK_CLAIM_LOST_EVENT)).toBe(0);
+    },
+    120_000,
+  );
+});
+
+// ── a twin that came up late (the 0.3.15 release check) ─────────────────────
+
+describe("a twin whose runtime came up after the first hook finished", () => {
+  test(
+    "a session's first start, and an identified prompt, still run once: the late twin stands down",
+    async () => {
+      Counterpart.open({ dir: store }).close();
+      // One after the other: the second process starts after the first has
+      // finished, which is what a loaded machine did to a real twin.
+      for (const [event, extra] of [
+        ["SessionStart", { source: "startup" }],
+        ["UserPromptSubmit", { prompt: "what did we decide?", prompt_id: "p-late" }],
+      ] as const) {
+        const first = await startHook(payload(event, extra));
+        const late = await startHook(payload(event, extra));
+        expect([first.code, late.code]).toEqual([0, 0]);
+        expect(first.stderr).not.toContain(CLAIMED);
+        if (event === "SessionStart") expect(first.stdout.length).toBeGreaterThan(0);
+        expect(late.stderr).toContain(CLAIMED);
+        expect(late.stdout).toBe("");
+      }
+      expect(events(HOOK_CLAIM_LOST_EVENT)).toBe(2);
     },
     120_000,
   );
@@ -667,6 +729,9 @@ describe("doctor's Installed twice line", () => {
       expect(f?.title).toBe("Installed twice");
       expect(f?.detail).toContain("two Counterparts wirings are live (the Claude Code plugin's hooks and the hooks in your settings): 2 hook runs");
       expect(f?.detail).toContain("(session-start, user-prompt-submit)");
+      // It counts the twins the claim stopped and says no more (the 0.3.15 check measured a late one).
+      expect(f?.detail).toContain("the claim is a backstop");
+      expect(f?.detail).not.toContain("nothing was delivered twice");
       expect(f?.fix).toContain("counterparts disconnect");
       expect(f?.fix).toContain("claude plugin uninstall counterparts@counterparts");
       // And the reading carries it.

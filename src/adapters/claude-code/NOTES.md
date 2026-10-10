@@ -2369,3 +2369,28 @@ INTERFACE-GAPS §15.
   SQLite opens it, so its `-wal` and `-shm` take 0600 too (SQLite gives them the database
   file's mode; the test holds a reader open so they exist to check). Only at creation, as
   `log/` does: a directory an earlier build made stays as it is.
+
+## 2026-10-10 — a late twin got through at SessionStart (the 0.3.15 release check)
+
+- **What was measured.** The release check wired two settings hooks for one build in a
+  throwaway HOME, so the plugin's gate could not stop either, and fired every event on both
+  at once. On a quiet machine 5 of 5 sessions delivered once at every event. With the suite
+  loading the machine, the first session delivered two wakes at SessionStart; its other
+  three events claimed correctly. The second hook's `performance.timeOrigin` was 45 ms after
+  the first had finished, so the twin rule (started before the holder finished) read a new
+  event. Not a gap in claim/finish ordering, and not a SessionStart path that skips the
+  claim: only `off`/`paused` and the plugin gate return before it.
+- **The fix, contained.** Some events the host sends once per key: a SessionStart whose
+  `source` opens a session id (`startup`, `clear`, `fork` — each a new id) and a prompt with
+  its `prompt_id`. For those (`claim.ts#firesOnce`, `ClaimInput.once`) a same-key process
+  inside the 15 s window is a twin whenever it started. The events that can repeat with
+  the same key — `resume`, `compact`, Stop, SessionEnd, PreCompact, a prompt with no id —
+  keep the start-time rule, because #355's review made "a repeat is never swallowed" the
+  rule and its tests run those back to back. A general grace period was looked at and not
+  taken: it would swallow exactly those repeats.
+- **What stays true.** For the repeatable events a twin whose runtime starts after the
+  holder finished still delivers. The plugin's stand-down (`plugin.ts#hookGate`) is the
+  main guard; the claim is a backstop. Doctor's `Installed twice` line said "so nothing was
+  delivered twice", which it cannot see; it now says the claim is a backstop that counts
+  the twins it stopped. Its fix text names `~/.claude/settings.json` too, where the release
+  check had both wirings.

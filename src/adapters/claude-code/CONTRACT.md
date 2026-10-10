@@ -646,19 +646,32 @@ row, saying which source answered, existed until the keys were removed — §1a.
       `adapter.hook.claim.lost` row, and leaves one stderr line. All five events
       are claimed. A matching key from a process that started after the holder
       finished is a separate event (a host with no `prompt_id` sending the same
-      words twice) and delivers. **Fail-open:** no session id, an observer, or a
+      words twice) and delivers — EXCEPT for an event the host sends once per key
+      (`firesOnce`: a SessionStart whose `source` opens a session id — `startup`,
+      `clear`, `fork` — and a prompt with its `prompt_id`), where any same-key
+      process inside the window is the twin however late its runtime came up
+      (2026-10-10: the 0.3.15 release check measured a twin starting 45 ms after
+      the winner finished, under load, and two wakes). For the events that can
+      legitimately repeat, a twin that starts that late still delivers: the
+      stand-down above is the main guard, and the claim a backstop that stops
+      the twins it sees. **Fail-open:** no session id, an observer, or a
       claims file that will not take the write, and the process delivers, so one
       wiring behaves exactly as before (two small writes: about 0.3 ms measured in
-      process, within noise end to end). The claims are in their own file, not
+      process, within noise end to end). A claims file that is not a database
+      is set aside with its `-wal`/`-shm` as `hook-claims.unreadable-<ms>.sqlite`
+      (one copy kept) and made again, once, and the event is claimed on the new
+      file; doctor's `Hook claims` line (amber, a week) reads the copy. The
+      directory is 0700 and the file 0600. The claims are in their own file, not
       the store's `meta`, so a claim waits only on another claim: the store's
       writers (the worker the last Stop started, the MCP server, the CLI) never
       hold it up, and a store somebody holds costs it nothing. Each of the two
       writes waits at most `CLAIM_WAIT_MS` (500 ms). A claim that could not be
-      written is in the hook's `process.end` log line; it is said on stderr too
-      only when it is a fault (the file cannot be made or written), not when
-      another claim held the file. Doctor's `Installed twice` line (amber)
-      reads the week's `claim.lost` rows. The transcript's size is not in the key:
-      the host may write between the twins starting.
+      written is in the hook's `process.end` log line, as its error's code; it is
+      said on stderr too only when it is a fault (the file cannot be made or
+      written), not when another claim held the file. Doctor's `Installed twice`
+      line (amber) reads the week's `claim.lost` rows, and says only what they
+      show. The transcript's size is not in the key: the host may write between
+      the twins starting.
 
 ### The nightly run, and the page writer inside it (2026-09-28 — working defaults, held lightly)
 

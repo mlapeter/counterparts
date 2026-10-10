@@ -65,7 +65,7 @@ import { BINARY, scriptArgs } from "../../runtime.js";
 import type { Binary } from "../../runtime.js";
 import { npmWiring } from "../../host-wiring.js";
 import { PLUGIN_ROOT_ENV, ensureFirstRun, hookGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
-import { claimDelivery, deliveryClaimKey, finishClaim } from "../claim.js";
+import { claimDelivery, deliveryClaimKey, finishClaim, firesOnce } from "../claim.js";
 
 /**
  * The host's own spellings of the two events that carry a notice — one
@@ -935,6 +935,9 @@ async function runHook(
     sessionId: said.sessionId,
     side: runningAsPlugin(process.env) ? "plugin" : "settings",
     observer: config.observer === true,
+    // A session-opening start or an identified prompt is sent once, so a twin
+    // whose runtime came up late is still a twin (`../claim.ts#firesOnce`).
+    once: firesOnce(name, payload),
   });
   // A CLAIMS FILE THAT WAS NOT A DATABASE was set aside and rebuilt on the way
   // (review of #359): said once, here, and kept as the copy doctor reads.
