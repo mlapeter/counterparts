@@ -45,7 +45,8 @@ import {
   BRIEFING_KEY,
   COLLAPSED_WORDS,
   FRAMING,
-  PAGE_LIMIT_BYTES,
+  PAGE_END_LINES,
+  PAGE_ROOM_BYTES,
   PREFACE_RESERVE_BYTES,
   SELF_TUNABLES,
   arrivingTense,
@@ -55,6 +56,7 @@ import {
   moreLine,
   prefaceLine,
   pageTooLargeLine,
+  pageTopLine,
   readSentinel,
   render,
   Self,
@@ -157,17 +159,17 @@ function pageOf(bytes: number): string {
 
 /**
  * Write a page of `bytes` bytes; returns it, as the store holds it. Past the
- * limit, it is written the way such a page got into a store — before the limit
- * (2026-10-09), when the seam took up to 16 KB.
+ * room it is kept as it is (2026-10-10): only the 16 KB ceiling refuses.
  */
 function longPage(a: ReturnType<typeof openAdapter>, bytes: number): string {
   const page = pageOf(bytes);
-  const door =
-    bytes <= PAGE_LIMIT_BYTES
-      ? a.counterpart
-      : new Self({ store: a.counterpart.store, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } });
-  expect(door.revisePage(page, { by: "owner", reason: "a long page" }).written).toBe(true);
+  expect(a.counterpart.revisePage(page, { by: "owner", reason: "a long page" }).written).toBe(true);
   return page;
+}
+
+/** The page whole as "Who I am" prints it: its top line, then the page. */
+function whole(page: string): string {
+  return `${FRAMING.identity}\n${pageTopLine("whole", Buffer.byteLength(page)) ?? ""}\n${page}\n`;
 }
 
 /** Chapters written on `ymd`, so the wake carries a Yesterday line the next day. */
@@ -256,18 +258,18 @@ describe("Still open keeps its first item beside a long page, and the page is ne
 
   for (const zone of ZONES) {
     // The owner's page was 5,845 bytes (version 16) and is 5,904 (version 17);
-    // `PAGE_LIMIT_BYTES` is the longest a page may be written (2026-10-09),
-    // past the room the lanes beside it had. At 5,904 the trim keeps one item
+    // `PAGE_ROOM_BYTES` is the room its writer aims under (2026-10-10), past
+    // the room the lanes beside it had. At 5,904 the trim keeps one item
     // and no room for its count; the count is paid for out of "Work here"
     // (review of #358), so the lane never reads as if one thing were open.
-    for (const bytes of [5_845, 5_904, PAGE_LIMIT_BYTES]) {
+    for (const bytes of [5_845, 5_904, PAGE_ROOM_BYTES]) {
       test(`${zone}: a ${String(bytes)}-byte page is printed whole, byte for byte, and "Still open" still lists its first item and its count`, async () => {
         const { a, ids, page, text, stored } = await morning(zone, bytes);
         expect(readSentinel(text).intact).toBe(true);
         expect(Buffer.byteLength(text)).toBeLessThanOrEqual(BUDGET);
         // THE PAGE, WHOLE: in the stored bundle and in what the session got.
-        expect(stored).toContain(`${FRAMING.identity}\n${page}\n`);
-        expect(text).toContain(`${FRAMING.identity}\n${page}\n`);
+        expect(stored).toContain(whole(page));
+        expect(text).toContain(whole(page));
         expect(stored).not.toContain("the wake shows the first");
         // STILL OPEN: an item first, then how many more — never a heading over a count.
         const open = lane(text, FRAMING.threads) ?? [];
@@ -286,12 +288,12 @@ describe("Still open keeps its first item beside a long page, and the page is ne
       });
     }
 
-    test(`${zone}: a page past its room (written before the limit) borrows "Work here" and prints whole — Arriving keeps its first line, and the wake fits`, async () => {
-      // 7,000 bytes: past this composition's room (its budget less the
+    test(`${zone}: a page past its room borrows "Work here" and prints whole — Arriving keeps its first line, and the wake fits`, async () => {
+      // 6,850 bytes: past this composition's room (its budget less the
       // furniture), within it once "Work here" lends (review of #358).
-      const { text, stored, page } = await morning(zone, 7_000);
-      expect(stored).toContain(`${FRAMING.identity}\n${page}\n`);
-      expect(text).toContain(`${FRAMING.identity}\n${page}\n`);
+      const { text, stored, page } = await morning(zone, 6_850);
+      expect(stored).toContain(whole(page));
+      expect(text).toContain(whole(page));
       expect(text).not.toContain("My page is");
       expect(readSentinel(text).intact).toBe(true);
       expect(Buffer.byteLength(text)).toBeLessThanOrEqual(BUDGET);
@@ -299,13 +301,16 @@ describe("Still open keeps its first item beside a long page, and the page is ne
       expect(text).toContain("Where the work in this directory was left off");
     });
 
-    test(`${zone}: a page past even the borrowed room (written before the limit) is never cut — one line stands for it, and the lanes beside it take nothing from it`, async () => {
+    test(`${zone}: a page past even the borrowed room is never cut — with no short version, its outline stands for it, and the lanes beside it take nothing from it`, async () => {
       const { text, stored, page } = await morning(zone, 8_400);
-      const line = pageTooLargeLine(8_400);
-      expect(stored).toContain(`${FRAMING.identity}\n${line}\n`);
-      expect(text).toContain(`${FRAMING.identity}\n${line}\n`);
+      // This page has no headings: its outline is its first whole sentence.
+      const outline = `${FRAMING.identity}\n${pageTopLine("outline", 8_400) ?? ""}\nI keep a careful account of the studio and the people in it, and I say what I do not know before I guess.\n`;
+      expect(stored).toContain(outline);
+      expect(text).toContain(outline);
+      expect(text).toContain(`\n${PAGE_END_LINES.outline}\n`);
       expect(text).not.toContain(page.slice(0, 200));
       expect(text).not.toContain("the wake shows the first");
+      expect(text).not.toContain(pageTooLargeLine(8_400));
       const open = lane(text, FRAMING.threads) ?? [];
       expect(open[0]?.startsWith("- ")).toBe(true);
       expect(readSentinel(text).intact).toBe(true);
@@ -401,7 +406,7 @@ describe("what gives way for Still open's first item, in order — never the pag
     learnedOn: "2026-10-01",
   });
   const body = pageOf(3_000);
-  const page = { text: body, dateline: null, truncated: false, wholeBytes: 3_000 };
+  const page = { text: body, top: null, dateline: null, end: null, rung: "whole" as const, truncated: false, wholeBytes: 3_000 };
   const title = (i: number): string => `"Seating the relief valves on kiln number ${String(i)}" (epi_${String(i)})`;
   const full = `Yesterday, 10-07: ${[0, 1, 2, 3].map(title).join("; ")}.`;
   const shorter = [3, 2, 1].map((n) => `Yesterday, 10-07: ${[0, 1, 2].slice(0, n).map(title).join("; ")}; and ${String(4 - n)} more.`);

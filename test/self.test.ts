@@ -2392,8 +2392,9 @@ describe("structural guarantees", () => {
     for (const f of files) {
       const src = readFileSync(join(SELF_SRC, f), "utf8")
         .replace(/\/\*[\s\S]*?\*\//g, "")
-        // ONE NAMED EXCEPTION (2026-10-09): the ceiling the self page's WRITE
-        // limit is sized against (`briefing.ts#PAGE_LIMIT_BYTES`). It composes
+        // ONE NAMED EXCEPTION (2026-10-09): the ceiling the self page's room —
+        // the target its writer is told — is sized against
+        // (`briefing.ts#PAGE_ROOM_BYTES`). It composes
         // nothing — the next test holds it to that one use — so there is
         // still no budget here to fall back to.
         .replace("export const PAGE_HOST_BUDGET_BYTES = 9_000;", "");
@@ -2402,7 +2403,7 @@ describe("structural guarantees", () => {
     }
   });
 
-  test("the page's sizing ceiling is read in ONE place — the limit's derivation, never a composition (scar §2.18)", () => {
+  test("the page's sizing ceiling is read in ONE place — the room's derivation, never a composition (scar §2.18)", () => {
     const uses: string[] = [];
     for (const f of readdirSync(SELF_SRC).filter((x) => x.endsWith(".ts")).sort()) {
       const src = readFileSync(join(SELF_SRC, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
@@ -2410,7 +2411,7 @@ describe("structural guarantees", () => {
     }
     expect(uses).toEqual([
       "briefing.ts: export const PAGE_HOST_BUDGET_BYTES = 9_000;",
-      "briefing.ts: export const PAGE_LIMIT_BYTES = pageRoomBytes(PAGE_HOST_BUDGET_BYTES);",
+      "briefing.ts: export const PAGE_ROOM_BYTES = pageRoomBytes(PAGE_HOST_BUDGET_BYTES);",
     ]);
   });
 

@@ -27,9 +27,13 @@ import {
   PAGE_CORE_HEADING,
   PAGE_FLOOR_RESERVE_BYTES,
   PAGE_FORMING_LINE,
+  PAGE_END_LINES,
+  PAGE_FRAME_RESERVE_BYTES,
   PAGE_HOST_BUDGET_BYTES,
-  PAGE_LIMIT_BYTES,
+  PAGE_ROOM_BYTES,
   PAGE_LATELY_HEADING,
+  PREFACE_RESERVE_BYTES,
+  WAKE_WHOLE_SENTENCE,
   PAGE_TEMPLATE,
   PAGE_TITLE,
   SELF_PAGE_REFUSED_EVENT,
@@ -46,10 +50,15 @@ import {
   identityCoreName,
   isRevisedLine,
   SELF_TUNABLES,
+  groupDigits,
+  pageBlockBytes,
   pageDateline,
+  pageEndLine,
   pageRoomBytes,
   pageSections,
   pageTooLargeLine,
+  pageTopLine,
+  readPageTopLine,
   readSelfPage,
   stripRevisedLines,
   truncationMarker,
@@ -286,76 +295,90 @@ describe("a write that does not land", () => {
   });
 
   /**
-   * THE LIMIT IS THE WAKE'S (2026-10-09): one number, in bytes, for the most a
-   * page may be written as and the most the wake has to print whole. Asserted
-   * at its edge with the default tunables, in ASCII and in multi-byte prose.
+   * THE ROOM IS A TARGET, THE CEILING A REFUSAL (2026-10-10). One derived
+   * number — the room the wake guarantees at 9,000, top and end lines counted
+   * — is what the writer is told; a page past it is KEPT, and only the sanity
+   * ceiling (16,384) refuses. #358 refused at the room, and the page's history
+   * kept losing to it by a few hundred bytes.
    */
-  test("the default write limit IS the derived page limit, in bytes", () => {
-    expect(SELF_TUNABLES.PAGE_MAX_BYTES).toBe(PAGE_LIMIT_BYTES);
-    expect(PAGE_LIMIT_BYTES).toBe(6_078);
+  test("the defaults: a 16,384-byte ceiling, and the room derived from the wake", () => {
+    expect(SELF_TUNABLES.PAGE_MAX_BYTES).toBe(16_384);
+    expect(SELF_TUNABLES.PAGE_ROOM_BYTES).toBe(PAGE_ROOM_BYTES);
+    expect(PAGE_ROOM_BYTES).toBe(5_681);
   });
 
-  test("a page of exactly the limit is accepted whole; one byte more is REFUSED, never cut — and says the limit", () => {
+  test("a page at the room, one byte past it and at 16 KB is kept whole; one byte past the ceiling is REFUSED, never cut", () => {
     const s = store();
     const me = self(s);
-    const at = `${PAGE}\n\n${"p".repeat(PAGE_LIMIT_BYTES - byteLength(PAGE) - 2)}`;
-    expect(byteLength(at)).toBe(PAGE_LIMIT_BYTES);
-    const ok = me.revisePage(at, { reason: "at the limit", by: "session" });
-    expect(ok.written).toBe(true);
-    expect(me.page()?.body).toBe(at);
-    const over = me.revisePage(`${at}q`, { reason: "one over", by: "session" });
+    const sized = (n: number): string => `${PAGE}\n\n${"p".repeat(n - byteLength(PAGE) - 2)}`;
+    for (const n of [PAGE_ROOM_BYTES, PAGE_ROOM_BYTES + 1, 16_384]) {
+      const body = sized(n);
+      expect(byteLength(body)).toBe(n);
+      const out = me.revisePage(body, { reason: `at ${String(n)}`, by: "session" });
+      expect({ n, written: out.written }).toEqual({ n, written: true });
+      expect(me.page()?.body).toBe(body);
+      // Past the room is said, with the room; at it, nothing is.
+      expect(out.overRoom).toBe(n > PAGE_ROOM_BYTES ? PAGE_ROOM_BYTES : null);
+      const revised = JSON.parse(s.eventLog({ name: SELF_PAGE_REVISED_EVENT, order: "desc", limit: 1 })[0]?.payload ?? "{}") as Record<string, unknown>;
+      expect(revised["room"]).toBe(PAGE_ROOM_BYTES);
+      expect(revised["limit"]).toBe(16_384);
+    }
+    const over = me.revisePage(`${sized(16_384)}q`, { reason: "one over the ceiling", by: "session" });
     expect(over.written).toBe(false);
     expect(over.reason).toBe("too-large");
-    expect(over.bytes).toBe(PAGE_LIMIT_BYTES + 1);
+    expect(over.bytes).toBe(16_385);
     // The page that stood, stands.
-    expect(me.page()?.body).toBe(at);
+    expect(me.page()?.bytes).toBe(16_384);
     const refusal = JSON.parse(s.eventLog({ name: SELF_PAGE_REFUSED_EVENT })[0]?.payload ?? "{}") as Record<string, unknown>;
-    expect(refusal["limit"]).toBe(PAGE_LIMIT_BYTES);
-    expect(refusal["bytes"]).toBe(PAGE_LIMIT_BYTES + 1);
-    // The accepted revision's row carries the limit it was held to.
-    const revised = JSON.parse(s.eventLog({ name: SELF_PAGE_REVISED_EVENT })[0]?.payload ?? "{}") as Record<string, unknown>;
-    expect(revised["limit"]).toBe(PAGE_LIMIT_BYTES);
-    expect(revised["warning"]).toBeUndefined();
+    expect(refusal["limit"]).toBe(16_384);
+    // Nothing under the ceiling was ever refused.
+    expect(s.eventLog({ name: SELF_PAGE_REFUSED_EVENT })).toHaveLength(1);
   });
 
-  test("the limit counts BYTES: a multi-byte page under it in characters but over it in bytes is refused", () => {
+  test("the room and the ceiling count BYTES: multi-byte prose is past the room in fewer characters", () => {
     const s = store();
     const me = self(s);
     // "é" is two bytes, "—" three, "心" three: 2,800 characters, 6,300 bytes.
     const wide = `## Core\n\n${"é—心 ".repeat(700)}`.trim();
-    expect(wide.length).toBeLessThan(PAGE_LIMIT_BYTES);
-    expect(byteLength(wide)).toBeGreaterThan(PAGE_LIMIT_BYTES);
+    expect(wide.length).toBeLessThan(PAGE_ROOM_BYTES);
+    expect(byteLength(wide)).toBeGreaterThan(PAGE_ROOM_BYTES);
     const out = me.revisePage(wide, { reason: "wide", by: "session" });
-    expect(out.written).toBe(false);
-    expect(out.reason).toBe("too-large");
+    expect(out.written).toBe(true);
     expect(out.bytes).toBe(byteLength(wide));
-    // And one EXACTLY at the limit in bytes is taken whole.
-    const unit = "é—心 ";
-    let exact = "## Core\n\n";
-    while (byteLength(exact) + byteLength(unit) <= PAGE_LIMIT_BYTES) exact += unit;
-    exact += "x".repeat(PAGE_LIMIT_BYTES - byteLength(exact) - 1) + ".";
-    expect(byteLength(exact)).toBe(PAGE_LIMIT_BYTES);
-    expect(me.revisePage(exact, { reason: "exact", by: "session" }).written).toBe(true);
-    expect(me.page()?.body).toBe(exact);
+    expect(out.overRoom).toBe(PAGE_ROOM_BYTES);
+    // And past the CEILING in bytes while under it in characters: refused.
+    const wider = `## Core\n\n${"é—心 ".repeat(1_900)}`.trim();
+    expect(wider.length).toBeLessThan(16_384);
+    expect(byteLength(wider)).toBeGreaterThan(16_384);
+    expect(me.revisePage(wider, { reason: "wider", by: "session" }).reason).toBe("too-large");
   });
 
-  test("a redaction that GROWS the page past the limit is refused, not stored over it", () => {
+  test("a redaction that GROWS the page is measured after it: past the room it is kept and said; past the ceiling, refused", () => {
     const s = store();
     const me = self(s);
-    // A short password, redacted to a longer `[REDACTED:…]` mark, in a page at the limit.
+    // A short password, redacted to a longer `[REDACTED:…]` mark.
     const secret = "password=hunter2x";
     const head = `## Core\n\nThe old note said ${secret} and nothing else.\n\n`;
-    const page = `${head}${"p".repeat(PAGE_LIMIT_BYTES - byteLength(head))}`;
-    expect(byteLength(page)).toBe(PAGE_LIMIT_BYTES);
-    const out = me.revisePage(page, { reason: "a secret in it", by: "owner" });
+    // At the room before the redaction, 22 bytes past it after.
+    const atRoom = `${head}${"p".repeat(PAGE_ROOM_BYTES - byteLength(head))}`;
+    expect(byteLength(atRoom)).toBe(PAGE_ROOM_BYTES);
+    const kept = me.revisePage(atRoom, { reason: "a secret in it", by: "owner" });
     // `hunter2x` becomes `[REDACTED:assigned-credential]`: 22 bytes longer.
+    expect(kept.written).toBe(true);
+    expect(kept.bytes).toBe(PAGE_ROOM_BYTES + 22);
+    expect(kept.redacted?.bytesBefore).toBe(PAGE_ROOM_BYTES);
+    expect(kept.overRoom).toBe(PAGE_ROOM_BYTES);
+    expect(me.page()?.body).not.toContain("hunter2x");
+    // At the ceiling before it, past it after: refused, not stored over it.
+    const atCeiling = `${head}${"p".repeat(16_384 - byteLength(head))}`;
+    const out = me.revisePage(atCeiling, { reason: "a secret in it", by: "owner" });
     expect(out.written).toBe(false);
     expect(out.reason).toBe("too-large");
-    expect(out.bytes).toBe(PAGE_LIMIT_BYTES + 22);
-    expect(me.page()).toBeNull();
+    expect(out.bytes).toBe(16_384 + 22);
+    expect(me.page()?.bytes).toBe(PAGE_ROOM_BYTES + 22);
     const refusal = JSON.parse(s.eventLog({ name: SELF_PAGE_REFUSED_EVENT })[0]?.payload ?? "{}") as Record<string, unknown>;
     expect(refusal["redacted"]).toBe(true);
-    expect(refusal["limit"]).toBe(PAGE_LIMIT_BYTES);
+    expect(refusal["limit"]).toBe(16_384);
   });
 });
 
@@ -407,12 +430,16 @@ describe("the page in the wake", () => {
     expect(b.text).not.toContain("A placeholder identity element.");
     expect(b.counts.identity).toBe(0);
     expect(b.trimmed).toHaveLength(0);
-    // FIRST: the page's own first line sits directly under the heading.
+    // FIRST: under the heading, the top line (2026-10-10), then the page's
+    // own first line; after its dateline, the end line the top line names.
     const lines = b.text.split("\n");
     const heading = lines.indexOf(FRAMING.identity);
     expect(heading).toBeGreaterThan(0);
-    expect(lines[heading + 1]).toBe(`## ${PAGE_CORE_HEADING}`);
+    expect(lines[heading + 1]).toBe(pageTopLine("whole", byteLength(PAGE)) ?? "");
+    expect(lines[heading + 2]).toBe(`## ${PAGE_CORE_HEADING}`);
+    expect(b.text).toContain(`${PAGE}\n(Last revised ${s.today()}.)\n${PAGE_END_LINES.whole}\n`);
     expect(b.page?.truncated).toBe(false);
+    expect(b.page?.rung).toBe("whole");
     expect(b.page?.wholeBytes).toBe(byteLength(PAGE));
     expect(readSentinelBytes(b.text)).toBe(byteLength(b.text));
   });
@@ -429,15 +456,15 @@ describe("the page in the wake", () => {
   });
 
   /**
-   * NEVER CUT (2026-10-09). A page the room cannot hold whole — written before
-   * the limit, or under a ceiling configured too small — is replaced by ONE
-   * line naming its size and both doors to it. No part of the page prints and
-   * no cut marker appears: a fragment of a self is not a smaller self.
+   * NEVER CUT, AND NEVER LESS THAN IT MUST BE (2026-10-10). A page the room
+   * cannot hold whole steps down the ladder: with no short version, each `##`
+   * section's heading and its first whole sentence, under a top line naming
+   * the page's size, the line it ends with and both doors. Nothing past a
+   * first sentence prints, and no cut marker appears.
    */
-  test("a page past the room prints the one line and no part of itself — never a cut", () => {
+  test("a page past the room prints its outline — headings and first sentences — and no other part of itself", () => {
     const s = store();
-    // Written before the limit: the seam held it to 16 KB then.
-    const me = self(s, { PAGE_MAX_BYTES: 16_384 });
+    const me = self(s);
     const long = [
       `## ${PAGE_CORE_HEADING}`,
       "",
@@ -446,57 +473,73 @@ describe("the page in the wake", () => {
       ...Array.from({ length: 200 }, (_, i) => `Core: placeholder paragraph ${i}, of an ordinary length.\n`),
       `## ${PAGE_LATELY_HEADING}`,
       "",
-      "Lately: placeholder.",
+      "Lately: placeholder. A second sentence the outline leaves out.",
     ].join("\n");
     me.revisePage(long, { reason: "long", by: "owner" });
     expect(byteLength(long)).toBeGreaterThan(9000);
     const b = me.build(req);
 
+    expect(b.page?.rung).toBe("outline");
     expect(b.page?.truncated).toBe(true);
     expect(b.page?.wholeBytes).toBe(byteLength(long));
-    expect(b.text).toContain(pageTooLargeLine(byteLength(long)));
-    expect(b.text).toContain("the self_page tool");
-    expect(b.text).toContain("counterparts self-page");
-    expect(b.text).not.toContain("Core: placeholder one.");
+    const top = pageTopLine("outline", byteLength(long)) ?? "";
+    expect(b.text).toContain(
+      `${FRAMING.identity}\n${top}\n## ${PAGE_CORE_HEADING}\nCore: placeholder one.\n## ${PAGE_LATELY_HEADING}\nLately: placeholder.\n(Last revised ${s.today()}.)\n${PAGE_END_LINES.outline}\n`,
+    );
+    expect(top).toContain("the self_page tool");
+    expect(top).toContain("'counterparts self-page'");
+    expect(top).toContain(groupDigits(byteLength(long)));
+    expect(b.text).not.toContain("placeholder paragraph 0");
+    expect(b.text).not.toContain("A second sentence");
     expect(b.text).not.toContain("the wake shows the first");
     expect(readSentinelBytes(b.text)).toBe(byteLength(b.text));
     // At a ceiling with room for it, the same page prints whole.
-    const roomy = me.build({ budgetBytes: byteLength(long) + PAGE_FLOOR_RESERVE_BYTES, day: 5 });
-    expect(roomy.text).toContain(`${FRAMING.identity}\n${long}\n`);
-    expect(roomy.page?.truncated).toBe(false);
+    const roomy = me.build({ budgetBytes: byteLength(long) + PAGE_FLOOR_RESERVE_BYTES + PAGE_FRAME_RESERVE_BYTES, day: 5 });
+    expect(roomy.text).toContain(`${FRAMING.identity}\n${pageTopLine("whole", byteLength(long)) ?? ""}\n${long}\n`);
+    expect(roomy.page?.rung).toBe("whole");
   });
 
   /**
-   * THE INVARIANT, at the edge: a page at exactly the limit, at the smallest
+   * THE INVARIANT, at the edge: a page at exactly the room, at the smallest
    * room the wake can have at 9,000 bytes — the widest preface, handoff and
    * work reserves all taken (`deliveryReserveBound`) — prints whole, byte for
-   * byte, and the bundle stays inside its budget.
+   * byte, with its top and end lines, and the bundle stays inside its budget.
+   * One byte under what that takes, and it steps down to its outline: whole
+   * sentences, never a cut.
    */
-  test("a page at exactly the limit prints whole at 9,000 under the widest reserves — ASCII and multi-byte", () => {
+  test("a page at exactly the room prints whole at 9,000 under the widest reserves — ASCII and multi-byte", () => {
     const compose = PAGE_HOST_BUDGET_BYTES - deliveryReserveBound(PAGE_HOST_BUDGET_BYTES);
-    expect(compose).toBe(6_590);
-    expect(compose - PAGE_FLOOR_RESERVE_BYTES).toBe(PAGE_LIMIT_BYTES);
+    expect(compose).toBe(9_000 - PREFACE_RESERVE_BYTES - 2 * 1_125);
+    expect(compose - PAGE_FLOOR_RESERVE_BYTES - PAGE_FRAME_RESERVE_BYTES).toBe(PAGE_ROOM_BYTES);
     const unit = "Ich bin — 私は — é. ";
     for (const filler of ["I keep a careful account of the studio. ", unit]) {
       const s = store({ dir: otherDir("counterparts-page-edge-") });
       const me = self(s, { PAGE_STALE_DAYS: 3 });
       let body = `## ${PAGE_CORE_HEADING}\n\n`;
-      while (byteLength(body) + byteLength(filler) <= PAGE_LIMIT_BYTES - 1) body += filler;
-      body += "x".repeat(PAGE_LIMIT_BYTES - byteLength(body));
-      expect(byteLength(body)).toBe(PAGE_LIMIT_BYTES);
-      expect(me.revisePage(body, { reason: "at the limit", by: "session" }).written).toBe(true);
+      while (byteLength(body) + byteLength(filler) <= PAGE_ROOM_BYTES - 1) body += filler;
+      body += "x".repeat(PAGE_ROOM_BYTES - byteLength(body));
+      expect(byteLength(body)).toBe(PAGE_ROOM_BYTES);
+      expect(me.revisePage(body, { reason: "at the room", by: "session" }).written).toBe(true);
       // The widest dateline too: a stale page, far in the future.
       const later = store({ dir: s.dir, now: () => Date.parse(`${s.today()}T00:00:00Z`) + 400 * 86_400_000 });
       const b = self(later, { PAGE_STALE_DAYS: 3 }).build({ budgetBytes: compose, day: 999_999 });
-      expect(b.text).toContain(`${FRAMING.identity}\n${body}\n`);
-      expect(b.page?.truncated).toBe(false);
-      expect(b.page?.bytes).toBe(PAGE_LIMIT_BYTES);
+      const top = pageTopLine("whole", PAGE_ROOM_BYTES) ?? "";
+      expect(b.text).toContain(`${FRAMING.identity}\n${top}\n${body}\n`);
+      expect(b.text).toContain(`\n${PAGE_END_LINES.whole}\n`);
+      expect(b.page?.rung).toBe("whole");
+      expect(b.page?.bytes).toBe(pageBlockBytes({ top, text: body, end: PAGE_END_LINES.whole }));
       expect(b.overBudget).toBe(false);
       expect(b.bytes).toBeLessThanOrEqual(compose);
-      // One byte less of room, and it is the line — never a cut.
-      const tight = self(later, { PAGE_STALE_DAYS: 3 }).build({ budgetBytes: compose - 1, day: 999_999 });
-      expect(tight.text).toContain(pageTooLargeLine(PAGE_LIMIT_BYTES));
-      expect(tight.text).not.toContain(body.slice(0, 200));
+      // The exact edge: what the whole block takes. One byte less, and it
+      // is the outline — never a cut.
+      const edge = PAGE_FLOOR_RESERVE_BYTES + pageBlockBytes({ top, text: body, end: PAGE_END_LINES.whole });
+      expect(edge).toBeLessThanOrEqual(compose);
+      expect(self(later, { PAGE_STALE_DAYS: 3 }).build({ budgetBytes: edge, day: 999_999 }).page?.rung).toBe("whole");
+      const tight = self(later, { PAGE_STALE_DAYS: 3 }).build({ budgetBytes: edge - 1, day: 999_999 });
+      expect(tight.page?.rung).toBe("outline");
+      expect(tight.text).toContain(`## ${PAGE_CORE_HEADING}\n${filler.trim()}\n`);
+      expect(tight.text).not.toContain(`${filler}${filler}`);
+      expect(tight.overBudget).toBe(false);
     }
   });
 
@@ -506,23 +549,25 @@ describe("the page in the wake", () => {
    * the ceiling with nothing left to trim. The same budget ladder the review
    * measured, with the page it measured.
    */
-  test("a long page never puts the wake over the host's ceiling, at any budget — and prints whole or not at all", () => {
+  test("a long page never puts the wake over the host's ceiling, at any budget — and every rung is whole text", () => {
     const s = store();
-    // A page written before the limit (16 KB then), which is the only way a
-    // page this long is in a store now.
-    const me = self(s, { PAGE_MAX_BYTES: 16_384 });
+    const me = self(s);
     const long = `## ${PAGE_CORE_HEADING}\n\n${Array.from({ length: 200 }, (_, i) => `Placeholder paragraph ${i}, of an ordinary length for a page.`).join("\n\n")}`;
     me.revisePage(long, { reason: "long", by: "owner" });
     expect(me.page()?.bytes).toBeGreaterThan(8000);
-    for (const budgetBytes of [400, 900, 2000, 6000, 9000, 20000]) {
+    const seen = new Set<string>();
+    for (const budgetBytes of [400, 700, 900, 2000, 6000, 9000, 20000]) {
       const b = me.build({ budgetBytes, day: 5 });
+      seen.add(b.page?.rung ?? "none");
       expect({ budgetBytes, over: b.overBudget }).toEqual({ budgetBytes, over: false });
       expect({ budgetBytes, fits: b.bytes <= budgetBytes }).toEqual({ budgetBytes, fits: true });
-      // Whole, or nothing of it: never its first paragraphs alone.
+      // The page whole, or its first sentence at most: never its first
+      // paragraphs alone.
       const whole = b.text.includes(long);
-      expect({ budgetBytes, partial: !whole && b.text.includes("Placeholder paragraph 0,") }).toEqual({ budgetBytes, partial: false });
+      expect({ budgetBytes, partial: !whole && b.text.includes("Placeholder paragraph 1,") }).toEqual({ budgetBytes, partial: false });
     }
     expect(me.build({ budgetBytes: 20000, day: 5 }).text).toContain(long);
+    expect([...seen].sort()).toEqual(["line", "none", "outline", "whole"]);
   });
 
   test("a ceiling with no room for a page says so in one line rather than a fragment", () => {
@@ -576,6 +621,30 @@ describe("the page in the wake", () => {
       [header, FRAMING.context, "", FRAMING.identity, dateline, "", sentinel].join("\n"),
     );
     expect(widest).toBeLessThanOrEqual(PAGE_FLOOR_RESERVE_BYTES);
+  });
+
+  test("the frame reserve covers the top and end lines of the two rungs a writer aims at, at any size", () => {
+    for (const rung of ["whole", "short"] as const) {
+      for (const n of [0, 5_681, 16_384, 999_999]) {
+        const frame = pageBlockBytes({ top: pageTopLine(rung, n), text: "", end: pageEndLine(rung) });
+        expect({ rung, n, fits: frame <= PAGE_FRAME_RESERVE_BYTES }).toEqual({ rung, n, fits: true });
+      }
+    }
+    // Every top line names its size, the exact end line, and both doors.
+    for (const rung of ["whole", "short", "outline", "headings"] as const) {
+      const top = pageTopLine(rung, 7_012) ?? "";
+      expect(top).toContain("7,012");
+      expect(top).toContain(`"${pageEndLine(rung) ?? ""}"`);
+      expect(top).toContain("if you don't see that line, it was cut off");
+      expect(top).toContain("the self_page tool");
+      expect(top).toContain("'counterparts self-page'");
+      expect(readPageTopLine(`Who I am:\n${top}`)).toEqual({ rung, wholeBytes: 7_012 });
+    }
+    expect(pageTopLine("short", 7_012)).toContain("short version of my 7,012-byte page");
+    // The last rung is its own top line, and has no end line.
+    expect(pageTopLine("line", 7_012)).toBeNull();
+    expect(pageEndLine("line")).toBeNull();
+    expect(readPageTopLine(pageTooLargeLine(7_012))).toEqual({ rung: "line", wholeBytes: 7_012 });
   });
 
   test("the room is clamped to the caller's budget, so a page never outgrows the wake", () => {
@@ -1151,17 +1220,19 @@ describe("the seam S2 will call", () => {
 // ── the small pure pieces ───────────────────────────────────────────────────
 
 describe("rendering and reading a page", () => {
-  test("the derived limit: the room at 9,000 under the widest reserves, and it grows with the ceiling", () => {
-    // preface 160 + handoff ⌊9000/8⌋ + work ⌊9000/8⌋ = 2,410; 9,000 − 2,410 − 512 = 6,078.
-    expect(deliveryReserveBound(9_000)).toBe(160 + 1_125 + 1_125);
-    expect(PAGE_LIMIT_BYTES).toBe(9_000 - 2_410 - PAGE_FLOOR_RESERVE_BYTES);
-    expect(pageRoomBytes(PAGE_HOST_BUDGET_BYTES)).toBe(PAGE_LIMIT_BYTES);
+  test("the derived room: 9,000 under the widest reserves, less the furniture and the frame, and it grows with the ceiling", () => {
+    // preface 293 (160 + the whole-wake sentence, 133) + handoff ⌊9000/8⌋ +
+    // work ⌊9000/8⌋ = 2,543; 9,000 − 2,543 − 512 − 264 = 5,681.
+    expect(PREFACE_RESERVE_BYTES).toBe(160 + byteLength(` ${WAKE_WHOLE_SENTENCE}`));
+    expect(deliveryReserveBound(9_000)).toBe(PREFACE_RESERVE_BYTES + 1_125 + 1_125);
+    expect(PAGE_ROOM_BYTES).toBe(9_000 - deliveryReserveBound(9_000) - PAGE_FLOOR_RESERVE_BYTES - PAGE_FRAME_RESERVE_BYTES);
+    expect(pageRoomBytes(PAGE_HOST_BUDGET_BYTES)).toBe(PAGE_ROOM_BYTES);
     // Never smaller at a larger ceiling, so every ceiling at or above 9,000
-    // holds a page at the limit whole.
+    // holds a page within the room whole.
     let prior = -Infinity;
     for (let b = 1_000; b <= 40_000; b += 7) {
       expect(pageRoomBytes(b)).toBeGreaterThanOrEqual(prior);
-      if (b >= PAGE_HOST_BUDGET_BYTES) expect(pageRoomBytes(b)).toBeGreaterThanOrEqual(PAGE_LIMIT_BYTES);
+      if (b >= PAGE_HOST_BUDGET_BYTES) expect(pageRoomBytes(b)).toBeGreaterThanOrEqual(PAGE_ROOM_BYTES);
       prior = pageRoomBytes(b);
     }
   });

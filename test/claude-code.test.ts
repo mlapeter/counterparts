@@ -516,12 +516,12 @@ describe("session-start — the injection carries a sentinel and honours the HOS
     const big = roomy.a.sessionStart(input()).bytes;
     expect(big).toBeGreaterThan(0);
 
-    await roomy.a.counterpart.sessionEnd({ date: "2026-01-03", budgetBytes: 400 });
-    const cramped = openAdapter(config({ injectionBudgetBytes: 400 }), { spawner: fakeSpawner().spawner });
+    await roomy.a.counterpart.sessionEnd({ date: "2026-01-03", budgetBytes: 700 });
+    const cramped = openAdapter(config({ injectionBudgetBytes: 700 }), { spawner: fakeSpawner().spawner });
     open.push(cramped.counterpart);
     const small = cramped.sessionStart(input()).bytes;
     expect(small).toBeLessThan(big);
-    expect(small).toBeLessThanOrEqual(400);
+    expect(small).toBeLessThanOrEqual(700); // 700, not 400: since 2026-10-10 the preface carries the whole-wake sentence (`PREFACE_RESERVE_BYTES`, 293)
   });
 
   test("NO reported ceiling is a TRIPWIRE, not an invented number (scar §2.18)", () => {
