@@ -356,6 +356,50 @@ test('a dashboard older than v0.2 (no firedToday): today’s counts come from th
   await ui.unmount()
 })
 
+test('a dashboard older than v0.2: a row that lands while today is counted is counted once, by the next poll', async ($, on) => {
+  const box: { w?: World } = {}
+  let landed = false
+  const w = world(on, {
+    oldDashboard: true,
+    // after the pulse said 500: a deposit lands while the cold read reads the deposits
+    onFetch: url => {
+      if (landed || url.pathname !== '/api/activity' || url.searchParams.get('name') !== 'gate.deposit') return
+      landed = true
+      box.w?.events.push(ev(600, 'gate.deposit', 'I wrote down one memory.', 0, { accepted: '1', session: SESSION }))
+    },
+  })
+  box.w = w
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  const salience = async (): Promise<string> => {
+    const lines = await bodyLines(ui)
+    const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
+    return (lines.slice(at + 1, at + 13).find(l => l.startsWith('Salience')) ?? '').trim().split(/\s+/).at(-1) ?? ''
+  }
+  expect(landed).toBe(true)
+  expect(await salience()).toBe('1') // the cold read stops at 500
+  await w.clock.advance(15000)
+  await settle(w)
+  expect(await salience()).toBe('2') // the poll from 500 adds it, once
+  await ui.unmount()
+})
+
+test('past midnight with nothing new, today is read again: yesterday’s bars do not stand as today’s', async ($, on) => {
+  const w = world(on, { now: new Date(2026, 9, 9, 23, 59, 0).getTime() })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await settle(w)
+  const reads = (): number => w.fetches.filter(u => u.endsWith('/api/mechanisms')).length
+  const before = reads()
+  expect(before).toBeGreaterThanOrEqual(1)
+  await w.clock.advance(15000) // a quiet poll, the same day: nothing to read again
+  expect(reads()).toBe(before)
+  await w.clock.advance(60000) // past midnight, nothing new
+  await settle(w)
+  expect(reads()).toBeGreaterThan(before)
+  await ui.unmount()
+})
+
 test('Last Dream: its first sentence, in its own voice; a click opens a few more lines and what changed last night', async ($, on) => {
   const w = world(on)
   await start($, w)

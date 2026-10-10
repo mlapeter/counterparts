@@ -172,6 +172,16 @@ export type WorldOptions = {
   env?: Record<string, string>;
   /** A dashboard older than v0.2: `/api/mechanisms` says no `firedToday`. */
   oldDashboard?: boolean;
+  /** Where the mocked clock starts (`T0` unless given). */
+  now?: number;
+  /** Called on each dashboard request before it is answered: a test can land a row mid-read. */
+  onFetch?: (url: URL) => void;
+}
+
+/** The local calendar day of `at`, as the sidebar and the dashboard name it. */
+function localDay(at: number): string {
+  const d = new Date(at)
+  return `${String(d.getFullYear())}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 export type World = {
@@ -206,7 +216,7 @@ export type World = {
 
 /** Registers the test's answers beneath the plugin; call before the first `$` call. */
 export function world(on: On, opts: WorldOptions = {}): World {
-  const clock = mock.clock(on, { now: T0 })
+  const clock = mock.clock(on, { now: opts.now ?? T0 })
   // The plugin's own store, kept here so a test can read what was written.
   const store: Record<string, unknown> = { ...(opts.store ?? {}) }
   on('store.get', (_$, e) => ({ value: store[e.key] }))
@@ -323,6 +333,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     w.fetches.push(e.url)
     if (opts.down === true) return { deny: 'ECONNREFUSED: Unable to connect.' }
     const url = new URL(e.url)
+    opts.onFetch?.(url)
     const ok = (body: unknown) => ({ value: { status: 200, ok: true, headers: {}, text: JSON.stringify(body) } })
     if (url.pathname === '/api/pulse') return ok(PULSE)
     if (url.pathname === '/api/activity') {
@@ -333,7 +344,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     }
     if (url.pathname === '/api/mechanisms') {
       const mechanisms = Object.entries(FIRED_TODAY).map(([id, v]) => (opts.oldDashboard === true ? { id, status: 'green' } : { id, status: 'green', firedToday: v }))
-      return ok({ livedDay: 18, fromDay: 12, days: 7, ...(opts.oldDashboard === true ? {} : { today: '2026-10-09' }), mechanisms, truncated: false })
+      return ok({ livedDay: 18, fromDay: 12, days: 7, ...(opts.oldDashboard === true ? {} : { today: localDay(clock.now()) }), mechanisms, truncated: false })
     }
     if (url.pathname === '/api/mechanism') return ok({ id: url.searchParams.get('id'), found: true, built: true, livedDay: 18, activity: w.events })
     if (url.pathname === '/api/memory') {

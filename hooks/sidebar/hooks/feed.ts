@@ -208,8 +208,10 @@ export function decisionFor(events: readonly DashEvent[], session: string, turn:
 
 /**
  * Times each mechanism fired on the calendar day `date` among `rows`, as the
- * dashboard counts `firedToday`: rows, not amounts; a dream's rows once. Rows
- * already counted (`seen`) are skipped, so a poll's new rows add to a count.
+ * dashboard counts `firedToday`: rows, not amounts; a dream's rows once.
+ * `start` is a count so far, so a poll's new rows add to it; `dreams` the
+ * dreams already counted, so a dream's second row adds nothing. The caller
+ * hands in each row once (the cold read stops at the seq the polls go on from).
  */
 export function countToday(
   rows: readonly SidebarRow[],

@@ -482,9 +482,11 @@ async function readPulse($: EngineInterface): Promise<{ lastSeq: number }> {
 /**
  * Times each mechanism fired today. The dashboard says it (`firedToday` on
  * `/api/mechanisms`, about 30-50 ms) from v0.2 on; an older one is counted
- * here from each event's newest rows (a cold read only; polls then add).
+ * here from each event's newest rows (a cold read only; polls then add):
+ * only rows up to `upTo`, the seq the polls go on from, so a row that lands
+ * while this reads is counted by the next poll, not twice.
  */
-async function readToday($: EngineInterface): Promise<void> {
+async function readToday($: EngineInterface, upTo: number): Promise<void> {
   const view = (await fetchJson($, '/api/mechanisms')) as { today?: unknown; mechanisms?: { id: string; firedToday?: unknown }[] }
   const list = view.mechanisms ?? []
   if (typeof view.today === 'string' && list.some(m => 'firedToday' in m)) {
@@ -513,6 +515,7 @@ async function readToday($: EngineInterface): Promise<void> {
   const rows: SidebarRow[] = []
   for (const events of answers) {
     for (const e of events) {
+      if (e.seq > upTo) continue
       const r = classify(e, run.session, run.startedAt)
       if (r !== null) rows.push(r)
     }
@@ -523,11 +526,16 @@ async function readToday($: EngineInterface): Promise<void> {
 
 /** New rows from a poll, into today's counts: the dashboard asked again, or (an older one) added here. */
 async function addToday($: EngineInterface, rows: readonly SidebarRow[]): Promise<void> {
-  if (rows.length === 0) return
   const today = await read($, todayA)
   const date = dateOf(await $.clock.now())
-  if (run.firedToday === true || today === null || today.date !== date) {
-    await readToday($)
+  // A new calendar day starts the count over, new rows or none: else yesterday's bars stand as today's until something fires.
+  if (today !== null && today.date !== date) {
+    await readToday($, run.lastSeq)
+    return
+  }
+  if (rows.length === 0) return
+  if (run.firedToday === true || today === null) {
+    await readToday($, run.lastSeq)
     return
   }
   const { counts, dreams } = countToday(rows, date, dateOf, today.counts, today.dreams ?? [])
@@ -590,7 +598,7 @@ async function poll($: EngineInterface): Promise<boolean> {
       if ((await read($, dashA)) !== 'up') await update($, dashA, () => 'up')
       const seed = run.seeded ? Promise.resolve() : seedSession($)
       run.seeded = true
-      await Promise.all([readToday($).catch(() => undefined), readDream($).catch(() => undefined), seed.catch(() => undefined)])
+      await Promise.all([readToday($, lastSeq).catch(() => undefined), readDream($).catch(() => undefined), seed.catch(() => undefined)])
       run.cold = true
       run.lastSeq = lastSeq
       return true
