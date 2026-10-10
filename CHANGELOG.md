@@ -68,6 +68,11 @@
   start, and a prompt Claude Code gives an id, are sent only once, so a second copy within
   15 seconds now always steps aside. Doctor's "Installed twice" line no longer says
   nothing was delivered twice; its fix also names `~/.claude/settings.json`.
+  A correction to the 0.3.15 notes, which said the claim "works between any two
+  versions": the plugin stepping aside is the main guard, and the claim is a backstop. It
+  catches a second hook that runs at the same time; for a resumed or compacted session, a
+  Stop, or a prompt without an id, one that starts after the first has finished can
+  still deliver again on a busy machine.
 
 ## 0.3.15 — 2026-10-10
 
@@ -140,11 +145,9 @@ One delivery per event when two wirings are live (#355, #359).
   later version adds around it. As a backstop, each hook claims its event first: when
   two Counterparts hooks fire for the same event, the first does the work (the wake,
   the recall, the Stop's question, the capture, the background worker) and the other
-  exits without output, between any two versions from this one on. The plugin stepping
-  aside is the main guard; the claim catches a second hook that runs at the same time,
-  but on a busy machine one that starts after the first has finished can still deliver
-  again. The claims are kept in a small file of their own in the store's `sessions`
-  folder, so the background worker writing to the store doesn't hold a claim up. With one install
+  exits without output. This works between any two versions from this one on. The
+  claims are kept in a small file of their own in the store's `sessions` folder, so
+  the background worker writing to the store doesn't hold a claim up. With one install
   nothing changes; the claim adds two small writes per event, about a third of a
   millisecond.
   Doctor has a new amber line, "Installed twice", when a hook stepped aside this way in
