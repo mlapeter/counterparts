@@ -701,7 +701,8 @@ async function readScopeFile($: EngineInterface, fresh: boolean): Promise<Sideba
  * one of those. No tool is called and nothing is logged.
  */
 async function refreshScope($: EngineInterface, fresh = false): Promise<void> {
-  if (run.scopeReading) return
+  // Before session.start (the band may draw first) there is no folder yet: the state stays as it is, not "unreadable".
+  if (run.scopeReading || run.cwd.length === 0) return
   run.scopeReading = true
   try {
     const found = await readScopeFile($, fresh).catch(() => null)

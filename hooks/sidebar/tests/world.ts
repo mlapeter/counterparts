@@ -124,7 +124,7 @@ export type WorldOptions = {
   store?: Record<string, unknown>;
   /** `uname -s` fails, as it does on Windows. */
   windows?: boolean;
-  /** What the person's permission settings say about the memory tools (`allow` unless given). */
+  /** What the person's permission settings say about the memory tools (`allow` unless given): the test's `tool.check` answer only; the sidebar reads the folder's state from the registry file, so nothing it does turns on this. */
   permission?: 'allow' | 'ask' | 'deny';
   /** A read of the folder's scope takes this long on the mocked clock (none unless given). */
   scopeReadMs?: number;

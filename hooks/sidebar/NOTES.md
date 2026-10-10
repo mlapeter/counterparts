@@ -84,8 +84,14 @@ Found on the way (each **verified** unless marked):
   `--config` after the hook, in the user's settings and then this folder's;
   else `COUNTERPARTS_CONFIG`; else `~/.counterparts/claude-code.json`), the
   longest ancestor governs, segment-aware, both sides realpathed with
-  `$.fs.stat({ resolve })`. `$.fs` is read-only here and asks nothing; no
-  event is logged. It is read at session start, on every dashboard poll while
+  `$.fs.stat({ resolve })`. `$.fs` is used read-only, and no event is logged.
+  That `$.fs.read` raises no permission check is from the engine reference
+  and the coordinator, **not measured** here: if it ever did, the start read
+  would quietly go back to `?`. If both the user's settings and this folder's
+  wire our hook with different configurations, the core runs both and the
+  sidebar follows the first found (the user's). Before `session.start` (the
+  band can draw first) there is no folder yet, and the state is left unknown
+  rather than marked unreadable, so the first state shown is a real read. It is read at session start, on every dashboard poll while
   the pane is drawn, once a minute otherwise (hidden, quiet, or not shown),
   and on every `/counterparts`, so a pause made in another session shows here
   within a poll, or within a minute with the pane hidden. The `scope` tool is
