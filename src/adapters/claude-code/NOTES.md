@@ -2387,6 +2387,26 @@ INTERFACE-GAPS §15.
   test ("… AND a dead holder's set-aside lock", 300 rounds): macOS quiet 0 in 1,500, under 12
   busy loops 0 in 4,800 (and the fresh twins at 300 rounds 0 in 1,500); Linux, 2 CPUs and 2
   busy loops, 0 in 1,500.
+  **Third reading: a journal a twin removed (Linux).** Master in `cp-ci-linux` (2 CPUs, 2
+  busy loops) failed the stale-lock twins test in 2 runs of 8 with
+  `SQLITE_IOERR_DELETE_NOENT`, and once on CI (16 rounds). Reproduced: 2 runs of 30, two
+  copies at a time beside 2 busy loops. Pinned down by hand (`bun:sqlite`, Linux): a twin
+  whose connection is still on the bad file a set-aside moved looks for a hot journal by
+  NAME, finds the NEW file's `-journal` (a new file's first write, the header `PRAGMA
+  journal_mode = WAL` sets, goes through a rollback journal), sees no lock on its own file,
+  plays that journal back into the old one and deletes it. The commit that made the journal
+  then fails with `SQLITE_IOERR_DELETE_NOENT`, its pages written: the rows were all there
+  after. On macOS the stale connection says `SQLITE_IOERR_VNODE` and plays nothing back.
+  Now (`claim.ts#sidecarGone`) a write that meets it before its own commit runs once more,
+  once per write, and one whose commit met it has landed and counts as made; a try again
+  would read its own claim as a twin's and deliver the event nowhere. (A WAL commit deletes
+  nothing, so that can only be a connection a contended conversion left in the rollback
+  journal.) Measured after, same container and load: 0 failures from it in 144 runs (43,200
+  rounds; a traced run caught one met and retried, in a round that passed), and 0 in 10
+  runs one at a time beside 2 busy loops. Three rounds still delivered twice: twice
+  `SQLITE_BUSY` (one round index in two copies at once — a stall past `CLAIM_WAIT_MS`,
+  the contention the claim gives up on by design) and once `SQLITE_IOERR_FSTAT`, not
+  looked into.
   **A known limit, not fixed:** the holder checks the path still holds the file it met and
   then renames it, sidecars first, without looking again. A holder suspended between the two
   for more than `SET_ASIDE_STALE_MS` (a machine put to sleep at that instant) can have its

@@ -90,6 +90,12 @@
   before the upgrade gets its list the first night it is dreamed. The cache's format goes
   to v6 and fills itself in. An MCP server still running the previous build refuses its
   tools until it is reconnected (`/mcp`), as after a store-format change.
+- **Two installs that meet a damaged claims file deliver the event once on Linux too.**
+  When one hook moved the damaged file aside, the other, still holding the old file, could
+  delete the new file's journal while the first hook was writing to it. That hook then
+  gave up on its claim, and the event went out twice (2 of 30 runs of the twins test under
+  load). Now a hook that finds its journal gone tries once more, and a claim that was
+  already saved when that happened counts as made.
 
 ## 0.3.16 — 2026-10-10
 
