@@ -3882,6 +3882,10 @@ async function installConversation(
   const desktop = repairDesktopEntry(io, env, home_, lister, false, now());
   // Left in the old shape, Desktop's entry keeps doctor's Runtime line amber.
   const desktopPending = desktop.outcome === "desktop-running" || desktop.outcome === "failed";
+  // A Desktop file that does not parse was left alone too, but doctor cannot
+  // read an entry in it either, so its Runtime line is green: the ending can
+  // promise neither green nor amber for Desktop (review of #356).
+  const desktopUnread = desktop.outcome === "refused";
   u.blank();
 
   // ── no keys ───────────────────────────────────────────────────────────────
@@ -3943,11 +3947,17 @@ async function installConversation(
     wired !== null &&
     (wired.mcp === "added" || wired.mcp === "re-added" || wired.mcp === "already");
   const connected = wired !== null && wired.outcome === "ok" && hooksIn && toolsIn;
-  if (connected && !tableMissing && !desktopPending) {
+  if (connected && !tableMissing && !desktopPending && !desktopUnread) {
     io.out(`Restart Claude Code, then run \`${BIN.cli} doctor\` — it should be all green.`);
   } else if (hooksIn && !toolsIn) {
     io.out("The hooks are in; the memory tools are NOT registered — the line above does that.");
     io.out(`Then restart Claude Code and run \`${BIN.cli} doctor\`.`);
+  } else if (connected && desktopUnread) {
+    // Desktop's file is unreadable — said above. Doctor cannot see into it, so
+    // "all green" would vouch for a Desktop nobody checked.
+    io.out(
+      `Restart Claude Code, then run \`${BIN.cli} doctor\`. Claude Desktop's config was left as it was, as said above; once it is fixed, \`${BIN.cli} connect\` brings its entry up to date.`,
+    );
   } else if (connected && !desktopPending) {
     // Connected, and the one amber is the table named above.
     io.out(`Restart Claude Code, then run \`${BIN.cli} doctor\` — everything but recall by meaning should be green.`);

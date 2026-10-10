@@ -11,7 +11,7 @@
  * says whether Desktop is open). The real Desktop file is never named.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -417,6 +417,45 @@ describe("install at a terminal and Claude Desktop's entry", () => {
     r = await installAtTerminal(lister(false));
     expect(r.said).not.toContain("Claude Desktop");
     expect(existsSync(desktopConfigPath(home))).toBe(false);
+  });
+
+  // Review of #356: a Desktop file that does not parse is left alone and said,
+  // and doctor cannot read an entry in it (its Runtime line is green), so the
+  // ending promises neither green nor amber for Desktop.
+  test("a Desktop file with a trailing comma: left byte for byte, said, and the ending promises no green", async () => {
+    const path = desktopConfigPath(home);
+    mkdirSync(dirname(path), { recursive: true });
+    const raw = `{\n  "mcpServers": {\n    "${MCP_SERVER_NAME}": ${JSON.stringify(oldEntry())},\n  }\n}\n`;
+    writeFileSync(path, raw);
+    const r = await installAtTerminal(lister(false));
+    expect(r.code).toBe(EXIT.ok);
+    expect(r.said).toContain("has a comma just before a closing } or ]");
+    expect(r.said).not.toContain("it should be all green");
+    expect(r.said).toContain("Claude Desktop's config was left as it was, as said above");
+    expect(readFileSync(path, "utf8")).toBe(raw);
+    expect(backups()).toHaveLength(0);
+  });
+
+  // Review of #356: a write that fails is a fail line and no green from
+  // `install` (exit 0, like its other host steps), and exit 1 from `connect`.
+  test.skipIf(process.getuid?.() === 0)("a write that fails: install exits 0 with a fail line and no green; connect exits 1", async () => {
+    writeDesktop(oldEntry());
+    const before = desktopFile();
+    const folder = dirname(desktopConfigPath(home));
+    chmodSync(folder, 0o555);
+    try {
+      const r = await installAtTerminal(lister(false));
+      expect(r.code).toBe(EXIT.ok);
+      expect(r.said).toContain("Claude Desktop's entry could not be rewritten");
+      expect(r.said).not.toContain("it should be all green");
+      expect(r.said).toContain("its Runtime line stays amber until Claude Desktop's entry is rewritten");
+      const c = await connect(lister(false));
+      expect(c.code).toBe(EXIT.failed);
+      expect(c.said).toContain("Claude Desktop's entry could not be rewritten");
+    } finally {
+      chmodSync(folder, 0o755);
+    }
+    expect(desktopFile()).toBe(before);
   });
 
   test("with no Claude Code on this machine, Desktop's entry is still brought up to date", async () => {

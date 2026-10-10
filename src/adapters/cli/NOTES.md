@@ -2016,4 +2016,9 @@ line about it.
     (a `wire()` that fails is a hint, not an exit). `connect` still exits 1.
   - The closing line no longer says "it should be all green" while Desktop's entry is left
     in the old shape: doctor's Runtime line is amber then (review M1's rule).
+  - In review: a Desktop file that does not parse (`refused`) fell through to "all green".
+    Doctor cannot read an entry in it, so its Runtime line really is green, which is why
+    the ending can't say amber either: it says the file was left as it was and that
+    `connect` brings the entry up to date once it's fixed. Tested with a trailing comma,
+    and a write that fails (a read-only folder: install exits 0, connect 1).
   - The scripted install (`--no-connect`, a pipe, CI) reads no host file, as before.
