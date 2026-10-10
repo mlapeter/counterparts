@@ -19,9 +19,10 @@
 - **A night's dream starts in about a second at ten times today's size, not half a
   minute.** The cache keeps each memory's nearest memories from when it was written, so
   the dream reads them instead of comparing every queued memory against every stored one.
-  Same bundle. The cache's format goes to v6 and fills itself in. An MCP server still
-  running the previous build refuses its tools until it is reconnected (`/mcp`), as with
-  every cache upgrade.
+  A new memory's list is the older memories nearest it when it was written; one written
+  before the upgrade gets its list the first night it is dreamed. The cache's format goes
+  to v6 and fills itself in. An MCP server still running the previous build refuses its
+  tools until it is reconnected (`/mcp`), as after a store-format change.
 - **A paused folder now says so when a session starts.** With memory paused in a folder
   (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or
   compacted session there shows one line naming the paused folder and the command that
