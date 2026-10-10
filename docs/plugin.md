@@ -53,7 +53,9 @@ Why the root, and why it leaves npm alone:
    version, kept at `$CLAUDE_PLUGIN_DATA/bin/<version>/counterparts`. macOS and Linux
    (glibc) only: not Windows yet.
 
-Bun runs with `--no-env-file`, so a project's `.env` can't redirect the memory.
+Bun runs with `--no-env-file` and `--config=<the shipped empty-bunfig.toml>`, so a
+project's `.env` can't redirect the memory and its `bunfig.toml` `preload` can't run
+inside it. The single binary takes neither flag: it is built with both loads off.
 
 **No runtime at all.** The plugin downloads that binary once, in the background, over
 HTTPS, from this version's GitHub release. It checks the download against the sha256s
