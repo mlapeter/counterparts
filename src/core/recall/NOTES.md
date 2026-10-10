@@ -1055,3 +1055,11 @@ diagnosis of 10-02 could say the Hebbian path was nearly dark (`quoted` 0 and `e
   - Ambient recall only. A deliberate answer's memories (`asked`) are not in the gate
     state's `surfaced`, and are not scored.
   - Recorded only where the credit pass runs (INTERFACE-GAPS §9).
+
+## 29. Mood weights to 0 (2026-10-10, review 02 C3)
+
+`MOOD_SAME_WEIGHT` and `MOOD_CROSS_WEIGHT` are 0. Decided by b2+f8, 2026-10-10, lightly
+held. Evidence from the old use metric (lifted memories used 1.3% vs 2.4%); re-test after
+Group 1's engaged credit gives a real signal. The code in `mood.ts` is kept whole and its
+tests run it at the old weights; with both at 0, `Recall#build` skips `currentMood` (the
+per-turn `feelings` scan with no index on `created_at`).

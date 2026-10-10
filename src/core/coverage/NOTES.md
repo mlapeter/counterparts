@@ -109,3 +109,18 @@ line finds the chapters written in a directory (`handoff/NOTES.md` §9).
 The `Write-ups` line replaces #192's `Crash write-up` and keeps its key (`crash-write-up`)
 so the console's layout and its headline order are untouched. The 3-day wait is gone:
 amber when a stretch from yesterday or earlier is owed.
+
+## 9. Lapse after fourteen days of use, not three (2026-10-10, Group 1c)
+
+Review 01 C4 measured 18 owed stretches (153 pieces, several from 2–4-hour sessions) that
+lapsed unwritten on the 10-10 snapshot: the nightly write-up takes four sessions a night,
+oldest first, and the next session's pointer only its own directory, and neither reached
+them in two days of use. An owed stretch now stays owed for `LAPSE_DAYS_OF_USE` = 14 days
+of use; retention keeps its text that long (it never strikes an owed session), and the
+night carries what it could not take with a count (`planCatchUp`'s `bounded`). Past the
+bound it is let go and said as a loss — the row keeps its name, `coverage.lapsed`, so old
+and new rows count together, and its words (the dashboard, `counterparts coverage`,
+doctor's "lost unwritten this week") say lost. Decided by g1c-builder, 2026-10-10, lightly
+held; revisit after ~5 lived days. Why: 01 says lapse only when the text must go, and
+nothing else bounds how long an owed session's text is held; fourteen is twice the
+ordinary week.

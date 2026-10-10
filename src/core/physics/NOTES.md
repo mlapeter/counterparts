@@ -532,3 +532,35 @@ The memories view's `letGoDay` passes the row's recurrence (`store#recurrenceOfR
 `ctx.recurring`, so the dashboard asks physics the exact question the prune asks: a
 faded repeat is not "fading", has no let-go day, and its row and card say how often it
 comes round instead.
+
+## 2026-10-10 — the default by what a memory is about; a feeling stops under the floor; "strongly felt" by the word (Group 1c)
+
+- **`defaultClaimFor`** (review 01 C2): an unclaimed authored memory's floor is 0.10 for a
+  done work event (`about=work`, `status=done`), 0.25 for other work and for an unmarked
+  memory (`AUTHORED_DEFAULT_CLAIM`, unchanged), 0.35 for the world, 0.40 for the owner, us
+  or me — or said by the owner, or kind self/person (checked first, so the owner's ruling
+  about work is not a work event). The mint reads `about` from the door
+  (`MintOptions.about`), `status`/`saidBy`/`kind` from the proposal; `salience.defaulted`
+  carries the `class`. Decided by g1c-builder, 2026-10-10, lightly held; revisit after ~5
+  lived days. Why: 01 D2's table; unmarked keeps 0.25 because `status: done` alone is not
+  enough to call an unmarked memory routine.
+- **`FELT_HEIGHT_CAP` 0.49** (`salArm`): the old invariant "a strong feeling alone does not
+  make a silent note semantic" was arithmetic (0.25 + 0.15 < 0.5) and the 0.40 default
+  breaks it (0.40 + 0.15 × 0.9 = 0.535). Now a memory whose own `sal` is under `THETA_SEM`
+  is lifted by feeling at most to 0.49; one at or above it keeps the whole lift. This is
+  b2+f8's "feeling sets stability, not the band" (§4 #7) on the height side, and it covers a
+  feeling recorded later, which a cap at the mint could not. It is general, not only for
+  defaulted rows: an explicit claim under 0.5 with a strong feeling no longer starts
+  semantic either (it did at 0.35–0.49). Decided by g1c-builder, 2026-10-10, lightly held;
+  revisit after ~5 lived days. Why: no column or meta read is needed, and a writer who
+  wants a memory semantic says 0.5 or more. **Overlap with G1a**, which is changing `sal()`
+  and `stability()` in the same file: `salArm` reads `sal()` and nothing else of theirs.
+- **`CORE_FAST_ABOVE_DEFAULT` 0.1** (review 08 C3): the fast lane's feeling half opens at
+  `CORE_FAST_FEELING` or for a feeling 0.1 above the strength its word is stored at when
+  nobody weighs it (`store/feelings.ts#defaultStrength`, capped 0.55, which still keeps an
+  unweighed word out). Read in consolidation (`sleep/consolidate.ts#stronglyFelt`) and
+  handed in as `CoreContext.stronglyFelt`; the recognition door and `laterFeelingCarriers`
+  read the same test (`feelingIsStrong`). On the fixture in
+  `test/encoding-attention.test.ts`, 5 of 11 about-us memories with a return two days out
+  now meet the fast lane, against 2 before. The return gate still binds (08: "worth little
+  without #5"). The dashboard's "needs intensity 0.6" reading is now one of two ways in.

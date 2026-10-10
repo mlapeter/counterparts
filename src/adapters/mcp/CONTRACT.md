@@ -2,12 +2,21 @@
 
 ## 1. Purpose
 
-The deliberate tools — note, recall, status — plus the two return channels the Stop ask
+The deliberate tools — remember, recall, status — plus the two return channels the Stop ask
 needs (`session_end` for memories, `chapter` for the episode), exposed over MCP to any host
 that speaks it. Nine tools today: those five, and `scope` (this directory's setting,
 2026-09-15), `self_page` (the page the wake opens with, 2026-09-18), `dream` (the
 dreamer's phases, 2026-09-26) and `reflect` (the waking self's, 2026-09-27) — each added
 on purpose (`tools.ts#TOOL_NAMES`).
+
+**`note` is `remember` (2026-10-10, Group 1c).** The old name still answers
+(`tools.ts#TOOL_ALIASES`, resolved first in `toolSpec` and `McpServer#call`, counted as
+`mcp.tool.alias` in the process log) and is never listed, so a session whose host cached
+the old tool list keeps working; every refusal and row names the tool `remember`. Kept for
+at least one release. Where this page says `note` below, read `remember`: the guarantees
+are the same door's. With the rename the door's words changed (review 01 C1): it is the
+in-the-moment half of the only road from conversation to memory — the keyless sweep has
+been off since 2026-09-24 — and it asks for what caught attention, one idea per call.
 
 **Which host (2026-09-30).** A result's words ABOUT the host — how to reconnect after an
 update, what switching the scope does — come from the host this server serves

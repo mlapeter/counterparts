@@ -953,3 +953,12 @@ this machine, while a long benchmark ran beside it) and left without one:
   deliberately not used; that reasoning predates the floor, and a change wants it
   re-ruled and every body write checked to keep the column in step. Or a store `GROUP BY`
   over the column, which reads no row at all.
+
+## 2026-10-10 — "strongly felt" by the word's own measure (Group 1c, review 08 C3)
+
+`coreContextFor` now hands the lanes `stronglyFelt`: a feeling on the memory at 0.6, or 0.1
+above the strength its word is stored at unweighed (`feelingIsStrong`), from the same
+feelings the intensity reads (no reflection's or awake one with the door closed). The
+recognition door (`selfRelevantFeeling`) and `laterFeelingCarriers` use the same test, and
+the closed-door counterfactual for a promotion record reads it with the door closed. The
+`SleepStore.feelingsFor` port now carries `core`, which the default is read under.
