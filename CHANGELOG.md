@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The store reuses its prepared database statements.** It used to prepare each query
+  again on every read. A new day's sleep pass at ten times today's size went from about
+  3.7 to 1.1 seconds.
 - **New memories in a dream part Claude Code cut go back in the queue.** When the nightly
   run's transcript shows a part of the dream was cut to a preview the run couldn't open
   (and it wasn't fetched again whole), the new memories that part carried are dreamed on

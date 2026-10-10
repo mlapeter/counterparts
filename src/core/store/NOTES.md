@@ -2004,3 +2004,14 @@ the whole answer.
 - **One more scan per write** (~1 ms now, ~12 ms at 10x). The gate's novelty read
   (`bridge.ts`) already ranks the nearest, but it runs before the memory has an id;
   sharing it can come with interference's slot check, which wants the same table.
+
+## 2026-10-10 — a statement cache per connection (Lane 0, scale review C5)
+
+`openDb` kept no statements: every `get`/`all`/`run` prepared its SQL again, and in the
+review's 10x sleep profile `prepare` was half the cycle. Statements are now kept per
+connection by their text (bounded at 512, emptied when full — some SQL is built per call).
+Checked on both drivers before relying on it: a statement stopped after its first row is
+reset by the driver, so it holds no lock against another connection (bun 1.3, Node 22), and
+SQLite re-prepares a kept statement when a cache reset drops and re-creates its table
+(`test/lane0-statements.test.ts`). Measured on the review's 10x clone: a new lived day's
+`runCycle` 3.7 s → 1.05 s, a same-day one 568 → 353 ms.

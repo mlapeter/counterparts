@@ -328,8 +328,28 @@ export function openDb(path: string, opts: OpenDbOptions = {}): Db {
     raw.exec(sql);
   };
 
+  // THE STATEMENT CACHE (2026-10-10, Lane 0 / scale review C5): every
+  // `get`/`all`/`run` used to prepare its SQL afresh, and in the 10x sleep
+  // profile `prepare` was half the cycle's time — paid once per row by every
+  // N+1 read. Statements are kept per connection by their text; SQLite
+  // re-prepares a kept one itself when the schema changes under it (a cache
+  // reset's DROP/CREATE). Some SQL is built per call (`IN (?, ?, …)` of a
+  // varying width), so the cache is bounded and simply emptied when full.
+  // Decided by lane0-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: 512 distinct statements covers every fixed query in the store several times over; emptying beats an LRU's bookkeeping for a cache this cheap to refill.
+  const STATEMENT_CACHE_MAX = 512;
+  const statements = new Map<string, RawStatement>();
+  const statementFor = (sql: string): RawStatement => {
+    let st = statements.get(sql);
+    if (st === undefined) {
+      st = raw.prepare(sql);
+      if (statements.size >= STATEMENT_CACHE_MAX) statements.clear();
+      statements.set(sql, st);
+    }
+    return st;
+  };
+
   const prepare = (sql: string): Statement => {
-    const st = raw.prepare(sql);
+    const st = statementFor(sql);
     return {
       run: (...p) => {
         st.run(...norm(p));
@@ -372,6 +392,7 @@ export function openDb(path: string, opts: OpenDbOptions = {}): Db {
       }
     },
     close: () => {
+      statements.clear();
       raw.close();
     },
   };
