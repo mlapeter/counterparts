@@ -39,6 +39,7 @@ import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import { deliverTurn, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { wakeLanes, wakeParts } from "../src/adapters/dashboard/web/views/mind.js";
 import { CUE_MODE_META } from "../src/core/prospective/index.js";
+import { yesterdayLine, yesterdayShorter } from "../src/core/handoff/last-here.js";
 import {
   BRIEFING_KEY,
   COLLAPSED_WORDS,
@@ -445,6 +446,21 @@ describe("what gives way for Still open's first item, in order — never the pag
     }
     expect(seen.arriving).toBeGreaterThan(0);
     expect(seen.yesterday).toBeGreaterThan(0);
+  });
+
+  test("the Yesterday line's shorter forms name fewer titles and count the rest, widest first", () => {
+    const day = [0, 1, 2, 3, 4].map((i) => ({ id: `epi_${String(i)}`, title: `Seating the valves on kiln ${String(i)}`, chapters: i === 0 ? 2 : 1, createdAt: i }));
+    expect(yesterdayLine(day, "2026-10-07")).toEndWith('"Seating the valves on kiln 3" (epi_3); and 1 more.');
+    const forms = yesterdayShorter(day, "2026-10-07");
+    expect(forms.length).toBe(3);
+    forms.forEach((line, i) => {
+      const titles = 3 - i;
+      expect(line).toStartWith('Yesterday, 10-07: "Seating the valves on kiln 0" (epi_0, 2 chapters)');
+      expect(line).toEndWith(`; and ${String(5 - titles)} more.`);
+      expect(line.split("; ").length).toBe(titles + 1);
+    });
+    expect(forms.map((l) => Buffer.byteLength(l))).toEqual([...forms.map((l) => Buffer.byteLength(l))].sort((a, b) => b - a));
+    expect(yesterdayShorter(day.slice(0, 1), "2026-10-07")).toEqual([]);
   });
 
   test("the room held for 'Work here' is lent first: Arriving and Yesterday stay whole, and only Still open's first item and its count ride on it", () => {
