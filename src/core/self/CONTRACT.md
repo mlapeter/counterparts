@@ -188,7 +188,9 @@ proposals and their archive; render and delivery telemetry.
    `briefing.ts#collapsedLine`): `Still open: 20 — no room to list them in this wake;
    recall ids …`, never a heading over a count. **The page is never cut for the lanes
    beside it** (review of #350), **nor for anything else** (2026-10-09, §16): it prints
-   whole in `budget − PAGE_FLOOR_RESERVE_BYTES`, or one line stands for it. **"Still open" keeps its first item and its count
+   whole in `budget − PAGE_FLOOR_RESERVE_BYTES` — with the "Work here" reserve
+   (`lendBytes`) lent to it first when it does not fit without (review of #358) — or one
+   line stands for it. **"Still open" keeps its first item and its count
    before Arriving keeps its second line** (2026-10-09, a working default; the one
    exception to the trim order above, `briefing.ts#keepFirstOpen`): when the trim loop fits
    with "Still open" empty, the room for its first item and its "N more" line comes, in
@@ -197,7 +199,10 @@ proposals and their archive; render and delivery telemetry.
    states what it borrowed), Arriving beyond its first line, and the Yesterday line's
    titles (`yesterdayShorter`, fewer titles and the rest by count). All or nothing: when
    even that leaves no room, or the trim already took Arriving's first line, the render is
-   the trim loop's, and the lane collapses to its one line.
+   the trim loop's, and the lane collapses to its one line. When the trim loop kept the
+   lane's items but left no room for its count, the count alone is paid for out of "Work
+   here" and nothing else (review of #358): the items stay as the trim kept them, so a
+   smaller budget still keeps a subset.
    **What Nearby and the horizon leave out** (2026-10-01, working defaults): a memory a
    later one settled over (`changed` or `corrected`) is in no lane but identity; a memory
    arriving is under Arriving only; and a hint the self page already covers — cited by the
@@ -371,7 +376,12 @@ proposals and their archive; render and delivery telemetry.
     room is the caller's budget **less `PAGE_FLOOR_RESERVE_BYTES`, the furniture the wake
     wraps it in** — the page is furniture the trim loop cannot pop, so a page sized against
     the whole ceiling puts the composition over it with nothing left to trim. A page that
-    fits the room prints as it is; one that does not is replaced by ONE line naming its
+    fits the room prints as it is. **One that does not borrows before it points** (review
+    of #358): the room the delivery holds for "Work here" (`lendBytes`, the owner's wake
+    only) is lent to it — only what it needs, the rest still "Still open"'s — and the
+    composition's `budgetBytes` states it; a page past the write limit by a little (6,079
+    to ~7,200 at 9,000) so still prints whole on every day. Only one that does not fit
+    even then is replaced by ONE line naming its
     bytes and both doors to it, the `self_page` tool and `counterparts self-page`
     (`briefing.ts#pageTooLargeLine`); where there is no room for that line either it says
     nothing. **The write limit is the room the wake guarantees** — `PAGE_MAX_BYTES`

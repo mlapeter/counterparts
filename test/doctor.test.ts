@@ -2878,7 +2878,7 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     expect(by(doctorFindings(input({ store: s })), "spawn").severity).toBe("amber");
   });
 
-  test("Self page: a page past the limit (written before it) is amber, and says the wake may print one line instead", () => {
+  test("Self page: a page past the limit (written before it) is amber, and says the wake prints it whole only by borrowing, or one line instead", () => {
     // The seam refuses such a page now (2026-10-09); one written before the
     // limit, when it took up to 16 KB, is still in a store.
     const s0 = Store.open({ dir });
@@ -2889,7 +2889,8 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     const f = by(doctorFindings(input({ store: store() })), "self-page");
     expect(f.severity).toBe("amber");
     expect(f.detail).toContain(`past the ${String(PAGE_LIMIT_BYTES)}-byte limit`);
-    expect(f.detail).toContain("says so in one line instead");
+    expect(f.detail).toContain("only by borrowing the room held for \"Work here\"");
+    expect(f.detail).toContain("says so in one line when even that is not enough");
     expect(f.fix).toContain(`under ${String(PAGE_LIMIT_BYTES)} bytes`);
     expect(f.data["wakeShowsAll"]).toBe(false);
     expect(f.data["limit"]).toBe(PAGE_LIMIT_BYTES);

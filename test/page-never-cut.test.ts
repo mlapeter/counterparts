@@ -34,6 +34,8 @@ import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { DESKTOP_HOST } from "../src/adapters/hosts.js";
 import { openServer, toolDefinitions } from "../src/adapters/mcp/index.js";
 import type { McpServer } from "../src/adapters/mcp/index.js";
+import { selfPageFindings } from "../src/adapters/claude-code/doctor.js";
+import { episodeGate } from "../src/core/bridge.js";
 import { SELF_BRIEFING_EVENT } from "../src/core/counterpart.js";
 import { HANDOFF_RESERVE_MARGIN_BYTES, HANDOFF_RESERVE_MIN_BUDGET_MULTIPLE } from "../src/core/handoff/index.js";
 import {
@@ -43,6 +45,7 @@ import {
   PAGE_LIMIT_BYTES,
   PAGE_WRITING_RULE,
   SELF_TUNABLES,
+  Self,
   WORK_HERE_HEADING,
   deliveryReserveBound,
   pageTooLargeLine,
@@ -276,6 +279,72 @@ describe("the page at its limit prints whole at 9,000 under the widest reserves 
       expect(text).not.toContain("the wake shows the first");
       expect(readSentinel(text).intact).toBe(true);
       expect(bytes(text)).toBeLessThanOrEqual(small);
+    });
+  }
+
+  /**
+   * A page PAST the limit — written before it, at the seam's old 16 KB — under
+   * the widest reserves: it borrows the room held for "Work here" and prints
+   * whole whenever page and furniture fit the composition plus that room
+   * (review of #358). Master printed a 6,100-byte page whole on most days; the
+   * one line is only for a page that does not fit even borrowing.
+   */
+  function pastLimit(bytesWanted: number): string {
+    const para = "I keep a careful account of the studio and the people in it, and I say what I do not know before I guess.";
+    let page = "## Core\n\n";
+    while (bytes(page) + bytes(para) + 2 <= bytesWanted - 40) page += `${para}\n\n`;
+    page += `## Lately\n\n${"x".repeat(bytesWanted - bytes(page) - bytes("## Lately\n\n") - 1)}.`;
+    expect(bytes(page)).toBe(bytesWanted);
+    return page;
+  }
+  async function widestWith(zone: string, page: string): Promise<ReturnType<typeof openAdapter>> {
+    clock(zone, "2026-10-08", 21);
+    const a = adapter(zone);
+    const old = new Self({ store: a.counterpart.store, gate: episodeGate(), tunables: { PAGE_MAX_BYTES: 16_384 } });
+    expect(old.revisePage(page, { by: "owner", reason: "written before the limit" }).written).toBe(true);
+    widestReserves(a);
+    await worker(zone);
+    return a;
+  }
+  for (const zone of ZONES) {
+    for (const size of [6_100, 6_144, 7_000]) {
+      test(`${zone}: a ${String(size)}-byte page, past the limit, borrows "Work here" under the widest reserves and prints whole — doctor stays amber`, async () => {
+        const page = pastLimit(size);
+        const a = await widestWith(zone, page);
+        const stored = a.counterpart.store.getMeta(BRIEFING_KEY) ?? "";
+        expect(stored).toContain(`${FRAMING.identity}\n${page}\n`);
+        // Composed past 6,590 by what it borrowed, and by no more than the room held for "Work here".
+        const composed = Number(lastBriefing(a)["budget"]);
+        expect(composed).toBeGreaterThan(COMPOSE);
+        expect(composed).toBeLessThanOrEqual(COMPOSE + SHARE);
+        expect(bytes(stored)).toBeLessThanOrEqual(composed);
+
+        clock(zone, "2026-10-09", 8);
+        const text = sessionStart(a, zone, "s-morning");
+        expect(text).toContain(`${FRAMING.identity}\n${page}\n`);
+        expect(text).not.toContain("My page is");
+        expect(readSentinel(text).intact).toBe(true);
+        expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
+        // The handoff is chosen before "Work here" and never gives way to it.
+        expect(text).toContain("Where the work in this directory was left off");
+        // Over the writer's limit, so doctor asks for the next revision to come in under it.
+        const f = selfPageFindings(a.counterpart.store)[0];
+        expect(f?.severity).toBe("amber");
+        expect(f?.fix).toContain(`under ${String(PAGE_LIMIT_BYTES)} bytes`);
+      });
+    }
+
+    test(`${zone}: a page that does not fit even borrowing "Work here" is one line under the widest reserves — never cut`, async () => {
+      // 9,000 − 160 − 1,125 − 512 = 7,203 is the most it can borrow its way to.
+      const page = pastLimit(7_300);
+      const a = await widestWith(zone, page);
+      clock(zone, "2026-10-09", 8);
+      const text = sessionStart(a, zone, "s-morning");
+      expect(text).toContain(`${FRAMING.identity}\n${pageTooLargeLine(7_300)}\n`);
+      expect(text).not.toContain(page.slice(0, 200));
+      expect(readSentinel(text).intact).toBe(true);
+      expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
+      expect(text).toContain(WORK_HERE_HEADING);
     });
   }
 

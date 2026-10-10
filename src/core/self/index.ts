@@ -651,10 +651,28 @@ export class Self {
     // its cap prints whole. When "Still open" would list nothing beside it,
     // the room for its first item comes out of the other lanes, in the
     // renderer (`briefing.ts#keepFirstOpen`).
-    const block =
+    //
+    // **AND IT BORROWS BEFORE IT POINTS** (review of #358, 2026-10-09): a page
+    // that does not fit this composition whole takes the room the delivery
+    // holds for "Work here" (`lendBytes`, the owner's wake only) — the first
+    // thing that gives way in `keepFirstOpen` too — before the wake falls back
+    // to the one line. It takes only what it needs (its bytes and the
+    // furniture's reserve, less the budget), so a page a few bytes over its
+    // room costs "Work here" a few bytes; what is left of the lend is still
+    // "Still open"'s. Only a page that does not fit even then gets the line.
+    const lend = req.lendBytes === undefined || req.omit !== undefined ? 0 : Math.max(0, Math.floor(req.lendBytes));
+    let block =
       req.omit !== undefined && !this.tunables.PAGE_ON_EGRESS
         ? null
         : this.pageBlock(req.budgetBytes);
+    let took = 0;
+    if (block !== null && (block === NO_ROOM || block.truncated) && lend > 0) {
+      const borrowed = this.pageBlock(req.budgetBytes + lend);
+      if (borrowed !== null && borrowed !== NO_ROOM && !borrowed.truncated) {
+        block = borrowed;
+        took = Math.min(lend, Math.max(0, borrowed.wholeBytes + PAGE_FLOOR_RESERVE_BYTES - req.budgetBytes));
+      }
+    }
     // A page that will not FIT is not a page that does not EXIST: the renderer
     // is told `pageExists` so the still-forming line stays off a store that has
     // one, whatever the ceiling did (MINOR-D).
@@ -663,7 +681,8 @@ export class Self {
     return render(
       lanes,
       {
-        budgetBytes: req.budgetBytes,
+        // What the page borrowed is composed into, and is no longer lent.
+        budgetBytes: req.budgetBytes + took,
         pageExists,
         day: req.day,
         ...(coreName === null ? {} : { coreName }),
@@ -678,7 +697,7 @@ export class Self {
         // The room held for "Work here", lent to "Still open"'s first item
         // (review of #350): the owner's wake only, which is the one delivered
         // with work lines.
-        ...(req.lendBytes === undefined || req.omit !== undefined ? {} : { lendBytes: req.lendBytes }),
+        ...(req.lendBytes === undefined || req.omit !== undefined ? {} : { lendBytes: lend - took }),
       },
       resolve,
       this.tunables,
@@ -1329,7 +1348,9 @@ export class Self {
    * #350's second review found the cut it used to print (at
    * `min(6,144, room)`) reachable at the default ceiling. The writer's limit
    * (`briefing.ts#PAGE_LIMIT_BYTES`) is this room at 9,000 under the widest
-   * reserves, so a page written today always fits there.
+   * reserves, so a page written today always fits there. `build` asks a
+   * second time with the "Work here" lend added before it settles for the
+   * line (review of #358): a page a little over its room borrows, whole.
    */
   private pageBlock(budgetBytes: number): PageBlock | typeof NO_ROOM | null {
     const page = this.page();

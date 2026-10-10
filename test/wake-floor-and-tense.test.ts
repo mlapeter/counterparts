@@ -255,12 +255,12 @@ describe("Still open keeps its first item beside a long page, and the page is ne
   }
 
   for (const zone of ZONES) {
-    // The owner's page was 5,845 bytes (version 16); `PAGE_LIMIT_BYTES` is the
-    // longest a page may be written (2026-10-09), past the room the lanes
-    // beside it had. (At 5,904 — version 17 — this scenario's trim keeps one
-    // item and has no room for its count: the trim loop's own, which
-    // `keepFirstOpen` does not revisit. Recorded in self NOTES, not fixed here.)
-    for (const bytes of [5_845, PAGE_LIMIT_BYTES]) {
+    // The owner's page was 5,845 bytes (version 16) and is 5,904 (version 17);
+    // `PAGE_LIMIT_BYTES` is the longest a page may be written (2026-10-09),
+    // past the room the lanes beside it had. At 5,904 the trim keeps one item
+    // and no room for its count; the count is paid for out of "Work here"
+    // (review of #358), so the lane never reads as if one thing were open.
+    for (const bytes of [5_845, 5_904, PAGE_LIMIT_BYTES]) {
       test(`${zone}: a ${String(bytes)}-byte page is printed whole, byte for byte, and "Still open" still lists its first item and its count`, async () => {
         const { a, ids, page, text, stored } = await morning(zone, bytes);
         expect(readSentinel(text).intact).toBe(true);
@@ -286,9 +286,22 @@ describe("Still open keeps its first item beside a long page, and the page is ne
       });
     }
 
-    test(`${zone}: a page past the room (written before the limit) is never cut — one line stands for it, and the lanes beside it take nothing from it`, async () => {
+    test(`${zone}: a page past its room (written before the limit) borrows "Work here" and prints whole — Arriving keeps its first line, and the wake fits`, async () => {
+      // 7,000 bytes: past this composition's room (its budget less the
+      // furniture), within it once "Work here" lends (review of #358).
       const { text, stored, page } = await morning(zone, 7_000);
-      const line = pageTooLargeLine(7_000);
+      expect(stored).toContain(`${FRAMING.identity}\n${page}\n`);
+      expect(text).toContain(`${FRAMING.identity}\n${page}\n`);
+      expect(text).not.toContain("My page is");
+      expect(readSentinel(text).intact).toBe(true);
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(BUDGET);
+      expect(lane(text, FRAMING.horizon)?.[0]).toStartWith("- ");
+      expect(text).toContain("Where the work in this directory was left off");
+    });
+
+    test(`${zone}: a page past even the borrowed room (written before the limit) is never cut — one line stands for it, and the lanes beside it take nothing from it`, async () => {
+      const { text, stored, page } = await morning(zone, 8_400);
+      const line = pageTooLargeLine(8_400);
       expect(stored).toContain(`${FRAMING.identity}\n${line}\n`);
       expect(text).toContain(`${FRAMING.identity}\n${line}\n`);
       expect(text).not.toContain(page.slice(0, 200));

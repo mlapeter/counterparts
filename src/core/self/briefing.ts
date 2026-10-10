@@ -822,10 +822,20 @@ function lostByLane(
  *
  * The target is the lane's first item AND its "N more" line: one item under a
  * heading with no count reads as the only thing open. Only after the trim loop
- * has FIT, only when it left "Still open" with nothing, and all or nothing:
- * when even the last step leaves no room, the render is exactly what the trim
- * loop made, and the lane says so in one line (`collapsedLine`). Returns null
- * then, or when there is nothing to keep.
+ * has FIT, and all or nothing: when even the last step leaves no room, the
+ * render is exactly what the trim loop made, and a lane that lists nothing
+ * says so in one line (`collapsedLine`). Returns null then, or when there is
+ * nothing to keep.
+ *
+ * AND THE COUNT BESIDE WHAT THE TRIM KEPT (review of #358, 2026-10-09): when
+ * the trim loop left the lane its items but no room for its "N more" line —
+ * #350's morning with a 5,904-byte page read one item and no count — the
+ * count is paid for out of "Work here" (`lendBytes`), the first rung, and out
+ * of nothing else: the items stay as the trim kept them (a smaller budget
+ * still keeps a subset), and Arriving and Yesterday, which the trim order
+ * already ranks above Still open's later items, give nothing for a count. Not
+ * when the count already fits: `withMoreLines` adds it then, as it adds every
+ * lane's.
  */
 function keepFirstOpen(
   arrived: readonly Ranked[],
@@ -848,26 +858,41 @@ function keepFirstOpen(
   lent: number;
 } | null {
   const first = arrived[0];
-  if (first === undefined || kept.threads.length > 0) return null;
+  if (first === undefined) return null;
   // Arriving's FIRST line still outranks it, as the trim order says: when the
   // trim already took that, this budget has no room to rearrange.
-  if (arrivedHorizon > 0 && kept.horizon.length === 0) return null;
+  if (kept.threads.length === 0 && arrivedHorizon > 0 && kept.horizon.length === 0) return null;
   const k: Kept = {
     identity: [...kept.identity],
     craft: [...kept.craft],
-    threads: [first],
+    // What the lane lists: the items the trim kept, or — when it kept none —
+    // its first item.
+    threads: kept.threads.length > 0 ? [...kept.threads] : [first],
     hints: [...kept.hints],
     horizon: [...kept.horizon],
   };
-  const t = trimmed.filter((e) => !(e.lane === "threads" && e.id === first.id));
+  const t = trimmed.filter((e) => !(e.lane === "threads" && k.threads.some((l) => l.id === e.id)));
   // The rest of the lane, as `lostByLane` will list it: the trim's (popped
   // from the end, so reversed back), then what the lane's cap left out.
-  const rest = [...t.filter((e) => e.lane === "threads").map((e) => e.id).reverse(), ...overflow];
+  const restOf = (): string[] => [...t.filter((e) => e.lane === "threads").map((e) => e.id).reverse(), ...overflow];
+  const countLine = (rest: readonly string[]): Partial<Record<LaneName, string>> =>
+    rest.length === 0 ? {} : { threads: moreLine("threads", rest) };
+  const rest = restOf();
+  const lines = countLine(rest);
   const pinned: Partial<Record<LaneName, string[]>> = rest.length === 0 ? {} : { threads: rest };
-  const lines: Partial<Record<LaneName, string>> = rest.length === 0 ? {} : { threads: moreLine("threads", rest) };
+  const lend = Math.max(0, Math.floor(req.lendBytes ?? 0));
+  if (kept.threads.length > 0) {
+    // Items the trim kept: only their count is owed here, only when it does
+    // not fit as it is, and only out of "Work here" — the items stay as the
+    // trim kept them, and Arriving and Yesterday give nothing for a count
+    // (the trim order already ranks Arriving above Still open's later items).
+    if (rest.length === 0) return null;
+    const c = compose(k, req.day, resolve, coreName, identity, lines, yesterday);
+    if (c.bytes <= req.budgetBytes || c.bytes > req.budgetBytes + lend) return null;
+    return { kept: k, trimmed: t, yesterday, pinned, composed: c, lent: c.bytes - req.budgetBytes };
+  }
   const shorter =
     yesterday === undefined ? [] : (req.yesterdayShorter ?? []).filter((s) => s.length > 0 && byteLength(s) < byteLength(yesterday));
-  const lend = Math.max(0, Math.floor(req.lendBytes ?? 0));
   let limit = req.budgetBytes;
   let y = yesterday;
   let rung = 0;

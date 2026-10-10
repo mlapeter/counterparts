@@ -3852,11 +3852,13 @@ export function selfPageFindings(store: Store): Finding[] {
   // WHAT THE WAKE SHOWS OF IT (2026-10-02, the "nobody saw it" review; since
   // 2026-10-09 the wake never cuts the page). Every write since is held to
   // `PAGE_MAX_BYTES`, the page the wake prints whole at 9,000 bytes, so a page
-  // past it was written before the limit — and a wake with no room for it
-  // whole prints one line instead of it. Said, with what to do.
+  // past it was written before the limit. The wake still prints it whole when
+  // it fits with the room held for "Work here" borrowed (review of #358), and
+  // one line instead of it when even that is not enough. Amber either way,
+  // and said with what to do: the next revision tightens it.
   const overLimit = page.bytes > SELF_TUNABLES.PAGE_MAX_BYTES;
   const wakeShows = overLimit
-    ? `; past the ${String(SELF_TUNABLES.PAGE_MAX_BYTES)}-byte limit, so a wake with no room for it whole says so in one line instead (the self_page tool reads it whole)`
+    ? `; past the ${String(SELF_TUNABLES.PAGE_MAX_BYTES)}-byte limit, so the wake prints it whole only by borrowing the room held for "Work here", and says so in one line when even that is not enough (the self_page tool reads it whole)`
     : "";
   const detail =
     `${page.bytes} bytes, version ${page.version}, last revised ${page.revisedOn === "" ? "(unrecorded)" : page.revisedOn}` +
