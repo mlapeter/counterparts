@@ -146,10 +146,13 @@ function updateClaims(dataDir: string, fn: (current: string | undefined) => stri
     transactClaims(path, fn);
     return { setAside: null };
   } catch (err) {
-    if (!isUnreadableDatabase(err)) throw err;
+    if (!isUnreadableDatabase(err) && !movedWhileOpen(err)) throw err;
     // A twin that met the same file may have set it aside and rebuilt it in
-    // the meantime; then this one only tries again, on the file it made.
-    const setAside = stillUnreadable(path) ? setClaimsAside(path) : null;
+    // the meantime (and on macOS a connection whose file it moved says
+    // SQLITE_IOERR_VNODE); then this one only tries again, on the file the
+    // twin made, and loses to the twin's claim there rather than delivering
+    // beside it.
+    const setAside = isUnreadableDatabase(err) && stillUnreadable(path) ? setClaimsAside(path) : null;
     transactClaims(path, fn);
     return { setAside };
   }
@@ -178,17 +181,23 @@ function stillUnreadable(path: string): boolean {
 /**
  * Move the unreadable claims file aside, with its `-wal` and `-shm` (a stale
  * log replayed into a new file would be the corruption all over again), to
- * `hook-claims.unreadable-<epoch ms>.sqlite`, after removing any older copy:
- * one is kept, so it is evidence and never a pile. Returns the copy's path.
- * Throws when the file itself cannot be moved.
+ * `hook-claims.unreadable-<epoch ms>.sqlite`, then remove any older copy: one
+ * is kept, so it is evidence and never a pile. Returns the copy's path, or
+ * null when the file is already gone — a twin moved it first, and its copy
+ * is the one kept (review of #366: removing older copies BEFORE the move let
+ * the twin that lost the move delete the copy the winner had just made).
+ * Throws when the file is there and cannot be moved.
  */
-function setClaimsAside(path: string, now: number = Date.now()): string {
+function setClaimsAside(path: string, now: number = Date.now()): string | null {
   const dir = dirname(path);
-  for (const name of readdirSync(dir)) {
-    if (name.startsWith(CLAIMS_SET_ASIDE_PREFIX)) rmSync(join(dir, name), { force: true });
+  const name = `${CLAIMS_SET_ASIDE_PREFIX}${String(now)}${CLAIMS_SET_ASIDE_SUFFIX}`;
+  const aside = join(dir, name);
+  try {
+    renameSync(path, aside);
+  } catch (err) {
+    if ((err as { code?: unknown } | null)?.code === "ENOENT") return null;
+    throw err;
   }
-  const aside = join(dir, `${CLAIMS_SET_ASIDE_PREFIX}${String(now)}${CLAIMS_SET_ASIDE_SUFFIX}`);
-  renameSync(path, aside);
   for (const sidecar of ["-wal", "-shm"]) {
     try {
       renameSync(`${path}${sidecar}`, `${aside}${sidecar}`);
@@ -196,7 +205,18 @@ function setClaimsAside(path: string, now: number = Date.now()): string {
       /* not there: nothing to carry */
     }
   }
+  for (const other of readdirSync(dir)) {
+    if (other.startsWith(CLAIMS_SET_ASIDE_PREFIX) && !other.startsWith(name)) rmSync(join(dir, other), { force: true });
+  }
   return aside;
+}
+
+/** SQLITE_IOERR_VNODE (macOS): the file this connection opened was renamed or
+ *  removed while it was open — here, only ever by a twin's `setClaimsAside`.
+ *  bun names it in `code`; `node:sqlite` gives the extended number. */
+function movedWhileOpen(err: unknown): boolean {
+  const e = err as { code?: unknown; errcode?: unknown } | null | undefined;
+  return e?.code === "SQLITE_IOERR_VNODE" || e?.errcode === 6922;
 }
 
 /**

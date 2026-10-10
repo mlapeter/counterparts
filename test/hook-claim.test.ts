@@ -674,6 +674,74 @@ describe("a claims file that is not a database", () => {
     60_000,
   );
 
+  test(
+    "two twins meet one bad file (review of #366): exactly one delivers every round, and the copy is kept",
+    async () => {
+      // Before: both passed `stillUnreadable`, the one that lost the move threw
+      // ENOENT (or, on macOS, SQLITE_IOERR_VNODE from a file moved while open)
+      // and delivered unclaimed beside the winner — every round of 30 — and it
+      // had removed "older" copies first, once the winner's own.
+      const claimModule = resolve(import.meta.dir, "../src/adapters/claude-code/claim.ts");
+      const racer = join(work, "bad-file-racer.ts");
+      writeFileSync(
+        racer,
+        [
+          `import { claimDelivery } from ${JSON.stringify(claimModule)};`,
+          `const [root, side, t0, rounds, gap] = [process.argv[2], process.argv[3], Number(process.argv[4]), Number(process.argv[5]), Number(process.argv[6])];`,
+          `const out = [];`,
+          `for (let i = 0; i < rounds; i += 1) {`,
+          `  const at = t0 + i * gap;`,
+          `  while (Date.now() < at) {}`,
+          `  const doors = { store: { dir: root + "/r" + i }, noteAdapterEvent: () => true };`,
+          `  const c = claimDelivery(doors, { hook: "session-start", key: "k", sessionId: "s", side, observer: false, started: at - 1, once: true });`,
+          `  out.push([i, c.outcome, c.code ?? null]);`,
+          `}`,
+          `process.stdout.write(JSON.stringify(out));`,
+        ].join("\n"),
+        "utf8",
+      );
+      const rounds = 20;
+      const gap = 80;
+      const root = join(work, "rounds");
+      for (let i = 0; i < rounds; i += 1) {
+        const path = claimsPath(join(root, `r${String(i)}`));
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, garbage, "utf8");
+        writeFileSync(`${path}-wal`, "stale log", "utf8");
+      }
+      const t0 = Date.now() + 1_500;
+      const run = (side: string): Promise<Ran> =>
+        new Promise((done, fail) => {
+          const child = spawn(process.execPath, ["run", racer, root, side, String(t0), String(rounds), String(gap)], {
+            env: hookEnv(),
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+          let stdout = "";
+          let stderr = "";
+          child.stdout.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
+          child.stderr.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
+          child.on("error", fail);
+          child.on("close", (code) => done({ code: code ?? -1, stdout, stderr }));
+        });
+      const [a, b] = await Promise.all([run("settings"), run("plugin")]);
+      expect([a.code, b.code, a.stderr, b.stderr]).toEqual([0, 0, "", ""]);
+      const ra = JSON.parse(a.stdout) as [number, string, string | null][];
+      const rb = JSON.parse(b.stdout) as [number, string, string | null][];
+      for (let i = 0; i < rounds; i += 1) {
+        expect({ i, outcomes: [ra[i]?.[1], rb[i]?.[1]].sort(), codes: [ra[i]?.[2], rb[i]?.[2]] }).toEqual({
+          i,
+          outcomes: ["lost", "won"],
+          codes: [null, null],
+        });
+        const copies = readdirSync(dirname(claimsPath(join(root, `r${String(i)}`)))).filter(
+          (n) => n.startsWith("hook-claims.unreadable-") && n.endsWith(".sqlite"),
+        );
+        expect({ i, copies: copies.length }).toEqual({ i, copies: 1 });
+      }
+    },
+    60_000,
+  );
+
   test("the directory is 0700 and the file 0600, and SQLite's log and index take the file's mode", () => {
     const cp = Counterpart.open({ dir: store });
     // A reader holding the file open keeps the `-wal` and `-shm` after the claim's own connection closes.

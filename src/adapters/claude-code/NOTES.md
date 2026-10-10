@@ -2346,9 +2346,16 @@ INTERFACE-GAPS §15.
   every event, and the backstop off until somebody deleted the file. Now the write that meets
   `SQLITE_NOTADB`, `SQLITE_CORRUPT` or `SQLITE_IOERR_SHORT_READ` (`db.ts#isUnreadableDatabase`)
   checks the file is still unreadable (a twin may have rebuilt it already), moves it with its
-  `-wal` and `-shm` to `hook-claims.unreadable-<epoch ms>.sqlite` beside it, removing any
-  older copy first, and runs the transaction once more on a fresh file. Fail-open still: a
+  `-wal` and `-shm` to `hook-claims.unreadable-<epoch ms>.sqlite` beside it, then removes any
+  older copy, and runs the transaction once more on a fresh file. Fail-open still: a
   set-aside that cannot be made, or a second failure, delivers unclaimed as before.
+  **Review of #366: two twins meeting one bad file.** Both passed the still-unreadable
+  check; the one that lost the move threw ENOENT (on macOS, `SQLITE_IOERR_VNODE` when its
+  open file was moved) and delivered unclaimed beside the winner, in 30 of 30 rounds, and
+  because older copies were removed before the move it once removed the winner's copy. Now
+  a move that finds the file gone returns no copy, `SQLITE_IOERR_VNODE` also retries once,
+  and older copies go after the move: 40 of 40 rounds one delivery, every copy kept
+  (`hook-claim.test.ts`, "two twins meet one bad file").
   `SQLITE_IOERR_SHORT_READ` is in the list because that is what a garbage file reads as when
   a WAL from the healthy one is still beside it, which on macOS it is: Apple's SQLite keeps
   `-wal` and `-shm` after the last connection closes (measured while writing the test). So
