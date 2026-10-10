@@ -1,19 +1,28 @@
 # Changelog
 
-## Unreleased
+## 0.3.16 — 2026-10-10
 
-- **A paused folder now says so when a session starts.** With memory paused in a folder
-  (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or
-  compacted session there shows one line naming the paused folder and the command that
-  turns it back on, which works from any terminal. If the pause is on a parent folder, the
-  line names that folder and the command resumes it there. Claude gets a matching line so
-  it doesn't act as if it remembers.
-  Nothing else changes: no memories are loaded or recorded, nothing is written, other
-  hooks stay silent, and a folder turned `off` stays completely silent.
-- **The sidebar lights every mechanism an event proves.** Each event is one row and lights
-  every mechanism it proves: a turn where a matching mood brought a memory closer lights
-  Emotion beside Retrieval, and a dream that wrote a gist and merged near-copies lights
-  Gist, Interference and Consolidation beside Dreaming.
+The self page is kept whole up to 16 KB, and when it doesn't fit, the wake steps down to
+something whole instead of cutting it: the page, a short version written with it, an
+outline, the headings, or one line saying where to read it. At the default 9,000-byte
+ceiling the page's room is now 5,681 bytes (it was 6,078). Dated items come before the
+wake's furniture: an "Arriving:" item or a plain reminder due today is listed before the
+handoffs, "Last here" and "Work here" take their room, and doctor's Wake line turns amber
+when one still goes unlisted. A paused folder says so in one line when a session starts.
+Each field of a hook's output is now held to Claude Code's 10,000-character limit on its
+own, so a red doctor notice shows beside a full wake. A damaged claims file mends itself,
+a late twin of a session's first start stands down, and every `counterparts scope` command
+Claude is shown names its folder. The plugin's first-run line is back, and its sidebar
+lights every mechanism an event proves. **Nothing to run after upgrading from 0.3.15**:
+the hooks, the memory server's registration and Claude Desktop's entry are the same as
+0.3.15's (coming from 0.3.14 or earlier, see those versions' notes on `counterparts
+connect`). **No change to the store's format (still v12)**: a page's short version is kept
+in the page's own record, which 0.3.15 reads past. Going back to 0.3.15 is the order in
+QUICKSTART's "Going back to an earlier version": `counterparts disconnect` while 0.3.16 is
+still installed, then the 0.3.15 reinstall, then `counterparts connect`.
+
+The self page in the wake (#363).
+
 - **A long self page is kept, not refused, and the wake steps down to something whole.**
   0.3.15 refused a page past 6,078 bytes. Now the page is kept whole up to 16,384 bytes,
   and the wake shows the first of these that fits, each one whole: the page; a short
@@ -40,6 +49,38 @@
   the first 2,000 characters and is not told to look). Past 16,384 bytes a page is
   refused, never cut. Below a ceiling of about 530 bytes the wake is now larger than its
   ceiling, because of those fixed lines; the default is 9,000.
+
+Dated items first in the wake (#367).
+
+- **Dated items come before the wake's furniture.** A wake could say "Arriving: 1 — no
+  room to list them in this wake" while it still printed yesterday's chapter titles and
+  four handoffs: the room held for the handoffs and "Last here" was never offered to the
+  rest of the wake. Now the wake follows one declared order of what gives way: when an
+  "Arriving:" item has no room, "Work here" shows fewer lines first, then the Yesterday
+  line swaps titles for chapter ids one at a time, then "Last here" is dropped and fewer
+  handoffs are shown in full, the others named by id while there is room for them. The
+  newest handoff's own room goes only to a plain reminder due that day; no other line
+  can take it. Only then does a dated item go unlisted. An arriving item past the two
+  the wake lists is no longer left out silently: the lane's "N more arriving" line names
+  it by id, and when even that line has no room, doctor counts it as unlisted. "Still
+  open" keeps its first item before Arriving's second line, as before, but now after
+  those same lanes give way. A plain reminder due the day the wake is read comes first
+  in "Arriving:" (and in the two the wake is offered), and it outranks the self page
+  borrowing past its room: the page steps down to its short version or outline rather
+  than leave it out. The page within its own room still comes first. Beside a page that
+  borrowed, the Yesterday line was sometimes dropped whole; it now keeps its ids. If a
+  dated item still goes unlisted, doctor's Wake line says so in amber, with what to do.
+
+Paused folders and the scope commands (#362, #366).
+
+- **A paused folder now says so when a session starts.** With memory paused in a folder
+  (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or
+  compacted session there shows one line naming the paused folder and the command that
+  turns it back on, which works from any terminal. If the pause is on a parent folder, the
+  line names that folder and the command resumes it there. Claude gets a matching line so
+  it doesn't act as if it remembers.
+  Nothing else changes: no memories are loaded or recorded, nothing is written, other
+  hooks stay silent, and a folder turned `off` stays completely silent.
 - **Every `counterparts scope` command Claude is shown now names the folder.** In a
   folder that is off or paused, the memory tools' refusal used to tell Claude to run
   `counterparts scope . --resume`, and the question a new folder gets in its first session
@@ -48,6 +89,9 @@
   belongs to a parent folder it names that one ("paused for ~/work, which includes this
   directory"). Under the plugin it uses the plugin's own launcher, and with a
   configuration other than the default it adds `--config`, as the paused notice does.
+
+The hooks: each output field, the claims file, late twins (#366).
+
 - **A red doctor notice now shows beside a full wake.** Measured on Claude Code 2.1.296:
   the 10,000-character limit applies to each field of a hook's output, not to the output
   as a whole. Counterparts held the whole output to 9,500 characters, so on a morning with
@@ -73,24 +117,13 @@
   catches a second hook that runs at the same time; for a resumed or compacted session, a
   Stop, or a prompt without an id, one that starts after the first has finished can
   still deliver again on a busy machine.
-- **Dated items come before the wake's furniture.** A wake could say "Arriving: 1 — no
-  room to list them in this wake" while it still printed yesterday's chapter titles and
-  four handoffs: the room held for the handoffs and "Last here" was never offered to the
-  rest of the wake. Now the wake follows one declared order of what gives way: when an
-  "Arriving:" item has no room, "Work here" shows fewer lines first, then the Yesterday
-  line swaps titles for chapter ids one at a time, then "Last here" is dropped and fewer
-  handoffs are shown in full, the others named by id while there is room for them. The
-  newest handoff's own room goes only to a plain reminder due that day; no other line
-  can take it. Only then does a dated item go unlisted. An arriving item past the two
-  the wake lists is no longer left out silently: the lane's "N more arriving" line names
-  it by id, and when even that line has no room, doctor counts it as unlisted. "Still
-  open" keeps its first item before Arriving's second line, as before, but now after
-  those same lanes give way. A plain reminder due the day the wake is read comes first
-  in "Arriving:" (and in the two the wake is offered), and it outranks the self page
-  borrowing past its room: the page steps down to its short version or outline rather
-  than leave it out. The page within its own room still comes first. Beside a page that
-  borrowed, the Yesterday line was sometimes dropped whole; it now keeps its ids. If a
-  dated item still goes unlisted, doctor's Wake line says so in amber, with what to do.
+
+The plugin (#360, #365).
+
+- **The sidebar lights every mechanism an event proves.** Each event is one row and lights
+  every mechanism it proves: a turn where a matching mood brought a memory closer lights
+  Emotion beside Retrieval, and a dream that wrote a gist and merged near-copies lights
+  Gist, Interference and Consolidation beside Dreaming.
 - **A new plugin user is told their memory was set up, again.** In 0.3.15, the
   sidebar's hooks module makes Claude Code start the plugin's SessionStart hook later,
   after the plugin's server has already made the new memory, so the first session
