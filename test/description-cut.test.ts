@@ -148,7 +148,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       remember: { total: 5612, beforeList: 1387 },
       recall: { total: 6263, beforeList: 1200 },
       status: { total: 1212, beforeList: 501 },
-      session_end: { total: 7519, beforeList: 1088 },
+      session_end: { total: 7520, beforeList: 1088 },
       chapter: { total: 2079, beforeList: 728 },
       scope: { total: 1514, beforeList: 755 },
       self_page: { total: 4846, beforeList: 1772 },

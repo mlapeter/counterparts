@@ -286,7 +286,7 @@ export function catchUpPrompt(plan: CatchUpPlan): string {
     "You are the nightly run, before the page and the dream: some conversations ended before they were written up, and you write them up now — second-hand, from what was said and what that session said back.",
     `Use only the counterparts session_end tool, always with session: "${plan.runner}". For each session below, in order:`,
     "1. Call session_end with writeUp: <its id> and no memories. It returns one part of that conversation.",
-    "2. Call session_end with writeUp: <its id>, part: <that part>, memories: [...] — what is worth keeping, in your own words; memories: [] if nothing in it is. Do not write again what is marked as already written up.",
+    "2. Call session_end with writeUp: <its id>, part: <that part>, memories: [...] — what caught your attention in it, one idea each, in your own words; memories: [] only if nothing in it held your attention. Do not write again what is marked as already written up.",
     "3. Fetch again for its next part, until the answer is \"written-up\" or the door says tonight's allowance for it is spent. Then the next session.",
     "",
     "Sessions:",

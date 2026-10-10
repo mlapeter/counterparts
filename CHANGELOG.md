@@ -20,14 +20,14 @@
   not only on the task. A dated decision, a kill or renew date and an outside deadline are
   named as `eventDate`s. The CLI's `counterparts note` keeps its name.
 - **An unclaimed memory starts by what it is about.** A memory written without a salience
-  used to start at 0.25 whatever it was. Now: 0.10 for a work event that is done, 0.25 for
+  used to start at 0.25 whatever it was. Now: 0.20 for a work event that is done, 0.25 for
   other work and for an unmarked one, 0.35 for the world (readings, news), 0.40 for the
   person, the two of you or Claude (or said by the person). All stay under the semantic
   floor, and a strong feeling on a silent memory lifts it to at most 0.49: a default sets how
   high a memory starts, never its band.
 - **The core's fast lane can open again.** "Strongly felt" is read against the word's own
-  default: a feeling at 0.6, or 0.1 above what its word is stored at when nobody weighs it,
-  now counts. Since the feelings wheel gave every word a default (all at or under 0.55),
+  default: a feeling at 0.6, or one at 0.5 or more that is 0.1 above what its word is stored
+  at when nobody weighs it, now counts. Since the feelings wheel gave every word a default (all at or under 0.55),
   nothing written without a number could reach the old 0.6 bar. A word nobody weighed
   still never opens the lane on its own.
 - **Mood no longer lifts memories in recall** (both weights 0, the code kept for a re-test):
@@ -37,6 +37,11 @@
   three, so the nightly write-up (oldest first, four sessions a night) reaches it; past that
   it is let go and said as lost. And a session at its ask limit for the day is still asked
   when it holds an unwritten stretch that is due.
+- **Three things you may notice after upgrading.** If your Claude Code settings already allow
+  `mcp__counterparts__note`, you will be asked once to allow `mcp__counterparts__remember`.
+  A few strongly felt memories claimed at 0.42–0.50 now start episodic rather than semantic.
+  The text of a session that still owes a write-up is now kept up to 14 days of use plus the
+  ordinary 7 days, not 2.
 
 - **A paused folder now says so when a session starts.** With memory paused in a folder
   (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or

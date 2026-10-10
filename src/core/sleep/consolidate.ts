@@ -204,7 +204,7 @@ type FeltRow = { readonly strength: number; readonly core: string; readonly emot
 
 /**
  * IS THIS FEELING STRONGLY FELT? (2026-10-10, Group 1c; review 08 C3) — at
- * `CORE_FAST_FEELING`, or at least `CORE_FAST_ABOVE_DEFAULT` above its own
+ * `CORE_FAST_FEELING`, or — at `CORE_FAST_RELATIVE_FLOOR` (0.5) or more — at least `CORE_FAST_ABOVE_DEFAULT` above its own
  * word's default as the store writes it (`store/feelings.ts#defaultStrength`:
  * the word's intensity, capped at `DEFAULT_STRENGTH_CAP` 0.55 so a feeling
  * nobody weighed never reaches the lane on its own — the review of #301, m2,
@@ -217,7 +217,8 @@ export function feelingIsStrong(f: FeltRow): boolean {
   if (f.strength >= PHYSICS_TUNABLES.CORE_FAST_FEELING) return true;
   const ownDefault = defaultStrength(f.core, f.emotion, f.other_word ?? null);
   // A hair of tolerance: 0.6 − 0.5 is 0.0999… in floating point.
-  return f.strength - ownDefault >= PHYSICS_TUNABLES.CORE_FAST_ABOVE_DEFAULT - 1e-9;
+  // And at least `CORE_FAST_RELATIVE_FLOOR` (review of #369): a low word raised a little is not strong.
+  return f.strength >= PHYSICS_TUNABLES.CORE_FAST_RELATIVE_FLOOR && f.strength - ownDefault >= PHYSICS_TUNABLES.CORE_FAST_ABOVE_DEFAULT - 1e-9;
 }
 
 /**

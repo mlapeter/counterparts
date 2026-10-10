@@ -467,7 +467,7 @@ const SETTLE_PRIVILEGES: readonly Privilege[] = [
  * 0.1–0.2) folded in; "they", not a name (01 D5).
  */
 const SALIENCE_TEXT =
-  "Optional, 0-1: how much this caught your attention, as you felt it — not what category it is. About 0.1–0.2 a routine work event or status change (merged, cut, deployed); 0.3 an ordinary fact or step, or a reading you only skimmed; 0.4 or more a line that struck you or a reading you engaged with; 0.5 a lesson or decision that changes how you'll work; 0.7 something they told you about their life, a line or moment that moved you; 0.9 rare. Their rulings, preferences and corrections stay high even about work. A floor: unset, a default by what it is about applies.";
+  "Optional, 0-1: how much this caught your attention, as you felt it — not what category it is. About 0.2 a routine work event or status change (merged, cut, deployed); 0.3 an ordinary fact or step, or a reading you only skimmed; 0.4 or more a line that struck you or a reading you engaged with; 0.5 a lesson or decision that changes how you'll work; 0.7 something they told you about their life, a line or moment that moved you; 0.9 rare. Their rulings, preferences and corrections stay high even about work. A floor: unset, a default by what it is about applies.";
 
 /** `relevance`, redefined (01 C3, 2026-10-10): it used to read "how much this
  *  bears on what is being worked on" — a work bias in one of the averaged
@@ -885,7 +885,7 @@ const SESSION_END: ToolSpec = {
     },
     {
       claim:
-        "`writeUp` writes up a session that ended here before it was written up, and ONLY the one a session-start pointer named for THIS session. With no `memories` it returns that session's next part (what was said to it, up to ~24 KB); with `memories` it answers the part you fetched — recorded as this session's, through the same road as every entry, and `[]` is a real answer (nothing worth keeping). When the last part comes back the ended session is marked written up. A live session, an unknown one, one from another project, one that owes nothing or is already written up, and one you were not pointed at are each refused by name, and nothing is written.",
+        "`writeUp` writes up a session that ended here before it was written up, and ONLY the one a session-start pointer named for THIS session. With no `memories` it returns that session's next part (what was said to it, up to ~24 KB); with `memories` it answers the part you fetched — recorded as this session's, through the same road as every entry, and `[]` is a real answer (nothing happened in it). When the last part comes back the ended session is marked written up. A live session, an unknown one, one from another project, one that owes nothing or is already written up, and one you were not pointed at are each refused by name, and nothing is written.",
       mechanizedBy:
         "src/adapters/mcp/write-up.ts#writeUpDoor -> src/adapters/sessions.ts#writeUpStanding -> src/core/remember/write-up-seam.ts#recordWriteUp",
     },
@@ -913,7 +913,7 @@ const SESSION_END: ToolSpec = {
       writeUp: {
         type: "string",
         description:
-          "Only when a session-start write-up pointer (or the nightly run's prompt) named an ENDED session: that session's id. Send it with no `memories` first — the result is the next part of what was said to it, with its own replies labelled — then again WITH `memories` (or `[]` if nothing in it is worth keeping). `session` stays THIS session's id; the memories are filed as that session's, written up second-hand. Not with `handoff`.",
+          "Only when a session-start write-up pointer (or the nightly run's prompt) named an ENDED session: that session's id. Send it with no `memories` first — the result is the next part of what was said to it, with its own replies labelled — then again WITH `memories` — what caught your attention in it, one idea each (`[]` only if nothing in it held your attention). `session` stays THIS session's id; the memories are filed as that session's, written up second-hand. Not with `handoff`.",
       },
       part: {
         type: "integer",
@@ -923,7 +923,7 @@ const SESSION_END: ToolSpec = {
       memories: {
         type: "array",
         description:
-          "One entry per thing — one idea each: a quote is one, a fact is one, a decision is one. `[]` only when nothing happened since you last wrote.",
+          "One entry per thing — one idea each: a quote is one, a fact is one, a decision is one. `[]` only when nothing happened since you last wrote. A refused entry does not fail its siblings.",
         items: {
           type: "object",
           properties: {

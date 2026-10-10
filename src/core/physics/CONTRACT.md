@@ -117,7 +117,7 @@ semantic band — the arithmetic form of the F5 scar. A default is recorded as `
 explicit claim — however low — is never overridden. See NOTES.md item 16.
 
 **By what it is about, since 2026-10-10 (Group 1c; review 01 C2; working default).** The
-lived channel's default is `defaultClaimFor(about, status, saidBy, kind)`: 0.10 a done
+lived channel's default is `defaultClaimFor(about, status, saidBy, kind)`: 0.20 a done
 work event, 0.25 other work and unmarked (`AUTHORED_DEFAULT_CLAIM`), 0.35 the world, 0.40
 the owner, us or me (or said by the owner, or kind self/person). Every row stays under
 `THETA_SEM`; the 0.40 row plus a strong feeling would not (0.535), so the bound now rests
@@ -421,7 +421,7 @@ S(v)        = S_FEELING + |v| × (S_FEELING_NEGATIVE − S_FEELING)   for v < 0
   own `sal` is under the semantic floor is lifted by feeling at most to `FELT_HEIGHT_CAP`,
   so no feeling — at the write or recorded later — carries it into the semantic band; use
   still has to. One at or above the floor keeps the whole lift. The core's fast lane reads
-  "strongly felt" as `I ≥ CORE_FAST_FEELING` or a feeling `CORE_FAST_ABOVE_DEFAULT` (0.1)
+  "strongly felt" as `I ≥ CORE_FAST_FEELING` or a feeling of at least `CORE_FAST_RELATIVE_FLOOR` (0.5) that is `CORE_FAST_ABOVE_DEFAULT` (0.1)
   above its word's stored default (`CoreContext.stronglyFelt`, review 08 C3).
 - **Height ADDS.** Before this, a lone `emotional: 0.9` on a note read as a mean of 0.3
   under a claimed floor of 0.25 — the feeling averaged away. Now intensity adds on top of

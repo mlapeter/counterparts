@@ -118,6 +118,12 @@ export const TUNABLES = {
    */
   CORE_FAST_ABOVE_DEFAULT: 0.1,
   /**
+   * CAL. …and never under this, however far above its default (2026-10-10,
+   * review of #369; decided by b2+f8, lightly held): a word whose default is
+   * low (calm's 0.35) recorded at 0.45 is above its default, not strongly felt.
+   */
+  CORE_FAST_RELATIVE_FLOOR: 0.5,
+  /**
    * Does the fast lane's feeling read feelings a REFLECTION recorded later
    * (v9, `feelings.source = 'reflection'`; since 2026-10-02 an awake one too,
    * `'awake'`)? Default OPEN — the owner's call of
@@ -196,7 +202,7 @@ export const TUNABLES = {
    * readings 0.41 on the 10-10 snapshot. Keyed on fields the writer already
    * fills (`about`, `status`, `said_by`, `kind`), `defaultClaimFor`:
    *
-   *   - a done work event (`about=work`, `status=done`): `DEFAULT_CLAIM_WORK_EVENT`;
+   *   - a done work event (`about=work`, `status=done`): `DEFAULT_CLAIM_WORK_EVENT` (0.20);
    *   - other work, and an unmarked memory: `AUTHORED_DEFAULT_CLAIM` (unchanged);
    *   - the world (readings, news): `DEFAULT_CLAIM_WORLD`;
    *   - the owner, us or me — or said by the owner, or kind self/person:
@@ -209,7 +215,12 @@ export const TUNABLES = {
    * g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why:
    * 01 D2's table as written; f8: "that sets stability, not the band".
    */
-  DEFAULT_CLAIM_WORK_EVENT: 0.1,
+  /** Decided by b2+f8, 2026-10-10, lightly held: 0.20, not 01's 0.10. G1a's
+   *  REACH is 0.15, so 0.10 started a routine work event below reach — never in
+   *  ambient recall or the wake's "Work here". f8: routine work is remembered
+   *  weakly "for a day or two"; at 0.20 with no feeling it stays in reach about
+   *  one lived day. */
+  DEFAULT_CLAIM_WORK_EVENT: 0.2,
   DEFAULT_CLAIM_WORLD: 0.35,
   DEFAULT_CLAIM_PERSONAL: 0.4,
 

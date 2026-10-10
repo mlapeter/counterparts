@@ -118,7 +118,7 @@ describe("`note` is `remember`, and the old name still answers", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the default floor by what a memory is about (01 C2)", () => {
   test("the table: a done work event lowest, other work and unmarked as before, the world higher, the owner, us and me highest — all under the semantic floor", () => {
-    expect(defaultClaimFor({ about: "work", status: "done" })).toEqual({ claim: 0.1, class: "work-event" });
+    expect(defaultClaimFor({ about: "work", status: "done" })).toEqual({ claim: 0.2, class: "work-event" });
     expect(defaultClaimFor({ about: "work", status: "planned" })).toEqual({ claim: 0.25, class: "work" });
     expect(defaultClaimFor({ about: "work" })).toEqual({ claim: 0.25, class: "work" });
     expect(defaultClaimFor({})).toEqual({ claim: 0.25, class: "unmarked" });
@@ -142,7 +142,7 @@ describe("the default floor by what a memory is about (01 C2)", () => {
       expect(out["stored"]).toBe(true);
       return s.counterpart.store.physicsOf(String(out["id"])).salience.claimed ?? null;
     };
-    expect(await claimed({ text: "Merged the parser split as pull request 412 into master.", about: "work", status: "done" })).toBe(0.1);
+    expect(await claimed({ text: "Merged the parser split as pull request 412 into master.", about: "work", status: "done" })).toBe(0.2);
     expect(await claimed({ text: "The parser module should own its own error type next.", about: "work" })).toBe(0.25);
     expect(await claimed({ text: "Read that the city is closing the old pier for a year of repairs.", about: "world" })).toBe(0.35);
     expect(await claimed({ text: "They said they grew up two streets from the harbour.", about: "owner" })).toBe(0.4);
@@ -235,7 +235,9 @@ describe("\"strongly felt\" is read against the word's own default (08 C3)", () 
     expect(feelingIsStrong({ strength: 0.6, core: "happy", emotion: "hopeful" })).toBe(true);
     expect(feelingIsStrong({ strength: 0.55, core: "curious", emotion: "recognized" })).toBe(true);
     expect(feelingIsStrong({ strength: 0.54, core: "curious", emotion: "recognized" })).toBe(false);
-    expect(feelingIsStrong({ strength: 0.45, core: "calm", emotion: "relieved" })).toBe(true);
+    // Above its default but under the 0.5 floor (review of #369): not strong.
+    expect(feelingIsStrong({ strength: 0.45, core: "calm", emotion: "relieved" })).toBe(false);
+    expect(feelingIsStrong({ strength: 0.5, core: "calm", emotion: "relieved" })).toBe(true);
     expect(feelingIsStrong({ strength: 0.6, core: "curious", emotion: "amazed" })).toBe(true);
     // A word whose own intensity is past the cap is STORED at 0.55 when nobody
     // weighed it (#301 m2): that is not strongly felt; weighed at 0.6 it is.
@@ -248,7 +250,7 @@ describe("\"strongly felt\" is read against the word's own default (08 C3)", () 
    * feeling decides). Old rule: intensity ≥ 0.6. New rule: that, or a
    * feeling 0.1 above its word's default.
    */
-  test("on a fixture of eleven, the fast lane opens for 5, up from 2", () => {
+  test("on a fixture of eleven, the fast lane opens for 4, up from 2", () => {
     const s = Store.open({ dir });
     open.push(s);
     const fixture: readonly { word: string; core: string; strength?: number }[] = [
@@ -261,7 +263,7 @@ describe("\"strongly felt\" is read against the word's own default (08 C3)", () 
       { core: "happy", word: "hopeful", strength: 0.6 }, // 0.6: both
       { core: "curious", word: "amazed", strength: 0.7 }, // weighed: both
       { core: "curious", word: "recognized", strength: 0.55 }, // +0.1: new only
-      { core: "calm", word: "relieved", strength: 0.45 }, // +0.1: new only
+      { core: "calm", word: "relieved", strength: 0.45 }, // +0.1 but under the 0.5 floor: neither
       { core: "sad", word: "wistful", strength: 0.58 }, // well above its default: new only
     ];
     let before = 0;
@@ -278,6 +280,6 @@ describe("\"strongly felt\" is read against the word's own default (08 C3)", () 
       expect(now.fast.met || !old.fast.met).toBe(true);
     }
     expect(before).toBe(2);
-    expect(after).toBe(5);
+    expect(after).toBe(4);
   });
 });
