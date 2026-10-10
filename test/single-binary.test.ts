@@ -39,6 +39,7 @@ import {
   parseScriptInvocation,
   runtimeLabel,
   scriptArgs,
+  EMPTY_BUNFIG,
 } from "../src/adapters/runtime.js";
 import type { Binary } from "../src/adapters/runtime.js";
 import { PLATFORMS, RELEASED, RELEASE_URL, assetName, binariesJson } from "../tools/single-binary/build.js";
@@ -119,9 +120,10 @@ describe("running itself", () => {
   });
 
   test("another executable, or a script that is not an entry, keeps the runtime's shape", () => {
-    expect(scriptArgs("/s/hook.ts", "/usr/local/bin/bun", fake)).toEqual(["--no-env-file", "run", "/s/hook.ts"]);
-    expect(scriptArgs("/s/other.ts", fake.self, fake)).toEqual(["--no-env-file", "run", "/s/other.ts"]);
-    expect(scriptArgs("/s/hook.ts", fake.self, null)).toEqual(["--no-env-file", "run", "/s/hook.ts"]);
+    const bun = ["--no-env-file", `--config=${EMPTY_BUNFIG}`, "run"];
+    expect(scriptArgs("/s/hook.ts", "/usr/local/bin/bun", fake)).toEqual([...bun, "/s/hook.ts"]);
+    expect(scriptArgs("/s/other.ts", fake.self, fake)).toEqual([...bun, "/s/other.ts"]);
+    expect(scriptArgs("/s/hook.ts", fake.self, null)).toEqual([...bun, "/s/hook.ts"]);
   });
 
   test("no entry's main-script guard fires inside the binary; from source they still do", () => {
