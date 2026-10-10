@@ -42,7 +42,7 @@
  * Pure: the caller hands in the row's facts.
  */
 import type { Kind, MemoryPhysics } from "../types.js";
-import { strength } from "../physics/index.js";
+import { belowReach, strength } from "../physics/index.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { datePrefix, flatten } from "./briefing.js";
 
@@ -180,6 +180,10 @@ export function workHere(
         continue;
       }
       if (doc.meta["unresolved"] === true) continue;
+      // BELOW REACH (2026-10-10, Group 1, review 03 C2): the wake's work lines
+      // are an ambient channel, so a memory that has faded below physics'
+      // `REACH` is not offered here; deliberate recall still finds it.
+      if (belowReach(physics, opts.day)) continue;
       const journal = typeof doc.meta["episodeId"] === "string";
       if (!isWorkMemory({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal })) continue;
       if (flatten(doc.body).length === 0) continue;

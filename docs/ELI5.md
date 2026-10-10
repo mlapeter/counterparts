@@ -52,7 +52,7 @@ never got to write.
 - **claude-code** — the hooks. Injects the wake at session start, runs recall on each
   prompt, captures each turn at Stop, asks for memories and the chapter, spawns the
   background worker.
-- **mcp** — the tools the AI calls on purpose: `note`, `recall`, `status`, `session_end`,
+- **mcp** — the tools the AI calls on purpose: `remember` (was `note`), `recall`, `status`, `session_end`,
   and `chapter`.
 - **cli** — the owner's console. Status, backup, export, delete, and the one-off repairs.
 - **dashboard** — the owner's window into the brain. What it remembered, what faded,

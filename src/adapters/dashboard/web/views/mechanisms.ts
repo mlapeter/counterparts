@@ -127,9 +127,12 @@ export const LEADS: Readonly<Record<string, readonly LeadCandidate[]>> = {
     lead(["moodMatched"], "memory a matching mood brought closer", "memories a matching mood brought closer"),
     lead(["weighted"], "new memory held higher for its feeling", "new memories held higher for their feeling"),
   ],
+  // Below reach first, then exits, apart (2026-10-10, review 03 C3): below
+  // reach is a state now; an exit is archived.
   decay: [
+    lead(["belowReach"], "memory below reach now", "memories below reach now", false),
+    lead(["pruned"], "memory exited (archived)", "memories exited (archived)"),
     lead(["faded"], "memory faded a band", "memories faded a band"),
-    lead(["pruned"], "memory let go at the floor", "memories let go at the floor"),
     lead(["cards"], "unused card faded", "unused cards faded"),
   ],
   retrieval: [

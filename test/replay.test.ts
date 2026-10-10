@@ -1079,7 +1079,9 @@ describe("the decay three-way (physics OQ1)", () => {
         type: "memory",
         kind: "fact",
         body: `A recorded fact number ${i} about the way the storage split was settled and why it holds.`,
-        salience: { novelty: null, relevance: 0.9, emotional: 0.7, predictive: 0.8 },
+        // Unfelt, at 0.8 (2026-10-10): on the power-law curve a felt 0.85 has a
+        // stability of years, and three shapes over 120 days would not part.
+        salience: { novelty: null, relevance: 0.8, emotional: 0, predictive: 0.8 },
         physics: { birthDay: 0, lastUsedDay: i * 10 },
       });
     }
@@ -1154,7 +1156,10 @@ describe("the decay three-way (physics OQ1)", () => {
     const power = horizon?.meanStrength["power-law"] ?? 0;
     expect(flat).toBeLessThan(exponential);
     expect(exponential).toBeLessThan(power);
-    expect(horizon?.maxMeanAbsDelta ?? 0).toBeGreaterThan(result.pass.decay?.maxMeanAbsDelta ?? 1);
+    // (Not "wider than at the last day" since 2026-10-10: on the power-law
+    // curve the weak memories have already parted by then, and 90 days on
+    // every shape has them near zero; the strong ones still order as above.)
+    expect(horizon?.maxMeanAbsDelta ?? 0).toBeGreaterThan(0);
     // It contributes no verdict: the counts are the metric registry's alone.
     expect(result.scorecard.counts.pass + result.scorecard.counts.fail).toBeLessThanOrEqual(
       METRICS.length,

@@ -40,10 +40,10 @@ export const WAKE_BUILD_KEY = "self.wake.build";
  *  reminder was told on its day (`told`, 2026-10-09) — told, it leaves
  *  "Arriving:", and a wake composed before the telling would still list it
  *  the next morning. Since 2026-10-10, also a memory accepted through any
- *  other door (`memory`: `note`, the CLI's note — whatever reaches
- *  `Counterpart.deposit` that is not a write-up) and a handoff written,
- *  retired or cleared (`handoff`). Before, a note left Still open, Nearby and
- *  Arriving stale for up to a day. */
+ *  other door (`memory`: `remember` and its old name `note`, the CLI's
+ *  note — whatever reaches `Counterpart.deposit` that is not a write-up)
+ *  and a handoff written, retired or cleared (`handoff`). Before, a note
+ *  left Still open, Nearby and Arriving stale for up to a day. */
 export type WakeTrigger = "page" | "write-up" | "run-end" | "version" | "told" | "memory" | "handoff";
 
 export const WAKE_TRIGGERS: readonly WakeTrigger[] = ["page", "write-up", "run-end", "version", "told", "memory", "handoff"];

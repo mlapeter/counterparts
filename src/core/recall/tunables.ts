@@ -458,8 +458,11 @@ export const TUNABLES: RecallTunables = {
   // working default.
   MOOD_WINDOW_HOURS: 3,
   MOOD_MIN_STRENGTH: 0.3,
-  MOOD_SAME_WEIGHT: 0.3,
-  MOOD_CROSS_WEIGHT: 0.1,
+  // Decided by b2+f8, 2026-10-10, lightly held. Evidence from the old use metric (lifted memories used 1.3% vs 2.4%); re-test after Group 1's engaged credit gives a real signal.
+  // (Review 02 C3. Were 0.3 and 0.1; the code in `mood.ts` is kept whole, and
+  // with both at 0 recall skips the per-turn `feelings` scan — `Recall#turn`.)
+  MOOD_SAME_WEIGHT: 0,
+  MOOD_CROSS_WEIGHT: 0,
   // Wheel v2 (2026-09-30): 0.5 lets neighbours match in part — a sad mood
   // (−0.6) meets uneasy (−0.5) at 0.8 and wistful (−0.3) at 0.4, never calm
   // or happy; a happy one (+0.7) meets warm at 1, calm (+0.5) at 0.6.

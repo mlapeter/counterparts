@@ -343,8 +343,8 @@ proposals and their archive; render and delivery telemetry.
    session's wake until the next boundary (measured 2026-09-04, the day the share shipped).
    **Between boundaries the wake keeps up** (2026-09-30, a working default): the page
    written, any memory accepted through any door (`Counterpart.deposit`: `write-up` for
-   `session_end`, `memory` for `note` and the rest, 2026-10-10) and any handoff written,
-   retired or cleared (`handoff`, 2026-10-10) mark it behind (`behind.ts`), and
+   `session_end`, `memory` for `remember` — `note` too — and the rest, 2026-10-10) and any
+   handoff written, retired or cleared (`handoff`, 2026-10-10) mark it behind (`behind.ts`), and
    `Counterpart.refreshWake` — the same render, with a budget or not at all — republishes
    it at the next turn-end worker; the nightly process calls it when its child returns,
    with no mark, naming `run-end` as the trigger. A wake another build published (its

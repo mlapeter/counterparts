@@ -1244,11 +1244,15 @@ export const DAYS: readonly Day[] = [
         dims: D(0.95, 0.85, 0.95),
       },
       {
+        // The demo's band fade inside the mechanisms window (2026-10-10): born on
+        // the semantic line with no feeling, it fades a band the next lived day.
+        // The 0.45 challenges below used to do it, lifted over the line by their
+        // feeling; Group 1c's `FELT_HEIGHT_CAP` keeps them episodic from birth.
         kind: "fact",
         content:
           "The skill-mix schema change went out in a Thursday maintenance window with a written reverse migration and a rehearsal on a copy of the pilot data.",
-        claimed: 0.8,
-        dims: D(0.85, 0.55, 0.85),
+        claimed: 0.5,
+        dims: D(0.45, 0, 0.45),
       },
     ],
     uses: ["teodoro-rollback-note", "skill-mix"],

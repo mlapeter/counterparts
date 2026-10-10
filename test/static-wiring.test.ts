@@ -394,7 +394,7 @@ describe("MAJOR A of the re-review, through the real chain: the session-long MCP
     const hook = Store.open({ dir, embed: paid.embed });
     expect(hook.embedderVerdict).toMatchObject({ kind: "reset", to: "voyage-3-large" });
     hook.close();
-    const result = await server.call("note", { text: "The survey resumes after the flood on the river." });
+    const result = await server.call("remember", { text: "The survey resumes after the flood on the river." });
     expect(result.structuredContent["stored"]).toBe(true);
     const id = result.structuredContent["id"] as string;
     const db = openDb(paths.cache(dir));
@@ -437,7 +437,7 @@ describe("the two per-write checks compose in one MCP server: #187's schema guar
       identity: { model: "another-static", dim: 4, rebuild: "inline" as const },
     });
     Store.open({ dir, embed: other }).close();
-    const noted = await server.call("note", { text: "The survey resumes after the flood on the river." });
+    const noted = await server.call("remember", { text: "The survey resumes after the flood on the river." });
     expect(noted.structuredContent["stored"]).toBe(true); // #187's guard let the write through
     const id = noted.structuredContent["id"] as string;
     expect(store.events("cache.vector.refused").some((ev) => ev.ref === id && ev.data?.["reason"] === "identity-changed")).toBe(true);
@@ -460,7 +460,7 @@ describe("the two per-write checks compose in one MCP server: #187's schema guar
     expect(by).toBe("mcp-write-guard");
     expect(store.list({ archived: false }).length).toBe(before);
     // And the tool itself refuses at entry, by name.
-    const refused = await server.call("note", { text: "Refused before anything is touched." });
+    const refused = await server.call("remember", { text: "Refused before anything is touched." });
     expect(JSON.stringify(refused.structuredContent)).toContain("schema-ahead");
   });
 });

@@ -141,8 +141,8 @@ describe("2. the panel: one number, those memories, one line", () => {
     });
     // The first candidate above zero wins; all at zero says zero with the first's words.
     const v = { id: "decay", family: "storage", build: "built", fired: true, events: [], today: null, held: null, lastFiredDay: null, schedule: null } as const;
-    expect(leadOf({ ...v, parts: [{ key: "faded", count: 0, says: ["", ""] }, { key: "pruned", count: 1, says: ["", ""] }] } as never)).toEqual({ n: 1, words: "memory let go at the floor this week" });
-    expect(leadOf({ ...v, parts: [{ key: "faded", count: 0, says: ["", ""] }] } as never)).toEqual({ n: 0, words: "memories faded a band this week" });
+    expect(leadOf({ ...v, parts: [{ key: "faded", count: 0, says: ["", ""] }, { key: "pruned", count: 1, says: ["", ""] }] } as never)).toEqual({ n: 1, words: "memory exited (archived) this week" });
+    expect(leadOf({ ...v, parts: [{ key: "faded", count: 0, says: ["", ""] }] } as never)).toEqual({ n: 0, words: "memories below reach now" });
     expect(MECHANISM_DAYS).toBe(7);
   });
 

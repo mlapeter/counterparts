@@ -148,7 +148,7 @@ export const FLOW_NODES: readonly FlowNode[] = [
     key: "remember",
     label: "REMEMBER",
     sub: "the authored door",
-    what: "The front door: what the assistant itself writes at a boundary (session_end), in the moment (note), and as the day's own chapter. The author decides what was learned; nothing here is scraped.",
+    what: "The front door: what the assistant itself writes at a boundary (session_end), in the moment (remember), and as the day's own chapter. The author decides what was learned; nothing here is scraped.",
     analog: "Hippocampal encoding — binding a lived experience into a durable trace while its context is still present.",
     breaks: "In humans encoding is involuntary. Here it is authored, and an author can decline to write where a hippocampus cannot. The mitigation is that the ask is ambient and its coverage is measured, not assumed.",
     x: 0.20,

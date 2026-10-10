@@ -446,12 +446,15 @@ describe("S4: a promotion that needed a feeling recorded later is shown like one
 
   test("laterFeelingCarriers: the sources at the fast lane's strength, never an empty list", () => {
     const strong = PHYSICS_TUNABLES.CORE_FAST_FEELING;
+    // Since 2026-10-10 "strongly felt" is also read against the word's own
+    // default (hopeful: 0.5), so "not strong" is under both bars.
+    const weak = 0.5 + PHYSICS_TUNABLES.CORE_FAST_ABOVE_DEFAULT - 0.01;
     const port = (rows: { source: string | null; strength: number }[]) => ({
-      feelingsFor: () => rows.map((r) => ({ whose: "self", emotion: "hopeful", other_word: null, ...r })),
+      feelingsFor: () => rows.map((r) => ({ whose: "self", core: "happy", emotion: "hopeful", other_word: null, ...r })),
     });
     expect(laterFeelingCarriers({}, "m")).toBeUndefined();
     expect(laterFeelingCarriers(port([]), "m")).toBeUndefined();
-    expect(laterFeelingCarriers(port([{ source: "awake", strength: strong - 0.01 }, { source: "session", strength: 1 }]), "m")).toBeUndefined();
+    expect(laterFeelingCarriers(port([{ source: "awake", strength: weak }, { source: "session", strength: 1 }]), "m")).toBeUndefined();
     expect(laterFeelingCarriers(port([{ source: "awake", strength: strong }]), "m")).toEqual(["awake"]);
     expect(laterFeelingCarriers(port([{ source: "awake", strength: strong }, { source: "reflection", strength: 1 }]), "m")).toEqual(["reflection", "awake"]);
   });

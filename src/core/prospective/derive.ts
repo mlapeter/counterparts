@@ -8,10 +8,13 @@
  *
  *   - the property EXPIRES BY ITSELF when the window passes — no cleanup pass;
  *   - there is no second source of truth to drift from the memory;
- *   - decay has nothing to special-case (§12 G10: no decay exemption before
- *     arrival — a future-dated memory that faded before its window was an
- *     occasion that didn't matter) — save one carve-out: a date that still
- *     REPEATS is not refused `faded` (review of #341, 2026-10-09).
+ *   - decay has nothing to special-case HERE. §12 G10 ("no decay exemption
+ *     before arrival") was REVERSED on 2026-10-10 (Group 1, review 07 C1,
+ *     decided by b2+f8, lightly held; on the rules audit): physics now holds a
+ *     memory whose date is ahead at t = 0 (`DatedHold`), at the read seam, so
+ *     a pending reminder cannot fade on the way and `faded` is never set for
+ *     one (`index.ts`'s load). A date that still REPEATS is held through each
+ *     occurrence's window, and fades between them.
  *
  * The dates come from the CALLER. This module does no NLP: it reads the shape of
  * a date string and nothing else (`windows.ts`). Whoever extracted "September"
@@ -51,11 +54,10 @@ export type DeriveReason =
    *  explicit `eventDate` is exempt (owner decision 2026-09-26): choosing a
    *  date is itself the importance signal. */
   | "below-salience-floor"
-  /** Decayed to physics' prune floor (`FADED_STRENGTH`) — §12 G10, no decay
-   *  exemption before arrival: an occasion that faded before its window did
-   *  not matter. Holds for an explicitly dated memory too (2026-09-26), but
-   *  not for one whose date still REPEATS (`DerivableMemory.recurring`, review
-   *  of #341, 2026-10-09). */
+  /** Decayed to physics' prune floor (`FADED_STRENGTH`) after its window — a
+   *  pending date is held by decay and never refused this (2026-10-10, G10
+   *  reversed), nor is one whose date still REPEATS
+   *  (`DerivableMemory.recurring`, review of #341, 2026-10-09). */
   | "faded"
   /** Every derived window is behind us — the property expiring by itself. */
   | "window-passed";
@@ -108,9 +110,10 @@ export interface DerivableMemory {
    */
   readonly explicitDate?: boolean;
   /**
-   * Decayed at or below `FADED_STRENGTH` on the lived day asked about. Computed
-   * by the caller that holds the physics (`Prospective.load`), so this stays a
-   * pure predicate. Absent: not checked.
+   * Decayed at or below `FADED_STRENGTH` on the lived day asked about, and NOT
+   * held for a pending date (2026-10-10). Computed by the caller that holds
+   * the physics (`Prospective.load`), so this stays a pure predicate. Absent:
+   * not checked.
    */
   readonly faded?: boolean;
   /**

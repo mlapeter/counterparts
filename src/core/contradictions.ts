@@ -131,11 +131,11 @@ export const CONTRADICTION_HELD_EVENT = "contradiction.held";
 
 /** The one line a write's result carries beside its neighbours. */
 export const NEIGHBOURS_HINT =
-  "These existing memories are close to what you just wrote. If the new memory changes, corrects or disagrees with one of them, settle it now: note with settle {holds, over, how, why}.";
+  "These existing memories are close to what you just wrote. If the new memory changes, corrects or disagrees with one of them, settle it now: remember with settle {holds, over, how, why}.";
 
 /** The same ask, for the memory a write named in `updates` that looked unrelated to it (2026-10-09). */
 export const HELD_HINT =
-  "The memory you named in updates looks unrelated to what you just wrote (few words in common, not close in meaning), so it was left as it was: not changed, not corrected, not linked. Its title and text are here. If the new memory does change or correct it, settle it now: note with settle {holds, over, how, why}. If not, do nothing.";
+  "The memory you named in updates looks unrelated to what you just wrote (few words in common, not close in meaning), so it was left as it was: not changed, not corrected, not linked. Its title and text are here. If the new memory does change or correct it, settle it now: remember with settle {holds, over, how, why}. If not, do nothing.";
 
 export type SettleRefusal =
   | "observer"

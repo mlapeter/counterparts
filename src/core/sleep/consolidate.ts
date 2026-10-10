@@ -33,7 +33,7 @@
  */
 
 import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility, promote, promotionEligibility, strength } from "../physics/index.js";
-import { CORE_ABOUT_MARKS, LATER_FEELING_SOURCES, isSelfRelevantFeeling } from "../store/index.js";
+import { CORE_ABOUT_MARKS, LATER_FEELING_SOURCES, defaultStrength, isSelfRelevantFeeling } from "../store/index.js";
 import type { CoreContext, MemoryPhysics, PromotionCrossing, PromotionReason } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import type { MemoryRow } from "../store/operational.js";
@@ -188,10 +188,53 @@ export function selfRelevantFeeling(
       .some(
         (f) =>
           f.whose === "self" &&
-          f.strength >= PHYSICS_TUNABLES.CORE_FAST_FEELING &&
+          // Strongly felt by its own word's measure since 2026-10-10 (08 C3:
+          // "also apply it to the recognition door").
+          feelingIsStrong(f) &&
           (f.source === null || f.source === "session" || ((LATER_FEELING_SOURCES as readonly (string | null)[]).includes(f.source) && acceptsReflected)) &&
           isSelfRelevantFeeling(f.emotion, f.other_word),
       );
+  } catch {
+    return false;
+  }
+}
+
+/** One stored feeling, as `feelingIsStrong` reads it. */
+type FeltRow = { readonly strength: number; readonly core: string; readonly emotion: string; readonly other_word?: string | null };
+
+/**
+ * IS THIS FEELING STRONGLY FELT? (2026-10-10, Group 1c; review 08 C3) — at
+ * `CORE_FAST_FEELING`, or — at `CORE_FAST_RELATIVE_FLOOR` (0.5) or more — at least `CORE_FAST_ABOVE_DEFAULT` above its own
+ * word's default as the store writes it (`store/feelings.ts#defaultStrength`:
+ * the word's intensity, capped at `DEFAULT_STRENGTH_CAP` 0.55 so a feeling
+ * nobody weighed never reaches the lane on its own — the review of #301, m2,
+ * which this keeps). A word written without a number is stored at that
+ * default, so it is not strongly felt; a writer who raised it is. The fast
+ * lane shut on day 10 because every core's default sits at or under 0.55.
+ */
+export function feelingIsStrong(f: FeltRow): boolean {
+  if (!(f.strength >= 0)) return false;
+  if (f.strength >= PHYSICS_TUNABLES.CORE_FAST_FEELING) return true;
+  const ownDefault = defaultStrength(f.core, f.emotion, f.other_word ?? null);
+  // A hair of tolerance: 0.6 − 0.5 is 0.0999… in floating point.
+  // And at least `CORE_FAST_RELATIVE_FLOOR` (review of #369): a low word raised a little is not strong.
+  return f.strength >= PHYSICS_TUNABLES.CORE_FAST_RELATIVE_FLOOR && f.strength - ownDefault >= PHYSICS_TUNABLES.CORE_FAST_ABOVE_DEFAULT - 1e-9;
+}
+
+/**
+ * THE FAST LANE'S "STRONGLY FELT", READ OFF THE FEELINGS (2026-10-10,
+ * `CoreContext.stronglyFelt`): any feeling on the memory, his or mine, that
+ * `feelingIsStrong` — the same feelings the lane's intensity reads, so with
+ * the door to later feelings closed a reflection's or an awake one is left
+ * out (`LATER_FEELING_SOURCES`, as `feeling_peak_lived` leaves them out).
+ * False when the port cannot read feelings.
+ */
+export function stronglyFelt(store: Pick<SleepStore, "feelingsFor">, id: string, acceptsReflected: boolean): boolean {
+  if (store.feelingsFor === undefined) return false;
+  try {
+    return store
+      .feelingsFor(id)
+      .some((f) => (acceptsReflected || !(LATER_FEELING_SOURCES as readonly (string | null)[]).includes(f.source)) && feelingIsStrong(f));
   } catch {
     return false;
   }
@@ -214,7 +257,7 @@ export function laterFeelingCarriers(store: Pick<SleepStore, "feelingsFor">, id:
     const out: ("reflection" | "awake")[] = [];
     for (const src of LATER_FEELING_SOURCES) {
       if (src !== "reflection" && src !== "awake") continue;
-      if (rows.some((f) => f.source === src && f.strength >= PHYSICS_TUNABLES.CORE_FAST_FEELING)) out.push(src);
+      if (rows.some((f) => f.source === src && feelingIsStrong(f))) out.push(src);
     }
     // None found (review of #319): say nothing rather than an empty list a
     // reader would credit to no one; absent reads as a reflection's.
@@ -301,9 +344,13 @@ export function coreContextFor(
   // Read only for an unmarked memory: a marked one has already answered.
   const recognized = !about && selfRelevantFeeling(store, row, reflected);
   const candidate = about || recognized;
+  // Strongly felt by the word's own measure (2026-10-10), read only where the
+  // lanes can use it.
+  const felt = candidate && stronglyFelt(store, row.id, reflected);
   return {
     aboutMe: about,
     ...(recognized ? { selfRelevantFeeling: true } : {}),
+    ...(felt ? { stronglyFelt: true } : {}),
     demoted: candidate ? (store.coreDemoted?.(row.id) ?? false) : false,
     acceptsReflectedFeeling: reflected,
     // Read only where it can matter.
@@ -431,7 +478,9 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     // feeling-now (`awake`) comes through the same door as a reflection's, so
     // the record names which could have carried it — a reflection's is shown
     // like a promotion on reflection alone, an awake one is said apart.
-    const closed = reflected ? promotionEligibility(e.physics, { aboutMe: true, day, acceptsReflectedFeeling: false }) : null;
+    const closed = reflected
+      ? promotionEligibility(e.physics, { aboutMe: true, day, acceptsReflectedFeeling: false, stronglyFelt: stronglyFelt(store, e.id, false) })
+      : null;
     const later = closed !== null && !closed.fast.met && !closed.slow.met;
     const by = later ? laterFeelingCarriers(store, e.id) : undefined;
     const record: PromotionRecord = {

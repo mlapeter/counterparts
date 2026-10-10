@@ -25,6 +25,7 @@ import { gatedSal } from "../src/core/recall/index.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/index.js";
 import { ARCHIVE_WORDS, archiveGroup } from "../src/adapters/dashboard/web/views/archive-words.js";
+import { findable } from "./store-fixture.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 let dir: string;
@@ -52,6 +53,8 @@ afterEach(() => {
 
 function server(): McpServer {
   const s = openServer({ dir, session: "sess_copies", scope: "/scope/one", owner: true });
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
+  findable(s.counterpart.store);
   open.push(s.counterpart);
   return s;
 }

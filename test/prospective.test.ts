@@ -1103,7 +1103,9 @@ describe("exits — every dated memory names its exit", () => {
 
   test("a window that closed unremarked EXPIRES; one whose memory faded first FADES", () => {
     const s = store();
-    const expired = dated(s, "2026-09-04", { body: `${BODY} expired` });
+    // A dull memory (2026-10-10): on the power-law curve a salient, felt one
+    // does not reach the floor for years — that is the curve working.
+    const expired = dated(s, "2026-09-04", { body: `${BODY} expired`, salience: DULL });
     const report = engine(s).exitReport("2026-09-20", 5);
     expect(report.exits.find((e) => e.memoryId === expired)?.kind).toBe("expired");
 

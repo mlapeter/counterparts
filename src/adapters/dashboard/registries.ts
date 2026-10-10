@@ -380,7 +380,7 @@ export const DURABLE_EVENTS = {
   // What is not written up (2026-09-30). Ids and counts only; one row per stretch per state.
   "coverage.owed": "a session left a stretch that is not written up — three pieces or more over a quarter of an hour — and is no longer at work, so it owes a write-up (how many pieces, over how long)",
   "coverage.written": "a stretch of a session was written up (how many pieces, and by whom: the session itself, a \"nothing new\", a chapter, or the next session)",
-  "coverage.lapsed": "an owed stretch nobody wrote up in two days of use lapsed — nothing deleted; its text goes on the ordinary week",
+  "coverage.lapsed": "an owed stretch nobody wrote up while it was owed was let go — lost to memory; nothing deleted, its text goes on the ordinary week",
 } as const satisfies Record<DurableEventName, string>;
 
 export const DURABLE_EVENT_NAMES: readonly DurableEventName[] = Object.keys(

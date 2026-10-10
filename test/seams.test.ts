@@ -86,6 +86,7 @@ import {
   strengthCachePath,
 } from "../src/core/sleep/index.js";
 import type { PhaseCtx, SleepStore } from "../src/core/sleep/index.js";
+import { findable } from "./store-fixture.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -113,7 +114,8 @@ afterEach(() => {
 });
 
 function store(opts: Parameters<typeof Store.open>[0] = {}): Store {
-  const s = Store.open({ dir, ...opts });
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
+  const s = findable(Store.open({ dir, ...opts }));
   open.push(s);
   return s;
 }
@@ -453,6 +455,10 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       undoContradictionSettle: [{ pairId: "ctr_x", settleSeq: 1, actor: "owner", actorId: null, why: null, day: 0 }],
       // v12 (2026-10-03): a card's birth and the backfill link what names it.
       linkSubjects: [[{ memoryId: "mem_x", subjectId: "sch_x" }], "birth"],
+      // v13 (2026-10-10, the turn-down): derived bookkeeping and box 3.
+      dropRanking: [[seedId]],
+      setNextChangeDays: [[{ id: seedId, day: 1 }]],
+      clearNextChangeDays: [],
     };
     for (const method of WRITE_METHODS) {
       const fn = (s as unknown as Record<string, ((...a: unknown[]) => unknown) | undefined>)[
@@ -643,6 +649,8 @@ describe("SEAMS K — the box-2 events table replaces the in-memory rings that m
       type: "memory",
       kind: "fact",
       body: "A memory nobody has used in a hundred lived days.",
+      // At the floor: it claims nothing (`findable` would have given it 0.5).
+      salience: { claimed: 0 },
       physics: { birthDay: -120, lastUsedDay: -100, uses: 0 },
     });
     const first = runPrune(phaseCtx(wrap(s), 1));
@@ -1564,17 +1572,19 @@ describe("SEAMS L — hops raise what the conversation reached; links may add a 
       physics: { birthDay: 0, lastUsedDay: 0 },
     });
     const turn = { text: "sourdough starter died", day: 0, selfFelt: false, storeSize: 20 };
-    const all = activate(s, { ...turn, maxCandidates: 100 }, FIXTURE_TUNABLES).candidates;
+    // The dull three stand below reach (2026-10-10); this pins the CUT, so it asks
+    // for them anyway.
+    const all = activate(s, { ...turn, maxCandidates: 100, includeBelowReach: true }, FIXTURE_TUNABLES).candidates;
     const byActivation = [...all].sort((a, b) => b.activation - a.activation).map((c) => c.id);
     // On activation alone the salient one is NOT in the top three — the old cut
     // left it out.
     expect(byActivation.slice(0, 3)).not.toContain(salient);
-    const cut = activate(s, { ...turn, maxCandidates: 3 }, FIXTURE_TUNABLES);
+    const cut = activate(s, { ...turn, maxCandidates: 3, includeBelowReach: true }, FIXTURE_TUNABLES);
     expect(cut.candidates.map((c) => c.id)).toContain(salient);
     expect(cut.dropped).toBe(all.length - 3);
     // Cold start: the bar is absolute and salience never lowers it, so the cut
     // ranks by activation alone there.
-    const cold = activate(s, { ...turn, storeSize: 10, maxCandidates: 3 }, FIXTURE_TUNABLES);
+    const cold = activate(s, { ...turn, storeSize: 10, maxCandidates: 3, includeBelowReach: true }, FIXTURE_TUNABLES);
     expect(cold.candidates.map((c) => c.id)).not.toContain(salient);
   });
 
@@ -2218,9 +2228,10 @@ describe("an UNCLAIMED authored memory gets the default floor; the swept channel
       pred: 0.9,
     });
     // The claim was still absent, so the floor is still recorded — it is simply
-    // inert: sal(m) is the dimensions' mean, which out-ranks it.
+    // inert: sal(m) is the dimensions' mean, which out-ranks it. (Since
+    // 2026-10-10 the mean leaves `emotional` out: (0.9 + 0.9) / 2.)
     expect(minted.defaulted).toBe(true);
-    expect(sal(s.physicsOf(minted.id).salience)).toBeCloseTo(0.8, 10);
+    expect(sal(s.physicsOf(minted.id).salience)).toBeCloseTo(0.9, 10);
   });
 
   test("STRENGTH ORDERING: same kind, same zero dims, same day — the authored mint is the stronger one", async () => {

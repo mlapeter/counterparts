@@ -15,12 +15,15 @@ import { activate } from "../src/core/recall/activate.js";
 import { informativeness } from "../src/core/recall/cues.js";
 import { TUNABLES } from "../src/core/recall/tunables.js";
 import { Store } from "../src/core/store/index.js";
+import { findable } from "./store-fixture.js";
 
 let dir: string;
 let s: Store;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-lane0-cues-"));
-  s = Store.open({ dir });
+  // A raw put claims nothing, and under store v13's reach line that is out of
+  // ambient recall from birth: the fixture claims 0.5, the mint seam's stand-in.
+  s = findable(Store.open({ dir }));
 });
 afterEach(() => {
   s.close();

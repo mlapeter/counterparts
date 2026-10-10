@@ -334,7 +334,7 @@ describe("an explicit eventDate is its own importance signal", () => {
     open.push(s.counterpart);
     for (const body of FILLER) s.counterpart.store.put({ type: "memory", kind: "fact", body });
     const body = (
-      await s.call("note", {
+      await s.call("remember", {
         text: "The passport renewal appointment is at the consulate on the fourth.",
         title: "passport renewal appointment",
         eventDate: "2026-09-04",

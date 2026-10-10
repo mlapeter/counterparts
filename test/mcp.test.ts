@@ -51,6 +51,7 @@ import {
 import type { Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { launchOptions, ownerStance } from "../src/adapters/mcp/bin/serve.js";
 import { FACTS_JOURNAL_GLOSS } from "../src/adapters/mcp/facts.js";
+import { findable } from "./store-fixture.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const SESSION = "sess_mcp_1";
@@ -79,7 +80,9 @@ afterEach(() => {
 });
 
 function server(opts: Parameters<typeof openServer>[0] = {}): McpServer {
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
   const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true, ...opts });
+  findable(s.counterpart.store);
   open.push(s.counterpart);
   return s;
 }
@@ -559,8 +562,10 @@ describe("the tool-description audit", () => {
     // memory for the core; only a core lane at consolidation promotes one.
     // The ninth is `reflect` (2026-09-27): the waking self. What it cites comes
     // back (a return); it promotes nothing either.
+    // `note` was renamed `remember` on 2026-10-10 (Group 1c); the old name
+    // still answers (`TOOL_ALIASES`) but is never listed.
     expect(TOOL_NAMES).toEqual([
-      "note",
+      "remember",
       "recall",
       "status",
       "session_end",
@@ -724,7 +729,7 @@ describe("the tool-description audit", () => {
 
   test("the mechanism behind the salience claim actually fires: a claim is a floor, and the lift is recorded", async () => {
     const s = server();
-    const result = await s.call("note", {
+    const result = await s.call("remember", {
       text: "The staging deploy needs the migration run before the container starts, or it boots empty.",
       salience: 0.9,
     });
@@ -740,7 +745,7 @@ describe("the tool-description audit", () => {
 
   test("the mechanism behind the default-floor claim fires: an unclaimed note is ordinary, not zero", async () => {
     const s = server();
-    const result = await s.call("note", {
+    const result = await s.call("remember", {
       text: "The invoice import silently skips rows whose currency column is empty.",
     });
     const body = payload(result);
@@ -759,7 +764,7 @@ describe("the tool-description audit", () => {
   test("an explicit LOW claim survives the default: testimony is never overwritten", async () => {
     const s = server();
     const body = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "A minor formatting preference, marked as barely worth holding onto.",
         salience: 0.05,
       }),
@@ -772,7 +777,7 @@ describe("the tool-description audit", () => {
   test("the mechanism behind the dimensions claim fires: the author's three reach the row", async () => {
     const s = server();
     const body = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "The retry loop doubles the delay each time, which is why the last attempt takes a minute.",
         relevance: 0.8,
         emotional: 0.2,
@@ -788,7 +793,7 @@ describe("the tool-description audit", () => {
     });
     // Novelty is not the author's to claim, whatever it sends.
     const sneaky = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "A second unrelated thing about the retry loop's jitter window.",
         novelty: 0.99,
       }),
@@ -799,7 +804,7 @@ describe("the tool-description audit", () => {
   test("an out-of-range dimension is REFUSED by name, not clamped and not silently dropped", async () => {
     const s = server();
     const body = payload(
-      await s.call("note", { text: "A perfectly ordinary thing to remember.", relevance: 7 }),
+      await s.call("remember", { text: "A perfectly ordinary thing to remember.", relevance: 7 }),
     );
     expect({ stored: body["stored"], reason: body["reason"] }).toEqual({
       stored: false,
@@ -862,7 +867,7 @@ describe("the tool-description audit", () => {
 
   test("the mechanism behind the credential claim actually fires: redacted, and a bare credential is refused", async () => {
     const s = server();
-    const stored = await s.call("note", {
+    const stored = await s.call("remember", {
       text: "The staging deploy key is ghp_ABCDEFGHIJKLMNOPQRSTUV0123456789 and it rotates every month.",
     });
     expect(payload(stored)["stored"]).toBe(true);
@@ -870,7 +875,7 @@ describe("the tool-description audit", () => {
     expect(doc.body).not.toContain("ghp_ABCDEFGHIJKLMNOPQRSTUV0123456789");
     expect(doc.body).toContain("REDACTED");
 
-    const bare = await s.call("note", { text: "ghp_ABCDEFGHIJKLMNOPQRSTUV0123456789" });
+    const bare = await s.call("remember", { text: "ghp_ABCDEFGHIJKLMNOPQRSTUV0123456789" });
     expect(payload(bare)["stored"]).toBe(false);
     // A note that was nothing but a credential is empty once the credential is
     // gone, and the battery says exactly that rather than "stored, redacted".
@@ -880,8 +885,8 @@ describe("the tool-description audit", () => {
   test("the mechanism behind the duplicate claim actually fires", async () => {
     const s = server();
     const text = "The reservoir path floods after heavy rain and the loop has to go the long way.";
-    expect(payload(await s.call("note", { text }))["stored"]).toBe(true);
-    const again = payload(await s.call("note", { text }));
+    expect(payload(await s.call("remember", { text }))["stored"]).toBe(true);
+    const again = payload(await s.call("remember", { text }));
     expect(again["stored"]).toBe(false);
     expect(again["reason"]).toBe("duplicate-content");
   });
@@ -893,7 +898,7 @@ describe("note — the ambient exception", () => {
   test("the note's own words ride the buffer as a span the deposit claims", async () => {
     const s = server();
     const text = "Decided the interpreter seat stays on the strongest tier, since the fallback carries the day.";
-    const result = await s.call("note", { text });
+    const result = await s.call("remember", { text });
     expect(payload(result)["stored"]).toBe(true);
     // The jot's span is COVERED by the deposit, which is what stops the
     // end-of-session sweep from minting the same words a second time.
@@ -901,21 +906,21 @@ describe("note — the ambient exception", () => {
     const jot = spans.find((span) => span.kind === "jot" && span.text === text);
     expect(jot).toBeDefined();
     expect(s.counterpart.spans.coverageReport("/scope/one").uncovered).toBe(0);
-    expect(s.events("mcp.note")[0]?.data?.["covers"]).toBeGreaterThanOrEqual(1);
+    expect(s.events("mcp.remember")[0]?.data?.["covers"]).toBeGreaterThanOrEqual(1);
   });
 
   test("a stub is refused: a note has to say something", async () => {
     const s = server();
-    const result = payload(await s.call("note", { text: "TODO" }));
+    const result = payload(await s.call("remember", { text: "TODO" }));
     expect(result["stored"]).toBe(false);
     expect(result["gate"]).toBe("content-stub");
   });
 
   test("a missing or non-string text is the tool's own answer, not a protocol error", async () => {
     const s = server();
-    expect(payload(await s.call("note", {}))["reason"]).toBe("text-required");
-    expect(payload(await s.call("note", { text: "  " }))["reason"]).toBe("text-required");
-    expect(payload(await s.call("note", { text: "ok", salience: "high" }))["reason"]).toBe(
+    expect(payload(await s.call("remember", {}))["reason"]).toBe("text-required");
+    expect(payload(await s.call("remember", { text: "  " }))["reason"]).toBe("text-required");
+    expect(payload(await s.call("remember", { text: "ok", salience: "high" }))["reason"]).toBe(
       "salience-not-a-number",
     );
   });
@@ -1232,7 +1237,7 @@ describe("recall — deliberate retrieval", () => {
     // memory through the `note` door, one question that plainly matches it.
     const s = server();
     const note = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
       }),
     );
@@ -1253,7 +1258,7 @@ describe("recall — deliberate retrieval", () => {
     // and archived. The successor answers; the superseded head is not delivered.
     const s = server();
     const first = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
       }),
     )["id"] as string;
@@ -1261,6 +1266,8 @@ describe("recall — deliberate retrieval", () => {
       type: "memory",
       kind: "fact",
       body: "The sourdough starter recovered after a week of daily feeding and is healthy.",
+      // In reach (2026-10-10): a successor that claims nothing stands at 0.
+      salience: { claimed: 0.5 },
     });
 
     const result = payload(
@@ -1276,10 +1283,10 @@ describe("recall — deliberate retrieval", () => {
     // A REGRESSION GUARD: the first note keeps answering as the store grows.
     const s = server();
     const first = payload(
-      await s.call("note", { text: "The sourdough starter died after two weeks of neglect." }),
+      await s.call("remember", { text: "The sourdough starter died after two weeks of neglect." }),
     )["id"] as string;
     const second = payload(
-      await s.call("note", { text: "Bought hiking boots that finally fit properly." }),
+      await s.call("remember", { text: "Bought hiking boots that finally fit properly." }),
     )["id"] as string;
     const ask = async (question: string): Promise<string[]> =>
       (payload(await s.call("recall", { question, mode: "facts" }))["ids"] ?? []) as string[];
@@ -1287,7 +1294,7 @@ describe("recall — deliberate retrieval", () => {
     expect(await ask("what happened to my sourdough starter")).toContain(first);
     expect(await ask("are the new hiking boots comfortable")).toContain(second);
 
-    const third = payload(await s.call("note", { text: "The library closes early on Sundays now." }))[
+    const third = payload(await s.call("remember", { text: "The library closes early on Sundays now." }))[
       "id"
     ] as string;
     expect(await ask("what happened to my sourdough starter")).toContain(first);
@@ -1355,7 +1362,7 @@ describe("recall — deliberate retrieval", () => {
     // exactly the two telemetry rows.
     const s = server();
     seed(s.counterpart);
-    await s.call("note", { text: "The sourdough starter needs feeding every day or it dies off." });
+    await s.call("remember", { text: "The sourdough starter needs feeding every day or it dies off." });
     const readAll = (): string[] =>
       s.counterpart.store
         .list({ archived: false })
@@ -1720,7 +1727,7 @@ describe("the lazy session bind", () => {
     expect(s.session).toBe("sess_gate");
     // `note` and `recall` both read `this.session`, so both stop borrowing the
     // shared "mcp" gate-state row the moment the bind lands (INTERFACE-GAPS §6).
-    const noted = payload(await s.call("note", { text: "A note written after the bind rides the same session as the dump." }));
+    const noted = payload(await s.call("remember", { text: "A note written after the bind rides the same session as the dump." }));
     expect(noted["stored"]).toBe(true);
     expect(payload(await s.call("recall", { question: "what binds this server?", mode: "facts" }))["path"]).toBeDefined();
     expect(s.counterpart.store.row(noted["id"] as string)?.origin_scope).toBe("/proj/alpha");
@@ -1753,7 +1760,7 @@ describe("the scope default", () => {
 
   test("a memory authored through the server is stamped with the PROJECT, not the store path", async () => {
     const s = server({ scope: "/proj/alpha" });
-    const body = payload(await s.call("note", { text: "Origin scope is the project the session ran in, never the store's own directory." }));
+    const body = payload(await s.call("remember", { text: "Origin scope is the project the session ran in, never the store's own directory." }));
     const id = body["id"] as string;
     expect(s.counterpart.store.row(id)?.origin_scope).toBe("/proj/alpha");
     expect(s.counterpart.store.row(id)?.origin_scope).not.toBe(dir);
@@ -1766,11 +1773,11 @@ describe("`updates` is a field on `note`, not prose", () => {
   test("a declared id that resolves is written to meta as the RESOLVED id", async () => {
     const s = server();
     const first = payload(
-      await s.call("note", { text: "Deploys go out at 4pm on Thursdays, after the migration window closes." }),
+      await s.call("remember", { text: "Deploys go out at 4pm on Thursdays, after the migration window closes." }),
     );
     const target = first["id"] as string;
     const second = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "Deploys moved to 10am on Tuesdays, because the Thursday window collided with the finance batch.",
         updates: target,
       }),
@@ -1782,7 +1789,7 @@ describe("`updates` is a field on `note`, not prose", () => {
   test("an unresolvable declaration lands UNLINKED — never refused", async () => {
     const s = server();
     const body = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "The retro moved to Fridays, which is a real thing to remember whatever it revises.",
         updates: "mem_that_never_existed",
       }),
@@ -1794,7 +1801,7 @@ describe("`updates` is a field on `note`, not prose", () => {
   });
 
   test("the schema OFFERS the field — the ask tells the model it is a field, so it has to exist", () => {
-    const props = (toolSpec("note")?.inputSchema as { properties: Record<string, unknown> }).properties;
+    const props = (toolSpec("remember")?.inputSchema as { properties: Record<string, unknown> }).properties;
     expect(props["updates"]).toBeDefined();
     const entry = (
       (toolSpec("session_end")?.inputSchema as { properties: Record<string, { items?: { properties?: Record<string, unknown> } }> })
@@ -1863,7 +1870,7 @@ describe("the core imports nothing from this adapter", () => {
 
   test("a Store opened straight at the temp dir sees what the tools wrote — the tools compose, they do not re-wire", async () => {
     const s = server();
-    await s.call("note", { text: "Composition means the store is the same store, not a private one." });
+    await s.call("remember", { text: "Composition means the store is the same store, not a private one." });
     const direct = Store.open({ dir });
     open.push(direct);
     expect(direct.list({ archived: false }).length).toBe(1);

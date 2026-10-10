@@ -640,3 +640,13 @@ set by `Counterpart#deposit` from what the door read — not by intake, and not 
 `DRAFT_FIELDS`. Intake refuses an unreadable `eventDate`; these are loose-first (an
 unreadable one is dropped with a note at the door and the memory still mints), so they are
 read before intake, the way `about` and `feelings` are. `mint.ts` writes them to the row.
+
+## 2026-10-10 — for the rules audit: the sweep is still in the words (Group 1c)
+
+Group 1c rewrote the model-facing words (`remember`, `session_end`, the Stop ask) so they no
+longer promise a background sweep. This CONTRACT's §1/§4 and `fallback.ts`'s header still
+describe "a transcript sweep … as the crash fallback", which has not run since the keyless
+change of 2026-09-24. Left for the rules audit rather than rewritten here. The unclaimed
+default is now by what a memory is about (`physics.defaultClaimFor`), and an owed stretch
+stays owed for fourteen days of use (`coverage/` NOTES §9), which is how long retention
+holds its text.

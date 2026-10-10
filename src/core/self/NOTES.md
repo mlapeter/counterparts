@@ -1973,3 +1973,16 @@ right after "Still open", and nothing below it was poppable.
   envelope carries it; with no room it waits for the first prompt, where recall gives way
   to it. The part that rode the wake and could be crowded out was the same memory's
   Arriving line, which is now `due` in the list.
+
+## 2026-10-10 — the ask asks for attention; the cap yields to a due stretch (Group 1c)
+
+- **The Stop ask is 01 C1's, verbatim** (`claude-code/hooks.ts#stopAsk`): "hand back what
+  caught your attention since you last wrote, one idea each — what you read, what they
+  said, what happened". "Nothing worth keeping is a real answer" is gone (01 D4); `[]` is
+  said on the `memories` field. 474 characters at the widest (pin 480).
+- **`MAX_ASKS_PER_SESSION` yields to a due stretch** (01 C5, `episodes.ts#askDue`): at the
+  cap, the third arm (`due-unwritten`) still asks; turns and bytes do not. Measured: 84
+  cap refusals in 4 sessions, 35 while unwritten pieces existed. Decided by g1c-builder,
+  2026-10-10, lightly held; revisit after ~5 lived days. Why: 01 offered this or a cap of
+  20; this asks only when something is owed, and the arm paces itself (three pieces, half
+  an hour since the later of the first of them and the last ask).

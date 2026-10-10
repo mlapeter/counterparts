@@ -141,7 +141,7 @@ describe("feelings: an emotion that carries a phrase is split, never refused for
   test("the note door stores a phrased emotion, split, and says so", async () => {
     const s = openServer({ dir, scope: "/tmp/loosen-project", owner: true, bundlesAsOwner: true });
     open.push({ close: () => s.counterpart.close() });
-    const r = await s.call("note", {
+    const r = await s.call("remember", {
       text: "The release went out clean after the long night.",
       feelings: [{ whose: "self", core: "happy", emotion: "relieved: the long night is over and it held", strength: 0.6 }],
     });
@@ -308,7 +308,7 @@ describe("dream: refusals that protected nothing on the keep list became notes",
   });
 
   test("every schema a model writes a feeling through says emotion is one word and carried_by the nuance", () => {
-    const text = JSON.stringify(TOOLS.filter((t) => ["note", "session_end", "dream", "reflect"].includes(t.name)).map((t) => t.inputSchema));
+    const text = JSON.stringify(TOOLS.filter((t) => ["remember", "session_end", "dream", "reflect"].includes(t.name)).map((t) => t.inputSchema));
     const oneWord = text.match(/ONE word/g) ?? [];
     expect(oneWord.length).toBeGreaterThanOrEqual(5);
     expect(text).toContain("The nuance, in your own words");

@@ -37,7 +37,7 @@ import type { FeelingAskInput } from "./feeling-ask.js";
 import { detectAffect, stripBoilerplate } from "./cues.js";
 import { floorUnit, gate } from "./gate.js";
 import type { Background, CandidateVerdict, Verdict } from "./gate.js";
-import { currentMood } from "./mood.js";
+import { NO_MOOD, currentMood } from "./mood.js";
 import { loadGateState, saveGateState } from "./session.js";
 import type { GateState, SemanticSource } from "./session.js";
 import { render } from "./render.js";
@@ -397,7 +397,10 @@ export class Recall {
     // How each person feels now — only what was RECORDED in the last few hours
     // (recall G18; no classifier). Read on the store's clock, which is the clock the
     // feelings were stamped with.
-    const mood = currentMood(this.store, this.store.now(), this.tunables);
+    // With both mood weights at 0 (2026-10-10, review 02 C3) a mood could lift
+    // nothing, so the `feelings` scan is not run; the code stays for a re-test.
+    const moodWeighs = this.tunables.MOOD_SAME_WEIGHT > 0 || this.tunables.MOOD_CROSS_WEIGHT > 0;
+    const mood = moodWeighs ? currentMood(this.store, this.store.now(), this.tunables) : NO_MOOD;
 
     const act = activate(
       this.store,

@@ -519,6 +519,8 @@ export function symmetryVerdicts(store: SleepStore, day: number, emit: Emit): Sy
 
   const up = new Map<string, number>();
   const down = new Map<string, number>();
+  /** Up-moves no input explains (2026-10-10; a row from before carries no cause and is not one). */
+  const unexplained = new Map<string, number>();
   let unreadable = 0;
   for (const row of store.eventLog({
     name: BAND_TRANSITION_EVENT,
@@ -537,7 +539,13 @@ export function symmetryVerdicts(store: SleepStore, day: number, emit: Emit): Sy
       unreadable += 1;
       continue;
     }
-    if (direction === "up") up.set(kind, (up.get(kind) ?? 0) + 1);
+    // A move a new curve made on the pass it arrived (`recurve`, review of
+    // #372) is the build's, neither a climb nor a fall: not counted.
+    if (payload["cause"] === "recurve") continue;
+    if (direction === "up") {
+      up.set(kind, (up.get(kind) ?? 0) + 1);
+      if (payload["cause"] === "unexplained") unexplained.set(kind, (unexplained.get(kind) ?? 0) + 1);
+    }
     else if (direction === "down") down.set(kind, (down.get(kind) ?? 0) + 1);
     else unreadable += 1;
   }
@@ -551,6 +559,7 @@ export function symmetryVerdicts(store: SleepStore, day: number, emit: Emit): Sy
     const verdict = symmetryCheck(kind, {
       up: up.get(kind) ?? 0,
       down: down.get(kind) ?? 0,
+      unexplained: unexplained.get(kind) ?? 0,
     });
     out.push(verdict);
     emit("sleep.symmetry", undefined, {
@@ -562,14 +571,22 @@ export function symmetryVerdicts(store: SleepStore, day: number, emit: Emit): Sy
       down: verdict.down,
       ratio: Number.isFinite(verdict.ratio) ? verdict.ratio : null,
       expectedMax: verdict.expectedMax,
+      unexplained: verdict.unexplained,
     });
     if (!verdict.ok) {
+      // Only an UP-ratchet trips it (2026-10-10): fading down a band is the
+      // curve working, never an alarm.
       emit("sleep.symmetry.tripped", undefined, {
         day,
         kind: verdict.kind,
         reason: verdict.reason,
+        says:
+          verdict.unexplained > 0
+            ? `up-ratchet suspected: ${String(verdict.unexplained)} band climb(s) with no use, return, feeling or promotion behind them`
+            : "up-ratchet suspected: up-moves far outnumber down-moves",
         up: verdict.up,
         down: verdict.down,
+        unexplained: verdict.unexplained,
         expectedMax: verdict.expectedMax,
       });
     }
@@ -600,21 +617,30 @@ export function census(
   const kinds = Object.keys(PHYSICS.KINDS) as Kind[];
   const created = new Map<Kind, number>();
   const exited = new Map<Kind, number>();
-  // ONLY TODAY'S BIRTHS ARE READ (2026-10-10, Lane 0 / scale review C3): the
-  // census asked every row in the store — archived ones included — for its
-  // birth day, at every boundary. The filter is SQL now. Archived rows born
-  // today still count: a memory written and merged the same day is one created
-  // and one exited, and dropping its birth would unbalance G13.
-  // Decided by lane0-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: "archived out of the census" taken as "only today's births read"; excluding archived births outright would change what the census counts.
-  for (const id of store.list({ bornFromDay: day })) {
-    const row = store.row(id);
-    if (row === undefined || row.birth_day !== day) continue;
-    // MEMORIES. A chapter written today is not a memory born today, and
-    // counting it as one would give every journal kind a permanent
-    // created-without-exit imbalance — the exact signal G13 exists to raise
-    // (`sleep/types.ts#isJournal`).
-    if (isJournal(row)) continue;
-    created.set(row.kind, (created.get(row.kind) ?? 0) + 1);
+  // ONE GROUPED READ where the port has it (2026-10-10, review 13 C2): this
+  // runs at every boundary, outside the phases' once-a-lived-day markers, and
+  // walked every row — archived ones too — with a two-subquery read each.
+  // The grouped count is the same number, indexed by birth day.
+  const born = store.bornOn?.(day);
+  if (born !== undefined) {
+    for (const b of born) created.set(b.kind, (created.get(b.kind) ?? 0) + b.n);
+  } else {
+    // ONLY TODAY'S BIRTHS ARE READ (2026-10-10, Lane 0 / scale review C3): the
+    // census asked every row in the store — archived ones included — for its
+    // birth day, at every boundary. The filter is SQL now. Archived rows born
+    // today still count: a memory written and merged the same day is one created
+    // and one exited, and dropping its birth would unbalance G13.
+    // Decided by lane0-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: "archived out of the census" taken as "only today's births read"; excluding archived births outright would change what the census counts.
+    for (const id of store.list({ bornFromDay: day })) {
+      const row = store.row(id);
+      if (row === undefined || row.birth_day !== day) continue;
+      // MEMORIES. A chapter written today is not a memory born today, and
+      // counting it as one would give every journal kind a permanent
+      // created-without-exit imbalance — the exact signal G13 exists to raise
+      // (`sleep/types.ts#isJournal`).
+      if (isJournal(row)) continue;
+      created.set(row.kind, (created.get(row.kind) ?? 0) + 1);
+    }
   }
   for (const p of pruned) exited.set(p.record.kind, (exited.get(p.record.kind) ?? 0) + 1);
   for (const m of merged) {

@@ -134,7 +134,7 @@ describe("an unrelated pair is held", () => {
     const store = s.counterpart.store;
     aged(store);
     const passport = put(store, PASSPORT, { title: "Passport name change" });
-    const r = payload(await s.call("note", { text: MOLE, updates: passport, how: "corrected" }));
+    const r = payload(await s.call("remember", { text: MOLE, updates: passport, how: "corrected" }));
     expect(r["stored"]).toBe(true);
     const id = String(r["id"]);
 
@@ -146,7 +146,7 @@ describe("an unrelated pair is held", () => {
     const settled = r["settled"] as Record<string, unknown>;
     expect(settled).toMatchObject({ ok: false, held: true, reason: "looks-unrelated", how: "corrected", holds: id, over: passport, title: "Passport name change", detail: HELD_HINT });
     expect(String(settled["text"])).toContain("new passport arrived in May");
-    expect(HELD_HINT).toContain("note with settle {holds, over, how, why}");
+    expect(HELD_HINT).toContain("remember with settle {holds, over, how, why}");
     // Not shown twice: the held memory is not also a neighbour.
     expect(((r["neighbours"] ?? []) as { id: string }[]).map((n) => n.id)).not.toContain(passport);
 
@@ -167,7 +167,7 @@ describe("an unrelated pair is held", () => {
     const store = s.counterpart.store;
     aged(store);
     const passport = put(store, PASSPORT);
-    const r = payload(await s.call("note", { text: MOLE, updates: passport }));
+    const r = payload(await s.call("remember", { text: MOLE, updates: passport }));
     expect(r["stored"]).toBe(true);
     untouched(store, passport);
     expect(r["settled"]).toMatchObject({ held: true, how: "changed", over: passport });
@@ -180,7 +180,7 @@ describe("an unrelated pair is held", () => {
     const store = s.counterpart.store;
     aged(store);
     const passport = put(store, PASSPORT);
-    const r = payload(await s.call("note", { text: `Mole check at the dermatologist. ${MOLE}`, updates: passport, eventDate: "2027-03-03" }));
+    const r = payload(await s.call("remember", { text: `Mole check at the dermatologist. ${MOLE}`, updates: passport, eventDate: "2027-03-03" }));
     expect(r["settled"]).toMatchObject({ held: true, over: passport });
     untouched(store, passport);
     // Its own date, not one carried from the memory it named.
@@ -194,7 +194,7 @@ describe("a related correction worded differently passes", () => {
     const store = s.counterpart.store;
     aged(store);
     const nurse = put(store, "Ana works as a nurse at St. David's hospital.");
-    const r = payload(await s.call("note", { text: "Ana quit nursing and started law school in the fall.", updates: nurse, how: "changed" }));
+    const r = payload(await s.call("remember", { text: "Ana quit nursing and started law school in the fall.", updates: nurse, how: "changed" }));
     expect(r["settled"]).toMatchObject({ ok: true, how: "changed", over: nurse });
     expect(store.physicsOf(nurse).fade).toBe(0.5);
     expect(store.eventLog({ name: CONTRADICTION_HELD_EVENT })).toHaveLength(0);
@@ -208,14 +208,14 @@ describe("a related correction worded differently passes", () => {
     const withMeaning = server({ embed: fakeEmbed });
     aged(withMeaning.counterpart.store);
     const austin = put(withMeaning.counterpart.store, OLD);
-    const r = payload(await withMeaning.call("note", { text: NEW, updates: austin, how: "corrected" }));
+    const r = payload(await withMeaning.call("remember", { text: NEW, updates: austin, how: "corrected" }));
     expect(r["settled"]).toMatchObject({ ok: true, how: "corrected", over: austin });
     expect(withMeaning.counterpart.store.row(austin)?.archived_reason).toBe(CORRECTED_REASON);
 
     const wordsOnly = server({ sub: "no-embedder" });
     aged(wordsOnly.counterpart.store);
     const austin2 = put(wordsOnly.counterpart.store, OLD);
-    const held = payload(await wordsOnly.call("note", { text: NEW, updates: austin2, how: "corrected" }));
+    const held = payload(await wordsOnly.call("remember", { text: NEW, updates: austin2, how: "corrected" }));
     expect(held["settled"]).toMatchObject({ held: true, over: austin2 });
     untouched(wordsOnly.counterpart.store, austin2);
   });
@@ -225,7 +225,7 @@ describe("a related correction worded differently passes", () => {
     const store = s.counterpart.store;
     aged(store);
     const passport = put(store, PASSPORT);
-    const r = payload(await s.call("note", { text: MOLE, updates: passport, how: "open" }));
+    const r = payload(await s.call("remember", { text: MOLE, updates: passport, how: "open" }));
     expect(r["settled"]).toMatchObject({ ok: true, how: "open", with: passport });
     expect(store.eventLog({ name: CONTRADICTION_HELD_EVENT })).toHaveLength(0);
   });
@@ -237,10 +237,10 @@ describe("settling after a hold", () => {
     const store = s.counterpart.store;
     aged(store);
     const passport = put(store, PASSPORT);
-    const r = payload(await s.call("note", { text: MOLE, updates: passport, how: "corrected" }));
+    const r = payload(await s.call("remember", { text: MOLE, updates: passport, how: "corrected" }));
     const settled = r["settled"] as Record<string, unknown>;
     const again = payload(
-      await s.call("note", { settle: { holds: settled["holds"], over: settled["over"], how: "corrected", why: "I did mean it: the old one was wrong." } }),
+      await s.call("remember", { settle: { holds: settled["holds"], over: settled["over"], how: "corrected", why: "I did mean it: the old one was wrong." } }),
     );
     expect(again["settle"]).toMatchObject({ ok: true, how: "corrected", holds: String(r["id"]), over: passport, archived: passport });
     expect(store.row(passport)?.archived_reason).toBe(CORRECTED_REASON);
@@ -256,13 +256,13 @@ describe("a close or a redate goes straight through", () => {
     aged(store);
     const QUESTION = "Open question: which database should the cache layer use?";
     const DONE = "Done, moved on from it.";
-    const opened = payload(await s.call("note", { text: QUESTION, unresolved: true }));
+    const opened = payload(await s.call("remember", { text: QUESTION, unresolved: true }));
     const thread = String(opened["id"]);
     expect(store.readProse(thread).meta["unresolved"]).toBe(true);
     // Read as a pair, the "done" is nowhere near the question.
     expect(wouldHold(QUESTION, DONE)).toBe(true);
 
-    const done = payload(await s.call("note", { text: DONE, updates: thread, unresolved: false }));
+    const done = payload(await s.call("remember", { text: DONE, updates: thread, unresolved: false }));
     expect(done["stored"]).toBe(true);
     expect(done["thread"]).toEqual({ closed: thread });
     expect(store.readProse(thread).meta["unresolved"]).toBe(false);
@@ -278,7 +278,7 @@ describe("a close or a redate goes straight through", () => {
     const ANSWER = "Going with Redis, decided this morning.";
     expect(wouldHold(QUESTION, ANSWER)).toBe(true);
     const thread = put(store, QUESTION, { meta: { unresolved: true } });
-    const r = payload(await s.call("note", { text: ANSWER, updates: thread, how: "changed" }));
+    const r = payload(await s.call("remember", { text: ANSWER, updates: thread, how: "changed" }));
     expect(r["settled"]).toMatchObject({ ok: true, how: "changed", over: thread });
     expect(store.eventLog({ name: CONTRADICTION_HELD_EVENT })).toHaveLength(0);
   });
@@ -290,15 +290,15 @@ describe("a close or a redate goes straight through", () => {
     const APPOINTMENT = "Dentist appointment for a cleaning.";
     const MOVED = "Moved to the 21st instead.";
     expect(wouldHold(APPOINTMENT, MOVED)).toBe(true);
-    const first = payload(await s.call("note", { text: APPOINTMENT, eventDate: "2027-03-14" }));
+    const first = payload(await s.call("remember", { text: APPOINTMENT, eventDate: "2027-03-14" }));
     const dentist = String(first["id"]);
-    const r = payload(await s.call("note", { text: MOVED, updates: dentist, eventDate: "2027-03-21" }));
+    const r = payload(await s.call("remember", { text: MOVED, updates: dentist, eventDate: "2027-03-21" }));
     expect(r["settled"]).toMatchObject({ ok: true, over: dentist });
     expect(store.row(String(r["id"]))?.event_date).toBe("2027-03-21");
     expect(store.row(dentist)?.event_date).toBeNull();
     // And "done": the date dropped.
     expect(wouldHold(MOVED, "Went, all clean, nothing to fix.")).toBe(true);
-    const later = payload(await s.call("note", { text: "Went, all clean, nothing to fix.", updates: String(r["id"]), eventDate: null }));
+    const later = payload(await s.call("remember", { text: "Went, all clean, nothing to fix.", updates: String(r["id"]), eventDate: null }));
     expect(later["settled"]).toMatchObject({ ok: true });
     expect(later["reminder"]).toMatchObject({ cleared: true });
     expect(store.eventLog({ name: CONTRADICTION_HELD_EVENT })).toHaveLength(0);
@@ -311,8 +311,8 @@ describe("a close or a redate goes straight through", () => {
     const PLAN = "Plan: write the quarterly letter to the investors.";
     const SENT = "Moved it out the door this morning.";
     expect(wouldHold(PLAN, SENT)).toBe(true);
-    const plan = payload(await s.call("note", { text: PLAN, status: "planned" }));
-    const r = payload(await s.call("note", { text: SENT, updates: String(plan["id"]), status: "done" }));
+    const plan = payload(await s.call("remember", { text: PLAN, status: "planned" }));
+    const r = payload(await s.call("remember", { text: SENT, updates: String(plan["id"]), status: "done" }));
     expect(r["settled"]).toMatchObject({ ok: true, over: String(plan["id"]) });
     expect(store.eventLog({ name: CONTRADICTION_HELD_EVENT })).toHaveLength(0);
   });
@@ -344,10 +344,10 @@ describe.skipIf(WEIGHTS === null)("the real table (potion-base-8M)", () => {
     const store = s.counterpart.store;
     aged(store);
     const denver = put(store, "Mike moved to Denver.");
-    const ok = payload(await s.call("note", { text: "Mike lives in Colorado now.", updates: denver, how: "changed" }));
+    const ok = payload(await s.call("remember", { text: "Mike lives in Colorado now.", updates: denver, how: "changed" }));
     expect(ok["settled"]).toMatchObject({ ok: true, over: denver });
     const passport = put(store, PASSPORT);
-    const held = payload(await s.call("note", { text: MOLE, updates: passport, how: "corrected" }));
+    const held = payload(await s.call("remember", { text: MOLE, updates: passport, how: "corrected" }));
     expect(held["settled"]).toMatchObject({ held: true, over: passport });
     untouched(store, passport);
     const p = JSON.parse(store.eventLog({ name: CONTRADICTION_HELD_EVENT })[0]?.payload ?? "{}") as Record<string, unknown>;
@@ -371,12 +371,12 @@ describe.skipIf(WEIGHTS === null)("the real table (potion-base-8M)", () => {
       expect(updateRelatedness({ over: QUESTION, text, overVec: table.embed(QUESTION), textVec: table.embed(text) }).related).toBe(false);
     }
 
-    const viaNote = String(payload(await s.call("note", { text: QUESTION, unresolved: true }))["id"]);
-    const closed = payload(await s.call("note", { text: DONE, updates: viaNote, unresolved: false }));
+    const viaNote = String(payload(await s.call("remember", { text: QUESTION, unresolved: true }))["id"]);
+    const closed = payload(await s.call("remember", { text: DONE, updates: viaNote, unresolved: false }));
     expect(closed["thread"]).toEqual({ closed: viaNote });
     expect(store.readProse(viaNote).meta["unresolved"]).toBe(false);
 
-    const viaEnd = String(payload(await s.call("note", { text: QUESTION.replace("budget", "time limit"), unresolved: true }))["id"]);
+    const viaEnd = String(payload(await s.call("remember", { text: QUESTION.replace("budget", "time limit"), unresolved: true }))["id"]);
     const out = payload(await s.call("session_end", { session: SESSION, memories: [{ content: DONE_AGAIN, updates: viaEnd, unresolved: false }] }));
     const outcome = (out["outcomes"] as Record<string, unknown>[])[0] ?? {};
     expect(outcome["stored"]).toBe(true);

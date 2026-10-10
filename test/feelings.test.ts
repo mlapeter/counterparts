@@ -229,9 +229,9 @@ describe("the MCP doors", () => {
 
   test("note: feelings land beside the memory, an unknown word comes back as a notice, salience is untouched", async () => {
     const s = server();
-    const plain = payload(await s.call("note", { text: "The glaze test cracked on the left shelf of the kiln again." }));
+    const plain = payload(await s.call("remember", { text: "The glaze test cracked on the left shelf of the kiln again." }));
     const out = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "The second glaze test on the right shelf came out clean after all.",
         feelings: [
           { whose: "owner", core: "uneasy", emotion: "anxious", strength: 0.5, carried_by: "waiting on the kiln" },
@@ -264,7 +264,7 @@ describe("the MCP doors", () => {
       [{ whose: "owner", core: "happy", emotion: "hopeful", strength: 0.5, beneath: 0.5 }],
     ];
     for (const [n, feelings] of cases.entries()) {
-      const out = payload(await s.call("note", { text: `A note with malformed feelings, case ${String(n)}.`, feelings }));
+      const out = payload(await s.call("remember", { text: `A note with malformed feelings, case ${String(n)}.`, feelings }));
       expect({ n, stored: out["stored"], reason: out["reason"] }).toEqual({ n, stored: false, reason: "feelings-malformed" });
     }
     expect(s.counterpart.store.list({ type: "memory" })).toEqual([]);
@@ -290,9 +290,9 @@ describe("the MCP doors", () => {
   test("a duplicate note says its feelings were not stored (review N6)", async () => {
     const s = server();
     const text = "The kiln's left shelf runs hot, so glaze tests go on the right.";
-    await s.call("note", { text });
+    await s.call("remember", { text });
     const again = payload(
-      await s.call("note", { text, feelings: [{ whose: "owner", core: "angry", emotion: "frustrated", strength: 0.5 }] }),
+      await s.call("remember", { text, feelings: [{ whose: "owner", core: "angry", emotion: "frustrated", strength: 0.5 }] }),
     );
     expect(again["stored"]).toBe(false);
     const f = again["feelings"] as Record<string, unknown>;
@@ -302,7 +302,7 @@ describe("the MCP doors", () => {
   test("note: feelings that will not store refuse the note before it mints", async () => {
     const s = server();
     const out = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "A note whose feelings name a core the wheel does not have.",
         feelings: [{ whose: "owner", core: "boredom", emotion: "bored", strength: 0.5 }],
       }),
