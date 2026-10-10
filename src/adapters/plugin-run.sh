@@ -58,7 +58,8 @@
 #     beside it: the sha256 it matched, and the file's inode, size and mtime.
 #     Each launch compares the stamp with binaries.json and the file (one
 #     `stat`); the server's start (once a session), a stamp a day old, or any
-#     difference re-hashes the whole file (about 50 ms with openssl). A program
+#     difference re-hashes the whole file (50–80 ms for 100 MiB with openssl,
+#     measured on an M3 Pro; a hook's own check is about 1 ms). A program
 #     that no longer matches is deleted and downloaded again.
 #   - Meanwhile SessionStart says, once, that Counterparts is getting ready
 #     (the size, where it comes from, and that memory starts next session);

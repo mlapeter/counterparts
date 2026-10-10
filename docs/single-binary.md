@@ -96,8 +96,8 @@ With none of them, it fetches the binary:
   program: the sha256 it matched, and the file's inode, size and mtime. A hook runs the
   program when that stamp names this plugin's checksum and this very file and is under a
   day old (one `stat`, about 1 ms). The server's start, once a session, re-hashes the
-  whole file, as does a hook finding the stamp old, missing or different (about 75 ms
-  for 100 MiB with `openssl`). A program that no longer matches is deleted, never run,
+  whole file, as does a hook finding the stamp old, missing or different (50–80 ms
+  for 100 MiB with `openssl` on an M3 Pro). A program that no longer matches is deleted, never run,
   and downloaded again.
 - **Old versions.** When a new version's program lands, another version's whose stamp
   is a week old (no server has started it since) is deleted: each is 100–150 MiB
