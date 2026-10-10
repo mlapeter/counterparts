@@ -4335,7 +4335,7 @@ function sayDesktopRepair(u: ReturnType<typeof ui>, repair: DesktopRepair, home_
       );
       return false;
     case "refused":
-      u.warn(`Claude Desktop's entry was not touched: ${repair.detail ?? "its file could not be read"}`);
+      u.warn(`Claude Desktop: ${repair.detail ?? `${where} could not be read, and was left as it was.`}`);
       return false;
     case "failed":
       u.fail(`Claude Desktop's entry could not be rewritten: ${repair.detail ?? "unknown error"}`);

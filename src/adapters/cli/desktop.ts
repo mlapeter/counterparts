@@ -40,8 +40,8 @@ import { dirname } from "node:path";
 
 import { CONFIG_ENV } from "../config-path.js";
 import { parseScriptInvocation, scriptArgs } from "../runtime.js";
-import { desktopConfigPath, hostConfigBase, hostMcpFile, MCP_SCRIPT, MCP_SERVER_NAME } from "./install.js";
-import { sightSettings, writeSettings } from "./wire.js";
+import { BIN, desktopConfigPath, hostConfigBase, hostMcpFile, MCP_SCRIPT, MCP_SERVER_NAME } from "./install.js";
+import { sightSettings, tilde, unparsedSettingsWhy, writeSettings } from "./wire.js";
 
 /** The variable the server reads its store from (`mcp/bin/serve.ts#ENV.dir`). */
 const DATA_DIR_VAR = "COUNTERPARTS_DATA_DIR";
@@ -152,6 +152,12 @@ export function connectDesktop(input: {
  * command must read back as ours (`runtime.ts#parseScriptInvocation`) and run
  * the memory server — a hand-made entry under the same name is somebody's
  * own, and `connect` leaves it alone.
+ *
+ * NOTHING AFTER THE SCRIPT (review of #354). `desktopEntry` never writes a
+ * tail — the configuration travels in `env` — so an entry with arguments after
+ * `serve.ts` (or after the binary's `mcp`) is somebody's edit of ours, and the
+ * rewrite, which replaces `args` whole, would drop them without a word. The
+ * same line `host-wiring.ts#isOurHookCommand` holds for the hooks.
  */
 export function isOurDesktopEntry(entry: unknown): entry is { command: string; args: string[] } & Record<string, unknown> {
   if (!isRecord(entry)) return false;
@@ -159,7 +165,7 @@ export function isOurDesktopEntry(entry: unknown): entry is { command: string; a
   const args = entry["args"];
   if (typeof command !== "string" || !Array.isArray(args) || !args.every((a) => typeof a === "string")) return false;
   const run = parseScriptInvocation([command, ...(args as string[])]);
-  if (run === null) return false;
+  if (run === null || run.rest.length > 0) return false;
   return run.mode === "mcp" || (run.mode === undefined && /mcp[/\\]bin[/\\]serve\.ts$/.test(run.script));
 }
 
@@ -211,7 +217,16 @@ export function repairDesktop(input: {
   const path = desktopConfigPath(input.home);
   try {
     const read = readObject(path);
-    if (read.state !== "read") return { outcome: "none", path, backup: null, detail: null };
+    if (read.state === "absent") return { outcome: "none", path, backup: null, detail: null };
+    // A FILE THAT DOES NOT PARSE IS SAID, NOT PASSED OVER (review of #354):
+    // whether it holds an entry of ours cannot be told, so it is never written,
+    // and the person hears why the Desktop half did nothing. An empty file is
+    // not a broken one (`sightSettings`): nothing in it, nothing of ours.
+    if (read.state === "unreadable") {
+      const sight = sightSettings(path, input.home);
+      if (sight.refusal === null) return { outcome: "none", path, backup: null, detail: null };
+      return { outcome: "refused", path, backup: null, detail: unreadableWhy(path, input.home) };
+    }
     const servers = read.value["mcpServers"];
     const prior = isRecord(servers) ? servers[MCP_SERVER_NAME] : undefined;
     if (!isOurDesktopEntry(prior)) return { outcome: "none", path, backup: null, detail: null };
@@ -230,6 +245,31 @@ export function repairDesktop(input: {
   } catch (err) {
     return { outcome: "failed", path, backup: null, detail: String((err as Error).message ?? err) };
   }
+}
+
+/**
+ * Why `connect` left an unreadable Desktop file alone, in words a person can
+ * act on: `wire.ts#unparsedSettingsWhy`'s for the shapes a hand-edited file
+ * takes (comments, a trailing comma, a byte-order mark), else the parser's.
+ */
+function unreadableWhy(path: string, home: string): string {
+  const where = tilde(path, home);
+  const unsure = "connect cannot tell whether it holds a counterparts entry, so nothing in it was changed";
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    return `${where} could not be read (${String((err as Error).message ?? err)}): ${unsure}.`;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const why = unparsedSettingsWhy(raw);
+    if (why !== null) return `${where} ${why}. Until then ${unsure}.`;
+    return `${where} does not parse as JSON (${String((err as Error).message ?? err)}): ${unsure}. If you connected Claude Desktop, fix the file and run \`${BIN.cli} connect\` again.`;
+  }
+  return `${where} parses, but ${Array.isArray(parsed) ? "as an array" : `as a ${typeof parsed}`} rather than an object: ${unsure}.`;
 }
 
 /** What doctor reads about Claude Desktop (`claude-code/doctor.ts#DesktopReading`). */
