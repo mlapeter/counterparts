@@ -1095,3 +1095,11 @@ with a minimum store size. `storeSize` is `countMemories` now, not
 the length of a list of every live id (16% of a 10x turn). Not done here, from the same
 finding: persisting the alias index and indexing `feelings(created_at)` (a canonical index —
 Group 1).
+
+## 30. Mood weights to 0 (2026-10-10, review 02 C3)
+
+`MOOD_SAME_WEIGHT` and `MOOD_CROSS_WEIGHT` are 0. Decided by b2+f8, 2026-10-10, lightly
+held. Evidence from the old use metric (lifted memories used 1.3% vs 2.4%); re-test after
+Group 1's engaged credit gives a real signal. The code in `mood.ts` is kept whole and its
+tests run it at the old weights; with both at 0, `Recall#build` skips `currentMood` (the
+per-turn `feelings` scan with no index on `created_at`).

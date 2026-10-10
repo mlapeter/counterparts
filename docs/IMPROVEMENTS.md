@@ -163,6 +163,38 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
   as designed. No re-score was done (decided: no one-off fixes). A one-time scale-down of old
   claims is a separate decision for Mike.
 
+### Decided by the Group 1c builder, 2026-10-10, lightly held; revisit after ~5 lived days
+
+Calls the synthesis left open, made in code (each carries its own `Decided by` comment; two
+were refined by b2+f8 at the review of #369, named where they were):
+
+- **The defaults by what a memory is about.** A memory written without a salience starts at
+  0.20 for a work event that is done, 0.25 for other work and for an unmarked one, 0.35 for
+  the world (readings, news), 0.40 for Mike, the two of us or me (or said by Mike). Why:
+  review 01's table; an unmarked memory keeps 0.25 because "done" alone does not make it
+  routine. The work-event row is 0.20, not 01's 0.10 (b2+f8, review of #369, lightly held):
+  reach is 0.15, and a routine work event should stay in reach about a lived day.
+- **A feeling alone lifts a memory at most to 0.49 while its own salience is under the
+  semantic floor** (`FELT_HEIGHT_CAP`); at or above the floor it keeps the whole lift. Why:
+  feeling sets how slowly a memory fades, not its band (item 7), and with the 0.40 default a
+  strong feeling would otherwise start a silent memory semantic. It holds for claimed
+  memories too: one claimed under 0.5 with a strong feeling now starts episodic.
+- **"Strongly felt" (item 9) is 0.6, or 0.1 above the word's own default and at least 0.5.**
+  The 0.1 is review 08's own reading; the 0.5 floor is b2+f8's (review of #369, lightly
+  held): a calm word recorded at 0.45 is above its default, not strongly felt. A word nobody
+  weighed still never opens the fast lane.
+- **`note` still answers, as `remember`, for at least a release, and is not listed.** Why: a
+  session running across the upgrade keeps its cached tool list, so only the call has to
+  land; listing both would put two descriptions of one door in front of the model. Each call
+  on the old name is counted, so dropping it is a read, not a guess.
+- **What a session said and nobody wrote up stays owed for 14 days of use (was 3)**, and its
+  text is kept that long. Why: on the 10-10 snapshot 18 owed stretches lapsed unwritten; the
+  night takes four sessions, oldest first, and did not reach them in time.
+- **The per-session ask limit yields to a stretch that is due.** At the limit a session is
+  still asked when it holds unwritten pieces that are due (three of them, half an hour on).
+  Why: the limit refused 84 asks in 4 sessions, 35 of them while something was owed; review
+  01 offered this or a limit of 20, and this one asks only when something is owed.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

@@ -582,3 +582,38 @@ anything, and the first possible exit at lived day 91. What changed here, all li
   left to fire rather than suppressed. `CORE_SLOW_FLOOR` (0.5) now reads the new strength.
 - **Flagged, not fixed:** a kind whose ω_sal is 0.4 (skill, place) at the 0.25 default is born
   at 0.10, below reach (03 D3 warned the routine default must sit above REACH).
+
+## 2026-10-10 — the default by what a memory is about; a feeling stops under the floor; "strongly felt" by the word (Group 1c)
+
+- **`defaultClaimFor`** (review 01 C2; the work-event row raised 0.10 → 0.20 by b2+f8 after
+  the review of #369, lightly held — G1a's `REACH` is 0.15, and a routine work event should
+  stay in reach about a lived day): an unclaimed authored memory's floor is 0.20 for a
+  done work event (`about=work`, `status=done`), 0.25 for other work and for an unmarked
+  memory (`AUTHORED_DEFAULT_CLAIM`, unchanged), 0.35 for the world, 0.40 for the owner, us
+  or me — or said by the owner, or kind self/person (checked first, so the owner's ruling
+  about work is not a work event). The mint reads `about` from the door
+  (`MintOptions.about`), `status`/`saidBy`/`kind` from the proposal; `salience.defaulted`
+  carries the `class`. Decided by g1c-builder, 2026-10-10, lightly held; revisit after ~5
+  lived days. Why: 01 D2's table; unmarked keeps 0.25 because `status: done` alone is not
+  enough to call an unmarked memory routine.
+- **`FELT_HEIGHT_CAP` 0.49** (`salArm`): the old invariant "a strong feeling alone does not
+  make a silent note semantic" was arithmetic (0.25 + 0.15 < 0.5) and the 0.40 default
+  breaks it (0.40 + 0.15 × 0.9 = 0.535). Now a memory whose own `sal` is under `THETA_SEM`
+  is lifted by feeling at most to 0.49; one at or above it keeps the whole lift. This is
+  b2+f8's "feeling sets stability, not the band" (§4 #7) on the height side, and it covers a
+  feeling recorded later, which a cap at the mint could not. It is general, not only for
+  defaulted rows: an explicit claim under 0.5 with a strong feeling no longer starts
+  semantic either (it did at 0.35–0.49). Decided by g1c-builder, 2026-10-10, lightly held;
+  revisit after ~5 lived days. Why: no column or meta read is needed, and a writer who
+  wants a memory semantic says 0.5 or more. **Overlap with G1a**, which is changing `sal()`
+  and `stability()` in the same file: `salArm` reads `sal()` and nothing else of theirs.
+- **`CORE_FAST_ABOVE_DEFAULT` 0.1, `CORE_FAST_RELATIVE_FLOOR` 0.5** (review 08 C3; the floor
+  from the review of #369, b2+f8, lightly held): the fast lane's feeling half opens at
+  `CORE_FAST_FEELING` or for a feeling of at least 0.5 that is 0.1 above the strength its word is stored at when
+  nobody weighs it (`store/feelings.ts#defaultStrength`, capped 0.55, which still keeps an
+  unweighed word out). Read in consolidation (`sleep/consolidate.ts#stronglyFelt`) and
+  handed in as `CoreContext.stronglyFelt`; the recognition door and `laterFeelingCarriers`
+  read the same test (`feelingIsStrong`). On the fixture in
+  `test/encoding-attention.test.ts`, 4 of 11 about-us memories with a return three lived days after birth
+  now meet the fast lane, against 2 before. The return gate still binds (08: "worth little
+  without #5"). The dashboard's "needs intensity 0.6" reading is now one of two ways in.

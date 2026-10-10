@@ -10,7 +10,7 @@
  *   3. what writes a stretch up — nothing new and a chapter do, a handoff
  *      alone does not;
  *   4. the in-session write-up path, end to end on a temp store;
- *   5. lapse at the third day of use, with its row and nothing deleted, and
+ *   5. lapse at the fourteenth day of use (the third until 2026-10-10), with its row and nothing deleted, and
  *      the old-backlog pass;
  *   6. retention's seven days, unchanged;
  *   7. the handoff pointer in its three states;
@@ -447,14 +447,18 @@ describe("the in-session write-up path, end to end", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("lapse: the third day of use after the day it was lived", () => {
+describe("lapse: at the LAPSE_DAYS_OF_USE-th day of use after the day it was lived (14 since 2026-10-10)", () => {
   /** A turn-end on another session, on the date `at` falls on. */
   function use(k: { c: Counterpart; set(t: number): void }, at: number): void {
     k.set(at);
     k.c.boundary({ session: "other", scope: PROJ, kind: "stop" });
   }
+  const L = COVERAGE_TUNABLES.LAPSE_DAYS_OF_USE;
 
-  test("owed on days of use one and two, LAPSED at the first turn-end of the third — with its row, and nothing deleted", () => {
+  test("owed through every day of use before the bound, LAPSED at the first turn-end of the bound's day — with its row, and nothing deleted", () => {
+    // 01 C4 (2026-10-10): an owed stretch stays owed for the nightly write-up;
+    // three days of use was too short for it to get there.
+    expect(L).toBe(14);
     const k = clocked();
     const t = talker(k, "lapser");
     for (let i = 0; i < 4; i++) t.piece(T0 + i * 10 * MIN);
@@ -464,14 +468,15 @@ describe("lapse: the third day of use after the day it was lived", () => {
     expect(read(T0 + 3 * DAY)).toMatchObject({ owed: true, lapsed: false, daysOfUseSince: 0 });
     use(k, T0 + 3 * DAY); // day of use 1 (10-02)
     use(k, T0 + 3 * DAY + HOUR);
-    use(k, T0 + 5 * DAY); // day of use 2 (10-04)
-    expect(read(T0 + 5 * DAY + HOUR)).toMatchObject({ owed: true, lapsed: false, daysOfUseSince: 2 });
-    use(k, T0 + 7 * DAY - 11 * HOUR); // the first turn-end of day of use 3 (10-06, 01:00)
-    const e = read(T0 + 7 * DAY - 11 * HOUR);
-    expect(e).toMatchObject({ owed: false, lapsed: true, daysOfUseSince: 3 });
+    for (let i = 2; i < L; i++) use(k, T0 + (2 + i) * DAY); // days of use 2 … L−1
+    expect(read(T0 + (1 + L) * DAY + HOUR)).toMatchObject({ owed: true, lapsed: false, daysOfUseSince: L - 1 });
+    const last = T0 + (2 + L) * DAY - 11 * HOUR; // the first turn-end of day of use L, at 01:00
+    use(k, last);
+    const e = read(last);
+    expect(e).toMatchObject({ owed: false, lapsed: true, daysOfUseSince: L });
 
     // The row: session, scope key, pieces, minutes — no text.
-    const report = recordCoverage(k.c.spans, k.c.store, { now: T0 + 7 * DAY - 11 * HOUR, zone: ZONE });
+    const report = recordCoverage(k.c.spans, k.c.store, { now: last, zone: ZONE });
     expect(report).toMatchObject({ reason: "recorded", lapsed: 1, owed: 0 });
     const lapsed = rows(k.c.store, COVERAGE_LAPSED_EVENT);
     expect(lapsed).toHaveLength(1);
@@ -481,7 +486,7 @@ describe("lapse: the third day of use after the day it was lived", () => {
     // Nothing deleted: every piece is still in the buffer.
     expect(k.c.spans.spans(PROJ).filter((s) => s.session === "lapser")).toHaveLength(4);
     // A second pass writes nothing more.
-    recordCoverage(k.c.spans, k.c.store, { now: T0 + 7 * DAY, zone: ZONE });
+    recordCoverage(k.c.spans, k.c.store, { now: last + 11 * HOUR, zone: ZONE });
     expect(rows(k.c.store, COVERAGE_LAPSED_EVENT)).toHaveLength(1);
   });
 
@@ -496,12 +501,13 @@ describe("lapse: the third day of use after the day it was lived", () => {
     }
     const now = T0 - 20 * DAY + HOUR;
     const first = recordCoverage(k.c.spans, k.c.store, { now, zone: ZONE });
-    // The newest three are still owed (two days of use or fewer since each);
-    // every other has had three days of use since.
-    expect(first).toMatchObject({ reason: "recorded", owed: 3, lapsed: 37, written: 0 });
+    // The newest L are still owed (L − 1 days of use or fewer since each);
+    // every other has had L days of use since (L = 14 since 2026-10-10).
+    const L = COVERAGE_TUNABLES.LAPSE_DAYS_OF_USE;
+    expect(first).toMatchObject({ reason: "recorded", owed: L, lapsed: 40 - L, written: 0 });
     expect(first.rows).toBe(40);
-    expect(rows(k.c.store, COVERAGE_LAPSED_EVENT)).toHaveLength(37);
-    expect(rows(k.c.store, COVERAGE_OWED_EVENT)).toHaveLength(3);
+    expect(rows(k.c.store, COVERAGE_LAPSED_EVENT)).toHaveLength(40 - L);
+    expect(rows(k.c.store, COVERAGE_OWED_EVENT)).toHaveLength(L);
     // No backfill of claims made before the first pass.
     expect(rows(k.c.store, COVERAGE_WRITTEN_EVENT)).toHaveLength(0);
     const again = recordCoverage(k.c.spans, k.c.store, { now: now + MIN, zone: ZONE });
@@ -526,7 +532,7 @@ describe("retention reads the same rule, and its seven days are unchanged", () =
     const verdicts = (now: number, extraUse: boolean): Map<string, string> => {
       const b = new SpanBuffer({ dir: storeDir, now: () => now });
       if (extraUse) {
-        for (const d of [1, 2, 3]) {
+        for (let d = 1; d <= COVERAGE_TUNABLES.LAPSE_DAYS_OF_USE; d++) {
           new SpanBuffer({ dir: storeDir, now: () => T0 + d * DAY }).boundary({ session: "user", scope: PROJ, kind: "stop" });
         }
       }
@@ -543,7 +549,7 @@ describe("retention reads the same rule, and its seven days are unchanged", () =
     expect(later.get("written")).toBe("deleted");
     expect(later.get("under")).toBe("deleted");
     expect(later.get("owing")).toBe("kept-owed");
-    // Three days of use later, the owed stretches lapse and go on the week.
+    // LAPSE_DAYS_OF_USE days of use later, the owed stretches lapse and go on the week.
     const lapsed = verdicts(T0 + 30 * DAY, true);
     expect(lapsed.get("owing")).toBe("deleted");
     expect(lapsed.get("lapsing")).toBe("deleted");
@@ -686,7 +692,7 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
     c.store.appendEvent({ name: COVERAGE_LAPSED_EVENT, day: c.store.livedDay(), dedupKey: "t", payload: { session: "gone", pieces: 3, minutes: 20 } });
     const g = read();
     expect(g?.severity).toBe("green");
-    expect(g?.detail).toContain("9 of 9 pieces written up; nothing owed; 1 lapsed this week");
+    expect(g?.detail).toContain("9 of 9 pieces written up; nothing owed; 1 lost unwritten this week");
     // A small debt the pointer never offers — `claude -p` — is named apart, not waited on.
     recordSession(storeDir, { sessionId: "print-1", scope: PROJ, phase: "start", entrypoint: "sdk-cli" });
     const k = clocked(Date.now() - 2 * DAY);

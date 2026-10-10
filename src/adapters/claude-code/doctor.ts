@@ -2732,8 +2732,8 @@ export function writeFieldFindings(store: Store): Finding[] {
       : `; subject links: ${String(links.links)} on ${String(links.memories)} ${links.memories === 1 ? "memory" : "memories"}`;
   const detail =
     share.written === 0
-      ? `no memory written${when} by note, session_end or a dream gist yet${linked}`
-      : `of ${String(share.written)} ${share.written === 1 ? "memory" : "memories"} written${when} by note, session_end or a dream gist — when it happened ${pct(share.occurredOn)}, who said it ${pct(share.saidBy)}, what kind ${pct(share.status)}, all three ${pct(share.all)}${linked}`;
+      ? `no memory written${when} by remember, session_end or a dream gist yet${linked}`
+      : `of ${String(share.written)} ${share.written === 1 ? "memory" : "memories"} written${when} by remember, session_end or a dream gist — when it happened ${pct(share.occurredOn)}, who said it ${pct(share.saidBy)}, what kind ${pct(share.status)}, all three ${pct(share.all)}${linked}`;
   return [
     finding("write-fields", "green", "Write fields", detail, "", {
       written: share.written,
@@ -5139,7 +5139,7 @@ function crashWriteUpFindings(input: DoctorInput, store: Store, owedReading: Owe
       nightWords,
       owedWords,
       unpointed === 0 ? "" : `${String(unpointed)} small, not a person's session: left to lapse`,
-      lapses === 0 ? "" : `${String(lapses)} lapsed this week`,
+      lapses === 0 ? "" : `${String(lapses)} lost unwritten this week`,
     ]
       .filter((w) => w.length > 0)
       .join("; ");

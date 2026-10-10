@@ -333,7 +333,7 @@ describe("what is not a repeat is not credited", () => {
     const a = new ClaudeCodeAdapter({ counterpart: server.counterpart, config: CONFIG(), ...RUNNER });
     const s = server.counterpart.store;
     const note = async (args: Record<string, unknown>): Promise<string> => {
-      const body = (await server.call("note", args)).structuredContent;
+      const body = (await server.call("remember", args)).structuredContent;
       expect(body["stored"]).toBe(true);
       return body["id"] as string;
     };

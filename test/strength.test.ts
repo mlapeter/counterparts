@@ -95,14 +95,16 @@ function memory(over: Partial<MemoryPhysics> & { claimed?: number } = {}): Memor
 /**
  * Review 03 §5 C1's design table: lived days a fresh, never-used FACT stays in
  * reach (strength ≥ 0.15), by claimed salience (rows) and feeling (columns).
- * `null` is the table's ">2000".
+ * `null` is the table's ">2000". One cell departs from 03's table: 0.4 with a
+ * 0.9 feeling is 815, not 922 — Group 1c's `FELT_HEIGHT_CAP` stops a feeling's
+ * lift at 0.49 under the semantic floor (0.4 + 0.15 × 0.9 = 0.535 → 0.49).
  */
 const DESIGN: readonly [number, readonly (number | null)[]][] = [
   [0.15, [1, 2, 9, 44]],
   [0.2, [1, 5, 21, 90]],
   [0.25, [2, 10, 42, 170]],
   [0.3, [5, 20, 78, 307]],
-  [0.4, [17, 65, 246, 922]],
+  [0.4, [17, 65, 246, 815]],
   [0.5, [51, 191, 707, null]],
   [0.6, [146, 533, 1929, null]],
   [0.7, [397, 1425, null, null]],

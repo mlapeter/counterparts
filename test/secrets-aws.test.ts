@@ -426,7 +426,7 @@ function storeBytes(root: string): string {
 describe("every entrance takes BOTH halves out — the caller-side half of encode §3", () => {
   test("note (memory)", async () => {
     const s = server();
-    const r = payload(await s.call("note", { text: PROSE }));
+    const r = payload(await s.call("remember", { text: PROSE }));
     expect(r["stored"]).toBe(true);
     const body = s.counterpart.store.readProse(r["id"] as string).body;
     bothGone(body);
@@ -479,7 +479,7 @@ describe("every entrance takes BOTH halves out — the caller-side half of encod
 
   test("a note that is ONLY the pair is refused, not stored as two placeholders", async () => {
     const s = server();
-    const r = payload(await s.call("note", { text: `${KEY_ID} ${SECRET}` }));
+    const r = payload(await s.call("remember", { text: `${KEY_ID} ${SECRET}` }));
     expect(r["stored"]).toBe(false);
     expect(r["gate"]).toBe("empty-after-redaction");
   });
@@ -518,7 +518,7 @@ describe("every entrance takes BOTH halves out — the caller-side half of encod
 
   test("after every door has been used, neither half is anywhere in the store outside the raw buffer", async () => {
     const s = server();
-    await s.call("note", { text: PROSE });
+    await s.call("remember", { text: PROSE });
     await s.call("session_end", {
       session: SESSION,
       memories: [{ content: `A second memory of the same afternoon. ${PROSE}`, kind: "fact" }],

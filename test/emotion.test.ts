@@ -249,8 +249,8 @@ describe("a lone emotional score is kept", () => {
 
   test("note: emotional alone reaches the row and lifts it", async () => {
     const s = server();
-    const felt = payload(await s.call("note", { text: "The day the kiln cracked and the whole month's work went with it.", emotional: 0.9 }));
-    const plain = payload(await s.call("note", { text: "The kiln shelf was moved to the left wall on Tuesday." }));
+    const felt = payload(await s.call("remember", { text: "The day the kiln cracked and the whole month's work went with it.", emotional: 0.9 }));
+    const plain = payload(await s.call("remember", { text: "The kiln shelf was moved to the left wall on Tuesday." }));
     const a = s.counterpart.store.physicsOf(felt["id"] as string);
     const b = s.counterpart.store.physicsOf(plain["id"] as string);
     expect(a.salience.emotional).toBe(0.9);
@@ -367,7 +367,7 @@ describe("the wheel's words from real use, blends and aliases", () => {
   test("the MCP reply says 'kept as your own word' and suggests only when close", async () => {
     const s = openServer({ dir, scope: "/tmp/emotion-project", owner: true });
     open.push({ close: () => s.counterpart.close() });
-    const out = (await s.call("note", {
+    const out = (await s.call("remember", {
       text: "The glaze notes finally make sense after the long evening going through them.",
       feelings: [
         { whose: "self", core: "calm", emotion: "unclenched", strength: 0.5 },
@@ -421,8 +421,24 @@ const mood = (byPerson: Record<string, number[]>, sinceMs = 10 * HOUR): Mood => 
 const SAD = -0.6;
 const HAPPY = 0.7;
 
+/**
+ * MOOD WEIGHTS ARE 0 BY DEFAULT since 2026-10-10 (review 02 C3, decided by
+ * b2+f8, lightly held: lifted memories were used less, 1.3% vs 2.4%). The code
+ * is kept for a re-test, so these tests run it at the weights it had.
+ */
+const MOOD_ON = { MOOD_SAME_WEIGHT: 0.3, MOOD_CROSS_WEIGHT: 0.1 } as const;
+
+describe("mood-matching — off by default (2026-10-10)", () => {
+  test("both weights are 0, so a default recall lifts nothing by mood", () => {
+    expect(RECALL.MOOD_SAME_WEIGHT).toBe(0);
+    expect(RECALL.MOOD_CROSS_WEIGHT).toBe(0);
+    const now = mood({ owner: [HAPPY] });
+    expect(moodLift([feeling({ whose: "owner", core: "happy", emotion: "joyful", strength: 0.8 })], now, 0, RECALL)).toBe(0);
+  });
+});
+
 describe("mood-matching — the lift (recall G18)", () => {
-  const t = RECALL;
+  const t = { ...RECALL, ...MOOD_ON };
 
   test("same person > the other person > no match", () => {
     const now = mood({ owner: [HAPPY] });
@@ -532,7 +548,7 @@ describe("mood-matching never admits an uncued memory", () => {
 
     // No "the" in the turn: it is a (weak) cue, and it would reach every memory.
     const turn = { sessionId: "s1", text: "Any kiln news this week?", day: 0 };
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s, owner: true, tunables: MOOD_ON });
     const before = r.build({ ...turn, sessionId: "before" }).decision;
 
     // Ten days on, the owner records feeling low — the mood, on a memory the turn never names.
@@ -550,9 +566,9 @@ describe("mood-matching never admits an uncued memory", () => {
     expect(v(before, own)?.mood).toBeUndefined();
     // A low mood, low memories: a quarter of the lift (MOOD_LOW_LOW_WEIGHT).
     const low = RECALL.MOOD_LOW_LOW_WEIGHT;
-    expect(v(after, own)?.mood).toBeCloseTo(RECALL.MOOD_SAME_WEIGHT * 0.8 * low, 10);
-    expect((v(after, own)?.sal ?? 0) - (v(before, own)?.sal ?? 0)).toBeCloseTo(RECALL.MOOD_SAME_WEIGHT * 0.8 * low, 10);
-    expect(v(after, cross)?.mood).toBeCloseTo(RECALL.MOOD_CROSS_WEIGHT * 0.8 * low, 10);
+    expect(v(after, own)?.mood).toBeCloseTo(MOOD_ON.MOOD_SAME_WEIGHT * 0.8 * low, 10);
+    expect((v(after, own)?.sal ?? 0) - (v(before, own)?.sal ?? 0)).toBeCloseTo(MOOD_ON.MOOD_SAME_WEIGHT * 0.8 * low, 10);
+    expect(v(after, cross)?.mood).toBeCloseTo(MOOD_ON.MOOD_CROSS_WEIGHT * 0.8 * low, 10);
     expect(v(after, happy)?.mood).toBeUndefined();
     expect(v(after, twin)?.mood).toBeUndefined();
     expect(v(after, inWindow)?.mood).toBeUndefined();
@@ -563,7 +579,7 @@ describe("mood-matching never admits an uncued memory", () => {
     // Same store, same turn, the mood switched off (no feeling is strong enough
     // to set one): every activation — so every candidate — is identical. The
     // mood moved salience and nothing else.
-    const moodless = new Recall({ store: s, owner: true, tunables: { MOOD_MIN_STRENGTH: 2 } }).build({ ...turn, sessionId: "moodless" }).decision;
+    const moodless = new Recall({ store: s, owner: true, tunables: { ...MOOD_ON, MOOD_MIN_STRENGTH: 2 } }).build({ ...turn, sessionId: "moodless" }).decision;
     const activations = (d: typeof after): Map<string, number> => new Map(d.verdicts.map((x) => [x.id, x.activation]));
     expect(activations(moodless)).toEqual(activations(after));
     expect(moodless.verdicts.every((x) => x.mood === undefined)).toBe(true);

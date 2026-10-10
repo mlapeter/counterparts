@@ -89,8 +89,8 @@ const DECAY_PHASE: Phase = "decay";
  * `CONS_BONUS`; `salArm`'s lift), steepness's, the lines', the hold's (review
  * of #372: the height constants were missing, so a build that changed a
  * kind's salience weight would have trusted next-change days computed under
- * the old heights). A constant added to `salArm` or `base` later (Group 1c's
- * `FELT_HEIGHT_CAP`) joins it when it lands.
+ * the old heights). Group 1c's `FELT_HEIGHT_CAP` (`salArm`) is one of them;
+ * a constant added to `salArm` or `base` later joins it too.
  */
 export const CURVE_META_KEY = "decay.curve";
 export function curveSignature(): string {
@@ -113,8 +113,8 @@ export function curveSignature(): string {
     grace: PHYSICS.HOLD_GRACE_DAYS,
     lead: PHYSICS.HOLD_LEAD_DAYS,
     spent: PHYSICS.SPENT_STABILITY_DIVISOR,
-    // Group 1c's height cap; absent until that PR lands (the merge picks it up).
-    felt: (PHYSICS as Readonly<Record<string, unknown>>)["FELT_HEIGHT_CAP"] ?? null,
+    // Group 1c's height cap (`salArm`).
+    felt: PHYSICS.FELT_HEIGHT_CAP,
     kinds: Object.fromEntries(Object.entries(PHYSICS.KINDS).map(([k, v]) => [k, [v.wSal, v.wRep, v.kappa]])),
   });
 }

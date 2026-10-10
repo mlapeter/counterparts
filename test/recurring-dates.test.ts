@@ -367,7 +367,7 @@ function server(): McpServer {
 }
 
 async function note(s: McpServer, args: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const body = (await s.call("note", args)).structuredContent;
+  const body = (await s.call("remember", args)).structuredContent;
   expect(body["stored"]).toBe(true);
   return body;
 }
@@ -411,7 +411,7 @@ describe("note and session_end take recurring", () => {
   test("an unknown word is REFUSED before anything is stored, and the refusal lists the four", async () => {
     const s = server();
     const before = s.counterpart.store.list().length;
-    const result = await s.call("note", { text: BIRTHDAY, eventDate: "1955-10-09", recurring: "fortnightly" });
+    const result = await s.call("remember", { text: BIRTHDAY, eventDate: "1955-10-09", recurring: "fortnightly" });
     expect(result.isError).toBe(true);
     expect(result.structuredContent["reason"]).toBe("recurring-unknown");
     expect(String(result.structuredContent["detail"])).toContain('"daily", "weekly", "monthly" or "yearly"');
@@ -420,7 +420,7 @@ describe("note and session_end take recurring", () => {
 
   test("a repeat beside a month is refused by name: only a day repeats", async () => {
     const s = server();
-    const result = await s.call("note", { text: "The flu shot clinic runs every October at the pharmacy.", eventDate: "2026-10", recurring: "yearly" });
+    const result = await s.call("remember", { text: "The flu shot clinic runs every October at the pharmacy.", eventDate: "2026-10", recurring: "yearly" });
     expect(result.isError).toBe(true);
     expect(result.structuredContent["reason"]).toBe("recurring-needs-day");
   });
@@ -457,7 +457,7 @@ describe("note and session_end take recurring", () => {
   });
 
   test("the published schemas carry it on note and every session_end entry, in one short sentence", () => {
-    const note = (toolSpec("note")?.inputSchema as { properties: Record<string, { enum?: unknown[]; description?: string }> }).properties;
+    const note = (toolSpec("remember")?.inputSchema as { properties: Record<string, { enum?: unknown[]; description?: string }> }).properties;
     const entry = (
       toolSpec("session_end")?.inputSchema as {
         properties: { memories: { items: { properties: Record<string, { enum?: unknown[]; description?: string }> } } };

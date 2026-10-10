@@ -189,7 +189,7 @@ describe("numbers on each feeling", () => {
   test("the MCP door: core and strength may be left out, valence given; the enum is the seven", async () => {
     const s = openServer({ dir, scope: "/tmp/wheel-v2-project", owner: true });
     open.push({ close: () => s.counterpart.close() });
-    const out = (await s.call("note", {
+    const out = (await s.call("remember", {
       text: "The handoff note was read the next morning and it held.",
       feelings: [
         { whose: "self", emotion: "trusted" },
@@ -202,7 +202,7 @@ describe("numbers on each feeling", () => {
       ["warm", "trusted", 0.5, null],
       ["warm", "moved", 0.4, 0.3],
     ]);
-    const text = JSON.stringify(TOOLS.find((t) => t.name === "note")?.inputSchema);
+    const text = JSON.stringify(TOOLS.find((t) => t.name === "remember")?.inputSchema);
     expect(text).toContain(JSON.stringify([...CORE_EMOTIONS]));
     expect(text).not.toContain('"fear"');
     expect(text).not.toContain("sheepish (fear");

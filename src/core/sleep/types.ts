@@ -155,11 +155,15 @@ export interface SleepStore {
     actor?: string | null;
   }): number;
   coreDemoted?(id: string): boolean;
-  /** A memory's feelings — whose, the word, its strength and who recorded it
-   *  are all this port reads (the recognition lane, wheel v2). Absent: no
+  /** A memory's feelings — whose, the word and its core, its strength and who
+   *  recorded it are all this port reads (the recognition lane, wheel v2; the
+   *  fast lane's "strongly felt", 2026-10-10). Absent: no
    *  feeling counts. */
   feelingsFor?(id: string): readonly {
     readonly whose: string;
+    /** The core it was stored under: the word's default strength is read
+     *  under it (`consolidate.ts#feelingIsStrong`, 2026-10-10). */
+    readonly core: string;
     readonly emotion: string;
     readonly other_word: string | null;
     readonly strength: number;

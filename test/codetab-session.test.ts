@@ -360,18 +360,18 @@ describe("Desktop's server serves a Code-tab session that names itself", () => {
     expect(lookupScope(registry, DESKTOP_SCOPE).mode).toBe("unset");
 
     // Every other tool, named, now refuses there in Claude Code's words.
-    const refused = payload(await s.call("note", { session: "tab-1", text: "Should not land." }));
+    const refused = payload(await s.call("remember", { session: "tab-1", text: "Should not land." }));
     expect(refused["reason"]).toBe("scope-off");
     // Claude Code's words, naming the project and its console line (never `.`).
     expect(String(refused["detail"])).toStartWith("Counterparts is off for this directory (");
     expect(String(refused["detail"])).toContain(`run \`counterparts scope ${canonicalScopePath(project)} --on\``);
     // The Desktop chat is not off.
-    expect(payload(await s.call("note", { session: chat, text: "The bakery opens at seven on weekdays." }))["stored"]).toBe(true);
+    expect(payload(await s.call("remember", { session: chat, text: "The bakery opens at seven on weekdays." }))["stored"]).toBe(true);
     expectUnbound(s);
 
     // And back on, from the same door.
     expect(payload(await s.call("scope", { session: "tab-1", mode: "on" }))["detail"]).toBe(wordingFor(DEFAULT_HOST).scopeOn);
-    expect(payload(await s.call("note", { session: "tab-1", text: "The gauge on the loop reads low until the pump warms up." }))["stored"]).toBe(true);
+    expect(payload(await s.call("remember", { session: "tab-1", text: "The gauge on the loop reads low until the pump warms up." }))["stored"]).toBe(true);
   });
 
   test("the heartbeat reads the SERVER's place, never a call's — even when it ticks mid-call", async () => {
@@ -447,7 +447,7 @@ describe("the Code-tab wake line, and the descriptions", () => {
     expect(wake).not.toContain("it is not offered there");
     expect(wake).toContain("Desktop's Code tab");
     expect(wake).toContain("Pass your session id");
-    const note = toolDefinitions(true).find((d) => d["name"] === "note") as Record<string, unknown>;
+    const note = toolDefinitions(true).find((d) => d["name"] === "remember") as Record<string, unknown>;
     const session = ((note["inputSchema"] as { properties: Record<string, { description: string }> }).properties["session"]);
     expect(session?.description).toContain("in a Claude Code session");
     expect(session?.description).toContain("wake or Stop ask names");
@@ -468,7 +468,7 @@ describe("review of #309", () => {
     expect(s.events("mcp.scope.set")).toEqual([]);
     expect(lookupScope(readScopes(scopesFile).registry, project).mode).toBe("observer");
     // Its note stands down too, and writes nothing.
-    const noted = payload(await s.call("note", { session: "tab-1", text: "Should not land in an observer project." }));
+    const noted = payload(await s.call("remember", { session: "tab-1", text: "Should not land in an observer project." }));
     expect(noted["stored"]).not.toBe(true);
     // Desktop's own place is not observer: its scope tool still works there.
     expect(payload(await s.call("scope", { mode: "on" }))["set"]).toBe(true);
@@ -484,7 +484,7 @@ describe("review of #309", () => {
       expect(refused["reason"]).toBe("session-not-code-tab");
       expect(String(refused["detail"])).toContain("outside Desktop's Code tab");
     }
-    const noted = payload(await s.call("note", { session: "term-1", text: "The bus to the reservoir leaves at ten past the hour." }));
+    const noted = payload(await s.call("remember", { session: "term-1", text: "The bus to the reservoir leaves at ten past the hour." }));
     expect(noted["stored"]).toBe(true);
     expect(noted["sessionRefused"]).toBe("session-not-code-tab");
     expect(String(noted["sessionNote"])).toContain("claude-desktop:");
@@ -498,7 +498,7 @@ describe("review of #309", () => {
     recordSession(dir, { sessionId: "tab-idle", scope: project, phase: "start", at: realNow - SESSION_TTL_MS - 10 * MIN, entrypoint: CODE_TAB_ENTRYPOINT });
     const s = desktopServer();
     // Before the prompt: a note under that id is not filed silently — it says why it ran unbound.
-    const before = payload(await s.call("note", { session: "tab-idle", text: "Before the prompt: the reservoir gate locks at dusk." }));
+    const before = payload(await s.call("remember", { session: "tab-idle", text: "Before the prompt: the reservoir gate locks at dusk." }));
     expect(before["sessionRefused"]).toBe("session-not-live");
     expect(String(before["sessionNote"])).toContain("no session");
     // The person types; the UserPromptSubmit hook runs before the model calls anything.
@@ -507,7 +507,7 @@ describe("review of #309", () => {
     a.userPromptSubmit({ sessionId: "tab-idle", scope: project, at: localDate(Date.now()), prompt: "where were we on the gate?", entrypoint: CODE_TAB_ENTRYPOINT });
     expect(readSession(dir, "tab-idle")?.lastBoundaryAt ?? 0).toBeGreaterThanOrEqual(realNow);
     // Now the call is served as the session, in its project.
-    const after = payload(await s.call("note", { session: "tab-idle", text: "After the prompt: the reservoir gate locks at dusk, not at nine." }));
+    const after = payload(await s.call("remember", { session: "tab-idle", text: "After the prompt: the reservoir gate locks at dusk, not at nine." }));
     expect(after["stored"]).toBe(true);
     expect(after["sessionRefused"]).toBeUndefined();
     expect(s.counterpart.store.row(after["id"] as string)?.origin_scope).toBe(project);

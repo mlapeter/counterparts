@@ -263,7 +263,7 @@ export function cameRow(block: RecallBlock, session: string, at: number): FeedRo
 /** The two names the memory server's tools go by: the npm install's, the plugin's. */
 export const SERVER_SPELLINGS = ['counterparts', 'plugin_counterparts_counterparts'] as const;
 
-/** `mcp__counterparts__note` → `{ server: 'counterparts', tool: 'note' }`, ours only. */
+/** `mcp__counterparts__remember` → `{ server: 'counterparts', tool: 'remember' }`, ours only. */
 export function ourTool(name: string): { server: string; tool: string } | null {
   for (const server of SERVER_SPELLINGS) {
     const prefix = `mcp__${server}__`;
@@ -278,7 +278,8 @@ export function resolveServer(toolNames: readonly string[]): string | null {
   return null;
 }
 
-const KEEPERS = new Set(['note', 'session_end', 'chapter']);
+/** `remember` was `note` until 2026-10-10; the old name still answers, so both are kept rows. */
+const KEEPERS = new Set(['remember', 'note', 'session_end', 'chapter']);
 
 function firstLine(s: unknown, max = 90): string | null {
   if (typeof s !== 'string') return null;
@@ -310,7 +311,7 @@ export function keptRow(tool: string, args: Record<string, unknown>, resultText:
   const id = typeof p?.['id'] === 'string' ? (p['id'] as string) : null;
   let text: string;
   let more: string[] = [];
-  if (ours.tool === 'note') {
+  if (ours.tool === 'remember' || ours.tool === 'note') {
     text = firstLine(args['title']) ?? firstLine(args['text']) ?? 'a note';
     if (typeof args['kind'] === 'string') more = [`kept as a ${args['kind'] as string}`];
   } else if (ours.tool === 'chapter') {

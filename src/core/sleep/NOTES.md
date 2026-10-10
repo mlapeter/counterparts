@@ -1002,3 +1002,12 @@ the full walk (`turnDownDue` lists live rows only).
   kept. Its archived versions keep the ordinary retention (90 lived days, owner ruling
   2026-09-18), which #372 does not change; `test/strength.test.ts` reads one back 30+ lived
   days after the revision.
+
+## 2026-10-10 — "strongly felt" by the word's own measure (Group 1c, review 08 C3)
+
+`coreContextFor` now hands the lanes `stronglyFelt`: a feeling on the memory at 0.6, or at
+0.5 or more and 0.1 above the strength its word is stored at unweighed (`feelingIsStrong`), from the same
+feelings the intensity reads (no reflection's or awake one with the door closed). The
+recognition door (`selfRelevantFeeling`) and `laterFeelingCarriers` use the same test, and
+the closed-door counterfactual for a promotion record reads it with the door closed. The
+`SleepStore.feelingsFor` port now carries `core`, which the default is read under.
