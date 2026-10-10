@@ -565,3 +565,16 @@ queued memory, and the fresh list's room is checked before a memory's neighbours
 check refused it anyway). Same bundle as before on the review's clone; `begin` 314 → 231 ms
 at 1x (170 ms once the lists are stored), 37 s → 1.4 s at 10x (0.97 s stored). `near()`
 still returns the memory itself at rank 0, so `MIXING_FROM_RANK` means what it meant.
+
+## 2026-10-10 — requeue on spill (Lane 0, dreaming review 09 C1)
+
+The last silent cap: from 10-01 to 10-08 ~327 fresh memories left the queue on nights whose
+parts the headless run could not open, because `shown` is written at compose. Now the night
+run passes the transcript's cut dream parts (and the ones that came through whole —
+`ToolSpills.whole`, so a part fetched again counts as delivered) to
+`Dreams#requeueSpilled`. Which ids a part carried comes from the dream's fit index: later
+parts' `m:new:` keys, and for part 1 the index's new `fresh` list. "Acted on" is read
+broadly — every id a standing change names (`ref`, `ref2`, `detail.from|sources|linked`)
+and the index's `looked` — because removing a changed memory from `shown` would orphan its
+change rows. Test (`test/lane0-requeue.test.ts`): 60 fresh, a cut part carrying 21, one
+replayed → 20 requeued, 1 kept, and the next night's queue is waiting + 20.

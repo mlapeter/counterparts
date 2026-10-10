@@ -1003,6 +1003,18 @@ export interface Spill {
   readonly shape: SpillShape;
   /** The size the host said ("51.5KB", "51,306 characters"), when it said one. */
   readonly said: string | null;
+  /** The call's `part` argument (phase `part`), when it had one — which later part was cut. */
+  readonly part?: number | null;
+  /** The call's `dream` argument, when it had one. */
+  readonly dream?: string | null;
+}
+
+/** One of our results the host delivered WHOLE — named like a spill, so a cut part fetched again can be told from one never seen. */
+export interface ToolDelivery {
+  readonly tool: string;
+  readonly phase: string | null;
+  readonly part: number | null;
+  readonly dream: string | null;
 }
 
 /** What one transcript says about the host's cut. Counts and the spills; nothing else. */
@@ -1011,6 +1023,8 @@ export interface ToolSpills {
   /** Our tool results the pass found, cut or not. */
   readonly results: number;
   readonly spills: readonly Spill[];
+  /** Our results that came through uncut (Lane 0, 2026-10-10: a spilled dream part fetched again is delivered). */
+  readonly whole?: readonly ToolDelivery[];
   /** Lines that were not JSON. Counted, never silently swallowed. */
   readonly corrupt: number;
   /** True when the file was longer than the pass reads: the counts are a floor. */
@@ -1073,9 +1087,9 @@ export function spillOf(content: unknown): { shape: SpillShape; said: string | n
  * One result and at most one spill per call id. Exported so the rule is
  * testable without a file. Never throws.
  */
-export function parseToolSpills(raw: string, opts: { readonly tool?: RegExp } = {}): { results: number; spills: Spill[]; corrupt: number } {
+export function parseToolSpills(raw: string, opts: { readonly tool?: RegExp } = {}): { results: number; spills: Spill[]; whole: ToolDelivery[]; corrupt: number } {
   const ours = opts.tool ?? COUNTERPARTS_TOOL;
-  const calls = new Map<string, { tool: string; phase: string | null }>();
+  const calls = new Map<string, { tool: string; phase: string | null; part: number | null; dream: string | null }>();
   const answered = new Set<string>();
   const cutIds = new Set<string>();
   const spills: Spill[] = [];
@@ -1088,7 +1102,7 @@ export function parseToolSpills(raw: string, opts: { readonly tool?: RegExp } = 
     const cut = spillOf(content);
     if (cut === null) return;
     cutIds.add(id);
-    spills.push({ tool: call.tool, phase: call.phase, shape: budget ? "turn-budget" : cut.shape, said: cut.said });
+    spills.push({ tool: call.tool, phase: call.phase, shape: budget ? "turn-budget" : cut.shape, said: cut.said, part: call.part, dream: call.dream });
   };
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
@@ -1120,7 +1134,15 @@ export function parseToolSpills(raw: string, opts: { readonly tool?: RegExp } = 
       const name = block["name"];
       if (block["type"] === "tool_use" && typeof id === "string" && typeof name === "string" && ours.test(name)) {
         const input = block["input"];
-        calls.set(id, { tool: name, phase: isEntry(input) && typeof input["phase"] === "string" ? input["phase"] : null });
+        const arg = (k: string): unknown => (isEntry(input) ? input[k] : undefined);
+        const part = arg("part");
+        const dream = arg("dream");
+        calls.set(id, {
+          tool: name,
+          phase: typeof arg("phase") === "string" ? (arg("phase") as string) : null,
+          part: typeof part === "number" && Number.isInteger(part) ? part : typeof part === "string" && /^\d+$/.test(part) ? Number(part) : null,
+          dream: typeof dream === "string" ? dream : null,
+        });
         continue;
       }
       const answers = block["tool_use_id"];
@@ -1128,7 +1150,15 @@ export function parseToolSpills(raw: string, opts: { readonly tool?: RegExp } = 
       judge(answers, block["content"], false);
     }
   }
-  return { results: answered.size, spills, corrupt };
+  // Delivered whole: answered, and not cut by the end of the pass (a
+  // turn-budget swap can arrive on a later line than the result it swaps).
+  const whole: ToolDelivery[] = [];
+  for (const id of answered) {
+    if (cutIds.has(id)) continue;
+    const call = calls.get(id);
+    if (call !== undefined) whole.push({ tool: call.tool, phase: call.phase, part: call.part, dream: call.dream });
+  }
+  return { results: answered.size, spills, whole, corrupt };
 }
 
 /** Read one transcript and judge it. `absent` and `unreadable` are said apart from a clean read. Never throws. */

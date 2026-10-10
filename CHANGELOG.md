@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **New memories in a dream part Claude Code cut go back in the queue.** When the nightly
+  run's transcript shows a part of the dream was cut to a preview the run couldn't open
+  (and it wasn't fetched again whole), the new memories that part carried are dreamed on
+  another night instead of being marked as seen. Any the dream changed or looked up stay
+  done. The morning's line about the cut says how many went back.
 - **A night's dream starts in about a second at ten times today's size, not half a
   minute.** The cache keeps each memory's nearest memories from when it was written, so
   the dream reads them instead of comparing every queued memory against every stored one.

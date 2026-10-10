@@ -87,6 +87,9 @@ import type { ChildPlan, ChildResult } from "./child.js";
 import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
 import type { SpawnPlan } from "../spawn.js";
 
+/** The dream tool, as the host names it — whatever server prefix it carries. */
+const DREAM_TOOL = /__dream$/;
+
 /**
  * THE QUIET-CHILD FLAG, and the run's id: set on the headless run's
  * environment, read by our hooks inside it (`bin/hook.ts#toHookInput` →
@@ -453,7 +456,7 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
     }
     return run;
   };
-  const ended = (fields: Pick<NightRun, "state" | "reason" | "detail" | "code"> & Partial<Pick<NightRun, "dream" | "reflection" | "parts" | "transcript" | "spills">>): NightRun =>
+  const ended = (fields: Pick<NightRun, "state" | "reason" | "detail" | "code"> & Partial<Pick<NightRun, "dream" | "reflection" | "parts" | "transcript" | "spills" | "requeued">>): NightRun =>
     record({ ...base(null), endedAt: now(), dream: null, reflection: null, ...fields });
 
   if (input.kind.kind === "night") {
@@ -578,6 +581,7 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   let began = false;
   let writerRan = false;
   let dreamed = false;
+  let requeued: number | null = null;
   try {
     const c = input.open();
     try {
@@ -594,6 +598,22 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
       // One row per result the host cut (`counterpart.ts#MCP_SPILLED_EVENT`).
       for (const s of spill?.spills ?? []) {
         c.noteAdapterEvent(MCP_SPILLED_EVENT, { run: input.run, tool: s.tool, phase: s.phase, shape: s.shape, said: s.said });
+      }
+      // WHAT A CUT DREAM PART CARRIED GOES BACK IN THE QUEUE (Lane 0,
+      // 2026-10-10): its new memories were composed, never seen.
+      const dreamCuts = (spill?.spills ?? []).filter((s) => DREAM_TOOL.test(s.tool));
+      const target = dreamCuts.find((s) => typeof s.dream === "string")?.dream ?? dreams[0]?.id ?? null;
+      if (spill?.reason === "read" && dreamCuts.length > 0 && target !== null) {
+        try {
+          const forThis = (x: { dream?: string | null }): boolean => x.dream === undefined || x.dream === null || x.dream === target;
+          requeued = c.dreams.requeueSpilled(
+            target,
+            dreamCuts.filter(forThis),
+            (spill.whole ?? []).filter((w) => DREAM_TOOL.test(w.tool) && forThis(w)),
+          ).requeued;
+        } catch {
+          /* the queue is not the record: the run still ended as it did */
+        }
       }
     } finally {
       // THE WAKE CATCHES UP TO THE RUN (2026-09-30), whatever state it ended
@@ -622,6 +642,7 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
     reflection,
     parts,
     ...(spill === null ? {} : { transcript: spill.reason, ...(spill.reason === "read" ? { spills: spill.spills.length } : {}) }),
+    ...(requeued === null ? {} : { requeued }),
   };
 
   if (neverStarted) {

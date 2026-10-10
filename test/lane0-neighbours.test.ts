@@ -111,7 +111,7 @@ describe("Lane 0 C1: neighbours at write", () => {
     c.store.advanceClock("2026-10-01");
     const ids = BODIES.map((b) => mem(c, b));
     const gone = ids[2] as string;
-    c.store.archive(gone);
+    c.store.archive(gone, "test");
     expect(listOf(c, gone)).toEqual([]);
     for (const id of ids) expect(listOf(c, id)).not.toContain(gone);
   });
