@@ -50,6 +50,12 @@ export interface Ranked {
   readonly lastRendered: number;
   /** Hints only: why it ranked where it did (`hintReading`). */
   readonly hint?: HintReading;
+  /**
+   * Horizon only (2026-10-10): a plain reminder due the day this wake is
+   * read (`HorizonItem.plainDue`). It leads the lane, and it outranks the
+   * self page's borrowing (`briefing.ts#ROOM_ORDER`'s `due`).
+   */
+  readonly due?: boolean;
 }
 
 /**
@@ -361,6 +367,9 @@ export function rankLanes(
     readonly settledOver?: ReadonlySet<string>;
     readonly coveredByPage?: ReadonlySet<string>;
     readonly workAtDelivery?: boolean;
+    /** Arriving ids past the caller's own count (review of #367): the lane's
+     *  overflow, after its cap's, filtered as the lane is. */
+    readonly horizonMore?: readonly string[];
   } = {},
 ): Lanes {
   const identity: Ranked[] = [];
@@ -420,7 +429,10 @@ export function rankLanes(
       craft: past(craft, t.CRAFT_MAX),
       threads: past(threads, t.THREADS_MAX),
       hints: past(hints, t.HINTS_MAX),
-      horizon: past(horizon, t.HORIZON_MAX),
+      horizon: [
+        ...past(horizon, t.HORIZON_MAX),
+        ...(opts.horizonMore ?? []).filter((id) => !inIdentity.has(id) && !settledOver.has(id) && !arriving.has(id)),
+      ],
     },
   };
 }

@@ -147,7 +147,9 @@ clothes. **Hold debts, lose deadlines.**
 the cue and gate machinery of `recall/`; per-occasion firing history; the previous
 session's affect summary; the observer predicate.
 **Outputs** — at most a line or two on the session's horizon, framed *"remembered, not
-tasks"* (day-dated items only, since 2026-09-26), and/or a temporal cue fed into the
+tasks"* (day-dated items only, since 2026-09-26; a plain item due the day the wake is read
+— dated the day asked about or the next, `plainDueOn` — first, ahead of the salience
+order and the count, 2026-10-10), and/or a temporal cue fed into the
 ordinary turn-time pass; for a PLAIN item, a claimed record the host turns into one line on
 its day (§3's named exception) — records, never words; firing-state transitions;
 telemetry by reference; and for a repeating date, whether an occurrence is still

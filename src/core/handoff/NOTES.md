@@ -471,3 +471,25 @@ not fire: they look for a chapter by ANOTHER session, or a newer install. What w
   block; at 1,963 it does not. Below a 13,168-byte budget nothing changes (that block fails
   the share rule either way); between 13,168 and 13,552 the reserve takes a narrower rung
   than it did; above, it is up to 48 bytes larger. The owner's hosts report 9,000.
+
+## 12. The Yesterday line gives titles to ids, not to a count (2026-10-10)
+
+`yesterdayShorter` stepped down one title at a time to one, the rest by count, so the ids
+of the chapters it gave up were gone. Since the wake ranks its lanes in one list
+(`self/briefing.ts#ROOM_ORDER`), the line gives way to "Arriving:" and "Still open"'s first
+item before "Last here" and the handoffs do, so it now gives way the cheaper way: each
+title given up leaves its chapter's id in its place — pointers instead of titles — down to
+ids alone, every chapter the whole line names still named, the count past them unchanged.
+Each form is strictly narrower than the one before. And at the wake's floor the line takes
+its widest form that fits rather than being dropped whole, which is what happened beside a
+page that borrowed "Work here".
+
+The room this module's pointer and "Last here" hold at delivery is now lent too (the root's
+`handoffReserveBytes`, split out of `wakeReserveBytes`), after "Work here" and the
+Yesterday line's titles. Nothing here changed for it: the delivery already drops "Last
+here" first and steps `pointerLadder` down — fewer shown in full, the rest by id — in the
+room it finds. What is lent stops at each directory's smallest rung, its newest handoff
+alone (review of #367): lent whole, the room went to dated lines and "Still open", and no
+handoff was shown at all. That kept block is lent to one lane only, a plain reminder due
+the day the wake is read (`self/briefing.ts#ROOM_ORDER`'s `handoffsKept`): then the
+delivery may find no room for the pointer, and writes its `no-room` row as before.

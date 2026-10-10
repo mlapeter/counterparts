@@ -440,7 +440,20 @@ describe("what gives way for Still open's first item, in order — never the pag
   const arrivingWhole = (b: number): boolean =>
     render({ ...lanes(), threads: [], overflow: { identity: [], craft: [], threads: [], hints: [], horizon: [] } }, req(b), resolve, SELF_TUNABLES).counts.horizon === 3;
 
-  test("down every budget: Arriving gives up its later lines before Still open gives up its first item, Yesterday its titles only after that", () => {
+  /**
+   * The render with one more Arriving line than `out` listed, at its least:
+   * no count for Arriving, Still open as it was with its count, and the
+   * shortest Yesterday — what the rescue of that line had to beat.
+   */
+  function oneMoreArriving(out: ReturnType<typeof render>): ReturnType<typeof compose> {
+    const all = lanes();
+    const threads = all.threads.filter((r) => out.kept.threads.includes(r.id));
+    const rest = [...all.threads.filter((r) => !out.kept.threads.includes(r.id)).map((r) => r.id), ...(all.overflow?.threads ?? [])];
+    const kept = { identity: [], craft: [], hints: [], threads, horizon: all.horizon.slice(0, out.counts.horizon + 1) };
+    return compose(kept, 3, resolve, undefined, { page, forming: null }, threads.length === 0 ? {} : { threads: moreLine("threads", rest) }, shortest);
+  }
+
+  test("down every budget (2026-10-10, ROOM_ORDER): the Yesterday line gives up its titles before Arriving gives up a line, and Arriving's later lines go only for Still open's first item", () => {
     const seen = { arriving: 0, yesterday: 0 };
     for (let b = floor; b <= floor + 1_500; b += 3) {
       const out = render(lanes(), req(b), resolve, SELF_TUNABLES);
@@ -453,25 +466,28 @@ describe("what gives way for Still open's first item, in order — never the pag
       const y = out.text.split("\n").find((l) => l.startsWith("Yesterday, "));
       if (out.counts.threads === 0) {
         // Nothing listed — and the first item and its count would not have
-        // fit had Arriving and the Yesterday line given all they could: all or
-        // nothing. (With Arriving's first line already trimmed, the trim order
-        // stands: that line outranks the first open item.)
+        // fit had the Yesterday line and Arriving's later lines given all they
+        // could: all or nothing. (Arriving's first line outranks it.)
         expect(open).toBe(null);
         if (out.counts.horizon > 0) expect(tightest().bytes).toBeGreaterThan(b);
       } else {
         expect(open?.[0]).toStartWith("- ");
       }
-      if (out.counts.threads > 0 && out.counts.horizon < 3) {
-        // Arriving gave a line: Still open kept exactly its first item, and its count.
+      if (out.counts.horizon < 3) {
+        // Arriving listed fewer: only where one more line would not fit even
+        // with the Yesterday line at its shortest.
         seen.arriving += 1;
-        expect(out.counts.threads).toBe(1);
-        expect(open?.[1]).toStartWith("(19 more still open; ");
+        expect(oneMoreArriving(out).bytes).toBeGreaterThan(b);
+        if (out.counts.threads > 0) {
+          expect(out.counts.threads).toBe(1);
+          expect(open?.[1]).toStartWith("(19 more still open; ");
+        }
       }
       if (y !== undefined && y !== full) {
-        // Yesterday gave titles: only once Arriving was down to its first line.
+        // Yesterday gave titles: only for what ranks above it — Arriving, and
+        // Still open's first item — never beside more of Still open.
         seen.yesterday += 1;
-        expect(out.counts.horizon).toBe(1);
-        expect(out.counts.threads).toBe(1);
+        expect(out.counts.threads).toBeLessThanOrEqual(1);
         expect(shorter).toContain(y);
       }
     }
@@ -479,19 +495,26 @@ describe("what gives way for Still open's first item, in order — never the pag
     expect(seen.yesterday).toBeGreaterThan(0);
   });
 
-  test("the Yesterday line's shorter forms name fewer titles and count the rest, widest first", () => {
+  test("the Yesterday line's shorter forms give a title at a time to its id — pointers instead of titles — widest first, every chapter still named and the rest counted", () => {
     const day = [0, 1, 2, 3, 4].map((i) => ({ id: `epi_${String(i)}`, title: `Seating the valves on kiln ${String(i)}`, chapters: i === 0 ? 2 : 1, createdAt: i }));
     expect(yesterdayLine(day, "2026-10-07")).toEndWith('"Seating the valves on kiln 3" (epi_3); and 1 more.');
     const forms = yesterdayShorter(day, "2026-10-07");
-    expect(forms.length).toBe(3);
+    expect(forms.length).toBe(4);
     forms.forEach((line, i) => {
       const titles = 3 - i;
-      expect(line).toStartWith('Yesterday, 10-07: "Seating the valves on kiln 0" (epi_0, 2 chapters)');
-      expect(line).toEndWith(`; and ${String(5 - titles)} more.`);
-      expect(line.split("; ").length).toBe(titles + 1);
+      expect(line).toStartWith(
+        titles > 0 ? 'Yesterday, 10-07: "Seating the valves on kiln 0" (epi_0, 2 chapters)' : "Yesterday, 10-07: epi_0 (2 chapters); epi_1; ",
+      );
+      // Every chapter the whole line names is still named, by its id, and the one past them counted.
+      for (const id of ["epi_0", "epi_1", "epi_2", "epi_3"]) expect(line).toContain(id);
+      expect(line).toEndWith("; and 1 more.");
+      expect(line.split('"').length - 1).toBe(2 * titles);
     });
-    expect(forms.map((l) => Buffer.byteLength(l))).toEqual([...forms.map((l) => Buffer.byteLength(l))].sort((a, b) => b - a));
-    expect(yesterdayShorter(day.slice(0, 1), "2026-10-07")).toEqual([]);
+    expect(forms[forms.length - 1]).toBe("Yesterday, 10-07: epi_0 (2 chapters); epi_1; epi_2; epi_3; and 1 more.");
+    const sizes = forms.map((l) => Buffer.byteLength(l));
+    expect(sizes).toEqual([...sizes].sort((a, b) => b - a));
+    expect(new Set(sizes).size).toBe(sizes.length);
+    expect(yesterdayShorter(day.slice(0, 1), "2026-10-07")).toEqual(["Yesterday, 10-07: epi_0 (2 chapters)."]);
   });
 
   test("the room held for 'Work here' is lent first: Arriving and Yesterday stay whole, and only Still open's first item and its count ride on it", () => {

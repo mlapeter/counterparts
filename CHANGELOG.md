@@ -73,6 +73,24 @@
   catches a second hook that runs at the same time; for a resumed or compacted session, a
   Stop, or a prompt without an id, one that starts after the first has finished can
   still deliver again on a busy machine.
+- **Dated items come before the wake's furniture.** A wake could say "Arriving: 1 — no
+  room to list them in this wake" while it still printed yesterday's chapter titles and
+  four handoffs: the room held for the handoffs and "Last here" was never offered to the
+  rest of the wake. Now the wake follows one declared order of what gives way: when an
+  "Arriving:" item has no room, "Work here" shows fewer lines first, then the Yesterday
+  line swaps titles for chapter ids one at a time, then "Last here" is dropped and fewer
+  handoffs are shown in full, the others named by id while there is room for them. The
+  newest handoff's own room goes only to a plain reminder due that day; no other line
+  can take it. Only then does a dated item go unlisted. An arriving item past the two
+  the wake lists is no longer left out silently: the lane's "N more arriving" line names
+  it by id, and when even that line has no room, doctor counts it as unlisted. "Still
+  open" keeps its first item before Arriving's second line, as before, but now after
+  those same lanes give way. A plain reminder due the day the wake is read comes first
+  in "Arriving:" (and in the two the wake is offered), and it outranks the self page
+  borrowing past its room: the page steps down to its short version or outline rather
+  than leave it out. The page within its own room still comes first. Beside a page that
+  borrowed, the Yesterday line was sometimes dropped whole; it now keeps its ids. If a
+  dated item still goes unlisted, doctor's Wake line says so in amber, with what to do.
 - **A new plugin user is told their memory was set up, again.** In 0.3.15, the
   sidebar's hooks module makes Claude Code start the plugin's SessionStart hook later,
   after the plugin's server has already made the new memory, so the first session

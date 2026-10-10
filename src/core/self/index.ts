@@ -285,10 +285,27 @@ export interface HorizonItem {
    * past, as far as the caller said.
    */
   readonly past?: boolean;
+  /**
+   * A PLAIN reminder due the day the wake is read (2026-10-10): its date is
+   * the day the wake is composed for, or the next — the evening boundary's
+   * wake is read the next morning. The person asked to be told; the caller
+   * knows the day and the cue mode (`core/briefing.ts#selfRenderer`). It
+   * leads the lane, no lane below it takes its room, and the self page gives
+   * its borrowing back for it (`briefing.ts#ROOM_ORDER`'s `due`).
+   */
+  readonly plainDue?: boolean;
 }
 
 export interface BoundaryRequest extends BriefingRequest {
   readonly horizon?: readonly HorizonItem[];
+  /**
+   * ARRIVING ITEMS PAST THE CALLER'S COUNT, by id (review of #367,
+   * 2026-10-10): `prospective/`'s `HORIZON_ITEMS` offers the lane two, and a
+   * third dated item was in no wake line and no count. They join the lane's
+   * overflow, so its "N more arriving" line names them for recall. The
+   * owner's wake only (ignored with `omit`).
+   */
+  readonly horizonMore?: readonly string[];
   /** When supplied, the boundary ensures the identity core's home row exists in
    *  the shape `schemas/` indexes. Idempotent (schemas/INTERFACE-GAPS #5). */
   readonly identityCore?: IdentityCoreSpec;
@@ -702,11 +719,16 @@ export class Self {
     // `omit` (see the field): the owner's wake passes none and this is a no-op;
     // a composition bound for a model call outside this machine passes one.
     const scanned = req.omit === undefined ? all : all.filter((s) => !req.omit?.(s));
-    const horizon: Ranked[] = (req.horizon ?? []).map((h) => this.horizonRank(h, req.day));
+    // A PLAIN REMINDER DUE THE DAY THE WAKE IS READ LEADS THE LANE (2026-10-10),
+    // the rest in the order supplied: the lane trims from its end, and its
+    // head is what no lane below it may take (`briefing.ts#arrivingHead`).
+    const supplied: Ranked[] = (req.horizon ?? []).map((h) => this.horizonRank(h, req.day));
+    const horizon: Ranked[] = [...supplied.filter((r) => r.due === true), ...supplied.filter((r) => r.due !== true)];
     const lanes: Lanes = rankLanes(scanned, horizon, this.tunables, {
       settledOver: settledOver(this.store),
       coveredByPage: this.pageCovers(scanned),
       workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
+      ...(req.horizonMore === undefined || req.omit !== undefined ? {} : { horizonMore: req.horizonMore }),
     });
     const docs = new Map<string, ProseDoc>();
     // Provenance rides along from the SAME scan the docs came from: the render
@@ -785,39 +807,71 @@ export class Self {
     // room costs "Work here" a few bytes; what is left of the lend is still
     // "Still open"'s.
     const lend = req.lendBytes === undefined || req.omit !== undefined ? 0 : Math.max(0, Math.floor(req.lendBytes));
-    const { block, took } =
+    const choose = (below?: PageRung): { block: PageBlock | typeof NO_ROOM | null; took: number } =>
       req.omit !== undefined && !this.tunables.PAGE_ON_EGRESS
         ? { block: null, took: 0 }
-        : this.pageBlock(req.budgetBytes, lend);
-    // A page that will not FIT is not a page that does not EXIST: the renderer
-    // is told `pageExists` so the still-forming line stays off a store that has
-    // one, whatever the ceiling did (MINOR-D).
-    const page = block === NO_ROOM ? null : block;
-    const pageExists = block !== null;
-    return render(
-      lanes,
-      {
-        // What the page borrowed is composed into, and is no longer lent.
-        budgetBytes: req.budgetBytes + took,
-        pageExists,
-        day: req.day,
-        ...(coreName === null ? {} : { coreName }),
-        ...(page === null ? {} : { page }),
-        // The "Yesterday" line (2026-10-01): the owner's wake only — a
-        // composition that filters (`omit`) is bound elsewhere. Its shorter
-        // forms ride beside it (review of #350).
-        ...(req.yesterday === undefined || req.omit !== undefined ? {} : { yesterday: req.yesterday }),
-        ...(req.yesterdayShorter === undefined || req.yesterday === undefined || req.omit !== undefined
-          ? {}
-          : { yesterdayShorter: req.yesterdayShorter }),
-        // The room held for "Work here", lent to "Still open"'s first item
-        // (review of #350): the owner's wake only, which is the one delivered
-        // with work lines.
-        ...(req.lendBytes === undefined || req.omit !== undefined ? {} : { lendBytes: lend - took }),
-      },
-      resolve,
-      this.tunables,
-    );
+        : this.pageBlock(req.budgetBytes, lend, below);
+    const renderWith = (choice: { block: PageBlock | typeof NO_ROOM | null; took: number }): BriefingResult => {
+      const { block, took } = choice;
+      // A page that will not FIT is not a page that does not EXIST: the
+      // renderer is told `pageExists` so the still-forming line stays off a
+      // store that has one, whatever the ceiling did (MINOR-D).
+      const page = block === NO_ROOM ? null : block;
+      const pageExists = block !== null;
+      return render(
+        lanes,
+        {
+          // What the page borrowed is composed into, and is no longer lent.
+          budgetBytes: req.budgetBytes + took,
+          pageExists,
+          day: req.day,
+          ...(coreName === null ? {} : { coreName }),
+          ...(page === null ? {} : { page }),
+          // The "Yesterday" line (2026-10-01): the owner's wake only — a
+          // composition that filters (`omit`) is bound elsewhere. Its shorter
+          // forms ride beside it (review of #350).
+          ...(req.yesterday === undefined || req.omit !== undefined ? {} : { yesterday: req.yesterday }),
+          ...(req.yesterdayShorter === undefined || req.yesterday === undefined || req.omit !== undefined
+            ? {}
+            : { yesterdayShorter: req.yesterdayShorter }),
+          // The delivery's rooms, lent to the lanes above them in
+          // `ROOM_ORDER` (review of #350; 2026-10-10): the owner's wake only,
+          // which is the one delivered with work lines and handoffs.
+          ...(req.lendBytes === undefined || req.omit !== undefined ? {} : { lendBytes: lend - took }),
+          ...(req.handoffLendBytes === undefined || req.omit !== undefined
+            ? {}
+            : { handoffLendBytes: Math.max(0, Math.floor(req.handoffLendBytes)) }),
+          // And the room kept for the newest handoff's own block: a due-day
+          // plain reminder's alone (`ROOM_ORDER`'s `handoffsKept`).
+          ...(req.handoffKeepBytes === undefined || req.omit !== undefined
+            ? {}
+            : { handoffKeepBytes: Math.max(0, Math.floor(req.handoffKeepBytes)) }),
+        },
+        resolve,
+        this.tunables,
+      );
+    };
+    const chosen = choose();
+    const out = renderWith(chosen);
+    // THE PAGE GIVES ITS BORROWING BACK TO A PLAIN REMINDER DUE THE DAY THE
+    // WAKE IS READ (2026-10-10, `briefing.ts#ROOM_ORDER`'s `due` above
+    // `pageBorrow`): when one is not listed and the page borrowed "Work here"
+    // to print on its rung, the page steps down its ladder — whole texts, the
+    // rung below and the next — until the reminder is listed, and no further
+    // than the first rung that borrows nothing. The page within its own room
+    // outranks it, so when even that does not list it, the wake stays as it
+    // was composed, and doctor says so (`self.briefing`'s `trimmedLanes`).
+    const due = lanes.horizon.filter((r) => r.due === true).map((r) => r.id);
+    const unlisted = (o: BriefingResult): boolean => due.some((id) => !o.kept.horizon.includes(id));
+    let current = chosen;
+    while (due.length > 0 && current.took > 0 && unlisted(out) && current.block !== null && current.block !== NO_ROOM) {
+      const next = choose(current.block.rung);
+      if (next.block === null || next.block === NO_ROOM) break;
+      const stepped = renderWith(next);
+      if (!unlisted(stepped)) return stepped;
+      current = next;
+    }
+    return out;
   }
 
   /**
@@ -1620,8 +1674,12 @@ export class Self {
    * HAS a page print "no page has been written here yet" (adversarial review
    * MINOR-D). A ceiling that small has every lane empty too, and the floor's
    * own over-budget tripwire is left for a host that really is misconfigured.
+   *
+   * `below` (2026-10-10): only the rungs after that one — the page stepping
+   * down to give its borrowing back to a plain reminder due the day the wake
+   * is read (`build`, `briefing.ts#ROOM_ORDER`).
    */
-  private pageBlock(budgetBytes: number, lend = 0): { block: PageBlock | typeof NO_ROOM | null; took: number } {
+  private pageBlock(budgetBytes: number, lend = 0, below?: PageRung): { block: PageBlock | typeof NO_ROOM | null; took: number } {
     const page = this.page();
     if (page === null) return { block: null, took: 0 };
     const dateline = pageDateline(
@@ -1658,7 +1716,8 @@ export class Self {
       rung("headings", headingsText(outline)),
       rung("line", pageTooLargeLine(wholeBytes)),
     ].filter((b): b is PageBlock => b !== null);
-    for (const block of ladder) {
+    const from = below === undefined ? 0 : ladder.findIndex((b) => b.rung === below) + 1;
+    for (const block of ladder.slice(from)) {
       const cost = pageBlockBytes(block);
       if (cost <= room) return { block, took: 0 };
       if (lend > 0 && cost <= room + lend) return { block, took: cost - room };
@@ -2661,6 +2720,7 @@ export class Self {
       bornDay,
       personScoped: false,
       lastRendered: -1,
+      ...(item.plainDue === true ? { due: true } : {}),
     };
   }
 

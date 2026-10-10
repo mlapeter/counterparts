@@ -133,6 +133,7 @@ import {
   HANDOFF_SHOWN_EVENT,
   HANDOFF_WRITTEN_EVENT,
   HANDOFF_REFUSED_EVENT,
+  HANDOFF_RESERVE_MARGIN_BYTES,
   reserveBytes,
   Handoffs,
   isHandoffRow,
@@ -2623,7 +2624,32 @@ export class Counterpart {
    * pointer cost more than the eighth it could already. With no handoff and
    * no chapter here inside the fortnight, the reserve is zero as before.
    */
-  private wakeReserveBytes(budgetBytes: number, work = this.workReserveBytes(budgetBytes)): number {
+  private wakeReserveBytes(
+    budgetBytes: number,
+    work = this.workReserveBytes(budgetBytes),
+    handoff = this.handoffRoom(budgetBytes).reserve,
+  ): number {
+    return PREFACE_RESERVE_BYTES + handoff + work;
+  }
+
+  /**
+   * THE HANDOFF POINTER'S AND "LAST HERE"'S TERM of `wakeReserveBytes`, on
+   * its own (2026-10-10): the composition lends it to "Arriving:" and "Still
+   * open"'s first item after "Work here" and the Yesterday line's titles
+   * (`self/briefing.ts#ROOM_ORDER`), and the delivery then drops "Last here"
+   * first and shows fewer handoffs in what is left. Never throws.
+   *
+   * WHAT IS LENT STOPS AT THE NEWEST HANDOFF (review of #367): `lend` is the
+   * reserve less every directory's smallest rung — its newest handoff alone,
+   * with the margin — so the delivery shows fewer handoffs in full, never
+   * none: the next session's instructions are not room "Arriving:" or
+   * "Still open" takes. `keep`, the rest of the reserve, is lent to a plain
+   * reminder due the day the wake is read and to nothing else
+   * (`self/briefing.ts#ROOM_ORDER`'s `handoffsKept`): a promise with its day
+   * on it outranks the pointer. With no handoff, all of it is `lend` (it is
+   * "Last here"'s).
+   */
+  private handoffRoom(budgetBytes: number): { reserve: number; lend: number; keep: number } {
     const norm = (s: string): string => s.trim().replace(/\/+$/, "");
     const blocks: number[] = [];
     let byScope = new Map<string, number[]>();
@@ -2653,7 +2679,14 @@ export class Counterpart {
     } catch {
       /* no chapter lines is the reserve as it was */
     }
-    return PREFACE_RESERVE_BYTES + reserveBytes(blocks, budgetBytes) + work;
+    const reserve = reserveBytes(blocks, budgetBytes);
+    let kept = 0;
+    for (const rungs of handoffBytes.values()) {
+      const smallest = Math.min(...rungs.filter((b) => b > 0));
+      if (Number.isFinite(smallest)) kept = Math.max(kept, smallest + HANDOFF_RESERVE_MARGIN_BYTES);
+    }
+    const lend = Math.max(0, reserve - kept);
+    return { reserve, lend, keep: reserve - lend };
   }
 
   /**
@@ -4273,9 +4306,13 @@ export class Counterpart {
     // The "Work here" reserve, once: part of what the composition leaves the
     // delivery, and lent back to "Still open"'s first item when that is all
     // that would otherwise go unlisted (review of #350).
+    // …and the handoff pointer's with "Last here", lent after it and after the
+    // Yesterday line's titles to "Arriving:" and "Still open"'s first item
+    // (2026-10-10, `self/briefing.ts#ROOM_ORDER`).
     const work = budgetBytes === null ? 0 : this.workReserveBytes(budgetBytes);
+    const handoff = budgetBytes === null ? { reserve: 0, lend: 0, keep: 0 } : this.handoffRoom(budgetBytes);
     const composeBudget =
-      budgetBytes === null ? null : Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes, work), 0);
+      budgetBytes === null ? null : Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes, work, handoff.reserve), 0);
 
     // Three states, not two (I32): swept, skipped-and-said-so, or not asked for.
     // The middle one still writes the gate row — `ran: 0, scopes: 0`, with the
@@ -4329,6 +4366,8 @@ export class Counterpart {
       ...(input.at === undefined ? {} : { at: input.at }),
       ...this.yesterdayFor(input.at),
       lendBytes: work,
+      handoffLendBytes: handoff.lend,
+      handoffKeepBytes: handoff.keep,
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // The PHYSICS date key, and the host's to supply — every live entry point
@@ -4726,13 +4765,16 @@ export class Counterpart {
       };
     }
     const work = this.workReserveBytes(budgetBytes);
-    const composeBudget = Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes, work), 0);
+    const handoff = this.handoffRoom(budgetBytes);
+    const composeBudget = Math.max(budgetBytes - this.wakeReserveBytes(budgetBytes, work, handoff.reserve), 0);
     const render = selfRenderer(this.self, {
       prospective: this.prospective,
       ...(input.at === undefined ? {} : { at: input.at }),
       ...this.yesterdayFor(input.at),
-      // Lent to "Still open"'s first item only (review of #350).
+      // Lent to the lanes above them, in `self/briefing.ts#ROOM_ORDER`.
       lendBytes: work,
+      handoffLendBytes: handoff.lend,
+      handoffKeepBytes: handoff.keep,
       onEvent: (name, data) => this.emit(name, undefined, data),
     });
     // Read before the render, as the boundary reads it (`self/behind.ts`).
@@ -5177,6 +5219,12 @@ export class Counterpart {
             lane: stringField(e, "lane"),
           })),
           trimmedTotal: trims.length,
+          // PER LANE, uncapped (2026-10-10): what doctor's Wake line reads to
+          // say a dated item went unlisted ("Arriving:", `horizon`) — the list
+          // above is capped, and the trim order puts that lane near its end.
+          trimmedLanes: Object.fromEntries(
+            LANE_ORDER.map((lane) => [lane, trims.filter((e) => stringField(e, "lane") === lane).length] as const).filter(([, n]) => n > 0),
+          ),
           // THE SELF PAGE'S RUNG (2026-10-10, `self/briefing.ts#PageRung`): what
           // this wake printed of the page, and its size — what doctor's Self
           // page line reports. Absent when the store has no page.
