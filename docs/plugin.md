@@ -1,8 +1,9 @@
 # Counterparts as a Claude Code plugin (2026-10-09)
 
-Status: ships in 0.3.13. It installs from this repository's marketplace once the
-`v0.3.13` tag is pushed (below, "Releasing: move the pin"). It is not submitted to
-the plugin directory; that is the owner's call.
+Status: shipped since 0.3.13; 0.3.14 adds the single binary for computers with no Bun or
+Node. It installs from this repository's marketplace, at the tag the marketplace entry
+pins (`v0.3.14`), once that tag is pushed (below, "Releasing: move the pin"). It is not
+submitted to the plugin directory; that is the owner's call.
 
 ## What it is
 
@@ -133,7 +134,7 @@ an install would get whatever master holds that day. The entry names a release t
 instead:
 
 ```json
-"source": { "source": "github", "repo": "mlapeter/counterparts", "ref": "v0.3.13" }
+"source": { "source": "github", "repo": "mlapeter/counterparts", "ref": "v0.3.14" }
 ```
 
 Claude Code clones the repository at that tag, so a plugin install only ever gets a
