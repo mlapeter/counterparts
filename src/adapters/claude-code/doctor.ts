@@ -4301,6 +4301,19 @@ export interface HostReading {
   readonly plugin?: PluginInstallRead | null;
 }
 
+/** How a Runtime row names where a command was wired: `desktop` is Claude
+ *  Desktop's `counterparts` entry (`cli/install.ts#readHost`, 2026-10-10).
+ *  It is read after "the" ("the Claude Desktop server was wired…"), so no
+ *  possessive (review of #354). */
+function useLabel(use: string): string {
+  return use === "desktop" ? "Claude Desktop server" : use;
+}
+
+/** Claude Code's hooks and registration first, Claude Desktop's entry last. */
+function byUse(a: string, b: string): number {
+  return Number(a === "desktop") - Number(b === "desktop") || a.localeCompare(b);
+}
+
 /**
  * WHICH RUNTIME the host starts us with (2026-10-01, Node support): Bun or
  * Node, read off the commands `install` wrote, and whether that executable is
@@ -4310,12 +4323,6 @@ export interface HostReading {
  * want) as the fix, since it rewrites the commands with the runtime running it.
  * Quiet when nothing of ours is configured: the Claude Code line says that.
  */
-/** How a Runtime row names where a command was wired: `desktop` is Claude
- *  Desktop's `counterparts` entry (`cli/install.ts#readHost`, 2026-10-10). */
-function useLabel(use: string): string {
-  return use === "desktop" ? "Claude Desktop's server" : use;
-}
-
 function runtimeFindings(reading: HostReading): Finding[] {
   const rows = reading.runtimes ?? [];
   if (rows.length === 0) return [];
@@ -4344,7 +4351,7 @@ function runtimeFindings(reading: HostReading): Finding[] {
   const readsEnv = rows.flatMap((r) => r.projectEnv ?? []);
   data["projectEnv"] = readsEnv.length === 0 ? "ignored" : [...new Set(readsEnv)].sort().join(",");
   if (missing.length === 0 && readsEnv.length > 0) {
-    const what = [...new Set(readsEnv)].sort().map(useLabel).join(" and ");
+    const what = [...new Set(readsEnv)].sort(byUse).map(useLabel).join(" and ");
     return [
       finding(
         "runtime",
