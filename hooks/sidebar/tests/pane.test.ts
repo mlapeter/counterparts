@@ -994,6 +994,24 @@ test('hovered, each memory switch says what a click does, over the rows above th
   }
 })
 
+test('while the pause asks, no hover card covers its buttons (the pointer is still on the switch); cancelled, the cards are back', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  for (const surface of SURFACES) {
+    const ui = await mount($, w, surface)
+    await ui.press({ key: 'toggle-cp' })
+    expect(await ui.find({ type: 'Button', key: 'confirm-pause' })).toBeDefined()
+    let tree = await ui.drawn()
+    expect(drawnNode(tree, 'cp-why')).toBeUndefined()
+    expect(drawnNode(tree, 'mem-why')).toBeUndefined()
+    await ui.press({ key: 'cancel-pause' })
+    tree = await ui.drawn()
+    expect(drawnNode(tree, 'cp-why')).toBeDefined()
+    expect(drawnNode(tree, 'mem-why')).toBeDefined()
+    await ui.unmount()
+  }
+})
+
 test('pausing asks first: Cancel calls nothing, and an unanswered ask closes by itself', async ($, on) => {
   const w = world(on)
   await start($, w)

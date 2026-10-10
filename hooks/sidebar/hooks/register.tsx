@@ -1848,10 +1848,13 @@ export const register: Register = on => {
       </Box>
     )
     const viewNow = normView(view)
+    // While the pause asks (or a note explains), those rows sit right above the footer, and the pointer is still
+    // on the switch it just pressed: a card there would cover [Pause] [Cancel] or the note's last line.
+    const cards = above.length === 0
     rows.push(
       <Box key="footer" flexDirection="column" width={w}>
-        {hoverCard('cp-why', HOVER_CP, scopeHover(scope))}
-        {hoverCard('mem-why', HOVER_MEM, memoryHover(memoryOn))}
+        {cards ? hoverCard('cp-why', HOVER_CP, scopeHover(scope)) : null}
+        {cards ? hoverCard('mem-why', HOVER_MEM, memoryHover(memoryOn)) : null}
         <Text color={P.faint}>{'─'.repeat(w)}</Text>
         <Box flexDirection="row">
           <Box key="row-cp" hover={{ scope: HOVER_CP }}>
