@@ -16,6 +16,7 @@
  * class". The real `Store` satisfies it structurally, unchanged.
  */
 
+import { SELF_PAGE_ROLE_SPELLED } from "../store/operational.js";
 import type { Band, Kind, MemoryPhysics } from "../types.js";
 import type {
   EventLogCensus,
@@ -65,6 +66,18 @@ export interface SleepStore {
   returnsOf?(id: string): readonly { source: string; day?: number }[];
   versions(id: string): VersionRow[];
   deniedIds(): string[];
+
+  /**
+   * The turn-down (2026-10-10, review 13 C2), OPTIONAL so this port stays
+   * satisfiable by any store-shaped object: the live rows whose next-change day
+   * has come or is unknown, and the days written back. A port without them is
+   * walked whole every lived day, as before.
+   */
+  turnDownDue?(day: number): string[];
+  /** Rows born on lived day `day`, by kind, chapters left out — the census's one grouped read (optional). */
+  bornOn?(day: number): { kind: Kind; n: number }[];
+  setNextChangeDays?(rows: readonly { id: string; day: number }[]): void;
+  clearNextChangeDays?(): void;
 
   // writes
   advanceClock(date: string): number;
@@ -410,12 +423,25 @@ export interface BandTransition {
   readonly direction: "up" | "down";
   readonly site: "decay" | "consolidate";
   readonly day: number;
+  /**
+   * WHY IT MOVED (2026-10-10, the up-ratchet tripwire): `curve` for a move
+   * down (the design); for a move up, `promoted` (into the core), `input` (an
+   * input of the curve was written since the last reading — a use, a return,
+   * a replay, a feeling, a claim, a fade; store v13's trigger cleared the
+   * row's next-change day), `held` (a dated memory, whose standing turns on
+   * the calendar), else `unexplained` — a strength that rose by itself, which
+   * the arithmetic should never do (`physics#symmetryCheck`). Either way,
+   * `recurve` on the pass a new curve arrives (review of #372): the build's
+   * constants moved it, and the tripwire counts it neither up nor down
+   * (`decay.ts#bandMoveCause`).
+   */
+  readonly cause: "curve" | "promoted" | "input" | "held" | "unexplained" | "recurve";
 }
 
 export const BAND_TRANSITION_EVENT = "band.transition";
 /** The transition row's payload fields, in order — a G12 surface-set component
  *  (parallel-run CONTRACT §5 G12), pinned by `satisfies` at the append site. */
-export const BAND_TRANSITION_FIELDS = ["kind", "from", "to", "direction", "site"] as const;
+export const BAND_TRANSITION_FIELDS = ["kind", "from", "to", "direction", "site", "cause"] as const;
 export type BandTransitionField = (typeof BAND_TRANSITION_FIELDS)[number];
 
 /** The per-id, per-day latch: a replayed day re-appends nothing (§5 G3). */
@@ -434,6 +460,7 @@ export function recordBandTransition(ctx: PhaseCtx, t: BandTransition): void {
     to: t.to,
     direction: t.direction,
     site: t.site,
+    cause: t.cause,
     day: t.day,
   });
   if (!ctx.apply) return;
@@ -442,7 +469,7 @@ export function recordBandTransition(ctx: PhaseCtx, t: BandTransition): void {
     day: t.day,
     ref: t.id,
     dedupKey: bandTransitionKey(t),
-    payload: { kind: t.kind, from: t.from, to: t.to, direction: t.direction, site: t.site } satisfies Record<
+    payload: { kind: t.kind, from: t.from, to: t.to, direction: t.direction, site: t.site, cause: t.cause } satisfies Record<
       BandTransitionField,
       unknown
     >,
@@ -597,6 +624,76 @@ export function isSchemaRow(row: MemoryRow): boolean {
  * and current-state rows stay ordinary prune candidates. Read structurally —
  * `meta.role` — rather than by importing `schemas/` (NOTES §17).
  */
+/**
+ * A CHAPTER'S COPY — the ordinary memory every journal chapter is also
+ * ingested as (`self/index.ts#ingestEpisode`: source `episode`, `origin_ref`
+ * the chapter's id). Journal, not a memory to forget (2026-10-10, review 03
+ * C4a): the decay pass and the prune both skip it, as they skip the chapter.
+ * Read off the row's own columns, the shape `recall/activate.ts#journalCopyOf`
+ * reads (sleep does not import recall).
+ */
+export function isJournalCopy(row: Pick<MemoryRow, "type" | "source" | "origin_ref">): boolean {
+  return row.type === "memory" && row.source === "episode" && row.origin_ref !== null && row.origin_ref.length > 0;
+}
+
+/**
+ * The handoff's shape, spelled here because sleep imports nothing but types,
+ * physics and store (a structural test): `handoff/index.ts`'s `HANDOFF_ROLE`,
+ * `HANDOFF_KIND`, `HANDOFF_META_WRITTEN_DAY` and `HANDOFF_LIFE_DAYS`, which
+ * `test/strength.test.ts` holds equal to these.
+ */
+export const HANDOFF_SHAPE = { role: "handoff", kind: "place", writtenDay: "writtenDay", lifeDays: 14 } as const;
+
+/**
+ * A HANDOFF ROW (`handoff/index.ts#isHandoffDoc`): a schema row of the place
+ * kind whose meta says `role: handoff`. Read structurally, like
+ * `isEntityCard`.
+ */
+export function isHandoffRow(row: Pick<MemoryRow, "type" | "kind" | "meta">): boolean {
+  if (row.type !== "schema" || row.kind !== HANDOFF_SHAPE.kind || !row.meta.includes(HANDOFF_SHAPE.role)) return false;
+  try {
+    const meta = JSON.parse(row.meta) as { role?: unknown } | null;
+    return meta !== null && typeof meta === "object" && meta.role === HANDOFF_SHAPE.role;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A handoff STILL LIVE on lived day `day` — written fewer than
+ * `HANDOFF_LIFE_DAYS` lived days ago (`handoff/index.ts#expired`, the same
+ * arithmetic). The prune never archives one (2026-10-10, review 03 C4b): its
+ * own expiry is its clock, and under a 14-day dwell the floor could otherwise
+ * take a pointer a session is still revising. An EXPIRED handoff is left to the
+ * prune, as the handoff module has always said. A handoff with no recorded day
+ * has expired (`expired`'s rule).
+ */
+export function isLiveHandoffRow(row: Pick<MemoryRow, "type" | "kind" | "meta">, day: number): boolean {
+  if (!isHandoffRow(row)) return false;
+  try {
+    const written = (JSON.parse(row.meta) as Record<string, unknown>)[HANDOFF_SHAPE.writtenDay];
+    return typeof written === "number" && Number.isFinite(written) && HANDOFF_SHAPE.lifeDays - (day - written) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * THE SELF PAGE (`self/page.ts#SELF_PAGE_ROLE`): a schema row of the self
+ * kind whose meta says `role: page`. Never pruned (2026-10-10, review of
+ * #372): `protected` already blocks the floor, and the prune skips it by name
+ * too, so a page whose flag were ever lost is still kept. Read structurally.
+ */
+export function isSelfPageRow(row: Pick<MemoryRow, "type" | "kind" | "meta">): boolean {
+  if (row.type !== "schema" || row.kind !== "self" || !row.meta.includes(SELF_PAGE_ROLE_SPELLED)) return false;
+  try {
+    const meta = JSON.parse(row.meta) as { role?: unknown } | null;
+    return meta !== null && typeof meta === "object" && meta.role === SELF_PAGE_ROLE_SPELLED;
+  } catch {
+    return false;
+  }
+}
+
 export function isEntityCard(row: MemoryRow): boolean {
   if (row.type !== "schema") return false;
   try {

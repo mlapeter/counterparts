@@ -30,6 +30,7 @@ import type { McpServer, MeaningResult, ToolResult } from "../src/adapters/mcp/i
 import { buildArgv } from "../src/adapters/dashboard/web/actions.js";
 import { run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
+import { findable } from "./store-fixture.js";
 
 /*
  * 2026-10-03 (Release B): a deliberate question is answered by a MODE, and the
@@ -67,7 +68,9 @@ afterEach(() => {
 });
 
 function server(owner = true): McpServer {
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
   const s = openServer({ dir, session: "sess_feel", scope: "/scope/one", owner });
+  findable(s.counterpart.store);
   open.push(s.counterpart);
   return s;
 }

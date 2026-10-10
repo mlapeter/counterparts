@@ -670,6 +670,9 @@ describe("asked plainly, recall finds the last session here first (the recall ha
       body: "Dreamed: four tables, one grief, set for Montaigne's three meals.",
       learnedOn: "2026-09-30",
       source: "dreamed",
+      // A dream's claim, at its ceiling (2026-10-10: a row that claims nothing
+      // stands at 0, below reach).
+      salience: { claimed: 0.3 },
       origin: { session: A, scope: HERE, ref: "dream:drm_000000000001" },
     });
     const got = factsOf(await k.server(B).call("recall", { question: "what do you remember from our most recent session?", mode: "facts" }));

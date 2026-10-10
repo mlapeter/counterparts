@@ -292,12 +292,14 @@ describe("the schema: folded into the unreleased v9", () => {
         .replace(/\/\*[\s\S]*?\*\//g, " ")
         .replace(/--[^\n]*/g, " ")
         .trim()
-        .replace(/;\s*$/, "");
+        .replace(/;\s*$/, "")
+        // A trigger's body (v13, 2026-10-10) is part of its one statement.
+        .replace(/\bBEGIN\b[\s\S]*\bEND$/i, "BEGIN END");
       // One statement each: no second statement hiding after a semicolon.
       expect({ sql: text.slice(0, 80), single: !text.includes(";") }).toEqual({ sql: text.slice(0, 80), single: true });
       expect({
         sql: text.slice(0, 80),
-        idempotent: /^CREATE\s+(?:TABLE|(?:UNIQUE\s+)?INDEX)\s+IF\s+NOT\s+EXISTS\s/i.test(text),
+        idempotent: /^CREATE\s+(?:TABLE|(?:UNIQUE\s+)?INDEX|TRIGGER)\s+IF\s+NOT\s+EXISTS\s/i.test(text),
       }).toEqual({ sql: text.slice(0, 80), idempotent: true });
     }
     // And in fact: running everything twice over one database is a no-op the second time.

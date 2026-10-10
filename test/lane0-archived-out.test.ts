@@ -31,10 +31,11 @@ function put(body: string, day: number, over: Partial<PutInput> = {}): string {
   return s.put({ type: "memory", kind: "fact", body, salience: { relevance: 0.6 }, physics: { birthDay: day, lastUsedDay: day }, ...over });
 }
 
-/** The store, with every `row()` read written down. */
-function watched(reads: string[]): SleepStore {
+/** The store, with every `row()` read written down, and the methods in `hide` absent (a port without them). */
+function watched(reads: string[], hide: readonly string[] = []): SleepStore {
   return new Proxy(s, {
     get(target, key) {
+      if (typeof key === "string" && hide.includes(key)) return undefined;
       if (key === "row") return (id: string) => (reads.push(id), target.row(id));
       const v = Reflect.get(target, key, target) as unknown;
       return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
@@ -61,8 +62,13 @@ function world(): { old: string[]; archived: string[]; today: string; todayArchi
 
 test("the census reads only today's births — archived ones included — and nothing older", () => {
   const w = world();
+  // Group 1's grouped count (`Store#bornOn`, review 13 C2) reads no row at all.
+  const grouped: string[] = [];
+  expect(census(watched(grouped), s.livedDay(), [], []).fact.created).toBe(2);
+  expect(grouped).toEqual([]);
+  // A port without it lists today's births in SQL and reads only those.
   const reads: string[] = [];
-  const out = census(watched(reads), s.livedDay(), [], []);
+  const out = census(watched(reads, ["bornOn"]), s.livedDay(), [], []);
   expect(new Set(reads)).toEqual(new Set([w.today, w.todayArchived]));
   expect(out.fact.created).toBe(2);
 });

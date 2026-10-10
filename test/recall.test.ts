@@ -40,6 +40,7 @@ import {
   withTunables,
 } from "../src/core/recall/index.js";
 import type { Candidate, CandidateVerdict, Verdict } from "../src/core/recall/index.js";
+import { findable } from "./store-fixture.js";
 
 const RECALL_SRC = fileURLToPath(new URL("../src/core/recall/", import.meta.url));
 
@@ -67,7 +68,8 @@ afterEach(() => {
 });
 
 function store(opts: Parameters<typeof Store.open>[0] = {}): Store {
-  const s = Store.open({ dir, ...opts });
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`).
+  const s = findable(Store.open({ dir, ...opts }));
   open.push(s);
   return s;
 }
@@ -1268,7 +1270,10 @@ describe("cue length normalization", () => {
   });
 
   test("a hub stops out-ranking an on-point memory end to end", () => {
-    const s = store();
+    // Just inside reach (2026-10-10): arrival is ADDED to activation (0.15 x
+    // strength), and this pins the cue arithmetic, written when every fixture
+    // stood at strength 0.
+    const s = findable(store(), 0.16);
     seed(s);
     // The shape of the live failure in miniature: one long memory that mentions
     // a bit of everything, and one short memory that is actually about the turn.
@@ -1716,6 +1721,8 @@ describe("I13 — document frequency counts LIVE rows", () => {
       type: "memory",
       kind: "fact",
       body: "The sourdough starter recovered after a week of daily feeding.",
+      // In reach (2026-10-10): a successor that claims nothing stands at 0.
+      salience: { claimed: 0.5 },
     });
 
     const out = new Recall({ store: s, owner: true }).recall({

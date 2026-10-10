@@ -26,6 +26,7 @@ import type { FactsResult } from "../src/adapters/mcp/facts.js";
 import { settle } from "../src/core/contradictions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { OPEN_END, OPEN_START, loadGateState, readTimeAsk } from "../src/core/recall/index.js";
+import { findable } from "./store-fixture.js";
 
 const ZONE = "America/Los_Angeles";
 /** 2026-10-03, 15:00 local. */
@@ -51,7 +52,9 @@ afterEach(() => {
 });
 
 function brain(now = NOW): Counterpart {
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
   const c = Counterpart.open({ dir: join(dir, "store"), owner: true, now: () => now, timeZone: ZONE });
+  findable(c.store);
   open.push(c);
   return c;
 }

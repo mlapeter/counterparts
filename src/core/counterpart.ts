@@ -3007,7 +3007,9 @@ export class Counterpart {
       input.reason === "ok" && (vec === null || vec.length === 0) ? "embed-failed" : input.reason;
     const hits =
       reason === "ok" && vec !== null
-        ? this.store.nearestTo(vec, this.recall.tunables.SEMANTIC_TOP_M)
+        ? // The turn's lagged semantic cue is AMBIENT: below-reach rows take
+          // no slot (2026-10-10, physics `REACH`; `cache.ts#reachJoin`).
+          this.store.nearestTo(vec, this.recall.tunables.SEMANTIC_TOP_M, { minStrength: PHYSICS.REACH })
         : [];
     if (this.observer) {
       // An instrument leaves the world as it found it, and says so (G6).

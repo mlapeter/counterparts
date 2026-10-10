@@ -1989,6 +1989,55 @@ saturated), `fired.ts`' two-read join, the counting reads with ceilings far past
 doctor's `keyHistory`, which asks "ever embedded", where neither end of a capped read is
 the whole answer.
 
+## 2026-10-10 — v13: the mechanisms review's one schema bump (Group 1a)
+
+ADDITIVE ONLY (synthesis §3; f8's guard): every column nullable or defaulted, one new table,
+indexes, four triggers; nothing dropped, nothing rewritten but the backfill of a new column.
+Groups 2–4 are pre-provisioned so none of them bumps again.
+
+| Change | For |
+|---|---|
+| `memories.next_change_day` + index `memories_next_change (archived, next_change_day)` | Group 1's turn-down (13 C2) |
+| triggers `memories_next_change_inputs`, `feelings_next_change_{insert,update,delete}` | clear it when an input of the curve changes |
+| `feelings.recorded_day`, backfilled (`backfillRecordedDays`) | 02 C5: softening from when it was felt |
+| `memories.dream_shown_day` + index `(archived, dream_shown_day, birth_day)` | Group 3 (13 C6 / 09 C3); nothing writes it yet |
+| `returns.session` | Group 3 (08: recurrence counts sessions); nothing writes it yet |
+| `derivations(child, parent, how, day)` + index on `parent` | Group 3 (11/12); nothing writes it yet |
+| `edges.source`, `edges.reinforced NOT NULL DEFAULT 0` | Group 4 (06); nothing writes them yet |
+| indexes `memories(archived, birth_day)`, `feelings(created_at)`, `edges(last_day)`, `edges(weight)`, `edges(dst)` | 13 C3/C4, 06 |
+
+- **The copy first**, as every bump since v7 (`copyBeforeMigrating`): `<instant>-pre-migration-
+  v12-to-v13`. The migrating transaction then runs the DDL, `ADDED_COLUMNS`, the
+  `DDL_AFTER_COLUMNS` indexes and triggers, the backfill, and records `physics.v13.upgrade`
+  (from, day, at, feelings, mapped).
+- **The backfill:** a feeling written in a session (`source` session or NULL) gets its
+  memory's birth day — what softening read until now, so nothing moves; a feeling recorded
+  later (dream, reflection, awake) gets the lived day of the last logged event at or before its
+  `created_at`, never before its memory's birth; with none, the birth day.
+- **No row is re-scored** (b2+f8, 2026-10-10, "judge by new users, no one-off fixes"): neither the
+  migration nor the first turn-down writes a salience dimension or a claim — a defaulted claim
+  (`meta.claimedDefault`) stays at 0.25, and new encoding defaults apply only to rows written
+  after the upgrade. The old store meets the new curve as it stands (`test/strength.test.ts`).
+- **`next_change_day` starts NULL on every row**, so the first turn-down after the upgrade
+  reads every live row once — the night the new curve is first read.
+- **The observer floor stays at 11** (v12's reasoning): a v12 row read `m.*` has no new
+  columns an instrument needs, and a v12 feeling with no `recorded_day` softens from its
+  memory's birth (`feltDay`), as every build before did.
+- **The way back.** A build that knows only v12 refuses a v13 file `SCHEMA_AHEAD` — measured
+  2026-10-10 with master `3a3f655d` and again with `dc960651` (#366 merged — what 0.3.16 is cut from): writer and observer both
+  refused `{"expected":12,"found":"13"}`, as 0.3.7 refused v10. Going back means restoring the
+  pre-migration copy: with every process on the store closed, copy
+  `<snapshots>/<instant>-pre-migration-v12-to-v13/counterparts.sqlite` over
+  `<store>/counterparts.sqlite` and remove its `-wal` / `-shm`; the older build then opens it
+  at v12 (measured the same day). Anything written after the upgrade is lost with it, as with
+  every earlier bump. `test/strength.test.ts` holds both the migration and the restore.
+- **Fresh and migrated converge** (`table_info` equal for every table touched).
+- New store methods: `turnDownDue`, `setNextChangeDays`, `clearNextChangeDays`, `bornOn`,
+  `dropRanking`, `belowReachCount`; `search` / `nearestTo` take `minStrength` (the ambient
+  prefilter, a join on box 3's `ranking`). `Store.row()` reads `today_date` (the store's
+  `lastActiveDate`) beside the row, for the dated hold (`datedHold`). `RECURRING_META` now
+  lives in `operational.ts` (re-exported unchanged).
+
 ## 2026-10-10 — box 3 keeps each memory's neighbours (cache v6, Lane 0)
 
 - **The scale review's C1** (`13-scale.md`): the dream's `begin` called `nearestTo` once per

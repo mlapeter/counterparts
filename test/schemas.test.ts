@@ -453,14 +453,14 @@ describe("death by decay", () => {
       chunkRef: "c1",
       day: 0,
     }).id as string;
-    // One re-mention on a later lived day is one credited use.
-    const again = s.mention({
-      name: "Counterparts",
-      kind: "entity",
-      source: "Counterparts, day five",
-      chunkRef: "c2",
-      day: 5,
-    });
+    // One re-mention on a later lived day is one credited use. Four of them
+    // since 2026-10-10: a card stands at salience 0, so it rides physics'
+    // steepest slope, and one use no longer holds it over the floor for a
+    // dwell (the calendar floor is what keeps an unused card now).
+    let again = s.mention({ name: "Counterparts", kind: "entity", source: "Counterparts, day two", chunkRef: "c2", day: 2 });
+    for (const day of [3, 4, 5]) {
+      again = s.mention({ name: "Counterparts", kind: "entity", source: `Counterparts, day ${String(day)}`, chunkRef: `c${String(day)}`, day });
+    }
     expect(again.reinforced).toBe(true);
 
     // A sweep the day it was used anchors that day to a date, so the calendar
