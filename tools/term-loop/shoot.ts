@@ -448,6 +448,16 @@ function chromePath(): string {
   throw new Error('no Chrome found: set TERM_LOOP_CHROME to a Chrome or Chromium binary');
 }
 
+/**
+ * Kills the Chrome processes on this run's own profile, and no other: the
+ * pattern ends at the profile's name, so `chrome-123` doesn't also match a
+ * concurrent run's `chrome-1234` (pkill -f reads an extended regex).
+ */
+function killProfile(profile: string): void {
+  const exact = profile.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  run(['pkill', '-f', `user-data-dir=${exact}( |$)`]);
+}
+
 /** brain-lab's pattern: headless Chrome on a profile of its own, killed by pid and by that profile once the file is written. */
 async function chromeShot(chrome: string, profile: string, html: string, w: number, h: number, png: string): Promise<void> {
   mkdirSync(profile, { recursive: true });
@@ -466,7 +476,7 @@ async function chromeShot(chrome: string, profile: string, html: string, w: numb
     last = size;
   }
   proc.kill();
-  run(['pkill', '-f', `user-data-dir=${profile}`]);
+  killProfile(profile);
   if (!existsSync(png)) throw new Error(`Chrome wrote no screenshot: ${png}`);
 }
 
@@ -603,7 +613,7 @@ async function main(): Promise<void> {
   const chrome = chromePath();
   const profile = join(SCRATCH, `chrome-${String(process.pid)}`);
   const cleanChrome = (): void => {
-    run(['pkill', '-f', `user-data-dir=${profile}`]);
+    killProfile(profile);
     rmSync(profile, { recursive: true, force: true });
   };
 
