@@ -1737,7 +1737,12 @@ warning and printed cut.
   6,300 and 7,000 print whole there now, the delivered wake under 9,000 with its handoff;
   7,300 gets the line. The handoff is chosen before "Work here" at delivery and never
   gives way to it. Doctor stays amber for any page over the write limit, which does not
-  move (`page-never-cut.test.ts`).
+  move (`page-never-cut.test.ts`). The trade, said: at 7,000 under the widest reserves
+  the page prints whole beside one Arriving line and its count, and "Still open" carries
+  nothing at all — not even its collapsed line, which Arriving's "N more" took the room
+  for — where #358 had printed the pointer and five open items. Page over lanes is the
+  rule (#350's review); the page is past the limit and doctor is amber until it is
+  tightened.
 - **Not done: the Yesterday line stepping down beside the page.** Tried — the floor
   check offered `yesterdayShorter` before dropping the line — and measured worse: the
   Yesterday line is furniture, so a shorter one that fit the floor pushed out Arriving

@@ -10,8 +10,8 @@
   the nightly reflection say the limit and how many bytes to take out, and the writer
   says it shorter. The limit is in bytes, so accented letters, dashes and CJK count for
   more than one. A page written before this that is over the limit still prints whole
-  when it fits with the room held for "Work here" lent to it (up to about 7,200 bytes at
-  9,000), and doctor's Self page line goes amber until the next revision comes in under
+  when it fits with the room held for "Work here" lent to it (at 9,000, a page of about
+  7,200 bytes fits even on the tightest day), and doctor's Self page line goes amber until the next revision comes in under
   the limit. Only a page that doesn't fit even then, or a ceiling set below what the page
   needs, gets one line instead, pointing to the self_page tool or `counterparts
   self-page` — never part of the page. If the nightly writer's page is refused as too

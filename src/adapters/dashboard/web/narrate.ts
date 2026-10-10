@@ -35,6 +35,7 @@ import {
   NOISY_IF_CHRONIC_SWEEP_REASONS,
   NOISY_NOW_SWEEP_REASONS,
 } from "../../../core/remember/index.js";
+import { readPageTooLargeDetail } from "../../../core/self/index.js";
 import { BAND_TRANSITION_FIELDS } from "../../../core/sleep/index.js";
 import type { EventRow, ReadOnlyStore } from "../../../core/store/index.js";
 import { num } from "../layout.js";
@@ -664,6 +665,11 @@ export const NARRATORS = {
       case "refused":
         return calm(`A revision of my page from ${about} was turned away (${s(t, "detail") ?? "refused"}). The page is unchanged.`);
       case "failed":
+        // A page refused for length and not sent again (review of #358): it
+        // ran, and wrote too much.
+        if (readPageTooLargeDetail(s(t, "detail") ?? "") !== null) {
+          return calm(`The nightly writer's page from ${about} was too long and was not sent again shorter (${s(t, "detail") ?? ""}). The page is unchanged.`);
+        }
         return calm(`The nightly writer could not run for ${about} (${s(t, "detail") ?? "failed"}). The page is unchanged.`);
       default:
         return calm(`The nightly writer stood down for ${about} (${s(t, "detail") ?? "skipped"}), in ${mode} mode.`);
