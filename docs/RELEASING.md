@@ -64,8 +64,8 @@ bun tools/single-binary/build.ts --release
 ```
 
 Commit the `.claude-plugin/binaries.json` it writes on the release branch. Copy the `.gz`
-files and `SHA256SUMS` from `dist/single-binary/<version>/` into a release folder outside
-the clone. The builds aren't byte-reproducible, so the files uploaded at publish have to be
+files and `SHA256SUMS` from `dist/single-binary/<version>/` into `single-binary/` in a
+release folder outside the clone. The builds aren't byte-reproducible, so the files uploaded at publish have to be
 these ones. Any later change to `src/` means building again. Details:
 [single-binary.md, "Releasing"](single-binary.md#releasing).
 
@@ -95,7 +95,7 @@ same hash. Then open the release PR.
 
    ```sh
    gh release create v<version> --verify-tag --title "counterparts <version>" \
-     --notes-file <folder>/release-notes.md <folder>/*.gz <folder>/SHA256SUMS
+     --notes-file <folder>/release-notes.md <folder>/single-binary/*.gz <folder>/single-binary/SHA256SUMS
    ```
 
    Until they're attached, a plugin user with neither Bun nor Node sees "download failed"
