@@ -410,6 +410,12 @@ export interface FitIndex {
   readonly counted?: readonly string[];
   /** Entries below that count this run did not take — the next run sends them. */
   readonly unread?: Readonly<Record<string, readonly number[]>>;
+  /**
+   * The run's NEW items, by id (the dream's fresh list; Lane 0, 2026-10-10):
+   * what goes back in the queue when the part that carried them never reached
+   * the reader (`Dreams#requeueSpilled`).
+   */
+  readonly fresh?: readonly string[];
 }
 
 export function indexKey(mechanism: FitMechanism): string {
@@ -441,6 +447,7 @@ export function readIndex(store: Pick<Store, "getMeta">, mechanism: FitMechanism
       ...(Array.isArray(v.parts) ? { parts: v.parts.map(ids) } : {}),
       looked: ids(v.looked),
       counted: ids(v.counted),
+      ...(Array.isArray(v.fresh) ? { fresh: ids(v.fresh) } : {}),
       ...(v.entries !== undefined && v.entries !== null && typeof v.entries === "object"
         ? { entries: Object.fromEntries(Object.entries(v.entries).filter((e): e is [string, number] => typeof e[1] === "number")) }
         : {}),

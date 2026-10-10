@@ -27,8 +27,15 @@ import { StoreError } from "./errors.js";
  * through a v4 build's writes is not evidence of anything) and leaves the rows
  * where they are; the first open with an embedder configured decides what they
  * are (`reconcileEmbedder`'s legacy arm).
+ * Bumped to 6 (2026-10-10, Lane 0 / scale review C1): `neighbours` — each
+ * memory's nearest vectors as they stood when it was written (or when the dream
+ * first asked), so the dream's `begin` reads one indexed row set per queued
+ * memory instead of re-scanning the whole embedding table for each (299 ms at
+ * 1x, 22 s at 10x). Derived from `embeddings` and nothing else; dropped and
+ * refilled like the rest of box 3. An older build opening a v6 cache reads it
+ * as "ahead" and turns its vector channel off (the existing #187 policy).
  */
-export const CACHE_SCHEMA_VERSION = 5;
+export const CACHE_SCHEMA_VERSION = 6;
 
 const DDL: readonly string[] = [
   `CREATE TABLE IF NOT EXISTS doc_tokens (
@@ -83,9 +90,23 @@ const DDL: readonly string[] = [
      band      TEXT NOT NULL,
      day       INTEGER NOT NULL
    )`,
+  // v6 (2026-10-10, Lane 0): a memory's NEAREST VECTORS, ranked, as `nearest`
+  // found them — written when the memory's vector is written (`Store#indexOne`)
+  // and, for a memory that has none yet, the first time the dream asks
+  // (`Store#neighbourReader`). Derived from `embeddings` alone: a row whose
+  // vector goes takes its neighbour rows with it, in both directions
+  // (`forgetNeighbours`), and a reset drops the table with the rest.
+  `CREATE TABLE IF NOT EXISTS neighbours (
+     memory_id    TEXT NOT NULL,
+     rank         INTEGER NOT NULL,
+     neighbour_id TEXT NOT NULL,
+     cosine       REAL NOT NULL,
+     PRIMARY KEY (memory_id, rank)
+   )`,
+  `CREATE INDEX IF NOT EXISTS neighbours_neighbour ON neighbours (neighbour_id)`,
 ];
 
-const TABLES = ["doc_tokens", "doc_lens", "embeddings", "cache_meta", "ranking"] as const;
+const TABLES = ["doc_tokens", "doc_lens", "embeddings", "cache_meta", "ranking", "neighbours"] as const;
 
 /**
  * Length normalization for the token channel — the document side of §9 G4.
@@ -583,6 +604,8 @@ export function reconcileEmbedder(db: Db, configured: EmbedderIdentity): Embedde
     const configuredTag = identityTag(configured.model, configured.dim);
     const dropAndTag = (from: string | null): EmbedderVerdict => {
       db.run("DELETE FROM embeddings");
+      // Another model's cosines rank nothing either (v6).
+      db.run("DELETE FROM neighbours");
       db.run("DELETE FROM cache_meta WHERE key = ?", EMBEDDER_HELD_META_KEY);
       // A tag even when the width is unknown (`model` alone): the per-write and
       // per-search checks need to know WHOSE the file is now, or a process
@@ -1004,6 +1027,7 @@ export function indexDoc(db: Db, id: string, text: string, vec?: readonly number
       // vector (if any) describes words the memory no longer says, so it goes,
       // and the memory waits for the owning identity's backfill.
       db.run("DELETE FROM embeddings WHERE memory_id = ?", id);
+      forgetNeighbours(db, id);
       return refusal;
     }
     db.run(
@@ -1099,6 +1123,9 @@ export function deindexDoc(db: Db, id: string): void {
   db.transaction(() => {
     db.run("DELETE FROM doc_tokens WHERE memory_id = ?", id);
     db.run("DELETE FROM doc_lens WHERE memory_id = ?", id);
+    // v6: a dead row is nobody's neighbour, and has none of its own. (Its
+    // VECTOR stays, as above — the neighbour rows are free to recompute.)
+    forgetNeighbours(db, id);
   });
 }
 
@@ -1218,6 +1245,69 @@ export function nearest(db: Db, vec: readonly number[], limit = 10): Hit[] {
     const other = decodeVector(row.vec);
     if (other.length > 0 && other.length !== vec.length) continue;
     hits.push({ id: row.memory_id, score: cosine(vec, other) });
+  }
+  hits.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return hits.slice(0, limit);
+}
+
+// ── neighbours (v6) ──────────────────────────────────────────────────────────
+
+/**
+ * How many neighbours are kept per memory. The dream reads ranks up to
+ * `MIXING_TO_RANK` (40); the extra are slack for what its read filters out
+ * (queued, newer, unshowable).
+ * Decided by lane0-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: 40 + 8 covers the dream's widest read with room for its filters, at ~48 small rows a memory.
+ */
+export const NEIGHBOURS_KEPT = 48;
+
+/** Take one memory out of the neighbour table — its own list, and every list it is on. */
+export function forgetNeighbours(db: Db, id: string): void {
+  db.run("DELETE FROM neighbours WHERE memory_id = ?", id);
+  db.run("DELETE FROM neighbours WHERE neighbour_id = ?", id);
+}
+
+/** Write one memory's neighbours (replacing any it had), rank 0 the nearest. Never itself. */
+export function writeNeighbours(db: Db, id: string, hits: readonly Hit[]): void {
+  db.transaction(() => {
+    db.run("DELETE FROM neighbours WHERE memory_id = ?", id);
+    const ins = db.prepare("INSERT INTO neighbours (memory_id, rank, neighbour_id, cosine) VALUES (?, ?, ?, ?)");
+    let rank = 0;
+    for (const h of hits) {
+      if (h.id === id) continue;
+      ins.run(id, rank, h.id, h.score);
+      rank += 1;
+    }
+  });
+}
+
+/**
+ * One memory's stored neighbours, nearest first — or null when none were ever
+ * written for it (the caller computes them). An empty list that WAS written
+ * (a store with one vector) reads as null too, which only costs a recompute
+ * against a table that small.
+ */
+export function readNeighbours(db: Db, id: string, limit: number): Hit[] | null {
+  const rows = db.all<{ neighbour_id: string; cosine: number }>(
+    "SELECT neighbour_id, cosine FROM neighbours WHERE memory_id = ? ORDER BY rank LIMIT ?",
+    id,
+    limit,
+  );
+  return rows.length === 0 ? null : rows.map((r) => ({ id: r.neighbour_id, score: r.cosine }));
+}
+
+/** Every vector, decoded once — for ranking many queries against one read. */
+export function allVectors(db: Db): { id: string; vec: Float32Array | number[] }[] {
+  return db
+    .all<{ memory_id: string; vec: SqlValue }>("SELECT memory_id, vec FROM embeddings")
+    .map((r) => ({ id: r.memory_id, vec: decodeVector(r.vec) }));
+}
+
+/** `nearest`'s ranking, over vectors already read (`allVectors`). Same order, same width rule. */
+export function rankAgainst(rows: readonly { id: string; vec: ArrayLike<number> }[], vec: readonly number[], limit: number): Hit[] {
+  const hits: Hit[] = [];
+  for (const row of rows) {
+    if (row.vec.length > 0 && row.vec.length !== vec.length) continue;
+    hits.push({ id: row.id, score: cosine(vec, row.vec) });
   }
   hits.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return hits.slice(0, limit);

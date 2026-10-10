@@ -386,7 +386,9 @@ export class Recall {
 
     // Cold start is STRICTER, not looser: below a minimum store size the variance
     // estimate is meaningless and small stores over-surface (§9 G13).
-    const storeSize = this.store.list({ archived: false }).length;
+    // A count, not a list of every live id (Lane 0, scale review C4: 16% of a
+    // turn at 10x). The same WHERE (`memoryWhere`).
+    const storeSize = this.store.countMemories({ archived: false });
     const maxCandidates =
       storeSize < this.tunables.COLD_START_MIN_STORE
         ? this.tunables.COLD_START_MAX_CANDIDATES

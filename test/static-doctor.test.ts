@@ -220,11 +220,11 @@ describe("held and cache-ahead, read durably by doctor's observer handle", () =>
     writer().put({ type: "memory", kind: "fact", body: "one memory" });
     opened.splice(0).forEach((s) => s.close());
     const db = openDb(paths.cache(dir));
-    db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', '6')");
+    db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', '7')");
     db.close();
     const f = by(reading(STATIC), "embedder");
     expect(f.severity).toBe("amber");
-    expect(f.detail).toContain("cache v6");
+    expect(f.detail).toContain("cache v7");
     expect(f.fix).toContain("/mcp");
     expect(f.fix).toContain("Reconnect");
   });

@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+- **Recall counts the memories instead of listing them on every turn.** At ten times
+  today's size that list was about a sixth of a turn. A second speed-up, not looking up
+  words found in almost every memory, is built but off: it changed what recall showed on
+  small stores.
+- **The sleep pass no longer reads forgotten memories to skip them.** The census, the
+  duplicate check and the fading pass ask the database for the rows they need instead of
+  reading every row, archived ones included. Their counts are unchanged.
+- **The store reuses its prepared database statements.** It used to prepare each query
+  again on every read. A new day's sleep pass at ten times today's size went from about
+  3.7 to 1.1 seconds.
+- **New memories in a dream part Claude Code cut go back in the queue.** When the nightly
+  run's transcript shows a part of the dream was cut to a preview the run couldn't open
+  (and it wasn't fetched again whole), the new memories that part carried are dreamed on
+  another night instead of being marked as seen. Any the dream changed or looked up stay
+  done. The morning's line about the cut says how many went back.
+- **A night's dream starts in about a second at ten times today's size, not half a
+  minute.** The cache keeps each memory's nearest memories from when it was written, so
+  the dream reads them instead of comparing every queued memory against every stored one.
+  A new memory's list is the older memories nearest it when it was written; one written
+  before the upgrade gets its list the first night it is dreamed. The cache's format goes
+  to v6 and fills itself in. An MCP server still running the previous build refuses its
+  tools until it is reconnected (`/mcp`), as after a store-format change.
+
 ## 0.3.16 — 2026-10-10
 
 The self page is kept whole up to 16 KB, and when it doesn't fit, the wake steps down to

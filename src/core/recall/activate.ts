@@ -242,6 +242,9 @@ export interface ActivationResult {
   /** Scored candidates the `maxCandidates` cut left out — counted, never
    *  silent (2026-09-28). */
   readonly dropped: number;
+  /** Cues too common to look up (`CUE_FETCH_MIN_IDF`, Lane 0 2026-10-10) —
+   *  a count, never the words. Reported, not recorded, for `capped`'s reason. */
+  readonly unfetched: number;
   /** Journal copies folded into their own chapter before the cut (2026-09-30,
    *  U13). Reported, not recorded, for `capped`'s reason. */
   readonly collapsed: number;
@@ -425,8 +428,18 @@ export function activate(
     b: t.CUE_LENGTH_NORM,
     oneSided: t.CUE_LENGTH_ONE_SIDED,
   };
+  // A WORD IN ALMOST EVERY MEMORY IS NOT LOOKED UP (Lane 0, scale review C4):
+  // its postings are the whole store and its weight is near zero. It stays a
+  // cue (the record lists it); it fetches nothing. Counted, never named.
+  let unfetched = 0;
   for (const cue of cues) {
     if (postings.has(cue.token)) continue;
+    const d = df.get(cue.token);
+    if (d !== undefined && informativeness(d, storeSize) < t.CUE_FETCH_MIN_IDF) {
+      unfetched += 1;
+      postings.set(cue.token, new Map());
+      continue;
+    }
     const byDoc = new Map<string, number>();
     for (const h of store.search(cue.token, t.PER_CUE_FETCH, norm)) byDoc.set(h.id, h.score);
     postings.set(cue.token, byDoc);
@@ -1073,6 +1086,7 @@ export function activate(
     skipped,
     semanticDegraded,
     capped,
+    unfetched,
     semantic: ranked === null ? null : { identity, path, floor: tuning.floor, weight: tuning.weight },
     // `landed` is counted AFTER the cut: a hop on a candidate the cut left out
     // reached nothing the gate saw.

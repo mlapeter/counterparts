@@ -953,3 +953,13 @@ this machine, while a long benchmark ran beside it) and left without one:
   deliberately not used; that reasoning predates the floor, and a change wants it
   re-ruled and every body write checked to keep the column in step. Or a store `GROUP BY`
   over the column, which reads no row at all.
+
+## 2026-10-10 — archived rows out of census, dedup and decay (Lane 0, scale review C3)
+
+Each of the three listed every row and read each one to skip the archived. Now: decay and
+dedup list `archived = 0` in SQL (decay still counts its `archived` skips, by listing their
+ids alone, so the named skip says what it said); the census lists only rows born on or after
+the day (`bornFromDay`) and reads those. The census keeps archived births on purpose: a
+memory written and merged the same day is one created and one exited, and dropping its birth
+would unbalance G13. Prune and consolidate were left as they are (not in this lane). No
+index added — `memories(archived, birth_day)` waits for Group 1's single migration.

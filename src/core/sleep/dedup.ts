@@ -199,7 +199,9 @@ export function runDedup(ctx: PhaseCtx, source?: DedupCandidateSource): DedupRes
   const { store, day } = ctx;
   const denied = new Set(store.deniedIds());
   const live = new Set<string>();
-  for (const id of store.list()) {
+  // Live rows only, in SQL (2026-10-10, Lane 0 / scale review C3): an archived
+  // row was read here only to be passed over.
+  for (const id of store.list({ archived: false })) {
     const row = store.row(id);
     if (row === undefined || row.archived === 1 || denied.has(id)) continue;
     // NOT THE JOURNAL (`types.ts#isJournal`). The memory ingested from an

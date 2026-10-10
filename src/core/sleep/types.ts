@@ -55,6 +55,8 @@ export interface SleepStore {
     kind?: Kind;
     band?: Band;
     archived?: boolean;
+    /** Born on or after this lived day (`birth_day`). A store that ignores it lists more; callers still check the row. */
+    bornFromDay?: number;
   }): string[];
   row(id: string): MemoryRow | undefined;
   read(id: string): StoredMemory;

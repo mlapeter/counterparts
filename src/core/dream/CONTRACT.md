@@ -202,6 +202,14 @@ dreamer is the model (a background agent the session launches), outside this pro
   important whole. A bundle longer than one tool result — measured as the MCP server sends
   it — comes in parts (phase `part`). A merge or a gist records the fidelity it was made
   from (`detail.fidelity`: whole, excerpt, line — or whole, looked up since).
+- **A memory leaves the queue once it was delivered** (2026-10-10, Lane 0; working
+  default). When the run's transcript shows the host cut a dream part to a preview and the
+  part was not fetched again whole, `requeueSpilled` takes that part's new memories back
+  out of the dream's `shown` (a cut `begin` returns the whole fresh list, which rides in
+  part 1), except any the dream acted on (a standing change names it, or it looked it up).
+  They rejoin the queue; the count rides on the run's row (`requeued`), the
+  `dream.requeued` event and the morning's spill line. Without the dream's own index the
+  cut parts are counted `unattributed`, never guessed.
 - `propose` applies each change on its own, within per-dream `LIMITS`, and records it
   with what undo needs (ids and numbers only):
   `merge` (two or more near-copies, not core, into one memory in better words, under
