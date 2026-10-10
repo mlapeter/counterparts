@@ -40,6 +40,20 @@
   the first 2,000 characters and is not told to look). Past 16,384 bytes a page is
   refused, never cut. Below a ceiling of about 530 bytes the wake is now larger than its
   ceiling, because of those fixed lines; the default is 9,000.
+- **Dated items come before the wake's furniture.** A wake could say "Arriving: 1 — no
+  room to list them in this wake" while it still printed yesterday's chapter titles and
+  four handoffs: the room held for the handoffs and "Last here" was never offered to the
+  rest of the wake. Now the wake follows one declared order of what gives way: when an
+  "Arriving:" item has no room, "Work here" shows fewer lines first, then the Yesterday
+  line swaps titles for chapter ids one at a time, then "Last here" is dropped and fewer
+  handoffs are shown in full (the rest still named by id). Only then does a dated item go
+  unlisted. "Still open" keeps its first item before Arriving's second line, as before,
+  but now after those same lanes give way. A plain reminder due the day the wake is read
+  comes first in "Arriving:" (and in the two the wake is offered), and it outranks the
+  self page borrowing past its room: the page steps down to its short version or outline
+  rather than leave it out. The page within its own room still comes first. Beside a page
+  that borrowed, the Yesterday line was sometimes dropped whole; it now keeps its ids. If a
+  dated item still goes unlisted, doctor's Wake line says so in amber, with what to do.
 
 ## 0.3.15 — 2026-10-10
 

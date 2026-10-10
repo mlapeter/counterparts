@@ -485,7 +485,6 @@ describe("at the composition: three dated items, and who gives the room", () => 
     closers.push(store);
     const me = new Self({ store, gate: episodeGate() });
     const w = me.revisePage(page, { by: "owner", reason: "a long page", ...(short === undefined ? {} : { short }) });
-    if (!w.written) console.log(JSON.stringify(w));
     expect(w.written).toBe(true);
     const ids = bodies.map((body, i) =>
       store.put({ type: "memory", kind: "person", body, learnedOn: "2026-10-01", eventDate: DUES[i] ?? "2026-10-11", salience: SALIENT }),
@@ -586,7 +585,7 @@ describe("doctor's Wake line says so, in amber, when a dated item went unlisted"
     const cost = (n: number): number => pageBlockBytes({ top: pageTopLine("whole", n), text: "x".repeat(n), end: PAGE_END_LINES.whole });
     while (cost(size + 1) <= room) size += 1;
     a.counterpart.revisePage(pageOfSize(size), { by: "owner", reason: "at the room" });
-    reminder(a, "2026-10-10", LONG[1]);
+    reminder(a, "2026-10-10", LONG[1] ?? "");
     await worker(dataDir, zone, small);
     expect((lastBriefing(a)["page"] as Record<string, unknown>)["rung"]).toBe("whole");
     expect(lastBriefing(a)["trimmedLanes"]).toEqual({ horizon: 1 });

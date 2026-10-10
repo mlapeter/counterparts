@@ -1865,3 +1865,65 @@ below is the one he agreed, the details are working defaults.
   written back, is left out like a dateline — at write (counted as `frameLines` on the
   revision row) and at render — so no wake prints a stale size or an end line in the
   middle of the page, after which a cut would look whole.
+
+## 2026-10-10 — dated items before the furniture: one list of who gives way (`ROOM_ORDER`)
+
+The owner's wake on lived day 19 (in `~/random`) was 8,922 bytes and read "Arriving: 1 —
+no room to list them in this wake". The item left out was his tax reminder (remind on the
+12th unless paid, due the 15th), while the same wake printed yesterday's chapter titles and
+four handoffs. Why: the handoff pointer and "Last here" are spliced at delivery into a
+reserve the composition subtracts before any lane competes, so no lane could ever take that
+room; and the Yesterday line is furniture the trim cannot pop. The trim loop pops Arriving
+right after "Still open", and nothing below it was poppable.
+
+- **One declared list** (`briefing.ts#ROOM_ORDER`), first to give way to last: `hints`,
+  `craft`, `threads` (the trim loop's), `work`, `openCount`, `yesterday`, `lastHere`,
+  `handoffs`, `arriving`, `openFirst`, `arrivingFirst`, `pageBorrow`, `due`, `page`. Each
+  lane takes room only from the lanes below it, lowest first, and only what it needs
+  (`takeRoom`, which walks the list). The old special cases are entries in it: #350's
+  "Still open keeps its first item before Arriving keeps its second line" is `arriving <
+  openFirst < arrivingFirst`, and #358's "the count beside kept items comes out of Work
+  here and nothing else" is `openCount` just above `work`.
+- **The handoffs' room is lent** (`BriefingRequest.handoffLendBytes`, the root's
+  `handoffReserveBytes`, split out of `wakeReserveBytes`): after "Work here" and after the
+  Yesterday line has given every title to its id. The delivery is unchanged: it already
+  drops "Last here" first and steps the handoff ladder down (fewer in full, the rest by
+  id), and "Work here" goes in what is left — so the order at delivery is the list's order.
+- **The rescues run highest first** after the trim fits: Arriving's head (`arrivingHead`:
+  its due-day plain reminders, or its first line), then "Still open"'s first item and
+  count, then the rest of Arriving. Each lists as many as fit, with the lane's count
+  pinned (an item under a heading with no count reads as the only one), or without the
+  count when only the items fit.
+- **Where dated items sit against the page's borrowing — decided:** an ordinary Arriving
+  line ranks BELOW the page borrowing "Work here" (the page is the self; the line is
+  still a memory recall finds), and a plain reminder due the day the wake is read ranks
+  ABOVE it: the person asked to be told, and the page has its own ladder now. So in
+  `Self#build`, when a due item is unlisted and the page borrowed, the page steps down its
+  ladder until the reminder is listed — never below the first rung that borrows nothing;
+  the page within its own room outranks it, and when even that does not list it the wake
+  stays as composed and doctor says so. The page still takes room from "Work here" only:
+  ranking it high in the list does not let it empty the Yesterday line or the handoffs.
+- **"Due the day the wake is read"** (`prospective/#plainDueOn`): plain, dated the day the
+  wake is composed for or the next. The evening boundary's wake is read the next morning,
+  and once the reminder is told on its day it leaves the lane (`toldForGood`), so a rule of
+  "today" alone would almost never fire when it matters. `prospective#horizon` puts these
+  first before its `HORIZON_ITEMS` cut, and `Self#build` puts them first in the lane.
+- **The Yesterday line keeps its ids.** Its shorter forms now give a title at a time to the
+  chapter's id, down to ids alone (`handoff/last-here.ts#yesterdayShorter`): pointers
+  instead of titles, every chapter still named. And at the floor it takes its widest form
+  that fits within the budget and what is left of "Work here" (it outranks it): beside a
+  page that borrowed, a four-title line was dropped whole, ids and all, measured while
+  building this.
+- **Doctor.** The durable `self.briefing` row gains `trimmedLanes` (per lane, uncapped);
+  the Wake line counts renders in its window that left a dated item unlisted — by that
+  count, or a pre-existing row's trimmed list — adds a clause with the newest date, and is
+  amber with what to do (a short version or a page under its room; the ceiling).
+- **Not changed: the count.** `prospective`'s `HORIZON_ITEMS` (2, v1's calibration) still
+  bounds the lane: a third arriving item is offered to no wake line whatever the room.
+  The composition is proved with three (`wake-dated-first.test.ts`); the full stack with
+  one and two.
+- **The plain line itself never rode the wake.** It is said beside the wake — above its
+  opening comment for the model, as a notice for the person — and claimed only once the
+  envelope carries it; with no room it waits for the first prompt, where recall gives way
+  to it. The part that rode the wake and could be crowded out was the same memory's
+  Arriving line, which is now `due` in the list.

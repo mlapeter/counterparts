@@ -18,9 +18,11 @@
  *     There is no default in this module to fall back to.
  *   - **The trim order is declared and tested** (`TRIM_ORDER`), and trimming eats
  *     from the END of a lane, whose ordering is itself policy: *truncation must
- *     never be iteration luck* (§1 G3–G4). One declared exception, after the
- *     loop: "Still open" keeps its first item before Arriving keeps its second
- *     line (`keepFirstOpen`, 2026-10-09).
+ *     never be iteration luck* (§1 G3–G4). After the loop, what it could not
+ *     pop gives way in ONE declared list (`ROOM_ORDER`, 2026-10-10): "Work
+ *     here", the Yesterday line's titles, "Last here" and the handoffs give
+ *     their room to "Arriving:" and "Still open"'s first item before either
+ *     is left unlisted.
  *   - **The identity SHARE decides how the total is split when lanes compete.**
  *     The budget still governs the composed total (§5 G2); the share is not a
  *     lane budget but a rule about who wins the contested bytes, and it exists

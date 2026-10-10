@@ -190,19 +190,29 @@ proposals and their archive; render and delivery telemetry.
    beside it** (review of #350), **nor for anything else** (2026-10-09, §16): it prints on
    the first rung of its ladder that fits `budget − PAGE_FLOOR_RESERVE_BYTES` — with the
    "Work here" reserve (`lendBytes`) lent to each rung before it steps down (review of
-   #358) — every rung whole text (2026-10-10). **"Still open" keeps its first item and its count
-   before Arriving keeps its second line** (2026-10-09, a working default; the one
-   exception to the trim order above, `briefing.ts#keepFirstOpen`): when the trim loop fits
-   with "Still open" empty, the room for its first item and its "N more" line comes, in
-   order, out of the room the delivery holds for "Work here" (`lendBytes`, the caller's
-   work reserve — the delivery then shows fewer work lines, and the render's `budgetBytes`
-   states what it borrowed), Arriving beyond its first line, and the Yesterday line's
-   titles (`yesterdayShorter`, fewer titles and the rest by count). All or nothing: when
-   even that leaves no room, or the trim already took Arriving's first line, the render is
-   the trim loop's, and the lane collapses to its one line. When the trim loop kept the
-   lane's items but left no room for its count, the count alone is paid for out of "Work
-   here" and nothing else (review of #358): the items stay as the trim kept them, so a
-   smaller budget still keeps a subset.
+   #358) — every rung whole text (2026-10-10). **What gives way to whom is ONE declared
+   list** (2026-10-10, a working default, `briefing.ts#ROOM_ORDER`), first to give way to
+   last: Nearby, craft, "Still open" past its first item (the trim loop's), "Work here"
+   (the delivery's room, `lendBytes`), "Still open"'s count beside items the trim kept, the
+   Yesterday line's titles (a title at a time given way to its id), "Last here" and the
+   handoffs (the delivery's room, `handoffLendBytes`), Arriving past its first line,
+   "Still open"'s first item and count, Arriving's first line, the page borrowing past its
+   room, a plain reminder due the day the wake is read (`Ranked.due`), the page within its
+   room. After the trim loop fits, the lanes that ARE in it are listed again, highest
+   first — Arriving's head (its due-day plain reminders, or its first line), then "Still
+   open"'s first item and count (review of #350), then the rest of Arriving — each taking
+   room only from the lanes below it, lowest first, and only what it needs
+   (`takeRoom`); the delivery then shows fewer work lines, drops "Last here" and shows
+   fewer handoffs in full, the rest by id, and the render's `budgetBytes` states what was
+   lent. All or nothing per lane: when even the last step below it leaves no room, the
+   render is what it was and a lane that lists nothing collapses to its one line. The
+   page is chosen before the lanes and takes room from "Work here" only — past that it
+   steps down its own ladder — and gives its borrowing back only to a due-day plain
+   reminder (`Self#build`: the page steps down until the reminder is listed, never below
+   the first rung that borrows nothing). A render that still left a dated item unlisted
+   says so on its durable row (`self.briefing`'s `trimmedLanes`), and doctor's Wake line is
+   amber. *Named change: until 2026-10-10 "Still open"'s first item took Arriving's second
+   line before the Yesterday line's titles, and never touched the handoffs' room.*
    **What Nearby and the horizon leave out** (2026-10-01, working defaults): a memory a
    later one settled over (`changed` or `corrected`) is in no lane but identity; a memory
    arriving is under Arriving only; and a hint the self page already covers — cited by the
@@ -214,8 +224,10 @@ proposals and their archive; render and delivery telemetry.
    `handoff/last-here.ts#yesterdayLine`), it is printed under the framing line, one line,
    FLATTENED, carrying its date ("Yesterday, 09-30: …") so a wake composed at night reads
    right in the morning. It is furniture the trim loop cannot pop — the lanes trim to make
-   its room inside the same budget — and it rides only while the floor fits with it; a
-   composition that passes `omit` never carries it. **Craft is the session's directory's work and Nearby is personal**
+   its room inside the same budget — and it rides only while the floor fits with it: in
+   its widest form that does (2026-10-10: a title at a time given way to its id), within
+   the budget and what is left of "Work here"'s room, which it outranks; a composition
+   that passes `omit` never carries it. **Craft is the session's directory's work and Nearby is personal**
    (2026-10-01, a working default): a work memory (`work.ts#isWorkMemory` — marked
    `work`, or unmarked and a skill, or an unmarked fact, entity or place written in a
    directory — an absolute path, never a name scope like `claude-desktop:`; an unmarked
