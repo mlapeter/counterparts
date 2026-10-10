@@ -131,8 +131,13 @@ const PULSE_SLOTS = 4
 const DEFAULT_FPS = 12
 /** Events that change the memory count, worth one read of `/api/pulse` (the dear one). */
 const COUNT_EVENTS = new Set(['gate.deposit', 'gate.chunk', 'memory.pruned', 'memory.merged', 'dream.changed', 'contradiction.settled'])
-/** A dashboard older than v0.2 says no `firedToday`: today's counts come from this many of each event's newest rows. */
+/**
+ * A dashboard older than v0.2 says no `firedToday`: today's counts come from
+ * each event's newest rows, this many first, read deeper (doubling) while all
+ * of them are today's, to at most FALLBACK_MAX. Only on a cold read; polls add.
+ */
 const FALLBACK_LIMIT = 150
+const FALLBACK_MAX = 1200
 
 /** The panel's own black, the brain's empty cells included; the dock's grey would read as a box. */
 const BG: readonly [number, number, number] = [5, 8, 12]
@@ -488,17 +493,25 @@ async function readToday($: EngineInterface): Promise<void> {
     return
   }
   run.firedToday = false
-  const answers = await Promise.all(
-    RULE_NAMES.map(name => fetchJson($, `/api/activity?name=${encodeURIComponent(name)}&limit=${String(FALLBACK_LIMIT)}`).catch(() => null)),
-  )
+  const date = dateOf(await $.clock.now())
+  // Each name's newest rows, read again twice as deep while every row read is still today's,
+  // up to FALLBACK_MAX: a busy day's turns (about 250 on 2026-10-10) are counted whole.
+  const todays = async (name: string): Promise<DashEvent[]> => {
+    for (let limit = FALLBACK_LIMIT; ; limit *= 2) {
+      const a = (await fetchJson($, `/api/activity?name=${encodeURIComponent(name)}&limit=${String(limit)}`).catch(() => null)) as { events?: DashEvent[] } | null
+      const events = a?.events ?? []
+      const oldest = events.reduce((m, e) => Math.min(m, e.at), Infinity)
+      if (events.length < limit || dateOf(oldest) !== date || limit * 2 > FALLBACK_MAX) return events
+    }
+  }
+  const answers = await Promise.all(RULE_NAMES.map(todays))
   const rows: SidebarRow[] = []
-  for (const a of answers) {
-    for (const e of (a as { events?: DashEvent[] } | null)?.events ?? []) {
+  for (const events of answers) {
+    for (const e of events) {
       const r = classify(e, run.session, run.startedAt)
       if (r !== null) rows.push(r)
     }
   }
-  const date = dateOf(await $.clock.now())
   const { counts, dreams } = countToday(rows, date, dateOf)
   await update($, todayA, () => ({ date, counts, source: 'feed' as const, dreams }))
 }

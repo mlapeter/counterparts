@@ -238,7 +238,7 @@ function memories(s: BodyState, f: Fold): Line[] {
   if (m === null || m.surfaced.length === 0) return []
   const time = hm(m.at, s.now)
   if (f.mindFolded && s.open?.key.startsWith('mem:') !== true) return [heading('Memories', time, s.w, { folded: true, key: 'head:mind' })]
-  const out: Line[] = [heading('Memories', time, s.w, { key: s.focus === 'mind' ? 'head:mind' : undefined })]
+  const out: Line[] = [heading('Memories', time, s.w, { key: 'head:mind' })]
   m.surfaced.forEach((r, i) => {
     const key = `mem:${String(i)}`
     if (s.open?.key === key) out.push(...opened(s, key, r.title, f))
@@ -266,7 +266,7 @@ function subconscious(s: BodyState, f: Fold): Line[] {
     const right = time === '' ? String(m.footnotes.length) : `${String(m.footnotes.length)} · ${time}`
     return [heading('Subconscious', right, s.w, { folded: true, key: 'head:mind' })]
   }
-  const out: Line[] = [heading('Subconscious', time, s.w)]
+  const out: Line[] = [heading('Subconscious', time, s.w, { key: 'head:mind' })]
   m.footnotes.slice(0, n).forEach((r, i) => {
     const key = `sub:${String(i)}`
     out.push(...(s.open?.key === key ? opened(s, key, r.title, f) : [subTitle(r, key, s.w)]))
@@ -282,7 +282,7 @@ function saved(s: BodyState, f: Fold): Line[] {
   const n = s.saved.length
   if (n === 0) return []
   if (f.savedFolded && s.open?.key.startsWith('saved:') !== true) return [heading('Saved this session', String(n), s.w, { folded: true, key: 'head:saved' })]
-  const out: Line[] = [heading('Saved this session', String(n), s.w, { key: s.focus === 'saved' ? 'head:saved' : undefined })]
+  const out: Line[] = [heading('Saved this session', String(n), s.w, { key: 'head:saved' })]
   // An opened item is never folded away: the list shows at least down to it.
   const openIdx = s.saved.findIndex(it => s.open?.key === `saved:${it.key}`)
   for (const it of s.saved.slice(0, Math.min(Math.max(f.savedShow, openIdx + 1), n))) {
@@ -327,7 +327,7 @@ function chart(s: BodyState, f: Fold): Line[] {
   const CNT = 4
   const barW = Math.max(4, s.w - NAME - CNT)
   const max = Math.max(1, ...MECHS.map(m => t.counts[m.id] ?? 0))
-  const out: Line[] = [heading('Mechanisms today', 'times fired', s.w, { key: s.focus === 'chart' ? 'head:chart' : undefined })]
+  const out: Line[] = [heading('Mechanisms today', 'times fired', s.w, { key: 'head:chart' })]
   for (const m of MECHS) {
     const v = t.counts[m.id]
     const key = `mech:${m.id}`
