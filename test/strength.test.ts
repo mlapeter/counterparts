@@ -35,7 +35,8 @@ import type { MemoryPhysics, Salience } from "../src/core/physics/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { CURVE_META_KEY, bandMoveCause } from "../src/core/sleep/decay.js";
 import { OBSERVER_READ_FLOOR, SCHEMA_VERSION, Store, V13_UPGRADE_KEY, paths } from "../src/core/store/index.js";
-import { datedHold, rowToPhysics } from "../src/core/store/operational.js";
+import { SELF_PAGE_ROLE_SPELLED, datedHold, rowToPhysics } from "../src/core/store/operational.js";
+import { SELF_PAGE_ROLE } from "../src/core/self/page.js";
 import { HANDOFF_KIND, HANDOFF_LIFE_DAYS, HANDOFF_META_WRITTEN_DAY, HANDOFF_ROLE } from "../src/core/handoff/index.js";
 import { HANDOFF_SHAPE } from "../src/core/sleep/types.js";
 import { addDays } from "../src/core/time.js";
@@ -312,6 +313,33 @@ describe("the dated hold (review 07 C1/C2)", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("exit at the floor, and what never exits (review 03 C3/C4)", () => {
+  test("the self page is never archived, never ranked below reach, and its versions stay readable (review of #372)", () => {
+    expect(SELF_PAGE_ROLE_SPELLED).toBe(SELF_PAGE_ROLE);
+    const s = store();
+    let date = "2026-10-01";
+    runCycle({ store: s, date });
+    const page = s.put({ type: "schema", kind: "self", title: "Self page", body: "Who I am, first draft.", meta: { role: SELF_PAGE_ROLE }, physics: { protected: true } });
+    // A page that somehow lost its `protected` flag is still kept, by name.
+    const bare = s.put({ type: "schema", kind: "self", title: "Self page", body: "A page with no flag.", meta: { role: SELF_PAGE_ROLE } });
+    date = addDays(date, 1);
+    runCycle({ store: s, date });
+    s.revise(page, { body: "Who I am, second draft." });
+    const revisedOn = s.livedDay();
+    for (let i = 0; i < 40; i++) {
+      date = addDays(date, 1);
+      runCycle({ store: s, date });
+    }
+    expect(s.livedDay() - revisedOn).toBeGreaterThanOrEqual(30);
+    for (const id of [page, bare]) {
+      expect(s.row(id)?.archived).toBe(0);
+      expect(s.ranking(id)).toBeUndefined();
+    }
+    expect(s.belowReachCount()).toBe(0);
+    const versions = s.versions(page);
+    expect(versions.length).toBe(1);
+    expect(s.readVersion(page, versions[0]?.seq as number).body).toBe("Who I am, first draft.");
+  });
+
   test("sleep's spelling of the handoff's shape is the handoff module's", () => {
     expect(HANDOFF_SHAPE).toEqual({ role: HANDOFF_ROLE, kind: HANDOFF_KIND, writtenDay: HANDOFF_META_WRITTEN_DAY, lifeDays: HANDOFF_LIFE_DAYS });
   });

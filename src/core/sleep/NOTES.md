@@ -994,3 +994,11 @@ index added — `memories(archived, birth_day)` waits for Group 1's single migra
 After the merge with Group 1a: the census takes `Store#bornOn`'s grouped count where the port
 has it and this listing otherwise, and decay counts its `archived` skips on the turn-down as on
 the full walk (`turnDownDue` lists live rows only).
+
+- **The self page (review of #372, 2026-10-10):** it was already safe from the prune (born
+  `protected`), but the decay pass ranked it and the dashboard's below-reach count included
+  it. It is now outside reach altogether (`operational.ts#reachExempt`, role `page`) and the
+  prune skips it by name (`types.ts#isSelfPageRow`), so a page whose flag were lost is still
+  kept. Its archived versions keep the ordinary retention (90 lived days, owner ruling
+  2026-09-18), which #372 does not change; `test/strength.test.ts` reads one back 30+ lived
+  days after the revision.

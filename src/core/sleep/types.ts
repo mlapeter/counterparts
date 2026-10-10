@@ -16,6 +16,7 @@
  * class". The real `Store` satisfies it structurally, unchanged.
  */
 
+import { SELF_PAGE_ROLE_SPELLED } from "../store/operational.js";
 import type { Band, Kind, MemoryPhysics } from "../types.js";
 import type {
   EventLogCensus,
@@ -672,6 +673,22 @@ export function isLiveHandoffRow(row: Pick<MemoryRow, "type" | "kind" | "meta">,
   try {
     const written = (JSON.parse(row.meta) as Record<string, unknown>)[HANDOFF_SHAPE.writtenDay];
     return typeof written === "number" && Number.isFinite(written) && HANDOFF_SHAPE.lifeDays - (day - written) > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * THE SELF PAGE (`self/page.ts#SELF_PAGE_ROLE`): a schema row of the self
+ * kind whose meta says `role: page`. Never pruned (2026-10-10, review of
+ * #372): `protected` already blocks the floor, and the prune skips it by name
+ * too, so a page whose flag were ever lost is still kept. Read structurally.
+ */
+export function isSelfPageRow(row: Pick<MemoryRow, "type" | "kind" | "meta">): boolean {
+  if (row.type !== "schema" || row.kind !== "self" || !row.meta.includes(SELF_PAGE_ROLE_SPELLED)) return false;
+  try {
+    const meta = JSON.parse(row.meta) as { role?: unknown } | null;
+    return meta !== null && typeof meta === "object" && meta.role === SELF_PAGE_ROLE_SPELLED;
   } catch {
     return false;
   }

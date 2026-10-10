@@ -2134,6 +2134,9 @@ export function rowToSalience(row: MemoryRow): Salience {
  */
 export const RECURRING_META = "recurring";
 
+/** `self/page.ts#SELF_PAGE_ROLE`, spelled here (store imports no core module); a test holds them equal. */
+export const SELF_PAGE_ROLE_SPELLED = "page";
+
 /**
  * THE DATED HOLD of one row on calendar day `today` (2026-10-10, Group 1;
  * physics §5.4, review 07 C1/C2), or null for a memory with no reminder date:
@@ -2203,7 +2206,11 @@ export function datedHold(
  *   - a HANDOFF (a schema row whose meta says `role: handoff`) — its own
  *     lived-day expiry is its clock;
  *   - an ENTITY CARD (`role: entity`) — a name's card, a stub at salience 0 by
- *     design, faded by `schemas/`' own verdict, never by the floor.
+ *     design, faded by `schemas/`' own verdict, never by the floor;
+ *   - the SELF PAGE (`role: page`, `self/page.ts#SELF_PAGE_ROLE`) — never
+ *     pruned, decayed below reach, merged or deduplicated (the `self_page`
+ *     tool's promise). The prune also skips it by name (`sleep/prune.ts`),
+ *     beside the `protected` flag it is born with.
  *
  * Read off the row's own columns and meta; no prose read. Decided by
  * g1a-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: each
@@ -2216,7 +2223,7 @@ export function reachExempt(row: Pick<MemoryRow, "type" | "source" | "origin_ref
   if (row.type !== "schema" || typeof row.meta !== "string" || !row.meta.includes('"role"')) return false;
   try {
     const role = (JSON.parse(row.meta) as { role?: unknown } | null)?.role;
-    return role === "handoff" || role === "entity";
+    return role === "handoff" || role === "entity" || role === SELF_PAGE_ROLE_SPELLED;
   } catch {
     return false;
   }

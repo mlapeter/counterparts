@@ -33,7 +33,7 @@ import { recurrenceOfRow } from "../store/index.js";
 import { rowToPhysics } from "../store/operational.js";
 import { PRUNE_ARCHIVE_REASON, PRUNE_RECORD_PREFIX } from "./tunables.js";
 import type { MemoryRow, PhaseCtx, PhaseOutcome, PrunedRecord } from "./types.js";
-import { countSkip, emptyOutcome, isEntityCard, isJournal, isJournalCopy, isLiveHandoffRow } from "./types.js";
+import { countSkip, emptyOutcome, isEntityCard, isJournal, isJournalCopy, isLiveHandoffRow, isSelfPageRow } from "./types.js";
 import type { Phase } from "./types.js";
 import { readCursor, resumeIndex, writeCursor } from "./markers.js";
 
@@ -83,6 +83,7 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
   out.skipped["entity-card"] = 0;
   out.skipped["journal-copy"] = 0;
   out.skipped["handoff-live"] = 0;
+  out.skipped["self-page"] = 0;
   const blocked: Record<string, number> = {};
   const pruned: PrunedRecord[] = [];
   const recordFailures: { id: string; error: string }[] = [];
@@ -144,6 +145,13 @@ export function runPrune(ctx: PhaseCtx): PruneResult {
     // Once expired, it is left to the prune, as the handoff module says.
     if (isLiveHandoffRow(row, day)) {
       countSkip(out, "handoff-live");
+      continue;
+    }
+    // THE SELF PAGE IS NEVER PRUNED (2026-10-10, review of #372): `protected`
+    // already blocks the floor; this names it, so a page that ever lost the
+    // flag would still be kept.
+    if (isSelfPageRow(row)) {
+      countSkip(out, "self-page");
       continue;
     }
     // An entity card fades in the next phase, under `schemas/`' gentler verdict

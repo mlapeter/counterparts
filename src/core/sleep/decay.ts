@@ -68,7 +68,7 @@ import type { Band, DatedHold } from "../physics/index.js";
 import { reachExempt, rowToPhysics } from "../store/operational.js";
 import { TUNABLES } from "./tunables.js";
 import type { BandTransition, PhaseCtx, PhaseOutcome } from "./types.js";
-import { countSkip, emptyOutcome, isEntityCard, isHandoffRow, isJournal, isJournalCopy, recordBandTransition } from "./types.js";
+import { countSkip, emptyOutcome, isEntityCard, isHandoffRow, isJournal, isJournalCopy, isSelfPageRow, recordBandTransition } from "./types.js";
 import { censusDue, upgradeCensus } from "./upgrade.js";
 import type { StrengthCache, StrengthRow } from "./strength-cache.js";
 import type { Phase } from "./types.js";
@@ -162,6 +162,8 @@ export const DECAY_SKIPS = [
   "handoff",
   /** An entity card — a stub at salience 0, faded by `schemas/`' own verdict (2026-10-10). */
   "entity-card",
+  /** The self page — never decayed below reach (2026-10-10, review of #372). */
+  "self-page",
   "identity-band",
   "reinforced-today",
   "at-floor",
@@ -294,7 +296,10 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
     // earlier build wrote for one is dropped, so the ambient prefilter never
     // reads it as below reach.
     if (reachExempt(row)) {
-      countSkip(out, isJournalCopy(row) ? "journal-copy" : isHandoffRow(row) ? "handoff" : isEntityCard(row) ? "entity-card" : "journal");
+      countSkip(
+        out,
+        isJournalCopy(row) ? "journal-copy" : isHandoffRow(row) ? "handoff" : isEntityCard(row) ? "entity-card" : isSelfPageRow(row) ? "self-page" : "journal",
+      );
       nextChanges.push({ id, day: NEVER_CHANGES });
       if (prior.has(id)) dropped.push(id);
       continue;
