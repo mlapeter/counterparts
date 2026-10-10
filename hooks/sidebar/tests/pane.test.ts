@@ -549,6 +549,17 @@ test('the band can draw before session.start has read the stored view: quiet sta
   expect(w.store['view']).toBe('quiet')
 })
 
+test('a pane drawn before session.start has named the session still finds what this session saved (a resumed session’s first read)', async ($, on) => {
+  const w = world(on)
+  const ui = await mount($, w, 'terminal') // no session.start yet: the first read asks for the session's id itself
+  await settle(w)
+  const lines = await bodyLines(ui)
+  const s = lines.findIndex(l => l.startsWith('Saved this session'))
+  expect(s).toBeGreaterThanOrEqual(0)
+  expect(lines.slice(s + 1, s + 3).join(' ')).toContain('The sidebar draws the brain in braille')
+  await ui.unmount()
+})
+
 test('/counterparts quiet, hide and rail all mean quiet; the commands say what they did', async ($, on) => {
   const w = world(on)
   await start($, w)
