@@ -30,6 +30,13 @@
  * Commands written before this carry `run <script>` alone: they still parse
  * (`parseScriptInvocation`), `doctor` names them, and `counterparts connect`
  * rewrites them.
+ *
+ * NOT COVERED (review of #349, measured on Bun 1.3.10): the same project's
+ * `bunfig.toml` with a TOP-LEVEL `preload = [...]` still runs that code inside
+ * every Bun launch started there, `--no-env-file` or not, through `run` or a
+ * bare script, the plugin's launcher included (`[run] preload` does not apply
+ * to these launches). `--config=<an empty file>` before the script stops it.
+ * Left for its own change: it alters every written command again.
  */
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
