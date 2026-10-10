@@ -178,12 +178,102 @@ describe("connect and Claude Desktop's entry", () => {
     expect(isOurDesktopEntry("nope")).toBe(false);
   });
 
-  test("repairDesktop never throws, and refuses a file it cannot parse", () => {
+  test("repairDesktop never throws, and refuses a file it cannot parse — and says why", () => {
     const path = desktopConfigPath(home);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, "{ not json");
-    expect(repairDesktop({ home, exe: BUN, desktopRunning: false, dryRun: false, now: Date.now() }).outcome).toBe("none");
+    const r = repairDesktop({ home, exe: BUN, desktopRunning: false, dryRun: false, now: Date.now() });
+    expect(r.outcome).toBe("refused");
+    expect(r.detail).toContain("does not parse as JSON");
+    expect(r.detail).toContain("cannot tell whether it holds a counterparts entry");
     expect(readFileSync(path, "utf8")).toBe("{ not json");
+    // An empty file is not a broken one: nothing in it, nothing to say.
+    writeFileSync(path, "");
+    expect(repairDesktop({ home, exe: BUN, desktopRunning: false, dryRun: false, now: Date.now() }).outcome).toBe("none");
+  });
+
+  // ── review of #354 ────────────────────────────────────────────────────────
+
+  test("a commented Desktop file: connect says so, and the file and folder are left exactly as they were", async () => {
+    const path = desktopConfigPath(home);
+    mkdirSync(dirname(path), { recursive: true });
+    const raw = `{\n  // my servers\n  "mcpServers": {\n    "${MCP_SERVER_NAME}": ${JSON.stringify(oldEntry())}\n  }\n}\n`;
+    writeFileSync(path, raw);
+    const r = await connect(lister(false));
+    expect(r.code).toBe(EXIT.ok);
+    expect(r.said).toContain("Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json holds comments");
+    expect(r.said).toContain("nothing in it was changed");
+    expect(readFileSync(path, "utf8")).toBe(raw);
+    expect(backups()).toHaveLength(0);
+  });
+
+  test("a Desktop-written file with many servers: only our entry's command and args change, every other byte stays", async () => {
+    const path = desktopConfigPath(home);
+    mkdirSync(dirname(path), { recursive: true });
+    const before = {
+      globalShortcut: "Alt+Space",
+      "//": "a comment-like key some people keep",
+      mcpServers: {
+        filesystem: { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/x/Desktop", "/Users/x/Down loads"] },
+        github: { command: "docker", args: ["run", "-i", "--rm", "ghcr.io/github/github-mcp-server"], env: { GITHUB_TOKEN: "ghp_x" } },
+        [MCP_SERVER_NAME]: { ...oldEntry(), disabled: false, note: "ünïcödé — 名前 \"quoted\" https://x.example/y" },
+        python: { command: "/usr/bin/python3", args: ["-m", "srv", "--port", "8080"], env: {}, timeout: 30000, flags: [true, null, 1.5] },
+        remote: { url: "https://mcp.example.com/sse", headers: { Authorization: "Bearer t" } },
+      },
+      preferences: { menuBarEnabled: true, nested: { deeper: [{ a: 1 }, { b: [] }] } },
+      _comment: "kept",
+    };
+    // Four spaces and no final newline: a shape other than this package's default.
+    writeFileSync(path, JSON.stringify(before, null, 4));
+    const r = await connect(lister(false));
+    expect(r.said).toContain("Claude Desktop: rewrote its counterparts entry");
+    const after = readFileSync(path, "utf8");
+    const want = structuredClone(before) as typeof before;
+    (want.mcpServers[MCP_SERVER_NAME] as Record<string, unknown>)["args"] = scriptArgs(MCP_SCRIPT, BUN);
+    expect(after).toBe(JSON.stringify(want, null, 4));
+    expect(backups()).toHaveLength(1);
+    expect(readFileSync(join(dirname(path), backups()[0] ?? ""), "utf8")).toBe(JSON.stringify(before, null, 4));
+  });
+
+  test("a hand-edited file (inline arrays, CRLF, escapes): every other server and key reads back the same, in the same order", async () => {
+    const path = desktopConfigPath(home);
+    mkdirSync(dirname(path), { recursive: true });
+    const entry = JSON.stringify(oldEntry());
+    const raw = [
+      "{",
+      '  "mcpServers": {',
+      '    "a": { "command": "npx", "args": ["-y", "a-server"], "env": { "K": "caf\\u00e9 \\/ \\t" } },',
+      `    "${MCP_SERVER_NAME}": ${entry},`,
+      '    "z": { "command": "/opt/z", "args": [] }',
+      "  },",
+      '  "isUsingBuiltInNodeForMcp": false,',
+      '  "url": "https://example.com//path"',
+      "}",
+      "",
+    ].join("\r\n");
+    writeFileSync(path, raw);
+    const beforeValue = JSON.parse(raw) as { mcpServers: Record<string, unknown> } & Record<string, unknown>;
+    await connect(lister(false));
+    const after = readFileSync(path, "utf8");
+    const afterValue = JSON.parse(after) as typeof beforeValue;
+    expect(Object.keys(afterValue)).toEqual(Object.keys(beforeValue));
+    expect(Object.keys(afterValue.mcpServers)).toEqual(Object.keys(beforeValue.mcpServers));
+    expect(afterValue.mcpServers["a"]).toEqual(beforeValue.mcpServers["a"]);
+    expect(afterValue.mcpServers["z"]).toEqual(beforeValue.mcpServers["z"]);
+    expect(afterValue["url"]).toBe("https://example.com//path");
+    expect((afterValue.mcpServers[MCP_SERVER_NAME] as Record<string, unknown>)["args"]).toEqual(scriptArgs(MCP_SCRIPT, BUN));
+    expect(after.includes("\r\n")).toBe(true);
+    expect(after.replace(/\r\n/g, "").includes("\n")).toBe(false);
+  });
+
+  test("an entry of ours with arguments added after the script is somebody's edit: left alone, nothing said", async () => {
+    writeDesktop({ ...oldEntry(), args: ["run", MCP_SCRIPT, "--verbose"] });
+    const before = desktopFile();
+    expect(isOurDesktopEntry(JSON.parse(before).mcpServers[MCP_SERVER_NAME])).toBe(false);
+    expect(isOurDesktopEntry({ command: "/d/bin/counterparts", args: ["mcp", "--extra"] })).toBe(false);
+    const r = await connect(lister(false));
+    expect(r.said).not.toContain("Claude Desktop");
+    expect(desktopFile()).toBe(before);
   });
 
   test("Claude Desktop's own process is recognised, its helpers and mentions are not", () => {
@@ -191,6 +281,43 @@ describe("connect and Claude Desktop's entry", () => {
     expect(DESKTOP_APP_PROCESS.test("/Applications/Claude.app/Contents/MacOS/Claude --some-flag")).toBe(true);
     expect(DESKTOP_APP_PROCESS.test("/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper")).toBe(false);
     expect(DESKTOP_APP_PROCESS.test("vim /notes/Claude.app/Contents/MacOS/Claude-notes.txt")).toBe(false);
+  });
+
+  test("captured `ps` lines (review of #354): Desktop's main process only — never Claude Code, nor a helper that runs with Desktop closed", () => {
+    // Captured on the owner's Mac, 2026-10-09, with Desktop CLOSED: Chrome's
+    // native-messaging host lives inside Claude.app and runs whenever Chrome
+    // does. Matching it would block `connect` forever with nothing to quit.
+    const closed = [
+      "/Applications/Claude.app/Contents/Helpers/chrome-native-host chrome-extension://fcoeoabgfenejglbffodgkkbkcdhcgfn/",
+      "claude",
+      "claude --resume ce5829f0-990c-4b80-ada0-05a94e2bfc05",
+      "claude -p --model claude-haiku-5-5 --output-format json --system-prompt You are an AI assistant",
+      // Squirrel's updater runs after the app has quit.
+      "/Applications/Claude.app/Contents/Frameworks/Squirrel.framework/Resources/ShipIt com.anthropic.claudefordesktop.ShipIt /Users/x/Library/Caches/com.anthropic.claudefordesktop.ShipIt/ShipItState.plist",
+      "/Applications/Claude.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler --no-rate-limit",
+      // Desktop's other helpers, by the bundle's own layout (Contents/Helpers, Frameworks).
+      "/Applications/Claude.app/Contents/Helpers/disclaimer /Users/x/.bun/bin/bun run serve.ts",
+      "/Applications/Claude.app/Contents/Helpers/app-cu-helper",
+      "/Applications/Claude.app/Contents/Helpers/Claude iOS Sim.app/Contents/MacOS/Claude iOS Sim",
+      // Electron's helpers, in the shape VS Code's run on this Mac.
+      "/Applications/Claude.app/Contents/Frameworks/Claude Helper (GPU).app/Contents/MacOS/Claude Helper (GPU) --type=gpu-process --user-data-dir=/Users/x/Library/Application Support/Claude",
+      "/Applications/Claude.app/Contents/Frameworks/Claude Helper (Renderer).app/Contents/MacOS/Claude Helper (Renderer) --type=renderer",
+      "/Applications/Claude.app/Contents/Frameworks/Claude Helper (Plugin).app/Contents/MacOS/Claude Helper (Plugin) --type=utility",
+      // Somebody else's app with Claude in its name.
+      "/Applications/Claude Notes.app/Contents/MacOS/Claude Notes",
+      "/Users/x/Library/Application Support/Claude/claude-code/2.1.0/claude --output-format stream-json",
+    ];
+    for (const line of closed) expect([line, DESKTOP_APP_PROCESS.test(line)]).toEqual([line, false]);
+    // The main process, as an Electron app's runs (VS Code's on this Mac:
+    // `/Applications/Visual Studio Code.app/Contents/MacOS/Code docs/ROADMAP.md`),
+    // under /Applications, ~/Applications, or a translocated copy.
+    const open = [
+      "/Applications/Claude.app/Contents/MacOS/Claude",
+      "/Users/x/Applications/Claude.app/Contents/MacOS/Claude",
+      "/private/var/folders/ab/T/AppTranslocation/0F1E/d/Claude.app/Contents/MacOS/Claude",
+      "/Applications/Claude.app/Contents/MacOS/Claude --enable-logging",
+    ];
+    for (const line of open) expect([line, DESKTOP_APP_PROCESS.test(line)]).toEqual([line, true]);
   });
 });
 
@@ -215,8 +342,8 @@ describe("doctor's Runtime line reads Claude Desktop's entry", () => {
     const { host, line } = runtimeLine();
     expect(host.runtimes).toEqual([{ exe: BUN, kind: "bun", present: true, used: ["desktop"], projectEnv: ["desktop"] }]);
     expect(line?.severity).toBe("amber");
-    expect(line?.detail).toContain("Claude Desktop's server run under bun");
-    expect(line?.detail).toContain("Claude Desktop's server was wired before Counterparts told Bun to skip a project's .env");
+    expect(line?.detail).toContain("Claude Desktop server run under bun");
+    expect(line?.detail).toContain("the Claude Desktop server was wired before Counterparts told Bun to skip a project's .env");
     expect(line?.fix).toMatch(/^Quit Claude Desktop first/);
     expect(line?.fix).toContain("counterparts connect");
     expect(line?.fix).toContain("reopen Claude Desktop");
@@ -238,6 +365,29 @@ describe("doctor's Runtime line reads Claude Desktop's entry", () => {
     const { line } = runtimeLine();
     expect(line?.severity).toBe("amber");
     expect(line?.data["projectEnv"]).toBe("desktop");
-    expect(line?.detail).toContain("the Claude Desktop's server was wired before");
+    expect(line?.detail).toContain("the Claude Desktop server was wired before");
+  });
+
+  test("Claude Code's hooks and Desktop both old: one amber, Claude Code's named first, the fix says quit Desktop then connect", () => {
+    writeDesktop(oldEntry());
+    const host = readHost(home, home, {});
+    const line = doctorFindings({
+      configPath: cfg,
+      configReason: "loaded",
+      config: {},
+      dir: store,
+      store: null,
+      today: "2026-10-10",
+      refusals: {},
+      host: {
+        ...host,
+        runtimes: [
+          { exe: BUN, kind: "bun", present: true, used: ["hooks", "mcp", "desktop"], projectEnv: ["hooks", "mcp", "desktop"] },
+        ],
+      },
+    }).find((f) => f.key === "runtime");
+    expect(line?.severity).toBe("amber");
+    expect(line?.detail).toContain("the hooks and mcp and Claude Desktop server were wired before");
+    expect(line?.fix).toMatch(/^Quit Claude Desktop first .*Run: counterparts connect/);
   });
 });
