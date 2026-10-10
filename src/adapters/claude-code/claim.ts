@@ -66,17 +66,31 @@
  * a session that woke up with no memory. A single wiring therefore behaves
  * exactly as before, at the cost of two small writes per event.
  *
+ * A CLAIMS FILE THAT IS NOT A DATABASE IS SET ASIDE AND REBUILT, ONCE (review of
+ * #359, 2026-10-10). Before, a corrupt or foreign file was a lasting fault: a
+ * stderr line on every event, and the backstop off until somebody deleted it.
+ * Now the write that meets one (`isUnreadableDatabase`) moves it — with its
+ * `-wal` and `-shm`, so a stale log is never replayed into the new file — to
+ * `hook-claims.unreadable-<epoch ms>.sqlite` beside it, keeping only the newest
+ * such copy, and tries once more on a fresh file. The copy is the durable trace:
+ * doctor's `Hook claims` line reads it (`claimsSetAside`). Nothing in the file
+ * outlives the window, so nothing is lost but the claims of the last 15 s. The
+ * event is delivered whatever happens.
+ *
+ * PRIVATE, AS `log/` IS: the directory is made 0700 and the file 0600 (SQLite
+ * gives its `-wal` and `-shm` the database file's mode).
+ *
  * WHY ONE WIRING CLAIMS TOO. A hook cannot know it has no twin: the claim is the
  * backstop for exactly the case where reading the host's wiring got it wrong
  * (2026-10-09), so it cannot be skipped on that same reading. What one wiring
  * pays is the two small writes, on a file nothing else writes.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { HOOK_CLAIM_LOST_EVENT } from "../../core/counterpart.js";
-import { isLocked, openDb } from "../../core/store/db.js";
+import { isLocked, isUnreadableDatabase, openDb } from "../../core/store/db.js";
 import { sessionsDir } from "../sessions.js";
 import type { HookName } from "./hooks.js";
 
@@ -120,9 +134,97 @@ const CLAIMS_DDL = "CREATE TABLE IF NOT EXISTS claims (key TEXT PRIMARY KEY, val
  * every 100 pages rather than SQLite's 1000, so it stays under half a megabyte
  * beside a row of a few kilobytes.
  */
-function updateClaims(dataDir: string, fn: (current: string | undefined) => string | undefined): void {
+function updateClaims(dataDir: string, fn: (current: string | undefined) => string | undefined): { readonly setAside: string | null } {
   const path = claimsPath(dataDir);
-  mkdirSync(dirname(path), { recursive: true });
+  try {
+    transactClaims(path, fn);
+    return { setAside: null };
+  } catch (err) {
+    if (!isUnreadableDatabase(err)) throw err;
+    // A twin that met the same file may have set it aside and rebuilt it in
+    // the meantime; then this one only tries again, on the file it made.
+    const setAside = stillUnreadable(path) ? setClaimsAside(path) : null;
+    transactClaims(path, fn);
+    return { setAside };
+  }
+}
+
+/** The prefix and suffix of a claims file set aside as unreadable, beside the live one. */
+export const CLAIMS_SET_ASIDE_PREFIX = "hook-claims.unreadable-";
+const CLAIMS_SET_ASIDE_SUFFIX = ".sqlite";
+
+/** True when the file at `path` still cannot be read as a database (it may
+ *  have been set aside and rebuilt by a twin since this process met it). */
+function stillUnreadable(path: string): boolean {
+  try {
+    const db = openDb(path, { wal: true });
+    try {
+      db.get("SELECT count(*) AS n FROM sqlite_master");
+    } finally {
+      db.close();
+    }
+    return false;
+  } catch (err) {
+    return isUnreadableDatabase(err);
+  }
+}
+
+/**
+ * Move the unreadable claims file aside, with its `-wal` and `-shm` (a stale
+ * log replayed into a new file would be the corruption all over again), to
+ * `hook-claims.unreadable-<epoch ms>.sqlite`, after removing any older copy:
+ * one is kept, so it is evidence and never a pile. Returns the copy's path.
+ * Throws when the file itself cannot be moved.
+ */
+function setClaimsAside(path: string, now: number = Date.now()): string {
+  const dir = dirname(path);
+  for (const name of readdirSync(dir)) {
+    if (name.startsWith(CLAIMS_SET_ASIDE_PREFIX)) rmSync(join(dir, name), { force: true });
+  }
+  const aside = join(dir, `${CLAIMS_SET_ASIDE_PREFIX}${String(now)}${CLAIMS_SET_ASIDE_SUFFIX}`);
+  renameSync(path, aside);
+  for (const sidecar of ["-wal", "-shm"]) {
+    try {
+      renameSync(`${path}${sidecar}`, `${aside}${sidecar}`);
+    } catch {
+      /* not there: nothing to carry */
+    }
+  }
+  return aside;
+}
+
+/**
+ * THE TRACE DOCTOR READS: the claims file set aside as unreadable, if one is
+ * there — its file name and when it was set aside (from the name). Null when
+ * none is, or the directory cannot be read. Never throws.
+ */
+export function claimsSetAside(dataDir: string): { readonly name: string; readonly at: number } | null {
+  let names: string[];
+  try {
+    names = readdirSync(dirname(claimsPath(dataDir)));
+  } catch {
+    return null;
+  }
+  let newest: { name: string; at: number } | null = null;
+  for (const name of names) {
+    if (!name.startsWith(CLAIMS_SET_ASIDE_PREFIX) || !name.endsWith(CLAIMS_SET_ASIDE_SUFFIX)) continue;
+    const at = Number(name.slice(CLAIMS_SET_ASIDE_PREFIX.length, -CLAIMS_SET_ASIDE_SUFFIX.length));
+    if (!Number.isFinite(at)) continue;
+    if (newest === null || at > newest.at) newest = { name, at };
+  }
+  return newest;
+}
+
+/** The one transaction, on a connection opened for it and closed after it. */
+function transactClaims(path: string, fn: (current: string | undefined) => string | undefined): void {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  // Made 0600 before SQLite makes it 0644; its `-wal` and `-shm` take this mode.
+  // A twin may make it first, and anything else wrong surfaces at the open.
+  try {
+    closeSync(openSync(path, "wx", 0o600));
+  } catch {
+    /* there already, or the open below says why not */
+  }
   const db = openDb(path, { wal: true });
   try {
     db.exec(`PRAGMA busy_timeout = ${String(CLAIM_WAIT_MS)}`);
@@ -245,6 +347,24 @@ export interface Claim {
   /** Set when the claim could not be written because another claim held the
    *  file past `CLAIM_WAIT_MS`: contention, which passes, not a fault. */
   readonly busy?: boolean;
+  /** Why nothing was claimed, as a code the process log may write as itself
+   *  (`SQLITE_BUSY`, `SQLITE_NOTADB`, `ENOTDIR`, …), where `detail` is a sentence. */
+  readonly code?: string;
+  /** The copy an unreadable claims file was moved to before this claim was
+   *  made on a fresh one (`setClaimsAside`). */
+  readonly setAside?: string;
+}
+
+/**
+ * An error as a code the process log writes as itself: the driver's or the
+ * file system's own (`SQLITE_NOTADB`, `EACCES`); `node:sqlite`'s number as
+ * `SQLITE_<n>`; else the error's class. Never its message.
+ */
+function codeOf(err: unknown): string {
+  const e = err as { code?: unknown; errcode?: unknown; name?: unknown } | null | undefined;
+  if (typeof e?.errcode === "number") return `SQLITE_${String(e.errcode)}`;
+  if (typeof e?.code === "string" && /^[A-Za-z0-9_]{1,40}$/.test(e.code)) return e.code;
+  return typeof e?.name === "string" && /^[A-Za-z0-9_]{1,40}$/.test(e.name) ? e.name : "unknown";
 }
 
 /**
@@ -261,8 +381,11 @@ export function claimDelivery(doors: ClaimDoors, input: ClaimInput): Claim {
   const fresh = (h: Held): boolean => Math.abs(now - Math.max(h.at, h.ended ?? h.at)) < CLAIM_WINDOW_MS;
   // Written inside the transaction's callback, read after it.
   const seen: { heldBy: string | null } = { heldBy: null };
+  let setAside: string | null = null;
   try {
-    updateClaims(doors.store.dir, (current) => {
+    ({ setAside } = updateClaims(doors.store.dir, (current) => {
+      // Reset: the callback runs again on a rebuilt file (`updateClaims`).
+      seen.heldBy = null;
       const claims = readClaims(current);
       const held = claims[key];
       // A TWIN: the same event, and this process began before the holder ended.
@@ -275,13 +398,15 @@ export function claimDelivery(doors: ClaimDoors, input: ClaimInput): Claim {
         .sort((a, b) => b[1].at - a[1].at)
         .slice(0, CLAIM_KEEP - 1);
       return writeClaims(Object.fromEntries([[key, { at: now, side: input.side, started }], ...kept]));
-    });
+    }));
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
-    return isLocked(err) ? { outcome: "unclaimed", detail, busy: true } : { outcome: "unclaimed", detail };
+    const code = codeOf(err);
+    return isLocked(err) ? { outcome: "unclaimed", detail, code, busy: true } : { outcome: "unclaimed", detail, code };
   }
+  const rebuilt = setAside === null ? {} : { setAside };
   const winner = seen.heldBy;
-  if (winner === null) return { outcome: "won", at: now };
+  if (winner === null) return { outcome: "won", at: now, ...rebuilt };
   try {
     doors.noteAdapterEvent(HOOK_CLAIM_LOST_EVENT, {
       hook: input.hook,
@@ -292,7 +417,7 @@ export function claimDelivery(doors: ClaimDoors, input: ClaimInput): Claim {
   } catch {
     // The row is the record, not the decision: the twin still stands down.
   }
-  return { outcome: "lost", heldBy: winner };
+  return { outcome: "lost", heldBy: winner, ...rebuilt };
 }
 
 /**
@@ -305,6 +430,7 @@ export function finishClaim(doors: Pick<ClaimDoors, "store">, key: string, at: n
   let stamped = false;
   try {
     updateClaims(doors.store.dir, (current) => {
+      stamped = false;
       const claims = readClaims(current);
       const held = claims[key];
       if (held === undefined || held.at !== at) return undefined;

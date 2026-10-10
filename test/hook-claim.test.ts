@@ -14,9 +14,9 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import {
   CLAIMS_ROW,
@@ -32,6 +32,7 @@ import type { ClaimDoors } from "../src/adapters/claude-code/claim.js";
 import { claimFindings, doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import { BOUNDARY_EVENT, Counterpart, HOOK_CLAIM_LOST_EVENT } from "../src/core/counterpart.js";
 import { openDb } from "../src/core/store/db.js";
+import { pruneSessions } from "../src/adapters/sessions.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 
@@ -508,6 +509,143 @@ describe("a locked store", () => {
     } finally {
       cp.close();
     }
+  });
+});
+
+// ── a claims file that is not a database (review of #359) ───────────────────
+
+describe("a claims file that is not a database", () => {
+  const base = { hook: "session-start" as const, key: "k", sessionId: "s", side: "settings" as const, observer: false };
+  const garbage = "this was never a sqlite file, and every hook used to say so on stderr\n".repeat(80);
+
+  function corrupt(): void {
+    mkdirSync(dirname(claimsPath(store)), { recursive: true });
+    writeFileSync(claimsPath(store), garbage, "utf8");
+    // A stale log beside it must go with it, never be replayed into the new file.
+    writeFileSync(`${claimsPath(store)}-wal`, "stale log", "utf8");
+  }
+
+  test("is set aside (with its log) and made again, once; the claim is made on the new file and doctor reads the copy", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      expect(claimFindings(cp.store)).toEqual([]);
+      corrupt();
+      const first = claimDelivery(cp, base);
+      expect(first.outcome).toBe("won");
+      const aside = first.setAside ?? "";
+      expect(basename(aside)).toMatch(/^hook-claims\.unreadable-\d+\.sqlite$/);
+      expect(readFileSync(aside, "utf8")).toBe(garbage);
+      expect(readFileSync(`${aside}-wal`, "utf8")).toBe("stale log");
+      // The live file is a database again, holding this claim; nothing else changed.
+      expect(claimDelivery(cp, { ...base, side: "plugin", now: Date.now() })).toEqual({ outcome: "lost", heldBy: "settings" });
+      expect(finishClaim(cp, "k", first.at ?? 0)).toBe(true);
+      // Once: the next claim finds a healthy file.
+      expect(claimDelivery(cp, { ...base, key: "k2" }).setAside).toBeUndefined();
+      // A second bad file replaces the first copy: one is kept, never a pile.
+      corrupt();
+      const again = claimDelivery(cp, { ...base, key: "k3" });
+      expect(again.outcome).toBe("won");
+      const copy = basename(again.setAside ?? "");
+      const copies = readdirSync(dirname(claimsPath(store))).filter((n) => n.startsWith("hook-claims.unreadable-"));
+      expect(copies.every((n) => n.startsWith(copy))).toBe(true);
+      expect(copies).toContain(copy);
+      expect(copies).toContain(`${copy}-wal`);
+      // The durable trace: doctor's amber line names the copy.
+      // (The twin above also lost a claim, so "Installed twice" is there too.)
+      const lines = claimFindings(cp.store).filter((f) => f.title === "Hook claims");
+      expect(lines.map((f) => f.severity)).toEqual(["amber"]);
+      expect(lines[0]?.detail).toContain(basename(again.setAside ?? ""));
+      expect(lines[0]?.detail).toContain("every event was still delivered");
+    } finally {
+      cp.close();
+    }
+  });
+
+  test("a copy older than the week says nothing", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      mkdirSync(dirname(claimsPath(store)), { recursive: true });
+      const old = Date.now() - 8 * 86_400_000;
+      writeFileSync(join(dirname(claimsPath(store)), `hook-claims.unreadable-${String(old)}.sqlite`), garbage, "utf8");
+      expect(claimFindings(cp.store)).toEqual([]);
+    } finally {
+      cp.close();
+    }
+  });
+
+  test(
+    "through the hook: said once on stderr, the event delivered; the next event is clean",
+    async () => {
+      Counterpart.open({ dir: store }).close();
+      corrupt();
+      const start = await startHook(payload("SessionStart", { source: "startup" }));
+      expect(start.code).toBe(0);
+      expect(start.stdout.length).toBeGreaterThan(0);
+      expect(start.stderr).toContain("the claims file could not be read; set aside as");
+      expect(start.stderr).not.toContain("delivered unclaimed");
+      const next = await startHook(payload("UserPromptSubmit", { prompt: "and now?", prompt_id: "p-9" }));
+      expect(next.code).toBe(0);
+      expect(next.stderr).not.toContain("set aside");
+      expect(next.stderr).not.toContain("delivered unclaimed");
+    },
+    60_000,
+  );
+
+  test(
+    "a claims file that cannot be made: the event is delivered, and the log's end line keeps the reason as a code",
+    async () => {
+      Counterpart.open({ dir: store }).close();
+      // `claims` is a FILE, so the directory cannot be made: a lasting fault.
+      mkdirSync(join(store, "sessions"), { recursive: true });
+      writeFileSync(dirname(claimsPath(store)), "", "utf8");
+      const r = await startHook(payload("UserPromptSubmit", { prompt: "anything", prompt_id: "p-1" }));
+      expect(r.code).toBe(0);
+      expect(r.stderr).toContain("delivered unclaimed");
+      const ends = readdirSync(join(store, "sessions", "log"))
+        .flatMap((f) => readFileSync(join(store, "sessions", "log", f), "utf8").split("\n"))
+        .filter((l) => l.includes('"process.end"'))
+        .map((l) => JSON.parse(l) as { proc: string; data: Record<string, unknown> });
+      const end = ends.find((e) => e.proc === "hook:user-prompt-submit");
+      expect(end?.data["busy"]).toBe(false);
+      expect(String(end?.data["unclaimed"])).toMatch(/^(EEXIST|ENOTDIR)$/);
+    },
+    60_000,
+  );
+
+  test("the directory is 0700 and the file 0600, and SQLite's log and index take the file's mode", () => {
+    const cp = Counterpart.open({ dir: store });
+    // A reader holding the file open keeps the `-wal` and `-shm` after the claim's own connection closes.
+    let held: ReturnType<typeof openDb> | null = null;
+    try {
+      expect(claimDelivery(cp, base).outcome).toBe("won");
+      held = openDb(claimsPath(store), { wal: true });
+      held.get("SELECT count(*) AS n FROM claims");
+      expect(claimDelivery(cp, { ...base, key: "k2" }).outcome).toBe("won");
+      const mode = (p: string): string => (statSync(p).mode & 0o777).toString(8);
+      expect(mode(dirname(claimsPath(store)))).toBe("700");
+      expect(mode(claimsPath(store))).toBe("600");
+      expect(mode(`${claimsPath(store)}-wal`)).toBe("600");
+      expect(mode(`${claimsPath(store)}-shm`)).toBe("600");
+    } finally {
+      held?.close();
+      cp.close();
+    }
+  });
+});
+
+describe("the sessions prune leaves directories alone", () => {
+  test("an old file goes; an old directory — claims/, log/, association/, any — stays with what is in it", () => {
+    const sessions = join(store, "sessions");
+    const old = (Date.now() - 30 * 86_400_000) / 1000;
+    mkdirSync(join(sessions, "claims"), { recursive: true });
+    mkdirSync(join(sessions, "association"), { recursive: true });
+    mkdirSync(join(sessions, "empty-and-old"), { recursive: true });
+    writeFileSync(join(sessions, "claims", "hook-claims.sqlite"), "", "utf8");
+    writeFileSync(join(sessions, "stale-record.json"), "{}", "utf8");
+    for (const p of ["claims", "association", "empty-and-old", "stale-record.json"]) utimesSync(join(sessions, p), old, old);
+    expect(pruneSessions(store)).toBe(1);
+    expect(readdirSync(sessions).sort()).toEqual(["association", "claims", "empty-and-old"]);
+    expect(readdirSync(join(sessions, "claims"))).toEqual(["hook-claims.sqlite"]);
   });
 });
 

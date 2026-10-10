@@ -2315,3 +2315,34 @@ INTERFACE-GAPS §15.
   resumes the parent and the next call is served (`scopes.test.ts`); the healthy
   SessionStart stdout in `hook-standdown.test.ts` now carries the run's folder and
   `--config`.
+
+## 2026-10-10 — the claims file, after #359's review
+
+- **A file that is not a database is set aside and made again, once.** Before, a corrupt or
+  foreign `hook-claims.sqlite` failed every claim: a "delivered unclaimed" line on stderr at
+  every event, and the backstop off until somebody deleted the file. Now the write that meets
+  `SQLITE_NOTADB`, `SQLITE_CORRUPT` or `SQLITE_IOERR_SHORT_READ` (`db.ts#isUnreadableDatabase`)
+  checks the file is still unreadable (a twin may have rebuilt it already), moves it with its
+  `-wal` and `-shm` to `hook-claims.unreadable-<epoch ms>.sqlite` beside it, removing any
+  older copy first, and runs the transaction once more on a fresh file. Fail-open still: a
+  set-aside that cannot be made, or a second failure, delivers unclaimed as before.
+  `SQLITE_IOERR_SHORT_READ` is in the list because that is what a garbage file reads as when
+  a WAL from the healthy one is still beside it, which on macOS it is: Apple's SQLite keeps
+  `-wal` and `-shm` after the last connection closes (measured while writing the test). So
+  the sidecars move with the file; a stale log replayed into the new file would be the same
+  fault again.
+- **The trace.** The copy itself, named by when. Doctor reads it (`claim.ts#claimsSetAside`)
+  and says `Hook claims` (amber) for a week after, naming the copy and that every event was
+  still delivered. A new durable event name was not added for it (a core change for one
+  rare fact); the hook says it once on stderr.
+- **The `process.end` line keeps the reason.** `unclaimed` was the error's message, which the
+  log writes as its length (`[text:9]`). It is the error's code now (`Claim.code`:
+  `SQLITE_BUSY`, `SQLITE_NOTADB`, `EEXIST`, …; `node:sqlite`'s number as `SQLITE_<n>`), and
+  a rebuild adds `claimsSetAside: true`.
+- **The week-old prune skips directories by rule** (`sessions.ts#pruneSessions`): `log/`,
+  `association/` and `claims/` were kept only because `rmSync` without `recursive` throws on
+  a directory.
+- **Private like `log/`.** The directory is made 0700 and the file is created 0600 before
+  SQLite opens it, so its `-wal` and `-shm` take 0600 too (SQLite gives them the database
+  file's mode; the test holds a reader open so they exist to check). Only at creation, as
+  `log/` does: a directory an earlier build made stays as it is.

@@ -144,6 +144,7 @@ import {
 import { DESKTOP_HOST } from "../hosts.js";
 import type { PluginInstallRead } from "../host-wiring.js";
 import { localStamp } from "../../core/time.js";
+import { CLAIMS_DIR, claimsSetAside } from "./claim.js";
 import { catchUpOf, catchUpWords } from "./night-catch-up.js";
 import type { AdapterConfig } from "../config.js";
 // The same vocabulary the hook's stand-down uses, so the terminal and the
@@ -3170,6 +3171,34 @@ const CLAIM_ROWS = 500;
  * bounded read of an indexed name.
  */
 export function claimFindings(store: Store, plugin: PluginInstallRead | null = null): Finding[] {
+  return [...setAsideFindings(store), ...twiceFindings(store, plugin)];
+}
+
+/**
+ * A CLAIMS FILE SET ASIDE (review of #359, 2026-10-10). A hook that met a
+ * claims file that was not a database moved it aside and made it again
+ * (`claim.ts#setClaimsAside`); the copy, named by when, is the trace. AMBER for
+ * `CLAIM_WINDOW_DAYS` after: every event was still delivered, and nothing in the
+ * file outlives 15 s, but until the rebuild a second wiring's twin was not
+ * stopped, and a file that went bad once may be a disk that will again.
+ */
+function setAsideFindings(store: Store): Finding[] {
+  const aside = claimsSetAside(store.dir);
+  if (aside === null) return [];
+  if (store.now() - aside.at > CLAIM_WINDOW_DAYS * 86_400_000) return [];
+  return [
+    finding(
+      "claim",
+      "amber",
+      "Hook claims",
+      `the claims file could not be read as a database on ${localStamp(aside.at, store.zone())}; a hook set it aside as sessions/${CLAIMS_DIR}/${aside.name} and made a new one, and every event was still delivered`,
+      `Nothing to do if it does not happen again. The copy can be deleted; if it comes back, check the disk the store is on.`,
+      { setAside: aside.name, setAsideAt: aside.at },
+    ),
+  ];
+}
+
+function twiceFindings(store: Store, plugin: PluginInstallRead | null): Finding[] {
   let rows: EventRow[];
   try {
     rows = store.eventLog({

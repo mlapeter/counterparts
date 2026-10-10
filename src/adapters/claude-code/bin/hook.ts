@@ -932,6 +932,11 @@ async function runHook(
     side: runningAsPlugin(process.env) ? "plugin" : "settings",
     observer: config.observer === true,
   });
+  // A CLAIMS FILE THAT WAS NOT A DATABASE was set aside and rebuilt on the way
+  // (review of #359): said once, here, and kept as the copy doctor reads.
+  if (claim.setAside !== undefined) {
+    process.stderr.write(`[counterparts] ${name}: the claims file could not be read; set aside as ${claim.setAside} and made again\n`);
+  }
   if (claim.outcome === "lost") {
     process.stderr.write(
       `[counterparts] ${name} stood down by claim: another Counterparts hook (${claim.heldBy ?? "?"}) already took this event — two wirings are live in this host\n`,
@@ -1040,7 +1045,12 @@ async function runHook(
     adapter.counterpart.close();
   }
   // A throw above never reaches this line: `main`'s handler writes it instead.
-  opened.end(outcome, unclaimed === null ? undefined : { unclaimed, busy: claim.busy === true });
+  // The reason as its CODE (review of #359): the log writes a sentence as its
+  // length (`[text:N]`), and a length is no reason.
+  opened.end(outcome, {
+    ...(unclaimed === null ? {} : { unclaimed: claim.code ?? "unknown", busy: claim.busy === true }),
+    ...(claim.setAside === undefined ? {} : { claimsSetAside: true }),
+  });
 }
 
 /** `CLAUDE_CODE_SESSION_ATTENDED` as `HookInput.attended`: `1`/`true` and
