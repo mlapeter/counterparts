@@ -87,6 +87,8 @@ export const DREAM_BEGUN_EVENT = "dream.begun";
 export const DREAM_CHANGED_EVENT = "dream.changed";
 export const DREAM_JOURNALED_EVENT = "dream.journaled";
 export const DREAM_UNDONE_EVENT = "dream.undone";
+/** A night's new memories put back in the queue because the part carrying them never reached the dreamer (Lane 0, 2026-10-10). */
+export const DREAM_REQUEUED_EVENT = "dream.requeued";
 export const DREAM_ASK_EVENT = "dream.ask";
 
 /** The archive reason a merged original carries, and the one an undone dream's output carries. */
@@ -425,6 +427,12 @@ export interface NightRun {
   readonly transcript?: "read" | "absent" | "unreadable";
   readonly spills?: number;
   /**
+   * New memories put back in the dream's queue because the part carrying them
+   * was cut (Lane 0, 2026-10-10; `Dreams#requeueSpilled`). Absent when nothing
+   * was cut or nobody checked.
+   */
+  readonly requeued?: number;
+  /**
    * When its hand-back was carried to a prompt (or found already carried) —
    * so the per-prompt path READS this and writes nothing once it is set.
    * Absent until then.
@@ -492,6 +500,7 @@ export function nightRunOf(store: Pick<Store, "getMeta">): NightRun | null {
       ...(Array.isArray(v.parts) ? { parts: v.parts.filter((p): p is NightPart => p === "writer" || p === "dream" || p === "reflection") } : {}),
       ...(v.transcript === "read" || v.transcript === "absent" || v.transcript === "unreadable" ? { transcript: v.transcript } : {}),
       ...(typeof v.spills === "number" ? { spills: v.spills } : {}),
+      ...(typeof v.requeued === "number" ? { requeued: v.requeued } : {}),
     };
   } catch {
     return null;
@@ -819,6 +828,7 @@ export class Dreams {
           ms: run.endedAt === null ? null : run.endedAt - run.startedAt,
           ...(run.transcript === undefined ? {} : { transcript: run.transcript }),
           ...(run.spills === undefined ? {} : { spills: run.spills }),
+          ...(run.requeued === undefined ? {} : { requeued: run.requeued }),
         },
         dedupKey: `${NIGHT_RUN_EVENT}:${run.run}:${run.state}`,
       });
@@ -1232,13 +1242,15 @@ export class Dreams {
    * read through a keyhole may still sound whole, and its own entry is not
    * where he would look. Null when nothing was cut, or nobody checked.
    */
-  nightSpillLine(run: Pick<NightRun, "spills">): string | null {
+  nightSpillLine(run: Pick<NightRun, "spills"> & Partial<Pick<NightRun, "requeued">>): string | null {
     const n = run.spills ?? 0;
     if (n <= 0) return null;
     const who = this.ownerName() ?? "the owner";
     const what = n === 1 ? "one of the nightly run's tool results" : `${String(n)} of the nightly run's tool results`;
+    const r = run.requeued ?? 0;
+    const back = r > 0 ? ` The ${r === 1 ? "new memory it could not see goes" : `${String(r)} new memories it could not see go`} back in the queue for the next dream.` : "";
     return (
-      `Counterparts: Claude Code cut ${what} to a short preview before the run could read ${n === 1 ? "it" : "them"}, so last night's run worked from part of what it was handed. ` +
+      `Counterparts: Claude Code cut ${what} to a short preview before the run could read ${n === 1 ? "it" : "them"}, so last night's run worked from part of what it was handed.${back} ` +
       `At a natural moment — not mid-task — tell ${who} plainly, in a sentence, that this happened: Claude Code cut results that Counterparts had already sized to fit. \`counterparts doctor\` has the details on its Tool results line.`
     );
   }
@@ -1435,7 +1447,7 @@ export class Dreams {
 
   /** The dream's index — what it offered, at which fidelity, and its later parts — for the lookup ledger and `part`. */
   private index(id: string, c: Composed, later: readonly string[][]): void {
-    writeIndex(this.store, "dream", { ref: id, at: this.store.now(), offered: c.offered, parts: later, looked: [], entries: c.reads, unread: c.unread });
+    writeIndex(this.store, "dream", { ref: id, at: this.store.now(), offered: c.offered, parts: later, looked: [], entries: c.reads, unread: c.unread, fresh: c.bundle.fresh.map((f) => f.id) });
   }
 
   /**
@@ -1476,6 +1488,70 @@ export class Dreams {
     this.index(dream.id, withResume, packed.later);
     this.record(DREAM_BEGUN_EVENT, dream.id, { resumed: true, from: dream.date, ...this.begunPayload(withResume, packed.later.length + 1) });
     return { ok: true, bundle: packed.bundle, text: renderDream(dream.id, packed.bundle, lead), resumed: true };
+  }
+
+  // ── requeue on spill ──────────────────────────────────────────────────────
+
+  /**
+   * A MEMORY LEAVES THE QUEUE WHEN IT WAS DELIVERED, NOT WHEN IT WAS COMPOSED
+   * (Lane 0, 2026-10-10; dreaming review 09 C1). The host can cut one of the
+   * dream's results to a preview the headless run cannot open (`spills`, read
+   * from the run's transcript). The new memories that part carried were never
+   * seen, yet `dreams.shown` held them, so no later dream would take them.
+   * This takes them back out of `shown`, so they rejoin the queue:
+   *
+   * - a cut `begin` (part 1) returns the whole fresh list — it rides in part 1;
+   * - a cut later part returns the fresh memories that part carried;
+   * - a part delivered whole on another call (fetched again) is not cut;
+   * - a memory the dream acted on anyway — changed, linked, replayed, merged,
+   *   folded, felt, or looked up by id — stays: it was seen, and its change
+   *   rows name it. Those are counted as `kept`.
+   *
+   * Needs the dream's own index (`fit` meta, overwritten by the next begin);
+   * without it the cut parts are counted `unattributed`, never guessed.
+   */
+  requeueSpilled(
+    dreamId: string,
+    cut: readonly { phase: string | null; part?: number | null }[],
+    whole: readonly { phase: string | null; part?: number | null }[] = [],
+  ): { requeued: number; kept: number; unattributed: number } {
+    const none = { requeued: 0, kept: 0, unattributed: 0 };
+    const dream = this.store.dream(dreamId);
+    if (dream === undefined || dream.state === "undone") return none;
+    const partOf = (c: { phase: string | null; part?: number | null }): number | null =>
+      c.phase === "begin" ? 1 : c.phase === "part" && typeof c.part === "number" && c.part >= 2 ? c.part : null;
+    const delivered = new Set(whole.map(partOf).filter((n): n is number => n !== null));
+    const lost = new Set(cut.map(partOf).filter((n): n is number => n !== null && !delivered.has(n)));
+    if (lost.size === 0) return none;
+    const index = readIndex(this.store, "dream");
+    if (index === null || index.ref !== dreamId || index.fresh === undefined) return { ...none, unattributed: lost.size };
+    const unseen = new Set<string>();
+    for (const n of lost) {
+      if (n === 1) for (const id of index.fresh) unseen.add(id);
+      else for (const key of index.parts?.[n - 2] ?? []) if (key.startsWith("m:new:")) unseen.add(key.slice("m:new:".length));
+    }
+    // What the dream acted on: every id its standing changes name, and every
+    // id it looked up whole.
+    const acted = new Set<string>(index.looked ?? []);
+    const idsIn = (v: unknown): void => {
+      if (typeof v === "string") acted.add(v);
+      else if (Array.isArray(v)) for (const x of v) idsIn(x);
+    };
+    for (const c of this.store.dreamChanges(dreamId)) {
+      if (c.undone !== 0) continue;
+      idsIn(c.ref);
+      idsIn(c.ref2);
+      const d = parseDetail(c.detail);
+      for (const k of ["from", "sources", "linked"]) idsIn(d[k]);
+    }
+    const back = [...unseen].filter((id) => !acted.has(id));
+    const kept = unseen.size - back.length;
+    if (back.length > 0) {
+      const out = new Set(back);
+      this.store.updateDream(dreamId, { shown: parseIds(dream.shown).filter((id) => !out.has(id)) });
+    }
+    this.record(DREAM_REQUEUED_EVENT, dreamId, { requeued: back.length, kept, parts: [...lost].sort((a, b) => a - b).join(",") });
+    return { requeued: back.length, kept, unattributed: 0 };
   }
 
   // ── propose ───────────────────────────────────────────────────────────────
@@ -2246,13 +2322,21 @@ export class Dreams {
     let listUsed = 0;
     const freshOut: { id: string; neighbours: string[] }[] = [];
     const loose: string[] = [];
+    // One reader for the whole night: stored neighbours, and the embedding
+    // table read at most once for any that have none (Lane 0, scale C1).
+    const neighbourOf = this.store.neighbourReader();
     for (const { id: fid } of ranked) {
       const own = lineCost(fid);
       if (freshOut.length > 0 && freshUsed + own > freshRoom) continue;
+      // THE LIST'S ROOM, BEFORE THE NEIGHBOURS ARE LOOKED UP (Lane 0, scale
+      // C1): an entry with no neighbours is the least a fresh line costs the
+      // list; when even that does not fit, the full check below would refuse
+      // it too — so it waits without paying a neighbour read first.
+      if (freshOut.length > 0 && listUsed + 2 * JSON.stringify({ id: fid, neighbours: [] }).length > T.FRESH_LIST_CHARS) continue;
       const self = (see(fid) as { row: MemoryRow }).row;
       const neighbours: string[] = [];
       const near: string[] = [];
-      for (const [rank, nid] of this.near(fid, T.MIXING_TO_RANK).entries()) {
+      for (const [rank, nid] of this.near(fid, T.MIXING_TO_RANK, neighbourOf).entries()) {
         if (nid === fid || queued.has(nid)) continue;
         const nv = see(nid);
         if (nv === null || nv.row.birth_day > self.birth_day) continue;
@@ -2458,10 +2542,15 @@ export class Dreams {
     return fitEpisodes(episodes, { room, owner, day, lineBytes: T.LINE_BYTES, entryChars: T.ENTRY_CHARS, reads: extent, unread });
   }
 
-  /** Nearest memories to `id`, by the static embedder's vectors, else lexically. */
-  private near(id: string, limit: number): string[] {
-    const vec = this.store.vectorOf(id);
-    if (vec !== null) return this.store.nearestTo(vec, limit + 1).map((h) => h.id);
+  /**
+   * Nearest memories to `id`, by the static embedder's vectors, else lexically.
+   * The vector arm keeps the shape it had when it was a scan of `limit + 1`
+   * that found `id` itself first: `id` at rank 0, its neighbours after, so the
+   * caller's ranks (`MIXING_FROM_RANK`) mean what they meant.
+   */
+  private near(id: string, limit: number, neighbourOf: (id: string, limit: number) => string[] | null): string[] {
+    const stored = neighbourOf(id, limit);
+    if (stored !== null) return [id, ...stored];
     // No vector (embedder off, or not yet embedded): the rarest words of its
     // title and first line, through the token index.
     let doc: ProseDoc;

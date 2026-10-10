@@ -350,15 +350,54 @@ export function openDb(path: string, opts: OpenDbOptions = {}): Db {
   let depth = 0;
   let savepointSeq = 0;
 
+  // THE STATEMENT CACHE (2026-10-10, Lane 0 / scale review C5): every
+  // `get`/`all`/`run` used to prepare its SQL afresh, and in the 10x sleep
+  // profile `prepare` was half the cycle's time — paid once per row by every
+  // N+1 read. Statements are kept per connection by their text. Some SQL is
+  // built per call (`IN (?, ?, …)` of a varying width), so the cache is
+  // bounded and simply emptied when full.
+  // Decided by lane0-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: 512 distinct statements covers every fixed query in the store several times over; emptying beats an LRU's bookkeeping for a cache this cheap to refill.
+  //
+  // A TABLE CHANGED ON THIS CONNECTION EMPTIES IT (review of #368). SQLite
+  // re-prepares a kept statement when the schema moves, but the drivers keep
+  // its column NAMES from the first prepare. Measured 2026-10-10: after
+  // `ALTER TABLE … ADD COLUMN`, a kept `SELECT *` on bun 1.3 returns the old
+  // columns only, and after a table rebuild (create, copy, drop, rename) the
+  // values under the wrong names; on Node 22 its `all` throws "Cannot get name
+  // of column". Every ALTER and DROP in the store runs through `exec`, at open.
+  // A change made by ANOTHER connection is not seen here; the version checks
+  // refuse a newer build's store before anything reads it.
+  const TABLE_CHANGE = /\b(?:ALTER|DROP)\s+TABLE\b/i;
+  const STATEMENT_CACHE_MAX = 512;
+  const statements = new Map<string, RawStatement>();
+
   const exec = (sql: string): void => {
-    raw.exec(sql);
+    try {
+      raw.exec(sql);
+    } finally {
+      if (TABLE_CHANGE.test(sql)) statements.clear();
+    }
+  };
+
+  const statementFor = (sql: string): RawStatement => {
+    let st = statements.get(sql);
+    if (st === undefined) {
+      st = raw.prepare(sql);
+      if (statements.size >= STATEMENT_CACHE_MAX) statements.clear();
+      statements.set(sql, st);
+    }
+    return st;
   };
 
   const prepare = (sql: string): Statement => {
-    const st = raw.prepare(sql);
+    const st = statementFor(sql);
     return {
       run: (...p) => {
-        st.run(...norm(p));
+        try {
+          st.run(...norm(p));
+        } finally {
+          if (TABLE_CHANGE.test(sql)) statements.clear();
+        }
       },
       get: <T>(...p: SqlParam[]) => (st.get(...norm(p)) ?? undefined) as T | undefined,
       all: <T>(...p: SqlParam[]) => (st.all(...norm(p)) ?? []) as T[],
@@ -398,6 +437,7 @@ export function openDb(path: string, opts: OpenDbOptions = {}): Db {
       }
     },
     close: () => {
+      statements.clear();
       raw.close();
     },
   };

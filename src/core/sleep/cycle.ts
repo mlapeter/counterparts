@@ -625,15 +625,21 @@ export function census(
   if (born !== undefined) {
     for (const b of born) created.set(b.kind, (created.get(b.kind) ?? 0) + b.n);
   } else {
-    for (const id of store.list()) {
+    // ONLY TODAY'S BIRTHS ARE READ (2026-10-10, Lane 0 / scale review C3): the
+    // census asked every row in the store — archived ones included — for its
+    // birth day, at every boundary. The filter is SQL now. Archived rows born
+    // today still count: a memory written and merged the same day is one created
+    // and one exited, and dropping its birth would unbalance G13.
+    // Decided by lane0-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: "archived out of the census" taken as "only today's births read"; excluding archived births outright would change what the census counts.
+    for (const id of store.list({ bornFromDay: day })) {
       const row = store.row(id);
-      if (row === undefined) continue;
+      if (row === undefined || row.birth_day !== day) continue;
       // MEMORIES. A chapter written today is not a memory born today, and
       // counting it as one would give every journal kind a permanent
       // created-without-exit imbalance — the exact signal G13 exists to raise
       // (`sleep/types.ts#isJournal`).
       if (isJournal(row)) continue;
-      if (row.birth_day === day) created.set(row.kind, (created.get(row.kind) ?? 0) + 1);
+      created.set(row.kind, (created.get(row.kind) ?? 0) + 1);
     }
   }
   for (const p of pruned) exited.set(p.record.kind, (exited.get(p.record.kind) ?? 0) + 1);

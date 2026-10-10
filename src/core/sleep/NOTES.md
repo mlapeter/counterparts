@@ -981,3 +981,16 @@ this machine, while a long benchmark ran beside it) and left without one:
 - **Exit at 14** (`physics D_FLOOR_DAYS`): the first night after the upgrade will archive
   what has sat under the floor for 14 lived days — on the live store, mostly old weak notes;
   never chapters, their copies or live handoffs. Archival, readable by id.
+
+## 2026-10-10 — archived rows out of census, dedup and decay (Lane 0, scale review C3)
+
+Each of the three listed every row and read each one to skip the archived. Now: decay and
+dedup list `archived = 0` in SQL (decay still counts its `archived` skips, by listing their
+ids alone, so the named skip says what it said); the census lists only rows born on or after
+the day (`bornFromDay`) and reads those. The census keeps archived births on purpose: a
+memory written and merged the same day is one created and one exited, and dropping its birth
+would unbalance G13. Prune and consolidate were left as they are (not in this lane). No
+index added — `memories(archived, birth_day)` waits for Group 1's single migration.
+After the merge with Group 1a: the census takes `Store#bornOn`'s grouped count where the port
+has it and this listing otherwise, and decay counts its `archived` skips on the turn-down as on
+the full walk (`turnDownDue` lists live rows only).

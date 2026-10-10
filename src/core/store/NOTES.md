@@ -2037,3 +2037,40 @@ Groups 2–4 are pre-provisioned so none of them bumps again.
   prefilter, a join on box 3's `ranking`). `Store.row()` reads `today_date` (the store's
   `lastActiveDate`) beside the row, for the dated hold (`datedHold`). `RECURRING_META` now
   lives in `operational.ts` (re-exported unchanged).
+
+## 2026-10-10 — box 3 keeps each memory's neighbours (cache v6, Lane 0)
+
+- **The scale review's C1** (`13-scale.md`): the dream's `begin` called `nearestTo` once per
+  queued memory, and each call re-read and re-ranked the whole `embeddings` table. Measured
+  on the review's clone: 37 s at 10x. Box 3 now has a `neighbours` table (`memory_id, rank,
+  neighbour_id, cosine`), filled by `indexOne` when a memory's vector is written (its
+  `NEIGHBOURS_KEPT` = 48 nearest, all older than it at that moment) and read by
+  `neighbourReader()`. A memory with no list (written before v6, or embedded by backfill)
+  is ranked by the reader against one read of the table and written back.
+- **Derived from `embeddings` alone.** It goes when they go: `deindexDoc` (archive,
+  supersede, the dead-index prune) takes a memory off its own list and every list it is on,
+  `reconcileEmbedder`'s drop empties it, `resetCache` drops it. No canonical change.
+- **Going back across the v6 cache bump:** 0.3.16 refuses a v6 cache; remedy likely delete
+  `cache/cache.sqlite*` and rebuild (untested — the release that ships this must test it).
+- **One more scan per write** (~1 ms now, ~12 ms at 10x). The gate's novelty read
+  (`bridge.ts`) already ranks the nearest, but it runs before the memory has an id;
+  sharing it can come with interference's slot check, which wants the same table.
+
+## 2026-10-10 — a statement cache per connection (Lane 0, scale review C5)
+
+`openDb` kept no statements: every `get`/`all`/`run` prepared its SQL again, and in the
+review's 10x sleep profile `prepare` was half the cycle. Statements are now kept per
+connection by their text (bounded at 512, emptied when full — some SQL is built per call).
+Checked on both drivers before relying on it: a statement stopped after its first row is
+reset by the driver, so it holds no lock against another connection (bun 1.3, Node 22), and
+SQLite re-prepares a kept statement when a cache reset drops and re-creates its table
+(`test/lane0-statements.test.ts`). Measured on the review's 10x clone: a new lived day's
+`runCycle` 3.7 s → 1.05 s, a same-day one 568 → 353 ms.
+
+Review of #368: what SQLite re-prepares, the drivers do not re-read. A kept statement's
+column NAMES are fixed at its first prepare: after `ALTER TABLE … ADD COLUMN` on the same
+connection a kept `SELECT *` gave the old columns on bun 1.3 (and, after a table rebuild,
+values under the wrong names), and its `all` threw "Cannot get name of column" on Node 22.
+So an `ALTER TABLE` or `DROP TABLE` run on the connection (`exec` or `run`) empties its
+cache. Another connection's change is not seen; the version checks refuse a newer build's
+store before anything reads it.
