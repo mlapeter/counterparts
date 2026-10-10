@@ -21,6 +21,7 @@ has it; every other page is a working default or a record of what happened.
 - [`IMPROVEMENTS.md`](IMPROVEMENTS.md) — things noticed while living on it, as opposed to
   building it.
 - [`new-user-findings.md`](new-user-findings.md) — what the first install from npm was like.
+- [`RELEASING.md`](RELEASING.md) — how a release is cut, checked and published.
 
 ## Module documents (in `src/`)
 
