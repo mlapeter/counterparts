@@ -137,7 +137,11 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
   const written: StrengthRow[] = [];
   const transitions: BandTransition[] = [];
   let bandsReconciled = 0;
-  const ids = store.list();
+  // LIVE ROWS ONLY (2026-10-10, Lane 0 / scale review C3): archived rows are
+  // left out in SQL instead of each being read and skipped. Still counted, by
+  // their ids alone, so the named skip says what it said.
+  const ids = store.list({ archived: false });
+  countSkip(out, "archived", store.list({ archived: true }).length);
   // WHERE THE LAST RUN STOPPED (2026-09-28, build B; the audit's #4). `store.list()`
   // is `ORDER BY id` and ids are random, so without a resume point a budget
   // smaller than the store examined the same slice every night and the rest
@@ -163,6 +167,7 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
       continue;
     }
     if (row.archived === 1) {
+      // Archived between the list and the read: counted as the rest were.
       countSkip(out, "archived");
       continue;
     }

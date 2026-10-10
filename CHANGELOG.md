@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The sleep pass no longer reads forgotten memories to skip them.** The census, the
+  duplicate check and the fading pass ask the database for the rows they need instead of
+  reading every row, archived ones included. Their counts are unchanged.
 - **The store reuses its prepared database statements.** It used to prepare each query
   again on every read. A new day's sleep pass at ten times today's size went from about
   3.7 to 1.1 seconds.
