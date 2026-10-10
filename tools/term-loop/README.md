@@ -52,8 +52,8 @@ Run in order; with none, `shot:full`.
 | `shot:<name>` | captures the screen: `<name>.png` (the whole terminal), `<name>-sidebar.png` (the dock: from its divider to the right edge, over the rows the divider spans), and `<name>.ansi`, `.json`, `.html` beside them |
 | `wait:<ms>` | pauses |
 | `cmd:/counterparts [args]` | types the mod's command into the empty prompt, presses Enter, waits until the prompt is empty again, then 1.2 s |
-| `keys:<k> [<k>...]` | tmux key names: `Escape`, `Tab`, `Up`, `Down`, `C-x`, `BSpace`, `Enter`... |
-| `type:<text>` | literal text, once the pane holds the keyboard |
+| `keys:<k> [<k>...]` | tmux key names: `Escape`, `Tab`, `Up`, `Down`, `C-x`, `BSpace`, `Enter`..., or one character; never words (that is `type:`) |
+| `type:<text>` | printable text, once the pane holds the keyboard (or a slash command's words) |
 | `click:<text>` / `click:<col>,<row>` | a left click (SGR mouse press and release) on the first cell of `<text>`, looked for in the pane first; or on a cell, 1-based |
 | `hover:<text>` / `hover:<col>,<row>` | the pointer moved there, no click |
 | `until:<text>` | waits until `<text>` is on screen (or the timeout) |
@@ -109,12 +109,33 @@ The sessions are real Claude Code sessions with his own login and settings.
   memory: the wake at start, the session end at exit. Each run is one more
   session to them (all of a run's states are one session, never one a shot).
   The sidebar reads his live dashboard on `localhost:4747`.
-- **No prompt reaches the model.** `cmd:` takes only `/counterparts` (or what
-  `--allow-cmd` adds: a skill or custom command would prompt the model), and
-  is refused before anything starts otherwise. Every Enter is checked against
-  the screen first: allowed in the pane, on an empty prompt, or on an allowed
-  command that the slash typeahead has picked as typed; refused on anything
-  else. `type:` is refused while the prompt holds the keyboard.
+- **The environment it runs from goes into the session** (the tmux server
+  starts with it). Run from a session that exports
+  `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`, as this repository's do, his npm
+  hooks inside printed no wake (2026-10-10: 0 bytes, against 7.6 KB run
+  without it). Run from inside Claude Code, the session also inherits
+  `CLAUDECODE` and the parent session's `CLAUDE_CODE_*` variables; what
+  Claude Code makes of a child started that way hasn't been looked into.
+- **What Claude Code itself writes, as for any session:** the scratch
+  folder's entry in `~/.claude.json` (its trust flag, and each session's
+  bookkeeping: last session id, cost, durations, model usage), the commands
+  typed (`/counterparts quiet`, `/exit`) in `~/.claude/history.jsonl`, and a
+  transcript in `~/.claude/projects/<the scratch folder as a slug>/`, which
+  keeps what the SessionStart hooks printed: his wake, from his live memory,
+  when they print it.
+- **No prompt reaches the model.** It matters more than the cost: the
+  session runs in his default permission mode (auto mode, 2026-10-10), so a
+  prompt could also run tools. `cmd:` takes only `/counterparts` (or what
+  `--allow-cmd` adds: one bare name, never a `plugin:name` skill or
+  command), and is refused before anything starts otherwise. `keys:` takes
+  tmux key names and single characters only (tmux would type any other
+  string, and reads `0xd` or `^M` as Enter). Every Enter, in any spelling,
+  is checked against the screen, read twice the same, first: allowed in the
+  pane, on an empty prompt, or on an allowed command that the slash
+  typeahead has picked as typed; refused on anything else. `type:` is
+  printable text only, refused while the prompt holds the keyboard. A click
+  outside the pane is refused while the prompt holds anything: the
+  typeahead's rows sit there, and what a click on one does wasn't tried.
 - **A scratch folder:** `$TMPDIR/counterparts-term-loop/cwd`. The first run
   there answers Claude Code's trust dialog with yes, for that folder only
   (`hasTrustDialogAccepted` on its entry in `~/.claude.json`); so does a
@@ -148,10 +169,16 @@ The sessions are real Claude Code sessions with his own login and settings.
   runs in tmux. Chrome runs on its own profile under
   `$TMPDIR/counterparts-term-loop/chrome-<pid>`, killed by pid and by that
   profile, and the profile removed.
+- **Some clicks in the pane write or open.** The "Counterparts memory ·
+  this folder" switch asks Pause or Cancel; `click:Pause` pauses Counterparts
+  memory for the scratch folder in his live registry, and the run doesn't
+  put that back (`/counterparts resume` does). A `↗` line opens his browser
+  on the dashboard. Enter in the search field is a recall (above).
 - **The output shows live memory** (activity titles, counts, the folder
   path). `tools/term-loop/out/` is gitignored; don't publish shots without
   looking at them.
-- It never opens `~/.counterparts` or `~/.bansai`.
+- The tool itself never opens `~/.counterparts`, `~/.bansai` or
+  `~/.claude-engram`; of his files it reads only the preferences above.
 
 ## Fidelity
 
