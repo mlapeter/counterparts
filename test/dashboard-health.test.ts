@@ -35,7 +35,7 @@ import { PLAIN, lineOf } from "../src/adapters/dashboard/web/pages/health/sectio
 import { FULL_SHARE, wakeLine } from "../src/adapters/dashboard/web/pages/health/sections/wake.js";
 import { healthView, pageCostOf, wakeCosts } from "../src/adapters/dashboard/web/views/health.js";
 import type { WakeCosts } from "../src/adapters/dashboard/web/views/health.js";
-import { pageTooLargeLine } from "../src/core/self/briefing.js";
+import { pageTooLargeLine, pageTopLine } from "../src/core/self/briefing.js";
 import { truncationMarker } from "../src/core/self/page.js";
 import { CORRECTED_REASON } from "../src/core/contradictions.js";
 import { DREAM_MERGE_REASON, DREAM_UNDONE_REASON } from "../src/core/dream/index.js";
@@ -424,11 +424,11 @@ describe("where archived memories went", () => {
     expect(at(8000, 8840).line).toBe("The wake fits: 8.0 KB of 8.8 KB, 0.8 KB room left");
     expect(at(8840 - Math.ceil(8840 * FULL_SHARE), 8840).line).toContain("The wake fits");
     // What it cost, named, and amber.
-    expect(at(8840, 8840, { page: { shown: 5800, whole: 7200 }, handoffs: 2, lastHere: 0, work: 0, writerHeld: true })).toEqual({
+    expect(at(8840, 8840, { page: { shown: 5800, whole: 7200, rung: "cut" }, handoffs: 2, lastHere: 0, work: 0, writerHeld: true })).toEqual({
       tone: "amber",
       line: "The wake is full (8.8 KB of 8.8 KB), and it cost something: the self page was cut to fit (5.8 KB of 7.2 KB shown); 2 handoffs had no room at a session start; the page writer held back for lack of room",
     });
-    expect(at(8840, 8840, { ...none, page: { shown: 0, whole: 7200 } }, 3).line).toBe(
+    expect(at(8840, 8840, { ...none, page: { shown: 0, whole: 7200, rung: "line" } }, 3).line).toBe(
       "The wake is full (8.8 KB of 8.8 KB), and it cost something: the self page was left out (7.2 KB)",
     );
     expect(at(4000, 9000, { ...none, handoffs: 1 })).toEqual({
@@ -446,9 +446,16 @@ describe("where archived memories went", () => {
 
   test("what a full wake cost is read from existing records: the page's own marker, handoff no-room rows", () => {
     // The page: the exact words the core prints when it cuts or leaves out the page.
-    expect(pageCostOf(`## Core\n\nShort.\n\n${truncationMarker(5800, 7200)}`)).toEqual({ shown: 5800, whole: 7200 });
-    expect(pageCostOf(`Who I am:\n${pageTooLargeLine(7200)}`)).toEqual({ shown: 0, whole: 7200 });
+    expect(pageCostOf(`## Core\n\nShort.\n\n${truncationMarker(5800, 7200)}`)).toEqual({ shown: 5800, whole: 7200, rung: "cut" });
+    expect(pageCostOf(`Who I am:\n${pageTooLargeLine(7200)}`)).toEqual({ shown: 0, whole: 7200, rung: "line" });
     expect(pageCostOf("## Core\n\nA whole page.")).toBeNull();
+    // The ladder (2026-10-10), read off each rung's top line: the outline and
+    // the headings cost something; the page whole and its short version do
+    // not — doctor is green for both.
+    expect(pageCostOf(`Who I am:\n${pageTopLine("outline", 7_200) ?? ""}\n## Core\nI keep it.`)).toEqual({ shown: 0, whole: 7200, rung: "outline" });
+    expect(pageCostOf(`Who I am:\n${pageTopLine("headings", 12_345) ?? ""}\n## Core`)).toEqual({ shown: 0, whole: 12345, rung: "headings" });
+    expect(pageCostOf(`Who I am:\n${pageTopLine("short", 7_200) ?? ""}\nShort.`)).toBeNull();
+    expect(pageCostOf(`Who I am:\n${pageTopLine("whole", 5_000) ?? ""}\n## Core`)).toBeNull();
     // Handoffs: distinct handoffs refused for room since the wake was rendered.
     const dir = join(tempDir("counterparts-health-wake-costs-"), "store");
     seedEmpty({ dir });

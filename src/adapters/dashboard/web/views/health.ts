@@ -6,6 +6,7 @@
  */
 import { LAST_HERE_NOROOM_EVENT } from "../../../../core/handoff/last-here.js";
 import { WORK_OVERFLOW_EVENT } from "../../../../core/self/work.js";
+import { readPageTopLine } from "../../../../core/self/briefing.js";
 import { symmetryCheck } from "../../../../core/physics/index.js";
 import { MARKER_UNSET, MERGE_ARCHIVE_REASON, PRUNE_ARCHIVE_REASON, readMarker } from "../../../../core/sleep/index.js";
 import { cadenceFor, markerDue } from "../../../../core/sleep/markers.js";
@@ -131,10 +132,12 @@ export interface WakeBudget {
  * it is green; amber only when being full cost something, and the amber names
  * it). Each from a record that already exists:
  *
- *   page       — the published wake itself: a page with no room for it
- *                whole is replaced by `briefing.ts#pageTooLargeLine`; a wake
- *                published before 2026-10-09 may carry a cut page's
- *                `page.ts#truncationMarker` instead. Both name bytes.
+ *   page       — the published wake itself, read off its page's top line
+ *                (`briefing.ts#readPageTopLine`, 2026-10-10): a page shown as
+ *                its outline, its headings, or one line. The page whole or its
+ *                short version costs nothing — doctor is green for both. A
+ *                wake published before 2026-10-09 may carry a cut page's
+ *                `page.ts#truncationMarker` instead. Each names bytes.
  *   handoffs   — `handoff.refused` rows with reason `no-room` (durable, one per
  *                handoff per lived day) since the published wake was rendered:
  *                how many distinct handoffs a session start could not carry.
@@ -153,25 +156,25 @@ export interface WakeBudget {
  *                (cause `cap`) is the rotation, not a cost.
  */
 export interface WakeCosts {
-  readonly page: { readonly shown: number; readonly whole: number } | null;
+  /** `rung` (2026-10-10): `cut` for an old bundle's marker, else the ladder's rung. */
+  readonly page: { readonly shown: number; readonly whole: number; readonly rung: "cut" | "outline" | "headings" | "line" } | null;
   readonly handoffs: number;
   readonly lastHere: number;
   readonly work: number;
   readonly writerHeld: boolean;
 }
 
-/** `page.ts#truncationMarker` (a wake published before 2026-10-09, when the
- *  page could be cut) and `briefing.ts#pageTooLargeLine` ("whole" since then),
- *  as the wake prints them. */
+/** `page.ts#truncationMarker`, as a wake published before 2026-10-09 (when
+ *  the page could be cut) printed it. */
 const PAGE_CUT = /\[This page is (\d+) bytes; the wake shows the first (\d+)\./;
-const PAGE_LEFT_OUT = /\(My page is (\d+) bytes — no room for it (?:whole )?in this wake\./;
 
 /** The self page's cost, read off the published wake's own words. Pure. */
 export function pageCostOf(text: string): WakeCosts["page"] {
   const cut = PAGE_CUT.exec(text);
-  if (cut !== null) return { whole: Number(cut[1]), shown: Number(cut[2]) };
-  const out = PAGE_LEFT_OUT.exec(text);
-  return out === null ? null : { whole: Number(out[1]), shown: 0 };
+  if (cut !== null) return { whole: Number(cut[1]), shown: Number(cut[2]), rung: "cut" };
+  const top = readPageTopLine(text);
+  if (top === null || top.rung === "whole" || top.rung === "short") return null;
+  return { whole: top.wholeBytes, shown: 0, rung: top.rung };
 }
 
 export function wakeCosts(src: DashboardSource, text: string, renderDay: number | null): WakeCosts {

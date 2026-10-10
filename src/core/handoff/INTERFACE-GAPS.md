@@ -132,7 +132,7 @@ ceremony (CLAUDE.md), and one line in `store/#noVector` reverses it.
 
 **The three reasons it was asked for, which are the whole of the argument.** It is never
 recalled (`activate` skips it; it is delivered at the wake only), so a vector buys
-retrieval nothing; it is up to 6 KB (16 KB before 2026-10-09) of the most identity-bearing prose in the store, which
+retrieval nothing; it is up to 16 KB of the most identity-bearing prose in the store, which
 would leave the machine for an embedding API for that nothing (constitution 6 — data leaves
 by the owner's choice, and "the indexer indexes everything" is not a choice); and it would
 sit in `doctor`'s embed backlog for ever on a keyless store. If the owner wants the page

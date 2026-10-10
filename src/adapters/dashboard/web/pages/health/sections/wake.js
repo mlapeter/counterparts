@@ -31,9 +31,15 @@ export function costWords(c) {
   if (!c) return [];
   const out = [];
   if (c.page) {
-    out.push(c.page.shown > 0
-      ? "the self page was cut to fit (" + kb(c.page.shown) + " of " + kb(c.page.whole) + " shown)"
-      : "the self page was left out (" + kb(c.page.whole) + ")");
+    // The page's rung (2026-10-10): its outline or headings, one line, or —
+    // in a wake published before 2026-10-09 — a cut.
+    out.push(c.page.rung === "outline"
+      ? "the self page (" + kb(c.page.whole) + ") showed only each section's heading and first sentence — it has no short version"
+      : c.page.rung === "headings"
+        ? "the self page (" + kb(c.page.whole) + ") showed only its section headings"
+        : c.page.shown > 0
+          ? "the self page was cut to fit (" + kb(c.page.shown) + " of " + kb(c.page.whole) + " shown)"
+          : "the self page was left out (" + kb(c.page.whole) + ")");
   }
   if (c.handoffs > 0) out.push(c.handoffs + (c.handoffs === 1 ? " handoff" : " handoffs") + " had no room at a session start");
   if (c.lastHere > 0) out.push(c.lastHere + (c.lastHere === 1 ? " \"Last here\" line" : " \"Last here\" lines") + " had no room at a session start");

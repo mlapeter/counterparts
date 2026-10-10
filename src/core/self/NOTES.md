@@ -1770,3 +1770,98 @@ warning and printed cut.
   numbers and took a second `finish` with the page alone; both are proved
   (`nightly-run.test.ts`). The next night's writer is told the limit before it writes, in
   the rule and beside the page's own bytes; it is not told about the night before.
+
+## 2026-10-10 — the page's ladder: stored separate from shown
+
+#358's refusal was a stopgap, and the page's history showed why: the nightly writer
+wrote 7,012 and later 6,767 bytes, sessions hand-trimmed to 6,067, 6,340 and 6,066, and
+this morning's reflection wrote 6,085. The limit kept winning by a few hundred bytes and
+somebody trimmed by hand each time. The owner wanted it durable and graceful; the shape
+below is the one he agreed, the details are working defaults.
+
+- **Stored separate from shown.** The writer keeps any page up to the 16,384-byte ceiling
+  (`PAGE_MAX_BYTES`, as before #358). The room is a TARGET (`PAGE_ROOM_BYTES`), told
+  before writing — "aim under N; past it, sessions read a short version instead" — never
+  a refusal. Kept from #358: the ceiling refusal, the re-measure after redaction, the
+  numbers on a refusal, and a refused night closing `failed`, never `nothing-to-say` (all
+  still true of the ceiling). Gone: the length refusal at the room and its
+  tighten-and-resend instructions (the writer's `how`, the launch prompt, the
+  reflection's refusal); in their place, the ask for a short version.
+- **The ladder** (`Self#pageBlock`, `briefing.ts#PageRung`), first that fits, every rung
+  whole text: the page; the short version written with this exact text; each `##`
+  section's heading and first whole sentence; the headings alone; one line; nothing.
+  Each rung borrows the "Work here" lend before stepping down (#358's borrowing, kept,
+  generalised). **Rungs are offered in order, not by size**: a short version smaller
+  than the outline is preferred whenever it fits, and when it does not, the outline does
+  not either, so the wake goes to the headings — tested at each exact edge
+  (`page-ladder.test.ts`).
+- **The mechanical rung** (`page.ts#pageOutline`, `firstSentence`): level-two sections,
+  or the highest level a page has; the first paragraph (or a list's first entry) up to a
+  full stop, question or exclamation mark followed by a space, skipping "e.g.", "v0.3.14"
+  and single initials; with none, the first line; past 480 bytes, the heading alone.
+  Mechanical on purpose — no model, no summary — and only the page's own words.
+- **The short version** lives on the page row's prose meta (`PAGE_META_SHORT`: body, the
+  hash of the text it condenses, that text's bytes). **No schema bump.** Every archived
+  version keeps the meta it had, so the history carries each version's short version and
+  `--restore` brings it back. Tied by HASH, not by version number: the version a revise
+  produces is only known inside its transaction, and the hash says exactly what the
+  brief asks — this short version condenses this text. Two guards, so a future path that
+  forgets one is still safe: a write without one nulls it (`revise` merges meta), and a
+  reader takes it only when the hash matches. It crosses the page's gates in the page's
+  order (datelines out, no wake markers, the credential battery, measured after the
+  redaction) and is kept only beside a page past its room and only within it. One that
+  is not kept never costs the page. **Added on its own** (`addPageShort`: the tool's
+  `short` alone, the console's `--short` alone, the reflection's `page.short` on a second
+  `finish`) it is an ordinary revision of the same text — a new version, so the history
+  says it — refused with nothing written when it would change nothing.
+- **Top and end lines on every rung but the last** (`pageTopLine`, `pageEndLine`): what is
+  below and the page's size, the exact end line, "if you don't see that line, it was cut
+  off", and both doors. The last rung's one line is its own top line and has no end. The
+  end line prints after the dateline. `readPageTopLine` reads any rung back (the
+  dashboard's wake costs), and a test round-trips every rung.
+- **The bytes, honestly** — one derived number for writer and wake, as #358 put it:
+  `PAGE_ROOM_BYTES = 9,000 − deliveryReserveBound (293 + 1,125 + 1,125) − 512 −
+  PAGE_FRAME_RESERVE_BYTES (264) = 5,681`. The frame reserve is the short rung's top and
+  end lines at a seven-character size (261, measured); the preface grew by the whole-wake
+  sentence (133), which `deliveryReserveBound` carries. **The owner's page (5,904, v17)
+  is now 223 bytes past the room.** It still prints whole on every day — at 9,000 under
+  the widest reserves a page borrows its way to about 6,880 — and the writer is now asked
+  for a short version with it. Proved through the real paths at the history's own sizes
+  (`page-never-cut.test.ts`): 5,904, 6,085 and 6,767 borrow and print whole, doctor
+  green; 7,012 shows its short version when it has one, its outline when not.
+- **The host, measured** (Claude Code 2.1.296, 2026-10-10; `adapters/config.ts`): a hook
+  field over 10,000 CHARACTERS is saved to a file, and the model sees a "too large, saved
+  to <path>" line and the first ≤ 2,000 characters cut back to a line end — nothing tells
+  it to read the file. The cap is per field and per hook. So the whole wake's own way
+  back sits in the preface (`WAKE_WHOLE_SENTENCE`): read that file, it runs to
+  `counterparts:wake/end`. The page's top line is the second layer. A test simulates the
+  cut at those numbers on a 16,000-byte ceiling (`page-ladder.test.ts`).
+- **No door reads a session's composed wake** (checked: `rebrief` prints numbers; the MCP
+  `wake` tool is Desktop's and starts a session; the dashboard reads the stored bundle).
+  Not built; filed, INTERFACE-GAPS §13.
+- **Doctor's Self page line** reads the rung off the newest durable `self.briefing` row
+  (`page: { rung, bytes, whole }`, new on that row): green for the page whole or its short
+  version; amber for the outline, the headings, one line or nothing, with what to do — a
+  short version or a tighter page when the page is past its room; the ceiling
+  (`injectionBudgetBytes`) when it is not.
+- **What the room cost elsewhere.** The preface is 133 bytes longer in every wake, so
+  every composition has 133 bytes less for its lanes. Two fixtures moved with it
+  (`continuity.test.ts` 2,600 → 2,650, where whole elements left slack that happened to
+  hold a "Last here" line; `claude-code.test.ts`'s cramped ceiling 400 → 700, since the
+  preface alone is now 260).
+
+**Review of #363 (2026-10-10), three holes closed** (`page-ladder-review.test.ts`):
+
+- **A reflection's short version crosses the reflection's own gates** — the dream's mark
+  and a confidential memory's words (`Reflections#shortRefusal`) — not only the page's
+  battery: it is read by every session the page would have been. Beside the page, one that
+  fails is not sent and the page is written with a note; alone, it is refused, and the
+  page-writer-off switch refuses it too.
+- **A short version added on its own is held to the version it read** (`addPageShort`
+  passes `ifVersion: page.version` when the caller passed none): without it, a page
+  another process wrote between the read and the write was reverted to the old text.
+- **The wake's own frame is never stored as the page** (`briefing.ts#isPageFrameLine`,
+  `Self#ownWords`): a rung's top line, end line or the one line, copied out of a wake and
+  written back, is left out like a dateline — at write (counted as `frameLines` on the
+  revision row) and at render — so no wake prints a stale size or an end line in the
+  middle of the page, after which a cut would look whole.

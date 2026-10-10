@@ -41,7 +41,7 @@ import {
 } from "../src/core/handoff/last-here.js";
 import type { LastHere } from "../src/core/handoff/last-here.js";
 import { readRecencyAsk } from "../src/core/recall/index.js";
-import { WORK_HERE_HEADING, readSentinel } from "../src/core/self/index.js";
+import { PREFACE_RESERVE_BYTES, WORK_HERE_HEADING, readSentinel } from "../src/core/self/index.js";
 import { McpServer } from "../src/adapters/mcp/server.js";
 import { recordSession } from "../src/adapters/sessions.js";
 
@@ -407,10 +407,10 @@ describe("its room in the wake", () => {
     const k = afternoon();
     fill(k.c);
     const before = k.c.rebrief({ budgetBytes: 4_000, at: "2026-09-30" });
-    expect(before.composeBudget).toBe(4_000 - 160);
+    expect(before.composeBudget).toBe(4_000 - PREFACE_RESERVE_BYTES);
     await mikesAfternoon(k);
     const after = k.c.rebrief({ budgetBytes: 4_000, at: "2026-09-30" });
-    expect(after.composeBudget).toBeLessThan(4_000 - 160);
+    expect(after.composeBudget).toBeLessThan(4_000 - PREFACE_RESERVE_BYTES);
     const woke = k.c.wake(4_000, { date: "2026-09-30" }, { scope: HERE, session: B });
     expect(woke.text).toContain("Last here:");
     expect(woke.text).toContain("Where I left off");
@@ -478,23 +478,26 @@ describe("its room in the wake", () => {
     const k = afternoon();
     fill(k.c);
     // The bundle composed before session A exists, at a tight ceiling, with
-    // no chapter anywhere: nothing reserved, the lanes fill it. 2,600 rather
+    // no chapter anywhere: nothing reserved, the lanes fill it. 2,650 rather
     // than 3,000: this fixture's identity lane caps at 24 elements, about
-    // 2,800 bytes, so at 3,000 the cap binds before the ceiling does.
-    k.c.rebrief({ budgetBytes: 2_600, at: "2026-09-30" });
+    // 2,800 bytes, so at 3,000 the cap binds before the ceiling does. (It was
+    // 2,600 until the preface grew by the whole-wake sentence, 2026-10-10:
+    // the composition fills in whole elements, and at 2,600 the slack it left
+    // happened to hold the line.)
+    k.c.rebrief({ budgetBytes: 2_650, at: "2026-09-30" });
     const s = k.server(A);
     for (const m of [1, 20, 40]) k.talk(A, at(16, m));
     k.set(at(16, 45));
     await s.call("chapter", { session: A, text: "Short and to the point: the loop test passed.", title: "Loop test" });
     // Before the worker runs, the line has no room.
-    expect(k.c.wake(2_600, { date: "2026-09-30" }, { scope: HERE, session: B }).text).not.toContain("Last here:");
+    expect(k.c.wake(2_650, { date: "2026-09-30" }, { scope: HERE, session: B }).text).not.toContain("Last here:");
     // The turn-end worker's own call, as `runner.ts` makes it — no rebrief.
-    const refreshed = k.c.refreshWake({ budgetBytes: 2_600, at: "2026-09-30" });
+    const refreshed = k.c.refreshWake({ budgetBytes: 2_650, at: "2026-09-30" });
     expect(refreshed.reason).toBe("rendered");
     expect(refreshed.triggers).toContain("write-up");
-    const woke = k.c.wake(2_600, { date: "2026-09-30" }, { scope: HERE, session: B });
+    const woke = k.c.wake(2_650, { date: "2026-09-30" }, { scope: HERE, session: B });
     expect(woke.text).toContain("Last here: session a1b2c3d4");
-    expect(woke.bytes).toBeLessThanOrEqual(2_600);
+    expect(woke.bytes).toBeLessThanOrEqual(2_650);
   });
 
   test("past the fortnight the line is gone, and so is its reserve", async () => {

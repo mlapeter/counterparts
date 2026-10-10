@@ -56,7 +56,7 @@ import { isHandoff } from "../src/core/recall/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";
 import { localDate } from "../src/core/time.js";
-import { readSentinel } from "../src/core/self/index.js";
+import { PREFACE_RESERVE_BYTES, readSentinel } from "../src/core/self/index.js";
 import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
 import { NARRATORS, REF_KIND } from "../src/adapters/dashboard/web/narrate.js";
@@ -599,8 +599,8 @@ describe("the reserve is conditional, which is what keeps a blank store honest",
   test("no handoff anywhere ⇒ the compose budget is master's, to the byte", () => {
     const c = counterpart();
     const report = c.rebrief({ budgetBytes: 9_000 });
-    // 160 is `PREFACE_RESERVE_BYTES`, and it is the whole of the subtraction.
-    expect(report.composeBudget).toBe(9_000 - 160);
+    // `PREFACE_RESERVE_BYTES` (160 until 2026-10-10, then 293), and it is the whole of the subtraction.
+    expect(report.composeBudget).toBe(9_000 - PREFACE_RESERVE_BYTES);
   });
 
   test("one live handoff ANYWHERE ⇒ room is reserved, sized to the block that EXISTS", () => {
@@ -609,7 +609,7 @@ describe("the reserve is conditional, which is what keeps a blank store honest",
     const blocks = c.handoffs.liveBlockBytes();
     expect(blocks).toHaveLength(1);
     const report = c.rebrief({ budgetBytes: 9_000 });
-    expect(report.composeBudget).toBe(9_000 - 160 - ((blocks[0] as number) + HANDOFF_RESERVE_MARGIN_BYTES));
+    expect(report.composeBudget).toBe(9_000 - PREFACE_RESERVE_BYTES - ((blocks[0] as number) + HANDOFF_RESERVE_MARGIN_BYTES));
     // …and the block that exists is well under the ceiling the flat reserve
     // used to take: the review measured 295 bytes of ceiling spent on nothing.
     expect((blocks[0] as number) + HANDOFF_RESERVE_MARGIN_BYTES).toBeLessThan(HANDOFF_RESERVE_MAX_BYTES);
@@ -640,7 +640,7 @@ describe("the reserve is conditional, which is what keeps a blank store honest",
     // COUNT is not comparable across two boundaries — the identity lane rotates
     // at every one, by design.)
     expect(after.composeBudget).toBe(before.composeBudget);
-    expect(after.composeBudget).toBe(1_200 - 160);
+    expect(after.composeBudget).toBe(1_200 - PREFACE_RESERVE_BYTES);
     expect(a.handoffs.liveBlockBytes()).toHaveLength(1);
     // A session in ANOTHER directory is handed nothing and has lost nothing.
     const woke = a.wake(1_200, { date: "2026-09-20" }, { scope: THERE });
@@ -666,7 +666,7 @@ describe("the reserve is conditional, which is what keeps a blank store honest",
     for (let i = 1; i <= HANDOFF_LIFE_DAYS + 1; i++) {
       c.store.advanceClock(`2026-10-${String(i).padStart(2, "0")}`);
     }
-    expect(c.rebrief({ budgetBytes: 9_000 }).composeBudget).toBe(9_000 - 160);
+    expect(c.rebrief({ budgetBytes: 9_000 }).composeBudget).toBe(9_000 - PREFACE_RESERVE_BYTES);
   });
 
   test("the reserved room is enough: a full store still delivers the pointer inside the ceiling", () => {
@@ -1757,7 +1757,7 @@ describe("several sessions leave handoffs in one directory", () => {
     expect(c.handoffs.liveBlockBytes()).toHaveLength(4);
     const three = c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
     // Never more than an eighth of the ceiling, however many there are.
-    expect(9_000 - 160 - (three.composeBudget as number)).toBeLessThanOrEqual(9_000 / 8);
+    expect(9_000 - PREFACE_RESERVE_BYTES - (three.composeBudget as number)).toBeLessThanOrEqual(9_000 / 8);
     expect(three.composeBudget as number).toBeLessThan(one.composeBudget as number);
     // At the ceiling the owner's hosts report, the lane caps bind before the
     // byte ceiling: a session elsewhere keeps every element it had.
