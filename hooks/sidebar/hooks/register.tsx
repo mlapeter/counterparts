@@ -382,20 +382,22 @@ function switchExplains(scope: SidebarScope): string | null {
   return null
 }
 
-/** What a click on the Counterparts switch does: two lines at most, shown while the pointer is on it. */
+/**
+ * What a click on the Counterparts switch does, shown while the pointer is on
+ * it: whole sentences in the card's two rows at the pane's 32 columns (a
+ * longer one was cut mid-sentence there: "A click pauses it for").
+ */
 function scopeHover(scope: SidebarScope): string {
-  if (scope.mode === 'unknown') return 'Counterparts memory in this folder: not read yet. A click checks where it stands; it changes nothing.'
-  if (switchExplains(scope) !== null) return "Counterparts memory in this folder: this switch can't change it here. A click says why."
-  if (scope.mode === 'paused') return 'Counterparts memory in this folder is paused for every session here. A click resumes it.'
-  if (scope.mode === 'observer') return 'Counterparts reads only in this folder. A click pauses it for every session here; it asks first.'
-  return 'Counterparts memory in this folder. A click pauses it for every session here: no wake, recall or saving. It asks first.'
+  if (scope.mode === 'unknown') return 'Not read yet: a click checks this folder, changing nothing.'
+  if (switchExplains(scope) !== null) return "This switch can't change this folder. A click says why."
+  if (scope.mode === 'paused') return 'Paused in this folder, for every session. A click resumes it.'
+  if (scope.mode === 'observer') return 'Reads only here; a click pauses all sessions here (asks first).'
+  return 'A click pauses Counterparts here for every session (asks first).'
 }
 
-/** What a click on the Claude Code memory switch does: two lines at most. */
+/** What a click on the Claude Code memory switch does: whole sentences in two rows of 32. */
 function memoryHover(on: boolean): string {
-  return on
-    ? "Claude Code's own memory (MEMORY.md). A click turns it off in every session, from your next message."
-    : "Claude Code's own memory is off in every session. A click turns it back on."
+  return on ? "Claude Code's MEMORY.md: a click turns it off in every session." : "Claude Code's own memory is off everywhere. A click turns it on."
 }
 
 /** The newest thing in plain words, for the strip and the tail. */

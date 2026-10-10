@@ -28,7 +28,7 @@ import {
   start,
   world,
 } from './world'
-import type { World } from './world'
+import type { World, WorldOptions } from './world'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const HINT_PROPS = { isDraft: false, isWorking: false, hint: '? for shortcuts' }
@@ -1024,8 +1024,11 @@ test('hovered, each memory switch says what a click does, over the rows above th
   for (const surface of SURFACES) {
     const ui = await mount($, w, surface)
     const shown = await texts(ui)
-    expect(shown).toContain('folder. A click pauses it for') // the card's lines, wrapped to the pane
-    expect(shown).toContain('(MEMORY.md). A click turns it')
+    // the card's lines, wrapped to the pane: whole sentences in its two rows, nothing cut
+    expect(shown).toContain('A click pauses Counterparts here')
+    expect(shown).toContain('for every session (asks first).')
+    expect(shown).toContain("Claude Code's MEMORY.md: a click")
+    expect(shown).toContain('turns it off in every session.')
     const tree = await ui.drawn()
     for (const [row, card, scope] of [['row-cp', 'cp-why', 'counterparts-switch-cp'], ['row-mem', 'mem-why', 'counterparts-switch-mem']] as const) {
       expect(drawnNode(tree, row)?.hover?.['scope']).toBe(scope)
@@ -1037,6 +1040,28 @@ test('hovered, each memory switch says what a click does, over the rows above th
     await ui.unmount()
   }
 })
+
+const HOVER_CASES: [string, WorldOptions, string, string][] = [
+  ['on', {}, 'A click pauses Counterparts here for every session (asks first).', "Claude Code's MEMORY.md: a click turns it off in every session."],
+  ['observer', { scopeMode: 'observer' }, 'Reads only here; a click pauses all sessions here (asks first).', ''],
+  ['paused', { scopeMode: 'paused' }, 'Paused in this folder, for every session. A click resumes it.', ''],
+  ['off', { scopeMode: 'off' }, "This switch can't change this folder. A click says why.", ''],
+  ['following a parent', { scopeMode: 'on', scopeSetBy: '/Users/me' }, "This switch can't change this folder. A click says why.", ''],
+  ['Claude memory off', { store: { claudeMemory: false } }, '', "Claude Code's own memory is off everywhere. A click turns it on."],
+]
+for (const [name, opts, cp, mem] of HOVER_CASES) {
+  test(`a hover card is whole sentences in its two rows at the pane’s width (${name})`, async ($, on) => {
+    const w = world(on, opts)
+    await start($, w)
+    const ui = await mount($, w, 'terminal')
+    const tree = await ui.drawn()
+    const card = (key: string): string[] => ((drawnNode(tree, key)?.children ?? []) as unknown[]).map(flat)
+    if (cp !== '') expect(card('cp-why').join(' ')).toBe(cp)
+    if (mem !== '') expect(card('mem-why').join(' ')).toBe(mem)
+    for (const key of ['cp-why', 'mem-why']) expect(card(key).length).toBeLessThanOrEqual(2)
+    await ui.unmount()
+  })
+}
 
 test('while the pause asks, no hover card covers its buttons (the pointer is still on the switch); cancelled, the cards are back', async ($, on) => {
   const w = world(on)
