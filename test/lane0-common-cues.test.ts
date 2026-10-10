@@ -27,15 +27,28 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("a word in nearly every memory fetches nothing; a rare word still finds its memory", () => {
+test("the floor ships off: every cue is looked up, as before Lane 0", () => {
+  // Decided by b2 (review of #368): skipping a common word's postings changed
+  // the gate's background, and so what surfaced on small stores.
+  expect(TUNABLES.CUE_FETCH_MIN_IDF).toBe(0);
+  for (let i = 0; i < 30; i += 1) s.put({ type: "memory", kind: "fact", body: `lantern note ${String(i)}` });
+  s.put({ type: "memory", kind: "fact", body: "the harbor ferry leaves at noon" });
+  const storeSize = s.countMemories({ archived: false });
+  const out = activate(s, { text: "lantern harbor", day: s.livedDay(), selfFelt: false, maxCandidates: 50, storeSize }, TUNABLES);
+  expect(out.unfetched).toBe(0);
+  expect(out.candidates.length).toBeGreaterThan(1);
+});
+
+test("with the floor on, a word in nearly every memory fetches nothing; a rare word still finds its memory", () => {
+  const on = { ...TUNABLES, CUE_FETCH_MIN_IDF: 0.1 };
   const ids: string[] = [];
   for (let i = 0; i < 30; i += 1) ids.push(s.put({ type: "memory", kind: "fact", body: `lantern note ${String(i)} about the ${["orchard", "granite", "meadow"][i % 3] as string}` }));
   const harbor = s.put({ type: "memory", kind: "fact", body: "the harbor ferry leaves at noon" });
   const storeSize = s.countMemories({ archived: false });
   expect(storeSize).toBe(s.list({ archived: false }).length);
   // `lantern` is in 30 of 31: under the floor. `harbor` is in one.
-  expect(informativeness(30, storeSize)).toBeLessThan(TUNABLES.CUE_FETCH_MIN_IDF);
-  const out = activate(s, { text: "lantern harbor", day: s.livedDay(), selfFelt: false, maxCandidates: 50, storeSize }, TUNABLES);
+  expect(informativeness(30, storeSize)).toBeLessThan(on.CUE_FETCH_MIN_IDF);
+  const out = activate(s, { text: "lantern harbor", day: s.livedDay(), selfFelt: false, maxCandidates: 50, storeSize }, on);
   expect(out.unfetched).toBe(1);
   expect(out.cues.map((c) => c.token)).toContain("lantern");
   const found = out.candidates.map((c) => c.id);

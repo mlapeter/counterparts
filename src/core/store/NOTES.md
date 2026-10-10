@@ -2001,6 +2001,8 @@ the whole answer.
 - **Derived from `embeddings` alone.** It goes when they go: `deindexDoc` (archive,
   supersede, the dead-index prune) takes a memory off its own list and every list it is on,
   `reconcileEmbedder`'s drop empties it, `resetCache` drops it. No canonical change.
+- **Going back across the v6 cache bump:** 0.3.16 refuses a v6 cache; remedy likely delete
+  `cache/cache.sqlite*` and rebuild (untested — the release that ships this must test it).
 - **One more scan per write** (~1 ms now, ~12 ms at 10x). The gate's novelty read
   (`bridge.ts`) already ranks the nearest, but it runs before the memory has an id;
   sharing it can come with interference's slot check, which wants the same table.

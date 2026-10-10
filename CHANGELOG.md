@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-- **Recall skips words that are in almost every memory.** A word found in more than about
-  four in five memories tells recall nothing, but looking it up read a list the size of the
-  store on every turn. It is still read as part of the prompt; it just isn't looked up.
+- **Recall counts the memories instead of listing them on every turn.** At ten times
+  today's size that list was about a sixth of a turn. A second speed-up, not looking up
+  words found in almost every memory, is built but off: it changed what recall showed on
+  small stores.
 - **The sleep pass no longer reads forgotten memories to skip them.** The census, the
   duplicate check and the fading pass ask the database for the rows they need instead of
   reading every row, archived ones included. Their counts are unchanged.

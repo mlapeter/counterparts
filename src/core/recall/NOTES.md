@@ -1061,10 +1061,15 @@ diagnosis of 10-02 could say the Hebbian path was nearly dark (`quoted` 0 and `e
 `activate` fetched every cue's postings, and a word in almost every memory has postings the
 size of the store: the review measured `searchIndex` at 52% of a turn at 10x. A cue whose
 `informativeness(df, storeSize)` is under `CUE_FETCH_MIN_IDF` (0.1 — a word in more than
-~80% of memories) now stays a cue and fetches nothing; `ActivationResult.unfetched` counts
-them (not a `RecallDecision` field, for `capped`'s reason). Its evidence was a few percent of
-one rare word's, so what surfaces does not change in practice; the side effect is that such a
-word no longer adds to a candidate's `matched` count. `storeSize` is `countMemories` now, not
+~80% of memories) can stay a cue and fetch nothing; `ActivationResult.unfetched` counts
+them (not a `RecallDecision` field, for `capped`'s reason). **It ships off (0).** Its own
+evidence is a few percent of one rare word's, but its postings (up to `PER_CUE_FETCH`
+near-zero candidates) were the gate's background: without them a thin turn drops from the
+relative bar to the absolute one (`gate.ts#background`, `MIN_BACKGROUND_SAMPLE`). Measured
+by the review of #368: a 40-memory store, "the garden tomatoes", 2 footnotes → 0; a prose
+corpus with 4-word prompts, 5 of 120 turns showed fewer at 150 memories and 2 of 120 changed
+at 400; sentence-length prompts, none. Re-enable after a recall-bench run on a store copy,
+with a minimum store size. `storeSize` is `countMemories` now, not
 the length of a list of every live id (16% of a 10x turn). Not done here, from the same
 finding: persisting the alias index and indexing `feelings(created_at)` (a canonical index —
 Group 1).

@@ -58,7 +58,9 @@ export interface RecallTunables {
    * looked up in the index (Lane 0, 2026-10-10, scale review C4): a word in
    * almost every memory adds almost nothing to any of them, and fetching its
    * postings read a list the size of the store on every turn (52% of a turn at
-   * 10x). 0.1 is a word in more than ~80% of memories. CAL.
+   * 10x). 0.1 is a word in more than ~80% of memories; 0 is off (the default
+   * since the review of #368: a skipped word's postings were the gate's
+   * background, so skipping them changed what surfaced). CAL.
    */
   CUE_FETCH_MIN_IDF: number;
   /** Ambiguous-handle weight: a name pointing at two memories retrieves neither
@@ -268,8 +270,8 @@ export const TUNABLES: RecallTunables = {
   MIN_CUE_LENGTH: 3,
   MAX_CUES: 24,
   PER_CUE_FETCH: 24,
-  // Decided by lane0-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: conservative — only words in >~80% of memories, whose evidence is a few percent of one rare word's; a higher floor would start changing which memories surface.
-  CUE_FETCH_MIN_IDF: 0.1,
+  // Decided by b2, 2026-10-10, lightly held. Why: it shifts what recall shows on small stores (new users: 2 → 0 footnotes at 40 memories); Lane 0 is meant to change speed, not behaviour. Re-enable after a recall-bench run on a store copy, with a minimum store size.
+  CUE_FETCH_MIN_IDF: 0,
   AMBIGUOUS_WEIGHT: 0.5,
   CARRY_DECAY: 0.5,
 
