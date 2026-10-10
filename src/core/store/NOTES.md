@@ -1988,3 +1988,19 @@ saturated), `fired.ts`' two-read join, the counting reads with ceilings far past
 (`sleep/cycle.ts`' symmetry, the dashboard's `status.ts`, the CLI's merge list, tools), and
 doctor's `keyHistory`, which asks "ever embedded", where neither end of a capped read is
 the whole answer.
+
+## 2026-10-10 — box 3 keeps each memory's neighbours (cache v6, Lane 0)
+
+- **The scale review's C1** (`13-scale.md`): the dream's `begin` called `nearestTo` once per
+  queued memory, and each call re-read and re-ranked the whole `embeddings` table. Measured
+  on the review's clone: 37 s at 10x. Box 3 now has a `neighbours` table (`memory_id, rank,
+  neighbour_id, cosine`), filled by `indexOne` when a memory's vector is written (its
+  `NEIGHBOURS_KEPT` = 48 nearest, all older than it at that moment) and read by
+  `neighbourReader()`. A memory with no list (written before v6, or embedded by backfill)
+  is ranked by the reader against one read of the table and written back.
+- **Derived from `embeddings` alone.** It goes when they go: `deindexDoc` (archive,
+  supersede, the dead-index prune) takes a memory off its own list and every list it is on,
+  `reconcileEmbedder`'s drop empties it, `resetCache` drops it. No canonical change.
+- **One more scan per write** (~1 ms now, ~12 ms at 10x). The gate's novelty read
+  (`bridge.ts`) already ranks the nearest, but it runs before the memory has an id;
+  sharing it can come with interference's slot check, which wants the same table.

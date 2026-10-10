@@ -119,6 +119,11 @@ import {
 import type { ProseDoc, ProseType } from "./prose.js";
 import {
   DEFAULT_LENGTH_NORM,
+  NEIGHBOURS_KEPT,
+  allVectors,
+  rankAgainst,
+  readNeighbours,
+  writeNeighbours,
   decodeVector,
   deindexDoc,
   docFrequency,
@@ -5032,6 +5037,46 @@ export class Store {
   }
 
   /**
+   * NEIGHBOURS BY ID, FOR MANY QUERIES (2026-10-10, Lane 0 / scale review C1).
+   * Returns a reader: `read(id, limit)` is `id`'s nearest memories by vector,
+   * nearest first, never `id` itself — read from box 3's `neighbours` table,
+   * which the write path fills (`indexOne`). A memory with no stored list (one
+   * written before v6, or whose vector came by backfill) is ranked here, against
+   * the embedding table read ONCE per reader however many ids miss, and the
+   * list is written back so the next night reads it. Null when `id` has no
+   * vector or this handle may not rank (the caller falls back to words).
+   *
+   * Before this, the dream's `begin` re-read and re-ranked the whole table once
+   * per queued memory: 299 ms at today's size, 22 s at 10x (13-scale.md).
+   */
+  neighbourReader(): (id: string, limit: number) => string[] | null {
+    let table: { id: string; vec: Float32Array | number[] }[] | null = null;
+    return (id, limit) => {
+      const vec = this.vectorOf(id);
+      if (vec === null) return null;
+      // A vector this handle may not rank against ranks nothing — as
+      // `nearestTo` answered here before: an empty list, not the word fallback.
+      if (!this.rankable(vec.length, "neighbourReader")) return [];
+      const stored = readNeighbours(this.cache, id, limit);
+      // A stored list shorter than asked is still the whole list when the
+      // table was that small; a short list from a store that has grown since
+      // is not wrong either — what it lacks is NEWER than the memory, which
+      // the dream does not show as a neighbour.
+      if (stored !== null) return stored.map((h) => h.id);
+      table ??= allVectors(this.cache);
+      const hits = rankAgainst(table, vec, NEIGHBOURS_KEPT + 1).filter((h) => h.id !== id);
+      if (!this.observer) {
+        try {
+          writeNeighbours(this.cache, id, hits);
+        } catch {
+          /* box 3 is best-effort: the list is recomputed next time */
+        }
+      }
+      return hits.slice(0, limit).map((h) => h.id);
+    };
+  }
+
+  /**
    * The vectors of the `limit` memories nearest `vec` — E(m), the context a
    * novelty measurement is prediction error AGAINST (physics §5.1). Read-only,
    * box 3 only, and it strengthens nothing: this is an instrument's read.
@@ -5389,7 +5434,21 @@ export class Store {
     // now names another identity writes the words and NOT the vector, leaving
     // the memory for the owning identity's backfill.
     const refused = indexDoc(this.cache, doc.id, text, vec);
-    if (refused !== null) this.emit("cache.vector.refused", doc.id, { site: "put", reason: refused });
+    if (refused !== null) {
+      this.emit("cache.vector.refused", doc.id, { site: "put", reason: refused });
+      return;
+    }
+    // ITS NEIGHBOURS, NOW (v6, Lane 0 / scale review C1): the memories nearest
+    // it as the store stands — all of them older than it — kept so the dream
+    // reads them instead of scanning the table once per queued memory.
+    // Decided by lane0-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why: one more scan per write (~1 ms now, ~12 ms at 10x) rather than threading ids through the gate's novelty read (`bridge.ts`), which runs before the memory has an id; the reuse can come with interference's slot check.
+    try {
+      if (this.rankable(vec.length, "neighbours")) {
+        writeNeighbours(this.cache, doc.id, nearest(this.cache, vec, NEIGHBOURS_KEPT + 1));
+      }
+    } catch {
+      /* box 3 is best-effort: the dream ranks it when it asks */
+    }
   }
 }
 

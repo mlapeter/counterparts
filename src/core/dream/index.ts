@@ -2246,13 +2246,21 @@ export class Dreams {
     let listUsed = 0;
     const freshOut: { id: string; neighbours: string[] }[] = [];
     const loose: string[] = [];
+    // One reader for the whole night: stored neighbours, and the embedding
+    // table read at most once for any that have none (Lane 0, scale C1).
+    const neighbourOf = this.store.neighbourReader();
     for (const { id: fid } of ranked) {
       const own = lineCost(fid);
       if (freshOut.length > 0 && freshUsed + own > freshRoom) continue;
+      // THE LIST'S ROOM, BEFORE THE NEIGHBOURS ARE LOOKED UP (Lane 0, scale
+      // C1): an entry with no neighbours is the least a fresh line costs the
+      // list; when even that does not fit, the full check below would refuse
+      // it too — so it waits without paying a neighbour read first.
+      if (freshOut.length > 0 && listUsed + 2 * JSON.stringify({ id: fid, neighbours: [] }).length > T.FRESH_LIST_CHARS) continue;
       const self = (see(fid) as { row: MemoryRow }).row;
       const neighbours: string[] = [];
       const near: string[] = [];
-      for (const [rank, nid] of this.near(fid, T.MIXING_TO_RANK).entries()) {
+      for (const [rank, nid] of this.near(fid, T.MIXING_TO_RANK, neighbourOf).entries()) {
         if (nid === fid || queued.has(nid)) continue;
         const nv = see(nid);
         if (nv === null || nv.row.birth_day > self.birth_day) continue;
@@ -2458,10 +2466,15 @@ export class Dreams {
     return fitEpisodes(episodes, { room, owner, day, lineBytes: T.LINE_BYTES, entryChars: T.ENTRY_CHARS, reads: extent, unread });
   }
 
-  /** Nearest memories to `id`, by the static embedder's vectors, else lexically. */
-  private near(id: string, limit: number): string[] {
-    const vec = this.store.vectorOf(id);
-    if (vec !== null) return this.store.nearestTo(vec, limit + 1).map((h) => h.id);
+  /**
+   * Nearest memories to `id`, by the static embedder's vectors, else lexically.
+   * The vector arm keeps the shape it had when it was a scan of `limit + 1`
+   * that found `id` itself first: `id` at rank 0, its neighbours after, so the
+   * caller's ranks (`MIXING_FROM_RANK`) mean what they meant.
+   */
+  private near(id: string, limit: number, neighbourOf: (id: string, limit: number) => string[] | null): string[] {
+    const stored = neighbourOf(id, limit);
+    if (stored !== null) return [id, ...stored];
     // No vector (embedder off, or not yet embedded): the rarest words of its
     // title and first line, through the token index.
     let doc: ProseDoc;

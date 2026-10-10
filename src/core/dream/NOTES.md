@@ -556,3 +556,12 @@ carried it to the dashboard, and `test/dream-preview.test.ts`. The gate is uncha
 `status`, `askLine` and `offer` ask it as before, and the private `gate` keeps its stance
 arguments. The entries above that name `previewAsk` (2026-09-27, and the guest-bundle notes
 of 2026-10-02) are history.
+
+## 2026-10-10 — `begin` reads stored neighbours (Lane 0)
+
+`compose` takes one `store.neighbourReader()` for the night instead of a `nearestTo` scan per
+queued memory, and the fresh list's room is checked before a memory's neighbours are read
+(an entry with no neighbours is the least it can cost; when even that does not fit, the full
+check refused it anyway). Same bundle as before on the review's clone; `begin` 314 → 231 ms
+at 1x (170 ms once the lists are stored), 37 s → 1.4 s at 10x (0.97 s stored). `near()`
+still returns the memory itself at rank 0, so `MIXING_FROM_RANK` means what it meant.
