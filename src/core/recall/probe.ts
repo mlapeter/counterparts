@@ -27,8 +27,8 @@
  * THE HIT RATE (2026-10-09) rides the same rows: a `recall.credit` row now
  * scores the ambient showings since the session's last boundary that judged —
  * loud, footnoted and pointer, and how many of each no reply expanded or
- * quoted (`shownNotUsed` holds their ids, for a per-memory read later). The
- * probe sums the lanes over the rows that carry the counts. Rows from before
+ * quoted (`shownNotUsed` holds their ids; `probeMemoryHits`, below, reads them per
+ * memory and per lane, 2026-10-10). The probe sums the lanes over the rows that carry the counts. Rows from before
  * carry none and are left out, so the line says how many boundaries it rests on.
  *
  * What this does NOT claim: causation. A session that expanded nothing may
@@ -294,4 +294,139 @@ export function renderProbe(report: ProbeReport): string[] {
     );
   }
   return lines;
+}
+
+/** The lane a showing came through, as the `recall.decision` row records it. */
+export type ShowingLane = "loud" | "footnotes" | "pointers";
+
+type LaneCounts = Record<ShowingLane, { sessions: number; ignored: number }>;
+
+/** One memory's score: the scored sessions that showed it, and in how many of
+ *  those no reply expanded or quoted it. */
+export interface MemoryHit {
+  readonly id: string;
+  readonly sessions: number;
+  readonly ignored: number;
+  readonly byLane: Readonly<LaneCounts>;
+}
+
+export interface MemoryHitReport {
+  /** Most ignored first, then by id. */
+  readonly memories: MemoryHit[];
+  /** The same counts summed by lane, over every memory. */
+  readonly byLane: Readonly<LaneCounts>;
+  /** Sessions that showed something: counted; left out because no credit row
+   *  scored them; left out because a row's id list was cut at its cap (its
+   *  misses are not all named). */
+  readonly sessions: { readonly scored: number; readonly unscored: number; readonly truncated: number };
+}
+
+/**
+ * RECALL'S HIT RATE PER MEMORY AND PER LANE (Hawkins 2a, 2026-10-10): the
+ * per-memory read the credit row's `shownNotUsed` was written for (2026-10-09).
+ * Pure, over the same rows `probeOQ4` takes. Nothing reads it to act.
+ *
+ * Decided by b2+f8 (Mike asked 2026-10-10), lightly held: ignoring is measured
+ * first and has no effect on strength; if anything acts on it later it lowers
+ * how readily a memory surfaces (habituation), not its strength. Decide after
+ * the ~10-14 check-in.
+ *
+ * The unit is a memory in a session. `recall.decision` rows say what was shown
+ * and through which lane (`surfaced` is loud; a footnote with `via: "link"` is
+ * a quiet pointer); the lane kept is the last showing's, as the gate state the
+ * credit pass scores keeps it. The session's `recall.credit` rows say which of
+ * those no reply expanded or quoted (`shownNotUsed`). Listed on any of the
+ * session's boundaries is ignored in that session, even when a later reply
+ * opened it: the score is of the reply it was shown for.
+ *
+ * A session counts only when one of its credit rows carries the list and none
+ * cut it short (`shownNotUsedTotal` above the list's length). Leaving a session
+ * out says unknown; counting it would turn an unnamed miss into a hit.
+ */
+export function probeMemoryHits(rows: readonly ProbeRow[]): MemoryHitReport {
+  const shownIn = new Map<string, Map<string, ShowingLane>>();
+  const missedIn = new Map<string, Set<string>>();
+  const truncated = new Set<string>();
+  for (const row of rows) {
+    if (row.name !== "recall.decision" && row.name !== "recall.credit") continue;
+    let p: Record<string, unknown>;
+    try {
+      p = JSON.parse(row.payload ?? "") as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (p === null || typeof p !== "object") continue;
+    const session = typeof p["session"] === "string" ? p["session"] : null;
+    if (session === null) continue;
+    if (row.name === "recall.decision") {
+      let lanes = shownIn.get(session);
+      if (lanes === undefined) {
+        lanes = new Map();
+        shownIn.set(session, lanes);
+      }
+      for (const id of ids(p["surfaced"])) lanes.set(id, "loud");
+      const foot = p["footnotes"];
+      if (Array.isArray(foot)) {
+        for (const f of foot) {
+          if (typeof f === "string") lanes.set(f, "footnotes");
+          else if (f !== null && typeof f === "object" && typeof (f as { id?: unknown }).id === "string") {
+            const e = f as { id: string; via?: unknown };
+            lanes.set(e.id, e.via === "link" ? "pointers" : "footnotes");
+          }
+        }
+      }
+      continue;
+    }
+    if (!Array.isArray(p["shownNotUsed"])) continue;
+    const listed = ids(p["shownNotUsed"]);
+    const total = count(p, "shownNotUsedTotal");
+    if (total !== null && total > listed.length) truncated.add(session);
+    let missed = missedIn.get(session);
+    if (missed === undefined) {
+      missed = new Set();
+      missedIn.set(session, missed);
+    }
+    for (const id of listed) missed.add(id);
+  }
+
+  const zero = (): LaneCounts => ({
+    loud: { sessions: 0, ignored: 0 },
+    footnotes: { sessions: 0, ignored: 0 },
+    pointers: { sessions: 0, ignored: 0 },
+  });
+  const per = new Map<string, { sessions: number; ignored: number; byLane: LaneCounts }>();
+  const byLane = zero();
+  let scored = 0;
+  let unscored = 0;
+  let cut = 0;
+  for (const [session, lanes] of shownIn) {
+    const missed = missedIn.get(session);
+    if (missed === undefined) {
+      unscored += 1;
+      continue;
+    }
+    if (truncated.has(session)) {
+      cut += 1;
+      continue;
+    }
+    scored += 1;
+    for (const [id, lane] of lanes) {
+      let m = per.get(id);
+      if (m === undefined) {
+        m = { sessions: 0, ignored: 0, byLane: zero() };
+        per.set(id, m);
+      }
+      const miss = missed.has(id) ? 1 : 0;
+      m.sessions += 1;
+      m.ignored += miss;
+      m.byLane[lane].sessions += 1;
+      m.byLane[lane].ignored += miss;
+      byLane[lane].sessions += 1;
+      byLane[lane].ignored += miss;
+    }
+  }
+  const memories: MemoryHit[] = [...per.entries()]
+    .map(([id, m]) => ({ id, ...m }))
+    .sort((a, b) => b.ignored - a.ignored || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return { memories, byLane, sessions: { scored, unscored, truncated: cut } };
 }

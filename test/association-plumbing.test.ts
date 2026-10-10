@@ -27,7 +27,7 @@ import {
   saveGateState,
 } from "../src/core/recall/index.js";
 import type { GateState } from "../src/core/recall/index.js";
-import { probeOQ4, renderProbe } from "../src/core/recall/probe.js";
+import { probeMemoryHits, probeOQ4, renderProbe } from "../src/core/recall/probe.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import type { ClaudeCodeAdapter, HookInput } from "../src/adapters/claude-code/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
@@ -550,5 +550,91 @@ describe("(b) the boundary's row carries the score, and the probe reads the hit 
     ]);
     expect(report.hits.boundaries).toBe(0);
     expect(renderProbe(report).join("\n")).toContain("hit rate: - (no recall.credit row scores what recall showed yet)");
+  });
+
+  test("Hawkins 2a, the row's ids: expanded and quoted are not listed, the ignored are, and the per-memory reader joins them", () => {
+    const a = adapter();
+    const c = a.counterpart;
+    const quoted = fact(c, LOUD_BODY);
+    const expanded = fact(c, "Rebasing before review keeps the history readable for everyone involved.");
+    const ignored = fact(c, "The tide tables for the estuary are pinned inside the boathouse door.");
+    const pointer = fact(c, "The backup drive lives in the hall cupboard behind the paint tins.");
+    shown(c, "s1", 1, {
+      [quoted]: { turn: 1, tier: "surfaced", trains: true },
+      [expanded]: { turn: 1, tier: "footnoted", trains: true },
+      [ignored]: { turn: 1, tier: "footnoted", trains: true },
+      [pointer]: { turn: 1, tier: "footnoted", trains: true, via: "link" },
+    });
+    a.stop(
+      input({
+        turns: [
+          { role: "user", text: "Where did we land on the storage split?" },
+          {
+            role: "assistant",
+            text: "As I said before, the storage split keeps canonical prose in markdown files, operational state in one small database.",
+          },
+        ],
+        expansions: [{ atTurn: 2, ids: [expanded] }],
+      }),
+    );
+    const row = c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1);
+    const payload = JSON.parse(row?.payload ?? "{}") as Record<string, unknown>;
+    expect(payload["quoted"]).toBe(1);
+    expect(payload["expandedIds"]).toEqual([expanded]);
+    expect([...(payload["shownNotUsed"] as string[])].sort()).toEqual([ignored, pointer].sort());
+    expect(payload["shownNotUsedTotal"]).toBe(2);
+
+    // The decision row the turn would have written (lanes as recall records them).
+    const decisionRow = {
+      name: "recall.decision",
+      day: 0,
+      payload: JSON.stringify({
+        session: "s1",
+        turn: 1,
+        surfaced: [{ id: quoted }],
+        footnotes: [{ id: expanded }, { id: ignored }, { id: pointer, via: "link" }],
+      }),
+    };
+    const hits = probeMemoryHits([decisionRow, { name: RECALL_CREDIT_EVENT, day: 0, payload: row?.payload ?? null }]);
+    expect(hits.sessions).toEqual({ scored: 1, unscored: 0, truncated: 0 });
+    const by = new Map(hits.memories.map((m) => [m.id, m]));
+    expect(by.get(quoted)).toMatchObject({ sessions: 1, ignored: 0 });
+    expect(by.get(expanded)).toMatchObject({ sessions: 1, ignored: 0 });
+    expect(by.get(ignored)).toMatchObject({ sessions: 1, ignored: 1 });
+    expect(by.get(pointer)?.byLane.pointers).toEqual({ sessions: 1, ignored: 1 });
+    expect(hits.byLane).toEqual({
+      loud: { sessions: 1, ignored: 0 },
+      footnotes: { sessions: 2, ignored: 1 },
+      pointers: { sessions: 1, ignored: 1 },
+    });
+  });
+
+  test("Hawkins 2a, the cap: 65 ignored showings list 64 ids and count all 65, and the reader leaves the cut session out", () => {
+    const a = adapter();
+    const c = a.counterpart;
+    const records: GateState["surfaced"] = {};
+    const made: string[] = [];
+    for (let i = 0; i < 65; i += 1) {
+      const id = fact(c, `Ignored showing number ${i}: the shed key hangs on hook ${i} beside the garden door.`);
+      made.push(id);
+      records[id] = { turn: 1, tier: "footnoted", trains: true };
+    }
+    shown(c, "s1", 1, records);
+    a.stop(input());
+    const row = c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1);
+    const payload = JSON.parse(row?.payload ?? "{}") as Record<string, unknown>;
+    expect(payload["unusedFootnotes"]).toBe(65);
+    expect((payload["shownNotUsed"] as string[]).length).toBe(64);
+    expect(payload["shownNotUsedTotal"]).toBe(65);
+    expect((row?.payload ?? "").length).toBeLessThan(8000);
+
+    const decisionRow = {
+      name: "recall.decision",
+      day: 0,
+      payload: JSON.stringify({ session: "s1", turn: 1, surfaced: [], footnotes: made.map((id) => ({ id })) }),
+    };
+    const hits = probeMemoryHits([decisionRow, { name: RECALL_CREDIT_EVENT, day: 0, payload: row?.payload ?? null }]);
+    expect(hits.sessions).toEqual({ scored: 0, unscored: 0, truncated: 1 });
+    expect(hits.memories).toEqual([]);
   });
 });

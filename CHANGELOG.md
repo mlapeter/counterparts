@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A reader for which memories recall shows and the replies ignore.** `probeMemoryHits`
+  reads the ids the credit row already lists as shown and not used, and gives a hit rate
+  per memory and per lane (loud, footnote, pointer). It only measures. Nothing reads it
+  to change a memory's strength or how readily it comes to mind.
 - **Recall counts the memories instead of listing them on every turn.** At ten times
   today's size that list was about a sixth of a turn. A second speed-up, not looking up
   words found in almost every memory, is built but off: it changed what recall showed on

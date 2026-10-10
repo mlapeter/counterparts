@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { EXIT, run } from "../src/adapters/cli/commands.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT } from "../src/core/counterpart.js";
-import { probeOQ4, renderProbe } from "../src/core/recall/probe.js";
+import { probeMemoryHits, probeOQ4, renderProbe } from "../src/core/recall/probe.js";
 import { FOOTNOTE_HEADER_STEP_0, FOOTNOTE_HEADER_STEP_1, FRAMING, clip } from "../src/core/recall/render.js";
 import { TUNABLES as RECALL } from "../src/core/recall/tunables.js";
 import { Store } from "../src/core/store/index.js";
@@ -198,5 +198,59 @@ describe("counterparts probe-oq4", () => {
     expect(await run(["probe-oq4", "--dir", empty], { io: c.io, env: {} })).toBe(EXIT.usage);
     expect(c.err.join("\n")).toContain("No store at");
     expect(c.out).toEqual([]);
+  });
+});
+
+describe("probeMemoryHits (pure, Hawkins 2a)", () => {
+  const scoredCredit = (session: string, shownNotUsed: string[], total = shownNotUsed.length) => ({
+    name: RECALL_CREDIT_EVENT,
+    day: 1,
+    payload: JSON.stringify({ session, reason: "credited", expandedIds: [], shownNotUsed, shownNotUsedTotal: total }),
+  });
+
+  test("a hit rate per memory across sessions, by the lane each was shown through", () => {
+    const r = probeMemoryHits([
+      decision("s1", "2026-10-10", ["mem_a", "mem_b"], ["mem_c"]),
+      scoredCredit("s1", ["mem_a"]),
+      decision("s2", "2026-10-10", ["mem_a"]),
+      scoredCredit("s2", []),
+    ]);
+    expect(r.sessions).toEqual({ scored: 2, unscored: 0, truncated: 0 });
+    const by = new Map(r.memories.map((m) => [m.id, m]));
+    expect(by.get("mem_a")).toMatchObject({ sessions: 2, ignored: 1 });
+    expect(by.get("mem_b")).toMatchObject({ sessions: 1, ignored: 0 });
+    expect(by.get("mem_c")?.byLane.loud).toEqual({ sessions: 1, ignored: 0 });
+    expect(r.memories[0]?.id).toBe("mem_a");
+    expect(r.byLane.footnotes).toEqual({ sessions: 3, ignored: 1 });
+  });
+
+  test("a session no credit row scored is unknown, not a hit; an old credit row without the list scores nothing", () => {
+    const r = probeMemoryHits([
+      decision("s1", "2026-10-10", ["mem_a"]),
+      credit("s1", "2026-10-10", []),
+      decision("s2", "2026-10-10", ["mem_b"]),
+    ]);
+    expect(r.sessions).toEqual({ scored: 0, unscored: 2, truncated: 0 });
+    expect(r.memories).toEqual([]);
+  });
+
+  test("ignored at any boundary of the session counts as ignored there, even if opened later", () => {
+    const r = probeMemoryHits([
+      decision("s1", "2026-10-10", ["mem_a"]),
+      scoredCredit("s1", ["mem_a"]),
+      scoredCredit("s1", []),
+    ]);
+    expect(r.memories).toEqual([
+      {
+        id: "mem_a",
+        sessions: 1,
+        ignored: 1,
+        byLane: {
+          loud: { sessions: 0, ignored: 0 },
+          footnotes: { sessions: 1, ignored: 1 },
+          pointers: { sessions: 0, ignored: 0 },
+        },
+      },
+    ]);
   });
 });
