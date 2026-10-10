@@ -96,8 +96,12 @@ export function isOurHookCommand(command: string): boolean {
 
 /** Our hook's entry by its path, as a runtime's script: the TypeScript entry
  *  or its `.mjs` shim. (The installed `counterparts-hook` shim runs itself,
- *  so it is read only as the command's first token.) */
-const HOOK_ENTRY = /(^|[/\\])claude-code[/\\]bin[/\\]hook\.(ts|mjs)$/;
+ *  so it is read only as the command's first token.) Anchored at
+ *  `adapters/`, where the entry has lived since it was written (review of
+ *  #355): a bare `claude-code/bin/hook.ts` is a path any tool with a Claude
+ *  Code adapter may have, and this reading accepts any runtime before it —
+ *  `tsx`, `deno run`, `node` — so a match here stands the plugin down. */
+const HOOK_ENTRY = /(^|[/\\])adapters[/\\]claude-code[/\\]bin[/\\]hook\.(ts|mjs)$/;
 
 /** Our hook command, read for WHAT IT RUNS (`readOurHook`). */
 export interface OurHookRead {

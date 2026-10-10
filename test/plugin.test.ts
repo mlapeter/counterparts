@@ -403,8 +403,20 @@ describe("npmWiring and the two gates", () => {
       `${bun} --no-env-file`,
       `${bun} run`,
       "echo counterparts-hook",
+      // Review of #355: another tool's Claude Code hook at a lookalike path,
+      // under our exact flags and under the runtimes this reading accepts.
+      `${bun} --no-env-file "--config=${join(work, "c.toml")}" run "/opt/othertool/claude-code/bin/hook.ts"`,
+      `tsx "/opt/othertool/claude-code/bin/hook.ts"`,
+      `deno run -A "/opt/othertool/packages/claude-code/bin/hook.ts"`,
+      `node "/opt/othertool/claude-code/bin/hook.mjs"`,
+      `node --import "/x/src/adapters/node-hooks.mjs" "${other}"`,
+      // Our path inside a snippet, beside our name, or behind a redirect.
+      `${bun} -e "import('${HOOK_SCRIPT}')"`,
+      `${bun} run "${HOOK_SCRIPT}.bak"`,
+      `${bun} run "${join(work, "src", "adapters", "claude-code", "bin", "myhook.ts")}"`,
+      `${bun} run "${HOOK_SCRIPT}" 2>/dev/null`,
     ];
-    for (const command of notOurs) expect(readOurHook(command)).toBeNull();
+    for (const command of notOurs) expect({ command, read: readOurHook(command) }).toEqual({ command, read: null });
     writeSettings({ SessionStart: notOurs });
     expect(npmWiring({ home, env: {}, cwd: project }).hooks).toEqual([]);
   });

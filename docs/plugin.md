@@ -102,7 +102,7 @@ identical, and ours never is. So when the npm wiring is live, the plugin stands 
   `instructions`, so `/mcp` shows connected, not failed.
 - An npm entry is dead when its runtime or script is gone. Nobody stands down for
   a dead entry; the plugin runs and names the stale lines.
-- "A hook of ours" is read by the script it runs (`claude-code/bin/hook.ts`, its
+- "A hook of ours" is read by the script it runs (`adapters/claude-code/bin/hook.ts`, its
   `.mjs` shim, `counterparts-hook`, or the single binary's `hook`), whatever flags
   come before or after `run`. A plugin from before 0.3.14 read only the flags it
   knew, missed the line 0.3.14's `connect` writes, and didn't stand down: two wakes,
