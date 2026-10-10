@@ -606,8 +606,8 @@ row, saying which source answered, existed until the keys were removed — §1a.
     - **The plugin stands down** (`adapters/plugin.ts#hookGate`): a plugin hook
       that finds a LIVE hook of ours in user, project or local settings exits at
       once and says so at SessionStart. "Ours" is read by the SCRIPT
-      (`host-wiring.ts#readOurHook`): a runtime given `claude-code/bin/hook.ts` or
-      its `.mjs` shim, `counterparts-hook`, or `<binary> hook`, whatever one-token
+      (`host-wiring.ts#readOurHook`): a runtime given `adapters/claude-code/bin/hook.ts`
+      or its `.mjs` shim, `counterparts-hook`, or `<binary> hook`, whatever one-token
       flags come before or after `run`, and nothing with a shell operator in it.
       So a plugin reads what a newer `connect` writes. (The plugin's server stands
       down the same way, by the registration's NAME.) `connect`'s own rewrite keeps
@@ -631,7 +631,10 @@ row, saying which source answered, existed until the keys were removed — §1a.
       words twice) and delivers. **Fail-open:** no session id, an observer, or a
       store that will not take the write, and the process delivers, so one wiring
       behaves exactly as before (two small writes: about 0.25 ms measured in
-      process, within noise end to end). Doctor's `Installed twice` line (amber)
+      process, within noise end to end). Each of the two writes waits at most
+      `CLAIM_WAIT_MS` (500 ms) on another writer's lock, not the store's 5 s, so a
+      store somebody holds costs a turn half a second more than it did, not five.
+      Doctor's `Installed twice` line (amber)
       reads the week's `claim.lost` rows. The transcript's size is not in the key:
       the host may write between the twins starting.
 

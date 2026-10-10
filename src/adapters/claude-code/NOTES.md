@@ -2118,3 +2118,62 @@ INTERFACE-GAPS §15.
   and that `prompt_id` is present at UserPromptSubmit itself (the schema says "absent until
   the first user input of the process lifetime"; the key also carries the prompt's hash, so
   either way works).
+
+## 2026-10-09 — review of #355: what was checked, and three changes
+
+- **False suppression, through the real hook entry** (`test/hook-claim.test.ts`, "separate
+  events are never taken for twins"). Fired AT ONCE, none lost a claim: the same prompt and
+  even the same `prompt_id` in two sessions (the key is per session); the same words typed
+  twice in one session under two `prompt_id`s; SessionStart `startup`, `clear` and `resume`
+  for one session id; a Stop and its re-fire (`stop_hook_active` false and true, same last
+  words). One AFTER another with an identical key, all delivered: two auto-compactions under
+  one `prompt_id`, a session resumed twice, two Stops with the same last words and no
+  `prompt_id`. That second group passes only because the winner stamps its finish (checked:
+  with `finishClaim` taken out, it fails). What remains: a holder KILLED before its stamp
+  (the host's timeout, a hard kill) holds its key for up to 15 s, so in that window a
+  same-key event with no `prompt_id` (a session resumed twice in a row after a killed
+  SessionStart) would be silenced once. Not a path a host produces in practice; left as is.
+- **The race.** The claim is one `BEGIN IMMEDIATE` read-modify-write (`Store#updateMeta`),
+  so two writers serialise and the second reads the first's claim. Proved two ways: two
+  processes released at the same instant for 50 rounds, every round exactly one winner (in
+  the suite; run 5 times, 250 races, no double win); and 50 pairs of real hook processes
+  (SessionStart, UserPromptSubmit and Stop in turn) fired together over one store: 50 of 50
+  had exactly one twin stand down, no twin printed anything, every SessionStart winner
+  printed its wake, nothing delivered unclaimed. One thing the 50 rounds showed about the
+  rule rather than the lock: a winner that finishes in the very millisecond its twin
+  started reads as "finished before the twin started" (`started < ended` against a
+  millisecond clock). A real hook runs for tens of milliseconds, so this is not a case a
+  host produces; the race test starts each round's process a millisecond before it claims.
+- **CHANGED: the claim waits 500 ms on a lock, not 5 s** (`CLAIM_WAIT_MS`,
+  `Store#updateMeta`'s new `waitMs`, put back afterwards as `db.ts#foldWal` does). With a
+  write lock held on the store for 30 s, a UserPromptSubmit took 11 s on master and 16 s on
+  the branch: the claim waited the full `BUSY_TIMEOUT_MS`, failed, and delivered (fail-open
+  held; "never cost the turn" didn't). With the bound, 12 s. A twin outwaits its holder's
+  sub-millisecond claim many times over in 500 ms; a store held longer than that makes both
+  twins deliver, the nuisance direction. `finishClaim` has the same bound.
+- **CHANGED: `readOurHook` anchors our entry at `adapters/claude-code/bin/hook.(ts|mjs)`.**
+  It accepts any runtime before the script (`tsx`, `deno run -A`, `node`), so a bare
+  `claude-code/bin/hook.ts` suffix matched another tool's Claude Code hook at a lookalike
+  path, and a match is what stands the plugin down (no memory at all, if that tool's line
+  is the only one). Our entry has lived under `adapters/` since it was written (2026-08-25).
+  The strict `isOurHookCommand` (connect's rewrite) is unchanged.
+- **The Stop ask beside a silent twin.** Our ask is not a block: it is exit 0 with
+  `hookSpecificOutput.additionalContext` on Stop, which the reference calls "Non-error
+  feedback for Claude. The conversation continues so Claude can act on it" and says "keeps
+  the conversation going through the same loop protections as `decision: "block"`"
+  (https://code.claude.com/docs/en/hooks, Stop decision control). How several hooks
+  combine, from the guide (https://code.claude.com/docs/en/hooks-guide, "Combine results
+  from multiple hooks", read 2026-10-09): "When multiple hooks match the same event, every
+  hook's command runs to completion before Claude Code merges the results", and "Text from
+  `additionalContext` is kept from every hook and passed to Claude together"; its worked
+  example's logging hook "exits 0, which reports no decision". So a twin that exits 0 with
+  nothing on stdout adds nothing and takes nothing away: the winner's ask stands. The docs
+  state precedence explicitly only for PreToolUse and PreModelSwitch; for Stop this is read
+  from the general merge rule, not quoted, and still not watched on a real host. The same
+  page explains why the twins exist at all: "If you define the same handler in more than one
+  settings file, it runs once. A plugin's or skill's copy of the same handler stays
+  separate."
+- **`prompt_id` at UserPromptSubmit.** The reference's common-fields table: "UUID identifying
+  the user prompt currently being processed … Absent until the first user input". At
+  UserPromptSubmit that prompt is the one being processed, so it should be present; not
+  watched on a real host. The key carries the prompt's hash either way.
