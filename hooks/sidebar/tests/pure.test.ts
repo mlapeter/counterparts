@@ -6,11 +6,30 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { Brain, DEFAULT_COLOR } from '../hooks/brain'
 import { decodeCells, encodeCells, isRasterSafe } from '../hooks/cells'
-import { alsoLine, cameRow, classify, clock, keptRow, mergeRows, parseFacts, parseRecallBlock, resolveServer, shortDir, wrap } from '../hooks/feed'
+import {
+  classify,
+  countToday,
+  dateOf,
+  decisionFor,
+  dreamChanges,
+  firstSentence,
+  hm,
+  mechEvents,
+  openedIds,
+  parseFacts,
+  parseRecallBlock,
+  resolveServer,
+  savedItems,
+  shortDir,
+  surfacedIds,
+  wrap,
+} from '../hooks/feed'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { hookConfig, lookup, parentOf, parseRegistry, settingsHookConfig, under } from '../hooks/scopes'
 import { MECHS, STAGES } from '../hooks/mechanisms'
-import { EVENTS, FACTS_ANSWER, RECALL_BLOCK, SESSION, T0, ev } from './world'
+import { EXPAND_MAX_LINES, bar, clip, heading, layoutBody, openedLines, textOf, wrapN } from '../hooks/sections'
+import type { BodyState } from '../hooks/sections'
+import { DECISION_T3, EVENTS, FACTS_ANSWER, RECALL_BLOCK, SESSION, T0, ev } from './world'
 
 describe('the brain', () => {
   test('a frame is cols x rows cells of braille or blank, every one a Raster may hold', () => {
@@ -87,12 +106,14 @@ describe('cells', () => {
 describe('the feed', () => {
   test('an event proves a mechanism or is left out; this session’s in plain words, the night’s, and other sessions’ marked', () => {
     const rows = EVENTS.map(e => classify(e, SESSION))
-    expect(rows[0]).toMatchObject({ mech: 'salience', word: 'kept', text: 'The sidebar draws the brain in braille', who: 'here', line: 'kept · The sidebar draws the brain in braille', keys: ['mem:mem_aaaa1111'] })
-    expect(rows[1]).toMatchObject({ mech: 'retrieval', word: 'recalled', text: '2 came to mind', who: 'here', more: ['· Release notes go out on Fridays', '· Publishing waits for a review'] })
+    expect(rows[0]).toMatchObject({ mech: 'salience', word: 'kept', text: 'The sidebar draws the brain in braille', who: 'here', keys: ['mem:mem_aaaa1111'], memory: { id: 'mem_aaaa1111', title: 'The sidebar draws the brain in braille' } })
+    expect(rows[1]).toMatchObject({ mech: 'retrieval', word: 'recalled', text: '2 came to mind', who: 'here', more: ['Release notes go out on Fridays', 'Publishing waits for a review'] })
     expect(rows[2]).toMatchObject({ mech: 'retrieval', who: 'other', keys: ['turn:sess-older:7'] })
     expect(rows[3]).toBeNull() // a quiet turn
-    expect(rows[4]).toMatchObject({ mech: 'dreaming', mechs: ['dreaming'], word: 'dreamed', who: 'night' })
-    expect(rows[5]).toBeNull() // a sleep check that faded nothing
+    expect(rows[4]).toMatchObject({ mech: 'dreaming', mechs: ['dreaming'], word: 'dreamed', who: 'night', dream: 'drm_test0001' })
+    expect(rows[5]).toMatchObject({ mech: 'decay', word: 'faded', memory: { id: 'mem_fade0001', title: 'An old plan that faded' } })
+    expect(rows[6]).toMatchObject({ mech: 'consolidation', word: 'became core' })
+    expect(rows[7]).toBeNull() // a sleep check that faded nothing
     expect(rows[0]?.mechs).toEqual(['salience'])
     expect(rows[1]?.mechs).toEqual(['retrieval'])
     expect(classify(EVENTS[0]!, 'another-session')?.who).toBe('other')
@@ -103,14 +124,13 @@ describe('the feed', () => {
     expect(classify({ ...settled('x'), detail: [{ key: 'actor', value: 'dream' }] }, SESSION)?.who).toBe('night')
   })
 
-  test('one event, every mechanism it proves: one row, its own word and colour, the rest in `mechs` and in an opened row’s “also” line', () => {
+  test('one event, every mechanism it proves: its own mechanism first, the rest in `mechs`', () => {
     // a mood-matched recall (2026-10-10 live: 7 of the last 40 turns): Retrieval's row, Emotion lit too
     const mood = ev(501, 'recall.decision', 'On turn 4 I kept “Choosing the cores” as a footnote.', 1, {
       session: SESSION, turn: '4', surfacedCount: '0', footnoteCount: '2', moodMatched: '1',
     })
     const recalled = classify(mood, SESSION)!
     expect(recalled).toMatchObject({ mech: 'retrieval', mechs: ['retrieval', 'emotional'], word: 'recalled', text: '2 came to mind', who: 'here' })
-    expect(alsoLine(recalled)).toBe('also Emotion')
     // a mood match the render trimmed to nothing shown is still Emotion's, said as such
     const trimmed = classify({ ...mood, detail: mood.detail.map(d => (d.key === 'footnoteCount' ? { ...d, value: '0' } : d)) }, SESSION)!
     expect(trimmed).toMatchObject({ mech: 'emotional', mechs: ['emotional'], text: '1 brought closer by a matching mood' })
@@ -121,7 +141,6 @@ describe('the feed', () => {
     const dreamed = classify(dream, SESSION)!
     expect(dreamed).toMatchObject({ id: 'seq:502', mech: 'dreaming', word: 'dreamed', who: 'night' })
     expect(dreamed.mechs).toEqual(['dreaming', 'episodic-semantic', 'interference', 'consolidation'])
-    expect(alsoLine(dreamed)).toBe('also Gist · Interference · Consolidation')
     // a gist alone is Gist's and Dreaming's; a dream that changed nothing and suggested nothing proves none
     expect(classify(ev(503, 'dream.changed', 'In a dream I changed 1 thing (1 gist).', 1, { applied: '1', gist: '1' }))?.mechs).toEqual(['dreaming', 'episodic-semantic'])
     expect(classify(ev(504, 'dream.changed', 'In a dream I changed nothing; 8 were refused.', 1, { applied: '0', refused: '8' }))).toBeNull()
@@ -136,17 +155,12 @@ describe('the feed', () => {
     expect(classify(ev(510, 'band.transition', 'Crossed into identity.', 1, { site: 'decay', direction: 'up' }))).toBeNull()
   })
 
-  test('a live came-to-mind row takes on the mechanisms its dashboard twin proves (the block says nothing of mood)', () => {
-    const live = cameRow({ turn: 4, surfaced: ['The cores'], footnotes: [] }, SESSION, T0)!
-    expect(live.mechs).toEqual(['retrieval'])
-    const twin = classify(ev(511, 'recall.decision', 'On turn 4 I said “The cores” out loud.', 0, {
-      session: SESSION, turn: '4', surfacedCount: '1', footnoteCount: '0', moodMatched: '1',
-    }), SESSION)!
-    const merged = mergeRows([twin, live], 10)
-    expect(merged).toHaveLength(1)
-    expect(merged[0]).toMatchObject({ id: live.id, mech: 'retrieval', mechs: ['retrieval', 'emotional'], text: '1 came to mind' })
-    // without a twin, a live row is left as it was
-    expect(mergeRows([live], 10)[0]).toBe(live)
+  test('a turn’s decision row: which memories were said in full, found by this session and the turn', () => {
+    expect(surfacedIds(DECISION_T3)).toEqual(['mem_sur00001'])
+    expect(decisionFor([EVENTS[1]!, DECISION_T3], SESSION, 3)).toBe(DECISION_T3)
+    expect(decisionFor([DECISION_T3], 'sess-else', 3)).toBeUndefined()
+    expect(decisionFor([DECISION_T3], SESSION, 4)).toBeUndefined()
+    expect(surfacedIds(ev(1, 'recall.decision', '', 0, { surfaced: 'not json' }))).toEqual([])
   })
 
   test('the twelve mechanisms, by the website’s names, schemas not built', () => {
@@ -161,7 +175,7 @@ describe('the feed', () => {
     const wrapped = `<system-reminder>\nUserPromptSubmit hook additional context: ${RECALL_BLOCK}\n</system-reminder>`
     expect(parseRecallBlock(wrapped)).toEqual({
       turn: 3,
-      surfaced: ['The sidebar slides to a rail of dots'],
+      surfaced: ['Mike chose 35 columns on 2026-10-10: width is scarce'],
       footnotes: [{ title: 'Release notes go out on Fridays', id: 'mem_rel00001' }],
     })
     expect(parseRecallBlock('<system-reminder>a wake, no recall</system-reminder>')).toBeNull()
@@ -202,21 +216,69 @@ describe('the feed', () => {
     ])
   })
 
-  test('kept: note, chapter and session_end under either server name; a refused note is not kept', () => {
-    const note = keptRow('mcp__counterparts__note', { title: 'Sidebar shipped', text: 'long' }, '{"stored":true,"id":"mem_new00001"}', T0, 1)
-    expect(note).toMatchObject({ word: 'kept', text: 'Sidebar shipped', line: 'kept · Sidebar shipped', who: 'here', keys: ['mem:mem_new00001'], live: true })
-    expect(keptRow('mcp__plugin_counterparts_counterparts__chapter', { title: 'Day 18' }, '{}', T0, 2)?.text).toBe('a chapter: Day 18')
-    expect(keptRow('mcp__counterparts__session_end', { memories: [{ text: 'a' }, { text: 'b' }] }, '{"deposited":2}', T0, 3)?.text).toBe('2 memories from this session')
-    expect(keptRow('mcp__counterparts__note', { text: 'x' }, '{"stored":false,"reason":"duplicate"}', T0, 4)).toBeNull()
-    expect(keptRow('mcp__counterparts__recall', { question: 'x' }, '{}', T0, 5)).toBeNull()
-    expect(keptRow('mcp__other__note', { text: 'x' }, '{}', T0, 6)).toBeNull()
+  test('saved: note, chapter and session_end under either server name; an update names what it replaces; a refused one saves nothing', () => {
+    const note = savedItems('mcp__counterparts__note', { title: 'Sidebar shipped', text: 'long' }, '{"stored":true,"id":"mem_new00001"}', T0, 1)
+    expect(note).toEqual([{ key: 'live:1:0', id: 'mem_new00001', title: 'Sidebar shipped', at: T0, replaces: null, replacesId: null, kind: 'new' }])
+    expect(savedItems('mcp__counterparts__note', { title: 'Newer', updates: 'mem_old00001' }, '{"stored":true,"id":"mem_n2"}', T0, 2)[0]).toMatchObject({ kind: 'update', replacesId: 'mem_old00001' })
+    // `how: open` keeps both: no replacement; a held update (looked unrelated) settled nothing
+    expect(savedItems('mcp__counterparts__note', { title: 'Beside', updates: 'mem_old00001', how: 'open' }, '{"stored":true}', T0, 3)[0]?.kind).toBe('new')
+    expect(savedItems('mcp__counterparts__note', { title: 'Held', updates: 'mem_old00001' }, '{"stored":true,"settled":{"ok":false,"held":true}}', T0, 4)[0]?.kind).toBe('new')
+    expect(savedItems('mcp__plugin_counterparts_counterparts__chapter', { title: 'Day 18' }, '{}', T0, 5)[0]).toMatchObject({ title: 'Chapter: Day 18', kind: 'chapter' })
+    const end = savedItems('mcp__counterparts__session_end', { memories: [{ title: 'One', text: 'a' }, { text: 'Two, from its text\nsecond line' }, { title: 'Three', updates: 'mem_old00001' }] }, '{"deposited":3}', T0, 6)
+    expect(end.map(s => [s.title, s.kind])).toEqual([['One', 'new'], ['Two, from its text', 'new'], ['Three', 'update']])
+    expect(savedItems('mcp__counterparts__session_end', { memories: [{ title: 'x' }] }, '{"deposited":0}', T0, 7)).toEqual([])
+    expect(savedItems('mcp__counterparts__note', { text: 'x' }, '{"stored":false,"reason":"duplicate"}', T0, 8)).toEqual([])
+    expect(savedItems('mcp__counterparts__recall', { question: 'x' }, '{}', T0, 9)).toEqual([])
+    expect(savedItems('mcp__other__note', { text: 'x' }, '{}', T0, 10)).toEqual([])
   })
 
-  test('a live row hides its dashboard twin; newest first', () => {
-    const dash = classify(EVENTS[0]!, SESSION)!
-    const live = keptRow('mcp__counterparts__note', { title: 'Same memory' }, '{"stored":true,"id":"mem_aaaa1111"}', T0 - 9 * 60000, 1)!
-    const merged = mergeRows([dash, live, classify(EVENTS[4]!, SESSION)!], 10)
-    expect(merged.map(r => r.id)).toEqual([live.id, 'seq:400'])
+  test('a recall that opens memories by address: its ids, or a handle that is an id', () => {
+    expect(openedIds('mcp__counterparts__recall', { ids: ['mem_a1', 'nonsense', 'mem_b2'] })).toEqual({ ids: ['mem_a1', 'mem_b2'], handle: null })
+    expect(openedIds('mcp__counterparts__recall', { handle: 'mem_c3' })).toEqual({ ids: ['mem_c3'], handle: null })
+    expect(openedIds('mcp__counterparts__recall', { handle: 'Release notes go out on Fridays' })).toEqual({ ids: [], handle: 'Release notes go out on Fridays' })
+    expect(openedIds('mcp__counterparts__recall', { question: 'x', mode: 'facts' })).toEqual({ ids: [], handle: null })
+    expect(openedIds('mcp__counterparts__note', { ids: ['mem_a1'] })).toEqual({ ids: [], handle: null })
+  })
+
+  test('times fired today from the feed (an older dashboard): rows on the day, a dream’s rows once, counts that a poll adds to', () => {
+    const rows = [...EVENTS, ev(402, 'dream.changed', 'Changed 5.', 599, { applied: '5', merge: '1' }, 'drm_test0001')]
+      .map(e => classify(e, SESSION))
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+    const day = dateOf(T0)
+    const first = countToday(rows, day, dateOf)
+    expect(first.counts).toMatchObject({ salience: 1, retrieval: 2, decay: 1, consolidation: 2, dreaming: 1, interference: 1, schema: null, prospective: 0 })
+    // the same dream again (a poll's new row of it) is not a second firing
+    const again = countToday([classify(ev(403, 'dream.journaled', 'x', 1, {}, 'drm_test0001'))!], day, dateOf, first.counts, first.dreams)
+    expect(again.counts['dreaming']).toBe(1)
+    expect(countToday(rows, '2026-10-08', dateOf).counts['salience']).toBe(0)
+  })
+
+  test('a mechanism’s firings, newest first, each with the word that proves it and what it was about', () => {
+    const list = mechEvents([...EVENTS, ev(402, 'dream.changed', 'In a dream I changed 5 things.', 599, { applied: '5', merge: '1' }, 'drm_test0001')], 'interference')
+    expect(list).toEqual([{ seq: 402, at: T0 - 599 * 60000, word: 'merged in a dream', title: 'In a dream I changed 5 things.', memoryId: null, text: 'In a dream I changed 5 things.' }])
+    const faded = mechEvents(EVENTS, 'decay')
+    expect(faded.map(e => [e.word, e.title, e.memoryId])).toEqual([['faded', 'An old plan that faded', 'mem_fade0001']])
+    expect(mechEvents(EVENTS, 'retrieval').map(e => e.title)).toEqual(['2 came to mind', '1 came to mind'])
+  })
+
+  test('a dream: its first sentence and the rest; what changed that night, in plain words, only what happened', () => {
+    expect(firstSentence('I dreamed the friday evening over again, and the pieces kept lining up. The paper had a model.')).toEqual({
+      first: 'I dreamed the friday evening over again, and the pieces kept lining up.',
+      rest: 'The paper had a model.',
+    })
+    expect(firstSentence('No full stop at all')).toEqual({ first: 'No full stop at all', rest: '' })
+    expect(firstSentence('“Who said it?” I asked. Then.')).toEqual({ first: '“Who said it?”', rest: 'I asked. Then.' })
+    const d = { id: 'drm_x', date: '2026-10-10', day: 19, journal: 'x', counts: { merge: 1, gist: 2, link: 20, settle: 1, 'feeling-now': 3 }, changes: [{ action: 'merge', said: 'merged 3 near-copies into one' }] }
+    expect(dreamChanges(d, { faded: 4, core: 3 })).toEqual([
+      'merged 3 near-copies into one',
+      'wrote down 2 patterns it saw',
+      'linked 20 pairs of memories',
+      'replaced 1 outdated memory',
+      '4 memories faded',
+      '3 became core memories',
+    ])
+    expect(dreamChanges({ ...d, counts: { merge: 2 }, changes: [] }, { faded: 0, core: 0 })).toEqual(['merged near-copies 2 times'])
+    expect(dreamChanges({ ...d, counts: {}, changes: [] }, { faded: 1, core: 1 })).toEqual(['1 memory faded', '1 became core memory'])
   })
 
   test('the memory server: the npm install’s first, then the plugin’s', () => {
@@ -225,10 +287,11 @@ describe('the feed', () => {
     expect(resolveServer(['mcp__other__recall'])).toBeNull()
   })
 
-  test('local time like 1:35pm today, a date before today', () => {
-    expect(clock(T0, T0)).toBe('1:35pm')
-    expect(clock(new Date(2026, 9, 9, 0, 5).getTime(), T0)).toBe('12:05am')
-    expect(clock(new Date(2026, 9, 8, 22, 0).getTime(), T0)).toBe('Oct 8')
+  test('a heading’s time: 1:35 today (the mockups’ clock, no am or pm), a date before today', () => {
+    expect(hm(T0, T0)).toBe('1:35')
+    expect(hm(new Date(2026, 9, 9, 0, 5).getTime(), T0)).toBe('12:05')
+    expect(hm(new Date(2026, 9, 9, 8, 7).getTime(), T0)).toBe('8:07')
+    expect(hm(new Date(2026, 9, 8, 22, 0).getTime(), T0)).toBe('Oct 8')
   })
 
   test('events naming no session (a look-up, a reminder, a link flush): from after this session began, this session’s', () => {
@@ -322,5 +385,175 @@ describe('the scope registry, read as the hooks read it', () => {
     expect(settingsHookConfig('{')).toBeUndefined()
     expect(parentOf('/c/claude-code.json')).toBe('/c')
     expect(parentOf('/claude-code.json')).toBe('/')
+  })
+})
+
+// ── the body, laid out (the round-3 mockups, 32 text columns) ───────────────
+
+const W = 32
+const counts = { salience: 30, emotional: 18, decay: 4, interference: 11, retrieval: 92, association: 22, prospective: 0, consolidation: 4, dreaming: 1, reconsolidation: 10, 'episodic-semantic': 1, schema: null }
+const BASE: BodyState = {
+  w: W,
+  rows: 80,
+  now: T0,
+  mind: {
+    turn: 6,
+    at: new Date(2026, 9, 9, 10, 25).getTime(),
+    surfaced: [{ id: 'mem_a', title: 'the100 restyle PR #718 behind ?restyle=1, in visual + code review' }],
+    footnotes: [
+      { id: 'mem_b', title: 'Builder + visual-verifier loop worked on the100 restyle (2026-10-09)' },
+      { id: 'mem_c', title: 'the100 wave 2 PRs in fix rounds overnight 2026-10-09', opened: true },
+    ],
+  },
+  saved: [
+    { key: 's1', id: 'mem_s1', title: "Mike: use default auto-memory the way a regular user's Claude would, for later on/off comparisons", at: T0, replaces: "Auto-memory MEMORY.md for pwntastic: how it's been used", replacesId: 'mem_r', kind: 'update' },
+    { key: 's2', id: 'mem_s2', title: 'Classifier refused a second prod read on 2026-10-10 morning; waiting on Mike', at: T0 - 1, replaces: null, replacesId: null, kind: 'new' },
+  ],
+  today: { date: '2026-10-09', counts, source: 'dashboard' },
+  dream: { id: 'drm_x', at: new Date(2026, 9, 9, 8, 15).getTime(), date: '2026-10-09', first: 'I dreamed the friday evening over again, and the pieces kept lining up.', rest: 'The interpretability paper had a model.', changed: ['merged 3 near-copies into one', '4 memories faded'] },
+  open: null,
+  mech: null,
+  focus: null,
+  dash: 'up',
+  search: { query: '', status: 'idle', header: '', total: 0, hits: [], error: null },
+}
+
+describe('the body, laid out', () => {
+  test('a heading: label, a faint rule, the time or count at the right edge; folded, `›`', () => {
+    expect(textOf([heading('Memories', '10:25', W)])).toEqual(['Memories ' + '─'.repeat(32 - 9 - 6) + ' 10:25'])
+    expect(textOf([heading('Subconscious', '', W)])).toEqual(['Subconscious ' + '─'.repeat(19)])
+    expect(textOf([heading('Saved this session', '4', W, { folded: true })])).toEqual(['Saved this session ' + '─'.repeat(9) + ' 4 ›'])
+    for (const l of textOf([heading('Mechanisms today', 'times fired', W)])) expect(cells(l)).toBe(W)
+  })
+
+  test('wrap past its last line ends at a word with `…`; the first line may be narrower; a clip uses the line to its last cell', () => {
+    expect(wrapN('the100 restyle PR #718 behind ?restyle=1, in visual + code review', 32, 3)).toEqual(['the100 restyle PR #718 behind', '?restyle=1, in visual + code', 'review'])
+    expect(wrapN("Mike: use default auto-memory the way a regular user's Claude would", 32, 2)).toEqual(['Mike: use default auto-memory', "the way a regular user's Claude…"])
+    expect(wrapN('one two three four five six', 10, 99, 7)).toEqual(['one two', 'three four', 'five six'])
+    expect(clip('Builder + visual-verifier loop worked on the100', 32)).toBe('Builder + visual-verifier loop…')
+    expect(clip('short', 32)).toBe('short')
+    expect(cells(clip('記憶記憶記憶記憶記憶記憶記憶記憶記憶', 12))).toBeLessThanOrEqual(12)
+  })
+
+  test('half-height bars in half-cell steps, at least one half', () => {
+    expect(bar(92, 92, 12)).toBe('▄'.repeat(12))
+    expect(bar(1, 92, 12)).toBe('▖')
+    expect(bar(46, 92, 12)).toBe('▄▄▄▄▄▄')
+  })
+
+  test('the five sections in order, a blank row between; no line over the width, and no line starts with a bullet, a gutter or an indent but a saved item’s dot', () => {
+    const lines = textOf(layoutBody(BASE).lines)
+    const heads = lines.filter(l => /^[A-Z][A-Za-z ]+ ─/.test(l)).map(l => l.split(' ─')[0])
+    expect(heads).toEqual(['Memories', 'Subconscious', 'Saved this session', 'Mechanisms today', 'Last Dream'])
+    expect(lines.slice(0, 4)).toEqual([
+      'Memories ' + '─'.repeat(17) + ' 10:25',
+      'the100 restyle PR #718 behind',
+      '?restyle=1, in visual + code',
+      'review',
+    ])
+    expect(lines).toContain('Subconscious ' + '─'.repeat(19)) // the time is on Memories
+    expect(lines).toContain('Builder + visual-verifier loop…')
+    expect(lines).toContain('the100 wave 2 PRs in… ↗ opened')
+    const s = lines.findIndex(l => l.startsWith('Saved this session'))
+    expect(lines.slice(s + 1, s + 6)).toEqual([
+      '● Mike: use default auto-memory',
+      "the way a regular user's Claude…",
+      'replaces Auto-memory MEMORY.md…', // a stub of a word is dropped, as the mockups do
+      '● Classifier refused a second',
+      'prod read on 2026-10-10 morning…',
+    ])
+    expect(lines).toContain('Schemas         ○ not built yet')
+    expect(lines.find(l => l.startsWith('Prospective'))).toMatch(/^Prospective\s+0$/)
+    const d = lines.findIndex(l => l.startsWith('Last Dream'))
+    expect(lines[d]).toBe('Last Dream ' + '─'.repeat(16) + ' 8:15')
+    expect(lines.slice(d + 1)).toEqual(['I dreamed the friday evening', 'over again, and the pieces kept', 'lining up.'])
+    for (const l of lines) {
+      expect(cells(l)).toBeLessThanOrEqual(W)
+      expect(/^\s+\S/.test(l)).toBe(false)
+      expect(/^[·•│▏◐▎]/.test(l)).toBe(false)
+    }
+    expect(lines.join('\n')).not.toMatch(/\+\d+ more|earlier:|nothing in full|reminded of|saw the titles|on the dashboard/)
+  })
+
+  test('nothing said in full: no Memories section, the time on Subconscious; nothing saved: no Saved section', () => {
+    const lines = textOf(layoutBody({ ...BASE, mind: { ...BASE.mind!, surfaced: [] }, saved: [] }).lines)
+    expect(lines[0]).toBe('Subconscious ' + '─'.repeat(13) + ' 10:25')
+    expect(lines.some(l => l.startsWith('Memories') || l.startsWith('Saved'))).toBe(false)
+  })
+
+  test('folding to fit: saved items to one line, then fewer, then their heading; the dream shortens; a folded section keeps its heading and count', () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({ ...BASE.saved[1]!, key: `k${String(i)}`, title: `Saved item ${String(i)} with a title long enough to wrap twice over` }))
+    expect(layoutBody({ ...BASE, saved: many, rows: 60 }).folds).toEqual([])
+    const tall = layoutBody({ ...BASE, saved: many, rows: 40 })
+    expect(tall.folds).toEqual(['saved 1 line each'])
+    const short = layoutBody({ ...BASE, saved: many, rows: 29 })
+    const lines = textOf(short.lines)
+    expect(lines.length).toBeLessThanOrEqual(29)
+    expect(lines.find(l => l.startsWith('Saved this session'))).toBe('Saved this session ' + '─'.repeat(9) + ' 9 ›')
+    expect(short.folds).toContain('saved folded')
+    // a section clicked open from its folded heading stays open; another folds instead
+    const kept = textOf(layoutBody({ ...BASE, saved: many, rows: 29, focus: 'saved' }).lines)
+    expect(kept.filter(l => l.startsWith('● Saved item')).length).toBeGreaterThan(0)
+    expect(kept.length).toBeLessThanOrEqual(29)
+    // an opened saved item is never folded away
+    const open = textOf(layoutBody({ ...BASE, saved: many, rows: 40, open: { key: 'saved:k8', status: 'ready', title: 'The ninth, opened', text: 'Its own words.', meta: 'fact · learned Oct 9', at: T0 } }).lines)
+    expect(open).toContain('● The ninth, opened')
+    expect(open).toContain('fact · learned Oct 9')
+  })
+
+  test('an opened mechanism lists its firings grouped under what and when; an opened dream adds what changed', () => {
+    const mech = { id: 'decay' as const, status: 'ready' as const, at: T0, events: [
+      { seq: 3, at: new Date(2026, 9, 9, 8, 7).getTime(), word: 'faded', title: 'Writer and reflection are different jobs; both write the page', memoryId: 'mem_1', text: '' },
+      { seq: 2, at: new Date(2026, 9, 9, 8, 7).getTime(), word: 'faded', title: 'Tiny Castles run 4 counterpart playtest: top findings', memoryId: 'mem_2', text: '' },
+    ] }
+    const lines = textOf(layoutBody({ ...BASE, mech }).lines)
+    const f = lines.findIndex(l => l.startsWith('Forgetting'))
+    expect(lines.slice(f + 1, f + 4)).toEqual(['faded at 8:07:', 'Writer and reflection are diffe…', 'Tiny Castles run 4 counterpart…'])
+    const dream = textOf(layoutBody({ ...BASE, open: { key: 'dream', status: 'ready', title: null, text: '', meta: null, at: T0 } }).lines)
+    const w = dream.indexOf('what changed last night:')
+    expect(dream.slice(w + 1, w + 3)).toEqual(['merged 3 near-copies into one', '4 memories faded'])
+    expect(dream.join(' ')).toContain('The interpretability paper')
+  })
+
+  test('the expand threshold: a text of 12 lines or fewer opens in place', () => {
+    expect(EXPAND_MAX_LINES).toBe(12)
+    expect(openedLines('', W)).toBe(0)
+    expect(openedLines('a short memory', W)).toBe(1)
+    expect(openedLines(Array.from({ length: 80 }, () => 'word').join(' '), W)).toBeGreaterThan(12)
+  })
+
+  test('the dashboard down: the chart says how to start it', () => {
+    const lines = textOf(layoutBody({ ...BASE, today: null, dash: 'down' }).lines)
+    expect(lines.join(' ')).toContain('counterparts dashboard')
+  })
+
+  test('search results take the sections’ place: the query, how many, each title and what it is', () => {
+    const lines = textOf(layoutBody({ ...BASE, search: { query: 'publish', status: 'done', header: '', total: 2, hits: parseFacts(FACTS_ANSWER).hits, error: null } }).lines)
+    expect(lines[0]).toBe('“publish” ' + '─'.repeat(12) + ' 2 found ✕')
+    expect(lines.slice(1, 4)).toEqual(['Publishing waits for a test and', 'a review', 'memory · Oct 9 · you said it'])
+  })
+})
+
+describe('the small brain', () => {
+  test('dim at rest; a region flashed (the still brain) lights in its stage colour and goes dark again', () => {
+    const brain = new Brain()
+    brain.hold(true)
+    const max = (c: Uint32Array): number => {
+      let m = 0
+      for (let i = 1; i < c.length; i += 3) {
+        const v = c[i] ?? 0
+        if (v === DEFAULT_COLOR) continue
+        m = Math.max(m, (v >> 16) & 255, (v >> 8) & 255, v & 255)
+      }
+      return m
+    }
+    const full = max(new Brain().frame(18, 6, T0))
+    const dim = encodeCells(brain.frame(18, 6, T0, { dimRest: 0.72 }))
+    expect(max(decodeCells(dim))).toBeLessThan(full)
+    brain.flash('brainstem', STAGES.storage.col)
+    const lit = encodeCells(brain.frame(18, 6, T0, { dimRest: 0.72 }))
+    expect(lit).not.toBe(dim)
+    brain.dark()
+    expect(encodeCells(brain.frame(18, 6, T0, { dimRest: 0.72 }))).toBe(dim)
   })
 })

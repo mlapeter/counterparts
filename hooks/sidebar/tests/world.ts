@@ -23,7 +23,7 @@ export const T0 = new Date(2026, 9, 9, 13, 35, 0).getTime()
 export const PANE_PROPS = {
   title: 'Counterparts',
   isFocused: false,
-  bodyColumns: 44,
+  bodyColumns: 34,
   placement: 'dock',
   scroll: { offset: 0, bodyRows: 80 },
   view: {},
@@ -44,7 +44,7 @@ export const PULSE = { day: 18, memories: 776, events: 22136, lastSeq: 500 }
 
 export type Ev = { seq: number; at: number; day: number; name: string; text: string; tone: string; subject: string | null; detail: { key: string; value: string }[] }
 
-export function ev(seq: number, name: string, text: string, minutesAgo: number, detail: Record<string, string> = {}): Ev {
+export function ev(seq: number, name: string, text: string, minutesAgo: number, detail: Record<string, string> = {}, subject: string | null = null): Ev {
   return {
     seq,
     at: T0 - minutesAgo * 60000,
@@ -52,9 +52,35 @@ export function ev(seq: number, name: string, text: string, minutesAgo: number, 
     name,
     text,
     tone: 'calm',
-    subject: null,
+    subject,
     detail: Object.entries(detail).map(([key, value]) => ({ key, value })),
   }
+}
+
+/** The memories `/api/memory?id=` knows (the words invented). */
+export const MEMORIES: Record<string, { title: string; text: string; kind: string; learnedOn: string }> = {
+  mem_aaaa1111: { title: 'The sidebar draws the brain in braille', text: 'Braille dots, two by four a cell.', kind: 'fact', learnedOn: '2026-10-09' },
+  mem_sur00001: { title: 'The sidebar is 35 columns wide', text: 'Mike chose 35 columns on 2026-10-10: width is scarce, so nothing decorates.', kind: 'fact', learnedOn: '2026-10-09' },
+  mem_rel00001: { title: 'Release notes go out on Fridays', text: 'Every Friday, after the review.', kind: 'event', learnedOn: '2026-10-08' },
+  mem_long0001: { title: 'A long write-up of the week', text: Array.from({ length: 60 }, (_, i) => `sentence ${String(i)} of a long write-up.`).join(' '), kind: 'fact', learnedOn: '2026-10-09' },
+  mem_old00001: { title: 'The sidebar was 46 columns wide', text: 'v0.1 was wider.', kind: 'fact', learnedOn: '2026-10-01' },
+  mem_fade0001: { title: 'An old plan that faded', text: 'It faded at the night.', kind: 'fact', learnedOn: '2026-09-01' },
+}
+
+/** Times each fired today, as a v0.2 dashboard's `/api/mechanisms` says them. */
+export const FIRED_TODAY: Record<string, number | null> = {
+  salience: 3, emotional: 0, decay: 4, interference: 1, retrieval: 12, association: 2, prospective: 0,
+  consolidation: 1, dreaming: 1, reconsolidation: 2, 'episodic-semantic': 1, schema: null,
+}
+
+export const DREAM = {
+  id: 'drm_test0001',
+  date: '2026-10-09',
+  day: 18,
+  state: 'journaled',
+  journal: 'I dreamed the plugin and the brain were one thing. Then the rail became a river, and the river carried the titles.',
+  counts: { merge: 1, gist: 2, link: 3 },
+  changes: [{ action: 'merge', said: 'merged 2 near-copies into one', undone: false }],
 }
 
 /** One event of each kind the sidebar shows, and two it must leave out. */
@@ -73,9 +99,17 @@ export const EVENTS: Ev[] = [
   ev(470, 'recall.decision', 'On turn 6 nothing rose above the turn’s own background, so I said nothing.', 21, {
     session: 'sess-older', turn: '6', surfacedCount: '0', footnoteCount: '0',
   }),
-  ev(400, 'dream.journaled', 'I dreamed: the plugin and the brain were one thing.', 600, {}),
+  ev(400, 'dream.journaled', 'I woke from a dream and wrote it in the dream journal.', 600, {}, 'drm_test0001'),
+  ev(399, 'band.transition', '“An old plan that faded” settled back from semantic to episodic.', 601, { site: 'decay', direction: 'down' }, '"An old plan that faded" [mem_fade0001]'),
+  ev(398, 'band.promoted', '“The sidebar draws the brain in braille” became core.', 601, {}, '"The sidebar draws the brain in braille" [mem_aaaa1111]'),
   ev(390, 'sleep.cycle', 'I checked whether it was time to sleep: nothing was due.', 601, { faded: '0' }),
 ]
+
+/** The dashboard's row for this session's turn 3, whose recall block is RECALL_BLOCK: which memory was said in full. */
+export const DECISION_T3 = ev(497, 'recall.decision', 'On turn 3 I said “The sidebar is 35 columns wide” and kept “Release notes go out on Fridays” as a footnote.', 0, {
+  session: SESSION, turn: '3', surfacedCount: '1', footnoteCount: '1',
+  surfaced: JSON.stringify([{ id: 'mem_sur00001', sal: 0.6 }]), footnotes: JSON.stringify([{ id: 'mem_rel00001', sal: 0.5 }]),
+})
 
 export const FACTS_ANSWER = [
   '2 match · showing 2',
@@ -95,7 +129,7 @@ export const RECALL_BLOCK = [
   '<!-- counterparts:recall t=3 -->',
   '',
   'Came to mind:',
-  '- The sidebar slides to a rail of dots',
+  '- Mike chose 35 columns on 2026-10-10: width is scarce',
   '',
   'Quietly available (ignorable; expand an id with recall before citing one):',
   '- Release notes go out on Fridays [mem_rel00001]',
@@ -136,6 +170,8 @@ export type WorldOptions = {
   files?: Record<string, string>;
   /** The environment the module reads (`HOME` only, unless given). */
   env?: Record<string, string>;
+  /** A dashboard older than v0.2: `/api/mechanisms` says no `firedToday`. */
+  oldDashboard?: boolean;
 }
 
 export type World = {
@@ -158,9 +194,14 @@ export type World = {
   /** Blits still to be answered late (600 ms on the mocked clock) with a refusal. */
   slowDeny: number;
   denied: number;
+  /** The status line as it stands: the last text set, or '' when the last call cleared it (or none was made). */
   lastStatus: () => string;
   /** The dashboard's event log (EVENTS to begin with): push to it, and the next poll reads the new ones. */
   events: Ev[];
+  /** Each `tail` the hint line under the prompt was handed, in order (undefined: none). */
+  tails: (string | undefined)[];
+  /** Panes the module closed (`$.ui.close`). */
+  closes: string[];
 }
 
 /** Registers the test's answers beneath the plugin; call before the first `$` call. */
@@ -194,8 +235,10 @@ export function world(on: On, opts: WorldOptions = {}): World {
     shown: opts.shown ?? true,
     slowDeny: 0,
     denied: 0,
-    lastStatus: () => w.statuses.filter((s): s is string => typeof s === 'string').at(-1) ?? '',
+    lastStatus: () => w.statuses.at(-1) ?? '',
     events: [...EVENTS],
+    tails: [],
+    closes: [],
   }
   mock.env(on, opts.env ?? { HOME })
   // The scope registry as the server keeps it: `w.scope` is its one entry (none
@@ -224,9 +267,9 @@ export function world(on: On, opts: WorldOptions = {}): World {
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   on('ui.open', (_$, e) => {
     w.opens.push({ id: e.id, ...(e.columns === undefined ? {} : { columns: e.columns }), ...(e.title === undefined ? {} : { title: e.title }) })
-    return opts.placed === false && w.opens.length === 1
-      ? { value: { isPlaced: false as const, reason: 'opened unasked below 144 columns' } }
-      : { value: { isPlaced: true as const } }
+    if (opts.placed === false && w.opens.length === 1) return { value: { isPlaced: false as const, reason: 'opened unasked below 144 columns' } }
+    w.shown = opts.shown ?? true
+    return { value: { isPlaced: true as const } }
   })
   on('ui.status', (_$, e) => {
     w.statuses.push(e.text)
@@ -251,9 +294,19 @@ export function world(on: On, opts: WorldOptions = {}): World {
     return { value: {} }
   })
   on('ui.panes', () => ({ value: [{ id: PANE, title: 'Counterparts', isShown: w.shown, isFocused: false, isPlaced: w.shown }] }))
-  on('ui.close', () => ({ value: undefined }))
+  on('ui.close', (_$, e) => {
+    w.closes.push(e.id)
+    w.shown = false
+    return { value: undefined }
+  })
   // The engine's own band above the prompt: an empty box, which the sidebar's hook passes through.
   on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Box } = $.ui.resolve(e)
+    return Box({})
+  })
+  // The engine's hint line under the prompt: what it is handed (the sidebar may add a `tail`).
+  on('ui.render', { component: 'PromptHint' }, ($, e) => {
+    w.tails.push(e.props.tail)
     const { Box } = $.ui.resolve(e)
     return Box({})
   })
@@ -275,9 +328,20 @@ export function world(on: On, opts: WorldOptions = {}): World {
     if (url.pathname === '/api/activity') {
       const name = url.searchParams.get('name')
       const since = url.searchParams.get('sinceSeq')
-      const events = w.events.filter(x => (name === null || x.name === name) && (since === null || x.seq > Number(since)))
+      const events = w.events.filter(x => (name === null || x.name === name) && (since === null || x.seq > Number(since))).sort((a, b) => b.seq - a.seq)
       return ok({ events, total: events.length, lastSeq: Math.max(PULSE.lastSeq, ...w.events.map(x => x.seq)) })
     }
+    if (url.pathname === '/api/mechanisms') {
+      const mechanisms = Object.entries(FIRED_TODAY).map(([id, v]) => (opts.oldDashboard === true ? { id, status: 'green' } : { id, status: 'green', firedToday: v }))
+      return ok({ livedDay: 18, fromDay: 12, days: 7, ...(opts.oldDashboard === true ? {} : { today: '2026-10-09' }), mechanisms, truncated: false })
+    }
+    if (url.pathname === '/api/mechanism') return ok({ id: url.searchParams.get('id'), found: true, built: true, livedDay: 18, activity: w.events })
+    if (url.pathname === '/api/memory') {
+      const id = url.searchParams.get('id') ?? ''
+      const m = MEMORIES[id]
+      return ok(m === undefined ? { found: false, id, absence: 'no such memory' } : { found: true, id, journal: false, confidential: false, ...m })
+    }
+    if (url.pathname === '/api/dreams') return ok({ dreams: [DREAM] })
     return { value: { status: 404, ok: false, headers: {}, text: '{"error":"not found"}' } }
   })
   on('mcp.call', async (_$, e) => {

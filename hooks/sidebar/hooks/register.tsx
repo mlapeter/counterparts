@@ -498,7 +498,7 @@ async function readToday($: EngineInterface): Promise<void> {
       if (r !== null) rows.push(r)
     }
   }
-  const date = dateOf(Date.now())
+  const date = dateOf(await $.clock.now())
   const { counts, dreams } = countToday(rows, date, dateOf)
   await update($, todayA, () => ({ date, counts, source: 'feed' as const, dreams }))
 }
@@ -507,7 +507,7 @@ async function readToday($: EngineInterface): Promise<void> {
 async function addToday($: EngineInterface, rows: readonly SidebarRow[]): Promise<void> {
   if (rows.length === 0) return
   const today = await read($, todayA)
-  const date = dateOf(Date.now())
+  const date = dateOf(await $.clock.now())
   if (run.firedToday === true || today === null || today.date !== date) {
     await readToday($)
     return
@@ -1389,6 +1389,14 @@ function wake($: EngineInterface, turning: boolean): void {
     run.woke = true
     quiet(refreshScope($))
   }
+  // Drawn, it is placed: the tail under the prompt stands down (written after the drawing, never during it).
+  $.clock.after(0, () => {
+    quiet(
+      (async () => {
+        if (!(await read($, placedA))) await update($, placedA, () => true)
+      })(),
+    )
+  })
 }
 
 /** How this machine opens a URL, found once: `open` (macOS), `xdg-open` (Linux), `start` (Windows). */
@@ -1655,7 +1663,9 @@ export const register: Register = on => {
       read($, pulseA), read($, dashA), read($, mindA), read($, savedA), read($, todayA), read($, dreamA), read($, openA), read($, mechA),
       read($, focusA), read($, firingA), read($, searchA), read($, scopeA), read($, viewA), read($, brainA), read($, noteA), read($, pauseAskA),
     ])
-    // The stored preference, not this session's copy: another session may have turned it.
+    // The stored preference, not this session's copy: another session may have turned it. (This
+    // session's copy is read too, so a turn of the switch here draws again.)
+    await read($, memoryA)
     const memoryOn = await claudeMemoryOn($)
     const paused = isPaused(scope.mode)
     const mode = normBrain(brainMode)
@@ -1753,7 +1763,7 @@ export const register: Register = on => {
     // ── a paused folder says so before anything else in the pane ──
     if (paused) {
       const off = scope.mode === 'off'
-      rows.push(<Text key="paused" color={P.amber} bold>{clip(off ? '◌ Counterparts memory off in this folder' : '⏸ Counterparts paused in this folder', w)}</Text>)
+      rows.push(<Text key="paused" color={P.amber} bold>{clip(off ? '◌ Counterparts off here' : '⏸ Counterparts paused here', w)}</Text>)
       rows.push(
         <Button key="resume-banner" plain onPress={() => toggleScope($)}>
           <Text color={P.amber} underline>

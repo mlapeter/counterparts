@@ -185,8 +185,9 @@ const FULL: Fold = {
   events: 6, dreamLines: 3, excerpt: 9, dreamFolded: false, mindFolded: false,
 }
 
-type Step = { label: string; section: string; apply: (f: Fold) => Fold }
-const step = (label: string, section: string, apply: (f: Fold) => Fold): Step => ({ label, section, apply })
+/** One fold of the ladder; `fold` when it folds a section to its heading. */
+type Step = { label: string; section: string; apply: (f: Fold) => Fold; fold: boolean }
+const step = (label: string, section: string, apply: (f: Fold) => Fold): Step => ({ label, section, apply, fold: label.endsWith('folded') })
 const savedLines1 = step('saved 1 line each', 'saved', f => ({ ...f, savedLines: 1 }))
 const savedTo = (n: number) => step(`saved shows ${String(n)}`, 'saved', f => ({ ...f, savedShow: Math.min(f.savedShow, n), savedLines: 1 }))
 const savedFold = step('saved folded', 'saved', f => ({ ...f, savedFolded: true }))
@@ -281,7 +282,7 @@ function saved(s: BodyState, f: Fold): Line[] {
   const n = s.saved.length
   if (n === 0) return []
   if (f.savedFolded && s.open?.key.startsWith('saved:') !== true) return [heading('Saved this session', String(n), s.w, { folded: true, key: 'head:saved' })]
-  const out: Line[] = [heading('Saved this session', String(n), s.w)]
+  const out: Line[] = [heading('Saved this session', String(n), s.w, { key: s.focus === 'saved' ? 'head:saved' : undefined })]
   // An opened item is never folded away: the list shows at least down to it.
   const openIdx = s.saved.findIndex(it => s.open?.key === `saved:${it.key}`)
   for (const it of s.saved.slice(0, Math.min(Math.max(f.savedShow, openIdx + 1), n))) {
@@ -326,7 +327,7 @@ function chart(s: BodyState, f: Fold): Line[] {
   const CNT = 4
   const barW = Math.max(4, s.w - NAME - CNT)
   const max = Math.max(1, ...MECHS.map(m => t.counts[m.id] ?? 0))
-  const out: Line[] = [heading('Mechanisms today', 'times fired', s.w)]
+  const out: Line[] = [heading('Mechanisms today', 'times fired', s.w, { key: s.focus === 'chart' ? 'head:chart' : undefined })]
   for (const m of MECHS) {
     const v = t.counts[m.id]
     const key = `mech:${m.id}`
@@ -439,12 +440,16 @@ function ladderFor(s: BodyState): readonly Step[] {
  * The body: the least folding that fits with a blank row between sections;
  * failing that, without the blank rows; then any fold the last one made
  * unnecessary is opened again, the most important first. A section the
- * person opened from its folded heading (`focus`) is never folded. Past the
- * ladder's end the body is as it stands and the pane scrolls.
+ * person opened from its folded heading (`focus`) is never folded to its
+ * heading again (it may still shorten). Past the ladder's end the body is as
+ * it stands and the pane scrolls.
  */
 export function layoutBody(s: BodyState): { lines: Line[]; folds: string[] } {
   if (s.search.status !== 'idle') return { lines: searchResults(s), folds: [] }
-  const steps = ladderFor(s).filter(st => st.section !== s.focus && !(s.focus === 'mind' && st.section === 'sub'))
+  // The focused section never folds to its heading, and shortens only after every other section has folded.
+  const mine = (st: Step): boolean => st.section === s.focus || (s.focus === 'mind' && st.section === 'sub')
+  const ladder = ladderFor(s).filter(st => !(mine(st) && (st.fold || st.label === 'subconscious 0')))
+  const steps = [...ladder.filter(st => !mine(st)), ...ladder.filter(mine)]
   const build = (on: ReadonlySet<number>): Line[][] => sectionsOf(s, steps.reduce((f, st, i) => (on.has(i) ? st.apply(f) : f), FULL))
   for (const gaps of [true, false]) {
     for (let k = 0; k <= steps.length; k++) {
