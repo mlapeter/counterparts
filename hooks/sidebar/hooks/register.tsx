@@ -732,7 +732,8 @@ async function memoryTitle($: EngineInterface, id: string): Promise<string | nul
  */
 async function seedSession($: EngineInterface): Promise<void> {
   const preview = ((await $.env.get('COUNTERPARTS_SIDEBAR_SESSION')) ?? '').trim()
-  const session = preview !== '' ? preview : run.session
+  // The pane can draw (and this run, once a module life) before session.start has named the session.
+  const session = preview !== '' ? preview : run.session !== '' ? run.session : await $.session.id().catch(() => '')
   if (session === '') return
   const [mind0, saved0] = await Promise.all([read($, mindA), read($, savedA)])
   const rowsOf = async (q: string): Promise<DashEvent[]> =>
