@@ -497,3 +497,22 @@ One real bug beside it: a PLAIN reminder told on its day (2026-09-29, §14) left
 only at the next render, and a day's first render can come before the day's first
 telling. `Counterpart#claimPlainReminder` now marks the wake behind (`told`) on a day's or
 a last day's beat, so the next turn-end worker re-renders without it.
+
+## 18. A plain reminder due the morning the wake is read leads the horizon (2026-10-10)
+
+The owner's wake on lived day 19 left his tax reminder out ("Arriving: 1 — no room to list
+them in this wake") while it printed four handoffs (self NOTES, 2026-10-10: the wake now
+ranks its lanes in one list, `self/briefing.ts#ROOM_ORDER`). Two changes here, both about
+order, none about which arrivals are offered:
+
+- `horizon()` puts first every arrival that is PLAIN and dated the day asked about or the
+  next (`plainDueOn`), ahead of the salience-weighted order and so ahead of the
+  `HORIZON_ITEMS` cut. Plain-on-its-day is not a question of warmth — `plainDue`'s own
+  reasoning. "Or the next" because the wake is composed at the evening boundary and read
+  the next morning, and once told on its day the item leaves the lane (`toldForGood`).
+- The wake marks those items `due` (`core/briefing.ts#selfRenderer` → `HorizonItem
+  .plainDue`), and ranks them above the self page's borrowing.
+
+`HORIZON_ITEMS` stays 2 (v1's calibration). What it leaves out is no longer silent (review
+of #367): `horizon()` returns it as `more`, in the same order, and the wake names those ids
+in the lane's "N more arriving; recall ids: …" line.

@@ -19,6 +19,7 @@
  *     (`self/INTERFACE-GAPS.md` §3: the lane, its heading and its trim position
  *     are already built; only the source was borrowed).
  */
+import { plainDueOn } from "./prospective/index.js";
 import type { RenderFn } from "./sleep/index.js";
 import { isDay, readableRecurrence } from "./time.js";
 import type { Recurrence } from "./time.js";
@@ -29,6 +30,7 @@ export interface BriefingRenderer {
     day: number;
     budgetBytes: number;
     horizon?: readonly { id: string }[];
+    horizonMore?: readonly string[];
     yesterday?: string;
   }): { briefing: { bytes: number; elements: number } };
 }
@@ -36,7 +38,9 @@ export interface BriefingRenderer {
 /** Structurally `Prospective.horizon()`. */
 export interface HorizonSource {
   horizon(input: { at: string; day?: number }): {
-    items: readonly { memoryId: string; eventDate?: string; anchor?: string; recurring?: Recurrence }[];
+    items: readonly { memoryId: string; eventDate?: string; anchor?: string; recurring?: Recurrence; mode?: "quiet" | "plain" }[];
+    /** Past `HORIZON_ITEMS`, by id (review of #367). */
+    more?: readonly { memoryId: string }[];
   };
 }
 
@@ -50,9 +54,18 @@ export interface RendererOptions {
   /** Its shorter forms, widest first (review of #350): stepped down only to
    *  make room for "Still open"'s first item. */
   yesterdayShorter?: readonly string[];
-  /** The room the delivery holds for "Work here", lent to "Still open"'s
-   *  first item only (`self/briefing.ts#keepFirstOpen`, review of #350). */
+  /** The room the delivery holds for "Work here", lent to the lanes above it
+   *  (`self/briefing.ts#ROOM_ORDER`, review of #350). */
   lendBytes?: number;
+  /** The room the delivery holds for "Last here" and the handoff pointer,
+   *  lent after "Work here" and the Yesterday line's titles to "Arriving:"
+   *  and "Still open"'s first item (`self/briefing.ts#ROOM_ORDER`,
+   *  2026-10-10). */
+  handoffLendBytes?: number;
+  /** The rest of that room, the newest handoff's own block: lent to a plain
+   *  reminder due the day the wake is read and nothing else
+   *  (`self/briefing.ts#ROOM_ORDER`'s `handoffsKept`, review of #367). */
+  handoffKeepBytes?: number;
   /** Telemetry only. A refusal must be loud, never a silently empty briefing. */
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }
@@ -65,11 +78,14 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
       opts.onEvent?.("briefing.no-budget", { day: ctx.day });
       return;
     }
+    const asked = opts.prospective === undefined || opts.at === undefined ? undefined : opts.prospective.horizon({ at: opts.at, day: ctx.day });
+    // What the count left out, by id: the lane names them in its "N more"
+    // line rather than leave a dated item silently missing (review of #367).
+    const horizonMore = (asked?.more ?? []).map((i) => i.memoryId);
     const horizon =
-      opts.prospective === undefined || opts.at === undefined
+      asked === undefined
         ? undefined
-        : opts.prospective
-            .horizon({ at: opts.at, day: ctx.day })
+        : asked
             // The date it is due rides along, so the line can say it (2026-10-01),
             // how often it comes round when it repeats (2026-10-09), and whether
             // that date is already behind the day asked about — a one-off in its
@@ -84,15 +100,21 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
                 due: i.eventDate,
                 ...(every === "" ? {} : { every }),
                 ...(isDay(i.eventDate) && isDay(at) && i.eventDate < at ? { past: true } : {}),
+                // A plain reminder due the day this wake is read (2026-10-10):
+                // it leads the lane and outranks the page's borrowing.
+                ...(plainDueOn(i, at) ? { plainDue: true } : {}),
               };
             });
     const result = self.boundary({
       day: ctx.day,
       budgetBytes: ctx.budgetBytes,
       ...(horizon === undefined ? {} : { horizon }),
+      ...(horizonMore.length === 0 ? {} : { horizonMore }),
       ...(opts.yesterday === undefined ? {} : { yesterday: opts.yesterday }),
       ...(opts.yesterday === undefined || opts.yesterdayShorter === undefined ? {} : { yesterdayShorter: opts.yesterdayShorter }),
       ...(opts.lendBytes === undefined || opts.lendBytes <= 0 ? {} : { lendBytes: opts.lendBytes }),
+      ...(opts.handoffLendBytes === undefined || opts.handoffLendBytes <= 0 ? {} : { handoffLendBytes: opts.handoffLendBytes }),
+      ...(opts.handoffKeepBytes === undefined || opts.handoffKeepBytes <= 0 ? {} : { handoffKeepBytes: opts.handoffKeepBytes }),
     });
     return { bytes: result.briefing.bytes, elements: result.briefing.elements };
   };

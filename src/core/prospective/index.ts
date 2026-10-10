@@ -111,6 +111,19 @@ export function cueModeOf(doc: Pick<ProseDoc, "meta">): CueMode {
 }
 
 /**
+ * A PLAIN REMINDER DUE THE DAY A WAKE COMPOSED FOR `at` IS READ (2026-10-10):
+ * plain, and dated `at` or the day after — the evening boundary's wake is
+ * read the next morning, so a reminder due tomorrow is due the morning its
+ * wake is read. The wake's horizon lane puts these first, before its count
+ * (`horizon`), and the wake ranks them above everything but the self page in
+ * its own room (`self/briefing.ts#ROOM_ORDER`'s `due`). Pure.
+ */
+export function plainDueOn(item: { readonly eventDate?: string; readonly mode?: CueMode }, at: string): boolean {
+  if (item.mode !== "plain" || item.eventDate === undefined || !isDay(item.eventDate) || !isDay(at)) return false;
+  return item.eventDate === at || item.eventDate === addDays(at, 1);
+}
+
+/**
  * HOW OFTEN IT COMES ROUND (2026-10-09, the owner's design, held lightly):
  * `daily | weekly | monthly | yearly`, in the meta bag beside `remind`
  * (`store`'s `RECURRING_META` — no schema bump), anchored on the event date.
@@ -342,6 +355,13 @@ export interface HorizonInput extends ArrivalInput {
 
 export interface HorizonResult {
   readonly items: Arrival[];
+  /**
+   * WHAT THE COUNT LEFT OUT (review of #367, 2026-10-10): the arrivals that
+   * would have taken a wake line but for `HORIZON_ITEMS`, in the same order.
+   * The wake names them by id under the lane ("N more arriving; recall ids:
+   * …") so a dated item past the count is never silently missing.
+   */
+  readonly more: Arrival[];
   readonly reason: HorizonReason;
   readonly suppressedWholesale: boolean;
   readonly considered: ArrivalResult;
@@ -661,6 +681,7 @@ export class Prospective {
       });
       return {
         items: [],
+        more: [],
         reason: "high-affect-previous-session",
         suppressedWholesale: true,
         considered,
@@ -689,19 +710,28 @@ export class Prospective {
     // of the two lines for good. A one-off's date is fixed, so a day-old render
     // of it is still true. A plain daily is still said outright each day
     // (`plainDue`), and a quiet one still cues recall on every turn.
-    const items = considered.arrivals
+    //
+    // A PLAIN REMINDER DUE THE DAY THE WAKE IS READ COMES FIRST (2026-10-10),
+    // ahead of the salience order and so ahead of the count: the person asked
+    // to be told, and on that day it is not a question of how warm it is —
+    // `plainDue`'s own reasoning. The rest keep their order (`plainDueOn`).
+    const offered = considered.arrivals
       .filter((a) => a.precision === "day")
       .filter((a) => a.recurring !== "daily")
-      .filter((a) => !this.toldForGood(a))
-      .slice(0, this.tunables.HORIZON_ITEMS);
+      .filter((a) => !this.toldForGood(a));
+    const ordered = [...offered.filter((a) => plainDueOn(a, input.at)), ...offered.filter((a) => !plainDueOn(a, input.at))];
+    const items = ordered.slice(0, this.tunables.HORIZON_ITEMS);
+    // Past the count: named by id in the wake, never silently gone (review of #367).
+    const more = ordered.slice(items.length);
     const reason: HorizonReason = items.length === 0 ? "nothing-arrived" : "selected";
     this.emit("prospective.horizon", undefined, {
       reason,
       items: items.length,
+      more: more.length,
       arrived: considered.arrivals.length,
       ids: items.map((i) => i.memoryId).join(","),
     });
-    return { items, reason, suppressedWholesale: false, considered };
+    return { items, more, reason, suppressedWholesale: false, considered };
   }
 
   // ── plain items: the one exception to "a cue, not a command" ──────────────

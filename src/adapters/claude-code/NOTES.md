@@ -2284,3 +2284,20 @@ INTERFACE-GAPS §15.
   lines, because the claim that would dedupe them is a write a paused folder may not make.
   A second claim outside the store was not built (guards loose-first); doctor's "Installed
   twice" line is what names that shape.
+
+## 2026-10-10 — doctor's Wake line: a dated item the wake did not list is amber
+
+The wake now ranks its lanes in one list (`self/briefing.ts#ROOM_ORDER`): "Work here", the
+Yesterday line's titles, "Last here" and the handoffs give their room before an "Arriving:"
+item goes unlisted. When one still does, the render's durable `self.briefing` row says so
+in its new per-lane count (`trimmedLanes.horizon`; a row from before it is read by its
+`trimmed` list), and the Wake line adds "a dated item under "Arriving:" was not listed for
+want of room in N wakes (newest <date>)" and turns amber: the wake is over-full, so the fix
+names the self page (a short version, or under its room) and `injectionBudgetBytes`. Its
+`--json` data gains `datedUnlisted`.
+
+Plain reminders were checked and nothing changed here: the line is said beside the wake
+(above its opening comment, and as the person's notice), claimed only once the envelope
+carries it, and waits for the first prompt when there is no room — never dropped. What rode
+inside the wake was the same memory's Arriving line, which now leads the lane and outranks
+the self page's borrowing.
