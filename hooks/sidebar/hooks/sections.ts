@@ -211,7 +211,8 @@ const SAVED_DOWN = [savedLines1, savedTo(3), savedTo(2), savedTo(1), savedFold]
  */
 const LADDERS: Readonly<Record<'default' | 'open' | 'mech' | 'dream', readonly Step[]>> = {
   default: [...SAVED_DOWN, dreamTo(2), subTo(3), subTo(2), dreamTo(1), subTo(1), memTo(2), subTo(0), chartFold, mindFold, dreamFold],
-  open: [...SAVED_DOWN, dreamTo(1), textTo(12), textTo(8), subTo(1), subTo(0), chartFold, dreamFold, textTo(5)],
+  // An item opens in place only when its text is short (EXPAND_MAX_LINES), so its text is the last to give way.
+  open: [...SAVED_DOWN, dreamTo(1), subTo(1), subTo(0), chartFold, dreamFold, textTo(8), textTo(5)],
   mech: [...SAVED_DOWN, dreamTo(1), mindFold, eventsTo(4), eventsTo(2), dreamFold, eventsTo(1)],
   dream: [chartFold, excerptTo(7), excerptTo(5), excerptTo(3), ...SAVED_DOWN, subTo(1), subTo(0), mindFold],
 }
