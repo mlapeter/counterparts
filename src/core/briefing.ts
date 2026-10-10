@@ -62,6 +62,10 @@ export interface RendererOptions {
    *  and "Still open"'s first item (`self/briefing.ts#ROOM_ORDER`,
    *  2026-10-10). */
   handoffLendBytes?: number;
+  /** The rest of that room, the newest handoff's own block: lent to a plain
+   *  reminder due the day the wake is read and nothing else
+   *  (`self/briefing.ts#ROOM_ORDER`'s `handoffsKept`, review of #367). */
+  handoffKeepBytes?: number;
   /** Telemetry only. A refusal must be loud, never a silently empty briefing. */
   onEvent?: (name: string, data: Record<string, string | number | boolean | null>) => void;
 }
@@ -110,6 +114,7 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
       ...(opts.yesterday === undefined || opts.yesterdayShorter === undefined ? {} : { yesterdayShorter: opts.yesterdayShorter }),
       ...(opts.lendBytes === undefined || opts.lendBytes <= 0 ? {} : { lendBytes: opts.lendBytes }),
       ...(opts.handoffLendBytes === undefined || opts.handoffLendBytes <= 0 ? {} : { handoffLendBytes: opts.handoffLendBytes }),
+      ...(opts.handoffKeepBytes === undefined || opts.handoffKeepBytes <= 0 ? {} : { handoffKeepBytes: opts.handoffKeepBytes }),
     });
     return { bytes: result.briefing.bytes, elements: result.briefing.elements };
   };

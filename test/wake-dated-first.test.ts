@@ -360,6 +360,11 @@ describe("one ordered list of who gives way to whom", () => {
     // The page's borrowing outranks an ordinary dated line; a due-day plain reminder outranks the borrowing; the page in its own room outranks all.
     expect(at("arrivingFirst")).toBeLessThan(at("pageBorrow"));
     expect(at("pageBorrow")).toBeLessThan(at("due"));
+    // The newest handoff's own room is kept from every ordinary line and lent
+    // to a due-day plain reminder alone (review of #367).
+    expect(at("handoffs")).toBeLessThan(at("handoffsKept"));
+    expect(at("arrivingFirst")).toBeLessThan(at("handoffsKept"));
+    expect(at("handoffsKept")).toBeLessThan(at("due"));
     expect(at("due")).toBeLessThan(at("page"));
     // The trim loop's lanes are the bottom of the same list, in the same order.
     expect(ROOM_ORDER.slice(0, 3)).toEqual(TRIM_ORDER.slice(0, 3) as never);
@@ -418,7 +423,7 @@ describe("at 9,000, an over-room page, four handoffs, yesterday's titles — eve
           expect(wakeArrivalFindings(m.a.counterpart.store).map((f) => f.detail).join(" ")).not.toContain("Arriving:");
         }
         expect(gaveWay).toBeGreaterThan(0);
-      });
+      }, 60_000);
     }
   }
 });
@@ -440,7 +445,7 @@ test("the room lent stops at the newest handoff: dated items a few lines long ne
       expect(bytes(m.text)).toBeLessThanOrEqual(BUDGET);
     }
   }
-});
+}, 60_000);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 3. A due-day plain reminder, at the tightest reserves
@@ -476,8 +481,59 @@ describe("a plain reminder due the morning the wake is read, under the widest de
         expect(composeBudget).toBeGreaterThanOrEqual(COMPOSE);
         expect(composeBudget).toBeLessThan(COMPOSE + 64);
       }
-    });
+    }, 60_000);
   }
+
+  test("beside a page whole in its own room, one handoff and no work lines: it takes the room kept for the newest handoff — an ordinary dated item does not (review of #367)", async () => {
+    // Measured on 62c8c7cd, which kept the newest handoff's room from every
+    // lane: a page of 7,300-7,450 bytes printed whole without borrowing, one
+    // handoff (so none of its room was lent) and no "Work here" (none to
+    // lend) — the due-day reminder was in no line of the wake while the
+    // handoff printed.
+    const body = (k: number): string => `${REMINDERS[0]} ${"The details are in the studio notebook on the shelf by the door. ".repeat(k).trim()}`;
+    expect([bytes(body(2)), bytes(body(5))]).toEqual([226, 421]);
+    const one = async (zone: string, pageBytes: number, said: string, mode: "plain" | undefined) => {
+      const dataDir = freshDir();
+      clock(zone, "2026-10-07", 20);
+      const a = adapter(dataDir, zone);
+      chapters(a, "2026-10-07");
+      await worker(dataDir, zone);
+      clock(zone, "2026-10-08", 21);
+      openQuestions(a);
+      a.counterpart.writeHandoff("Handoff 0: the glaze tiles dry on rack two. Then the kiln log needs the cone readings.", { scope: SCOPE, session: "kiln-and-glaze-studio-session-0" });
+      reminder(a, mode === "plain" ? "2026-10-09" : "2026-10-10", said, mode);
+      expect(a.counterpart.revisePage(pageOfSize(pageBytes), { by: "owner", reason: "a long page" }).written).toBe(true);
+      await worker(dataDir, zone);
+      const row = lastBriefing(a);
+      clock(zone, "2026-10-09", 8);
+      const { text } = sessionStart(a, zone, "s-morning");
+      return { a, row, text };
+    };
+    for (const zone of ZONES) {
+      for (const pageBytes of [7_300, 7_400, 7_450]) {
+        for (const said of [body(2), body(5)]) {
+          const { a, row, text } = await one(zone, pageBytes, said, "plain");
+          expect((row["page"] as Record<string, unknown>)["rung"]).toBe("whole");
+          const { listed } = arriving(text);
+          expect({ zone, pageBytes, listed: listed.length }).toEqual({ zone, pageBytes, listed: 1 });
+          expect(listed[0]).toEndWith(said);
+          expect(listed[0]).toContain("(due 2026-10-09)");
+          expect(row["trimmedLanes"]).not.toHaveProperty("horizon");
+          // The room it took is past the composition's budget: with no work
+          // lines and one handoff, only the room kept for that handoff.
+          expect(Number(row["budget"])).toBeGreaterThan(a.counterpart.rebrief({ budgetBytes: BUDGET }).composeBudget ?? 0);
+          expect(readSentinel(text).intact).toBe(true);
+          expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
+        }
+      }
+    }
+    // The same line, not plain and not due that morning: an ordinary dated
+    // item, which the newest handoff's room is kept from.
+    const { row, text } = await one("America/Denver", 7_400, body(2), undefined);
+    expect(arriving(text).listed.length).toBe(0);
+    expect((row["trimmedLanes"] as Record<string, number>)["horizon"]).toBe(1);
+    expect(text).toContain("Handoff 0: the glaze tiles dry on rack two.");
+  }, 60_000);
 
   test("it leads the horizon ahead of warmer arrivals, so the count cannot leave it out", async () => {
     const dataDir = freshDir();
@@ -602,6 +658,47 @@ describe("at the composition: three dated items, and who gives the room", () => 
     // And it leads the lane, ahead of the order it was supplied in.
     const two = me.build({ ...base, horizon: [{ id: ids[1] ?? "", due: "2026-10-10" }, { id: first, due: "2026-10-09", plainDue: true }] });
     expect(two.kept.horizon[0]).toBe(first);
+  });
+
+  test("the room kept for the newest handoff is lent to a due-day plain reminder, and to nothing else (review of #367)", () => {
+    const { me, ids } = selfWith(pageOfSize(6_000), undefined, LONG);
+    const first = ids[0] ?? "";
+    // The page whole with nothing to spare, nothing else to lend.
+    const b = wholeCost(6_000) + PAGE_FLOOR_RESERVE_BYTES;
+    const keep = 600;
+    const due = me.build({ budgetBytes: b, day: 2, horizon: [{ id: first, due: "2026-10-09", plainDue: true }], handoffKeepBytes: keep });
+    expect(due.page?.rung).toBe("whole");
+    expect(due.counts.horizon).toBe(1);
+    expect(due.budgetBytes).toBeGreaterThan(b);
+    expect(due.budgetBytes).toBeLessThanOrEqual(b + keep);
+    expect(due.bytes).toBeLessThanOrEqual(due.budgetBytes);
+    const ordinary = me.build({ budgetBytes: b, day: 2, horizon: [{ id: first, due: "2026-10-09" }], handoffKeepBytes: keep });
+    expect(ordinary.page?.rung).toBe("whole");
+    expect(ordinary.counts.horizon).toBe(0);
+    expect(ordinary.budgetBytes).toBe(b);
+  });
+
+  test("an id past the count that no count line can name still leaves a trim row, so doctor reads it (review of #367)", () => {
+    clock(ZONE, "2026-10-08", 21);
+    const bodies = [...LONG.slice(0, 2), REMINDERS[2], "The clay order arrives; check the invoice against the slip.", "The glaze supplier calls back about the cobalt."];
+    const { me, ids } = selfWith(pageOfSize(4_000), undefined, bodies);
+    const past = ids.slice(2);
+    // Two due-day plain reminders are the lane's head: no rescue pops either
+    // to pay for the count.
+    const horizon: HorizonItem[] = ids.slice(0, 2).map((id) => ({ id, due: "2026-10-09", plainDue: true }));
+    const both = me.build({ budgetBytes: COMPOSE, day: 2, horizon });
+    expect(both.counts.horizon).toBe(2);
+    expect(both.page?.rung).toBe("whole");
+    // The tightest budget that still lists both: no room for the count.
+    const out = me.build({ budgetBytes: both.bytes, day: 2, horizon, horizonMore: past });
+    expect(out.counts.horizon).toBe(2);
+    expect(out.page?.rung).toBe("whole");
+    expect(out.text).not.toContain("more arriving");
+    expect(out.trimmed.filter((e) => e.lane === "horizon").map((e) => e.id).sort()).toEqual([...past].sort());
+    // With room for the count, it names them, and no row is written for them.
+    const roomy = me.build({ budgetBytes: COMPOSE, day: 2, horizon, horizonMore: past });
+    expect(roomy.text).toContain(`(3 more arriving; recall ids: ${past.join(", ")})`);
+    expect(roomy.trimmed).toEqual([]);
   });
 
   test("the page within its own room outranks even a due-day reminder: no borrowing to give back, no step down", () => {

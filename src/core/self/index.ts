@@ -841,6 +841,11 @@ export class Self {
           ...(req.handoffLendBytes === undefined || req.omit !== undefined
             ? {}
             : { handoffLendBytes: Math.max(0, Math.floor(req.handoffLendBytes)) }),
+          // And the room kept for the newest handoff's own block: a due-day
+          // plain reminder's alone (`ROOM_ORDER`'s `handoffsKept`).
+          ...(req.handoffKeepBytes === undefined || req.omit !== undefined
+            ? {}
+            : { handoffKeepBytes: Math.max(0, Math.floor(req.handoffKeepBytes)) }),
         },
         resolve,
         this.tunables,

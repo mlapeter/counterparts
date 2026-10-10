@@ -197,11 +197,12 @@ proposals and their archive; render and delivery telemetry.
    Yesterday line's titles (a title at a time given way to its id), "Last here" and the
    handoffs (the delivery's room past the newest handoff's own block, `handoffLendBytes`),
    Arriving past its first line, "Still open"'s first item and count, Arriving's first
-   line, the page borrowing past its room, a plain reminder due the day the wake is read
-   (`Ranked.due`), the page within its room. After the trim loop fits, the lanes that ARE
-   in it are listed again, highest first — Arriving's head (its due-day plain reminders,
-   or its first line), then "Still open"'s first item and count (review of #350), then the
-   rest of Arriving — each taking
+   line, the newest handoff's own block (`handoffKeepBytes`, lent to a due-day plain
+   reminder alone; review of #367), the page borrowing past its room, a plain reminder due
+   the day the wake is read (`Ranked.due`), the page within its room. After the trim loop
+   fits, the lanes that ARE in it are listed again, highest first — Arriving's head (its
+   due-day plain reminders, or its first line), then "Still open"'s first item and count
+   (review of #350), then the rest of Arriving — each taking
    room only from the lanes below it, lowest first, and only what it needs
    (`takeRoom`); the delivery then shows fewer work lines, drops "Last here" and shows
    fewer handoffs in full, the rest by id, and the render's `budgetBytes` states what was
@@ -212,8 +213,10 @@ proposals and their archive; render and delivery telemetry.
    reminder (`Self#build`: the page steps down until the reminder is listed, never below
    the first rung that borrows nothing). A render that still left a dated item unlisted
    says so on its durable row (`self.briefing`'s `trimmedLanes`), and doctor's Wake line is
-   amber. *Named change: until 2026-10-10 "Still open"'s first item took Arriving's second
-   line before the Yesterday line's titles, and never touched the handoffs' room.*
+   amber — an arriving id past the lane's cap that its count line had no room to name
+   included (review of #367). *Named change: until 2026-10-10 "Still open"'s first item
+   took Arriving's second line before the Yesterday line's titles, and never touched the
+   handoffs' room.*
    **What Nearby and the horizon leave out** (2026-10-01, working defaults): a memory a
    later one settled over (`changed` or `corrected`) is in no lane but identity; a memory
    arriving is under Arriving only; and a hint the self page already covers — cited by the

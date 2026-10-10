@@ -1930,6 +1930,23 @@ right after "Still open", and nothing below it was poppable.
   page and 25 open questions took the whole reserve, and all four handoffs went unshown
   while doctor stayed green. The delivery picks the widest rung that fits, so room the
   composition could not use usually comes back as three shown in full.
+- **That kept room is lent to `due` alone** (second reader of #367, `ROOM_ORDER`'s
+  `handoffsKept`, `handoffKeepBytes`). Kept from every lane, it made the newest handoff
+  outrank a due-day plain reminder: one handoff (so nothing of its room was lent), no
+  "Work here", a 7,300-7,450-byte page printed whole without borrowing, and the
+  reminder's Arriving line was in no line of the wake while the handoff printed (doctor
+  amber; the plain line itself still rode beside the wake). Now `takeRoom` reaches it last,
+  and only for `due`; an ordinary dated line never does.
+- **Not done: naming the other handoffs in the tightest case.** The ladder's last rung is
+  the newest handoff's own block, which names none of the others. Keeping room for the
+  narrowest rung that does name them (the newest in full, "+N older here: ids") costs
+  about 158 bytes more with four handoffs, and the second dated item at the owner's
+  6,767-byte page (`wake-dated-first.test.ts`'s sweep) went unlisted for it. Left as it is.
+- **An arriving id the count could not name leaves a trim row** (second reader of #367).
+  An id past the lane's cap was never a line the trim popped, so when the lane's count did
+  not fit either (two due-day reminders heading the lane, nothing left to lend) it was in
+  no line and no row, and doctor stayed green. `render` now records it as a popped line is
+  (strength 0), and doctor's Wake line counts it.
 - **The plain line itself never rode the wake.** It is said beside the wake — above its
   opening comment for the model, as a notice for the person — and claimed only once the
   envelope carries it; with no room it waits for the first prompt, where recall gives way

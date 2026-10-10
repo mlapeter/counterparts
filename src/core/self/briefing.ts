@@ -117,15 +117,20 @@ export const TRIM_ORDER: readonly LaneName[] = [
  *   - `yesterday` — the Yesterday line: a title at a time gives way to its
  *     id, pointers instead of titles (`yesterdayShorter`);
  *   - `lastHere`, `handoffs` — the delivery's room for "Last here" and this
- *     directory's handoffs past the newest one's own block
- *     (`handoffLendBytes`, `counterpart.ts#handoffRoom`): the delivery drops
- *     "Last here" first and then shows fewer handoffs in full, the rest by
- *     id, never none (`counterpart.ts#addHandoffPointer`,
+ *     directory's handoffs (`handoffLendBytes`), less the newest handoff's
+ *     own block (`handoffsKept`, below): the delivery drops "Last here"
+ *     first and then shows fewer handoffs in full, the rest by id while
+ *     there is room for that line (`counterpart.ts#addHandoffPointer`,
  *     `handoff/#pointerLadder`);
  *   - `arriving` — "Arriving:" past its first line;
  *   - `openFirst` — "Still open"'s first item and its count, when it would
  *     otherwise list nothing (review of #350);
  *   - `arrivingFirst` — "Arriving:"'s first line;
+ *   - `handoffsKept` — the room for the newest handoff's own block, with
+ *     the margin (`handoffKeepBytes`, `counterpart.ts#handoffRoom`; review
+ *     of #367): lent to `due` alone, so no ordinary line leaves the next
+ *     session's instructions unshown, and a due-day plain reminder is never
+ *     left unlisted for them;
  *   - `pageBorrow` — the self page past its own room, borrowing "Work here"
  *     (review of #358);
  *   - `due` — a plain reminder due the day this wake is read (`Ranked.due`):
@@ -153,6 +158,7 @@ export const ROOM_ORDER = [
   "arriving",
   "openFirst",
   "arrivingFirst",
+  "handoffsKept",
   "pageBorrow",
   "due",
   "page",
@@ -515,6 +521,14 @@ export interface BriefingRequest {
    * Absent: nothing to lend.
    */
   readonly handoffLendBytes?: number;
+  /**
+   * THE REST OF THAT RESERVE (review of #367, 2026-10-10), in bytes: the room
+   * for the newest handoff's own block, which `handoffLendBytes` leaves out.
+   * Lent to a plain reminder due the day the wake is read and to nothing
+   * else (`ROOM_ORDER`'s `handoffsKept`), last of the rooms that lane takes.
+   * Absent: nothing to lend.
+   */
+  readonly handoffKeepBytes?: number;
 }
 
 export interface TrimEvent {
@@ -1011,13 +1025,16 @@ function shorterThan(line: string | undefined, forms: readonly string[] | undefi
  *   - `handoffs` — the room held for "Last here" and the handoff pointer
  *     (`handoffLendBytes`), which the delivery gives up in its own order;
  *   - `arriving` — Arriving's lines past its head (`arrivingHead`), from the
- *     end, each a `TrimEvent` so the lane's count can still say so.
+ *     end, each a `TrimEvent` so the lane's count can still say so;
+ *   - `handoffsKept` — the room held for the newest handoff's own block
+ *     (`handoffKeepBytes`): reached only by `due`, the one lane above it
+ *     that takes room here (review of #367).
  *
  * The lanes below them are the trim loop's and are gone before any rescue
  * runs; `lastHere` is the delivery's, inside the room lent at `handoffs`; the
- * page is chosen before the lanes (`Self#build`). All or nothing: null when
- * even the last step below `target` leaves no room — the render is then what
- * it was.
+ * page is chosen before the lanes (`Self#build`), and gives its borrowing
+ * back to `due` there. All or nothing: null when even the last step below
+ * `target` leaves no room — the render is then what it was.
  */
 function takeRoom(
   target: RoomLane,
@@ -1030,6 +1047,7 @@ function takeRoom(
   const { req } = ctx;
   const work = lendOf(req.lendBytes);
   const handoffs = lendOf(req.handoffLendBytes);
+  const kept = lendOf(req.handoffKeepBytes);
   const k = copyKept(want);
   const t = [...trimmed];
   const pins: Partial<Record<LaneName, string[]>> = {};
@@ -1075,6 +1093,12 @@ function takeRoom(
           t.push({ lane: "horizon", id: dropped.id, strength: dropped.strength });
           // A count already paid for names it too, first: it ranked first.
           if (pins.horizon !== undefined) pins.horizon = [dropped.id, ...pins.horizon];
+          got = attempt();
+        }
+        break;
+      case "handoffsKept":
+        if (req.budgetBytes + work + handoffs + kept > limit) {
+          limit = req.budgetBytes + work + handoffs + kept;
           got = attempt();
         }
         break;
@@ -1427,6 +1451,19 @@ export function render(
         ...(said === undefined ? {} : { yesterday: said }),
         ...(first === null ? {} : { pinned: first.pinned }),
       });
+      // AN ARRIVING ID THE COUNT COULD NOT NAME LEAVES A TRIM ROW (review of
+      // #367, 2026-10-10). One past the lane's cap — `prospective/`'s count
+      // (`BoundaryRequest.horizonMore`) or the lane's own — was never a line
+      // the trim popped, so when the lane's count did not fit either it was in
+      // no line and no row, and doctor read the wake as green. Now it is
+      // recorded as a popped line is (no rank of its own: strength 0), and
+      // doctor's Wake line counts it.
+      if (told.more.horizon === undefined) {
+        const recorded = new Set(trimmed.filter((e) => e.lane === "horizon").map((e) => e.id));
+        for (const id of lanes.overflow?.horizon ?? []) {
+          if (!recorded.has(id)) trimmed.push({ lane: "horizon", id, strength: 0 });
+        }
+      }
       const composed = told.composed;
       // What it was composed to: the caller's budget, and what the delivery's
       // rooms lent (`takeRoom`) — so a reader comparing the bundle to its

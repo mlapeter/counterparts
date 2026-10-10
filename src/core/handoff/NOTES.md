@@ -490,4 +490,6 @@ Yesterday line's titles. Nothing here changed for it: the delivery already drops
 here" first and steps `pointerLadder` down — fewer shown in full, the rest by id — in the
 room it finds. What is lent stops at each directory's smallest rung, its newest handoff
 alone (review of #367): lent whole, the room went to dated lines and "Still open", and no
-handoff was shown at all.
+handoff was shown at all. That kept block is lent to one lane only, a plain reminder due
+the day the wake is read (`self/briefing.ts#ROOM_ORDER`'s `handoffsKept`): then the
+delivery may find no room for the pointer, and writes its `no-room` row as before.
