@@ -206,6 +206,20 @@ export function refuseAllowCmd(name: string): string | null {
   return null;
 }
 
+/**
+ * The permission mode a run's session starts in, as claude arguments.
+ * `default` (the default) asks before any tool, so a prompt that slipped past
+ * the guard stalls at a permission dialog instead of running tools unattended.
+ * `own` passes nothing: the owner's settings decide (auto mode, 2026-10-10).
+ * `bypassPermissions` is refused: nothing here needs it.
+ */
+export const MODES = ['default', 'manual', 'plan', 'acceptEdits', 'auto', 'dontAsk', 'own'] as const;
+
+export function permissionArgs(mode: string): string[] {
+  if (!(MODES as readonly string[]).includes(mode)) throw new Error(`--mode ${mode}: one of ${MODES.join(', ')} (own: the owner's settings decide)`);
+  return mode === 'own' ? [] : ['--permission-mode', mode];
+}
+
 /** Where the keyboard is, what the prompt holds, and what the typeahead would run. */
 export type Keyboard = { readonly focus: Focus; readonly typed: string; readonly pick: string | null };
 

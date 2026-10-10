@@ -18,6 +18,7 @@ import {
   mouseBytes,
   parseStep,
   parseSteps,
+  permissionArgs,
   planWords,
   restorePlan,
   viewOf,
@@ -272,6 +273,14 @@ describe('steps and the keyboard guard', () => {
     expect(refuseAllowCmd('/counterparts:doctor')).toMatch(/skill/);
     expect(refuseAllowCmd('mymod')).not.toBeNull();
     expect(refuseAllowCmd('/a b')).not.toBeNull();
+  });
+
+  test('--mode: the session asks before any tool unless told otherwise; never bypasses', () => {
+    expect(permissionArgs('default')).toEqual(['--permission-mode', 'default']);
+    expect(permissionArgs('auto')).toEqual(['--permission-mode', 'auto']);
+    expect(permissionArgs('own')).toEqual([]);
+    expect(() => permissionArgs('bypassPermissions')).toThrow(/one of/);
+    expect(() => permissionArgs('nope')).toThrow(/one of/);
   });
 
   test('typing: into the pane, or a slash command’s words; never a prompt', () => {

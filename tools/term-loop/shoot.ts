@@ -29,6 +29,7 @@ import {
   mouseBytes,
   parseSteps,
   planWords,
+  permissionArgs,
   refuseAllowCmd,
   refuseClick,
   refuseEnter,
@@ -60,6 +61,8 @@ options:
   --timeout <ms>      how long to wait for the pane, a command, or until: (default 45000)
   --no-cursor         don't draw the terminal cursor
   --allow-cmd </name> let cmd: run another mod command besides /counterparts (never a skill)
+  --mode <mode>       the session's permission mode (default: default, which asks before any
+                      tool); own: the owner's settings decide (his auto mode, with its line)
   --claude <bin>      the Claude Code executable (default: claude on PATH)
 
 ${STEP_HELP}`;
@@ -80,6 +83,8 @@ type Opts = {
   render: string | null;
   /** The slash commands a step may run (Enter on anything else is refused). */
   allowed: string[];
+  /** claude's permission-mode arguments (none for --mode own). */
+  mode: string[];
   steps: Step[];
 };
 
@@ -97,6 +102,7 @@ function parseArgs(argv: readonly string[]): Opts {
     claude: process.env['CLAUDE_BIN'] ?? 'claude',
     render: null,
     allowed: [...ALLOWED_COMMANDS],
+    mode: permissionArgs('default'),
     steps: [],
   };
   const raw: string[] = [];
@@ -126,6 +132,7 @@ function parseArgs(argv: readonly string[]): Opts {
     else if (a === '--no-cursor') o.cursor = false;
     else if (a === '--claude') o.claude = val();
     else if (a === '--render') o.render = resolve(val());
+    else if (a === '--mode') o.mode = permissionArgs(val());
     else if (a === '--allow-cmd') {
       const c = val();
       const why = refuseAllowCmd(c);
@@ -280,7 +287,7 @@ class Session {
       'set-option', '-g', 'status', 'off', ';',
       'new-session', '-d', '-s', this.name, '-x', String(this.o.cols), '-y', String(this.o.rows), '-c', this.o.cwd,
       '-e', 'COLORTERM=truecolor', '-e', 'CLAUDE_CODE_TMUX_TRUECOLOR=1',
-      '--', this.o.claude, '--plugin-dir', this.o.pluginDir, '--settings', '{"tui":"fullscreen"}',
+      '--', this.o.claude, '--plugin-dir', this.o.pluginDir, '--settings', '{"tui":"fullscreen"}', ...this.o.mode,
     );
     if (r.code !== 0) throw new Error(`tmux new-session failed: ${r.err.trim()}`);
     this.alive = true;
@@ -666,7 +673,7 @@ async function main(): Promise<void> {
     });
   }
 
-  console.log(`term-loop: ${s.name} on socket ${SOCKET}, ${String(o.cols)}x${String(o.rows)}, plugin ${o.pluginDir}, in ${o.cwd}`);
+  console.log(`term-loop: ${s.name} on socket ${SOCKET}, ${String(o.cols)}x${String(o.rows)}, plugin ${o.pluginDir}, in ${o.cwd}, ${o.mode.length > 0 ? `permission mode ${o.mode[1] ?? ""}` : "his own permission mode"}`);
   const captures: Capture[] = [];
   let failure: Error | null = null;
   try {

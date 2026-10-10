@@ -37,7 +37,7 @@ bun tools/term-loop/shoot.ts --render tools/term-loop/out/<time>/full.ansi --out
 `tools/term-loop/out/<time>`, gitignored), `--size 200x60`, `--crop
 auto|none|<N>`, `--settle <ms>` (2500: the dashboard's first read),
 `--timeout <ms>` (45000), `--no-cursor`, `--cwd <dir>`, `--claude <bin>`,
-`--allow-cmd </name>`. `--help` prints them all.
+`--allow-cmd </name>`, `--mode <mode>` (below). `--help` prints them all.
 
 A run of the three views takes about 16 s: about 4 s until the pane has
 drawn, 2.5 s of settling, about 2 s a command, a few seconds to exit, and
@@ -86,6 +86,13 @@ Things learned driving it (2026-10-10, Claude Code 2.1.296):
   stored hidden, the run opens it with `/counterparts` first (and hides it
   again at the end); that path hasn't run live yet, since the store has held
   `full` throughout.
+- **`--permission-mode default`**, so the session asks before any tool: a
+  prompt that slipped past the guard would stall at a permission dialog,
+  not run tools unattended. So the shots lack the line his own sessions
+  draw under the status line, `▸▸ auto mode on (shift+tab to cycle)`. For
+  shots with it, `--mode auto` (or `--mode own`: no `--permission-mode` at
+  all, his settings decide). `--mode` takes `default`, `manual`, `plan`,
+  `acceptEdits`, `auto`, `dontAsk` or `own`; never `bypassPermissions`.
 - **Truecolor.** Under `$TMUX`, Claude Code clamps itself to 256 colours,
   whatever `COLORTERM` says (found in its source; `CLAUDE_CODE_TMUX_TRUECOLOR`
   lifts the clamp). The session gets `COLORTERM=truecolor` and
@@ -123,9 +130,9 @@ The sessions are real Claude Code sessions with his own login and settings.
   transcript in `~/.claude/projects/<the scratch folder as a slug>/`, which
   keeps what the SessionStart hooks printed: his wake, from his live memory,
   when they print it.
-- **No prompt reaches the model.** It matters more than the cost: the
-  session runs in his default permission mode (auto mode, 2026-10-10), so a
-  prompt could also run tools. `cmd:` takes only `/counterparts` (or what
+- **No prompt reaches the model.** In his own permission mode (auto,
+  2026-10-10) a prompt could also run tools; the run starts in `default`
+  (above) unless `--mode` says otherwise. `cmd:` takes only `/counterparts` (or what
   `--allow-cmd` adds: one bare name, never a `plugin:name` skill or
   command), and is refused before anything starts otherwise. `keys:` takes
   tmux key names and single characters only (tmux would type any other
