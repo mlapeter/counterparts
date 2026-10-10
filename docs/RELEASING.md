@@ -45,8 +45,9 @@ numbers):
 - the install loop, `tools/install-loop/run.sh`: a stranger's install from the packed
   tarball, in a throwaway HOME;
 - the plugin loop, `tools/plugin-loop/run.sh`, on the release head
-  ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)). Before the tag exists,
-  its pinned-tag install is expected to fail;
+  ([plugin.md, "The automated loop"](plugin.md#the-automated-loop)). It installs the
+  working tree under the pin's tag inside its own throwaway clone, so it passes before the
+  tag is on GitHub; the one install in it that has to fail is the step naming a missing tag;
 - the package scan: `npm pack`, then compare the tarball with the previous release's.
   Every new or missing file should have a reason. Nothing from `.claude-plugin/`, `hooks/`,
   `commands/`, `test/`, `dist/`, a scratch folder or a store should be in it. Search it for
@@ -62,18 +63,18 @@ After the last change to `src/`, on macOS, in the clean clone:
 bun tools/single-binary/build.ts --release
 ```
 
-Commit the `.claude-plugin/binaries.json` it writes on the release branch. Copy
-`dist/single-binary/<version>/` (the `.gz` files and `SHA256SUMS`) somewhere outside the
-clone. The builds aren't byte-reproducible, so the files uploaded at publish have to be
+Commit the `.claude-plugin/binaries.json` it writes on the release branch. Copy the `.gz`
+files and `SHA256SUMS` from `dist/single-binary/<version>/` into a release folder outside
+the clone. The builds aren't byte-reproducible, so the files uploaded at publish have to be
 these ones. Any later change to `src/` means building again. Details:
 [single-binary.md, "Releasing"](single-binary.md#releasing).
 
 ## 4. Pack
 
 `npm pack` from a clean clone at the release head, after `binaries.json` is committed. Keep
-the tarball with the commit it was packed from, its sha256, and a `release-notes.md` (the
-version's CHANGELOG entry). Packing the same commit twice gives the same hash. Then open the
-release PR.
+the tarball in the release folder with the commit it was packed from, its sha256, and a
+`release-notes.md` (the version's CHANGELOG entry). Packing the same commit twice gives the
+same hash. Then open the release PR.
 
 ## 5. Publish
 
@@ -89,7 +90,8 @@ release PR.
 3. Merge the release PR. Once it's on master, master's marketplace entry names the new tag,
    so `/plugin install` fails at the clone until the tag is pushed. Push the tag and merge
    the release PR close together, tag first.
-4. Create the GitHub release with the binaries from step 3:
+4. Create the GitHub release with the binaries from section 3 (`<folder>` is the release
+   folder):
 
    ```sh
    gh release create v<version> --verify-tag --title "counterparts <version>" \
@@ -100,8 +102,9 @@ release PR.
    and a retry ten minutes later. Nothing else breaks.
 5. Verify. `bun tools/single-binary/verify-release.ts` downloads every asset and checks
    both checksums. It reads `.claude-plugin/binaries.json` from the checkout it runs in,
-   so run it from a checkout (or a `git archive`) of the tag. Exit 0 means every released platform gets a program that matches. Then, from a
-   throwaway home (both `HOME` and `CLAUDE_CONFIG_DIR` set to a new directory):
+   so run it from a checkout (or a `git archive`) of the tag. Exit 0 means every released
+   platform gets a program that matches. Then, from a throwaway home (both `HOME` and
+   `CLAUDE_CONFIG_DIR` set to a new directory):
    `claude plugin marketplace add mlapeter/counterparts`,
    `claude plugin install counterparts@counterparts`, and `claude plugin list` shows the
    new version.
