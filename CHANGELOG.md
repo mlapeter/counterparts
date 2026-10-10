@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **A paused folder now says so when a session starts.** With memory paused in a folder
+  (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or
+  compacted session there shows one line: memory is paused, and the command that turns it
+  back on. If the pause is on a parent folder, the line names that folder and the command
+  resumes it there. Claude gets a matching line so it doesn't act as if it remembers.
+  Nothing else changes: no memories are loaded or recorded, nothing is written, other
+  hooks stay silent, and a folder turned `off` stays completely silent.
 - **The self page is never cut in the wake.** The page may now be at most 6,078 bytes,
   which is exactly what the wake prints whole at the default 9,000-byte ceiling, even on
   a day the wake also holds room for handoffs and "Work here" lines. Before, a page could

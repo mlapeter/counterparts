@@ -393,7 +393,8 @@ row, saying which source answered, existed until the keys were removed — §1a.
     G41–G43) is read at the ENTRY POINT, from the file `config-path.ts` resolved,
     before a store is opened: an `off` or `paused` directory returns from
     `bin/hook.ts#main` with byte-for-byte empty stdout, empty stderr, no session
-    record, no capture, no spawn and no store. `guard()` carries the same predicate
+    record, no capture, no spawn and no store — except that a `paused` one's
+    SessionStart prints ONE notice (below). `guard()` carries the same predicate
     at the seam so a caller who builds an adapter directly inherits it, but the
     guarantee itself is the absence of construction, and the install loop proves it
     on a real process against a real clean-room install.
@@ -419,6 +420,20 @@ row, saying which source answered, existed until the keys were removed — §1a.
     be left alone. The record is the registry itself, and `counterparts scope <path>`
     prints it. An `off` is not an instrument standing down; it is the owner saying
     this directory is not part of the memory.
+
+    **A `paused` directory says so once, at SessionStart (rulings brief #19,
+    2026-10-10 — a working default).** A pause is meant to end, and a silent one was
+    missed: on 2026-10-09 three sessions ran without memory for ten minutes before
+    anyone noticed. So SessionStart, on every source (startup, resume, clear,
+    compact), prints one envelope from the registry already read: a `systemMessage`
+    for the person — the folder is paused and the command that resumes it — and an
+    `additionalContext` line for the model, so it does not act as if it remembers
+    (`bin/hook.ts#pausedNotice`). A pause set on a PARENT is named, and the command
+    names it, because `--resume` refuses a directory that only inherits one. It
+    writes nothing anywhere — not the store, not a session record, not the per-event
+    claim, which comes after this return — so beside the npm install it is the
+    plugin's gate, not the claim, that keeps it to one line. Every other event, `off`
+    on every event, and the headless nightly run stay silent.
 
     **The guarantee is the HOOKS', and only the hooks'.** The MCP server still opens
     a store when the host launches it in an `off` directory (`mcp/bin/serve.ts`): it

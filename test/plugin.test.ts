@@ -20,6 +20,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
@@ -1037,4 +1038,125 @@ describe("doctor's Claude Code line knows the plugin", () => {
     expect(f.fix).toContain("counterparts disconnect");
     expect(f.fix).toContain("claude plugin uninstall counterparts@counterparts");
   });
+});
+
+// ── a paused folder with two wirings (rulings brief #19, 2026-10-10) ────────
+//
+// A paused folder's SessionStart says one line, and says it before anything
+// is opened — so before the per-event claim, which needs the store's claims
+// file and may not be written in a paused folder. What keeps the line to ONE
+// beside the npm install is the plugin's gate, which stands the plugin down
+// before it ever reads the scope registry.
+
+describe("a paused folder with two wirings", () => {
+  const SOURCES = ["startup", "resume", "clear", "compact"] as const;
+  const PAUSED = "Counterparts memory is paused in this folder;";
+
+  /** The npm wiring's environment: no plugin variables, no explicit-dir guard. */
+  function npmEnv(): Record<string, string> {
+    return { PATH: emptyBin, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", CLAUDE_PROJECT_DIR: project };
+  }
+
+  function npmHook(input: string): { code: number; stdout: string; stderr: string } {
+    const r = spawnSync(process.execPath, ["run", HOOK_SCRIPT], { input, encoding: "utf8", env: npmEnv(), timeout: 60_000 });
+    return { code: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
+  }
+
+  function event(name: string, session: string, source?: string): string {
+    return JSON.stringify({ hook_event_name: name, session_id: session, cwd: project, ...(source === undefined ? {} : { source }) });
+  }
+
+  /** An install, and `project` paused in the registry beside its configuration. */
+  function pausedInstall(): string {
+    expect(ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: firstRunLockPath(defaultChoice().path, work) }).state).toBe("created");
+    const base = dirname(defaultChoice().path);
+    writeFileSync(join(base, "scopes.json"), JSON.stringify({ version: 1, scopes: { [project]: { mode: "paused", since: "2026-10-10T00:00:00.000Z" } } }));
+    return base;
+  }
+
+  /** Every file under `dir`, with its size and mtime. */
+  function snapshot(dir: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    const walk = (d: string): void => {
+      for (const entry of readdirSync(d, { withFileTypes: true })) {
+        const p = join(d, entry.name);
+        if (entry.isDirectory()) {
+          out[`${p}/`] = "dir";
+          walk(p);
+        } else {
+          const st = statSync(p);
+          out[p] = `${String(st.size)}@${String(st.mtimeMs)}`;
+        }
+      }
+    };
+    walk(dir);
+    return out;
+  }
+
+  const count = (s: string): number => s.split(PAUSED).length - 1;
+
+  test("the plugin stands down beside the npm hooks: the notice ONCE, from the npm hook, and nothing written", () => {
+    const base = pausedInstall();
+    const hooks: Record<string, string[]> = {};
+    for (const e of HOST_EVENTS) hooks[e] = [liveHookCommand()];
+    writeSettings(hooks);
+    const before = snapshot(base);
+    // The install's store is there, so "nothing moved" covers it.
+    expect(Object.keys(before).some((p) => p.startsWith(`${join(base, "store")}/`))).toBe(true);
+    for (const source of SOURCES) {
+      const input = event("SessionStart", "two-wirings", source);
+      const plugin = launch("hook", input, pluginEnv());
+      const npm = npmHook(input);
+      expect([plugin.code, npm.code]).toEqual([0, 0]);
+      expect(plugin.stderr).toContain("plugin hook stood down");
+      // The plugin's own stand-down line, and no pause notice of its own.
+      expect(systemMessage(plugin.stdout) ?? "").toContain("running from a folder");
+      expect(count(plugin.stdout)).toBe(0);
+      expect(systemMessage(npm.stdout)).toBe(`${PAUSED} \`counterparts scope . --resume\` turns it back on.`);
+      // Once across both: the person's line, in the npm hook's systemMessage only.
+      expect(count(`${systemMessage(plugin.stdout) ?? ""}\n${systemMessage(npm.stdout) ?? ""}`)).toBe(1);
+    }
+    for (const name of ["UserPromptSubmit", "Stop", "SessionEnd", "PreCompact"]) {
+      expect(launch("hook", event(name, "two-wirings"), pluginEnv()).stdout).toBe("");
+      expect(npmHook(event(name, "two-wirings")).stdout).toBe("");
+    }
+    // Nothing under the install moved: no session record, no claims file, no log line.
+    expect(snapshot(base)).toEqual(before);
+  }, 120_000);
+
+  test("a plugin that did NOT stand down (its gate missed the npm wiring): the claim is never reached, so each says it once, and nothing is written", async () => {
+    // The shape the claim backs up in an ordinary folder ("a plugin that did not
+    // stand down beside a settings hook", above): no npm wiring in settings, so
+    // the plugin's gate sees none and both run. In a paused folder neither gets
+    // as far as the claim, which is a write — so each wiring says the line once,
+    // two lines in all. Doctor's "Installed twice" line is what names this shape.
+    const base = pausedInstall();
+    const before = snapshot(base);
+    const start = (args: readonly string[], env: Record<string, string>, input: string): Promise<{ stdout: string; stderr: string }> =>
+      new Promise((done, fail) => {
+        const child = spawn(args[0] ?? "", args.slice(1), { env, stdio: ["pipe", "pipe", "pipe"] });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
+        child.stderr.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
+        child.on("error", fail);
+        child.on("close", () => done({ stdout, stderr }));
+        child.stdin.end(input);
+      });
+    const input = event("SessionStart", "gate-missed", "startup");
+    const [plugin, settings] = await Promise.all([
+      start(["/bin/sh", LAUNCHER, "hook"], pluginEnv(), input),
+      start([process.execPath, "run", HOOK_SCRIPT], npmEnv(), input),
+    ]);
+    expect(plugin.stderr).not.toContain("stood down");
+    expect(settings.stderr).not.toContain("stood down");
+    // The plugin's command is its own launcher: a plugin install puts no
+    // `counterparts` on PATH.
+    expect(systemMessage(plugin.stdout)).toBe(
+      `${PAUSED} \`sh ${join(ROOT, "src", "adapters", "plugin-run.sh")} cli scope . --resume\` turns it back on.`,
+    );
+    expect(systemMessage(settings.stdout)).toBe(`${PAUSED} \`counterparts scope . --resume\` turns it back on.`);
+    expect(snapshot(base)).toEqual(before);
+    expect(existsSync(join(base, "store", "sessions", "claims"))).toBe(false);
+  }, 120_000);
 });

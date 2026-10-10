@@ -2227,3 +2227,45 @@ INTERFACE-GAPS §15.
 - **Left as is.** A twin's `adapter.hook.claim.lost` row still goes to the store, with the
   store's 5 s wait. It is written only when two wirings are live, after the twin has
   decided to stand down, and it is the record doctor reads.
+
+## 2026-10-10 — a paused folder says so at session start (rulings brief #19)
+
+- **Why.** A pause was as silent as `off` (§12, CONTRACT §5 G19): every hook returned
+  before anything was opened, so a paused folder gave no wake, no recall and no hint. On
+  10-09 three `~/random` sessions ran without memory for ten minutes before anyone noticed.
+  Ruled: one SessionStart line for `paused`; `off` stays silent, because it is a deliberate
+  opt-out and a line every session would nag.
+- **The words.** Own entry: `Counterparts memory is paused in this folder; \`counterparts
+  scope . --resume\` turns it back on.` A parent's: `… is paused for ~/random, which
+  includes this folder; \`counterparts scope ~/random --resume\` …` — the command has to
+  name the entry that paused it, since `--resume` refuses a directory that only inherits a
+  pause. The session's own folder paused while the shell stands elsewhere (a compaction, or
+  a start whose `CLAUDE_PROJECT_DIR` is not the payload's `cwd`): `… paused for ~/proj,
+  which covers this session; …`. Under the plugin the command is `sh <plugin root>/src/
+  adapters/plugin-run.sh cli scope … --resume`, because a plugin install puts no
+  `counterparts` on PATH (`commands/doctor.md`). A path that would need quoting is quoted
+  whole and never `~`-shortened (a quoted `~` does not expand).
+- **Two channels, the SessionStart envelope every notice already rides.** The person's line
+  is the `systemMessage`; the model gets one `additionalContext` line (paused, nothing is
+  loaded or remembered, the resume command, "don't act as if you remember"). H1's fault
+  stand-downs print the `systemMessage` alone; a pause adds the model's line because it is
+  a known, lasting state of the folder, and a model that is not told answers as if it had
+  its memory. It goes out through `hostDelivery`, so it is the measured JSON shape (the one
+  the doctor notice rides beside the wake) and not a new one.
+- **Every SessionStart source**, compaction included: a compaction rewrites the terminal and
+  the model's context, and H1 already says its line again there. Never at a prompt (every
+  turn), a Stop, SessionEnd or PreCompact. Not in the headless nightly run, which nobody
+  watches and whose hooks are kept quiet like every other ask there.
+- **Writes nothing.** It prints from the registry the scope check already read, at the two
+  `off` returns in `bin/hook.ts#runHook` — before the configuration (first return) or
+  before the store (second) — so no store, session record, process log or claim. The
+  per-event claim (`../claim.ts`, now `sessions/claims/hook-claims.sqlite` since #359) is
+  made only after the adapter opens, which a paused folder never reaches; the tests check
+  that file is not created and that nothing under an existing store changes.
+- **Two wirings.** Beside the npm install the plugin's gate stands the plugin down in
+  `main`, before the scope check, so only the npm hook says it: one line (plus the plugin's
+  own stand-down line, as in any folder). If the gate misses the npm wiring (the 10-09
+  shape the claim backs up), both hooks reach the scope check and each says it once: two
+  lines, because the claim that would dedupe them is a write a paused folder may not make.
+  A second claim outside the store was not built (guards loose-first); doctor's "Installed
+  twice" line is what names that shape.
