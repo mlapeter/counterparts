@@ -397,14 +397,30 @@ export function chaptersOn(store: Store, date: string, opts: { fromDay?: number 
  * would not. No model run: titles and ids only. Null when that day has no
  * chapter.
  */
-export function yesterdayLine(day: readonly ChaptersOnDate[], date: string): string | null {
+export function yesterdayLine(day: readonly ChaptersOnDate[], date: string, titles = YESTERDAY_SHOWN): string | null {
   if (day.length === 0) return null;
-  const shown = day.slice(0, YESTERDAY_SHOWN).map((c) => {
+  const shown = day.slice(0, Math.max(1, titles)).map((c) => {
     const n = c.chapters > 1 ? `, ${String(c.chapters)} chapters` : "";
     return c.title === null ? `${c.id}${n === "" ? "" : ` (${n.slice(2)})`}` : `"${excerpt(c.title, YESTERDAY_TITLE_BYTES)}" (${c.id}${n})`;
   });
   const rest = day.length - shown.length;
   return flatten(`Yesterday, ${date.slice(5)}: ${shown.join("; ")}${rest > 0 ? `; and ${String(rest)} more` : ""}.`);
+}
+
+/**
+ * THE SAME LINE, SHORTER (review of #350, 2026-10-09): one title fewer at a
+ * time, down to one, the rest by count — widest first, and none when the line
+ * already names one. The wake steps down these only to make room for "Still
+ * open"'s first item beside a long self page (`self/briefing.ts#keepFirstOpen`);
+ * the count is honest because it is counted here, where the chapters are.
+ */
+export function yesterdayShorter(day: readonly ChaptersOnDate[], date: string): string[] {
+  const out: string[] = [];
+  for (let n = Math.min(YESTERDAY_SHOWN, day.length) - 1; n >= 1; n--) {
+    const line = yesterdayLine(day, date, n);
+    if (line !== null) out.push(line);
+  }
+  return out;
 }
 
 /**

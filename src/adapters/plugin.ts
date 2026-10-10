@@ -44,14 +44,15 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, realpathSync, rmdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { implicitConfigRefusal } from "./config-path.js";
 import type { ConfigChoice } from "./config-path.js";
 import { pluginInstall } from "./host-wiring.js";
 import type { NpmWiring } from "./host-wiring.js";
-import { CLI_SCRIPT, parseScriptInvocation, scriptArgs, shellTokens } from "./runtime.js";
+import { BINARY, CLI_SCRIPT, parseScriptInvocation, scriptArgs, shellTokens } from "./runtime.js";
+import type { Binary } from "./runtime.js";
 
 /** Set by Claude Code on a plugin's hook, MCP and LSP processes. */
 export const PLUGIN_ROOT_ENV = "CLAUDE_PLUGIN_ROOT";
@@ -86,9 +87,20 @@ function realOrResolved(path: string): string {
 export function runningAsPlugin(
   env: Record<string, string | undefined>,
   packageRoot: string = PACKAGE_ROOT,
+  binary: Binary | null = BINARY,
 ): boolean {
   const named = (env[PLUGIN_ROOT_ENV] ?? "").trim();
   if (named.length === 0) return false;
+  // THE SINGLE BINARY: it has no package root on disk — `plugin-run.sh`
+  // downloads it into the plugin's own data directory — so "this very copy"
+  // is a binary sitting under CLAUDE_PLUGIN_DATA, which Claude Code sets only
+  // on the plugin's processes and their children.
+  if (binary !== null) {
+    const data = (env[PLUGIN_DATA_ENV] ?? "").trim();
+    if (data.length === 0) return false;
+    const rel = relative(realOrResolved(data), realOrResolved(binary.self));
+    return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+  }
   return realOrResolved(named) === realOrResolved(packageRoot);
 }
 
@@ -119,7 +131,9 @@ export function pluginOrigin(input: {
   readonly cwd?: string | null;
   readonly root?: string;
 }): PluginOrigin {
-  const root = realOrResolved(input.root ?? PACKAGE_ROOT).replace(/\/+$/, "");
+  // CLAUDE_PLUGIN_ROOT first: the single binary has no package root on disk.
+  const named = (input.env[PLUGIN_ROOT_ENV] ?? "").trim();
+  const root = realOrResolved(input.root ?? (named.length > 0 ? named : PACKAGE_ROOT)).replace(/\/+$/, "");
   const moved = (input.env["CLAUDE_CONFIG_DIR"] ?? "").trim();
   const configDir = moved.length > 0 ? moved : join(input.home, ".claude");
   const cacheRoot = (input.env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] ?? "").trim();
@@ -236,12 +250,18 @@ export function npmDoctorCommand(wiring: NpmWiring): { readonly exe: string; rea
     const tokens = shellTokens(entry.command);
     const call = parseScriptInvocation(tokens);
     if (call === null) continue;
+    const at = call.rest.indexOf("--config");
+    const config = at >= 0 && call.rest[at + 1] !== undefined ? ["--config", call.rest[at + 1] as string] : [];
+    // The single binary is its own install: `<binary> cli doctor`.
+    if (call.runtime === "binary") return { exe: call.exe, args: ["cli", "doctor", ...config] };
     // `<root>/src/adapters/claude-code/bin/hook.ts` or `<root>/src/adapters/mcp/bin/serve.ts`.
     const cli = join(dirname(call.script), "..", "..", "cli", "bin", "counterparts.ts");
     if (!existsSync(cli)) continue;
-    const prefix = call.runtime === "node" ? tokens.slice(1, 3) : ["run"];
-    const at = call.rest.indexOf("--config");
-    const config = at >= 0 && call.rest[at + 1] !== undefined ? ["--config", call.rest[at + 1] as string] : [];
+    // Whatever the wiring put between the runtime and its script, as written:
+    // Bun's `--no-env-file "--config=…/empty-bunfig.toml" run`, or Node's
+    // `--import …/node-hooks.mjs`.
+    const scriptAt = tokens.indexOf(call.script, 1);
+    const prefix = scriptAt > 0 ? tokens.slice(1, scriptAt) : ["run"];
     return { exe: call.exe, args: [...prefix, resolve(cli), "doctor", ...config] };
   }
   return null;

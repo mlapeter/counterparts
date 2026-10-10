@@ -65,6 +65,9 @@ import { hookCommand, mcpCommand, installLayout } from "../src/adapters/cli/inst
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 const RUNNER_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/runner.ts");
 const SERVE_SCRIPT = resolve(import.meta.dir, "../src/adapters/mcp/bin/serve.ts");
+/** OUR `--config <path>`, and not Bun's own `--config=<empty-bunfig.toml>`
+ *  (`runtime.ts#BUN_CONFIG_PREFIX`), which every Bun command carries. */
+const OUR_CONFIG_FLAG = new RegExp(`${CONFIG_FLAG}(?!=)`);
 
 let work: string;
 const open: { close(): void }[] = [];
@@ -571,9 +574,9 @@ describe("install", () => {
     expect(printed).toContain(join(home, ".counterparts", "claude-code.json"));
     // The default path IS the rule: a hooks block that spelled it out would
     // teach the reader that the flag is part of the wiring.
-    expect(printed).not.toContain(CONFIG_FLAG);
+    expect(printed).not.toMatch(OUR_CONFIG_FLAG);
     expect(printed).not.toContain(CONFIG_ENV);
-    expect(hookCommand()).not.toContain(CONFIG_FLAG);
+    expect(hookCommand()).not.toMatch(OUR_CONFIG_FLAG);
     expect(mcpCommand(join(home, ".counterparts", "store"))).not.toContain(CONFIG_ENV);
   });
 
@@ -589,7 +592,7 @@ describe("install", () => {
     );
     expect(code).toBe(0);
     const printed = c.out.join("\n");
-    expect(printed).not.toContain(CONFIG_FLAG);
+    expect(printed).not.toMatch(OUR_CONFIG_FLAG);
     expect(printed).not.toContain("because it is NOT at");
     expect(existsSync(join(home, ".counterparts", "store", "counterparts.sqlite"))).toBe(true);
   });

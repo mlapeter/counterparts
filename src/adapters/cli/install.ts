@@ -120,10 +120,12 @@ export function shellQuote(path: string): string {
 }
 
 /**
- * `<runtime> run <script>` under Bun, `<runtime> --import <node-hooks.mjs>
- * <script>` under Node (`adapters/runtime.ts`) — the shape both printed host
- * commands take. A path is quoted and a bare flag is not, so the Bun shape is
- * exactly the one written since 2026-09-03.
+ * `<runtime> --no-env-file "--config=<empty-bunfig.toml>" run <script>` under
+ * Bun, `<runtime> --import <node-hooks.mjs> <script>` under Node
+ * (`adapters/runtime.ts`) — the shape both printed host commands take. A path
+ * (or a flag carrying one) is quoted and a bare flag is not. Until 2026-10-09
+ * the Bun shape was `<runtime> run <script>`; those commands still read as
+ * ours, so `connect` repairs them in place.
  */
 export function runCommand(script: string, exe: string = process.execPath): string {
   const words = scriptArgs(script, exe).map((a) => (/^[A-Za-z-]+$/.test(a) ? a : shellQuote(a)));
@@ -585,10 +587,15 @@ export interface HostRead {
 /** One runtime a host's configuration launches us with. */
 export interface HostRuntime {
   readonly exe: string;
-  readonly kind: RuntimeKind;
+  /** `binary`: the single compiled binary, its own runtime. */
+  readonly kind: RuntimeKind | "binary";
   readonly present: boolean;
   /** `hooks`, `mcp`, or both. */
   readonly used: readonly ("hooks" | "mcp")[];
+  /** Of `used`, the ones whose command lets Bun read the project's `.env` or
+   *  `bunfig.toml` — wired before `--no-env-file` and an empty `--config=`
+   *  (`runtime.ts#BUN_NO_ENV_FILE`, `#EMPTY_BUNFIG`). */
+  readonly projectEnv: readonly ("hooks" | "mcp")[];
 }
 
 /**
@@ -599,10 +606,11 @@ export interface HostRuntime {
  * version matched any command merely *mentioning* the name, so `echo
  * counterparts-hook` read as an installed hook. It still cannot resolve an
  * arbitrary shell command — that is out of scope, and deliberately so — but it
- * no longer matches prose.
+ * no longer matches prose. The third shape is the single binary's own
+ * (`"<…>/counterparts" hook`, `runtime.ts#parseScriptInvocation`).
  */
 export const HOOK_COMMAND_MARK =
-  /(^|[\s"'=/\\])counterparts-hook(\s|$|")|claude-code[/\\]bin[/\\]hook\.ts/;
+  /(^|[\s"'=/\\])counterparts-hook(\s|$|")|claude-code[/\\]bin[/\\]hook\.ts|[/\\]counterparts(\.exe)?"?\s+hook(\s|$)/;
 
 /**
  * The absolute path a hook command runs, when it names one — the first token
@@ -613,6 +621,9 @@ export const HOOK_COMMAND_MARK =
  * anything else rather than guessing. A null is never reported as stale.
  */
 export function hookTargetPath(command: string): string | null {
+  // The single binary is its own script: `"<binary>" hook` needs the binary.
+  const run = parseScriptInvocation(shellTokens(command));
+  if (run?.runtime === "binary") return run.exe;
   const tokens = command.trim().split(/\s+/);
   for (const raw of tokens) {
     const token = raw.replace(/^["']|["']$/g, "");
@@ -718,12 +729,13 @@ export function readHost(
   const settingsUnreadable: string[] = [];
   // WHICH RUNTIME the host launches us with — read off the same commands, never
   // spawned: `bun run <script>` or `node --import <node-hooks.mjs> <script>`.
-  const runtimes = new Map<string, { kind: RuntimeKind; used: Set<"hooks" | "mcp"> }>();
+  const runtimes = new Map<string, { kind: RuntimeKind | "binary"; used: Set<"hooks" | "mcp">; projectEnv: Set<"hooks" | "mcp"> }>();
   const noteRuntime = (tokens: readonly string[], used: "hooks" | "mcp"): void => {
     const run = parseScriptInvocation(tokens);
     if (run === null) return;
-    const row = runtimes.get(run.exe) ?? { kind: run.runtime, used: new Set<"hooks" | "mcp">() };
+    const row = runtimes.get(run.exe) ?? { kind: run.runtime, used: new Set<"hooks" | "mcp">(), projectEnv: new Set<"hooks" | "mcp">() };
     row.used.add(used);
+    if (run.projectEnv === "read") row.projectEnv.add(used);
     runtimes.set(run.exe, row);
   };
   for (const path of hostSettingsFiles(hostSettingsDir(home, env), cwd)) {
@@ -792,6 +804,7 @@ export function readHost(
       kind: row.kind,
       present: runtimePresent(exe, env),
       used: [...row.used].sort(),
+      projectEnv: [...row.projectEnv].sort(),
     })),
     plugin: pluginInstall({ home, env, cwd }),
   };

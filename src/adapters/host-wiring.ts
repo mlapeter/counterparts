@@ -79,10 +79,11 @@ export function isOurHookCommand(command: string): boolean {
   const first = tokens[0] ?? "";
   // The installed shim, by itself.
   if (/(^|[/\\])counterparts-hook$/.test(first)) return tail(1);
-  // `<runtime> run <our hook script>`, or Node's
-  // `<runtime> --import <node-hooks.mjs> <our hook script>` (`runtime.ts`).
+  // `<runtime> run <our hook script>`, Node's
+  // `<runtime> --import <node-hooks.mjs> <our hook script>`, or the single
+  // binary's `<binary> hook` (`runtime.ts`).
   const run = parseScriptInvocation(tokens);
-  if (run !== null && /claude-code[/\\]bin[/\\]hook\.ts$/.test(run.script)) {
+  if (run !== null && (run.mode === "hook" || (run.mode === undefined && /claude-code[/\\]bin[/\\]hook\.ts$/.test(run.script)))) {
     return tail(tokens.length - run.rest.length);
   }
   return false;

@@ -1,0 +1,88 @@
+# The single binary, built and run natively on every platform a release ships
+# (docs/single-binary.md). Each runner builds ITS OWN platform with the release
+# settings (--bytecode, the model embedded, macOS re-signed ad-hoc), then runs:
+#   - the unit tests for the binary's branches and the plugin launcher;
+#   - tools/single-binary/smoke.sh — the binary alone, hermetic, no bun or node
+#     on its PATH: install, wake, prompt, worker, MCP note/recall by meaning,
+#     doctor, dashboard;
+#   - tools/single-binary/launcher-e2e.ts — the binary through plugin-run.sh
+#     with no runtime: the download from a local server, verified, then used.
+# Windows may fail for now: its code paths (the B:\~BUN root, the launcher
+# under Git Bash, the smoke test's process tools) have not been made to run.
+name: single binary
+
+on:
+  pull_request:
+    paths:
+      - "tools/single-binary/**"
+      - "src/adapters/plugin-run.sh"
+      - "src/adapters/runtime.ts"
+      - "src/adapters/plugin.ts"
+      - "src/adapters/host-wiring.ts"
+      - ".claude-plugin/**"
+      - "test/single-binary.test.ts"
+      - "test/plugin-binary.test.ts"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/single-binary.yml"
+  workflow_dispatch:
+
+# Read-only, and `pull_request` (never `pull_request_target`): a fork's pull
+# request runs with a read-only token and no secrets, and none are used.
+permissions:
+  contents: read
+
+jobs:
+  binary:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
+    # A green run takes under five minutes; Windows' smoke test hung once (2026-10-09).
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, platform: darwin-arm64, experimental: false }
+          - { os: macos-15-intel, platform: darwin-x64, experimental: false }
+          - { os: ubuntu-24.04, platform: linux-x64, experimental: false }
+          - { os: ubuntu-24.04-arm, platform: linux-arm64, experimental: false }
+          - { os: windows-latest, platform: windows-x64, experimental: true }
+    env:
+      # Nothing here may fall back to a default store (CLAUDE.md).
+      COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Actions pinned by commit, the tag beside it: a moved tag changes nothing here.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # No token left in .git/config for the steps after it.
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.10
+      - run: bun install --frozen-lockfile
+      - name: Unit tests (the binary's branches, the launcher's download, the project .env)
+        # On Windows, carry on to the build so its binary is at least built and checked.
+        continue-on-error: ${{ matrix.experimental }}
+        run: bun test test/single-binary.test.ts test/plugin-binary.test.ts test/project-env.test.ts
+      - name: Build (bytecode, model embedded; macOS re-signed ad-hoc)
+        run: bun tools/single-binary/build.ts --target ${{ matrix.platform }}
+      - name: Smoke test, the binary alone
+        run: |
+          version=$(bun -e 'console.log(require("./package.json").version)')
+          exe=""; [ "${{ matrix.platform }}" = "windows-x64" ] && exe=".exe"
+          # Not $RUNNER_TEMP: it sits inside HOME on GitHub's runners, and both
+          # tests refuse a work directory under the home. The OS temp is outside it.
+          # Windows' own temp is under the home too; its RUNNER_TEMP (D:\a\_temp) is not.
+          work=""; [ "${{ matrix.platform }}" = "windows-x64" ] && work="$RUNNER_TEMP/smoke"
+          bash tools/single-binary/smoke.sh "$PWD/dist/single-binary/$version/counterparts-$version-${{ matrix.platform }}$exe" $work
+      - name: The binary through plugin-run.sh, downloaded and verified
+        run: |
+          version=$(bun -e 'console.log(require("./package.json").version)')
+          bun tools/single-binary/launcher-e2e.ts "dist/single-binary/$version"
+      - name: Sizes
+        if: always()
+        run: ls -l dist/single-binary/*/ || true

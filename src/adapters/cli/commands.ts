@@ -31,7 +31,6 @@ import { isDay, localDate, localTime, resolveZone, todayIn } from "../../core/ti
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
@@ -239,7 +238,8 @@ import type { ParkStep, StartFreshPlan, UndoPlan } from "./start-fresh.js";
 // but the `Io` type, so this direction is one-way.
 import { realProcessLister, realSpawner, sessionsNote, tilde, unwire, wire } from "./wire.js";
 import { connectDesktop, desktopUnavailable, readDesktop } from "./desktop.js";
-import { runtimeLabel } from "../runtime.js";
+import { BINARY, bundledModelDir, packagePath, runtimeLabel } from "../runtime.js";
+import type { Binary } from "../runtime.js";
 import { DESKTOP_ALWAYS_ALLOW, DESKTOP_HOST, upgradeWords } from "../hosts.js";
 import { hostsSeen, installedVersion } from "../sessions.js";
 import type {
@@ -504,7 +504,28 @@ export interface RunOptions {
    * falls back to.)
    */
   scope?: string;
+  /**
+   * THE SINGLE BINARY (`runtime.ts#Binary`), when this console is it — the
+   * program the Claude Code plugin downloads when a machine has no Bun or Node.
+   * Real runs never pass it and get `BINARY`; tests pass one to drive the
+   * binary's refusals from source.
+   */
+  binary?: Binary | null;
 }
+
+/**
+ * WHAT THE SINGLE BINARY WILL NOT DO TO A HOST. The binary lives in the
+ * plugin's data directory, which Claude Code deletes with the plugin, and the
+ * plugin already runs the hooks and the memory server — so a hooks block, an
+ * MCP registration or a Claude Desktop entry naming it would be a second
+ * install that dies silently on uninstall. Wiring a host by hand is the npm
+ * install's job.
+ */
+export const BINARY_CONNECT_REFUSAL =
+  "This is Counterparts' single program, the one the Claude Code plugin downloads when a computer has no Bun or Node.js. " +
+  "It doesn't connect hosts itself: the plugin already runs the hooks and the memory server, and anything wired to this file " +
+  "would stop working when the plugin is uninstalled. To wire Claude Code or Claude Desktop by hand, install Counterparts with " +
+  "npm (`npm i -g counterparts`) and run `counterparts connect` from that install.";
 
 /**
  * THE CONSOLE'S MAP — about forty lines, grouped, one line per command.
@@ -544,7 +565,7 @@ let readVersion: string | null = null;
 export function packageVersion(): string {
   if (readVersion !== null) return readVersion;
   try {
-    const raw = readFileSync(fileURLToPath(new URL("../../../package.json", import.meta.url)), "utf8");
+    const raw = readFileSync(packagePath("package.json"), "utf8");
     const said = (JSON.parse(raw) as Record<string, unknown>)["version"];
     readVersion = typeof said === "string" && said.length > 0 ? said : VERSION_UNKNOWN;
   } catch {
@@ -1634,6 +1655,29 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
       io.err(implicit);
       return EXIT.refused;
     }
+    // THE SINGLE BINARY makes the store and the configuration — the plugin's
+    // first run is exactly `install --no-connect` — and wires nothing: no
+    // conversation that ends in `connect`, no Desktop entry, no printed hooks
+    // block naming a file the plugin's uninstall will delete.
+    const binary = opts.binary === undefined ? BINARY : opts.binary;
+    if (binary !== null) {
+      const hostAsked = parsed.flags["host"];
+      if (hostAsked !== undefined && hostAsked !== "claude-code") {
+        io.err(BINARY_CONNECT_REFUSAL);
+        return EXIT.refused;
+      }
+      try {
+        const code = installCommand(parsed, io, env, opts.home, named, { hostSteps: false });
+        if (code === EXIT.ok) {
+          io.out("");
+          io.out("Claude Code runs this memory through the Counterparts plugin, so there is nothing to connect.");
+        }
+        return code;
+      } catch (err) {
+        io.err(`install failed: ${describeDirRefusal(err)}`);
+        return EXIT.failed;
+      }
+    }
     // `--host claude-desktop` (2026-09-30): the store and the configuration as
     // any install makes them, then Claude Desktop's config entry instead of
     // Claude Code's hooks. No `--host`, or `--host claude-code`, is the install
@@ -1676,6 +1720,10 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
   // The explicit-dir guard applies by hand, exactly as it does to `install`:
   // the default configuration names the live store and the live base, and
   // `uninstall --park` renames the directory that file sits in.
+  if (command === "connect" && (opts.binary === undefined ? BINARY : opts.binary) !== null) {
+    io.err(BINARY_CONNECT_REFUSAL);
+    return EXIT.refused;
+  }
   if (command === "connect" || command === "disconnect" || command === "uninstall") {
     const implicit = named === undefined ? null : implicitConfigRefusal(named, env);
     if (implicit !== null) {
@@ -3848,7 +3896,8 @@ async function installConversation(
   // Looked for the way the hooks will look (`resolveStaticWeights`: the
   // environment variable, then the installed package), and then for the table
   // FILE in what that found — a variable naming an empty folder is not a table.
-  const table = resolveStaticWeights({ env });
+  const bundled = bundledModelDir();
+  const table = resolveStaticWeights({ env, ...(bundled === undefined ? {} : { packageDir: bundled }) });
   const tableOn = config.embedder?.enabled === true;
   const tableMissing = tableOn && (table === null || !existsSync(join(table.dir, MODEL_FILE)));
   if (tableOn && !tableMissing) {

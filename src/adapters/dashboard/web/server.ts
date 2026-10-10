@@ -60,8 +60,7 @@
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { ownerNames } from "../../../core/sleep/index.js";
 import { dataDir, isStoreError } from "../../../core/store/index.js";
@@ -83,6 +82,7 @@ import { mechanismPanel } from "./views/mechanism-panel.js";
 import { mechanismsView } from "./views/mechanisms.js";
 import { DREAM_LIMIT, dreamsView } from "./views/dreams.js";
 import { resolveStatic } from "./static.js";
+import { packagePath } from "../../runtime.js";
 import {
   activityView,
   eventDetail,
@@ -103,7 +103,9 @@ import {
 export const DEFAULT_PORT = 4747;
 export const PORT_ENV = "COUNTERPARTS_DASHBOARD_PORT";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
+// From the package root rather than `import.meta.url`, which in the single
+// binary is the binary's own path, not this module's (adapters/runtime.ts).
+const HERE = packagePath("src/adapters/dashboard/web");
 const APP_PATH = join(HERE, "app.html");
 
 const NO_STORE = { "cache-control": "no-store" } as const;

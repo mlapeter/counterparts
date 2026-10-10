@@ -2,6 +2,98 @@
 
 ## Unreleased
 
+- **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
+  layout, a pane beside the transcript shows the brain turning in braille, the twelve
+  mechanisms, search, and what this session kept and recalled (with the night's dreams and
+  fading, and other sessions folded into one line). It also has two switches: pause
+  Counterparts in this folder, and turn Claude Code's own memory off. `‹` makes it quiet
+  (narrow, nothing moving); its `✕` hides it to one status line; `/counterparts` opens it
+  anywhere. Beside an npm install, a plugin run from a folder (`claude --plugin-dir`) now
+  says that is expected, instead of suggesting `counterparts disconnect`, and the plugin's
+  `/counterparts:doctor` shows the npm install's own doctor.
+
+## 0.3.14 — 2026-10-09
+
+The Claude Code plugin now runs on a Mac or Linux computer with neither Bun nor Node.js:
+it downloads one prebuilt Counterparts program for that computer from this version's GitHub
+release, checked against a sha256 the plugin carries. A project's `.env` and `bunfig.toml`
+no longer reach into the hooks, the memory server or the `counterparts` command. **If you
+installed through npm, run `counterparts connect` once after upgrading** to rewrite the
+hooks and the server registration; until then doctor's Runtime line is amber. The wake keeps
+the first "Still open" item beside a long self page and says when a reminder was due. Facts
+recall names corrected memories with an id to open and reads amounts as amounts, meaning
+recall says when the person asked about has no card, and the dashboard dates everything in
+the configured zone. **No change to the store's format (still v12).** Going back to 0.3.13
+takes three steps, in this order: `counterparts disconnect` while 0.3.14 is still installed,
+then the 0.3.13 reinstall, then `counterparts connect`. 0.3.14's hook and server commands
+name a file 0.3.13 doesn't ship, and 0.3.13's `connect` doesn't recognise them, so it would
+add its own beside them.
+
+A project's `.env` and `bunfig.toml` stay out (#349).
+
+- **A project's `.env` and `bunfig.toml` no longer reach into Counterparts.** Bun reads
+  both from the folder it starts in, and Claude Code starts the hooks and the memory
+  server in your project. So a project whose `.env` set `COUNTERPARTS_DATA_DIR` or
+  `COUNTERPARTS_CONFIG` could send the plugin's server, an npm install's hooks or the
+  `counterparts` command to a different store, and a `bunfig.toml` with a `preload`
+  ran its own code inside them. Every place Counterparts starts Bun now passes
+  `--no-env-file` and `--config=` pointing at an empty bunfig in the package: the hook
+  and server commands `install` and `connect` write, the plugin's launcher, the
+  installed commands, and the workers and nightly run it starts itself. Node reads
+  neither on its own. **If you installed through npm, run `counterparts connect`
+  once** to rewrite your hooks and server registration. Until you do, doctor's Runtime
+  line is amber and says so. Plugin users get the change when the plugin updates.
+
+The plugin on a computer with no Bun or Node (#351).
+
+- **The plugin works on a Mac or Linux computer with no Bun or Node.js.** Until now it
+  gave up there. Now it downloads one prebuilt Counterparts program for that computer
+  (55–75 MB, over HTTPS, from this repository's GitHub releases), checks it against a
+  sha256 that ships inside the plugin, keeps it in the plugin's data folder, and runs
+  that. It re-checks the kept program too: the whole file each time the memory server
+  starts, and a quick stamp of it at every hook; one that changed is deleted and fetched
+  again. Windows isn't offered a program yet; there, the plugin still says to install
+  Bun or Node. The first session says it's getting ready and that memory starts in the
+  next one. A failed download says so once and tries again later; nothing unchecked is
+  ever run. `COUNTERPARTS_BINARY_DOWNLOAD=off` forbids the download. The program is the
+  whole of Counterparts, with the model and the dashboard packed in. It starts a little
+  faster than `bun` (a prompt's hook takes about 86 ms vs. about 102 ms). It won't wire
+  Claude Code or Claude Desktop itself: `counterparts connect` from it says to use the
+  npm install for that. How it is built and released: `docs/single-binary.md`.
+
+The wake (#350).
+
+- **"Still open" lists its first item beside a long self page, and never prints a heading
+  over a count.** With a long page, the Yesterday line and the Arriving lines taking the
+  room, a 9,000-byte wake could print "Still open:" with only "(20 more still open; recall
+  ids …)" under it. The self page is still never cut for this: it prints whole up to its
+  cap, as before. Instead "Still open" keeps its first item and its count, and the room
+  comes, in order, from the "Work here" lines (fewer of them that morning), Arriving past
+  its first line, and the Yesterday line's titles (fewer named, the rest counted). A lane
+  that still has room for nothing says so in one line: "Still open: 20 — no room to list
+  them in this wake; recall ids …".
+- **An Arriving reminder past its date says it was due.** A one-off reminder stays under
+  "Arriving:" for a week after its date, and the wake written the evening before is read
+  the next morning, so "(due 2026-10-08)" was read on the 9th as if still to come. The
+  line now reads "(was due yesterday, 2026-10-08)" the morning after and "(was due
+  2026-10-05)" later. A reminder due on the day it was noted now reads "due 2026-10-08"
+  rather than the date alone.
+- **A plain reminder said on its day leaves "Arriving:" at the next turn.** When the
+  day's wake was written before the reminder was said (a session running past midnight),
+  it stayed under "Arriving:" all day and into the next morning.
+
+Recall (#345, #347, #348, #352).
+
+- **Facts recall no longer reads an amount as a date, or "since 10/25" as an empty
+  window.** "7-8 hours", "3/4 cup", "5-10%" and "$5-10" were read as dates (July 8, March
+  4, May 10) and filtered the answer to them; they are amounts now, and a date later in
+  the question is still read. "Cut it by 1/2" or "reduced to 1/3" is a fraction, not a
+  deadline of January 2; "finish by 1/2" still is one. And "since 10/25" or "after 10/25"
+  asked before the 25th of this month means last year's 10/25, where it gave nothing (or
+  only what is still to come). "Before", "until" and "by" a coming day keep this year's.
+  "2-3 weeks ago" and "3 or 4 days ago" cover both ends, where only the far one was read,
+  and a zero-padded "09-28" stays a date whatever word follows it.
+  Questions with no time in them answer exactly as before.
 - **Facts recall reads "by 12/20" asked in October as this year's December 20th.** A
   date with no year under "by", "until", "up to" or "before", in a month that has not
   begun yet, was read as last year's: "what's due by 12/20" asked on 10-09 kept only what
@@ -9,12 +101,6 @@
   whenever that is the nearer of the two, so those months are no longer cut off.
   "Until Dec 30" asked on January 3rd is still the one four days back, and "since" and
   "after" still reach back to last year's date as before.
-- **Three more reads keep the newest rows.** Past the number of rows each reads,
-  `counterparts settle` (and doctor's held-corrections count) took the newest held
-  corrections for never settled, and the self tab's page history left its newest
-  versions and days undated. They read the newest now. Below those limits nothing
-  changes.
-
 - **Facts recall now names corrected memories, so they can be opened.** A memory
   settled as corrected (it was wrong) is never offered as a fact. Facts answers used to
   say only "1 corrected version hidden" under the memory that corrected it, with no way
@@ -26,44 +112,6 @@
   named, the ones the question's words reach first, and any more are counted. The
   dashboard's Ask shows them the same way, with links. Answers that have no corrected
   versions are unchanged.
-- **The dashboard no longer says a repeating reminder is about to be put away.** A memory
-  whose date still repeats is kept for its next time however faint it has grown, so the
-  memories list no longer marks it "fading" and its card names no day it would be put
-  away. The row says how often it comes round instead ("repeats every May 14"), and the
-  card says "It comes round every May 14, so I'll keep it while it does." A protected
-  memory's card no longer names such a day either, since the nightly cleanup never lets
-  one go: it says "It's protected, so I'll keep it even if nobody uses it."
-- **Doctor's prune line no longer reads BLOCKED over protected memories it was keeping
-  anyway.** The nightly cleanup counted every protected memory (the self page is one) as
-  a refusal every night, even when it was nowhere near being let go, and did the same for
-  a memory in the middle of being corrected. It now counts `protected` and
-  `in-live-revision-chain` only where that is what kept the memory, as it already did for
-  `recurring`. Nothing is cleaned up differently.
-- **Tool descriptions put how to call each tool first.** Claude Code shows the model only
-  the first 2,048 characters of a tool's description when the tool is loaded up front:
-  with tool search off, behind a custom base URL or proxy, or on a model without tool
-  search. Seven of the nine descriptions are longer than that. Each tool's purpose, when
-  to call it and every "Do NOT" were already inside that first part. The cut fell in
-  the list of guarantees, so `note`, `recall`, `session_end` and `reflect` now lead
-  that list with the claims about how to call them: which fields are fields, that a
-  question needs a mode, that an empty `memories` is an answer. No wording changed, and
-  nothing behaves differently.
-- **The dashboard dates everything in the zone the hooks use.** With a `timeZone` in the
-  configuration that differs from the computer's, the dashboard used the computer's zone
-  and the browser's own, so one page could show two days for one moment: a memory's
-  "recorded" chip on one, its "Written" line on the next. The dashboard now reads the
-  configuration's `timeZone` (the named one, else the one beside the store), every view
-  dates in it, and the card's "Written" day and the Health cycle line come from the
-  server already dated. The card's details row names that zone ("Sep 28th, 2026, 11:47
-  MDT") instead of printing UTC, and the Flow page's fired footer names it instead of a
-  stale "(UTC)". Without a `timeZone` set, nothing changes.
-- **Doctor counts held corrections.** When a new memory says it changes or corrects one
-  that doesn't look related, the old one is left alone and the hold is recorded (0.3.13).
-  Doctor's Contradictions line now says how many were held in the last 7 lived days and
-  how many were settled by hand since ("2 corrections held because they didn't look
-  related to the memory they named, 1 settled by hand since; if the other was meant,
-  settle it with counterparts settle, which lists it"). It stays green. `counterparts
-  settle` lists the ones still held, each with the command that settles it.
 - **Meaning recall says when the person you asked about has no card.** "What has Han
   been to Mike?" on a store where only Mike has a card used to come back as Mike's story
   with no word about Han. Now the answer opens with "No card for Han yet; here is what
@@ -77,25 +125,52 @@
   before, by its words and meaning. A first name of a card's longer name ("Marguerite"
   for Marguerite Solberg), an acronym ("API", "Q3") and a question typed in Title Case
   are never taken for a name with no card.
-- **Facts recall no longer reads an amount as a date, or "since 10/25" as an empty
-  window.** "7-8 hours", "3/4 cup", "5-10%" and "$5-10" were read as dates (July 8, March
-  4, May 10) and filtered the answer to them; they are amounts now, and a date later in
-  the question is still read. "Cut it by 1/2" or "reduced to 1/3" is a fraction, not a
-  deadline of January 2; "finish by 1/2" still is one. And "since 10/25" or "after 10/25"
-  asked before the 25th of this month means last year's 10/25, where it gave nothing (or
-  only what is still to come). "Before", "until" and "by" a coming day keep this year's.
-  "2-3 weeks ago" and "3 or 4 days ago" cover both ends, where only the far one was read,
-  and a zero-padded "09-28" stays a date whatever word follows it.
-  Questions with no time in them answer exactly as before.
-- **The sidebar mod (v0.1), inside the Claude Code plugin.** In Claude Code's fullscreen
-  layout, a pane beside the transcript shows the brain turning in braille, the twelve
-  mechanisms, search, and what this session kept and recalled (with the night's dreams and
-  fading, and other sessions folded into one line). It also has two switches: pause
-  Counterparts in this folder, and turn Claude Code's own memory off. `‹` makes it quiet
-  (narrow, nothing moving); its `✕` hides it to one status line; `/counterparts` opens it
-  anywhere. Beside an npm install, a plugin run from a folder (`claude --plugin-dir`) now
-  says that is expected, instead of suggesting `counterparts disconnect`, and the plugin's
-  `/counterparts:doctor` shows the npm install's own doctor.
+
+The dashboard, doctor and the tool descriptions (#343, #346, #347, #352).
+
+- **The dashboard no longer says a repeating reminder is about to be put away.** A memory
+  whose date still repeats is kept for its next time however faint it has grown, so the
+  memories list no longer marks it "fading" and its card names no day it would be put
+  away. The row says how often it comes round instead ("repeats every May 14"), and the
+  card says "It comes round every May 14, so I'll keep it while it does." A protected
+  memory's card no longer names such a day either, since the nightly cleanup never lets
+  one go: it says "It's protected, so I'll keep it even if nobody uses it."
+- **The dashboard dates everything in the zone the hooks use.** With a `timeZone` in the
+  configuration that differs from the computer's, the dashboard used the computer's zone
+  and the browser's own, so one page could show two days for one moment: a memory's
+  "recorded" chip on one, its "Written" line on the next. The dashboard now reads the
+  configuration's `timeZone` (the named one, else the one beside the store), every view
+  dates in it, and the card's "Written" day and the Health cycle line come from the
+  server already dated. The card's details row names that zone ("Sep 28th, 2026, 11:47
+  MDT") instead of printing UTC, and the Flow page's fired footer names it instead of a
+  stale "(UTC)". Without a `timeZone` set, nothing changes.
+- **Doctor's prune line no longer reads BLOCKED over protected memories it was keeping
+  anyway.** The nightly cleanup counted every protected memory (the self page is one) as
+  a refusal every night, even when it was nowhere near being let go, and did the same for
+  a memory in the middle of being corrected. It now counts `protected` and
+  `in-live-revision-chain` only where that is what kept the memory, as it already did for
+  `recurring`. Nothing is cleaned up differently.
+- **Doctor counts held corrections.** When a new memory says it changes or corrects one
+  that doesn't look related, the old one is left alone and the hold is recorded (0.3.13).
+  Doctor's Contradictions line now says how many were held in the last 7 lived days and
+  how many were settled by hand since ("2 corrections held because they didn't look
+  related to the memory they named, 1 settled by hand since; if the other was meant,
+  settle it with counterparts settle, which lists it"). It stays green. `counterparts
+  settle` lists the ones still held, each with the command that settles it.
+- **Three more reads keep the newest rows.** Past the number of rows each reads,
+  `counterparts settle` (and doctor's held-corrections count) took the newest held
+  corrections for never settled, and the self tab's page history left its newest
+  versions and days undated. They read the newest now. Below those limits nothing
+  changes.
+- **Tool descriptions put how to call each tool first.** Claude Code shows the model only
+  the first 2,048 characters of a tool's description when the tool is loaded up front:
+  with tool search off, behind a custom base URL or proxy, or on a model without tool
+  search. Seven of the nine descriptions are longer than that. Each tool's purpose, when
+  to call it and every "Do NOT" were already inside that first part. The cut fell in
+  the list of guarantees, so `note`, `recall`, `session_end` and `reflect` now lead
+  that list with the claims about how to call them: which fields are fields, that a
+  question needs a mode, that an empty `memories` is an answer. No wording changed, and
+  nothing behaves differently.
 
 ## 0.3.13 — 2026-10-09
 

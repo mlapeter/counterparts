@@ -584,7 +584,10 @@ describe("plugin-run.sh", () => {
   });
 
   test("no runtime: SessionStart says what to install, every other event is silent, the server exits 127", () => {
-    const env = pluginEnv({ COUNTERPARTS_RUNTIME: join(work, "no", "bun") });
+    // The single binary's download is off, so this never reaches the network
+    // whatever `.claude-plugin/binaries.json` holds (test/plugin-binary.test.ts
+    // covers the download).
+    const env = pluginEnv({ COUNTERPARTS_RUNTIME: join(work, "no", "bun"), COUNTERPARTS_BINARY_DOWNLOAD: "off" });
     const start = launch("hook", payload("SessionStart"), env);
     expect(start.code).toBe(0);
     const out = JSON.parse(start.stdout) as { systemMessage: string; hookSpecificOutput: { hookEventName: string } };
@@ -599,7 +602,7 @@ describe("plugin-run.sh", () => {
   test("a Node older than 22.15 is not a runtime", () => {
     const fake = join(emptyBin, "node");
     writeFileSync(fake, "#!/bin/sh\necho v20.19.1\n", { mode: 0o755 });
-    const r = launch("mcp", "", pluginEnv({ COUNTERPARTS_RUNTIME: fake }));
+    const r = launch("mcp", "", pluginEnv({ COUNTERPARTS_RUNTIME: fake, COUNTERPARTS_BINARY_DOWNLOAD: "off" }));
     expect(r.code).toBe(127);
   });
 

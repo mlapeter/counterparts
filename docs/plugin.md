@@ -1,8 +1,9 @@
 # Counterparts as a Claude Code plugin (2026-10-09)
 
-Status: ships in 0.3.13. It installs from this repository's marketplace once the
-`v0.3.13` tag is pushed (below, "Releasing: move the pin"). It is not submitted to
-the plugin directory; that is the owner's call.
+Status: shipped since 0.3.13; 0.3.14 adds the single binary for computers with no Bun or
+Node. It installs from this repository's marketplace, at the tag the marketplace entry
+pins (`v0.3.14`), once that tag is pushed (below, "Releasing: move the pin"). It is not
+submitted to the plugin directory; that is the owner's call.
 
 ## What it is
 
@@ -46,13 +47,38 @@ Why the root, and why it leaves npm alone:
 
 ## How it behaves
 
-**Runtime.** The launcher takes, in order: `COUNTERPARTS_RUNTIME` if it is set; else
-Bun 1.3+ (PATH, `$BUN_INSTALL/bin`, `~/.bun/bin`, Homebrew); else Node 22.15+ (PATH,
-Homebrew, `/usr/local`, Volta, nvm, fnm, asdf, mise). An older Node is skipped. With no
-runtime at all, SessionStart shows the person one line naming what to install, and
-every other event exits 0 quietly. The server exits 127 with the same line on stderr,
-which `/mcp` shows. Claude Code's native binary can't stand in as a runtime:
-`BUN_BE_BUN=1` is ignored (measured on 2.1.295).
+**Runtime.** The launcher tries these in order:
+
+1. `COUNTERPARTS_RUNTIME`, if it is set.
+2. Bun 1.3+ (PATH, `$BUN_INSTALL/bin`, `~/.bun/bin`, Homebrew).
+3. Node 22.15+ (PATH, Homebrew, `/usr/local`, Volta, nvm, fnm, asdf, mise). An older
+   Node is skipped.
+4. **The single binary**: one prebuilt Counterparts program for this platform and
+   version, kept at `$CLAUDE_PLUGIN_DATA/bin/<version>/counterparts`. macOS and Linux
+   (glibc) only: not Windows yet.
+
+Bun runs with `--no-env-file` and `--config=<the shipped empty-bunfig.toml>`, so a
+project's `.env` can't redirect the memory and its `bunfig.toml` `preload` can't run
+inside it. The single binary takes neither flag: it is built with both loads off.
+
+**No runtime at all.** The plugin downloads that binary once, in the background, over
+HTTPS, from this version's GitHub release. It checks the download against the sha256s
+in `.claude-plugin/binaries.json`, which ship inside the plugin, and runs nothing until
+both checks pass. It re-checks the kept program too: the whole file at each server
+start, a stamp of it at every hook. Meanwhile:
+
+- the first SessionStart says Counterparts is getting ready (about 55–75 MB, from
+  github.com/mlapeter/counterparts releases) and that memory starts in the next session;
+- every other hook exits 0 quietly;
+- the server answers with no tools and says the same in its instructions.
+
+A failed download gets one line and is retried at a later session start.
+`COUNTERPARTS_BINARY_DOWNLOAD=off` forbids it. The person is then told what to install,
+as before the binary existed, and the server exits 127 with that line on stderr. The whole
+mechanism is in [single-binary.md](single-binary.md).
+
+Claude Code's native binary can't stand in as a runtime: `BUN_BE_BUN=1` is ignored
+(measured on 2.1.295).
 
 **First run, no terminal.** If `~/.counterparts/claude-code.json` doesn't exist, the
 first plugin process to start runs `counterparts install --no-connect` and drops its
@@ -116,7 +142,7 @@ an install would get whatever master holds that day. The entry names a release t
 instead:
 
 ```json
-"source": { "source": "github", "repo": "mlapeter/counterparts", "ref": "v0.3.13" }
+"source": { "source": "github", "repo": "mlapeter/counterparts", "ref": "v0.3.14" }
 ```
 
 Claude Code clones the repository at that tag, so a plugin install only ever gets a
@@ -154,6 +180,15 @@ loop below, which installs the working tree under the pin's name.
 the portal. Point it at the same release tag and update it at each release, or it
 becomes a second way to get master.
 
+**What the listing should disclose**, because the plugin can fetch an executable:
+
+> Counterparts runs on Bun or Node.js when either is installed. On a Mac or Linux
+> computer with neither, it downloads one prebuilt Counterparts program for that computer
+> (55–75 MB, from this repository's GitHub releases, over HTTPS), checks it against a
+> sha256 that ships inside the plugin, and keeps it in the plugin's data folder. Nothing else is downloaded, and
+> your memories never leave your computer. Set `COUNTERPARTS_BINARY_DOWNLOAD=off` to
+> forbid the download.
+
 ## Releasing: move the pin
 
 The release process itself lives outside this repository (each release's brief and
@@ -163,6 +198,15 @@ PUBLISH sheet). For the plugin it adds one edit and one tag:
    `.claude-plugin/plugin.json` to the same version, and the entry's `"ref"` in
    `.claude-plugin/marketplace.json` to `v<version>`. `test/plugin.test.ts` fails
    until all three agree, and its message names this section.
+
+   Then, after the last change to `src/`, on macOS, in the clean clone: run
+   `bun tools/single-binary/build.ts --release`. It builds the four released single
+   binaries (not Windows yet) and writes `.claude-plugin/binaries.json`. Commit that on
+   the release branch, before packing. `test/single-binary.test.ts` fails while it names
+   another version. Copy `dist/single-binary/<version>/` into the release folder: the
+   builds aren't reproducible, so step 2 must upload these very files. Put the upload
+   commands below in the PUBLISH sheet, right after the tag push
+   ([single-binary.md, "Releasing"](single-binary.md#releasing)).
 2. **At publish, on the owner's word**, after `npm publish`: tag the commit the tarball
    was packed from (the release folder's `COMMIT` file) and push the tag.
 
@@ -173,6 +217,18 @@ PUBLISH sheet). For the plugin it adds one edit and one tag:
 
    Until the tag is pushed, master's pin names a tag that isn't there (above). Tag the
    packed commit, not the merge commit, unless the two trees are identical.
+
+   **Right after the tag, attach the binaries** to that tag's release and check them
+   (the owner runs these; a release agent writes them into the sheet):
+
+   ```sh
+   gh release create v<version> --verify-tag --title "counterparts <version>" --notes-file <folder>/release-notes.md \
+     <folder>/single-binary/*.gz <folder>/single-binary/SHA256SUMS
+   bun tools/single-binary/verify-release.ts
+   ```
+
+   Until they're attached, a plugin user with no runtime sees "download failed" and a
+   retry ten minutes later; nothing else breaks.
 3. **Check**, from a throwaway home (both `HOME` and `CLAUDE_CONFIG_DIR` set to a new
    directory): `claude plugin marketplace add mlapeter/counterparts`, then
    `claude plugin install counterparts@counterparts`; `claude plugin list` shows the

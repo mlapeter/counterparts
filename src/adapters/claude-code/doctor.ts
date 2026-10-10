@@ -75,7 +75,7 @@ import {
 } from "../../core/store/index.js";
 import { BUSY_TIMEOUT_MS, journalModeOf } from "../../core/store/db.js";
 import { heldCorrections } from "../../core/contradictions.js";
-import { CLI_SCRIPT, NODE_HOOKS } from "../runtime.js";
+import { CLI_SCRIPT, NODE_HOOKS, bundledModelDir } from "../runtime.js";
 import { acceptsReflectedFeeling, laterFeelingWasAwake, laterFeelingWasReflections, selfRelevantFeeling } from "../../core/sleep/index.js";
 import { TUNABLES as ASSOCIATE_TUNABLES, isDead, pairKey } from "../../core/associate/index.js";
 import type { EventRow } from "../../core/store/index.js";
@@ -1228,7 +1228,8 @@ function staticFinding(input: DoctorInput, data: Record<string, string | number 
       { ...data, kind: "static", weights: str(row, "weights") },
     );
   }
-  const found = resolveStaticWeights();
+  const bundled = bundledModelDir();
+  const found = resolveStaticWeights(bundled === undefined ? {} : { packageDir: bundled });
   // THE TABLE FILE, not just a folder: a `COUNTERPARTS_STATIC_WEIGHTS_DIR`
   // naming an empty or wrong folder is found by name and holds nothing, and a
   // green here would last until the first worker row said NO_WEIGHTS.
@@ -4284,9 +4285,14 @@ export interface HostReading {
    *  (`cli/install.ts#readHost`); absent when not read. */
   readonly runtimes?: readonly {
     readonly exe: string;
-    readonly kind: "bun" | "node";
+    /** `binary`: the single compiled binary (`runtime.ts#Binary`). */
+    readonly kind: "bun" | "node" | "binary";
     readonly present: boolean;
     readonly used: readonly string[];
+    /** Of `used`, the commands that let Bun read the project's `.env` or
+     *  `bunfig.toml` (wired before `--no-env-file` and an empty `--config=`);
+     *  absent on a reading that predates the field. */
+    readonly projectEnv?: readonly string[];
   }[];
   /** The runtime this console is running under (`runtime.ts#runtimeLabel`). */
   readonly consoleRuntime?: string;
@@ -4307,13 +4313,37 @@ export interface HostReading {
 function runtimeFindings(reading: HostReading): Finding[] {
   const rows = reading.runtimes ?? [];
   if (rows.length === 0) return [];
-  const said = rows.map((r) => `${r.used.join(" and ")} run under ${r.kind} (${r.exe})`).join("; ");
+  const said = rows
+    .map((r) => `${r.used.join(" and ")} ${r.kind === "binary" ? "run as the single binary" : `run under ${r.kind}`} (${r.exe})`)
+    .join("; ");
   const console_ = reading.consoleRuntime === undefined ? "" : `; this console is ${reading.consoleRuntime}`;
   const data: Record<string, string | number | boolean | null> = {
     runtimes: rows.map((r) => `${r.kind}:${r.exe}:${r.present ? "present" : "missing"}`).join(","),
     console: reading.consoleRuntime ?? null,
   };
   const missing = rows.filter((r) => !r.present);
+  // WIRED BEFORE `--no-env-file` AND `--config=<empty-bunfig.toml>`
+  // (2026-10-09): Bun loads the project's `.env` into every hook and server it
+  // starts there, so a project could name another store, and runs its
+  // `bunfig.toml` preload inside them. A command missing EITHER flag counts,
+  // so one `connect` closes both. Amber, because it is a hole and not a fault:
+  // everything still runs, and `connect` rewrites the commands (it repairs an
+  // entry that is ours in an older shape).
+  const readsEnv = rows.flatMap((r) => r.projectEnv ?? []);
+  data["projectEnv"] = readsEnv.length === 0 ? "ignored" : [...new Set(readsEnv)].sort().join(",");
+  if (missing.length === 0 && readsEnv.length > 0) {
+    const what = [...new Set(readsEnv)].sort().join(" and ");
+    return [
+      finding(
+        "runtime",
+        "amber",
+        "Runtime",
+        `${said}${console_}; the ${what} ${what.includes(" and ") ? "were" : "was"} wired before Counterparts told Bun to skip a project's .env and bunfig.toml, so a project whose .env sets COUNTERPARTS_DATA_DIR or COUNTERPARTS_CONFIG could point them at another memory, and its bunfig.toml could run its own code inside them`,
+        "Run: counterparts connect — it rewrites the commands with --no-env-file and an empty --config. Then restart Claude Code.",
+        data,
+      ),
+    ];
+  }
   if (missing.length === 0) return [finding("runtime", "green", "Runtime", `${said}${console_}`, "", data)];
   return [
     finding(

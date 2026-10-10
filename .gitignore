@@ -19,3 +19,7 @@ hooks/sidebar/.claude-plugin/types/
 
 # The brain lab's rendered rounds stay on disk, not in git (the repository is public; tools/brain-lab/README in NOTES)
 tools/brain-lab/out/**/*.png
+
+# The single binary (spike): the generated embed manifest and the build output
+tools/single-binary/assets.gen.ts
+dist/

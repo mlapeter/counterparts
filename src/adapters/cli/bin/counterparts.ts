@@ -33,6 +33,8 @@ import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { BINARY } from "../../runtime.js";
+import type { Binary } from "../../runtime.js";
 import { npmWiring } from "../../host-wiring.js";
 import { npmDoctorCommand, pluginDoctorLine, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 
@@ -139,12 +141,16 @@ async function main(): Promise<number> {
 }
 
 /** True only when this file is the process entry point. */
-export function isEntryPoint(argv1: string | undefined, url: string): boolean {
-  if (argv1 === undefined) return false;
+export function isEntryPoint(argv1: string | undefined, url: string, binary: Binary | null = BINARY): boolean {
+  // Never in the single binary, where every module shares one URL: its
+  // dispatcher (tools/single-binary/main.ts) calls `start()` itself.
+  if (argv1 === undefined || binary !== null) return false;
   return resolve(argv1) === fileURLToPath(new URL(url));
 }
 
-if (isEntryPoint(process.argv[1], import.meta.url)) {
+/** Run one console command and exit — what this file does as a script, and
+ *  what the single binary's `cli` mode calls. */
+export function start(): void {
   void main().then(
     (code) => process.exit(code),
     (err: unknown) => {
@@ -153,3 +159,5 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
     },
   );
 }
+
+if (isEntryPoint(process.argv[1], import.meta.url)) start();

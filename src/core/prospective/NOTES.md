@@ -482,3 +482,18 @@ credit for it is refused `already-credited-today` (physics' one credit a lived d
 day counts at 0.25 instead of 1, with no return. Only a repeat, only on the day its
 occurrence is first delivered, and only when it was loud; a temporal cue alone is
 footnoted and earns no boundary credit anyway.
+
+## 17. The grace days, said in the past tense; a told reminder leaves the wake at once (2026-10-09)
+
+The owner read an Arriving line due 10-08 on 10-09. By design: a one-off stays in the
+horizon lane through `GRACE_DAYS`, and the wake composed at the 10-08 evening boundary is
+read the next morning. What was wrong was the tense — `(due 2026-10-08)` under
+"Arriving:" reads as still to come. `self/` now says `(was due …)` for a date behind the
+day the wake was composed for, and the delivery says `(was due yesterday, …)` the morning
+after (self NOTES, 2026-10-09). Nothing about which arrivals the lane selects changed:
+whether the grace beat is warm or creepy is still open question 1.
+
+One real bug beside it: a PLAIN reminder told on its day (2026-09-29, §14) left the lane
+only at the next render, and a day's first render can come before the day's first
+telling. `Counterpart#claimPlainReminder` now marks the wake behind (`told`) on a day's or
+a last day's beat, so the next turn-end worker re-renders without it.

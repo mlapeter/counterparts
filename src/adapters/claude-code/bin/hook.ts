@@ -57,7 +57,8 @@ import {
 } from "../standdown.js";
 import type { SaysSoHook, StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
-import { scriptArgs } from "../../runtime.js";
+import { BINARY, scriptArgs } from "../../runtime.js";
+import type { Binary } from "../../runtime.js";
 import { npmWiring } from "../../host-wiring.js";
 import { ensureFirstRun, hookGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 
@@ -1229,12 +1230,16 @@ export function hostDelivery(
 
 /** True only when this file is the process entry point — so a test may import
  *  `toHookInput` and `hostConfig` without the script running itself. */
-export function isEntryPoint(argv1: string | undefined, url: string): boolean {
-  if (argv1 === undefined) return false;
+export function isEntryPoint(argv1: string | undefined, url: string, binary: Binary | null = BINARY): boolean {
+  // Never in the single binary, where every module shares one URL: its
+  // dispatcher (tools/single-binary/main.ts) calls `start()` itself.
+  if (argv1 === undefined || binary !== null) return false;
   return resolve(argv1) === fileURLToPath(new URL(url));
 }
 
-if (isEntryPoint(process.argv[1], import.meta.url)) {
+/** Run the hook and exit — what this file does as a script, and what the
+ *  single binary's `hook` mode calls. */
+export function start(): void {
   void main().then(
     () => process.exit(process.exitCode === 2 ? 2 : 0),
     (err: unknown) => {
@@ -1254,3 +1259,5 @@ if (isEntryPoint(process.argv[1], import.meta.url)) {
     },
   );
 }
+
+if (isEntryPoint(process.argv[1], import.meta.url)) start();
