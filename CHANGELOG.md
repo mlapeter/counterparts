@@ -9,6 +9,11 @@
   whenever that is the nearer of the two, so those months are no longer cut off.
   "Until Dec 30" asked on January 3rd is still the one four days back, and "since" and
   "after" still reach back to last year's date as before.
+- **Three more reads keep the newest rows.** Past the number of rows each reads,
+  `counterparts settle` (and doctor's held-corrections count) took the newest held
+  corrections for never settled, and the self tab's page history left its newest
+  versions and days undated. They read the newest now. Below those limits nothing
+  changes.
 
 - **Facts recall now names corrected memories, so they can be opened.** A memory
   settled as corrected (it was wrong) is never offered as a fact. Facts answers used to
