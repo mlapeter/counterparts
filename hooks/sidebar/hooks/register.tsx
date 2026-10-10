@@ -232,6 +232,12 @@ const run = {
   bodyW: 32,
   /** Whether the dashboard says `firedToday` (v0.2 and later); null until asked. */
   firedToday: null as boolean | null,
+  /**
+   * The calendar day on this machine's clock when today's counts were last read: a new one starts them over.
+   * Not the dashboard's `today`, which is the store's zone: a store set to another zone would differ from this
+   * clock all day and read the counts again on every poll.
+   */
+  countedOn: '',
   /** This session's rows were looked for on the dashboard (`seedSession`), once a module life. */
   seeded: false,
 }
@@ -489,8 +495,10 @@ async function readPulse($: EngineInterface): Promise<{ lastSeq: number }> {
  * while this reads is counted by the next poll, not twice.
  */
 async function readToday($: EngineInterface, upTo: number): Promise<void> {
+  const asked = dateOf(await $.clock.now())
   const view = (await fetchJson($, '/api/mechanisms')) as { today?: unknown; mechanisms?: { id: string; firedToday?: unknown }[] }
   const list = view.mechanisms ?? []
+  run.countedOn = asked
   if (typeof view.today === 'string' && list.some(m => 'firedToday' in m)) {
     run.firedToday = true
     const counts: SidebarToday['counts'] = {}
@@ -531,7 +539,7 @@ async function addToday($: EngineInterface, rows: readonly SidebarRow[]): Promis
   const today = await read($, todayA)
   const date = dateOf(await $.clock.now())
   // A new calendar day starts the count over, new rows or none: else yesterday's bars stand as today's until something fires.
-  if (today !== null && today.date !== date) {
+  if (today !== null && run.countedOn !== date) {
     await readToday($, run.lastSeq)
     return
   }

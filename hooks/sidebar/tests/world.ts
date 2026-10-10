@@ -176,6 +176,8 @@ export type WorldOptions = {
   now?: number;
   /** Called on each dashboard request before it is answered: a test can land a row mid-read. */
   onFetch?: (url: URL) => void;
+  /** The dashboard's `today` (its store's zone), when it is not this clock's day. */
+  dashToday?: string;
 }
 
 /** The local calendar day of `at`, as the sidebar and the dashboard name it. */
@@ -344,7 +346,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     }
     if (url.pathname === '/api/mechanisms') {
       const mechanisms = Object.entries(FIRED_TODAY).map(([id, v]) => (opts.oldDashboard === true ? { id, status: 'green' } : { id, status: 'green', firedToday: v }))
-      return ok({ livedDay: 18, fromDay: 12, days: 7, ...(opts.oldDashboard === true ? {} : { today: localDay(clock.now()) }), mechanisms, truncated: false })
+      return ok({ livedDay: 18, fromDay: 12, days: 7, ...(opts.oldDashboard === true ? {} : { today: opts.dashToday ?? localDay(clock.now()) }), mechanisms, truncated: false })
     }
     if (url.pathname === '/api/mechanism') return ok({ id: url.searchParams.get('id'), found: true, built: true, livedDay: 18, activity: w.events })
     if (url.pathname === '/api/memory') {

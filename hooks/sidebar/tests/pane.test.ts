@@ -400,6 +400,20 @@ test('past midnight with nothing new, today is read again: yesterday’s bars do
   await ui.unmount()
 })
 
+test('a dashboard whose store keeps another zone: its `today` differs from this clock’s all day, and quiet polls read nothing again', async ($, on) => {
+  const w = world(on, { dashToday: '2026-10-10' })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await settle(w)
+  const reads = (): number => w.fetches.filter(u => u.endsWith('/api/mechanisms')).length
+  const before = reads()
+  expect(before).toBeGreaterThanOrEqual(1)
+  for (let i = 0; i < 3; i++) await w.clock.advance(15000)
+  await settle(w)
+  expect(reads()).toBe(before)
+  await ui.unmount()
+})
+
 test('Last Dream: its first sentence, in its own voice; a click opens a few more lines and what changed last night', async ($, on) => {
   const w = world(on)
   await start($, w)
