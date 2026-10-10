@@ -531,8 +531,10 @@ export class Lifecycle implements HostLifecycle {
    * THE WAKE, composed for this session: what the previous boundary published,
    * with the delivery preface (which system, which day, which date) and — WHERE
    * this session woke riding beside WHEN (E1) — the handoff pointer that
-   * belongs to this directory, if any. Zero compute, zero model calls, zero
-   * network (claude-code §1 G1).
+   * belongs to this directory, if any. Reads only: no model call, no network,
+   * no state written (claude-code §1 G1) — since 2026-10-10 the core ASSEMBLES
+   * the lanes that are plain reads for this moment (self CONTRACT §5 G1), and
+   * the registry's sessions ride along for its "Today, elsewhere" line.
    *
    * Then THE EXPECTATION, WRITTEN WHERE THE NEXT PROCESS CAN READ IT. This used
    * to be a `Map` on the adapter instance, which is a line that only looks like

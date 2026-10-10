@@ -44,7 +44,9 @@ counted by doctor, and said in the next morning share).
   at the clamp, oldest-born won, and the oldest-born were the ones written on migration day
   under a fresh clock.
 - **Zero compute, zero model calls, zero network at wake**; the cost was paid by the
-  previous boundary, so cold-start cost is constant in store size. [v1 §1 G1]
+  previous boundary, so cold-start cost is constant in store size. [v1 §1 G1] *Since
+  2026-10-10 (a working default) a delivery may ASSEMBLE its wake from reads (§5 G1): no
+  model, no network, no scan of the store, no state written.*
 - **A composed byte budget, a declared trim order (v1: hints → craft → threads → horizon →
   identity last), and untrimmable riders.** A budget on a sub-lane is not a budget, and trim
   order *within* a lane is policy too: *truncation must never be iteration luck.* [v1 §1 G3,
@@ -159,6 +161,29 @@ proposals and their archive; render and delivery telemetry.
    *A wake that is a DELIVERY also composes its preface (G3), which costs two meta reads and
    one `COUNT(*)` — the store's size is a delivery-time fact a bundle rendered yesterday
    cannot state. Nothing else, and a non-delivering read still pays one meta row.*
+   **A delivery ASSEMBLES the wake (2026-10-10, a working default; Mike approved the
+   option, details b2's and random-f8's, lightly held)** — `Self#assemble`, from
+   `Counterpart#assembleWake`. A bundle composed at the evening's turn-end was read by the
+   next morning's sessions with the day before yesterday's Yesterday line, and a note's
+   open question or reminder waited for the next render. So at a delivery the lanes that
+   are plain reads are read for that moment and that date — "Still open" (an indexed read
+   of the open memories, `Store#openThreadIds`), "Arriving:" (`prospective/`'s horizon for
+   the session's date), the Yesterday line, the page — and composed by the same `render`,
+   `ROOM_ORDER` and page ladder (`composeLanes`), under the room the turn-end decided
+   (`WAKE_SHOWN_KEY`: the composition's budget and what the delivery's rooms lent it).
+   "Who I am", craft and "Nearby" are the ids the published bundle showed, in its order,
+   because showing them WRITES state the turn-end owns (the rotation's stamps, Nearby's
+   habituation rows); one gone, now open, arriving, settled over or — a hint — covered by
+   the page is left out. Reads only: no ranking scan of the store, no model, no embedding,
+   no write of any state; what it costs is a ring event (`counterpart.wake.assembled`).
+   Measured 2026-10-10 on synthetic stores: +4 ms at 925 memories, +21 ms at 9,250
+   written in one day with 250 open questions; the terms grow with open questions, dated
+   items and the day's writes, not the store, where the store has the indexes
+   (`memories_open`, `memories_created`, `memories_origin_ref`, created at a store's next
+   migration). Anything missing — no record (a bundle an older build published), another
+   ceiling, no date, a damaged published bundle, a throw — delivers the published bundle
+   as before. *Named cost: the dashboard and doctor read the published bundle, which is no
+   longer byte for byte what a session was handed.*
    **A second caller may compose without publishing** — `build()` ranks and renders and
    writes nothing, so a background reader pays a scan and changes no durable state: not the
    published bundle, not the identity lane's `self.rendered.<id>` rotation, not a counter.
@@ -192,7 +217,8 @@ proposals and their archive; render and delivery telemetry.
    "Work here" reserve (`lendBytes`) lent to each rung before it steps down (review of
    #358) — every rung whole text (2026-10-10). **What gives way to whom is ONE declared
    list** (2026-10-10, a working default, `briefing.ts#ROOM_ORDER`), first to give way to
-   last: Nearby, craft, "Still open" past its first item (the trim loop's), "Work here"
+   last: Nearby, the "Today, elsewhere" line (session start only; its chapters first, then
+   the line — 2026-10-10), craft, "Still open" past its first item (the trim loop's), "Work here"
    (the delivery's room, `lendBytes`), "Still open"'s count beside items the trim kept, the
    Yesterday line's titles (a title at a time given way to its id), "Last here" and the
    handoffs (the delivery's room past the newest handoff's own block, `handoffLendBytes`),
@@ -633,7 +659,9 @@ it) · **§2.18** (the injection ceiling is a host limit, never assumed) · **§
    rather than accreting both.
 2. **What is the honest reconciler cadence** when a session ends without a boundary?
    Pre-rendering means the briefing is always one session stale by design — a feature until
-   the day's own episode is the thing the next session needs.
+   the day's own episode is the thing the next session needs. *Partly answered 2026-10-10:
+   the stateless lanes are assembled at delivery (§5 G1); Nearby and the identity rotation
+   are still one turn-end stale.*
 3. **Is the freeze still needed** once the transcript sweep is a crash fallback? It costs
    almost nothing to keep and keeps generating the evidence that could overturn it — which
    is also why its firing rate will now be near zero and hard to read.

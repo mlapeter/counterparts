@@ -2054,8 +2054,9 @@ export class Counterpart {
 
   /**
    * Read what the previous boundary published, and record what the host says it
-   * can carry. Zero compute, zero model calls, zero network (§1 G1); the
-   * bundle's cost was paid by the previous boundary.
+   * can carry. Zero model calls, zero network, no state written (§1 G1); the
+   * ranking's cost was paid by the previous boundary. A DELIVERY assembles the
+   * lanes that are plain reads for this moment (`assembleWake`, 2026-10-10).
    *
    * The ceiling is REPORTED here rather than configured here. A host that
    * reports none gets a tripwire event and a brain that will refuse to render a

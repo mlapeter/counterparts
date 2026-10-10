@@ -1952,3 +1952,60 @@ right after "Still open", and nothing below it was poppable.
   envelope carries it; with no room it waits for the first prompt, where recall gives way
   to it. The part that rode the wake and could be crowded out was the same memory's
   Arriving line, which is now `due` in the list.
+
+## 2026-10-10 — the wake assembled at session start, and "Today, elsewhere"
+
+Mike's symptom: morning sessions in several directories repeated the same things and seemed
+unaware of each other. The read-only investigation (`~/counterparts-notes/2026-10-10-wake-
+staleness.md`) found the bundle is composed at a turn-end and read unchanged by every session
+in every directory until the next one: a morning's first sessions read the evening's bundle,
+whose Yesterday line named the day before yesterday, and a `note`'s open question or
+reminder waited a day. Mike approved two options on 2026-10-10; details b2's and
+random-f8's, lightly held.
+
+- **What moved to session start** (`Self#assemble`, `Counterpart#assembleWake`): "Still
+  open", "Arriving:", the Yesterday line and the page — every lane that is a plain read.
+  **What stayed at the turn-end:** "Nearby" and the identity rotation, because showing them
+  writes state (`recordHintDisplay`, the `self.rendered.<id>` stamps). The publish now keeps
+  what it showed of identity, craft and Nearby, in order, and the room it composed in
+  (`WAKE_SHOWN_KEY`); the assembly reads those ids back and drops one that has gone, become
+  open, arriving or settled, or — a hint — is now covered by the page.
+- **One composition, two callers.** `build` was split at the lanes: `composeLanes` (the
+  page's ladder and borrowing, `render`, `ROOM_ORDER`, the page stepping down for a due-day
+  reminder) is shared, so a session start keeps every room rule the published bundle keeps.
+  The turn-end's horizon mapping moved into `core/briefing.ts#horizonFor` for the same
+  reason.
+- **The room is the turn-end's** (`budget`, `lend`, `handoffLend`, `handoffKeep`):
+  recomputing it at delivery means every directory's handoffs, chapters and work lines —
+  the span buffer for each — on the session's latency path. A session under another
+  ceiling than the one recorded delivers the published bundle.
+- **Still open from an index.** `Store#openThreadIds` (`meta LIKE '%"unresolved":true%'`, as
+  `planCandidates` matches it) answered by the partial index `memories_open`. No schema bump
+  (Mike, 10-09: batch format changes): the index is in `DDL_AFTER_COLUMNS`, so a fresh store
+  has it and an existing one gains it at its next migration; until then the read scans one
+  column (1.7 ms at a synthetic 9,250). `memories_created` (the day's counts) and
+  `memories_origin_ref` (the chapter walks' copies) the same way.
+- **"Today, elsewhere"** (`handoff/last-here.ts#todayElsewhereLines`, composed by
+  `Counterpart#elsewhereFor`): the other directories worked in today — the host's registry
+  for when and live or ended (`WakeHere.sessions`, host state only), the store's counts
+  (`Store#memoryCountsByScopeSince`, numbers only), and today's newest chapter there on the
+  "About me, from another directory" line's gate (scope on, not confidential, a copy marked
+  me, us or owner — never the one that line already names). Skipped: this directory, this
+  session, the nightly run's directory (the store's own), any directory the scope setting
+  keeps home — named not at all, not even by count. Never span text, a work memory's title
+  or a handoff body. It sits in `ROOM_ORDER` right after Nearby (`elsewhere`): the trim
+  loop steps it down (chapters, then the line) once Nearby is empty and before it pops
+  craft; `takeRoom` does the same for a rescue.
+- **The preface says so:** "— assembled at session start" in place of "— composed at the
+  last boundary" (fewer bytes, inside `PREFACE_RESERVE_BYTES`).
+- **Cost, measured (synthetic, hermetic; bench in the PR):** delivery 2.1 → 6.2 ms at 925
+  memories, 9.5 → 30.6 ms at 9,250 written in one day with 250 open questions and 44 dated.
+  The terms are the open questions (≈5 ms of it at 250), the horizon (≈4.5 ms, the same
+  read the per-turn cue path makes), the day's counts and the episode list (≈3 ms each,
+  linear until the indexes exist). One chapter walk per delivery (`deliveryWalk`), shared
+  by "Last here", the handoffs and "Today, elsewhere".
+- **No worker kick at session start.** Nearby lags by one turn-end by design, and the
+  wake-behind fix (every deposit marks the wake) makes turn-ends catch it up.
+- **Named costs.** The dashboard and doctor show the published bundle, which is no longer
+  byte for byte what a session got; a session start's trims leave no durable row (the
+  turn-end's `self.briefing` row is still the day's record).

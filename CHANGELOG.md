@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A session's wake is put together when the session starts.** "Still open", "Arriving:",
+  the Yesterday line and the self page are read at that moment, so the morning's first
+  sessions see yesterday's chapters and a question or reminder noted last night, not the
+  wake the evening's last turn left. "Nearby" and "Who I am" still come from the last turn's
+  end. Reads only, no model call: a few milliseconds.
+- **"Today, elsewhere."** One line in the wake names the other folders worked in today:
+  when, whether a session there is still open, how many memories it wrote, and its chapter's
+  title when that chapter is about you or me (the "About me, from another directory" rule).
+  Never what was said there, a work memory's title, or a handoff. Folders whose scope is not
+  on are not named. It is the first thing to give way after "Nearby".
 - **Recall counts the memories instead of listing them on every turn.** At ten times
   today's size that list was about a sixth of a turn. A second speed-up, not looking up
   words found in almost every memory, is built but off: it changed what recall showed on
