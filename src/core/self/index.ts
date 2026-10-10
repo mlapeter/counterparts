@@ -298,6 +298,14 @@ export interface HorizonItem {
 
 export interface BoundaryRequest extends BriefingRequest {
   readonly horizon?: readonly HorizonItem[];
+  /**
+   * ARRIVING ITEMS PAST THE CALLER'S COUNT, by id (review of #367,
+   * 2026-10-10): `prospective/`'s `HORIZON_ITEMS` offers the lane two, and a
+   * third dated item was in no wake line and no count. They join the lane's
+   * overflow, so its "N more arriving" line names them for recall. The
+   * owner's wake only (ignored with `omit`).
+   */
+  readonly horizonMore?: readonly string[];
   /** When supplied, the boundary ensures the identity core's home row exists in
    *  the shape `schemas/` indexes. Idempotent (schemas/INTERFACE-GAPS #5). */
   readonly identityCore?: IdentityCoreSpec;
@@ -720,6 +728,7 @@ export class Self {
       settledOver: settledOver(this.store),
       coveredByPage: this.pageCovers(scanned),
       workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
+      ...(req.horizonMore === undefined || req.omit !== undefined ? {} : { horizonMore: req.horizonMore }),
     });
     const docs = new Map<string, ProseDoc>();
     // Provenance rides along from the SAME scan the docs came from: the render

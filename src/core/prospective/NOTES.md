@@ -513,5 +513,6 @@ order, none about which arrivals are offered:
 - The wake marks those items `due` (`core/briefing.ts#selfRenderer` → `HorizonItem
   .plainDue`), and ranks them above the self page's borrowing.
 
-`HORIZON_ITEMS` stays 2 (v1's calibration): a third arriving item is in no wake line,
-whatever the room. Not changed here; worth a look if three come round together often.
+`HORIZON_ITEMS` stays 2 (v1's calibration). What it leaves out is no longer silent (review
+of #367): `horizon()` returns it as `more`, in the same order, and the wake names those ids
+in the lane's "N more arriving; recall ids: …" line.

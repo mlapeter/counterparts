@@ -46,8 +46,9 @@
   rest of the wake. Now the wake follows one declared order of what gives way: when an
   "Arriving:" item has no room, "Work here" shows fewer lines first, then the Yesterday
   line swaps titles for chapter ids one at a time, then "Last here" is dropped and fewer
-  handoffs are shown in full (the rest still named by id). Only then does a dated item go
-  unlisted. "Still open" keeps its first item before Arriving's second line, as before,
+  handoffs are shown in full (the rest still named by id, and the newest always shown).
+  Only then does a dated item go unlisted. An arriving item past the two the wake lists is
+  no longer left out silently: the lane's "N more arriving" line names it by id. "Still open" keeps its first item before Arriving's second line, as before,
   but now after those same lanes give way. A plain reminder due the day the wake is read
   comes first in "Arriving:" (and in the two the wake is offered), and it outranks the
   self page borrowing past its room: the page steps down to its short version or outline

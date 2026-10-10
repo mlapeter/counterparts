@@ -195,12 +195,13 @@ proposals and their archive; render and delivery telemetry.
    last: Nearby, craft, "Still open" past its first item (the trim loop's), "Work here"
    (the delivery's room, `lendBytes`), "Still open"'s count beside items the trim kept, the
    Yesterday line's titles (a title at a time given way to its id), "Last here" and the
-   handoffs (the delivery's room, `handoffLendBytes`), Arriving past its first line,
-   "Still open"'s first item and count, Arriving's first line, the page borrowing past its
-   room, a plain reminder due the day the wake is read (`Ranked.due`), the page within its
-   room. After the trim loop fits, the lanes that ARE in it are listed again, highest
-   first — Arriving's head (its due-day plain reminders, or its first line), then "Still
-   open"'s first item and count (review of #350), then the rest of Arriving — each taking
+   handoffs (the delivery's room past the newest handoff's own block, `handoffLendBytes`),
+   Arriving past its first line, "Still open"'s first item and count, Arriving's first
+   line, the page borrowing past its room, a plain reminder due the day the wake is read
+   (`Ranked.due`), the page within its room. After the trim loop fits, the lanes that ARE
+   in it are listed again, highest first — Arriving's head (its due-day plain reminders,
+   or its first line), then "Still open"'s first item and count (review of #350), then the
+   rest of Arriving — each taking
    room only from the lanes below it, lowest first, and only what it needs
    (`takeRoom`); the delivery then shows fewer work lines, drops "Last here" and shows
    fewer handoffs in full, the rest by id, and the render's `budgetBytes` states what was

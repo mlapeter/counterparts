@@ -367,6 +367,9 @@ export function rankLanes(
     readonly settledOver?: ReadonlySet<string>;
     readonly coveredByPage?: ReadonlySet<string>;
     readonly workAtDelivery?: boolean;
+    /** Arriving ids past the caller's own count (review of #367): the lane's
+     *  overflow, after its cap's, filtered as the lane is. */
+    readonly horizonMore?: readonly string[];
   } = {},
 ): Lanes {
   const identity: Ranked[] = [];
@@ -426,7 +429,10 @@ export function rankLanes(
       craft: past(craft, t.CRAFT_MAX),
       threads: past(threads, t.THREADS_MAX),
       hints: past(hints, t.HINTS_MAX),
-      horizon: past(horizon, t.HORIZON_MAX),
+      horizon: [
+        ...past(horizon, t.HORIZON_MAX),
+        ...(opts.horizonMore ?? []).filter((id) => !inIdentity.has(id) && !settledOver.has(id) && !arriving.has(id)),
+      ],
     },
   };
 }

@@ -355,6 +355,13 @@ export interface HorizonInput extends ArrivalInput {
 
 export interface HorizonResult {
   readonly items: Arrival[];
+  /**
+   * WHAT THE COUNT LEFT OUT (review of #367, 2026-10-10): the arrivals that
+   * would have taken a wake line but for `HORIZON_ITEMS`, in the same order.
+   * The wake names them by id under the lane ("N more arriving; recall ids:
+   * …") so a dated item past the count is never silently missing.
+   */
+  readonly more: Arrival[];
   readonly reason: HorizonReason;
   readonly suppressedWholesale: boolean;
   readonly considered: ArrivalResult;
@@ -674,6 +681,7 @@ export class Prospective {
       });
       return {
         items: [],
+        more: [],
         reason: "high-affect-previous-session",
         suppressedWholesale: true,
         considered,
@@ -711,18 +719,19 @@ export class Prospective {
       .filter((a) => a.precision === "day")
       .filter((a) => a.recurring !== "daily")
       .filter((a) => !this.toldForGood(a));
-    const items = [
-      ...offered.filter((a) => plainDueOn(a, input.at)),
-      ...offered.filter((a) => !plainDueOn(a, input.at)),
-    ].slice(0, this.tunables.HORIZON_ITEMS);
+    const ordered = [...offered.filter((a) => plainDueOn(a, input.at)), ...offered.filter((a) => !plainDueOn(a, input.at))];
+    const items = ordered.slice(0, this.tunables.HORIZON_ITEMS);
+    // Past the count: named by id in the wake, never silently gone (review of #367).
+    const more = ordered.slice(items.length);
     const reason: HorizonReason = items.length === 0 ? "nothing-arrived" : "selected";
     this.emit("prospective.horizon", undefined, {
       reason,
       items: items.length,
+      more: more.length,
       arrived: considered.arrivals.length,
       ids: items.map((i) => i.memoryId).join(","),
     });
-    return { items, reason, suppressedWholesale: false, considered };
+    return { items, more, reason, suppressedWholesale: false, considered };
   }
 
   // ── plain items: the one exception to "a cue, not a command" ──────────────

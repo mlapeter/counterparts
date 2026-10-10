@@ -30,6 +30,7 @@ export interface BriefingRenderer {
     day: number;
     budgetBytes: number;
     horizon?: readonly { id: string }[];
+    horizonMore?: readonly string[];
     yesterday?: string;
   }): { briefing: { bytes: number; elements: number } };
 }
@@ -38,6 +39,8 @@ export interface BriefingRenderer {
 export interface HorizonSource {
   horizon(input: { at: string; day?: number }): {
     items: readonly { memoryId: string; eventDate?: string; anchor?: string; recurring?: Recurrence; mode?: "quiet" | "plain" }[];
+    /** Past `HORIZON_ITEMS`, by id (review of #367). */
+    more?: readonly { memoryId: string }[];
   };
 }
 
@@ -71,11 +74,14 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
       opts.onEvent?.("briefing.no-budget", { day: ctx.day });
       return;
     }
+    const asked = opts.prospective === undefined || opts.at === undefined ? undefined : opts.prospective.horizon({ at: opts.at, day: ctx.day });
+    // What the count left out, by id: the lane names them in its "N more"
+    // line rather than leave a dated item silently missing (review of #367).
+    const horizonMore = (asked?.more ?? []).map((i) => i.memoryId);
     const horizon =
-      opts.prospective === undefined || opts.at === undefined
+      asked === undefined
         ? undefined
-        : opts.prospective
-            .horizon({ at: opts.at, day: ctx.day })
+        : asked
             // The date it is due rides along, so the line can say it (2026-10-01),
             // how often it comes round when it repeats (2026-10-09), and whether
             // that date is already behind the day asked about — a one-off in its
@@ -99,6 +105,7 @@ export function selfRenderer(self: BriefingRenderer, opts: RendererOptions = {})
       day: ctx.day,
       budgetBytes: ctx.budgetBytes,
       ...(horizon === undefined ? {} : { horizon }),
+      ...(horizonMore.length === 0 ? {} : { horizonMore }),
       ...(opts.yesterday === undefined ? {} : { yesterday: opts.yesterday }),
       ...(opts.yesterday === undefined || opts.yesterdayShorter === undefined ? {} : { yesterdayShorter: opts.yesterdayShorter }),
       ...(opts.lendBytes === undefined || opts.lendBytes <= 0 ? {} : { lendBytes: opts.lendBytes }),

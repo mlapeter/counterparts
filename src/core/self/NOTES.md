@@ -1918,10 +1918,18 @@ right after "Still open", and nothing below it was poppable.
   the Wake line counts renders in its window that left a dated item unlisted — by that
   count, or a pre-existing row's trimmed list — adds a clause with the newest date, and is
   amber with what to do (a short version or a page under its room; the ceiling).
-- **Not changed: the count.** `prospective`'s `HORIZON_ITEMS` (2, v1's calibration) still
-  bounds the lane: a third arriving item is offered to no wake line whatever the room.
-  The composition is proved with three (`wake-dated-first.test.ts`); the full stack with
-  one and two.
+- **The count is unchanged, and no longer silent** (review of #367). `prospective`'s
+  `HORIZON_ITEMS` (2, v1's calibration) still bounds the lane's lines; what it leaves out
+  arrives as `BoundaryRequest.horizonMore` and joins the lane's overflow, so the "N more
+  arriving" line names it by id. A last rescue (`keepArrivingCount`) pays for that count
+  out of the lanes below `openFirst` — Arriving's lines past its head included — before a
+  later line is listed in full without it.
+- **The handoffs' room is lent only past the newest handoff** (review of #367): the root
+  lends the reserve less every directory's smallest rung (its newest handoff alone, with
+  the margin). Measured on the branch as built: ~280-byte reminders beside a 6,767-byte
+  page and 25 open questions took the whole reserve, and all four handoffs went unshown
+  while doctor stayed green. The delivery picks the widest rung that fits, so room the
+  composition could not use usually comes back as three shown in full.
 - **The plain line itself never rode the wake.** It is said beside the wake — above its
   opening comment for the model, as a notice for the person — and claimed only once the
   envelope carries it; with no room it waits for the first prompt, where recall gives way

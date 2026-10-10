@@ -302,7 +302,10 @@ interface Morning {
  * the wake is read when `plain`), at the 9,000-byte default. The boundary
  * runs the evening of 10-08; the session starts the morning of 10-09.
  */
-async function morning(zone: string, opts: { pageBytes: number; dated: number; plain?: boolean; widest?: boolean; short?: boolean }): Promise<Morning> {
+async function morning(
+  zone: string,
+  opts: { pageBytes: number; dated: number; plain?: boolean; widest?: boolean; short?: boolean; bodies?: readonly string[] },
+): Promise<Morning> {
   const dataDir = freshDir();
   clock(zone, "2026-10-07", 20);
   const a = adapter(dataDir, zone);
@@ -313,7 +316,8 @@ async function morning(zone: string, opts: { pageBytes: number; dated: number; p
   const written = a.counterpart.revisePage(pageOfSize(opts.pageBytes), { by: "owner", reason: "a long page", ...(opts.short === true ? { short: SHORT } : {}) });
   expect(written.written).toBe(true);
   work(a, opts.widest === true);
-  for (let i = 0; i < opts.dated; i += 1) reminder(a, DUES[i] ?? "2026-10-11", REMINDERS[i] ?? "", i === 0 && opts.plain === true ? "plain" : undefined);
+  const bodies = opts.bodies ?? REMINDERS;
+  for (let i = 0; i < opts.dated; i += 1) reminder(a, DUES[i] ?? "2026-10-11", bodies[i] ?? "", i === 0 && opts.plain === true ? "plain" : undefined);
   await worker(dataDir, zone);
   const row = lastBriefing(a);
   clock(zone, "2026-10-09", 8);
@@ -403,7 +407,10 @@ describe("at 9,000, an over-room page, four handoffs, yesterday's titles — eve
           expect(now.handoffs).toBeLessThanOrEqual(was.handoffs);
           expect(now.work).toBeLessThanOrEqual(was.work);
           if (now.handoffs < was.handoffs || now.work < was.work || now.yesterday !== was.yesterday) gaveWay += 1;
-          if (now.handoffs > 0) expect(m.text).toMatch(/\+\d+ older here: sch_[0-9a-f]+/);
+          // Fewer in full, the rest by id — never none: the room lent stops at
+          // the newest handoff's own block (review of #367).
+          expect(now.handoffs).toBeGreaterThan(0);
+          expect(m.text).toMatch(/\+\d+ older here: sch_[0-9a-f]+/);
           // The Yesterday line, if it gave titles, still names every chapter it named, by id.
           expect(was.yesterday).not.toBeNull();
           expect((now.yesterday ?? "").match(/epi_[0-9a-f]+/g)?.length).toBe((was.yesterday ?? "").match(/epi_[0-9a-f]+/g)?.length);
@@ -412,6 +419,25 @@ describe("at 9,000, an over-room page, four handoffs, yesterday's titles — eve
         }
         expect(gaveWay).toBeGreaterThan(0);
       });
+    }
+  }
+});
+
+test("the room lent stops at the newest handoff: dated items a few lines long never empty the handoffs (review of #367)", async () => {
+  // About 280 bytes each: the original lend took every byte of the handoffs'
+  // room for the second Arriving line and "Still open"'s first item, and all
+  // four handoffs went unshown while doctor stayed green.
+  const MEDIUM = REMINDERS.map((r) => `${r} ${"It matters, and the details are written down in the studio notebook on the shelf by the door. ".repeat(2).trim()}`);
+  for (const zone of ZONES) {
+    for (const pageBytes of [6_400, 6_767]) {
+      const m = await morning(zone, { pageBytes, dated: 3, plain: true, bodies: MEDIUM });
+      expect({ pageBytes, handoffs: lower(m.text).handoffs > 0 }).toEqual({ pageBytes, handoffs: true });
+      expect(m.text).toMatch(/\+\d+ older here: sch_[0-9a-f]+/);
+      const { listed } = arriving(m.text);
+      expect(listed[0]).toEndWith(MEDIUM[0] ?? "");
+      // Every dated item is listed or named by id.
+      for (const id of m.a.counterpart.prospective.horizon({ at: "2026-10-08" }).more.map((i) => i.memoryId)) expect(m.text).toContain(id);
+      expect(bytes(m.text)).toBeLessThanOrEqual(BUDGET);
     }
   }
 });
@@ -525,6 +551,30 @@ describe("at the composition: three dated items, and who gives the room", () => 
     // The handoffs' room was needed, and lent — the room the composition
     // never competed for before.
     expect(handoffsGave).toBeGreaterThan(0);
+  });
+
+  test("past prospective's count, named by id under the lane — never silently gone (review of #367)", () => {
+    clock(ZONE, "2026-10-08", 21);
+    const bodies = [...REMINDERS, "The clay order arrives; check the invoice against the slip.", "The glaze supplier calls back about the cobalt."];
+    for (const pageBytes of [PAGE_ROOM_BYTES, 6_767]) {
+      const { me, ids } = selfWith(pageOfSize(pageBytes), undefined, bodies);
+      const horizon: HorizonItem[] = ids.slice(0, 2).map((id, i) => ({ id, due: DUES[i] ?? "2026-10-11" }));
+      const out = me.build({ budgetBytes: COMPOSE, day: 2, horizon, horizonMore: ids.slice(2), yesterday: full, yesterdayShorter: shorter, lendBytes: SHARE, handoffLendBytes: SHARE });
+      expect(out.counts.horizon).toBe(2);
+      expect(out.text).toContain(`(3 more arriving; recall ids: ${ids.slice(2).join(", ")})`);
+      expect(out.bytes).toBeLessThanOrEqual(out.budgetBytes);
+    }
+  });
+
+  test("prospective offers two and names the rest, due-day plain first", async () => {
+    const dataDir = freshDir();
+    clock(ZONE, "2026-10-08", 21);
+    const a = adapter(dataDir, ZONE);
+    const ids = REMINDERS.map((body, i) => reminder(a, DUES[i] ?? "2026-10-11", body));
+    const h = a.counterpart.prospective.horizon({ at: "2026-10-08" });
+    expect(h.items.length).toBe(2);
+    expect([...h.items, ...h.more].map((i) => i.memoryId).sort()).toEqual([...ids].sort());
+    expect(h.more.length).toBe(1);
   });
 
   test("a plain reminder due the day the wake is read takes back the page's borrowing — the page steps down to its short version; an ordinary dated item does not", () => {

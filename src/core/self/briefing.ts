@@ -117,9 +117,11 @@ export const TRIM_ORDER: readonly LaneName[] = [
  *   - `yesterday` — the Yesterday line: a title at a time gives way to its
  *     id, pointers instead of titles (`yesterdayShorter`);
  *   - `lastHere`, `handoffs` — the delivery's room for "Last here" and this
- *     directory's handoffs (`handoffLendBytes`): the delivery drops "Last
- *     here" first and then shows fewer handoffs in full, the rest by id
- *     (`counterpart.ts#addHandoffPointer`, `handoff/#pointerLadder`);
+ *     directory's handoffs past the newest one's own block
+ *     (`handoffLendBytes`, `counterpart.ts#handoffRoom`): the delivery drops
+ *     "Last here" first and then shows fewer handoffs in full, the rest by
+ *     id, never none (`counterpart.ts#addHandoffPointer`,
+ *     `handoff/#pointerLadder`);
  *   - `arriving` — "Arriving:" past its first line;
  *   - `openFirst` — "Still open"'s first item and its count, when it would
  *     otherwise list nothing (review of #350);
@@ -1127,6 +1129,34 @@ function keepArriving(
 }
 
 /**
+ * "ARRIVING:" SAYS HOW MANY MORE, BY ID, BEFORE IT LISTS A LATER LINE IN FULL
+ * (review of #367, 2026-10-10). The lane's count names every dated item it
+ * did not list — the trim's and those past `prospective/`'s count
+ * (`BoundaryRequest.horizonMore`) — and those past the count leave no trim
+ * row for doctor to read, so a count left out is a dated item silently gone.
+ * Last of the rescues: when the lane lists something and has no count yet,
+ * the count takes room from the lanes below `arriving` — "Work here", the
+ * Yesterday line's titles, the handoffs' room — and, only when it names an
+ * item past that count (one no trim row records), from Arriving's lines past
+ * its head too, each named in the count it pays for. A count of the trim's
+ * alone leaves the listed lines as they are: a listed date outranks it, and
+ * doctor reads the trim. Null when the count is already in, there is nothing
+ * to count, or no room is found.
+ */
+function keepArrivingCount(overflow: readonly string[], from: Rescued, ctx: RescueCtx): Rescued | null {
+  if ((from.pinned.horizon?.length ?? 0) > 0 || from.kept.horizon.length === 0) return null;
+  const rest = [...from.trimmed.filter((e) => e.lane === "horizon").map((e) => e.id).reverse(), ...overflow];
+  if (rest.length === 0) return null;
+  const pinned = { ...from.pinned, horizon: rest };
+  // Room as the composition stands: `withMoreLines` adds it then, as it adds every lane's.
+  const { req } = ctx;
+  if (from.lent === 0 && compose(from.kept, req.day, ctx.resolve, ctx.coreName, ctx.identity, pinnedLines(pinned, from.kept), from.yesterday).bytes <= req.budgetBytes) {
+    return null;
+  }
+  return takeRoom(overflow.length > 0 ? "openFirst" : "arriving", from, from.kept, pinned, from.trimmed, ctx);
+}
+
+/**
  * "STILL OPEN" KEEPS ITS FIRST ITEM, AND ITS COUNT (review of #350,
  * 2026-10-09; its place in `ROOM_ORDER` since 2026-10-10).
  *
@@ -1359,6 +1389,7 @@ export function render(
           (s) => keepArriving(lanes.horizon, overflow?.horizon ?? [], ctx.head, dueHead ? "due" : "arrivingFirst", s, ctx),
           (s) => keepFirstOpen(lanes.threads, overflow?.threads ?? [], lanes.horizon.length, s, ctx),
           (s) => keepArriving(lanes.horizon, overflow?.horizon ?? [], lanes.horizon.length, "arriving", s, ctx),
+          (s) => keepArrivingCount(overflow?.horizon ?? [], s, ctx),
         ];
         for (const step of steps) {
           const next = step(state);

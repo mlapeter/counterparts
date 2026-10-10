@@ -488,4 +488,6 @@ The room this module's pointer and "Last here" hold at delivery is now lent too 
 `handoffReserveBytes`, split out of `wakeReserveBytes`), after "Work here" and the
 Yesterday line's titles. Nothing here changed for it: the delivery already drops "Last
 here" first and steps `pointerLadder` down — fewer shown in full, the rest by id — in the
-room it finds.
+room it finds. What is lent stops at each directory's smallest rung, its newest handoff
+alone (review of #367): lent whole, the room went to dated lines and "Still open", and no
+handoff was shown at all.
