@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-The sidebar, rebuilt (#371).
+The sidebar, rebuilt (#375).
 
 - **The sidebar shows what memory is doing, in 35 columns.** A small brain beside the
   title (click COUNTERPARTS for the dashboard), the day, the count and a search box; then
