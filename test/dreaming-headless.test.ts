@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EMPTY_BUNFIG } from "../src/adapters/runtime.js";
 
 import {
   KILL_GRACE_MS,
@@ -335,8 +336,9 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     const mcp = JSON.parse(plan.args[plan.args.indexOf("--mcp-config") + 1] ?? "{}") as { mcpServers: Record<string, { command: string; args: string[]; env: Record<string, string> }> };
     expect(Object.keys(mcp.mcpServers)).toEqual(["counterparts"]);
     expect(mcp.mcpServers["counterparts"]?.command).toBe("/usr/local/bin/bun");
-    expect(mcp.mcpServers["counterparts"]?.args[1]).toBe(NIGHT_MCP_SCRIPT);
-    expect(mcp.mcpServers["counterparts"]?.args[1]?.endsWith(join("adapters", "mcp", "bin", "serve.ts"))).toBe(true);
+    // Bun is told not to read the project's .env nor its bunfig.toml (runtime.ts).
+    expect(mcp.mcpServers["counterparts"]?.args).toEqual(["--no-env-file", `--config=${EMPTY_BUNFIG}`, "run", NIGHT_MCP_SCRIPT]);
+    expect(mcp.mcpServers["counterparts"]?.args[3]?.endsWith(join("adapters", "mcp", "bin", "serve.ts"))).toBe(true);
     expect(mcp.mcpServers["counterparts"]?.env).toEqual({
       COUNTERPARTS_DATA_DIR: dir,
       // The headless run keeps the guest's stance, said (2026-10-02).
