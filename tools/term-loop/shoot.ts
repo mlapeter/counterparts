@@ -19,7 +19,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { DEFAULT_DATA_DIR_NAME, FORBIDDEN_ROOT_NAMES } from '../../src/core/store/paths.js';
 import { findDock, parseCapture, sliceGrid, type Grid, type Rect } from './grid.js';
 import { ITERM_MENLO_13, gridPixels, renderHtml } from './render.js';
-import { ALLOWED_COMMANDS, STEP_HELP, keyboardOf, locate, mouseBytes, parseSteps, refuseAllowCmd, refuseEnter, refuseKey, refuseType, screenText, type Keyboard, type Step } from './steps.js';
+import { ALLOWED_COMMANDS, STEP_HELP, keyboardOf, locate, mouseBytes, parseSteps, refuseAllowCmd, refuseClick, refuseEnter, refuseKey, refuseType, screenText, type Keyboard, type Step } from './steps.js';
 
 const HERE = import.meta.dir;
 const REPO = resolve(HERE, '..', '..');
@@ -489,9 +489,11 @@ async function runSteps(s: Session, o: Opts, captures: Capture[]): Promise<void>
       }
       case 'click':
       case 'hover': {
-        const l = s.look();
+        const l = step.kind === 'click' ? await s.steady() : s.look();
         const at = locate(l.grid, step.target, l.dock);
         if (at === null) throw new Error(`${step.kind}: ${'text' in step.target ? `"${step.target.text}" is not on screen` : 'that cell is off the screen'}\n${screenText(l.grid)}`);
+        const refused = step.kind === 'click' ? refuseClick(at, l.dock, l.kb) : null;
+        if (refused !== null) throw new Error(`click:${'text' in step.target ? step.target.text : `${String(step.target.x)},${String(step.target.y)}`}: ${refused}`);
         const [first, ...rest] = mouseBytes(step.kind, at.x, at.y);
         if (first !== undefined) s.bytes(first);
         for (const b of rest) {

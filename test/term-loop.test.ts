@@ -18,6 +18,7 @@ import {
   parseStep,
   parseSteps,
   refuseAllowCmd,
+  refuseClick,
   refuseEnter,
   refuseKey,
   refuseType,
@@ -283,6 +284,16 @@ describe('steps and the keyboard guard', () => {
     const kb = keyboardOf(g, { x: 15, y: 5, visible: true }, findDock(g));
     expect(kb).toEqual({ focus: 'slash', typed: '/counterparts', pick: '/counterparts' });
     expect(typeaheadPick(screen(''), 5)).toBeNull();
+  });
+
+  test('a click outside the pane waits for an empty prompt (the typeahead sits above it)', () => {
+    const g = screen('/counterparts', '  ❯ /counterparts:doctor');
+    const dock = findDock(g);
+    const slash = { focus: 'slash', typed: '/counterparts', pick: '/counterparts:doctor' } as const;
+    expect(refuseClick({ x: 4, y: 3 }, dock, slash)).toMatch(/refused/);
+    expect(refuseClick({ x: 14, y: 1 }, dock, slash)).toBeNull();
+    expect(refuseClick({ x: 4, y: 3 }, dock, { focus: 'empty', typed: '', pick: null })).toBeNull();
+    expect(refuseClick({ x: 4, y: 3 }, null, { focus: 'unknown', typed: '', pick: null })).toMatch(/refused/);
   });
 
   test('targets: text in the pane first, cells 1-based; mouse reports are SGR 1006', () => {

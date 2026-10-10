@@ -247,6 +247,18 @@ export function refuseType(text: string, focus: Focus): string | null {
   return `typing "${text}" refused: the prompt holds the keyboard (give the pane focus first, e.g. click:search memories)`;
 }
 
+/**
+ * Why a click may not land at `at` now, or null when it may. Inside the
+ * docked pane, always. Outside it, only while the prompt is empty: with a
+ * slash command typed, the rows above the prompt are the typeahead, and a
+ * click there picks a command the guard never read.
+ */
+export function refuseClick(at: { x: number; y: number }, dock: Rect | null, k: Keyboard): string | null {
+  if (dock !== null && at.x > dock.x0 && at.x < dock.x1 && at.y >= dock.y0 && at.y < dock.y1) return null;
+  if (k.focus === 'empty' || k.focus === 'pane') return null;
+  return `click outside the pane refused while the prompt is not empty (it is "${k.focus}"): clear it first (keys:C-u)`;
+}
+
 /** Where a target is, 0-based; text is looked for in the pane first, then anywhere. */
 export function locate(g: Grid, t: Target, dock: Rect | null): { x: number; y: number } | null {
   if ('x' in t) return t.x >= 1 && t.y >= 1 && t.x <= g.cols && t.y <= g.rows ? { x: t.x - 1, y: t.y - 1 } : null;
