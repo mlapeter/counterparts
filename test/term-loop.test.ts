@@ -12,6 +12,8 @@ import { charCells, findDock, findText, parseCapture, rowText, sliceGrid, type G
 import { ITERM_MENLO_13, cellColours, paletteColour, renderHtml, renderRow } from '../tools/term-loop/render.js';
 import {
   MEMORY_SWITCH,
+  MEMORY_SWITCH_LABELS,
+  brainOf,
   focusOf,
   keyboardOf,
   locate,
@@ -335,7 +337,27 @@ describe('steps and the keyboard guard', () => {
     expect(planWords(off)).toEqual(['type /counterparts', `click the "${MEMORY_SWITCH}" switch`]);
     // a file that can't be read says nothing
     expect(restorePlan(owner, null)).toEqual({ cmds: [], memory: false });
-    expect(viewOf({ view: 'rail' })).toBe('full');
+    expect(viewOf({ view: 'rail' })).toBe('open');
+  });
+
+  test('the sidebar v0.2’s preferences: views by meaning across versions, and the brain’s mode', () => {
+    const owner = { view: 'full', fpsShown: true, claudeMemory: true };
+    // v0.2 writes `sidebar` where v0.1 wrote `full`: the same view, nothing to put back
+    expect(restorePlan(owner, { ...owner, view: 'sidebar' })).toEqual({ cmds: [], memory: false });
+    expect(viewOf({ view: 'sidebar' })).toBe('open');
+    expect(viewOf({})).toBe('open');
+    // a run that left it in the strip, or quiet, is put back with the mod's commands
+    expect(restorePlan(owner, { ...owner, view: 'strip' }).cmds).toEqual(['/counterparts']);
+    expect(restorePlan({ view: 'strip' }, { view: 'sidebar' }).cmds).toEqual(['/counterparts strip']);
+    expect(restorePlan({ view: 'quiet' }, { view: 'sidebar' }).cmds).toEqual(['/counterparts quiet']);
+    // the brain: turning unless set
+    expect(restorePlan(owner, { ...owner, brain: 'off' }).cmds).toEqual(['/counterparts brain turning']);
+    expect(restorePlan({ ...owner, brain: 'still' }, { ...owner, brain: 'turning' }).cmds).toEqual(['/counterparts brain still']);
+    expect(restorePlan(owner, { ...owner, brain: 'turning' }).cmds).toEqual([]);
+    expect(brainOf({ brain: 'nonsense' })).toBe('turning');
+    // the memory switch is found by either version's label
+    expect(MEMORY_SWITCH_LABELS).toContain(MEMORY_SWITCH);
+    expect(MEMORY_SWITCH_LABELS).toContain("Claude Code's own memory");
   });
 
   test('targets: text in the pane first, cells 1-based; mouse reports are SGR 1006', () => {

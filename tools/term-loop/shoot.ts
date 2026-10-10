@@ -21,7 +21,7 @@ import { findDock, findText, parseCapture, sliceGrid, type Grid, type Rect } fro
 import { ITERM_MENLO_13, gridPixels, renderHtml } from './render.js';
 import {
   ALLOWED_COMMANDS,
-  MEMORY_SWITCH,
+  MEMORY_SWITCH_LABELS,
   PREF_KEYS,
   STEP_HELP,
   keyboardOf,
@@ -236,15 +236,17 @@ function readPrefs(path: string): Prefs | null {
 async function putBack(s: Session, path: string, before: Prefs | null): Promise<string[]> {
   await s.clearPrompt();
   if (restorePlan(before, readPrefs(path)).memory) {
-    if (viewOf(readPrefs(path)) !== 'full') {
+    if (viewOf(readPrefs(path)) !== 'open') {
       console.log('  putting back the stored preference: /counterparts (to reach the memory switch)');
       await s.command('/counterparts', ALLOWED_COMMANDS);
       await sleep(800);
     }
     const l = await s.steady();
-    const at = l.dock === null ? null : findText(l.grid, MEMORY_SWITCH, l.dock.x0 + 1);
-    if (at !== null && l.dock !== null && at.y >= l.dock.y0 && at.y < l.dock.y1) {
-      console.log(`  putting back the stored preference: a click on "${MEMORY_SWITCH}"`);
+    const dock = l.dock;
+    const label = dock === null ? undefined : MEMORY_SWITCH_LABELS.find(t => findText(l.grid, t, dock.x0 + 1) !== null);
+    const at = dock === null || label === undefined ? null : findText(l.grid, label, dock.x0 + 1);
+    if (at !== null && dock !== null && at.y >= dock.y0 && at.y < dock.y1) {
+      console.log(`  putting back the stored preference: a click on "${label ?? ''}"`);
       const [press, release] = mouseBytes('click', at.x, at.y);
       if (press !== undefined) s.bytes(press);
       await sleep(60);
@@ -692,9 +694,11 @@ async function main(): Promise<void> {
       }
       return l.kb.focus === 'empty' || l.kb.focus === 'pane';
     }, o.timeoutMs);
-    // the pane opens by itself unless the person left it hidden
-    if (before?.view === 'hidden') {
-      console.log('  the sidebar is stored hidden: opening it with /counterparts (put back at the end)');
+    // the pane opens by itself unless the person left it closed: v0.1's hidden,
+    // v0.2's strip or quiet (v0.1's quiet was a narrow pane; opened full here
+    // all the same, and put back at the end)
+    if (viewOf(before) !== 'open') {
+      console.log(`  the sidebar is stored ${viewOf(before)}: opening it with /counterparts (put back at the end)`);
       await s.command('/counterparts', ALLOWED_COMMANDS);
     }
     await s.waitFor('the docked pane', l => l.dock !== null, o.timeoutMs);

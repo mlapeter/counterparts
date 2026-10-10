@@ -286,28 +286,48 @@ export function locate(g: Grid, t: Target, dock: Rect | null): { x: number; y: n
 // ── the sidebar's stored preferences ─────────────────────────────────────────
 
 /** The stored keys a run can change, and puts back. */
-export const PREF_KEYS = ['view', 'caps', 'fpsShown', 'fps', 'claudeMemory'] as const;
+export const PREF_KEYS = ['view', 'brain', 'caps', 'fpsShown', 'fps', 'claudeMemory'] as const;
 export type Prefs = Partial<Record<(typeof PREF_KEYS)[number], unknown>>;
 
-/** The label of the switch that turns Claude Code's own memory (one preference for every session). */
-export const MEMORY_SWITCH = "Claude Code's own memory";
+/**
+ * The label of the switch that turns Claude Code's own memory (one preference
+ * for every session): v0.2's footer says "Claude memory"; v0.1's switch said
+ * "Claude Code's own memory". A put-back looks for either.
+ */
+export const MEMORY_SWITCH = 'Claude memory';
+export const MEMORY_SWITCH_LABELS = ['Claude memory', "Claude Code's own memory"] as const;
 
-export function viewOf(p: Prefs | null): 'full' | 'quiet' | 'hidden' {
-  return p?.view === 'quiet' || p?.view === 'hidden' ? p.view : 'full';
+/**
+ * The stored view, by what it means across the mod's versions: `open` (the
+ * pane: v0.1's `full`, v0.2's `sidebar`, or nothing stored; v0.1 read `rail`
+ * as full too), `quiet` (v0.1: a narrow pane; v0.2: no pane, the dim tail),
+ * `hidden` (v0.1's closed pane), `strip` (v0.2: one line above the prompt).
+ * Compared by meaning, so a v0.2 run that writes `sidebar` over a stored
+ * `full` changes nothing.
+ */
+export function viewOf(p: Prefs | null): 'open' | 'quiet' | 'hidden' | 'strip' {
+  const v = p?.view;
+  return v === 'quiet' || v === 'hidden' || v === 'strip' ? v : 'open';
+}
+
+/** The brain's stored mode (v0.2): `turning` unless set. */
+export function brainOf(p: Prefs | null): string {
+  return p?.brain === 'still' || p?.brain === 'off' ? p.brain : 'turning';
 }
 
 /**
  * What puts the stored preferences back as they were before the run: the
- * mod's own commands for view, caps, fpsShown and fps (the mod's defaults
- * where a key was unset), and whether the memory switch wants a click (no
- * command turns it). Nothing when `now` can't be read.
+ * mod's own commands for view, brain, caps, fpsShown and fps (the mod's
+ * defaults where a key was unset), and whether the memory switch wants a
+ * click (no command turns it). Nothing when `now` can't be read.
  */
 export function restorePlan(before: Prefs | null, now: Prefs | null): { cmds: string[]; memory: boolean } {
   const cmds: string[] = [];
   if (now === null) return { cmds, memory: false };
   const b = before ?? {};
   const view = viewOf(b);
-  if (view !== viewOf(now)) cmds.push(view === 'quiet' ? '/counterparts quiet' : view === 'hidden' ? '/counterparts hide' : '/counterparts');
+  if (view !== viewOf(now)) cmds.push(view === 'open' ? '/counterparts' : view === 'hidden' ? '/counterparts hide' : `/counterparts ${view}`);
+  if (brainOf(b) !== brainOf(now)) cmds.push(`/counterparts brain ${brainOf(b)}`);
   if ((b.caps === 'round') !== (now.caps === 'round')) cmds.push('/counterparts caps');
   if ((b.fpsShown === true) !== (now.fpsShown === true)) cmds.push('/counterparts fps');
   const fpsOf = (p: Prefs): number => (typeof p.fps === 'number' ? p.fps : 12);
