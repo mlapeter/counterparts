@@ -140,8 +140,9 @@ describe("physics §5.10 — height, slope, and the feeling that softens", () =>
 
   test("the lift never lands on the repetition arm, and never on revision force", () => {
     const skill = note({ kind: "skill", uses: 10, feelingPeak: 1 });
-    // wRep x rep = 1.0 x 0.5 dominates the salience arm (0.4 x 0.4): no lift reaches it.
-    expect(base(skill)).toBeCloseTo(0.5, 10);
+    // wRep x rep (saturating since 2026-10-10: 0.5 x (1 - e^(-10/3)) ~ 0.48)
+    // dominates the salience arm (0.4 x 0.4): no lift reaches it.
+    expect(base(skill)).toBeCloseTo(TUNABLES.REP_CAP * (1 - Math.exp(-10 / TUNABLES.REP_SCALE_USES)), 10);
     const a = note({ kind: "entity", birthDay: 5, lastUsedDay: 5 });
     const b = note({ kind: "entity", birthDay: 5, lastUsedDay: 5, feelingPeak: 1 });
     // Force = strength x sal: the lift raises the strength factor only.

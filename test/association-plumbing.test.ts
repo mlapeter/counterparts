@@ -490,7 +490,18 @@ describe("(b) the boundary's row carries the score, and the probe reads the hit 
       [loud]: { turn: 1, tier: "surfaced", trains: true },
       [foot]: { turn: 1, tier: "footnoted", trains: true },
     });
-    a.stop(input({ expansions: [{ atTurn: 2, ids: [foot] }] }));
+    // The reply OPENS the footnote and does not draw on the loud memory's
+    // words: since the engaged door (2026-10-10, G1b), a reply restating the
+    // loud memory's rare words would count it used.
+    a.stop(
+      input({
+        turns: [
+          { role: "user", text: "Where did we land on the storage split?" },
+          { role: "assistant", text: "Let me open the one I need first." },
+        ],
+        expansions: [{ atTurn: 2, ids: [foot] }],
+      }),
+    );
     const payload = JSON.parse(c.store.eventLog({ name: RECALL_CREDIT_EVENT }).at(-1)?.payload ?? "{}") as Record<string, unknown>;
     expect(payload["shownLoud"]).toBe(1);
     expect(payload["shownFootnotes"]).toBe(1);

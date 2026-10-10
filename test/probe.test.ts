@@ -14,7 +14,7 @@ import { EXIT, run } from "../src/adapters/cli/commands.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT } from "../src/core/counterpart.js";
 import { probeOQ4, renderProbe } from "../src/core/recall/probe.js";
-import { FOOTNOTE_HEADER_STEP_0, FOOTNOTE_HEADER_STEP_1, FRAMING, clip } from "../src/core/recall/render.js";
+import { FOOTNOTE_HEADER_STEP_0, FOOTNOTE_HEADER_STEP_1, FOOTNOTE_HEADER_STEP_2, FRAMING, clip } from "../src/core/recall/render.js";
 import { TUNABLES as RECALL } from "../src/core/recall/tunables.js";
 import { Store } from "../src/core/store/index.js";
 
@@ -119,11 +119,17 @@ describe("probeOQ4 (pure)", () => {
 });
 
 describe("the probe's one string, and the title cap", () => {
-  test("the footnote header is at step 1 and step 0 is kept beside it, so the step reverses by one line", () => {
-    expect(FRAMING.footnoteHeader).toBe(FOOTNOTE_HEADER_STEP_1);
+  test("the footnote header is at step 2 (G1b, 2026-10-10) and steps 0 and 1 are kept beside it, so the step reverses by one line", () => {
+    expect(FRAMING.footnoteHeader).toBe(FOOTNOTE_HEADER_STEP_2);
     expect(FOOTNOTE_HEADER_STEP_0).toBe("Quietly available (ignorable):");
     expect(FOOTNOTE_HEADER_STEP_1.startsWith("Quietly available (ignorable")).toBe(true);
     expect(FOOTNOTE_HEADER_STEP_1).toContain("expand an id with recall before citing one");
+    // Step 2 no longer tells the model to ignore what it may draw on, keeps the
+    // open-before-relying instruction, and keeps the opening the sidebar mod
+    // finds the footnote lane by (`hooks/sidebar/hooks/feed.ts`).
+    expect(FOOTNOTE_HEADER_STEP_2).not.toContain("ignorable");
+    expect(FOOTNOTE_HEADER_STEP_2.startsWith("Quietly available")).toBe(true);
+    expect(FOOTNOTE_HEADER_STEP_2).toContain("open an id before relying");
   });
 
   test("a footnote title renders whole up to 150 bytes, where 80 clipped it mid-clause", () => {

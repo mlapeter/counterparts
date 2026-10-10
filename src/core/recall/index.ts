@@ -669,7 +669,16 @@ export class Recall {
     // wake, and the display decides as for any other use.
     const cued =
       opts.cued === true && surfaced !== undefined && surfaced.tier === "surfaced" && surfaced.turn === state.turn;
-    const outcome = this.store.reinforce(memoryId, today, tier, cued ? { cued: true } : {});
+    // A HIGHER TIER LIFTS TODAY'S LOWER ONE (2026-10-10, G1b): an engaged
+    // credit earlier this lived day, then an expansion, is one day credited at
+    // the expansion's tier — not a refusal. Only this session's record can say
+    // so; another session's engaged credit today still refuses physics'
+    // `already-credited-today` (lightly held: rare, and it under-credits).
+    const upgradeFrom = upgradeOf(prior, today, w);
+    const outcome = this.store.reinforce(memoryId, today, tier, {
+      ...(cued ? { cued: true } : {}),
+      ...(upgradeFrom === undefined ? {} : { upgradeFrom }),
+    });
     if (outcome.credited) {
       state.credited[memoryId] = { turn: state.turn, tier, day: today };
     }
@@ -756,8 +765,12 @@ export class Recall {
       if (state.surfaced[copy]?.trains === false) continue;
       const prior = state.credited[copy];
       if (prior !== undefined && prior.day === today && USE_TIER_WEIGHT[prior.tier] >= w) continue;
+      const upgradeFrom = upgradeOf(prior, today, w);
       try {
-        const out = this.store.reinforce(copy, today, tier, cued ? { cued: true } : {});
+        const out = this.store.reinforce(copy, today, tier, {
+          ...(cued ? { cued: true } : {}),
+          ...(upgradeFrom === undefined ? {} : { upgradeFrom }),
+        });
         this.emit("recall.credit", copy, { tier, w, credited: out.credited, reason: out.reason, via: "chapter" });
         if (!out.credited) continue;
         state.credited[copy] = { turn: state.turn, tier, day: today };
@@ -845,6 +858,13 @@ export class Recall {
       });
     }
   }
+}
+
+/** The lower tier credited earlier this lived day that a use at weight `w` lifts, if any. */
+function upgradeOf(prior: { tier: UseTier; day: number } | undefined, today: number, w: number): UseTier | undefined {
+  if (prior === undefined || prior.day !== today) return undefined;
+  const from = USE_TIER_WEIGHT[prior.tier];
+  return from > 0 && from < w ? prior.tier : undefined;
 }
 
 function trainsOf(verdicts: readonly CandidateVerdict[], id: string): boolean {

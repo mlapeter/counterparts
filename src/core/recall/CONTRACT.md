@@ -118,8 +118,21 @@ reply actually used reconsolidates, where in humans every retrieval does.
   also scores what ambient recall showed since the session's last scored boundary: by
   lane, how many a reply expanded or quoted and which it did not (NOTES §28). Measurement
   only; nothing trains on a miss.*
+  **A third door, 2026-10-10 (G1b): DREW ON.** *Revised by b2+f8, 2026-10-10, from Mike's
+  09-14 ruling, lightly held. Why: deposit can't work otherwise; the ~0.8 precision bar and
+  the saturating cap keep the anti-rich-get-richer intent.* A footnoted or loud memory shown
+  on the judged stretch (or the two recall turns before it) is credited at the `engaged`
+  tier (half a use, half a return, no core-lane day) when the replies carry a RARE title
+  phrase (in their text or their tool-call inputs) or two rare title words (in their text),
+  new to what the person typed (`reference.ts#resolveEngagement`; rare = in at most 3% of
+  the live store, by the index's own df). No model call, no body read; at most 3 per
+  boundary; once per lived day; never a superseded or faded-under-newer memory; never
+  for being shown. Each credit on the row says how it was earned (`how`, aligned with
+  `ids`: `expanded` / `quoted` / `engaged`). Measured precision and the method: NOTES §29.
 - **Framing is load-bearing and part of the spec** — footnotes are pointers, and the "quietly
   available / ignorable" phrasing is a deliberate probe question, at step 1 since 2026-09-14
+  and at step 2 since 2026-10-10 ("in the background; draw on what helps, open an id before
+  relying on one" — no longer "ignorable", since drawing on one now earns it credit)
   (§7 OQ4). [v1 §9 G17]
 - **A chapter is recallable and is LABELED, at every door.** An `epi_` row is the
   first-person account a memory was made from, not a memory: it sits outside every sleep
@@ -244,7 +257,9 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    only in the owner's own session; withholding is *stated* for a direct lookup and silent in
    a list.
 10. **[M]** Reference credit is precision-biased, never downgrades an already-credited item,
-    and is a no-op under observer.
+    and is a no-op under observer. Display never trains; engagement does (2026-10-10): a
+    lower tier credited earlier the same lived day is LIFTED by a higher one in the same
+    session (`physics#creditUse`'s `upgradeFrom`), never the other way.
 11. **[M]** Under observer, recall computes and renders normally and strengthens nothing —
     checked first, before any other work (scar E7).
 12. **[M]** Per-session gate state has a defined store and lifetime, and a test asserts the
@@ -447,6 +462,11 @@ nothing about what is recallable or ranked moves. Episodes record their director
    measurement is `probe.ts` / `counterparts probe-oq4`: per calendar date, footnotes
    delivered (`recall.decision`) vs. later expanded by id (`recall.credit.expandedIds`),
    and since 2026-10-09 a hit rate by lane from the credit row's own score (NOTES §28).
+   **Step 2, 2026-10-10 (G1b):** "Quietly available (in the background; draw on what
+   helps, open an id before relying on one):" — the engaged tier rewards drawing on a
+   footnote, so the header stops calling it ignorable; the "Quietly available" opening
+   stays (the sidebar mod keys on it). Read `probe-oq4` and the credit row's `engaged`
+   count after ~5 lived days.
    Reversible by one string; the owner rules on the reading, not this file.
 5. ~~**The absolute floors have never fired in v2, and the loud tier needs them.**~~
    **ANSWERED 2026-09-04. The floors are in cue units now, and the "cue-count half" was

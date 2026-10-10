@@ -506,6 +506,8 @@ export function toHookInput(
     scope,
     turns: transcript.turns,
     expansions: transcript.expansions,
+    // What the replies DID, for the engaged door (2026-10-10, G1b).
+    ...(transcript.toolInputs === undefined ? {} : { toolInputs: transcript.toolInputs }),
     // A named transcript that would not read is not an empty conversation.
     ...(transcriptPath !== undefined && !transcript.ok ? { turnsUnread: true } : {}),
     // THE PATH ITSELF, beside the parse of it. The delivery check reads the head

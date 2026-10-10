@@ -1890,12 +1890,18 @@ export class Store {
        * decides.
        */
       cued?: boolean;
+      /**
+       * A lower tier this memory was credited at earlier THIS lived day, which
+       * this use lifts (`physics.creditUse`, 2026-10-10). Only the caller that
+       * recorded the earlier credit knows it (recall's gate state).
+       */
+      upgradeFrom?: UseTier;
     } = {},
   ): CreditOutcome & { ret: ReturnOutcome | null } {
     const outcome = this.mutate("reinforce", () => {
       const row = this.requireRow(id);
-      const physics = rowToPhysics(row);
-      const verdict = creditUse(physics, day, tier);
+      let physics = rowToPhysics(row);
+      const verdict = creditUse(physics, day, tier, opts.upgradeFrom === undefined ? {} : { upgradeFrom: opts.upgradeFrom });
       let ret: ReturnOutcome | null = null;
       if (verdict.credited) {
         this.ops.run(
@@ -1907,12 +1913,23 @@ export class Store {
           verdict.next.reinforcedDays,
           id,
         );
-        ret = creditReturn(physics, day, {
-          source: "awake",
-          tierWeight: verdict.w,
-          onDisplay: opts.cued !== true && this.shownInHints(id, day),
-          since: this.legacyLastReturn(id),
-        });
+        // AN ENGAGED USE (2026-10-10, G1b) is half a return of its own source,
+        // outside the core lanes. A use that LIFTS today's engaged credit takes
+        // its return back first, so the day's one return is the higher one.
+        if (opts.upgradeFrom === "engaged" && tier !== "engaged") {
+          this.ops.run("DELETE FROM returns WHERE memory_id = ? AND day = ? AND source = 'engaged'", id, day);
+          this.recomputeReturns(id);
+          physics = rowToPhysics(this.requireRow(id));
+        }
+        ret =
+          tier === "engaged"
+            ? creditReturn(physics, day, { source: "engaged", since: this.spacingSince(id) })
+            : creditReturn(physics, day, {
+                source: "awake",
+                tierWeight: verdict.w,
+                onDisplay: opts.cued !== true && this.shownInHints(id, day),
+                since: this.spacingSince(id),
+              });
         if (ret.counted) this.writeReturn(id, day, ret, null);
       }
       return { ...verdict, ret };
@@ -1938,7 +1955,7 @@ export class Store {
   replayReturn(id: string, day: number, dreamId: string): ReturnOutcome {
     const outcome = this.mutate("replayReturn", () => {
       const row = this.requireRow(id);
-      const ret = creditReturn(rowToPhysics(row), day, { source: "dream", since: this.legacyLastReturn(id) });
+      const ret = creditReturn(rowToPhysics(row), day, { source: "dream", since: this.spacingSince(id) });
       if (ret.counted) this.writeReturn(id, day, ret, dreamId);
       return ret;
     });
@@ -1965,7 +1982,7 @@ export class Store {
         null;
       const ret = creditReturn(rowToPhysics(row), day, {
         source: "reflection",
-        since: this.legacyLastReturn(id),
+        since: this.spacingSince(id),
         lastReflectionDay: last,
       });
       if (ret.counted) this.writeReturn(id, day, ret, null);
@@ -1975,11 +1992,18 @@ export class Store {
     return outcome;
   }
 
-  /** The last day of a LEGACY return the upgrade credited (spacing reads it; the lanes never do). */
-  private legacyLastReturn(id: string): number | null {
+  /**
+   * The last day of a return the physics fields do not carry, which spacing
+   * still measures from (the lanes never read it): a LEGACY return the v8
+   * upgrade credited, or an ENGAGED one (2026-10-10, G1b — no column, so
+   * "spaced like the others" reads it off the table).
+   */
+  private spacingSince(id: string): number | null {
     return (
-      this.ops.get<{ d: number | null }>("SELECT MAX(day) AS d FROM returns WHERE memory_id = ? AND source = 'legacy'", id)?.d ??
-      null
+      this.ops.get<{ d: number | null }>(
+        "SELECT MAX(day) AS d FROM returns WHERE memory_id = ? AND source IN ('legacy', 'engaged')",
+        id,
+      )?.d ?? null
     );
   }
 
