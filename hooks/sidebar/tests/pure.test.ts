@@ -481,11 +481,18 @@ describe('the body, laid out', () => {
     expect(lines.some(l => l.startsWith('Memories') || l.startsWith('Saved'))).toBe(false)
   })
 
-  test('folding to fit: saved items to one line, then fewer, then their heading; the dream shortens; a folded section keeps its heading and count', () => {
+  test('folding to fit: saved items fewer, one at a time, each keeping its two lines, then their heading; the dream shortens; a folded section keeps its heading and count', () => {
     const many = Array.from({ length: 9 }, (_, i) => ({ ...BASE.saved[1]!, key: `k${String(i)}`, title: `Saved item ${String(i)} with a title long enough to wrap twice over` }))
     expect(layoutBody({ ...BASE, saved: many, rows: 60 }).folds).toEqual([])
     const tall = layoutBody({ ...BASE, saved: many, rows: 40 })
-    expect(tall.folds).toEqual(['saved 1 line each'])
+    expect(tall.folds).toEqual(['saved shows 5'])
+    // never one line each, cut: every item shown keeps its words (two lines here), its dot on the first only
+    const t = textOf(tall.lines)
+    const s0 = t.findIndex(l => l.startsWith('Saved this session'))
+    expect(t.slice(s0 + 1, s0 + 11)).toEqual(Array.from({ length: 5 }, (_, i) => [`● Saved item ${String(i)} with a title long`, 'enough to wrap twice over']).flat())
+    expect(t.some(l => l.startsWith('● ') && l.endsWith('…'))).toBe(false)
+    // two rows fewer take one item away, its two lines, rather than a line from each
+    expect(layoutBody({ ...BASE, saved: many, rows: 38 }).folds).toEqual(['saved shows 4'])
     const short = layoutBody({ ...BASE, saved: many, rows: 29 })
     const lines = textOf(short.lines)
     expect(lines.length).toBeLessThanOrEqual(29)
@@ -508,7 +515,8 @@ describe('the body, laid out', () => {
     ] }
     const lines = textOf(layoutBody({ ...BASE, mech }).lines)
     const f = lines.findIndex(l => l.startsWith('Forgetting'))
-    expect(lines.slice(f + 1, f + 4)).toEqual(['faded at 8:07:', 'Writer and reflection are diffe…', 'Tiny Castles run 4 counterpart…'])
+    // each firing's title on up to two lines, back at the left edge
+    expect(lines.slice(f + 1, f + 6)).toEqual(['faded at 8:07:', 'Writer and reflection are', 'different jobs; both write the…', 'Tiny Castles run 4 counterpart', 'playtest: top findings'])
     const dream = textOf(layoutBody({ ...BASE, open: { key: 'dream', status: 'ready', title: null, text: '', meta: null, at: T0 } }).lines)
     const w = dream.indexOf('what changed last night:')
     expect(dream.slice(w + 1, w + 3)).toEqual(['merged 3 near-copies into one', '4 memories faded'])

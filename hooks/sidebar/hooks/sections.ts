@@ -61,6 +61,14 @@ const BAR_K = 0.84
  */
 export const EXPAND_MAX_LINES = 12
 
+/**
+ * A saved item's title, and a mechanism's firing, take up to this many lines:
+ * readable words over many cut ones (Subconscious alone stays one line an
+ * item, up to four, by Mike's decision of 2026-10-10).
+ */
+const SAVED_LINES = 2
+const EVENT_LINES = 2
+
 export type Seg = { t: string; c: string; b?: true; i?: true }
 /** One row of the body: its pieces, and what a click on it names. */
 export type Line = { segs: Seg[]; key?: string }
@@ -170,7 +178,6 @@ type Fold = {
   /** Subconscious items shown; 0 folds it to its heading. */
   sub: number
   savedShow: number
-  savedLines: number
   savedFolded: boolean
   chartFolded: boolean
   events: number
@@ -181,15 +188,14 @@ type Fold = {
 }
 
 const FULL: Fold = {
-  memLines: 3, text: 99, sub: 4, savedShow: 99, savedLines: 2, savedFolded: false, chartFolded: false,
+  memLines: 3, text: 99, sub: 4, savedShow: 99, savedFolded: false, chartFolded: false,
   events: 6, dreamLines: 3, excerpt: 9, dreamFolded: false, mindFolded: false,
 }
 
 /** One fold of the ladder; `fold` when it folds a section to its heading. */
 type Step = { label: string; section: string; apply: (f: Fold) => Fold; fold: boolean }
 const step = (label: string, section: string, apply: (f: Fold) => Fold): Step => ({ label, section, apply, fold: label.endsWith('folded') })
-const savedLines1 = step('saved 1 line each', 'saved', f => ({ ...f, savedLines: 1 }))
-const savedTo = (n: number) => step(`saved shows ${String(n)}`, 'saved', f => ({ ...f, savedShow: Math.min(f.savedShow, n), savedLines: 1 }))
+const savedTo = (n: number) => step(`saved shows ${String(n)}`, 'saved', f => ({ ...f, savedShow: Math.min(f.savedShow, n) }))
 const savedFold = step('saved folded', 'saved', f => ({ ...f, savedFolded: true }))
 const subTo = (n: number) => step(`subconscious ${String(n)}`, 'sub', f => ({ ...f, sub: Math.min(f.sub, n) }))
 const dreamTo = (n: number) => step(`dream ${String(n)} lines`, 'dream', f => ({ ...f, dreamLines: Math.min(f.dreamLines, n) }))
@@ -200,22 +206,37 @@ const memTo = (n: number) => step(`memory titles ${String(n)} lines`, 'mind', f 
 const chartFold = step('chart folded', 'chart', f => ({ ...f, chartFolded: true }))
 const mindFold = step('memories folded', 'mind', f => ({ ...f, mindFolded: true, sub: 0 }))
 const dreamFold = step('dream folded', 'dream', f => ({ ...f, dreamFolded: true }))
-const SAVED_DOWN = [savedLines1, savedTo(3), savedTo(2), savedTo(1), savedFold]
+/**
+ * Saved items, fewer one at a time, each keeping its two lines; then the
+ * section folds to its heading. Never one line each: Mike would rather read
+ * fewer titles whole than many cut short (his standing complaint about v0.1,
+ * restated for v0.2 on 2026-10-10), so how many fit is the room's to decide,
+ * not a cut.
+ */
+function savedDown(n: number): Step[] {
+  return [...Array.from({ length: Math.max(0, n - 1) }, (_, i) => savedTo(n - 1 - i)), savedFold]
+}
+
+/** A mechanism's firings, fewer one at a time, each title keeping its two lines. */
+const EVENTS_DOWN = [eventsTo(5), eventsTo(4), eventsTo(3), eventsTo(2)]
 
 /**
  * WHAT FOLDS FIRST, per what is open (compose3.ts's ladder, Mike approved
- * its 160x48 result): saved items go to one line, then fewer, then the
- * section folds to its heading; then the dream shortens, the subconscious
- * shows fewer; the chart and the memories fold last. An opened item keeps
- * its room longest: the rest folds around it.
+ * its 160x48 result, less its "saved 1 line each" step): saved items go
+ * fewer, then the section folds to its heading; then the dream shortens, the
+ * subconscious shows fewer; the chart and the memories fold last. An opened
+ * item keeps its room longest: the rest folds around it.
  */
-const LADDERS: Readonly<Record<'default' | 'open' | 'mech' | 'dream', readonly Step[]>> = {
-  default: [...SAVED_DOWN, dreamTo(2), subTo(3), subTo(2), dreamTo(1), subTo(1), memTo(2), subTo(0), chartFold, mindFold, dreamFold],
-  // An item opens in place only when its text is short (EXPAND_MAX_LINES), so its text is the last to give way;
-  // the dream (two rows) folds before the chart (twelve).
-  open: [...SAVED_DOWN, dreamTo(1), subTo(1), subTo(0), dreamFold, chartFold, textTo(8), textTo(5)],
-  mech: [...SAVED_DOWN, dreamTo(1), mindFold, eventsTo(4), eventsTo(2), dreamFold, eventsTo(1)],
-  dream: [chartFold, excerptTo(7), excerptTo(5), excerptTo(3), ...SAVED_DOWN, subTo(1), subTo(0), mindFold],
+function ladders(s: BodyState): Readonly<Record<'default' | 'open' | 'mech' | 'dream', readonly Step[]>> {
+  const saved = savedDown(s.saved.length)
+  return {
+    default: [...saved, dreamTo(2), subTo(3), subTo(2), dreamTo(1), subTo(1), memTo(2), subTo(0), chartFold, mindFold, dreamFold],
+    // An item opens in place only when its text is short (EXPAND_MAX_LINES), so its text is the last to give way;
+    // the dream (two rows) folds before the chart (twelve).
+    open: [...saved, dreamTo(1), subTo(1), subTo(0), dreamFold, chartFold, textTo(8), textTo(5)],
+    mech: [...saved, dreamTo(1), mindFold, ...EVENTS_DOWN, dreamFold, eventsTo(1)],
+    dream: [chartFold, excerptTo(7), excerptTo(5), excerptTo(3), ...saved, subTo(1), subTo(0), mindFold],
+  }
 }
 
 // ── the sections ─────────────────────────────────────────────────────────────
@@ -291,8 +312,8 @@ function saved(s: BodyState, f: Fold): Line[] {
     const key = `saved:${it.key}`
     if (s.open?.key === key) out.push(...opened(s, key, it.title, f, seg('● ', stageDot(it.kind))))
     else {
-      // The stage dot on the first line only; wrapped lines go back to the left edge.
-      const ls = f.savedLines > 1 ? wrapN(it.title, s.w, f.savedLines, s.w - 2) : [clip(it.title, s.w - 2)]
+      // The stage dot on the first line only; wrapped lines go back to the left edge, two lines at most.
+      const ls = wrapN(it.title, s.w, SAVED_LINES, s.w - 2)
       ls.forEach((t, i) => {
         out.push(i === 0 ? line([seg('● ', stageDot(it.kind)), seg(t, P.hi)], key) : line([seg(t, P.text)], key))
       })
@@ -369,7 +390,7 @@ function mechEvents(s: BodyState, f: Fold): Line[] {
     if (s.open?.key === key) {
       if (e.memoryId === null && s.open.title === null) out.push(...plain(wrapN(e.text, s.w, f.text), P.hi, key, { b: true }))
       else out.push(...opened(s, key, e.title, f))
-    } else out.push(line([seg(clip(e.title, s.w), P.text)], key))
+    } else out.push(...plain(wrapN(e.title, s.w, EVENT_LINES), P.text, key))
   }
   return out
 }
@@ -387,7 +408,7 @@ function dream(s: BodyState, f: Fold): Line[] {
   if (d.changed.length > 0) {
     const lastNight = d.date === null || d.at === null || hm(d.at, s.now).includes(':')
     out.push(line([seg(lastNight ? 'what changed last night:' : 'what changed that night:', P.mid)], 'dream'))
-    out.push(...d.changed.map(t => line([seg(clip(t, s.w), P.text)], 'dream')))
+    out.push(...d.changed.flatMap(t => plain(wrapN(t, s.w, 2), P.text, 'dream')))
   }
   return out
 }
@@ -433,10 +454,11 @@ function joined(secs: readonly Line[][], gaps: boolean): Line[] {
 
 /** Which ladder: what is open decides what keeps its room. */
 function ladderFor(s: BodyState): readonly Step[] {
-  if (s.mech !== null) return LADDERS.mech
-  if (s.open?.key === 'dream') return LADDERS.dream
-  if (s.open !== null) return LADDERS.open
-  return LADDERS.default
+  const l = ladders(s)
+  if (s.mech !== null) return l.mech
+  if (s.open?.key === 'dream') return l.dream
+  if (s.open !== null) return l.open
+  return l.default
 }
 
 /**
