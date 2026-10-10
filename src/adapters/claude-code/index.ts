@@ -47,12 +47,12 @@ export type {
 
 export {
   stopAsk,
+  scopeAsk,
   BOUNDARY_KIND,
   ClaudeCodeAdapter,
   HOOKS,
   PAGE_WRITER_TOOL,
-  SCOPE_ASK,
-  SCOPE_ASK_BYTES,
+  SCOPE_ASK_OPEN,
   SESSION_ENDING,
   SPAWN_REFUSAL_PREFIX,
   SPAWN_START_COUNT_KEY,

@@ -62,6 +62,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 
+import { defaultConfigPath } from "./config-path.js";
 import { isPseudoScope } from "./hosts.js";
 
 /**
@@ -662,4 +663,81 @@ function rawScopes(path: string): string | null {
   } catch {
     return null;
   }
+}
+
+// ── the console line that changes a folder's setting, as text names it ──────
+
+/**
+ * WHAT A PRINTED `counterparts scope` LINE NEEDS TO WORK WHEREVER IT IS TYPED
+ * (#362, and the follow-up of 2026-10-10 that gave the MCP refusals and the
+ * first-launch question the same line). Each field is a way the line failed:
+ *
+ *   - `home`, to write a folder as `~/…` when that needs no quoting;
+ *   - `pluginRoot`: a plugin install puts no `counterparts` on PATH
+ *     (`commands/doctor.md`), so under the plugin the line is the plugin's own
+ *     launcher. Null for the npm install;
+ *   - `configPath`: `counterparts scope` writes the `scopes.json` beside the
+ *     configuration IT resolves, so a process that read another registry
+ *     (`--config`, `COUNTERPARTS_CONFIG`) names its configuration, or the line
+ *     changes the default registry, or refuses, and the folder stays as it
+ *     was. Null when the registry is the default's.
+ */
+export interface ScopeCommandContext {
+  readonly home: string;
+  readonly pluginRoot: string | null;
+  readonly configPath: string | null;
+}
+
+/**
+ * The context for a process that read `configPath`, which is kept only when its
+ * registry is not the one beside `defaultConfigPath(home)`. The caller says
+ * whether it is the plugin's (`plugin.ts#runningAsPlugin`), so this module
+ * reads no environment. Pure.
+ */
+export function scopeCommandContext(input: {
+  readonly configPath: string | undefined;
+  readonly pluginRoot: string | null;
+  readonly home: string;
+}): ScopeCommandContext {
+  const given = input.configPath ?? "";
+  const named = given.length === 0 || scopesPath(given) === scopesPath(defaultConfigPath(input.home)) ? null : given;
+  const root = (input.pluginRoot ?? "").trim();
+  return { home: input.home, pluginRoot: root.length === 0 ? null : root, configPath: named };
+}
+
+/**
+ * The console line that sets `folder` with `flag` (`--resume`, `--on`, …),
+ * ready to print between backticks. The folder is always NAMED, never `.`:
+ * `.` is wherever the line is typed — another terminal, or a shell that moved
+ * — and from a subfolder of the entry that paused it `--resume` is refused. So
+ * the caller passes the folder the line is for: the entry that decided
+ * (`ScopeVerdict.matched`), or the folder itself. `--config <path>` is two
+ * words, so an unquoted `~/…` expands (`--config=~/…` would not). Pure.
+ */
+export function scopeCommand(folder: string, flag: string, ctx: ScopeCommandContext): string {
+  const target = shellWord(canonicalScopePath(folder), ctx.home);
+  const config = ctx.configPath === null ? "" : ` --config ${shellWord(ctx.configPath, ctx.home)}`;
+  return ctx.pluginRoot === null
+    ? `counterparts scope ${target} ${flag}${config}`
+    : `sh ${shellWord(join(ctx.pluginRoot, "src", "adapters", "plugin-run.sh"), ctx.home)} cli scope ${target} ${flag}${config}`;
+}
+
+/** `path` with the home directory as `~`, for reading. Both spellings of home
+ *  are tried, since `path` often arrives canonical (realpathed). */
+export function shortPath(path: string, home: string): string {
+  for (const h of new Set([resolve(home), canonicalScopePath(home)])) {
+    if (path === h) return "~";
+    if (path.startsWith(`${h}/`)) return `~${path.slice(h.length)}`;
+  }
+  return path;
+}
+
+/** `path` as one shell word: `~/…` when that needs no quoting (a quoted `~`
+ *  does not expand), else the absolute path, single-quoted only if it must be. */
+export function shellWord(path: string, home: string): string {
+  const plain = /^[A-Za-z0-9_./@%+=:,-]+$/;
+  const short = shortPath(path, home);
+  if (short !== path && (short === "~" || plain.test(short.slice(1)))) return short;
+  if (plain.test(path)) return path;
+  return `'${path.replace(/'/g, "'\\''")}'`;
 }

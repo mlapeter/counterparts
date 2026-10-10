@@ -416,7 +416,7 @@ measured displaying at both events (`SAYS_SO_HOOKS`); the host's reference lists
 turn's recall rides whole in `hookSpecificOutput.additionalContext` (`hookEventName:
 "UserPromptSubmit"`); a turn with no recall prints the `systemMessage` alone; a prompt with
 no notice prints exactly what it printed before. The size rule is SessionStart's: over
-`ENVELOPE_MAX_CHARS` the recall wins, the plain recall is printed, the notice is dropped
+`ENVELOPE_MAX_CHARS` (since 2026-10-10: a field past the host's cap, `bin/hook.ts#fieldsFit`) the recall wins, the plain recall is printed, the notice is dropped
 with an `adapter.notice.dropped` row — and, because the mark follows the envelope, it is not
 marked, so the next turn tries again. At a prompt the lines are ALL OR NOTHING — joined into
 the one `systemMessage`, or all dropped; SessionStart's priority order is SessionStart's

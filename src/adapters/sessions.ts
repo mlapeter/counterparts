@@ -886,6 +886,12 @@ export function pruneSessions(
     for (const name of readdirSync(sessionsDir(dataDir))) {
       const full = join(sessionsDir(dataDir), name);
       try {
+        // A DIRECTORY IS NEVER PRUNED HERE (review of #359): `log/`,
+        // `association/` and `claims/` keep their own contents and their own
+        // rules. This used to hold only because `rmSync` without `recursive`
+        // throws on a directory, which is not a rule anybody wrote down.
+        const st = statSync(full);
+        if (st.isDirectory()) continue;
         // A SERVER RECORD is kept for exactly as long as its server is
         // believed alive — its pid running AND its heartbeat fresh
         // (`serverBelieved`) — whatever its age: a session left open for a week
@@ -895,12 +901,12 @@ export function pruneSessions(
         // this way writes it again at its next beat.
         const serverPid = serverPidOf(name);
         if (serverPid !== null) {
-          if (serverBelieved(serverPid, statSync(full).mtimeMs, now)) continue;
+          if (serverBelieved(serverPid, st.mtimeMs, now)) continue;
           rmSync(full, { force: true });
           removed += 1;
           continue;
         }
-        if (now - statSync(full).mtimeMs <= maxAgeMs) continue;
+        if (now - st.mtimeMs <= maxAgeMs) continue;
         rmSync(full, { force: true });
         removed += 1;
       } catch {

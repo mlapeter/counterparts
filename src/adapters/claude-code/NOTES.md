@@ -466,6 +466,29 @@ own last line is telling the owner to run anyway. The alternative is a session
 that starts with no memory at all, and memory is the thing the session cannot be
 had without.
 
+**2026-10-10: measured, and the cap is per field.** On Claude Code 2.1.296, with 19
+`claude -p` probes in an isolated project, each checked against its session transcript
+(`~/counterparts-notes/2026-10-10-session-start-limits.md`): the 10,000-character cap
+applies to each STRING FIELD (`additionalContext`, `systemMessage`) and to plain stdout,
+not to the JSON stdout as a whole; it counts characters (9,800 accented characters, 23,483
+bytes, arrived whole); exactly 10,000 passes. An over-long envelope parses: a 12,637-
+character escape-heavy one carrying a 9,900-character field, and a 10,488-character one in
+this hook's own shape (`systemMessage` 376 + `additionalContext` 9,910), both arrived with
+every field whole. A field past 10,000 is replaced by a ~2,000-character preview and a file
+path, and the JSON still parses. The current docs say the same ("For JSON output, each field
+is measured separately"). Whether the 09-14 host behaved the 09-14 way was never measured.
+So `ENVELOPE_MAX_CHARS` (9,500 of whole envelope) is gone: `bin/hook.ts#fieldsFit` holds
+the model's text and the person's line each to `TUNABLES.HOST_OUTPUT_CHARS`, the one place
+the host's number lives, and the notice is kept whenever both fit — on the measured 9,038-
+byte red morning it now shows. The adapter sizes the same way (`hooks.ts#sessionStart`'s
+room and `recallRoom`): the model's field in bytes against the cap in either form, the
+person's lines costing it nothing, and no escape reserve (`ENVELOPE_ESCAPE_RESERVE` and
+`envelope.ts#escapedBytes` went too). What follows in practice: a plain reminder, the dream
+offer and the update notice ride beside a full wake or a full recall instead of waiting for a
+roomier turn; they wait only when the model's own field would pass the cap. The
+`adapter.notice.dropped` row keeps its shape: `envelopeChars` is still the whole object's
+length, a fact for the record, and `limitChars` is now the per-field cap.
+
 ## "Newest row" can be unknown, and says so (2026-09-14)
 
 `Store.eventLog` is `ORDER BY seq ASC LIMIT` (the missing DESC read is filed in
@@ -2284,6 +2307,137 @@ INTERFACE-GAPS §15.
   lines, because the claim that would dedupe them is a write a paused folder may not make.
   A second claim outside the store was not built (guards loose-first); doctor's "Installed
   twice" line is what names that shape.
+
+## 2026-10-10 — every printed `counterparts scope` line names its folder (follow-up to #362)
+
+- **What was left.** #362 named the folder in the paused notice. Two other texts a model
+  reads still said `.`: the MCP refusal in an off or paused folder (`hosts.ts`, "run
+  `counterparts scope . --resume`") and the first-launch question (`hooks.ts`, "`counterparts
+  scope . --on`"). `.` is wherever the line is run: the model's shell after a `cd`, or
+  another terminal. From a subfolder of a paused entry, `--resume` is refused outright.
+- **One helper.** `scopes.ts#scopeCommand(folder, flag, ctx)` builds the line all three
+  print, with #362's `shortPath`/`shellWord` moved beside it. `ScopeCommandContext` carries
+  `home`, the plugin's root (its launcher, since a plugin install puts no `counterparts` on
+  PATH) and the configuration to name with `--config` when the registry read is not the
+  default's (`scopeCommandContext`). The hook builds it once (`bin/hook.ts#hookScopeContext`)
+  for the paused notice and the adapter (`AdapterOptions.scopeCommand`); `mcp/bin/serve.ts`
+  builds it for the server (`McpServerOptions.scopeCommand`). Absent (tests, embedders): the
+  npm install's `counterparts`, with `--config` only for a non-default `configPath`.
+- **The refusal names the entry that set it.** `HostWording.offRefusal`/`pausedRefusal` are
+  functions of a `RefusalPlace` now (`hosts.ts` cannot import `scopes.ts`, which imports it,
+  so the lines arrive built). Own entry: "paused for this directory (~/p) … call `scope`
+  with mode `resume`, or run `counterparts scope ~/p --resume`". A parent's pause: "paused
+  for ~/p, which includes this directory (~/p/sub) … run `counterparts scope ~/p --resume`",
+  and it says the `scope` tool sets only this directory (its `resume` refuses there, its
+  `on` turns this one on alone). A parent's `off` offers both lines: this folder alone, or
+  the whole parent. Desktop's `claude-desktop:` is never inherited and keeps its own words.
+- **The first-launch question** names the session's folder. An `unset` folder has no entry
+  above it, so there is nothing inherited to name instead. Its bytes are measured from the
+  text it prints (`SCOPE_ASK_BYTES` is gone with the constant).
+- **Proved.** A refusal's printed line, run through the console from another directory,
+  resumes the parent and the next call is served (`scopes.test.ts`); the healthy
+  SessionStart stdout in `hook-standdown.test.ts` now carries the run's folder and
+  `--config`.
+
+## 2026-10-10 — the claims file, after #359's review
+
+- **A file that is not a database is set aside and made again, once.** Before, a corrupt or
+  foreign `hook-claims.sqlite` failed every claim: a "delivered unclaimed" line on stderr at
+  every event, and the backstop off until somebody deleted the file. Now the write that meets
+  `SQLITE_NOTADB`, `SQLITE_CORRUPT` or `SQLITE_IOERR_SHORT_READ` (`db.ts#isUnreadableDatabase`)
+  checks the path still holds the file it met (a twin may have rebuilt it already), moves it
+  with its `-wal` and `-shm` to `hook-claims.unreadable-<epoch ms>.sqlite` beside it, then removes any
+  older copy, and runs the transaction once more on a fresh file. Fail-open still: a
+  set-aside that cannot be made, or a second failure, delivers unclaimed as before.
+  **Review of #366: two twins meeting one bad file.** Both passed the still-unreadable
+  check; the one that lost the move threw ENOENT (on macOS, `SQLITE_IOERR_VNODE` when its
+  open file was moved) and delivered unclaimed beside the winner, in 30 of 30 rounds, and
+  because older copies were removed before the move it once removed the winner's copy. Now
+  a move that finds the file gone returns no copy, `SQLITE_IOERR_VNODE` also retries once,
+  and older copies go after the move: 40 of 40 rounds one delivery, every copy kept
+  (`hook-claim.test.ts`, "two twins meet one bad file"). CI's macOS runner then met
+  `SQLITE_IOERR_FSTAT` in that test, and under load (12 busy loops) about 1 round in 70 still
+  delivered twice: both twins checked the file and then moved it, so the later one moved the
+  first one's NEW file, or its `-wal`. Now: (a) each write notes which file (device and inode)
+  it met, and when a write fails and the path holds another file or none, a twin moved it,
+  whatever the driver called that, and the write runs once more on the twin's file; (b) only
+  the twin that makes `hook-claims.setting-aside/` beside the file moves it, sidecars first
+  while the bad file still holds the path, then the file; a twin that finds the lock waits up
+  to `CLAIM_WAIT_MS` for the file to go, then tries the new one; a lock older than 5 s is a dead
+  holder's and is taken over. The still-unreadable probe went, and with it the 0644 file it
+  could create. Measured after: macOS under 12 busy loops 0 doubles in 2,400 rounds (1 in 800
+  in a run where a wait likely passed its 500 ms), quiet 0 in 200; Linux, 2 CPUs and 2 busy
+  loops (`cp-ci-linux` container), 0 in 450.
+  **Second reading of that: a dead holder's lock.** Taking it over was a stat, a remove and a
+  make, so two twins that both judged it stale both took it (the second's remove took the
+  first's NEW lock), and a twin that looked between the other's remove and make found no
+  lock and did not wait: with a stale lock beside a bad file, 40 and 49 rounds in 300
+  delivered twice on macOS (`ENOENT`, `EFAULT` from the `finally`'s remove, `SQLITE_NOTADB`).
+  And nothing removed a stale lock while the file was healthy, so from then on every busy
+  write waited for it as well — about 1.6 s per write where 0.55 s is the bound. Now: (a) the
+  takeover renames the old lock to `.stale-<pid>` (of twins that judged one lock stale, one
+  rename finds it), removes it only if it IS the lock judged stale, and puts a twin's fresh
+  one back (removing it itself once the file has gone, since that twin may have looked to let
+  go of it in the instant it was off); (b) a twin that finds no lock tries once more to take
+  it; (c) the holder lets go with `rmdir`, only of the lock it made, and never throws doing so;
+  (d) a lock older than 5 s is no twin at work, so nothing waits on it; (e) a write that met
+  another error with no lock in sight looks at the file once more, because a twin moves the
+  file before it lets go of the lock (under load about 1 round in 1,500 delivered twice,
+  `SQLITE_IOERR_VNODE`, before this). Measured after, the stale-lock variant of the twins
+  test ("… AND a dead holder's set-aside lock", 300 rounds): macOS quiet 0 in 1,500, under 12
+  busy loops 0 in 4,800 (and the fresh twins at 300 rounds 0 in 1,500); Linux, 2 CPUs and 2
+  busy loops, 0 in 1,500.
+  **A known limit, not fixed:** the holder checks the path still holds the file it met and
+  then renames it, sidecars first, without looking again. A holder suspended between the two
+  for more than `SET_ASIDE_STALE_MS` (a machine put to sleep at that instant) can have its
+  lock taken over, the file set aside and made again by the next one, and then, waking, move
+  that NEW file and its `-wal` aside: one more delivery, and that set of claims lost. It
+  needs a sleep inside a window of a few system calls, while a twin meets a bad file.
+  `SQLITE_IOERR_SHORT_READ` is in the list because that is what a garbage file reads as when
+  a WAL from the healthy one is still beside it, which on macOS it is: Apple's SQLite keeps
+  `-wal` and `-shm` after the last connection closes (measured while writing the test). So
+  the sidecars move with the file; a stale log replayed into the new file would be the same
+  fault again.
+- **The trace.** The copy itself, named by when. Doctor reads it (`claim.ts#claimsSetAside`)
+  and says `Hook claims` (amber) for a week after, naming the copy and that every event was
+  still delivered. A new durable event name was not added for it (a core change for one
+  rare fact); the hook says it once on stderr.
+- **The `process.end` line keeps the reason.** `unclaimed` was the error's message, which the
+  log writes as its length (`[text:9]`). It is the error's code now (`Claim.code`:
+  `SQLITE_BUSY`, `SQLITE_NOTADB`, `EEXIST`, …; `node:sqlite`'s number as `SQLITE_<n>`), and
+  a rebuild adds `claimsSetAside: true`.
+- **The week-old prune skips directories by rule** (`sessions.ts#pruneSessions`): `log/`,
+  `association/` and `claims/` were kept only because `rmSync` without `recursive` throws on
+  a directory.
+- **Private like `log/`.** The directory is made 0700 and the file is created 0600 before
+  SQLite opens it, so its `-wal` and `-shm` take 0600 too (SQLite gives them the database
+  file's mode; the test holds a reader open so they exist to check). Only at creation, as
+  `log/` does: a directory an earlier build made stays as it is.
+
+## 2026-10-10 — a late twin got through at SessionStart (the 0.3.15 release check)
+
+- **What was measured.** The release check wired two settings hooks for one build in a
+  throwaway HOME, so the plugin's gate could not stop either, and fired every event on both
+  at once. On a quiet machine 5 of 5 sessions delivered once at every event. With the suite
+  loading the machine, the first session delivered two wakes at SessionStart; its other
+  three events claimed correctly. The second hook's `performance.timeOrigin` was 45 ms after
+  the first had finished, so the twin rule (started before the holder finished) read a new
+  event. Not a gap in claim/finish ordering, and not a SessionStart path that skips the
+  claim: only `off`/`paused` and the plugin gate return before it.
+- **The fix, contained.** Some events the host sends once per key: a SessionStart whose
+  `source` opens a session id (`startup`, `clear`, `fork` — each a new id) and a prompt with
+  its `prompt_id`. For those (`claim.ts#firesOnce`, `ClaimInput.once`) a same-key process
+  inside the 15 s window is a twin whenever it started. The events that can repeat with
+  the same key — `resume`, `compact`, Stop, SessionEnd, PreCompact, a prompt with no id —
+  keep the start-time rule, because #355's review made "a repeat is never swallowed" the
+  rule and its tests run those back to back. A general grace period was looked at and not
+  taken: it would swallow exactly those repeats.
+- **What stays true.** For the repeatable events a twin whose runtime starts after the
+  holder finished still delivers. The plugin's stand-down (`plugin.ts#hookGate`) is the
+  main guard; the claim is a backstop. Doctor's `Installed twice` line said "so nothing was
+  delivered twice", which it cannot see; it now says the claim is a backstop that counts
+  the twins it stopped. Its fix text names `~/.claude/settings.json` too, where the release
+  check had both wirings.
 
 ## 2026-10-10 — doctor's Wake line: a dated item the wake did not list is amber
 

@@ -71,7 +71,7 @@ import {
 import type { BuildStamp } from "../src/adapters/sessions.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import type { ClaudeCodeAdapter } from "../src/adapters/claude-code/index.js";
-import { ENVELOPE_MAX_CHARS, hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
+import { hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 
 const SESSION = "sess_gate_1";
 
@@ -938,12 +938,27 @@ describe("hostDelivery at a prompt — the update notice's channel", () => {
     expect(JSON.parse(out.stdout)).toEqual({ systemMessage: UPDATE_NOTICE });
   });
 
-  test("recall that leaves no room keeps the recall whole and reports the notice dropped", () => {
+  test("each field is measured on its own: a 9,440-character recall still carries the notice, though the envelope is longer", () => {
+    // Measured 2026-10-10 (Claude Code 2.1.296): the cap is per field, and an
+    // envelope past 10,000 parses. Until then this recall dropped the notice.
     const recall = `${"r".repeat(79)}\n`.repeat(118);
+    const out = hostDelivery("user-prompt-submit", { injection: recall, ask: null }, {}, UPDATE_NOTICE);
+    expect(out.dropped).toBeNull();
+    expect(out.stdout.length).toBeGreaterThan(9_500);
+    expect(JSON.parse(out.stdout)).toEqual({
+      systemMessage: UPDATE_NOTICE,
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext: recall },
+    });
+  });
+
+  test("recall past the host's cap keeps the recall whole and reports the notice dropped", () => {
+    const recall = `${"r".repeat(79)}\n`.repeat(126);
+    expect(recall.length).toBeGreaterThan(10_000);
     const out = hostDelivery("user-prompt-submit", { injection: recall, ask: null }, {}, UPDATE_NOTICE);
     expect(out.stdout).toBe(recall);
     expect(out.dropped?.noticeChars).toBe(UPDATE_NOTICE.length);
-    expect(out.dropped?.envelopeChars).toBeGreaterThan(ENVELOPE_MAX_CHARS);
+    expect(out.dropped?.limitChars).toBe(10_000);
+    expect(out.overCap).toEqual({ chars: recall.length, limitChars: 10_000 });
   });
 
   test("no other event carries it", () => {

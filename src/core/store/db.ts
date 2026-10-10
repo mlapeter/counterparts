@@ -203,6 +203,32 @@ export function isLocked(err: unknown): boolean {
 }
 
 /**
+ * SQLITE_NOTADB / SQLITE_CORRUPT, under either driver's spelling: the file is
+ * there and is not a database this can read — its header (`file is not a
+ * database`) or a page (`database disk image is malformed`). And
+ * SQLITE_IOERR_SHORT_READ: a file shorter than its own log and index say,
+ * which is what a database file overwritten beside a WAL that outlived its
+ * connections (macOS's SQLite keeps it) reads as. Unlike `isLocked`, none of
+ * these passes by waiting. bun puts the name in `code`; `node:sqlite` puts the
+ * extended number in `errcode` (26, 11 and 522; the primary is the low byte)
+ * and the words in the message.
+ */
+export function isUnreadableDatabase(err: unknown): boolean {
+  const e = err as { code?: unknown; errcode?: unknown } | null | undefined;
+  const code = e?.code;
+  if (
+    typeof code === "string" &&
+    (code.startsWith("SQLITE_NOTADB") || code.startsWith("SQLITE_CORRUPT") || code === "SQLITE_IOERR_SHORT_READ")
+  ) {
+    return true;
+  }
+  const n = typeof e?.errcode === "number" ? e.errcode : -1;
+  if ((n & 0xff) === 26 || (n & 0xff) === 11 || n === 522) return true;
+  const message = String((err as Error)?.message ?? err);
+  return message.includes("file is not a database") || message.includes("database disk image is malformed");
+}
+
+/**
  * The journal mode a database file is in, on its own connection — opened, read,
  * closed, converting nothing. What `counterparts verify` and `doctor` print.
  *

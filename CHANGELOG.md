@@ -57,6 +57,39 @@
   the first 2,000 characters and is not told to look). Past 16,384 bytes a page is
   refused, never cut. Below a ceiling of about 530 bytes the wake is now larger than its
   ceiling, because of those fixed lines; the default is 9,000.
+- **Every `counterparts scope` command Claude is shown now names the folder.** In a
+  folder that is off or paused, the memory tools' refusal used to tell Claude to run
+  `counterparts scope . --resume`, and the question a new folder gets in its first session
+  said `counterparts scope . --on`. The `.` meant wherever the command was run, and from a
+  subfolder `--resume` refuses. Now the command names the folder, and when the setting
+  belongs to a parent folder it names that one ("paused for ~/work, which includes this
+  directory"). Under the plugin it uses the plugin's own launcher, and with a
+  configuration other than the default it adds `--config`, as the paused notice does.
+- **A red doctor notice now shows beside a full wake.** Measured on Claude Code 2.1.296:
+  the 10,000-character limit applies to each field of a hook's output, not to the output
+  as a whole. Counterparts held the whole output to 9,500 characters, so on a morning with
+  a full wake the doctor's notice was left out, and plain reminders, the dream question and
+  the update notice waited for a later turn. Now each field is held to the limit on its
+  own: they show beside a full wake or a full recall, and wait only when Claude's own text
+  would pass the limit.
+- **A damaged claims file repairs itself.** If `sessions/claims/hook-claims.sqlite`
+  can't be read as a database, the next hook moves it aside (one copy is kept) and makes a
+  new one, and the event is still delivered. Before, every event printed an error and the
+  guard against double delivery stayed off until someone deleted the file. Doctor's new
+  amber "Hook claims" line says when it happened, for a week. The claims folder and file
+  are now private to you (0700 and 0600), like the log, and the log says why a claim
+  could not be made instead of giving only the length of the message.
+- **With two installs live, a session's first start runs once even on a busy machine.**
+  The 0.3.15 release check found one double wake under load: the second hook started 45
+  ms after the first had finished, so its claim read it as a new event. A session's first
+  start, and a prompt Claude Code gives an id, are sent only once, so a second copy within
+  15 seconds now always steps aside. Doctor's "Installed twice" line no longer says
+  nothing was delivered twice; its fix also names `~/.claude/settings.json`.
+  A correction to the 0.3.15 notes, which said the claim "works between any two
+  versions": the plugin stepping aside is the main guard, and the claim is a backstop. It
+  catches a second hook that runs at the same time; for a resumed or compacted session, a
+  Stop, or a prompt without an id, one that starts after the first has finished can
+  still deliver again on a busy machine.
 - **Dated items come before the wake's furniture.** A wake could say "Arriving: 1 — no
   room to list them in this wake" while it still printed yesterday's chapter titles and
   four handoffs: the room held for the handoffs and "Last here" was never offered to the

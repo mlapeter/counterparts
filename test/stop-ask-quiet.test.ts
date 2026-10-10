@@ -25,7 +25,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { ENVELOPE_MAX_CHARS, HOST_STOP, hostDelivery, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
+import { HOST_STOP, hostDelivery, toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { loadConfig } from "../src/adapters/config.js";
 import { STOP_HUMAN_LINE, stopAsk, substanceOf } from "../src/adapters/claude-code/hooks.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
@@ -768,13 +768,16 @@ describe("I40 — the scope registry's warning reaches the person", () => {
   });
 
   /**
-   * REVIEW M1. At the 9,038-character wake the `ENVELOPE_MAX_CHARS` comment
-   * measured, a doctor notice (173) fits and a registry line (177) fits, but the
-   * two JOINED did not — and the whole notice was dropped, taking the doctor
-   * line, which has no other route to the owner. Now they are fitted in
-   * priority order: the doctor's first, the registry's only if it still fits.
+   * REVIEW M1. At the 9,038-character wake, a doctor notice (173) fit and a
+   * registry line (177) fit, but the two JOINED did not pass the 9,500-character
+   * envelope rule — and the whole notice was dropped, taking the doctor line,
+   * which has no other route to the owner. So they are fitted in priority
+   * order: the doctor's first, the registry's only if it still fits. Since
+   * 2026-10-10 each field is measured on its own (the host's rule, measured),
+   * so at that wake both ride; the order still decides when the person's own
+   * field is what runs out.
    */
-  test("M1: at a 9,038-char wake the doctor notice survives, and the registry line is left out rather than costing it", () => {
+  test("M1: at a 9,038-char wake the doctor notice and the registry line both ride (each field fits on its own)", () => {
     const wake = { injection: `${"w".repeat(68)}\n`.repeat(133).slice(0, 9_038), ask: null };
     expect(wake.injection.length).toBe(9_038);
     const tail = "\nrun: counterparts doctor for details";
@@ -787,18 +790,21 @@ describe("I40 — the scope registry's warning reaches the person", () => {
     expect(registry.length).toBeGreaterThan(150);
     expect(registry.length).toBeLessThan(230);
 
-    // Each alone fits.
-    expect(hostDelivery("session-start", wake, {}, [doctor]).dropped).toBeNull();
-    expect(hostDelivery("session-start", wake, {}, [registry]).dropped).toBeNull();
-    // Together they would not.
     const both = hostDelivery("session-start", wake, {}, [doctor, registry]);
+    expect(both.dropped).toBeNull();
     const parsed = JSON.parse(both.stdout) as Record<string, unknown>;
-    expect(parsed["systemMessage"]).toBe(doctor);
-    expect(both.stdout.length).toBeLessThanOrEqual(ENVELOPE_MAX_CHARS);
+    expect(parsed["systemMessage"]).toBe(`${doctor}\n${registry}`);
     expect(String((parsed["hookSpecificOutput"] as Record<string, unknown>)["additionalContext"])).toBe(wake.injection);
-    // The left-out line is reported, so the silence is explicable.
+  });
+
+  test("M1: when the person's field is what runs out, the doctor notice survives and the lower line is left out, reported", () => {
+    const small = { injection: "WAKE", ask: null };
+    const doctor = `counterparts: ${"d".repeat(6_000)}`;
+    const registry = `registry: ${"r".repeat(5_000)}`;
+    const both = hostDelivery("session-start", small, {}, [doctor, registry]);
+    expect((JSON.parse(both.stdout) as Record<string, unknown>)["systemMessage"]).toBe(doctor);
     expect(both.dropped?.noticeChars).toBe(registry.length);
-    expect(both.dropped?.envelopeChars).toBeGreaterThan(ENVELOPE_MAX_CHARS);
+    expect(both.dropped?.limitChars).toBe(10_000);
   });
 
   test("M1: with room for both, the doctor notice comes first; with room for neither, the wake goes plain", () => {
@@ -809,8 +815,8 @@ describe("I40 — the scope registry's warning reaches the person", () => {
     // A null doctor notice leaves the registry line alone.
     const onlyRegistry = hostDelivery("session-start", small, {}, [null, "registry line"]);
     expect((JSON.parse(onlyRegistry.stdout) as Record<string, unknown>)["systemMessage"]).toBe("registry line");
-    // Nothing fits: the plain wake, and both reported.
-    const full = { injection: "w".repeat(ENVELOPE_MAX_CHARS), ask: null };
+    // Nothing fits (the wake itself is past the cap): the plain wake, and both reported.
+    const full = { injection: "w".repeat(10_001), ask: null };
     const none = hostDelivery("session-start", full, {}, ["doctor line", "registry line"]);
     expect(none.stdout).toBe(full.injection);
     expect(none.dropped?.noticeChars).toBe("doctor line\nregistry line".length);
