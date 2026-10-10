@@ -835,6 +835,29 @@ describe("a PAUSED folder says so at session start, and does nothing else", () =
     expect(existsSync(join(store, "sessions", "session-dir.json"))).toBe(false);
   });
 
+  test("a session filed under an OFF folder whose shell stands in a paused one says nothing", () => {
+    // Resuming the paused folder would turn nothing back on for this session —
+    // its own folder is off — so the line would be a false promise, and `off`
+    // is silent. A start (CLAUDE_PROJECT_DIR is not the cwd) and a compaction
+    // (the shell moved) are the two ways SessionStart meets this.
+    const offDir = join(home, "private");
+    const pausedDir = join(home, "random");
+    mkdirSync(offDir, { recursive: true });
+    mkdirSync(pausedDir, { recursive: true });
+    put({
+      [offDir]: { mode: "off", since: "2026-10-10T00:00:00.000Z" },
+      [pausedDir]: { mode: "paused", resumeTo: "on", since: "2026-10-10T00:00:00.000Z" },
+    });
+    for (const source of SOURCES) {
+      const r = start({ session: `off-session-${source}`, cwd: pausedDir, source, env: { CLAUDE_PROJECT_DIR: offDir } });
+      expect({ source, code: r.code, stdout: r.stdout, stderr: r.stderr }).toEqual({ source, code: 0, stdout: "", stderr: "" });
+    }
+    expect(existsSync(store)).toBe(false);
+    // The paused folder's own session still hears it.
+    const own = start({ session: "own", cwd: pausedDir, source: "startup", env: { CLAUDE_PROJECT_DIR: pausedDir } });
+    expect(systemMessageOf(own.stdout)).toBe(`Counterparts memory is paused in ~/random; \`${resumeCommand("~/random")}\` turns it back on.`);
+  });
+
   test("OFF stays silent on every source; ON and OBSERVER say nothing about a pause", () => {
     const off = join(work, "off");
     const on = join(work, "on");

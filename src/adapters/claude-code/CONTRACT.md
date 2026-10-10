@@ -434,7 +434,8 @@ row, saying which source answered, existed until the keys were removed — §1a.
     writes nothing anywhere — not the store, not a session record, not the per-event
     claim, which comes after this return — so beside the npm install it is the
     plugin's gate, not the claim, that keeps it to one line. Every other event, `off`
-    on every event, and the headless nightly run stay silent.
+    on every event, a session whose own folder is `off` (resuming the paused one
+    would turn nothing back on), and the headless nightly run stay silent.
 
     **The guarantee is the HOOKS', and only the hooks'.** The MCP server still opens
     a store when the host launches it in an `off` directory (`mcp/bin/serve.ts`): it

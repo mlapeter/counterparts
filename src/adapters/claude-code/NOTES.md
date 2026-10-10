@@ -2264,6 +2264,13 @@ INTERFACE-GAPS §15.
   the model's context, and H1 already says its line again there. Never at a prompt (every
   turn), a Stop, SessionEnd or PreCompact. Not in the headless nightly run, which nobody
   watches and whose hooks are kept quiet like every other ask there.
+- **Not when the session's own folder is `off`** (review of #362). A session that started
+  in an `off` folder and whose shell stands in a paused one (a compaction after a `cd`, or
+  a start whose `CLAUDE_PROJECT_DIR` is not the `cwd`) is off whatever the paused folder
+  says; "resume turns it back on" would be false, so it stays silent like any `off`. The
+  session's folder is taken from `startDirectory` (environment and payload), so the first
+  return still reads nothing but the registry. Not handled: both folders paused by
+  different entries — the line names the shell's, and the next start names the other.
 - **Writes nothing.** It prints from the registry the scope check already read, at the two
   `off` returns in `bin/hook.ts#runHook` — before the configuration (first return) or
   before the store (second) — so no store, session record, process log or claim. The

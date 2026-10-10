@@ -806,7 +806,18 @@ async function runHook(
     // sessions ran without memory for ten minutes before anyone noticed. It is
     // printed from what was already read — the registry — and nothing is
     // written; every other event stays as silent as `off`.
-    sayPaused(name, eventVerdict, eventDir, "folder", payload, said, choice.path);
+    //
+    // UNLESS THE SESSION'S OWN FOLDER IS `off` (review of #362): a session that
+    // started in one and whose shell stands in a paused folder is off whatever
+    // this folder says, so "resume turns it back on" would be a false promise.
+    // `startDirectory` is the environment and the payload — the session record
+    // agrees with it by construction (`sessionScope`) — so still nothing but the
+    // registry is read.
+    const sessionOff =
+      name === "session-start" &&
+      eventVerdict.mode === "paused" &&
+      lookupScope(read.registry, startDirectory(payload)).mode === "off";
+    if (!sessionOff) sayPaused(name, eventVerdict, eventDir, "folder", payload, said, choice.path);
     return;
   }
   // A REGISTRY IN TROUBLE IS NOT SILENT, and that is a DIFFERENT exception from
