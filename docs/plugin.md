@@ -84,9 +84,13 @@ Claude Code's native binary can't stand in as a runtime: `BUN_BE_BUN=1` is ignor
 first plugin process to start runs `counterparts install --no-connect` and drops its
 output. That writes the store and its configuration and nothing of the host's. A lock
 in the temp directory makes the hook and the server, which start together, produce
-one install between them. The session's wake then carries one line: "first run — a
-new memory was set up at ~/.counterparts". This is skipped if a configuration was
-named, or if `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` is set.
+one install between them. Whichever one makes it also leaves a small notice beside
+the lock, and the session's first SessionStart takes it: the wake then carries one
+line, "first run — a new memory was set up at ~/.counterparts", once. This matters
+because the server is usually first: with the sidebar's hooks module, Claude Code
+runs the SessionStart command after the server's install has finished. A plugin hook
+that stands down for the npm install takes the notice without saying it. This is
+skipped if a configuration was named, or if `COUNTERPARTS_REQUIRE_EXPLICIT_DIR` is set.
 
 **The memory isn't in the plugin's data directory.** Claude Code deletes
 `~/.claude/plugins/data/<id>/` on uninstall. The store lives where the npm install

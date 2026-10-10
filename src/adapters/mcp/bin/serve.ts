@@ -328,6 +328,9 @@ async function main(): Promise<void> {
   // and no tools, so the model is never offered every memory tool twice. And a
   // machine with no install yet gets one here, the way `counterparts install`
   // makes it — the hook may be racing to do the same, which the lock settles.
+  // This process has no channel to the person, so an install it makes leaves
+  // a notice instead, and the session's first SessionStart says the line
+  // (`plugin.ts#firstRunNoticePath`).
   if (runningAsPlugin(process.env)) {
     const home = homedir();
     const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();

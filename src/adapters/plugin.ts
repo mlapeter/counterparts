@@ -38,11 +38,15 @@
  *      things and touches no host file), under a lock so the hook and the
  *      server racing at session start produce one install, not two. The
  *      layout is therefore exactly the npm one, which is what makes moving
- *      between the two a non-event.
+ *      between the two a non-event. WHICHEVER of the two makes it, the
+ *      session's first SessionStart says so, once: the maker leaves a notice
+ *      and the hook takes it (`firstRunNoticePath`), because the server has no
+ *      channel to the person and is often first (since 0.3.15's sidebar
+ *      module, Claude Code starts the hook after the server has finished).
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, realpathSync, rmdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -275,15 +279,20 @@ export function npmDoctorCommand(wiring: NpmWiring): { readonly exe: string; rea
 
 /**
  * `joined`: absent when this process looked, made by a CONCURRENT first run
- * (the hook and the server start together) while this one waited. It is still
- * this session's first run, so it carries the same line as `created`.
+ * (the hook and the server start together) while this one waited.
  */
 export type FirstRunState = "existed" | "created" | "joined" | "skipped" | "failed";
 
 export interface FirstRun {
   readonly state: FirstRunState;
-  /** One line for the owner at session start, or null when there is nothing
-   *  to say (an existing install, a skipped one). */
+  /**
+   * A line THIS process has to say itself at session start, or null. That is
+   * a failure, and — only when the notice could not be left — the first-run
+   * line of an install this process made. Otherwise a new install says
+   * nothing here: whichever side made it left a notice, and the session's
+   * first SessionStart takes it (`takeFirstRunNotice`), so the line reaches
+   * the person once whether the hook or the server got there first.
+   */
   readonly line: string | null;
   /** Why it failed or was skipped, for stderr. */
   readonly detail?: string;
@@ -305,8 +314,76 @@ export const FIRST_RUN_TIMEOUT_MS = 60_000;
  * be one more entry for `doctor` and `start-fresh` to have an opinion about.
  */
 export function firstRunLockPath(configPath: string, tmp: string = tmpdir()): string {
-  const key = createHash("sha256").update(resolve(configPath)).digest("hex").slice(0, 16);
-  return join(tmp, `counterparts-first-run-${key}.lock`);
+  return join(tmp, `counterparts-first-run-${firstRunKey(configPath)}.lock`);
+}
+
+function firstRunKey(configPath: string): string {
+  return createHash("sha256").update(resolve(configPath)).digest("hex").slice(0, 16);
+}
+
+/**
+ * "A FIRST RUN, NOT YET ANNOUNCED" (0.3.15's plugin loop, step 12). Whoever
+ * makes the install — the hook or the server — leaves this file, and the
+ * session's first SessionStart takes it and says the first-run line. Before,
+ * the line rode only with the process that made or joined the install, which
+ * was the hook as long as Claude Code started the hook and the server
+ * together. The sidebar mod's `"modules"` entry (#342) makes Claude Code start
+ * a hooks worker first and run the SessionStart command after it, so the
+ * server's install has finished by then: the hook found the configuration
+ * there (`existed`) and said nothing, and a new user was never told a memory
+ * had been set up.
+ *
+ * Beside the lock and for the lock's reasons: the system temp directory, keyed
+ * by the configuration path, which the hook and the server demonstrably agree
+ * on (it is what the lock settles), and never inside `~/.counterparts`, where
+ * `uninstall` would list it as somebody else's file. Only a plugin's first run
+ * leaves one — `counterparts install` at a terminal says its own words there —
+ * and a plugin hook that stands down for a live npm wiring takes it unsaid.
+ */
+export function firstRunNoticePath(configPath: string, tmp: string = tmpdir()): string {
+  return join(tmp, `counterparts-first-run-${firstRunKey(configPath)}.unannounced`);
+}
+
+/**
+ * Take the notice: true for exactly one caller, however many sessions start
+ * at once (an unlink either removes the file or finds it gone). False when
+ * there is none, or it is not ours to remove (another user's file in a shared
+ * `/tmp`, which says nothing about this install).
+ */
+export function takeFirstRunNotice(noticePath: string): boolean {
+  try {
+    unlinkSync(noticePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The line a new install is announced with, for the configuration at `configPath`. */
+export function firstRunLine(configPath: string, home: string): string {
+  const base = dirname(configPath);
+  const parked = parkedBeside(base);
+  return (
+    `Counterparts: first run — a new memory was set up at ${tildeOf(base, home)}. ` +
+    "It stays on this computer." +
+    (parked.length === 0
+      ? ""
+      : ` A memory set aside earlier is still at ${parked.map((p) => tildeOf(p, home)).join(", ")}, untouched; ` +
+        "the new one does not include it.")
+  );
+}
+
+/** Leave the notice; false when it could not be written (then the maker says the line itself). */
+function leaveFirstRunNotice(noticePath: string, configPath: string): boolean {
+  try {
+    writeFileSync(noticePath, `${JSON.stringify({ config: resolve(configPath), at: new Date().toISOString(), pid: process.pid })}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -344,6 +421,7 @@ export interface FirstRunInput {
   readonly runtime?: string;
   readonly cliScript?: string;
   readonly lockPath?: string;
+  readonly noticePath?: string;
   readonly waitMs?: number;
   readonly staleMs?: number;
   readonly now?: () => number;
@@ -372,20 +450,12 @@ export function ensureFirstRun(input: FirstRunInput): FirstRun {
 
   const now = input.now ?? ((): number => Date.now());
   const lock = input.lockPath ?? firstRunLockPath(choice.path);
+  const notice = input.noticePath ?? firstRunNoticePath(choice.path);
   const waitMs = input.waitMs ?? FIRST_RUN_WAIT_MS;
   const staleMs = input.staleMs ?? FIRST_RUN_STALE_MS;
-  const base = dirname(choice.path);
-  const parked = parkedBeside(base);
-  const created: FirstRun = {
-    state: "created",
-    line:
-      `Counterparts: first run — a new memory was set up at ${tildeOf(base, input.home)}. ` +
-      "It stays on this computer." +
-      (parked.length === 0
-        ? ""
-        : ` A memory set aside earlier is still at ${parked.map((p) => tildeOf(p, input.home)).join(", ")}, untouched; ` +
-          "the new one does not include it."),
-  };
+  // The install was somebody else's, and so is the notice: they left it before
+  // the configuration could appear (below), so it is there for SessionStart.
+  const joined: FirstRun = { state: "joined", line: null };
 
   const take = (): boolean => {
     try {
@@ -403,7 +473,7 @@ export function ensureFirstRun(input: FirstRunInput): FirstRun {
     // lock older than `staleMs` is a dead process's, and is taken over once.
     const until = now() + waitMs;
     while (!held) {
-      if (existsSync(choice.path)) return { ...created, state: "joined" };
+      if (existsSync(choice.path)) return joined;
       let age = 0;
       try {
         age = now() - statSync(lock).mtimeMs;
@@ -427,7 +497,11 @@ export function ensureFirstRun(input: FirstRunInput): FirstRun {
   }
   try {
     // The one who waited may find it done the moment it gets the lock.
-    if (existsSync(choice.path)) return { ...created, state: "joined" };
+    if (existsSync(choice.path)) return joined;
+    // THE NOTICE BEFORE THE INSTALL, never after: the configuration appears
+    // while the install runs, and a hook that sees it (`existed`, or `joined`
+    // while it waited) looks for the notice that same moment.
+    const left = leaveFirstRunNotice(notice, choice.path);
     const runtime = input.runtime ?? process.execPath;
     const script = input.cliScript ?? CLI_SCRIPT;
     const res = spawnSync(runtime, [...scriptArgs(script, runtime), "install", "--no-connect"], {
@@ -436,7 +510,10 @@ export function ensureFirstRun(input: FirstRunInput): FirstRun {
       timeout: FIRST_RUN_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    if (res.status === 0 && existsSync(choice.path)) return created;
+    if (res.status === 0 && existsSync(choice.path)) {
+      return { state: "created", line: left ? null : firstRunLine(choice.path, input.home) };
+    }
+    if (left) takeFirstRunNotice(notice);
     const why = (String(res.stderr ?? "").trim().split("\n").pop() ?? "") || (res.error?.message ?? `exit ${String(res.status)}`);
     return {
       state: "failed",

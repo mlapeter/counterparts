@@ -82,6 +82,13 @@
   (`claude --plugin-dir`) now says that is expected, instead of suggesting
   `counterparts disconnect`, and the plugin's `/counterparts:doctor` shows the npm
   install's own doctor.
+- **A new plugin user is told their memory was set up, again.** With the sidebar's
+  hooks module, Claude Code starts the plugin's SessionStart hook later, after the
+  plugin's server has already made the new memory, so the first session no longer
+  showed "Counterparts: first run — a new memory was set up". Now whichever of the two
+  makes the memory leaves a note, and the first session start shows the line once, never
+  again after. Beside a live npm install the plugin still stands down and says nothing
+  about a first run. Nothing else changes.
 
 ## 0.3.14 — 2026-10-09
 
