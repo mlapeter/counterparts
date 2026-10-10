@@ -9,11 +9,15 @@
   with a marker. A longer page is refused, never cut: the self_page tool, the console and
   the nightly reflection say the limit and how many bytes to take out, and the writer
   says it shorter. The limit is in bytes, so accented letters, dashes and CJK count for
-  more than one. If your ceiling is set below 9,000 and the page doesn't fit, the wake
-  says so in one line and points to the self_page tool or `counterparts self-page`
-  instead of printing part of it. A page written before this that is over the limit
-  shows that line too, and doctor's Self page line goes amber until the next revision
-  comes in under it.
+  more than one. A page written before this that is over the limit still prints whole
+  when it fits with the room held for "Work here" lent to it (up to about 7,200 bytes at
+  9,000), and doctor's Self page line goes amber until the next revision comes in under
+  the limit. Only a page that doesn't fit even then, or a ceiling set below what the page
+  needs, gets one line instead, pointing to the self_page tool or `counterparts
+  self-page` — never part of the page. If the nightly writer's page is refused as too
+  long and the run moves on without sending it again shorter, that night now reads as
+  failed, with the numbers, instead of "nothing to say". And "Still open" keeps its
+  "N more" count beside its first item when a long page leaves no other room for it.
 - **`counterparts connect` now fixes Claude Desktop's entry too.** 0.3.14 told Bun to
   skip a project's `.env` and `bunfig.toml`, and `connect` rewrote the hooks and Claude
   Code's server registration to match. It left alone the entry that

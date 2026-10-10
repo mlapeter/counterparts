@@ -16,11 +16,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { run } from "../src/adapters/cli/index.js";
+import { pageWriterFindings } from "../src/adapters/claude-code/doctor.js";
+import { writerWords } from "../src/adapters/dashboard/web/views/mind.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { DREAMING_SETTING_KEY, DREAM_TUNABLES, REFLECT_TUNABLES, RELAUNCHED_KEY, dreamingSetting, nightNext, nightOrder } from "../src/core/dream/index.js";
-import { dayBefore, pageSections, pageWriterNight } from "../src/core/self/index.js";
+import { PAGE_LIMIT_BYTES, dayBefore, pageSections, pageTooLargeDetail, pageWriterNight } from "../src/core/self/index.js";
 import { Self } from "../src/core/self/index.js";
 import { episodeGate } from "../src/core/bridge.js";
 import type { PutInput } from "../src/core/store/index.js";
@@ -701,5 +703,124 @@ describe("the page's sections: any heading, Core and Lately by convention", () =
     expect(pageSections("Just prose.")).toEqual({ core: "", lately: "", preamble: "Just prose.", headed: false, sections: [] });
     // `##Core` without a space reads as it always did.
     expect(pageSections("##Core\nWho I am.").core).toBe("Who I am.");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// the review of #358: a writer that writes too much
+// ---------------------------------------------------------------------------
+
+/** A page of exactly `n` bytes, in plain paragraphs, as a writer would send one. */
+function pageOfBytes(n: number): string {
+  const para = "I keep a careful account of the work and the people in it, and I say what I do not know before I guess.";
+  let page = "## Core\n\n";
+  while (Buffer.byteLength(page) + Buffer.byteLength(para) + 2 <= n - 60) page += `${para}\n\n`;
+  page += "## Lately\n\n";
+  const tail = "The days have been full and mostly good. ";
+  while (Buffer.byteLength(page) + Buffer.byteLength(tail) <= n - 1) page += tail;
+  page += ".".repeat(n - Buffer.byteLength(page));
+  expect(Buffer.byteLength(page)).toBe(n);
+  return page;
+}
+
+describe("review of #358: a page writer that writes 6,200 bytes, through the real doors", () => {
+  const LIMIT = PAGE_LIMIT_BYTES;
+  const STANDING = "## Core\n\nI say what I do not know before I guess.\n\n## Lately\n\nA steady week of migrations.";
+
+  async function nightWithLongPage(): Promise<{ c: Counterpart; s: McpServer; about: string; before: { body: string; version: number } }> {
+    const c = brain();
+    const about = pageWriterNight(c.store).about;
+    seedYesterday(c, ["A placeholder thing noticed yesterday, about the migration order."]);
+    lived(c);
+    expect(c.revisePage(STANDING, { by: "owner", reason: "the page before the night" }).written).toBe(true);
+    const page = c.selfPage();
+    if (page === null) throw new Error("no page");
+    const s = server(c, SESSION);
+    const w = await s.call("dream", { phase: "writer", session: SESSION });
+    expect(w.structuredContent["writer"]).toBe(true);
+    // Told before it writes: the limit in the block, and what to do with a refusal.
+    expect(String(w.structuredContent["read"])).toContain(`of at most ${String(LIMIT)}`);
+    expect(String(w.structuredContent["how"])).toContain("refuses the page as too-large");
+    expect(String(w.structuredContent["how"])).toContain("send the whole page again before you go on");
+    const res = await s.call("self_page", { body: pageOfBytes(6_200), reason: "the night", session: SESSION, ifVersion: page.version });
+    // Refused, with the numbers and plain words.
+    expect(res.isError ?? false).toBe(true);
+    expect(res.structuredContent).toMatchObject({ stored: false, reason: "too-large", bytes: 6_200, limit: LIMIT, over: 6_200 - LIMIT });
+    expect(String(res.structuredContent["detail"])).toContain("Say the same thing shorter");
+    // Never half-written: the page stands, byte for byte, at its version.
+    expect(c.selfPage()?.body).toBe(page.body);
+    expect(c.selfPage()?.version).toBe(page.version);
+    return { c, s, about, before: { body: page.body, version: page.version } };
+  }
+
+  test("the night run is told how many bytes to cut, and the same run sends it again shorter — the night reads `revised`, by the writer", async () => {
+    const { c, s, about, before } = await nightWithLongPage();
+    // The refusal does not close the night: the same run may still write it.
+    expect(c.nightClaimFor(SESSION)).not.toBeNull();
+    const refused = c.pageWriterStatus(about);
+    expect(refused.outcome).toBe("refused");
+    expect(refused.run?.detail).toBe(pageTooLargeDetail(6_200, LIMIT));
+    const shorter = pageOfBytes(LIMIT - 100);
+    const ok = await s.call("self_page", { body: shorter, reason: "the night, tightened", session: SESSION, ifVersion: before.version });
+    expect(ok.structuredContent["stored"]).toBe(true);
+    expect(c.selfPage()?.body).toBe(shorter);
+    expect(c.selfPage()?.by).toBe("writer");
+    expect(c.pageWriterStatus(about).outcome).toBe("revised");
+    // Moving on now answers nothing further: the night is settled.
+    await s.call("dream", { phase: "begin", session: SESSION });
+    expect(c.pageWriterStatus(about).outcome).toBe("revised");
+  });
+
+  test("a run that moves on without sending it again closes the night `failed` with the numbers — never `nothing-to-say`; doctor amber, the dashboard says why", async () => {
+    const { c, s, about, before } = await nightWithLongPage();
+    await s.call("dream", { phase: "begin", session: SESSION });
+    const status = c.pageWriterStatus(about);
+    expect(status.outcome).not.toBe("nothing-to-say");
+    expect(status.outcome).toBe("failed");
+    expect(status.derived).toBe(false);
+    expect(status.run?.detail).toBe(`${pageTooLargeDetail(6_200, LIMIT)}; not sent again before the run moved on to the dream`);
+    // The night is closed: a later write by the session is its own, not the writer's.
+    expect(c.nightClaimFor(SESSION)).toBeNull();
+    expect(c.selfPage()?.body).toBe(before.body);
+    // Doctor: amber, the numbers on the line.
+    const f = pageWriterFindings(c.store, { dataDir: dir, owner: true })[0];
+    expect(f?.severity).toBe("amber");
+    expect(f?.detail).toContain(`failed, too-large: 6200 bytes, ${String(6_200 - LIMIT)} over the`);
+    // The dashboard: in plain words, and that tonight's run tries again.
+    const words = writerWords({ about, outcome: status.outcome, derived: status.derived, run: { detail: status.run?.detail ?? "" } }, about);
+    expect(words.what).toBe(
+      `couldn't rewrite it — the page it sent was 6200 bytes, ${String(6_200 - LIMIT)} over the ${String(LIMIT)}-byte limit, and was not sent again before the run moved on to the dream`,
+    );
+    expect(words.next).toBe("Tonight's run tries again.");
+  });
+
+  test("the reflection: refused with how many bytes to cut, nothing written, and a second finish with the page alone writes it", () => {
+    const c = brain();
+    const ids = lived(c);
+    const r = c.reflections.begin({ session: SESSION });
+    if (!r.ok) throw new Error(r.reason);
+    const cite = ids[3] as string;
+    const first = c.reflections.finish({
+      reflection: r.bundle.reflection,
+      session: SESSION,
+      entry: "Looking back, I say what I don't know.",
+      cites: [cite],
+      page: { text: pageOfBytes(6_200), cites: [cite] },
+    });
+    if (!first.ok) throw new Error(String(first.reason));
+    expect(first.outcome.page).toMatchObject({ written: false, reason: "too-large" });
+    const detail = (first.outcome.page as { detail?: string }).detail ?? "";
+    expect(detail).toContain(`6200 bytes, past the ${String(LIMIT)}-byte limit`);
+    expect(detail).toContain(`Say it in ${String(6_200 - LIMIT)} fewer bytes`);
+    expect(first.outcome.retry).toContain("Not written: page — too-large");
+    expect(first.outcome.retry).toContain("call finish again");
+    expect(c.selfPage()).toBeNull();
+    // The same run, shorter.
+    const shorter = pageOfBytes(LIMIT - 200);
+    const again = c.reflections.finish({ reflection: r.bundle.reflection, session: SESSION, page: { text: shorter, cites: [cite] } });
+    if (!again.ok) throw new Error(String(again.reason));
+    expect(again.outcome.page.written).toBe(true);
+    expect(c.selfPage()?.body).toBe(shorter);
+    expect(c.selfPage()?.by).toBe("reflection");
   });
 });

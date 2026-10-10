@@ -16,6 +16,7 @@ import {
   dayBefore,
   pageSections,
   readChapterLead,
+  readPageTooLargeDetail,
 } from "../../../../core/self/index.js";
 import type { PageVersion, PageWriterRun, PageWriterStatus } from "../../../../core/self/index.js";
 import { TUNABLES as SLEEP, coreContextFor, isJournal } from "../../../../core/sleep/index.js";
@@ -512,6 +513,11 @@ export function writerReason(detail: string): string {
   if (known !== undefined) return known.why;
   const exit = /^exit (\S+)$/.exec(d);
   if (exit !== null) return `it stopped with an error (exit ${exit[1] as string})`;
+  // A page refused for length carries its numbers (review of #358).
+  const large = readPageTooLargeDetail(d);
+  if (large !== null) {
+    return `the page it sent was ${String(large.bytes)} bytes, ${String(large.over)} over the ${String(large.limit)}-byte limit${large.then === "" ? "" : `, and was ${large.then}`}`;
+  }
   return d.replace(/[-_]+/g, " ");
 }
 
@@ -521,6 +527,7 @@ function writerNext(detail: string, lastNight: boolean): string | null {
   const known = WRITER_REASON[d];
   if (known !== undefined) return known.next === undefined ? null : known.next(lastNight);
   if (/^exit \S+$/.test(d)) return TONIGHT;
+  if (readPageTooLargeDetail(d) !== null) return TONIGHT;
   return null;
 }
 

@@ -1717,9 +1717,51 @@ warning and printed cut.
   the page.
 - **The owner's page** is 5,904 bytes (version 17): 174 bytes of headroom. The nightly
   writer and the reflection now meet the limit in what they read before they write.
-- **Seen beside it, not fixed here.** In #350's own morning scenario (25 open items, two
-  Arriving lines, four Yesterday titles, this directory's handoffs and work), a page of
-  5,904 bytes leaves "Still open" with one item and no room for its "N more" line: the
-  trim loop kept the item itself, and `keepFirstOpen` acts only when the trim left the
-  lane empty. The page prints whole either way (the behaviour is master's at that size);
-  the lane reads as if one thing were open. 5,845 and 6,078 do not show it.
+- **Seen beside it** (fixed in the review, below). In #350's own morning scenario (25 open
+  items, two Arriving lines, four Yesterday titles, this directory's handoffs and work), a
+  page of 5,904 bytes left "Still open" with one item and no room for its "N more" line:
+  the trim loop kept the item itself, and `keepFirstOpen` acted only when the trim left
+  the lane empty. The lane read as if one thing were open.
+
+### The review of #358 (2026-10-09)
+
+- **The line was too blunt for a page a little over.** Measured through the real paths
+  (`runOnce`, then SessionStart), Denver and Kiritimati: with #350's morning reserves
+  (compose budget near 7.2 KB) pages of 6,100–6,300 printed whole on #358 as on master;
+  under the widest reserves (6,590) #358 replaced every page from 6,100 up with the line
+  — where master had printed 6,079–6,144 whole on most days. Now `Self#build` asks
+  `pageBlock` a second time with the "Work here" reserve (`lendBytes`) added before it
+  settles for the line, and composes into what the page took (`page + 512 − budget`, at
+  most the lend; the rest of the lend is still "Still open"'s). At 9,000 that reaches
+  9,000 − 160 − 1,125 − 512 = 7,203 under the widest handoff reserve: 6,100, 6,144,
+  6,300 and 7,000 print whole there now, the delivered wake under 9,000 with its handoff;
+  7,300 gets the line. The handoff is chosen before "Work here" at delivery and never
+  gives way to it. Doctor stays amber for any page over the write limit, which does not
+  move (`page-never-cut.test.ts`).
+- **Not done: the Yesterday line stepping down beside the page.** Tried — the floor
+  check offered `yesterdayShorter` before dropping the line — and measured worse: the
+  Yesterday line is furniture, so a shorter one that fit the floor pushed out Arriving
+  and "Still open" whole (widest reserves, 5,904: both Arriving lines and the open item
+  lost to a shorter Yesterday line). Left as it was: dropped when the full line does
+  not fit the floor.
+- **The count beside what the trim kept.** `keepFirstOpen` now also pays for the lane's
+  "N more" line when the trim kept items but left no room for it — out of "Work here"
+  alone. Dropping the lane's own later items for the count was tried first and broke
+  "a smaller budget yields a SUBSET" (`self.test.ts`): the identity share grows with the
+  budget, so a larger budget kept fewer open items than a smaller one. Arriving and
+  Yesterday give nothing for a count, since the trim order ranks Arriving above "Still
+  open"'s later items. The 5,904 morning now reads one item and "(24 more still open; …)".
+- **A refusal for length is not "nothing to say".** Traced through the nightly run's
+  doors: `self_page` refuses 6,200 bytes with `limit`, `over` and plain words, nothing is
+  stored (the version stands), and the claim stays open — the run is an agent reading
+  the refusal, so it can tighten and send the page again in the same run, and the writer
+  phase's `how` and the launch prompt now say to. But a run that moved on to its dream
+  without doing so had its claim closed by `closeNightWriter` as `nothing-to-say`, which
+  `pageWriterStatus` reads as settled: doctor green, the dashboard "read the day and kept
+  it as is", over a page that was never written. The refusal row now carries its numbers
+  (`writer.ts#pageTooLargeDetail`), and the close records `failed` with them and "not
+  sent again before the run moved on to the dream" — doctor amber, the dashboard says
+  how far over and that tonight's run tries again. The reflection already said the
+  numbers and took a second `finish` with the page alone; both are proved
+  (`nightly-run.test.ts`). The next night's writer is told the limit before it writes, in
+  the rule and beside the page's own bytes; it is not told about the night before.

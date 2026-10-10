@@ -42,6 +42,7 @@ import {
   findPageRow,
   hasDayBefore,
   lastPageWriterRun,
+  pageTooLargeDetail,
   pageWriterAbout,
   pageWriterNight,
   pageWriterClaimOpen,
@@ -863,7 +864,8 @@ describe("the writer's own door on the page", () => {
     expect(res.isError ?? false).toBe(true);
     const status = s.counterpart.pageWriterStatus(about);
     expect(status.outcome).toBe("refused");
-    expect(status.run?.detail).toBe("too-large");
+    // With its numbers (review of #358): how far over, so a close that follows can say so.
+    expect(status.run?.detail).toBe(pageTooLargeDetail(SELF_TUNABLES.PAGE_MAX_BYTES + 1, SELF_TUNABLES.PAGE_MAX_BYTES));
     expect(s.counterpart.selfPage()).toBeNull();
 
     // A REFUSAL IS THE WRITER STILL TRYING. The same session retries seconds

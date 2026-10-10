@@ -128,6 +128,26 @@ export type PageWriterSkip =
   | "asks-spent"
   | "no-memories";
 
+/**
+ * A REFUSAL FOR LENGTH, AS THE NIGHT'S ROW SAYS IT (review of #358,
+ * 2026-10-09): `too-large: 6200 bytes, 122 over the 6078-byte limit`. The
+ * numbers ride in the row so that a night which moved on without sending the
+ * page again shorter closes as a failure naming them (`Counterpart#
+ * closeNightWriter`), never as `nothing-to-say`, and doctor and the dashboard
+ * can say how far over it was. Starts with the bare reason, as every other
+ * refusal's detail is.
+ */
+export function pageTooLargeDetail(bytes: number, limit: number): string {
+  return `too-large: ${String(bytes)} bytes, ${String(bytes - limit)} over the ${String(limit)}-byte limit`;
+}
+
+/** `pageTooLargeDetail` read back, with whatever a close added after it; null for any other detail. Pure. */
+export function readPageTooLargeDetail(detail: string): { bytes: number; over: number; limit: number; then: string } | null {
+  const m = /^too-large: (\d+) bytes, (\d+) over the (\d+)-byte limit(?:; (.*))?$/.exec(detail.trim());
+  if (m === null) return null;
+  return { bytes: Number(m[1]), over: Number(m[2]), limit: Number(m[3]), then: m[4] ?? "" };
+}
+
 export type PageWriterDue =
   | { readonly due: true; readonly about: string; readonly attempt: number }
   | { readonly due: false; readonly about: string; readonly reason: PageWriterSkip };

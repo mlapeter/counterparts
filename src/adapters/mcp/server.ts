@@ -137,7 +137,7 @@ import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, nightNext, nightOrder } from "..
 import type { DreamBundle, DreamingSetting, NightPart } from "../../core/dream/index.js";
 import { TOOL_RESULT_CEILING, clipWire, noteLookups, wireChars } from "../../core/fit/index.js";
 import type { FitMechanism } from "../../core/fit/index.js";
-import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, WAKE_BUILD_KEY, pageSections } from "../../core/self/index.js";
+import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, WAKE_BUILD_KEY, pageSections, pageTooLargeDetail } from "../../core/self/index.js";
 import type { PageWriterMode } from "../../core/self/index.js";
 import { toolDefinitions, toolSpec } from "./tools.js";
 import { writeUpDoor } from "./write-up.js";
@@ -3390,7 +3390,11 @@ export class McpServer {
               about: out.about,
               ifVersion: out.version ?? NO_PAGE_VERSION,
               read: out.text,
-              how: `Read the block. If something about who you are moved on ${out.about}, call the self_page tool with the WHOLE page, reason, ifVersion: ${String(out.version ?? NO_PAGE_VERSION)} and session: ${session}; if nothing moved, write nothing — that is an answer too.`,
+              // THE RETRY, IN THE SAME RUN (review of #358): a page refused
+              // for length is the writer still trying, and the run is an agent
+              // that reads the refusal — so it is told to tighten and send it
+              // again before it goes on, rather than leave the night unwritten.
+              how: `Read the block. If something about who you are moved on ${out.about}, call the self_page tool with the WHOLE page, reason, ifVersion: ${String(out.version ?? NO_PAGE_VERSION)} and session: ${session}; if nothing moved, write nothing — that is an answer too. If self_page refuses the page as too-large, its answer says how many bytes over the limit it is: tighten it (merge, drop what no longer holds — do not just cut the end) and send the whole page again before you go on.`,
               ...(next === null ? {} : { next: `Then: ${next}` }),
             },
             false,
@@ -3679,7 +3683,14 @@ export class McpServer {
           about: writerFor.about,
           mode: writerFor.mode,
           outcome: written.written ? "revised" : "refused",
-          detail: written.written ? "" : written.reason,
+          // A refusal for length carries its numbers (review of #358), so the
+          // row — and the night's close, if the run moves on without a
+          // shorter page — says how far over it was.
+          detail: written.written
+            ? ""
+            : written.reason === "too-large"
+              ? pageTooLargeDetail(written.bytes, this.counterpart.self.tunables.PAGE_MAX_BYTES)
+              : written.reason,
           bytesAfter: written.written ? written.bytes : 0,
         });
       } catch {
