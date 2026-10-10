@@ -121,14 +121,16 @@ The rule has to live on the plugin side because npm installs already out there
 can't learn about the plugin.
 
 **A claim per event, as the backstop.** Whatever the stand-down misses, each hook
-claims its event in the store before doing anything (one `meta` row, keyed by the
-session, the event and the host's `prompt_id`). The first claim does the whole job:
-the wake, the recall, the Stop's question, the boundary, the worker. A hook with the
-same key that started before the first one finished is its twin: it exits with no
-output and leaves an `adapter.hook.claim.lost` row, and doctor's "Installed twice"
-line counts them. A hook with the same key that starts after the first one finished
-is a new event and runs. This holds between any two versions from this one on. If the
-claim can't be written, the hook delivers anyway.
+claims its event before doing anything (one row in a small database of its own,
+`sessions/claims/hook-claims.sqlite` in the store, keyed by the session, the event
+and the host's `prompt_id`; only claims write it, so a busy store never holds a
+claim up). The first claim does the whole job: the wake, the recall, the Stop's
+question, the boundary, the worker. A hook with the same key that started before the
+first one finished is its twin: it exits with no output and leaves an
+`adapter.hook.claim.lost` row, and doctor's "Installed twice" line counts them. A
+hook with the same key that starts after the first one finished is a new event and
+runs. This holds between any two versions from this one on. If the claim can't be
+written, the hook delivers anyway.
 
 **Moving from npm to the plugin:** install the plugin, then run `counterparts
 disconnect` (it removes the settings hooks and the `claude mcp` registration, with
