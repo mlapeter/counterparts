@@ -40,12 +40,24 @@
 #   - The platform: macOS arm64 (`sysctl hw.optional.arm64`, which a shell
 #     started under Rosetta still answers truthfully, unlike `uname -m`), macOS
 #     x64, Linux x64/arm64 (glibc), Windows x64.
-#   - The program comes from this version's GitHub release
-#     (.claude-plugin/binaries.json names the file and its sha256). The
-#     checksums SHIP WITH THE PLUGIN — a sum fetched from the same place as the
-#     file would prove the transfer and nothing about where it came from. The
-#     download is checked compressed and again unpacked; only then is it moved
-#     into place. A file that fails either check is deleted and never run.
+#   - The program comes from this version's GitHub release: the URL is built
+#     here from plugin.json's version and the platform, nothing else. Its
+#     sha256s come from .claude-plugin/binaries.json: the checksums SHIP WITH
+#     THE PLUGIN — a sum fetched from the same place as the file would prove
+#     the transfer and nothing about where it came from. curl takes HTTPS only,
+#     redirects included (GitHub sends release assets on to its own CDN, whose
+#     host curl cannot pin and has changed before; the pinned sha256 is what
+#     makes any host's bytes safe), and no more than the size binaries.json
+#     names. The download is checked compressed and again unpacked, in a
+#     directory only this user can enter, before it is made executable; only
+#     then is it moved into place, in one rename. A file that fails either
+#     check is deleted and never run.
+#   - A KEPT PROGRAM IS NOT TRUSTED FOREVER. Every full check writes a stamp
+#     beside it: the sha256 it matched, and the file's inode, size and mtime.
+#     Each launch compares the stamp with binaries.json and the file (one
+#     `stat`); the server's start (once a session), a stamp a day old, or any
+#     difference re-hashes the whole file (about 50 ms with openssl). A program
+#     that no longer matches is deleted and downloaded again.
 #   - Meanwhile SessionStart says, once, that Counterparts is getting ready
 #     (the size, where it comes from, and that memory starts next session);
 #     every other hook exits 0 in silence; the server answers the protocol
@@ -170,7 +182,8 @@ json_field() { # json_field <line> <key>
 platform=""
 exe=""
 why="" # set when there is no binary to be had, in words
-case "$(uname -s 2>/dev/null)" in
+os="$(uname -s 2>/dev/null)"
+case "$os" in
   Darwin)
     if [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = "1" ]; then platform="darwin-arm64"; else platform="darwin-x64"; fi
     ;;
@@ -208,8 +221,8 @@ if [ -r "$root/.claude-plugin/plugin.json" ]; then
   done <"$root/.claude-plugin/plugin.json"
 fi
 
-url=""
-asset=""
+case "$version" in "" | *[!0-9A-Za-z.+-]*) [ -z "$why" ] && why="the plugin names no usable version" ;; esac
+
 sha=""
 gzsha=""
 gzbytes=""
@@ -221,49 +234,90 @@ if [ -z "$why" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
       case "$line" in
         *'"version": '*) mversion="$(json_field "$line" version)" ;;
-        *'"url": '*) url="$(json_field "$line" url)" ;;
         *"\"$platform\": "*)
-          asset="$(json_field "$line" file)"
           sha="$(json_field "$line" sha256)"
           gzsha="$(json_field "$line" gzSha256)"
           gzbytes="$(json_field "$line" gzBytes)"
           ;;
       esac
     done <"$manifest"
-    if [ "$mversion" != "$version" ] || [ -z "$version" ]; then
-      why="no prebuilt program was published for version ${version:-?}"
-    elif [ -z "$asset" ] || [ -z "$sha" ] || [ -z "$gzsha" ]; then
-      why="no prebuilt program for $platform"
+    if [ "$mversion" != "$version" ]; then
+      why="no prebuilt program was published for version $version"
+    elif [ -z "$sha" ] || [ -z "$gzsha" ]; then
+      case "$platform" in
+        windows-*) why="no prebuilt program for Windows yet" ;;
+        *) why="no prebuilt program for $platform" ;;
+      esac
     fi
   fi
 fi
+# The release's URL and the asset's name, from the version and platform alone
+# (binaries.json's own "url" and "file" say the same, for verify-release.ts).
+# COUNTERPARTS_BINARY_URL is for tests; the checksums still come from the plugin.
+url="https://github.com/mlapeter/counterparts/releases/download/v$version"
+asset="counterparts-$version-$platform$exe.gz"
 [ -n "${COUNTERPARTS_BINARY_URL:-}" ] && url="${COUNTERPARTS_BINARY_URL%/}"
 
 bindir="$data/bin"
 bin="$bindir/$version/counterparts$exe"
+verified="$bindir/$version/verified" # "<sha256> <inode> <size> <mtime>", written by a full check
 lock="$bindir/download-$version.lock"
 failed="$bindir/download-$version.failed"
 
-if [ -z "$why" ] && [ "$mode" != "__fetch" ] && [ -x "$bin" ]; then
-  exec "$bin" "$mode" "$@"
-fi
-
-sha256_of() { # the hex digest of a file, or nothing
-  if command -v shasum >/dev/null 2>&1; then
-    d="$(shasum -a 256 "$1" 2>/dev/null)"
-  elif command -v sha256sum >/dev/null 2>&1; then
+sha256_of() { # the hex digest of a file, or nothing (fastest tool first)
+  if command -v sha256sum >/dev/null 2>&1; then
     d="$(sha256sum "$1" 2>/dev/null)"
   elif command -v openssl >/dev/null 2>&1; then
     d="$(openssl dgst -sha256 -r "$1" 2>/dev/null)"
+  elif command -v shasum >/dev/null 2>&1; then
+    d="$(shasum -a 256 "$1" 2>/dev/null)"
   else
     d=""
   fi
   printf '%s' "${d%% *}"
 }
 
+stat_of() { # "<inode> <size> <mtime>" of a file, or nothing
+  case "$os" in
+    Darwin) stat -f '%i %z %m' "$1" 2>/dev/null ;;
+    *) stat -c '%i %s %Y' "$1" 2>/dev/null ;;
+  esac
+}
+
+# Stamp the program as checked against $sha, in one rename.
+stamp_verified() {
+  s="$(stat_of "$bin")"
+  [ -n "$s" ] || return 0
+  printf '%s %s\n' "$sha" "$s" >"$verified.$$" 2>/dev/null && mv -f "$verified.$$" "$verified" 2>/dev/null
+  rm -f "$verified.$$" 2>/dev/null
+}
+
+# ── a program already here: run it, checked ─────────────────────────────────
+if [ -z "$why" ] && [ "$mode" != "__fetch" ] && [ -f "$bin" ]; then
+  stamp=""
+  [ -r "$verified" ] && IFS= read -r stamp <"$verified"
+  now="$(stat_of "$bin")"
+  # Fast path, every hook: the stamp names THIS plugin's checksum and this very
+  # file (same inode, size, mtime), and is under a day old.
+  if [ "$mode" != "mcp" ] && [ -n "$now" ] && [ "$stamp" = "$sha $now" ] && [ -x "$bin" ] &&
+    [ -z "$(find "$verified" -mmin +1440 2>/dev/null)" ]; then
+    exec "$bin" "$mode" "$@"
+  fi
+  # The server's start, an old or missing stamp, or a changed file: hash it all.
+  if [ "$(sha256_of "$bin")" = "$sha" ]; then
+    chmod 700 "$bin" 2>/dev/null
+    stamp_verified
+    exec "$bin" "$mode" "$@"
+  fi
+  # It no longer matches what the plugin carries: never run it; fetch it again.
+  rm -f "$bin" "$verified"
+fi
+
 # ── the download itself: `sh plugin-run.sh __fetch`, detached, lock held ──
 if [ "$mode" = "__fetch" ]; then
   [ -z "$why" ] || exit 0
+  # Only this user may enter where the program is unpacked and kept.
+  umask 077
   tmp="$bindir/.partial-$version-$$"
   fail() {
     printf '%s\n' "$1" >"$failed"
@@ -271,17 +325,33 @@ if [ "$mode" = "__fetch" ]; then
     rmdir "$lock" 2>/dev/null
     exit 0
   }
-  rm -rf "$tmp"
-  mkdir -p "$tmp" || fail "it could not write to the plugin's data directory"
-  curl -fsSL --retry 2 --connect-timeout 20 --max-time 1800 -o "$tmp/download.gz" "$url/$asset" 2>/dev/null ||
+  # The lock is ours, so any other partial download of this version is one
+  # that died (killed mid-transfer); its bytes were never made executable.
+  rm -rf "$bindir"/.partial-"$version"-*
+  mkdir -p "$tmp" "$bindir/$version" || fail "it could not write to the plugin's data directory"
+  chmod 700 "$bindir" "$bindir/$version" 2>/dev/null
+  proto="=https"
+  case "$url" in http://127.0.0.1[:/]* | http://localhost[:/]*) proto="=http,https" ;; esac # a test's local server
+  limit=""
+  case "$gzbytes" in "" | *[!0-9]*) ;; *) limit="$((gzbytes + 1048576))" ;; esac
+  curl -fsSL --proto "$proto" --proto-redir =https --max-redirs 5 ${limit:+--max-filesize "$limit"} \
+    --retry 2 --connect-timeout 20 --max-time 1500 -o "$tmp/download.gz" "$url/$asset" 2>/dev/null ||
     fail "the download from GitHub failed"
   [ "$(sha256_of "$tmp/download.gz")" = "$gzsha" ] || fail "the download did not match the checksum the plugin carries"
   gunzip -c "$tmp/download.gz" >"$tmp/counterparts$exe" 2>/dev/null || fail "the download would not unpack"
   [ "$(sha256_of "$tmp/counterparts$exe")" = "$sha" ] || fail "the program did not match the checksum the plugin carries"
-  chmod 755 "$tmp/counterparts$exe" || fail "it could not mark the program runnable"
-  mkdir -p "$bindir/$version" && mv -f "$tmp/counterparts$exe" "$bin" || fail "it could not move the program into the plugin's data directory"
+  chmod 700 "$tmp/counterparts$exe" || fail "it could not mark the program runnable"
+  mv -f "$tmp/counterparts$exe" "$bin" || fail "it could not move the program into the plugin's data directory"
+  stamp_verified
   rm -rf "$tmp"
   rm -f "$failed"
+  # Another version's program not started for a week (its stamp is rewritten
+  # at every server start) is one no installed plugin runs any more: ~100 MB.
+  for old in "$bindir"/*/; do
+    old="${old%/}"
+    [ "$old" = "$bindir/$version" ] && continue
+    [ -f "$old/verified" ] && [ -n "$(find "$old/verified" -mmin +10080 2>/dev/null)" ] && rm -rf "$old"
+  done
   rmdir "$lock" 2>/dev/null
   exit 0
 fi
@@ -298,8 +368,9 @@ if [ -z "$why" ]; then
   fi
 fi
 if [ -z "$why" ]; then
-  mkdir -p "$bindir" 2>/dev/null
-  # A lock older than half an hour is a download that died holding it.
+  (umask 077 && mkdir -p "$bindir") 2>/dev/null
+  # A lock older than half an hour is a download that died holding it (curl
+  # gives up at 25 minutes).
   [ -d "$lock" ] && [ -n "$(find "$lock" -maxdepth 0 -mmin +30 2>/dev/null)" ] && rmdir "$lock" 2>/dev/null
   if [ -d "$lock" ]; then
     state="downloading"

@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
@@ -31,6 +31,8 @@ let data: string;
 let server: ReturnType<typeof Bun.serve> | null = null;
 let requests = 0;
 let hold: Promise<void> | null = null;
+/** When set, the asset's URL answers with a redirect to this. */
+let redirect: string | null = null;
 
 const sha = (b: Uint8Array | string): string => createHash("sha256").update(b).digest("hex");
 
@@ -91,6 +93,7 @@ function message(stdout: string): string {
 const bin = (): string => join(data, "bin", VERSION, `counterparts${hostPlatform().startsWith("windows") ? ".exe" : ""}`);
 const lock = (): string => join(data, "bin", `download-${VERSION}.lock`);
 const failed = (): string => join(data, "bin", `download-${VERSION}.failed`);
+const verified = (): string => join(data, "bin", VERSION, "verified");
 
 async function until(check: () => boolean, ms = 20_000): Promise<boolean> {
   const end = Date.now() + ms;
@@ -108,12 +111,14 @@ beforeEach(() => {
   mkdirSync(join(work, "home"), { recursive: true });
   requests = 0;
   hold = null;
+  redirect = null;
   server = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
     fetch: async (req) => {
       requests += 1;
       if (hold !== null) await hold;
+      if (redirect !== null && new URL(req.url).pathname.endsWith(".gz")) return Response.redirect(redirect, 302);
       return new URL(req.url).pathname.endsWith(".gz") ? new Response(Bun.file(join(work, "asset.gz"))) : new Response("no", { status: 404 });
     },
   });
@@ -225,6 +230,96 @@ describe.skipIf(process.platform === "win32")("plugin-run.sh with no runtime: th
     utimesSync(failed(), old, old);
     expect(message(launch("hook", sessionStart("s3")).stdout)).toContain("getting ready");
     expect(await until(() => requests === 2 && !existsSync(lock()))).toBe(true);
+  });
+
+  test("what it keeps, only this user can enter, and a full check is stamped beside it", async () => {
+    plugin();
+    launch("hook", sessionStart());
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    expect(statSync(join(data, "bin")).mode & 0o077).toBe(0);
+    expect(statSync(join(data, "bin", VERSION)).mode & 0o077).toBe(0);
+    expect(statSync(bin()).mode & 0o777).toBe(0o700);
+    const st = statSync(bin());
+    expect(readFileSync(verified(), "utf8")).toBe(`${sha(FAKE)} ${String(st.ino)} ${String(st.size)} ${String(Math.floor(st.mtimeMs / 1000))}\n`);
+  });
+
+  test("a kept program that changed is never run: it is deleted and fetched again", async () => {
+    plugin();
+    launch("hook", sessionStart());
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    appendFileSync(bin(), "echo tampered\n");
+
+    const r = launch("hook", sessionStart("s2"));
+    expect(r.stdout).not.toContain("fake counterparts");
+    expect(r.stdout).not.toContain("tampered");
+    expect(message(r.stdout)).toContain("getting ready");
+    expect(await until(() => requests === 2 && existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    expect(launch("hook", sessionStart("s3")).stdout).toBe("fake counterparts hook\n");
+  });
+
+  test("the server's start re-hashes the whole file, even when its size and dates were kept", async () => {
+    plugin();
+    launch("hook", sessionStart());
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    const before = statSync(bin());
+    // Same length, same inode, mtime put back: only the bytes differ.
+    writeFileSync(bin(), FAKE.replace("fake", "evil"));
+    utimesSync(bin(), before.atime, before.mtime);
+
+    const r = launch("mcp", "");
+    expect(r.stdout).not.toContain("evil");
+    expect(existsSync(bin())).toBe(false);
+    expect(await until(() => requests === 2 && existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    expect(launch("mcp", "").stdout).toBe("fake counterparts mcp\n");
+  });
+
+  test("a stamp for another checksum, or a day old, sends a hook through the full check", async () => {
+    plugin();
+    launch("hook", sessionStart());
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    const good = readFileSync(verified(), "utf8");
+
+    writeFileSync(verified(), good.replace(sha(FAKE), "0".repeat(64)));
+    expect(launch("hook", sessionStart("s2")).stdout).toBe("fake counterparts hook\n");
+    expect(readFileSync(verified(), "utf8")).toBe(good);
+
+    const old = new Date(Date.now() - 25 * 3_600_000);
+    utimesSync(verified(), old, old);
+    expect(launch("cli", "").stdout).toBe("fake counterparts cli\n");
+    expect(statSync(verified()).mtimeMs).toBeGreaterThan(Date.now() - 60_000);
+    expect(requests).toBe(1);
+  });
+
+  test("a redirect to plain HTTP is refused, and what a killed download left is cleared", async () => {
+    plugin();
+    // What a download killed mid-transfer leaves: never executable, swept by the next one.
+    const dead = join(data, "bin", `.partial-${VERSION}-99999`);
+    mkdirSync(dead, { recursive: true });
+    writeFileSync(join(dead, "download.gz"), "half");
+    redirect = `http://127.0.0.1:${String(server?.port)}/elsewhere/asset.gz`;
+    launch("hook", sessionStart());
+    expect(await until(() => existsSync(failed()) && !existsSync(lock()))).toBe(true);
+    expect(readFileSync(failed(), "utf8")).toContain("the download from GitHub failed");
+    expect(requests).toBe(1); // the redirect was not followed
+    expect(existsSync(bin())).toBe(false);
+    expect(readdirSync(join(data, "bin")).filter((n) => n.startsWith(".partial"))).toEqual([]);
+  });
+
+  test("another version's program, not started for a week, is cleared when a new one lands", async () => {
+    plugin();
+    const stale = join(data, "bin", "9.9.7");
+    const recent = join(data, "bin", "9.9.8");
+    for (const d of [stale, recent]) {
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, "counterparts"), FAKE);
+      writeFileSync(join(d, "verified"), "x\n");
+    }
+    const weekAgo = new Date(Date.now() - 8 * 24 * 3_600_000);
+    utimesSync(join(stale, "verified"), weekAgo, weekAgo);
+    launch("hook", sessionStart());
+    expect(await until(() => existsSync(bin()) && !existsSync(lock()))).toBe(true);
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(join(recent, "counterparts"))).toBe(true);
   });
 
   test("COUNTERPARTS_BINARY_DOWNLOAD=off: the old message, and nothing is fetched", async () => {
