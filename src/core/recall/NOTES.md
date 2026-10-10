@@ -1055,3 +1055,76 @@ diagnosis of 10-02 could say the Hebbian path was nearly dark (`quoted` 0 and `e
   - Ambient recall only. A deliberate answer's memories (`asked`) are not in the gate
     state's `surfaced`, and are not scored.
   - Recorded only where the credit pass runs (INTERFACE-GAPS §9).
+
+## 29. Drew on: the engaged door (2026-10-10, G1b)
+
+*Revised by b2+f8, 2026-10-10, from Mike's 09-14 ruling, lightly held. Why: deposit can't work
+otherwise; the ~0.8 precision bar and the saturating cap keep the anti-rich-get-richer intent.*
+
+Review 05 (2026-10-10) found the credit seam nearly dark: footnotes are ~98% of what recall
+shows, a footnote could only earn credit by being opened, and the quote door (loud only) fired
+4 times in 19 lived days. This section is the third door and what the build learned.
+
+- **The rule** (`reference.ts#resolveEngagement`, pure). A candidate is a memory the session's
+  gate state shows as footnoted or loud on the judged stretch or up to two recall turns before
+  it (`ENGAGED_TURN_WINDOW`), that trains, and that no expansion or quote already credited.
+  Its title is what the model saw: `title ?? first line`, clipped to `FOOTNOTE_TITLE_BYTES`.
+  It is ENGAGED when the replies carry a title PHRASE (two adjacent title words, neither a
+  stopword, one of them a rare non-numeric word, not both said in the prompt) plus a rare title
+  word new to the prompt, in their text or their tool-call inputs; or two rare title words new
+  to the prompt in their TEXT. Rare = document frequency in the live index at most 3% of the
+  live store (`ENGAGED_RARE_SHARE`), never below 2 documents (`ENGAGED_RARE_MIN_DF`). Typed
+  ids are stripped first (U5). A word the index does not know is not rare.
+- **The credit** (`physics` tier `engaged`, `W_ENGAGED` 0.5). Half a use; the decay clock
+  restarts; a return of source `engaged` worth `ENGAGED_RETURN_WEIGHT` (0.5) times spacing,
+  measured from the last return of any kind (the store reads the last engaged day off
+  `returns`, no column). No core-lane day: `return_days` / `last_return_day` count only
+  `awake` and `reflection`. At most `ENGAGED_MAX_PER_BOUNDARY` (3) land per boundary, the
+  strongest first (a phrase before two words, then more rare words, then the newer showing);
+  the cap counts credits that landed. Once per lived day. A superseded row (archived in
+  practice, so not even a candidate) or one faded under a newer memory (`fade` < 1) is refused
+  by name (`superseded`, `faded-under-newer`); an expansion of one still credits as before.
+- **The tier only goes up within a day.** An engaged credit, then an expansion at a later
+  boundary of the same session and lived day, lifts the day to a full use (`uses` +0.5, no
+  second reinforced day) and replaces the engaged return with the awake one
+  (`physics#creditUse`'s `upgradeFrom`, `store#reinforce`). Another session's engaged credit
+  earlier the same day still refuses the expansion as `already-credited-today`: under-credit,
+  rare, left.
+- **The inputs.** The host adapter carries tool-call inputs beside the turn list
+  (`claude-code/transcript.ts#ToolInput`, first 4,096 characters of each call's JSON), sliced
+  by the same cursor as expansions; this package's own tools are left out (the write-up
+  restating a footnote must not train it). The person's typed turns in the slice are the
+  prompt. A caller that passes no `userTurns` gets no engaged credit.
+- **The row.** `recall.credit` carries `engaged` (decided), `how` (aligned with `ids`:
+  `expanded` / `quoted` / `engaged`) and `engagedCapped`. §28's score now counts an engaged
+  memory as used, so its line "a footnote can be used only by an expansion" is out of date.
+- **Cost.** One `docFrequency` query over the candidates' title words and one `COUNT(*)` of
+  live memories per boundary that has candidates and a reply; the rest is O(reply length +
+  candidates x title words). Nothing scans the store.
+
+**Measured** (2026-10-10, g1b-builder; script `~/counterparts-notes/2026-10-10-mechanisms-review/g1b-measure/measure.ts`,
+read-only over `~/.claude/projects/*/*.jsonl`: reply text, tool-call inputs, typed prompts and
+each recall block's footnote titles and ids; never a store). 200 transcripts with recall blocks,
+2,320 recall turns, 5,586 footnote showings, 09-09 to 10-10. The SHIPPED function was run.
+Without the store there is no index df, so df came from the 1,380 memory texts the transcripts
+show being written (`session_end` / `note` items and chapters, chapters counted twice for their
+copies). Control, as in review 05: memories not shown that turn, all of them or only those
+whose title shares a word with the prompt; (shown − control) / shown estimates precision.
+
+| rule | shown hit | control | est. precision (all / matched) | distinct credited | memory-days |
+|---|---|---|---|---|---|
+| **shipped** (window 2, own tools out) | 3.8% | 0.81% | **0.78 / 0.81** | **299** | 375 |
+| shipped, same turn only | 4.5% | 0.82% | 0.82 / 0.85 | 189 | 220 |
+| review 05's R6 as written (two words count in tool inputs too) | 5.2% | 1.84% | 0.65 / 0.68 | 393 | 503 |
+| phrase only (R5) | 3.0% | 0.52% | 0.83 / 0.84 | 234 | 293 |
+
+- The proxy df is LOOSER than a store's: at 3% it marked about twice as many words rare as
+  review 05 saw on the real store (R6's hit rate 6.2% here against 3.4% there; the proxy
+  needed ~1.5% to match). So the store's own precision is likely at or above these estimates.
+- A hand read of 30 random shipped hits: about 15 clear draws (a ruling restated, a recipe
+  followed, a PR named as prior art), about 5 the same topic carried on, about 10 not
+  (a rare word in a file path or a commit message, an ordinary word the small corpus
+  counted rare). Stricter than the control estimate, about 0.6. Most misses came through
+  tool inputs and one-word phrases. Revisit after ~5 lived days with the row's `how`.
+- The memory counts span several stores (the parallel run's, then the live store from 09-21),
+  so they are an upper bound on what one store would have credited.

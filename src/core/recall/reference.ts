@@ -14,6 +14,13 @@
  * in a wake. Reinforcement is for thinking with a memory, not for having been
  * shown it.
  *
+ * REVISED 2026-10-10 (G1b): a THIRD door, "drew on" (`resolveEngagement`,
+ * below). Revised by b2+f8, 2026-10-10, from Mike's 09-14 ruling, lightly
+ * held. Why: deposit can't work otherwise; the ~0.8 precision bar and the
+ * saturating cap keep the anti-rich-get-richer intent. Display still never
+ * trains: being shown, surfaced or rendered earns nothing; a reply carrying a
+ * rare phrase of what it was shown earns half a use.
+ *
  * Two doors, and what each one can see:
  *
  *   **Expanded.** The assistant called the recall tool with `ids` or a

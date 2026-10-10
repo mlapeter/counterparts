@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **A memory Claude draws on now gets stronger, without having to open it.** Until now a
+  memory earned credit only when Claude opened it by id or quoted eight of its words, and
+  a footnote (most of what recall shows) almost never did. Now, when a reply or one of its
+  tool calls carries a rare phrase from a footnote's or "Came to mind" memory's title, or
+  its text carries two rare title words, and you didn't say those words first, the memory
+  is credited as *engaged*: half a use, its fading clock restarts, half a return, at most
+  three per reply and once a day each. Being shown still earns nothing, and a memory that a
+  newer one replaced is never revived this way. Opening it later the same day lifts the
+  credit to a full use. No model call; nothing scans the store. Measured on past
+  transcripts at about 0.8 estimated precision against a matched control.
+  Each credit on the `recall.credit` row now says how it was earned (`how`: `expanded`,
+  `quoted` or `engaged`). Repetition credit now levels off (0.14 after one use, 0.24 after
+  two, 0.40 after five, never past 0.5) instead of climbing in straight steps to a wall.
+  The footnote header no longer calls footnotes "ignorable": it reads "Quietly available
+  (in the background; draw on what helps, open an id before relying on one):".
+  This reverses the owner's 09-14 rule ("never for being named in prose"), with his
+  approval on 10-10, held lightly.
+
 - **A paused folder now says so when a session starts.** With memory paused in a folder
   (`counterparts scope . --pause`, or the sidebar's switch), a new, resumed, cleared or
   compacted session there shows one line naming the paused folder and the command that

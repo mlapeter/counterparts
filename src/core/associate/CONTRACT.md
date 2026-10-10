@@ -71,7 +71,14 @@ for `recall/`; telemetry by reference.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 
-1. **[M] Footnotes never train.** The ignorable tier is ignorable in both directions.
+1. **[M] Display never trains; engagement does.** *Revised by b2+f8, 2026-10-10, from
+   Mike's 09-14 ruling, lightly held. Why: deposit can't work otherwise; the ~0.8 precision
+   bar and the saturating cap keep the anti-rich-get-richer intent.* A memory shown and
+   passed by (footnoted, surfaced, on the wake) trains nothing, in either direction. One the
+   reply DREW ON is credited at the `engaged` tier (`recall/reference.ts#resolveEngagement`,
+   G1b). As built on 2026-10-10 that tier trains strength only and joins no pair set; the
+   edge deposit from engagement is the association group's (group 4) to add. (Was:
+   "Footnotes never train. The ignorable tier is ignorable in both directions.")
 2. **[M] Per node, the edge count is capped and the total outgoing weight is bounded**,
    with proportional renormalization. Since 2026-09-28 this covers every edge a dream
    writes too: a dream's `link` and a gist's ties to its sources go through
