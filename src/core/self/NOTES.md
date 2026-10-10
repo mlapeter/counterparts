@@ -1320,7 +1320,8 @@ version back: under dreaming `auto` the nightly run starts at the day's first pr
 first turn-end a minute later runs the cycle while the run is still going, and phase 7
 renders before the run's writer writes. Nine `self.briefing` rows for nine lived days.
 
-**What.** Two writes mark the wake behind (`behind.ts`): the page written (`revisePage`,
+**What.** Two writes mark the wake behind (`behind.ts`; every accepted memory and every
+handoff change since 2026-10-10, below): the page written (`revisePage`,
 `clearPage`; every writer arrives there) and memories accepted through `session_end` (the
 door both the Stop ask's answer and the next-session write-up take —
 `Counterpart.submitSessionEnd`). `Counterpart.refreshWake` re-renders through `rebrief`'s
@@ -1360,6 +1361,26 @@ about the same calendar yesterday as one that starts after (tested). The lived d
 the writer only in `dayMemories`' strength read (order within one day) and the `day`
 stamped on the claim row and on the page's `revisedDay` — the dashboard's `newerThanWake`
 compares that lived day with the last render's, and reads a same-day page as not newer.
+
+**Every accepted memory, and every handoff change (2026-10-10).** The two writes became
+all of them. A hermetic repro (notes 2026-10-10, wake staleness) showed a memory written
+with `note` — the most common write mid-session — left Still open, Nearby and Arriving as
+they were for up to a day, in every directory, a thread it closed included: the turn-end
+worker found no mark and rendered nothing. The mark moved from `submitSessionEnd` into
+`Counterpart.deposit`, on the accept arm, so every door marks it: `write-up` for
+`session_end`, the new `memory` for the rest. `writeHandoff`, `retireHandoff` and
+`clearHandoff` mark `handoff` when the write landed, because the bundle's room for the
+handoff pointer is sized at render time (`handoff/` does not import `self/`, so the mark
+sits in the Counterpart method). Cost: one render per turn that wrote something, ~0.45 s
+on the owner's store copy and ~3 s at 10x, in the detached worker, no model call; turns
+that wrote nothing cost nothing more. **The night run marks as before:** its main child's
+tools (dream, reflect, self_page, recall) never reach `deposit` — dream and reflection
+rows mint through their own doors — and the catch-up child's only tool, `session_end`,
+already marked `write-up`. So no skip for the night: it would need a flag threaded into
+the deposit context to change nothing observable, and `run-end` still renders once at the
+end. Still not covered: the morning burst (sessions started before the day's first
+turn-end read yesterday's bundle), sessions already open, and what other directories did
+today.
 
 **A gap, for now.** Once #286 (the per-date log) is merged, `counterpart.rebrief` — carrying
 `why` and `triggers` — is on the log's allowlist, but `counterpart.rebrief.refused`

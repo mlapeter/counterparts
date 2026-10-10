@@ -408,9 +408,9 @@ export async function runOnce(input: {
       carriedRows: report.carried?.rows ?? 0,
       sweep: "next-session",
     });
-    // 3a. THE WAKE CATCHES UP (2026-09-30): a page written or a write-up
-    // landed since the last render re-renders it now, not at the next lived
-    // day. After the cycle, whose own render already caught up to what was
+    // 3a. THE WAKE CATCHES UP (2026-09-30): a page written, a memory or a
+    // write-up accepted, or a handoff changed (2026-10-10) since the last
+    // render re-renders it now, not at the next lived day. After the cycle, whose own render already caught up to what was
     // marked before it; nothing marked, nothing rendered.
     // Its own try: a render that fails costs the refresh, and the mark stays.
     try {

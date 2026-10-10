@@ -195,6 +195,10 @@ were refined by b2+f8 at the review of #369, named where they were):
   Why: the limit refused 84 asks in 4 sessions, 35 of them while something was owed; review
   01 offered this or a limit of 20, and this one asks only when something is owed.
 
+### Decided by b2, 2026-10-10, lightly held (the wake, #374)
+
+- Decided by b2, 2026-10-10, lightly held: every accepted memory and handoff change marks the wake for re-render (was: only write-ups, chapters, page, told, version, run-end). Why: a hermetic repro showed note-written memories stale in Still open/Nearby/Arriving for up to a day; cost ~0.45 s per writing turn-end in the detached worker, no model calls.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

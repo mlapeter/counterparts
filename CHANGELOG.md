@@ -62,6 +62,12 @@
   A few strongly felt memories claimed at 0.42–0.50 now start episodic rather than semantic.
   The text of a session that still owes a write-up is now kept up to 14 days of use plus the
   ordinary 7 days, not 2.
+- **A memory written with `remember` (or its old name `note`) reaches the next session's
+  wake the same day.** Only write-ups, chapters and the self page used to bring the wake up
+  to date between days, so a note left Still open, Nearby and Arriving as they were for up
+  to a day, in every directory, a question it answered included. Now every memory that
+  lands, and every handoff written or retired, re-renders the wake at that turn's end, in
+  the background.
 - **A reader for which memories recall shows and the replies ignore.** `probeMemoryHits`
   reads the ids the credit row already lists as shown and not used, and gives a hit rate
   per memory and per lane (loud, footnote, pointer). It only measures. Nothing reads it
