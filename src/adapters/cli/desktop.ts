@@ -39,8 +39,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { CONFIG_ENV } from "../config-path.js";
-import { parseScriptInvocation, scriptArgs } from "../runtime.js";
-import { BIN, desktopConfigPath, hostConfigBase, hostMcpFile, MCP_SCRIPT, MCP_SERVER_NAME } from "./install.js";
+import { scriptArgs } from "../runtime.js";
+import { BIN, desktopConfigPath, hostConfigBase, hostMcpFile, isOurDesktopEntry, MCP_SCRIPT, MCP_SERVER_NAME } from "./install.js";
 import { sightSettings, tilde, unparsedSettingsWhy, writeSettings } from "./wire.js";
 
 /** The variable the server reads its store from (`mcp/bin/serve.ts#ENV.dir`). */
@@ -147,27 +147,9 @@ export function connectDesktop(input: {
   }
 }
 
-/**
- * Is a `counterparts` entry in Desktop's file one this package wrote? Its
- * command must read back as ours (`runtime.ts#parseScriptInvocation`) and run
- * the memory server — a hand-made entry under the same name is somebody's
- * own, and `connect` leaves it alone.
- *
- * NOTHING AFTER THE SCRIPT (review of #354). `desktopEntry` never writes a
- * tail — the configuration travels in `env` — so an entry with arguments after
- * `serve.ts` (or after the binary's `mcp`) is somebody's edit of ours, and the
- * rewrite, which replaces `args` whole, would drop them without a word. The
- * same line `host-wiring.ts#isOurHookCommand` holds for the hooks.
- */
-export function isOurDesktopEntry(entry: unknown): entry is { command: string; args: string[] } & Record<string, unknown> {
-  if (!isRecord(entry)) return false;
-  const command = entry["command"];
-  const args = entry["args"];
-  if (typeof command !== "string" || !Array.isArray(args) || !args.every((a) => typeof a === "string")) return false;
-  const run = parseScriptInvocation([command, ...(args as string[])]);
-  if (run === null || run.rest.length > 0) return false;
-  return run.mode === "mcp" || (run.mode === undefined && /mcp[/\\]bin[/\\]serve\.ts$/.test(run.script));
-}
+/** Is a `counterparts` entry in Desktop's file one this package wrote —
+ *  `install.ts` holds it, because doctor's `readHost` asks it too. */
+export { isOurDesktopEntry };
 
 /** What `connect` did about Claude Desktop's entry (`repairDesktop`). */
 export interface DesktopRepair {

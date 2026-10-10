@@ -368,6 +368,13 @@ describe("doctor's Runtime line reads Claude Desktop's entry", () => {
     expect(line?.detail).toContain("the Claude Desktop server was wired before");
   });
 
+  test("a hand-made Desktop entry under our name is not graded: connect would never touch it, so an amber would never clear", () => {
+    writeDesktop({ command: BUN, args: ["run", "/x/their-own-server.ts"] });
+    expect(readHost(home, home, {}).runtimes.some((r) => r.used.includes("desktop"))).toBe(false);
+    writeDesktop({ ...oldEntry(), args: ["run", MCP_SCRIPT, "--verbose"] });
+    expect(readHost(home, home, {}).runtimes.some((r) => r.used.includes("desktop"))).toBe(false);
+  });
+
   test("Claude Code's hooks and Desktop both old: one amber, Claude Code's named first, the fix says quit Desktop then connect", () => {
     writeDesktop(oldEntry());
     const host = readHost(home, home, {});
