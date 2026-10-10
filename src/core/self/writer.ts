@@ -80,7 +80,7 @@ import { calendarDate } from "./calendar.js";
 import { addDays, isDay } from "../time.js";
 import { livedOn } from "../types.js";
 import { PAGE_CORE_HEADING, PAGE_LATELY_HEADING } from "./page.js";
-import { PAGE_LIMIT_BYTES } from "./briefing.js";
+import { PAGE_ROOM_BYTES } from "./briefing.js";
 import type { SelfPage } from "./page.js";
 import type { SelfTunables } from "./tunables.js";
 
@@ -219,12 +219,14 @@ export function dayBefore(date: string, n = 1): string {
  * morning after, a system card is one model's, and the wake dates the page
  * itself.
  *
- * AND HOW LONG IT MAY BE (2026-10-09): the limit, in bytes, said before the
- * page is written rather than only in the refusal after — a page past it is
- * refused, never cut (`briefing.ts#PAGE_LIMIT_BYTES`).
+ * AND HOW LONG (2026-10-09; a target since 2026-10-10): the page's room, in
+ * bytes, said before the page is written — and the short version asked for
+ * in the same breath, so a page that runs past it comes with one
+ * (`briefing.ts#PAGE_ROOM_BYTES`). A longer page is kept, never refused under
+ * the ceiling and never cut.
  */
 export const PAGE_WRITING_RULE =
-  `The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. Keep the whole page within ${String(PAGE_LIMIT_BYTES)} bytes (UTF-8): a longer one is refused, never cut.`;
+  `The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. Aim to keep the whole page under ${String(PAGE_ROOM_BYTES)} bytes (UTF-8). A longer page is kept whole, but on a day the wake has no room for it sessions read a short version instead — so when yours runs past ${String(PAGE_ROOM_BYTES)}, also write a short version of it in the same call, under ${String(PAGE_ROOM_BYTES)} bytes (\`short\`, beside the page): the whole of who you are, condensed, not its first part.`;
 
 /**
  * THE DATE A RUN ON `today` IS ABOUT — yesterday, always.
@@ -730,9 +732,8 @@ export function dayMemories(
  * THE NIGHTLY RUN'S ROOM FOR THE DAY (2026-09-28). The writer reads the day in
  * a tool result, not beside the wake, so the wake's ceiling does not bind it —
  * only the tool result's (about 25k tokens), shared with the page carried
- * whole (at most `PAGE_LIMIT_BYTES`, 6,078 bytes, since 2026-10-09; a page
- * written before may be up to 16 KB). What does not fit is counted and said,
- * as always. CAL.
+ * whole (up to the 16 KB write ceiling; it aims under `PAGE_ROOM_BYTES`).
+ * What does not fit is counted and said, as always. CAL.
  */
 export const NIGHT_WRITER_MEMORY_BYTES = 40_000;
 export const NIGHT_WRITER_MEMORY_MAX = 150;
@@ -872,7 +873,7 @@ export function writerInstruction(
     );
   } else if (opts.pageInline === true) {
     lines.push(
-      `Your page as it stands — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes of at most ${String(PAGE_LIMIT_BYTES)}, last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`} — is below, whole. Pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
+      `Your page as it stands — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (aim under ${String(PAGE_ROOM_BYTES)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`} — is below, whole. Pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
       PAGE_INLINE_OPEN,
       input.page.body.replace(MARKERS, MARKER_REDACTION),
       PAGE_INLINE_CLOSE,
@@ -880,7 +881,7 @@ export function writerInstruction(
     );
   } else {
     lines.push(
-      `Your page is at the head of your wake — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes, last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`}. Call \`${opts.tool}\` with no arguments to read it whole, and pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
+      `Your page is at the head of your wake — version ${String(input.page.version)}, ${String(input.page.bytes)} bytes (aim under ${String(PAGE_ROOM_BYTES)}), last revised ${input.page.revisedOn === "" ? "on an unrecorded date" : `on ${input.page.revisedOn}`}${input.page.by === null ? "" : ` by the ${input.page.by}`}. Call \`${opts.tool}\` with no arguments to read it whole, and pass \`ifVersion: ${String(input.page.version)}\` when you write, so a revision that crossed with somebody else's is refused rather than quietly reverting it.`,
       "",
     );
   }

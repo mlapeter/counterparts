@@ -40,6 +40,7 @@
  * role but entity, belief and current-state, so the page is skipped by the
  * index build rather than mis-filed in it.
  */
+import { hashText } from "../store/index.js";
 import type { ProseDoc, Store } from "../store/index.js";
 
 /** The `meta.role` that makes a schema row THE page. One per store. */
@@ -146,6 +147,28 @@ export const PAGE_META_REVISED_DAY = "revisedDay";
 export const PAGE_META_BY = "by";
 export const PAGE_META_REASON = "reason";
 
+/**
+ * THE SHORT VERSION (2026-10-10), on the page's own prose meta: `{ body, of,
+ * bytes }`, where `of` is the content hash (`store/hashText`) of the page text
+ * it condenses and `bytes` that text's size. No schema change: the meta is
+ * JSON on the row, written in the same `revise` as the page, and every
+ * archived version keeps the meta it had — so the history carries each
+ * version's short version beside it.
+ *
+ * TIED TO THE TEXT IT CONDENSES. `revise` MERGES meta, so a write with no
+ * short version sets this to null explicitly; and a reader takes it only when
+ * `of` is the hash of the body standing now (`readSelfPage`). A page
+ * rewritten without one therefore falls to the mechanical rung, never to a
+ * stale short version — whichever of the two guards a future path forgets.
+ */
+export const PAGE_META_SHORT = "short";
+
+/** A short version, as read: only ever the one written WITH the page standing. */
+export interface PageShort {
+  readonly body: string;
+  readonly bytes: number;
+}
+
 export interface SelfPage {
   readonly id: string;
   /** The page, verbatim. Never truncated — not here, not in the wake. */
@@ -159,6 +182,24 @@ export interface SelfPage {
   readonly reason: string | null;
   /** `revision` on the row: 0 for a page written once and never amended. */
   readonly version: number;
+  /**
+   * The short version its writer wrote WITH this text (2026-10-10), or null —
+   * none was written, or the one stored condenses a different text
+   * (`PAGE_META_SHORT`).
+   */
+  readonly short: PageShort | null;
+}
+
+/** The short version stored beside a body, when it condenses THAT body. Pure. */
+export function shortOf(meta: Record<string, unknown>, body: string): PageShort | null {
+  const raw = meta[PAGE_META_SHORT];
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const rec = raw as Record<string, unknown>;
+  const text = rec["body"];
+  const of = rec["of"];
+  if (typeof text !== "string" || text.trim().length === 0 || typeof of !== "string") return null;
+  if (of !== hashText(body)) return null;
+  return { body: text, bytes: byteLengthOf(text) };
 }
 
 /**
@@ -264,6 +305,7 @@ export function readSelfPage(store: Store): SelfPage | null {
     by: isAuthor(by) ? by : null,
     reason: typeof reason === "string" && reason.length > 0 ? reason : null,
     version: row?.revision ?? 0,
+    short: shortOf(doc.meta, doc.body),
   };
 }
 
@@ -446,4 +488,113 @@ export function pageSections(body: string): PageSections {
     headed: true,
     sections,
   };
+}
+
+// ── the mechanical version (2026-10-10) ─────────────────────────────────────
+
+/**
+ * The longest "first sentence" the outline carries, in bytes. A section that
+ * opens with one longer — a paragraph with no full stop in it — shows its
+ * heading alone rather than a cut of it: every rung is whole text.
+ */
+export const OUTLINE_SENTENCE_MAX_BYTES = 480;
+
+/** Words whose full stop ends no sentence. Lowercased, without the stop. */
+const ABBREVIATIONS = new Set(["e.g", "i.e", "etc", "vs", "mr", "mrs", "ms", "dr", "st", "no", "cf", "approx"]);
+
+/** A sentence's end: `.`, `!` or `?`, any closing quotes or brackets, then a space or the end. */
+const SENTENCE_END = /[.!?]["'”’)\]*_]*(?=\s|$)/gu;
+
+/**
+ * THE FIRST WHOLE SENTENCE of a section's words, or null (2026-10-10, the
+ * mechanical rung). Mechanical on purpose — it reads, it does not summarise:
+ * the first paragraph (or the first entry of a list that opens the section),
+ * its lines joined, up to the first full stop, question or exclamation mark
+ * that ends a sentence (not "e.g." or "v0.3.14"). With no such mark, the
+ * whole first line. Longer than `OUTLINE_SENTENCE_MAX_BYTES`, null — never a
+ * cut. Pure.
+ */
+export function firstSentence(text: string): string | null {
+  const para = text
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .find((p) => p.length > 0);
+  if (para === undefined) return null;
+  const lines = para.split("\n").map((l) => l.trim());
+  const first = lines[0] ?? "";
+  // A list that opens the section: its first entry, which is its own line.
+  // Otherwise the paragraph's lines, up to a list that follows it unbroken.
+  const block: string[] = [];
+  if (LIST_ENTRY.test(first)) block.push(first.replace(LIST_ENTRY, ""));
+  else {
+    for (const l of lines) {
+      if (LIST_ENTRY.test(l)) break;
+      block.push(l);
+    }
+  }
+  const flat = block.join(" ").replace(/\s+/g, " ").trim();
+  if (flat.length === 0) return null;
+  let sentence: string | null = null;
+  for (const m of flat.matchAll(SENTENCE_END)) {
+    const end = (m.index ?? 0) + m[0].length;
+    const before = flat.slice(0, m.index ?? 0);
+    const word = (/(\S+)$/.exec(before)?.[1] ?? "").toLowerCase().replace(/^[("'“‘*_]+/u, "");
+    if (m[0].startsWith(".") && (ABBREVIATIONS.has(word) || /^[a-z]$/i.test(word))) continue;
+    sentence = flat.slice(0, end);
+    break;
+  }
+  const out = sentence ?? (LIST_ENTRY.test(first) ? flat : first.replace(/\s+/g, " "));
+  if (out.length === 0 || byteLengthOf(out) > OUTLINE_SENTENCE_MAX_BYTES) return null;
+  return out;
+}
+
+/** One entry of the outline: the heading as the page writes it, and its first sentence. */
+export interface PageOutlineEntry {
+  /** `## Core` — the heading line, as a heading. */
+  readonly heading: string;
+  /** Its first whole sentence, or null when it has none short enough. */
+  readonly sentence: string | null;
+}
+
+export interface PageOutline {
+  /** The first sentence of anything before the first heading, or of the whole page when it has none. */
+  readonly lead: string | null;
+  readonly entries: readonly PageOutlineEntry[];
+}
+
+/**
+ * THE PAGE'S OUTLINE (2026-10-10): each `##` section's heading and its first
+ * whole sentence (`firstSentence`) — the mechanical rung, for a wake with no
+ * room for the page and no short version written with it. Level-two
+ * headings, the page's convention; a page with none uses its highest level
+ * there is. Never the WAKE's words about the page: only the page's own. Pure.
+ */
+export function pageOutline(body: string): PageOutline {
+  const parts = pageSections(body);
+  const lead = firstSentence(parts.preamble);
+  if (!parts.headed) return { lead, entries: [] };
+  const levels = parts.sections.map((s) => s.level);
+  const level = levels.includes(2) ? 2 : Math.min(...levels);
+  return {
+    lead,
+    entries: parts.sections
+      .filter((s) => s.level === level && s.heading.length > 0)
+      .map((s) => ({ heading: `${"#".repeat(s.level)} ${s.heading}`, sentence: firstSentence(s.body) })),
+  };
+}
+
+/** The outline as the wake prints it, or null when there is nothing to print. Pure. */
+export function outlineText(outline: PageOutline): string | null {
+  const lines: string[] = [];
+  if (outline.lead !== null) lines.push(outline.lead);
+  for (const e of outline.entries) {
+    lines.push(e.heading);
+    if (e.sentence !== null) lines.push(e.sentence);
+  }
+  return lines.length === 0 ? null : lines.join("\n");
+}
+
+/** The headings alone, as the wake prints them, or null when the page has none. Pure. */
+export function headingsText(outline: PageOutline): string | null {
+  return outline.entries.length === 0 ? null : outline.entries.map((e) => e.heading).join("\n");
 }

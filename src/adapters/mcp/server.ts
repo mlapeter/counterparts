@@ -137,8 +137,8 @@ import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, nightNext, nightOrder } from "..
 import type { DreamBundle, DreamingSetting, NightPart } from "../../core/dream/index.js";
 import { TOOL_RESULT_CEILING, clipWire, noteLookups, wireChars } from "../../core/fit/index.js";
 import type { FitMechanism } from "../../core/fit/index.js";
-import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, WAKE_BUILD_KEY, pageSections, pageTooLargeDetail } from "../../core/self/index.js";
-import type { PageWriterMode } from "../../core/self/index.js";
+import { NIGHT_WRITER_TOOL, NO_PAGE_VERSION, WAKE_BUILD_KEY, pageRoomNote, pageSections, pageTooLargeDetail } from "../../core/self/index.js";
+import type { PageRevision, PageWriterMode } from "../../core/self/index.js";
 import { toolDefinitions, toolSpec } from "./tools.js";
 import { writeUpDoor } from "./write-up.js";
 import type { ToolName } from "./tools.js";
@@ -486,7 +486,11 @@ export type ScopeSource = "flag" | "project" | "cwd" | "store" | "host";
 const PAGE_REFUSAL_DETAIL: Record<string, string> = {
   empty: "A page has to say something. Nothing worth writing is a real answer — leave the page alone instead.",
   "too-large":
-    "That page is past its limit (`limit` bytes, UTF-8; `bytes` is what was sent, `over` how much to take out) — the most the wake prints whole, so a page is never cut there. It was refused rather than cut: what gets cut at write time is the only copy. Say the same thing shorter — tighten, merge or drop what no longer holds, do not just chop the end — and send the whole page again.",
+    "That page is past the write ceiling (`limit` bytes, UTF-8; `bytes` is what was sent, `over` how much to take out) — a sanity bound far past the page's room. It was refused rather than cut: what gets cut at write time is the only copy. Say the same thing shorter — tighten, merge or drop what no longer holds — and send the whole page again.",
+  "short-not-needed":
+    "The page is within its room, so the wake shows it whole and a short version would never be read. Nothing was written.",
+  "short-refused":
+    "The short version was not kept (`short.reason`: past the room, the page's credential gate, or the wake's own markers), so nothing was written. Fix that and send it again.",
   "gate-refused":
     "The gate battery turned it away — most often because what was sent was nothing but a credential, or too short to be a page. Nothing was written.",
   "forged-markers":
@@ -498,6 +502,25 @@ const PAGE_REFUSAL_DETAIL: Record<string, string> = {
   "page-appeared":
     "You wrote as if there were no page, and one has appeared since you looked. Nothing was written. `currentVersion` and `currentBody` are what is there: read it, fold your change into it, and send it back with that version.",
 };
+
+/**
+ * WHAT A WRITE PAST THE PAGE'S ROOM IS TOLD (2026-10-10): the room, what
+ * became of a short version, and — when none was kept — how to add one, in
+ * `pageRoomNote`'s words. Nothing for a page within its room and no short
+ * version sent.
+ */
+function pageRoomAnswer(written: PageRevision, room: number): Record<string, unknown> {
+  const note = pageRoomNote(
+    written,
+    room,
+    `call self_page again with \`short\` alone and \`ifVersion: ${String(written.version ?? NO_PAGE_VERSION)}\``,
+  );
+  return {
+    ...(written.overRoom === null ? {} : { room: written.overRoom, overRoom: true }),
+    ...(written.short === null ? {} : { short: written.short }),
+    ...(note === null ? {} : { roomNote: note }),
+  };
+}
 
 const KIND_SET: Record<Kind, true> = { self: true, person: true, entity: true, skill: true, place: true, fact: true };
 const MEMORY_KINDS = Object.keys(KIND_SET) as readonly Kind[];
@@ -3390,11 +3413,11 @@ export class McpServer {
               about: out.about,
               ifVersion: out.version ?? NO_PAGE_VERSION,
               read: out.text,
-              // THE RETRY, IN THE SAME RUN (review of #358): a page refused
-              // for length is the writer still trying, and the run is an agent
-              // that reads the refusal — so it is told to tighten and send it
-              // again before it goes on, rather than leave the night unwritten.
-              how: `Read the block. If something about who you are moved on ${out.about}, call the self_page tool with the WHOLE page, reason, ifVersion: ${String(out.version ?? NO_PAGE_VERSION)} and session: ${session}; if nothing moved, write nothing — that is an answer too. If self_page refuses the page as too-large, its answer says how many bytes over the limit it is: tighten it (merge, drop what no longer holds — do not just cut the end) and send the whole page again before you go on.`,
+              // THE SHORT VERSION, IN THE SAME CALL (2026-10-10; #358 had a
+              // tighten-and-resend retry here, for a limit that refused): a
+              // page past its room is kept, and the writer is asked for the
+              // short version sessions read on a day the wake cannot hold it.
+              how: `Read the block. If something about who you are moved on ${out.about}, call the self_page tool with the WHOLE page, reason, ifVersion: ${String(out.version ?? NO_PAGE_VERSION)} and session: ${session}; if nothing moved, write nothing — that is an answer too. Aim the page under ${String(this.counterpart.self.tunables.PAGE_ROOM_BYTES)} bytes; if it runs past that, send \`short\` with it in the same call — a short version under ${String(this.counterpart.self.tunables.PAGE_ROOM_BYTES)} bytes, the whole of it condensed. If the answer has a roomNote, do what it says before you go on.`,
               ...(next === null ? {} : { next: `Then: ${next}` }),
             },
             false,
@@ -3421,10 +3444,15 @@ export class McpServer {
     const reflections = this.counterpart.reflections;
     const refused = (reason: string, detail: string): ToolResult => this.refuse("reflect", reason, { phase, detail });
     const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
-    const part = (v: unknown): { text?: string; cites?: string[] } | null => {
+    const part = (v: unknown): { text?: string; cites?: string[]; short?: string } | null => {
       if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
       const r = v as Record<string, unknown>;
-      return { ...(typeof r["text"] === "string" ? { text: r["text"] } : {}), cites: ids(r["cites"]) };
+      return {
+        ...(typeof r["text"] === "string" ? { text: r["text"] } : {}),
+        cites: ids(r["cites"]),
+        // The page's short version (2026-10-10); the share has none.
+        ...(typeof r["short"] === "string" ? { short: r["short"] } : {}),
+      };
     };
     try {
       switch (phase) {
@@ -3608,14 +3636,20 @@ export class McpServer {
    */
   private selfPageTool(args: Record<string, unknown>): ToolResult {
     const body = args["body"];
-    if (body === undefined) return this.selfPageRead();
+    const short = args["short"];
+    if (short !== undefined && typeof short !== "string") {
+      return this.refuse("self_page", "short-not-text", {
+        detail: "`short` is the short version of the page, as text — or leave it out.",
+      });
+    }
+    if (body === undefined && short === undefined) return this.selfPageRead();
     if (this.observer) return this.standDown("self_page");
     // A NON-STRING body is a malformed call and stops here; an EMPTY one goes
     // THROUGH the seam, because the seam is what writes the durable refusal row
     // this tool's own description promises. The short-circuit that used to catch
     // both left `self_page({ body: "   " })` as the one refusal on this path
     // with no row behind it (adversarial review m4).
-    if (typeof body !== "string") {
+    if (body !== undefined && typeof body !== "string") {
       return this.refuse("self_page", "body-required", {
         detail:
           "A page has to say something. Pass the whole page as text; omit `body` entirely to read the one that is there.",
@@ -3655,15 +3689,21 @@ export class McpServer {
     // mark cannot relabel a write made two days later (`adapters/sessions.ts`).
     const writerFor = this.pageWriterMark(claimedSession);
     const model = this.sessionModel();
-    const written = this.counterpart.revisePage(body, {
+    const said = typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : null;
+    const common = {
       ...(model === undefined ? {} : { model }),
-      reason: typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : "amended",
-      by: writerFor === null ? "session" : "writer",
+      by: writerFor === null ? ("session" as const) : ("writer" as const),
       // WHICH SESSION, when this server has one. `note` resolves it the same
       // way; null is recorded rather than a guess (adversarial review M3).
       session: this.session,
       ...(ifVersion === undefined ? {} : { ifVersion }),
-    });
+    };
+    // THE SHORT VERSION (2026-10-10): beside the page, or — with no `body` —
+    // added to the page as it stands, as a revision of the same text.
+    const written =
+      typeof body === "string"
+        ? this.counterpart.revisePage(body, { ...common, reason: said ?? "amended", ...(short === undefined ? {} : { short }) })
+        : this.counterpart.addPageShort(short ?? "", { ...common, ...(said === null ? {} : { reason: said }) });
     this.emit("mcp.self_page", written.id ?? undefined, {
       stored: written.written,
       reason: written.reason,
@@ -3677,7 +3717,9 @@ export class McpServer {
     // been turned away, which is a different fact from a night that never
     // started, and only the row can tell them apart afterwards. A recording
     // failure costs the row and never the write (§5 G7).
-    if (writerFor !== null) {
+    // A short version added on its own is not the night's page: the night's
+    // row was written with the page.
+    if (writerFor !== null && typeof body === "string") {
       try {
         this.counterpart.recordPageWriterRun({
           about: writerFor.about,
@@ -3698,13 +3740,14 @@ export class McpServer {
       }
     }
     if (!written.written) {
-      // THE LIMIT, IN NUMBERS (2026-10-09): a writer told only "past the
+      // THE CEILING, IN NUMBERS (2026-10-09): a writer told only "past the
       // limit" guesses how much to take out; told both numbers, it tightens
       // once and sends the page again.
       const limit = this.counterpart.self.tunables.PAGE_MAX_BYTES;
       return this.refuse("self_page", written.reason, {
         bytes: written.bytes,
         ...(written.reason === "too-large" ? { limit, over: written.bytes - limit } : {}),
+        ...(written.short === null ? {} : { short: written.short }),
         ...(written.gate === null ? {} : { gate: written.gate }),
         // On a stale write, hand back what is actually there so the session can
         // merge rather than guess — the whole point of the check.
@@ -3731,6 +3774,10 @@ export class McpServer {
               redactedBy: written.redacted.gate,
               bytesBeforeRedaction: written.redacted.bytesBefore,
             }),
+        // PAST ITS ROOM, SAID (2026-10-10): kept whole, and what sessions read
+        // on a day the wake cannot hold it — its short version, or, without
+        // one, its outline, with the way to add one.
+        ...pageRoomAnswer(written, this.counterpart.self.tunables.PAGE_ROOM_BYTES),
         // WHEN IT WILL BE READ, precisely. The bundle every session wakes with
         // is composed by a worker and served unchanged until the next render,
         // so "it is live now" would be false for as long as this session lasts.
@@ -3765,6 +3812,10 @@ export class McpServer {
         present: true,
         body: page.body,
         bytes: page.bytes,
+        // ITS ROOM AND ITS SHORT VERSION (2026-10-10): what the wake shows on a
+        // day it has no room for the whole page.
+        room: this.counterpart.self.tunables.PAGE_ROOM_BYTES,
+        ...(page.short === null ? {} : { short: page.short.body, shortBytes: page.short.bytes }),
         revisedOn: page.revisedOn,
         by: page.by,
         version: page.version,
