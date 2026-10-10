@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **A project's `.env` and `bunfig.toml` no longer reach into Counterparts.** Bun reads
+  both from the folder it starts in, and Claude Code starts the hooks and the memory
+  server in your project. So a project whose `.env` set `COUNTERPARTS_DATA_DIR` or
+  `COUNTERPARTS_CONFIG` could send the plugin's server, an npm install's hooks or the
+  `counterparts` command to a different store, and a `bunfig.toml` with a `preload`
+  ran its own code inside them. Every place Counterparts starts Bun now passes
+  `--no-env-file` and `--config=` pointing at an empty bunfig in the package: the hook
+  and server commands `install` and `connect` write, the plugin's launcher, the
+  installed commands, and the workers and nightly run it starts itself. Node reads
+  neither on its own. **If you installed through npm, run `counterparts connect`
+  once** to rewrite your hooks and server registration. Until you do, doctor's Runtime
+  line is amber and says so. Plugin users get the change when the plugin updates.
 - **Facts recall reads "by 12/20" asked in October as this year's December 20th.** A
   date with no year under "by", "until", "up to" or "before", in a month that has not
   begun yet, was read as last year's: "what's due by 12/20" asked on 10-09 kept only what

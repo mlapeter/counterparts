@@ -24,6 +24,13 @@
 # The entry it runs is the same one those bins run (hook.mjs, serve.mjs,
 # counterparts.mjs), so the runtime choice is the only difference.
 #
+# Bun runs with --no-env-file and --config=<empty-bunfig.toml>: Claude Code
+# starts the hooks and the server in the person's project, and Bun would
+# otherwise load that project's .env into them (nothing pins the plugin
+# server's COUNTERPARTS_DATA_DIR, so a project .env could name another store)
+# and run its bunfig.toml `preload` inside them (adapters/runtime.ts). Node
+# reads neither unless told to.
+#
 # With no runtime: a hook says so ONCE, at SessionStart, as a systemMessage the
 # person sees (and a line of context, so the model can say it too), and exits 0;
 # every other event exits 0 in silence. The server exits 127 with the reason on
@@ -50,6 +57,7 @@ case "$mode" in
 esac
 
 runtime=""
+kind=""
 
 # version_at_least <version> <major> <minor>  (a leading "v" is ignored)
 version_at_least() {
@@ -70,6 +78,7 @@ try_bun() {
   v="$("$1" --version 2>/dev/null)" || return 1
   version_at_least "$v" 1 3 || return 1
   runtime="$1"
+  kind="bun"
 }
 
 try_node() {
@@ -77,6 +86,7 @@ try_node() {
   v="$("$1" --version 2>/dev/null)" || return 1
   version_at_least "$v" 22 15 || return 1
   runtime="$1"
+  kind="node"
 }
 
 try_node_glob() { # a glob of node binaries: the first that is new enough
@@ -109,6 +119,9 @@ else
     try_node_glob "$HOME"/.local/share/mise/installs/node/*/bin/node
 fi
 
+if [ "$kind" = "bun" ]; then
+  exec "$runtime" --no-env-file "--config=$here/empty-bunfig.toml" "$entry" "$@"
+fi
 if [ -n "$runtime" ]; then
   exec "$runtime" "$entry" "$@"
 fi

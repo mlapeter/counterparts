@@ -73,6 +73,7 @@ import { EXIT, run } from "../src/adapters/cli/commands.js";
 import type { Io } from "../src/adapters/cli/commands.js";
 import { connectDesktop, desktopConfigPath, desktopEntry, readDesktop } from "../src/adapters/cli/desktop.js";
 import { MCP_SCRIPT } from "../src/adapters/cli/install.js";
+import { EMPTY_BUNFIG, scriptArgs } from "../src/adapters/runtime.js";
 import { coverageLines } from "../src/adapters/cli/coverage.js";
 import { Lifecycle } from "../src/adapters/lifecycle.js";
 import { localDate } from "../src/core/time.js";
@@ -223,7 +224,8 @@ describe("end to end over stdio, as Claude Desktop's chat (client `claude-ai`)",
     expect(readSession(dir, session)).toMatchObject({ host: DESKTOP_HOST, scope: DESKTOP_SCOPE, endedAt: null });
     // The first-prompt-of-the-day check: the worker was started, through the shared runner path.
     expect(spawn.plans.length).toBe(1);
-    expect(spawn.plans[0]?.args).toEqual(["run", WORKER_RUNNER_PATH]);
+    expect(spawn.plans[0]?.args).toEqual(scriptArgs(WORKER_RUNNER_PATH));
+    expect(spawn.plans[0]?.args.slice(0, 2)).toEqual(["--no-env-file", `--config=${EMPTY_BUNFIG}`]);
     expect(s.counterpart.store.getMeta(DESKTOP_WAKE_KEY)).toBe(String(t.now()));
 
     // ── a call that names no session binds to the most recent, and says so ──
@@ -890,7 +892,7 @@ describe("install --host claude-desktop", () => {
     expect(parsed.mcpServers["other"]).toEqual(OTHER_SERVER);
     const store = join(root, "elsewhere", "store");
     expect(parsed.mcpServers["counterparts"]).toEqual(desktopEntry(store, process.execPath, configPath));
-    expect((parsed.mcpServers["counterparts"] as { args: string[] }).args).toEqual(["run", MCP_SCRIPT]);
+    expect((parsed.mcpServers["counterparts"] as { args: string[] }).args).toEqual(["--no-env-file", `--config=${EMPTY_BUNFIG}`, "run", MCP_SCRIPT]);
     // Backed up first, beside itself, holding the original bytes.
     const backups = readdirSync(dirname(path)).filter((n) => n.includes("counterparts-backup"));
     expect(backups.length).toBe(1);

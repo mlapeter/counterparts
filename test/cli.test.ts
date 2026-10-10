@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { createHash } from "node:crypto";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { EMPTY_BUNFIG } from "../src/adapters/runtime.js";
 
 import { TUNABLES } from "../src/core/physics/index.js";
 import { STORE_EXPORT_EVENT } from "../src/core/counterpart.js";
@@ -5600,9 +5601,9 @@ describe("install", () => {
     expect(existsSync(HOOK_SCRIPT)).toBe(true);
     expect(existsSync(MCP_SCRIPT)).toBe(true);
     // `run` against the real runtime this process is using, absolute both sides.
-    expect(runCommand(HOOK_SCRIPT)).toBe(`"${process.execPath}" run "${HOOK_SCRIPT}"`);
+    expect(runCommand(HOOK_SCRIPT)).toBe(`"${process.execPath}" --no-env-file "--config=${EMPTY_BUNFIG}" run "${HOOK_SCRIPT}"`);
     // A path with a space stays one argument.
-    expect(runCommand("/a b/c.ts", "/x y/bun")).toBe('"/x y/bun" run "/a b/c.ts"');
+    expect(runCommand("/a b/c.ts", "/x y/bun")).toBe(`"/x y/bun" --no-env-file "--config=${EMPTY_BUNFIG}" run "/a b/c.ts"`);
   });
 
   test("--embedder is the only way the scripted arm writes the embedder knob — and it is the local table", async () => {
