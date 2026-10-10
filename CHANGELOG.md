@@ -73,6 +73,13 @@
   catches a second hook that runs at the same time; for a resumed or compacted session, a
   Stop, or a prompt without an id, one that starts after the first has finished can
   still deliver again on a busy machine.
+- **A new plugin user is told their memory was set up, again.** In 0.3.15, the
+  sidebar's hooks module makes Claude Code start the plugin's SessionStart hook later,
+  after the plugin's server has already made the new memory, so the first session
+  didn't show "Counterparts: first run — a new memory was set up". Now whichever of the
+  two makes the memory leaves a note, and the first session start shows the line once,
+  never again after. Beside a live npm install the plugin still stands down and says
+  nothing about a first run. Nothing else changes.
 
 ## 0.3.15 — 2026-10-10
 

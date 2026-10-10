@@ -64,7 +64,16 @@ import { readTranscript } from "../transcript.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
 import type { Binary } from "../../runtime.js";
 import { npmWiring } from "../../host-wiring.js";
-import { PLUGIN_ROOT_ENV, ensureFirstRun, hookGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
+import {
+  PLUGIN_ROOT_ENV,
+  ensureFirstRun,
+  firstRunLine,
+  firstRunNoticePath,
+  hookGate,
+  pluginOrigin,
+  runningAsPlugin,
+  takeFirstRunNotice,
+} from "../../plugin.js";
 import { claimDelivery, deliveryClaimKey, finishClaim, firesOnce } from "../claim.js";
 
 /**
@@ -689,7 +698,13 @@ async function main(): Promise<void> {
     );
     if (gate.standDown) {
       process.stderr.write("[counterparts] plugin hook stood down: the npm install's hooks are live in this host\n");
-      if (name === "session-start" && gate.line !== null) process.stdout.write(JSON.stringify({ systemMessage: gate.line }));
+      if (name === "session-start") {
+        // The npm install speaks for this memory, and said its own words when
+        // it was installed: a first run the plugin made beside it is not this
+        // hook's to announce, now or after a later move to the plugin.
+        takeFirstRunNotice(firstRunNoticePath(choice.path));
+        if (gate.line !== null) process.stdout.write(JSON.stringify({ systemMessage: gate.line }));
+      }
       return;
     }
     if (gate.line !== null) pluginLines.push(gate.line);
@@ -697,6 +712,20 @@ async function main(): Promise<void> {
       const first = ensureFirstRun({ choice, env: process.env, home });
       if (first.detail !== undefined) process.stderr.write(`[counterparts] plugin first run ${first.state}: ${first.detail}\n`);
       if (first.line !== null) pluginLines.push(first.line);
+      // THE FIRST RUN IS SAID AT THE FIRST SESSION START, whoever made it
+      // (`plugin.ts#firstRunNoticePath`). The server usually has: since #342's
+      // sidebar module, Claude Code runs this hook after its hooks worker
+      // starts, and the server's install is done by then — so `existed` takes
+      // the notice too. Only at session start, where the line can be shown; an
+      // install a prompt made waits for the next one.
+      if (
+        name === "session-start" &&
+        first.line === null &&
+        (first.state === "created" || first.state === "joined" || first.state === "existed") &&
+        takeFirstRunNotice(firstRunNoticePath(choice.path))
+      ) {
+        pluginLines.push(firstRunLine(choice.path, home));
+      }
     } catch (err) {
       // A first run that threw is a stand-down further on (no configuration,
       // so the default store's guard decides), never a failed session.

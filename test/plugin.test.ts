@@ -14,6 +14,7 @@ import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -39,12 +40,15 @@ import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring, pluginInsta
 import {
   PACKAGE_ROOT,
   ensureFirstRun,
+  firstRunLine,
   firstRunLockPath,
+  firstRunNoticePath,
   hookGate,
   mcpGate,
   npmDoctorCommand,
   pluginOrigin,
   runningAsPlugin,
+  takeFirstRunNotice,
 } from "../src/adapters/plugin.js";
 import type { ConfigChoice } from "../src/adapters/config-path.js";
 
@@ -56,14 +60,20 @@ let work: string;
 let home: string;
 let project: string;
 let emptyBin: string;
+/** The processes' own temp directory, where the first run's lock and notice
+ *  live (`plugin.ts#firstRunLockPath`): inside this test's directory, so
+ *  nothing a spawned hook or server leaves there outlives the test. */
+let tmp: string;
 
 beforeEach(() => {
   work = realpathSync(mkdtempSync(join(tmpdir(), "counterparts-plugin-")));
   home = join(work, "home");
   project = join(home, "project");
   emptyBin = join(work, "bin");
+  tmp = join(work, "tmp");
   mkdirSync(project, { recursive: true });
   mkdirSync(emptyBin, { recursive: true });
+  mkdirSync(tmp, { recursive: true });
 });
 
 afterEach(() => {
@@ -86,6 +96,7 @@ function pluginEnv(extra: Record<string, string> = {}): Record<string, string> {
     CLAUDE_PLUGIN_DATA: join(home, ".claude", "plugins", "data", "counterparts-counterparts"),
     CLAUDE_PROJECT_DIR: project,
     COUNTERPARTS_RUNTIME: process.execPath,
+    TMPDIR: tmp,
     ...extra,
   };
 }
@@ -132,7 +143,12 @@ function defaultChoice(): ConfigChoice {
 
 /** An environment for the first run's own child: this HOME, no guard. */
 function firstRunEnv(): Record<string, string | undefined> {
-  return { PATH: emptyBin, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" };
+  return { PATH: emptyBin, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", TMPDIR: tmp };
+}
+
+/** The notice a plugin's first run leaves for SessionStart, where this test's processes look for it. */
+function noticeIn(): string {
+  return firstRunNoticePath(defaultChoice().path, tmp);
 }
 
 // ── the files Claude Code reads ─────────────────────────────────────────────
@@ -474,7 +490,7 @@ describe("npmWiring and the two gates", () => {
 // ── the first run ───────────────────────────────────────────────────────────
 
 describe("ensureFirstRun", () => {
-  const lockIn = (): string => firstRunLockPath(defaultChoice().path, work);
+  const lockIn = (): string => firstRunLockPath(defaultChoice().path, tmp);
 
   test("a named configuration is never created for the person", () => {
     const r = ensureFirstRun({
@@ -482,9 +498,11 @@ describe("ensureFirstRun", () => {
       env: firstRunEnv(),
       home,
       lockPath: lockIn(),
+      noticePath: noticeIn(),
     });
     expect(r.state).toBe("skipped");
     expect(existsSync(join(home, ".counterparts"))).toBe(false);
+    expect(readdirSync(tmp)).toEqual([]);
   });
 
   test("the explicit-dir guard stands it down", () => {
@@ -493,33 +511,97 @@ describe("ensureFirstRun", () => {
       env: { ...firstRunEnv(), COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
       home,
       lockPath: lockIn(),
+      noticePath: noticeIn(),
     });
     expect(r.state).toBe("skipped");
     expect(existsSync(join(home, ".counterparts"))).toBe(false);
+    expect(readdirSync(tmp)).toEqual([]);
   });
 
-  test("creates exactly what `counterparts install` creates, once", () => {
-    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn() });
+  test("creates exactly what `counterparts install` creates, once, and leaves the notice for SessionStart", () => {
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn() });
     expect(r.state).toBe("created");
-    expect(r.line).toContain("first run");
-    expect(r.line).toContain("~/.counterparts");
+    // Not this process's line to say: the notice carries it to the session's
+    // first SessionStart, whichever process made the install.
+    expect(r.line).toBeNull();
+    expect(existsSync(noticeIn())).toBe(true);
     const config = readJson(defaultChoice().path);
     expect(config["dataDir"]).toBe(join(realpathSync(home), ".counterparts", "store"));
     expect(existsSync(join(home, ".counterparts", "store", "counterparts.sqlite"))).toBe(true);
     expect(existsSync(lockIn())).toBe(false);
-    const again = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn() });
+    const again = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn() });
     expect(again).toEqual({ state: "existed", line: null });
+    // Taken once, by one caller; the line it stands for names the new memory.
+    expect(takeFirstRunNotice(noticeIn())).toBe(true);
+    expect(takeFirstRunNotice(noticeIn())).toBe(false);
+    const line = firstRunLine(defaultChoice().path, home);
+    expect(line).toContain("first run");
+    expect(line).toContain("~/.counterparts");
   });
 
   test("a memory parked beside it is named in the first-run line, and left where it is", () => {
     const parked = join(home, ".counterparts.parked-2026-10-01");
     mkdirSync(join(parked, "store"), { recursive: true });
     mkdirSync(join(home, ".counterparts.parked-someday"), { recursive: true });
-    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn() });
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn() });
     expect(r.state).toBe("created");
-    expect(r.line).toContain("A memory set aside earlier is still at ~/.counterparts.parked-2026-10-01, untouched");
-    expect(r.line).not.toContain("someday");
+    const line = firstRunLine(defaultChoice().path, home);
+    expect(line).toContain("A memory set aside earlier is still at ~/.counterparts.parked-2026-10-01, untouched");
+    expect(line).not.toContain("someday");
     expect(existsSync(join(parked, "store"))).toBe(true);
+  });
+
+  /** A console that installs only when the notice is already there, as a hook
+   *  looking the moment the configuration appears would need it. */
+  function noticeFirstConsole(exit = 0): string {
+    const script = join(work, "console.ts");
+    const config = defaultChoice().path;
+    writeFileSync(
+      script,
+      `import { existsSync, mkdirSync, writeFileSync } from "node:fs";\n` +
+        `if (!existsSync(${JSON.stringify(noticeIn())})) process.exit(3);\n` +
+        `mkdirSync(${JSON.stringify(dirname(config))}, { recursive: true });\n` +
+        `writeFileSync(${JSON.stringify(config)}, "{}");\n` +
+        `process.exit(${String(exit)});\n`,
+    );
+    return script;
+  }
+
+  test("the notice is left before the install runs, so the configuration never appears without it", () => {
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn(), cliScript: noticeFirstConsole() });
+    expect(r).toEqual({ state: "created", line: null });
+    expect(existsSync(noticeIn())).toBe(true);
+  });
+
+  test("a failed install takes its notice back", () => {
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn(), cliScript: noticeFirstConsole(1) });
+    expect(r.state).toBe("failed");
+    expect(r.line).toContain("could not set up its memory");
+    expect(existsSync(noticeIn())).toBe(false);
+  });
+
+  test("a notice that cannot be left: the process that made the install says the line itself", () => {
+    const r = ensureFirstRun({
+      choice: defaultChoice(),
+      env: firstRunEnv(),
+      home,
+      lockPath: lockIn(),
+      noticePath: join(work, "no", "such", "dir", "notice"),
+    });
+    expect(r.state).toBe("created");
+    expect(r.line).toContain("first run");
+  });
+
+  test("a symlink waiting at the notice's name (a shared /tmp) is never written through", () => {
+    const target = join(work, "somebody-elses-file");
+    writeFileSync(target, "keep\n");
+    symlinkSync(target, noticeIn());
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn() });
+    expect(r.state).toBe("created");
+    expect(readFileSync(target, "utf8")).toBe("keep\n");
+    // Ours to remove here (this test's own directory), so a fresh notice replaced it.
+    expect(lstatSync(noticeIn()).isSymbolicLink()).toBe(false);
+    expect(r.line).toBeNull();
   });
 
   test("a concurrent first run is waited for, and joined", async () => {
@@ -530,26 +612,29 @@ describe("ensureFirstRun", () => {
     const writer = spawn("/bin/sh", ["-c", `sleep 0.4; mkdir -p "${join(home, ".counterparts")}"; echo '{}' > "${config}"`], {
       env: { ...firstRunEnv(), PATH: "/bin:/usr/bin" } as NodeJS.ProcessEnv,
     });
-    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), waitMs: 10_000 });
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn(), waitMs: 10_000 });
     await new Promise((done) => writer.on("exit", done));
     expect(r.state).toBe("joined");
-    expect(r.line).toContain("first run");
+    // The install and its notice are the other process's; this one says nothing.
+    expect(r.line).toBeNull();
+    expect(existsSync(noticeIn())).toBe(false);
   });
 
   test("a stale lock is taken over", () => {
     mkdirSync(lockIn());
     const old = new Date(Date.now() - 10 * 60_000);
     utimesSync(lockIn(), old, old);
-    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn() });
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn() });
     expect(r.state).toBe("created");
   });
 
   test("a live lock that never yields a configuration times out, writing nothing", () => {
     mkdirSync(lockIn());
-    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), waitMs: 300 });
+    const r = ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: lockIn(), noticePath: noticeIn(), waitMs: 300 });
     expect(r.state).toBe("failed");
     expect(r.detail).toContain("timed out");
     expect(existsSync(join(home, ".counterparts"))).toBe(false);
+    expect(existsSync(noticeIn())).toBe(false);
   });
 });
 
@@ -789,6 +874,102 @@ describe("plugin-run.sh", () => {
     expect(tools).toContain("note");
     expect(existsSync(join(home, ".counterparts", "claude-code.json"))).toBe(true);
   });
+
+  // ── the first-run line, whichever side makes the install ──────────────────
+  //
+  // 0.3.15's plugin loop, step 12: with the sidebar mod's `"modules"` in
+  // hooks.json, Claude Code starts the plugin's SessionStart command after its
+  // hooks worker, and the server's first run has finished by then. The hook
+  // found the configuration there and said nothing, so a new user was never
+  // told a memory had been set up.
+
+  const FIRST_RUN_LINE = "Counterparts: first run — a new memory was set up at ~/.counterparts.";
+  const wake = (stdout: string): { systemMessage?: string; hookSpecificOutput?: { additionalContext?: string } } =>
+    JSON.parse(stdout) as { systemMessage?: string; hookSpecificOutput?: { additionalContext?: string } };
+
+  test("server first (the order since the sidebar module): the session's first SessionStart says the line, once", () => {
+    const server = launch("mcp", handshake, pluginEnv());
+    expect(existsSync(join(home, ".counterparts", "claude-code.json"))).toBe(true);
+    // The server has no channel to the person: nothing in its instructions,
+    // and the notice waits for the hook.
+    expect(server.stdout).not.toContain("first run");
+    expect(existsSync(noticeIn())).toBe(true);
+
+    const start = launch("hook", payload("SessionStart"), pluginEnv());
+    expect(start.code).toBe(0);
+    const out = wake(start.stdout);
+    expect(out.systemMessage).toContain(FIRST_RUN_LINE);
+    expect(out.hookSpecificOutput?.additionalContext ?? "").toContain("Now:");
+    expect(existsSync(noticeIn())).toBe(false);
+
+    // Never again: not at the next session, not from a server started after it.
+    launch("mcp", handshake, pluginEnv());
+    const again = launch("hook", payload("SessionStart", "plugin-test-2"), pluginEnv());
+    expect(again.stdout).not.toContain("first run");
+    expect(again.stdout).toContain("Now:");
+  });
+
+  test("hook first: the hook makes the install and says the line; the server after it says and leaves nothing", () => {
+    const start = launch("hook", payload("SessionStart"), pluginEnv());
+    expect(start.code).toBe(0);
+    expect(wake(start.stdout).systemMessage).toContain(FIRST_RUN_LINE);
+    expect(existsSync(noticeIn())).toBe(false);
+
+    const server = launch("mcp", handshake, pluginEnv());
+    expect(server.stderr).not.toContain("plugin first run");
+    expect(existsSync(noticeIn())).toBe(false);
+    expect(launch("hook", payload("SessionStart", "plugin-test-2"), pluginEnv()).stdout).not.toContain("first run");
+  });
+
+  test("a prompt made the install (the plugin enabled mid-session): the next SessionStart says the line", () => {
+    const prompt = launch("hook", payload("UserPromptSubmit"), pluginEnv());
+    expect(prompt.code).toBe(0);
+    expect(prompt.stdout).not.toContain("first run");
+    expect(existsSync(join(home, ".counterparts", "claude-code.json"))).toBe(true);
+    const start = launch("hook", payload("SessionStart", "plugin-test-2"), pluginEnv());
+    expect(wake(start.stdout).systemMessage).toContain(FIRST_RUN_LINE);
+  });
+
+  test(
+    "the hook and the server together: whichever makes the install, the SessionStart says the line exactly once",
+    async () => {
+      const run = (mode: string, input: string): Promise<{ stdout: string; stderr: string }> =>
+        new Promise((done, fail) => {
+          const child = spawn("/bin/sh", [LAUNCHER, mode], { env: pluginEnv(), stdio: ["pipe", "pipe", "pipe"] });
+          let stdout = "";
+          let stderr = "";
+          child.stdout.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
+          child.stderr.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
+          child.on("error", fail);
+          child.on("close", () => done({ stdout, stderr }));
+          child.stdin.end(input);
+        });
+      const [hook, server] = await Promise.all([run("hook", payload("SessionStart")), run("mcp", handshake)]);
+      expect(existsSync(join(home, ".counterparts", "claude-code.json"))).toBe(true);
+      expect((wake(hook.stdout).systemMessage ?? "").split("first run").length - 1).toBe(1);
+      expect(server.stdout).not.toContain("first run");
+      expect(existsSync(noticeIn())).toBe(false);
+    },
+    120_000,
+  );
+
+  test("the npm hooks live: a first run the plugin's server made is never announced, then or after a move to the plugin", () => {
+    // The plugin's server made the install (no npm server registered), but the
+    // npm install's hooks are live: the npm install speaks for this memory.
+    launch("mcp", handshake, pluginEnv());
+    expect(existsSync(noticeIn())).toBe(true);
+    writeSettings({ SessionStart: [liveHookCommand()], UserPromptSubmit: [liveHookCommand()] });
+    const start = launch("hook", payload("SessionStart"), pluginEnv());
+    expect(start.stderr).toContain("plugin hook stood down");
+    expect(start.stdout).not.toContain("first run");
+    expect(existsSync(noticeIn())).toBe(false);
+    // The npm hooks removed: the plugin wakes on the same memory, and the first
+    // run is not news any more.
+    writeSettings({});
+    const moved = launch("hook", payload("SessionStart", "plugin-test-2"), pluginEnv());
+    expect(moved.stdout).toContain("Now:");
+    expect(moved.stdout).not.toContain("first run");
+  });
 });
 
 // ── the npm install's own processes (review of #328) ────────────────────────
@@ -825,7 +1006,7 @@ describe("the npm install's hook and server never take themselves for the plugin
   /** The owner's machine: an install, the npm hooks and server wired, and the
    *  plugin recorded installed and enabled beside them. */
   function bothInstalled(): void {
-    expect(ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: firstRunLockPath(defaultChoice().path, work) }).state).toBe("created");
+    expect(ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: firstRunLockPath(defaultChoice().path, tmp), noticePath: noticeIn() }).state).toBe("created");
     const hooks: Record<string, string[]> = {};
     for (const e of HOST_EVENTS) hooks[e] = [liveHookCommand()];
     writeSettings(hooks);
@@ -883,6 +1064,17 @@ describe("the npm install's hook and server never take themselves for the plugin
     },
     120_000,
   );
+
+  test("a plugin first run's notice waiting: the npm hook neither says it nor takes it", () => {
+    bothInstalled(); // its first run left the notice in this test's temp directory
+    expect(existsSync(noticeIn())).toBe(true);
+    for (const env of [npmEnv({ TMPDIR: tmp }), npmEnv({ TMPDIR: tmp, CLAUDE_PLUGIN_ROOT: OTHER_COPY() })]) {
+      const r = npmHook("SessionStart", env);
+      expect(r.code).toBe(0);
+      expect(r.stdout + r.stderr).not.toContain("first run");
+      expect(existsSync(noticeIn())).toBe(true);
+    }
+  });
 
   test(
     "installed both ways: the npm server offers every tool, with or without an inherited CLAUDE_PLUGIN_ROOT",
@@ -1069,7 +1261,7 @@ describe("a paused folder with two wirings", () => {
 
   /** An install, and `project` paused in the registry beside its configuration. */
   function pausedInstall(): string {
-    expect(ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: firstRunLockPath(defaultChoice().path, work) }).state).toBe("created");
+    expect(ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: firstRunLockPath(defaultChoice().path, tmp), noticePath: noticeIn() }).state).toBe("created");
     const base = dirname(defaultChoice().path);
     writeFileSync(join(base, "scopes.json"), JSON.stringify({ version: 1, scopes: { [project]: { mode: "paused", since: "2026-10-10T00:00:00.000Z" } } }));
     return base;
