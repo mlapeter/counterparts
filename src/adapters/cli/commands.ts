@@ -2678,6 +2678,10 @@ async function selfPageCommand(
       typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : fallback;
 
     if (write && shortAlone) {
+      if (counterpart.selfPage() === null) {
+        io.err("refused: there is no page to add a short version to. Write the page first (--write --file <path>), with --short beside it.");
+        return EXIT.refused;
+      }
       return say(
         writeLines(
           counterpart.addPageShort(short ?? "", {

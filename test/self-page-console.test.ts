@@ -200,6 +200,10 @@ describe("counterparts self-page", () => {
    */
   test("a page past its room is written and said; --short alone adds its short version; a read says what it has", async () => {
     withPage(null);
+    // A short version alone, with no page to add it to, says that.
+    const nothing = consoleWith();
+    expect(await run(["self-page", "--write", `--short=${shortFile("## Core\n\nCore: placeholder.")}`, `--dir=${dir}`], { io: nothing.io, env: {} })).toBe(EXIT.refused);
+    expect(nothing.err.join("\n")).toContain("there is no page to add a short version to");
     const long = `${PAGE}\n\n${"A placeholder paragraph of the page. ".repeat(200)}`.trim();
     const wrote = consoleWith();
     expect(await run(["self-page", "--write", `--file=${pageFile(long)}`, `--dir=${dir}`], { io: wrote.io, env: {} })).toBe(EXIT.ok);
