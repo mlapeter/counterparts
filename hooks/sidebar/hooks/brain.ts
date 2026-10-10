@@ -269,6 +269,11 @@ export type FrameOptions = {
   tag?: { region: RegionKey; label: string; col: Rgb } | null;
   /** The background every cell takes, 0..255 a channel; absent, the terminal's default. */
   bg?: Rgb | null;
+  /**
+   * How bright what is not lit draws, 0..1 (v0.2's small header brain: 0.72,
+   * "dim at rest", so a lit region stands out). Absent: full.
+   */
+  dimRest?: number;
 };
 
 /** Scratch buffers for one frame size, reused frame to frame. */
@@ -355,6 +360,29 @@ export class Brain {
     this.glowTarget[r] = Math.max(this.glowTarget[r] ?? 0, amount);
   }
 
+  /**
+   * The still brain (v0.2): a region lit at once, no arc, no easing, so one
+   * frame shows it; `dark()` puts every light out for the frame after.
+   */
+  flash(region: RegionKey, col: Rgb): void {
+    const r = RID[region];
+    this.glow[r] = 1;
+    this.glowTarget[r] = 1;
+    this.glowCol[r] = col;
+  }
+
+  dark(): void {
+    this.glow.fill(0);
+    this.glowTarget.fill(0);
+    this.signals = [];
+  }
+
+  /** Holds the view at its centre (the still brain), or lets it sway again. */
+  hold(still: boolean): void {
+    this.spin = still ? 0 : (2 * Math.PI) / 40000;
+    if (still) this.rotY = this.yawCentre;
+  }
+
   /** Wakes it from rest (the sidebar opened full): the sway eases back in, as a pulse would make it, with no arc. */
   wake(): void {
     this.poked = true;
@@ -400,7 +428,7 @@ export class Brain {
    */
   private frameKey(opts: FrameOptions, sc: number): string {
     const q = 0.2 / sc;
-    let k = `${Math.round(this.rotY / q)},${Math.round(this.rotX / q)},${opts.mono === true ? 1 : 0},${opts.bg ? opts.bg.join('/') : '-'},`;
+    let k = `${Math.round(this.rotY / q)},${Math.round(this.rotX / q)},${opts.mono === true ? 1 : 0},${opts.bg ? opts.bg.join('/') : '-'},${String(opts.dimRest ?? 1)},`;
     k += opts.tag ? `${opts.tag.region}:${opts.tag.label}:${opts.tag.col.join('/')}` : '-';
     for (let i = 0; i < REGIONS.length; i++) {
       const g = this.glow[i] ?? 0, c = this.glowCol[i];
@@ -803,7 +831,8 @@ export class Brain {
     // 8. cells: the strongest kind in a cell sets its colour; lines always show, the faint fill only among faint things
     let focus = 0; // a spotlight: while a region is lit the rest steps back, so even a cyan flare shows on the cyan brain
     if (!mono) for (let i = 0; i < REGIONS.length; i++) focus = Math.max(focus, glow[i] ?? 0);
-    const spot = 1 - 0.4 * Math.min(1, focus);
+    // dim at rest (`dimRest`): what is not lit draws no brighter than that, and while a region is lit, no brighter than the spotlight
+    const spot = Math.min(1 - 0.4 * Math.min(1, focus), opts.dimRest ?? 1);
     const base = opts.bg ?? null;
     const bg = base === null ? DEFAULT_COLOR : pack(base[0], base[1], base[2]);
     for (let cy = 0; cy < rows; cy++) {

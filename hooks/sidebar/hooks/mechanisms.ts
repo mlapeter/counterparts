@@ -91,6 +91,11 @@ export const DASHBOARD = 'http://localhost:4747';
 export function mechUrl(id: MechId): string {
   return `${DASHBOARD}/#health/mechanisms?id=${id}`;
 }
-// TODO(v0.2): open one memory by id on the dashboard; until it exists a
-// memory's link lands on the Memories page.
 export const MEMORIES_URL = `${DASHBOARD}/#memories`;
+/**
+ * One memory's card on the dashboard (`#memories?id=`, 2026-10-10). A
+ * dashboard older than that opens its Memories page instead.
+ */
+export function memoryUrl(id: string): string {
+  return `${DASHBOARD}/#memories?id=${encodeURIComponent(id)}`;
+}

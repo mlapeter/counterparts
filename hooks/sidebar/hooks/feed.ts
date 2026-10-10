@@ -1,7 +1,9 @@
 /**
- * What the sidebar reads, turned into rows: the dashboard's event feed, the
- * recall block the classic UserPromptSubmit hook injects, a `recall` facts
- * answer, and the memory tools' calls this session. Pure: no `$`.
+ * What the sidebar reads, turned into its own terms: the dashboard's event
+ * feed (which mechanisms each event proves, and whose it is), the recall block
+ * the classic UserPromptSubmit hook injects, a `recall` facts answer, the
+ * memory tools' calls this session, a dream, and a mechanism's recent firings.
+ * Pure: no `$`.
  *
  * WHICH EVENTS ARE A MECHANISM FIRING is the dashboard's table
  * (`src/adapters/mechanism-evidence.ts`, MECHANISM_EVIDENCE): an event name,
@@ -14,12 +16,12 @@
  * disagree.
  */
 
-import type { SidebarHit, SidebarRow } from '../types';
-import { MEMORIES_URL, mechById, mechUrl } from './mechanisms';
+import type { SidebarHit, SidebarMechEvent, SidebarRow, SidebarSaved } from '../types';
+import { MECHS, MEMORIES_URL, mechById, mechUrl } from './mechanisms';
 import type { MechId } from './mechanisms';
 import { cells, ellipsizeCells, headCells } from './width';
 
-/** One row of the ACTIVITY list (the contract's SidebarRow). */
+/** One event the sidebar read (the contract's SidebarRow). */
 export type FeedRow = SidebarRow;
 
 /** One event as `/api/activity` narrates it. */
@@ -41,8 +43,8 @@ function num(e: DashEvent, key: string): number {
   return Number.isFinite(v) ? v : 0;
 }
 /** `"Title…" [mem_abc]` → the title and the id. */
-export function titled(value: string | undefined): { title: string | null; id: string | null } {
-  if (value === undefined) return { title: null, id: null };
+export function titled(value: string | null | undefined): { title: string | null; id: string | null } {
+  if (value === undefined || value === null) return { title: null, id: null };
   const m = /^"([\s\S]*)"\s*\[([A-Za-z]+_[A-Za-z0-9]+)\]$/.exec(value.trim());
   if (m !== null) return { title: m[1] ?? null, id: m[2] ?? null };
   const bare = /\[([A-Za-z]+_[A-Za-z0-9]+)\]/.exec(value);
@@ -53,18 +55,16 @@ type Rule = { name: string; mech: MechId; word: string; when?: (e: DashEvent) =>
 
 /**
  * The event names that prove a mechanism fired, in the dashboard's words. An
- * event is a row when any rule for its name holds. The FIRST that holds gives
- * the row its word and colour (`mech`); EVERY one that holds lights (`mechs`).
- * So a name's own mechanism comes first, and what the same event also proves
- * follows it, with the same word.
+ * event counts when any rule for its name holds. The FIRST that holds gives
+ * it its word and colour (`mech`); EVERY one that holds lights (`mechs`).
  */
 export const RULES: readonly Rule[] = [
   { name: 'gate.deposit', mech: 'salience', word: 'kept', when: e => num(e, 'accepted') > 0 },
   { name: 'gate.chunk', mech: 'salience', word: 'kept', when: e => num(e, 'accepted') > 0 },
   { name: 'recall.decision', mech: 'retrieval', word: 'recalled', when: e => num(e, 'surfacedCount') + num(e, 'footnoteCount') > 0 },
-  { name: 'recall.decision', mech: 'emotional', word: 'recalled', when: e => num(e, 'moodMatched') > 0 },
+  { name: 'recall.decision', mech: 'emotional', word: 'brought closer', when: e => num(e, 'moodMatched') > 0 },
   { name: 'mcp.recall', mech: 'retrieval', word: 'looked up' },
-  { name: 'recall.credit', mech: 'retrieval', word: 'stronger', when: e => num(e, 'credited') > 0 },
+  { name: 'recall.credit', mech: 'retrieval', word: 'strengthened', when: e => num(e, 'credited') > 0 },
   { name: 'associate.flush', mech: 'association', word: 'linked', when: e => num(e, 'rows') > 0 },
   { name: 'prospective.plain', mech: 'prospective', word: 'reminded' },
   { name: 'prospective.fire', mech: 'prospective', word: 'reminded' },
@@ -72,25 +72,25 @@ export const RULES: readonly Rule[] = [
   { name: 'band.transition', mech: 'consolidation', word: 'rose', when: e => detail(e, 'site') === 'consolidate' },
   { name: 'memory.pruned', mech: 'decay', word: 'let go' },
   { name: 'sleep.cycle', mech: 'decay', word: 'faded', when: e => num(e, 'faded') > 0 },
-  { name: 'band.promoted', mech: 'consolidation', word: 'core' },
+  { name: 'band.promoted', mech: 'consolidation', word: 'became core' },
   { name: 'memory.merged', mech: 'consolidation', word: 'merged' },
   { name: 'dream.journaled', mech: 'dreaming', word: 'dreamed' },
   // A change the dream made, or a core suggestion (`applied` counts both).
   { name: 'dream.changed', mech: 'dreaming', word: 'dreamed', when: e => num(e, 'applied') > 0 || num(e, 'nominate-core') > 0 },
-  { name: 'dream.changed', mech: 'episodic-semantic', word: 'dreamed', when: e => num(e, 'gist') > 0 },
-  { name: 'dream.changed', mech: 'interference', word: 'dreamed', when: e => num(e, 'merge') > 0 },
-  { name: 'dream.changed', mech: 'consolidation', word: 'dreamed', when: e => num(e, 'merge') > 0 },
+  { name: 'dream.changed', mech: 'episodic-semantic', word: 'dreamed a pattern', when: e => num(e, 'gist') > 0 },
+  { name: 'dream.changed', mech: 'interference', word: 'merged in a dream', when: e => num(e, 'merge') > 0 },
+  { name: 'dream.changed', mech: 'consolidation', word: 'merged in a dream', when: e => num(e, 'merge') > 0 },
   { name: 'contradiction.flagged', mech: 'interference', word: 'flagged' },
   { name: 'contradiction.settled', mech: 'reconsolidation', word: 'settled' },
   // Settled `changed`: the earlier memory fades under the one that holds.
-  { name: 'contradiction.settled', mech: 'interference', word: 'settled', when: e => detail(e, 'how') === 'changed' },
+  { name: 'contradiction.settled', mech: 'interference', word: 'replaced', when: e => detail(e, 'how') === 'changed' },
   { name: 'revision.pressure', mech: 'reconsolidation', word: 'weighed' },
 ];
 
-/** The names worth asking the dashboard for one by one on a cold start. */
+/** The names worth asking the dashboard for one by one. */
 export const RULE_NAMES: readonly string[] = [...new Set(RULES.map(r => r.name))];
 
-/** The rules `e` proves, one a mechanism, the row's own first; none when it proves nothing. */
+/** The rules `e` proves, one a mechanism, the event's own first; none when it proves nothing. */
 export function provedBy(e: DashEvent): Rule[] {
   const out: Rule[] = [];
   for (const r of RULES) {
@@ -100,18 +100,9 @@ export function provedBy(e: DashEvent): Rule[] {
   return out;
 }
 
-/** A row's mechanisms, its own first (a row kept from before rows carried `mechs`: its own alone). */
+/** A row's mechanisms, its own first (a row from before rows carried `mechs`: its own alone). */
 export function mechsOf(r: SidebarRow): MechId[] {
   return Array.isArray(r.mechs) && r.mechs.length > 0 ? r.mechs : [r.mech];
-}
-
-/**
- * The line an opened row adds when it proves more than its own mechanism, in
- * the legend's names: `also Emotion`, `also Gist · Interference · Consolidation`.
- */
-export function alsoLine(r: SidebarRow): string | null {
-  const rest = mechsOf(r).filter(m => m !== r.mech);
-  return rest.length === 0 ? null : `also ${rest.map(m => mechById(m)?.short ?? m).join(' · ')}`;
 }
 
 /**
@@ -130,10 +121,9 @@ export function quotedTitles(text: string): string[] {
 }
 
 /**
- * A dashboard event as an ACTIVITY row, or null when it proves no mechanism.
- * `session` is this session's id: its own events are said in the sidebar's
- * plain words, the night's keep the narrator's, other sessions' are marked
- * `other` (the list folds them into one line).
+ * A dashboard event in the sidebar's terms, or null when it proves no
+ * mechanism. `session` is this session's id: its own events are `here`, the
+ * night's `night`, other sessions' `other` (they never light this brain).
  *
  * WHOSE IT IS. An event's `session` (or, for a settle a session made, its
  * `actorId`) names it. A look-up (`mcp.recall`), a reminder
@@ -158,6 +148,11 @@ export function classify(e: DashEvent, session = '', since = 0): FeedRow | null 
       : from !== undefined
         ? mine && from === session ? 'here' : 'other'
         : e.at >= since ? 'here' : 'other';
+  // The memory it is about: a deposit's `memoryId`, a fade's or a promotion's subject, a settle's `over`.
+  const named = [detail(e, 'memoryId'), e.subject ?? undefined, detail(e, 'over'), detail(e, 'id'), detail(e, 'targetId')]
+    .map(titled)
+    .find(t => t.id !== null && t.id.startsWith('mem_'));
+  const dream = e.name.startsWith('dream.') && typeof e.subject === 'string' && /^drm_[A-Za-z0-9]+$/.test(e.subject) ? e.subject : undefined;
   const base: FeedRow = {
     id: `seq:${String(e.seq)}`,
     mech: rule.mech,
@@ -170,37 +165,103 @@ export function classify(e: DashEvent, session = '', since = 0): FeedRow | null 
     label: `${short} on the dashboard`,
     who,
     line: `${rule.word} · ${e.text}`,
+    ...(named === undefined || named.id === null ? {} : { memory: { id: named.id, title: named.title } }),
+    ...(dream === undefined ? {} : { dream }),
   };
   if (rule.name === 'gate.deposit' || rule.name === 'gate.chunk') {
-    const { title, id } = titled(detail(e, 'memoryId'));
-    const kind = detail(e, 'kind');
     const accepted = num(e, 'accepted');
-    const text = title ?? (accepted > 1 ? `${String(accepted)} memories written down` : 'a memory');
-    return {
-      ...base,
-      text,
-      more: kind ? [`kept as a ${kind}`] : [],
-      url: MEMORIES_URL,
-      label: 'open on the dashboard',
-      line: `kept · ${text}`,
-      ...(id === null ? {} : { keys: [`mem:${id}`] }),
-    };
+    const text = named?.title ?? (accepted > 1 ? `${String(accepted)} memories written down` : 'a memory');
+    return { ...base, text, url: MEMORIES_URL, label: 'open on the dashboard', line: `kept · ${text}`, ...(named?.id ? { keys: [`mem:${named.id}`] } : {}) };
   }
   if (rule.name === 'recall.decision') {
     const turn = detail(e, 'turn');
     const n = num(e, 'surfacedCount') + num(e, 'footnoteCount');
-    // A mood match with nothing shown (the render trimmed it): a row of Emotion's, said as such.
     const said = n > 0 ? `${String(n)} came to mind` : `${String(num(e, 'moodMatched'))} brought closer by a matching mood`;
     return {
       ...base,
-      word: 'recalled',
       text: said,
-      more: quotedTitles(e.text).map(t => `· ${t}`),
+      more: quotedTitles(e.text),
       line: said,
       ...(from !== undefined && turn !== undefined ? { keys: [`turn:${from}:${turn}`] } : {}),
     };
   }
   return base;
+}
+
+/** A recall decision's surfaced ids, strongest first (`detail.surfaced`, a JSON list of `{ id }`). */
+export function surfacedIds(e: DashEvent): string[] {
+  try {
+    const list: unknown = JSON.parse(detail(e, 'surfaced') ?? '[]');
+    if (!Array.isArray(list)) return [];
+    return list.map(x => (x !== null && typeof x === 'object' ? (x as { id?: unknown }).id : undefined)).filter((x): x is string => typeof x === 'string');
+  } catch {
+    return [];
+  }
+}
+
+/** The decision row for this session's turn `turn`, among a few of the newest. */
+export function decisionFor(events: readonly DashEvent[], session: string, turn: number): DashEvent | undefined {
+  return events.find(e => e.name === 'recall.decision' && detail(e, 'session') === session && Number(detail(e, 'turn')) === turn);
+}
+
+// ── times fired today, counted from the feed (a dashboard older than v0.2) ──
+
+/**
+ * Times each mechanism fired on the calendar day `date` among `rows`, as the
+ * dashboard counts `firedToday`: rows, not amounts; a dream's rows once. Rows
+ * already counted (`seen`) are skipped, so a poll's new rows add to a count.
+ */
+export function countToday(
+  rows: readonly SidebarRow[],
+  date: string,
+  dateOf: (at: number) => string,
+  start: Partial<Record<MechId, number | null>> = {},
+  dreams: readonly string[] = [],
+): { counts: Partial<Record<MechId, number | null>>; dreams: string[] } {
+  const counts: Partial<Record<MechId, number | null>> = { ...start };
+  for (const m of MECHS) if (counts[m.id] === undefined) counts[m.id] = m.notBuilt ? null : 0;
+  const seenDreams = new Set(dreams);
+  const fresh = new Map<string, Set<MechId>>();
+  for (const r of rows) {
+    if (dateOf(r.at) !== date) continue;
+    for (const m of mechsOf(r)) {
+      if (r.dream !== undefined) {
+        // One dream, one firing of each mechanism it proves: its journal and its changes rows are one.
+        const k = `${r.dream}:${m}`;
+        if (seenDreams.has(k)) continue;
+        const set = fresh.get(r.dream) ?? new Set<MechId>();
+        if (set.has(m)) continue;
+        set.add(m);
+        fresh.set(r.dream, set);
+      }
+      const c = counts[m];
+      if (typeof c === 'number') counts[m] = c + 1;
+    }
+  }
+  for (const [d, ms] of fresh) for (const m of ms) seenDreams.add(`${d}:${m}`);
+  return { counts, dreams: [...seenDreams] };
+}
+
+// ── a mechanism's recent firings (`/api/mechanism?id=`'s `activity`) ──────
+
+/**
+ * The firings of `mech` among `events`, newest first, each with the word of
+ * the rule that proves THIS mechanism (`faded`, `merged in a dream`) and what
+ * it was about: the memory's title when it names one, else the event in the
+ * narrator's words.
+ */
+export function mechEvents(events: readonly DashEvent[], mech: MechId, limit = 8): SidebarMechEvent[] {
+  const out: SidebarMechEvent[] = [];
+  for (const e of [...events].sort((a, b) => b.seq - a.seq)) {
+    const rule = provedBy(e).find(r => r.mech === mech);
+    if (rule === undefined) continue;
+    const row = classify(e);
+    if (row === null) continue;
+    const title = row.memory?.title ?? (rule.name === 'recall.decision' ? row.text : e.text);
+    out.push({ seq: e.seq, at: e.at, word: rule.word, title: title.replace(/…$/, '…'), memoryId: row.memory?.id ?? null, text: e.text });
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 // ── the recall block ────────────────────────────────────────────────────────
@@ -210,7 +271,8 @@ export type RecallBlock = { turn: number; surfaced: string[]; footnotes: { title
 /**
  * The block `core/recall/render.ts` composes, found in any text that carries
  * it (the engine wraps hook context in a system reminder). Null when absent
- * or when it is the quiet turn's empty string.
+ * or when it is the quiet turn's empty string. A surfaced line is the
+ * memory's gist, as Claude read it; a footnote line is its title and id.
  */
 export function parseRecallBlock(text: string): RecallBlock | null {
   const open = /<!--\s*counterparts:recall t=(\d+)\s*-->/.exec(text);
@@ -237,27 +299,6 @@ export function parseRecallBlock(text: string): RecallBlock | null {
   return { turn: Number.isFinite(turn) ? turn : 0, surfaced, footnotes };
 }
 
-export function cameRow(block: RecallBlock, session: string, at: number): FeedRow | null {
-  const n = block.surfaced.length + block.footnotes.length;
-  if (n === 0) return null;
-  const all = [...block.surfaced, ...block.footnotes.map(f => f.title)];
-  return {
-    id: `live:turn:${session}:${String(block.turn)}`,
-    mech: 'retrieval',
-    mechs: ['retrieval'],
-    word: 'recalled',
-    at,
-    text: `${String(n)} came to mind`,
-    more: all.map(t => `· ${t}`),
-    url: mechUrl('retrieval'),
-    label: 'Retrieval on the dashboard',
-    live: true,
-    who: 'here',
-    line: `${String(n)} came to mind`,
-    keys: [`turn:${session}:${String(block.turn)}`],
-  };
-}
-
 // ── the memory tools, as the model calls them ──────────────────────────────
 
 /** The two names the memory server's tools go by: the npm install's, the plugin's. */
@@ -278,9 +319,7 @@ export function resolveServer(toolNames: readonly string[]): string | null {
   return null;
 }
 
-const KEEPERS = new Set(['note', 'session_end', 'chapter']);
-
-function firstLine(s: unknown, max = 90): string | null {
+function firstLine(s: unknown, max = 240): string | null {
   if (typeof s !== 'string') return null;
   const line = s.trim().split('\n')[0] ?? '';
   if (line.length === 0) return null;
@@ -298,68 +337,99 @@ export function payloadOf(text: string | undefined): Record<string, unknown> | n
   }
 }
 
-/**
- * A memory tool call that answered without error, as a `kept` row; null for
- * any other tool, and for a call that stored nothing.
- */
-export function keptRow(tool: string, args: Record<string, unknown>, resultText: string | undefined, at: number, seq: number): FeedRow | null {
-  const ours = ourTool(tool);
-  if (ours === null || !KEEPERS.has(ours.tool)) return null;
-  const p = payloadOf(resultText);
-  if (p !== null && p['stored'] === false) return null;
-  const id = typeof p?.['id'] === 'string' ? (p['id'] as string) : null;
-  let text: string;
-  let more: string[] = [];
-  if (ours.tool === 'note') {
-    text = firstLine(args['title']) ?? firstLine(args['text']) ?? 'a note';
-    if (typeof args['kind'] === 'string') more = [`kept as a ${args['kind'] as string}`];
-  } else if (ours.tool === 'chapter') {
-    text = `a chapter: ${firstLine(args['title']) ?? firstLine(args['text']) ?? 'untitled'}`;
-  } else {
-    const list = Array.isArray(args['memories']) ? (args['memories'] as unknown[]) : [];
-    const n = typeof p?.['deposited'] === 'number' ? (p['deposited'] as number) : list.length;
-    if (n === 0 && list.length === 0) return null;
-    text = `${String(n)} ${n === 1 ? 'memory' : 'memories'} from this session`;
-    more = list.slice(0, 6).map(m => `· ${firstLine((m as Record<string, unknown>)?.['title']) ?? firstLine((m as Record<string, unknown>)?.['text']) ?? '…'}`);
-  }
-  return {
-    id: `live:kept:${String(seq)}`,
-    mech: 'salience',
-    mechs: ['salience'],
-    word: 'kept',
-    at,
-    text,
-    more,
-    url: MEMORIES_URL,
-    label: 'open on the dashboard',
-    live: true,
-    who: 'here',
-    line: `kept · ${text}`,
-    ...(id === null ? {} : { keys: [`mem:${id}`] }),
-  };
+function memoryId(v: unknown): string | null {
+  return typeof v === 'string' && /^mem_[A-Za-z0-9]+$/.test(v.trim()) ? v.trim() : null;
 }
 
 /**
- * Newest first, live rows win over their dashboard twins, at most `limit`. A
- * live row takes on what its twin proves besides its own (the recall block
- * says nothing of mood; the turn's row on the dashboard does).
+ * What a memory tool call that answered without error saved, as "Saved this
+ * session" items in the order written; none for any other tool, and for a
+ * call that stored nothing. A `note` or a `session_end` entry with `updates`
+ * replaces that memory (unless `how: open`, which keeps both); its title is
+ * read later, from the dashboard.
  */
-export function mergeRows(rows: readonly FeedRow[], limit: number): FeedRow[] {
-  const byId = new Map<string, FeedRow>();
-  for (const r of rows) byId.set(r.id, r);
-  const all = [...byId.values()].sort((a, b) => b.at - a.at);
-  const twins = new Map<string, MechId[]>();
-  for (const r of all) if (!r.live) for (const k of r.keys ?? []) twins.set(k, [...(twins.get(k) ?? []), ...mechsOf(r)]);
-  const liveKeys = new Set(all.filter(r => r.live).flatMap(r => r.keys ?? []));
-  return all
-    .filter(r => r.live || !(r.keys ?? []).some(k => liveKeys.has(k)))
-    .slice(0, limit)
-    .map(r => {
-      if (!r.live) return r;
-      const own = mechsOf(r);
-      const more = (r.keys ?? []).flatMap(k => twins.get(k) ?? []).filter(m => !own.includes(m));
-      return more.length === 0 ? r : { ...r, mechs: [...own, ...new Set(more)] };
+export function savedItems(tool: string, args: Record<string, unknown>, resultText: string | undefined, at: number, seq: number): SidebarSaved[] {
+  const ours = ourTool(tool);
+  if (ours === null) return [];
+  const p = payloadOf(resultText);
+  if (p !== null && p['stored'] === false) return [];
+  const item = (i: number, title: string, id: string | null, src: Record<string, unknown>, kind?: SidebarSaved['kind']): SidebarSaved => {
+    const settled = p?.['settled'] as { ok?: unknown; held?: unknown } | undefined;
+    const refused = ours.tool === 'note' && settled !== undefined && (settled.ok === false || settled.held === true);
+    const replacesId = src['how'] === 'open' || refused ? null : memoryId(src['updates']);
+    return { key: `live:${String(seq)}:${String(i)}`, id, title, at, replaces: null, replacesId, kind: kind ?? (replacesId === null ? 'new' : 'update') };
+  };
+  if (ours.tool === 'note') {
+    const title = firstLine(args['title']) ?? firstLine(args['text']) ?? 'a note';
+    return [item(0, title, memoryId(p?.['id']), args)];
+  }
+  if (ours.tool === 'chapter') {
+    const title = firstLine(args['title']) ?? firstLine(args['text']) ?? 'untitled';
+    return [item(0, `Chapter: ${title}`, memoryId(p?.['id']), {}, 'chapter')];
+  }
+  if (ours.tool === 'session_end') {
+    const list = Array.isArray(args['memories']) ? (args['memories'] as unknown[]) : [];
+    if (typeof p?.['deposited'] === 'number' && p['deposited'] === 0) return [];
+    return list.flatMap((m, i) => {
+      const rec = m !== null && typeof m === 'object' ? (m as Record<string, unknown>) : {};
+      const title = firstLine(rec['title']) ?? firstLine(rec['text']);
+      return title === null ? [] : [item(i, title, null, rec)];
     });
+  }
+  return [];
+}
+
+/** The ids a `recall` call opened by address: its `ids`, or a `handle` that is an id. */
+export function openedIds(tool: string, args: Record<string, unknown>): { ids: string[]; handle: string | null } {
+  const ours = ourTool(tool);
+  if (ours === null || ours.tool !== 'recall') return { ids: [], handle: null };
+  const ids = Array.isArray(args['ids']) ? (args['ids'] as unknown[]).map(memoryId).filter((x): x is string => x !== null) : [];
+  const handle = typeof args['handle'] === 'string' && args['handle'].trim().length > 0 ? args['handle'].trim() : null;
+  const asId = memoryId(handle);
+  return asId === null ? { ids, handle } : { ids: [...ids, asId], handle: null };
+}
+
+// ── a dream ────────────────────────────────────────────────────────────────
+
+/** `/api/dreams`' newest dream, the part the sidebar reads. */
+export type DashDream = {
+  id: string;
+  date: string | null;
+  day: number;
+  state?: string;
+  journal: string | null;
+  counts?: Record<string, number>;
+  changes?: { action: string; said: string; undone?: boolean }[];
+};
+
+/** The journal's first sentence, and what follows it. */
+export function firstSentence(journal: string): { first: string; rest: string } {
+  const text = journal.replace(/\s+/g, ' ').trim();
+  const m = /^(.+?[.!?])(?:["”’)]*)(?=\s|$)/.exec(text);
+  if (m === null) return { first: text, rest: '' };
+  const first = text.slice(0, m[0].length).trim();
+  return { first, rest: text.slice(m[0].length).trim() };
+}
+
+const plural = (n: number, one: string, many: string): string => `${String(n)} ${n === 1 ? one : many}`;
+
+/**
+ * What changed that night, in plain words: the dream's own changes (merges,
+ * patterns, links, replacements) and the night's sleep (memories that faded
+ * a band, memories that became core), each only when it happened.
+ */
+export function dreamChanges(d: DashDream, night: { faded: number; core: number }): string[] {
+  const c = d.counts ?? {};
+  const out: string[] = [];
+  const merges = (d.changes ?? []).filter(x => x.action === 'merge' && x.undone !== true);
+  const merge = c['merge'] ?? merges.length;
+  if (merge > 0) out.push(merge === 1 && merges[0] !== undefined && /^merged /.test(merges[0].said) ? merges[0].said : `merged near-copies ${plural(merge, 'time', 'times')}`);
+  if ((c['gist'] ?? 0) > 0) out.push(`wrote down ${plural(c['gist'] ?? 0, 'pattern', 'patterns')} it saw`);
+  if ((c['link'] ?? 0) > 0) out.push(`linked ${plural(c['link'] ?? 0, 'pair', 'pairs')} of memories`);
+  if ((c['settle'] ?? 0) > 0) out.push(`replaced ${plural(c['settle'] ?? 0, 'outdated memory', 'outdated memories')}`);
+  if (night.faded > 0) out.push(`${plural(night.faded, 'memory', 'memories')} faded`);
+  if (night.core > 0) out.push(`${String(night.core)} became core ${night.core === 1 ? 'memory' : 'memories'}`);
+  return out;
 }
 
 // ── a facts answer ─────────────────────────────────────────────────────────
@@ -441,7 +511,6 @@ export function parseFacts(answer: string): { header: string; total: number; hit
 
 // ── words and times ────────────────────────────────────────────────────────
 
-/** Word-wrap `text` into lines of at most `w` columns (a long word is cut). */
 /** Word-wrap into lines of at most `w` terminal cells (a wide character counts two; a word longer than a line is cut). */
 export function wrap(text: string, w: number): string[] {
   const out: string[] = [];
@@ -475,11 +544,20 @@ export function ellipsize(s: string, w: number): string {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** `1:35pm` today (local), `Oct 8` before today. */
-export function clock(at: number, now: number): string {
-  const d = new Date(at), n = new Date(now);
-  const sameDay = d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
-  if (!sameDay) return `${MONTHS[d.getMonth()] ?? ''} ${String(d.getDate())}`;
-  const h = d.getHours(), m = d.getMinutes();
-  return `${String(h % 12 === 0 ? 12 : h % 12)}:${String(m).padStart(2, '0')}${h < 12 ? 'am' : 'pm'}`;
+/** The local calendar day of `at`, `YYYY-MM-DD`. */
+export function dateOf(at: number): string {
+  const d = new Date(at);
+  return `${String(d.getFullYear())}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * The time a section's heading carries: `10:25`, `8:07` (a 12-hour clock with
+ * no am or pm, as the mockups have it: every time it shows is recent), or
+ * `Oct 9` before today.
+ */
+export function hm(at: number, now: number): string {
+  const d = new Date(at);
+  if (dateOf(at) !== dateOf(now)) return `${MONTHS[d.getMonth()] ?? ''} ${String(d.getDate())}`;
+  const h = d.getHours() % 12;
+  return `${String(h === 0 ? 12 : h)}:${String(d.getMinutes()).padStart(2, '0')}`;
 }

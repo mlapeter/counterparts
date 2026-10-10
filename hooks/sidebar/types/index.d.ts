@@ -1,6 +1,11 @@
 // The sidebar mod's state contract: every value it keeps in `$.state`, under
 // the plugin's name. Self-contained (no imports), as a contract must be; the
 // hooks module imports these types from here.
+//
+// v0.2 (2026-10-10): the pane is what memory is doing, in 35 columns. A small
+// brain beside the title, then five sections (Memories, Subconscious, Saved
+// this session, Mechanisms today, Last Dream), then three rows of switches.
+// The v0.1 ACTIVITY list, its legend and its `feed` are gone.
 
 export type SidebarMechId =
   | 'salience'
@@ -16,7 +21,11 @@ export type SidebarMechId =
   | 'episodic-semantic'
   | 'schema';
 
-/** One row of the ACTIVITY list. */
+/**
+ * One event the dashboard's feed narrates, as the sidebar reads it: which
+ * mechanisms it proves (for the brain's lights and the day's counts), and
+ * whose it is. Not kept in `$.state`; the pure feed hands these around.
+ */
 export type SidebarRow = {
   /** Stable: a dashboard seq, or a live row's own id. */
   id: string;
@@ -28,28 +37,28 @@ export type SidebarRow = {
    * Gist, Interference, Consolidation). Each one pulses and lights.
    */
   mechs: SidebarMechId[];
-  /** The short word on the left (`kept`, `3 recalled`, `dreamed`). */
+  /** The short word (`kept`, `recalled`, `faded`, `dreamed`). */
   word: string;
   /** Milliseconds since the epoch. */
   at: number;
-  /** The sentence on the right. */
+  /** The event in the narrator's words, or the sidebar's own. */
   text: string;
-  /** What opening the row adds. */
+  /** What opening it adds. */
   more: string[];
   url: string;
   label: string;
   /** Seen live in this session rather than read from the dashboard. */
   live?: true;
-  /**
-   * Whose it is: this session's (`here`), the night's or the background's
-   * (`night`: dreams, fading, merging), or another session's (`other`, folded
-   * into one line, never shown as if it were this one's).
-   */
+  /** This session's (`here`), the night's or the background's (`night`), or another session's (`other`). */
   who: 'here' | 'night' | 'other';
-  /** The row in one short line, for the quiet view (`kept · <title>`, `3 came to mind`). */
+  /** The row in one short line. */
   line: string;
   /** Keys a live row and its later dashboard twin share (`mem:<id>`, `turn:<session>:<n>`). */
   keys?: string[];
+  /** The memory the event is about, when it names one: its id and its title as the feed gives it (cut at about 60 characters). */
+  memory?: { id: string; title: string | null };
+  /** The dream it belongs to (`drm_…`), for a dream's rows: one dream is one firing. */
+  dream?: string;
 };
 
 /** One memory a search found. */
@@ -80,6 +89,115 @@ export type SidebarSearch = {
 
 export type SidebarPulse = { day: number; memories: number; lastSeq: number };
 
+/** A memory the sidebar names: its id when known, and its title (or, until the title is read, the words Claude was shown). */
+export type SidebarMemoryRef = {
+  id: string | null;
+  title: string;
+  /** A `recall` this session opened it by its id or its title (a footnote Claude looked at). */
+  opened?: boolean;
+};
+
+/**
+ * What was put in front of Claude for the person's last message that had any:
+ * the recall block the classic UserPromptSubmit hook injects. `surfaced` is
+ * its "Came to mind" lane (said in full: the pane's Memories), `footnotes`
+ * its "Quietly available" lane (titles only: the pane's Subconscious).
+ */
+export type SidebarMind = {
+  turn: number;
+  /** When the block arrived (the person's message), ms. */
+  at: number;
+  surfaced: SidebarMemoryRef[];
+  footnotes: SidebarMemoryRef[];
+};
+
+/** A memory this session saved (`note`, `session_end`, `chapter`), newest first in the list. */
+export type SidebarSaved = {
+  key: string;
+  id: string | null;
+  title: string;
+  at: number;
+  /** An update: the memory it replaces (`updates`), by title once read, else null. */
+  replaces: string | null;
+  replacesId: string | null;
+  /** `new` (Salience's dot), `update` (Reconsolidation's), `chapter`. */
+  kind: 'new' | 'update' | 'chapter';
+};
+
+/**
+ * Times each mechanism fired today: from the dashboard's `/api/mechanisms`
+ * (`firedToday`, rows on the calendar day) where it says, else counted here
+ * from the feed's rows of today (`feed`: a dashboard older than v0.2).
+ * A count of null: not built.
+ */
+export type SidebarToday = {
+  /** The calendar day counted, `YYYY-MM-DD`. */
+  date: string;
+  counts: Partial<Record<SidebarMechId, number | null>>;
+  source: 'dashboard' | 'feed';
+  /** Dream ids already counted (the feed's count: a dream's two rows are one firing). */
+  dreams?: string[];
+};
+
+/** The newest dream, from `/api/dreams`, in its own first person. */
+export type SidebarDream = {
+  id: string;
+  /** When it was journaled (its `dream.journaled` row), ms; null when not found. */
+  at: number | null;
+  /** Its calendar day, `YYYY-MM-DD`. */
+  date: string | null;
+  /** The journal's first sentence. */
+  first: string;
+  /** What follows it. */
+  rest: string;
+  /** What changed that night, in plain words (`merged 3 near-copies into one`, `4 memories faded`). */
+  changed: string[];
+};
+
+/**
+ * The one item opened in place: `key` names it (`mem:0`, `sub:1`,
+ * `saved:<key>`, `ev:<seq>`, `hit:<id>`, `dream`), `lines` what opening it
+ * shows, read from the dashboard (`/api/memory?id=`, a read that writes
+ * nothing). Content longer than the sidebar's threshold opens the dashboard
+ * instead and is never kept here.
+ */
+export type SidebarOpen = {
+  key: string;
+  status: 'loading' | 'ready' | 'error';
+  /** The title in full, when the item names a memory. */
+  title: string | null;
+  /** The body, unwrapped (the layout wraps it). */
+  text: string;
+  /** `fact · learned Oct 9`. */
+  meta: string | null;
+  at: number;
+};
+
+/** One of a mechanism's recent firings, as the opened mechanism lists it. */
+export type SidebarMechEvent = {
+  seq: number;
+  at: number;
+  /** `faded`, `kept`, `recalled`: the group's word. */
+  word: string;
+  /** What it was about: a memory's title, else the event in a few words. */
+  title: string;
+  /** The memory it names, when it names one. */
+  memoryId: string | null;
+  /** The narrator's sentence, shown when an event that names no memory is opened. */
+  text: string;
+};
+
+/** The mechanism opened in "Mechanisms today", and its recent firings once read. */
+export type SidebarMechOpen = {
+  id: SidebarMechId;
+  status: 'loading' | 'ready' | 'error';
+  events: SidebarMechEvent[];
+  at: number;
+};
+
+/** The newest thing, in plain words (`remembered: …`, `stored: …`): the strip, and the dim tail under the prompt. */
+export type SidebarLatest = { text: string; mech: SidebarMechId; at: number };
+
 /** What `scope` says this folder is set to, or why it could not be asked. */
 export type SidebarScope = {
   /** `on`, `paused`, `off`, `observer`, `unset`; `unknown` before the first read. */
@@ -100,13 +218,17 @@ export type SidebarScope = {
   unread: 'unreadable' | null;
 };
 
-/** A line or two the switch explains itself with, under the switches. */
+/** A line or two the switch explains itself with, above the switches. */
 export type SidebarNote = { text: string; at: number };
-
-export type SidebarMark = { id: string; at: number };
 
 /** The mechanisms that fired last, and when: the newest row's own first, then every other one the same read proved. */
 export type SidebarFiring = { ids: SidebarMechId[]; at: number };
+
+/** Where the sidebar shows: the pane (`sidebar`), one line above the prompt (`strip`), or only the dim tail under it (`quiet`). */
+export type SidebarView = 'sidebar' | 'strip' | 'quiet';
+
+/** The brain beside the title: swaying (`turning`), a fixed view that lights when something fires (`still`), or none (`off`). */
+export type SidebarBrain = 'turning' | 'still' | 'off';
 
 declare module 'claude-code' {
   interface PluginState {
@@ -114,25 +236,25 @@ declare module 'claude-code' {
       pulse: SidebarPulse | null;
       /** Whether the dashboard answered the last time it was asked. */
       dash: 'unknown' | 'up' | 'down';
-      feed: SidebarRow[];
-      /** This session's counts for the status line and the rail. */
-      counts: { came: number; kept: number };
-      /** The mechanisms that fired last, and when: the legend lights each. */
+      mind: SidebarMind | null;
+      saved: SidebarSaved[];
+      today: SidebarToday | null;
+      dream: SidebarDream | null;
+      open: SidebarOpen | null;
+      mech: SidebarMechOpen | null;
+      /** A section heading the person clicked while it was folded: kept unfolded until clicked again. */
+      focus: string | null;
+      latest: SidebarLatest | null;
+      /** The mechanisms that fired last, and when: their regions light. */
       firing: SidebarFiring | null;
-      /** The mechanism the person picked in the legend. */
-      sel: SidebarMark | null;
       search: SidebarSearch;
       scope: SidebarScope;
       /** Claude Code's own memory (MEMORY.md and its prompt section): on unless turned off. */
       claudeMemory: boolean;
-      /**
-       * Which of the three the sidebar is in: `full` (the brain, the
-       * mechanisms, search, activity), `quiet` (narrow, nothing moving, a
-       * compact list) or `hidden` (closed by hand; the status line stays).
-       */
-      view: 'full' | 'quiet' | 'hidden';
-      /** The switch's ends: Powerline half-discs, or half blocks for a font without them. */
-      caps: 'round' | 'block';
+      view: SidebarView;
+      brain: SidebarBrain;
+      /** The pane is placed and showing (opened and not closed since). */
+      placed: boolean;
       /** What the Counterparts switch said about a press it would not act on. */
       switchNote: SidebarNote | null;
       /**
@@ -142,8 +264,6 @@ declare module 'claude-code' {
        * Only its [Pause] calls the scope tool; [Cancel] or 30 s closes it.
        */
       pauseAsk: { dir: string; at: number } | null;
-      /** The quiet view's `◉` lights in this stage colour for a moment after an event. */
-      flash: SidebarMark | null;
     };
   }
 }
