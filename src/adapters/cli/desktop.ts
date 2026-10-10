@@ -36,20 +36,18 @@
  * one): nothing here reads `os.homedir()`.
  */
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import { CONFIG_ENV } from "../config-path.js";
-import { scriptArgs } from "../runtime.js";
-import { hostConfigBase, hostMcpFile, MCP_SCRIPT, MCP_SERVER_NAME } from "./install.js";
+import { parseScriptInvocation, scriptArgs } from "../runtime.js";
+import { desktopConfigPath, hostConfigBase, hostMcpFile, MCP_SCRIPT, MCP_SERVER_NAME } from "./install.js";
 import { sightSettings, writeSettings } from "./wire.js";
 
 /** The variable the server reads its store from (`mcp/bin/serve.ts#ENV.dir`). */
 const DATA_DIR_VAR = "COUNTERPARTS_DATA_DIR";
 
-/** Where Claude Desktop keeps its MCP servers, under a home directory (macOS). */
-export function desktopConfigPath(home: string): string {
-  return join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
-}
+/** Where Claude Desktop keeps its MCP servers (macOS) — `install.ts` holds it. */
+export { desktopConfigPath };
 
 /**
  * Why Claude Desktop cannot be connected on this platform, or null. The config
@@ -144,6 +142,91 @@ export function connectDesktop(input: {
     return prior === undefined
       ? { outcome: "added", path, backup: wrote.backup, detail: null }
       : { outcome: "updated", path, backup: wrote.backup, detail: null, previousStore: dataDirOf(prior) };
+  } catch (err) {
+    return { outcome: "failed", path, backup: null, detail: String((err as Error).message ?? err) };
+  }
+}
+
+/**
+ * Is a `counterparts` entry in Desktop's file one this package wrote? Its
+ * command must read back as ours (`runtime.ts#parseScriptInvocation`) and run
+ * the memory server — a hand-made entry under the same name is somebody's
+ * own, and `connect` leaves it alone.
+ */
+export function isOurDesktopEntry(entry: unknown): entry is { command: string; args: string[] } & Record<string, unknown> {
+  if (!isRecord(entry)) return false;
+  const command = entry["command"];
+  const args = entry["args"];
+  if (typeof command !== "string" || !Array.isArray(args) || !args.every((a) => typeof a === "string")) return false;
+  const run = parseScriptInvocation([command, ...(args as string[])]);
+  if (run === null) return false;
+  return run.mode === "mcp" || (run.mode === undefined && /mcp[/\\]bin[/\\]serve\.ts$/.test(run.script));
+}
+
+/** What `connect` did about Claude Desktop's entry (`repairDesktop`). */
+export interface DesktopRepair {
+  /**
+   * `none`: no file, no entry, or an entry that is not ours; `current`: ours,
+   * already in the shape this runtime writes; `repaired`: rewritten;
+   * `would-repair`: the dry run's answer; `desktop-running`: Desktop is open
+   * (or could not be ruled out), so the file was left as it was; `refused` /
+   * `failed`: the file could not be read or written.
+   */
+  readonly outcome: "none" | "current" | "repaired" | "would-repair" | "desktop-running" | "refused" | "failed";
+  readonly path: string;
+  readonly backup: string | null;
+  readonly detail: string | null;
+  /** True when "running" means "could not look", not "seen running". */
+  readonly unknownRunning?: boolean;
+}
+
+/**
+ * REWRITE OUR DESKTOP ENTRY IN TODAY'S SHAPE (2026-10-10) — what `connect`
+ * does for Claude Desktop after the hooks and Claude Code's registration.
+ *
+ * Only the command and its arguments change: the runtime `connect` runs under
+ * and `scriptArgs`' shape for it (`--no-env-file --config=<empty bunfig> run
+ * <serve.ts>` under Bun), the same repair the hooks get. Its `env` — the store
+ * and the configuration it names — and every other key stay as they were:
+ * a Desktop pointed at a different store is doctor's question
+ * (`desktopFindings`) and `install --host claude-desktop`'s answer, never a
+ * side effect of this.
+ *
+ * **NEVER WHILE DESKTOP RUNS.** Desktop rewrites this file while it is open,
+ * so a write under it can be overwritten (measured as advice since
+ * 2026-09-30: "Quit Claude Desktop BEFORE you run it"), and the server it
+ * already started keeps its old command until Desktop restarts anyway. Seen
+ * running — or not known, because the process list could not be read — is
+ * `desktop-running`: nothing written, and the caller says to quit Desktop and
+ * run `connect` again. Never throws.
+ */
+export function repairDesktop(input: {
+  home: string;
+  exe: string;
+  /** From the process look (`wire.ts#ProcessSighting.desktopRunning`); null: could not look. */
+  desktopRunning: boolean | null;
+  dryRun: boolean;
+  now: number;
+}): DesktopRepair {
+  const path = desktopConfigPath(input.home);
+  try {
+    const read = readObject(path);
+    if (read.state !== "read") return { outcome: "none", path, backup: null, detail: null };
+    const servers = read.value["mcpServers"];
+    const prior = isRecord(servers) ? servers[MCP_SERVER_NAME] : undefined;
+    if (!isOurDesktopEntry(prior)) return { outcome: "none", path, backup: null, detail: null };
+    const want = { ...prior, command: input.exe, args: scriptArgs(MCP_SCRIPT, input.exe) };
+    if (JSON.stringify(want) === JSON.stringify(prior)) return { outcome: "current", path, backup: null, detail: null };
+    if (input.desktopRunning !== false) {
+      return { outcome: "desktop-running", path, backup: null, detail: null, unknownRunning: input.desktopRunning === null };
+    }
+    if (input.dryRun) return { outcome: "would-repair", path, backup: null, detail: null };
+    const sight = sightSettings(path, input.home);
+    if (sight.refusal !== null) return { outcome: "refused", path, backup: null, detail: sight.refusal };
+    const value = { ...sight.value, mcpServers: { ...(servers as Record<string, unknown>), [MCP_SERVER_NAME]: want } };
+    const wrote = writeSettings(sight, value, input.now);
+    if (wrote.error !== null) return { outcome: "failed", path, backup: wrote.backup, detail: wrote.error };
+    return { outcome: "repaired", path, backup: wrote.backup, detail: null };
   } catch (err) {
     return { outcome: "failed", path, backup: null, detail: String((err as Error).message ?? err) };
   }
