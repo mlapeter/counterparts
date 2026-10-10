@@ -22,6 +22,15 @@
   build from before refuses the upgraded store, and the copy is the way back. These are
   lightly held decisions; they are listed in `docs/IMPROVEMENTS.md` under "Decisions to
   review".
+- **Old claims are read as defaults (an era, not a rewrite).** Memories written before this
+  build reached the store, with a salience claim made under the old field text ("set it on
+  anything that should last"), are read by the forgetting curve at the default for what they
+  are about — a done work event 0.20, other work 0.25, the world 0.35, me 0.40 — when that is
+  lower, so the store starts to fade. No claim is rewritten. The core, memories about you or
+  about us, things you said, protected memories and dated ones still ahead or repeating keep
+  their claim. `counterparts claims-era` says whether it is on and how many memories it
+  affects; `--off` reads every claim as stored again, `--on` puts it back; doctor shows the
+  same in one line. A lightly held decision, listed in `docs/IMPROVEMENTS.md`.
 - **`note` is now `remember`, and memory is asked for by attention.** The tool Claude
   writes a memory with in the moment is called `remember`. **The old name `note` still
   works** for at least this release — a session that started before the upgrade keeps

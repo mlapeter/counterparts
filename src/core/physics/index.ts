@@ -580,6 +580,22 @@ export function sal(s: Salience): number {
   return clamp01(Math.max(mean, s.claimed ?? 0));
 }
 
+/**
+ * THE SALIENCE THE CURVE READS (2026-10-10, the old-claims era): `sal()` with
+ * the era's claim (`MemoryPhysics.eraClaim`) in place of the stored one when
+ * the read seam set it, else exactly `sal(m.salience)`. Height (`salArm`),
+ * steepness (`steepnessInput`) and recall's turn gate read this; whatever asks
+ * what the author CLAIMED (`challengeForce`, the dashboard's salience line,
+ * the v8 census) still reads `sal(m.salience)`.
+ * Decided by Mike, 2026-10-10, loosely held. Why: claims made under the old
+ * field text ("set it on anything that should last") held the store in reach
+ * for months under the new curve; read as defaults, never rewritten.
+ */
+export function curveSal(m: { readonly salience: Salience; readonly eraClaim?: number | null | undefined }): number {
+  const era = m.eraClaim;
+  return typeof era === "number" && Number.isFinite(era) ? sal({ ...m.salience, claimed: era }) : sal(m.salience);
+}
+
 /** The mean of the stored dimensions alone, ignoring any claimed floor. */
 export function computedSal(s: Salience): number {
   return sal({ ...s, claimed: null });
@@ -799,8 +815,8 @@ export function emotionalIntensity(m: { salience: Salience; feelingPeak?: number
  * The repetition arm gets no lift at all, so "repetition is capped below
  * identity" (§3) is untouched.
  */
-export function salArm(m: Pick<MemoryPhysics, "salience" | "feelingPeak">): number {
-  const own = sal(m.salience);
+export function salArm(m: Pick<MemoryPhysics, "salience" | "feelingPeak"> & Partial<Pick<MemoryPhysics, "eraClaim">>): number {
+  const own = curveSal(m);
   const lifted = clamp01(own + TUNABLES.EMO_LIFT * emotionalIntensity(m));
   // Feeling sets stability, not the band (2026-10-10, `FELT_HEIGHT_CAP`): below
   // the semantic floor, the lift stops just under it.
@@ -831,8 +847,8 @@ export function feelingSofteningDays(valence?: number): number {
  * (`sal`, the claimed floor included) plus half its emotional intensity,
  * clamped to [0, 1]. Height is `base` (with `EMO_LIFT`); this is the slope.
  */
-export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak">): number {
-  return clamp01(sal(m.salience) + TUNABLES.EMO_Q * emotionalIntensity(m));
+export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak"> & Partial<Pick<MemoryPhysics, "eraClaim">>): number {
+  return clamp01(curveSal(m) + TUNABLES.EMO_Q * emotionalIntensity(m));
 }
 
 /**
@@ -860,7 +876,7 @@ export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak"
  */
 export function stability(
   m: Pick<MemoryPhysics, "kind" | "uses" | "salience"> &
-    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity">>,
+    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity" | "eraClaim">>,
   opts: { spent?: boolean } = {},
 ): number {
   const kappa = kindPhysics(m.kind).kappa;

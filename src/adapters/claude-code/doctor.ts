@@ -2749,6 +2749,34 @@ export function writeFieldFindings(store: Store): Finding[] {
 }
 
 /**
+ * THE OLD-CLAIMS ERA, informational, never amber or red (2026-10-10; decided
+ * by Mike, 2026-10-10, loosely held): whether the curve reads old claims at
+ * their default, since when, and how many live memories that affects
+ * (`Store#claimsEra`). Silent on a store with no cutoff ever recorded.
+ */
+export function claimsEraFindings(store: Store): Finding[] {
+  let era: ReturnType<Store["claimsEra"]>;
+  try {
+    era = store.claimsEra();
+  } catch {
+    return [];
+  }
+  if (era.cutoff === null && era.recorded === null) return [];
+  const n = (k: number): string => `${String(k)} ${k === 1 ? "memory" : "memories"}`;
+  const detail =
+    era.cutoff === null
+      ? "off: every claim reads as stored (counterparts claims-era --on reads the old ones at their default again)"
+      : `on since ${localDate(era.cutoff, readingZone)}: ${n(era.affected)} written before it read at the default for what ${era.affected === 1 ? "it is" : "they are"} about, not the claim made under the old text; nothing rewritten (counterparts claims-era --off undoes it)`;
+  return [
+    finding("claims-era", "green", "Old claims", detail, "", {
+      on: era.cutoff !== null,
+      cutoff: era.cutoff,
+      affected: era.affected,
+    }),
+  ];
+}
+
+/**
  * THE RECOGNITION LANE, informational (wheel v2, the review of #301): how
  * many memories nobody marked are on the core's fast lane only because I
  * recognised myself in them — a recognition feeling of mine, strong enough on
@@ -4950,6 +4978,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["upgrade-v11", () => upgradeV11Findings(store)],
     // v12 (2026-10-03): the writer's three fields, and the subject links. Two aggregates.
     ["write-fields", () => writeFieldFindings(store)],
+    // 2026-10-10: the old-claims era — on or off, and how many it reads at their default.
+    ["claims-era", () => claimsEraFindings(store)],
     ["recognition-lane", () => recognitionLaneFindings(store)],
     ["contradictions", () => contradictionFindings(store)],
     // Build B (2026-09-28): does anyone read what an index offers in part?

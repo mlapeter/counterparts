@@ -68,6 +68,8 @@ import { StoreError } from "./errors.js";
 import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
 import {
+  CLAIMS_ERA_CUTOFF_KEY,
+  CLAIMS_ERA_RECORDED_KEY,
   DEFAULT_RETENTION_DAYS,
   RECURRING_META,
   SCHEMA_VERSION,
@@ -201,8 +203,12 @@ export {
   V11_UPGRADE_KEY,
   V12_UPGRADE_KEY,
   V13_UPGRADE_KEY,
+  CLAIMS_ERA_CUTOFF_KEY,
+  CLAIMS_ERA_RECORDED_KEY,
+  CLAIMED_DEFAULT_SPELLED,
   backfillRecordedDays,
   datedHold,
+  eraClaimOf,
   reachExempt,
   carriedPairId,
   refileFeelingsV11,
@@ -1252,6 +1258,28 @@ export class Store {
         // The person's day (2026-09-25); a store made before this carries UTC.
         this.today(),
       );
+    }
+    // THE OLD-CLAIMS ERA's cutoff (2026-10-10, `operational.ts#CLAIMS_ERA_CUTOFF_KEY`),
+    // recorded ONCE, at the first writable open by a build that knows it: on a
+    // v12 store that is this same open, the one that just migrated it to v13;
+    // on a store already at v13, its next open; on a new store, its birth.
+    // Read first, written only when absent — a write at every open would take
+    // the write lock (the "database is locked" scar above). Keyed on the
+    // RECORDED marker, so a switch turned off stays off. A lost lock costs the
+    // record for this open, never the open: the next writable open records it.
+    if (!this.observer) {
+      try {
+        const recorded = this.ops.get<{ value: string }>("SELECT value FROM meta WHERE key = ?", CLAIMS_ERA_RECORDED_KEY);
+        if (recorded === undefined) {
+          const at = String(this.nowFn());
+          this.ops.transaction(() => {
+            this.ops.run("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", CLAIMS_ERA_RECORDED_KEY, at);
+            this.ops.run("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", CLAIMS_ERA_CUTOFF_KEY, at);
+          });
+        }
+      } catch (err) {
+        if (!isLocked(err)) throw err;
+      }
     }
     // The owner-op capability. Handed to the seam module, never to a caller:
     // holding a Store gives you no way to destroy anything, and `ownerMutate`
@@ -3781,6 +3809,34 @@ export class Store {
     return n;
   }
 
+  /**
+   * THE OLD-CLAIMS ERA, as it stands (2026-10-10, `operational.ts#eraClaimOf`):
+   * the cutoff the curve reads (null: off), the moment first recorded (what
+   * `--on` restores), and how many live memories the curve now reads at their
+   * default rather than their stored claim. A read; one pass over the live
+   * memory rows, each through `row()` so the hold and the cutoff are the ones
+   * the curve sees.
+   */
+  claimsEra(): { cutoff: number | null; recorded: number | null; affected: number } {
+    const num = (v: string | undefined): number | null => {
+      const n = v === undefined || v === "" ? Number.NaN : Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const cutoff = num(this.getMeta(CLAIMS_ERA_CUTOFF_KEY));
+    const recorded = num(this.getMeta(CLAIMS_ERA_RECORDED_KEY));
+    let affected = 0;
+    if (cutoff !== null) {
+      for (const { id } of this.ops.all<{ id: string }>(
+        "SELECT id FROM memories WHERE archived = 0 AND type = 'memory' AND claimed IS NOT NULL AND (created_at IS NULL OR created_at < ?)",
+        cutoff,
+      )) {
+        const row = this.row(id);
+        if (row !== undefined && !reachExempt(row) && typeof rowToPhysics(row).eraClaim === "number") affected += 1;
+      }
+    }
+    return { cutoff, recorded, affected };
+  }
+
   /** Every row's next-change day forgotten (a new curve: the turn-down looks at all of them once). */
   clearNextChangeDays(): void {
     this.assertWritable("clearNextChangeDays");
@@ -4244,9 +4300,11 @@ export class Store {
     // (`LATER_FEELING_SOURCES`).
     // v13 (2026-10-10): `today_date`, the store's calendar today, so the
     // dated hold (`operational.ts#datedHold`) reads off this one statement.
+    // The old-claims era's cutoff rides the same way (`eraClaimOf`).
     return this.ops.get<MemoryRow & FeelingPeak>(
       `SELECT m.*,
               (SELECT value FROM meta WHERE key = 'lastActiveDate') AS today_date,
+              (SELECT value FROM meta WHERE key = '${CLAIMS_ERA_CUTOFF_KEY}') AS claims_era_cutoff,
               (SELECT MAX(f.strength) FROM feelings f WHERE f.memory_id = m.id) AS feeling_peak,
               (SELECT MAX(f.strength) FROM feelings f
                 WHERE f.memory_id = m.id AND (f.source IS NULL OR f.source NOT IN (${LATER_SQL}))) AS feeling_peak_lived
