@@ -20,7 +20,14 @@ export type SidebarMechId =
 export type SidebarRow = {
   /** Stable: a dashboard seq, or a live row's own id. */
   id: string;
+  /** The row's own mechanism: its word and its colour (a dream's row is Dreaming's). */
   mech: SidebarMechId;
+  /**
+   * Every mechanism the event proves, `mech` first (a mood-matched recall:
+   * Retrieval and Emotion; a dream that merged and wrote a gist: Dreaming,
+   * Gist, Interference, Consolidation). Each one pulses and lights.
+   */
+  mechs: SidebarMechId[];
   /** The short word on the left (`kept`, `3 recalled`, `dreamed`). */
   word: string;
   /** Milliseconds since the epoch. */
@@ -98,6 +105,9 @@ export type SidebarNote = { text: string; at: number };
 
 export type SidebarMark = { id: string; at: number };
 
+/** The mechanisms that fired last, and when: the newest row's own first, then every other one the same read proved. */
+export type SidebarFiring = { ids: SidebarMechId[]; at: number };
+
 declare module 'claude-code' {
   interface PluginState {
     counterparts: {
@@ -107,8 +117,8 @@ declare module 'claude-code' {
       feed: SidebarRow[];
       /** This session's counts for the status line and the rail. */
       counts: { came: number; kept: number };
-      /** The mechanism that fired last, and when. */
-      firing: SidebarMark | null;
+      /** The mechanisms that fired last, and when: the legend lights each. */
+      firing: SidebarFiring | null;
       /** The mechanism the person picked in the legend. */
       sel: SidebarMark | null;
       search: SidebarSearch;
