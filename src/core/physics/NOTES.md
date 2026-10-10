@@ -561,6 +561,6 @@ comes round instead.
   unweighed word out). Read in consolidation (`sleep/consolidate.ts#stronglyFelt`) and
   handed in as `CoreContext.stronglyFelt`; the recognition door and `laterFeelingCarriers`
   read the same test (`feelingIsStrong`). On the fixture in
-  `test/encoding-attention.test.ts`, 5 of 11 about-us memories with a return two days out
+  `test/encoding-attention.test.ts`, 5 of 11 about-us memories with a return three lived days after birth
   now meet the fast lane, against 2 before. The return gate still binds (08: "worth little
   without #5"). The dashboard's "needs intensity 0.6" reading is now one of two ways in.
