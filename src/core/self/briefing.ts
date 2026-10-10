@@ -1419,6 +1419,23 @@ export function readPageTopLine(text: string): { rung: PageRung; wholeBytes: num
 }
 
 /**
+ * A LINE OF THE WAKE'S OWN FRAME AROUND THE PAGE (review of #363): a rung's
+ * top line or end line, or the one line, standing whole on a line of its own.
+ * A session that copies its page out of the wake and back through a writer
+ * would otherwise store them, and every wake after would print a stale size
+ * and an end line in the middle of the page — after which a cut would look
+ * whole. Left out where the page is written and where it is rendered, like
+ * its datelines (`Self#ownWords`). A sentence that only mentions one is not
+ * one. Pure.
+ */
+export function isPageFrameLine(line: string): boolean {
+  const t = line.trim();
+  if (!t.startsWith("(") || !t.endsWith(")")) return false;
+  if ((Object.values(PAGE_END_LINES) as readonly string[]).includes(t)) return true;
+  return PAGE_TOP_READERS.some(([, re]) => re.test(t));
+}
+
+/**
  * THE ROOM A PAGE BLOCK TAKES in "Who I am", in bytes: its top line, its text
  * and its end line, with the newlines that join them. The dateline is not
  * counted here — it is furniture, inside `PAGE_FLOOR_RESERVE_BYTES`. Pure.

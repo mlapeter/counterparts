@@ -1135,7 +1135,13 @@ export class Reflections {
           `The page repeats "${confidential.run}" from confidential memory ${confidential.id}, and the page is read in every session: say it another way and send the page again.`,
         );
       } else {
-        const shortText = (input.page?.short ?? "").trim();
+        // THE SHORT VERSION CROSSES THESE GATES TOO (review of #363): it is
+        // injected into every wake exactly like the page. One that fails them
+        // is not sent, and never costs the page — the note says why, and the
+        // page's own note asks for another.
+        const shortSent = (input.page?.short ?? "").trim();
+        const shortWhy = shortSent.length === 0 ? null : this.shortRefusal(shortSent, shown);
+        const shortText = shortWhy === null ? shortSent : "";
         const w = this.ctx.writePage(pageText, {
           reason: `reflection ${row.id}${row.dream_id === null ? "" : ` after dream ${row.dream_id}`}`,
           session: row.session,
@@ -1150,6 +1156,7 @@ export class Reflections {
             ...(restsOnCore
               ? []
               : [`It cites none of the core memories you were shown (${coreShown.slice(0, 5).join(", ")}${coreShown.length > 5 ? ", …" : ""}); the page is meant to rest on them.`]),
+            ...(shortWhy === null ? [] : [`The short version was not kept: it ${shortWhy.why}.`]),
             ...(w.note === undefined || w.note === null ? [] : [w.note]),
           ];
           page = {
@@ -1173,6 +1180,7 @@ export class Reflections {
       // A SHORT VERSION ALONE (2026-10-10), on a later `finish`: added to the
       // page this reflection wrote, as the note on that write asked — tied to
       // its version, so a page somebody rewrote since is not given it.
+      const shortWhy = this.shortRefusal((input.page?.short ?? "").trim(), shown);
       if (earlierPage === null) {
         page = {
           written: false,
@@ -1180,6 +1188,18 @@ export class Reflections {
           version: null,
           detail: "A short version goes with the page this reflection wrote: send page.text with page.short.",
         };
+        pageRefused = true;
+      } else if (this.ctx.pageWrites === false) {
+        page = {
+          written: false,
+          reason: "page-writer-off",
+          version: earlierPage,
+          detail: "The owner has the page writer off, so the self page is not rewritten. The page written earlier stands.",
+        };
+        pageRefused = true;
+      } else if (shortWhy !== null) {
+        // The same gates as the page's, and the same refusals (review of #363).
+        page = { written: false, reason: shortWhy.reason, version: earlierPage, detail: `The short version ${shortWhy.why}. The page written earlier stands.` };
         pageRefused = true;
       } else {
         const w = this.ctx.writePage(null, {
@@ -1784,6 +1804,26 @@ export class Reflections {
     const head = doc.title !== undefined && doc.title.trim().length > 0 ? `${doc.title.trim()} — ` : "";
     const flat = `${head}${doc.body}`.replace(/\s+/g, " ").trim();
     return { id, text: clipWire(flat, REFLECT_TUNABLES.SAW_CHARS) };
+  }
+
+  /**
+   * WHY A SHORT VERSION MAY NOT GO WITH THE PAGE, or null (review of #363):
+   * the page's own reflection gates — the dream's mark, a confidential
+   * memory's words — since a short version is read by every session the page
+   * would have been. `why` reads after "The short version" or "it".
+   */
+  private shortRefusal(text: string, shown: ReadonlySet<string>): { reason: string; why: string } | null {
+    if (carriesDreamMark(text)) {
+      return { reason: "dream-mark-in-text", why: `carries the dream's mark (${DREAM_MARK}…) — take it out` };
+    }
+    const confidential = this.quotesConfidential(text, shown);
+    if (confidential !== null) {
+      return {
+        reason: "confidential-words-on-the-page",
+        why: `repeats "${confidential.run}" from confidential memory ${confidential.id}, and it is read in every session — say it another way`,
+      };
+    }
+    return null;
   }
 
   /**

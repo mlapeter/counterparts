@@ -76,6 +76,7 @@ import {
   applyPreface,
   arrivingTense,
   flatten,
+  isPageFrameLine,
   PAGE_FLOOR_RESERVE_BYTES,
   pageBlockBytes,
   pageDateline,
@@ -590,6 +591,42 @@ function storedAs(text: string): string {
   return new TextDecoder().decode(new TextEncoder().encode(text));
 }
 
+/** A fenced code block's opening or closing line, as `page.ts` reads one. */
+const FENCE_LINE = /^\s{0,3}(?:```|~~~)/u;
+
+/**
+ * THE PAGE IN ITS OWN WORDS (review of #363): without its own "last revised"
+ * lines (`stripRevisedLines`, counted in `stripped`), and without the frame
+ * the wake prints around every rung — a top line, an end line, the one line
+ * (`briefing.ts#isPageFrameLine`, counted in `framed`) — which a page copied
+ * out of a wake carries. Outside code fences, and only the line: when it stood
+ * between two blank lines, one of them goes with it. Applied where the page
+ * and its short version are written and where the page is rendered, so a
+ * stored page heals the next time it is written and never prints its frame
+ * twice meanwhile. Pure.
+ */
+function ownWords(text: string): { body: string; stripped: number; framed: number } {
+  const dated = stripRevisedLines(text);
+  const lines = dated.body.split("\n");
+  const out: string[] = [];
+  let fenced = false;
+  let framed = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (FENCE_LINE.test(line)) fenced = !fenced;
+    if (fenced || !isPageFrameLine(line)) {
+      out.push(line);
+      continue;
+    }
+    framed += 1;
+    const before = out[out.length - 1];
+    if ((before === undefined || before.trim() === "") && (lines[i + 1] ?? "x").trim() === "") i += 1;
+  }
+  return framed === 0
+    ? { ...dated, framed: 0 }
+    : { body: out.join("\n").trim(), stripped: dated.stripped, framed };
+}
+
 /** Whole days between two `YYYY-MM-DD` dates, or null when either is unreadable. */
 function daysBetween(from: string, to: string): number | null {
   // The SHAPE is checked, not only the parse: `Date.parse` accepts a great deal
@@ -1019,7 +1056,15 @@ export class Self {
         short: verdict.outcome,
       };
     }
-    return this.revisePage(page.body, { ...opts, reason: opts.reason ?? "added a short version", short });
+    // A REVISION OF THE PAGE AS IT WAS READ (review of #363): held to that
+    // version even when the caller passed none, so a page another process
+    // wrote since is refused (`version-moved`), never reverted to this one.
+    return this.revisePage(page.body, {
+      ...opts,
+      ifVersion: opts.ifVersion ?? page.version,
+      reason: opts.reason ?? "added a short version",
+      short,
+    });
   }
 
   /**
@@ -1034,7 +1079,7 @@ export class Self {
     by: SelfPageAuthor,
   ): { outcome: PageShortOutcome; text: string | null } {
     const room = this.tunables.PAGE_ROOM_BYTES;
-    const draft = stripRevisedLines(raw.replace(/\r\n/g, "\n").trim()).body;
+    const draft = ownWords(raw.replace(/\r\n/g, "\n").trim()).body;
     const sent = byteLength(draft);
     const out = (reason: PageShortOutcome["reason"], bytes = sent, redacted = false): { outcome: PageShortOutcome; text: null } => ({
       outcome: { kept: false, reason, bytes, room, redacted },
@@ -1087,7 +1132,7 @@ export class Self {
     // caps and the gate see it: the wake dates the page, and a stored page that
     // carried one printed two. The revision row counts what went
     // (`datelines`), so a hand-written page edited here says so.
-    const own = stripRevisedLines(body.replace(/\r\n/g, "\n").trim());
+    const own = ownWords(body.replace(/\r\n/g, "\n").trim());
     const draft = own.body;
     let bytes = byteLength(draft);
     const session = opts.session ?? null;
@@ -1278,6 +1323,7 @@ export class Self {
         room,
         ...(sent === null ? {} : { short: sent.outcome.reason, shortBytes: sent.outcome.bytes }),
         ...(own.stripped === 0 ? {} : { datelines: own.stripped }),
+        ...(own.framed === 0 ? {} : { frameLines: own.framed }),
       },
     });
     this.emit("self.page.revised", id, {
@@ -1585,8 +1631,10 @@ export class Self {
     );
     // THE PAGE'S OWN "LAST REVISED" LINE IS NOT PRINTED (2026-10-09): the
     // dateline above is the wake's, and a page that carried one of its own
-    // printed two. A page that is nothing else is printed as it is.
-    const own = stripRevisedLines(page.body);
+    // printed two. A page that is nothing else is printed as it is. Nor the
+    // wake's own frame around it, copied in from an older wake (review of
+    // #363, `ownWords`): the frame below is this wake's.
+    const own = ownWords(page.body);
     const body = own.body.length === 0 ? page.body : own.body;
     const wholeBytes = byteLength(body);
     const room = budgetBytes - PAGE_FLOOR_RESERVE_BYTES;

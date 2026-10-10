@@ -1849,3 +1849,19 @@ below is the one he agreed, the details are working defaults.
   (`continuity.test.ts` 2,600 → 2,650, where whole elements left slack that happened to
   hold a "Last here" line; `claude-code.test.ts`'s cramped ceiling 400 → 700, since the
   preface alone is now 260).
+
+**Review of #363 (2026-10-10), three holes closed** (`page-ladder-review.test.ts`):
+
+- **A reflection's short version crosses the reflection's own gates** — the dream's mark
+  and a confidential memory's words (`Reflections#shortRefusal`) — not only the page's
+  battery: it is read by every session the page would have been. Beside the page, one that
+  fails is not sent and the page is written with a note; alone, it is refused, and the
+  page-writer-off switch refuses it too.
+- **A short version added on its own is held to the version it read** (`addPageShort`
+  passes `ifVersion: page.version` when the caller passed none): without it, a page
+  another process wrote between the read and the write was reverted to the old text.
+- **The wake's own frame is never stored as the page** (`briefing.ts#isPageFrameLine`,
+  `Self#ownWords`): a rung's top line, end line or the one line, copied out of a wake and
+  written back, is left out like a dateline — at write (counted as `frameLines` on the
+  revision row) and at render — so no wake prints a stale size or an end line in the
+  middle of the page, after which a cut would look whole.
