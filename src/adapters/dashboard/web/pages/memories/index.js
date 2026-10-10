@@ -11,6 +11,7 @@
    put back; answers in the find box stay until it is cleared. */
 import { api, fail } from "../../shared/api.js";
 import { $ } from "../../shared/dom.js";
+import { openMemory } from "../../shared/memory-modal.js";
 import { MY_NAME, ownerOr } from "../../shared/voice.js";
 import * as feel from "./sections/feel.js";
 import * as hold from "./sections/hold.js";
@@ -77,10 +78,17 @@ export default {
   redraw: hold.redraw,
   /** `#memories?state=archived` (or live/all): open the list at that filter.
    *  `#memories?feeling=warm` (the home tab's chart): the live memories carrying
-   *  a feeling under that core, as a click on this tab's chart would show them. */
+   *  a feeling under that core, as a click on this tab's chart would show them.
+   *  `#memories?id=mem_…` (the sidebar, 2026-10-10): that one memory's card,
+   *  opened over the list, as a click on its row would open it. */
   route({ params }) {
     const state = params.get("state");
     const feeling = params.get("feeling");
+    const id = params.get("id");
+    if (id) {
+      openMemory(id);
+      return;
+    }
     if (feeling) {
       setFilter({ state: "live", kind: null, core: false, journal: false, hold: null, feeling: null, feelingCore: feeling });
     } else if (["live", "archived", "all"].includes(state)) {

@@ -21,7 +21,7 @@ import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { mechanismsView } from "../src/adapters/dashboard/web/views/mechanisms.js";
 import { MEMORY_MECHANISMS, consoleVerdicts, readMechanism } from "../src/adapters/cli/mechanisms.js";
 import { firedReport } from "../src/adapters/fired.js";
-import { MECHANISM_EVIDENCE, builtCount } from "../src/adapters/mechanism-evidence.js";
+import { MECHANISM_EVIDENCE, builtCount, firingKey, mechanismEvidence } from "../src/adapters/mechanism-evidence.js";
 import { seedDemo } from "../tools/demo/seed.js";
 
 const temps: string[] = [];
@@ -229,5 +229,46 @@ describe("built / partly / not", () => {
     const path = fileURLToPath(new URL("../src/adapters/dashboard/web/mechanisms/index.js", import.meta.url));
     const index = (await import(path)) as { MECHANISMS: Record<string, unknown>[] };
     for (const m of index.MECHANISMS) expect(`${String(m["id"])}: ${"inDev" in m}`).toBe(`${String(m["id"])}: false`);
+  });
+});
+
+describe("firedToday (2026-10-10, the sidebar's times fired today)", () => {
+  test("by default today is the window's lived day; a surface may hand in its own; a dream's rows are one firing", () => {
+    const dir = tempDir("counterparts-evidence-today-");
+    const c = Counterpart.open({ dir, owner: true });
+    try {
+      for (let i = 1; i <= 5; i++) c.store.advanceClock(`2026-02-${String(i).padStart(2, "0")}`);
+      const day = c.store.livedDay();
+      c.store.appendEvent({ name: "band.transition", day: day - 1, payload: { site: "decay", direction: "down" } });
+      c.store.appendEvent({ name: "band.transition", day, payload: { site: "decay", direction: "down" } });
+      c.store.appendEvent({ name: "band.transition", day, payload: { site: "decay", direction: "up" } });
+      c.store.appendEvent({ name: "dream.journaled", day, ref: "drm_a", payload: { chars: 10 } });
+      c.store.appendEvent({ name: "dream.changed", day, ref: "drm_a", payload: { applied: 3, "nominate-core": 1 } });
+      c.store.appendEvent({ name: "dream.journaled", day, ref: "drm_b", payload: { chars: 10 } });
+    } finally {
+      c.close();
+    }
+    const s = Store.open({ dir, observer: true });
+    try {
+      const day = s.livedDay();
+      const by = (w: Parameters<typeof mechanismEvidence>[1]): Record<string, number | null> =>
+        Object.fromEntries(mechanismEvidence(s, w).verdicts.map((v) => [v.id, v.firedToday]));
+      const lived = by({ sinceDay: day - 6, today: day });
+      expect(lived["decay"]).toBe(1); // yesterday's fade, and a crossing up, are not today's fades
+      expect(lived["dreaming"]).toBe(2); // two dreams in three rows
+      expect(lived["schema"]).toBeNull();
+      const none = by({ sinceDay: day - 6, today: day, isToday: () => false });
+      expect(none["decay"]).toBe(0);
+      expect(none["dreaming"]).toBe(0);
+    } finally {
+      s.close();
+    }
+  });
+
+  test("firingKey: a dream's rows share one key; every other row is its own", () => {
+    const row = (seq: number, name: string, ref: string | null) => ({ seq, at: 0, day: 1, name, ref, dedup_key: null, payload: null });
+    expect(firingKey(row(1, "dream.journaled", "drm_x"))).toBe(firingKey(row(2, "dream.changed", "drm_x")));
+    expect(firingKey(row(3, "dream.changed", null))).not.toBe(firingKey(row(4, "dream.changed", null)));
+    expect(firingKey(row(5, "contradiction.settled", "ctr_y"))).not.toBe(firingKey(row(6, "contradiction.settled", "ctr_y")));
   });
 });

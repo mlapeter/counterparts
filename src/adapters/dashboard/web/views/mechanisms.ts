@@ -32,6 +32,7 @@ import {
 } from "../../../mechanism-evidence.js";
 import type { Build, Family, MechanismEvidence, Payload, Proof, Verdict } from "../../../mechanism-evidence.js";
 import type { DashboardSource } from "../../source.js";
+import { localDate } from "../../../../core/time.js";
 
 export { FAMILIES, RECENT_IDS, amount, builtCount, counted, payloadOf };
 export type { Build, Family, Payload, Proof };
@@ -62,6 +63,13 @@ export interface MechanismLight {
    * closer this week". Null for a mechanism that is not built.
    */
   readonly lead: Lead | null;
+  /**
+   * Times it fired TODAY, the person's calendar day (`MechanismsView.today`):
+   * rows that proved it, not amounts, a dream's rows once
+   * (`mechanism-evidence.ts#Verdict.firedToday`). The sidebar's "Mechanisms
+   * today" bars (2026-10-10). Null when not built.
+   */
+  readonly firedToday: number | null;
 }
 
 /** One number and a few words. */
@@ -75,6 +83,8 @@ export interface MechanismsView {
   /** The first lived day inside the window. */
   readonly fromDay: number;
   readonly days: number;
+  /** The person's calendar day, `YYYY-MM-DD` (`store.today()`): the day each light's `firedToday` counts. */
+  readonly today: string;
   readonly mechanisms: readonly MechanismLight[];
   /** A read hit its ceiling, so some counts are floors. */
   readonly truncated: boolean;
@@ -184,7 +194,14 @@ export function leadOf(v: Verdict, returns?: ReturnsBySource): Lead | null {
  *  mechanism's returns part is said by source (`returnWords`). */
 export function lightOf(v: Verdict, returns?: ReturnsBySource): MechanismLight {
   const row = MECHANISM_EVIDENCE.find((m) => m.id === v.id);
-  const base = { id: v.id, family: v.family, build: v.build, nextInDays: v.schedule?.nextInDays ?? null, lead: leadOf(v, returns) };
+  const base = {
+    id: v.id,
+    family: v.family,
+    build: v.build,
+    nextInDays: v.schedule?.nextInDays ?? null,
+    lead: leadOf(v, returns),
+    firedToday: v.firedToday,
+  };
   if (v.build === "not" || row === undefined) {
     return { ...base, status: "grey", evidence: row?.grey ?? "Not built yet.", events: [] };
   }
@@ -230,8 +247,18 @@ export function mechanismsView(src: DashboardSource): MechanismsView {
     livedDay = 0;
   }
   const fromDay = Math.max(0, livedDay - (MECHANISM_DAYS - 1));
-  const { verdicts, truncated } = mechanismEvidence(store, { sinceDay: fromDay, today: livedDay });
+  // "Today" for `firedToday` is the person's calendar day, not the lived day:
+  // a lived day can start after midnight (at the day's first sleep), and the
+  // sidebar's "Mechanisms today" means the date on the clock. The window's
+  // seven lived days always reach back past the start of it.
+  const today = store.today();
+  const zone = store.zone();
+  const { verdicts, truncated } = mechanismEvidence(store, {
+    sinceDay: fromDay,
+    today: livedDay,
+    isToday: (row) => localDate(row.at, zone) === today,
+  });
   const r = store.returnCounts({ sinceDay: fromDay });
   const returns: ReturnsBySource = { awake: r.awake, dream: r.dream };
-  return { livedDay, fromDay, days: MECHANISM_DAYS, mechanisms: verdicts.map((v) => lightOf(v, returns)), truncated };
+  return { livedDay, fromDay, days: MECHANISM_DAYS, today, mechanisms: verdicts.map((v) => lightOf(v, returns)), truncated };
 }

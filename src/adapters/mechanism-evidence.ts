@@ -316,6 +316,14 @@ export interface EvidenceWindow {
   readonly today: number;
   /** Whether a row falls inside the window. Default: `row.day >= sinceDay`. */
   readonly contains?: (row: EventRow) => boolean;
+  /**
+   * Which of the window's rows landed TODAY, for `Verdict.firedToday`.
+   * Default: `row.day === today` (the lived day). The dashboard hands in the
+   * person's calendar day (`store.today()`), which is what "today" means in
+   * the sidebar's "Mechanisms today" (2026-10-10). Only rows inside the
+   * window are asked, so the window must reach back to the start of today.
+   */
+  readonly isToday?: (row: EventRow) => boolean;
 }
 
 export interface EvidencePart {
@@ -348,6 +356,15 @@ export interface Verdict {
   readonly events: readonly number[];
   /** Of the window's firings, how many landed today (only when asked for). */
   readonly today: number | null;
+  /**
+   * TIMES IT FIRED TODAY (2026-10-10, the sidebar's "Mechanisms today"): the
+   * rows that proved it and landed today (`EvidenceWindow.isToday`), counted
+   * as ROWS, not amounts: a flush that wrote 8 links is one firing of
+   * Association, a deposit of 3 memories one of Salience. A dream's rows (its
+   * journal and its changes, `dream.*` under one `ref`) are one firing. Every
+   * built mechanism has it (0 when nothing landed today); null when not built.
+   */
+  readonly firedToday: number | null;
   /** What it holds, when the row declares it; null when unasked or unreadable. */
   readonly held: number | null;
   /** When it did not fire in the window: the newest lived day it ever did. */
@@ -363,6 +380,15 @@ export function payloadOf(row: EventRow): Payload {
   } catch {
     return {};
   }
+}
+
+/**
+ * What makes two rows one firing: a dream's journal row and its changes row
+ * are one dream (`dream.*` under the dream's id, `ref`); any other row is its
+ * own.
+ */
+export function firingKey(row: EventRow): string {
+  return row.name.startsWith("dream.") && row.ref !== null ? `dream:${row.ref}` : `seq:${row.seq}`;
 }
 
 /** The amount this row contributes, or 0 when it does not count. */
@@ -418,6 +444,7 @@ export function mechanismEvidence(
   window: EvidenceWindow,
 ): { verdicts: Verdict[]; truncated: boolean } {
   const contains = window.contains ?? ((row: EventRow) => row.day >= window.sinceDay);
+  const isToday = window.isToday ?? ((row: EventRow) => row.day === window.today);
   let truncated = false;
   const windowRows = new Map<string, EventRow[]>();
   const rowsFor = (name: string): EventRow[] => {
@@ -434,11 +461,12 @@ export function mechanismEvidence(
   const verdicts = MECHANISM_EVIDENCE.map((m): Verdict => {
     const empty = { id: m.id, family: m.family, build: m.build };
     if (m.build === "not") {
-      return { ...empty, fired: false, parts: [], events: [], today: null, held: null, lastFiredDay: null, schedule: null };
+      return { ...empty, fired: false, parts: [], events: [], today: null, firedToday: null, held: null, lastFiredDay: null, schedule: null };
     }
     const parts: EvidencePart[] = [];
     const backing: EventRow[] = [];
     let today = 0;
+    const firedToday = new Set<string>();
     for (const proof of m.proofs) {
       let total = 0;
       for (const row of rowsFor(proof.event)) {
@@ -447,6 +475,7 @@ export function mechanismEvidence(
           total += n;
           backing.push(row);
           if (row.day === window.today) today += n;
+          if (isToday(row)) firedToday.add(firingKey(row));
         }
       }
       parts.push({ key: proof.key, count: total, says: proof.says });
@@ -493,6 +522,7 @@ export function mechanismEvidence(
       parts,
       events,
       today: m.today === true ? today : null,
+      firedToday: firedToday.size,
       held,
       lastFiredDay,
       schedule: m.schedule === undefined ? null : scheduleOf(store, m.schedule, window.today),
