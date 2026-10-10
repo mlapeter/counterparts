@@ -72,6 +72,7 @@ const MORE: readonly { event: string; payload: Payload }[] = [
   { event: "recall.decision", payload: { surfacedCount: 0, footnoteCount: 0, moodMatched: 0 } },
   { event: "band.transition", payload: { site: "decay", direction: "up" } }, // the crossing into identity, not a fade
   { event: "contradiction.settled", payload: { how: "open" } },
+  { event: "contradiction.settled", payload: { how: "corrected" } }, // live beside "changed" (2 of 50 on 2026-10-10)
   { event: "associate.flush", payload: { rows: 0, pairs: 0 } },
   { event: "gate.deposit", payload: { accepted: 0 } },
 ];
