@@ -11,12 +11,16 @@ import { describe, expect, test } from 'bun:test';
 import { charCells, findDock, findText, parseCapture, rowText, sliceGrid, type Grid } from '../tools/term-loop/grid.js';
 import { ITERM_MENLO_13, cellColours, paletteColour, renderHtml, renderRow } from '../tools/term-loop/render.js';
 import {
+  MEMORY_SWITCH,
   focusOf,
   keyboardOf,
   locate,
   mouseBytes,
   parseStep,
   parseSteps,
+  planWords,
+  restorePlan,
+  viewOf,
   refuseAllowCmd,
   refuseClick,
   refuseEnter,
@@ -294,6 +298,23 @@ describe('steps and the keyboard guard', () => {
     expect(refuseClick({ x: 14, y: 1 }, dock, slash)).toBeNull();
     expect(refuseClick({ x: 4, y: 3 }, dock, { focus: 'empty', typed: '', pick: null })).toBeNull();
     expect(refuseClick({ x: 4, y: 3 }, null, { focus: 'unknown', typed: '', pick: null })).toMatch(/refused/);
+  });
+
+  test('putting the stored preferences back: the mod’s commands, and a click for the memory switch', () => {
+    const owner = { view: 'full', fpsShown: true, claudeMemory: true };
+    expect(restorePlan(owner, owner)).toEqual({ cmds: [], memory: false });
+    expect(restorePlan(owner, { ...owner, view: 'quiet' }).cmds).toEqual(['/counterparts']);
+    expect(restorePlan({ view: 'hidden' }, { view: 'full' }).cmds).toEqual(['/counterparts hide']);
+    expect(restorePlan({ view: 'quiet' }, { view: 'hidden' }).cmds).toEqual(['/counterparts quiet']);
+    // unset keys are the mod's defaults: full, block caps, fps not shown, 12 fps, memory on
+    expect(restorePlan(null, { view: 'full', caps: 'block', fpsShown: false, fps: 12, claudeMemory: true })).toEqual({ cmds: [], memory: false });
+    expect(restorePlan(owner, { ...owner, caps: 'round', fpsShown: false, fps: 6 }).cmds).toEqual(['/counterparts caps', '/counterparts fps', '/counterparts fps 12']);
+    const off = restorePlan(owner, { ...owner, claudeMemory: false, view: 'hidden' });
+    expect(off).toEqual({ cmds: ['/counterparts'], memory: true });
+    expect(planWords(off)).toEqual(['type /counterparts', `click the "${MEMORY_SWITCH}" switch`]);
+    // a file that can't be read says nothing
+    expect(restorePlan(owner, null)).toEqual({ cmds: [], memory: false });
+    expect(viewOf({ view: 'rail' })).toBe('full');
   });
 
   test('targets: text in the pane first, cells 1-based; mouse reports are SGR 1006', () => {

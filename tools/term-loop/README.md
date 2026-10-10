@@ -128,13 +128,21 @@ The sessions are real Claude Code sessions with his own login and settings.
   (`counterparts_inline-41db9a71a546.json`), shared by every folder copy named
   `counterparts`, his own trial copy included. So `/counterparts quiet` or
   `hide` in a run would make his next session open quiet or hidden. The run
-  reads that file before it starts (read only), and before it exits puts
-  `view`, `caps`, `fpsShown` and `fps` back with the mod's own commands if a
-  step changed them. It never writes the file. The "Claude Code's own memory"
-  switch can't be put back by a command: if a click turned it, the run says
-  so. A ^C or crash kills the session without putting anything back, and says
-  where to look. A change he makes in his own sessions during a run would be
-  undone if the run changed the same key.
+  reads that file before it starts (read only), and before the session ends
+  puts back whatever differs, through the mod: first the "Claude Code's own
+  memory" switch, by a click on it in the full view (that switch is one
+  preference for every session, his running ones included, and no command
+  turns it), then `view`, `caps`, `fpsShown` and `fps` with the mod's own
+  commands. It never writes the file. This runs after a step fails or times
+  out as well as after the last step (a prompt a failed step left holding
+  words is cleared first), and after a first ^C (or TERM, HUP): the signal
+  stops the steps, the preferences go back, the session closes, and no PNGs
+  are drawn. A second ^C kills the session as it is. The file is read again
+  at the end; if anything still differs, the run says in capitals what to
+  type or click, and exits 1. A crash of this process, a `kill -9`, or the
+  claude session ending mid-run leaves what it left, said the same way where
+  it can be. The preferences are compared, not traced: a change he makes to
+  the same keys in his own sessions during a run is put back too.
 - **Exit:** `/exit`, then, if the session is still there after 8 s, `tmux
   kill-session` on this run's session only. Never `kill-server`: other work
   runs in tmux. Chrome runs on its own profile under

@@ -269,6 +269,43 @@ export function locate(g: Grid, t: Target, dock: Rect | null): { x: number; y: n
   return findText(g, t.text);
 }
 
+// ── the sidebar's stored preferences ─────────────────────────────────────────
+
+/** The stored keys a run can change, and puts back. */
+export const PREF_KEYS = ['view', 'caps', 'fpsShown', 'fps', 'claudeMemory'] as const;
+export type Prefs = Partial<Record<(typeof PREF_KEYS)[number], unknown>>;
+
+/** The label of the switch that turns Claude Code's own memory (one preference for every session). */
+export const MEMORY_SWITCH = "Claude Code's own memory";
+
+export function viewOf(p: Prefs | null): 'full' | 'quiet' | 'hidden' {
+  return p?.view === 'quiet' || p?.view === 'hidden' ? p.view : 'full';
+}
+
+/**
+ * What puts the stored preferences back as they were before the run: the
+ * mod's own commands for view, caps, fpsShown and fps (the mod's defaults
+ * where a key was unset), and whether the memory switch wants a click (no
+ * command turns it). Nothing when `now` can't be read.
+ */
+export function restorePlan(before: Prefs | null, now: Prefs | null): { cmds: string[]; memory: boolean } {
+  const cmds: string[] = [];
+  if (now === null) return { cmds, memory: false };
+  const b = before ?? {};
+  const view = viewOf(b);
+  if (view !== viewOf(now)) cmds.push(view === 'quiet' ? '/counterparts quiet' : view === 'hidden' ? '/counterparts hide' : '/counterparts');
+  if ((b.caps === 'round') !== (now.caps === 'round')) cmds.push('/counterparts caps');
+  if ((b.fpsShown === true) !== (now.fpsShown === true)) cmds.push('/counterparts fps');
+  const fpsOf = (p: Prefs): number => (typeof p.fps === 'number' ? p.fps : 12);
+  if (fpsOf(b) !== fpsOf(now)) cmds.push(`/counterparts fps ${String(fpsOf(b))}`);
+  return { cmds, memory: (b.claudeMemory !== false) !== (now.claudeMemory !== false) };
+}
+
+/** A plan in words, for the person who has to do it by hand. */
+export function planWords(plan: { cmds: string[]; memory: boolean }): string[] {
+  return [...plan.cmds.map(c => `type ${c}`), ...(plan.memory ? [`click the "${MEMORY_SWITCH}" switch`] : [])];
+}
+
 /** The screen as plain text (for until:, and for the error a timeout prints). */
 export function screenText(g: Grid): string {
   const lines: string[] = [];

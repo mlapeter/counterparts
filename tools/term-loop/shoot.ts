@@ -17,9 +17,30 @@ import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 
 import { DEFAULT_DATA_DIR_NAME, FORBIDDEN_ROOT_NAMES } from '../../src/core/store/paths.js';
-import { findDock, parseCapture, sliceGrid, type Grid, type Rect } from './grid.js';
+import { findDock, findText, parseCapture, sliceGrid, type Grid, type Rect } from './grid.js';
 import { ITERM_MENLO_13, gridPixels, renderHtml } from './render.js';
-import { ALLOWED_COMMANDS, STEP_HELP, keyboardOf, locate, mouseBytes, parseSteps, refuseAllowCmd, refuseClick, refuseEnter, refuseKey, refuseType, screenText, type Keyboard, type Step } from './steps.js';
+import {
+  ALLOWED_COMMANDS,
+  MEMORY_SWITCH,
+  PREF_KEYS,
+  STEP_HELP,
+  keyboardOf,
+  locate,
+  mouseBytes,
+  parseSteps,
+  planWords,
+  refuseAllowCmd,
+  refuseClick,
+  refuseEnter,
+  refuseKey,
+  refuseType,
+  restorePlan,
+  screenText,
+  viewOf,
+  type Keyboard,
+  type Prefs,
+  type Step,
+} from './steps.js';
 
 const HERE = import.meta.dir;
 const REPO = resolve(HERE, '..', '..');
@@ -169,9 +190,6 @@ const sleep = (ms: number): Promise<void> => new Promise(res => setTimeout(res, 
 
 // ── the plugin's stored preferences (read-only) ─────────────────────────────
 
-const STORE_KEYS = ['view', 'caps', 'fpsShown', 'fps', 'claudeMemory'] as const;
-type Prefs = Partial<Record<(typeof STORE_KEYS)[number], unknown>>;
-
 /**
  * Where Claude Code keeps a `--plugin-dir` plugin's `$.store`: shared by every
  * folder copy of the plugin with that name, so it is the owner's own sidebar
@@ -195,27 +213,44 @@ function readPrefs(path: string): Prefs | null {
   try {
     const all = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
     const p: Prefs = {};
-    for (const k of STORE_KEYS) if (k in all) p[k] = all[k];
+    for (const k of PREF_KEYS) if (k in all) p[k] = all[k];
     return p;
   } catch {
     return null;
   }
 }
 
-/** The slash commands that put the stored preferences back the way they were (the mod's own way of writing them). */
-function restoreCommands(before: Prefs | null, after: Prefs | null): { cmds: string[]; cannot: string[] } {
-  const cmds: string[] = [];
-  const cannot: string[] = [];
-  if (after === null) return { cmds, cannot };
-  const b = before ?? {};
-  const viewOf = (p: Prefs): string => (p.view === 'quiet' || p.view === 'hidden' ? p.view : 'full');
-  if (viewOf(b) !== viewOf(after)) cmds.push(viewOf(b) === 'quiet' ? '/counterparts quiet' : viewOf(b) === 'hidden' ? '/counterparts hide' : '/counterparts');
-  if ((b.caps === 'round') !== (after.caps === 'round')) cmds.push('/counterparts caps');
-  if ((b.fpsShown === true) !== (after.fpsShown === true)) cmds.push('/counterparts fps');
-  const fpsOf = (p: Prefs): number => (typeof p.fps === 'number' ? p.fps : 12);
-  if (fpsOf(b) !== fpsOf(after)) cmds.push(`/counterparts fps ${String(fpsOf(b))}`);
-  if ((b.claudeMemory !== false) !== (after.claudeMemory !== false)) cannot.push(`claudeMemory is now ${String(after.claudeMemory)} (was ${String(b.claudeMemory ?? true)}): turn the "Claude Code's own memory" switch back by hand`);
-  return { cmds, cannot };
+/**
+ * Puts the stored preferences back as they were before the run, through the
+ * mod (this tool never writes the file): the memory switch by a click on it,
+ * in the full view, since no command turns it; then the view, caps and fps by
+ * the mod's commands. Returns what is still not back, in words.
+ */
+async function putBack(s: Session, path: string, before: Prefs | null): Promise<string[]> {
+  await s.clearPrompt();
+  if (restorePlan(before, readPrefs(path)).memory) {
+    if (viewOf(readPrefs(path)) !== 'full') {
+      console.log('  putting back the stored preference: /counterparts (to reach the memory switch)');
+      await s.command('/counterparts', ALLOWED_COMMANDS);
+      await sleep(800);
+    }
+    const l = await s.steady();
+    const at = l.dock === null ? null : findText(l.grid, MEMORY_SWITCH, l.dock.x0 + 1);
+    if (at !== null && l.dock !== null && at.y >= l.dock.y0 && at.y < l.dock.y1) {
+      console.log(`  putting back the stored preference: a click on "${MEMORY_SWITCH}"`);
+      const [press, release] = mouseBytes('click', at.x, at.y);
+      if (press !== undefined) s.bytes(press);
+      await sleep(60);
+      if (release !== undefined) s.bytes(release);
+      await sleep(800);
+    }
+  }
+  for (const c of restorePlan(before, readPrefs(path)).cmds) {
+    console.log(`  putting back the stored preference: ${c}`);
+    await s.command(c, ALLOWED_COMMANDS);
+    await sleep(800);
+  }
+  return planWords(restorePlan(before, readPrefs(path)));
 }
 
 // ── one live session ────────────────────────────────────────────────────────
@@ -227,6 +262,10 @@ type Capture = { name: string; ansi: string; cols: number; rows: number; cursor:
 class Session {
   readonly name = `term-loop-${String(process.pid)}-${Date.now().toString(36)}`;
   alive = false;
+  /** A signal asked the run to stop: the steps and their waits end at the next look. */
+  stopping = false;
+  /** Putting things back and closing: a stop no longer cuts a wait short. */
+  finishing = false;
 
   private readonly o: Opts;
 
@@ -302,11 +341,37 @@ class Session {
     if (r.code !== 0) throw new Error(`send-keys -H failed: ${r.err.trim()}`);
   }
 
+  /** Throws once a signal asked the run to stop, until the run is putting things back. */
+  checkStop(): void {
+    if (this.stopping && !this.finishing) throw new Error('stopped by a signal');
+  }
+
+  /** A wait that a stop cuts short. */
+  async pause(ms: number): Promise<void> {
+    const until = Date.now() + ms;
+    for (let left = ms; left > 0; left = until - Date.now()) {
+      this.checkStop();
+      await sleep(Math.min(250, left));
+    }
+    this.checkStop();
+  }
+
+  /** Leaves the prompt empty and holding the keyboard, whatever a failed step left: C-u for typed words, Escape for the pane or a menu. */
+  async clearPrompt(): Promise<void> {
+    for (let i = 0; i < 3; i++) {
+      const l = await this.steady();
+      if (l.kb.focus === 'empty') return;
+      this.keys(l.kb.focus === 'slash' || l.kb.focus === 'text' ? 'C-u' : 'Escape');
+      await sleep(300);
+    }
+  }
+
   /** Polls until `ok` holds, or throws with the screen as it last was. */
   async waitFor(what: string, ok: (l: Look) => boolean, timeoutMs: number): Promise<Look> {
     const until = Date.now() + timeoutMs;
     let last: Look | null = null;
     while (Date.now() < until) {
+      this.checkStop();
       if (!this.exists()) throw new Error(`waiting for ${what}: the claude session ended`);
       last = this.look();
       if (ok(last)) return last;
@@ -344,8 +409,10 @@ class Session {
   /** `/exit`, and the session's own kill if that doesn't end it within 8 s. */
   async close(): Promise<void> {
     if (!this.alive) return;
+    this.finishing = true;
     try {
       if (this.exists()) {
+        await this.clearPrompt();
         await this.command("/exit", ["/exit"]).catch((e: unknown) => {
           // the session ending while we wait for the prompt to clear is the point
           if (this.exists()) throw e;
@@ -458,6 +525,7 @@ async function renderCapture(ansiPath: string, out: string, o: Opts, chrome: str
 
 async function runSteps(s: Session, o: Opts, captures: Capture[]): Promise<void> {
   for (const step of o.steps) {
+    s.checkStop();
     const t0 = Date.now();
     switch (step.kind) {
       case 'shot':
@@ -465,7 +533,7 @@ async function runSteps(s: Session, o: Opts, captures: Capture[]): Promise<void>
         saveCapture(o.out, captures[captures.length - 1]!, o.pluginDir);
         break;
       case 'wait':
-        await sleep(step.ms);
+        await s.pause(step.ms);
         break;
       case 'cmd':
         await s.command(step.text, o.allowed);
@@ -563,17 +631,26 @@ async function main(): Promise<void> {
   const store = storePath(o.pluginDir);
   const before = readPrefs(store.path);
   const s = new Session(o);
-  // a crash or ^C still kills this run's own session and Chrome
+  // a crash, or a second signal, kills this run's own session and Chrome as they are
   const emergency = (): void => {
     if (s.alive) {
       s.kill();
-      console.error(`term-loop: killed ${s.name}. If a step changed the sidebar's view, open the sidebar in a session to check it (stored in ${store.path}).`);
+      const left = planWords(restorePlan(before, readPrefs(store.path)));
+      console.error(`term-loop: killed ${s.name}.${left.length > 0 ? ` The sidebar's stored preferences are not as they were: in a session with --plugin-dir, ${left.join(', then ')}.` : ''}`);
     }
     cleanChrome();
   };
   process.on('exit', emergency);
+  // a first ^C (or TERM, HUP) stops the steps and lets the run put the preferences back and close; a second kills now
+  let signals = 0;
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
     process.on(sig, () => {
+      signals += 1;
+      if (signals === 1 && s.alive) {
+        s.stopping = true;
+        console.error(`\nterm-loop: ${sig}: stopping; the stored preferences go back and the session closes first (${sig} again kills it as it is)`);
+        return;
+      }
       emergency();
       process.exit(130);
     });
@@ -604,33 +681,32 @@ async function main(): Promise<void> {
       await s.command('/counterparts', ALLOWED_COMMANDS);
     }
     await s.waitFor('the docked pane', l => l.dock !== null, o.timeoutMs);
-    await sleep(o.settleMs);
+    await s.pause(o.settleMs);
     console.log(`  ready (${String(Date.now() - t0)} ms)`);
     await runSteps(s, o, captures);
   } catch (e) {
     failure = e as Error;
   }
 
-  // put the owner's stored sidebar preferences back, through the mod's own commands
+  // put the owner's stored sidebar preferences back through the mod, on every way out the session is still there for
+  s.finishing = true;
+  let notBack: string[] = [];
   try {
-    if (s.alive && s.exists()) {
-      const { cmds, cannot } = restoreCommands(before, readPrefs(store.path));
-      for (const c of cmds) {
-        console.log(`  restoring the stored preference: ${c}`);
-        await s.command(c, ALLOWED_COMMANDS);
-        await sleep(800);
-      }
-      for (const c of cannot) console.error(`term-loop: ${c}`);
-    }
+    notBack = s.alive && s.exists() ? await putBack(s, store.path, before) : planWords(restorePlan(before, readPrefs(store.path)));
   } catch (e) {
-    console.error(`term-loop: couldn't restore the sidebar's stored view: ${(e as Error).message.split('\n')[0] ?? ''}`);
+    console.error(`term-loop: putting the stored preferences back failed: ${(e as Error).message.split('\n')[0] ?? ''}`);
+    notBack = planWords(restorePlan(before, readPrefs(store.path)));
   }
   await s.close();
   const sessionMs = Date.now() - t0;
+  if (notBack.length > 0) {
+    console.error(`term-loop: THE SIDEBAR'S STORED PREFERENCES ARE NOT AS THEY WERE (${store.path}). In a session with --plugin-dir, ${notBack.join(', then ')}.`);
+  }
 
   const pngs: string[] = [];
   try {
-    for (const c of captures) pngs.push(...(await renderCapture(join(o.out, `${c.name}.ansi`), o.out, o, chrome, profile)));
+    if (s.stopping) console.error(`term-loop: stopped, so no PNGs; the captures taken are in ${o.out} (--render draws one)`);
+    else for (const c of captures) pngs.push(...(await renderCapture(join(o.out, `${c.name}.ansi`), o.out, o, chrome, profile)));
   } finally {
     cleanChrome();
   }
@@ -638,6 +714,7 @@ async function main(): Promise<void> {
   console.log(`term-loop: session ${String(Math.round(sessionMs / 100) / 10)} s, total ${String(Math.round((Date.now() - t0) / 100) / 10)} s`);
   for (const p of pngs) console.log(p);
   if (failure !== null) throw failure;
+  if (notBack.length > 0) throw new Error('the stored preferences were not put back (above)');
 }
 
 try {
