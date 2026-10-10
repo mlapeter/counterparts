@@ -33,6 +33,14 @@ import { memoryDetail } from "../src/adapters/dashboard/web/views/memory.js";
 import { pulse } from "../src/adapters/dashboard/web/views/pulse.js";
 import { LOG_CEILING } from "../src/adapters/dashboard/web/views/shared.js";
 import { PROMOTED_ROWS, reflectionFindings } from "../src/adapters/claude-code/doctor.js";
+import {
+  CONTRADICTION_HELD_EVENT,
+  CONTRADICTION_SETTLED_EVENT,
+  CONTRADICTION_TUNABLES,
+  heldCorrections,
+  heldPairs,
+} from "../src/core/contradictions.js";
+import { LOG_LIMIT as PAGE_LOG_LIMIT, mindView } from "../src/adapters/dashboard/web/views/mind.js";
 
 const temps: string[] = [];
 function tempDir(prefix: string): string {
@@ -233,5 +241,70 @@ describe("core and doctor reads keep the newest rows", () => {
     expect(g?.detail).toContain("how many became core on reflection alone is unknown");
     expect(g?.detail).not.toContain("became core on reflection alone;");
     expect((g?.data as Record<string, unknown>)["promotedOnReflectionAlone"]).toBeNull();
+  }, 60_000);
+
+  // 2026-10-09: the settles were read oldest first, so past the limit the
+  // newest hold read as never settled.
+  test("a hold settled after 5,000 other settles reads as settled; under the limit nothing changes", () => {
+    const store = fresh("counterparts-newest-held-");
+    const hold = (holds: string, over: string, by: string): number =>
+      store.appendEvent({ name: CONTRADICTION_HELD_EVENT, ref: holds, day: 0, payload: { holds, over, how: "updates", by } });
+    const settle = (holds: string, over: string): number =>
+      store.appendEvent({ name: CONTRADICTION_SETTLED_EVENT, day: 0, payload: { holds, over, how: "corrected" } });
+    // Under the limit: one settled after its hold, one settled BEFORE its
+    // hold (not "after"), one never settled.
+    settle("mem_b", "mem_b0");
+    hold("mem_a", "mem_a0", "meaning");
+    hold("mem_b", "mem_b0", "words");
+    hold("mem_c", "mem_c0", "meaning");
+    settle("mem_a", "mem_a0");
+    const small = heldPairs(store).map((h) => [h.holds, h.settledAfter]);
+    expect(small).toEqual([
+      ["mem_c", false],
+      ["mem_b", false],
+      ["mem_a", true],
+    ]);
+    expect(heldCorrections(store)).toEqual({ held: 3, settledAfter: 1, byMeaning: 2, byWords: 1 });
+    // Past it: the newest hold's settle comes after a full window of others.
+    // (It is the oldest settles that fall outside the window now, as the
+    // oldest holds do: mem_a's is one of them.)
+    hold("mem_new", "mem_old", "meaning");
+    for (let i = 0; i < CONTRADICTION_TUNABLES.HELD_READ_ROWS; i++) settle(`mem_x${i}`, `mem_y${i}`);
+    settle("mem_new", "mem_old");
+    expect(heldPairs(store)[0]).toMatchObject({ holds: "mem_new", over: "mem_old", settledAfter: true });
+  }, 60_000);
+});
+
+// ── the self tab: the page's history past its read limit (2026-10-09) ────────
+
+describe("the page's history dates its newest versions past the read limit", () => {
+  test("the versions written after a full window of older rows keep their dates", () => {
+    const dir = tempDir("counterparts-newest-history-");
+    const store = Store.open({ dir });
+    try {
+      const me = new Self({ store, gate: episodeGate() });
+      const PAGE = "## Core\n\nCore: placeholder.\n\n## Lately\n\nLately: placeholder.";
+      me.revisePage(PAGE, { reason: "first", by: "owner" });
+      const pageId = me.page()!.id;
+      for (let i = 0; i < PAGE_LOG_LIMIT; i++) store.appendEvent({ name: SELF_PAGE_REVISED_EVENT, ref: pageId, day: 0, payload: { version: 999 } });
+      me.revisePage(`${PAGE}\n\nTwo.`, { reason: "second", by: "session" });
+      me.revisePage(`${PAGE}\n\nThree.`, { reason: "third", by: "owner" });
+    } finally {
+      store.close();
+    }
+    const dash = Dashboard.open({ dir });
+    try {
+      const history = mindView(dash.source).pageHistory;
+      expect(history.map((s) => s.reason)).toEqual(["first", "second", "third"]);
+      // "second" lost its date to the ascending read. The oldest version is the
+      // one past the window now ("third" is the standing page, dated by it).
+      expect(history.map((s) => [s.reason, s.date !== null])).toEqual([
+        ["first", false],
+        ["second", true],
+        ["third", true],
+      ]);
+    } finally {
+      dash.close();
+    }
   }, 60_000);
 });

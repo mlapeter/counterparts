@@ -499,6 +499,45 @@ describe("the ask: once a day, snoozed by a no", () => {
     expect(c.dreams.status(today).reason).toBe("dreamed-today");
   });
 
+  // Kept from test/dream-preview.test.ts (removed with `previewAsk`, 2026-10-09):
+  // what it pinned of the gate itself, asked through `status` and `askLine`.
+  const AT = "2026-09-26";
+  const days = (c: Counterpart): number => {
+    for (let d = 10; d <= 26; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);
+    return c.store.livedDay();
+  };
+  const fresh = (c: Counterpart, day: number, n: number, over: Partial<PutInput> = {}): void => {
+    for (let i = 0; i < n; i += 1) {
+      mem(c, `A new memory, number ${String(i)}, about the migration that runs before the container boots.`, { physics: { birthDay: day, lastUsedDay: day }, ...over });
+    }
+  };
+
+  test("confidential memories count only toward the owner's own gate, and the line names the count", () => {
+    // Two plain and three confidential new memories: a guest's gate sees two
+    // (too little), the owner's sees five (due).
+    const guest = brain({ owner: false });
+    const day = days(guest);
+    fresh(guest, day, 2);
+    fresh(guest, day, 3, { meta: { confidential: true } });
+    expect(guest.dreams.status(AT)).toMatchObject({ due: false, reason: "too-little-new", newSince: 2 });
+    expect(guest.dreams.askLine({ at: AT, session: SESSION })).toBeNull();
+    guest.close();
+    open.splice(0);
+
+    const owner = brain({ owner: true });
+    expect(owner.dreams.status(AT)).toMatchObject({ due: true, reason: "due" });
+    expect(owner.dreams.askLine({ at: AT, session: SESSION })).toContain("(5 new memories)");
+  });
+
+  test("the line counts the whole queue, past what one night takes; once raised, the day is asked", () => {
+    const c = brain();
+    fresh(c, days(c), 45);
+    expect(c.dreams.status(AT).reason).toBe("due");
+    expect(c.dreams.askLine({ at: AT, session: "s-first" })).toContain("(45 new memories)");
+    expect(c.dreams.status(AT).reason).toBe("asked-today");
+    expect(c.dreams.askLine({ at: AT, session: SESSION })).toBeNull();
+  });
+
   test("a flagged contradiction is raised once, awake, the next session", () => {
     const c = brain();
     const m = lived(c);

@@ -7,13 +7,14 @@
  * and a rejected input moves zero durable state, ASSERTED PER STATE KIND.
  *
  * **A fully-gated chunk moves NO durable state — not strength, not `uses`, not a
- * revision, not an entity mention, and not a prediction check.** That last one is
- * the rider, and it is the whole reason the rule is stated at the chunk level
- * rather than the proposal level: in v1, once gradient reinforcement went live,
+ * revision, not an entity mention.** The rule is stated at the chunk level rather
+ * than the proposal level because of v1: once gradient reinforcement went live,
  * prediction checks were found to bypass the gate, so *a chunk the gates had
  * rejected could still reinforce schema elements* as an element-level side effect
  * (scar §7b). Ruled strict: "the lost reinforcement signal is affordable; the leak
- * in the non-ablatable wall is not."
+ * in the non-ablatable wall is not." (This module carried a `predictionChecks`
+ * channel, dropped when fully gated, until 2026-10-09; nothing ever fed it, so it
+ * was removed — encode NOTES.)
  *
  * Deliberately scoped to ALL-REJECTED. A chunk with one survivor was gated in
  * part, not refused (§3 G2) — and then only the survivor's effects exist.
@@ -36,7 +37,6 @@ import type {
   DurableEffect,
   EncodeEvent,
   GatedProposal,
-  PredictionCheck,
   Proposal,
   RefusedProposal,
 } from "./types.js";
@@ -53,8 +53,6 @@ export interface ChunkInput {
   chunkVector?: readonly number[] | null;
   /** The lived day (active-day clock, scar E8). Recorded, never derived here. */
   day: number;
-  /** Checks the author made against shown schemas. Dropped when fully gated. */
-  predictionChecks?: readonly PredictionCheck[];
   /**
    * Observer stance (docs/observer-mode.md, scar E7). An instrument leaves the
    * store as it found it: encode still computes — a read-only instrument may
@@ -79,8 +77,6 @@ export interface EncodeResult {
   /** EMPTY when `fullyGated` (or under observer). The complete list of ways this
    *  chunk may move durable state — there is no second channel. */
   effects: DurableEffect[];
-  /** EMPTY when `fullyGated`: the element-level side channel, closed (scar §7b). */
-  predictionChecks: PredictionCheck[];
   preselection: Preselection;
   novelty: NoveltyResult;
   channels: ChannelRecord[];
@@ -134,7 +130,6 @@ export function encodeChunk(input: ChunkInput, opts: EncodeOptions = {}): Encode
 
   // ── the effects — and the two ways there are none ─────────────────────────
   let effects: DurableEffect[] = [];
-  let predictionChecks: PredictionCheck[] = [];
 
   if (fullyGated) {
     events.push({
@@ -143,7 +138,6 @@ export function encodeChunk(input: ChunkInput, opts: EncodeOptions = {}): Encode
       data: {
         proposals: input.proposals.length,
         refused: refused.length,
-        droppedPredictionChecks: input.predictionChecks?.length ?? 0,
       },
     });
   } else if (observer) {
@@ -153,10 +147,7 @@ export function encodeChunk(input: ChunkInput, opts: EncodeOptions = {}): Encode
       data: { accepted: accepted.length, suppressedEffects: true },
     });
   } else {
-    effects = buildEffects(accepted, preselection, schemas, input.predictionChecks ?? []);
-    // A prediction check survives only when it names a schema the author was
-    // actually SHOWN — the author cannot check a prediction it never saw.
-    predictionChecks = (input.predictionChecks ?? []).filter((c) => shownIds.has(c.schemaId));
+    effects = buildEffects(accepted, preselection, schemas);
   }
 
   events.push({
@@ -182,7 +173,6 @@ export function encodeChunk(input: ChunkInput, opts: EncodeOptions = {}): Encode
     refused,
     fullyGated,
     effects,
-    predictionChecks,
     preselection,
     novelty,
     channels,
@@ -200,11 +190,8 @@ function buildEffects(
   accepted: readonly AcceptedProposal[],
   preselection: Preselection,
   schemas: readonly SchemaSlice[],
-  checks: readonly PredictionCheck[],
 ): DurableEffect[] {
   const effects: DurableEffect[] = [];
-  const shown = new Set(preselection.shown.map((s) => s.id));
-  const acceptedRefs = new Set(accepted.map((a) => a.ref));
   const byId = new Map(schemas.map((s) => [s.id, s]));
 
   for (const a of accepted) {
@@ -244,17 +231,6 @@ function buildEffects(
       // emits no effect and applies none — and an observer's emits none either.
       effects.push({ effect: "revision.challenge", targetId: a.updates, ref: a.ref });
     }
-  }
-
-  for (const c of checks) {
-    if (!shown.has(c.schemaId)) continue;
-    if (c.ref !== null && !acceptedRefs.has(c.ref)) continue;
-    effects.push({
-      effect: "prediction.check",
-      schemaId: c.schemaId,
-      ref: c.ref ?? "",
-      outcome: c.outcome,
-    });
   }
   return effects;
 }

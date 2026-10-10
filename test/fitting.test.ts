@@ -170,7 +170,6 @@ describe("the dream's new memories are a queue: ranked by label, what does not f
     const salient = mem(c, `The release broke the owner's trust — ${"a charged detail. ".repeat(30)}`, { salience: { relevance: 1, emotional: 1, predictive: 1 } });
     const ids: string[] = [];
     for (let i = 0; i < 220; i += 1) ids.push(mem(c, `Plain note ${String(i)} — ${"something ordinary about the build pipeline and its caches, ".repeat(6)}`, { salience: { relevance: 0.2, emotional: 0, predictive: 0.2 } }));
-    expect(c.dreams.previewAsk({ at: "2026-09-20" }).newSince).toBe(221);
     // The per-prompt gate stops at what it needs, and says so.
     const before = c.dreams.status("2026-09-20");
     expect(before.newSince).toBe(DREAM_TUNABLES.MIN_NEW);
@@ -192,9 +191,9 @@ describe("the dream's new memories are a queue: ranked by label, what does not f
     expect(j.handBack).toContain(`${String(q.waiting)} new memories wait for the next night`);
     // The next night: what waited is the queue, and the gate counts it.
     days(c, 21, 21);
-    expect(c.dreams.previewAsk({ at: "2026-09-21" }).newSince).toBe(q.waiting);
     const next = c.dreams.begin({ session: SESSION, at: "2026-09-21" });
     if (!next.ok) throw new Error(next.reason);
+    expect(next.bundle.queue.new).toBe(q.waiting);
     const nextFresh = new Set(next.bundle.fresh.map((f) => f.id));
     for (const id of waiting.slice(0, 20)) expect(nextFresh.has(id) || next.bundle.queue.waiting > 0).toBe(true);
     expect(next.bundle.fresh.some((f) => waiting.includes(f.id))).toBe(true);
