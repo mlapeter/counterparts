@@ -51,10 +51,10 @@ export const P = {
 const BAR_K = 0.84
 
 /**
- * THE EXPAND THRESHOLD: an item opens in place when what opening adds under
- * its title is at most this many lines at the pane's width (its text and the
- * line saying what it is); longer, a click opens it on the dashboard instead.
- * Twelve lines of 32 columns is about 350 characters of text. Measured on
+ * THE EXPAND THRESHOLD: an item opens in place when its text takes at most
+ * this many lines at the pane's width (under it, one more line says what it
+ * is); longer, a click opens it on the dashboard instead. Twelve lines of 32
+ * columns is about 350 characters. Measured on
  * 77 of the live store's newest memories (2026-10-10): the median text is
  * 626 characters, so about one in nine opens in place and the rest open the
  * dashboard. A working default for Mike to judge.
@@ -217,11 +217,13 @@ const LADDERS: Readonly<Record<'default' | 'open' | 'mech' | 'dream', readonly S
 
 // ── the sections ─────────────────────────────────────────────────────────────
 
-/** An opened memory in place: its title in full (bold), its text, and what it is. */
-function opened(s: BodyState, key: string, fallbackTitle: string, f: Fold, titleColor: string = P.hi): Line[] {
+/** An opened memory in place: its title in full (bold, after `dot` on its first line when given), its text, and what it is. */
+function opened(s: BodyState, key: string, fallbackTitle: string, f: Fold, dot?: Seg): Line[] {
   const o = s.open
   const title = o?.title ?? fallbackTitle
-  const out = plain(wrapN(title, s.w, 4), titleColor, key, { b: true })
+  const out = wrapN(title, s.w, 4, dot === undefined ? s.w : s.w - cells(dot.t)).map((t, i) =>
+    line([...(i === 0 && dot !== undefined ? [dot] : []), seg(t, P.hi, { b: true })], key),
+  )
   if (o === null || o.key !== key) return out
   if (o.status === 'loading') return [...out, line([seg('opening…', P.dim)], key)]
   if (o.status === 'error') return [...out, ...plain(wrapN(o.text || "couldn't read it: the dashboard isn't answering", s.w, 2), P.dim, key)]
@@ -234,7 +236,7 @@ function memories(s: BodyState, f: Fold): Line[] {
   const m = s.mind
   if (m === null || m.surfaced.length === 0) return []
   const time = hm(m.at, s.now)
-  if (f.mindFolded) return [heading('Memories', time, s.w, { folded: true, key: 'head:mind' })]
+  if (f.mindFolded && s.open?.key.startsWith('mem:') !== true) return [heading('Memories', time, s.w, { folded: true, key: 'head:mind' })]
   const out: Line[] = [heading('Memories', time, s.w, { key: s.focus === 'mind' ? 'head:mind' : undefined })]
   m.surfaced.forEach((r, i) => {
     const key = `mem:${String(i)}`
@@ -278,19 +280,20 @@ function stageDot(kind: SidebarSaved['kind']): string {
 function saved(s: BodyState, f: Fold): Line[] {
   const n = s.saved.length
   if (n === 0) return []
-  if (f.savedFolded) return [heading('Saved this session', String(n), s.w, { folded: true, key: 'head:saved' })]
+  if (f.savedFolded && s.open?.key.startsWith('saved:') !== true) return [heading('Saved this session', String(n), s.w, { folded: true, key: 'head:saved' })]
   const out: Line[] = [heading('Saved this session', String(n), s.w)]
-  for (const it of s.saved.slice(0, Math.min(f.savedShow, n))) {
+  // An opened item is never folded away: the list shows at least down to it.
+  const openIdx = s.saved.findIndex(it => s.open?.key === `saved:${it.key}`)
+  for (const it of s.saved.slice(0, Math.min(Math.max(f.savedShow, openIdx + 1), n))) {
     const key = `saved:${it.key}`
-    if (s.open?.key === key) {
-      out.push(...opened(s, key, it.title, f))
-      continue
+    if (s.open?.key === key) out.push(...opened(s, key, it.title, f, seg('● ', stageDot(it.kind))))
+    else {
+      // The stage dot on the first line only; wrapped lines go back to the left edge.
+      const ls = f.savedLines > 1 ? wrapN(it.title, s.w, f.savedLines, s.w - 2) : [clip(it.title, s.w - 2)]
+      ls.forEach((t, i) => {
+        out.push(i === 0 ? line([seg('● ', stageDot(it.kind)), seg(t, P.hi)], key) : line([seg(t, P.text)], key))
+      })
     }
-    // The stage dot on the first line only; wrapped lines go back to the left edge.
-    const ls = f.savedLines > 1 ? wrapN(it.title, s.w, f.savedLines, s.w - 2) : [clip(it.title, s.w - 2)]
-    ls.forEach((t, i) => {
-      out.push(i === 0 ? line([seg('● ', stageDot(it.kind)), seg(t, P.hi)], key) : line([seg(t, P.text)], key))
-    })
     if (it.kind === 'update') {
       const what = it.replaces ?? 'an earlier memory'
       out.push(line([seg('replaces', P.mid), seg(clip(` ${what}`, s.w - 8), P.dim)], key))
@@ -464,12 +467,9 @@ export function layoutBody(s: BodyState): { lines: Line[]; folds: string[] } {
   return { lines: joined(build(all), false), folds: steps.map(st => st.label) }
 }
 
-/**
- * The lines opening an item adds under its title, at width `w`: its text and
- * the line saying what it is. What the expand threshold is measured on.
- */
-export function openedLines(text: string, meta: string | null, w: number): number {
-  return (text === '' ? 0 : wrapN(text, w).length) + (meta === null ? 0 : 1)
+/** The lines an item's text takes at width `w`: what the expand threshold is measured on. */
+export function openedLines(text: string, w: number): number {
+  return text === '' ? 0 : wrapN(text, w).length
 }
 
 /** For tests: the body's text, a line a string. */

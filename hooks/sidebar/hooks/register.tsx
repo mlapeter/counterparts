@@ -396,7 +396,9 @@ function words(kind: 'remembered' | 'subconscious' | 'stored' | 'opened' | 'drea
 /** The memory text an opened item shows, and the line saying what it is. */
 function memoryMeta(d: { kind?: unknown; learnedOn?: unknown; journal?: unknown }): string | null {
   const kind = d.journal === true ? 'journal' : typeof d.kind === 'string' ? d.kind : null
-  const learned = typeof d.learnedOn === 'string' ? shortDay(d.learnedOn) : ''
+  // `Oct 9`, with the year only when it is not this one.
+  const thisYear = String(new Date().getFullYear())
+  const learned = typeof d.learnedOn === 'string' ? shortDay(d.learnedOn.startsWith(`${thisYear}-`) ? d.learnedOn.slice(5) : d.learnedOn) : ''
   if (kind === null) return null
   return learned === '' ? kind : `${kind} · learned ${learned}`
 }
@@ -449,9 +451,12 @@ async function fire($: EngineInterface, ids: readonly MechId[]): Promise<void> {
 }
 
 async function setLatest($: EngineInterface, text: string, mech: MechId): Promise<void> {
-  const at = await $.clock.now()
+  await setLatestAt($, text, mech, await $.clock.now())
+}
+
+async function setLatestAt($: EngineInterface, text: string, mech: MechId, at: number): Promise<void> {
   const next: SidebarLatest = { text, mech, at }
-  await update($, latestA, () => next)
+  await update($, latestA, l => (l !== null && l.at > at ? l : next))
 }
 
 /** Day and count from `/api/pulse`: about 130 ms of the dashboard's time, so read only when they may have moved. */
@@ -539,6 +544,12 @@ async function readDream($: EngineInterface): Promise<void> {
   const before = await read($, dreamA)
   if (before === null || before.id !== next.id || before.at !== next.at || before.changed.join('|') !== next.changed.join('|')) {
     await update($, dreamA, () => next)
+  }
+  // A dream newer than anything this session did is the newest thing (the strip, the tail).
+  const at = next.at
+  if (at !== null) {
+    const latest = await read($, latestA)
+    if (latest === null || latest.at < at) await setLatestAt($, words('dreamed', next.first), 'dreaming', at)
   }
 }
 
@@ -754,6 +765,12 @@ async function seedSession($: EngineInterface): Promise<void> {
     const list = items.filter((x): x is SidebarSaved => x !== null).sort((a, b) => b.at - a.at)
     if (list.length > 0) await update($, savedA, s => (s.length === 0 ? list : s))
   }
+  // The newest of what was found, as the strip and the tail say it, unless something newer is known.
+  const [mind, saved] = await Promise.all([read($, mindA), read($, savedA)])
+  const said = mind?.surfaced[0] !== undefined ? words('remembered', mind.surfaced[0].title) : mind?.footnotes[0] !== undefined ? words('subconscious', mind.footnotes[0].title) : null
+  const s = saved[0]
+  if (s !== undefined && (mind === null || s.at > mind.at)) await setLatestAt($, words('stored', s.title), 'salience', s.at)
+  else if (mind !== null && said !== null) await setLatestAt($, said, 'retrieval', mind.at)
 }
 
 /** What a memory tool saved: "Saved this session", newest first; an update's old title read from the dashboard. */
@@ -832,7 +849,7 @@ async function openMemory($: EngineInterface, key: string, id: string | null, fa
     const title = d.title ?? fallback
     const text = (d.text ?? '').trim()
     const meta = memoryMeta(d)
-    if (openedLines(text, meta, run.bodyW) > EXPAND_MAX_LINES) {
+    if (openedLines(text, run.bodyW) > EXPAND_MAX_LINES) {
       await update($, openA, o => (o?.key === key && o.at === at ? null : o))
       await openUrl($, memoryUrl(id))
       return
