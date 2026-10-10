@@ -128,10 +128,11 @@ export const TUNABLES = {
    * against this one number, in a stated order of what gives way first
    * (`hooks.ts#sessionStart`, `hooks.ts#userPromptSubmit`; adapter NOTES
    * 2026-09-29). Measured in BYTES (bytes ≥ characters), the safe direction.
-   * With no owner notice the hook prints PLAIN text, so there is no JSON
-   * escaping to leave room for (PR #192 review, MAJOR 1); with one, the JSON
-   * envelope is held to `ENVELOPE_CHARS` below. It is also why the write-up's
-   * words travel through the MCP door.
+   * With no owner notice the hook prints PLAIN text; with one, the JSON form,
+   * where each field is held to this same number on its own and the escaping
+   * costs nothing (`bin/hook.ts#fieldsFit`; it was a 9,500-character bound on
+   * the whole envelope, `ENVELOPE_CHARS`, until the measurement below). It is
+   * also why the write-up's words travel through the MCP door.
    *
    * MEASURED AGAIN on Claude Code 2.1.296, 2026-10-10 (notes:
    * `~/counterparts-notes/2026-10-10-session-start-limits.md`): the cap is
@@ -155,15 +156,6 @@ export const TUNABLES = {
    * composes against this number; tests simulate the cut with it.
    */
   HOST_PREVIEW_CHARS: 2_000,
-  /**
-   * The same budget for the JSON form (`bin/hook.ts#ENVELOPE_MAX_CHARS`): 500
-   * characters under the host's cap, for the escaping (a newline is two
-   * characters in JSON). Over it the notices are dropped and the plain form
-   * printed — never the wake. At a prompt that carries a person-facing line (a
-   * plain reminder, the dream offer), the turn's recall is sized to this, so
-   * the line is not what gives way.
-   */
-  ENVELOPE_CHARS: 9_500,
   /**
    * WHAT ONE MCP TOOL RESULT IS MEASURED AGAINST, in characters (2026-09-30):
    * the room Claude Desktop's `wake` has for the wake and what rides beside it

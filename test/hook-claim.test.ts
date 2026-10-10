@@ -14,24 +14,27 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import {
   CLAIMS_ROW,
   CLAIM_KEEP,
   CLAIM_WAIT_MS,
   CLAIM_WINDOW_MS,
+  SET_ASIDE_LOCK,
   claimDelivery,
   claimsPath,
   deliveryClaimKey,
   finishClaim,
+  firesOnce,
 } from "../src/adapters/claude-code/claim.js";
 import type { ClaimDoors } from "../src/adapters/claude-code/claim.js";
 import { claimFindings, doctorFindings } from "../src/adapters/claude-code/doctor.js";
 import { BOUNDARY_EVENT, Counterpart, HOOK_CLAIM_LOST_EVENT } from "../src/core/counterpart.js";
 import { openDb } from "../src/core/store/db.js";
+import { pruneSessions } from "../src/adapters/sessions.js";
 
 const HOOK_SCRIPT = resolve(import.meta.dir, "../src/adapters/claude-code/bin/hook.ts");
 
@@ -144,6 +147,40 @@ describe("claimDelivery", () => {
     } finally {
       cp.close();
     }
+  });
+
+  test("an event the host sends ONCE: a twin whose runtime came up after the holder finished still loses (the 0.3.15 check's 45 ms)", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      const t0 = 1_800_000_000_000;
+      const base = { hook: "session-start" as const, sessionId: "s1", observer: false };
+      // Measured 2026-10-10 under load: the twin's runtime started 45 ms after the winner finished.
+      for (const key of ["by-start-time", "sent-once"]) {
+        const first = claimDelivery(cp, { ...base, key, side: "settings", started: t0, now: t0 + 90, once: key === "sent-once" });
+        expect(finishClaim(cp, key, first.at ?? 0, t0 + 200)).toBe(true);
+      }
+      // By start time alone it reads as a new event, and delivers a second wake…
+      expect(claimDelivery(cp, { ...base, key: "by-start-time", side: "plugin", started: t0 + 245, now: t0 + 260 }).outcome).toBe("won");
+      // …unless the host sends it once: then any same-key process in the window is the twin.
+      expect(claimDelivery(cp, { ...base, key: "sent-once", side: "plugin", started: t0 + 245, now: t0 + 260, once: true })).toEqual({
+        outcome: "lost",
+        heldBy: "settings",
+      });
+      // The window still bounds it.
+      expect(
+        claimDelivery(cp, { ...base, key: "sent-once", side: "plugin", started: t0 + CLAIM_WINDOW_MS + 300, now: t0 + CLAIM_WINDOW_MS + 300, once: true }).outcome,
+      ).toBe("won");
+    } finally {
+      cp.close();
+    }
+  });
+
+  test("which events the host sends once: a start that opens a session id, and a prompt with its id", () => {
+    for (const source of ["startup", "clear", "fork"]) expect(firesOnce("session-start", { source })).toBe(true);
+    for (const source of ["resume", "compact", ""]) expect(firesOnce("session-start", { source })).toBe(false);
+    expect(firesOnce("user-prompt-submit", { prompt: "x", prompt_id: "p-1" })).toBe(true);
+    expect(firesOnce("user-prompt-submit", { prompt: "x" })).toBe(false);
+    for (const name of ["stop", "session-end", "pre-compact"] as const) expect(firesOnce(name, { prompt_id: "p-1", source: "startup" })).toBe(false);
   });
 
   test("a holder that never finished holds for the window and no longer; the row keeps only the window", () => {
@@ -303,6 +340,33 @@ describe("two wirings fire one event", () => {
       }
       expect((runs[0]?.stdout ?? "").length).toBeGreaterThan(0);
       expect(events(HOOK_CLAIM_LOST_EVENT)).toBe(0);
+    },
+    120_000,
+  );
+});
+
+// ── a twin that came up late (the 0.3.15 release check) ─────────────────────
+
+describe("a twin whose runtime came up after the first hook finished", () => {
+  test(
+    "a session's first start, and an identified prompt, still run once: the late twin stands down",
+    async () => {
+      Counterpart.open({ dir: store }).close();
+      // One after the other: the second process starts after the first has
+      // finished, which is what a loaded machine did to a real twin.
+      for (const [event, extra] of [
+        ["SessionStart", { source: "startup" }],
+        ["UserPromptSubmit", { prompt: "what did we decide?", prompt_id: "p-late" }],
+      ] as const) {
+        const first = await startHook(payload(event, extra));
+        const late = await startHook(payload(event, extra));
+        expect([first.code, late.code]).toEqual([0, 0]);
+        expect(first.stderr).not.toContain(CLAIMED);
+        if (event === "SessionStart") expect(first.stdout.length).toBeGreaterThan(0);
+        expect(late.stderr).toContain(CLAIMED);
+        expect(late.stdout).toBe("");
+      }
+      expect(events(HOOK_CLAIM_LOST_EVENT)).toBe(2);
     },
     120_000,
   );
@@ -511,6 +575,281 @@ describe("a locked store", () => {
   });
 });
 
+// ── a claims file that is not a database (review of #359) ───────────────────
+
+describe("a claims file that is not a database", () => {
+  const base = { hook: "session-start" as const, key: "k", sessionId: "s", side: "settings" as const, observer: false };
+  const garbage = "this was never a sqlite file, and every hook used to say so on stderr\n".repeat(80);
+
+  function corrupt(): void {
+    mkdirSync(dirname(claimsPath(store)), { recursive: true });
+    writeFileSync(claimsPath(store), garbage, "utf8");
+    // A stale log beside it must go with it, never be replayed into the new file.
+    writeFileSync(`${claimsPath(store)}-wal`, "stale log", "utf8");
+  }
+
+  test("is set aside (with its log) and made again, once; the claim is made on the new file and doctor reads the copy", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      expect(claimFindings(cp.store)).toEqual([]);
+      corrupt();
+      const first = claimDelivery(cp, base);
+      expect(first.outcome).toBe("won");
+      const aside = first.setAside ?? "";
+      expect(basename(aside)).toMatch(/^hook-claims\.unreadable-\d+\.sqlite$/);
+      expect(readFileSync(aside, "utf8")).toBe(garbage);
+      expect(readFileSync(`${aside}-wal`, "utf8")).toBe("stale log");
+      // The live file is a database again, holding this claim; nothing else changed.
+      expect(claimDelivery(cp, { ...base, side: "plugin", now: Date.now() })).toEqual({ outcome: "lost", heldBy: "settings" });
+      expect(finishClaim(cp, "k", first.at ?? 0)).toBe(true);
+      // Once: the next claim finds a healthy file.
+      expect(claimDelivery(cp, { ...base, key: "k2" }).setAside).toBeUndefined();
+      // A second bad file replaces the first copy: one is kept, never a pile.
+      corrupt();
+      const again = claimDelivery(cp, { ...base, key: "k3" });
+      expect(again.outcome).toBe("won");
+      const copy = basename(again.setAside ?? "");
+      const copies = readdirSync(dirname(claimsPath(store))).filter((n) => n.startsWith("hook-claims.unreadable-"));
+      expect(copies.every((n) => n.startsWith(copy))).toBe(true);
+      expect(copies).toContain(copy);
+      expect(copies).toContain(`${copy}-wal`);
+      // The durable trace: doctor's amber line names the copy.
+      // (The twin above also lost a claim, so "Installed twice" is there too.)
+      const lines = claimFindings(cp.store).filter((f) => f.title === "Hook claims");
+      expect(lines.map((f) => f.severity)).toEqual(["amber"]);
+      expect(lines[0]?.detail).toContain(basename(again.setAside ?? ""));
+      expect(lines[0]?.detail).toContain("every event was still delivered");
+    } finally {
+      cp.close();
+    }
+  });
+
+  test("a copy older than the week says nothing", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      mkdirSync(dirname(claimsPath(store)), { recursive: true });
+      const old = Date.now() - 8 * 86_400_000;
+      writeFileSync(join(dirname(claimsPath(store)), `hook-claims.unreadable-${String(old)}.sqlite`), garbage, "utf8");
+      expect(claimFindings(cp.store)).toEqual([]);
+    } finally {
+      cp.close();
+    }
+  });
+
+  test(
+    "through the hook: said once on stderr, the event delivered; the next event is clean",
+    async () => {
+      Counterpart.open({ dir: store }).close();
+      corrupt();
+      const start = await startHook(payload("SessionStart", { source: "startup" }));
+      expect(start.code).toBe(0);
+      expect(start.stdout.length).toBeGreaterThan(0);
+      expect(start.stderr).toContain("the claims file could not be read; set aside as");
+      expect(start.stderr).not.toContain("delivered unclaimed");
+      const next = await startHook(payload("UserPromptSubmit", { prompt: "and now?", prompt_id: "p-9" }));
+      expect(next.code).toBe(0);
+      expect(next.stderr).not.toContain("set aside");
+      expect(next.stderr).not.toContain("delivered unclaimed");
+    },
+    60_000,
+  );
+
+  test(
+    "a claims file that cannot be made: the event is delivered, and the log's end line keeps the reason as a code",
+    async () => {
+      Counterpart.open({ dir: store }).close();
+      // `claims` is a FILE, so the directory cannot be made: a lasting fault.
+      mkdirSync(join(store, "sessions"), { recursive: true });
+      writeFileSync(dirname(claimsPath(store)), "", "utf8");
+      const r = await startHook(payload("UserPromptSubmit", { prompt: "anything", prompt_id: "p-1" }));
+      expect(r.code).toBe(0);
+      expect(r.stderr).toContain("delivered unclaimed");
+      const ends = readdirSync(join(store, "sessions", "log"))
+        .flatMap((f) => readFileSync(join(store, "sessions", "log", f), "utf8").split("\n"))
+        .filter((l) => l.includes('"process.end"'))
+        .map((l) => JSON.parse(l) as { proc: string; data: Record<string, unknown> });
+      const end = ends.find((e) => e.proc === "hook:user-prompt-submit");
+      expect(end?.data["busy"]).toBe(false);
+      expect(String(end?.data["unclaimed"])).toMatch(/^(EEXIST|ENOTDIR)$/);
+    },
+    60_000,
+  );
+
+  /**
+   * Two hook processes (twins) that meet a bad claims file at the same moment,
+   * `rounds` times, each round on a store of its own, `gap` ms apart. With
+   * `staleLock`, each round's directory also holds the set-aside lock a dead
+   * holder left an hour ago, so both twins race to take it over. Returns each
+   * round's two outcomes and codes, and what is left beside the file.
+   */
+  async function twinsMeetBadFiles(
+    rounds: number,
+    gap: number,
+    staleLock: boolean,
+  ): Promise<{ readonly i: number; readonly outcomes: string[]; readonly codes: (string | null)[]; readonly left: string[] }[]> {
+    const claimModule = resolve(import.meta.dir, "../src/adapters/claude-code/claim.ts");
+    const racer = join(work, "bad-file-racer.ts");
+    writeFileSync(
+      racer,
+      [
+        `import { claimDelivery } from ${JSON.stringify(claimModule)};`,
+        `const [root, side, t0, rounds, gap] = [process.argv[2], process.argv[3], Number(process.argv[4]), Number(process.argv[5]), Number(process.argv[6])];`,
+        `const out = [];`,
+        `for (let i = 0; i < rounds; i += 1) {`,
+        `  const at = t0 + i * gap;`,
+        `  while (Date.now() < at) {}`,
+        `  const doors = { store: { dir: root + "/r" + i }, noteAdapterEvent: () => true };`,
+        `  const c = claimDelivery(doors, { hook: "session-start", key: "k", sessionId: "s", side, observer: false, started: at - 1, once: true });`,
+        `  out.push([i, c.outcome, c.code ?? null]);`,
+        `}`,
+        `process.stdout.write(JSON.stringify(out));`,
+      ].join("\n"),
+      "utf8",
+    );
+    const root = join(work, "rounds");
+    const hourAgo = (Date.now() - 3_600_000) / 1000;
+    for (let i = 0; i < rounds; i += 1) {
+      const path = claimsPath(join(root, `r${String(i)}`));
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, garbage, "utf8");
+      writeFileSync(`${path}-wal`, "stale log", "utf8");
+      if (staleLock) {
+        const lock = join(dirname(path), SET_ASIDE_LOCK);
+        mkdirSync(lock);
+        utimesSync(lock, hourAgo, hourAgo);
+      }
+    }
+    const t0 = Date.now() + 1_500;
+    const run = (side: string): Promise<Ran> =>
+      new Promise((done, fail) => {
+        const child = spawn(process.execPath, ["run", racer, root, side, String(t0), String(rounds), String(gap)], {
+          env: hookEnv(),
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
+        child.stderr.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
+        child.on("error", fail);
+        child.on("close", (code) => done({ code: code ?? -1, stdout, stderr }));
+      });
+    const [a, b] = await Promise.all([run("settings"), run("plugin")]);
+    expect([a.code, b.code, a.stderr, b.stderr]).toEqual([0, 0, "", ""]);
+    const ra = JSON.parse(a.stdout) as [number, string, string | null][];
+    const rb = JSON.parse(b.stdout) as [number, string, string | null][];
+    return Array.from({ length: rounds }, (_, i) => ({
+      i,
+      outcomes: [ra[i]?.[1] ?? "none", rb[i]?.[1] ?? "none"].sort(),
+      codes: [ra[i]?.[2] ?? null, rb[i]?.[2] ?? null],
+      left: readdirSync(dirname(claimsPath(join(root, `r${String(i)}`)))).filter(
+        (n) => (n.startsWith("hook-claims.unreadable-") && n.endsWith(".sqlite")) || n.startsWith(SET_ASIDE_LOCK),
+      ),
+    }));
+  }
+
+  test(
+    "two twins meet one bad file (review of #366): exactly one delivers every round, and the copy is kept",
+    async () => {
+      // Before: both passed `stillUnreadable`, the one that lost the move threw
+      // ENOENT (or, on macOS, SQLITE_IOERR_VNODE from a file moved while open)
+      // and delivered unclaimed beside the winner — every round of 30 — and it
+      // had removed "older" copies first, once the winner's own.
+      for (const round of await twinsMeetBadFiles(20, 80, false)) {
+        expect({ i: round.i, outcomes: round.outcomes, codes: round.codes, copies: round.left.length }).toEqual({
+          i: round.i,
+          outcomes: ["lost", "won"],
+          codes: [null, null],
+          copies: 1,
+        });
+      }
+    },
+    60_000,
+  );
+
+  test(
+    "two twins meet one bad file AND a dead holder's set-aside lock (review of #366): one takes it over, one delivers, every round",
+    async () => {
+      // Before: both twins judged the lock stale and both took it over (the
+      // second's rm removed the first's fresh lock), or one looked in the gap
+      // between the other's rm and mkdir, found no lock and did not wait: 4 to
+      // 16 rounds in 60 delivered twice on macOS. 300 rounds, so a race of 1
+      // in 70 shows (it would pass unseen about 1 run in 75).
+      const rounds = await twinsMeetBadFiles(300, 40, true);
+      const wrong = rounds.filter(
+        (r) =>
+          r.outcomes.join() !== "lost,won" ||
+          r.codes.some((c) => c !== null) ||
+          r.left.length !== 1 ||
+          !r.left[0]?.startsWith("hook-claims.unreadable-"),
+      );
+      expect(wrong).toEqual([]);
+    },
+    90_000,
+  );
+
+  test("the set-aside lock: a live one is waited on and the event still delivers; one a dead holder left is taken over", () => {
+    const cp = Counterpart.open({ dir: store });
+    try {
+      corrupt();
+      const lock = join(dirname(claimsPath(store)), SET_ASIDE_LOCK);
+      mkdirSync(lock);
+      // A twin is setting it aside (its lock is fresh) but never finishes: this
+      // one waits its bound, finds the bad file still there, and delivers.
+      const t0 = Date.now();
+      const waited = claimDelivery(cp, base);
+      expect(waited.outcome).toBe("unclaimed");
+      expect(waited.setAside).toBeUndefined();
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(CLAIM_WAIT_MS - 50);
+      expect(readFileSync(claimsPath(store), "utf8")).toBe(garbage);
+      // The holder died: past 5 s its lock is taken over, once, and the file is mended.
+      const old = (Date.now() - 6_000) / 1000;
+      utimesSync(lock, old, old);
+      const mended = claimDelivery(cp, { ...base, key: "k2" });
+      expect(mended.outcome).toBe("won");
+      expect(basename(mended.setAside ?? "")).toMatch(/^hook-claims\.unreadable-\d+\.sqlite$/);
+      expect(existsSync(lock)).toBe(false);
+    } finally {
+      cp.close();
+    }
+  });
+
+  test("the directory is 0700 and the file 0600, and SQLite's log and index take the file's mode", () => {
+    const cp = Counterpart.open({ dir: store });
+    // A reader holding the file open keeps the `-wal` and `-shm` after the claim's own connection closes.
+    let held: ReturnType<typeof openDb> | null = null;
+    try {
+      expect(claimDelivery(cp, base).outcome).toBe("won");
+      held = openDb(claimsPath(store), { wal: true });
+      held.get("SELECT count(*) AS n FROM claims");
+      expect(claimDelivery(cp, { ...base, key: "k2" }).outcome).toBe("won");
+      const mode = (p: string): string => (statSync(p).mode & 0o777).toString(8);
+      expect(mode(dirname(claimsPath(store)))).toBe("700");
+      expect(mode(claimsPath(store))).toBe("600");
+      expect(mode(`${claimsPath(store)}-wal`)).toBe("600");
+      expect(mode(`${claimsPath(store)}-shm`)).toBe("600");
+    } finally {
+      held?.close();
+      cp.close();
+    }
+  });
+});
+
+describe("the sessions prune leaves directories alone", () => {
+  test("an old file goes; an old directory — claims/, log/, association/, any — stays with what is in it", () => {
+    const sessions = join(store, "sessions");
+    const old = (Date.now() - 30 * 86_400_000) / 1000;
+    mkdirSync(join(sessions, "claims"), { recursive: true });
+    mkdirSync(join(sessions, "association"), { recursive: true });
+    mkdirSync(join(sessions, "empty-and-old"), { recursive: true });
+    writeFileSync(join(sessions, "claims", "hook-claims.sqlite"), "", "utf8");
+    writeFileSync(join(sessions, "stale-record.json"), "{}", "utf8");
+    for (const p of ["claims", "association", "empty-and-old", "stale-record.json"]) utimesSync(join(sessions, p), old, old);
+    expect(pruneSessions(store)).toBe(1);
+    expect(readdirSync(sessions).sort()).toEqual(["association", "claims", "empty-and-old"]);
+    expect(readdirSync(join(sessions, "claims"))).toEqual(["hook-claims.sqlite"]);
+  });
+});
+
 // ── doctor ──────────────────────────────────────────────────────────────────
 
 describe("doctor's Installed twice line", () => {
@@ -529,6 +868,9 @@ describe("doctor's Installed twice line", () => {
       expect(f?.title).toBe("Installed twice");
       expect(f?.detail).toContain("two Counterparts wirings are live (the Claude Code plugin's hooks and the hooks in your settings): 2 hook runs");
       expect(f?.detail).toContain("(session-start, user-prompt-submit)");
+      // It counts the twins the claim stopped and says no more (the 0.3.15 check measured a late one).
+      expect(f?.detail).toContain("the claim is a backstop");
+      expect(f?.detail).not.toContain("nothing was delivered twice");
       expect(f?.fix).toContain("counterparts disconnect");
       expect(f?.fix).toContain("claude plugin uninstall counterparts@counterparts");
       // And the reading carries it.

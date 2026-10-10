@@ -44,6 +44,7 @@ import {
   effectiveStance,
   lookupScope,
   readScopes,
+  scopeCommandContext,
   scopesPath,
   stanceOfMode,
 } from "../../scopes.js";
@@ -63,7 +64,7 @@ import type { LogEvent, ProcessLog } from "../../log/index.js";
 import { serveStdio } from "../stdio.js";
 import { stoodDownServer } from "../stood-down.js";
 import { npmWiring } from "../../host-wiring.js";
-import { ensureFirstRun, mcpGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
+import { PLUGIN_ROOT_ENV, ensureFirstRun, mcpGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
 import type { Binary } from "../../runtime.js";
@@ -457,6 +458,13 @@ async function main(): Promise<void> {
     observer: opts.observer || (registryObserver && startedByClaudeCode),
     ...(registryObserver && !startedByClaudeCode && !opts.observer ? { launchObserver: true } : {}),
     scopesFile,
+    // The console line a scope refusal names: the plugin's launcher when this
+    // is the plugin's server, `--config` when this registry is not the default.
+    scopeCommand: scopeCommandContext({
+      configPath: choice.path,
+      pluginRoot: runningAsPlugin(process.env) ? (process.env[PLUGIN_ROOT_ENV] ?? null) : null,
+      home: homedir(),
+    }),
     embedder,
     ...(snapshotsDir === undefined ? {} : { snapshotsDir }),
     ...(timeZone === undefined ? {} : { timeZone }),

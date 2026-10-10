@@ -615,7 +615,12 @@ That is a different mechanism, not a wider parameter, and it is not built.
    not the wake's — neither was taken here. *(The record half CLOSED 2026-10-02 by
    #318 (`8916e8c`), noted 2026-10-09: `adapter.notice.dropped` is a durable row,
    one per hook, part and session a lived day, and doctor's Wake line reads it. The
-   terminal still says nothing on the day it happens.)*
+   terminal still says nothing on the day it happens.)* *(The terminal half CLOSED for
+   every wake within the cap, 2026-10-10: measured on Claude Code 2.1.296, the host caps
+   each field of the JSON form on its own and an over-long envelope parses, so the
+   9,500-character envelope rule is gone and the notice rides whenever the wake and the
+   notice each fit (`bin/hook.ts#fieldsFit`). It is dropped now only beside a wake that is
+   itself past the cap, which the host previews anyway.)*
 7. **Three findings cannot say "I do not know" — they say green.** `Severity` is
    red / amber / green, so the unknown-newest-row reading (`undetermined`) is
    reported as GREEN with a sentence that explains it is not a grade. Right for
@@ -768,7 +773,9 @@ on the owner's store it defers every morning by the same arithmetic.
 can push the envelope past `ENVELOPE_MAX_CHARS` and the doctor notice is the part dropped
 (the wake wins, as always; `adapter.notice.dropped` records it). At a full 9 KB wake the
 notice is dropped with or without it. Bounded: at most two starts a day carry a pointer,
-and the notice returns at the next start.
+and the notice returns at the next start. *(CLOSED 2026-10-10: the notice is its own field
+of the JSON form, measured as the host measures it, so the pointer no longer costs it; the
+pointer and the question are measured against the model's field alone.)*
 
 **Residual cost (PR #192 review, n1):** the eligibility plan (`writeUpPlan`) runs at EVERY
 session start whose allowance is not spent — and when nothing is owed, the allowance is
