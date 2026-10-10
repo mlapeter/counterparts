@@ -2368,6 +2368,31 @@ INTERFACE-GAPS §15.
   could create. Measured after: macOS under 12 busy loops 0 doubles in 2,400 rounds (1 in 800
   in a run where a wait likely passed its 500 ms), quiet 0 in 200; Linux, 2 CPUs and 2 busy
   loops (`cp-ci-linux` container), 0 in 450.
+  **Second reading of that: a dead holder's lock.** Taking it over was a stat, a remove and a
+  make, so two twins that both judged it stale both took it (the second's remove took the
+  first's NEW lock), and a twin that looked between the other's remove and make found no
+  lock and did not wait: with a stale lock beside a bad file, 40 and 49 rounds in 300
+  delivered twice on macOS (`ENOENT`, `EFAULT` from the `finally`'s remove, `SQLITE_NOTADB`).
+  And nothing removed a stale lock while the file was healthy, so from then on every busy
+  write waited for it as well — about 1.6 s per write where 0.55 s is the bound. Now: (a) the
+  takeover renames the old lock to `.stale-<pid>` (of twins that judged one lock stale, one
+  rename finds it), removes it only if it IS the lock judged stale, and puts a twin's fresh
+  one back (removing it itself once the file has gone, since that twin may have looked to let
+  go of it in the instant it was off); (b) a twin that finds no lock tries once more to take
+  it; (c) the holder lets go with `rmdir`, only of the lock it made, and never throws doing so;
+  (d) a lock older than 5 s is no twin at work, so nothing waits on it; (e) a write that met
+  another error with no lock in sight looks at the file once more, because a twin moves the
+  file before it lets go of the lock (under load about 1 round in 1,500 delivered twice,
+  `SQLITE_IOERR_VNODE`, before this). Measured after, the stale-lock variant of the twins
+  test ("… AND a dead holder's set-aside lock", 300 rounds): macOS quiet 0 in 1,500, under 12
+  busy loops 0 in 4,800 (and the fresh twins at 300 rounds 0 in 1,500); Linux, 2 CPUs and 2
+  busy loops, 0 in 1,500.
+  **A known limit, not fixed:** the holder checks the path still holds the file it met and
+  then renames it, sidecars first, without looking again. A holder suspended between the two
+  for more than `SET_ASIDE_STALE_MS` (a machine put to sleep at that instant) can have its
+  lock taken over, the file set aside and made again by the next one, and then, waking, move
+  that NEW file and its `-wal` aside: one more delivery, and that set of claims lost. It
+  needs a sleep inside a window of a few system calls, while a twin meets a bad file.
   `SQLITE_IOERR_SHORT_READ` is in the list because that is what a garbage file reads as when
   a WAL from the healthy one is still beside it, which on macOS it is: Apple's SQLite keeps
   `-wal` and `-shm` after the last connection closes (measured while writing the test). So

@@ -92,7 +92,7 @@
  * pays is the two small writes, on a file nothing else writes.
  */
 import { createHash } from "node:crypto";
-import { closeSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, rmdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { HOOK_CLAIM_LOST_EVENT } from "../../core/counterpart.js";
@@ -159,8 +159,13 @@ function updateClaims(dataDir: string, fn: (current: string | undefined) => stri
     if (fileIdentity(path) === met) {
       if (isUnreadableDatabase(err)) setAside = setClaimsAside(path, met);
       // A twin is moving it right now (its sidecars go first, so the file is
-      // still here): wait for it to be gone, then try the twin's new file.
-      else if (!awaitSetAside(path, met)) throw err;
+      // still here): wait for it to be gone, then try the twin's new file. No
+      // twin at work is the error's own — unless the file left while this
+      // looked: a twin moves the file BEFORE it lets go of the lock, so one
+      // that did both between the two looks leaves no lock but a file moved
+      // (measured under load, an `SQLITE_IOERR_VNODE` delivered beside the
+      // winner about 1 round in 1,500).
+      else if (!awaitSetAside(path, met) && fileIdentity(path) === met) throw err;
     }
     transactClaims(path, fn);
     return { setAside };
@@ -177,7 +182,8 @@ const CLAIMS_SET_ASIDE_SUFFIX = ".sqlite";
  * moved "the" file, and the second, a moment late, moved the first one's new
  * file and its `-wal` — measured, about 1 round in 70 under load, each a
  * second delivery. A holder that died leaves it; past `SET_ASIDE_STALE_MS`
- * the next one takes it over.
+ * the next one takes it over (`takeSetAsideLock`), and until then a lock that
+ * old is no twin at work, so nothing waits on it (`awaitSetAside`).
  */
 export const SET_ASIDE_LOCK = "hook-claims.setting-aside";
 const SET_ASIDE_STALE_MS = 5_000;
@@ -209,9 +215,18 @@ function fileIdentity(path: string): string | null {
 function setClaimsAside(path: string, met: string | null, now: number = Date.now()): string | null {
   const dir = dirname(path);
   const lock = join(dir, SET_ASIDE_LOCK);
-  if (!takeSetAsideLock(lock)) {
-    awaitSetAside(path, met);
-    return null;
+  let mine = takeSetAsideLock(lock, path, met);
+  if (mine === null) {
+    // A twin holds it: wait for the file to go. When no twin is found holding
+    // it — it let go, or a twin taking over a dead holder's lock is between
+    // moving that one off and making its own — try once more to take it, so a
+    // twin never retries on the bad file without either waiting or moving it.
+    if (awaitSetAside(path, met)) return null;
+    mine = takeSetAsideLock(lock, path, met);
+    if (mine === null) {
+      awaitSetAside(path, met);
+      return null;
+    }
   }
   try {
     if (met === null || fileIdentity(path) !== met) return null;
@@ -230,36 +245,101 @@ function setClaimsAside(path: string, met: string | null, now: number = Date.now
     }
     return aside;
   } finally {
-    rmSync(lock, { recursive: true, force: true });
+    releaseSetAsideLock(lock, mine);
   }
 }
 
 /**
  * When a twin holds the set-aside lock, wait (up to `CLAIM_WAIT_MS`) for the
  * file this attempt met to leave the path. False when no twin is setting it
- * aside, so the caller's error is its own.
+ * aside, so the caller's error is its own: no lock, or one older than
+ * `SET_ASIDE_STALE_MS`, a dead holder's, which no file is leaving for — so a
+ * lock left by a crash never slows a busy write on a healthy file.
  */
 function awaitSetAside(path: string, met: string | null): boolean {
-  if (fileIdentity(join(dirname(path), SET_ASIDE_LOCK)) === null) return false;
+  const lock = lockAge(join(dirname(path), SET_ASIDE_LOCK));
+  if (lock === null || lock.age > SET_ASIDE_STALE_MS) return false;
   const until = Date.now() + CLAIM_WAIT_MS;
   while (fileIdentity(path) === met && Date.now() < until) sleepSync(5);
   return true;
 }
 
-function takeSetAsideLock(lock: string): boolean {
+/** The lock directory at `lock` as identity and age, or null when there is none. */
+function lockAge(lock: string): { readonly id: string; readonly age: number } | null {
+  try {
+    const st = statSync(lock, { bigint: true });
+    return { id: `${String(st.dev)}:${String(st.ino)}`, age: Date.now() - Number(st.mtimeMs) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Take the set-aside lock: make it, or take over one a dead holder left (older
+ * than `SET_ASIDE_STALE_MS`). Returns the lock as made, for the release, or
+ * null when a twin holds it. Throws when it cannot be made at all.
+ *
+ * THE TAKEOVER IS ONE TWIN'S (review of #366). Removing the old lock and making
+ * a new one let two twins that both judged it stale both take it — the second's
+ * removal took the first's NEW lock — and both set the file aside: measured,
+ * 4 to 16 rounds in 60 delivered twice on macOS. So the old lock is first
+ * renamed to a name of this process's own: of twins that judged one lock stale,
+ * one rename finds it. And it is removed only if what was renamed IS the lock
+ * judged stale; a twin's fresh one, made in between, is put back — and, since
+ * that twin may have gone to let go of it in the instant it was moved off and
+ * found nothing to remove, this one removes it once the file the twin was
+ * moving (`met`, the file both met) has left the path.
+ */
+function takeSetAsideLock(lock: string, path: string, met: string | null): HeldLock | null {
   try {
     mkdirSync(lock);
-    return true;
+    return { id: fileIdentity(lock) };
   } catch (err) {
     if ((err as { code?: unknown } | null)?.code !== "EEXIST") throw err;
   }
+  const judged = lockAge(lock);
+  if (judged === null || judged.age <= SET_ASIDE_STALE_MS) return null;
+  const moved = `${lock}.stale-${String(process.pid)}`;
   try {
-    if (Date.now() - statSync(lock).mtimeMs <= SET_ASIDE_STALE_MS) return false;
-    rmSync(lock, { recursive: true, force: true });
-    mkdirSync(lock);
-    return true;
+    renameSync(lock, moved);
   } catch {
-    return false;
+    return null;
+  }
+  try {
+    const taken = fileIdentity(moved);
+    if (taken !== judged.id) {
+      renameSync(moved, lock);
+      awaitSetAside(path, met);
+      if (fileIdentity(path) !== met && fileIdentity(lock) === taken) rmdirSync(lock);
+      return null;
+    }
+    rmdirSync(moved);
+    mkdirSync(lock);
+    return { id: fileIdentity(lock) };
+  } catch {
+    try {
+      rmdirSync(moved);
+    } catch {
+      /* gone already */
+    }
+    return null;
+  }
+}
+
+/** The set-aside lock as this process made it: its identity, or null in the
+ *  instant a twin's takeover had it moved off (and put it back). */
+interface HeldLock {
+  readonly id: string | null;
+}
+
+/** Let go of the lock, if it is still the one this process made: a holder
+ *  whose lock was taken over (it stalled past `SET_ASIDE_STALE_MS`) must not
+ *  remove the next holder's. Never throws: a lock left is taken over later. */
+function releaseSetAsideLock(lock: string, held: HeldLock): void {
+  try {
+    if (held.id === null || fileIdentity(lock) === held.id) rmdirSync(lock);
+  } catch {
+    /* gone, or a twin's now: nothing of this process's to remove */
   }
 }
 

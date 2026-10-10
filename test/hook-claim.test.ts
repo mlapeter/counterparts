@@ -675,6 +675,78 @@ describe("a claims file that is not a database", () => {
     60_000,
   );
 
+  /**
+   * Two hook processes (twins) that meet a bad claims file at the same moment,
+   * `rounds` times, each round on a store of its own, `gap` ms apart. With
+   * `staleLock`, each round's directory also holds the set-aside lock a dead
+   * holder left an hour ago, so both twins race to take it over. Returns each
+   * round's two outcomes and codes, and what is left beside the file.
+   */
+  async function twinsMeetBadFiles(
+    rounds: number,
+    gap: number,
+    staleLock: boolean,
+  ): Promise<{ readonly i: number; readonly outcomes: string[]; readonly codes: (string | null)[]; readonly left: string[] }[]> {
+    const claimModule = resolve(import.meta.dir, "../src/adapters/claude-code/claim.ts");
+    const racer = join(work, "bad-file-racer.ts");
+    writeFileSync(
+      racer,
+      [
+        `import { claimDelivery } from ${JSON.stringify(claimModule)};`,
+        `const [root, side, t0, rounds, gap] = [process.argv[2], process.argv[3], Number(process.argv[4]), Number(process.argv[5]), Number(process.argv[6])];`,
+        `const out = [];`,
+        `for (let i = 0; i < rounds; i += 1) {`,
+        `  const at = t0 + i * gap;`,
+        `  while (Date.now() < at) {}`,
+        `  const doors = { store: { dir: root + "/r" + i }, noteAdapterEvent: () => true };`,
+        `  const c = claimDelivery(doors, { hook: "session-start", key: "k", sessionId: "s", side, observer: false, started: at - 1, once: true });`,
+        `  out.push([i, c.outcome, c.code ?? null]);`,
+        `}`,
+        `process.stdout.write(JSON.stringify(out));`,
+      ].join("\n"),
+      "utf8",
+    );
+    const root = join(work, "rounds");
+    const hourAgo = (Date.now() - 3_600_000) / 1000;
+    for (let i = 0; i < rounds; i += 1) {
+      const path = claimsPath(join(root, `r${String(i)}`));
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, garbage, "utf8");
+      writeFileSync(`${path}-wal`, "stale log", "utf8");
+      if (staleLock) {
+        const lock = join(dirname(path), SET_ASIDE_LOCK);
+        mkdirSync(lock);
+        utimesSync(lock, hourAgo, hourAgo);
+      }
+    }
+    const t0 = Date.now() + 1_500;
+    const run = (side: string): Promise<Ran> =>
+      new Promise((done, fail) => {
+        const child = spawn(process.execPath, ["run", racer, root, side, String(t0), String(rounds), String(gap)], {
+          env: hookEnv(),
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "";
+        let stderr = "";
+        child.stdout.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
+        child.stderr.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
+        child.on("error", fail);
+        child.on("close", (code) => done({ code: code ?? -1, stdout, stderr }));
+      });
+    const [a, b] = await Promise.all([run("settings"), run("plugin")]);
+    expect([a.code, b.code, a.stderr, b.stderr]).toEqual([0, 0, "", ""]);
+    const ra = JSON.parse(a.stdout) as [number, string, string | null][];
+    const rb = JSON.parse(b.stdout) as [number, string, string | null][];
+    return Array.from({ length: rounds }, (_, i) => ({
+      i,
+      outcomes: [ra[i]?.[1] ?? "none", rb[i]?.[1] ?? "none"].sort(),
+      codes: [ra[i]?.[2] ?? null, rb[i]?.[2] ?? null],
+      left: readdirSync(dirname(claimsPath(join(root, `r${String(i)}`)))).filter(
+        (n) => (n.startsWith("hook-claims.unreadable-") && n.endsWith(".sqlite")) || n.startsWith(SET_ASIDE_LOCK),
+      ),
+    }));
+  }
+
   test(
     "two twins meet one bad file (review of #366): exactly one delivers every round, and the copy is kept",
     async () => {
@@ -682,65 +754,37 @@ describe("a claims file that is not a database", () => {
       // ENOENT (or, on macOS, SQLITE_IOERR_VNODE from a file moved while open)
       // and delivered unclaimed beside the winner — every round of 30 — and it
       // had removed "older" copies first, once the winner's own.
-      const claimModule = resolve(import.meta.dir, "../src/adapters/claude-code/claim.ts");
-      const racer = join(work, "bad-file-racer.ts");
-      writeFileSync(
-        racer,
-        [
-          `import { claimDelivery } from ${JSON.stringify(claimModule)};`,
-          `const [root, side, t0, rounds, gap] = [process.argv[2], process.argv[3], Number(process.argv[4]), Number(process.argv[5]), Number(process.argv[6])];`,
-          `const out = [];`,
-          `for (let i = 0; i < rounds; i += 1) {`,
-          `  const at = t0 + i * gap;`,
-          `  while (Date.now() < at) {}`,
-          `  const doors = { store: { dir: root + "/r" + i }, noteAdapterEvent: () => true };`,
-          `  const c = claimDelivery(doors, { hook: "session-start", key: "k", sessionId: "s", side, observer: false, started: at - 1, once: true });`,
-          `  out.push([i, c.outcome, c.code ?? null]);`,
-          `}`,
-          `process.stdout.write(JSON.stringify(out));`,
-        ].join("\n"),
-        "utf8",
-      );
-      const rounds = 20;
-      const gap = 80;
-      const root = join(work, "rounds");
-      for (let i = 0; i < rounds; i += 1) {
-        const path = claimsPath(join(root, `r${String(i)}`));
-        mkdirSync(dirname(path), { recursive: true });
-        writeFileSync(path, garbage, "utf8");
-        writeFileSync(`${path}-wal`, "stale log", "utf8");
-      }
-      const t0 = Date.now() + 1_500;
-      const run = (side: string): Promise<Ran> =>
-        new Promise((done, fail) => {
-          const child = spawn(process.execPath, ["run", racer, root, side, String(t0), String(rounds), String(gap)], {
-            env: hookEnv(),
-            stdio: ["ignore", "pipe", "pipe"],
-          });
-          let stdout = "";
-          let stderr = "";
-          child.stdout.on("data", (b: Buffer) => (stdout += b.toString("utf8")));
-          child.stderr.on("data", (b: Buffer) => (stderr += b.toString("utf8")));
-          child.on("error", fail);
-          child.on("close", (code) => done({ code: code ?? -1, stdout, stderr }));
-        });
-      const [a, b] = await Promise.all([run("settings"), run("plugin")]);
-      expect([a.code, b.code, a.stderr, b.stderr]).toEqual([0, 0, "", ""]);
-      const ra = JSON.parse(a.stdout) as [number, string, string | null][];
-      const rb = JSON.parse(b.stdout) as [number, string, string | null][];
-      for (let i = 0; i < rounds; i += 1) {
-        expect({ i, outcomes: [ra[i]?.[1], rb[i]?.[1]].sort(), codes: [ra[i]?.[2], rb[i]?.[2]] }).toEqual({
-          i,
+      for (const round of await twinsMeetBadFiles(20, 80, false)) {
+        expect({ i: round.i, outcomes: round.outcomes, codes: round.codes, copies: round.left.length }).toEqual({
+          i: round.i,
           outcomes: ["lost", "won"],
           codes: [null, null],
+          copies: 1,
         });
-        const copies = readdirSync(dirname(claimsPath(join(root, `r${String(i)}`)))).filter(
-          (n) => n.startsWith("hook-claims.unreadable-") && n.endsWith(".sqlite"),
-        );
-        expect({ i, copies: copies.length }).toEqual({ i, copies: 1 });
       }
     },
     60_000,
+  );
+
+  test(
+    "two twins meet one bad file AND a dead holder's set-aside lock (review of #366): one takes it over, one delivers, every round",
+    async () => {
+      // Before: both twins judged the lock stale and both took it over (the
+      // second's rm removed the first's fresh lock), or one looked in the gap
+      // between the other's rm and mkdir, found no lock and did not wait: 4 to
+      // 16 rounds in 60 delivered twice on macOS. 300 rounds, so a race of 1
+      // in 70 shows (it would pass unseen about 1 run in 75).
+      const rounds = await twinsMeetBadFiles(300, 40, true);
+      const wrong = rounds.filter(
+        (r) =>
+          r.outcomes.join() !== "lost,won" ||
+          r.codes.some((c) => c !== null) ||
+          r.left.length !== 1 ||
+          !r.left[0]?.startsWith("hook-claims.unreadable-"),
+      );
+      expect(wrong).toEqual([]);
+    },
+    90_000,
   );
 
   test("the set-aside lock: a live one is waited on and the event still delivers; one a dead holder left is taken over", () => {
