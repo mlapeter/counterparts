@@ -10,6 +10,34 @@
   it doesn't act as if it remembers.
   Nothing else changes: no memories are loaded or recorded, nothing is written, other
   hooks stay silent, and a folder turned `off` stays completely silent.
+- **Every `counterparts scope` command Claude is shown now names the folder.** In a
+  folder that is off or paused, the memory tools' refusal used to tell Claude to run
+  `counterparts scope . --resume`, and the question a new folder gets in its first session
+  said `counterparts scope . --on`. The `.` meant wherever the command was run, and from a
+  subfolder `--resume` refuses. Now the command names the folder, and when the setting
+  belongs to a parent folder it names that one ("paused for ~/work, which includes this
+  directory"). Under the plugin it uses the plugin's own launcher, and with a
+  configuration other than the default it adds `--config`, as the paused notice does.
+- **A red doctor notice now shows beside a full wake.** Measured on Claude Code 2.1.296:
+  the 10,000-character limit applies to each field of a hook's output, not to the output
+  as a whole. Counterparts held the whole output to 9,500 characters, so on a morning with
+  a full wake the doctor's notice was left out, and plain reminders, the dream question and
+  the update notice waited for a later turn. Now each field is held to the limit on its
+  own: they show beside a full wake or a full recall, and wait only when Claude's own text
+  would pass the limit.
+- **A damaged claims file repairs itself.** If `sessions/claims/hook-claims.sqlite`
+  can't be read as a database, the next hook moves it aside (one copy is kept) and makes a
+  new one, and the event is still delivered. Before, every event printed an error and the
+  guard against double delivery stayed off until someone deleted the file. Doctor's new
+  amber "Hook claims" line says when it happened, for a week. The claims folder and file
+  are now private to you (0700 and 0600), like the log, and the log says why a claim
+  could not be made instead of giving only the length of the message.
+- **With two installs live, a session's first start runs once even on a busy machine.**
+  The 0.3.15 release check found one double wake under load: the second hook started 45
+  ms after the first had finished, so its claim read it as a new event. A session's first
+  start, and a prompt Claude Code gives an id, are sent only once, so a second copy within
+  15 seconds now always steps aside. Doctor's "Installed twice" line no longer says
+  nothing was delivered twice; its fix also names `~/.claude/settings.json`.
 - **The self page is never cut in the wake.** The page may now be at most 6,078 bytes,
   which is exactly what the wake prints whole at the default 9,000-byte ceiling, even on
   a day the wake also holds room for handoffs and "Work here" lines. Before, a page could
@@ -60,7 +88,10 @@
   later version adds around it. As a backstop, each hook claims its event first: when
   two Counterparts hooks fire for the same event, the first does the work (the wake,
   the recall, the Stop's question, the capture, the background worker) and the other
-  exits without output. This works between any two versions from this one on. The
+  exits without output, between any two versions from this one on. The plugin stepping
+  aside is the main guard; the claim catches a second hook that runs at the same time,
+  but on a busy machine one that starts after the first has finished can still deliver
+  again (always caught for a session's first start and an identified prompt). The
   claims are kept in a small file of their own in the store's `sessions` folder, so
   the background worker writing to the store doesn't hold a claim up. With one install
   nothing changes; the claim adds two small writes per event, about a third of a
