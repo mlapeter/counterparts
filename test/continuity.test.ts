@@ -306,9 +306,14 @@ describe("what were we about to do? a plan written after the handoff is named be
     const text = wake(k.c, B);
     const lines = text.split("\n");
     const since = lines.find((l) => l.startsWith("Since this handoff:"));
-    expect(since).toBe(
-      `Since this handoff: Is the tarball in the backups folder signed, or only… (open, ${ids.open}); Publishing waits until Monday (planned, ${ids.changed}).`,
-    );
+    // The open question is in this wake's "Still open:" — assembled at session
+    // start (2026-10-10), so a note's question is there the same day — and so
+    // the line leaves it to that lane: one place for an open question.
+    expect(since).toBe(`Since this handoff: Publishing waits until Monday (planned, ${ids.changed}).`);
+    const open = lines.indexOf("Still open:");
+    expect(open).toBeGreaterThan(-1);
+    expect(lines.slice(open).find((l) => l === "" || l.endsWith("Is the tarball in the backups folder signed, or only checksummed?"))).not.toBe("");
+    expect(lines.filter((l) => l.includes("Is the tarball in the backups folder signed"))).toHaveLength(1);
     // Under the pointer's two lines, inside the bundle.
     const pointer = lines.findIndex((l) => l.startsWith("Where I left off in this directory"));
     expect(lines.indexOf(since as string)).toBe(pointer + 2);
@@ -323,7 +328,7 @@ describe("what were we about to do? a plan written after the handoff is named be
     expect(wake(k.c, B, THERE)).not.toContain("Since this handoff");
     // The shown row counts what the line named.
     const shown = k.c.store.eventLog({ name: "handoff.shown", limit: 1, order: "desc" })[0];
-    expect(JSON.parse(shown?.payload ?? "{}")["plans"]).toBe(2);
+    expect(JSON.parse(shown?.payload ?? "{}")["plans"]).toBe(1);
   });
 
   test("a handoff rewritten after the note covers it, and a plan settled over by a later one is not named", async () => {

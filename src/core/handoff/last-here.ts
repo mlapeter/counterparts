@@ -25,7 +25,7 @@
  */
 import { CORE_ABOUT_MARKS } from "../store/index.js";
 import type { Store } from "../store/index.js";
-import { localDate, readableDate } from "../time.js";
+import { localDate, localStamp, readableDate } from "../time.js";
 import { isKnownSession, isModelId } from "../types.js";
 import { HANDOFF_EXCERPT_BYTES, HANDOFF_LIFE_DAYS, excerpt, flatten, sessionWords } from "./index.js";
 
@@ -474,4 +474,83 @@ export function lastHereLadder(entries: readonly LastHere[], reader: string | nu
     if (block !== null && !out.includes(block)) out.push(block);
   }
   return out;
+}
+
+/**
+ * HOW MANY DIRECTORIES THE "TODAY, ELSEWHERE" LINE NAMES (2026-10-10): one
+ * short line, the live ones and the most recently active first; the rest by
+ * count.
+ */
+export const TODAY_ELSEWHERE_MAX_DIRS = 5;
+
+/** One other directory, as the "Today, elsewhere" line names it. */
+export interface TodayElsewhere {
+  readonly scope: string;
+  /** The first session's start and the last activity there today, epoch ms;
+   *  null when the host's registry holds no session there (memories alone). */
+  readonly firstAt: number | null;
+  readonly lastAt: number | null;
+  /** A session there is still open, by the host's registry. */
+  readonly live: boolean;
+  /** Today's newest chapter there that may be named in another directory —
+   *  gated by the caller — or null. */
+  readonly chapter: ChapterHere | null;
+  /** How many memories were written there today. A count, never a title. */
+  readonly memories: number;
+}
+
+/**
+ * THE "TODAY, ELSEWHERE" LINE (2026-10-10, b2 + random-f8; Mike approved the
+ * option that day): what the other directories did today, for a session
+ * starting in this one — so a morning of several sessions in several
+ * directories is not several sessions each unaware of the others.
+ *
+ *   Today, elsewhere: ~/counterparts open since 08:02 (live) — "Reading the
+ *   overnight benchmark" (epi_…), 6 memories; ~/deadfront 08:05–09:40, 2
+ *   memories.
+ *
+ * Times and counts, and a chapter's title only when the caller's gate let it
+ * through — the "About me, from another directory" line's: the scope setting,
+ * the confidential mark, and a copy marked about me, us or the owner. Never a
+ * word of a span, a work memory's title, or a handoff: those stay where they
+ * were made. Returns the line and its shorter form — the same without the
+ * chapters — or null when there is nothing to say. Pure.
+ */
+export function todayElsewhereLines(
+  dirs: readonly TodayElsewhere[],
+  zone?: string,
+): { line: string; shorter: string[] } | null {
+  const named = dirs
+    .filter((d) => d.firstAt !== null || d.memories > 0 || d.chapter !== null)
+    .sort(
+      (a, b) =>
+        Number(b.live) - Number(a.live) ||
+        (b.lastAt ?? 0) - (a.lastAt ?? 0) ||
+        b.memories - a.memories ||
+        (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0),
+    );
+  if (named.length === 0) return null;
+  const shown = named.slice(0, TODAY_ELSEWHERE_MAX_DIRS);
+  const rest = named.length - shown.length;
+  const clock = (at: number): string => localStamp(at, zone).split(" ")[1] ?? "";
+  const one = (d: TodayElsewhere, chapters: boolean): string => {
+    const when =
+      d.firstAt === null
+        ? ""
+        : d.live
+          ? ` open since ${clock(d.firstAt)} (live)`
+          : ` ${clock(d.firstAt)}–${clock(d.lastAt ?? d.firstAt)}`;
+    const c = d.chapter;
+    const chapter =
+      !chapters || c === null
+        ? ""
+        : ` — ${c.title === null ? c.id : `"${excerpt(c.title, LAST_HERE_TITLE_BYTES)}" (${c.id})`}`;
+    const count = d.memories === 0 ? "" : `, ${String(d.memories)} ${d.memories === 1 ? "memory" : "memories"}`;
+    return `${placeWords(d.scope)}${when}${chapter}${count}`;
+  };
+  const tail = rest === 0 ? "" : `; ${String(rest)} more ${rest === 1 ? "directory" : "directories"}`;
+  const line = (chapters: boolean): string => flatten(`Today, elsewhere: ${shown.map((d) => one(d, chapters)).join("; ")}${tail}.`);
+  const whole = line(true);
+  const bare = line(false);
+  return { line: whole, shorter: bare === whole ? [] : [bare] };
 }

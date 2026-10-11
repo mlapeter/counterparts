@@ -387,6 +387,15 @@ row, saying which source answered, existed until the keys were removed — §1a.
     already passed, because the published bundle is one per store and read in every
     directory. With no live handoff nothing is passed through and nothing is spliced.
 
+    **AND THE HOST'S SESSIONS (2026-10-10).** `composeWake` also hands the core the
+    registry's sessions (`WakeHere.sessions`: directory, start, last boundary, live or
+    ended — host state, no content) for the wake's "Today, elsewhere" line, which names
+    the other directories worked in today that the scope setting lets this one name
+    (`chapterExports`): times, counts of memories, and a chapter's title only on the
+    "About me, from another directory" line's gate. Never this directory, this session,
+    or the nightly run's (the store's own directory). The wake itself is ASSEMBLED at
+    delivery from reads (self CONTRACT §5 G1): no model, no network, no state written.
+
 19. **[M] A directory set `off` gets NO OUTPUT AND NO WRITE — because nothing is
     constructed.** The scope registry (`adapters/scopes.ts`,
     `<config dir>/scopes.json`, longest-prefix, added 2026-09-10 for owner asks

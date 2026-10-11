@@ -199,6 +199,10 @@ were refined by b2+f8 at the review of #369, named where they were):
 
 - Decided by b2, 2026-10-10, lightly held: every accepted memory and handoff change marks the wake for re-render (was: only write-ups, chapters, page, told, version, run-end). Why: a hermetic repro showed note-written memories stale in Still open/Nearby/Arriving for up to a day; cost ~0.45 s per writing turn-end in the detached worker, no model calls.
 
+### Approved by Mike, 2026-10-10; details b2+f8, lightly held (the wake, #376)
+
+- Mike approved the two options 2026-10-10; details b2+f8, lightly held: the wake is assembled at session start (Still open, Arriving, the Yesterday line and the page read for that moment; Nearby and the identity rotation stay the turn-end's, since showing them writes state), and a "Today, elsewhere" line names other folders worked in today. Why: morning sessions read the evening's wake and knew nothing of each other. Held firmly: no span text across folders, no work memory's title, no handoff body; counts only. Builder's choices, for review: a chapter title crosses only on the About-me line's gate (scope on, not confidential, a copy marked me/us/owner) — the Yesterday line still names every folder's titles; a folder whose scope is not on is not named at all, not even by count; three indexes (`memories_open`, `memories_created`, `memories_origin_ref`) ride the v13 upgrade, with no schema bump of their own; no worker kick at session start. Cost (SessionStart through the hook, 200 registry records): 3.7 → 6.6 ms at 1× (925 memories), 12.3 → 28.2 ms at a synthetic 10× (9,250 written in one day, 250 open questions), no model calls.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

@@ -240,7 +240,9 @@ describe("Still open keeps its first item beside a long page, and the page is ne
   async function morning(zone: string, pageBytes: number): Promise<{ a: ReturnType<typeof openAdapter>; ids: string[]; page: string; text: string; stored: string }> {
     clock(zone, "2026-10-07", 20);
     const a = adapter(zone);
-    chapters(a, "2026-10-07");
+    // Dated the day before the morning the wake is read: the Yesterday line is
+    // assembled at session start for that morning's date (2026-10-10).
+    chapters(a, "2026-10-08");
     await worker(zone);
     clock(zone, "2026-10-08", 21);
     const ids = openQuestions(a);
@@ -280,8 +282,8 @@ describe("Still open keeps its first item beside a long page, and the page is ne
         // And what gave way was "Work here" (fewer lines), not the reminders or
         // yesterday's chapters: both Arriving lines, all four titles.
         expect(lane(text, FRAMING.horizon)?.filter((l) => l.startsWith("- ")).length).toBe(2);
-        expect(text).toContain("Yesterday, 10-07: ");
-        expect(text.split("\n").find((l) => l.startsWith("Yesterday, 10-07: "))).not.toContain(" more.");
+        expect(text).toContain("Yesterday, 10-08: ");
+        expect(text.split("\n").find((l) => l.startsWith("Yesterday, 10-08: "))).not.toContain(" more.");
         expect(text).toContain("Where the work in this directory was left off");
       });
     }

@@ -188,36 +188,55 @@ export function scanActive(store: Store, day: number): Scanned[] {
   const rendered = lastRenderedOf(store);
   const displays = store.wakeDisplays();
   for (const id of store.list({ type: "memory", archived: false })) {
-    const row = store.row(id);
-    if (row === undefined) continue;
-    let doc: ProseDoc;
-    let physics: MemoryPhysics;
-    try {
-      doc = store.readProse(id);
-      physics = store.physicsOf(id);
-    } catch {
-      // A memory whose prose has gone missing must not take the whole briefing
-      // down with it (contract §5 G7: the wake never fails the session). It is
-      // skipped here and stays visible in `store` telemetry.
-      continue;
-    }
-    out.push({
-      id,
-      kind: physics.kind,
-      band: row.band,
-      physics,
-      doc,
-      strength: strength(physics, day),
-      unresolved: doc.meta["unresolved"] === true,
-      source: row.source,
-      lastRendered: rendered.get(id) ?? -1,
-      ...(displays.has(id) ? { display: displays.get(id) as WakeDisplayRow } : {}),
-      day,
-      about: row.about ?? null,
-      originScope: row.origin_scope ?? null,
-    });
+    const s = scanOne(store, id, day, rendered, displays);
+    if (s !== null) out.push(s);
   }
   return out;
+}
+
+/**
+ * ONE memory, read as `scanActive` reads each (2026-10-10): for the wake
+ * assembled at session start (`Self#assemble`), which reads the few ids its
+ * lanes name rather than the whole store. Null for a row that is gone,
+ * archived, or whose prose will not read. `rendered` and `displays` default to
+ * none — the rotation and Nearby's showing are the turn-end render's.
+ */
+export function scanOne(
+  store: Store,
+  id: string,
+  day: number,
+  rendered: ReadonlyMap<string, number> = new Map(),
+  displays: ReadonlyMap<string, WakeDisplayRow> = new Map(),
+): Scanned | null {
+  const row = store.row(id);
+  if (row === undefined || row.archived !== 0) return null;
+  let doc: ProseDoc;
+  let physics: MemoryPhysics;
+  try {
+    doc = store.readProse(id);
+    physics = store.physicsOf(id);
+  } catch {
+    // A memory whose prose has gone missing must not take the whole briefing
+    // down with it (contract §5 G7: the wake never fails the session). It is
+    // skipped here and stays visible in `store` telemetry.
+    return null;
+  }
+  const display = displays.get(id);
+  return {
+    id,
+    kind: physics.kind,
+    band: row.band,
+    physics,
+    doc,
+    strength: strength(physics, day),
+    unresolved: doc.meta["unresolved"] === true,
+    source: row.source,
+    lastRendered: rendered.get(id) ?? -1,
+    ...(display === undefined ? {} : { display }),
+    day,
+    about: row.about ?? null,
+    originScope: row.origin_scope ?? null,
+  };
 }
 
 function byStrength(a: Ranked, b: Ranked): number {
@@ -280,7 +299,9 @@ function byHint(a: Ranked, b: Ranked): number {
   return byStrength(a, b);
 }
 
-function rank(s: Scanned, lane: LaneName, hint?: HintReading): Ranked {
+/** One scanned memory as a line of `lane` — the shape `rankLanes` gives it.
+ *  Exported for the wake assembled at session start (`Self#assemble`). */
+export function rankedAs(s: Scanned, lane: LaneName, hint?: HintReading): Ranked {
   return {
     ...(hint === undefined ? {} : { hint }),
     id: s.id,
@@ -383,12 +404,12 @@ export function rankLanes(
 
   for (const s of scanned) {
     if (s.band === "identity") {
-      identity.push(rank(s, "identity"));
+      identity.push(rankedAs(s, "identity"));
       continue;
     }
     if (arriving.has(s.id) || settledOver.has(s.id)) continue;
     if (s.unresolved) {
-      threads.push(rank(s, "threads"));
+      threads.push(rankedAs(s, "threads"));
       continue;
     }
     if (
@@ -404,12 +425,12 @@ export function rankLanes(
     }
     if (s.strength < t.WARM_FLOOR) continue;
     if (s.kind === "skill") {
-      craft.push(rank(s, "craft"));
+      craft.push(rankedAs(s, "craft"));
       continue;
     }
     // What the page already says is not "nearby" (2026-10-01, `covered.ts`).
     if (opts.coveredByPage?.has(s.id) === true) continue;
-    hints.push(rank(s, "hints", hintReading(s.physics, s.display, s.day ?? s.doc.bornDay, t)));
+    hints.push(rankedAs(s, "hints", hintReading(s.physics, s.display, s.day ?? s.doc.bornDay, t)));
   }
 
   identity.sort(byRotation(scanned.find((s) => s.day !== undefined)?.day));

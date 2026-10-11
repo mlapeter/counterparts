@@ -1592,6 +1592,22 @@ export const DDL_AFTER_COLUMNS: readonly string[] = [
    BEGIN
      UPDATE memories SET next_change_day = NULL WHERE id = OLD.memory_id AND next_change_day IS NOT NULL;
    END`,
+  // 2026-10-10: `Store.openThreadIds` — "Still open:" read at session start.
+  // Partial, because few memories are open. It rides the v13 upgrade (no
+  // bump of its own: Mike, 10-09, batch format changes); a store stamped v13
+  // before it existed scans one column instead — 1.7 ms at a synthetic 9,250
+  // live memories.
+  `CREATE INDEX IF NOT EXISTS memories_open ON memories (birth_day) WHERE archived = 0 AND meta LIKE '%"unresolved":true%'`,
+  // 2026-10-10: `Store.memoryCountsByScopeSince` — the "Today, elsewhere"
+  // line's counts — reads today's rows, not the store. Rides the v13 upgrade,
+  // as `memories_open` does; without it the count scans (1.8 ms at a
+  // synthetic 9,250).
+  `CREATE INDEX IF NOT EXISTS memories_created ON memories (created_at) WHERE created_at IS NOT NULL`,
+  // 2026-10-10: the chapter walks a session start makes (the Yesterday line,
+  // "Last here", "Today, elsewhere") read each fortnight episode's copies by
+  // `origin_ref` (`Store#copiesOf`) — a scan of the store without this
+  // (≈3 ms at a synthetic 9,250). Rides the v13 upgrade, as above.
+  `CREATE INDEX IF NOT EXISTS memories_origin_ref ON memories (origin_ref) WHERE origin_ref IS NOT NULL`,
 ];
 
 /**

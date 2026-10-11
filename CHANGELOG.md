@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A session's wake is put together when the session starts.** "Still open", "Arriving:",
+  the Yesterday line and the self page are read at that moment, so the morning's first
+  sessions see yesterday's chapters and a question or reminder noted last night, not the
+  wake the evening's last turn left. "Nearby" and "Who I am" still come from the last turn's
+  end. Reads only, no model call: a few milliseconds.
+- **"Today, elsewhere."** One line in the wake names the other folders worked in today:
+  when, whether a session there is still open, how many memories it wrote, and its chapter's
+  title when that chapter is about you or me (the "About me, from another directory" rule).
+  Never what was said there, a work memory's title, or a handoff. Folders whose scope is not
+  on are not named. It is the first thing to give way after "Nearby".
 - **Forgetting now changes what comes to mind (store v13).** Each memory fades on its own
   curve: steep at first and flat later, slower the more it mattered, the more it was felt,
   used or came back. A routine note leaves the working layer in about two days; a felt
