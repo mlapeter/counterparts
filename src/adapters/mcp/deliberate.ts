@@ -176,8 +176,9 @@ export function boundById(
  * FADED, for both question modes (Release B, 2026-10-03; agreed between the
  * facts and meaning builders): since 2026-10-10 (Group 1, review 03 C2) a
  * memory has faded when it is BELOW REACH — strength under physics' `REACH`,
- * the one threshold ambient recall leaves out and deliberate recall lists
- * after its main results, labelled faded. It replaces `FADED_RETAINED` (kept
+ * the one threshold ambient recall leaves out and deliberate recall labels
+ * faded (facts mode ranks it with the rest, its words shown, since
+ * 2026-10-10; meaning mode lists it after the arc). It replaces `FADED_RETAINED` (kept
  * 0.2 of its strength, which with S >= 60 could not fire before ~96 lived
  * days), so "faded" means one thing everywhere. The identity band is never
  * faded. A memory written low (a 0.25 note of a kind whose salience weighs

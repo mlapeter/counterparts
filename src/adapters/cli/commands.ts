@@ -6082,10 +6082,9 @@ async function recallCommand(
 export function printAskList(
   io: Io,
   result: {
-    readonly memories: readonly { readonly id: string; readonly title: string | null; readonly kind: string; readonly journal: boolean; readonly body: string }[];
+    readonly memories: readonly { readonly id: string; readonly title: string | null; readonly kind: string; readonly journal: boolean; readonly body: string; readonly faded?: boolean }[];
     readonly considered: number;
     readonly matched?: number;
-    readonly fadedTotal?: number;
   },
   how: string,
   said: string,
@@ -6099,13 +6098,11 @@ export function printAskList(
   const found = Math.max(result.matched ?? 0, result.memories.length);
   if (found === 0) {
     io.out(`Nothing found (${how}).`);
-    const faded = result.fadedTotal ?? 0;
+    // A faded match is counted in `matched` and listed with the rest (2026-10-10).
     io.out(
-      faded > 0
-        ? `  Only ${String(faded)} faded ${faded === 1 ? "memory" : "memories"} matched: --full lists them.`
-        : result.considered === 0
-          ? "  Nothing in the store came near the question, so no memory was even scored."
-          : `  ${result.considered} ${result.considered === 1 ? "memory was" : "memories were"} weighed and none was close enough to show.`,
+      result.considered === 0
+        ? "  Nothing in the store came near the question, so no memory was even scored."
+        : `  ${result.considered} ${result.considered === 1 ? "memory was" : "memories were"} weighed and none was close enough to show.`,
     );
     io.out(`  Try words the memory itself would use, or ask for it by id: ${BIN.cli} ${said} --id <mem_...>`);
     return;
@@ -6121,7 +6118,7 @@ export function printAskList(
     io.out(`${mark}${askGist(m.title, m.body)}`);
     // A chapter is never presented as a memory (LAUNCH-STATUS §I14): its
     // metadata line opens with `journal`.
-    io.out(`${" ".repeat(mark.length)}${dim(askMeta(m, opts.learnedOn?.(m.id) ?? null))}`);
+    io.out(`${" ".repeat(mark.length)}${dim(`${askMeta(m, opts.learnedOn?.(m.id) ?? null)}${m.faded === true ? " · faded" : ""}`)}`);
   });
   io.out("");
   io.out(

@@ -652,6 +652,14 @@ const RECALL: ToolSpec = {
       mechanizedBy: "src/adapters/mcp/deliberate.ts#expandIds (RECALL_MAX_IDS, expandHandle per id) + src/adapters/mcp/deliberate.ts#boundById (RECALL_BODY_CHARS parts, RECALL_ID_RESULT_CHARS)",
     },
     {
+      // Inside the 2,048-character cut (revised 2026-10-10: faded matches were
+      // title lines after the results; the benchmark lost counting answers).
+      claim:
+        "In facts mode a faded match (long unused) ranks with the rest by how well it matched, its words shown, labeled faded; meaning mode lists faded moments after the arc.",
+      mechanizedBy:
+        "src/adapters/mcp/facts.ts#factsRecall (one ranking; FactItem.faded) + src/adapters/mcp/facts.ts#itemLines + src/adapters/mcp/deliberate.ts#hasFaded (physics REACH) + src/adapters/mcp/meaning.ts#meaningRecall (MEANING_FADED_SHOWN)",
+    },
+    {
       claim:
         "A search strengthens nothing — a memory you were only shown in a list is no stronger for having been listed. OPENING one, by id or by title handle, is using it, and so is QUOTING the words a question's answer showed you in your reply: either is credited at the session boundary, once per lived day. The tool never writes a memory; what it writes is bookkeeping — which memory a title reached, which memories an answer showed this session, and one count row per call.",
       mechanizedBy:
@@ -681,11 +689,6 @@ const RECALL: ToolSpec = {
         "Meaning mode answers with the arc of what the question names — a person, a project, \"us\", or a feeling: the chapters that hold it, in time order, each with a line of what happened, its moments by id and the feelings in it with whose they are, side by side; then earlier readings (dreams, reflections) and what is still open. It arranges; you say what it adds up to. When it names several, the arc follows the one the question asks about (\"what has X been to Y\" is X's; named alike, the first, and it says so), and the rest are listed to ask for by name. In a question about feeling, \"I\" and \"me\" mean YOU, the counterpart, and \"you\" means the owner: to ask about the owner's feelings, say \"the owner\" or the owner's name — do not pass the owner's own words through unchanged.",
       mechanizedBy:
         "src/adapters/mcp/meaning.ts#meaningRecall + src/adapters/mcp/meaning.ts#subjectOf + src/adapters/mcp/meaning.ts#renderMeaning + src/core/recall/feeling-ask.ts#whoseAsked (asker: self, src/adapters/mcp/server.ts#askQuestion)",
-    },
-    {
-      claim:
-        "A matched memory that has faded from long disuse is not dropped: it is listed after the main results as one line — title, date, id, labeled faded — and never takes a main slot. Opening it by id brings it back.",
-      mechanizedBy: "src/adapters/mcp/facts.ts#factsRecall (FACTS_FADED_LINES) + src/adapters/mcp/deliberate.ts#hasFaded (physics REACH)",
     },
     {
       claim:

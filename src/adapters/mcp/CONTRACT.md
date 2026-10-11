@@ -581,9 +581,13 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   Unknown fields say so. Short bodies whole, long ones a 300-character excerpt.
 - **[M]** The header counts distinct facts; "may not be everything" only when the meaning
   cap cut or weak matches (below a fifth of the best score) were left out. Faded matches
-  (kept a fifth of their strength or less — `deliberate.ts#hasFaded`, the rule meaning
-  mode shares) are title lines after the results, never in the main slots. The whole
-  answer stays under 12,000 characters.
+  (below reach — `deliberate.ts#hasFaded`, the rule meaning mode shares) are ranked with
+  the live ones by how strongly they matched, bodies shown, each labeled `faded: not used
+  for a long while`; the header counts them (`3 of them faded`). Revised by b2+f8,
+  2026-10-10, from Mike's 2026-10-03 ruling (title lines after the results), lightly held:
+  the benchmark lost 15 counting answers to the faded lines (bench R2-2). Being shown
+  credits nothing; an open or a quote credits as for any result. The whole answer stays
+  under 12,000 characters.
 - **[M]** `ids` / `handle` read a chapter address `epi_…#N` as that chapter
   (`self/chapter-address.ts#resolveChapter`): its words, `address`, and its `moments`.
 - **Deleted promises (Mike, 10-03):** "effort lowers the bar but never removes the hard

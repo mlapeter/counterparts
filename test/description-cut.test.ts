@@ -81,7 +81,9 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
     // the brief's words are verbatim unless a measured limit forces a change,
     // and the limit here binds the privileges, not the words that invite.
     remember: ["`updates` is a FIELD", "`eventDate` is a FIELD", "A salience you claim is a FLOOR"],
-    recall: ["A question needs mode", "A handle expands exactly that memory", "Pass ids to read those memories whole"],
+    // The faded line joined the cut on 2026-10-10 (inline faded matches): a
+    // model that reads only the start must know a faded result is shown, labeled.
+    recall: ["A question needs mode", "A handle expands exactly that memory", "Pass ids to read those memories whole", "In facts mode a faded match"],
     session_end: [
       "It is bound to ONE session",
       "`updates` is a FIELD on an entry",
@@ -146,7 +148,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // head grew from 951 to 1,387 and session_end's from 811 to 1,088, both
       // well inside the cut with their leading claims.
       remember: { total: 5612, beforeList: 1387 },
-      recall: { total: 6263, beforeList: 1200 },
+      recall: { total: 6219, beforeList: 1200 },
       status: { total: 1212, beforeList: 501 },
       session_end: { total: 7520, beforeList: 1088 },
       chapter: { total: 2079, beforeList: 728 },

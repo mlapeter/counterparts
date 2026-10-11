@@ -36,7 +36,19 @@ come first. Nothing here quotes a memory.
 
 ### Revised from Mike's rulings
 
-1. **A dated memory is held until its date (no decay before it arrives), then fades a little
+1. **Deliberate facts recall ranks faded matches with the rest, bodies shown, each labelled
+   faded.** Revised by b2+f8, 2026-10-10, from Mike's 2026-10-03 ruling (faded matches listed
+   after the main results as title lines), lightly held. Why: the benchmark dropped 15
+   (multi-session counts one item short); inline-with-bodies recovered it with no
+   single-fact cost (bench R2-2, ~/counterparts-bench/TUNING-LOG.md). Forgetting lives in
+   ambient surfacing; the effortful door reaches weak traces. Ambient channels (footnotes,
+   the wake, spreading) still leave below-reach memories out; being shown credits nothing,
+   an open or a quote credits as for any result. Meaning mode is unchanged (faded moments
+   after the arc, counted "+N faded"). Fallback, if faded matches are ever seen crowding
+   fresh ones on a live store: variant (a″), a mild fade-scaled penalty on the order only
+   (score × (1 − 0.3 × (1 − strength/REACH))), also measured in R2-2. (`facts.ts`)
+
+2. **A dated memory is held until its date (no decay before it arrives), then fades a little
    faster.** Revised by b2+f8, 2026-10-10, lightly held — and it may reverse Mike's
    2026-09-26 prospective decision, whose note says "decay (`FADED_STRENGTH`) still holds" for a
    memory with an explicit date (the contract's G10, "no decay exemption before arrival"). Why:
@@ -50,7 +62,7 @@ come first. Nothing here quotes a memory.
    9 of 17 dated memories were archived within 30 lived days, among them a felt fact about
    Mike and an agreed way of working; changed by Mike, 2026-10-10, loosely held. That holds for
    every memory whose date came after the day it was written, not only reminders. (Group 1a.)
-2. **PARKED — engaged footnote credit** (G1b, #371). Parked by Mike, 2026-10-10:
+3. **PARKED — engaged footnote credit** (G1b, #371). Parked by Mike, 2026-10-10:
    hand-labelled strict precision 0.17–0.33, lenient 0.60–0.78, below the 0.8 bar; the 09-14
    ruling ("never for being named in prose") stands in practice. Successor: an explicit `drewOn`
    field (planned). Not a reversal that shipped.
@@ -60,52 +72,52 @@ reverse older defaults and contract lines; those go to the rules audit.
 
 ### Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days
 
-3. **The forgetting curve and its numbers.** A power law, steep at first and flat later, with
+4. **The forgetting curve and its numbers.** A power law, steep at first and flat later, with
    each memory's own steepness set by its salience and half its feeling, its use, its returns
    and its kind. Why: a routine note should leave the working layer in about two days, a felt
    reading should last months, and a 0.7 fact about a year. Until now every memory faded on
    the same slow curve, so nothing left reach for ~100 lived days. (1a)
-4. **Below reach at 0.15.** Under it, a memory is left out of everything that comes up on its
+5. **Below reach at 0.15.** Under it, a memory is left out of everything that comes up on its
    own (turn recall, the links' pointers, the wake's work lines); asking deliberately still
-   finds it, listed after the main results as faded; using it, opening it or a dream replaying
+   finds it (facts mode: ranked with the rest, labelled faded — item 1); using it, opening it or a dream replaying
    it brings it back. The core never goes below reach. Why: forgetting in awareness, never in
    storage — strength has to change what comes to mind, or decay changes nothing anyone sees.
    (1a)
-5. **Exit after 14 lived days under the floor (was 90).** Exit means ARCHIVED, never deleted:
+6. **Exit after 14 lived days under the floor (was 90).** Exit means ARCHIVED, never deleted:
    the words stay, readable by id, and the journal is untouched. Nothing deletes a memory
    except Mike's own `counterparts remove`. Why: exit should follow reach; at 90 the first
    possible exit was lived day 91. If any later change would delete rows, it waits for Mike.
    (1a)
-6. **A dated memory holds until its date and fades steeply after.** See item 1. (1a)
-7. **Feeling sets how slowly a memory fades, not its band; `emotional` is out of the
+7. **A dated memory holds until its date and fades steeply after.** See item 2. (1a)
+8. **Feeling sets how slowly a memory fades, not its band; `emotional` is out of the
    salience average.** A feeling now counts once for height and once for steepness. Why:
    feeling was the one signal that told readings from changelog on the live store; it was
    being counted twice in height and barely in steepness. (1a)
-8. **Mood-matched recall turned down (weights 0, code kept), marked for re-test.** Why:
+9. **Mood-matched recall turned down (weights 0, code kept), marked for re-test.** Why:
    evidence from the old use metric (lifted memories used 1.3% vs 2.4%); re-test after Group
    1's engaged credit gives a real signal. Not a closed decision. (1c)
-9. **"Strongly felt" means above the word's own default, or 0.6 and over**, so the core's fast
+10. **"Strongly felt" means above the word's own default, or 0.6 and over**, so the core's fast
    lane can open again (it shut when feeling defaults were capped at 0.55). (1c)
-10. **Encoding.** `note` becomes `remember` (with `note` kept as an alias for a release or
+11. **Encoding.** `note` becomes `remember` (with `note` kept as an alias for a release or
     two); the new end-of-session ask; salience by attention, not category; the defaults by
     what a memory is about. The `remember` description says to write in the moment, as things
     catch your attention; the ask is the backstop. (1c)
-11. **One model for "this replaces that".** "Newer in the same slot" is `changed`; one detector
+12. **One model for "this replaces that".** "Newer in the same slot" is `changed`; one detector
     (the write-time neighbours, plus status lineage or very high similarity) proposes, the
     dream confirms or undoes; the newest in a chain is what comes up on its own. (Group 2)
-12. **"Fade faster" is the existing `fade` multiplier**, not a new per-memory slope column.
+13. **"Fade faster" is the existing `fade` multiplier**, not a new per-memory slope column.
     (2/3)
-13. **The core.** A recurrence lane (back on several days, across sessions, over weeks);
+14. **The core.** A recurrence lane (back on several days, across sessions, over weeks);
     identity means about me or us; after 60 lived days without coming back a core memory is
     FLAGGED "being reconsidered" (dashboard and wake) — demotion needs a decision, mine
     (awake or in the reflection) or Mike's, never automatic from disuse; both of us can retire
     a core memory directly. (3)
-14. **Folding.** A fold is a flag on `gist`, not a new verb; a fold starts at its sources'
+15. **Folding.** A fold is a flag on `gist`, not a new verb; a fold starts at its sources'
     strength; reverse provenance goes in a `derivations` table. (3)
-15. **The dream queue.** The whole queue ranked into tonight's top-K; a memory stays queued
+16. **The dream queue.** The whole queue ranked into tonight's top-K; a memory stays queued
     until it is below reach; the reflection runs in its own context. (3)
-16. **Cards as views**, not built in v1 (Mike's direction, 2026-10-10). (3)
-17. **A missed plain reminder is told once, later, within its 7-day grace.** (5)
+17. **Cards as views**, not built in v1 (Mike's direction, 2026-10-10). (3)
+18. **A missed plain reminder is told once, later, within its 7-day grace.** (5)
 
 ### Decided by the Group 1a builder, 2026-10-10, lightly held; revisit after ~5 lived days
 
@@ -176,10 +188,10 @@ were refined by b2+f8 at the review of #369, named where they were):
   reach is 0.15, and a routine work event should stay in reach about a lived day.
 - **A feeling alone lifts a memory at most to 0.49 while its own salience is under the
   semantic floor** (`FELT_HEIGHT_CAP`); at or above the floor it keeps the whole lift. Why:
-  feeling sets how slowly a memory fades, not its band (item 7), and with the 0.40 default a
+  feeling sets how slowly a memory fades, not its band (item 8), and with the 0.40 default a
   strong feeling would otherwise start a silent memory semantic. It holds for claimed
   memories too: one claimed under 0.5 with a strong feeling now starts episodic.
-- **"Strongly felt" (item 9) is 0.6, or 0.1 above the word's own default and at least 0.5.**
+- **"Strongly felt" (item 10) is 0.6, or 0.1 above the word's own default and at least 0.5.**
   The 0.1 is review 08's own reading; the 0.5 floor is b2+f8's (review of #369, lightly
   held): a calm word recorded at 0.45 is above its default, not strongly felt. A word nobody
   weighed still never opens the fast lane.
