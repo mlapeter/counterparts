@@ -145,8 +145,21 @@ function updateClaims(dataDir: string, fn: (current: string | undefined) => stri
   // WHICH FILE this attempt meets, so a failure can tell "this file is bad"
   // from "a twin moved it while this attempt had it open".
   const met = fileIdentity(path);
+  // A JOURNAL A TWIN REMOVED (2026-10-10): one more try, once per write
+  // (`sidecarGone`). Only ever before this write's own commit: one its commit
+  // met has landed (`transactClaims`), so no try reads its own claim as a twin's.
+  let oneMore = true;
+  const transact = (): void => {
+    try {
+      transactClaims(path, fn);
+    } catch (err) {
+      if (!oneMore || !sidecarGone(err)) throw err;
+      oneMore = false;
+      transactClaims(path, fn);
+    }
+  };
   try {
-    transactClaims(path, fn);
+    transact();
     return { setAside: null };
   } catch (err) {
     let setAside: string | null = null;
@@ -167,9 +180,24 @@ function updateClaims(dataDir: string, fn: (current: string | undefined) => stri
       // winner about 1 round in 1,500).
       else if (!awaitSetAside(path, met) && fileIdentity(path) === met) throw err;
     }
-    transactClaims(path, fn);
+    transact();
     return { setAside };
   }
+}
+
+/**
+ * SQLITE_IOERR_DELETE_NOENT: SQLite went to delete the file's rollback journal
+ * and found it gone — here, a twin removed it first. Measured (2026-10-10, Linux):
+ * a twin whose connection is still on the bad file a set-aside moved meets the NEW
+ * file's journal by its name, finds no lock on its own file, plays the journal
+ * back into the old one and deletes it, and the commit that made the journal
+ * then fails with this, its pages written. Nothing is wrong with the file, so
+ * the write runs once more. bun names it in `code`; `node:sqlite` gives the
+ * extended number (`SQLITE_IOERR` | 23 << 8).
+ */
+function sidecarGone(err: unknown): boolean {
+  const e = err as { code?: unknown; errcode?: unknown } | null | undefined;
+  return e?.code === "SQLITE_IOERR_DELETE_NOENT" || e?.errcode === 5898;
 }
 
 /** The prefix and suffix of a claims file set aside as unreadable, beside the live one. */
@@ -385,11 +413,22 @@ function transactClaims(path: string, fn: (current: string | undefined) => strin
     db.exec("PRAGMA synchronous = NORMAL");
     db.exec("PRAGMA wal_autocheckpoint = 100");
     db.exec(CLAIMS_DDL);
-    db.transaction(() => {
-      const row = db.get<{ value: string }>("SELECT value FROM claims WHERE key = ?", CLAIMS_ROW);
-      const next = fn(row?.value);
-      if (next !== undefined) db.run("INSERT OR REPLACE INTO claims (key, value) VALUES (?, ?)", CLAIMS_ROW, next);
-    });
+    let committing = false;
+    try {
+      db.transaction(() => {
+        const row = db.get<{ value: string }>("SELECT value FROM claims WHERE key = ?", CLAIMS_ROW);
+        const next = fn(row?.value);
+        if (next !== undefined) db.run("INSERT OR REPLACE INTO claims (key, value) VALUES (?, ?)", CLAIMS_ROW, next);
+        committing = true;
+      });
+    } catch (err) {
+      // LANDED: SQLite deletes a rollback journal as the last step of a commit,
+      // after the pages are written, so a commit that found its journal gone
+      // (`sidecarGone`; WAL commits delete nothing, so only on a connection a
+      // contended conversion left in the rollback journal) wrote the claim. A
+      // try again would read that claim as a twin's and deliver nowhere.
+      if (!committing || !sidecarGone(err)) throw err;
+    }
   } finally {
     db.close();
   }
