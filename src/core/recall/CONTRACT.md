@@ -232,7 +232,12 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    rather than structural (the memory is fetched); for every other uncued memory it is
    structural as before. Tests: `association-build2.test.ts` › "1. quiet pointers".*
 6. **[M]** Tiers are disjoint and capped. *(Quiet pointers have their own cap,
-   `LINK_POINTERS_MAX`, beside `MAX_FOOTNOTES`; 2026-09-28.)*
+   `LINK_POINTERS_MAX`, beside `MAX_FOOTNOTES`; 2026-09-28.)* *(2026-10-10, Group 1, review
+   03 C2: no tier — surfaced, footnote or quiet pointer — offers a memory BELOW REACH,
+   strength under physics' `REACH` (0.15), the identity band excepted. Prefiltered on box
+   3's ranking in the token and semantic top-K, rechecked exactly per candidate;
+   deliberate recall still lists such a memory after its main results, labelled faded.
+   `NOTES.md` §29.)*
 7. **[M]** Ambiguous handles fire at reduced weight AND train nothing — both halves, with a
    test that greps for the consumer, not the comment (scar §2.6).
 8. **[M]** A deliberate SEARCH trains nothing and deposits no memory (2026-10-03: stated

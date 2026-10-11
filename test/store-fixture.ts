@@ -136,3 +136,52 @@ export function makeBodyUnreadable(store: Store, id: string): string {
   }
   return id;
 }
+
+/**
+ * THE SEAM'S DEFAULT, FOR A FIXTURE (2026-10-10, Group 1). Production memories
+ * reach the store through a mint seam that always leaves a claim behind
+ * (`physics AUTHORED_DEFAULT_CLAIM`, a sweep's capped claim, a dream's
+ * ceiling); a raw `store.put` with no `salience` claims nothing, so its
+ * strength is 0 — and since physics' `REACH` line (0.15), a memory at 0 is
+ * below reach from birth: ambient recall never offers it and deliberate recall
+ * lists it as faded. Tests that put memories they expect recall to FIND wrap
+ * their store with this, so a `type: "memory"` put with no `salience` claims
+ * `claimed` (0.5: a fact or a skill stays in reach across any clock a test
+ * advances). An explicit `salience` is passed through untouched, so a test
+ * about salience still means what it says. Returns the same store.
+ */
+export function findable<T extends Pick<Store, "put">>(store: T, claimed = 0.5): T {
+  const put = store.put.bind(store);
+  (store as { put: Store["put"] }).put = ((input: Parameters<Store["put"]>[0]) =>
+    put(input.type === "memory" && input.salience === undefined ? { ...input, salience: { claimed } } : input)) as Store["put"];
+  return store;
+}
+
+/**
+ * TURN A CURRENT FILE BACK INTO A v12 ONE (2026-10-10): drop what store v13
+ * added — its four triggers and its indexes first (SQLite will not drop a
+ * column an index or a trigger names), then the `derivations` table and the
+ * six columns. For the fixtures that fake an OLDER file by stripping a fresh
+ * one: without this, the v13 columns sit before the re-added ones and a
+ * migrated store's `table_info` cannot match a fresh one's. The stamp is the
+ * caller's to set.
+ */
+export function stripV13(db: { run(sql: string): unknown }): void {
+  for (const t of ["memories_next_change_inputs", "feelings_next_change_insert", "feelings_next_change_update", "feelings_next_change_delete"]) {
+    db.run(`DROP TRIGGER IF EXISTS ${t}`);
+  }
+  for (const i of ["memories_next_change", "memories_dream_shown", "memories_birth", "feelings_created", "edges_last_day", "edges_weight", "edges_dst", "derivations_parent"]) {
+    db.run(`DROP INDEX IF EXISTS ${i}`);
+  }
+  db.run("DROP TABLE IF EXISTS derivations");
+  for (const [t, c] of [
+    ["memories", "next_change_day"],
+    ["memories", "dream_shown_day"],
+    ["feelings", "recorded_day"],
+    ["returns", "session"],
+    ["edges", "source"],
+    ["edges", "reinforced"],
+  ] as const) {
+    db.run(`ALTER TABLE ${t} DROP COLUMN ${c}`);
+  }
+}

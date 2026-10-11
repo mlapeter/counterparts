@@ -58,6 +58,8 @@ export interface StrengthCache {
   /** Never opens anything that is not already open — a miss is `undefined`. */
   readAll(): Map<string, StrengthRow>;
   write(rows: readonly StrengthRow[]): void;
+  /** Forget rows the turn-down no longer ranks (2026-10-10). Optional: a cache without it keeps them. */
+  drop?(ids: readonly string[]): void;
   close(): void;
 }
 
@@ -132,6 +134,7 @@ export function sqliteStrengthCache(dir: string): StrengthCache {
 export interface RankingWriter {
   setRanking?(rows: readonly StrengthRow[]): void;
   rankingAll?(): Map<string, StrengthRow>;
+  dropRanking?(ids: readonly string[]): void;
 }
 
 export function supportsRanking(
@@ -146,6 +149,10 @@ export function storeRankingCache(store: RankingWriter): StrengthCache {
     write(rows: readonly StrengthRow[]): void {
       if (rows.length === 0) return;
       store.setRanking?.(rows);
+    },
+    drop(ids: readonly string[]): void {
+      if (ids.length === 0) return;
+      store.dropRanking?.(ids);
     },
     close: () => {
       // The store owns the connection and closes it with the store.
@@ -167,6 +174,9 @@ export function memoryStrengthCache(seed: readonly StrengthRow[] = []): Strength
     write(batch: readonly StrengthRow[]): void {
       for (const r of batch) rows.set(r.id, { ...r });
       self.writes += batch.length;
+    },
+    drop(ids: readonly string[]): void {
+      for (const id of ids) rows.delete(id);
     },
     close: () => {
       /* nothing to close */

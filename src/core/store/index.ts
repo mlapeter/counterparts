@@ -60,7 +60,7 @@ import type { AddFeelingsResult, FeelingInput, FeelingRow, FeelingSource } from 
 import { checkTraitsRepaired } from "./traits.js";
 import type { TraitRepair } from "./traits.js";
 import type { TraitInput, TraitRead, TraitRow, TraitSource } from "./traits.js";
-import { creditReturn, creditUse } from "../physics/index.js";
+import { TUNABLES as PHYSICS_TUNABLES, creditReturn, creditUse } from "../physics/index.js";
 import type { CreditOutcome, ReturnOutcome, UseTier } from "../physics/index.js";
 import type { Db, Statement, WalFold } from "./db.js";
 import { foldWal, isLocked, wroteOn } from "./db.js";
@@ -69,9 +69,11 @@ import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
 import {
   DEFAULT_RETENTION_DAYS,
+  RECURRING_META,
   SCHEMA_VERSION,
   olderFirst,
   openOperational,
+  reachExempt,
   rowToPhysics,
   rowTombstoned,
 } from "./operational.js";
@@ -198,6 +200,10 @@ export {
   V10_UPGRADE_KEY,
   V11_UPGRADE_KEY,
   V12_UPGRADE_KEY,
+  V13_UPGRADE_KEY,
+  backfillRecordedDays,
+  datedHold,
+  reachExempt,
   carriedPairId,
   refileFeelingsV11,
   refileStrayV10Cores,
@@ -492,7 +498,7 @@ export interface DatedMemory {
  * anchor as a one-off date already passed. Only a DAY repeats; on a month, a
  * range or a year the key is inert. `prospective/` is its reader.
  */
-export const RECURRING_META = "recurring";
+export { RECURRING_META };
 
 /**
  * The repeat a ROW carries, or null: a day `event_date` and a recurrence word
@@ -879,6 +885,10 @@ export const WRITE_METHODS = [
   "undoContradictionSettle",
   // v12 (2026-10-03): a card's birth and the backfill link what names it.
   "linkSubjects",
+  // v13 (2026-10-10, the turn-down): derived bookkeeping and box 3.
+  "dropRanking",
+  "setNextChangeDays",
+  "clearNextChangeDays",
 ] as const;
 
 export type WriteMethod = (typeof WRITE_METHODS)[number];
@@ -3206,7 +3216,7 @@ export class Store {
        *  moment's, so a merge does not make it new (as a trait nudge's,
        *  below); before, every feeling a merge carried was dated the merge
        *  night, and the reflection's weeks of feelings read it as felt then. */
-      provenance?: readonly ({ source?: string | null; recordedLater?: string | null; createdAt?: number | null } | undefined)[];
+      provenance?: readonly ({ source?: string | null; recordedLater?: string | null; createdAt?: number | null; recordedDay?: number | null } | undefined)[];
     } = {},
   ): AddFeelingsResult {
     const { rows, notices, repairs } = checkFeelings(inputs);
@@ -3218,9 +3228,12 @@ export class Store {
       const insert = this.ops.prepare(
         `INSERT INTO feelings
            (id, memory_id, whose, core, emotion, other_word, strength, beneath_id, carried_by, model,
-            created_at, updated_at, source, recorded_later, valence)
-         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)`,
+            created_at, updated_at, source, recorded_later, valence, recorded_day)
+         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
+      // v13: the lived day it is recorded on — what its softening counts from
+      // (physics §5.10, review 02 C5). A merge carries each original's own.
+      const today = this.livedDay();
       const later = opts.recordedLater !== undefined && opts.recordedLater.trim().length > 0 ? opts.recordedLater.trim() : null;
       const source = opts.source ?? "session";
       rows.forEach((r, i) => {
@@ -3241,6 +3254,7 @@ export class Store {
           own?.source ?? source,
           own === undefined ? later : (own.recordedLater ?? null),
           r.valence,
+          typeof own?.recordedDay === "number" && Number.isFinite(own.recordedDay) ? own.recordedDay : today,
         );
       });
       // THEN the links, so an input may sit on one listed after it.
@@ -3689,6 +3703,88 @@ export class Store {
       for (const r of rows) st.run(r.id, r.strength, r.band, r.day);
     });
     this.emit("store.ranking", undefined, { count: rows.length });
+  }
+
+  /**
+   * Drop rows from box 3's ranking (2026-10-10): a row the turn-down no longer
+   * ranks — a chapter's copy, a handoff — must not sit there at the strength
+   * it was last read at, or the ambient prefilter (`search`'s `minStrength`)
+   * would keep reading it as below reach.
+   */
+  dropRanking(ids: readonly string[]): void {
+    this.assertWritable("dropRanking");
+    if (ids.length === 0) return;
+    this.cache.transaction(() => {
+      const st = this.cache.prepare("DELETE FROM ranking WHERE memory_id = ?");
+      for (const id of ids) st.run(id);
+    });
+  }
+
+  /**
+   * THE TURN-DOWN'S WORK LIST (2026-10-10, review 13 C2): live rows whose
+   * next-change day has come (`physics#nextChangeDay`), or that have none yet
+   * (NULL — never looked at, or an input of the curve was written since and a
+   * trigger cleared it). Ordered by id, for the phase's cursor. Indexed
+   * (`memories(archived, next_change_day)`).
+   */
+  turnDownDue(day: number): string[] {
+    return this.ops
+      .all<{ id: string }>(
+        "SELECT id FROM memories WHERE archived = 0 AND (next_change_day IS NULL OR next_change_day <= ?) ORDER BY id",
+        day,
+      )
+      .map((r) => r.id);
+  }
+
+  /**
+   * Write the turn-down's next-change days back (v13). Derived bookkeeping, not
+   * an input of anything: no event, no `updated_at`, and the column is outside
+   * the trigger's list, so writing it clears nothing.
+   */
+  setNextChangeDays(rows: readonly { id: string; day: number }[]): void {
+    this.assertWritable("setNextChangeDays");
+    if (rows.length === 0) return;
+    this.ops.transaction(() => {
+      const st = this.ops.prepare("UPDATE memories SET next_change_day = ? WHERE id = ?");
+      for (const r of rows) st.run(r.day, r.id);
+    });
+  }
+
+  /**
+   * Rows born on lived day `day`, counted by kind — every row but a chapter
+   * (`type = 'episode'`), archived ones included: the sleep census's
+   * "created" (`sleep/cycle.ts#census`), as one grouped read.
+   */
+  bornOn(day: number): { kind: Kind; n: number }[] {
+    return this.ops.all<{ kind: Kind; n: number }>(
+      "SELECT kind, COUNT(*) AS n FROM memories WHERE birth_day = ? AND type != 'episode' GROUP BY kind",
+      day,
+    );
+  }
+
+  /**
+   * HOW MANY LIVE MEMORIES ARE BELOW REACH NOW (2026-10-10, review 03 C3: the
+   * dashboard counts below reach and exited apart) — as the last decay pass
+   * read them (box 3's `ranking`, a pass stale at most): live rows that are not
+   * chapters, ranked under physics' `REACH` and not in the identity band. A
+   * chapter's copy and a handoff have no ranking row, so they are never
+   * counted. Exited (archived) rows are counted by the prune's own records.
+   */
+  belowReachCount(): number {
+    const ranking = this.rankingAll();
+    let n = 0;
+    for (const r of this.ops.all<MemoryRow>("SELECT * FROM memories WHERE archived = 0 AND type != 'episode'")) {
+      if (reachExempt(r)) continue;
+      const rk = ranking.get(r.id);
+      if (rk !== undefined && rk.band !== "identity" && rk.strength < PHYSICS_TUNABLES.REACH) n += 1;
+    }
+    return n;
+  }
+
+  /** Every row's next-change day forgotten (a new curve: the turn-down looks at all of them once). */
+  clearNextChangeDays(): void {
+    this.assertWritable("clearNextChangeDays");
+    this.ops.run("UPDATE memories SET next_change_day = NULL WHERE next_change_day IS NOT NULL");
   }
 
   ranking(id: string): RankingRow | undefined {
@@ -4146,8 +4242,11 @@ export class Store {
     // `CORE_FAST_ACCEPTS_REFLECTED_FEELING` is set (physics §5.3). Since
     // 2026-10-02 an awake feeling-now (`awake`) is left out the same way
     // (`LATER_FEELING_SOURCES`).
+    // v13 (2026-10-10): `today_date`, the store's calendar today, so the
+    // dated hold (`operational.ts#datedHold`) reads off this one statement.
     return this.ops.get<MemoryRow & FeelingPeak>(
       `SELECT m.*,
+              (SELECT value FROM meta WHERE key = 'lastActiveDate') AS today_date,
               (SELECT MAX(f.strength) FROM feelings f WHERE f.memory_id = m.id) AS feeling_peak,
               (SELECT MAX(f.strength) FROM feelings f
                 WHERE f.memory_id = m.id AND (f.source IS NULL OR f.source NOT IN (${LATER_SQL}))) AS feeling_peak_lived
@@ -4933,7 +5032,7 @@ export class Store {
    * session start without the full scan (`self/#assemble`). The SQL match is
    * the loose text match `planCandidates` uses, and the caller confirms on the
    * prose. Answered by the partial index `memories_open` where the store has
-   * it (a fresh store, or one migrated by a later schema change); a plain scan
+   * it (a fresh store, or one upgraded to v13, which it rides); a plain scan
    * of one column where it does not. Oldest-born first, then id.
    */
   openThreadIds(): string[] {
@@ -5052,8 +5151,10 @@ export class Store {
    * (`cache.ts#LengthNorm`); recall passes its own CAL values, and the two
    * callers that are not recall take the default.
    */
-  search(cue: string, limit = 10, norm: LengthNorm = DEFAULT_LENGTH_NORM): Hit[] {
-    return searchIndex(this.cache, cue, limit, norm);
+  search(cue: string, limit = 10, norm: LengthNorm = DEFAULT_LENGTH_NORM, opts: { minStrength?: number } = {}): Hit[] {
+    // `minStrength` (2026-10-10): the ambient prefilter — below-reach rows, as
+    // the last decay pass read them, take no slot (`cache.ts#reachJoin`).
+    return searchIndex(this.cache, cue, limit, norm, opts.minStrength ?? null);
   }
 
   /**
@@ -5067,13 +5168,13 @@ export class Store {
     return docFrequency(this.cache, tokens);
   }
 
-  nearestTo(vec: readonly number[], limit = 10): Hit[] {
+  nearestTo(vec: readonly number[], limit = 10, opts: { minStrength?: number } = {}): Hit[] {
     // A held mismatch ranks nothing: the rows are another model's, and a
     // cosine across two models is a number that means nothing (§2.15). A cache
     // from a newer build ranks nothing either: its vectors are not this
     // build's to interpret.
     if (!this.rankable(vec.length, "nearestTo")) return [];
-    return nearest(this.cache, vec, limit);
+    return nearest(this.cache, vec, limit, opts.minStrength ?? null);
   }
 
   /**

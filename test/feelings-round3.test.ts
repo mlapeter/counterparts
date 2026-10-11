@@ -244,7 +244,7 @@ describe("re-feeling while awake: note's feelingsNow", () => {
       store.addFeelings(id, [{ whose: "self", core: "uneasy", emotion: "afraid", strength: 0.3 }]);
 
       // Not shown in this session yet: refused, with the way in.
-      const early = await s.call("note", { feelingsNow: [{ id, core: "calm", emotion: "relieved", strength: 0.9, carried_by: "It held." }] });
+      const early = await s.call("remember", { feelingsNow: [{ id, core: "calm", emotion: "relieved", strength: 0.9, carried_by: "It held." }] });
       expect(early.isError).toBe(true);
       expect(early.structuredContent["reason"]).toBe("feelings-now-only");
       const first = (early.structuredContent["feelingsNow"] as { results: { reason: string; detail?: string }[] }).results[0];
@@ -253,7 +253,7 @@ describe("re-feeling while awake: note's feelingsNow", () => {
 
       // Read it, then feel it again.
       await s.call("recall", { ids: [id] });
-      const now = await s.call("note", { feelingsNow: [{ id, core: "calm", emotion: "relieved", strength: 0.9, carried_by: "Every feeling came through; it held." }] });
+      const now = await s.call("remember", { feelingsNow: [{ id, core: "calm", emotion: "relieved", strength: 0.9, carried_by: "Every feeling came through; it held." }] });
       expect(now.isError).not.toBe(true);
       expect(now.structuredContent["stored"]).toBe(false);
       const out = now.structuredContent["feelingsNow"] as { recorded: number; results: { reason: string }[] };
@@ -267,7 +267,7 @@ describe("re-feeling while awake: note's feelingsNow", () => {
       expect(rows[1]?.carried_by.startsWith(`looking back, awake, ${store.today()}: `)).toBe(true);
 
       // Once a calendar day per memory.
-      const again = await s.call("note", { feelingsNow: [{ id, core: "warm", emotion: "grateful", strength: 0.6 }] });
+      const again = await s.call("remember", { feelingsNow: [{ id, core: "warm", emotion: "grateful", strength: 0.6 }] });
       expect(((again.structuredContent["feelingsNow"] as { results: { reason: string }[] }).results[0])?.reason).toBe("once-a-day");
       expect(store.feelingsFor(id).length).toBe(2);
 
@@ -279,7 +279,7 @@ describe("re-feeling while awake: note's feelingsNow", () => {
       // With text too: the note lands and the feeling beside it.
       const other = mem(s.counterpart, "Mike's first message about the garden, months ago.");
       await s.call("recall", { ids: [other] });
-      const both = await s.call("note", {
+      const both = await s.call("remember", {
         text: "Mike told me the garden beds came in, which settled the week.",
         feelingsNow: [{ id: other, whose: "owner", core: "warm", emotion: "fond", carried_by: "He brought it up again, fondly." }],
       });
@@ -287,7 +287,7 @@ describe("re-feeling while awake: note's feelingsNow", () => {
       expect((both.structuredContent["feelingsNow"] as { recorded: number }).recorded).toBe(1);
       expect(store.feelingsFor(other)[0]).toMatchObject({ whose: "owner", source: "awake" });
 
-      const bad = await s.call("note", { feelingsNow: { id } });
+      const bad = await s.call("remember", { feelingsNow: { id } });
       expect(bad.structuredContent["reason"]).toBe("feelings-now-malformed");
     } finally {
       s.counterpart.close();
@@ -397,7 +397,7 @@ describe("feelingsNow: what counts as shown (review of #316)", () => {
       const delivered = (got.structuredContent["memories"] as { id: string }[]).map((m) => m.id);
       const waiting = (got.structuredContent["waiting"] as string[] | undefined) ?? [];
       expect(waiting.length).toBeGreaterThan(0);
-      const res = await s.call("note", {
+      const res = await s.call("remember", {
         feelingsNow: [
           { id: delivered[0], core: "calm", emotion: "settled" },
           { id: waiting[0], core: "calm", emotion: "settled" },
@@ -413,15 +413,15 @@ describe("feelingsNow: what counts as shown (review of #316)", () => {
       state.surfaced[loud] = { turn: 1, tier: "surfaced", trains: true };
       state.surfaced[quiet] = { turn: 1, tier: "footnoted", trains: true };
       saveGateState(store, state, 100);
-      const amb = await s.call("note", { feelingsNow: [{ id: loud, emotion: "content" }, { id: quiet, emotion: "content" }] });
+      const amb = await s.call("remember", { feelingsNow: [{ id: loud, emotion: "content" }, { id: quiet, emotion: "content" }] });
       expect((amb.structuredContent["feelingsNow"] as { results: { reason: string }[] }).results.map((r) => r.reason)).toEqual(["recorded-later", "not-shown-or-gone"]);
 
       // A write's neighbours were shown.
       const near = mem(s.counterpart, "Mike planted the tomatoes along the south fence in the spring.");
-      const wrote = await s.call("note", { text: "Mike planted tomatoes along the south fence this spring." });
+      const wrote = await s.call("remember", { text: "Mike planted tomatoes along the south fence this spring." });
       const neighbours = ((wrote.structuredContent["neighbours"] as { id: string }[] | undefined) ?? []).map((n) => n.id);
       expect(neighbours).toContain(near);
-      const nb = await s.call("note", { feelingsNow: [{ id: near, core: "warm", emotion: "fond" }] });
+      const nb = await s.call("remember", { feelingsNow: [{ id: near, core: "warm", emotion: "fond" }] });
       expect((nb.structuredContent["feelingsNow"] as { recorded: number }).recorded).toBe(1);
     } finally {
       s.counterpart.close();
@@ -431,7 +431,7 @@ describe("feelingsNow: what counts as shown (review of #316)", () => {
     const t = openServer({ dir, session: "s-other", scope: SCOPE, owner: true });
     try {
       const any = t.counterpart.store.list({ type: "memory", archived: false })[0] as string;
-      const res = await t.call("note", { feelingsNow: [{ id: any, emotion: "wistful", core: "sad" }] });
+      const res = await t.call("remember", { feelingsNow: [{ id: any, emotion: "wistful", core: "sad" }] });
       expect((res.structuredContent["feelingsNow"] as { results: { reason: string }[] }).results[0]?.reason).toBe("not-shown-or-gone");
     } finally {
       t.counterpart.close();
@@ -445,7 +445,7 @@ describe("feelingsNow: what counts as shown (review of #316)", () => {
     try {
       const id = mem(s.counterpart, "The night the install re-filed the feelings.");
       await s.call("recall", { ids: [id] });
-      const res = await s.call("note", { text: "ok", feelingsNow: [{ id, core: "calm", emotion: "relieved" }] });
+      const res = await s.call("remember", { text: "ok", feelingsNow: [{ id, core: "calm", emotion: "relieved" }] });
       expect(res.structuredContent["stored"]).not.toBe(true);
       expect((res.structuredContent["feelingsNow"] as { recorded: number }).recorded).toBe(1);
       expect(res.isError).not.toBe(true);

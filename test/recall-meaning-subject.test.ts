@@ -218,7 +218,7 @@ describe("a card named with a common word (review of #334)", () => {
       chunkRef: "test:will",
       day: 0,
     });
-    const noted = (await s.call("note", { text: "Will runs the bike shop on the corner and fixed the courier bike." }))
+    const noted = (await s.call("remember", { text: "Will runs the bike shop on the corner and fixed the courier bike." }))
       .structuredContent as Record<string, unknown>;
     expect(noted["stored"]).toBe(true);
   });

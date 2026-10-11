@@ -48,7 +48,7 @@
  * claim is a repeat of which element — that matcher is `remember/`'s `updates:`
  * resolution, upstream, and this file does not write a second one.
  */
-import { TUNABLES as PHYSICS, clampSalienceAtSeam } from "./physics/index.js";
+import { TUNABLES as PHYSICS, clampSalienceAtSeam, defaultClaimFor } from "./physics/index.js";
 import { CUE_MODE_META, DATE_FROM_META, RECURRING_META } from "./prospective/index.js";
 import type { Proposal } from "./remember/index.js";
 import { isDay, isRecurrence, localDate } from "./time.js";
@@ -114,6 +114,12 @@ export interface MintOptions {
    * an author field.
    */
   writeUp?: { readonly session: string; readonly happenedOn: string | null };
+  /**
+   * What the memory is about, as the writer marked it — read ONLY for an
+   * unclaimed memory's default floor (`physics.defaultClaimFor`, 2026-10-10).
+   * The mark is recorded by the door after the mint, as before.
+   */
+  about?: string | null;
 }
 
 export interface MintResult {
@@ -171,7 +177,20 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
   // claimed nothing still deposited something LIVED, so the authored channel —
   // and only it — has a default floor. The fallback channel is untouched: its
   // ceiling and its interpreter-supplied dimensions stay exactly as they were.
-  const defaultClaim = channel === "authored" ? PHYSICS.AUTHORED_DEFAULT_CLAIM : null;
+  //
+  // BY WHAT IT IS ABOUT since 2026-10-10 (Group 1c, review 01 C2): a done work
+  // event starts lowest, the world higher, the owner, us and me highest —
+  // all below the semantic floor (`physics.defaultClaimFor`).
+  const byAbout =
+    channel === "authored"
+      ? defaultClaimFor({
+          about: opts.about ?? null,
+          status: proposal.facts?.status ?? null,
+          saidBy: proposal.facts?.saidBy ?? null,
+          kind: proposal.kind,
+        })
+      : null;
+  const defaultClaim = byAbout === null ? null : byAbout.claim;
   const clamp = clampSalienceAtSeam(dims, proposal.salience.claimed ?? null, ceiling, defaultClaim);
 
   // The RESOLVED id, and only when it resolved (sleep/INTERFACE-GAPS.md §4:
@@ -274,6 +293,7 @@ export function mintProposal(store: Store, proposal: Proposal, opts: MintOptions
     opts.onEvent?.("salience.defaulted", {
       id,
       channel,
+      class: byAbout?.class ?? null,
       computed: clamp.defaultEvent.computed,
       floor: clamp.defaultEvent.floor,
       applied: clamp.defaultEvent.applied,

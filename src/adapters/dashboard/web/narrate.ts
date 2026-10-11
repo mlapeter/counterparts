@@ -1117,8 +1117,8 @@ export const NARRATORS = {
   },
   "coverage.lapsed": (t) =>
     amber(
-      `Session ${s(t, "session") ?? "?"} left ${String(n(t, "pieces") ?? 0)} pieces nobody wrote up in two days of use; ` +
-        "they are no longer owed, and their text goes on the ordinary week. Nothing was deleted by this.",
+      `Session ${s(t, "session") ?? "?"} left ${String(n(t, "pieces") ?? 0)} pieces nobody wrote up while they were owed; ` +
+        "they are let go now — lost to memory — and their text goes on the ordinary week. Nothing was deleted by this.",
     ),
 
   // ── being argued with ──────────────────────────────────────────────────────

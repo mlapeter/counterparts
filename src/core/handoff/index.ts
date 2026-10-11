@@ -27,12 +27,15 @@
  *     is not a duplicate candidate.
  *   - **Invisible to `schemas/`**: `toMetaRecord` returns null for any role but
  *     entity, belief and current-state, so the index build skips it.
- *   - **It is let go by the ordinary means.** The row is NOT `protected` — the
- *     one thing the self page is and this is not. It is born in the episodic
- *     band with nothing on any salience dimension, so it decays like anything
- *     else and `physics#pruneVerdict` archives it once it is under the floor and
- *     has dwelt `D_FLOOR_DAYS`. Nothing new forgets it; the existing forgetting
- *     does.
+ *   - **It is let go by the ordinary means, once it has expired.** The row is
+ *     NOT `protected` — the one thing the self page is and this is not. It is
+ *     born in the episodic band with nothing on any salience dimension, so it
+ *     sits at the floor from birth. Since 2026-10-10 (review 03 C4b) the decay
+ *     pass does not rank it and the prune does not take it WHILE IT LIVES
+ *     (`sleep/types.ts#isLiveHandoffRow`): with a 14-day dwell the floor could
+ *     otherwise archive a pointer a session is still revising. Once expired,
+ *     `physics#pruneVerdict` archives it at the floor after its dwell, as
+ *     before.
  *
  * **One live pointer per directory PER SESSION** (2026-09-30). A session writing
  * again for the same scope is an ordinary `store.revise` of ITS OWN row, so the

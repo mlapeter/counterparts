@@ -1696,7 +1696,7 @@ export class Dreams {
               // later feeling stays one on the merged memory.
               // And WHEN (2026-10-02): a feeling is a moment's, so the merge
               // does not date it to tonight (the reflection reads feelings by week).
-              { provenance: feelings.map((f) => ({ source: f.source, recordedLater: f.recorded_later, createdAt: f.created_at })) },
+              { provenance: feelings.map((f) => ({ source: f.source, recordedLater: f.recorded_later, createdAt: f.created_at, recordedDay: f.recorded_day ?? null })) },
             );
           }
           // TRAIT NUDGES TRAVEL THE SAME WAY (v9): each keeps who recorded it,
@@ -2130,7 +2130,7 @@ export class Dreams {
       const raise = theirs(a) || theirs(b) ? ` It is about ${who}, or the two of you: raise it with ${who}.` : "";
       const when = c.dream_id === null ? "" : ` a dream on ${this.store.dream(c.dream_id)?.date ?? "a recent night"} flagged them;`;
       out.push(
-        `Counterparts: two memories disagree —${when} ${c.a} (the older) and ${c.b}. Look them up (recall by id) and settle which holds, awake: the note tool with settle {pair: ${c.id}, holds, how, why} — changed, corrected or open.${raise}`,
+        `Counterparts: two memories disagree —${when} ${c.a} (the older) and ${c.b}. Look them up (recall by id) and settle which holds, awake: the remember tool with settle {pair: ${c.id}, holds, how, why} — changed, corrected or open.${raise}`,
       );
       if (out.length >= 2) return out;
     }

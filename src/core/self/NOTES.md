@@ -1320,7 +1320,8 @@ version back: under dreaming `auto` the nightly run starts at the day's first pr
 first turn-end a minute later runs the cycle while the run is still going, and phase 7
 renders before the run's writer writes. Nine `self.briefing` rows for nine lived days.
 
-**What.** Two writes mark the wake behind (`behind.ts`): the page written (`revisePage`,
+**What.** Two writes mark the wake behind (`behind.ts`; every accepted memory and every
+handoff change since 2026-10-10, below): the page written (`revisePage`,
 `clearPage`; every writer arrives there) and memories accepted through `session_end` (the
 door both the Stop ask's answer and the next-session write-up take —
 `Counterpart.submitSessionEnd`). `Counterpart.refreshWake` re-renders through `rebrief`'s
@@ -1360,6 +1361,26 @@ about the same calendar yesterday as one that starts after (tested). The lived d
 the writer only in `dayMemories`' strength read (order within one day) and the `day`
 stamped on the claim row and on the page's `revisedDay` — the dashboard's `newerThanWake`
 compares that lived day with the last render's, and reads a same-day page as not newer.
+
+**Every accepted memory, and every handoff change (2026-10-10).** The two writes became
+all of them. A hermetic repro (notes 2026-10-10, wake staleness) showed a memory written
+with `note` — the most common write mid-session — left Still open, Nearby and Arriving as
+they were for up to a day, in every directory, a thread it closed included: the turn-end
+worker found no mark and rendered nothing. The mark moved from `submitSessionEnd` into
+`Counterpart.deposit`, on the accept arm, so every door marks it: `write-up` for
+`session_end`, the new `memory` for the rest. `writeHandoff`, `retireHandoff` and
+`clearHandoff` mark `handoff` when the write landed, because the bundle's room for the
+handoff pointer is sized at render time (`handoff/` does not import `self/`, so the mark
+sits in the Counterpart method). Cost: one render per turn that wrote something, ~0.45 s
+on the owner's store copy and ~3 s at 10x, in the detached worker, no model call; turns
+that wrote nothing cost nothing more. **The night run marks as before:** its main child's
+tools (dream, reflect, self_page, recall) never reach `deposit` — dream and reflection
+rows mint through their own doors — and the catch-up child's only tool, `session_end`,
+already marked `write-up`. So no skip for the night: it would need a flag threaded into
+the deposit context to change nothing observable, and `run-end` still renders once at the
+end. Still not covered: the morning burst (sessions started before the day's first
+turn-end read yesterday's bundle), sessions already open, and what other directories did
+today.
 
 **A gap, for now.** Once #286 (the per-date log) is merged, `counterpart.rebrief` — carrying
 `why` and `triggers` — is on the log's allowlist, but `counterpart.rebrief.refused`
@@ -1953,6 +1974,19 @@ right after "Still open", and nothing below it was poppable.
   to it. The part that rode the wake and could be crowded out was the same memory's
   Arriving line, which is now `due` in the list.
 
+## 2026-10-10 — the ask asks for attention; the cap yields to a due stretch (Group 1c)
+
+- **The Stop ask is 01 C1's, verbatim** (`claude-code/hooks.ts#stopAsk`): "hand back what
+  caught your attention since you last wrote, one idea each — what you read, what they
+  said, what happened". "Nothing worth keeping is a real answer" is gone (01 D4); `[]` is
+  said on the `memories` field. 474 characters at the widest (pin 480).
+- **`MAX_ASKS_PER_SESSION` yields to a due stretch** (01 C5, `episodes.ts#askDue`): at the
+  cap, the third arm (`due-unwritten`) still asks; turns and bytes do not. Measured: 84
+  cap refusals in 4 sessions, 35 while unwritten pieces existed. Decided by g1c-builder,
+  2026-10-10, lightly held; revisit after ~5 lived days. Why: 01 offered this or a cap of
+  20; this asks only when something is owed, and the arm paces itself (three pieces, half
+  an hour since the later of the first of them and the last ask).
+
 ## 2026-10-10 — the wake assembled at session start, and "Today, elsewhere"
 
 Mike's symptom: morning sessions in several directories repeated the same things and seemed
@@ -1980,10 +2014,10 @@ random-f8's, lightly held.
   the span buffer for each — on the session's latency path. A session under another
   ceiling than the one recorded delivers the published bundle.
 - **Still open from an index.** `Store#openThreadIds` (`meta LIKE '%"unresolved":true%'`, as
-  `planCandidates` matches it) answered by the partial index `memories_open`. No schema bump
-  (Mike, 10-09: batch format changes): the index is in `DDL_AFTER_COLUMNS`, so a fresh store
-  has it and an existing one gains it at its next migration; until then the read scans one
-  column (1.7 ms at a synthetic 9,250). `memories_created` (the day's counts) and
+  `planCandidates` matches it) answered by the partial index `memories_open`. No bump of its own
+  (Mike, 10-09: batch format changes): the index is in `DDL_AFTER_COLUMNS` and rides the v13
+  upgrade, so a fresh store and an upgraded one have it; a store stamped v13 before it existed
+  scans one column instead (1.7 ms at a synthetic 9,250). `memories_created` (the day's counts) and
   `memories_origin_ref` (the chapter walks' copies) the same way.
 - **"Today, elsewhere"** (`handoff/last-here.ts#todayElsewhereLines`, composed by
   `Counterpart#elsewhereFor`): the other directories worked in today — the host's registry

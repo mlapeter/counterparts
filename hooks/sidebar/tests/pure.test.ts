@@ -208,6 +208,8 @@ describe('the feed', () => {
     expect(keptRow('mcp__plugin_counterparts_counterparts__chapter', { title: 'Day 18' }, '{}', T0, 2)?.text).toBe('a chapter: Day 18')
     expect(keptRow('mcp__counterparts__session_end', { memories: [{ text: 'a' }, { text: 'b' }] }, '{"deposited":2}', T0, 3)?.text).toBe('2 memories from this session')
     expect(keptRow('mcp__counterparts__note', { text: 'x' }, '{"stored":false,"reason":"duplicate"}', T0, 4)).toBeNull()
+    // `remember` is the new name (2026-10-10); `note` still answers.
+    expect(keptRow('mcp__counterparts__remember', { title: 'Renamed door' }, '{"stored":true,"id":"mem_new00002"}', T0, 7)?.text).toBe('Renamed door')
     expect(keptRow('mcp__counterparts__recall', { question: 'x' }, '{}', T0, 5)).toBeNull()
     expect(keptRow('mcp__other__note', { text: 'x' }, '{}', T0, 6)).toBeNull()
   })

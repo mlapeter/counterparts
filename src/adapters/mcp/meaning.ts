@@ -78,7 +78,7 @@ import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, semantic
 import type { FeelingWhose, SemanticSource } from "../../core/recall/index.js";
 import { chapterAddress, chapterAt, chapterTimesOf, findIdentityCore, identityCoreName } from "../../core/self/index.js";
 import type { ChapterTimes } from "../../core/self/index.js";
-import { RECURRING_META, feelingValence, tokenize } from "../../core/store/index.js";
+import { RECURRING_META, feelingValence, feltDay, tokenize } from "../../core/store/index.js";
 import type { FeelingRow, MemoryRow } from "../../core/store/index.js";
 import { calendarOverlaps, daysBetween, isDay, isRecurrence, localDate, occurrenceOnOrAfter, readableRecurrence } from "../../core/time.js";
 import { RECALL_RESULT_CHARS, hasFaded } from "./deliberate.js";
@@ -431,7 +431,7 @@ export function meaningRecall(ctx: MeaningContext, question: string, opts: { pag
       const exact = every || [...ask.named].some((w) => answers.has(w));
       const core = !exact && stampCores(f).some((x) => ask.cores.has(x));
       if (!exact && !core) return;
-      const soft = softenedFeeling(f.strength, day - f.birth_day, feelingValence(f));
+      const soft = softenedFeeling(f.strength, day - feltDay(f), feelingValence(f));
       const value = (ask.strongest ? f.strength : soft) * (exact ? 1 : 0.5);
       if (!(value > 0)) return;
       if (usable(f.memory_id) === null) return;
@@ -961,7 +961,7 @@ function showEntry(
   };
 }
 
-/** Faded: one rule for both question modes (`deliberate.ts#hasFaded`, decay × fade ≤ `FADED_RETAINED`). */
+/** Faded: one rule for both question modes (`deliberate.ts#hasFaded`: below physics' `REACH`, 2026-10-10). */
 function isFaded(p: MemoryPhysics, day: number): boolean {
   return hasFaded(p, day);
 }

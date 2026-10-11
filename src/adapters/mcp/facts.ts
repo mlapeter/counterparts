@@ -50,9 +50,9 @@
  * opened (2026-10-09). An `open` pair says "disagrees with", an unsettled
  * older one "may be out of date".
  *
- * FADED. A matched memory that has kept `deliberate.ts#FADED_RETAINED` of
- * its strength or less (it was not used for a long while; `hasFaded`, the
- * rule meaning mode uses too) is listed AFTER the main results, a title line
+ * FADED. A matched memory BELOW REACH (physics `REACH`, 2026-10-10 — the line
+ * ambient recall leaves out; `hasFaded`, the rule meaning mode uses too) is
+ * listed AFTER the main results, a title line
  * each, labeled faded — never in the main slots. Journal chapters and schemas
  * never fade here. Opening one by id credits it, which brings it back.
  *

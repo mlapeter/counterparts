@@ -64,6 +64,7 @@ import { memoryDetail } from "../src/adapters/dashboard/web/views/memory.js";
 import { mechanismsView } from "../src/adapters/dashboard/web/views/mechanisms.js";
 import { run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
+import { findable } from "./store-fixture.js";
 
 let dir: string;
 const open: { close(): void }[] = [];
@@ -84,7 +85,8 @@ afterEach(() => {
 });
 
 function store(opts: Omit<StoreOptions, "dir"> = {}): Store {
-  const s = Store.open({ dir, ...opts });
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
+  const s = findable(Store.open({ dir, ...opts }));
   open.push(s);
   return s;
 }
@@ -130,10 +132,13 @@ describe("physics §5.10 — height, slope, and the feeling that softens", () =>
     const felt = note({ feelingPeak: 0.9 });
     expect(base(flat)).toBeCloseTo(0.25, 10);
     expect(base(felt)).toBeCloseTo(0.25 + TUNABLES.EMO_LIFT * 0.9, 10);
-    // A lone emotional score of 0.9 used to read as a mean of 0.3 and nothing more.
+    // A lone emotional score of 0.9 used to read as a mean of 0.3 and nothing
+    // more. Since 2026-10-10 it is not in `sal()`'s mean at all (review 02 C1):
+    // the claimed floor holds `sal` at 0.25, and the feeling reaches height once,
+    // through the lift.
     const lone = note({}, { emotional: 0.9 });
-    expect(sal(lone.salience)).toBeCloseTo(0.3, 10);
-    expect(base(lone)).toBeCloseTo(0.3 + TUNABLES.EMO_LIFT * 0.9, 10);
+    expect(sal(lone.salience)).toBeCloseTo(0.25, 10);
+    expect(base(lone)).toBeCloseTo(0.25 + TUNABLES.EMO_LIFT * 0.9, 10);
     // `sal()` itself is untouched: the turn gate (§9 G10) and revision force read it.
     expect(sal(felt.salience)).toBeCloseTo(sal(flat.salience), 10);
   });
@@ -154,8 +159,9 @@ describe("physics §5.10 — height, slope, and the feeling that softens", () =>
     // A silent note with the strongest possible feeling is not semantic at birth…
     expect(TUNABLES.AUTHORED_DEFAULT_CLAIM + TUNABLES.EMO_LIFT).toBeLessThan(TUNABLES.THETA_SEM);
     expect(strength(note({ feelingPeak: 1 }), 0)).toBeLessThan(TUNABLES.THETA_SEM);
-    // Softening is faster than the fact's own decay.
-    expect(TUNABLES.S_FEELING).toBeLessThan(TUNABLES.S_BASE);
+    // A felt memory outlasts its feeling's sting: the feeling softens on ~20
+    // lived days, a 0.25 note felt at 0.9 has a stability of ~109 (2026-10-10).
+    expect(TUNABLES.S_FEELING).toBeLessThan(stability(note({ feelingPeak: 0.9 })));
   });
 
   test("emotion counts toward identity ON PURPOSE, and only through the fast lane, and only about me (2026-09-26)", () => {
@@ -173,35 +179,39 @@ describe("physics §5.10 — height, slope, and the feeling that softens", () =>
     expect(base(at(1))).toBeGreaterThan(base(at(0)));
   });
 
-  test("slope: the same intensity lengthens stability", () => {
+  test("slope: the same intensity lengthens stability — through q, e^(G x EMO_Q x I) (2026-10-10)", () => {
     const s0 = stability(note());
-    expect(stability(note({ feelingPeak: 0.5 }))).toBeCloseTo(s0 * (1 + TUNABLES.EMO_SLOPE * 0.5), 10);
-    expect(stability(note({}, { emotional: 0.9 }))).toBeCloseTo(s0 * (1 + TUNABLES.EMO_SLOPE * 0.9), 10);
-    // A caller that passes no salience (the old two-field shape) reads unfelt.
-    expect(stability({ kind: "fact", uses: 0 })).toBeCloseTo(s0, 10);
+    const gain = (I: number): number => Math.exp(TUNABLES.STABILITY_GAIN * TUNABLES.EMO_Q * I);
+    expect(stability(note({ feelingPeak: 0.5 }))).toBeCloseTo(s0 * gain(0.5), 8);
+    expect(stability(note({}, { emotional: 0.9 }))).toBeCloseTo(s0 * gain(0.9), 8);
   });
 
   test("THE SIMULATION in physics NOTES, pinned: a silent fact at intensity 0 / 0.5 / 0.9 over 90 lived days", () => {
     const at = (I: number, d: number): number => strength(note({ feelingPeak: I }), d);
     const table = [0, 0.5, 0.9].map((I) => [0, 7, 30, 60, 90].map((d) => Number(at(I, d).toFixed(3))));
+    // Re-pinned 2026-10-10 on the power-law curve (physics §5.4): the unfelt
+    // note leaves reach in ~2 lived days; the felt ones last weeks to years.
     expect(table).toEqual([
-      [0.25, 0.222, 0.152, 0.092, 0.056],
-      [0.325, 0.296, 0.218, 0.146, 0.098],
-      [0.385, 0.355, 0.273, 0.193, 0.137],
+      [0.25, 0.074, 0.022, 0.012, 0.008],
+      [0.325, 0.246, 0.137, 0.087, 0.063],
+      [0.385, 0.362, 0.301, 0.248, 0.21],
     ]);
     const floorDay = (I: number): number => {
       let d = 0;
       while (at(I, d) >= TUNABLES.PHI_PRUNE) d += 1;
       return d;
     };
-    expect([floorDay(0), floorDay(0.5), floorDay(0.9)]).toEqual([152, 210, 258]);
+    expect([floorDay(0), floorDay(0.5), floorDay(0.9)]).toEqual([34, 334, 1975]);
   });
 
   test("the feeling softens faster than the fact — read-side only", () => {
     expect(softenedFeeling(0.9, 0)).toBeCloseTo(0.9, 10);
-    // ~14 lived days halves the feeling; the fact itself is still at ~0.79 of its height.
+    // ~14 lived days halves the feeling; the memory it is on — felt at 0.9 — is
+    // still at ~0.89 of its height (2026-10-10: an UNFELT default note is not,
+    // it has left reach by then).
     expect(softenedFeeling(0.9, 14) / 0.9).toBeLessThan(0.5);
-    expect(strength(note(), 14) / strength(note(), 0)).toBeGreaterThan(0.75);
+    const felt = note({ feelingPeak: 0.9 });
+    expect(strength(felt, 14) / strength(felt, 0)).toBeGreaterThan(0.75);
     expect(softenedFeeling(0.9, -3)).toBeCloseTo(0.9, 10);
     expect(softenedFeeling(0.9, Number.NaN)).toBeCloseTo(0.9, 10);
   });
@@ -239,8 +249,8 @@ describe("a lone emotional score is kept", () => {
 
   test("note: emotional alone reaches the row and lifts it", async () => {
     const s = server();
-    const felt = payload(await s.call("note", { text: "The day the kiln cracked and the whole month's work went with it.", emotional: 0.9 }));
-    const plain = payload(await s.call("note", { text: "The kiln shelf was moved to the left wall on Tuesday." }));
+    const felt = payload(await s.call("remember", { text: "The day the kiln cracked and the whole month's work went with it.", emotional: 0.9 }));
+    const plain = payload(await s.call("remember", { text: "The kiln shelf was moved to the left wall on Tuesday." }));
     const a = s.counterpart.store.physicsOf(felt["id"] as string);
     const b = s.counterpart.store.physicsOf(plain["id"] as string);
     expect(a.salience.emotional).toBe(0.9);
@@ -357,7 +367,7 @@ describe("the wheel's words from real use, blends and aliases", () => {
   test("the MCP reply says 'kept as your own word' and suggests only when close", async () => {
     const s = openServer({ dir, scope: "/tmp/emotion-project", owner: true });
     open.push({ close: () => s.counterpart.close() });
-    const out = (await s.call("note", {
+    const out = (await s.call("remember", {
       text: "The glaze notes finally make sense after the long evening going through them.",
       feelings: [
         { whose: "self", core: "calm", emotion: "unclenched", strength: 0.5 },
@@ -392,6 +402,7 @@ function feeling(over: Partial<FeelingRow> & { whose: string; core: string; emot
     model: null,
     created_at: 0,
     updated_at: 0,
+    recorded_day: null,
     source: "session",
     recorded_later: null,
     valence: null,
@@ -410,8 +421,24 @@ const mood = (byPerson: Record<string, number[]>, sinceMs = 10 * HOUR): Mood => 
 const SAD = -0.6;
 const HAPPY = 0.7;
 
+/**
+ * MOOD WEIGHTS ARE 0 BY DEFAULT since 2026-10-10 (review 02 C3, decided by
+ * b2+f8, lightly held: lifted memories were used less, 1.3% vs 2.4%). The code
+ * is kept for a re-test, so these tests run it at the weights it had.
+ */
+const MOOD_ON = { MOOD_SAME_WEIGHT: 0.3, MOOD_CROSS_WEIGHT: 0.1 } as const;
+
+describe("mood-matching — off by default (2026-10-10)", () => {
+  test("both weights are 0, so a default recall lifts nothing by mood", () => {
+    expect(RECALL.MOOD_SAME_WEIGHT).toBe(0);
+    expect(RECALL.MOOD_CROSS_WEIGHT).toBe(0);
+    const now = mood({ owner: [HAPPY] });
+    expect(moodLift([feeling({ whose: "owner", core: "happy", emotion: "joyful", strength: 0.8 })], now, 0, RECALL)).toBe(0);
+  });
+});
+
 describe("mood-matching — the lift (recall G18)", () => {
-  const t = RECALL;
+  const t = { ...RECALL, ...MOOD_ON };
 
   test("same person > the other person > no match", () => {
     const now = mood({ owner: [HAPPY] });
@@ -521,7 +548,7 @@ describe("mood-matching never admits an uncued memory", () => {
 
     // No "the" in the turn: it is a (weak) cue, and it would reach every memory.
     const turn = { sessionId: "s1", text: "Any kiln news this week?", day: 0 };
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s, owner: true, tunables: MOOD_ON });
     const before = r.build({ ...turn, sessionId: "before" }).decision;
 
     // Ten days on, the owner records feeling low — the mood, on a memory the turn never names.
@@ -539,9 +566,9 @@ describe("mood-matching never admits an uncued memory", () => {
     expect(v(before, own)?.mood).toBeUndefined();
     // A low mood, low memories: a quarter of the lift (MOOD_LOW_LOW_WEIGHT).
     const low = RECALL.MOOD_LOW_LOW_WEIGHT;
-    expect(v(after, own)?.mood).toBeCloseTo(RECALL.MOOD_SAME_WEIGHT * 0.8 * low, 10);
-    expect((v(after, own)?.sal ?? 0) - (v(before, own)?.sal ?? 0)).toBeCloseTo(RECALL.MOOD_SAME_WEIGHT * 0.8 * low, 10);
-    expect(v(after, cross)?.mood).toBeCloseTo(RECALL.MOOD_CROSS_WEIGHT * 0.8 * low, 10);
+    expect(v(after, own)?.mood).toBeCloseTo(MOOD_ON.MOOD_SAME_WEIGHT * 0.8 * low, 10);
+    expect((v(after, own)?.sal ?? 0) - (v(before, own)?.sal ?? 0)).toBeCloseTo(MOOD_ON.MOOD_SAME_WEIGHT * 0.8 * low, 10);
+    expect(v(after, cross)?.mood).toBeCloseTo(MOOD_ON.MOOD_CROSS_WEIGHT * 0.8 * low, 10);
     expect(v(after, happy)?.mood).toBeUndefined();
     expect(v(after, twin)?.mood).toBeUndefined();
     expect(v(after, inWindow)?.mood).toBeUndefined();
@@ -552,7 +579,7 @@ describe("mood-matching never admits an uncued memory", () => {
     // Same store, same turn, the mood switched off (no feeling is strong enough
     // to set one): every activation — so every candidate — is identical. The
     // mood moved salience and nothing else.
-    const moodless = new Recall({ store: s, owner: true, tunables: { MOOD_MIN_STRENGTH: 2 } }).build({ ...turn, sessionId: "moodless" }).decision;
+    const moodless = new Recall({ store: s, owner: true, tunables: { ...MOOD_ON, MOOD_MIN_STRENGTH: 2 } }).build({ ...turn, sessionId: "moodless" }).decision;
     const activations = (d: typeof after): Map<string, number> => new Map(d.verdicts.map((x) => [x.id, x.activation]));
     expect(activations(moodless)).toEqual(activations(after));
     expect(moodless.verdicts.every((x) => x.mood === undefined)).toBe(true);
@@ -569,8 +596,11 @@ describe("mood-matching never admits an uncued memory", () => {
 
   test("the turn gate reads recorded feelings as the emotional dimension when the turn is felt (§9 G10)", () => {
     const p = note({ feelingPeak: 0.9 });
-    expect(gatedSal(p, false)).toBeCloseTo(sal({ ...p.salience, emotional: 0 }), 10);
-    expect(gatedSal(p, true)).toBeCloseTo(sal({ ...p.salience, emotional: 0.9 }), 10);
+    // Since 2026-10-10 `sal()` has no emotional dimension to substitute: a felt
+    // turn adds the feeling as height does (`salArm`), an unfelt one reads `sal`.
+    expect(gatedSal(p, false)).toBeCloseTo(sal(p.salience), 10);
+    expect(gatedSal(p, true)).toBeCloseTo(salArm(p), 10);
+    expect(gatedSal(p, true)).toBeCloseTo(sal(p.salience) + TUNABLES.EMO_LIFT * 0.9, 10);
   });
 });
 

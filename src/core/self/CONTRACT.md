@@ -182,8 +182,8 @@ proposals and their archive; render and delivery telemetry.
    session start assembles around the bundle published now or not at all. The terms grow
    with open questions, dated
    items and the day's writes, not the store, where the store has the indexes
-   (`memories_open`, `memories_created`, `memories_origin_ref`, created at a store's next
-   migration). Anything missing — no record (a bundle an older build published), another
+   (`memories_open`, `memories_created`, `memories_origin_ref`, which ride the v13
+   upgrade). Anything missing — no record (a bundle an older build published), another
    ceiling, no date, a damaged published bundle, a throw — delivers the published bundle
    as before. *Named cost: the dashboard and doctor read the published bundle, which is no
    longer byte for byte what a session was handed.*
@@ -371,7 +371,9 @@ proposals and their archive; render and delivery telemetry.
    phase. It exists because a change to the lane rules merged mid-day cannot reach a single
    session's wake until the next boundary (measured 2026-09-04, the day the share shipped).
    **Between boundaries the wake keeps up** (2026-09-30, a working default): the page
-   written and a write-up accepted through `session_end` mark it behind (`behind.ts`), and
+   written, any memory accepted through any door (`Counterpart.deposit`: `write-up` for
+   `session_end`, `memory` for `remember` — `note` too — and the rest, 2026-10-10) and any
+   handoff written, retired or cleared (`handoff`, 2026-10-10) mark it behind (`behind.ts`), and
    `Counterpart.refreshWake` — the same render, with a budget or not at all — republishes
    it at the next turn-end worker; the nightly process calls it when its child returns,
    with no mark, naming `run-end` as the trigger. A wake another build published (its

@@ -18,7 +18,7 @@ import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
 import { BOUNDARY_HOUR_DEFAULT } from "./clock.js";
 
 export { dayKey, livedDay, livedDaysBetween } from "./clock.js";
-export type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
+export type { Band, DatedHold, Kind, MemoryPhysics, Salience } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // The TUNABLE table — every constant in physics, in one visible place.
@@ -100,6 +100,30 @@ export const TUNABLES = {
    *  feeling or mine. CAL. */
   CORE_FAST_FEELING: 0.6,
   /**
+   * CAL. "STRONGLY FELT", RELATIVE TO THE WORD (2026-10-10, Group 1c; review
+   * 08 C3). Wheel v2 (09-30) gave every word a default strength, and every
+   * core's default is at or under 0.55, so a feeling written without a number
+   * could not reach `CORE_FAST_FEELING` and the fast lane shut on day 10 (1 of
+   * 44 feelings after it was at 0.6). A feeling now counts as strongly felt
+   * when it is at least this much above its own word's default — the writer
+   * meant more than ordinary — or at `CORE_FAST_FEELING` absolute. The default
+   * is the one the store writes (`store/feelings.ts#defaultStrength`, capped at
+   * 0.55), so a feeling nobody weighed still never opens the lane. Read off the
+   * feelings themselves in consolidation (`sleep/consolidate.ts#stronglyFelt`,
+   * `CoreContext.stronglyFelt`); a bare `emotional` score has no word and is
+   * read at `CORE_FAST_FEELING` alone. Decided by g1c-builder, 2026-10-10,
+   * lightly held; revisit after ~5 lived days. Why: 08 C3's own reading
+   * ("`strength − feelingNumbers(word) ≥ 0.1`"), so a defaulted word does not
+   * pass and a writer who raised it does.
+   */
+  CORE_FAST_ABOVE_DEFAULT: 0.1,
+  /**
+   * CAL. …and never under this, however far above its default (2026-10-10,
+   * review of #369; decided by b2+f8, lightly held): a word whose default is
+   * low (calm's 0.35) recorded at 0.45 is above its default, not strongly felt.
+   */
+  CORE_FAST_RELATIVE_FLOOR: 0.5,
+  /**
    * Does the fast lane's feeling read feelings a REFLECTION recorded later
    * (v9, `feelings.source = 'reflection'`; since 2026-10-02 an awake one too,
    * `'awake'`)? Default OPEN — the owner's call of
@@ -164,28 +188,141 @@ export const TUNABLES = {
    *     staying silent says strictly less than speaking.
    *   - 0.25 < SWEEP_CLAIM_CEILING = 0.6: the default is a floor under the
    *     lived channel, not a promotion of it over the retelling channel.
-   *   - It buys survival rather than rank: at kind `fact` (S = 60 lived days)
-   *     strength falls below PHI_PRUNE = 0.02 after ~152 lived days instead of
-   *     being prunable from birth.
+   *   - It buys survival rather than rank: at kind `fact` it is not prunable
+   *     from birth. (Under the 2026-10-10 curve a never-used 0.25 fact leaves
+   *     reach in ~2 lived days and reaches PHI_PRUNE = 0.02 in ~34; it was ~152
+   *     under the old exponential with S = 60.)
    * ENGINE-SET off the mint CHANNEL, exactly like `SWEEP_CLAIM_CEILING`; an
    * explicit claim, however low, is never overridden. WORKING DEFAULT.
    */
   AUTHORED_DEFAULT_CLAIM: 0.25,
+  /**
+   * CAL. THE DEFAULT BY WHAT A MEMORY IS ABOUT (2026-10-10, Group 1c; review
+   * 01 C2). One constant gave every unclaimed memory 0.25 whatever it was, and
+   * the claims the writers DID make ran backwards — work events 0.54 against
+   * readings 0.41 on the 10-10 snapshot. Keyed on fields the writer already
+   * fills (`about`, `status`, `said_by`, `kind`), `defaultClaimFor`:
+   *
+   *   - a done work event (`about=work`, `status=done`): `DEFAULT_CLAIM_WORK_EVENT` (0.20);
+   *   - other work, and an unmarked memory: `AUTHORED_DEFAULT_CLAIM` (unchanged);
+   *   - the world (readings, news): `DEFAULT_CLAIM_WORLD`;
+   *   - the owner, us or me — or said by the owner, or kind self/person:
+   *     `DEFAULT_CLAIM_PERSONAL`.
+   *
+   * Every default stays below `THETA_SEM`. It sets HEIGHT and (through the
+   * curve) stability, never the band: a strong feeling on top cannot carry it
+   * across the semantic floor either (`salArm`'s `FELT_HEIGHT_CAP`), so a
+   * silent memory reaches the semantic band only by being used. Decided by
+   * g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why:
+   * 01 D2's table as written; f8: "that sets stability, not the band".
+   */
+  /** Decided by b2+f8, 2026-10-10, lightly held: 0.20, not 01's 0.10. G1a's
+   *  REACH is 0.15, so 0.10 started a routine work event below reach — never in
+   *  ambient recall or the wake's "Work here". f8: routine work is remembered
+   *  weakly "for a day or two"; at 0.20 with no feeling it stays in reach about
+   *  one lived day. */
+  DEFAULT_CLAIM_WORK_EVENT: 0.2,
+  DEFAULT_CLAIM_WORLD: 0.35,
+  DEFAULT_CLAIM_PERSONAL: 0.4,
 
-  // --- §5.4 decay ---
-  /** Stability base, lived days. Reproduces v0's -0.015/day over ~a month. */
-  S_BASE: 60,
+  // --- §5.4 decay (2026-10-10, Group 1: the curve, mechanisms review 03 C1) ---
+  /**
+   * Stability at q = 0, in lived days: `S = S0 · e^(G·q) · uses · returns / κ`
+   * (`stability`). 0.4 makes a memory nobody claimed or felt leave reach the
+   * day after it was written; a default 0.25 note (S ≈ 3) leaves in ~2 lived
+   * days; a 0.5 one (S ≈ 22) in ~7 weeks; a 0.7 fact (S ≈ 109) in about a
+   * year. Was `S_BASE = 60` for every memory, so nothing fell below anything
+   * for ~100 lived days (review 03 §3).
+   *
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Why: steep early, flat for strong — routine items leave the working layer
+   * in days, readings and felt things stay for months (03 §5 design table).
+   */
+  S0: 0.4,
+  /**
+   * How steeply stability grows with q (salience, plus half the feeling):
+   * `e^(G·q)`, ×7.4 per 0.25 of q, ×3000 across the whole range. Decided by
+   * b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days. Why: the
+   * spread between a routine note and a felt reading has to be seen in DAYS
+   * vs MONTHS, and kind spans only ×2 (03 D2).
+   */
+  STABILITY_GAIN: 8,
+  /**
+   * How much a memory's emotional intensity adds to q, the input that sets its
+   * steepness: `q = clamp01(sal + EMO_Q · I)`. Replaces `EMO_SLOPE` (stability
+   * × (1 + 0.5·I), at most ×1.45 — a factor nobody could see). Through
+   * `e^(G·q)` a 0.6 feeling now multiplies stability by e^2.4 ≈ ×11.
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Why: feeling was the one signal that separated readings from changelog on
+   * the live store (38/49 vs 6/131, review 02/03), so it sets the slope; it is
+   * counted ONCE for height (`EMO_LIFT`) and once for slope (here) — not also
+   * in `sal()`'s mean (02 C1).
+   */
+  EMO_Q: 0.5,
   /** Use-stability coupling; logarithmic so a well-used memory slows without
    *  becoming immortal. */
   BETA: 0.5,
   /** Local rollover hour for the active-day clock (see clock.ts). */
   BOUNDARY_HOUR: BOUNDARY_HOUR_DEFAULT,
-  /** CAL / open question 1 — a three-way decided by replay, not by taste.
-   *  v1 ran flat, this page defaults exponential, engram upgraded to power-law
-   *  (Ebbinghaus / Wixted / Jost). `tools/replay` runs all three. */
-  DECAY_SHAPE: "exponential" as DecayShape,
-  /** CAL. Power-law exponent, used only when DECAY_SHAPE === "power-law". */
+  /**
+   * The curve's shape. Power-law (hyperbolic) since 2026-10-10: steep early and
+   * flat late INSIDE one memory's curve, which an exponential cannot be (03 D1;
+   * Wickelgren, Murre & Dros, and the site's own "retention fits a power law").
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Revision PRESSURE stays exponential (`pressureAt` names its shape): the
+   * pressure curve is the revision model's, not this one, and Group 2 owns it
+   * (decided by g1a-builder, 2026-10-10, lightly held).
+   */
+  DECAY_SHAPE: "power-law" as DecayShape,
+  /** The power-law exponent ψ: `(1 + t/S)^−ψ`. 1 = hyperbolic (03 D1). */
   POWER_LAW_PSI: 1.0,
+  /**
+   * BELOW REACH (2026-10-10, Group 1, review 03 C2): strength under this and a
+   * memory is left out of every AMBIENT channel — turn recall's surfaced and
+   * footnote tiers, spreading's landings, the wake's work lines — while
+   * deliberate recall still finds it, listed after the main results as faded.
+   * A computed state, never stored, never a deletion: a use, a deliberate open
+   * or a dream replay brings it back. One threshold for "faded" everywhere
+   * (it replaces deliberate recall's `FADED_RETAINED`). The identity band is
+   * never below reach. Must sit below encoding's routine default or routine
+   * items are born out of reach (03 D3).
+   *
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Why: forgetting in awareness, never in storage — strength has to gate what
+   * comes to mind, or decay changes nothing anybody sees.
+   */
+  REACH: 0.15,
+  /**
+   * THE DATED HOLD's grace (2026-10-10, review 07 C1): a memory with a future
+   * date is held (t = 0) through its date and this many calendar days after,
+   * the same window `prospective/` keeps open for its grace beat — so the
+   * reminder is not below reach while its window can still fire. Prospective's
+   * `GRACE_DAYS` defaults to this number (one rule, one owner).
+   * Decided by g1a-builder, 2026-10-10, lightly held; revisit after ~5 lived
+   * days. Why: the synthesis says "while event_date ≥ today"; a missed day's
+   * late beat (Group 5) and the open window's quiet fire both need the memory
+   * in reach for the grace week too.
+   */
+  HOLD_GRACE_DAYS: 7,
+  /**
+   * A REPEATING date is held through each occurrence's window: from this many
+   * calendar days before it (prospective's `LEAD_DAYS`, which defaults to this
+   * number) to `HOLD_GRACE_DAYS` after. Between windows it fades on its curve,
+   * as the owner's 2026-10-09 design says ("its strength still decays for
+   * recall and display"); each occurrence told is a use. Decided by
+   * g1a-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why:
+   * ambient recall now leaves out what is below reach, and a yearly date used
+   * once a year would be below reach on the very day it comes round.
+   */
+  HOLD_LEAD_DAYS: 3,
+  /**
+   * AFTER THE WINDOW: a dated memory's own stability is divided by this until
+   * it is used again (`elapsed`, `stability`'s `spent`). Steeper on its own
+   * curve, not zeroed: a 0.25 reminder (S ≈ 3) then leaves reach within a day,
+   * a felt 0.6 fact (S in the hundreds) still lasts months. Decided by Mike,
+   * 2026-10-10, lightly held; revisit after ~5 lived days (review of #372).
+   */
+  SPENT_STABILITY_DIVISOR: 4,
 
   // --- §5.1 salience ---
   /** CAL. Size of the nearest-neighbour slice in E(m) for novelty (v1's top-M). */
@@ -199,26 +336,36 @@ export const TUNABLES = {
    * the claimed floor. 0.15 is chosen so the lift is felt but cannot on its
    * own carry a silent note across a band: `AUTHORED_DEFAULT_CLAIM + EMO_LIFT
    * = 0.40 < THETA_SEM` (a strong feeling alone does not make a silent note
-   * semantic at birth; use still has to). The lift is height only: identity
+   * semantic at birth; use still has to) — since 2026-10-10 that is held by
+   * `FELT_HEIGHT_CAP`, not by this sum, because the default by what a memory
+   * is about reaches 0.40. The lift is height only: identity
    * reads the FEELING itself, in the core fast lane (§5.3, 2026-09-26), and
    * only for memories about me or about us. NOTES.md "Emotion, part A" has
    * the simulation. CAL.
    */
   EMO_LIFT: 0.15,
   /**
-   * How much the same intensity slows decay: stability x (1 + EMO_SLOPE x I).
-   * At I = 0.9 that is x1.45 — a fact with S = 60 lived days gets S = 87. It
-   * changes decay on EXISTING stores (every row with an `emotional` score or a
-   * feeling), which is why it is modest: a strongly felt, never-used note
-   * reaches the prune floor after ~255 lived days instead of ~150. CAL.
+   * CAL. THE HIGHEST A FEELING ALONE CAN LIFT A MEMORY (2026-10-10, Group 1c):
+   * just under `THETA_SEM`. The lift used to be safe by arithmetic — the only
+   * silent default was 0.25, and 0.25 + EMO_LIFT = 0.40 — but the default by
+   * what a memory is about reaches 0.40 for the owner, us and me, and 0.40 +
+   * 0.15 x 0.9 = 0.535 would start a silent, strongly felt memory semantic.
+   * Feeling sets stability, not the band (b2 and f8's decision #7): a memory
+   * whose own salience is below the floor is lifted at most to here, and one
+   * already at or above it keeps the whole lift. Decided by g1c-builder,
+   * 2026-10-10, lightly held; revisit after ~5 lived days. Why: a cap on the
+   * lift rather than on the default keeps the default's height and needs no
+   * new column or meta read; it also covers a feeling recorded later (a
+   * reflection's, an awake one), which a cap at the mint could not.
    */
-  EMO_SLOPE: 0.5,
+  FELT_HEIGHT_CAP: 0.49,
   /**
    * How fast a recorded FEELING softens, in lived days: `strength x
-   * exp(-age / S)`, age counted from the memory's birth day. 20 < 60 = S_BASE
-   * is the owner's "the feeling softens faster than the fact" as arithmetic:
-   * half the feeling is gone in ~14 lived days, while the fact itself is still
-   * at ~0.8 of its height. Softening is READ-SIDE ONLY — the table keeps the
+   * exp(-age / S)`, age counted from the lived day the feeling was RECORDED
+   * (`feelings.recorded_day`, v13 — before v13, the memory's birth day, so a
+   * feeling a reflection added weeks later read as already softened). 20 lived
+   * days is the owner's "the feeling softens faster than the fact": half the
+   * feeling is gone in ~14 lived days. Softening is READ-SIDE ONLY — the table keeps the
    * strength as recorded, and height and slope use that recorded peak; the
    * softened value is what mood-matching, recall's feeling lane and the
    * displays read. S_FEELING is the clock of a NEUTRAL feeling (valence 0, or
@@ -273,9 +420,18 @@ export const TUNABLES = {
   /** CAL, and the one constant here with NO ancestry — v1 never pruned, so there
    *  is no measurement to inherit (open question 5). */
   PHI_PRUNE: 0.02,
-  /** CAL, same provenance gap as PHI_PRUNE. Lived days of dwell before a floor
-   *  memory may be pruned. */
-  D_FLOOR_DAYS: 90,
+  /**
+   * Lived days of dwell (since the last use, return or replay — `decayAnchor`)
+   * before a memory under `PHI_PRUNE` may be archived. 90 until 2026-10-10,
+   * which made the first possible exit lived day 91 on every store (review 03
+   * §3). Exit is ARCHIVAL, never deletion: an archived row keeps its words and
+   * stays readable by id (`sleep/prune.ts`; synthesis §8 A).
+   * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+   * Why: exit should follow reach — a default note leaves reach in ~2 lived
+   * days and reaches the floor in ~34; felt or salient memories take months
+   * to years (03 C3).
+   */
+  D_FLOOR_DAYS: 14,
 
   // --- guarantee 12: the symmetry counter (scar §2.10) ---
   /** Stated expected ceiling on up-moves : down-moves. v1's ratchet read
@@ -299,14 +455,23 @@ export const TUNABLES = {
   // --- §5.2 per-kind physics [v1 §4.3] ---
   /** CAL, all of it. v1 recorded which ARM DRIVES, not a weight, so every
    *  non-driving omega below is a proposed reading, not a measurement
-   *  (open question 3 asks whether the 0.4s exist at all). */
+   *  (open question 3 asks whether the 0.4s exist at all).
+   *
+   *  SKILL AND PLACE SALIENCE WEIGH 1.0 (2026-10-10, review of #372; was 0.4).
+   *  Decided by Mike, 2026-10-10, loosely held (b2 and f8 proposed it); revisit after ~5 lived
+   *  days. Why: under the reach line a 0.4 weight put every skill claimed
+   *  under 0.375 below reach from birth (a 0.25 skill was born at 0.10), and
+   *  one deliberate open could not bring it back; procedural memory is the
+   *  slowest to fade in the brain, not the first to vanish. If skill notes are
+   *  over-produced, that is encoding's to fix, not a special weight's. (Open
+   *  question 3 answered for these two kinds: no 0.4.) */
   KINDS: {
     //         driver (v1)    omega_sal  omega_rep  kappa  iota
     self: { wSal: 1.0, wRep: 0.0, kappa: 0.7, iota: 0.9 },
     person: { wSal: 1.0, wRep: 0.0, kappa: 0.75, iota: 0.8 },
     entity: { wSal: 1.0, wRep: 1.0, kappa: 0.85, iota: 0.5 },
-    skill: { wSal: 0.4, wRep: 1.0, kappa: 0.5, iota: 0.25 },
-    place: { wSal: 0.4, wRep: 1.0, kappa: 0.85, iota: 0.25 },
+    skill: { wSal: 1.0, wRep: 1.0, kappa: 0.5, iota: 0.25 },
+    place: { wSal: 1.0, wRep: 1.0, kappa: 0.85, iota: 0.25 },
     fact: { wSal: 1.0, wRep: 1.0, kappa: 1.0, iota: 0.2 },
   } as const satisfies Record<Kind, KindPhysics>,
 } as const;
@@ -392,12 +557,22 @@ export function isBlindEncoding(s: Salience): boolean {
 /**
  * sal(m) = mean of the salience dimensions, floored by the author's claim.
  *
- * With novelty present that is v0's verbatim mean of four. With novelty null it
- * is the mean of the THREE author-supplied dimensions — the null case specified,
- * not implicit (review finding 2), and never a defaulted zero or one.
+ * FEELING IS NOT IN THE MEAN (2026-10-10, Group 1, review 02 C1). Until then
+ * this was v0's mean of four — novelty, relevance, emotional, predictive — and
+ * the same feeling counted again in height (`EMO_LIFT`) and slope. Now emotion
+ * reaches a memory's strength twice and only twice, each once: its height
+ * through `salArm` (`EMO_LIFT x I`) and its steepness through `stability`'s q
+ * (`EMO_Q x I`). The numeric `emotional` score stays on the row as an input to
+ * `emotionalIntensity` (I is the max of it and the recorded feelings).
+ * Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days.
+ * Why: one feeling, one count for height (02 D1).
+ *
+ * With novelty present the mean is of three; with novelty null it is the mean
+ * of the TWO author-supplied dimensions — the null case specified, not
+ * implicit (review finding 2), and never a defaulted zero or one.
  */
 export function sal(s: Salience): number {
-  const dims: number[] = [s.relevance, s.emotional, s.predictive];
+  const dims: number[] = [s.relevance, s.predictive];
   if (s.novelty !== null) dims.unshift(s.novelty);
   let sum = 0;
   for (const x of dims) sum += clamp01(x);
@@ -439,6 +614,53 @@ export interface SalienceDefaultEvent {
   readonly floor: number;
   /** What `sal(m)` will honor with the default in place. */
   readonly applied: number;
+}
+
+/** Which row of the default table an unclaimed memory took (`defaultClaimFor`). */
+export type DefaultClaimClass = "work-event" | "work" | "unmarked" | "world" | "personal";
+
+/** What `defaultClaimFor` reads: fields the writer fills, never the text. */
+export interface DefaultClaimInput {
+  readonly about?: string | null;
+  readonly status?: string | null;
+  readonly saidBy?: string | null;
+  readonly kind?: string | null;
+}
+
+/**
+ * THE DEFAULT FLOOR FOR AN UNCLAIMED AUTHORED MEMORY, BY WHAT IT IS ABOUT
+ * (2026-10-10, Group 1c; review 01 C2; `TUNABLES.DEFAULT_CLAIM_*`). Pure.
+ *
+ * Order: personal first — the owner, us or me, or said by the owner, or kind
+ * self/person — so the owner's ruling about work is not a work event (f8:
+ * "Mike's rulings, preferences and corrections stay high even about work");
+ * then the world; then a done work event; then other work. An unmarked memory
+ * keeps the old 0.25: the `about` field says an unmarked fact written in a
+ * project counts as that project's work, but `status: done` alone is not
+ * enough to call an unmarked memory a routine work event. Decided by
+ * g1c-builder, 2026-10-10, lightly held; revisit after ~5 lived days. Why:
+ * 01's table is keyed on `about=work` for the low row, and 201 legacy rows
+ * carry no mark at all.
+ */
+export function defaultClaimFor(input: DefaultClaimInput): { readonly claim: number; readonly class: DefaultClaimClass } {
+  const about = input.about ?? null;
+  if (
+    about === "owner" ||
+    about === "us" ||
+    about === "me" ||
+    input.saidBy === "owner" ||
+    input.kind === "self" ||
+    input.kind === "person"
+  ) {
+    return { claim: TUNABLES.DEFAULT_CLAIM_PERSONAL, class: "personal" };
+  }
+  if (about === "world") return { claim: TUNABLES.DEFAULT_CLAIM_WORLD, class: "world" };
+  if (about === "work") {
+    return input.status === "done"
+      ? { claim: TUNABLES.DEFAULT_CLAIM_WORK_EVENT, class: "work-event" }
+      : { claim: TUNABLES.AUTHORED_DEFAULT_CLAIM, class: "work" };
+  }
+  return { claim: TUNABLES.AUTHORED_DEFAULT_CLAIM, class: "unmarked" };
 }
 
 export interface SeamClamp {
@@ -571,13 +793,18 @@ export function emotionalIntensity(m: { salience: Salience; feelingPeak?: number
 
 /**
  * The salience ARM of `base`: `sal(m)` with the emotion ADDED on top of it.
- * `sal()` itself stays v0's verbatim mean-with-floor — it is also what recall's
- * turn gate (§9 G10) and `challengeForce` read, and neither may see this lift.
+ * `sal()` itself is the mean-with-floor of the non-emotional dimensions (since
+ * 2026-10-10) — it is also what `challengeForce` reads, which may not see this
+ * lift; recall's turn gate (§9 G10) adds it only on a self-felt turn.
  * The repetition arm gets no lift at all, so "repetition is capped below
  * identity" (§3) is untouched.
  */
 export function salArm(m: Pick<MemoryPhysics, "salience" | "feelingPeak">): number {
-  return clamp01(sal(m.salience) + TUNABLES.EMO_LIFT * emotionalIntensity(m));
+  const own = sal(m.salience);
+  const lifted = clamp01(own + TUNABLES.EMO_LIFT * emotionalIntensity(m));
+  // Feeling sets stability, not the band (2026-10-10, `FELT_HEIGHT_CAP`): below
+  // the semantic floor, the lift stops just under it.
+  return own >= TUNABLES.THETA_SEM ? lifted : Math.min(lifted, Math.max(own, TUNABLES.FELT_HEIGHT_CAP));
 }
 
 /**
@@ -600,21 +827,52 @@ export function feelingSofteningDays(valence?: number): number {
 }
 
 /**
- * Stability S, in lived days. kappa DIVIDES (§5.4); emotion lengthens it
- * (§5.10); spaced RETURNS lengthen it (§5.11) — a factor of exactly 1 at zero
- * returns, so a memory that has never returned fades exactly as before.
+ * q — what sets a memory's STEEPNESS (2026-10-10, review 03 C1): its salience
+ * (`sal`, the claimed floor included) plus half its emotional intensity,
+ * clamped to [0, 1]. Height is `base` (with `EMO_LIFT`); this is the slope.
+ */
+export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak">): number {
+  return clamp01(sal(m.salience) + TUNABLES.EMO_Q * emotionalIntensity(m));
+}
+
+/**
+ * Stability S, in lived days (2026-10-10, Group 1, review 03 C1):
+ *
+ *   S = S0 · e^(G·q) · (1 + β·ln(1 + uses)) · (1 + ln(1 + returns)) / κ_kind
+ *
+ * q = clamp01(sal + EMO_Q · I) (`steepnessInput`). kappa DIVIDES (§5.4); use
+ * lengthens it (deposit); spaced RETURNS lengthen it (§5.11) — a factor of
+ * exactly 1 at zero returns. Feeling enters through q — `EMO_SLOPE`'s
+ * multiplier is folded in and gone.
+ *
+ * NEVER FADES = S = ∞: an identity-band memory (the core), and any kind whose
+ * κ is 0 (none today; the owner's records later). `(1 + t/∞)^−1 = 1`, so the
+ * exemption is the arithmetic, not a branch in every reader (03 D6).
+ *
+ * `spent` is the steeper slope of a dated memory whose window has closed (07
+ * C2, `DatedHold`): its own stability divided by `SPENT_STABILITY_DIVISOR`
+ * (4) — the completed intention is inhibited, gently, on its own curve.
+ * Decided by Mike, 2026-10-10, loosely held (b2 proposed it); revisit after ~5 lived days (review
+ * of #372). Why: the first version zeroed q, so salience and feeling no longer
+ * slowed it at all — on a copy of the live store 9 of 17 dated memories were
+ * archived within 30 lived days, among them a felt fact about the owner and an
+ * agreed convention their own curves kept for months.
  */
 export function stability(
-  m: Pick<MemoryPhysics, "kind" | "uses"> & Partial<Pick<MemoryPhysics, "salience" | "feelingPeak" | "returns">>,
+  m: Pick<MemoryPhysics, "kind" | "uses" | "salience"> &
+    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity">>,
+  opts: { spent?: boolean } = {},
 ): number {
-  const felt = m.salience === undefined ? 0 : emotionalIntensity({ salience: m.salience, feelingPeak: m.feelingPeak });
-  return (
-    (TUNABLES.S_BASE *
+  const kappa = kindPhysics(m.kind).kappa;
+  if (m.promotedIdentity === true || !(kappa > 0)) return Number.POSITIVE_INFINITY;
+  const q = steepnessInput(m);
+  const s =
+    (TUNABLES.S0 *
+      Math.exp(TUNABLES.STABILITY_GAIN * q) *
       (1 + TUNABLES.BETA * Math.log(1 + Math.max(0, m.uses))) *
-      (1 + TUNABLES.EMO_SLOPE * felt) *
       returnFactor(m.returns ?? 0)) /
-    kindPhysics(m.kind).kappa
-  );
+    kappa;
+  return opts.spent === true ? s / TUNABLES.SPENT_STABILITY_DIVISOR : s;
 }
 
 /** The returns' share of stability: `1 + RETURN_GAIN x ln(1 + returns)`. */
@@ -623,13 +881,14 @@ export function returnFactor(returns: number): number {
   return 1 + TUNABLES.RETURN_GAIN * Math.log(1 + r);
 }
 
-/** The decay curve itself, over an elapsed lived-day interval. */
+/** The decay curve itself, over an elapsed lived-day interval. S = ∞ never decays. */
 export function decayCurve(
   elapsedDays: number,
   s: number,
   shape: DecayShape = TUNABLES.DECAY_SHAPE,
 ): number {
   const dt = Math.max(0, elapsedDays);
+  if (s === Number.POSITIVE_INFINITY) return 1;
   switch (shape) {
     case "flat":
       return Math.max(0, 1 - dt / s);
@@ -642,20 +901,146 @@ export function decayCurve(
 }
 
 /**
- * D(m, d) — Ebbinghaus over LIVED days.
+ * THE LIVED DAY A MEMORY'S CURVE COUNTS FROM (2026-10-10, review 03 C2): its
+ * last credited use, its last counted return, or its last counted dream
+ * replay, whichever is latest. A use was always the anchor; a RETURN — a
+ * reflection that cited it, a dream that replayed it — now re-anchors it too,
+ * which is how a replay "revives" a memory below reach without being a use
+ * (no `uses`, no rep arm, no credit-today latch: `creditUse` still reads
+ * `lastUsedDay` alone). The prune's dwell counts from the same day.
+ * Decided by g1a-builder, 2026-10-10, lightly held; revisit after ~5 lived
+ * days. Why: the synthesis says a dream replay revives; a return's ×(1 +
+ * ln 1.4) on S alone lifts a faded default note by ~0.01 — not back in reach.
+ */
+export function decayAnchor(
+  m: Pick<MemoryPhysics, "lastUsedDay"> & Partial<Pick<MemoryPhysics, "lastReturnDay" | "lastDreamDay">>,
+): number {
+  return Math.max(m.lastUsedDay, m.lastReturnDay ?? Number.NEGATIVE_INFINITY, m.lastDreamDay ?? Number.NEGATIVE_INFINITY);
+}
+
+/**
+ * The elapsed lived days the curve reads on day d, and whether the steep
+ * (spent) slope applies — the one place the dated hold acts (07 C1/C2):
  *
- * Identity-band memories are decay-exempt (D = 1): the named deviation of §2 —
- * flashbulb memories do fade in humans, here they do not. Everything else rides
- * the curve from its last credited use. Idempotent by construction: D is a pure
- * function of d, so there is no step to run twice (guarantee 5, scar E8).
+ *   - PENDING (a future date, or its window still open; a live repeat): t = 0.
+ *     The memory holds at its height until its window closes. No use is
+ *     credited — `uses`, `lastUsedDay` and returns are untouched.
+ *   - SPENT (its window closed): t counts from the window's close
+ *     (`closedDaysAgo`, calendar days, an upper bound on the lived days
+ *     since), on the steeper slope (stability / `SPENT_STABILITY_DIVISOR`).
+ *   - …until it is USED after the window: a use means it still matters, so
+ *     it is an ordinary memory again, t from its anchor on its own curve
+ *     (decided by Mike, 2026-10-10, loosely held). "Used after" is read as
+ *     fewer lived days since the anchor than calendar days since the close;
+ *     on a store left alone for most of a window that errs toward ordinary —
+ *     the gentle direction.
+ *   - otherwise: t = d − `decayAnchor`.
+ *
+ * A REPEATING date is never spent: its hold is pending in each occurrence's
+ * window and absent between them (`store/operational.ts#datedHold`).
+ */
+export function elapsed(m: MemoryPhysics, d: number): { t: number; spent: boolean } {
+  const t = Math.max(0, d - decayAnchor(m));
+  const hold = m.hold ?? null;
+  if (hold === null) return { t, spent: false };
+  if (hold.state === "pending") return { t: 0, spent: false };
+  const since = Math.max(0, hold.closedDaysAgo);
+  if (t < since) return { t, spent: false };
+  return { t: since, spent: true };
+}
+
+/**
+ * D(m, d) — the curve over LIVED days, from the memory's anchor.
+ *
+ * Identity-band memories are decay-exempt (D = 1) through S = ∞ — the named
+ * deviation of §2 (flashbulb memories do fade in humans, here they do not).
+ * Idempotent by construction: D is a pure function of d, so there is no step
+ * to run twice (guarantee 5, scar E8).
  */
 export function decay(m: MemoryPhysics, d: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): number {
   if (m.promotedIdentity) return 1;
-  return decayCurve(d - m.lastUsedDay, stability(m), shape);
+  const { t, spent } = elapsed(m, d);
+  return decayCurve(t, stability(m, { spent }), shape);
+}
+
+/** The memory's height before decay: `base x fade` (03 C1's h). */
+export function height(m: MemoryPhysics): number {
+  return clamp01(base(m) * fadeOf(m));
 }
 
 export function strength(m: MemoryPhysics, d: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): number {
   return clamp01(base(m) * decay(m, d, shape) * fadeOf(m));
+}
+
+/**
+ * IS IT BELOW REACH on lived day d? (2026-10-10, review 03 C2.) Strength under
+ * `REACH`, and not in the identity band (the core never leaves reach). A
+ * computed state, never stored. Pure.
+ */
+export function belowReach(m: MemoryPhysics, d: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): boolean {
+  if (m.promotedIdentity) return false;
+  return strength(m, d, shape) < TUNABLES.REACH;
+}
+
+/**
+ * The first whole lived day, counting from the memory's anchor, on which its
+ * strength is BELOW `theta` — assuming nothing about it changes (no use, no
+ * return, no new feeling). `null` when it never gets there (S = ∞, or it holds
+ * at t = 0), `0` when it is already below at t = 0. Closed form on the
+ * power-law (`h/(1 + t/S) < θ ⇔ t > S·(h/θ − 1)`); the other shapes are
+ * stepped, since only a replay tool asks them.
+ */
+export function daysUntilBelow(m: MemoryPhysics, theta: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): number | null {
+  if (m.promotedIdentity) return null;
+  const h = height(m);
+  if (h < theta) return 0;
+  if ((m.hold ?? null) !== null && m.hold?.state === "pending") return null;
+  const S = stability(m, { spent: m.hold?.state === "spent" });
+  if (S === Number.POSITIVE_INFINITY) return null;
+  if (shape === "power-law" && TUNABLES.POWER_LAW_PSI === 1) {
+    return Math.floor(S * (h / theta - 1)) + 1;
+  }
+  for (let t = 1; t <= 100_000; t++) if (h * decayCurve(t, S, shape) < theta) return t;
+  return null;
+}
+
+/** `next_change_day`'s "nothing will change": a lived day no store reaches. */
+export const NEVER_CHANGES = 1_000_000_000;
+
+/**
+ * THE NEXT LIVED DAY THIS MEMORY'S BAND, REACH OR PRUNE ELIGIBILITY CHANGES
+ * (2026-10-10, Group 1, review 13 C2), assuming nothing about it changes —
+ * the day the nightly turn-down has to look at it again. Strictly after `d`.
+ *
+ *   - the identity band, S = ∞: `NEVER_CHANGES`;
+ *   - a dated memory (pending or spent): `d + 1` — its hold turns on the
+ *     CALENDAR, which a lived day cannot predict, so it is looked at daily
+ *     (there are few of them);
+ *   - otherwise the first day it falls under the next of `THETA_SEM`, `REACH`
+ *     and `PHI_PRUNE` below where it stands, or — once under the floor — the
+ *     day its dwell reaches `D_FLOOR_DAYS`.
+ *
+ * Every input change (a use, a return, a feeling, a fade) is the WRITER's to
+ * signal by clearing the stored day (store v13's trigger does it for all of
+ * them); this function never guesses one.
+ */
+export function nextChangeDay(m: MemoryPhysics, d: number, shape: DecayShape = TUNABLES.DECAY_SHAPE): number {
+  if (m.promotedIdentity) return NEVER_CHANGES;
+  if ((m.hold ?? null) !== null) return d + 1;
+  const anchor = decayAnchor(m);
+  const now = strength(m, d, shape);
+  const candidates: number[] = [];
+  for (const theta of [TUNABLES.THETA_SEM, TUNABLES.REACH]) {
+    if (now < theta) continue;
+    const t = daysUntilBelow(m, theta, shape);
+    if (t !== null) candidates.push(anchor + t);
+  }
+  // The prune's eligibility turns when BOTH halves hold: under the floor, and
+  // dwelt `D_FLOOR_DAYS` since the anchor — the later of the two days.
+  const floor = now < TUNABLES.PHI_PRUNE ? 0 : daysUntilBelow(m, TUNABLES.PHI_PRUNE, shape);
+  if (floor !== null) candidates.push(anchor + Math.max(floor, TUNABLES.D_FLOOR_DAYS));
+  const next = candidates.filter((x) => x > d).sort((a, b) => a - b)[0];
+  return next === undefined ? NEVER_CHANGES : next;
 }
 
 /**
@@ -835,6 +1220,16 @@ export interface CoreContext {
    * about me; the slow lane still needs the mark. Absent: false.
    */
   readonly selfRelevantFeeling?: boolean;
+  /**
+   * 2026-10-10 (Group 1c, review 08 C3): a feeling on the memory is STRONGLY
+   * FELT by its own word's measure — at least `CORE_FAST_ABOVE_DEFAULT` above
+   * the word's default, or at `CORE_FAST_FEELING` — read by the caller, which
+   * can see the words (`sleep/consolidate.ts#stronglyFelt`), from the same
+   * feelings the intensity reads (the lived ones only when the door to later
+   * feelings is closed). Either this or the intensity opens the fast lane's
+   * feeling half. Absent: false — the intensity alone decides, as before.
+   */
+  readonly stronglyFelt?: boolean;
 }
 
 /**
@@ -868,7 +1263,10 @@ export function promotionEligibility(m: MemoryPhysics, ctx: CoreContext): Promot
   // return must be an ordinary use, not a reflection's citation.
   const fastLast = !accepts && ctx.organicReturnDay !== undefined ? ctx.organicReturnDay : last;
   const fastGap = fastLast === null ? null : fastLast - m.birthDay;
-  const fastMet = intensity >= TUNABLES.CORE_FAST_FEELING && fastGap !== null && fastGap >= TUNABLES.CORE_FAST_GAP_DAYS;
+  // Strongly felt (2026-10-10): the intensity at the absolute bar, or a
+  // feeling above its own word's default (`CoreContext.stronglyFelt`).
+  const felt = intensity >= TUNABLES.CORE_FAST_FEELING || ctx.stronglyFelt === true;
+  const fastMet = felt && fastGap !== null && fastGap >= TUNABLES.CORE_FAST_GAP_DAYS;
   const now = ctx.day === undefined ? null : strength(m, ctx.day);
   const slowMet =
     days >= TUNABLES.CORE_SLOW_DAYS &&
@@ -1183,7 +1581,6 @@ export function bandMove(from: Band, to: Band): "up" | "down" | "none" {
 export type SymmetryReason =
   | "within-expectation"
   | "ratchet-suspected"
-  | "reverse-ratchet-suspected"
   | "never-asked";
 
 export interface SymmetryCheck {
@@ -1195,26 +1592,41 @@ export interface SymmetryCheck {
   /** up : down. Infinity when nothing ever moved down — v1's exact shape. */
   ratio: number;
   expectedMax: number;
+  /** Up-moves no input explains — a strength that rose with no use, return,
+   *  replay, feeling, claim, promotion or hold behind it (2026-10-10). */
+  unexplained: number;
 }
 
 /**
- * Up-moves and down-moves, counted separately, PER KIND, against a stated
- * expected ratio (guarantee 12). This is the tripwire v1 lacked: it ran
- * 279 up-moves against zero down-moves for three days and nothing fired.
- * Below the minimum sample the answer is "never-asked", not "healthy".
+ * Up-moves and down-moves, counted separately, PER KIND (guarantee 12). This
+ * is the tripwire v1 lacked: it ran 279 up-moves against zero down-moves for
+ * three days and nothing fired. Below the minimum sample the answer is
+ * "never-asked", not "healthy".
+ *
+ * IT FLAGS UP-RATCHETS ONLY (2026-10-10, review of #372). Decided by Mike,
+ * 2026-10-10, lightly held; revisit after ~5 lived days. Why: under the
+ * power-law curve memories fading down a band is the design, and up-moves come
+ * only from an input — so the old "reverse ratchet" (downs over ups past the
+ * stated ratio) flagged ordinary forgetting as an alarm. Two up-ratchet signs:
+ *   - `unexplained` up-moves: a band crossing upward that the decay pass could
+ *     tie to no input since its last reading (`sleep/decay.ts` records each
+ *     up-move's cause). The arithmetic never raises a strength by itself, so
+ *     one is enough;
+ *   - up-moves out of all proportion to down-moves (`ratio` over
+ *     `SYMMETRY_MAX_UP_DOWN_RATIO`), v1's exact shape, past the minimum sample.
+ * Down-moves past any ratio are not an alarm.
  */
-export function symmetryCheck(kind: Kind, counts: { up: number; down: number }): SymmetryCheck {
+export function symmetryCheck(kind: Kind, counts: { up: number; down: number; unexplained?: number }): SymmetryCheck {
   const { up, down } = counts;
+  const unexplained = Math.max(0, counts.unexplained ?? 0);
   const ratio = down === 0 ? (up === 0 ? 0 : Infinity) : up / down;
   const expectedMax = TUNABLES.SYMMETRY_MAX_UP_DOWN_RATIO;
-  const shape = { kind, up, down, ratio, expectedMax };
+  const shape = { kind, up, down, ratio, expectedMax, unexplained };
+  if (unexplained > 0) return { ok: false, reason: "ratchet-suspected", ...shape };
   if (up + down < TUNABLES.SYMMETRY_MIN_SAMPLE) {
     return { ok: true, reason: "never-asked", ...shape };
   }
   if (ratio > expectedMax) return { ok: false, reason: "ratchet-suspected", ...shape };
-  if (up > 0 && down / up > expectedMax) {
-    return { ok: false, reason: "reverse-ratchet-suspected", ...shape };
-  }
   return { ok: true, reason: "within-expectation", ...shape };
 }
 
@@ -1342,7 +1754,9 @@ export function challengeForce(
 export function pressureAt(
   m: Pick<MemoryPhysics, "pressure" | "lastChallengedDay">,
   d: number,
-  shape: DecayShape = TUNABLES.DECAY_SHAPE,
+  // Pinned exponential (2026-10-10): the memory curve went power-law; the
+  // pressure curve is the revision model's and stays as it was (`DECAY_SHAPE`).
+  shape: DecayShape = "exponential",
 ): number {
   if (m.pressure <= 0 || m.lastChallengedDay === null) return 0;
   return m.pressure * decayCurve(d - m.lastChallengedDay, TUNABLES.S_PRESSURE, shape);
@@ -1376,7 +1790,7 @@ export function applyChallenge(
   shape: DecayShape = TUNABLES.DECAY_SHAPE,
 ): ChallengeOutcome {
   const bar = revisionBar(target, d, shape);
-  const pressureBefore = pressureAt(target, d, shape);
+  const pressureBefore = pressureAt(target, d);
   const unchanged = { pressure: target.pressure, lastChallengedDay: target.lastChallengedDay };
   const refuse = (reason: ChallengeReason): ChallengeOutcome => ({
     verdict: "hold",
@@ -1613,7 +2027,9 @@ export function pruneVerdict(
 ): PruneVerdict {
   const s = strength(m, d, shape);
   const b = band(m, d, shape);
-  const dwellDays = d - m.lastUsedDay;
+  // Dwell from the curve's own anchor (2026-10-10): a dream replay or a
+  // reflection that revived a memory restarts its dwell as a use does.
+  const dwellDays = d - decayAnchor(m);
   const blockedBy: PruneReason[] = [];
   if (s >= TUNABLES.PHI_PRUNE) blockedBy.push("above-floor");
   if (dwellDays < TUNABLES.D_FLOOR_DAYS) blockedBy.push("dwell-too-short");

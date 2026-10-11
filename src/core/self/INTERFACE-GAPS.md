@@ -342,3 +342,10 @@ that is cut and whose host saves no file has no way back to its lanes.
 would — the CLI (`counterparts wake --scope <dir>`, printing it) or an MCP read that does
 not start a session — and the preface naming it beside the file. Not built on purpose
 (2026-10-10): the owner's brief was to name the door if it existed and file it if not.
+
+## 14. The Yesterday line has no scope gate — OPEN 2026-10-10 (review of #376)
+
+The Yesterday line names every folder's chapter titles with no scope gate (pre-existing on
+master; `handoff/last-here.ts#chaptersOn` leaves out confidential chapters only). Align it with
+the About-me / Today-elsewhere gate (`Counterpart#selfChapterElsewhere`, `#elsewhereFor`: scope
+on, via `WakeHere.exportsFrom`). Not fixed in #376.

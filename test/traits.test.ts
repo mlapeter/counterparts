@@ -89,12 +89,12 @@ describe("the vocabulary: seven axes, each between two good things", () => {
   });
 
   test("the tool schemas name the same seven axes and fourteen poles as the store", () => {
-    const note = TOOLS.find((t) => t.name === "note")?.inputSchema as {
+    const note = TOOLS.find((t) => t.name === "remember")?.inputSchema as {
       properties: { traits: { items: { properties: { axis: { enum: string[] }; toward: { enum: string[] } } } } };
     };
     expect(note.properties.traits.items.properties.axis.enum).toEqual(TRAIT_AXES.map((a): string => a.id));
     expect(note.properties.traits.items.properties.toward.enum).toEqual(TRAIT_AXES.flatMap((a) => [...a.poles]));
-    for (const name of ["note", "session_end"]) {
+    for (const name of ["remember", "session_end"]) {
       const spec = TOOLS.find((t) => t.name === name);
       const text = JSON.stringify(spec?.inputSchema);
       for (const a of TRAIT_AXES) expect(text).toContain(a.id);
@@ -292,12 +292,14 @@ describe("the schema: folded into the unreleased v9", () => {
         .replace(/\/\*[\s\S]*?\*\//g, " ")
         .replace(/--[^\n]*/g, " ")
         .trim()
-        .replace(/;\s*$/, "");
+        .replace(/;\s*$/, "")
+        // A trigger's body (v13, 2026-10-10) is part of its one statement.
+        .replace(/\bBEGIN\b[\s\S]*\bEND$/i, "BEGIN END");
       // One statement each: no second statement hiding after a semicolon.
       expect({ sql: text.slice(0, 80), single: !text.includes(";") }).toEqual({ sql: text.slice(0, 80), single: true });
       expect({
         sql: text.slice(0, 80),
-        idempotent: /^CREATE\s+(?:TABLE|(?:UNIQUE\s+)?INDEX)\s+IF\s+NOT\s+EXISTS\s/i.test(text),
+        idempotent: /^CREATE\s+(?:TABLE|(?:UNIQUE\s+)?INDEX|TRIGGER)\s+IF\s+NOT\s+EXISTS\s/i.test(text),
       }).toEqual({ sql: text.slice(0, 80), idempotent: true });
     }
     // And in fact: running everything twice over one database is a no-op the second time.
@@ -366,7 +368,7 @@ describe("the MCP doors: note and session_end", () => {
   test("note: nudges land beside the memory, secrets scrubbed from what carried them", async () => {
     const s = server();
     const out = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "I pushed back on the release plan and said the migration had to go first.",
         traits: [
           { axis: "agreeable-candid", toward: "candid", strength: 0.7, carried_by: "pushed back, key sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
@@ -385,7 +387,7 @@ describe("the MCP doors: note and session_end", () => {
   test("note: an unknown axis or a pole on the wrong axis refuses the note before it mints, and says what is allowed", async () => {
     const s = server();
     const bad = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "A note whose nudge names an axis that is not one of the seven.",
         traits: [{ axis: "bravery", toward: "bold", strength: 0.5 }],
       }),
@@ -394,7 +396,7 @@ describe("the MCP doors: note and session_end", () => {
     expect(String(bad["detail"])).toContain("axis-unknown");
     expect(String(bad["detail"])).toContain("careful-bold");
     const wrong = payload(
-      await s.call("note", {
+      await s.call("remember", {
         text: "A note whose nudge names a pole from another axis.",
         traits: [{ axis: "careful-bold", toward: "candid", strength: 0.5 }],
       }),
@@ -403,7 +405,7 @@ describe("the MCP doors: note and session_end", () => {
     expect(String(wrong["detail"])).toContain("careful|bold");
     expect(String(wrong["detail"])).toContain("agreeable-candid");
     for (const traits of ["candid", [null], [{ axis: 1, toward: "bold", strength: 0.5 }], [{ axis: "careful-bold", toward: "bold", strength: 0.5, carried_by: {} }]]) {
-      const out = payload(await s.call("note", { text: `A note with malformed traits: ${JSON.stringify(traits)}.`, traits }));
+      const out = payload(await s.call("remember", { text: `A note with malformed traits: ${JSON.stringify(traits)}.`, traits }));
       expect(out["reason"]).toBe("traits-malformed");
     }
     expect(s.counterpart.store.list({ type: "memory" })).toEqual([]);
@@ -412,8 +414,8 @@ describe("the MCP doors: note and session_end", () => {
   test("a duplicate note says its nudges were not stored", async () => {
     const s = server();
     const text = "I chose to say I did not know rather than guess at the kiln's temperature.";
-    await s.call("note", { text });
-    const again = payload(await s.call("note", { text, traits: [{ axis: "careful-bold", toward: "careful", strength: 0.4 }] }));
+    await s.call("remember", { text });
+    const again = payload(await s.call("remember", { text, traits: [{ axis: "careful-bold", toward: "careful", strength: 0.4 }] }));
     expect(again["stored"]).toBe(false);
     expect((again["traits"] as Record<string, unknown>)["reason"]).toBe("memory-not-stored");
   });

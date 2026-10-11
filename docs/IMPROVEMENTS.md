@@ -29,7 +29,184 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ## Decisions to review — the mechanisms work, groups 1–5 (2026-10-10)
 
-- Mike approved the two options 2026-10-10; details b2+f8, lightly held: the wake is assembled at session start (Still open, Arriving, the Yesterday line and the page read for that moment; Nearby and the identity rotation stay the turn-end's, since showing them writes state), and a "Today, elsewhere" line names other folders worked in today. Why: morning sessions read the evening's wake and knew nothing of each other. Held firmly: no span text across folders, no work memory's title, no handoff body; counts only. Builder's choices, for review: a chapter title crosses only on the About-me line's gate (scope on, not confidential, a copy marked me/us/owner) — the Yesterday line still names every folder's titles; a folder whose scope is not on is not named at all, not even by count; three indexes (`memories_open`, `memories_created`, `memories_origin_ref`) are created by the next migration, with no schema bump; no worker kick at session start. Cost (SessionStart through the hook, 200 registry records): 3.7 → 6.6 ms at 1× (925 memories), 12.3 → 28.2 ms at a synthetic 10× (9,250 written in one day, 250 open questions), no model calls.
+**Status:** `open` — Mike walks this list; npm is held until he has. Written by the Group 1a
+build (strength) from the mechanisms synthesis (§4, as amended by its draft 2, §8). Each line
+says who decided it, when, and why, in plain words. The ones that reverse a ruling of Mike's
+come first. Nothing here quotes a memory.
+
+### Revised from Mike's rulings
+
+1. **A dated memory is held until its date (no decay before it arrives), then fades a little
+   faster.** Revised by b2+f8, 2026-10-10, lightly held — and it may reverse Mike's
+   2026-09-26 prospective decision, whose note says "decay (`FADED_STRENGTH`) still holds" for a
+   memory with an explicit date (the contract's G10, "no decay exemption before arrival"). Why:
+   under the new curve a quiet reminder set a month out would fade and be refused before its
+   day; people hold pending intentions. **After the window** (its date and the grace week):
+   the memory's own stability is divided by 4 — steeper on its own curve, not zeroed — until
+   it is used again (a use means it still matters). A 0.25 reminder leaves reach within a day;
+   a felt 0.6 fact still lasts months. A repeating date (a birthday) is never "spent": each
+   occurrence is held, and between them it fades on its own curve. The first build zeroed
+   salience and feeling after the window, and on a copy of the live store (review of #372)
+   9 of 17 dated memories were archived within 30 lived days, among them a felt fact about
+   Mike and an agreed way of working; changed by Mike, 2026-10-10, loosely held. That holds for
+   every memory whose date came after the day it was written, not only reminders. (Group 1a.)
+2. **PARKED — engaged footnote credit** (G1b, #371). Parked by Mike, 2026-10-10:
+   hand-labelled strict precision 0.17–0.33, lenient 0.60–0.78, below the 0.8 bar; the 09-14
+   ruling ("never for being named in prose") stands in practice. Successor: an explicit `drewOn`
+   field (planned). Not a reversal that shipped.
+
+The rest are not reversals of Mike's rulings as far as b2, f8 and the builders know. Some
+reverse older defaults and contract lines; those go to the rules audit.
+
+### Decided by b2+f8, 2026-10-10, lightly held; revisit after ~5 lived days
+
+3. **The forgetting curve and its numbers.** A power law, steep at first and flat later, with
+   each memory's own steepness set by its salience and half its feeling, its use, its returns
+   and its kind. Why: a routine note should leave the working layer in about two days, a felt
+   reading should last months, and a 0.7 fact about a year. Until now every memory faded on
+   the same slow curve, so nothing left reach for ~100 lived days. (1a)
+4. **Below reach at 0.15.** Under it, a memory is left out of everything that comes up on its
+   own (turn recall, the links' pointers, the wake's work lines); asking deliberately still
+   finds it, listed after the main results as faded; using it, opening it or a dream replaying
+   it brings it back. The core never goes below reach. Why: forgetting in awareness, never in
+   storage — strength has to change what comes to mind, or decay changes nothing anyone sees.
+   (1a)
+5. **Exit after 14 lived days under the floor (was 90).** Exit means ARCHIVED, never deleted:
+   the words stay, readable by id, and the journal is untouched. Nothing deletes a memory
+   except Mike's own `counterparts remove`. Why: exit should follow reach; at 90 the first
+   possible exit was lived day 91. If any later change would delete rows, it waits for Mike.
+   (1a)
+6. **A dated memory holds until its date and fades steeply after.** See item 1. (1a)
+7. **Feeling sets how slowly a memory fades, not its band; `emotional` is out of the
+   salience average.** A feeling now counts once for height and once for steepness. Why:
+   feeling was the one signal that told readings from changelog on the live store; it was
+   being counted twice in height and barely in steepness. (1a)
+8. **Mood-matched recall turned down (weights 0, code kept), marked for re-test.** Why:
+   evidence from the old use metric (lifted memories used 1.3% vs 2.4%); re-test after Group
+   1's engaged credit gives a real signal. Not a closed decision. (1c)
+9. **"Strongly felt" means above the word's own default, or 0.6 and over**, so the core's fast
+   lane can open again (it shut when feeling defaults were capped at 0.55). (1c)
+10. **Encoding.** `note` becomes `remember` (with `note` kept as an alias for a release or
+    two); the new end-of-session ask; salience by attention, not category; the defaults by
+    what a memory is about. The `remember` description says to write in the moment, as things
+    catch your attention; the ask is the backstop. (1c)
+11. **One model for "this replaces that".** "Newer in the same slot" is `changed`; one detector
+    (the write-time neighbours, plus status lineage or very high similarity) proposes, the
+    dream confirms or undoes; the newest in a chain is what comes up on its own. (Group 2)
+12. **"Fade faster" is the existing `fade` multiplier**, not a new per-memory slope column.
+    (2/3)
+13. **The core.** A recurrence lane (back on several days, across sessions, over weeks);
+    identity means about me or us; after 60 lived days without coming back a core memory is
+    FLAGGED "being reconsidered" (dashboard and wake) — demotion needs a decision, mine
+    (awake or in the reflection) or Mike's, never automatic from disuse; both of us can retire
+    a core memory directly. (3)
+14. **Folding.** A fold is a flag on `gist`, not a new verb; a fold starts at its sources'
+    strength; reverse provenance goes in a `derivations` table. (3)
+15. **The dream queue.** The whole queue ranked into tonight's top-K; a memory stays queued
+    until it is below reach; the reflection runs in its own context. (3)
+16. **Cards as views**, not built in v1 (Mike's direction, 2026-10-10). (3)
+17. **A missed plain reminder is told once, later, within its 7-day grace.** (5)
+
+### Decided by the Group 1a builder, 2026-10-10, lightly held; revisit after ~5 lived days
+
+Calls the synthesis left open, made in code (each carries its own `Decided by` comment):
+
+- **The hold runs through the grace week, not just to the date.** A dated memory is held
+  through its date plus prospective's 7-day grace, so the window can still fire. Why: the
+  late beat and the open window's quiet fire both need it in reach.
+- **A date that repeats is held around each occurrence** — from 3 days before to the grace week
+  after — and fades between them, as Mike's 2026-10-09 design says. Why: a yearly date used once
+  a year would otherwise be below reach on the very day it comes round.
+- **Entity cards now fade on the steepest slope.** A card is a stub at salience 0, so a card used
+  a few times reaches the floor within weeks of lived days of its last use; its calendar floor
+  (180 days, 365 for people) is what keeps an unused card now. Before, a card used once stayed
+  over the floor for months. Cards are rarely born today (the title-vs-name bug, Group 3), so
+  this is noted rather than changed; review 03 C5 (one clock for cards) is where it belongs.
+- **"Fades faster after" = its own stability divided by 4, counted from the window's close,
+  until it is used after the window.** Decided by Mike, 2026-10-10, loosely held; revisit after
+  ~5 lived days. Why: completed intentions are inhibited, gently; zeroing salience and
+  feeling (the first build) archived felt facts and agreed conventions within weeks.
+- **A dream replay or a reflection's citation re-anchors the curve** (as a use does, without
+  being one). Why: the synthesis says a replay revives; a return's longer stability alone
+  lifts a faded default note by about 0.01, not back into reach.
+- **A handoff is out of decay, and out of the prune while it lives.** An expired handoff is
+  still let go at the floor, as the handoff module always said. Why: its own 14-day expiry is
+  its clock; exempting it for ever would keep every expired pointer.
+- **Revision pressure keeps its exponential curve.** Why: it is the revision model's, and
+  Group 2 owns it.
+- **The turn gate adds feeling as height does, and only on a felt turn**, now that feeling is
+  out of the salience average (recall §9 G10 kept).
+- **What is outside reach altogether:** chapters, their copies, handoffs and entity cards —
+  each born at strength 0 by design (the journal; a pointer with its own expiry; a name's
+  card, faded by its own rule), so a reach line would hide every one of them from birth.
+  Beliefs and every other memory are inside it.
+- **Skill and place salience weigh 1.0, as every other kind (was 0.4).** Decided by Mike,
+  2026-10-10, loosely held (proposed by b2 and f8); revisit after ~5 lived days. Why: the 0.4 weight put any skill
+  claimed under 0.375 below reach from birth (a 0.25 skill was born at 0.10, and one deliberate
+  open could not bring it back; on a copy of the live store 19 of 102 skills were below reach at
+  once). Procedural memory is the slowest to fade in the brain; if skill notes are
+  over-produced, that is encoding's job, not a special weight's. The repetition weight is
+  unchanged.
+- **The symmetry tripwire flags only UP-ratchets.** Decided by Mike, 2026-10-10, loosely held;
+  revisit after ~5 lived days. Why: under the new curve, falling a band is the design, and
+  climbing one comes only from an input (a use, a return, a replay, a feeling, a promotion), so
+  the old 4:1 expectation flagged ordinary forgetting as a "reverse ratchet". It now trips on a
+  climb no input explains (each up-move records its cause) or on climbs far outnumbering falls.
+  The dashboard's Health/Flow panel, `status` and `sleep.symmetry.tripped` say "up-ratchet".
+  The night a new curve arrives, the band moves it makes are recorded as `recurve` and not
+  counted (review of #372: on a copy of the live store the install night lifted 47 skills and
+  12 self memories a band, which would have read as an up-ratchet for days); a dated memory's
+  climb is its date's (`held`).
+- **Your existing store will fade slowly.** On the 10-10 snapshot, 497 of ~770 live memories
+  were claimed ≥ 0.5 under the old salience text ("set it on anything that should last"), and
+  under the new curve those stay in reach for months. New memories, claimed by attention, fade
+  as designed. No re-score was done (decided: no one-off fixes). A one-time scale-down of old
+  claims is a separate decision for Mike.
+
+### Decided by the Group 1c builder, 2026-10-10, lightly held; revisit after ~5 lived days
+
+Calls the synthesis left open, made in code (each carries its own `Decided by` comment; two
+were refined by b2+f8 at the review of #369, named where they were):
+
+- **The defaults by what a memory is about.** A memory written without a salience starts at
+  0.20 for a work event that is done, 0.25 for other work and for an unmarked one, 0.35 for
+  the world (readings, news), 0.40 for Mike, the two of us or me (or said by Mike). Why:
+  review 01's table; an unmarked memory keeps 0.25 because "done" alone does not make it
+  routine. The work-event row is 0.20, not 01's 0.10 (b2+f8, review of #369, lightly held):
+  reach is 0.15, and a routine work event should stay in reach about a lived day.
+- **A feeling alone lifts a memory at most to 0.49 while its own salience is under the
+  semantic floor** (`FELT_HEIGHT_CAP`); at or above the floor it keeps the whole lift. Why:
+  feeling sets how slowly a memory fades, not its band (item 7), and with the 0.40 default a
+  strong feeling would otherwise start a silent memory semantic. It holds for claimed
+  memories too: one claimed under 0.5 with a strong feeling now starts episodic.
+- **"Strongly felt" (item 9) is 0.6, or 0.1 above the word's own default and at least 0.5.**
+  The 0.1 is review 08's own reading; the 0.5 floor is b2+f8's (review of #369, lightly
+  held): a calm word recorded at 0.45 is above its default, not strongly felt. A word nobody
+  weighed still never opens the fast lane.
+- **`note` still answers, as `remember`, for at least a release, and is not listed.** Why: a
+  session running across the upgrade keeps its cached tool list, so only the call has to
+  land; listing both would put two descriptions of one door in front of the model. Each call
+  on the old name is counted, so dropping it is a read, not a guess.
+- **What a session said and nobody wrote up stays owed for 14 days of use (was 3)**, and its
+  text is kept that long. Why: on the 10-10 snapshot 18 owed stretches lapsed unwritten; the
+  night takes four sessions, oldest first, and did not reach them in time.
+- **The per-session ask limit yields to a stretch that is due.** At the limit a session is
+  still asked when it holds unwritten pieces that are due (three of them, half an hour on).
+  Why: the limit refused 84 asks in 4 sessions, 35 of them while something was owed; review
+  01 offered this or a limit of 20, and this one asks only when something is owed.
+
+### Decided by b2, 2026-10-10, lightly held (the wake, #374)
+
+- Decided by b2, 2026-10-10, lightly held: every accepted memory and handoff change marks the wake for re-render (was: only write-ups, chapters, page, told, version, run-end). Why: a hermetic repro showed note-written memories stale in Still open/Nearby/Arriving for up to a day; cost ~0.45 s per writing turn-end in the detached worker, no model calls.
+
+### Approved by Mike, 2026-10-10; details b2+f8, lightly held (the wake, #376)
+
+- Mike approved the two options 2026-10-10; details b2+f8, lightly held: the wake is assembled at session start (Still open, Arriving, the Yesterday line and the page read for that moment; Nearby and the identity rotation stay the turn-end's, since showing them writes state), and a "Today, elsewhere" line names other folders worked in today. Why: morning sessions read the evening's wake and knew nothing of each other. Held firmly: no span text across folders, no work memory's title, no handoff body; counts only. Builder's choices, for review: a chapter title crosses only on the About-me line's gate (scope on, not confidential, a copy marked me/us/owner) — the Yesterday line still names every folder's titles; a folder whose scope is not on is not named at all, not even by count; three indexes (`memories_open`, `memories_created`, `memories_origin_ref`) ride the v13 upgrade, with no schema bump of their own; no worker kick at session start. Cost (SessionStart through the hook, 200 registry records): 3.7 → 6.6 ms at 1× (925 memories), 12.3 → 28.2 ms at a synthetic 10× (9,250 written in one day, 250 open questions), no model calls.
+
+### Also noted
+
+- **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
+  audit) without the reading counting as a use.
 
 ---
 

@@ -151,6 +151,19 @@ export interface FeelingRow extends Row {
    *  on every row it re-filed (null on the rest) — so it can be undone. */
   core_v10: string | null;
   emotion_v10: string | null;
+  /**
+   * v13 (2026-10-10, review 02 C5): the LIVED day the feeling was recorded —
+   * what its softening counts from, so a feeling a reflection added weeks after
+   * the memory reads fresh the morning after. The upgrade backfilled it
+   * (`operational.ts#backfillRecordedDays`); undefined on a v12 file read
+   * before its upgrade, and then the memory's birth day stands in.
+   */
+  recorded_day: number | null;
+}
+
+/** The lived day a feeling softens from: when it was recorded (v13), else its memory's birth. */
+export function feltDay(row: { readonly recorded_day?: number | null; readonly birth_day: number }): number {
+  return typeof row.recorded_day === "number" && Number.isFinite(row.recorded_day) ? row.recorded_day : row.birth_day;
 }
 
 /**

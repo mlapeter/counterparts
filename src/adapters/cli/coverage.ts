@@ -44,7 +44,7 @@ function standing(e: LedgerEntry, zone: string): string {
   if (s === null) return "all written up";
   const what = `not yet written up: ${plural(s.pieces, "piece", "pieces")} over ${lengthWords(s.minutes)}, since ${localStamp(s.firstAt, zone)}`;
   if (e.lapsed) {
-    return `${what} — lapsed after ${plural(e.daysOfUseSince, "day", "days")} of use: no longer owed, nothing deleted`;
+    return `${what} — let go after ${plural(e.daysOfUseSince, "day", "days")} of use unwritten: lost to memory, no longer owed, nothing deleted`;
   }
   if (e.owed) {
     const why = e.state === "ended" ? "it ended" : "it has been quiet since the date changed";

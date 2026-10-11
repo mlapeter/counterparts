@@ -280,7 +280,7 @@ export const WRITE_UP_ASK_COUNT_KEY = "adapter.writeup.asks.count";
 
 /** What the pointer adds for a SMALL owed stretch (2026-09-29; since
  *  2026-09-30 `coverage/`'s `small`, under six pieces): one plain sentence. */
-export const WRITE_UP_SHORT_LINE = "It was a short session: one line is enough, or memories: [] if nothing in it is worth keeping.";
+export const WRITE_UP_SHORT_LINE = "It was a short session: one line is enough, or memories: [] only if nothing in it held your attention.";
 
 /** THE POINTER the model reads — short, because the words come from the door,
  *  and naming the ended session once. A small owed stretch (`short`) gets the
@@ -303,7 +303,7 @@ export function writeUpPointer(input: {
   const part = input.of <= 1 ? "" : `, part ${String(input.part)} of ${String(input.of)}`;
   return [
     WRITE_UP_OPEN,
-    `${some}; the oldest, from ${input.endedOn}, left ${size} of what was said there${part}. To write it up, call ${WRITE_UP_TOOL} with session: ${input.live}, writeUp: ${input.ended} and no memories to get the words, then again with the memories worth keeping (or memories: []).${input.short === true ? ` ${WRITE_UP_SHORT_LINE}` : ""}`,
+    `${some}; the oldest, from ${input.endedOn}, left ${size} of what was said there${part}. To write it up, call ${WRITE_UP_TOOL} with session: ${input.live}, writeUp: ${input.ended} and no memories to get the words, then again with what caught your attention, one idea each (memories: [] only if nothing did).${input.short === true ? ` ${WRITE_UP_SHORT_LINE}` : ""}`,
     WRITE_UP_CLOSE,
   ].join("\n");
 }

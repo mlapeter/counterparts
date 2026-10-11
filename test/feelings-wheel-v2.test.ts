@@ -41,6 +41,7 @@ import {
   restoreFeelingsV10,
 } from "../src/core/store/index.js";
 import type { StoreOptions } from "../src/core/store/index.js";
+import { stripV13 } from "./store-fixture.js";
 
 let root: string;
 let dir: string;
@@ -188,7 +189,7 @@ describe("numbers on each feeling", () => {
   test("the MCP door: core and strength may be left out, valence given; the enum is the seven", async () => {
     const s = openServer({ dir, scope: "/tmp/wheel-v2-project", owner: true });
     open.push({ close: () => s.counterpart.close() });
-    const out = (await s.call("note", {
+    const out = (await s.call("remember", {
       text: "The handoff note was read the next morning and it held.",
       feelings: [
         { whose: "self", emotion: "trusted" },
@@ -201,7 +202,7 @@ describe("numbers on each feeling", () => {
       ["warm", "trusted", 0.5, null],
       ["warm", "moved", 0.4, 0.3],
     ]);
-    const text = JSON.stringify(TOOLS.find((t) => t.name === "note")?.inputSchema);
+    const text = JSON.stringify(TOOLS.find((t) => t.name === "remember")?.inputSchema);
     expect(text).toContain(JSON.stringify([...CORE_EMOTIONS]));
     expect(text).not.toContain('"fear"');
     expect(text).not.toContain("sheepish (fear");
@@ -304,6 +305,7 @@ function v10Store(): { memory: string; ids: string[] } {
      VALUES (?, ?, 'self', ?, ?, ?, 0.4, '', ?, ?, 'session')`,
   );
   LIVE.forEach(([core, emotion, word], i) => insert.run(ids[i] as string, memory, core, emotion, word, 1_000 + i, 1_000 + i));
+  stripV13(db); // a v10 file has none of v13's either (2026-10-10)
   db.run("ALTER TABLE feelings DROP COLUMN valence");
   db.run("ALTER TABLE feelings DROP COLUMN core_v10");
   db.run("ALTER TABLE feelings DROP COLUMN emotion_v10");

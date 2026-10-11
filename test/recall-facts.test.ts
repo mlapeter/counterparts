@@ -26,6 +26,7 @@ import type { FactsResult } from "../src/adapters/mcp/facts.js";
 import { settle } from "../src/core/contradictions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { OPEN_END, OPEN_START, loadGateState, readTimeAsk } from "../src/core/recall/index.js";
+import { findable } from "./store-fixture.js";
 
 const ZONE = "America/Los_Angeles";
 /** 2026-10-03, 15:00 local. */
@@ -51,7 +52,9 @@ afterEach(() => {
 });
 
 function brain(now = NOW): Counterpart {
+  // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
   const c = Counterpart.open({ dir: join(dir, "store"), owner: true, now: () => now, timeZone: ZONE });
+  findable(c.store);
   open.push(c);
   return c;
 }
@@ -884,7 +887,7 @@ describe("through the tool", () => {
     });
     const s = server(c);
     // Not shown yet: a feeling now about it is refused.
-    const before = body(await s.call("note", { feelingsNow: [{ id: moment, core: "calm", emotion: "content", strength: 0.5 }] }));
+    const before = body(await s.call("remember", { feelingsNow: [{ id: moment, core: "calm", emotion: "content", strength: 0.5 }] }));
     expect((before["feelingsNow"] as { recorded: number }).recorded).toBe(0);
     const out = body(await s.call("recall", { question: "What has Zorabel been to me?", mode: "meaning" }));
     expect(out["mode"]).toBe("meaning");
@@ -894,7 +897,7 @@ describe("through the tool", () => {
     expect(out["ids"]).toEqual([...direct.shown]);
     expect(direct.shown).toContain(moment);
     // Seen: the feeling now is recorded. Quotable: the `asked` record names it.
-    const after = body(await s.call("note", { feelingsNow: [{ id: moment, core: "calm", emotion: "content", strength: 0.5 }] }));
+    const after = body(await s.call("remember", { feelingsNow: [{ id: moment, core: "calm", emotion: "content", strength: 0.5 }] }));
     expect((after["feelingsNow"] as { recorded: number }).recorded).toBe(1);
     expect(c.store.gateRecords(SESSION, "asked").map((r) => r.ref)).toContain(moment);
     // The durable row says which mode answered.
