@@ -699,7 +699,7 @@ describe('the footer and the pause, said (v1)', () => {
   test('at the docked pane’s 32 cells each item is one line, label · command; wider, the long labels', () => {
     const at = (w: number) => footerLines(w).map(l => l.label + l.how)
     // `Dashboard · /counterparts:dashboard` is 35 cells: at 32 its command goes under it, whole
-    expect(at(32)).toEqual(['Intro · /counterparts:meet', 'Dashboard', '  /counterparts:dashboard', 'Pause · say “pause memory here”', 'Hide · /counterparts quiet'])
+    expect(at(32)).toEqual(['Intro · /counterparts:meet', 'Dash · /counterparts:dashboard', 'Pause · say “pause memory here”', 'Hide · /counterparts quiet'])
     expect(at(40)).toEqual(['5-minute intro · /counterparts:meet', 'Dashboard · /counterparts:dashboard', 'Pause here · say “pause memory here”', 'Hide this · /counterparts quiet'])
     for (const w of [16, 20, 26, 28, 32, 38, 48]) {
       const lines = footerLines(w)
@@ -710,14 +710,14 @@ describe('the footer and the pause, said (v1)', () => {
     }
     // narrower than an item: its short label, then the command under it, indented
     expect(footerLines(26).map(l => l.label + l.how)).toEqual([
-      'Intro · /counterparts:meet', 'Dashboard', '  /counterparts:dashboard', 'Pause', '  say “pause memory here”', 'Hide · /counterparts quiet',
+      'Intro · /counterparts:meet', 'Dash', '  /counterparts:dashboard', 'Pause', '  say “pause memory here”', 'Hide · /counterparts quiet',
     ])
   })
 
   test('paused or off, the footer’s pause line says how to resume instead', () => {
     expect(footerLines(40, true).map(l => l.label + l.how)).toContain('Resume here · say “resume memory here”')
     expect(footerLines(32, true).map(l => l.label + l.how)).toEqual([
-      'Intro · /counterparts:meet', 'Dashboard', '  /counterparts:dashboard', 'Resume', '  say “resume memory here”', 'Hide · /counterparts quiet',
+      'Intro · /counterparts:meet', 'Dash · /counterparts:dashboard', 'Resume', '  say “resume memory here”', 'Hide · /counterparts quiet',
     ])
     expect(footerLines(32, true).some(l => l.how.includes('pause memory'))).toBe(false)
   })
