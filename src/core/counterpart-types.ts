@@ -611,6 +611,12 @@ export interface DepositReminder {
    * when there were none.
    */
   readonly alsoClosed?: readonly string[];
+  /**
+   * Memories of that chain still holding a date that this write could not
+   * close (`closeThread`'s guards: protected, or confidential / another
+   * directory's for a session that is not the owner's). Listed in the reply.
+   */
+  readonly chainSkipped?: readonly string[];
 }
 
 /** `carryReminder`'s answer: the proposal to mint, and what it took from where. */

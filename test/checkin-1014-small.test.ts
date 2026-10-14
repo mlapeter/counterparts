@@ -232,12 +232,107 @@ describe("D. a revision with no title carries the old one, except when it closes
     expect(String(out["titleAsked"])).toContain("A title is asked for");
   });
 
-  test("status done on an undated memory still carries the title (only a dated close withholds it)", async () => {
+  test("status done on an undated memory carries no title either, and asks for one (review of #493)", async () => {
     const s = server();
     const store = s.counterpart.store;
     const old = String(payload(await s.call("remember", { text: "Plan: repaint the zqharbour boathouse door.", title: "Repaint boathouse door", status: "planned" }))["id"]);
     const r = payload(await s.call("remember", { text: "Repainted the zqharbour boathouse door green.", updates: old, status: "done" }));
-    expect(store.readProse(String(r["id"])).title).toBe("Repaint boathouse door");
-    expect(r["titleAsked"]).toBeUndefined();
+    expect(store.readProse(String(r["id"])).title ?? null).toBeNull();
+    expect(String(r["titleAsked"])).toContain("A title is asked for");
+  });
+
+  test("a confidential memory's title is never carried, even for the owner", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const old = String(payload(await s.call("remember", { text: "The zqharbour mooring fee is owed to my cousin.", title: "Zqharbour mooring debt" }))["id"]);
+    store.revise(old, { meta: { confidential: true } });
+    expect(store.row(old)?.confidential).toBe(1);
+    const r = payload(await s.call("remember", { text: "The zqharbour mooring fee owed to my cousin is now half.", updates: old }));
+    expect(store.readProse(String(r["id"])).title ?? null).toBeNull();
+    expect(r["titleCarried"]).toBeUndefined();
+  });
+});
+
+// ── C, after review: guards, raw pointers, a cycle ──────────────────────────
+
+describe("C (review of #493). the chain close keeps closeThread's guards and its own pointers", () => {
+  const BODY = "Pay the zqtax estimated payment to the county before the deadline";
+
+  /** A dated memory put directly, its chain pointers and flags as given. */
+  function dated(s: McpServer, body: string, opts: { date?: string; meta?: Record<string, unknown>; scope?: string; protect?: boolean } = {}): string {
+    return s.counterpart.store.put({
+      type: "memory",
+      kind: "fact",
+      body,
+      ...(opts.date === undefined ? {} : { eventDate: opts.date }),
+      ...(opts.meta === undefined ? {} : { meta: opts.meta }),
+      origin: { session: "sess_checkin", scope: opts.scope ?? "/scope/one" },
+      ...(opts.protect === true ? { physics: { protected: true } as never } : {}),
+    });
+  }
+
+  function link(s: McpServer, from: string, to: string): void {
+    s.counterpart.store.revise(from, { meta: { reminderMovedTo: to } });
+    s.counterpart.store.revise(to, { meta: { reminderFrom: from } });
+  }
+
+  test("a protected chain memory keeps its date and is listed as skipped", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const a = dated(s, `${BODY}, first note.`, { date: "2027-04-15", protect: true });
+    const b = dated(s, `${BODY}, moved.`, { date: "2027-04-16" });
+    link(s, a, b);
+    const r = payload(await s.call("remember", { text: `Paid it: ${BODY}.`, updates: b, eventDate: null }));
+    expect(store.row(b)?.event_date).toBeNull();
+    expect(store.row(a)?.event_date).toBe("2027-04-15");
+    const still = r["stillDated"] as { id: string; skipped?: boolean }[];
+    expect(still.find((x) => x.id === a)?.skipped).toBe(true);
+  });
+
+  test("for a session that is not the owner's, a confidential or another directory's chain memory is skipped", async () => {
+    const s = openServer({ dir, session: "sess_guest", scope: "/scope/one", owner: false });
+    findable(s.counterpart.store);
+    open.push(s.counterpart);
+    const store = s.counterpart.store;
+    const secret = dated(s, `${BODY}, the private note.`, { date: "2027-04-14", meta: { confidential: true } });
+    const elsewhere = dated(s, `${BODY}, written elsewhere.`, { date: "2027-04-15", scope: "/scope/two" });
+    const b = dated(s, `${BODY}, moved.`, { date: "2027-04-16" });
+    link(s, secret, elsewhere);
+    link(s, elsewhere, b);
+    const r = payload(await s.call("remember", { text: `Paid it: ${BODY}.`, updates: b, eventDate: null }));
+    expect(store.row(b)?.event_date).toBeNull();
+    expect(store.row(secret)?.event_date).toBe("2027-04-14");
+    expect(store.row(elsewhere)?.event_date).toBe("2027-04-15");
+    const skipped = (r["stillDated"] as { id: string; title: string | null; skipped?: boolean }[]).filter((x) => x.skipped === true);
+    expect(skipped.map((x) => x.id).sort()).toEqual([secret, elsewhere].sort());
+    expect(skipped.find((x) => x.id === secret)?.title).toBeNull();
+  });
+
+  test("a cycle in the pointers ends; every dated memory on it is closed once and marked spent", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const a = dated(s, `${BODY}, first.`, { date: "2027-04-15" });
+    const b = dated(s, `${BODY}, second.`, { date: "2027-04-16" });
+    const c = dated(s, `${BODY}, third.`, { date: "2027-04-17" });
+    link(s, a, b);
+    link(s, b, c);
+    link(s, c, a);
+    const r = payload(await s.call("remember", { text: `Paid it: ${BODY}.`, updates: b, eventDate: null }));
+    for (const id of [a, b, c]) expect(store.row(id)?.event_date).toBeNull();
+    expect([...((r["reminder"] as Record<string, unknown>)["alsoClosed"] as string[])].sort()).toEqual([a, c].sort());
+    expect(store.readProse(a).meta["reminderSpentBy"]).toBe(String(r["id"]));
+  });
+
+  test("a pointer at a superseded memory is not followed to its successor: closing B leaves X's date", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const y = dated(s, `${BODY}, an old draft.`);
+    // Y was superseded by X — another obligation's memory, dated.
+    const x = store.supersede(y, { type: "memory", kind: "fact", body: "Renew the zqharbour mooring permit at the office.", eventDate: "2027-06-01" });
+    const b = dated(s, `${BODY}, moved.`, { date: "2027-04-16" });
+    link(s, b, y);
+    await s.call("remember", { text: `Paid it: ${BODY}.`, updates: b, eventDate: null });
+    expect(store.row(b)?.event_date).toBeNull();
+    expect(store.row(x)?.event_date).toBe("2027-06-01");
   });
 });

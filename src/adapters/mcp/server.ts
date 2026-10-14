@@ -2022,12 +2022,22 @@ export class McpServer {
       ...siblings,
     ].filter((x): x is string => typeof x === "string");
     const anchors = [deposit.memoryId, deposit.reminder?.from, deposit.mint?.updates].filter((x): x is string => typeof x === "string");
-    const out: { id: string; title: string | null; eventDate: string }[] = [];
+    const out: { id: string; title: string | null; eventDate: string; skipped?: true }[] = [];
     const seen = new Set<string>(exclude);
+    // The chain's own memories this write could not close (protected, or not
+    // this session's to close) come first, marked; a confidential one's title
+    // only for the owner (review of #493).
+    for (const id of deposit.reminder?.chainSkipped ?? []) {
+      seen.add(id);
+      const row = this.counterpart.store.row(id);
+      if (row === undefined || row.event_date === null) continue;
+      const hidden = row.confidential === 1 && !this.owner;
+      out.push({ id, title: hidden ? null : row.title ?? lineOf({ body: row.body }), eventDate: row.event_date, skipped: true });
+    }
     for (const anchor of [...new Set(anchors)]) {
       const near = this.counterpart.writeNeighbours(anchor, { exclude, owner: this.owner, session, limit: CONTRADICTION_TUNABLES.NEIGHBOURS_PER_CALL });
       for (const n of near) {
-        if (seen.has(n.id) || out.length >= STILL_DATED_SHOWN) continue;
+        if (seen.has(n.id) || out.filter((x) => x.skipped !== true).length >= STILL_DATED_SHOWN) continue;
         seen.add(n.id);
         const row = this.counterpart.store.row(n.id);
         if (row === undefined || row.archived === 1 || row.event_date === null) continue;

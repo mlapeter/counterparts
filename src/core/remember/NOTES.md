@@ -672,7 +672,8 @@ holds its text.
 via `updates` carried `about`, `saidBy`, `status` and the date but not the title, and 5 of
 the 7 untitled live memories since 10-05 were such revisions. Now an untitled revision
 takes the title of the memory it revises (`counterpart-deposit.ts#carryTitle`; reply
-`titleCarried`), except when it closes a dated memory (date dropped, or spent by `done`):
-the old title would read as still open, so nothing is carried and the reply says a title
-was not given and is asked for (`titleAsked`). A sent title wins. Only a DATED close
-withholds it; a `done` over an undated plan still carries the plan's title — watch for that.
+`titleCarried`), except when it closes something (a dated memory's date dropped or spent,
+or any `status: done`, widened in the review of #493): the old title would read as still
+open, so nothing is carried and the reply says a title was not given and is asked for
+(`titleAsked`). A sent title wins. A confidential memory's title is never carried, for any
+session: the new memory is not confidential.

@@ -16,5 +16,6 @@
   them in the same step if they are the same thing; they are never closed for it.
 - **A revision keeps its title.** A memory that revises another (`updates`) and has no title
   of its own now takes the old one's, as it already took what it was about, who said it,
-  its status and its date. When it closes something dated, the old title would read as
-  still open, so none is carried and the reply asks for a title.
+  its status and its date. When it closes something (a dated thing done, or any
+  `status: done`), the old title would read as still open, so none is carried and the
+  reply asks for a title. A confidential memory's title is never carried.

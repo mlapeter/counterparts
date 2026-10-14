@@ -586,3 +586,10 @@ Review 07 C3–C5, item 18 of the mechanisms work; the group-5 builder, lightly 
   among the nearest of the new memory and the one it closed (`stillDated`, ids, titles and
   dates, at most 5; `McpServer#stillDatedNear`), also when the write meant to close and
   reached nothing; never closes them. Watch whether the model closes what it is shown.
+  Review of #493: the walk follows the RAW pointer ids (never `Store#resolve`, which can
+  jump onto another obligation through a supersede or merge) and stops at a superseded or
+  archived row; it keeps `closeThread`'s guards (a protected memory, and for a non-owner
+  session a confidential one or another directory's, keeps its date and is listed with
+  `skipped: true`); a cleared one is marked `reminderSpentBy` the closing memory. Undoing
+  the write's settle puts back only the holder's date, not the chain's: the settle records
+  one reminder, and carrying the chain in it is left for later.
