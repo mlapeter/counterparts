@@ -50,6 +50,7 @@ export * from "./cues.js";
 export * from "./feeling-ask.js";
 export * from "./gate.js";
 export * from "./mood.js";
+export * from "./rated.js";
 export * from "./render.js";
 export * from "./session.js";
 export * from "./standing.js";

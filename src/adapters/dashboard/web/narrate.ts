@@ -414,6 +414,11 @@ export const NARRATORS = {
     }
     return calm("A session ended; its replies used nothing I had brought to mind, so nothing got stronger.");
   },
+  // Ratings (2026-10-14; Mike's call, tracking only): a calm line, nothing moved.
+  "recall.rated": (t) => {
+    const rated = n(t, "ratingsTotal") ?? 0;
+    return calm(`A session scored ${String(rated)} ${rated === 1 ? "memory" : "memories"} it was shown, 0 to 3; recorded only, nothing changed.`);
+  },
   "associate.flush": (t) => {
     const rows = n(t, "rows") ?? 0;
     const pairs = n(t, "pairs") ?? 0;
@@ -1280,6 +1285,7 @@ export const REF_KIND = {
   // The ref is the chapter (an episode row) the line would have named.
   "handoff.lasthere.noroom": "memory",
   "recall.credit": "none",
+  "recall.rated": "session",
   // A flush describes a SET of pairs, not one memory. The ids stay in the edge
   // rows, where they are the record; the row carries counts.
   "associate.flush": "none",

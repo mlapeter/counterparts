@@ -127,9 +127,16 @@ export function desktopBindNote(session: string): string {
 export const NO_DESKTOP_SESSION =
   "No Claude Desktop session is live. Call the `wake` tool first: it starts this chat's session and returns its id. (In a Claude Code session — Desktop's Code tab — do not call wake: pass the session id your wake or Stop ask names.)";
 
+/**
+ * The ratings clause (2026-10-14; Mike's call, tracking only) — the same words
+ * the Claude Code Stop ask carries (`claude-code/hooks.ts#RATE_CLAUSE`; the
+ * adapters do not import each other, so a test holds the two equal).
+ */
+export const RATE_ASK_CLAUSE = "`rated` 0–3 each footnote shown since you last wrote, and each `drewOn` id";
+
 /** The write-up ask a Desktop tool result carries once the session is due one. */
 export function desktopWriteUpAsk(session: string): string {
-  return `Counterparts: this chat has gone on a while since it was last written up. At a natural pause, hand back what caught your attention, one idea each, with session_end (session: ${session}; memories: [] only if nothing held your attention; \`updates\` anything dated or open now done), and add a chapter with the chapter tool (session: ${session}) if the chat was about something. ${PRONOUN_RULE}`;
+  return `Counterparts: this chat has gone on a while since it was last written up. At a natural pause, hand back what caught your attention, one idea each, with session_end (session: ${session}; memories: [] only if nothing held your attention; \`updates\` anything dated or open now done; ${RATE_ASK_CLAUSE}), and add a chapter with the chapter tool (session: ${session}) if the chat was about something. ${PRONOUN_RULE}`;
 }
 
 /** What `status` says `owner: false` means — the confused Desktop chats' question (2026-09-30). */

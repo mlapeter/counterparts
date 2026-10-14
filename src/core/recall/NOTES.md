@@ -1145,3 +1145,32 @@ matcher (rare title words in the reply) is parked; its tier is kept (`engaged`, 
   return was refused because another return already counted that day.
 - Watch at the ~10-14 check-in: the doctor's Credit line ("drewOn N credited of M named in
   K calls over 7 days") and the `not-shown` share in `recall.credit` rows' `refused`.
+
+## 32. Ratings — every showing gets a score, and nothing acts on it (2026-10-14)
+
+Mike's call, 2026-10-14, tracking only, lightly held. `session_end`'s `rated` field scores
+what the session was shown, 0–3; `Counterpart#rateShown` writes one `recall.rated` row per
+call (`ref` the session) and touches nothing else. What the build chose:
+
+- **Lanes, ambient first.** `loud` / `footnotes` / `pointers` from the gate state, then
+  `asked`, then `opened` — the MCP server's own per-session seen set (by-address opens, a
+  question's answers, a `remember` result's neighbours), the set `remark` and `feelingsNow`
+  already guard with. It is in-process: a server restarted mid-session forgets what it
+  opened. The durable alternative is the session's `mcp.recall` rows (`path: "handle"`),
+  which the reader uses.
+- **Coverage counts from the previous rating, not the previous boundary.** The Stop hook's
+  credit pass moves the `judged` mark before the model answers, so it cannot be the floor;
+  the floor is the last `recall.rated` row's `turn` for the session. A boundary answered
+  without ratings widens the next one's window. `asked` and `opened` are rateable but not in
+  the denominator.
+- **`drewOn` beside it.** Each rating says whether its id was named in `drewOn` in the same
+  call or credited as drawn on at this boundary; ids named and not rated are listed.
+- **Loud lines show no id** (§31), so in practice the loud lane is rated only when the
+  model has the id from elsewhere.
+- Watch: `counterparts probe-oq4`'s Ratings table — coverage per lane, the drewOn 2–3
+  share, and agreement with the credit pass's used / shown-not-used.
+- **Review of #492 (2026-10-14):** coverage counts footnotes and quiet pointers only (loud
+  lines show no id; a loud id can still be rated); a rating's `drewOn` mark means credited
+  as drawn on at this boundary, never merely named; a call whose every entry is refused
+  writes no row, so it moves no window; the reader leaves out sessions from before the
+  first rating row's date and says how many.

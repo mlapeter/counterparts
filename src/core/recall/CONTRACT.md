@@ -133,6 +133,14 @@ reply actually used reconsolidates, where in humans every retrieval does.
   `capped`. Each tool call that names any writes its own `recall.credit` row (`source:
   "drewOn"`, `via` the tool), and every credit row carries `how`, aligned with `ids`:
   `expanded` / `quoted` / `drewOn`.
+  **Ratings, 2026-10-14: not a door — a record.** *Mike's call, tracking only, lightly
+  held.* `session_end` takes optional `rated: [{id, score}]`, score 0–3 (noise / on topic,
+  not needed / useful background / changed what I did or said; `rated.ts`). Rateable: what
+  the session was shown — `surfaced`, `asked`, and what the tools handed it (`opened`).
+  Anything else is refused `not-shown`; a bad score or missing id by name; the last score
+  for an id counts. `Counterpart#rateShown` writes one `recall.rated` row and **moves
+  nothing**: no strength, ranking, credit, decay, link or judged mark. Read by
+  `probe.ts#probeRatings` (`counterparts probe-oq4`). How the signal is used is decided later.
 - **Framing is load-bearing and part of the spec** — footnotes are pointers, and the "quietly
   available / ignorable" phrasing is a deliberate probe question, at step 1 since 2026-09-14
   (§7 OQ4). [v1 §9 G17]
