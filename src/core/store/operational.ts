@@ -2395,7 +2395,9 @@ export function eraCarriedFrom(
  *     and grace still ahead) or a repeating date (a `recurring` rule).
  *
  * The 10-11 reading of defaults is `sleep/decay.ts#curveSignature`'s
- * `eraReads: 2`. Pure: the caller hands it the row, the cutoff and the hold it
+ * `eraReads: 2`; since 2026-10-14 (`eraReads: 3`) a value here below the
+ * stored claim is the whole salience the curve reads (`physics#curveSal`).
+ * Pure: the caller hands it the row, the cutoff and the hold it
  * computed.
  */
 export function eraClaimOf(

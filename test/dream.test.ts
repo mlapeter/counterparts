@@ -572,7 +572,10 @@ describe("merge inherits: about, and the old-claims era", () => {
 
   test("three sources, mixed eras, the old one best: the merged row is read as old", () => {
     const c = brain();
-    const { old, fresh } = mixed(c, [{ about: "world", ...best(0.7) }], [{ about: "world", ...claim(0.7) }, { about: "world", ...claim(0.7) }]);
+    // Since 2026-10-14 the old one's high dimensions no longer floor its era reading (it reads the
+    // world default, 0.35, with its feeling's lift), so the new ones are weaker for it to be best.
+    const weak: Partial<PutInput> = { about: "world", salience: { relevance: 0.1, emotional: 0, predictive: 0.1, claimed: 0.3 } };
+    const { old, fresh } = mixed(c, [{ about: "world", ...best(0.7) }], [weak, weak]);
     // Best named last: order must not matter.
     const { id } = merge(c, [fresh[0]!, fresh[1]!, old[0]!]);
     expect(c.store.readProse(id).meta[ERA_WRITTEN_AT_META]).toBe(c.store.row(old[0]!)!.created_at as number);

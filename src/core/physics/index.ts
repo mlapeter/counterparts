@@ -661,10 +661,26 @@ export function sal(s: Salience): number {
  * Extended by Mike, 2026-10-11, lightly held: an old DEFAULT reads at today's
  * default for what it is about, up or down, so an upgrader reads what a fresh
  * install writes.
+ *
+ * WHERE THE ERA LOWERS A CLAIM, IT IS THE WHOLE SALIENCE (2026-10-14): the
+ * curve reads `eraClaim` alone, not `max(mean of the dimensions, eraClaim)`.
+ * Memories written before Group 1 carry author-scored relevance and
+ * predictive (mean ~0.29 / ~0.21 on the live store; ~0.02 since), written
+ * under the same old field text as their claims, and that mean held 103 of
+ * 485 lowered memories exactly where they were (median 0.395 against the
+ * 0.25 meant). A fresh install's memory reads its claim, which is what the
+ * era says an upgrader should read. Where the era RAISES a default, the
+ * dimensions still count (`sal` with the era's claim), as before. The exempt
+ * never reach here (`eraClaimOf` gives them no era).
+ * Decided by Mike, 2026-10-14, lightly held; review 2026-10-18.
  */
 export function curveSal(m: { readonly salience: Salience; readonly eraClaim?: number | null | undefined }): number {
   const era = m.eraClaim;
-  return typeof era === "number" && Number.isFinite(era) ? sal({ ...m.salience, claimed: era }) : sal(m.salience);
+  if (typeof era !== "number" || !Number.isFinite(era)) return sal(m.salience);
+  // A SCALE-DOWN IS THE WHOLE READING (2026-10-14): the era's value alone, so
+  // the old dimensions' mean cannot floor it back up.
+  if (era < (m.salience.claimed ?? 0)) return clamp01(era);
+  return sal({ ...m.salience, claimed: era });
 }
 
 /** The mean of the stored dimensions alone, ignoring any claimed floor. */

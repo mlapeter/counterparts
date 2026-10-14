@@ -138,9 +138,11 @@ export function curveSignature(eraCutoff: string | null = null): string {
     // every old memory, so every next-change day is forgotten once.
     era: eraCutoff,
     // Which old claims it reads at today's default: 1, explicit claims when
-    // lower (2026-10-10); 2, defaults too, either way (2026-10-11). A store
-    // signed under 1 re-curves once.
-    eraReads: 2,
+    // lower (2026-10-10); 2, defaults too, either way (2026-10-11); 3, a
+    // lowered claim is the whole salience the curve reads, the old dimensions
+    // no longer flooring it (2026-10-14). A store signed under an earlier
+    // reading re-curves once.
+    eraReads: 3,
     defaults: [
       PHYSICS.DEFAULT_CLAIM_WORK_EVENT,
       PHYSICS.AUTHORED_DEFAULT_CLAIM,
