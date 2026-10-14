@@ -843,70 +843,206 @@ describe("`counterparts uninstall` on the command line", () => {
     expect(readFileSync(join(home, ".claude.json"), "utf8")).toBe(before);
   });
 
-  // THE PLUGIN NEVER REGISTERS A `-s user` SERVER (its own is plugin.json's),
-  // so one that is there is the npm install's, and uninstalling only the
-  // plugin took it away from a person with both.
-  describe("the plugin's uninstall and the npm install's registration", () => {
+  // THE PLUGIN REMOVES A HOOK OR A REGISTRATION ONLY WHEN WHAT IT RUNS IS GONE.
+  // It writes neither (its hooks are hooks.json's, its server plugin.json's),
+  // so a live one is a running npm install's, and uninstalling only the plugin
+  // took it from a person with both; a dead one is what `npm rm` without
+  // `counterparts uninstall` left, and goes.
+  describe("the plugin's uninstall and the npm install's wiring", () => {
     const PLUGIN_ENV = { ...ENV, CLAUDE_PLUGIN_ROOT: join(dirname(import.meta.dir)) };
-    function npmRegistration(): string {
+    const REMOVE = ["mcp", "remove", MCP_SERVER_NAME, "-s", "user"];
+    /** A file at `<home>/<rel>`, so a command naming it reads as live. */
+    function program(rel: string): string {
+      const path = join(home, rel);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, "#!/bin/sh\n");
+      return path;
+    }
+    function registration(command: string): string {
       writeFileSync(
         join(home, ".claude.json"),
-        JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "/usr/local/bin/counterparts-mcp", args: [] } } }),
+        JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command, args: [] } } }),
       );
       return readFileSync(join(home, ".claude.json"), "utf8");
     }
-    function recording(): { calls: string[][]; spawner: Spawner } {
+    const liveRegistration = (): string => registration(program("npm/bin/counterparts-mcp"));
+    const deadRegistration = (): string => registration(join(home, "gone", "counterparts-mcp"));
+    /** Hooks an `npm rm` left: the shim they name is not there any more. */
+    function deadHooks(): void {
+      const shim = join(home, "gone", "counterparts-hook");
+      mkdirSync(dirname(settingsFile()), { recursive: true });
+      writeFileSync(
+        settingsFile(),
+        JSON.stringify({
+          hooks: Object.fromEntries(HOST_EVENTS.map((e) => [e, [{ hooks: [{ type: "command", command: shim }] }]])),
+        }),
+      );
+    }
+    /** Each `claude` call, with how many questions had been put by then. */
+    function recording(c?: Console_): { calls: string[][]; askedBefore: number[]; spawner: Spawner } {
       const calls: string[][] = [];
-      return { calls, spawner: (args) => (calls.push([...args]), OK) };
+      const askedBefore: number[] = [];
+      return {
+        calls,
+        askedBefore,
+        spawner: (args) => (calls.push([...args]), askedBefore.push(c?.asked.length ?? 0), OK),
+      };
     }
 
-    test("the plugin's keep (`--keep-memories --json`) leaves it registered, and says whose it is", async () => {
+    test("the plugin's keep (`--keep-memories --json`) leaves a live registration, and says whose it is", async () => {
       await install();
-      const before = npmRegistration();
+      const before = liveRegistration();
       const spy = recording();
       const c = consoleWith(null);
       expect(await uninstallJson(input({ io: c.io, env: PLUGIN_ENV, keepMemories: true, spawner: spy.spawner }))).toBe("ok");
-      expect(spy.calls).not.toContainEqual(["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]);
+      expect(spy.calls).not.toContainEqual(REMOVE);
       expect(readFileSync(join(home, ".claude.json"), "utf8")).toBe(before);
       const body = JSON.parse(text(c.out)) as { outcome: string; lines: string[] };
       expect(body.outcome).toBe("ok");
-      expect(text(body.lines)).toContain("it is an npm install's");
+      expect(text(body.lines)).toContain("so it is the npm install's");
     });
 
-    test("…and the hooks still go when the plugin's keep finds them", async () => {
+    test("…and the npm install's live hooks stay with it", async () => {
+      await install();
+      await wireIt(); // this process's runtime and hook script: both there
+      liveRegistration();
+      const before = readFileSync(settingsFile(), "utf8");
+      const spy = recording();
+      const c = consoleWith();
+      expect(await uninstall(input({ io: c.io, env: PLUGIN_ENV, keepMemories: true, spawner: spy.spawner }))).toBe("ok");
+      expect(spy.calls).toEqual([]);
+      expect(readFileSync(settingsFile(), "utf8")).toBe(before);
+      expect(readHost(home, home, ENV).events).toHaveLength(HOST_EVENTS.length);
+      expect(text(c.out)).toContain(`${String(HOST_EVENTS.length)} Counterparts hooks were left as they are`);
+    });
+
+    test("an npm install removed without `counterparts uninstall`: its dead hooks and registration go", async () => {
+      await install();
+      deadHooks();
+      deadRegistration();
+      const spy = recording();
+      const c = consoleWith(null);
+      expect(await uninstallJson(input({ io: c.io, env: PLUGIN_ENV, keepMemories: true, spawner: spy.spawner }))).toBe("ok");
+      expect(spy.calls).toEqual([REMOVE]);
+      expect(readHost(home, home, ENV).events).toHaveLength(0);
+      const body = JSON.parse(text(c.out)) as { lines: string[] };
+      expect(text(body.lines)).not.toContain("`counterparts uninstall` removes");
+      expect(existsSync(storePath())).toBe(true);
+    });
+
+    test("the npm install's own uninstall still removes live ones", async () => {
       await install();
       await wireIt();
-      npmRegistration();
+      liveRegistration();
       const spy = recording();
-      expect(await uninstall(input({ env: PLUGIN_ENV, keepMemories: true, spawner: spy.spawner }))).toBe("ok");
-      expect(spy.calls).toEqual([]);
+      expect(await uninstall(input({ keepMemories: true, spawner: spy.spawner }))).toBe("ok");
+      expect(spy.calls).toEqual([REMOVE]);
       expect(readHost(home, home, ENV).events).toHaveLength(0);
     });
 
-    test("the npm install's own uninstall still removes it", async () => {
+    test("a plugin park still removes them: the store they open is going (M2)", async () => {
       await install();
-      npmRegistration();
-      const spy = recording();
-      expect(await uninstall(input({ keepMemories: true, spawner: spy.spawner }))).toBe("ok");
-      expect(spy.calls).toEqual([["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]]);
-    });
-
-    test("a plugin park still removes it: the store it opens is going (M2)", async () => {
-      await install();
-      npmRegistration();
+      await wireIt();
+      liveRegistration();
       const spy = recording();
       expect(await uninstall(input({ env: PLUGIN_ENV, park: true, spawner: spy.spawner }))).toBe("ok");
-      expect(spy.calls).toContainEqual(["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]);
+      expect(spy.calls).toContainEqual(REMOVE);
+      expect(readHost(home, home, ENV).events).toHaveLength(0);
     });
 
-    test("so does the plugin's plain arm at a terminal, which goes on to offer the delete", async () => {
+    // The plain arm at a terminal asks about deleting AFTER the wiring; the
+    // npm install's wiring must not be gone already when the answer is no.
+    test("the plugin's plain arm, answered no: the live wiring and the memory both stay", async () => {
       await install();
-      npmRegistration();
+      await wireIt();
+      const before = liveRegistration();
+      const hooksBefore = readFileSync(settingsFile(), "utf8");
       const spy = recording();
       const c = consoleWith(["y", ""]);
       expect(await uninstall(input({ io: c.io, env: PLUGIN_ENV, yes: false, spawner: spy.spawner }))).toBe("ok");
-      expect(spy.calls).toContainEqual(["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]);
+      expect(c.asked).toHaveLength(2);
+      expect(spy.calls).toEqual([]);
+      expect(readFileSync(join(home, ".claude.json"), "utf8")).toBe(before);
+      expect(readFileSync(settingsFile(), "utf8")).toBe(hooksBefore);
       expect(existsSync(base())).toBe(true);
+      expect(text(c.out)).toContain("Kept. Nothing was deleted.");
+    });
+
+    test("…answered yes and the phrase: the rest comes out after the phrase, and only then the delete", async () => {
+      await install();
+      await wireIt();
+      liveRegistration();
+      const c = consoleWith(["y", "y", DELETE_PHRASE]);
+      const spy = recording(c);
+      expect(await uninstall(input({ io: c.io, env: PLUGIN_ENV, yes: false, spawner: spy.spawner }))).toBe("ok");
+      expect(spy.calls).toEqual([REMOVE]);
+      expect(spy.askedBefore).toEqual([3]);
+      expect(readHost(home, home, ENV).events).toHaveLength(0);
+      expect(existsSync(base())).toBe(false);
+    });
+
+    test("…and when the registration cannot be confirmed gone, nothing is deleted (M2)", async () => {
+      await install();
+      await wireIt();
+      liveRegistration();
+      const missing: Spawner = () => ({ missing: true, code: null, out: "", err: "" });
+      const c = consoleWith(["y", "y", DELETE_PHRASE]);
+      expect(await uninstall(input({ io: c.io, env: PLUGIN_ENV, yes: false, spawner: missing }))).toBe("refused");
+      expect(existsSync(storePath())).toBe(true);
+      expect(text(c.err)).toContain("NOTHING WAS DELETED");
+    });
+
+    // THE DIRECTORY FLAVOR never opens ~/.claude.json: an npm install's
+    // `counterparts` on PATH stands in for "the registration still runs".
+    describe("the plugin directory's build", () => {
+      test("keep, with the npm `counterparts` on PATH: no `claude mcp remove`", async () => {
+        await install();
+        program("npm/bin/counterparts");
+        const spy = recording();
+        const c = consoleWith(null);
+        const env = { ...PLUGIN_ENV, PATH: join(home, "npm", "bin") };
+        expect(
+          await uninstallJson(input({ io: c.io, env, keepMemories: true, spawner: spy.spawner, readsUserConfig: false })),
+        ).toBe("ok");
+        expect(spy.calls).toEqual([]);
+        const body = JSON.parse(text(c.out)) as { lines: string[] };
+        expect(text(body.lines)).toContain("`counterparts` is on this PATH");
+      });
+
+      test("keep, with no npm `counterparts`: whatever is registered goes", async () => {
+        await install();
+        deadHooks();
+        const spy = recording();
+        const c = consoleWith(null);
+        expect(
+          await uninstallJson(input({ io: c.io, env: PLUGIN_ENV, keepMemories: true, spawner: spy.spawner, readsUserConfig: false })),
+        ).toBe("ok");
+        expect(spy.calls).toEqual([REMOVE]);
+        expect(readHost(home, home, ENV).events).toHaveLength(0);
+      });
+
+      test("plain arm, answered no with the npm `counterparts` on PATH: nothing removed", async () => {
+        await install();
+        program("npm/bin/counterparts");
+        const spy = recording();
+        const c = consoleWith(["y", ""]);
+        const env = { ...PLUGIN_ENV, PATH: join(home, "npm", "bin") };
+        expect(await uninstall(input({ io: c.io, env, yes: false, spawner: spy.spawner, readsUserConfig: false }))).toBe("ok");
+        expect(spy.calls).toEqual([]);
+        expect(existsSync(base())).toBe(true);
+      });
+
+      test("plain arm, yes and the phrase: removed after the phrase, then deleted", async () => {
+        await install();
+        program("npm/bin/counterparts");
+        const c = consoleWith(["y", "y", DELETE_PHRASE]);
+        const spy = recording(c);
+        const env = { ...PLUGIN_ENV, PATH: join(home, "npm", "bin") };
+        expect(await uninstall(input({ io: c.io, env, yes: false, spawner: spy.spawner, readsUserConfig: false }))).toBe("ok");
+        expect(spy.calls).toEqual([REMOVE]);
+        expect(spy.askedBefore).toEqual([3]);
+        expect(existsSync(base())).toBe(false);
+      });
     });
   });
 

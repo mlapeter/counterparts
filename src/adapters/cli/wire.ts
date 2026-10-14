@@ -83,9 +83,9 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { DATA_DIR_ENV, isWithin } from "../../core/store/index.js";
 import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
-import { isOurHookCommand } from "../host-wiring.js";
+import { hookCommandLive, isOurHookCommand, npmWiring } from "../host-wiring.js";
 import { claudeCodeEnvMarker } from "../hosts.js";
-import { parseScriptInvocation, readsHostUserConfig, scriptArgs, shellTokens } from "../runtime.js";
+import { parseScriptInvocation, readsHostUserConfig, runtimePresent, scriptArgs, shellTokens } from "../runtime.js";
 import { installedBuild, readServerRecords, sameBuild, serverBelieved } from "../sessions.js";
 import type { BuildStamp, ServerRecordRead } from "../sessions.js";
 import type { Io } from "./commands.js";
@@ -593,6 +593,10 @@ export interface MergeResult {
    *  wrapper. Left exactly as they are, by event, so the one line that says so
    *  can name them (review m1). */
   readonly wrapped: readonly { readonly event: string; readonly command: string }[];
+  /** Entries of ours an `unwire` left because `spare` said so (the plugin's
+   *  uninstall: a hook that still runs is a live npm install's). Not counted in
+   *  `foreignKept`: they are ours, and say so in their own line. */
+  readonly spared: number;
 }
 
 /**
@@ -629,12 +633,15 @@ function isWrapped(entry: unknown): boolean {
  * same event, a stale path, a duplicate, an event we do not use, a `hooks` key
  * with other tools' events in it.
  *
- * `command` is the string a `wire` installs; `unwire` ignores it.
+ * `command` is the string a `wire` installs; `unwire` ignores it. `spare`, on
+ * `unwire` only, keeps an entry of ours it answers true for (counted in
+ * `spared`).
  */
 export function mergeHooks(
   settings: Record<string, unknown>,
   command: string,
   direction: "wire" | "unwire",
+  spare?: (command: string) => boolean,
 ): MergeResult {
   const next = structuredClone(settings) as Record<string, unknown>;
   const existing = next["hooks"];
@@ -642,6 +649,7 @@ export function mergeHooks(
   const events: EventChange[] = [];
   const wrapped: { event: string; command: string }[] = [];
   let foreignKept = 0;
+  let spared = 0;
   let changed = false;
 
   for (const event of HOST_EVENTS) {
@@ -673,6 +681,11 @@ export function mergeHooks(
           if (isWrapped(entry)) {
             wrapped.push({ event, command: String((entry as Record<string, unknown>)["command"]) });
           }
+          continue;
+        }
+        if (direction === "unwire" && spare !== undefined && spare(String(entry["command"]))) {
+          kept.push(entry);
+          spared += 1;
           continue;
         }
         seen += 1;
@@ -765,7 +778,7 @@ export function mergeHooks(
   } else {
     next["hooks"] = hooks;
   }
-  return { value: next, events, changed, foreignKept, wrapped };
+  return { value: next, events, changed, foreignKept, wrapped, spared };
 }
 
 // ── writing it ──────────────────────────────────────────────────────────────
@@ -1142,11 +1155,13 @@ export interface WireInput {
   /** Whether `unwire` may read `~/.claude.json`: `runtime.ts#readsHostUserConfig`
    *  by default; a test's seam. */
   readonly readsUserConfig?: boolean;
-  /** FOR `unwire` ONLY: leave the `-s user` registration alone — no `claude
-   *  mcp remove`. The plugin's uninstall that keeps the memory sets it
-   *  (`uninstall.ts`): the plugin never registers a server there, so one that
-   *  is there is the npm install's. */
-  readonly leaveMcp?: boolean;
+  /** FOR `unwire` ONLY: remove a Counterparts hook, or the `-s user`
+   *  registration, only when what it runs is gone. The plugin's uninstall
+   *  sets it on the arms that keep the memory (`uninstall.ts`): the plugin
+   *  writes neither (its hooks and server are its own files), so a live one is
+   *  a running npm install's, and a dead one is what `npm rm` without
+   *  `counterparts uninstall` left behind. */
+  readonly onlyDead?: boolean;
 }
 
 export interface WireResult {
@@ -1633,14 +1648,65 @@ export function serverCensus(
   return { other, otherVersions, current, unplaced, mine, knowsMine: input.parents !== undefined };
 }
 
-/** What `unwire` says when it leaves the registration alone (`leaveMcp`):
- *  nothing when a read shows none, one line when one is there or unread. */
-function leftMcpNote(u: Ui, mcp: McpReading, home: string): void {
-  if (!mcp.present && !mcp.unreadable && mcp.notRead !== true) return;
-  const which = mcp.present ? "The" : "Any";
+/** Why `unwire` leaves the registration alone (`onlyDead`): what it runs is
+ *  still there (`live`), the file could not be read to tell (`unread`), the
+ *  build never reads it and an npm install's `counterparts` is on PATH
+ *  (`npm`), or a read shows none to remove (`absent`). */
+type LeftWhy = "live" | "unread" | "npm" | "absent";
+
+/**
+ * THE PLUGIN'S RULE FOR THE REGISTRATION (`onlyDead`): removed only when what
+ * it runs is gone. Read by `host-wiring.ts#npmWiring` — the stand-down's own
+ * reader, so the two cannot disagree about live. The directory flavor never
+ * opens `~/.claude.json` (`notRead`), so it asks the next best thing: is the
+ * npm install's `counterparts` on this PATH? The plugin never puts one there
+ * (the bundle refuses a top-level `bin/`), so one that is there is the npm
+ * install's, and its registration is taken as live. None there: whatever is
+ * registered under the name runs nothing of an npm install's, so it goes,
+ * through `claude mcp remove`, which tolerates its absence.
+ */
+function leftWhy(input: WireInput, mcp: McpReading): LeftWhy | null {
+  if (mcp.notRead === true) return runtimePresent(BIN.cli, input.env) ? "npm" : null;
+  if (mcp.unreadable) return "unread";
+  if (!mcp.present) return "absent";
+  const user = npmWiring({
+    home: input.home,
+    env: input.env,
+    cwd: null,
+    read: { hooks: false },
+    readsUserConfig: input.readsUserConfig,
+  }).mcp.find((m) => m.scope === "user");
+  return user === undefined || user.live ? "live" : null;
+}
+
+/** What `unwire` says when it leaves the registration alone: nothing when a
+ *  read shows none, one line otherwise. */
+function leftMcpNote(u: Ui, mcp: McpReading, why: LeftWhy, home: string): void {
+  if (why === "absent") return;
+  const where = `"${MCP_SERVER_NAME}" memory server in ${tilde(mcp.file, home)}`;
+  if (why === "unread") {
+    u.hint(
+      `Any ${where} was left as it is: the file could not be read to tell whether it still runs. ` +
+        `If it is an npm install's and that install is gone: claude mcp remove ${MCP_SERVER_NAME} -s user`,
+    );
+    return;
+  }
   u.hint(
-    `${which} "${MCP_SERVER_NAME}" memory server in ${tilde(mcp.file, home)} was left as it is: the ` +
-      "plugin never registers one there, so it is an npm install's, and `counterparts uninstall` removes it.",
+    why === "live"
+      ? `The ${where} was left as it is: what it runs is still there, so it is the npm install's, and \`${BIN.cli} uninstall\` removes it.`
+      : `Any ${where} was left as it is: the npm install's \`${BIN.cli}\` is on this PATH, so it is that install's, and \`${BIN.cli} uninstall\` removes it.`,
+  );
+}
+
+/** The Counterparts hooks an `onlyDead` unwire left, said once (every hook
+ *  that survives gets a sentence). */
+function sparedNote(u: Ui, spared: number): void {
+  if (spared === 0) return;
+  const one = spared === 1;
+  u.hint(
+    `${one ? "1 Counterparts hook was" : `${String(spared)} Counterparts hooks were`} left as ` +
+      `${one ? "it is: what it runs" : "they are: what they run"} is still there, so ` +
+      `${one ? "it is" : "they are"} the npm install's, and \`${BIN.cli} uninstall\` removes ${one ? "it" : "them"}.`,
   );
 }
 
@@ -1666,25 +1732,32 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
   }
 
-  const merged = mergeHooks(sight.value, "", "unwire");
+  // THE PLUGIN'S RULE (`onlyDead`): a hook that still runs stays.
+  const spare = input.onlyDead === true ? (command: string): boolean => hookCommandLive(command, env) : undefined;
+  const merged = mergeHooks(sight.value, "", "unwire", spare);
   const mcp = readMcp(home, env, input.store, input.custom, input.exe, MCP_SCRIPT, input.readsUserConfig);
 
   // `mcp.unreadable` is NOT "nothing there": that file is the host's own and a
   // read that failed is no evidence either way, which is the same stance the
   // removal below takes.
   // A file this build never opens (`notRead`) is no evidence either: the
-  // removal below asks `claude`. A registration left alone (`leaveMcp`) is
-  // not ours to disconnect, whatever the read says.
-  const leave = input.leaveMcp === true;
+  // removal below asks `claude`. A registration left alone (`onlyDead`, and
+  // it still runs or cannot be told) is not ours to disconnect.
+  const why = input.onlyDead === true ? leftWhy(input, mcp) : null;
+  const leave = why !== null;
   if (!merged.changed && (leave || (!mcp.present && !mcp.unreadable && mcp.notRead !== true))) {
-    u.ok(`nothing to disconnect: no Counterparts hooks${leave ? "" : " and no memory server"} were found.`);
+    u.ok(
+      `nothing to disconnect: no Counterparts hooks${merged.spared > 0 ? " whose program is gone" : ""}` +
+        `${leave ? "" : " and no memory server"} were found.`,
+    );
     // SAID EVEN HERE: a wrapper is exactly the case where "nothing of ours"
     // needs a sentence, because the person can see a hook that mentions us and
     // would otherwise have no account of why it survived.
     wrappedNote(u, merged.wrapped, "left exactly as it is");
     u.hint(`looked in: ${sight.target}`);
-    if (leave) {
-      leftMcpNote(u, mcp, home);
+    if (why !== null) {
+      sparedNote(u, merged.spared);
+      leftMcpNote(u, mcp, why, home);
       return { outcome: "ok", hooks: "none", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
     u.hint(`and in:    ${mcp.file}`);
@@ -1696,6 +1769,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   if (input.dryRun) {
     u.hint("dry run — nothing below has been written.");
     for (const e of merged.events) u.hint(`${e.event}: would remove ${e.was ?? "our hook"}`);
+    if (merged.spared > 0) u.hint(`${String(merged.spared)} Counterparts hook(s) that still run would stay.`);
     if (!leave) u.hint(`would run: claude mcp remove ${MCP_SERVER_NAME} -s user`);
     if (merged.foreignKept > 0) {
       u.hint(
@@ -1739,7 +1813,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
       io.err(`refused after re-reading the file: ${fresh.refusal}`);
       return { outcome: "refused", hooks: "refused", mcp: "skipped", backup: null, mcpConfirmed: false };
     }
-    const again = mergeHooks(fresh.value, "", "unwire");
+    const again = mergeHooks(fresh.value, "", "unwire", spare);
     // THE SAME RACE, THE OTHER WAY ROUND (review n3): the hooks went while the
     // question was up. Nothing to write, no backup, and the line says so.
     if (!again.changed) {
@@ -1771,14 +1845,17 @@ export async function unwire(input: WireInput): Promise<WireResult> {
           : `${String(again.foreignKept)} hooks belonging to something else were left exactly as they were.`,
       );
     }
+    sparedNote(u, again.spared);
   } else {
-    u.ok(`no Counterparts hooks were in ${tilde(sight.target, home)}.`);
+    u.ok(`no Counterparts hooks${merged.spared > 0 ? " whose program is gone" : ""} were in ${tilde(sight.target, home)}.`);
+    sparedNote(u, merged.spared);
   }
 
   // LEFT ALONE: not removed, so not confirmed gone either. Only the plugin's
-  // keep arm asks for this, and nothing it does next needs the confirmation.
-  if (leave) {
-    leftMcpNote(u, mcp, home);
+  // uninstall asks for this, on the arms that keep the memory; one that goes
+  // on to delete it removes the registration first (`uninstall.ts`).
+  if (why !== null) {
+    leftMcpNote(u, mcp, why, home);
     u.hint("An open Claude Code session keeps working until you close it.");
     return { outcome: "ok", hooks: hooksWord, mcp: "skipped", backup, mcpConfirmed: false };
   }
@@ -1819,9 +1896,9 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     return fresh.present || fresh.unreadable || fresh.notRead === true;
   };
   if (res.missing && mcp.notRead === true) {
-    // NOT LOOKED, AND NOBODY TO ASK (the plugin directory's build, on the
-    // arms that may delete or move the store; its keep arm leaves the
-    // registration alone): that build never registers a server there itself,
+    // NOT LOOKED, AND NOBODY TO ASK (the plugin directory's build, with no
+    // npm install's `counterparts` on PATH, or on an arm that deletes or
+    // moves the store): that build never registers a server there itself,
     // but an npm install's may be there, pointing at this same store, and
     // nothing was looked at. Not confirmed, so uninstall stops before deleting
     // or moving the store (M2): unknown is not absent (review of #481).

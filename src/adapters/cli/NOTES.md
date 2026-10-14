@@ -1207,6 +1207,11 @@ disk and can hold anything a shell would interpret). One consequence found by th
 loop: `unwire` must attempt `claude mcp remove` **even when our read saw no
 registration**, because that file may move and our read is evidence rather than authority.
 "Tolerate not found" is cheaper than a server left pointed at a store nobody is wiring.
+The plugin's uninstall on the arms that keep the memory is the exception (`onlyDead`,
+2026-10-14): it removes a hook or the registration only when what it runs is gone, so it
+runs `claude mcp remove` only for a registration read as dead — or, in the directory flavor
+that never reads the file, when no npm install's `counterparts` is on PATH. A blind removal
+there could take a running npm install's server, which the plugin never registered.
 
 **`--delete-memories` counts before it warns, and the fallback matters more than the
 count.** A store that will not open on this build — the old-floor `STORE_PRE_ROWS` case,

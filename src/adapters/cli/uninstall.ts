@@ -1152,14 +1152,18 @@ export interface UninstallInput {
   readonly exe: string;
   readonly spawner: Spawner;
   readonly lister: ProcessLister;
+  /** Whether the unwire may read `~/.claude.json` (`WireInput.readsUserConfig`):
+   *  `runtime.ts#readsHostUserConfig` by default; a test's seam. */
+  readonly readsUserConfig?: boolean;
   /** Filled in as the command goes, for `--json`'s result. */
   readonly record?: UninstallRecord;
 }
 
 /** What happened, for the one JSON line `uninstallJson` prints. */
 export interface UninstallRecord {
-  /** True once the hooks and the registration are out (the registration left
-   *  as it is, on the plugin's keep arm: it is the npm install's). */
+  /** True once the hooks and the registration are out — on the plugin's
+   *  keep arm, the ones whose program is gone (a live one is the npm
+   *  install's, and stays). */
   unwired: boolean;
 }
 
@@ -1168,6 +1172,8 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
   const u = ui(io, env);
   const configDir = resolve(join(input.configPath, ".."));
   const moving = input.park || input.deleteMemories;
+  // The plugin's route, on an arm that keeps the memory (or asks first).
+  const viaPlugin = installRoute(env) === "plugin" && !moving;
   const verb = input.park ? "park" : "delete";
 
   // THE COMMAND THAT IS RUNNING, flag and all: three arms of this command do
@@ -1364,14 +1370,17 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
     spawner: input.spawner,
     lister: input.lister,
     heading: true,
-    // THE PLUGIN'S KEEP ARM LEAVES THE `-s user` REGISTRATION ALONE. The
-    // plugin never runs `claude mcp add` (its server is plugin.json's), so a
-    // `counterparts` registered there is the npm install's, and removing it
-    // took the memory server from somebody who uninstalled only the plugin.
-    // Both flavors: the directory's cannot even read what it would remove.
-    // An arm that may delete or move the store still removes it: the store
-    // that registration opens is going, and M2 wants it confirmed gone.
-    leaveMcp: installRoute(env) === "plugin" && !moving && !offers(input),
+    ...(input.readsUserConfig === undefined ? {} : { readsUserConfig: input.readsUserConfig }),
+    // THE PLUGIN REMOVES A HOOK OR THE REGISTRATION ONLY WHEN WHAT IT RUNS IS
+    // GONE (owner, 2026-10-14). It writes neither — its hooks are hooks.json's
+    // and its server plugin.json's — so a live one in `settings.json` or
+    // `-s user` is a running npm install's, and removing it took the memory
+    // from somebody who uninstalled only the plugin; a dead one is what an
+    // `npm rm` without `counterparts uninstall` left, and goes. An arm that
+    // moves the store still takes everything: the store they open is going,
+    // and M2 wants the registration confirmed gone. The plain arm's offer
+    // takes the rest only after a yes (`offerDelete`).
+    onlyDead: viaPlugin,
   };
   u.blank();
   const removed = await unwire(wireInput);
@@ -1414,7 +1423,7 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
       ? `${memories(kept.memories)} ${kept.memories === 1 ? "is" : "are"} still at ${where}.`
       : `everything is still at ${tilde(configDir, home)} (${humanBytes(kept.bytes)}).`,
   );
-  if (offers(input)) return offerDelete(input, u, removed.mcpConfirmed);
+  if (offers(input)) return offerDelete(input, u, removed.mcpConfirmed, viaPlugin ? wireInput : null);
   keptHints(input, u);
   return "ok";
 }
@@ -1491,7 +1500,15 @@ async function phraseGate(input: UninstallInput, u: Ui, plan: UninstallPlan): Pr
  * be put. Everything is looked at AGAIN after the phrase — somebody may have
  * opened a session while reading — and anything changed is a refusal.
  */
-async function offerDelete(input: UninstallInput, u: Ui, mcpConfirmed: boolean): Promise<Outcome> {
+async function offerDelete(
+  input: UninstallInput,
+  u: Ui,
+  mcpConfirmed: boolean,
+  /** The plugin's route: what the first unwire left (live hooks, the npm
+   *  install's registration) comes out only after the yes and the phrase,
+   *  with this input, and the delete waits on it (M2). */
+  deferred: WireInput | null,
+): Promise<Outcome> {
   const { io, home, env } = input;
   const withheld = (why: readonly string[]): Outcome => {
     u.blank();
@@ -1501,7 +1518,7 @@ async function offerDelete(input: UninstallInput, u: Ui, mcpConfirmed: boolean):
     keptHints(input, u);
     return "ok";
   };
-  if (!mcpConfirmed) {
+  if (deferred === null && !mcpConfirmed) {
     return withheld([
       "the memory server is still registered (above), and a server pointed at a store that is " +
         "gone fails at every session start. Remove it, then run uninstall again.",
@@ -1546,6 +1563,24 @@ async function offerDelete(input: UninstallInput, u: Ui, mcpConfirmed: boolean):
     }
     io.err("Nothing was deleted. Run uninstall again to see the plan as it stands now.");
     return "refused";
+  }
+  // THE PLUGIN'S ROUTE TAKES THE REST NOW, AND ONLY NOW: a no above left the
+  // npm install's hooks and registration where they were. The store they open
+  // is going, so they go, and the registration is confirmed gone first (M2).
+  if (deferred !== null) {
+    u.blank();
+    const rest = await unwire({ ...deferred, onlyDead: false, heading: false });
+    if (rest.outcome !== "ok" || !rest.mcpConfirmed) {
+      io.err("");
+      io.err(
+        rest.outcome !== "ok"
+          ? "The wiring could not be removed, so NOTHING WAS DELETED. Fix the above and run this again."
+          : "refused: the MCP registration is still there and this could not remove it, so NOTHING " +
+              "WAS DELETED. A server pointed at a store that is gone fails at every session start " +
+              "with nothing on screen. Run the line above, then run this again.",
+      );
+      return rest.outcome !== "ok" ? rest.outcome : "refused";
+    }
   }
   u.blank();
   return deletePlan(input, u, { ...again, census: plan.census });

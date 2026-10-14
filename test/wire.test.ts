@@ -1012,45 +1012,127 @@ describe("unwire", () => {
     });
   });
 
-  // `leaveMcp`: the plugin's keep arm, where a `-s user` registration is the
-  // npm install's (the plugin never makes one).
-  describe("leaving the registration alone", () => {
-    test("no `claude mcp remove`, the hooks still go, and nothing claims the server is gone", async () => {
-      await wire(input({ io: consoleWith().io }));
-      writeFileSync(mcpFile(), JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "x", args: [] } } }));
+  // `onlyDead`: the plugin's uninstall on the arms that keep the memory. It
+  // writes no hook in `settings.json` and no `-s user` registration, so a live
+  // one is a running npm install's (stays) and a dead one is what `npm rm`
+  // without `counterparts uninstall` left (goes).
+  describe("removing only what is dead", () => {
+    /** A file at `<home>/<rel>`, so a command naming it reads as live. */
+    function program(rel: string): string {
+      const path = join(home, rel);
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, "#!/bin/sh\n");
+      chmodSync(path, 0o755);
+      return path;
+    }
+    const registered = (command: string): void =>
+      writeFileSync(mcpFile(), JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command, args: [] } } }));
+    const liveShimSettings = (shim: string): void =>
+      writeSettingsFile({
+        hooks: Object.fromEntries(HOST_EVENTS.map((e) => [e, [{ hooks: [{ type: "command", command: shim }] }]])),
+      });
+
+    test("dead hooks and a dead registration go, as they always did", async () => {
+      await wire(input({ io: consoleWith().io })); // `/fake/bin/bun`: runs nothing
+      registered(join(home, "gone", "counterparts-mcp"));
       const fake = spawnerThat(() => OK);
       const c = consoleWith();
-      const result = await unwire(input({ io: c.io, spawner: fake.spawner, leaveMcp: true }));
-      expect(fake.calls).toEqual([]);
-      expect(result).toMatchObject({ outcome: "ok", hooks: "removed", mcp: "skipped", mcpConfirmed: false });
-      expect(text(c.out)).toContain("was left as it is");
-      expect(text(c.out)).not.toContain("memory server removed");
+      const result = await unwire(input({ io: c.io, spawner: fake.spawner, onlyDead: true }));
+      expect(fake.calls).toEqual([["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]]);
+      expect(result).toMatchObject({ outcome: "ok", hooks: "removed", mcp: "removed", mcpConfirmed: true });
+      expect(readHost(home, home, ENV).events).toHaveLength(0);
+      expect(text(c.out)).not.toContain("left as");
     });
 
-    test("with no hooks either, it is \"nothing to disconnect\", the registration named", async () => {
-      writeFileSync(mcpFile(), JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "x", args: [] } } }));
+    test("live hooks and a live registration stay, each with its sentence", async () => {
+      const shim = program("npm/bin/counterparts-hook");
+      liveShimSettings(shim);
+      registered(program("npm/bin/counterparts-mcp"));
+      const before = readFileSync(settingsFile(), "utf8");
       const fake = spawnerThat(() => OK);
       const c = consoleWith();
-      const result = await unwire(input({ io: c.io, spawner: fake.spawner, leaveMcp: true }));
+      const result = await unwire(input({ io: c.io, spawner: fake.spawner, onlyDead: true }));
       expect(fake.calls).toEqual([]);
-      expect(result).toMatchObject({ outcome: "ok", hooks: "none", mcp: "skipped" });
-      expect(text(c.out)).toContain("nothing to disconnect: no Counterparts hooks were found.");
+      expect(result).toMatchObject({ outcome: "ok", hooks: "none", mcp: "skipped", mcpConfirmed: false });
+      expect(readFileSync(settingsFile(), "utf8")).toBe(before);
+      expect(text(c.out)).toContain("nothing to disconnect: no Counterparts hooks whose program is gone were found.");
+      expect(text(c.out)).toContain(`${String(HOST_EVENTS.length)} Counterparts hooks were left as they are`);
       expect(text(c.out)).toContain(`The "${MCP_SERVER_NAME}" memory server`);
+      expect(text(c.out)).toContain("what it runs is still there");
+      expect(text(c.out)).toContain("`counterparts uninstall` removes it");
     });
 
-    test("the plugin directory's build (which cannot read the file) does not remove it blind", async () => {
+    test("a mix: the dead hooks go, the live one stays, nobody else's is touched", async () => {
+      const shim = program("npm/bin/counterparts-hook");
+      const [first, ...rest] = HOST_EVENTS;
+      writeSettingsFile({
+        hooks: {
+          [first as string]: [{ hooks: [{ type: "command", command: shim }, { type: "command", command: "/usr/bin/true" }] }],
+          ...Object.fromEntries(
+            rest.map((e) => [e, [{ hooks: [{ type: "command", command: join(home, "gone", "counterparts-hook") }] }]]),
+          ),
+        },
+      });
+      const c = consoleWith();
+      const result = await unwire(input({ io: c.io, spawner: spawnerThat(() => OK).spawner, onlyDead: true }));
+      expect(result.hooks).toBe("removed");
+      const after = JSON.parse(readFileSync(settingsFile(), "utf8")) as { hooks: Record<string, unknown> };
+      expect(Object.keys(after.hooks)).toEqual([first as string]);
+      expect(JSON.stringify(after.hooks[first as string])).toContain(shim);
+      expect(JSON.stringify(after.hooks[first as string])).toContain("/usr/bin/true");
+      expect(text(c.out)).toContain("1 Counterparts hook was left as it is");
+    });
+
+    test("without it (the npm install's own unwire) a live hook and registration still go", async () => {
+      liveShimSettings(program("npm/bin/counterparts-hook"));
+      registered(program("npm/bin/counterparts-mcp"));
+      const fake = spawnerThat(() => OK);
+      const result = await unwire(input({ io: consoleWith().io, spawner: fake.spawner }));
+      expect(fake.calls).toEqual([["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]]);
+      expect(result.hooks).toBe("removed");
+      expect(readHost(home, home, ENV).events).toHaveLength(0);
+    });
+
+    test("nothing registered: no blind `claude mcp remove`, and no line about a server", async () => {
       const fake = spawnerThat(() => OK);
       const c = consoleWith();
-      const result = await unwire(input({ io: c.io, spawner: fake.spawner, readsUserConfig: false, leaveMcp: true }));
+      await unwire(input({ io: c.io, spawner: fake.spawner, onlyDead: true }));
+      expect(fake.calls).toEqual([]);
+      expect(text(c.out)).not.toContain("memory server");
+    });
+
+    test("an unreadable ~/.claude.json is left, and says how to remove a dead one", async () => {
+      writeFileSync(mcpFile(), "{ not json");
+      const fake = spawnerThat(() => OK);
+      const c = consoleWith();
+      const result = await unwire(input({ io: c.io, spawner: fake.spawner, onlyDead: true }));
+      expect(fake.calls).toEqual([]);
+      expect(result.mcp).toBe("skipped");
+      expect(text(c.out)).toContain("could not be read to tell whether it still runs");
+      expect(text(c.out)).toContain(`claude mcp remove ${MCP_SERVER_NAME} -s user`);
+    });
+
+    // The directory flavor never opens the file: an npm install's
+    // `counterparts` on PATH stands in for "the registration still runs".
+    test("the plugin directory's build, with the npm `counterparts` on PATH: left, and said so", async () => {
+      program("npm/bin/counterparts");
+      const fake = spawnerThat(() => OK);
+      const c = consoleWith();
+      const env = { ...ENV, PATH: join(home, "npm", "bin") };
+      const result = await unwire(input({ io: c.io, env, spawner: fake.spawner, readsUserConfig: false, onlyDead: true }));
       expect(fake.calls).toEqual([]);
       expect(result.mcp).toBe("skipped");
       expect(text(c.out)).toContain(`Any "${MCP_SERVER_NAME}" memory server`);
+      expect(text(c.out)).toContain("`counterparts` is on this PATH");
     });
 
-    test("nothing registered and nothing read as there: no line about a server", async () => {
+    test("the plugin directory's build, with no npm `counterparts`: `claude mcp remove`, tolerated", async () => {
+      const fake = spawnerThat(() => ({ missing: false, code: 1, out: "", err: `No MCP server found with name: ${MCP_SERVER_NAME}` }));
       const c = consoleWith();
-      await unwire(input({ io: c.io, spawner: spawnerThat(() => OK).spawner, leaveMcp: true }));
-      expect(text(c.out)).not.toContain("memory server");
+      const result = await unwire(input({ io: c.io, spawner: fake.spawner, readsUserConfig: false, onlyDead: true }));
+      expect(fake.calls).toEqual([["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]]);
+      expect(result).toMatchObject({ outcome: "ok", mcp: "absent" });
+      expect(text(c.out)).not.toContain("`counterparts uninstall` removes it");
     });
   });
 
