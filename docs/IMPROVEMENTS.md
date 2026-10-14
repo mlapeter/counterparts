@@ -52,6 +52,11 @@ come first. Nothing here quotes a memory. A new subsection arrives as a fragment
    be cautious about changing the core app to improve the benchmark. That's welcome when it
    helps overall, never at the real system's expense; a few months ago, fitting the benchmark
    broke a lot. At 10-14: look on the live store for faded matches crowding fresh ones.
+   **Kept again. Mike, 2026-10-14, lightly held.** Of 16 real facts answers since 10-11, 5 had
+   a faded item in the top 5. 4 of those were right answers (2–5-day-old release and work
+   facts), and 1 was a clear crowding case (a 09-29 status note at rank 1, above the fresher
+   10-11 one). The label was wrong instead: "not used for a long while" on two-day-old
+   memories. It now reads "faded: weak, below reach" (#493).
 
 2. **A dated memory is held until its date (no decay before it arrives), then fades a little
    faster.** Revised by b2+f8, 2026-10-10, lightly held — and it may reverse Mike's
