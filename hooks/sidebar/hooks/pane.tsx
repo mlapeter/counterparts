@@ -69,17 +69,17 @@ export function pausedBanner(els: PaneEls, scope: SidebarScope, w: number): JSX.
 // ── the footer: how to do what the pane doesn't ──
 
 /** The footer's rows at `w` (`fit`: the cells its text may take, wider on a surface with its own font): a rule (or a blank) and the lines. */
-export function footerRows(fit: number): number {
-  return 1 + footerLines(fit).length
+export function footerRows(fit: number, paused = false): number {
+  return 1 + footerLines(fit, paused).length
 }
 
-export function footer(els: PaneEls, s: { w: number; fit: number; prose: boolean }): JSX.Element {
+export function footer(els: PaneEls, s: { w: number; fit: number; prose: boolean; paused: boolean }): JSX.Element {
   const { Box, Text } = els
-  const { w, fit, prose } = s
+  const { w, fit, prose, paused } = s
   return (
     <Box key="footer" flexDirection="column" width={w}>
       {prose ? <Text> </Text> : <Text color={P.faint}>{'─'.repeat(w)}</Text>}
-      {footerLines(fit).map((l, i) => (
+      {footerLines(fit, paused).map((l, i) => (
         <Text key={`f${String(i)}`}>
           <Text color={P.mid}>{l.label}</Text>
           {l.how === '' ? null : <Text color={P.hi}>{l.how}</Text>}

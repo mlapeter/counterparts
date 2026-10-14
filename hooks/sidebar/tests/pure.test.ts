@@ -730,12 +730,23 @@ describe('the footer and the pause, said (v1)', () => {
     ])
   })
 
+  test('paused or off, the footer’s pause line says how to resume instead', () => {
+    expect(footerLines(40, true).map(l => l.label + l.how)).toContain('Resume here · say “resume memory here”')
+    expect(footerLines(32, true).map(l => l.label + l.how)).toEqual([
+      'Intro · /counterparts:meet', 'Stats · /counterparts:dashboard', 'Resume', '  say “resume memory here”', 'Hide · /counterparts quiet',
+    ])
+    expect(footerLines(32, true).some(l => l.how.includes('pause memory'))).toBe(false)
+  })
+
   test('/counterparts resume says how, and changes nothing; the status line says the same', () => {
     const scope = { mode: 'paused', own: true, setBy: '/w/p', dir: '/w/p', error: null, busy: false, unread: null }
     expect(resumeWords(scope)).toBe('Counterparts memory is paused in /w/p. To resume it, say “resume memory here” to Claude.')
     expect(statusFor(scope)).toBe('⏸ Counterparts memory paused in this folder · say “resume memory here”')
     expect(resumeWords({ ...scope, mode: 'on' })).toBe('Counterparts memory isn\'t paused in /w/p.')
     expect(resumeWords({ ...scope, own: false, setBy: '/w' })).toContain('counterparts scope /w --resume')
+    expect(resumeWords({ ...scope, own: false, setBy: "/w/it's here" })).toContain("counterparts scope '/w/it'\\''s here' --resume")
+    expect(resumeWords({ ...scope, own: false, setBy: '/w' })).toContain('say “resume memory here” to Claude in a session there')
+    expect(resumeWords({ ...scope, mode: 'off' })).toContain("counterparts scope /w/p --on")
     expect(resumeWords({ ...scope, mode: 'unknown' })).toContain('say “resume memory here” to Claude')
   })
 

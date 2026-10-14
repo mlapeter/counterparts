@@ -31,9 +31,6 @@ export const POLL_IDLE_MS = 30000
 /** A gap longer than this since the last read starts over from a cold read. */
 export const STALE_MS = 10 * 60000
 
-/** A switch's note and the pause confirm close by themselves after this. */
-export const AUTO_CLOSE_MS = 30000
-
 /** How often the folder's registry is read again while no dashboard poll reads it (the pane closed or not shown). */
 export const SCOPE_RECHECK_MS = 60000
 

@@ -109,9 +109,21 @@ export function resumeWords(scope: SidebarScope): string {
   if (scope.mode === 'unknown') return `Couldn't read this folder's setting. To resume memory here, ${RESUME_SAY} to Claude.`
   const here = shortDir(scope.dir)
   if (scope.mode === 'paused' && scope.own) return `Counterparts memory is paused in ${here}. To resume it, ${RESUME_SAY} to Claude.`
-  if (scope.mode === 'paused') return `Counterparts memory is paused here because ${shortDir(scope.setBy)} is paused. Resume it there: \`counterparts scope ${scope.setBy ?? '<that folder>'} --resume\`.`
-  if (scope.mode === 'off') return `Counterparts memory is off in ${here}. To turn it back on, ask Claude, or run \`counterparts scope ${scope.setBy ?? scope.dir ?? '<this folder>'} --on\`.`
+  // Set by a folder above: resumed there (a session in that folder, or the npm install's console).
+  if (scope.mode === 'paused') {
+    const there = scope.setBy ?? '<that folder>'
+    return `Counterparts memory is paused here because ${shortDir(scope.setBy)} is paused. To resume, ${RESUME_SAY} to Claude in a session there, or, with the npm install, run \`counterparts scope ${shellQuote(there)} --resume\`.`
+  }
+  if (scope.mode === 'off') {
+    const where = scope.setBy ?? scope.dir ?? '<this folder>'
+    return `Counterparts memory is off in ${here}. To turn it back on, ask Claude in a session in ${shortDir(where)}, or, with the npm install, run \`counterparts scope ${shellQuote(where)} --on\`.`
+  }
   return `Counterparts memory isn't paused in ${here}.`
+}
+
+/** A path as one shell word, as core's `scopes.ts#shellWord` writes it: plain, or in single quotes. */
+export function shellQuote(path: string): string {
+  return /^[A-Za-z0-9_./@%+=:,-]+$/.test(path) ? path : `'${path.replace(/'/g, "'\\''")}'`
 }
 
 /**
@@ -131,13 +143,17 @@ export const FOOTER_ITEMS: readonly { label: string; short: string; how: string 
 /** One footer line: its label part (dim) and its command part (bright); either may be empty. */
 export type FooterLine = { label: string; how: string }
 
-/** The footer's lines at `w` cells. */
-export function footerLines(w: number): FooterLine[] {
+/** Where memory is paused or off, the pause line says how to resume instead. */
+const RESUME_ITEM = { label: 'Resume here', short: 'Resume', how: RESUME_SAY }
+
+/** The footer's lines at `w` cells; `paused`: this folder is paused or off. */
+export function footerLines(w: number, paused = false): FooterLine[] {
+  const items = paused ? FOOTER_ITEMS.map(it => (it.how === PAUSE_SAY ? RESUME_ITEM : it)) : FOOTER_ITEMS
   const fits = (label: string, how: string): boolean => [...`${label} · ${how}`].length <= w
   // One set of labels for every line, so they read alike: the long ones only where all of them fit.
-  const long = FOOTER_ITEMS.every(it => fits(it.label, it.how))
+  const long = items.every(it => fits(it.label, it.how))
   const out: FooterLine[] = []
-  for (const it of FOOTER_ITEMS) {
+  for (const it of items) {
     const label = long ? it.label : it.short
     if (fits(label, it.how)) out.push({ label: `${label} · `, how: it.how })
     else {

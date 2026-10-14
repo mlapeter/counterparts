@@ -939,7 +939,7 @@ test('paused by a parent folder: the banner names it and explains, and resumes n
   const ui = await mount($, w, 'terminal')
   expect(await texts(ui)).toContain('paused by /work')
   expect(await ui.find({ type: 'Button' })).toBeUndefined()
-  expect(await cmd($, 'resume')).toContain('Resume it there: `counterparts scope /work --resume`')
+  expect(await cmd($, 'resume')).toContain('run `counterparts scope /work --resume`')
   expect(w.mcp).toHaveLength(0)
   await ui.unmount()
 })

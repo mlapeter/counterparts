@@ -872,7 +872,6 @@ async function refreshScope($: EngineInterface, fresh = false): Promise<void> {
   try {
     const found = await readScopeFile($, fresh).catch(() => null)
     const before = await read($, scopeA)
-    if (before.busy) return
     const next: SidebarScope = found ?? (before.mode === 'unknown' ? { ...before, unread: 'unreadable' } : before)
     if (next.mode === before.mode && next.own === before.own && next.setBy === before.setBy && next.dir === before.dir && next.unread === before.unread && before.error === null) return
     await update($, scopeA, () => next)
@@ -1488,7 +1487,7 @@ export const register: Register = on => {
     // The desktop sets text in its own font, about a fifth narrower than the cells the pane is measured in:
     // the body wraps to that, and the footer fits its lines to it (2026-10-13, Mike: "hard to read").
     const bodyW = SURFACE.prose ? Math.floor(w * 1.2) : w
-    const footRows = footerRows(bodyW)
+    const footRows = footerRows(bodyW, paused)
     // The desktop's rows are its font's, a little taller than the cells it reports: two rows of headroom keep its
     // pane from scrolling by a line (2026-10-13).
     const bodyRows = Math.max(4, fill - used - footRows - (SURFACE.prose ? 2 : 0))
@@ -1502,7 +1501,7 @@ export const register: Register = on => {
     rows.push(<Box key="spacer" flexGrow={1} />)
 
     // ── the footer: how to do what the pane doesn't (the intro, the dashboard, a pause, hiding it) ──
-    rows.push(footer(paneEls, { w, fit: bodyW, prose: SURFACE.prose }))
+    rows.push(footer(paneEls, { w, fit: bodyW, prose: SURFACE.prose, paused }))
 
     return frame(paneEls, W, fill, rows, stageTop)
   })
