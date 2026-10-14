@@ -291,6 +291,26 @@ describe("how firmly it's held: firm / settling / fading", () => {
   });
 });
 
+describe("the pause after a new curve shows as a pause, not a let-go (2026-10-14)", () => {
+  test("letGoDay and holdOf read the prune's curveSince: inside the 14 days nothing is let go", () => {
+    withSrc((src) => {
+      const day = src.store.livedDay();
+      const p = { ...src.store.physicsOf(ids.repeat as string), hold: null };
+      const at = letGoDay(p, day, NEAR_LET_GO_DAYS) as number;
+      expect(at).not.toBeNull();
+      // A curve that arrived today: the wait starts today, so no let-go day inside it.
+      expect(letGoDay(p, day, NEAR_LET_GO_DAYS - 1, false, day)).toBeNull();
+      // A curve that arrives tomorrow: the pause ends past the fortnight, so it is not fading.
+      expect(holdOf(p, day, { prunable: true })).toBe("fading");
+      expect(holdOf(p, day, { prunable: true, curveSince: day + 1 })).not.toBe("fading");
+      // The day the pause ends is the let-go day.
+      expect(letGoDay(p, day, NEAR_LET_GO_DAYS, false, day)).toBe(Math.max(at, day + TUNABLES.D_FLOOR_DAYS));
+      // A curve older than the crossing changes nothing.
+      expect(letGoDay(p, day, NEAR_LET_GO_DAYS, false, day - 1000)).toBe(at);
+    });
+  });
+});
+
 describe("a date that still repeats is kept, so it is never fading (2026-10-09)", () => {
   test("the same faded physics: fading as a one-off, settling as a repeat, with no let-go day", () => {
     withSrc((src) => {
