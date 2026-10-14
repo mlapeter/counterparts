@@ -304,6 +304,48 @@ describe("a lowered claim is the whole reading: the old dimensions no longer flo
     expect(curveSal(p)).toBeCloseTo(0.75, 10);
   });
 
+  test("a DEFAULT on an exempt row the era lowers reads exactly as before: its dimensions still floor it", () => {
+    const s = store();
+    runCycle({ store: s, date: "2026-10-10" });
+    const ids = {
+      protectedWork: put(s, {
+        about: "work",
+        status: "done",
+        salience: { claimed: 0.25, ...HIGH },
+        meta: { [CLAIMED_DEFAULT_META_KEY]: true },
+        physics: { birthDay: 1, lastUsedDay: 1, protected: true },
+      }),
+      coreWork: put(s, {
+        about: "work",
+        status: "done",
+        salience: { claimed: 0.25, ...HIGH },
+        meta: { [CLAIMED_DEFAULT_META_KEY]: true },
+        physics: { birthDay: 1, lastUsedDay: 1, promotedIdentity: true },
+      }),
+      pendingWork: put(s, {
+        about: "work",
+        eventDate: "2026-10-20",
+        salience: { claimed: 0.3, ...HIGH },
+        meta: { [CLAIMED_DEFAULT_META_KEY]: true },
+      }),
+    };
+    s.setMeta(CLAIMS_ERA_CUTOFF_KEY, String(T + 1));
+    for (const [name, id] of Object.entries(ids)) {
+      const p = s.physicsOf(id);
+      // The era still reads the default at today's (2026-10-11), lower than stored…
+      expect({ name, lowered: (p.eraClaim ?? 1) < (p.salience.claimed ?? 0) }).toEqual({ name, lowered: true });
+      expect(p.eraExempt).toBe(true);
+      // …and the curve reads it as master did: max(the dimensions' mean, the era's value).
+      expect(curveSal(p)).toBeCloseTo(sal({ ...p.salience, claimed: p.eraClaim }), 10);
+      expect(curveSal(p)).toBeCloseTo(0.75, 10);
+    }
+    // The same default on a row that is not exempt reads the era's value alone.
+    const plain = put(s, { about: "work", status: "done", salience: { claimed: 0.25, ...HIGH }, meta: { [CLAIMED_DEFAULT_META_KEY]: true } });
+    const p = s.physicsOf(plain);
+    expect(p.eraExempt ?? false).toBe(false);
+    expect(curveSal(p)).toBe(PHYSICS.DEFAULT_CLAIM_WORK_EVENT);
+  });
+
   test("the exempt are untouched: about the owner, said by the owner, protected, the core", () => {
     const s = store();
     runCycle({ store: s, date: "2026-10-10" });

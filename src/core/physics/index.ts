@@ -671,15 +671,21 @@ export function sal(s: Salience): number {
  * 0.25 meant). A fresh install's memory reads its claim, which is what the
  * era says an upgrader should read. Where the era RAISES a default, the
  * dimensions still count (`sal` with the era's claim), as before. The exempt
- * never reach here (`eraClaimOf` gives them no era).
+ * (`eraExempt`: the core, protected, the owner's, a pending or repeating date)
+ * carry an era only for an old default, and read it as before too.
  * Decided by Mike, 2026-10-14, lightly held; review 2026-10-18.
  */
-export function curveSal(m: { readonly salience: Salience; readonly eraClaim?: number | null | undefined }): number {
+export function curveSal(m: {
+  readonly salience: Salience;
+  readonly eraClaim?: number | null | undefined;
+  readonly eraExempt?: boolean | undefined;
+}): number {
   const era = m.eraClaim;
   if (typeof era !== "number" || !Number.isFinite(era)) return sal(m.salience);
   // A SCALE-DOWN IS THE WHOLE READING (2026-10-14): the era's value alone, so
-  // the old dimensions' mean cannot floor it back up.
-  if (era < (m.salience.claimed ?? 0)) return clamp01(era);
+  // the old dimensions' mean cannot floor it back up — except on the era's
+  // exempt (a default on the core, a protected row…), read as before.
+  if (era < (m.salience.claimed ?? 0) && m.eraExempt !== true) return clamp01(era);
   return sal({ ...m.salience, claimed: era });
 }
 
@@ -904,7 +910,7 @@ export function emotionalIntensity(m: { salience: Salience; feelingPeak?: number
  * The repetition arm gets no lift at all, so "repetition is capped below
  * identity" (§3) is untouched.
  */
-export function salArm(m: Pick<MemoryPhysics, "salience" | "feelingPeak"> & Partial<Pick<MemoryPhysics, "eraClaim">>): number {
+export function salArm(m: Pick<MemoryPhysics, "salience" | "feelingPeak"> & Partial<Pick<MemoryPhysics, "eraClaim" | "eraExempt">>): number {
   const own = curveSal(m);
   const lifted = clamp01(own + TUNABLES.EMO_LIFT * emotionalIntensity(m));
   // Feeling sets stability, not the band (2026-10-10, `FELT_HEIGHT_CAP`): below
@@ -936,7 +942,7 @@ export function feelingSofteningDays(valence?: number): number {
  * (`sal`, the claimed floor included) plus half its emotional intensity,
  * clamped to [0, 1]. Height is `base` (with `EMO_LIFT`); this is the slope.
  */
-export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak"> & Partial<Pick<MemoryPhysics, "eraClaim">>): number {
+export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak"> & Partial<Pick<MemoryPhysics, "eraClaim" | "eraExempt">>): number {
   return clamp01(curveSal(m) + TUNABLES.EMO_Q * emotionalIntensity(m));
 }
 
@@ -961,7 +967,7 @@ export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak"
  */
 export function stability(
   m: Pick<MemoryPhysics, "kind" | "uses" | "salience"> &
-    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity" | "eraClaim">>,
+    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity" | "eraClaim" | "eraExempt">>,
 ): number {
   const kappa = kindPhysics(m.kind).kappa;
   if (m.promotedIdentity === true || !(kappa > 0)) return Number.POSITIVE_INFINITY;
