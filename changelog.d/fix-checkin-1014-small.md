@@ -6,3 +6,6 @@
 - **A faded match is labelled "faded: weak, below reach".** Asking for facts used to label
   it "not used for a long while", which was false for a memory two days old that simply
   started weak. The dashboard's search says the same. Ranking is unchanged.
+- **`recall` takes `query` as another name for `question`.** A recall sent with `query`
+  used to be refused for having no question; it is now answered as one. A mode is still
+  required.

@@ -869,6 +869,7 @@ const RECALL: ToolSpec = {
         description:
           "What you are trying to remember, in words. Needs mode. A time in it (\"last week\", \"in September\", \"around the cut-over\", \"where did we leave off\") filters a facts answer to that window.",
       },
+      query: { type: "string", description: "Another name for question." },
       mode: {
         type: "string",
         enum: ["facts", "meaning"],

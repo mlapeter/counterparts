@@ -2024,8 +2024,12 @@ export class McpServer {
    * boundary as quoting a loud surfacing does; and one durable `mcp.recall`
    * row (`noteRecall`).
    */
-  private async recallTool(args: Record<string, unknown>): Promise<ToolResult> {
+  private async recallTool(sent: Record<string, unknown>): Promise<ToolResult> {
     if (this.observer) return this.standDown("recall");
+    // `query` IS `question` (2026-10-14, lightly held): the model sent `query`
+    // about twice a day and was refused `no-argument`. Read at the root rather
+    // than refused; `question` wins when both are sent. A mode is still required.
+    const args = sent["question"] === undefined && sent["query"] !== undefined ? { ...sent, question: sent["query"] } : sent;
     const handle = args["handle"];
     // THE LAST EXCHANGE (2026-10-11): a read of this directory's span buffer.
     // It stands down under observer like the rest of recall (G5, review of #392).

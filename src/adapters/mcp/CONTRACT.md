@@ -575,6 +575,8 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   its own ranking; the answer is its rendering, shipped as `answer`, with the `ids` it
   showed. Those ids feed the seen set (`note.feelingsNow`) and the `asked` records, so
   quoting their words credits at the boundary (`counterpart.ts#creditReferences`).
+  `query` is read as `question` (2026-10-14, lightly held: the model sent it about twice a
+  day and was refused `no-argument`); `question` wins when both are sent.
 - **[M]** Facts mode (`facts.ts`) pools every memory the question's content words reach
   (each word's every hit, weighted by rarity), every memory linked to a card it names
   (`memory_subjects`), and the 100 nearest by meaning above this embedder's inline floor;
