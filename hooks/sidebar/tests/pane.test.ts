@@ -493,7 +493,7 @@ test('Emotion: a memory saved with a feeling and one carrying a feeling that cam
       // the footnote that carried no feeling is Retrieval's, not Emotion's
       expect(lines.slice(e + 1, e + 8).join('\n')).not.toContain('Release notes')
       // a memory opens in place, as under every mechanism
-      await click(ui, 'The sidebar is 35 columns wide')
+      await click(ui, '(relieved)') // the Emotion firing's own line (its title also shows under what came to mind)
       expect((await bodyLines(ui)).join('\n')).toContain('Mike chose 35 columns')
       await click(ui, 'Emotion') // closed again
       await ui.unmount()

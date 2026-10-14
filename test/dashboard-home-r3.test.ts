@@ -300,6 +300,8 @@ describe("1. live activity folds repeats, and a sleep check is not a sleep", () 
 // ── 2 ──────────────────────────────────────────────────────────────────────
 
 describe("2. the Emotion panel's Lately says the mood, never a bare recall line", () => {
+  // Since 2026-10-14 a turn that brought a memory carrying a feeling is an Emotion line too, naming it
+  // (dashboard-mechanisms.test.ts); this demo's turns bring none, so its lines are the mood's.
   test("a mood-matched turn reads as the lift it carries", () => {
     withSource(dir, (src) => {
       const act = get(src, "/api/mechanism?id=emotional")["activity"] as { name: string; text: string }[];
