@@ -23,7 +23,8 @@
  * part A, prospective reminders, the entity-card fade). A working default,
  * revisable.
  *
- * Read-only: `eventLog`, two counts and one meta read. No row text.
+ * Read-only: `eventLog`, two counts, one meta read, and which named memories
+ * carry a feeling (Emotion). No row text.
  */
 import { cadenceFor, readMarker, MARKER_UNSET } from "../core/sleep/index.js";
 import type { Phase } from "../core/sleep/index.js";
@@ -67,6 +68,14 @@ export interface Proof {
    * asked of a row only after `where` and `sum` said it counts.
    */
   readonly stands?: (store: ReadOnlyStore, row: EventRow) => boolean;
+  /**
+   * A CONDITION ONLY THE STORE CAN ANSWER (2026-10-14, Emotion): the row
+   * counts only when this says so — a deposit whose memory carries a recorded
+   * feeling, a turn that brought one to mind. Asked after `where` and `sum`,
+   * before `stands`. The row names the memories; whether they carry a feeling
+   * is on the store, not in the payload.
+   */
+  readonly reads?: (store: ReadOnlyStore, p: Payload) => boolean;
 }
 
 export interface MechanismEvidence {
@@ -143,12 +152,27 @@ export const MECHANISM_EVIDENCE: readonly MechanismEvidence[] = [
   },
   {
     // PARTLY: emotion part A (2026-09-26) weighs recorded feelings — the lift
-    // and the slower fade are arithmetic on the row (the census), the mood
-    // match is a count on the turn's row. Nothing reads feeling from words yet.
+    // and the slower fade are arithmetic on the row (the census). Nothing
+    // reads feeling from words yet.
+    //
+    // WHAT COUNTS AS IT FIRING (2026-10-14): a memory SAVED with a feeling,
+    // and a turn that brought a memory CARRYING a feeling to mind (either
+    // tier). Before, the only event proof was the mood match, which was
+    // switched off on purpose on 2026-10-10 (recall's MOOD_*_WEIGHT at 0), so
+    // Emotion read 0 every day while feelings were recorded every day. The
+    // mood match stays a proof, for the day it comes back on.
     id: "emotional",
     family: "encoding",
     build: "partly",
     proofs: [
+      { key: "felt", event: "gate.deposit", sum: "accepted", reads: carriesFeeling, says: ["memory saved with a feeling", "memories saved with a feeling"] },
+      {
+        key: "feltRecalled",
+        event: "recall.decision",
+        where: (p) => num(p["surfacedCount"]) + num(p["footnoteCount"]) > 0,
+        reads: carriesFeeling,
+        says: ["turn brought a memory carrying a feeling to mind", "turns brought memories carrying a feeling to mind"],
+      },
       { key: "moodMatched", event: "recall.decision", sum: "moodMatched", says: ["memory a matching mood brought closer", "memories a matching mood brought closer"] },
     ],
     census: {
@@ -448,15 +472,56 @@ export function firingKey(row: EventRow): string {
 }
 
 /** The amount this row contributes, or 0 when it does not count. */
-/** `amount`, and zero for a row whose act no longer stands (`Proof.stands`). */
+/** `amount`, and zero for a row the store says does not count (`Proof.reads`)
+ *  or whose act no longer stands (`Proof.stands`). */
 export function counted(proof: Proof, row: EventRow, store: ReadOnlyStore): number {
-  const n = amount(proof, payloadOf(row));
-  if (n <= 0 || proof.stands === undefined) return n;
+  const p = payloadOf(row);
+  const n = amount(proof, p);
+  if (n <= 0) return n;
+  if (proof.reads !== undefined) {
+    try {
+      if (!proof.reads(store, p)) return 0;
+    } catch {
+      // A store that cannot answer is no evidence the row counts.
+      return 0;
+    }
+  }
+  if (proof.stands === undefined) return n;
   try {
     return proof.stands(store, row) ? n : 0;
   } catch {
     return n;
   }
+}
+
+/**
+ * The memories a row names: a deposit's `memoryId`, a turn's two tiers
+ * (`surfaced`, `footnotes`: `{ id }` each). No other field is read.
+ */
+export function memoryIdsOf(p: Payload): string[] {
+  const out: string[] = [];
+  if (typeof p["memoryId"] === "string") out.push(p["memoryId"]);
+  for (const key of ["surfaced", "footnotes"]) {
+    const list = p[key];
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      const id: unknown = item !== null && typeof item === "object" ? (item as { id?: unknown }).id : item;
+      if (typeof id === "string" && !out.includes(id)) out.push(id);
+    }
+  }
+  return out;
+}
+
+/** Of the memories a row names, the ones carrying a recorded feeling, in the row's order. One read. */
+export function feltIds(store: ReadOnlyStore, p: Payload): string[] {
+  const ids = memoryIdsOf(p);
+  if (ids.length === 0) return [];
+  const on = store.feelingsOn(ids);
+  return ids.filter((id) => (on.get(id)?.length ?? 0) > 0);
+}
+
+function carriesFeeling(store: ReadOnlyStore, p: Payload): boolean {
+  return feltIds(store, p).length > 0;
 }
 
 /** A settle's row counts while its pair is still settled — an undo takes it back. */

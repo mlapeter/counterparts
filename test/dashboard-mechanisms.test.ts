@@ -14,6 +14,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { sourceOf } from "../src/adapters/dashboard/source.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
+import { mechanismActivity } from "../src/adapters/dashboard/web/views/mechanism-panel.js";
 import { router } from "../src/adapters/dashboard/web/server.js";
 import {
   FAMILIES,
@@ -294,6 +295,79 @@ describe("times fired today (the sidebar's “Mechanisms today”, 2026-10-10)",
     const by = Object.fromEntries(v.mechanisms.map((m) => [m.id, m]));
     expect(by["salience"]?.evidence).toStartWith("8 memories scored as they were written");
     expect(by["retrieval"]?.status).toBe("green");
+  });
+
+  /**
+   * Emotion (2026-10-14): a memory SAVED with a feeling, and a turn that
+   * brought a memory CARRYING a feeling to mind, each one firing. The mood
+   * match is off by decision, so no row here carries one.
+   */
+  function seedFelt(dir: string): { felt: string; plain: string } {
+    const now = Date.now();
+    let t = now - 2 * 86_400_000;
+    const c = Counterpart.open({ dir, owner: true, now: () => t });
+    try {
+      for (let i = 1; i <= 9; i++) c.store.advanceClock(`2026-01-${String(i).padStart(2, "0")}`);
+      const day = c.store.livedDay();
+      const s = c.store;
+      const felt = s.put({ type: "memory", kind: "fact", title: "The rota went up untouched", body: "The Friday rota went up with no hand edits.", source: "authored" });
+      s.addFeelings(felt, [
+        { whose: "owner", core: "happy", emotion: "proud", strength: 0.8 },
+        { whose: "self", core: "curious", emotion: "amazed", strength: 0.5 },
+      ]);
+      const plain = s.put({ type: "memory", kind: "fact", title: "Release notes go out on Fridays", body: "Every Friday, after the review.", source: "authored" });
+      const old = s.put({ type: "memory", kind: "fact", title: "An older felt memory", body: "Saved two days ago, with a feeling.", source: "authored" });
+      s.addFeelings(old, [{ whose: "owner", core: "sad", emotion: "lonely", strength: 0.4 }]);
+      // Two days ago: inside the week, not today.
+      s.appendEvent({ name: "gate.deposit", day, payload: { accepted: 1, memoryId: old } });
+      s.appendEvent({ name: "recall.decision", day, ref: "s0", payload: { turn: 1, surfacedCount: 1, footnoteCount: 0, moodMatched: 0, surfaced: [{ id: old }], footnotes: [] } });
+      t = now;
+      // Today: one memory saved with a feeling, one without.
+      s.appendEvent({ name: "gate.deposit", day, payload: { accepted: 1, memoryId: felt } });
+      s.appendEvent({ name: "gate.deposit", day, payload: { accepted: 1, memoryId: plain } });
+      // A turn that kept the felt memory as a footnote beside a plain one: one firing.
+      s.appendEvent({
+        name: "recall.decision",
+        day,
+        ref: "s1",
+        payload: { turn: 2, surfacedCount: 1, footnoteCount: 1, moodMatched: 0, surfaced: [{ id: plain }], footnotes: [{ id: felt }] },
+      });
+      // A turn that brought only the plain memory: Retrieval, not Emotion.
+      s.appendEvent({ name: "recall.decision", day, ref: "s1", payload: { turn: 3, surfacedCount: 1, footnoteCount: 0, moodMatched: 0, surfaced: [{ id: plain }], footnotes: [] } });
+      return { felt, plain };
+    } finally {
+      c.close();
+    }
+  }
+
+  test("Emotion fires when a memory is saved with a feeling and when one carrying a feeling comes to mind", () => {
+    const dir = tempDir("counterparts-mech-today-felt-");
+    const { felt, plain } = seedFelt(dir);
+    const v = viewOf(dir);
+    const by = Object.fromEntries(v.mechanisms.map((m) => [m.id, m]));
+    expect(by["emotional"]?.firedToday).toBe(2); // the felt deposit, the turn with the felt footnote
+    expect(by["salience"]?.firedToday).toBe(2);
+    expect(by["retrieval"]?.firedToday).toBe(2);
+    // The week: green, led by what a feeling did, never by the mood match's zero.
+    expect(by["emotional"]?.status).toBe("green");
+    expect(by["emotional"]?.lead).toEqual({ n: 2, words: "memories saved with a feeling this week" });
+    expect(by["emotional"]?.evidence).toStartWith("2 memories saved with a feeling, 2 turns brought memories carrying a feeling to mind");
+    expect(by["emotional"]?.evidence).not.toContain("mood");
+    // The panel names the memories and their feelings; the felt ones only.
+    const dash = Dashboard.open({ dir });
+    try {
+      const act = mechanismActivity(dash.source, "emotional");
+      const texts = act.map((a) => a.text);
+      expect(texts).toContain("On turn 2 “The rota went up untouched” came to mind carrying a feeling.");
+      expect(texts).toContain("I wrote down “The rota went up untouched”, carrying proud and amazed.");
+      expect(texts.join("\n")).not.toContain("Release notes");
+      expect(texts.join("\n")).not.toContain("mood");
+      const turn = act.find((a) => a.name === "recall.decision" && a.text.includes("turn 2"));
+      expect(JSON.parse(turn?.detail.find((d) => d.key === "felt")?.value ?? "[]")).toEqual([{ id: felt, words: ["proud", "amazed"] }]);
+      expect(JSON.stringify(act)).not.toContain(`"id":"${plain}"`);
+    } finally {
+      dash.close();
+    }
   });
 
   test("today is the person's zone's calendar day: a minute before its midnight is yesterday, a minute after is today", () => {

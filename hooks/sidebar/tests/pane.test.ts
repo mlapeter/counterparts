@@ -457,6 +457,53 @@ test('a mechanism that fired today but names fewer than three in the panel (its 
   }
 })
 
+test('Emotion: a memory saved with a feeling and one carrying a feeling that came to mind, each named with its feeling words; the plain ones left out', async ($, on) => {
+  const was = FIRED_TODAY.emotional ?? null
+  FIRED_TODAY.emotional = 2
+  try {
+    // The Emotion panel's rows as the status file carries them (`narrateForPanel`, with `felt`).
+    const saved = ev(491, 'gate.deposit', 'I wrote down “The sidebar draws the brain in braille”, carrying proud and curious.', 9, {
+      session: SESSION, accepted: '1', kind: 'fact', memoryId: '"The sidebar draws the brain in braille" [mem_aaaa1111]',
+      felt: JSON.stringify([{ id: 'mem_aaaa1111', words: ['proud', 'curious'] }]),
+    })
+    const came = ev(492, 'recall.decision', 'On turn 4 “The sidebar is 35 columns wide” came to mind carrying a feeling.', 5, {
+      session: SESSION, turn: '4', surfacedCount: '1', footnoteCount: '1', moodMatched: '0',
+      surfaced: JSON.stringify([{ id: 'mem_sur00001', sal: 0.6 }]), footnotes: JSON.stringify([{ id: 'mem_rel00001', sal: 0.5 }]),
+      felt: JSON.stringify([{ id: 'mem_sur00001', words: ['relieved'] }]),
+    })
+    const w = world(on, { panelActivity: id => (id === 'emotional' ? [came, saved] : EVENTS) })
+    await start($, w)
+    for (const surface of SURFACES) {
+      const ui = await mount($, w, surface)
+      let lines = await bodyLines(ui)
+      const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
+      if (surface === 'terminal') expect(lines[at + 2]).toMatch(/^Emotion {9}▄+▖?\s+2$/)
+      else expect(lines[at + 2]).toMatch(/^Emotion▄+2$/)
+      await click(ui, 'Emotion')
+      await settle(w)
+      lines = await bodyLines(ui)
+      const e = lines.findIndex(l => l.startsWith('Emotion'))
+      // what a person reads, wrapped at the pane's width: each title, then its feeling words
+      const opened = lines.slice(e + 1, e + 7)
+      expect(opened[0]).toMatch(/^came to mind at \d+:\d\d:$/)
+      expect(opened[1]).toBe('The sidebar is 35 columns wide')
+      expect(opened[2]).toBe('(relieved)')
+      expect(opened[3]).toMatch(/^saved with a feeling at \d+:\d\d:$/)
+      expect(`${opened[4] ?? ''} ${opened[5] ?? ''}`).toBe('The sidebar draws the brain in braille (proud, curious)')
+      // the footnote that carried no feeling is Retrieval's, not Emotion's
+      expect(lines.slice(e + 1, e + 8).join('\n')).not.toContain('Release notes')
+      // a memory opens in place, as under every mechanism
+      await click(ui, 'The sidebar is 35 columns wide')
+      expect((await bodyLines(ui)).join('\n')).toContain('Mike chose 35 columns')
+      await click(ui, 'Emotion') // closed again
+      await ui.unmount()
+    }
+    expect(w.fetches).toEqual([])
+  } finally {
+    FIRED_TODAY.emotional = was
+  }
+})
+
 test('past midnight with nothing new, a file written yesterday counts nothing today: yesterday’s bars do not stand as today’s', async ($, on) => {
   // the file stays as it was written at 23:59 (its store's day named outright, so nothing in it changes)
   const w = world(on, { now: new Date(2026, 9, 9, 23, 59, 0).getTime(), dashToday: '2026-10-09' })

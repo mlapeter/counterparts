@@ -44,7 +44,9 @@ import { nodeOf } from "./flow.js";
 import { iconOf, isSleepCheck, laneOf } from "./lanes.js";
 import type { Icon, Lane } from "./lanes.js";
 import type { NodeKey } from "./flow.js";
+import { feltIds } from "../../mechanism-evidence.js";
 import { reveal, revealHere, revealPayload, shortOf } from "./reveal.js";
+import { feelingsShown } from "./views/memory-words.js";
 // @ts-expect-error — a plain browser module, no declarations
 import { dateOr } from "./shared/dates.js";
 
@@ -1361,25 +1363,59 @@ function parse(payload: string | null): Record<string, unknown> {
 }
 
 /**
- * One row, narrated. A name with no teller cannot happen (the `satisfies`
- * above), but the fallback is a sentence rather than a throw: an instrument that
- * crashes on an unfamiliar row is the one moment the owner most needs it to
- * render (scar E7).
+ * THE MEMORIES A ROW NAMES THAT CARRY A FEELING (2026-10-14), each with its
+ * feeling words, strongest first, at most two: the `felt` detail, JSON
+ * `[{ id, words }]`. The Claude Code sidebar names these under Emotion
+ * (`hooks/sidebar/hooks/feed.ts`). Null when none of them carries one.
  */
+export function feltDetail(store: ReadOnlyStore, p: Record<string, unknown>): { key: string; value: string } | null {
+  const felt = feltRows(store, p);
+  return felt.length === 0 ? null : { key: "felt", value: JSON.stringify(felt) };
+}
+
+function feltRows(store: ReadOnlyStore, p: Record<string, unknown>): { id: string; words: string[] }[] {
+  return feltIds(store, p).map((id) => ({
+    id,
+    words: [...feelingsShown(store, id)]
+      .sort((a, b) => b.strength - a.strength)
+      .map((f) => f.word)
+      .filter((w, i, all) => all.indexOf(w) === i)
+      .slice(0, 2),
+  }));
+}
+
+/** `a`, `a and b`, `a, b and c`. */
+function listed(items: readonly string[]): string {
+  return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1] ?? ""}`;
+}
+
 /**
  * A MECHANISM PANEL'S OWN WORDS for a row it shares with other readings
  * (2026-09-27, home round 3 — a try). The same `recall.decision` row is a turn
- * on the flow feed and, on the Emotion panel, the mood lift it carries: that
- * panel counts a turn only when a matching mood brought something closer, so
- * its line says that, not which memory was kept as a footnote. Only the
- * sentence changes; which rows count is `mechanism-evidence.ts`'s.
+ * on the flow feed and, on the Emotion panel, what a feeling did on it. Only
+ * the sentence changes, and the `felt` detail is added; which rows count is
+ * `mechanism-evidence.ts`'s. A teller that answers null keeps the feed's line.
+ *
+ * Emotion (2026-10-14): a deposit names the memory saved and its feeling; a
+ * turn names the memories carrying a feeling that came to mind. A turn a
+ * matching mood lifted (off by decision since 2026-10-10) still says so.
  */
-const PANEL_NARRATORS: Readonly<Record<string, Readonly<Record<string, Teller>>>> = {
+const PANEL_NARRATORS: Readonly<Record<string, Readonly<Record<string, (t: Told) => Narration | null>>>> = {
   emotional: {
+    "gate.deposit": (t) => {
+      const first = feltRows(t.store, t.p)[0];
+      if (first === undefined) return null;
+      return calm(`I wrote down ${subject(t, first.id)}, carrying ${listed(first.words)}.`);
+    },
     "recall.decision": (t) => {
-      const lifted = n(t, "moodMatched") ?? 0;
-      const came = (n(t, "surfacedCount") ?? 0) + (n(t, "footnoteCount") ?? 0);
       const turn = n(t, "turn") ?? 0;
+      const felt = feltRows(t.store, t.p);
+      if (felt.length > 0) {
+        return calm(`On turn ${turn} ${listed(felt.map((f) => subject(t, f.id)))} came to mind carrying a feeling.`);
+      }
+      const lifted = n(t, "moodMatched") ?? 0;
+      if (lifted <= 0) return null;
+      const came = (n(t, "surfacedCount") ?? 0) + (n(t, "footnoteCount") ?? 0);
       return calm(
         `On turn ${turn} a matching mood brought ${lifted} ${lifted === 1 ? "memory" : "memories"} closer` +
           (came > 0 ? ` (${came} came to mind).` : "."),
@@ -1394,13 +1430,22 @@ export function narrateForPanel(panel: string, store: ReadOnlyStore, row: EventR
   const teller = PANEL_NARRATORS[panel]?.[row.name];
   if (teller === undefined) return line;
   try {
-    const own = teller({ store, row, p: parse(row.payload) });
-    return { ...line, text: own.text, tone: own.tone };
+    const p = parse(row.payload);
+    const own = teller({ store, row, p });
+    if (own === null) return line;
+    const felt = feltDetail(store, p);
+    return { ...line, text: own.text, tone: own.tone, detail: felt === null ? line.detail : [...line.detail, felt] };
   } catch {
     return line;
   }
 }
 
+/**
+ * One row, narrated. A name with no teller cannot happen (the `satisfies`
+ * above), but the fallback is a sentence rather than a throw: an instrument that
+ * crashes on an unfamiliar row is the one moment the owner most needs it to
+ * render (scar E7).
+ */
 export function narrate(store: ReadOnlyStore, row: EventRow): NarratedEvent {
   const p = parse(row.payload);
   const told: Told = { store, row, p };
