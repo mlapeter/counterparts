@@ -351,7 +351,10 @@ The standalone verb does not ask either: typing it is the yes.*
     through `claude mcp add` / `claude mcp remove` as an argument vector, never a shell
     string. That file is READ to decide whether to call them, and a read that sees nothing
     does not stop the removal being attempted — the host owns that file and may move it,
-    so our read is evidence, not authority. `claude` missing is a printed line and exit 0,
+    so our read is evidence, not authority (except on the plugin's uninstall that keeps
+    the memory, which removes a hook or the registration only when what it runs is gone:
+    a blind removal there could take a running npm install's server, 2026-10-14).
+    `claude` missing is a printed line and exit 0,
     never a failed install. *`unwire` is also the one of the three that runs with NO
     configuration at all: it needs nothing out of the file, and the person most likely to
     be running it is somebody who deleted `~/.counterparts` by hand and now has five hooks

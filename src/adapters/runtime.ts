@@ -124,8 +124,8 @@ export const TRANSPILED: boolean = MODULE_EXT === ".js";
  * no MCP-registration line and no Desktop Code-tab clash, and an uninstall
  * that may delete or move the store has only `claude mcp remove`'s word that a
  * `-s user` registration is gone (with no `claude`, it says the line to run and
- * does not count it gone; one that keeps the store leaves it alone, as every
- * plugin's does, since it is the npm install's). The
+ * does not count it gone; one that keeps the store removes it only when no
+ * npm install's `counterparts` is on PATH, `wire.ts#leftWhy`). The
  * stand-down check (`host-wiring.ts#npmWiring`) reads nothing at all in this
  * build, the settings files' hooks included; doctor, connect and uninstall
  * still read the settings files, and `plugins/installed_plugins.json` is

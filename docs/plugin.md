@@ -379,9 +379,12 @@ validator read the file's name as a credential). One helper, `runtime.ts#readsHo
 whole stand-down detection: hooks and server alike find no npm wiring, and doctor's
 stood-down redirect never fires), `cli/install.ts#readHost` (doctor has no MCP clause;
 `mcpRead: false`), `cli/desktop.ts#readDesktop` (no Code-tab clash) and `cli/wire.ts#readMcp`
-(`notRead`: `/counterparts:uninstall` asks `claude mcp remove` and takes its answer, and
-with no `claude` says the line to run and counts the registration unconfirmed, so it deletes
-and moves no memory). It still reads the settings files and
+(`notRead`: an uninstall that deletes or moves the memory asks `claude mcp remove` and
+takes its answer, and with no `claude` says the line to run and counts the registration
+unconfirmed, so it deletes and moves no memory; `/counterparts:uninstall`'s keep, which
+removes only a registration whose program is gone, takes an npm install's `counterparts` on
+PATH, or a Counterparts hook in `settings.json` that still runs, as that install still being
+there, and leaves it). It still reads the settings files and
 `installed_plugins.json` (doctor, uninstall, the sidebar). **Known limit:** with the npm
 install ALSO wired, the directory flavor does not stand down, so the memory is wired twice
 (the per-event claim below still keeps one wake per event; the memory tools are offered
