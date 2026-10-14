@@ -113,7 +113,7 @@ import { readHolders } from "./rollback.js";
 import type { Holder } from "./rollback.js";
 import { confirm, typed, ui } from "./ui.js";
 import type { Ui } from "./ui.js";
-import type { Outcome, ProcessLister, Spawner, WireInput } from "./wire.js";
+import type { Outcome, ProcessLister, Spawner, WireInput, WireResult } from "./wire.js";
 import { look, readMcp, tilde, unwire } from "./wire.js";
 
 /** The phrase `--delete-memories` asks for, exactly. Case-sensitive, and
@@ -1423,7 +1423,7 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
       ? `${memories(kept.memories)} ${kept.memories === 1 ? "is" : "are"} still at ${where}.`
       : `everything is still at ${tilde(configDir, home)} (${humanBytes(kept.bytes)}).`,
   );
-  if (offers(input)) return offerDelete(input, u, removed.mcpConfirmed, viaPlugin ? wireInput : null);
+  if (offers(input)) return offerDelete(input, u, removed, viaPlugin ? wireInput : null);
   keptHints(input, u);
   return "ok";
 }
@@ -1503,7 +1503,8 @@ async function phraseGate(input: UninstallInput, u: Ui, plan: UninstallPlan): Pr
 async function offerDelete(
   input: UninstallInput,
   u: Ui,
-  mcpConfirmed: boolean,
+  /** What the first unwire did. */
+  removed: WireResult,
   /** The plugin's route: what the first unwire left (live hooks, the npm
    *  install's registration) comes out only after the yes and the phrase,
    *  with this input, and the delete waits on it (M2). */
@@ -1518,10 +1519,23 @@ async function offerDelete(
     keptHints(input, u);
     return "ok";
   };
-  if (deferred === null && !mcpConfirmed) {
+  // LEFT FOR LATER (the plugin's route) or ATTEMPTED NOW. One that was
+  // attempted and is not confirmed gone is withheld, as on the npm route. One
+  // that was left comes out after the yes, and that needs `claude` unless a
+  // read showed none: without it the yes is bound to be refused, so the
+  // question is not put.
+  const left = deferred !== null && removed.mcp === "skipped";
+  if (!left && !removed.mcpConfirmed) {
     return withheld([
       "the memory server is still registered (above), and a server pointed at a store that is " +
         "gone fails at every session start. Remove it, then run uninstall again.",
+    ]);
+  }
+  if (left && removed.mcpLeft !== "absent" && input.spawner(["--version"]).missing) {
+    return withheld([
+      "`claude` is not on this PATH, so the memory server registered in Claude Code (the npm " +
+        "install's) could not be removed first, and a server pointed at a store that is gone " +
+        "fails at every session start. Run uninstall again where `claude` is on PATH.",
     ]);
   }
   const planInput: PlanInput = { configPath: input.configPath, config: input.config, home, verb: "delete", env };
@@ -1579,7 +1593,9 @@ async function offerDelete(
               "WAS DELETED. A server pointed at a store that is gone fails at every session start " +
               "with nothing on screen. Run the line above, then run this again.",
       );
-      if (rest.outcome === "ok") io.err(`The hooks are out; \`${BIN.cli} connect\` puts them back if you want them.`);
+      if (rest.outcome === "ok" && rest.hooks === "removed") {
+        io.err(`The npm install's hooks are out too; its \`${BIN.cli} connect\` puts them back.`);
+      }
       return rest.outcome !== "ok" ? rest.outcome : "refused";
     }
   }

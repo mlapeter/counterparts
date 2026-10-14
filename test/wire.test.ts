@@ -1083,6 +1083,22 @@ describe("unwire", () => {
       expect(text(c.out)).toContain("1 Counterparts hook was left as it is");
     });
 
+    test("`~/` and `$HOME/` are read as the host's shell reads them", async () => {
+      program("npm/bin/counterparts-hook");
+      const [first, ...rest] = HOST_EVENTS;
+      writeSettingsFile({
+        hooks: {
+          [first as string]: [{ hooks: [{ type: "command", command: "~/npm/bin/counterparts-hook" }] }],
+          ...Object.fromEntries(rest.map((e) => [e, [{ hooks: [{ type: "command", command: "$HOME/gone/counterparts-hook" }] }]])),
+        },
+      });
+      const c = consoleWith();
+      await unwire(input({ io: c.io, env: { ...ENV, HOME: home }, onlyDead: true }));
+      const after = JSON.parse(readFileSync(settingsFile(), "utf8")) as { hooks: Record<string, unknown> };
+      expect(Object.keys(after.hooks)).toEqual([first as string]);
+      expect(text(c.out)).toContain("1 Counterparts hook was left as it is");
+    });
+
     test("without it (the npm install's own unwire) a live hook and registration still go", async () => {
       liveShimSettings(program("npm/bin/counterparts-hook"));
       registered(program("npm/bin/counterparts-mcp"));

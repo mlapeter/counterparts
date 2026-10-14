@@ -73,6 +73,7 @@ import {
   mkdirSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -83,9 +84,10 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 import { DATA_DIR_ENV, isWithin } from "../../core/store/index.js";
 import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
-import { hookCommandLive, isOurHookCommand, npmWiring } from "../host-wiring.js";
+import { expandHome, hookCommandLive, isOurHookCommand, npmWiring, readOurHook } from "../host-wiring.js";
+import { PACKAGE_ROOT, PLUGIN_DATA_ENV, PLUGIN_ROOT_ENV } from "../plugin.js";
 import { claudeCodeEnvMarker } from "../hosts.js";
-import { parseScriptInvocation, readsHostUserConfig, runtimePresent, scriptArgs, shellTokens } from "../runtime.js";
+import { parseScriptInvocation, readsHostUserConfig, scriptArgs, shellTokens } from "../runtime.js";
 import { installedBuild, readServerRecords, sameBuild, serverBelieved } from "../sessions.js";
 import type { BuildStamp, ServerRecordRead } from "../sessions.js";
 import type { Io } from "./commands.js";
@@ -1181,6 +1183,10 @@ export interface WireResult {
    * session start, and that is as true of the server as of the hooks.
    */
   readonly mcpConfirmed: boolean;
+  /** FOR `unwire` WITH `onlyDead` ONLY: why the registration was left, when it
+   *  was (`mcp` is then "skipped"). A caller that removes it later needs to
+   *  know whether that removal will need `claude` (`uninstall.ts#offerDelete`). */
+  readonly mcpLeft?: LeftWhy;
 }
 
 /**
@@ -1652,7 +1658,65 @@ export function serverCensus(
  *  still there (`live`), the file could not be read to tell (`unread`), the
  *  build never reads it and an npm install's `counterparts` is on PATH
  *  (`npm`), or a read shows none to remove (`absent`). */
-type LeftWhy = "live" | "unread" | "npm" | "absent";
+export type LeftWhy = "live" | "unread" | "npm" | "absent";
+
+function realOrResolved(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * THE PLUGIN'S OWN FOLDERS: its root (`CLAUDE_PLUGIN_ROOT`, and this package's
+ * own, which on the plugin's route is the same), its data directory (where
+ * the single binary lives) and Claude Code's plugins directory. The plugin's
+ * console can run `connect`, which writes hooks and a registration naming its
+ * own runtime and scripts; they run while it is installed and are dead the
+ * moment it is not, so on its uninstall they count as gone — never as an npm
+ * install's.
+ */
+function pluginDirs(env: UiEnv, home: string): string[] {
+  const moved = (env["CLAUDE_CONFIG_DIR"] ?? "").trim();
+  const cache = (env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] ?? "").trim();
+  const dirs = [
+    env[PLUGIN_ROOT_ENV] ?? "",
+    PACKAGE_ROOT,
+    env[PLUGIN_DATA_ENV] ?? "",
+    cache.length > 0 ? cache : join(moved.length > 0 ? moved : join(home, ".claude"), "plugins"),
+  ];
+  return dirs.map((d) => d.trim()).filter((d) => d.length > 0).map((d) => realOrResolved(d).replace(/\/+$/, ""));
+}
+
+/** Is this path (absolute, after `~/` expansion) inside one of the plugin's own folders? */
+function inPlugin(path: string | null | undefined, env: UiEnv, dirs: readonly string[]): boolean {
+  if (path === null || path === undefined) return false;
+  const p = expandHome(path, env);
+  if (!isAbsolute(p)) return false;
+  const real = realOrResolved(p);
+  return dirs.some((d) => real === d || real.startsWith(`${d}/`));
+}
+
+/**
+ * THE PLUGIN'S RULE FOR A HOOK (`onlyDead`): does this entry of ours still run
+ * something that is not the plugin's own? A line this build cannot read for
+ * what it runs, or whose script is relative, is not known dead and is kept.
+ */
+function hookStillRuns(command: string, env: UiEnv, dirs: readonly string[]): boolean {
+  const ours = readOurHook(command);
+  if (ours === null) return true;
+  if (inPlugin(ours.exe, env, dirs) || inPlugin(ours.script, env, dirs)) return false;
+  if (ours.shape === "script" && !isAbsolute(expandHome(ours.script, env))) return true;
+  return hookCommandLive(command, env);
+}
+
+/** The npm install's `counterparts` on this PATH — one in the plugin's own
+ *  folders does not count. */
+function npmCliOnPath(env: UiEnv, dirs: readonly string[]): boolean {
+  const path = (env["PATH"] ?? "").split(process.platform === "win32" ? ";" : ":").filter((d) => d.length > 0);
+  return path.some((d) => existsSync(join(d, BIN.cli)) && !inPlugin(join(d, BIN.cli), env, dirs));
+}
 
 /**
  * THE PLUGIN'S RULE FOR THE REGISTRATION (`onlyDead`): removed only when what
@@ -1666,10 +1730,12 @@ type LeftWhy = "live" | "unread" | "npm" | "absent";
  * the same package, and the registration is taken as live. Neither: whatever
  * is registered under the name runs nothing of an npm install's, so it goes,
  * through `claude mcp remove`, which tolerates its absence. (A checkout's own
- * registration, with no npm install and no hook, reads as gone here.)
+ * registration, with no npm install and no hook, reads as gone here.) A
+ * registration that runs something in the plugin's own folders is gone with
+ * the plugin, whatever is on disk now (`pluginDirs`).
  */
-function leftWhy(input: WireInput, mcp: McpReading, liveHooks: boolean): LeftWhy | null {
-  if (mcp.notRead === true) return liveHooks || runtimePresent(BIN.cli, input.env) ? "npm" : null;
+function leftWhy(input: WireInput, mcp: McpReading, liveHooks: boolean, dirs: readonly string[]): LeftWhy | null {
+  if (mcp.notRead === true) return liveHooks || npmCliOnPath(input.env, dirs) ? "npm" : null;
   if (mcp.unreadable) return "unread";
   if (!mcp.present) return "absent";
   const user = npmWiring({
@@ -1679,6 +1745,7 @@ function leftWhy(input: WireInput, mcp: McpReading, liveHooks: boolean): LeftWhy
     read: { hooks: false },
     readsUserConfig: input.readsUserConfig,
   }).mcp.find((m) => m.scope === "user");
+  if (user !== undefined && (inPlugin(user.exe, input.env, dirs) || inPlugin(user.script, input.env, dirs))) return null;
   return user === undefined || user.live ? "live" : null;
 }
 
@@ -1736,7 +1803,8 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   }
 
   // THE PLUGIN'S RULE (`onlyDead`): a hook that still runs stays.
-  const spare = input.onlyDead === true ? (command: string): boolean => hookCommandLive(command, env) : undefined;
+  const dirs = input.onlyDead === true ? pluginDirs(env, home) : [];
+  const spare = input.onlyDead === true ? (command: string): boolean => hookStillRuns(command, env, dirs) : undefined;
   const merged = mergeHooks(sight.value, "", "unwire", spare);
   const mcp = readMcp(home, env, input.store, input.custom, input.exe, MCP_SCRIPT, input.readsUserConfig);
 
@@ -1746,7 +1814,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   // A file this build never opens (`notRead`) is no evidence either: the
   // removal below asks `claude`. A registration left alone (`onlyDead`, and
   // it still runs or cannot be told) is not ours to disconnect.
-  const why = input.onlyDead === true ? leftWhy(input, mcp, merged.spared > 0) : null;
+  const why = input.onlyDead === true ? leftWhy(input, mcp, merged.spared > 0, dirs) : null;
   const leave = why !== null;
   if (!merged.changed && (leave || (!mcp.present && !mcp.unreadable && mcp.notRead !== true))) {
     u.ok(
@@ -1761,7 +1829,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     if (why !== null) {
       sparedNote(u, merged.spared);
       leftMcpNote(u, mcp, why, home);
-      return { outcome: "ok", hooks: "none", mcp: "skipped", backup: null, mcpConfirmed: false };
+      return { outcome: "ok", hooks: "none", mcp: "skipped", backup: null, mcpConfirmed: false, mcpLeft: why };
     }
     u.hint(`and in:    ${mcp.file}`);
     return { outcome: "ok", hooks: "none", mcp: "absent", backup: null, mcpConfirmed: true };
@@ -1860,7 +1928,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   if (why !== null) {
     leftMcpNote(u, mcp, why, home);
     u.hint("An open Claude Code session keeps working until you close it.");
-    return { outcome: "ok", hooks: hooksWord, mcp: "skipped", backup, mcpConfirmed: false };
+    return { outcome: "ok", hooks: hooksWord, mcp: "skipped", backup, mcpConfirmed: false, mcpLeft: why };
   }
 
   // THE REMOVE IS ATTEMPTED WHETHER OR NOT OUR READ SAW A REGISTRATION.

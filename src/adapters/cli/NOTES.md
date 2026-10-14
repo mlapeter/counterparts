@@ -1211,7 +1211,10 @@ The plugin's uninstall on the arms that keep the memory is the exception (`onlyD
 2026-10-14): it removes a hook or the registration only when what it runs is gone, so it
 runs `claude mcp remove` only for a registration read as dead — or, in the directory flavor
 that never reads the file, when no npm install's `counterparts` is on PATH and no hook of ours there still runs. A blind removal
-there could take a running npm install's server, which the plugin never registered.
+there could take a running npm install's server, which the plugin never registered. A hook or
+registration that runs the plugin's own files (its root, its data directory, Claude Code's
+plugins directory: the plugin's console can run `connect`) counts as gone on that route,
+since it is dead once the plugin is (review of #491).
 
 **`--delete-memories` counts before it warns, and the fallback matters more than the
 count.** A store that will not open on this build — the old-floor `STORE_PRE_ROWS` case,
