@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
-import { TUNABLES, strength } from "../src/core/physics/index.js";
+import { TUNABLES, floorDay, pruneVerdict, strength } from "../src/core/physics/index.js";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { router } from "../src/adapters/dashboard/web/server.js";
@@ -24,7 +24,8 @@ import { mechanismPanel, memoriesView, memoryDetail, searchView } from "../src/a
 import { FIRM_AHEAD_DAYS, NEAR_LET_GO_DAYS, holdOf } from "../src/adapters/dashboard/web/views/memories.js";
 import { RECURRING_META } from "../src/core/prospective/index.js";
 import type { MemoryListView } from "../src/adapters/dashboard/web/views.js";
-import { fadeCurve, letGoDay } from "../src/adapters/dashboard/web/views/mechanism-panel.js";
+import { fadeCurve, letGoDay, putAwayDay } from "../src/adapters/dashboard/web/views/mechanism-panel.js";
+import { curveSinceDay } from "../src/core/sleep/index.js";
 import { chapterDate, isChapterMemory, liftDate, shownOf } from "../src/adapters/dashboard/web/views/memory-words.js";
 import { typoDistance, typosAllowed } from "../src/adapters/dashboard/web/views/search.js";
 import { seedDemo } from "../tools/demo/seed.js";
@@ -311,6 +312,47 @@ describe("the pause after a new curve shows as a pause, not a let-go (2026-10-14
   });
 });
 
+describe("the card's put-away day is the prune's (2026-10-14)", () => {
+  const S = { novelty: null, relevance: 0, emotional: 0, predictive: 0, claimed: 0.3 };
+  const p = {
+    kind: "fact" as const,
+    salience: S,
+    birthDay: 0,
+    uses: 0,
+    lastUsedDay: 0,
+    consolidated: false,
+    promotedIdentity: false,
+    protected: false,
+    pressure: 0,
+    lastChallengedDay: null,
+    reinforcedDays: 0,
+  };
+  const under = floorDay(p) as number;
+
+  test("14 lived days after it goes under the archive line, not the day it crosses it", () => {
+    expect(putAwayDay(p, 0)).toBe(under + TUNABLES.D_FLOOR_DAYS);
+    // The prune agrees: that is the first day its verdict lets it go.
+    expect(pruneVerdict(p, under + TUNABLES.D_FLOOR_DAYS - 1, { inLiveRevisionChain: false }).prune).toBe(false);
+    expect(pruneVerdict(p, under + TUNABLES.D_FLOOR_DAYS, { inLiveRevisionChain: false }).prune).toBe(true);
+    // Already under the line and waiting: still a day ahead.
+    expect(putAwayDay(p, under + 3)).toBe(under + TUNABLES.D_FLOOR_DAYS);
+  });
+
+  test("never before 14 after a new curve arrived", () => {
+    const since = under + 20;
+    expect(putAwayDay(p, since, since)).toBe(since + TUNABLES.D_FLOOR_DAYS);
+    expect(pruneVerdict(p, since + TUNABLES.D_FLOOR_DAYS - 1, { inLiveRevisionChain: false, curveSince: since }).prune).toBe(false);
+    expect(pruneVerdict(p, since + TUNABLES.D_FLOOR_DAYS, { inLiveRevisionChain: false, curveSince: since }).prune).toBe(true);
+    // A curve older than the crossing changes nothing.
+    expect(putAwayDay(p, 0, under - 50)).toBe(under + TUNABLES.D_FLOOR_DAYS);
+  });
+
+  test("its wait done: the next pass, today; never under the line: no day", () => {
+    expect(putAwayDay(p, under + TUNABLES.D_FLOOR_DAYS + 5)).toBe(under + TUNABLES.D_FLOOR_DAYS + 5);
+    expect(putAwayDay({ ...p, promotedIdentity: true }, 0)).toBeNull();
+  });
+});
+
 describe("a date that still repeats is kept, so it is never fading (2026-10-09)", () => {
   test("the same faded physics: fading as a one-off, settling as a repeat, with no let-go day", () => {
     withSrc((src) => {
@@ -433,7 +475,15 @@ describe("the memory card", () => {
       if (c0 === undefined) throw new Error("no curve");
       const card = memoryDetail(src, c0.id);
       expect(card.curve?.points).toEqual(c0.points);
-      expect(card.curve?.archiveDay).toBe(c0.archiveDay);
+      // The panel names the day it crosses the archive line; the card, the day the prune
+      // would put it away — 14 lived days under the line, never before 14 after a new
+      // curve (2026-10-14).
+      const p0 = src.store.physicsOf(c0.id);
+      const away = putAwayDay(p0, card.day, curveSinceDay(src.store, card.day));
+      expect(card.curve?.archiveDay).toBe(away !== null && away <= (card.curve?.to ?? 0) ? away : null);
+      if (c0.archiveDay !== null && card.curve?.archiveDay !== null && card.curve?.archiveDay !== undefined) {
+        expect(card.curve.archiveDay).toBeGreaterThanOrEqual(c0.archiveDay + TUNABLES.D_FLOOR_DAYS);
+      }
       expect(card.curve?.archiveLine).toBe(TUNABLES.PHI_PRUNE);
       expect(fadeCurve(src.store.physicsOf(c0.id), card.day).points).toEqual(c0.points as [number, number][]);
     });
