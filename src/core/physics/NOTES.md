@@ -647,3 +647,52 @@ anything, and the first possible exit at lived day 91. What changed here, all li
   is its curve's, and nothing makes the turn-down look at it the day its next window opens on
   the calendar; until some pass reads it, the ranking cache can still read it below reach
   (ambient recall prefilters on that cache).
+
+## 2026-10-14 — the era all the way down, and the wait under the floor
+
+Decided by Mike, 2026-10-14, lightly held; review 2026-10-18. Both from a read-only analysis
+of a copy of the live store (lived day 23).
+
+- **The era's scale-down reached the claim and stopped there.** `sal()` is
+  `max(mean of the dimensions, claimed)`, and the era replaced only `claimed`. Pre-Group-1
+  memories carry author-scored relevance/predictive (mean ~0.29 / ~0.21; since Group 1 a
+  writer leaves them at ~0.02), so of 485 lowered claims 103 read no lower at all and the
+  lowered median read 0.395 against the 0.25 meant. `curveSal` now returns `eraClaim` alone
+  when it is below the stored claim. Considered and not taken: scaling the dimensions by
+  `eraClaim / claimed` (keeps the high-dimension rows above the default, the very rows at
+  issue), and zeroing only the author dimensions while keeping novelty (closer to a fresh
+  install, but novelty alone tops even the lowest default only above 0.6; not worth the extra rule).
+  The 106 memories the era raises read as before, and so do the era's exempt (review of
+  #494): an old DEFAULT on a protected, core, owner's or dated row is still read at today's
+  default (2026-10-11), but floored by its own dimensions as on master — the seam marks it
+  `eraExempt` (`store/operational.ts#eraExemptRow`, the one exemption list). None on the live
+  copy. Below reach on that copy: 332 of 1,603
+  prunable live rows with the fix off, 570 with it on.
+- **The prune had no real wait.** `pruneVerdict` counted `d − decayAnchor(m)`, days since the
+  last use, so a memory unused for weeks was archived the first night it crossed the floor.
+  Now it counts lived days under the floor: `floorDay(m)` (anchor + `daysUntilBelow(φ)`, off
+  the curve, never stored), never earlier than `curveSince`. Deriving the crossing from the
+  curve alone back-dates it whenever the curve changes — the era fix above would have read
+  130 memories as under the floor for weeks — so the decay pass records the lived day a new
+  curve signature arrives (`decay.curve.since`, a `meta` row; no column, no store version) and
+  `sleep/decay.ts#curveSinceDay` hands it to the prune (`d` itself while the store is still
+  signed under another curve). A first signing writes it too (review of #494): a store from a
+  build older than the signature (npm 0.3.15/0.3.16) would otherwise have had no pause. So a
+  brand-new store pauses its first 14 lived days as well — harmless, nothing in it is old;
+  tests about the prune on a settled store use `test/store-fixture.ts#settledCurve`.
+  The dashboard's `letGoDay` / `holdOf` read the same `curveSince`.
+- **What the wait does not cover:** a per-memory lowering (a `changed` fade, a smaller claim)
+  and a dated memory whose window closed still read as if always on the lower curve — the
+  same as before, no regression; the 2026-10-11 bullet above about a reminder archived "that
+  same night" still holds when its own curve went under the floor 14 or more lived days
+  earlier. The cost of the guard: every curve change pauses every exit for 14 lived days.
+  A budgeted prune pass that reaches a row late only delays it.
+- **`dwell-too-short` is named only under the floor**: above it the memory has not started
+  waiting and `above-floor` speaks alone, so the night's count is the memories waiting out
+  their 14 days. `PruneVerdict.dwellDays` keeps its meaning (days since the anchor; the entity
+  fade's kind floor reads it); `belowFloorDays` is the wait.
+- **Measured on that copy (lived day 23), nothing used meanwhile:** under the floor tonight,
+  0 — so 0 exits tonight under every rule. Through day 37 (the next 14 lived days) the old
+  count would have archived 74 with the era fix off and 130 with it on; the new wait archives
+  0. The first exits come on day 39; by day 44, 26; by day 51, 130 (fix on).
+

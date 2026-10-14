@@ -25,6 +25,7 @@ import {
   TUNABLES as PHYSICS,
   belowReach,
   daysUntilBelow,
+  floorDay,
   decay,
   nextChangeDay,
   sal,
@@ -217,8 +218,10 @@ describe("next change day (review 13 C2)", () => {
     const reach = daysUntilBelow(m, PHYSICS.REACH) as number;
     expect(nextChangeDay(m, sem)).toBe(reach);
     const floor = daysUntilBelow(m, PHYSICS.PHI_PRUNE) as number;
-    expect(nextChangeDay(m, reach)).toBe(floor);
-    // A note already under the floor: the day its dwell completes.
+    // The prune's eligibility: D_FLOOR_DAYS lived days after it went under
+    // the floor (2026-10-14: the wait runs from the floor, not the anchor).
+    expect(nextChangeDay(m, reach)).toBe(floor + PHYSICS.D_FLOOR_DAYS);
+    // A note under the floor from its anchor: the day its wait completes.
     const low = memory({ claimed: 0.01 });
     expect(nextChangeDay(low, 3)).toBe(PHYSICS.D_FLOOR_DAYS);
     // A dated memory is looked at daily: its hold turns on the calendar.
@@ -311,11 +314,23 @@ describe("the dated hold (review 07 C1/C2)", () => {
     runCycle({ store: s, date });
     // No hold: it reads exactly what its never-dated twin reads, t from its own anchor (its birth,
     // 39 lived days back), not from the close — below reach at once, and under the prune floor
-    // with its dwell long since done, so this pass archives it, as it archived the twin weeks ago.
+    // since the same lived day as the twin.
     const p = rowToPhysics(s.row(dated) as NonNullable<ReturnType<Store["row"]>>);
+    const twin = rowToPhysics(s.row(plain) as NonNullable<ReturnType<Store["row"]>>);
     expect(p.hold).toBeNull();
-    expect(strength(p, s.livedDay())).toBe(strength(rowToPhysics(s.row(plain) as NonNullable<ReturnType<Store["row"]>>), s.livedDay()));
+    expect(strength(p, s.livedDay())).toBe(strength(twin, s.livedDay()));
     expect(strength(p, s.livedDay())).toBeLessThan(PHYSICS.PHI_PRUNE);
+    // The prune's wait (2026-10-14): D_FLOOR_DAYS lived days under the floor, counted from the
+    // day the curve went under it — the same day for both, so they go together.
+    const under = floorDay(p) as number;
+    expect(floorDay(twin)).toBe(under);
+    expect(under).toBeLessThanOrEqual(s.livedDay());
+    while (s.livedDay() < under + PHYSICS.D_FLOOR_DAYS) {
+      expect(s.row(plain)?.archived).toBe(0);
+      expect(s.row(dated)?.archived).toBe(0);
+      date = addDays(date, 1);
+      runCycle({ store: s, date });
+    }
     expect(s.row(plain)?.archived).toBe(1);
     expect(s.row(dated)?.archived).toBe(1);
   });

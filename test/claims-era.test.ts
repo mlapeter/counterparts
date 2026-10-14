@@ -154,7 +154,9 @@ describe("the read: old claims at their default, the exempt as claimed", () => {
     for (const [name, want] of Object.entries(READ_AT)) {
       const p = rowToPhysics(s.row(ids[name] as string)!);
       expect({ name, era: p.eraClaim }).toEqual({ name, era: want });
-      expect(curveSal(p)).toBeCloseTo(Math.max(want, sal({ ...p.salience, claimed: null })), 10);
+      // Lowered: the era's value is the whole reading (2026-10-14); raised: the dimensions still count.
+      const reads = READ_UP.includes(name) ? Math.max(want, sal({ ...p.salience, claimed: null })) : want;
+      expect(curveSal(p)).toBeCloseTo(reads, 10);
     }
     for (const name of KEPT) {
       const p = rowToPhysics(s.row(ids[name] as string)!);
@@ -251,13 +253,114 @@ describe("old defaults read at today's default, either way (Mike, 2026-10-11)", 
   });
 
   test("the signature carries the reading's version, so a store signed before it re-curves once", () => {
-    expect(JSON.parse(curveSignature("1"))).toMatchObject({ era: "1", eraReads: 2 });
+    expect(JSON.parse(curveSignature("1"))).toMatchObject({ era: "1", eraReads: 3 });
     const { s } = seeded();
     // Signed under the 10-10 reading: the same signature without `eraReads`.
     const { eraReads: _gone, ...before } = JSON.parse(curveSignature(String(T + 1))) as Record<string, unknown>;
     s.setMeta(CURVE_META_KEY, JSON.stringify(before));
     runCycle({ store: s, date: "2026-10-11" });
     expect(s.getMeta(CURVE_META_KEY)).toBe(curveSignature(String(T + 1)));
+  });
+});
+
+describe("a lowered claim is the whole reading: the old dimensions no longer floor it (2026-10-14)", () => {
+  // Pre-Group-1 memories carry author-scored relevance and predictive written under the
+  // old field text; their mean held a quarter of the live store's lowered claims in place.
+  const HIGH = { relevance: 0.8, predictive: 0.7 };
+
+  test("pure: below the stored claim the era's value alone; above it, the dimensions still count", () => {
+    const salience = { novelty: 0.5, relevance: 0.8, emotional: 0, predictive: 0.7, claimed: 0.6 };
+    expect(sal(salience)).toBeCloseTo(2 / 3, 10);
+    expect(curveSal({ salience, eraClaim: 0.25 })).toBe(0.25);
+    expect(curveSal({ salience: { ...salience, claimed: 0.25 }, eraClaim: 0.4 })).toBeCloseTo(2 / 3, 10);
+    expect(curveSal({ salience: { ...salience, relevance: 0, predictive: 0, novelty: null, claimed: 0.25 }, eraClaim: 0.4 })).toBe(0.4);
+    expect(curveSal({ salience, eraClaim: null })).toBe(sal(salience));
+    expect(curveSal({ salience })).toBe(sal(salience));
+  });
+
+  test("an old explicit claim with high old dimensions reads the era's default, and its curve falls", () => {
+    const s = store();
+    runCycle({ store: s, date: "2026-10-10" });
+    const id = put(s, { about: "work", salience: { claimed: OLD, ...HIGH } });
+    s.setMeta(CLAIMS_ERA_CUTOFF_KEY, String(T + 1));
+    const p = s.physicsOf(id);
+    expect(p.eraClaim).toBe(PHYSICS.AUTHORED_DEFAULT_CLAIM);
+    // Before 2026-10-14 the mean (0.75) floored it: max(0.75, 0.25) — no lower than as stored.
+    expect(sal({ ...p.salience, claimed: p.eraClaim })).toBeCloseTo(sal(p.salience), 10);
+    expect(curveSal(p)).toBe(PHYSICS.AUTHORED_DEFAULT_CLAIM);
+    const asStored = { ...p, eraClaim: null };
+    expect(stability(p)).toBeLessThan(stability(asStored));
+    expect(strength(p, 5)).toBeLessThan(strength(asStored, 5));
+  });
+
+  test("an old default the era raises reads as before: the dimensions still count", () => {
+    const s = store();
+    runCycle({ store: s, date: "2026-10-10" });
+    const id = put(s, { about: "owner", salience: { claimed: 0.25, ...HIGH }, meta: { [CLAIMED_DEFAULT_META_KEY]: true } });
+    s.setMeta(CLAIMS_ERA_CUTOFF_KEY, String(T + 1));
+    const p = s.physicsOf(id);
+    expect(p.eraClaim).toBe(PHYSICS.DEFAULT_CLAIM_PERSONAL);
+    expect(curveSal(p)).toBeCloseTo(sal({ ...p.salience, claimed: p.eraClaim }), 10);
+    expect(curveSal(p)).toBeCloseTo(0.75, 10);
+  });
+
+  test("a DEFAULT on an exempt row the era lowers reads exactly as before: its dimensions still floor it", () => {
+    const s = store();
+    runCycle({ store: s, date: "2026-10-10" });
+    const ids = {
+      protectedWork: put(s, {
+        about: "work",
+        status: "done",
+        salience: { claimed: 0.25, ...HIGH },
+        meta: { [CLAIMED_DEFAULT_META_KEY]: true },
+        physics: { birthDay: 1, lastUsedDay: 1, protected: true },
+      }),
+      coreWork: put(s, {
+        about: "work",
+        status: "done",
+        salience: { claimed: 0.25, ...HIGH },
+        meta: { [CLAIMED_DEFAULT_META_KEY]: true },
+        physics: { birthDay: 1, lastUsedDay: 1, promotedIdentity: true },
+      }),
+      pendingWork: put(s, {
+        about: "work",
+        eventDate: "2026-10-20",
+        salience: { claimed: 0.3, ...HIGH },
+        meta: { [CLAIMED_DEFAULT_META_KEY]: true },
+      }),
+    };
+    s.setMeta(CLAIMS_ERA_CUTOFF_KEY, String(T + 1));
+    for (const [name, id] of Object.entries(ids)) {
+      const p = s.physicsOf(id);
+      // The era still reads the default at today's (2026-10-11), lower than stored…
+      expect({ name, lowered: (p.eraClaim ?? 1) < (p.salience.claimed ?? 0) }).toEqual({ name, lowered: true });
+      expect(p.eraExempt).toBe(true);
+      // …and the curve reads it as master did: max(the dimensions' mean, the era's value).
+      expect(curveSal(p)).toBeCloseTo(sal({ ...p.salience, claimed: p.eraClaim }), 10);
+      expect(curveSal(p)).toBeCloseTo(0.75, 10);
+    }
+    // The same default on a row that is not exempt reads the era's value alone.
+    const plain = put(s, { about: "work", status: "done", salience: { claimed: 0.25, ...HIGH }, meta: { [CLAIMED_DEFAULT_META_KEY]: true } });
+    const p = s.physicsOf(plain);
+    expect(p.eraExempt ?? false).toBe(false);
+    expect(curveSal(p)).toBe(PHYSICS.DEFAULT_CLAIM_WORK_EVENT);
+  });
+
+  test("the exempt are untouched: about the owner, said by the owner, protected, the core", () => {
+    const s = store();
+    runCycle({ store: s, date: "2026-10-10" });
+    const ids = [
+      put(s, { about: "owner", salience: { claimed: OLD, ...HIGH } }),
+      put(s, { about: "work", saidBy: "owner", salience: { claimed: OLD, ...HIGH } }),
+      put(s, { salience: { claimed: OLD, ...HIGH }, physics: { birthDay: 1, lastUsedDay: 1, protected: true } }),
+      put(s, { kind: "self", about: "me", salience: { claimed: OLD, ...HIGH }, physics: { birthDay: 1, lastUsedDay: 1, promotedIdentity: true } }),
+    ];
+    s.setMeta(CLAIMS_ERA_CUTOFF_KEY, String(T + 1));
+    for (const id of ids) {
+      const p = s.physicsOf(id);
+      expect(p.eraClaim ?? null).toBeNull();
+      expect(curveSal(p)).toBe(sal(p.salience));
+    }
   });
 });
 

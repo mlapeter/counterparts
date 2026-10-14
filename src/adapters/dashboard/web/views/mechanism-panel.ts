@@ -25,7 +25,7 @@
  * Read-only, like everything in this directory. Memory words go through
  * `reveal`, so a confidential row is withheld here exactly as everywhere else.
  */
-import { TUNABLES, pruneVerdict, strength } from "../../../../core/physics/index.js";
+import { TUNABLES, floorDay, pruneVerdict, strength } from "../../../../core/physics/index.js";
 import type { MemoryPhysics } from "../../../../core/types.js";
 import { isJournal } from "../../../../core/sleep/index.js";
 import type { DreamRow, EventRow } from "../../../../core/store/index.js";
@@ -815,17 +815,43 @@ export function fadeCurve(
  * protected, not a date that still repeats) would let this memory go if nobody
  * used it — or null. `recurring` is the row's own repeat (`store#recurrenceOfRow`
  * !== null), passed the way `sleep/prune.ts` passes it, so a live repeat never
- * has a let-go day (2026-10-09). The revision-chain gate is not checked here
+ * has a let-go day (2026-10-09). `curveSince` is the prune's own
+ * (`sleep/decay.ts#curveSinceDay`, 2026-10-14): the 14-day wait under the
+ * floor never starts before a new curve arrived, so a store in that pause
+ * shows no let-go day inside it. The revision-chain gate is not checked here
  * (it needs the store), so this can only say "sooner than it will be", never
  * "later".
  */
-export function letGoDay(physics: MemoryPhysics, day: number, horizon: number, recurring = false): number | null {
+export function letGoDay(
+  physics: MemoryPhysics,
+  day: number,
+  horizon: number,
+  recurring = false,
+  curveSince: number | null = null,
+): number | null {
   // Unused, strength only falls: still over the floor at the horizon means never inside it.
   if (strength(physics, day + horizon) >= TUNABLES.PHI_PRUNE) return null;
   for (let d = day; d <= day + horizon; d++) {
-    if (pruneVerdict(physics, d, { inLiveRevisionChain: false, recurring }).prune) return d;
+    if (pruneVerdict(physics, d, { inLiveRevisionChain: false, recurring, curveSince }).prune) return d;
   }
   return null;
+}
+
+/**
+ * THE LIVED DAY THE PRUNE WOULD PUT THIS MEMORY AWAY if nobody used it
+ * (2026-10-14): `D_FLOOR_DAYS` after it goes under the floor (`physics#floorDay`),
+ * and never before `D_FLOOR_DAYS` after `curveSince` (the prune's own,
+ * `sleep/decay.ts#curveSinceDay`) — the wait the prune keeps. Null when it
+ * never goes under. A wait already done reads `day` itself: the next pass
+ * would take it (unless another gate — a revision chain — holds it). The
+ * floor's own arithmetic only: whether it repeats or is protected is the
+ * caller's (`memory.ts`).
+ */
+export function putAwayDay(physics: MemoryPhysics, day: number, curveSince: number | null = null): number | null {
+  const under = floorDay(physics);
+  if (under === null) return null;
+  const at = Math.max(under, curveSince ?? Number.NEGATIVE_INFINITY) + TUNABLES.D_FLOOR_DAYS;
+  return Math.max(at, day);
 }
 
 function round(x: number): number {
