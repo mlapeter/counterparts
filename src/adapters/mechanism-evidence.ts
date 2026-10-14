@@ -28,7 +28,7 @@
  */
 import { cadenceFor, readMarker, MARKER_UNSET } from "../core/sleep/index.js";
 import type { Phase } from "../core/sleep/index.js";
-import type { EventRow, ReadOnlyStore } from "../core/store/index.js";
+import type { EventRow, FeelingRow, ReadOnlyStore } from "../core/store/index.js";
 import type { DurableEventName } from "./dashboard/registries.js";
 
 /** How many backing event seqs a verdict keeps. */
@@ -381,6 +381,11 @@ export const MECHANISM_EVIDENCE: readonly MechanismEvidence[] = [
   },
 ];
 
+/** The events a proof asks the store about (`Proof.reads`): whose memories may carry a feeling. */
+export const FELT_EVENTS: ReadonlySet<string> = new Set(
+  MECHANISM_EVIDENCE.flatMap((m) => m.proofs.filter((p) => p.reads !== undefined).map((p) => p.event)),
+);
+
 /** The window a surface judges over. */
 export interface EvidenceWindow {
   /** The lowest lived day a row may carry — the SQL bound, and the census's. */
@@ -512,16 +517,65 @@ export function memoryIdsOf(p: Payload): string[] {
   return out;
 }
 
-/** Of the memories a row names, the ones carrying a recorded feeling, in the row's order. One read. */
-export function feltIds(store: ReadOnlyStore, p: Payload): string[] {
+/**
+ * THE FEELINGS ONE BUILD HAS READ (review of #488). Whether a row's memories
+ * carry a feeling is asked of hundreds of rows in one build: the week's, a
+ * panel's lookback, the "last fired" search, the sidebar's newest rows. Inside
+ * `feltScope` the answer is kept per memory id, and each batch of rows is read
+ * in ONE `feelingsOn` (`primeFelt`) before its rows are asked. Outside a
+ * scope a row reads its own, and nothing is kept between calls, so a
+ * long-lived dashboard never answers from a stale read.
+ */
+const FELT_SCOPES = new WeakMap<ReadOnlyStore, Map<string, readonly FeelingRow[]>>();
+
+/** `fn`, with one feeling read per memory for everything it asks; a scope already open is reused. */
+export function feltScope<T>(store: ReadOnlyStore, fn: () => T): T {
+  if (FELT_SCOPES.has(store)) return fn();
+  FELT_SCOPES.set(store, new Map());
+  try {
+    return fn();
+  } finally {
+    FELT_SCOPES.delete(store);
+  }
+}
+
+/** In one read, the feelings of every memory `rows` name that the open scope has not read yet. No scope: nothing. */
+export function primeFelt(store: ReadOnlyStore, rows: readonly EventRow[]): void {
+  const known = FELT_SCOPES.get(store);
+  if (known === undefined) return;
+  const ids = new Set<string>();
+  for (const row of rows) {
+    if (!FELT_EVENTS.has(row.name)) continue;
+    for (const id of memoryIdsOf(payloadOf(row))) if (!known.has(id)) ids.add(id);
+  }
+  readFelt(store, known, [...ids]);
+}
+
+function readFelt(store: ReadOnlyStore, into: Map<string, readonly FeelingRow[]>, ids: readonly string[]): void {
+  if (ids.length === 0) return;
+  const on = store.feelingsOn(ids);
+  for (const id of ids) into.set(id, on.get(id) ?? []);
+}
+
+/** Of the memories a row names, the ones carrying a recorded feeling, with those feelings, in the row's order. */
+export function feltOn(store: ReadOnlyStore, p: Payload): { id: string; feelings: readonly FeelingRow[] }[] {
   const ids = memoryIdsOf(p);
   if (ids.length === 0) return [];
-  const on = store.feelingsOn(ids);
-  return ids.filter((id) => (on.get(id)?.length ?? 0) > 0);
+  const known = FELT_SCOPES.get(store) ?? new Map<string, readonly FeelingRow[]>();
+  readFelt(store, known, ids.filter((id) => !known.has(id)));
+  return ids.flatMap((id) => {
+    const feelings = known.get(id) ?? [];
+    return feelings.length > 0 ? [{ id, feelings }] : [];
+  });
+}
+
+/** `feltOn`'s ids alone. */
+export function feltIds(store: ReadOnlyStore, p: Payload): string[] {
+  return feltOn(store, p).map((f) => f.id);
 }
 
 function carriesFeeling(store: ReadOnlyStore, p: Payload): boolean {
-  return feltIds(store, p).length > 0;
+  return feltOn(store, p).length > 0;
 }
 
 /** A settle's row counts while its pair is still settled — an undo takes it back. */
@@ -573,6 +627,11 @@ export function mechanismEvidence(
   store: ReadOnlyStore,
   window: EvidenceWindow,
 ): { verdicts: Verdict[]; truncated: boolean } {
+  // One feeling read per batch of rows, not per row (`feltScope`).
+  return feltScope(store, () => judge(store, window));
+}
+
+function judge(store: ReadOnlyStore, window: EvidenceWindow): { verdicts: Verdict[]; truncated: boolean } {
   const contains = window.contains ?? ((row: EventRow) => row.day >= window.sinceDay);
   const isToday = window.isToday ?? ((row: EventRow) => row.day === window.today);
   let truncated = false;
@@ -583,6 +642,7 @@ export function mechanismEvidence(
       const read = store.eventLog({ name, sinceDay: window.sinceDay, limit: WINDOW_CEILING, order: "desc" });
       if (read.length >= WINDOW_CEILING) truncated = true;
       rows = read.filter(contains);
+      primeFelt(store, rows);
       windowRows.set(name, rows);
     }
     return rows;
@@ -645,7 +705,9 @@ export function mechanismEvidence(
     if (!fired) {
       // Only the newest LOOKBACK rows of each name are searched.
       for (const proof of m.proofs) {
-        for (const row of store.eventLog({ name: proof.event, order: "desc", limit: LOOKBACK })) {
+        const rows = store.eventLog({ name: proof.event, order: "desc", limit: LOOKBACK });
+        if (proof.reads !== undefined) primeFelt(store, rows);
+        for (const row of rows) {
           if (counted(proof, row, store) > 0) {
             if (lastFiredDay === null || row.day > lastFiredDay) lastFiredDay = row.day;
             break;

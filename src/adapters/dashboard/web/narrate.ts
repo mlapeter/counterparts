@@ -44,9 +44,9 @@ import { nodeOf } from "./flow.js";
 import { iconOf, isSleepCheck, laneOf } from "./lanes.js";
 import type { Icon, Lane } from "./lanes.js";
 import type { NodeKey } from "./flow.js";
-import { feltIds } from "../../mechanism-evidence.js";
+import { FELT_EVENTS, feltOn } from "../../mechanism-evidence.js";
 import { reveal, revealHere, revealPayload, shortOf } from "./reveal.js";
-import { feelingsShown } from "./views/memory-words.js";
+import { shownFeeling } from "./views/memory-words.js";
 // @ts-expect-error — a plain browser module, no declarations
 import { dateOr } from "./shared/dates.js";
 
@@ -1369,14 +1369,21 @@ function parse(payload: string | null): Record<string, unknown> {
  * (`hooks/sidebar/hooks/feed.ts`). Null when none of them carries one.
  */
 export function feltDetail(store: ReadOnlyStore, p: Record<string, unknown>): { key: string; value: string } | null {
-  const felt = feltRows(store, p);
+  return feltAsDetail(feltRows(store, p));
+}
+
+type Felt = { id: string; words: string[] };
+
+function feltAsDetail(felt: readonly Felt[]): { key: string; value: string } | null {
   return felt.length === 0 ? null : { key: "felt", value: JSON.stringify(felt) };
 }
 
-function feltRows(store: ReadOnlyStore, p: Record<string, unknown>): { id: string; words: string[] }[] {
-  return feltIds(store, p).map((id) => ({
+/** The words from the rows `feltOn` already read (one batch per build inside a `feltScope`), never a read per memory. */
+function feltRows(store: ReadOnlyStore, p: Record<string, unknown>): Felt[] {
+  return feltOn(store, p).map(({ id, feelings }) => ({
     id,
-    words: [...feelingsShown(store, id)]
+    words: feelings
+      .map(shownFeeling)
       .sort((a, b) => b.strength - a.strength)
       .map((f) => f.word)
       .filter((w, i, all) => all.indexOf(w) === i)
@@ -1400,16 +1407,15 @@ function listed(items: readonly string[]): string {
  * turn names the memories carrying a feeling that came to mind. A turn a
  * matching mood lifted (off by decision since 2026-10-10) still says so.
  */
-const PANEL_NARRATORS: Readonly<Record<string, Readonly<Record<string, (t: Told) => Narration | null>>>> = {
+const PANEL_NARRATORS: Readonly<Record<string, Readonly<Record<string, (t: Told, felt: readonly Felt[]) => Narration | null>>>> = {
   emotional: {
-    "gate.deposit": (t) => {
-      const first = feltRows(t.store, t.p)[0];
+    "gate.deposit": (t, felt) => {
+      const first = felt[0];
       if (first === undefined) return null;
       return calm(`I wrote down ${subject(t, first.id)}, carrying ${listed(first.words)}.`);
     },
-    "recall.decision": (t) => {
+    "recall.decision": (t, felt) => {
       const turn = n(t, "turn") ?? 0;
-      const felt = feltRows(t.store, t.p);
       if (felt.length > 0) {
         return calm(`On turn ${turn} ${listed(felt.map((f) => subject(t, f.id)))} came to mind carrying a feeling.`);
       }
@@ -1431,9 +1437,11 @@ export function narrateForPanel(panel: string, store: ReadOnlyStore, row: EventR
   if (teller === undefined) return line;
   try {
     const p = parse(row.payload);
-    const own = teller({ store, row, p });
+    // Read once: the teller's words and the `felt` detail come from the same rows.
+    const rows = FELT_EVENTS.has(row.name) ? feltRows(store, p) : [];
+    const own = teller({ store, row, p }, rows);
     if (own === null) return line;
-    const felt = feltDetail(store, p);
+    const felt = feltAsDetail(rows);
     return { ...line, text: own.text, tone: own.tone, detail: felt === null ? line.detail : [...line.detail, felt] };
   } catch {
     return line;
