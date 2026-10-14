@@ -2876,8 +2876,8 @@ export class McpServer {
     return sessionEndPart.depositEntries(this, raw, session, cover, scope, writeUp);
   }
 
-  private writeUpField(args: Record<string, unknown>, drewOn: Record<string, unknown> | null): Promise<ToolResult> {
-    return sessionEndPart.writeUpField(this, args, drewOn);
+  private writeUpField(args: Record<string, unknown>, extra: Record<string, unknown>): Promise<ToolResult> {
+    return sessionEndPart.writeUpField(this, args, extra);
   }
 
   private drewOnField(raw: unknown, via: "session_end" | "chapter"): Record<string, unknown> | null {

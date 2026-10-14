@@ -533,10 +533,11 @@ describe("the write-up ask says to close what got done (item 4)", () => {
     const clause = "`updates` anything dated or open now done";
     const ask = stopAsk("123e4567-e89b-12d3-a456-426614174000", 2);
     expect(ask).toContain(clause);
-    // The widest it gets: a real UUID and a four-digit chapter, under the 535
+    // The widest it gets: a real UUID and a four-digit chapter, under the 610
     // pin — 474 since 2026-10-10 (01 C1's attention ask; the 10-character
-    // margin this held was spent on "what you read, what they said, what happened").
-    expect(stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1234).length).toBeLessThanOrEqual(535);
+    // margin this held was spent on "what you read, what they said, what happened");
+    // 535 on 2026-10-12 (the pronoun rule); 610 on 2026-10-14 (the ratings clause).
+    expect(stopAsk("7c973b1c-d40a-47e5-92bb-8cdb1823a06d", 1234).length).toBeLessThanOrEqual(610);
     expect(desktopWriteUpAsk("s1")).toContain(clause);
     // Inside the 2,048 characters Claude Code serves of a tool description.
     expect(renderDescription(toolSpec("session_end")!).slice(0, 2_048)).toContain(clause);
