@@ -603,7 +603,7 @@ describe("the dashboard is an OBSERVER by construction, not by good behaviour", 
     expect(/["'](install|uninstall|start-fresh)["']/.test(code)).toBe(false);
   });
 
-  test("the web server's ONE filesystem import binds readFileSync and nothing else", () => {
+  test("the web server's ONE filesystem import binds only read-only calls (readFileSync, existsSync)", () => {
     const server = adapterSources().find((s) => s.path === SERVER_FILE);
     expect(server).toBeDefined();
     const source = readFileSync(join(ADAPTER_DIR, SERVER_FILE), "utf8");
@@ -611,7 +611,9 @@ describe("the dashboard is an OBSERVER by construction, not by good behaviour", 
     const statements = [...source.matchAll(/^import\s+([^;]*?)\s+from\s+["']node:fs["'];?$/gm)].map(
       (m) => (m[1] ?? "").trim(),
     );
-    expect(statements).toEqual(["{ readFileSync }"]);
+    // existsSync since 2026-10-14 (#481): the directory build ships no three.js, and the server
+    // asks whether it is on disk. Both calls only look; nothing here may write, remove or rename.
+    expect(statements).toEqual(["{ existsSync, readFileSync }"]);
     // And no dynamic escape hatch back to the rest of the module.
     expect(/require\s*\(\s*["']node:fs["']/.test(source)).toBe(false);
     expect(/import\s*\(\s*["']node:fs["']/.test(source)).toBe(false);
