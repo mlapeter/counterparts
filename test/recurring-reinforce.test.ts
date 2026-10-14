@@ -421,7 +421,9 @@ describe("the prune's named refusals are counted only where they held a memory b
       morning(a, date);
       const cycle = await evening(a, date);
       expect(blocked(cycle, "protected")).toBe(0);
-      expect(blocked(cycle, "dwell-too-short")).toBeGreaterThan(0);
+      // Not vacuous: the arithmetic held something back (since 2026-10-14 the wait is named only
+      // under the floor, so on a young store that is `above-floor`).
+      expect(blocked(cycle, "above-floor")).toBeGreaterThan(0);
     }
     // Kept all the same: the outcome never depended on the name.
     expect(s.row(kept)?.archived).toBe(0);
@@ -458,7 +460,9 @@ describe("the prune's named refusals are counted only where they held a memory b
       expect(row).toBeDefined();
       expect(inLiveRevisionChain(s, challenged, row!, rowToPhysics(row!), cycle.day)).toBe(true);
       expect(blocked(cycle, "in-live-revision-chain")).toBe(0);
-      expect(blocked(cycle, "dwell-too-short")).toBeGreaterThan(0);
+      // Not vacuous: the arithmetic held something back (since 2026-10-14 the wait is named only
+      // under the floor, so on a young store that is `above-floor`).
+      expect(blocked(cycle, "above-floor")).toBeGreaterThan(0);
     }
     // Kept all the same: the outcome never depended on the name.
     expect(s.row(challenged)?.archived).toBe(0);

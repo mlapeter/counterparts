@@ -40,6 +40,7 @@ import {
   promote,
   promotionEligibility,
   pruneVerdict,
+  floorDay,
   rep,
   returnFactor,
   revisionBar,
@@ -1104,15 +1105,15 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
 
   test("each of the six gates refuses by name", () => {
     expect(pruneVerdict(faded, 100, { inLiveRevisionChain: false }).blockedBy).toEqual(["above-floor"]);
-    expect(pruneVerdict(faded, 12, { inLiveRevisionChain: false }).blockedBy).toEqual([
-      "above-floor",
-      "dwell-too-short",
-    ]);
+    // The wait is a wait UNDER the floor (2026-10-14): named only once the
+    // memory is there, so above it `above-floor` speaks alone.
+    expect(pruneVerdict(faded, 12, { inLiveRevisionChain: false }).blockedBy).toEqual(["above-floor"]);
     expect(pruneVerdict(faded, 5, { inLiveRevisionChain: false }).blockedBy).toEqual([
       "above-floor",
-      "dwell-too-short",
       "band-not-episodic",
     ]);
+    const under = floorDay(faded) as number;
+    expect(pruneVerdict(faded, under + 13, { inLiveRevisionChain: false }).blockedBy).toEqual(["dwell-too-short"]);
     expect(
       pruneVerdict({ ...faded, protected: true }, 2000, { inLiveRevisionChain: false }).blockedBy,
     ).toEqual(["protected"]);
@@ -1136,7 +1137,6 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
     expect(pruneVerdict(kept, 100, { inLiveRevisionChain: false }).blockedBy).toEqual(["above-floor"]);
     expect(pruneVerdict(kept, 5, { inLiveRevisionChain: false }).blockedBy).toEqual([
       "above-floor",
-      "dwell-too-short",
       "band-not-episodic",
     ]);
     for (const d of [5, 12, 100, 2000, 4000]) expect(pruneVerdict(kept, d, { inLiveRevisionChain: false }).prune).toBe(false);
@@ -1145,7 +1145,6 @@ describe("[M] guarantees 9 and 10 — prune is gated on all five, and records no
     expect(pruneVerdict(faded, 100, { inLiveRevisionChain: true }).blockedBy).toEqual(["above-floor"]);
     expect(pruneVerdict(faded, 5, { inLiveRevisionChain: true }).blockedBy).toEqual([
       "above-floor",
-      "dwell-too-short",
       "band-not-episodic",
     ]);
     for (const d of [5, 12, 100, 2000, 4000]) expect(pruneVerdict(faded, d, { inLiveRevisionChain: true }).prune).toBe(false);

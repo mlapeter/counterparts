@@ -297,8 +297,8 @@ below anything, and strength tracked age and claimed salience rather than what m
 - **The anchor** is the latest of the last credited use, the last counted return (a
   reflection's citation) and the last counted dream replay (decided by g1a-builder, lightly
   held): a replay re-anchors the curve without being a use (no `uses`, no rep arm, no
-  credit-today latch), which is how it "revives" a memory below reach. The prune's dwell
-  counts from the same day.
+  credit-today latch), which is how it "revives" a memory below reach. The day it goes
+  under the prune's floor counts from the same day (§5.8).
 - **Revision pressure keeps its exponential** (`pressureAt` names its own shape): it is the
   revision model's curve, not this one.
 
@@ -310,7 +310,8 @@ window (`HOLD_LEAD_DAYS = 3` before to the grace after) and fades on its curve b
 the owner's 2026-10-09 design says. After the window
 closes the hold is gone and the memory is back on its own curve AS IF IT HAD NEVER BEEN HELD:
 t from its own anchor, not from the close, on its own stability — an old routine reminder is
-below reach (and, past the floor and its dwell, archived) at once; a felt dated fact lands
+below reach (and, 14 lived days past the day its own curve went under the floor, archived)
+at once; a felt dated fact lands
 where its own curve puts it (Mike, 2026-10-11, lightly held; it replaces the 2026-10-10
 "spent" slope, stability ÷ 4 from the close until a use). A date already past when the memory was written is not a
 reminder and is not held. Computed at the read seam from `event_date`, `learned_on`, the
@@ -437,7 +438,7 @@ Only physics forgets (owner decision): no model, on any path, holds delete power
 
 ```
 PRUNE(m,d) iff strength(m,d) < φ = 0.02                            # TUNABLE
-           and (d − anchor(m)) ≥ D_floor = 14                       # lived days (90 until 2026-10-10)
+           and (d − max(floorDay(m), curveSince)) ≥ D_floor = 14    # lived days UNDER the floor (2026-10-14)
            and band(m) == episodic  and not protected(m)
            and m is neither successor nor predecessor in a live revision chain
            and m's reminder date does not still repeat                # 2026-10-09
@@ -457,6 +458,22 @@ alone. So is `in-live-revision-chain` (review of #343): the chain holds back a r
 would otherwise have let go, and a row it holds above the floor is refused by the arithmetic
 alone. None of the three changes an outcome — where the floor holds, the verdict is already
 a refusal.
+
+**The wait is under the floor (2026-10-14; decided by Mike, lightly held; review
+2026-10-18).** `floorDay(m)` is the first lived day the curve is under φ — the anchor plus
+`daysUntilBelow(m, φ)`, read off the curve and never stored. `curveSince` is the lived day
+this build's curve first read the store (`sleep/decay.ts#curveSinceDay`: the meta row
+`decay.curve.since`, written when a new curve signature replaces an old one; `d` itself
+while the store is still signed under another; none on a store's first signing). Until
+2026-10-14 the count ran from the anchor (`d − anchor ≥ 14`, 90 until 2026-10-10), so a
+memory unused for months left the night it crossed the floor. The curve's crossing day
+alone would not do: a new curve that lowers a memory (the era's scale-down, §5.1) reads it
+as under the floor for weeks already, and `curveSince` is what keeps that curve from
+emptying the store the night it arrives. Its cost: every curve change pauses every exit
+for 14 lived days. A per-memory change that lowers a curve (a `changed` fade §5.12, a
+smaller claim) still reads as if the memory had always been on the lower curve, as before;
+so does a dated memory whose window has closed (§5.4a). `PruneVerdict.dwellDays` still
+reads `d − anchor` (the entity fade's kind floor reads it); `belowFloorDays` is the wait.
 
 A prune is recorded — counts, kind, dates, never a body and never a content hash (scar
 §2.20) — and is the only physics-driven removal. **It is archival, never deletion**: the row
@@ -622,7 +639,7 @@ its `fade` (a per-row multiplier on strength, 1 for every memory until then; sch
 is multiplied by `CHANGED_FADE` (0.5, CAL), so its strength today and on every later day
 is half what it would have been — graded weakening, not a switch (FadeMem). Nothing else
 moves: not `base` (G3 holds), not `lastUsedDay` (D stays a pure function of d and the real
-last use, G5; the prune's dwell counts real lived days, G10), not the uses. A credited use
+last use, G5; the prune's wait reads the cut curve, §5.8, G10), not the uses. A credited use
 resets decay as always and leaves the fade alone, so a used "earlier" memory is held at
 the cut height; one credited occasion per lived day still holds. Two settles multiply;
 `unfade` divides one settle's factor back out, exactly, in any order. A core memory is
