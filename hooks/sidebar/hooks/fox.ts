@@ -52,7 +52,7 @@ export const TIER_ENV = ['TERM_PROGRAM', 'TERM', 'KITTY_WINDOW_ID', 'WEZTERM_EXE
 
 export type TierEnv = Partial<Record<(typeof TIER_ENV)[number], string>>
 
-const set = (v: string | undefined): boolean => v !== undefined && v !== ''
+const present = (v: string | undefined): boolean => v !== undefined && v !== ''
 
 /**
  * Whether this terminal draws an `Image`'s pixels. The engine says no such
@@ -65,16 +65,16 @@ export function imagesLikely(env: TierEnv): boolean {
   const force = (env.CLAUDE_CODE_FORCE_TERMINAL_IMAGES ?? '').trim().toLowerCase()
   if (['1', 'true', 'yes', 'on'].includes(force)) return true
   if (['0', 'false', 'no', 'off'].includes(force)) return false
-  if (set(env.TMUX) || set(env.STY)) return false
-  return env.TERM_PROGRAM === 'ghostty' || env.TERM === 'xterm-ghostty' || env.TERM === 'xterm-kitty' || set(env.KITTY_WINDOW_ID)
+  if (present(env.TMUX) || present(env.STY)) return false
+  return env.TERM_PROGRAM === 'ghostty' || env.TERM === 'xterm-ghostty' || env.TERM === 'xterm-kitty' || present(env.KITTY_WINDOW_ID)
 }
 
 /** Whether this terminal's font has sextants: the ones known to draw them; under tmux or screen the outer one is unknown. */
 export function sextantsLikely(env: TierEnv): boolean {
-  if (set(env.TMUX) || set(env.STY)) return false
+  if (present(env.TMUX) || present(env.STY)) return false
   const p = env.TERM_PROGRAM ?? ''
   if (p === 'iTerm.app' || p === 'WezTerm' || p === 'vscode' || p === 'ghostty') return true
-  return env.TERM === 'xterm-kitty' || env.TERM === 'xterm-ghostty' || set(env.KITTY_WINDOW_ID) || set(env.WEZTERM_EXECUTABLE)
+  return env.TERM === 'xterm-kitty' || env.TERM === 'xterm-ghostty' || present(env.KITTY_WINDOW_ID) || present(env.WEZTERM_EXECUTABLE)
 }
 
 /**
@@ -144,7 +144,7 @@ export function stepKey(s: Pick<Step, 'frame' | 'fx'>): string {
  * tail or a yawn). The first hold after the fox appears is short and ends in
  * the tail tip's flick. After 45 s with nothing happening he lies down (the
  * loaf: `lieIn`, the pose changing behind shut eyes), keeps small moments
- * lying (`lieWeights`), and at 2 min curls into a nap from there
+ * lying (`lieWeights`), and at 2 min settles into a nap from there
  * (`lieNapIn`), which a prompt (or anything real) wakes. The real-state
  * moments: `came` (something came to mind), `note` (a save), `hello` (the
  * first meeting) and `dream` (while a dream runs, until it ends); each gets
@@ -184,9 +184,9 @@ function pick(rand: () => number, weights: Readonly<Record<string, number>>, fal
   return fallback
 }
 
-/** How a frame holds him: sitting, lying (the loaf) or curled asleep. A real event gets him up from where he is. */
-export function poseOf(frame: string): 'sit' | 'lie' | 'curl' {
-  if (frame === 'nap0' || frame === 'nap1') return 'curl'
+/** How a frame holds him: sitting, lying (the loaf) or asleep. A real event gets him up from where he is. */
+export function poseOf(frame: string): 'sit' | 'lie' | 'asleep' {
+  if (frame === 'nap0' || frame === 'nap1') return 'asleep'
   return frame.startsWith('lie') ? 'lie' : 'sit'
 }
 
@@ -295,7 +295,7 @@ export type FoxEvent = 'came' | 'note' | 'hello' | 'dream' | 'dreamEnd' | 'promp
  */
 function getUp(d: Director): Step[] {
   const pose = poseOf(d.cur.frame)
-  if (pose === 'curl') return momentSteps('napOut')
+  if (pose === 'asleep') return momentSteps('napOut')
   if (pose === 'lie') return momentSteps('lieOut')
   const f = d.cur.frame
   return f === 'idle' || f === 'blink' || f === 'drowsy' ? [] : momentSteps('bridge')
@@ -306,7 +306,7 @@ export function trigger(d: Director, ev: FoxEvent, now: number): void {
   const pose = poseOf(d.cur.frame)
   if (ev === 'dream') {
     if (d.mode === 'dream') return
-    d.queue = pose === 'curl' ? [] : momentSteps(pose === 'lie' ? 'lieNapIn' : 'napIn')
+    d.queue = pose === 'asleep' ? [] : momentSteps(pose === 'lie' ? 'lieNapIn' : 'napIn')
     d.mode = 'dream'
     d.dreamSince = now
     d.until = now

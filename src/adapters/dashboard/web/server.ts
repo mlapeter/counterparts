@@ -318,9 +318,9 @@ export function router(
     if (path === "/api/dreams") return json(dreamsView(src, intParam(url, "limit", DREAM_LIMIT)));
     if (path === "/api/flow") return json(flowView(src, intParam(url, "limit", 24)));
     if (path === "/api/node") {
-      const key = url.searchParams.get("key") ?? "";
-      const detail = nodeDetail(src, key, intParam(url, "limit", 8));
-      return detail.found ? json(detail) : json({ error: `no such node: ${key}` }, 404);
+      const nodeKey = url.searchParams.get("key") ?? "";
+      const detail = nodeDetail(src, nodeKey, intParam(url, "limit", 8));
+      return detail.found ? json(detail) : json({ error: `no such node: ${nodeKey}` }, 404);
     }
     if (path === "/api/health") return json(healthView(src));
     if (path === "/api/fired") return json(firedPanel(src, src.store.today()));
@@ -484,7 +484,8 @@ export function startDashboard(opts: ServeOptions = {}): Promise<RunningDashboar
       return;
     }
     try {
-      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      // A fixed base: only the path and the query are read here; the Host header is checked on its own (`isAllowedHost`).
+      const url = new URL(req.url ?? "/", "http://localhost");
       const open = current();
       reply =
         open === null

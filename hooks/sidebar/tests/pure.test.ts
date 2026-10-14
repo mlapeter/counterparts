@@ -997,7 +997,7 @@ describe('the fox', () => {
       t = a.next
     }
     expect(up).toEqual(['lieBlink', 'blink', 'idle'])
-    // left alone again: lying from 45 s, the nap at 2 min, curled from lying behind the lying blink
+    // left alone again: lying from 45 s, the nap at 2 min, asleep from lying behind the lying blink
     const start = t
     const later: string[] = []
     while (t < start + 125000) {
