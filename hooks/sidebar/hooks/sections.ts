@@ -383,19 +383,19 @@ export function bar(v: number, max: number, width: number): string {
   return '▄'.repeat(Math.floor(halves / 2)) + (halves % 2 === 1 ? '▖' : '')
 }
 
-/** The Mechanisms section's link while the dashboard is down: a click runs /counterparts:dashboard. */
-export const DASHBOARD_LINK = 'Start the dashboard to see stats here'
+/** The Mechanisms section while the dashboard is down: how to start it, said (v1: the sidebar runs no command). */
+export const DASHBOARD_LINK = 'Dashboard not running. Start it with /counterparts:dashboard'
 
 /** What shows in place of another store's numbers. */
-export const OTHER_STORE = 'This dashboard belongs to another memory.'
+export const OTHER_STORE = 'The dashboard serves another memory.'
 
 function chart(s: BodyState, f: Fold): Line[] {
   const t = s.today
   if (t === null) {
     if (s.dash === 'down') {
-      // A link that starts it (the plugin's own command, which every install that draws this sidebar has), cyan
-      // like the intro's (the owner's fox trial, 2026-10-12).
-      return [heading('Mechanisms today', '', s.w), ...wrapN(DASHBOARD_LINK, s.w).map(t => line([seg(t, P.accent)], 'dash:start'))]
+      // How to start it (the plugin's own command, which every install that draws this sidebar has), cyan
+      // (the owner's fox trial, 2026-10-12); said, not a link (v1, 2026-10-14).
+      return [heading('Mechanisms today', '', s.w), ...wrapN(DASHBOARD_LINK, s.w).map(t => line([seg(t, P.accent)]))]
     }
     if (s.dash === 'other') {
       // The dashboard on the port serves another store (core #459): none of its numbers here.

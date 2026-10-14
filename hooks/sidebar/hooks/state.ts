@@ -31,27 +31,13 @@ export const POLL_IDLE_MS = 30000
 /** A gap longer than this since the last read starts over from a cold read. */
 export const STALE_MS = 10 * 60000
 
-/** A switch's note and the pause confirm close by themselves after this. */
-export const AUTO_CLOSE_MS = 30000
-
 /** How often the folder's registry is read again while no dashboard poll reads it (the pane closed or not shown). */
 export const SCOPE_RECHECK_MS = 60000
 
 /** How long the registry's path, found from the settings, is trusted before it is looked up again. */
 export const SCOPES_FILE_TTL_MS = 5 * 60000
 
-/** The hover group that shows what a click on the Counterparts switch does, over the rows above the footer. */
-export const HOVER_CP = 'counterparts-switch-cp'
-
 export const FIRING_MS = 2600
-
-/**
- * One event can prove several mechanisms: their pulses go this far apart, so
- * each arc reads as its own. At most four slots: a fifth shares the fourth.
- */
-export const PULSE_STAGGER_MS = 300
-
-export const PULSE_SLOTS = 4
 
 /** Events that change the memory count, worth one read of `/api/pulse` (the dear one). */
 export const COUNT_EVENTS = new Set(['gate.deposit', 'gate.chunk', 'memory.pruned', 'memory.merged', 'dream.changed', 'contradiction.settled'])
@@ -74,27 +60,16 @@ export const FALLBACK_MAX = 1200
  * counterparts plugin"), so it reads as a sentence to them, and still tells the
  * model to introduce itself (2026-10-12, owner's onboarding trial). Since the fox
  * trial it is "Meet your new counterpart." (the owner: Claude already has a
- * memory of its own), which core's wake names as this meeting. The button runs
- * `/counterparts:meet` instead, which carries its own instructions in any later
- * session (MEET_COMMAND).
+ * memory of its own), which core's wake names as this meeting. In any later
+ * session the person types `/counterparts:meet` (the sidebar's footer says so).
  */
 export const MEET_PROMPT = 'Meet your new counterpart.'
 
 /**
  * `$.store`: the speak-first went out (`{ session, at }`), never again while it is there; or
- * `{ settled }` once core moved past not_started. Written by `speak-first.tsx`; the sidebar
- * reads it to hide its button in the session whose speak-first is introducing.
+ * `{ settled }` once core moved past not_started. Written and read by `speak-first.tsx`.
  */
 export const MEET_FLAG = 'meetTriggered'
-
-/** "Start the 5-minute intro": the plugin's command (commands/meet.md), run as if typed. */
-export const MEET_COMMAND = 'counterparts:meet'
-
-/** The Mechanisms section's link when the dashboard is down: the plugin's command (commands/dashboard.md). */
-export const DASHBOARD_COMMAND = 'counterparts:dashboard'
-
-/** A second press of "Start the 5-minute intro" this soon after the first submits nothing. */
-export const MEET_PRESS_MS = 60000
 
 // ── the unknown folder, and what this module life knows ──
 
@@ -128,17 +103,9 @@ export const run = {
   quietPolls: 0,
   lastPollAt: 0,
   lastSeq: -1,
-  server: null as string | null,
-  /** The dashboard's port, read once (`dashPort`). */
-  port: null as number | null,
   liveSeq: 0,
   /** An unasked pane this surface could not place yet: the tail says `/counterparts opens the sidebar` until it draws. */
   hint: false,
-  brainTimer: null as { cancel: () => void } | null,
-  /** Which timer is the brain's now: a tick or a blit answer of an older one changes nothing. */
-  brainGen: 0,
-  /** The pace the brain's timer runs at; `rest` while it is stopped at rest. */
-  brainPace: 'calm' as 'burst' | 'calm' | 'rest',
   /** When this session began: an event naming no session, from after it, is taken as this session's. */
   startedAt: 0,
   /** Fresh drawings asked for after refused blits since the last blit that was taken. */
@@ -155,8 +122,6 @@ export const run = {
   countedOn: '',
   /** This session's rows were looked for on the dashboard (`seedSession`), once a module life. */
   seeded: false,
-  /** When "Start the 5-minute intro" was last pressed (`$.clock`). */
-  meetPressedAt: -Infinity,
   /** The store this session's hooks opened, from the wake's `counterparts:store` marker; null until it says. */
   wakeStore: null as string | null,
   /** The dashboard serves another store (`/api/whoami`): nothing is read from it until it matches again. */

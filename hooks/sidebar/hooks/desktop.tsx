@@ -1,9 +1,11 @@
 /**
- * The desktop view, and any surface with no `Raster`: the header without the
- * brain. Its place is a dot before the title, lit in the stage colour of
- * whatever fires; the terminal draws this same header when the brain is set
- * off. Two rows: the title with the count and the day, then a blank row.
- * No `$`.
+ * The header, on every surface and with the avatar on or off: a dot before
+ * the title, lit in the stage colour of whatever fires; the count and the day
+ * on the right. With the fox up, the stage follows it (`register.tsx`). Two
+ * rows: the title row, then a blank row. No `$`.
+ *
+ * (Until v1, 2026-10-14, the terminal could draw a braille brain beside the
+ * title instead; it is gone, and this header is the only one.)
  */
 
 import type { MechId } from './mechanisms'
@@ -33,17 +35,17 @@ export function headRight(day: number | null, count: string, w: number): string 
 }
 
 /**
- * The brain-off header's `◉` while something fires: the mechanism's stage
- * colour, but never Retrieval's amber, which in this pane says only a warning
- * (Mike, 2026-10-10): cyan then.
+ * The header's `◉` while something fires: the mechanism's stage colour, but
+ * never Retrieval's amber, which in this pane says only a warning (Mike,
+ * 2026-10-10): cyan then.
  */
 export function litDot(id: MechId): string {
   const st = stageOf(id)
   return st.id === 'retrieval' ? P.accent : hex(st.col, 0.95)
 }
 
-/** The brainless header and the blank row under it: two rows. */
-export function brainlessHeader(
+/** The header and the blank row under it: two rows. */
+export function header(
   els: PaneEls,
   actions: PaneActions,
   s: { w: number; paused: boolean; lit: MechId | null; day: number | null; count: string },

@@ -131,7 +131,7 @@ export function quotedTitles(text: string): string[] {
 /**
  * A dashboard event in the sidebar's terms, or null when it proves no
  * mechanism. `session` is this session's id: its own events are `here`, the
- * night's `night`, other sessions' `other` (they never light this brain).
+ * night's `night`, other sessions' `other` (they never light this header's dot).
  *
  * WHOSE IT IS. An event's `session` (or, for a settle a session made, its
  * `actorId`) names it. A look-up (`mcp.recall`), a reminder
@@ -179,7 +179,7 @@ export function classify(e: DashEvent, session = '', since = 0): FeedRow | null 
   if (rule.name === 'gate.deposit' || rule.name === 'gate.chunk') {
     const accepted = num(e, 'accepted');
     const text = named?.title ?? (accepted > 1 ? `${String(accepted)} memories written down` : 'a memory');
-    return { ...base, text, url: MEMORIES_URL, label: 'open on the dashboard', line: `kept · ${text}`, ...(named?.id ? { keys: [`mem:${named.id}`] } : {}) };
+    return { ...base, text, url: MEMORIES_URL, label: 'open on the dashboard', line: `kept · ${text}`, ...(named?.id ? { twinIds: [`mem:${named.id}`] } : {}) };
   }
   if (rule.name === 'recall.decision') {
     const turn = detail(e, 'turn');
@@ -190,7 +190,7 @@ export function classify(e: DashEvent, session = '', since = 0): FeedRow | null 
       text: said,
       more: quotedTitles(e.text),
       line: said,
-      ...(from !== undefined && turn !== undefined ? { keys: [`turn:${from}:${turn}`] } : {}),
+      ...(from !== undefined && turn !== undefined ? { twinIds: [`turn:${from}:${turn}`] } : {}),
     };
   }
   return base;
@@ -448,12 +448,6 @@ export function ourTool(name: string): { server: string; tool: string } | null {
     const prefix = `mcp__${server}__`;
     if (name.startsWith(prefix)) return { server, tool: name.slice(prefix.length) };
   }
-  return null;
-}
-
-/** The server a session's tool list connects, the npm one first. */
-export function resolveServer(toolNames: readonly string[]): string | null {
-  for (const server of SERVER_SPELLINGS) if (toolNames.includes(`mcp__${server}__recall`)) return server;
   return null;
 }
 
@@ -756,22 +750,6 @@ export function storeOf(text: string): string | null {
 /** Whether a dashboard serving `dash` belongs to another store than the wake's: only when both are known and differ. */
 export function otherStore(wake: string | null, dash: string | null): boolean {
   return wake !== null && dash !== null && wake !== dash
-}
-
-/**
- * Whether the sidebar shows "Start the 5-minute intro": core says the meeting
- * never started (`not_started`), was put off (`later`), or was offered and not
- * finished (`offered`). Not while this very session's speak-first is the
- * introduction (`firedIn`, the mark `speak-first.tsx` writes: not_started and
- * fired in `session`); an earlier session's that never reached core's `meet`
- * leaves the button, and with no speak-first module (the directory build) the
- * button is the one way in. Never in a folder where the meeting can't keep
- * anything (`canMeet`), and never for an unknown state.
- */
-export function meetShows(meet: SidebarMeet, folderMode: string, firedIn: string | null = null, session = ''): boolean {
-  if (!canMeet(folderMode)) return false;
-  if (meet === 'not_started') return firedIn === null || firedIn !== session;
-  return meet === 'later' || meet === 'offered';
 }
 
 /**

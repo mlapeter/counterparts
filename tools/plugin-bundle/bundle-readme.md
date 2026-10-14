@@ -42,11 +42,11 @@ plugin, and Claude introduces itself (once per install, never in a `claude -p` r
 paused folder, or after you've typed).
 <!-- /flavor:full -->
 <!-- flavor:directory -->
-The sidebar never sends a message for you: its **Start the 5-minute intro** row starts the
-meeting when you press it.
+Nothing sends a message for you: type `/counterparts:meet` to start it (the sidebar's
+footer says so).
 <!-- /flavor:directory -->
-Say "later" and it is offered again another day, on three days at most; a
-**Start the 5-minute intro** row in the sidebar, or `/counterparts:meet`, starts it any time.
+Say "later" and it is offered again another day, on three days at most;
+`/counterparts:meet` starts it any time.
 A memory that already existed is never offered it. Check its health any time with
 `/counterparts:doctor`.
 
@@ -79,17 +79,19 @@ the npm install, uninstall the plugin.
 
 ## What the sidebar does
 
-The sidebar is a Claude Code mod (`hooks/sidebar/`). This is everything it reaches outside
-its own pane:
+The sidebar is a Claude Code mod (`hooks/sidebar/`). It shows what memory is doing; it
+doesn't act. It runs no command, calls no tool, starts no process and has no buttons. Its
+footer says how to do the rest yourself: `/counterparts:meet` for the 5-minute intro,
+`/counterparts:dashboard` for the dashboard, say "pause memory here" to Claude to pause
+memory in a folder, and `/counterparts quiet` to hide it (`/counterparts` opens it again).
+This is everything it reaches outside its own pane:
 
 - **Your own dashboard, on this computer.** It reads the pulse, today's counts, the last
   dream and memory cards with HTTP GET requests to the Counterparts dashboard at
-  `http://127.0.0.1:4747` (or the port in `COUNTERPARTS_DASHBOARD_PORT`), and asks it which
-  memory it serves, so it never shows another one. It sends nothing off your computer.
-- **Commands you click.** **Start the 5-minute intro** runs this plugin's `/counterparts:meet`;
-  in the desktop app, COUNTERPARTS and `more` run `/counterparts:dashboard`.
-- **One memory tool you press.** The folder switch (on, pause, off) calls Counterparts' own
-  `scope` tool when you choose and confirm; Claude Code's permission check applies.
+  `http://127.0.0.1:4747`, always that address, and asks it which memory it serves, so it
+  never shows another one. It sends nothing off your computer.
+- **Where this folder stands.** It reads the scope file the hooks read (beside
+  `~/.counterparts/claude-code.json`), to say when memory is paused or off here.
 - **What it watches.** It sees your slash commands and Counterparts' own tool calls only to
   update what it shows, and passes every one on unchanged: it never approves, denies or
   alters a command or a tool call, and never changes a setting.
@@ -223,12 +225,13 @@ from the art is in the source repository (`tools/fox-art/`).
 
 The sidebar runs no programs. In a terminal, COUNTERPARTS and the `more` after a long
 memory are links to the dashboard, which your terminal opens (in some terminals with a
-⌘- or Ctrl-click). In the desktop app they are buttons that run `/counterparts:dashboard`,
-which starts the dashboard, or opens your browser on it when it is already running for
-your memory (it asks the page on 127.0.0.1 which memory it serves).
+⌘- or Ctrl-click). In the desktop app they are plain words: `/counterparts:dashboard`
+starts the dashboard, or opens your browser on it when it is already running for your
+memory (it asks the page on 127.0.0.1 which memory it serves).
 
 The dashboard, when you open it, is a page served on 127.0.0.1 only (port 4747 unless
-you set `COUNTERPARTS_DASHBOARD_PORT`), and runs until the session that started it ends.
+you set `COUNTERPARTS_DASHBOARD_PORT`; the sidebar reads only 4747), and runs until the
+session that started it ends.
 
 ## Remove it
 

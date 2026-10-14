@@ -7,7 +7,7 @@
  *                                     pair a moment draws, at x SCALE (crisp)
  *
  * The mod reads them as files under `$.plugin.root` (an `Image` `{ file }` on
- * the terminal, the bytes once for the desktop's Svg); `fox.ts#PNG_KEYS` names
+ * the terminal, the bytes once for the desktop's Svg); `fox.ts#PNG_FRAMES` names
  * the same set from the art data, and `PNG_SCALE` must match --scale. (Until
  * 2026-10-14 this also wrote hooks/sidebar/hooks/fox-png.ts, the PNGs as
  * base64; the plugin directory's validator refuses a module that looks like
