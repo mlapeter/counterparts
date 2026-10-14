@@ -185,6 +185,8 @@ import {
   memoryHomeWords,
   RECALL_MODE_WORDS,
   DESKTOP_DREAM_NOTE,
+  STILL_DATED_HINT,
+  STILL_DATED_SHOWN,
 } from "./server-words.js";
 import { resolveScope, SEEN_SESSIONS, EVENT_RING } from "./server-options.js";
 import type {
@@ -209,7 +211,7 @@ import {
   addressBlocked,
   resolvedIdOf,
 } from "./server-args.js";
-import type { RecallRowFields } from "./server-args.js";
+import type { RecallRowFields, ReminderRead } from "./server-args.js";
 import * as sessionEndPart from "./server-session-end.js";
 import * as selfTools from "./server-self-tools.js";
 
@@ -1690,6 +1692,7 @@ export class McpServer {
       // Claude Code hands the model (the #282 lesson, f387f55).
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
       ...this.slotOf(deposit),
+      ...this.stillDatedNear(deposit, dated, facts.sent.status, [], session),
       ...(settle === null ? {} : { settle }),
       ...(feltNow === null ? {} : { feelingsNow: feltNow }),
       // AN ERROR ONLY WHEN NOTHING LANDED (review of #316): a refused note
@@ -1989,6 +1992,48 @@ export class McpServer {
     // a slot the detector proposed (2026-10-11) beside its own.
     const exclude = [deposit.revision?.targetId, deposit.mint?.updates, deposit.held?.over, deposit.slot?.over, ...siblings].filter((x): x is string => typeof x === "string");
     return this.counterpart.writeNeighbours(deposit.memoryId, { exclude, owner: this.owner, session }).slice(0, room);
+  }
+
+  /**
+   * OTHER OPEN DATED MEMORIES NEAR A CLOSE (2026-10-14, Group 1 check-in,
+   * lightly held). One obligation was found on several memories — a plain
+   * reminder, a moved chain, a list — and a "done" that `updates` one left the
+   * others dated. When a write closes a dated memory, or meant to (`updates`
+   * with `eventDate: null` or `status: done`), the nearest memories of the
+   * new one and of the one it closed that still hold a date are LISTED, by id
+   * and title, so the writer can close them in the same step. Never closed
+   * here: a nearby date can be another obligation. Empty when none.
+   */
+  private stillDatedNear(deposit: DepositResult, dated: ReminderRead, sentStatus: unknown, siblings: readonly string[], session: string | null): Record<string, unknown> {
+    if (!deposit.deposited || deposit.memoryId === null) return {};
+    const closed = deposit.reminder !== undefined && deposit.reminder.eventDate === null;
+    const declared = (deposit.proposal?.updates?.declared ?? null) !== null;
+    const meant = declared && (("fields" in dated && dated.fields.eventDate === null) || sentStatus === "done");
+    if (!closed && !meant) return {};
+    const exclude = [
+      deposit.memoryId,
+      deposit.mint?.updates,
+      deposit.revision?.targetId,
+      deposit.reminder?.from,
+      ...(deposit.reminder?.alsoClosed ?? []),
+      ...siblings,
+    ].filter((x): x is string => typeof x === "string");
+    const anchors = [deposit.memoryId, deposit.reminder?.from, deposit.mint?.updates].filter((x): x is string => typeof x === "string");
+    const out: { id: string; title: string | null; eventDate: string }[] = [];
+    const seen = new Set<string>(exclude);
+    for (const anchor of [...new Set(anchors)]) {
+      const near = this.counterpart.writeNeighbours(anchor, { exclude, owner: this.owner, session, limit: CONTRADICTION_TUNABLES.NEIGHBOURS_PER_CALL });
+      for (const n of near) {
+        if (seen.has(n.id) || out.length >= STILL_DATED_SHOWN) continue;
+        seen.add(n.id);
+        const row = this.counterpart.store.row(n.id);
+        if (row === undefined || row.archived === 1 || row.event_date === null) continue;
+        out.push({ id: n.id, title: n.title, eventDate: row.event_date });
+      }
+    }
+    if (out.length === 0) return {};
+    this.markSeen(out.map((n) => n.id));
+    return { stillDated: out, stillDatedHint: STILL_DATED_HINT };
   }
 
   /**

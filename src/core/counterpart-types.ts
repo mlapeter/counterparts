@@ -593,6 +593,14 @@ export interface DepositReminder {
   readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
   /** False only when clearing `from`'s date failed (evented). */
   readonly moved: boolean;
+  /**
+   * On a CLOSE (the date dropped, or a `done` that spent it; 2026-10-14):
+   * the other memories of the same reminder chain — `reminderFrom` and
+   * `reminderMovedTo`, both ways from `from` — that still held a date and
+   * had it cleared too (`counterpart-deposit.ts#closeReminderChain`). Absent
+   * when there were none.
+   */
+  readonly alsoClosed?: readonly string[];
 }
 
 /** `carryReminder`'s answer: the proposal to mint, and what it took from where. */

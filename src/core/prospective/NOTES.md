@@ -574,3 +574,15 @@ Review 07 C3–C5, item 18 of the mechanisms work; the group-5 builder, lightly 
   uncalled outside tests and the demo; left in place.
 - **The dashboard's waiting list shows a repeat at its next occurrence** (C5), with
   `time#readableRecurrence`'s words ("every May 14").
+- **A close closes the whole chain; nearby dated memories are listed** (2026-10-14, Group 1
+  check-in, lightly held). One obligation (taxes) was found on a plain reminder, a moved
+  chain A→B→C→D and a separate list memory; a done note that `updates` one id cleared only
+  the holder, and the rest kept their dates. Now a write that closes a dated memory
+  (`eventDate: null`, or `status: done` spending it) also clears every other dated memory of
+  its `reminderFrom`/`reminderMovedTo` chain, both ways (`counterpart-deposit.ts
+  #reminderChain`, read before the move rewrites the holder's pointer, then
+  `#closeReminderChain`; reason `reminder-spent`, reported as `reminder.alsoClosed`). The
+  write's reply (both `remember` and each `session_end` entry) LISTS other dated memories
+  among the nearest of the new memory and the one it closed (`stillDated`, ids, titles and
+  dates, at most 5; `McpServer#stillDatedNear`), also when the write meant to close and
+  reached nothing; never closes them. Watch whether the model closes what it is shown.

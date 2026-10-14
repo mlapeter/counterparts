@@ -217,7 +217,12 @@ export function reminderEcho(deposit: DepositResult, dated: ReminderRead, today:
           cleared: true,
           from: carried.from,
           ...unmoved,
-          note: "The date is dropped: neither this memory nor the one it revises will come back as a reminder.",
+          // The rest of its chain, closed with it (2026-10-14).
+          ...(carried.alsoClosed === undefined ? {} : { alsoClosed: [...carried.alsoClosed] }),
+          note:
+            carried.alsoClosed === undefined
+              ? "The date is dropped: neither this memory nor the one it revises will come back as a reminder."
+              : "The date is dropped: neither this memory nor the one it revises will come back as a reminder, nor the earlier memories of the same reminder in `alsoClosed`.",
         },
       };
     }

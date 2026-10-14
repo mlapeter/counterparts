@@ -346,6 +346,7 @@ export async function depositEntries(
       ...threadOf(result),
       ...(neighbours.length === 0 ? {} : { neighbours }),
       ...server["slotOf"](result),
+      ...server["stillDatedNear"](result, dated, facts.sent.status, batch, session),
     });
   }
   return { outcomes, deposited, duplicates, entries };

@@ -97,3 +97,89 @@ describe("E. recall accepts `query` as another name for `question`", () => {
     expect(got["ids"] as string[]).toContain(id);
   });
 });
+
+// ── C. closing a reminder closes its chain, and lists dated neighbours ───────
+
+describe("C. a close clears the whole reminder chain and lists other dated memories nearby", () => {
+  const TAX = "Pay the zqtax estimated payment to the county before the deadline";
+
+  async function chain(s: McpServer): Promise<string[]> {
+    const ids: string[] = [];
+    const first = payload(await s.call("remember", { text: `${TAX}.`, eventDate: "2027-04-15" }));
+    ids.push(String(first["id"]));
+    for (const [n, date] of [["second", "2027-04-16"], ["third", "2027-04-17"], ["fourth", "2027-04-18"]] as const) {
+      const r = payload(await s.call("remember", { text: `${TAX}, moved a ${n} time.`, updates: ids[ids.length - 1], eventDate: date }));
+      ids.push(String(r["id"]));
+    }
+    return ids;
+  }
+
+  test("updates + eventDate null: every dated memory of the chain is cleared, both ways; a separate one is listed, not closed", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const [a, b, c, d] = await chain(s);
+    expect(store.row(d!)?.event_date).toBe("2027-04-18");
+    // The leak the check-in found: earlier memories of the chain kept a date.
+    store.revise(a!, { eventDate: "2027-04-15" });
+    store.revise(c!, { eventDate: "2027-04-17" });
+    const list = String(payload(await s.call("remember", { text: `Checklist: ${TAX}, and file the zqtax forms.`, eventDate: "2027-04-15" }))["id"]);
+
+    const r = payload(await s.call("remember", { text: `Paid the zqtax estimated payment to the county. ${TAX} is done.`, updates: b, eventDate: null }));
+    for (const id of [a, b, c, d]) expect(store.row(id!)?.event_date).toBeNull();
+    expect(store.row(String(r["id"]))?.event_date).toBeNull();
+    const reminder = r["reminder"] as Record<string, unknown>;
+    expect(reminder["cleared"]).toBe(true);
+    expect([...(reminder["alsoClosed"] as string[])].sort()).toEqual([a!, d!].sort());
+    // The separate memory of the same obligation is listed, by id and title, and left dated.
+    const still = r["stillDated"] as { id: string; title: string | null; eventDate: string }[];
+    expect(still.map((x) => x.id)).toContain(list);
+    expect(still.find((x) => x.id === list)?.eventDate).toBe("2027-04-15");
+    expect(String(r["stillDatedHint"])).toContain("close it too");
+    expect(store.row(list)?.event_date).toBe("2027-04-15");
+  });
+
+  test("status done on a dated memory closes its chain too", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const [a, b, , d] = await chain(s);
+    // The leak's shape: the first memory got its date back; the fourth holds the real one.
+    store.revise(a!, { eventDate: "2027-04-15" });
+    const r = payload(await s.call("remember", { text: `Paid it: ${TAX}.`, updates: a, status: "done" }));
+    for (const id of [a!, b!, d!]) expect(store.row(id)?.event_date).toBeNull();
+    expect((r["reminder"] as Record<string, unknown>)["alsoClosed"]).toEqual([d!]);
+    expect(store.row(String(r["id"]))?.event_date).toBeNull();
+    expect((r["reminder"] as Record<string, unknown>)["cleared"]).toBe(true);
+  });
+
+  test("session_end's entry says the same: the chain closed, the separate one listed", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const [a, , , d] = await chain(s);
+    store.revise(a!, { eventDate: "2027-04-15" });
+    const list = String(payload(await s.call("remember", { text: `Checklist: ${TAX}, and file the zqtax forms.`, eventDate: "2027-04-15" }))["id"]);
+    const body = payload(
+      await s.call("session_end", {
+        session: "sess_checkin",
+        memories: [{ content: `Paid the zqtax estimated payment to the county. ${TAX} is done.`, updates: d, eventDate: null }],
+      }),
+    );
+    const out = (body["outcomes"] as Record<string, unknown>[])[0]!;
+    expect(out["stored"]).toBe(true);
+    expect((out["reminder"] as Record<string, unknown>)["alsoClosed"]).toEqual([a!]);
+    expect((out["stillDated"] as { id: string }[]).map((x) => x.id)).toContain(list);
+    expect(store.row(a!)?.event_date).toBeNull();
+    expect(store.row(d!)?.event_date).toBeNull();
+    expect(store.row(list)?.event_date).toBe("2027-04-15");
+  });
+
+  test("a reschedule moves the date and closes nothing else", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const [a, , , d] = await chain(s);
+    store.revise(a!, { eventDate: "2027-04-15" });
+    const r = payload(await s.call("remember", { text: `${TAX}, moved again.`, updates: d, eventDate: "2027-05-01" }));
+    expect(store.row(String(r["id"]))?.event_date).toBe("2027-05-01");
+    expect(store.row(a!)?.event_date).toBe("2027-04-15");
+    expect(r["stillDated"]).toBeUndefined();
+  });
+});

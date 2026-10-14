@@ -1,7 +1,7 @@
 /** `Counterpart`'s deposit: the gate's record, the update guard, and carrying facts, reminders and threads onto what is written (bodies moved out of `counterpart.ts`, 2026-10-11; the class keeps a delegate for each). */
 import { batteryGate } from "./bridge.js";
 import { mintProposal, UNRESOLVED_META_KEY } from "./mint.js";
-import { cueModeOf, recurrenceOf, DATE_LINEAGE_MAX, DATE_MOVED_TO_META } from "./prospective/index.js";
+import { cueModeOf, recurrenceOf, DATE_FROM_META, DATE_LINEAGE_MAX, DATE_MOVED_TO_META } from "./prospective/index.js";
 import { errCode, submitProposal } from "./remember/index.js";
 import type { Proposal, SubmitResult, ProposalSource } from "./remember/index.js";
 import {
@@ -212,7 +212,14 @@ export async function deposit(
   });
   // BEFORE the revision dispatch: a current-state target is superseded there,
   // and the date must leave the row while it is still the live one.
-  const reminder = carry.from === null ? null : cp["moveReminder"](carry, mint.id);
+  // A CLOSE CLOSES THE WHOLE CHAIN (2026-10-14): the date dropped, or spent
+  // by a `done` — every other memory the reminder moved through that still
+  // holds a date has it cleared too, so one "done" ends one obligation. The
+  // chain is read BEFORE the move, which rewrites the holder's forward pointer.
+  const chain = carry.from !== null && carry.proposal.eventDate === null && !cp.observer ? reminderChain(cp, carry.from) : [];
+  const moved = carry.from === null ? null : cp["moveReminder"](carry, mint.id);
+  const alsoClosed = moved === null ? [] : closeReminderChain(cp, chain, mint.id);
+  const reminder = moved === null ? null : alsoClosed.length === 0 ? moved : { ...moved, alsoClosed };
   const thread = cp["closeThread"](proposal, mint.id, ctx.owner === undefined ? cp["owner"] : ctx.owner && !cp.observer);
   cp["emit"]("counterpart.deposit", mint.id, {
     source,
@@ -681,6 +688,61 @@ export function moveReminder(cp: Counterpart, carry: ReminderCarryPlan, successo
     inherited: carry.inherited,
     moved,
   };
+}
+
+/**
+ * CLOSING A REMINDER CHAIN (2026-10-14, Group 1 check-in, lightly held). One
+ * obligation can sit on several memories of one chain — `reminderFrom`
+ * backwards, `reminderMovedTo` forwards — and a "done" that `updates` one of
+ * them cleared only the holder's date, so the rest kept theirs and kept
+ * coming back. This walks both ways from `from` (each hop through
+ * `Store#resolve`, cycle-safe, bounded) and returns the chain without `from`;
+ * it is read before the move, which rewrites `from`'s forward pointer. Then
+ * `closeReminderChain` clears every live one that still holds a date, kept in
+ * its version like any revise. Only the chain: a separate memory of the same
+ * obligation is listed in the reply for the writer to close, never closed
+ * here. Each clear on its own; a failed one is emitted and skipped.
+ */
+export function reminderChain(cp: Counterpart, from: string): string[] {
+  const seen = new Set<string>([from]);
+  const chain: string[] = [];
+  const queue: string[] = [from];
+  const pointer = (id: string, key: string): string | null => {
+    try {
+      const next = cp.store.readProse(id).meta[key];
+      return typeof next === "string" ? cp.store.resolve(next) : null;
+    } catch {
+      return null;
+    }
+  };
+  while (queue.length > 0 && chain.length < DATE_LINEAGE_MAX) {
+    const id = queue.shift() as string;
+    for (const next of [pointer(id, DATE_FROM_META), pointer(id, DATE_MOVED_TO_META)]) {
+      if (next === null || seen.has(next)) continue;
+      seen.add(next);
+      chain.push(next);
+      queue.push(next);
+    }
+  }
+  return chain;
+}
+
+/** The other half of `reminderChain`: each of its memories that still holds a date has it cleared. */
+export function closeReminderChain(cp: Counterpart, chain: readonly string[], successor: string): string[] {
+  const closed: string[] = [];
+  for (const id of chain) {
+    if (id === successor) continue;
+    const row = cp.store.row(id);
+    if (row === undefined || row.archived === 1 || row.event_date === null) continue;
+    try {
+      cp.store.revise(id, { eventDate: null, reason: "reminder-spent" });
+      closed.push(id);
+    } catch (err) {
+      cp["emit"]("counterpart.reminder.chain.failed", id, { successor, error: errCode(err) });
+    }
+  }
+  if (closed.length > 0) cp["emit"]("counterpart.reminder.chain.closed", successor, { closed: closed.length });
+  return closed;
 }
 
 /**
