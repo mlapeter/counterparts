@@ -1771,6 +1771,8 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   // `uninstall`'s two irreversible arms refuse on it: a server pointed at a
   // store that is no longer there fails at every session start with nothing on
   // screen, which is the same argument this file already makes for the hooks.
+  // A build that does not read that file (the plugin directory's) with no
+  // `claude` to ask has neither, and is false too.
   let mcpConfirmed = false;
   const res = input.spawner(mcpRemoveArgs());
   const notThere = /not found|no .*server|does not exist|not configured/i.test(`${res.out}\n${res.err}`);
@@ -1788,14 +1790,16 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   };
   if (res.missing && mcp.notRead === true) {
     // NOT LOOKED, AND NOBODY TO ASK (the plugin directory's build): that
-    // build never registers a server there, so nothing of its own is left.
-    // An npm install's registration, if there is one, is that install's to
-    // remove; said, not refused (the known limit, docs/plugin.md).
-    mcpConfirmed = true;
-    u.hint(
-      `\`claude\` is not on this PATH and this version does not read Claude Code's own configuration, so no MCP registration was checked. If the npm install also registered one, remove it with: claude mcp remove ${MCP_SERVER_NAME} -s user`,
+    // build never registers a server there itself, but an npm install's may
+    // be there, pointing at this same store, and nothing was looked at. Not
+    // confirmed, so uninstall stops before deleting or moving the store (M2):
+    // unknown is not absent (review of #481).
+    mcpConfirmed = false;
+    u.warn(
+      "`claude` is not on this PATH and this version does not read Claude Code's own configuration, so whether a memory server is still registered (an npm install's, if there is one) could not be checked.",
     );
-    mcpWord = "absent";
+    u.hint(`Remove one if it is there: claude mcp remove ${MCP_SERVER_NAME} -s user — and run this again where \`claude\` is on PATH to have it checked.`);
+    mcpWord = "printed";
   } else if (res.missing) {
     mcpConfirmed = !stillThere();
     if (mcpConfirmed) {

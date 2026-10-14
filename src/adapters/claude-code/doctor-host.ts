@@ -293,8 +293,9 @@ export function hostFindings(reading: HostReading): Finding[] {
   // these files — Claude Code loads its hooks and server from the plugin — so
   // without this the line told a plugin user "no hook of ours is connected,
   // run counterparts connect", which would wire the host twice. Enabled and
-  // alone: connected. Enabled beside live npm wiring: the plugin stands down
-  // (`adapters/plugin.ts`), which works, and is said, with both ways out.
+  // alone: connected. Enabled beside live npm wiring: the launcher flavor
+  // stands down (`adapters/plugin.ts`), the directory flavor runs beside it
+  // (below); either is said, with both ways out.
   const plugin = reading.plugin !== undefined && reading.plugin !== null && reading.plugin.enabled ? reading.plugin : null;
   data["plugin"] = plugin === null ? null : plugin.id;
   const npmAny = reading.events.length > 0 || reading.mcp;
@@ -313,16 +314,20 @@ export function hostFindings(reading: HostReading): Finding[] {
   // THE PLUGIN DIRECTORY'S BUILD DOES NOT STAND DOWN (2026-10-14): it never
   // reads `~/.claude.json`, so it cannot tell this wiring is there, and both
   // run, on the same memory, until a marker-based check lands (docs/plugin.md).
+  // Known two ways: this doctor IS that build (`mcpRead` false), or the
+  // installed plugin is (`standsDown` false, read from its `installPath`, the
+  // case of an npm doctor beside it). Unknown (null) keeps the launcher's word.
+  const bothRun = plugin !== null && (reading.mcpRead === false || plugin.standsDown === false);
   const twiceClause =
     plugin === null
       ? ""
-      : reading.mcpRead === false
-        ? `ALSO installed as the Claude Code plugin (${plugin.id}), whose build does not check for this install, so both are running, on the same memory`
+      : bothRun
+        ? `ALSO installed as the Claude Code plugin (${plugin.id}), whose build does not check for the other install, so both are running, on the same memory: every hook and memory tool is wired twice until a later version checks`
         : `ALSO installed as the Claude Code plugin (${plugin.id}), which stands down while this wiring is live`;
   const twiceFix =
     plugin === null
       ? ""
-      : `Installed twice: to keep only the plugin, run \`counterparts disconnect\` and restart Claude Code; to keep only this install, run \`claude plugin uninstall ${plugin.id}\`. Same memory either way.`;
+      : `Installed twice${bothRun ? "; remove one" : ""}: to keep only the plugin, run \`counterparts disconnect\` and restart Claude Code; to keep only this install, run \`claude plugin uninstall ${plugin.id}\`. Same memory either way.`;
   const mcpClause = reading.mcpRead === false
     ? ""
     : reading.mcp

@@ -319,6 +319,22 @@ export interface PluginInstallRead {
   /** `enabledPlugins[id]` from user, project and local settings, the last one
    *  that says anything winning (Claude Code's precedence); unset is enabled. */
   readonly enabled: boolean;
+  /** Does this build stand down beside the npm install's wiring? False for the
+   *  plugin directory's flavor (a transpiled tree, `src/adapters/runtime.js`
+   *  and no `plugin-run.sh`), which never reads `~/.claude.json` and so runs
+   *  beside it (`runtime.ts#readsHostUserConfig`); true for the launcher
+   *  flavor; null when `installPath` is unrecorded or holds neither. */
+  readonly standsDown?: boolean | null;
+}
+
+/** Which flavor sits at a plugin's `installPath`, read by its files: the
+ *  launcher flavor carries `src/adapters/plugin-run.sh`, the directory flavor
+ *  the transpiled `src/adapters/runtime.js` in its place. */
+export function pluginStandsDown(installPath: string | null): boolean | null {
+  if (installPath === null || installPath.length === 0) return null;
+  if (existsSync(join(installPath, "src", "adapters", "plugin-run.sh"))) return true;
+  if (existsSync(join(installPath, "src", "adapters", "runtime.js"))) return false;
+  return null;
 }
 
 /**
@@ -355,13 +371,15 @@ export function pluginInstall(input: {
     const on = settings === null ? undefined : settings["enabledPlugins"];
     if (isRecord(on) && typeof on[id] === "boolean") enabled = on[id] as boolean;
   }
+  const installPath = first !== undefined && typeof first["installPath"] === "string" ? first["installPath"] : null;
   return {
     id,
-    installPath: first !== undefined && typeof first["installPath"] === "string" ? first["installPath"] : null,
+    installPath,
     version: first !== undefined && typeof first["version"] === "string" ? first["version"] : null,
     scope: first !== undefined && typeof first["scope"] === "string" ? first["scope"] : null,
     projectPath: first !== undefined && typeof first["projectPath"] === "string" ? first["projectPath"] : null,
     enabled,
+    standsDown: pluginStandsDown(installPath),
   };
 }
 
