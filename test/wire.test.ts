@@ -1012,6 +1012,48 @@ describe("unwire", () => {
     });
   });
 
+  // `leaveMcp`: the plugin's keep arm, where a `-s user` registration is the
+  // npm install's (the plugin never makes one).
+  describe("leaving the registration alone", () => {
+    test("no `claude mcp remove`, the hooks still go, and nothing claims the server is gone", async () => {
+      await wire(input({ io: consoleWith().io }));
+      writeFileSync(mcpFile(), JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "x", args: [] } } }));
+      const fake = spawnerThat(() => OK);
+      const c = consoleWith();
+      const result = await unwire(input({ io: c.io, spawner: fake.spawner, leaveMcp: true }));
+      expect(fake.calls).toEqual([]);
+      expect(result).toMatchObject({ outcome: "ok", hooks: "removed", mcp: "skipped", mcpConfirmed: false });
+      expect(text(c.out)).toContain("was left as it is");
+      expect(text(c.out)).not.toContain("memory server removed");
+    });
+
+    test("with no hooks either, it is \"nothing to disconnect\", the registration named", async () => {
+      writeFileSync(mcpFile(), JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "x", args: [] } } }));
+      const fake = spawnerThat(() => OK);
+      const c = consoleWith();
+      const result = await unwire(input({ io: c.io, spawner: fake.spawner, leaveMcp: true }));
+      expect(fake.calls).toEqual([]);
+      expect(result).toMatchObject({ outcome: "ok", hooks: "none", mcp: "skipped" });
+      expect(text(c.out)).toContain("nothing to disconnect: no Counterparts hooks were found.");
+      expect(text(c.out)).toContain(`The "${MCP_SERVER_NAME}" memory server`);
+    });
+
+    test("the plugin directory's build (which cannot read the file) does not remove it blind", async () => {
+      const fake = spawnerThat(() => OK);
+      const c = consoleWith();
+      const result = await unwire(input({ io: c.io, spawner: fake.spawner, readsUserConfig: false, leaveMcp: true }));
+      expect(fake.calls).toEqual([]);
+      expect(result.mcp).toBe("skipped");
+      expect(text(c.out)).toContain(`Any "${MCP_SERVER_NAME}" memory server`);
+    });
+
+    test("nothing registered and nothing read as there: no line about a server", async () => {
+      const c = consoleWith();
+      await unwire(input({ io: c.io, spawner: spawnerThat(() => OK).spawner, leaveMcp: true }));
+      expect(text(c.out)).not.toContain("memory server");
+    });
+  });
+
   test("a console with no prompt and no --yes refuses rather than unwiring", async () => {
     await wire(input({ io: consoleWith().io }));
     const before = hashOf(settingsFile());
