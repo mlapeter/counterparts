@@ -662,7 +662,11 @@ of a copy of the live store (lived day 23).
   `eraClaim / claimed` (keeps the high-dimension rows above the default, the very rows at
   issue), and zeroing only the author dimensions while keeping novelty (closer to a fresh
   install, but novelty alone tops even the lowest default only above 0.6; not worth the extra rule).
-  The 106 memories the era raises read as before. Below reach on that copy: 332 of 1,603
+  The 106 memories the era raises read as before, and so do the era's exempt (review of
+  #494): an old DEFAULT on a protected, core, owner's or dated row is still read at today's
+  default (2026-10-11), but floored by its own dimensions as on master — the seam marks it
+  `eraExempt` (`store/operational.ts#eraExemptRow`, the one exemption list). None on the live
+  copy. Below reach on that copy: 332 of 1,603
   prunable live rows with the fix off, 570 with it on.
 - **The prune had no real wait.** `pruneVerdict` counted `d − decayAnchor(m)`, days since the
   last use, so a memory unused for weeks was archived the first night it crossed the floor.
@@ -670,9 +674,13 @@ of a copy of the live store (lived day 23).
   the curve, never stored), never earlier than `curveSince`. Deriving the crossing from the
   curve alone back-dates it whenever the curve changes — the era fix above would have read
   130 memories as under the floor for weeks — so the decay pass records the lived day a new
-  curve signature replaces an old one (`decay.curve.since`, a `meta` row; no column, no store
-  version) and `sleep/decay.ts#curveSinceDay` hands it to the prune (`d` itself while the
-  store is still signed under another curve; nothing on a store's first signing).
+  curve signature arrives (`decay.curve.since`, a `meta` row; no column, no store version) and
+  `sleep/decay.ts#curveSinceDay` hands it to the prune (`d` itself while the store is still
+  signed under another curve). A first signing writes it too (review of #494): a store from a
+  build older than the signature (npm 0.3.15/0.3.16) would otherwise have had no pause. So a
+  brand-new store pauses its first 14 lived days as well — harmless, nothing in it is old;
+  tests about the prune on a settled store use `test/store-fixture.ts#settledCurve`.
+  The dashboard's `letGoDay` / `holdOf` read the same `curveSince`.
 - **What the wait does not cover:** a per-memory lowering (a `changed` fade, a smaller claim)
   and a dated memory whose window closed still read as if always on the lower curve — the
   same as before, no regression; the 2026-10-11 bullet above about a reminder archived "that

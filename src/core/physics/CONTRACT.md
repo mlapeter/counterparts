@@ -148,7 +148,9 @@ the curve signature's `eraReads: 2` re-curves a store signed before it once.
 (`eraClaim` below the stored claim), `curveSal` is `eraClaim` alone — the old relevance and
 predictive, scored under the same old field text, no longer floor it back up (on the live
 store they held 103 of 485 lowered claims exactly where they were); where it raises an old
-default, `sal()` with the era's claim, as before. `eraReads: 3`.
+default, `sal()` with the era's claim, as before. The exempt read exactly as before too: an
+old default on one (a protected done work event's 0.25 → 0.20) carries
+`MemoryPhysics.eraExempt` from the seam and is floored by its dimensions. `eraReads: 3`.
 **2026-10-11 (random-06, lightly held):** a dream's merged memory is read at its strongest
 original's moment (`meta.eraWrittenAt`, `store/operational.ts#eraCarriedFrom`) when that
 original was old, with its `claimedDefault` — so a merge does not move the era's reading.
@@ -468,8 +470,10 @@ a refusal.
 2026-10-18).** `floorDay(m)` is the first lived day the curve is under φ — the anchor plus
 `daysUntilBelow(m, φ)`, read off the curve and never stored. `curveSince` is the lived day
 this build's curve first read the store (`sleep/decay.ts#curveSinceDay`: the meta row
-`decay.curve.since`, written when a new curve signature replaces an old one; `d` itself
-while the store is still signed under another; none on a store's first signing). Until
+`decay.curve.since`, written whenever the decay pass signs the store under a curve it was
+not signed under — its first signing too, so an upgrader from a build older than the
+signature waits as well; `d` itself while the store is still signed under another; none on
+a store no pass has signed, an observer preview). Until
 2026-10-14 the count ran from the anchor (`d − anchor ≥ 14`, 90 until 2026-10-10), so a
 memory unused for months left the night it crossed the floor. The curve's crossing day
 alone would not do: a new curve that lowers a memory (the era's scale-down, §5.1) reads it
@@ -479,6 +483,8 @@ for 14 lived days. A per-memory change that lowers a curve (a `changed` fade §5
 smaller claim) still reads as if the memory had always been on the lower curve, as before;
 so does a dated memory whose window has closed (§5.4a). `PruneVerdict.dwellDays` still
 reads `d − anchor` (the entity fade's kind floor reads it); `belowFloorDays` is the wait.
+The dashboard's let-go day (`letGoDay`, the memories view's "fading") passes the same
+`curveSince`, so the pause does not read as a let-go.
 
 A prune is recorded — counts, kind, dates, never a body and never a content hash (scar
 §2.20) — and is the only physics-driven removal. **It is archival, never deletion**: the row

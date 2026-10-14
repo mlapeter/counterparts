@@ -5,8 +5,10 @@
   `floorDay(m)` (the anchor plus `daysUntilBelow(m, PHI_PRUNE)`, read off the curve, never
   stored) and never from before `curveSince` — the lived day this build's curve first read
   the store (`sleep/decay.ts#curveSinceDay`: a row `decay.curve.since` in the existing `meta`
-  table, written when a new curve signature replaces an old one; no column, no store
-  version). Why: the rule meant was "exits after 14 lived days under the floor"; the old
+  table, written whenever the decay pass signs the store under a new curve — a first
+  signing too (review of #494), so an upgrader from npm 0.3.15/0.3.16, whose store was never
+  signed, pauses as well; no column, no store version). The dashboard's let-go day and
+  "fading" read the same day, so the pause does not show as a let-go. Why: the rule meant was "exits after 14 lived days under the floor"; the old
   count let a long-unused memory go the night it crossed. The crossing day alone is not
   enough: a new curve that lowers a memory reads it as under the floor for weeks already,
   so the guard is what keeps the era change below from emptying the store the night it
@@ -22,10 +24,10 @@
   — and a fresh install's memory reads its claim, which is what the era (2026-10-11) says an
   upgrader should read. Scaling the dimensions by the claim's ratio was the alternative; it
   leaves the high-dimension rows above the default. Memories the era raises read as before;
-  the exempt are untouched (`eraClaimOf` unchanged). Note: the 10-11 rule lowers an old
-  DEFAULT even on an otherwise-exempt row (a protected done work event's old 0.25 default
-  reads 0.20), and that row now reads 0.20 flat. `curveSal` feeds height, steepness and recall's
-  turn gate. The curve signature's `eraReads: 3` re-curves a store once.
+  the exempt read exactly as on master: the 10-11 rule still lowers an old DEFAULT on an
+  exempt row (a protected done work event's 0.25 reads 0.20), and that row stays floored by
+  its own dimensions (`MemoryPhysics.eraExempt`, review of #494). `curveSal` feeds height,
+  steepness and recall's turn gate. The curve signature's `eraReads: 3` re-curves a store once.
 - Measured on a copy of the live store, lived day 23 (2026-10-14): of 591 era-read memories,
   485 lowered and 106 raised; before the fix 103 of the 485 read no lower at all and the
   lowered median read 0.395, after it 0 and 0.250. Below reach (1,603 prunable live rows):

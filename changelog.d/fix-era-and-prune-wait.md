@@ -2,9 +2,9 @@
   its 14 days from a memory's last use, so a memory unused for weeks was archived the first
   night it faded under the floor. Now it waits 14 lived days under the floor first, and a
   build that changes how strength is read never archives anything the night it arrives: the
-  wait for everything it lowered starts that night, so a store upgrading from a recent
-  release archives nothing for its first 14 lived days on this one. Archived memories still
-  keep their words and stay readable by id.
+  wait for everything it lowered starts that night, so a store archives nothing for its
+  first 14 lived days on this release, whichever release it upgraded from. Archived memories
+  still keep their words and stay readable by id.
 - **Old claims now read at today's default all the way down.** A memory written before the
   claims era whose claim the era lowers now reads at that default as a whole, instead of being
   held up by the relevance and predictive scores written alongside the old claim; a quarter
