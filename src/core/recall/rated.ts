@@ -166,28 +166,31 @@ export function readRatings(
   return { rated: [...kept.values()], refused, replaced: [...replaced] };
 }
 
-type LaneCount = Record<"loud" | "footnotes" | "pointers", number>;
+/** The lanes coverage counts: footnotes, and quiet pointers (footnotes reached through links). */
+export const COVERAGE_LANES = ["footnotes", "pointers"] as const;
+type LaneCount = Record<(typeof COVERAGE_LANES)[number], number>;
 
 /**
- * Coverage since the previous rating row: the ambient showings whose turn is
- * past `floor`, by lane, and how many of them this call rated. `asked` and
- * `opened` are rateable but not in the denominator: the ask is about
- * footnotes.
+ * Coverage since the previous rating row: the footnotes (and quiet pointers)
+ * whose turn is past `floor`, and how many of them this call rated. LOUD lines
+ * are left out (review of #492): a "Came to mind" line shows no id, so the ask
+ * does not ask for them — a loud id the session has can still be rated.
+ * `asked` and `opened` are rateable but not in the denominator either.
  */
 export function ratedCoverage(
   shown: ReadonlyMap<string, ShownEntry>,
   rated: readonly StoredRating[],
   floor: number,
 ): { shown: LaneCount; rated: LaneCount; total: { shown: number; rated: number } } {
-  const s: LaneCount = { loud: 0, footnotes: 0, pointers: 0 };
-  const r: LaneCount = { loud: 0, footnotes: 0, pointers: 0 };
+  const s: LaneCount = { footnotes: 0, pointers: 0 };
+  const r: LaneCount = { footnotes: 0, pointers: 0 };
   const ratedIds = new Set(rated.map((x) => x.id));
   for (const [id, e] of shown) {
     if (e.turn === null || e.turn <= floor) continue;
-    if (e.lane !== "loud" && e.lane !== "footnotes" && e.lane !== "pointers") continue;
+    if (e.lane !== "footnotes" && e.lane !== "pointers") continue;
     s[e.lane] += 1;
     if (ratedIds.has(id)) r[e.lane] += 1;
   }
-  const sum = (c: LaneCount): number => c.loud + c.footnotes + c.pointers;
+  const sum = (c: LaneCount): number => c.footnotes + c.pointers;
   return { shown: s, rated: r, total: { shown: sum(s), rated: sum(r) } };
 }

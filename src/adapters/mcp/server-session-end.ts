@@ -53,7 +53,7 @@ export async function sessionEndTool(server: McpServer, args: Record<string, unk
   // `rated` (2026-10-14, tracking only) is read in the same place and for the
   // same reasons, after `drewOn` so each rating can say whether its id was
   // drawn on. It changes nothing but its own row, and rides out beside it.
-  const rated = ratedField(server, args["rated"], args["drewOn"]);
+  const rated = server["ratedField"](args["rated"], drewOn);
   const extra: Record<string, unknown> = { ...(drewOn === null ? {} : { drewOn }), ...(rated === null ? {} : { rated }) };
   if (typeof args["writeUp"] === "string" && args["writeUp"].length > 0) return server["writeUpField"](args, extra);
 
@@ -473,11 +473,16 @@ export function drewOnField(server: McpServer, raw: unknown, via: "session_end" 
  * a `remember` result's neighbours), which the core files under `opened`
  * unless an ambient lane or an `asked` record has it first.
  *
+ * `drewOn` is the same call's `drewOn` outcome: only the ids it CREDITED mark
+ * a rating as drawn on (review of #492) — a refused id, a capped one or a
+ * malformed field marks nothing. The core adds what was credited as drawn on
+ * at this boundary by `chapter`.
+ *
  * Null when the field was not sent or sent empty. A value that is not a list
  * rates nothing and says so; a refused rating never fails its siblings or the
  * call. Nothing here changes strength, ranking or credit.
  */
-export function ratedField(server: McpServer, raw: unknown, drewOnRaw: unknown): Record<string, unknown> | null {
+export function ratedField(server: McpServer, raw: unknown, drewOnOutcome: Record<string, unknown> | null): Record<string, unknown> | null {
   if (raw === undefined || raw === null) return null;
   if (!Array.isArray(raw)) {
     return { rated: 0, reason: "rated-malformed", detail: "rated is a list of {id, score} objects, score an integer 0 to 3." };
@@ -492,7 +497,8 @@ export function ratedField(server: McpServer, raw: unknown, drewOnRaw: unknown):
   try {
     const seen = server["seenBySession"];
     const opened = new Set<string>([...(seen.get(server["seenKey"]()) ?? []), ...(seen.get(session) ?? [])]);
-    const drewOn = Array.isArray(drewOnRaw) ? drewOnRaw.filter((x): x is string => typeof x === "string") : [];
+    const credited = drewOnOutcome?.["credited"];
+    const drewOn = Array.isArray(credited) ? credited.filter((x): x is string => typeof x === "string") : [];
     const out = server.counterpart.rateShown(session, raw, { opened, drewOn, at: server["today"]() });
     return {
       rated: out.rated.length,
@@ -500,9 +506,11 @@ export function ratedField(server: McpServer, raw: unknown, drewOnRaw: unknown):
         ? {}
         : { refused: out.refused.map((r) => (r.id.length === 0 ? { index: r.index, reason: r.reason } : { id: r.id, reason: r.reason })) }),
       ...(out.replaced.length === 0 ? {} : { replaced: out.replaced, replacedNote: "Rated twice in this call: the last score counts." }),
-      coverage: `${String(out.coverage.rated)} of ${String(out.coverage.shown)} footnotes and loud memories shown since you last rated`,
+      // Footnotes only: a loud line shows no id, so it is not asked for (review of #492).
+      coverage: `${String(out.coverage.rated)} of ${String(out.coverage.shown)} footnotes shown since you last rated`,
       ...(out.drewOnUnrated.length === 0 ? {} : { drewOnUnrated: out.drewOnUnrated }),
-      ...(out.recorded ? {} : { recorded: false }),
+      // A call whose every entry was refused writes no row, so its silence is not a lost write.
+      ...(out.recorded || out.rated.length === 0 ? {} : { recorded: false }),
     };
   } catch (err) {
     return { rated: 0, reason: "threw", detail: String((err as Error).message ?? err) };

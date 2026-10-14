@@ -1169,3 +1169,8 @@ call (`ref` the session) and touches nothing else. What the build chose:
   model has the id from elsewhere.
 - Watch: `counterparts probe-oq4`'s Ratings table — coverage per lane, the drewOn 2–3
   share, and agreement with the credit pass's used / shown-not-used.
+- **Review of #492 (2026-10-14):** coverage counts footnotes and quiet pointers only (loud
+  lines show no id; a loud id can still be rated); a rating's `drewOn` mark means credited
+  as drawn on at this boundary, never merely named; a call whose every entry is refused
+  writes no row, so it moves no window; the reader leaves out sessions from before the
+  first rating row's date and says how many.

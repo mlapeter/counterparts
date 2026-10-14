@@ -2540,17 +2540,21 @@ export class Counterpart {
    * row itself (archived, superseded, faded): a rating credits nothing, so a
    * memory shown and since replaced can still be scored.
    *
-   * `drewOn` is what the same call named; an id credited as drawn on at this
-   * boundary (the gate state's engaged credit on this turn, this day — what
-   * `chapter`'s field did) counts too. Each rating says whether its id was one.
+   * `drewOn` is what the same call's `drewOn` CREDITED (the adapter passes its
+   * credited ids, never what was merely named — review of #492); an id
+   * credited as drawn on at this boundary (the gate state's engaged credit on
+   * this turn, this day — what `chapter`'s field did) counts too. Each rating
+   * says whether its id was one.
    *
-   * Coverage: the ambient showings whose turn is past the session's previous
-   * rating row's `turn` (0 when none) — every footnote shown since it last
-   * rated — and how many of those this call rated.
+   * Coverage: the footnotes and quiet pointers whose turn is past the
+   * session's previous rating row's `turn` (0 when none) — every footnote
+   * shown since it last rated — and how many of those this call rated. Loud
+   * lines show no id, so they are rateable but not counted.
    *
-   * Under observer stance nothing is read or written: every entry comes back
-   * refused `observer`. A lost write costs the row (`recorded: false`), never
-   * the call.
+   * A call whose every entry is refused writes no row (and so moves no
+   * coverage window). Under observer stance nothing is read or written: every
+   * entry comes back refused `observer`. A lost write costs the row
+   * (`recorded: false`), never the call.
    */
   rateShown(
     sessionId: string,
@@ -2600,7 +2604,10 @@ export class Counterpart {
     const byReason: Record<string, number> = {};
     for (const r of refused) byReason[r.reason] = (byReason[r.reason] ?? 0) + 1;
     let recorded = false;
-    try {
+    // NOTHING KEPT, NO ROW (review of #492): a call whose every entry was
+    // refused writes nothing, so it cannot move the next call's coverage
+    // window. Its refusals ride on the answer and the in-process event.
+    if (rated.length > 0) try {
       const seq = this.store.appendEvent({
         name: RECALL_RATED_EVENT,
         day,

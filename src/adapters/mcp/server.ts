@@ -2884,6 +2884,10 @@ export class McpServer {
     return sessionEndPart.drewOnField(this, raw, via);
   }
 
+  private ratedField(raw: unknown, drewOn: Record<string, unknown> | null): Record<string, unknown> | null {
+    return sessionEndPart.ratedField(this, raw, drewOn);
+  }
+
   private writeHandoffField(raw: unknown): Record<string, unknown> | null {
     return sessionEndPart.writeHandoffField(this, raw);
   }

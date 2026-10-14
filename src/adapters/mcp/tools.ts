@@ -977,13 +977,13 @@ const RATED_PROPERTY = {
     required: ["id", "score"],
   },
   description:
-    "Optional: rate each memory shown to you since you last wrote — every footnote and loud memory, recall answers, ones you opened by id — and every id you name in `drewOn` (expected a 2 or 3). score: 0 = noise (unrelated), 1 = on topic but I didn't need it, 2 = useful background, 3 = changed what I did or said. Tracking only: a rating changes nothing about the memory. An id this session was not shown is refused; rated twice, the last score counts.",
+    "Optional: rate each footnote shown to you since you last wrote — and recall answers or ones you opened by id, if you like — and every id you name in `drewOn` (expected a 2 or 3). score: 0 = noise (unrelated), 1 = on topic but I didn't need it, 2 = useful background, 3 = changed what I did or said. Tracking only: a rating changes nothing about the memory. An id this session was not shown is refused; rated twice, the last score counts.",
 } as const;
 
 /** The claim `session_end` makes about `rated`. */
 const RATED_PRIVILEGE = {
   claim:
-    "`rated` is recorded and changes nothing: no strength, ranking, credit or fading. Only a memory this session was shown — a footnote, a loud memory, a recall answer, one it opened — can be rated; any other id, a score that is not an integer 0 to 3, or an entry with no id is refused by name, and its siblings still count.",
+    "`rated` is recorded and changes nothing: no strength, ranking, credit or fading. Only a memory this session was shown — a footnote, a loud memory, a recall answer, one it opened — can be rated; any other id, a score that is not an integer 0 to 3, or an entry with no id is refused by name, and its siblings still count. A call whose every rating is refused records nothing.",
   mechanizedBy: "src/core/counterpart.ts#rateShown -> src/core/recall/rated.ts#readRatings (one recall.rated row)",
 };
 

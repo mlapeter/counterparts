@@ -152,7 +152,8 @@ describe("Counterpart#rateShown — tracking only", () => {
       since: 0,
       ratingsTotal: 5,
       refused: {},
-      coverage: { shown: { loud: 1, footnotes: 1, pointers: 1 }, rated: { loud: 1, footnotes: 1, pointers: 1 } },
+      // Loud lines show no id: rateable, not counted in coverage (review of #492).
+      coverage: { shown: { footnotes: 1, pointers: 1 }, rated: { footnotes: 1, pointers: 1 } },
       drewOnNamed: 1,
       drewOnUnrated: [],
     });
@@ -271,6 +272,20 @@ describe("Counterpart#rateShown — tracking only", () => {
     expect(ratedRows(c)[1]).toMatchObject({ since: 2, turn: 3 });
   });
 
+  test("review of #492: a call whose every entry is refused writes no row and moves no coverage window", () => {
+    const { c, ids } = setup(2);
+    const [a, b] = ids as [string, string];
+    shown(c, "s1", 1, [a]);
+    const none = c.rateShown("s1", [{ id: "mem_000000000000", score: 2 }, { id: a, score: 5 }]);
+    expect(none.rated).toEqual([]);
+    expect(none.recorded).toBe(false);
+    expect(ratedRows(c)).toEqual([]);
+    shown(c, "s1", 2, [b]);
+    // Both showings still count: the refused call did not advance the floor.
+    expect(c.rateShown("s1", [{ id: a, score: 1 }]).coverage).toEqual({ shown: 2, rated: 1 });
+    expect(ratedRows(c)[0]).toMatchObject({ since: 0, turn: 2 });
+  });
+
   test("under observer stance nothing is written and every entry is refused `observer`", () => {
     const { c, ids } = setup(1);
     const [a] = ids as [string];
@@ -336,7 +351,7 @@ describe("the rated field on session_end", () => {
     const rated = out["rated"] as Record<string, unknown>;
     expect(rated["rated"]).toBe(2);
     expect(rated["refused"]).toEqual([{ id: never, reason: "not-shown" }]);
-    expect(rated["coverage"]).toBe("1 of 1 footnotes and loud memories shown since you last rated");
+    expect(rated["coverage"]).toBe("1 of 1 footnotes shown since you last rated");
     const row = ratedRows(s.counterpart)[0];
     expect(row?.["ratings"]).toEqual([
       { id: foot, score: 3, lane: "footnotes", drewOn: true },
@@ -393,6 +408,45 @@ describe("the rated field on session_end", () => {
     expect(ratedRows(owner.counterpart)).toEqual([]);
   });
 
+  test("review of #492: only a drewOn id CREDITED at this boundary marks a rating; a refused id or a malformed field marks nothing", async () => {
+    const s = server();
+    const [foot, openedId] = seeded(s) as [string, string];
+    shown(s.counterpart, SESSION, 1, [foot]);
+    await s.call("recall", { ids: [openedId] });
+    // drewOn refuses an id opened by id (`not-shown`), so naming it there marks nothing.
+    const refused = payload(
+      await s.call("session_end", { session: SESSION, memories: [], drewOn: [openedId], rated: [{ id: openedId, score: 3 }] }),
+    );
+    expect(((refused["drewOn"] as Record<string, unknown>)["refused"] as { reason: string }[])[0]?.reason).toBe("not-shown");
+    expect(ratedRows(s.counterpart)[0]?.["ratings"]).toEqual([{ id: openedId, score: 3, lane: "opened", drewOn: false }]);
+    expect(ratedRows(s.counterpart)[0]?.["drewOnUnrated"]).toEqual([]);
+    // A malformed drewOn field marks nothing either.
+    await s.call("session_end", { session: SESSION, memories: [], drewOn: foot, rated: [{ id: foot, score: 2 }] });
+    expect(ratedRows(s.counterpart)[1]?.["ratings"]).toEqual([{ id: foot, score: 2, lane: "footnotes", drewOn: false }]);
+  });
+
+  test("review of #492: if rating throws, session_end still lands and says so", async () => {
+    const s = server();
+    const [a] = seeded(s) as [string];
+    shown(s.counterpart, SESSION, 1, [a]);
+    (s.counterpart as unknown as { rateShown: () => never }).rateShown = () => {
+      throw new Error("rating store unavailable");
+    };
+    const result = await s.call("session_end", {
+      session: SESSION,
+      memories: [{ content: "The gate's fruit tree is a quince, not a pear." }],
+      rated: [{ id: a, score: 2 }],
+    });
+    const out = payload(result);
+    expect(result.isError === true).toBe(false);
+    expect(out["deposited"]).toBe(1);
+    expect(out["rated"]).toEqual({ rated: 0, reason: "threw", detail: "rating store unavailable" });
+    // And with nothing new, the answer is still recorded.
+    const empty = payload(await s.call("session_end", { session: SESSION, memories: [], rated: [{ id: a, score: 2 }] }));
+    expect(empty["reason"]).toBe("nothing-new");
+    expect((empty["rated"] as Record<string, unknown>)["reason"]).toBe("threw");
+  });
+
   test("the field is served with its anchors", () => {
     const spec = TOOLS.find((t) => t.name === "session_end");
     const props = (spec?.inputSchema as { properties: Record<string, { description?: string; items?: unknown }> }).properties;
@@ -437,7 +491,7 @@ describe("probeRatings (pure)", () => {
           { id: "mem_loud", score: 2, lane: "loud", drewOn: false },
           { id: "mem_o", score: 1, lane: "opened", drewOn: true },
         ],
-        coverage: { shown: { loud: 1, footnotes: 2, pointers: 1 }, rated: { loud: 1, footnotes: 2, pointers: 0 } },
+        coverage: { shown: { footnotes: 2, pointers: 1 }, rated: { footnotes: 2, pointers: 0 } },
         drewOnUnrated: ["mem_x"],
       }),
       // A second session the same day that rated nothing: its footnote is shown, unrated.
@@ -453,19 +507,34 @@ describe("probeRatings (pure)", () => {
     const t = r.totals;
     expect(t.footnotes).toMatchObject({ shown: 3, rated: 2, scores: [0, 1, 0, 1], drewOn: { rated: 1, high: 1 } });
     expect(t.footnotes.coverage).toBeCloseTo(2 / 3, 10);
-    expect(t.loud).toMatchObject({ shown: 1, rated: 1, scores: [0, 0, 1, 0] });
+    expect(t.loud).toMatchObject({ shown: 1, rated: 1, scores: [0, 0, 1, 0], coverage: null });
     expect(t.pointers).toMatchObject({ shown: 1, rated: 0, coverage: 0 });
     expect(t.asked).toMatchObject({ shown: 1, rated: 0 });
     expect(t.opened).toMatchObject({ shown: 1, rated: 1, scores: [0, 1, 0, 0], drewOn: { rated: 1, high: 0 } });
     expect(r.drewOnUnrated).toBe(1);
     // Judged ambient showings rated: f1 used & 3 (agree), f2 ignored & 1 (agree), loud ignored & 2 (disagree).
     expect(r.usage).toEqual({ used: [0, 0, 0, 1], ignored: [0, 1, 1, 0], agree: 2, of: 3 });
-    expect(r.boundaries).toEqual({ shown: 4, rated: 3 });
+    expect(r.boundaries).toEqual({ shown: 3, rated: 2 });
     const text = renderRatings(r).join("\n");
     expect(text).toContain("2026-10-14  footnotes     3      2   66.7%");
     expect(text).toContain("drewOn: 2 rated, 1 of them 2–3 (50.0%); 1 named and not rated");
     expect(text).toContain("agree 2 (66.7%");
-    expect(text).toContain("at the asks: 3 of 4");
+    expect(text).toContain("at the asks: 2 of 3");
+  });
+
+  test("review of #492: sessions from before ratings began are left out of coverage, and counted", () => {
+    const r = probeRatings([
+      row("recall.decision", { session: "s0", date: "2026-10-01", turn: 1, footnotes: [{ id: "mem_old1" }, { id: "mem_old2" }] }),
+      row("recall.decision", { session: "sx", turn: 1, footnotes: [{ id: "mem_undated" }] }),
+      row("recall.decision", { session: "s1", date: "2026-10-14", turn: 1, footnotes: [{ id: "mem_a" }] }),
+      row("recall.rated", { session: "s1", date: "2026-10-14", ratings: [{ id: "mem_a", score: 2, lane: "footnotes", drewOn: false }] }),
+      // After ratings began, a session that rated nothing still counts as shown and unrated.
+      row("recall.decision", { session: "s2", date: "2026-10-15", turn: 1, footnotes: [{ id: "mem_b" }] }),
+    ]);
+    expect(r.before).toBe(2);
+    expect(r.days.map((d) => d.date)).toEqual(["2026-10-14", "2026-10-15"]);
+    expect(r.totals.footnotes).toMatchObject({ shown: 2, rated: 1, coverage: 0.5 });
+    expect(renderRatings(r).join("\n")).toContain("2 session(s) from before ratings began left out");
   });
 
   test("no rating row yet reads unknown, not zero", () => {

@@ -502,6 +502,9 @@ export interface RatingReport {
   /** What the rows themselves recorded at each ask: ambient showings since the
    *  session's previous rating, and how many of those were rated. */
   readonly boundaries: { readonly shown: number; readonly rated: number };
+  /** Sessions left out because they come before ratings began (no rating row, dated
+   *  before the first one, or undated). */
+  readonly before: number;
 }
 
 function parsePayload(row: ProbeRow): Record<string, unknown> | null {
@@ -560,6 +563,9 @@ export function probeRatings(rows: readonly ProbeRow[]): RatingReport {
   let ratedRows = 0;
   let unparseable = 0;
   let drewOnUnrated = 0;
+  /** The calendar date of the earliest rating row: before it, ratings did not exist. */
+  let firstRated: string | null = null;
+  let before = 0;
   const boundaries = { shown: 0, rated: 0 };
   for (const row of rows) {
     if (row.name !== "recall.rated" && row.name !== "recall.decision" && row.name !== "recall.credit" && row.name !== "mcp.recall") continue;
@@ -602,6 +608,7 @@ export function probeRatings(rows: readonly ProbeRow[]): RatingReport {
       for (const id of listed) missed.add(id);
     } else {
       ratedRows += 1;
+      if (date !== null && (firstRated === null || date < firstRated)) firstRated = date;
       const scores = into(scoreIn, session, () => new Map<string, Score>());
       const list = p["ratings"];
       if (Array.isArray(list)) {
@@ -631,6 +638,14 @@ export function probeRatings(rows: readonly ProbeRow[]): RatingReport {
   const usage = { used: [0, 0, 0, 0] as Scores, ignored: [0, 0, 0, 0] as Scores, agree: 0, of: 0 };
   const sessions = new Set<string>([...shownIn.keys(), ...askedIn.keys(), ...openedIn.keys(), ...scoreIn.keys()]);
   for (const session of sessions) {
+    // FROM WHEN RATINGS BEGAN (review of #492): a session with no rating row
+    // counts only when it is dated on or after the first rating row's date;
+    // one from before could not have rated, and would drag coverage to zero.
+    const sessionDate = dateOf.get(session);
+    if (!scoreIn.has(session) && (firstRated === null || sessionDate === undefined || sessionDate < firstRated)) {
+      before += 1;
+      continue;
+    }
     const units = new Map<string, Unit>(shownIn.get(session) ?? []);
     for (const id of askedIn.get(session) ?? []) if (!units.has(id)) units.set(id, { lane: "asked", turn: null });
     for (const id of openedIn.get(session) ?? []) if (!units.has(id)) units.set(id, { lane: "opened", turn: null });
@@ -667,14 +682,16 @@ export function probeRatings(rows: readonly ProbeRow[]): RatingReport {
     Object.fromEntries(
       RATING_LANES.map((l) => {
         const m = lanes[l];
-        const stats: RatingLaneStats = { shown: m.shown, rated: m.rated, coverage: m.shown === 0 ? null : m.rated / m.shown, scores: m.scores, drewOn: m.drewOn };
+        // Loud lines show no id and are not asked for: no coverage, only what was rated.
+        const coverage = l === "loud" || m.shown === 0 ? null : m.rated / m.shown;
+        const stats: RatingLaneStats = { shown: m.shown, rated: m.rated, coverage, scores: m.scores, drewOn: m.drewOn };
         return [l, stats];
       }),
     ) as Record<RatingLane, RatingLaneStats>;
   const days: RatingDay[] = [...byDay.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, d]) => ({ date, sessions: d.sessions, lanes: freeze(d.lanes) }));
-  return { rows: ratedRows, unparseable, days, totals: freeze(totals), drewOnUnrated, usage, boundaries };
+  return { rows: ratedRows, unparseable, days, totals: freeze(totals), drewOnUnrated, usage, boundaries, before };
 }
 
 /** The ratings table a console prints: one line per date per lane that showed something, then the agreements. */
@@ -688,7 +705,9 @@ export function renderRatings(report: RatingReport): string[] {
   const pct = (v: number | null): string => (v === null ? "     -" : `${(v * 100).toFixed(1).padStart(5)}%`);
   const line = (date: string, lane: string, l: RatingLaneStats): string =>
     `${date.padEnd(11)} ${lane.padEnd(9)} ${String(l.shown).padStart(5)}  ${String(l.rated).padStart(5)}  ${pct(l.coverage)}  ${l.scores.map((n) => String(n).padStart(4)).join("")}  ${String(l.drewOn.rated).padStart(6)}`;
-  lines.push(`rows: ${report.rows} recall.rated${report.unparseable > 0 ? `, ${report.unparseable} unparseable` : ""}`);
+  lines.push(
+    `rows: ${report.rows} recall.rated${report.unparseable > 0 ? `, ${report.unparseable} unparseable` : ""}${report.before > 0 ? `; ${report.before} session(s) from before ratings began left out` : ""}`,
+  );
   lines.push("");
   lines.push("date        lane      shown  rated  covered    0   1   2   3  drewOn");
   for (const d of report.days) {
