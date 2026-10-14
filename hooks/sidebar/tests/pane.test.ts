@@ -1301,7 +1301,7 @@ test('the fox is the avatar when none was chosen: under the title with the count
   expect(w.store['brain']).toBe('fox')
 })
 
-test('each terminal draws it its finest known way: a picture in Ghostty, sextants in iTerm2, half-blocks in Apple Terminal', async ($, on) => {
+test('each terminal draws it its finest known way: a picture in Ghostty, sextants in iTerm2, half-blocks in Apple Terminal; the desktop an Svg', async ($, on) => {
   const ghostty = world(on, foxEnv({ TERM_PROGRAM: 'ghostty' }))
   await start($, ghostty)
   const ui = await mount($, ghostty, 'terminal')
@@ -1329,17 +1329,18 @@ test('sextants in iTerm2: rows of Text, no Raster (a Raster takes no sextant), t
   await ui.unmount()
 })
 
-test('half-blocks in Apple Terminal; the desktop draws no fox (no Svg is built), the header alone with the count and the day', async ($, on) => {
+test('half-blocks in Apple Terminal, and the desktop draws an Svg of the same fox', async ($, on) => {
   const w = world(on, foxEnv({ TERM_PROGRAM: 'Apple_Terminal' }))
   await start($, w)
   let ui = await mount($, w, 'terminal')
   expect(await ui.find({ type: 'Raster', key: 'stage' })).toBeDefined()
   await ui.unmount()
   ui = await mount($, w, 'desktop')
-  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
-  expect(w.fsReads.filter(p => p.endsWith('.png'))).toHaveLength(0)
-  expect((await titleOf(ui))?.text).toContain('COUNTERPARTS')
-  expect(await ui.find({ type: 'Text', text: '776 · day 18' })).toBeDefined()
+  const svg = await ui.find({ type: 'Svg' })
+  // the PNG's bytes, read from the plugin's folder (art/fox/) once, as the picture's data URI
+  expect(String(svg?.props['source'])).toContain('data:image/png;base64,iVBORw0KGgoidle.png')
+  expect(w.fsReads.filter(p => p.endsWith('/art/fox/idle.png'))).toHaveLength(1)
+  expect(svg?.props['alt']).toBe('a small fox')
   await ui.unmount()
 })
 

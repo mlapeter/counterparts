@@ -112,6 +112,7 @@ import {
   trigger,
 } from './fox'
 import type { FoxDetail, FoxEvent, FoxTier, Step } from './fox'
+import { foxSvg } from './fox-svg'
 import { footer, footerRows, frame, pausedBanner, plainBody } from './pane'
 import type { PaneActions, PaneEls } from './pane'
 import { lookup, parentOf, parseRegistry, settingsHookConfig } from './scopes'
@@ -935,6 +936,14 @@ function startStage($: EngineInterface): void {
   $.clock.after(0, () => quiet(stageStep($, gen)))
 }
 
+/**
+ * The desktop's pane, as wide as the person drags it (it keeps their width, not the one a plugin asks for;
+ * measured 2026-10-13): the fox shows down to this many columns, scaled to fit, where the terminal needs
+ * STAGE_COLS. `w` is the last drawing's width.
+ */
+const STAGE_MIN_PROSE_COLS = 22
+const prosePane = { w: STAGE_COLS }
+
 /** The Image's source for a step: the PNG file, which the terminal reads itself. */
 function pngFile(step: Step): { file: string; format: 'png' } {
   return { file: `${stage.pngDir ?? ''}/${pngName(step)}`, format: 'png' }
@@ -954,8 +963,24 @@ async function findPngDir($: EngineInterface): Promise<string | null> {
   return null
 }
 
-/** The stage's element in a tier, for the step on screen. */
-function stageElement(els: ReturnType<EngineInterface['ui']['resolve']>, tier: FoxTier, step: Step): JSX.Element {
+/** A PNG's bytes (base64) for the desktop's Svg, read once from the plugin's folder; '' when it can't be. */
+async function pngData($: EngineInterface, name: string): Promise<string> {
+  const known = stage.pngData.get(name)
+  if (known !== undefined) return known
+  let data = ''
+  if (stage.pngDir !== null) {
+    try {
+      data = (await $.fs.read(`${stage.pngDir}/${name}`, { as: 'bytes' })).base64
+    } catch {
+      data = ''
+    }
+  }
+  stage.pngData.set(name, data)
+  return data
+}
+
+/** The stage's element in a tier, for the step on screen (`png`: the desktop's picture, base64). */
+function stageElement(els: ReturnType<EngineInterface['ui']['resolve']>, tier: FoxTier, step: Step, png: string): JSX.Element {
   if (tier === 'basic' && 'Raster' in els) {
     const { Raster } = els
     return <Raster key="stage" columns={STAGE_COLS} rows={stageRows('basic')} cells={halfCells(step)} />
@@ -967,6 +992,13 @@ function stageElement(els: ReturnType<EngineInterface['ui']['resolve']>, tier: F
         <Image key="stage" source={pngFile(step)} columns={IMAGE_COLS} rows={IMAGE_ROWS} alt="a small fox" />
       </Box>
     )
+  }
+  if (tier === 'svg' && 'Svg' in els) {
+    const { Svg } = els
+    const svg = foxSvg(step, png)
+    // A pane dragged narrower than the fox: the fox scales down with it (about 7 px a cell on the desktop).
+    const k = Math.min(1, (prosePane.w * 7) / svg.width)
+    return <Svg key="stage" source={svg.source} alt="a small fox" width={Math.round(svg.width * k)} height={Math.round(svg.height * k)} />
   }
   // fine: each row as runs of one colour pair; a cell with no colour is the panel's.
   const { Box, Text } = els
@@ -1063,6 +1095,7 @@ export const register: Register = on => {
     stage.detail = normDetail(detailPref)
     // The PNGs ship as files beside the module (art/fox/): found once; none found, the terminal draws no pictures.
     stage.pngDir = await findPngDir($)
+    stage.pngData.clear()
     if (stage.pngDir === null) stage.noImages = true
     // What this terminal can draw the fox with, read once (fox.ts, `pickTier`).
     // (Each name spelled out: the engine lists the variables a module reads.)
@@ -1112,7 +1145,7 @@ export const register: Register = on => {
       if (arg === 'detail') {
         const d = e.args.trim().split(/\s+/)[2] ?? ''
         if (d !== 'auto' && d !== 'images' && d !== 'fine' && d !== 'basic') {
-          return { text: `counterparts avatar detail: auto, images, fine or basic (now ${stage.detail}, ${stage.tier === 'image' ? 'drawn as a picture' : stage.tier === 'fine' ? 'drawn in sextants' : stage.tier === 'none' ? 'not drawn on this surface' : 'drawn in half-blocks'}).` }
+          return { text: `counterparts avatar detail: auto, images, fine or basic (now ${stage.detail}, ${stage.tier === 'image' ? 'drawn as a picture' : stage.tier === 'fine' ? 'drawn in sextants' : stage.tier === 'svg' ? 'drawn as a drawing' : 'drawn in half-blocks'}).` }
         }
         await setDetail($, d)
         return {
@@ -1289,16 +1322,16 @@ export const register: Register = on => {
     const firingNow: readonly MechId[] =
       !paused && firing !== null && now - firing.at < FIRING_MS && Array.isArray(firing.ids) ? firing.ids : []
     const W = Math.max(e.props.bodyColumns, 1)
+    prosePane.w = W
     const fill = Math.max(1, e.props.scroll?.bodyRows ?? 1)
     const inline = e.props.placement === 'inline'
     const w = Math.max(16, inline ? Math.min(W - 2, 64) : W - 2)
     run.bodyW = w
     // The fox's stage: on a pane tall and wide enough, in the tier this surface draws (fox.ts); else, or with the
     // avatar off, the header alone.
-    // The desktop and the other remote surfaces draw no fox (`none`): their one picture element is an SVG
-    // document, which this mod no longer builds (the plugin directory's review, 2026-10-14). The header alone.
     const tier = pickTier(e.surface, stage.detail, stage.env, stage.noImages, stage.pngDir !== null)
-    const hasStage = mode === 'fox' && tier !== 'none' && 'Raster' in els && !inline && fill >= STAGE_MIN_PANE_ROWS && W >= STAGE_COLS
+    const drawsStage = tier === 'svg' ? 'Svg' in els : 'Raster' in els
+    const hasStage = mode === 'fox' && drawsStage && !inline && fill >= STAGE_MIN_PANE_ROWS && W >= (SURFACE.prose ? STAGE_MIN_PROSE_COLS : STAGE_COLS)
     // While the pane holds the keyboard the fox holds still.
     const holding = e.props.isFocused === true
     if (!hasStage || holding || tier !== stage.tier) stopStage()
@@ -1329,10 +1362,13 @@ export const register: Register = on => {
       // An Image's first frame is blitted once mounted too: a refusal says it draws its alt here.
       stage.shown = tier === 'image' ? '' : stepKey(step)
       const [title] = header(paneEls, actions, { w, paused, lit, day, count: countText })
-      stageTop = [...rows, ...(title === undefined ? [] : [title]), stageElement(els, tier, step)]
+      const png = tier === 'svg' ? await pngData($, pngName(step)) : ''
+      stageTop = [...rows, ...(title === undefined ? [] : [title]), stageElement(els, tier, step, png)]
       rows.length = 0
-      rows.push(<Text key="stage-rule" color={P.faint}>{'─'.repeat(w)}</Text>)
-      used += 1 + stageRows(tier) + 1
+      rows.push(SURFACE.prose ? <Text key="stage-rule"> </Text> : <Text key="stage-rule" color={P.faint}>{'─'.repeat(w)}</Text>)
+      // The desktop's Svg is 180 px tall, about ten of its text rows (measured 2026-10-13), not the cells' fifteen;
+      // fewer when a narrow pane scales it down (stageElement's factor).
+      used += 1 + (tier === 'svg' ? (SURFACE.prose ? Math.ceil(10 * Math.min(1, (W * 7) / (STAGE_COLS * 6))) : 15) : stageRows(tier)) + 1
       if (!holding) startStage($)
     } else {
       rows.push(...header(paneEls, actions, { w, paused, lit, day, count: countText }))

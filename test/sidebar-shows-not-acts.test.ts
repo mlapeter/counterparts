@@ -78,8 +78,10 @@ describe("the directory flavor names no SVG namespace URL in code", () => {
     expect(names).toContain("src/adapters/dashboard/web/server.js");
   });
 
-  test("no shipped file holds www.w3.org but the favicon, a static image", () => {
-    const holding = files.filter(([, text]) => text.includes("www.w3.org")).map(([f]) => f);
-    expect(holding).toEqual(["src/adapters/dashboard/web/favicon.svg"]);
+  test("no shipped file holds www.w3.org but the favicon and the desktop fox's own file, which reads nothing", () => {
+    const holding = files.filter(([, text]) => text.includes("www.w3.org")).map(([f]) => f).sort();
+    expect(holding).toEqual(["hooks/sidebar/hooks/fox-svg.ts", "src/adapters/dashboard/web/favicon.svg"]);
+    const fox = files.find(([f]) => f === "hooks/sidebar/hooks/fox-svg.ts")?.[1] ?? "";
+    expect(/\benv\b|\$\.env|process\.env|\bkey\b|\btoken\b|\$\.fs|\$\.http/.test(fox)).toBe(false);
   });
 });

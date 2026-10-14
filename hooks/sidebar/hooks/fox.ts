@@ -37,8 +37,8 @@ const DEFAULT_COLOR = 0x01000000
 
 // ── which way to draw it ────────────────────────────────────────────────────
 
-/** `none`: a surface with no cells or pictures a mod may draw the fox in (the desktop and the other remote ones). */
-export type FoxTier = 'image' | 'fine' | 'basic' | 'none'
+/** `svg`: the desktop and the other remote surfaces, drawn as an Svg (`fox-svg.ts`). */
+export type FoxTier = 'image' | 'fine' | 'basic' | 'svg'
 
 /** The person's override (`$.store` `avatarDetail`): `auto` lets the environment decide. */
 export type FoxDetail = 'auto' | 'images' | 'fine' | 'basic'
@@ -78,15 +78,14 @@ export function sextantsLikely(env: TierEnv): boolean {
 }
 
 /**
- * The tier for a drawing: the desktop and the other remote surfaces draw no
- * fox (`none`, the header alone: their one picture element is an SVG
- * document, which this mod no longer builds, 2026-10-14); a terminal, the
- * override or else the environment's answer. `noImages`:
+ * The tier for a drawing: the desktop and the other remote surfaces draw the
+ * Svg (`fox-svg.ts`, a file of its own); a terminal, the override or else the
+ * environment's answer. `noImages`:
  * an Image here drew its alt (a refused blit said so), so `auto` stops trying.
  * `hasPngs` false (no PNG folder found): never a picture, whatever was asked.
  */
 export function pickTier(surface: string, detail: FoxDetail, env: TierEnv, noImages = false, hasPngs = true): FoxTier {
-  if (surface !== 'terminal') return 'none'
+  if (surface !== 'terminal') return 'svg'
   if (detail === 'images' && hasPngs) return 'image'
   if (detail === 'fine') return 'fine'
   if (detail === 'basic') return 'basic'
@@ -111,7 +110,7 @@ export function stageRows(tier: FoxTier): number {
   if (tier === 'basic') return Math.ceil(ART.half.box[1] / 2)
   if (tier === 'fine') return ART.sextant.rows
   if (tier === 'image') return IMAGE_ROWS
-  return 0 // `none`: no stage
+  return 0 // the Svg sizes itself; the desktop counts no rows
 }
 
 /** Where the fox's box starts on the 34-column stage: centred with room for the effects beside its head. */
@@ -643,4 +642,6 @@ export const stage = {
   imageDenies: 0,
   /** The folder holding the PNGs (absolute), found at session start; null: none found, no pictures. */
   pngDir: null as string | null,
+  /** Each PNG's bytes (base64) once read, for the desktop's Svg; '' for one that could not be read. */
+  pngData: new Map<string, string>(),
 }

@@ -28,6 +28,7 @@ import {
   otherStore,
   parseStoreMarker,
 } from '../hooks/feed'
+import { foxSvg } from '../hooks/fox-svg'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { headRight } from '../hooks/desktop'
 import { FOOTER_ITEMS, footerLines, normAvatar, resumeWords, statusFor } from '../hooks/words'
@@ -834,7 +835,7 @@ describe('the fox', () => {
     expect(pickTier('terminal', 'images', { TERM_PROGRAM: 'Apple_Terminal' })).toBe('image')
     expect(pickTier('terminal', 'fine', {})).toBe('fine')
     expect(pickTier('terminal', 'basic', { TERM_PROGRAM: 'ghostty' })).toBe('basic')
-    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic', {})).toBe('none')
+    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic', {})).toBe('svg')
     expect(normDetail('images')).toBe('images')
     expect(normDetail('sharp')).toBe('auto')
   })
@@ -907,6 +908,11 @@ describe('the fox', () => {
     expect(pngName({ frame: 'perk', fx: [['nothing', 'spark']] })).toBe('perk.png')
     expect(pngName({ frame: 'no-such', fx: [] })).toBe('idle.png')
     expect(PNG_FRAMES.size).toBe(36)
+    const svg = foxSvg(idle, 'iVBORw0KGgo')
+    expect(svg.source.length).toBeLessThan(131072)
+    // the picture alone: the half-blocks under it showed as a ghost edge on the desktop's light page
+    expect(svg.source).not.toContain('<rect')
+    expect(svg.source).toContain('data:image/png;base64,')
   })
 
   test('the schedule: a short first hold, then the tail tip flicks; then still holds of 4–9 s, each ending in one small moment; one wake per change of what is on screen', () => {
