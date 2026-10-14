@@ -33,6 +33,8 @@ import { join } from "node:path";
 
 import { Store, paths } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
+import { CLAIMS_ERA_CUTOFF_KEY } from "../src/core/store/operational.js";
+import { CURVE_META_KEY, CURVE_SINCE_KEY, curveSignature } from "../src/core/sleep/decay.js";
 
 /** A store nobody else shares, and the one call that takes it away again. */
 export interface MadeStore {
@@ -184,4 +186,17 @@ export function stripV13(db: { run(sql: string): unknown }): void {
   ] as const) {
     db.run(`ALTER TABLE ${t} DROP COLUMN ${c}`);
   }
+}
+
+/**
+ * A store whose curve has read it for ages (2026-10-14): signed under this
+ * build's curve, with the day it arrived far in the past, so the prune's
+ * wait under the floor is the floor's own (`sleep/decay.ts#curveSinceDay`).
+ * For a test about what the prune does once nothing new has arrived; a
+ * fresh store's first decay pass otherwise starts its 14-day pause.
+ */
+export function settledCurve<T extends Pick<Store, "getMeta" | "setMeta">>(store: T): T {
+  store.setMeta(CURVE_META_KEY, curveSignature(store.getMeta(CLAIMS_ERA_CUTOFF_KEY) ?? null));
+  store.setMeta(CURVE_SINCE_KEY, String(-1_000_000));
+  return store;
 }

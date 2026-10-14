@@ -65,6 +65,7 @@ import {
 } from "../src/core/self/index.js";
 import type { SelfTunables } from "../src/core/self/index.js";
 import type { PutInput } from "../src/core/store/index.js";
+import { settledCurve } from "./store-fixture.js";
 
 const PAGE = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder.\n\n## ${PAGE_LATELY_HEADING}\n\nLately: placeholder.`;
 const PAGE_TWO = `## ${PAGE_CORE_HEADING}\n\nCore: placeholder two.\n\n## ${PAGE_LATELY_HEADING}\n\nLately: placeholder two.`;
@@ -1076,7 +1077,8 @@ describe("clearing and restoring", () => {
 
 describe("the page survives sleep", () => {
   test("a full cycle and the prune leave the page's body, versions and row alone", () => {
-    const s = store({ now: () => Date.parse("2026-01-01T00:00:00Z") });
+    // A curve settled long ago (2026-10-14), so the prune takes its neighbour on the first night.
+    const s = settledCurve(store({ now: () => Date.parse("2026-01-01T00:00:00Z") }));
     const me = self(s);
     me.revisePage(PAGE, { reason: "first", by: "owner" });
     me.revisePage(`${PAGE}\n\nAn interim placeholder paragraph.`, { reason: "second", by: "session" });

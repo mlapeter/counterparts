@@ -95,9 +95,10 @@ const DECAY_PHASE: Phase = "decay";
 export const CURVE_META_KEY = "decay.curve";
 /**
  * THE LIVED DAY THE STORE'S CURVE LAST CHANGED (2026-10-14): written beside
- * `CURVE_META_KEY` on the pass a new signature replaces an old one — never on
- * a store's first signing, when there was no other curve to change from. A
- * row in the existing `meta` table: no column, no store version.
+ * `CURVE_META_KEY` on every pass that signs the store under a curve it was not
+ * signed under — its first signing included, so a store upgrading from a
+ * build older than the signature waits too. A row in the existing `meta`
+ * table: no column, no store version.
  * Decided by Mike, 2026-10-14, lightly held; review 2026-10-18.
  */
 export const CURVE_SINCE_KEY = "decay.curve.since";
@@ -107,14 +108,15 @@ export const CURVE_SINCE_KEY = "decay.curve.since";
  * (`physics#pruneVerdict`'s `curveSince`), as the store stands on lived day
  * `day`:
  *
- *   - never signed (a new store, or a port the decay pass never signed):
- *     null — no curve was ever replaced, nothing to wait out;
+ *   - never signed (a port the decay pass cannot sign, or a read before any
+ *     pass: an observer preview): null — no wait beyond the floor's own. On a
+ *     real store the decay pass signs it before the prune runs, the same night;
  *   - signed under ANOTHER curve than this build's (the decay pass has not
  *     re-signed it yet — an observer run, a decay phase that failed or was
  *     skipped): `day` — this build's curve is new tonight, so nothing it
  *     lowered has waited under the floor yet;
  *   - signed under this build's curve: the day that signature arrived
- *     (`CURVE_SINCE_KEY`), or null when it arrived as the first signing.
+ *     (`CURVE_SINCE_KEY`); null only when that row is missing or unreadable.
  *
  * Why: the curve's own crossing day (`physics#floorDay`) reads a lowered
  * memory as under the floor for weeks already; this is what keeps a new curve
@@ -126,7 +128,9 @@ export function curveSinceDay(store: { getMeta(key: string): string | undefined 
   const stored = store.getMeta(CURVE_META_KEY);
   if (stored === undefined || stored === "") return null;
   if (stored !== curveSignature(store.getMeta(CLAIMS_ERA_CUTOFF_KEY) ?? null)) return day;
-  const since = Number(store.getMeta(CURVE_SINCE_KEY));
+  const raw = store.getMeta(CURVE_SINCE_KEY);
+  // An empty row is no day (Number("") would read it as day 0).
+  const since = raw === undefined || raw.trim() === "" ? Number.NaN : Number(raw);
   return Number.isFinite(since) ? since : null;
 }
 
@@ -298,9 +302,11 @@ export function runDecay(ctx: PhaseCtx, cache: StrengthCache | null): DecayResul
   // until a pass reaches it, however many passes a budget takes.
   if (turnDown && !sameCurve && ctx.apply) {
     store.clearNextChangeDays?.();
-    // A curve REPLACED (2026-10-14): the day it changed, for the prune's wait
-    // (`curveSinceDay`). A first signing has nothing to replace.
-    if ((store.getMeta(CURVE_META_KEY) ?? "") !== "") store.setMeta(CURVE_SINCE_KEY, String(day));
+    // The day this build's curve arrived (2026-10-14), for the prune's wait
+    // (`curveSinceDay`) — a first signing too: a store signed by no build
+    // before (an upgrade from one older than the signature) has had its
+    // curve changed as surely as one signed under another.
+    store.setMeta(CURVE_SINCE_KEY, String(day));
     store.setMeta(CURVE_META_KEY, signature);
   }
   // THE PASS A NEW CURVE ARRIVES ON (review of #372): every band it moves moved

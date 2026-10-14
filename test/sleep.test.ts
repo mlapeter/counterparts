@@ -23,7 +23,7 @@ import { DEFAULT_RETENTION_DAYS, Store } from "../src/core/store/index.js";
 import type { PutInput, StoreEvent } from "../src/core/store/index.js";
 import { TUNABLES as PHYSICS, band, promotionEligibility, strength } from "../src/core/physics/index.js";
 import { rowToPhysics } from "../src/core/store/operational.js";
-import { bodyOf } from "./store-fixture.js";
+import { bodyOf, settledCurve } from "./store-fixture.js";
 import { Schemas, TUNABLES as SCHEMA_TUNABLES } from "../src/core/schemas/index.js";
 import { applyRevision } from "../src/core/revision.js";
 import {
@@ -106,6 +106,10 @@ afterEach(() => {
 function store(opts: Parameters<typeof Store.open>[0] = {}): Store {
   const s = Store.open({ dir, ...opts });
   open.push(s);
+  // A curve that has read this store for ages (2026-10-14): these tests are
+  // about the prune once nothing new has arrived, not the pause a new curve
+  // starts (`test/prune-wait.test.ts`). An observer store cannot be written.
+  if (opts.observer !== true) settledCurve(s);
   return s;
 }
 

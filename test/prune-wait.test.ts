@@ -183,14 +183,28 @@ describe("sleep: the night a new curve arrives lets go of nothing", () => {
     expect(s.row(id)!.archived).toBe(1);
   });
 
-  test("a store's first signing is not a curve change: no wait beyond the floor's own", () => {
+  test("a store's first signing is a curve change too: an unsigned upgrader waits its 14 days", () => {
     const s = store();
     const id = put(s, { birthDay: -400, lastUsedDay: -400, uses: 0 });
+    // Never signed (a store from a build older than the signature): nothing to read yet.
+    expect(s.getMeta(CURVE_META_KEY)).toBeUndefined();
     expect(curveSinceDay(s, 0)).toBeNull();
     runDecay(ctx(s, 0), null);
-    expect(s.getMeta(CURVE_SINCE_KEY)).toBeUndefined();
-    expect(curveSinceDay(s, 0)).toBeNull();
-    expect(runPrune(ctx(s, 0)).pruned.map((p) => p.id)).toEqual([id]);
+    expect(s.getMeta(CURVE_SINCE_KEY)).toBe("0");
+    expect(curveSinceDay(s, 0)).toBe(0);
+    expect(runPrune(ctx(s, 0)).pruned).toEqual([]);
+    expect(runPrune(ctx(s, 13)).pruned).toEqual([]);
+    expect(s.row(id)!.archived).toBe(0);
+    expect(runPrune(ctx(s, 14)).pruned.map((p) => p.id)).toEqual([id]);
+  });
+
+  test("an empty since row is no day, not day 0", () => {
+    const s = store();
+    runDecay(ctx(s, 3), null);
+    s.setMeta(CURVE_SINCE_KEY, "");
+    expect(curveSinceDay(s, 9)).toBeNull();
+    s.setMeta(CURVE_SINCE_KEY, "3");
+    expect(curveSinceDay(s, 9)).toBe(3);
   });
 
   test("a memory that crosses the floor tonight on a settled curve waits its 14 days", () => {
