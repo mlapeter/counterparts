@@ -1343,6 +1343,7 @@ describe("doctor's Claude Code line knows the plugin", () => {
       scope: "user",
       projectPath: null,
       enabled: true,
+      standsDown: null,
     });
     recordPlugin(false);
     expect(pluginInstall({ home, env: {}, cwd: project })?.enabled).toBe(false);
@@ -1412,6 +1413,52 @@ describe("doctor's Claude Code line knows the plugin", () => {
     expect(f.fix).toContain("claude plugin uninstall counterparts@counterparts");
   });
 
+  // THE NPM DOCTOR BESIDE AN INSTALLED PLUGIN: which flavor sits at its
+  // installPath decides whether "stands down" is true (review of #481).
+  function npmBesidePlugin(flavorFile: string): Finding {
+    const hooks: Record<string, string[]> = {};
+    for (const e of HOST_EVENTS) hooks[e] = [liveHookCommand()];
+    writeSettings(hooks);
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { counterparts: { type: "stdio", command: process.execPath, args: ["run", MCP_SCRIPT] } } }),
+    );
+    recordPlugin(true);
+    const at = join(home, "cache", "0.3.12", "src", "adapters", flavorFile);
+    mkdirSync(dirname(at), { recursive: true });
+    writeFileSync(at, "");
+    const host = readHost(home, project, {});
+    expect(host.mcpRead).toBe(true);
+    return hostFinding(host);
+  }
+
+  test("npm's doctor beside the DIRECTORY flavor of the plugin: both run, said truthfully, remove one", () => {
+    const f = npmBesidePlugin("runtime.js");
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("so both are running, on the same memory");
+    expect(f.detail).toContain("wired twice until a later version");
+    expect(f.detail).not.toContain("stands down");
+    expect(f.fix).toContain("remove one");
+    expect(f.fix).toContain("claude plugin uninstall counterparts@counterparts");
+  });
+
+  test("npm's doctor beside the LAUNCHER flavor of the plugin: it stands down", () => {
+    const f = npmBesidePlugin("plugin-run.sh");
+    expect(f.detail).toContain("which stands down while this wiring is live");
+    expect(f.detail).not.toContain("both are running");
+  });
+
+  test("pluginInstall reads the flavor from installPath", () => {
+    recordPlugin();
+    expect(pluginInstall({ home, env: {}, cwd: null })?.standsDown).toBeNull();
+    const dir = join(home, "cache", "0.3.12", "src", "adapters");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "runtime.js"), "");
+    expect(pluginInstall({ home, env: {}, cwd: null })?.standsDown).toBe(false);
+    writeFileSync(join(dir, "plugin-run.sh"), "");
+    expect(pluginInstall({ home, env: {}, cwd: null })?.standsDown).toBe(true);
+  });
+
   // THE PLUGIN DIRECTORY'S BUILD (2026-10-14): it never opens ~/.claude.json
   // (`runtime.ts#readsHostUserConfig`), so doctor has no MCP clause, and its
   // plugin does not stand down beside the npm install.
@@ -1443,7 +1490,7 @@ describe("doctor's Claude Code line knows the plugin", () => {
     const f = hostFinding({ ...host, claudeOnPath: false, mcpAddLine: "claude mcp add counterparts" });
     expect(f.severity).toBe("amber");
     expect(f.detail).toContain("all 5 hook events are connected");
-    expect(f.detail).toContain("whose build does not check for this install, so both are running, on the same memory");
+    expect(f.detail).toContain("whose build does not check for the other install, so both are running, on the same memory");
     expect(f.detail).not.toContain("stands down");
     expect(f.detail).not.toContain(".claude.json");
     expect(f.data["mcpFile"]).toBeNull();

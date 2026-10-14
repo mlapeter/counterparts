@@ -194,8 +194,10 @@ function removeProgramAfterGone(input: UninstallInput): void {
   const route = installRoute(input.env);
   if (route === "npm") {
     input.io.out(`To remove the program too: ${REMOVE_PACKAGE}`);
-    // INSTALLED TWICE: the plugin stood down while this install's hooks were
-    // live, and they are out now, so its next start is a first run too.
+    // INSTALLED TWICE: the plugin's launcher flavor stood down while this
+    // install's hooks were live, and the directory flavor (which never reads
+    // `~/.claude.json`) ran beside them; either way it is still on, and with
+    // the configuration gone its next start is a first run.
     const also = pluginInstall({ home: input.home, env: input.env, cwd: null });
     if (also === null || !also.enabled) return;
     input.io.out(`Claude Code also has the plugin: ${pluginUninstallCommand(also, input.home)}`);

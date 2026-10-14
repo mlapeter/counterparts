@@ -380,12 +380,14 @@ whole stand-down detection: hooks and server alike find no npm wiring, and docto
 stood-down redirect never fires), `cli/install.ts#readHost` (doctor has no MCP clause;
 `mcpRead: false`), `cli/desktop.ts#readDesktop` (no Code-tab clash) and `cli/wire.ts#readMcp`
 (`notRead`: `/counterparts:uninstall` asks `claude mcp remove` and takes its answer, and
-with no `claude` says the line to run). It still reads the settings files and
+with no `claude` says the line to run and counts the registration unconfirmed, so it deletes
+and moves no memory). It still reads the settings files and
 `installed_plugins.json` (doctor, uninstall, the sidebar). **Known limit:** with the npm
 install ALSO wired, the directory flavor does not stand down, so the memory is wired twice
 (the per-event claim below still keeps one wake per event; the memory tools are offered
 twice) until a marker-based check that needs no `~/.claude.json` lands. doctor's Claude
-Code line says both run; the bundle README says to keep one. The full flavor and the npm
+Code line says both run, from either side (npm's doctor tells the flavor by the files at the
+plugin's `installPath`); the bundle README says to keep one. The full flavor and the npm
 install are unchanged. `build.ts --flavor directory --check <dir>`
 rebuilds and names every file that differs from `<dir>`, with the Bun version (the
 transpiled bytes depend on it). `tools/plugin-loop/run.sh --bundle=directory` installs it

@@ -986,12 +986,17 @@ describe("unwire", () => {
       expect(text(c.out)).not.toContain(".claude.json");
     });
 
-    test("no `claude` to ask: nothing of its own is left, said with the line for an npm registration", async () => {
+    test("no `claude` to ask: NOT confirmed (an npm install's server may still point at this store), with the line to run", async () => {
+      // Unknown is not absent: uninstall's irreversible arms and its delete
+      // offer refuse on `mcpConfirmed: false` (review of #481).
       const c = consoleWith();
       const result = await unwire(input({ io: c.io, spawner: spawnerThat(() => MISSING).spawner, readsUserConfig: false }));
-      expect(result.mcpConfirmed).toBe(true);
-      expect(text(c.out)).toContain("does not read Claude Code's own configuration");
-      expect(text(c.out)).toContain(`claude mcp remove ${MCP_SERVER_NAME} -s user`);
+      expect(result.outcome).toBe("ok");
+      expect(result.mcpConfirmed).toBe(false);
+      expect(result.mcp).toBe("printed");
+      const said = text(c.out) + text(c.err);
+      expect(said).toContain("does not read Claude Code's own configuration");
+      expect(said).toContain(`claude mcp remove ${MCP_SERVER_NAME} -s user`);
     });
 
     test("`claude` failing for another reason is not a confirmation", async () => {

@@ -123,8 +123,11 @@ export const TRANSPILED: boolean = MODULE_EXT === ".js";
  * wired twice until a marker-based check lands, docs/plugin.md), doctor has
  * no MCP-registration line and no Desktop Code-tab clash, and an uninstall has
  * only `claude mcp remove`'s word that a `-s user` registration is gone (with
- * no `claude`, it says the line to run). The settings files and
- * `plugins/installed_plugins.json` are still read. `transpiled` is a test's seam.
+ * no `claude`, it says the line to run and does not count it gone). The
+ * stand-down check (`host-wiring.ts#npmWiring`) reads nothing at all in this
+ * build, the settings files' hooks included; doctor, connect and uninstall
+ * still read the settings files, and `plugins/installed_plugins.json` is
+ * still read. `transpiled` is a test's seam.
  */
 export function readsHostUserConfig(transpiled: boolean = TRANSPILED): boolean {
   return !transpiled;
