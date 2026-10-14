@@ -40,8 +40,11 @@ What it does instead: **core writes a status file the sidebar reads**
   `contradiction.settled` and 5 `dream.journaled` (each row slimmed to the
   detail keys `feed.ts` reads, `DETAIL_KEYS`), each mechanism's panel, and up
   to 60 memories those rows name (title, kind, learned date, the first 1500
-  characters of the text; none for a confidential one). About 85 KB on the
-  demo store; about 90 ms to build and write.
+  characters of the text; none for a confidential one). About 85 KB; to build
+  and write, about 57 ms on the demo store (121 memories, 319 events) and 130
+  ms with 25,000 more events. Rows are read by name and limit, not through the
+  activity view (which counts the whole log per call), and panels without
+  their pictures (`mechanism-panel.ts#mechanismActivity`).
 - **When (never on a hook's path):** the detached worker, last, after every
   Stop and SessionEnd (`runner.ts` step 5, after the store closed); the memory
   server 3 s after it starts (that is "at session start"), 1.5 s after any tool

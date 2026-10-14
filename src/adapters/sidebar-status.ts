@@ -40,9 +40,11 @@ import { dirname, join } from "node:path";
 import { Dashboard } from "./dashboard/index.js";
 import type { DashboardSource } from "./dashboard/source.js";
 import { dreamsView } from "./dashboard/web/views/dreams.js";
-import { mechanismPanel } from "./dashboard/web/views/mechanism-panel.js";
+import { narrate } from "./dashboard/web/narrate.js";
+import { mechanismActivity } from "./dashboard/web/views/mechanism-panel.js";
 import { mechanismsView } from "./dashboard/web/views/mechanisms.js";
-import { activityView, memoryDetail, pulse } from "./dashboard/web/views.js";
+import { memoriesHeld } from "./dashboard/web/views/shared.js";
+import { memoryDetail } from "./dashboard/web/views.js";
 import { installedVersion } from "./sessions.js";
 import { storeId } from "./store-id.js";
 
@@ -131,7 +133,13 @@ const MEMORY_ID = /\bmem_[A-Za-z0-9]+\b/g;
 
 /** The status, from an open observer source. Pure but for the reads. */
 export function buildSidebarStatus(src: DashboardSource, now: number, build: string | null = installedVersion()): SidebarStatus {
-  const p = pulse(src);
+  const store = src.store;
+  // The newest rows, narrated as the activity feed narrates them, read by name
+  // and limit alone (the feed's own view also counts the whole log per call).
+  const newest = (filter: { name?: string; limit: number }): Row[] =>
+    store.eventLog({ ...filter, order: "desc" }).map((row) => narrate(store, row) as unknown as Row);
+  const recent = newest({ limit: RECENT_ROWS });
+  const p = { day: store.livedDay(), memories: memoriesHeld(src), lastSeq: recent[0]?.seq ?? 0 };
   let today: SidebarStatus["today"] = null;
   const panels: Record<string, Row[]> = {};
   try {
@@ -139,8 +147,8 @@ export function buildSidebarStatus(src: DashboardSource, now: number, build: str
     const counts: Record<string, number> = {};
     for (const v of m.mechanisms as readonly { id: string; firedToday?: unknown }[]) {
       if (typeof v.firedToday === "number") counts[v.id] = v.firedToday;
-      const panel = mechanismPanel(src, v.id);
-      if (panel.found && panel.activity.length > 0) panels[v.id] = (panel.activity as unknown as Row[]).map(slim);
+      const activity = mechanismActivity(src, v.id) as unknown as Row[];
+      if (activity.length > 0) panels[v.id] = activity.map(slim);
     }
     today = { date: m.today, counts };
   } catch {
@@ -150,8 +158,8 @@ export function buildSidebarStatus(src: DashboardSource, now: number, build: str
   const keep = (rows: readonly unknown[]): void => {
     for (const r of rows as readonly Row[]) if (typeof r.seq === "number" && !bySeq.has(r.seq)) bySeq.set(r.seq, slim(r));
   };
-  keep(activityView(src, { limit: RECENT_ROWS }).events);
-  for (const [name, limit] of Object.entries(NAMED_ROWS)) keep(activityView(src, { name, limit }).events);
+  keep(recent);
+  for (const [name, limit] of Object.entries(NAMED_ROWS)) keep(newest({ name, limit }));
   const events = [...bySeq.values()].sort((a, b) => b.seq - a.seq);
   const dreams = dreamsView(src, DREAMS).dreams;
 
