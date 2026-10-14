@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { Counterpart } from "../src/core/counterpart.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import { ownedKind, ownedNames } from "../src/adapters/cli/uninstall.js";
 import { openServer } from "../src/adapters/mcp/index.js";
@@ -293,6 +294,53 @@ describe("the review's cases (2026-10-14)", () => {
       expect(removeSidebarStatus(cfg)).toBe(true);
       expect(existsSync(join(dir, SIDEBAR_FILE_NAME))).toBe(false);
       expect(removeSidebarStatus(cfg)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Emotion in the file (2026-10-14)", () => {
+  test("a memory saved with a feeling and a turn that brought one to mind count today; their rows say which memories carry a feeling, with the words", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-sidebar-felt-"));
+    try {
+      const store = join(dir, "store");
+      const cfg = join(dir, "claude-code.json");
+      writeFileSync(cfg, JSON.stringify({ dataDir: store }));
+      const c = Counterpart.open({ dir: store, owner: true });
+      let felt = "";
+      let plain = "";
+      try {
+        const s = c.store;
+        const day = s.livedDay();
+        felt = s.put({ type: "memory", kind: "fact", title: "The rota went up untouched", body: "No hand edits this week.", source: "authored" });
+        s.addFeelings(felt, [{ whose: "owner", core: "happy", emotion: "proud", strength: 0.8 }]);
+        plain = s.put({ type: "memory", kind: "fact", title: "Release notes go out on Fridays", body: "After the review.", source: "authored" });
+        s.appendEvent({ name: "gate.deposit", day, payload: { accepted: 1, memoryId: felt } });
+        s.appendEvent({ name: "gate.deposit", day, payload: { accepted: 1, memoryId: plain } });
+        s.appendEvent({
+          name: "recall.decision",
+          day,
+          ref: "s1",
+          payload: { turn: 1, surfacedCount: 2, footnoteCount: 0, moodMatched: 0, surfaced: [{ id: plain }, { id: felt }], footnotes: [] },
+        });
+      } finally {
+        c.close();
+      }
+      expect(writeSidebarStatus({ configPath: cfg, dataDir: store }).written).toBe(true);
+      const s = JSON.parse(readFileSync(sidebarStatusPath(cfg), "utf8")) as Record<string, any>;
+      expect(s["today"]["counts"]["emotional"]).toBe(2);
+      const feltOf = (r: { detail?: { key: string; value: string }[] }): unknown => JSON.parse(r.detail?.find((d) => d.key === "felt")?.value ?? "null");
+      // The Emotion panel: the felt memory only, named, with its words.
+      const panel = s["panels"]["emotional"] as { name: string; text: string; detail: { key: string; value: string }[] }[];
+      expect(panel.map((r) => r.name).sort()).toEqual(["gate.deposit", "recall.decision"]);
+      for (const r of panel) expect(feltOf(r)).toEqual([{ id: felt, words: ["proud"] }]);
+      expect(panel.map((r) => r.text).join("\n")).not.toContain("Release notes");
+      // The feed's rows carry it too, so a deposit with a feeling lights Emotion there; one without carries none.
+      const deposits = (s["events"] as { name: string; detail: { key: string; value: string }[] }[]).filter((r) => r.name === "gate.deposit");
+      expect(deposits.map(feltOf)).toEqual([null, [{ id: felt, words: ["proud"] }]]);
+      expect(s["memories"][felt]["title"]).toBe("The rota went up untouched");
+      expect(DETAIL_KEYS.has("felt")).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -37,6 +37,7 @@ import type { NarratedEvent } from "../narrate.js";
 import { reveal, revealHere } from "../reveal.js";
 import { feelingsShown } from "./memory-words.js";
 import type { FeelingShown } from "./memory-words.js";
+import { feltScope, primeFelt } from "../../../mechanism-evidence.js";
 import { MECHANISM_DAYS, MECHANISM_PROOFS, counted, payloadOf } from "./mechanisms.js";
 import { LOG_CEILING, census } from "./shared.js";
 import type { MemoryLine } from "./shared.js";
@@ -249,13 +250,20 @@ export function mechanismPanel(src: DashboardSource, id: string): MechanismPanel
  * use for the picture's reads. Empty for an unknown or unbuilt mechanism.
  */
 export function mechanismActivity(src: DashboardSource, id: string): Merged[] {
+  // One feeling read per batch of rows, not per row (`feltScope`): Emotion's proofs ask it.
+  return feltScope(src.store, () => activityOf(src, id));
+}
+
+function activityOf(src: DashboardSource, id: string): Merged[] {
   const store = src.store;
   const proof = MECHANISM_PROOFS.find((m) => m.id === id);
   if (proof === undefined || proof.build === "not") return [];
 
   const backing: EventRow[] = [];
   for (const p of proof.proofs) {
-    for (const row of store.eventLog({ name: p.event, order: "desc", limit: ACTIVITY_LOOKBACK })) {
+    const rows = store.eventLog({ name: p.event, order: "desc", limit: ACTIVITY_LOOKBACK });
+    if (p.reads !== undefined) primeFelt(store, rows);
+    for (const row of rows) {
       if (counted(p, row, store) > 0) backing.push(row);
     }
   }

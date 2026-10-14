@@ -18,6 +18,12 @@
  *   - `stands` (a dream or a settle undone no longer counts): read against
  *     the store, and an `/api/activity` row carries no mark that it was undone.
  *
+ * `reads` (Emotion, 2026-10-14: a deposit or a turn whose memories carry a
+ * feeling) is read against the store too, but the status file's writer
+ * stamps the answer on the row as `felt` (the memories that carry one). So
+ * here a `reads` proof counts exactly when the payload carries a non-empty
+ * `felt`, which is what the sidebar sees.
+ *
  * Why a dynamic import: feed.ts is a hooks module's source, written for the
  * engine's loader (extensionless imports, a contract `.d.ts` that augments the
  * engine's `claude-code` module) and type-checked by `tsc -p hooks/sidebar`.
@@ -55,6 +61,8 @@ const SAMPLES: Readonly<Record<string, Payload>> = {
   "reconsolidation.settled": { how: "changed", source: "write" },
   "retrieval.turns": { surfacedCount: 1, footnoteCount: 0 },
   "consolidation.rose": { site: "consolidate", direction: "up" },
+  "emotional.felt": { accepted: 1, memoryId: "mem_a", felt: [{ id: "mem_a", words: ["curious"] }] },
+  "emotional.feltRecalled": { surfacedCount: 1, footnoteCount: 0, surfaced: [{ id: "mem_a" }], felt: [{ id: "mem_a", words: ["proud"] }] },
 };
 
 function sampleFor(mech: string, proof: Proof): Payload | null {
@@ -78,11 +86,25 @@ const MORE: readonly { event: string; payload: Payload }[] = [
   { event: "contradiction.settled", payload: { how: "changed", source: "dream-merge" } }, // counted as the merge, not as a settle
   { event: "associate.flush", payload: { rows: 0, pairs: 0 } },
   { event: "gate.deposit", payload: { accepted: 0 } },
+  // A deposit or a turn whose memories carry no feeling: Salience or Retrieval alone, not Emotion.
+  { event: "gate.deposit", payload: { accepted: 1, memoryId: "mem_b" } },
+  { event: "recall.decision", payload: { surfacedCount: 1, footnoteCount: 0, surfaced: [{ id: "mem_b" }] } },
+  // A turn that came to mind with a feeling and a mood match at once: Emotion once.
+  { event: "recall.decision", payload: { surfacedCount: 1, footnoteCount: 0, moodMatched: 1, felt: [{ id: "mem_a", words: ["proud"] }] } },
 ];
+
+/** What the store answers for a `reads` proof, as the status file stamps it: a non-empty `felt`. */
+const feltStamped = (p: Payload): boolean => Array.isArray(p["felt"]) && p["felt"].length > 0;
 
 /** What core says a row of `event` with `payload` proves. */
 function coreProves(event: string, payload: Payload): string[] {
-  return [...new Set(PROOFS.filter(({ proof }) => proof.event === event && amount(proof, payload) > 0).map(({ mech }) => mech))].sort();
+  return [
+    ...new Set(
+      PROOFS.filter(({ proof }) => proof.event === event && amount(proof, payload) > 0 && (proof.reads === undefined || feltStamped(payload))).map(
+        ({ mech }) => mech,
+      ),
+    ),
+  ].sort();
 }
 
 /** What the sidebar lights for the same row, as `/api/activity` narrates it (detail values as strings). */

@@ -135,7 +135,9 @@ describe("2. the panel: one number, those memories, one line", () => {
         for (const c of LEADS[l.id]!) for (const k of c.keys) expect(`${l.id}.${k}: ${keys.has(k)}`).toBe(`${l.id}.${k}: true`);
       }
       const emotion = view.mechanisms.find((m) => m.id === "emotional")!;
-      expect(emotion.lead).toEqual({ n: 2, words: "memories a matching mood brought closer this week" });
+      // The mood match leads last since 2026-10-14 (off by decision): the demo saved and recalled no
+      // memory with a feeling this week, so the lift on new memories leads.
+      expect(emotion.lead).toEqual({ n: 25, words: "new memories held higher for their feeling this week" });
       const cons = view.mechanisms.find((m) => m.id === "consolidation")!;
       expect(cons.lead).toEqual({ n: returns.awake, words: "came back in conversation this week" });
     });
