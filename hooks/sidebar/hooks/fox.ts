@@ -37,6 +37,7 @@ const DEFAULT_COLOR = 0x01000000
 
 // ── which way to draw it ────────────────────────────────────────────────────
 
+/** `svg`: the desktop and the other remote surfaces, drawn as an Svg (`fox-svg.ts`). */
 export type FoxTier = 'image' | 'fine' | 'basic' | 'svg'
 
 /** The person's override (`$.store` `avatarDetail`): `auto` lets the environment decide. */
@@ -51,7 +52,7 @@ export const TIER_ENV = ['TERM_PROGRAM', 'TERM', 'KITTY_WINDOW_ID', 'WEZTERM_EXE
 
 export type TierEnv = Partial<Record<(typeof TIER_ENV)[number], string>>
 
-const set = (v: string | undefined): boolean => v !== undefined && v !== ''
+const present = (v: string | undefined): boolean => v !== undefined && v !== ''
 
 /**
  * Whether this terminal draws an `Image`'s pixels. The engine says no such
@@ -64,21 +65,22 @@ export function imagesLikely(env: TierEnv): boolean {
   const force = (env.CLAUDE_CODE_FORCE_TERMINAL_IMAGES ?? '').trim().toLowerCase()
   if (['1', 'true', 'yes', 'on'].includes(force)) return true
   if (['0', 'false', 'no', 'off'].includes(force)) return false
-  if (set(env.TMUX) || set(env.STY)) return false
-  return env.TERM_PROGRAM === 'ghostty' || env.TERM === 'xterm-ghostty' || env.TERM === 'xterm-kitty' || set(env.KITTY_WINDOW_ID)
+  if (present(env.TMUX) || present(env.STY)) return false
+  return env.TERM_PROGRAM === 'ghostty' || env.TERM === 'xterm-ghostty' || env.TERM === 'xterm-kitty' || present(env.KITTY_WINDOW_ID)
 }
 
 /** Whether this terminal's font has sextants: the ones known to draw them; under tmux or screen the outer one is unknown. */
 export function sextantsLikely(env: TierEnv): boolean {
-  if (set(env.TMUX) || set(env.STY)) return false
+  if (present(env.TMUX) || present(env.STY)) return false
   const p = env.TERM_PROGRAM ?? ''
   if (p === 'iTerm.app' || p === 'WezTerm' || p === 'vscode' || p === 'ghostty') return true
-  return env.TERM === 'xterm-kitty' || env.TERM === 'xterm-ghostty' || set(env.KITTY_WINDOW_ID) || set(env.WEZTERM_EXECUTABLE)
+  return env.TERM === 'xterm-kitty' || env.TERM === 'xterm-ghostty' || present(env.KITTY_WINDOW_ID) || present(env.WEZTERM_EXECUTABLE)
 }
 
 /**
  * The tier for a drawing: the desktop and the other remote surfaces draw the
- * Svg; a terminal, the override or else the environment's answer. `noImages`:
+ * Svg (`fox-svg.ts`, a file of its own); a terminal, the override or else the
+ * environment's answer. `noImages`:
  * an Image here drew its alt (a refused blit said so), so `auto` stops trying.
  * `hasPngs` false (no PNG folder found): never a picture, whatever was asked.
  */
@@ -141,7 +143,7 @@ export function stepKey(s: Pick<Step, 'frame' | 'fx'>): string {
  * tail or a yawn). The first hold after the fox appears is short and ends in
  * the tail tip's flick. After 45 s with nothing happening he lies down (the
  * loaf: `lieIn`, the pose changing behind shut eyes), keeps small moments
- * lying (`lieWeights`), and at 2 min curls into a nap from there
+ * lying (`lieWeights`), and at 2 min settles into a nap from there
  * (`lieNapIn`), which a prompt (or anything real) wakes. The real-state
  * moments: `came` (something came to mind), `note` (a save), `hello` (the
  * first meeting) and `dream` (while a dream runs, until it ends); each gets
@@ -181,9 +183,9 @@ function pick(rand: () => number, weights: Readonly<Record<string, number>>, fal
   return fallback
 }
 
-/** How a frame holds him: sitting, lying (the loaf) or curled asleep. A real event gets him up from where he is. */
-export function poseOf(frame: string): 'sit' | 'lie' | 'curl' {
-  if (frame === 'nap0' || frame === 'nap1') return 'curl'
+/** How a frame holds him: sitting, lying (the loaf) or asleep. A real event gets him up from where he is. */
+export function poseOf(frame: string): 'sit' | 'lie' | 'asleep' {
+  if (frame === 'nap0' || frame === 'nap1') return 'asleep'
   return frame.startsWith('lie') ? 'lie' : 'sit'
 }
 
@@ -292,7 +294,7 @@ export type FoxEvent = 'came' | 'note' | 'hello' | 'dream' | 'dreamEnd' | 'promp
  */
 function getUp(d: Director): Step[] {
   const pose = poseOf(d.cur.frame)
-  if (pose === 'curl') return momentSteps('napOut')
+  if (pose === 'asleep') return momentSteps('napOut')
   if (pose === 'lie') return momentSteps('lieOut')
   const f = d.cur.frame
   return f === 'idle' || f === 'blink' || f === 'drowsy' ? [] : momentSteps('bridge')
@@ -303,7 +305,7 @@ export function trigger(d: Director, ev: FoxEvent, now: number): void {
   const pose = poseOf(d.cur.frame)
   if (ev === 'dream') {
     if (d.mode === 'dream') return
-    d.queue = pose === 'curl' ? [] : momentSteps(pose === 'lie' ? 'lieNapIn' : 'napIn')
+    d.queue = pose === 'asleep' ? [] : momentSteps(pose === 'lie' ? 'lieNapIn' : 'napIn')
     d.mode = 'dream'
     d.dreamSince = now
     d.until = now
@@ -614,40 +616,6 @@ export function pngName(step: Pick<Step, 'frame' | 'fx'>): string {
 
 /** The scale the build writes the PNGs at: art pixels x 3. */
 export const PNG_SCALE = 3
-
-// ── svg: the desktop ────────────────────────────────────────────────────────
-
-/** CSS pixels a half-block pixel takes on the desktop. */
-export const SVG_PX = 6
-
-/** The desktop's drawing: rects from the half-block pixels, run-length per row, then the PNG (`png`, base64; '' for none) over them. */
-export function foxSvg(step: Pick<Step, 'frame' | 'fx'>, png: string): { source: string; width: number; height: number } {
-  const cols = STAGE_COLS
-  const H = stageRows('basic') * 2
-  const px = halfPixels(step, cols)
-  const rects: string[] = []
-  for (let y = 0; y < H; y++) {
-    let x = 0
-    while (x < cols) {
-      const c = px[y * cols + x] ?? null
-      if (c === null) {
-        x++
-        continue
-      }
-      let n = 1
-      while (x + n < cols && px[y * cols + x + n] === c) n++
-      rects.push(`<rect x="${String(x)}" y="${String(y)}" width="${String(n)}" height="1" fill="${hex6(c)}"/>`)
-      x += n
-    }
-  }
-  // The PNG's box over the half-block fox's (the art lines both up: the same footprint, feet on the bottom line).
-  const [bw, bh] = ART.half.box
-  const image = png === '' ? '' : `<image x="${String(HALF_X0)}" y="${String(H - bh)}" width="${String(bw + 2)}" height="${String(bh)}" preserveAspectRatio="xMidYMax meet" style="image-rendering:pixelated" href="data:image/png;base64,${png}"/>`
-  // The picture alone when there is one: the half-block fox under it showed as a dark ghost edge on the
-  // desktop's light page (2026-10-13); it stays only as the fallback for a frame with no PNG.
-  const source = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${String(cols)} ${String(H)}" shape-rendering="crispEdges">${image === '' ? rects.join('') : image}</svg>`
-  return { source, width: cols * SVG_PX, height: H * SVG_PX }
-}
 
 /** The PNGs' pixel size, for a test. */
 export const PNG_SIZE = [ART.png.box[0] * PNG_SCALE, ART.png.box[1] * PNG_SCALE] as const

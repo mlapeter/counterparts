@@ -8,8 +8,9 @@
  * v1 (the directory trim, 2026-10-14): nothing in the pane acts. No Button
  * runs a command or calls a tool: the intro row, the folder switch and its
  * confirm, and the view and avatar switches are gone; the footer says how to
- * do each instead (`words.ts#footerLines`). The terminal's COUNTERPARTS stays
- * a Link to the dashboard, which the terminal opens.
+ * do each instead (`words.ts#footerLines`). Nothing is a link either
+ * (2026-10-14): COUNTERPARTS is its name, and the dashboard is
+ * `/counterparts:dashboard`, which the footer says.
  */
 
 import type { Elements } from 'claude-code'
@@ -21,31 +22,21 @@ import type { Line } from './sections'
 import { P, bg } from './theme'
 import { RESUME_SAY, footerLines } from './words'
 
-/** The constructors the pane draws with: every surface has these three. */
-export type PaneEls = Pick<Elements['terminal'], 'Box' | 'Text' | 'Link'>
-
-/** Where the title links: the dashboard's address on the terminal; null elsewhere (the title is plain text). */
-export type PaneActions = {
-  dashboardHref: string | null
-}
+/** The constructors the pane draws with: every surface has these. */
+export type PaneEls = Pick<Elements['terminal'], 'Box' | 'Text'>
 
 // ── the title, which the header places ──
 
-/**
- * COUNTERPARTS: on the terminal a `Link` to the dashboard, which the terminal opens; elsewhere plain text (the
- * desktop draws a non-https link as text anyway). `lead` puts a dot before it and, linked, `↗` after.
- */
-export function titleButton(els: PaneEls, actions: PaneActions, o: { lead: boolean; paused: boolean; dot: string | null }): JSX.Element {
-  const { Box, Text, Link } = els
-  const href = actions.dashboardHref
+/** COUNTERPARTS, plain text on every surface (no link, 2026-10-14). `lead` puts a dot before it. */
+export function titleButton(els: PaneEls, o: { lead: boolean; paused: boolean; dot: string | null }): JSX.Element {
+  const { Box, Text } = els
   const words = [
     ...(o.lead ? [<Text key="dot" color={o.dot ?? P.accentDim}>◉ </Text>] : []),
     <Text key="name" color={o.paused ? P.dim : P.accent} bold>COUNTERPARTS</Text>,
-    ...(o.lead && href !== null ? [<Text key="arrow" color={P.accentDim}> ↗</Text>] : []),
   ]
   return (
     <Box key="title" flexDirection="row">
-      <Text>{href === null ? words : <Link href={href}>{words}</Link>}</Text>
+      <Text>{words}</Text>
     </Box>
   )
 }

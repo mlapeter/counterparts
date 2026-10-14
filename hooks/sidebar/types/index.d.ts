@@ -46,8 +46,6 @@ export type SidebarRow = {
   text: string;
   /** What opening it adds. */
   more: string[];
-  url: string;
-  label: string;
   /** Seen live in this session rather than read from the dashboard. */
   live?: true;
   /** This session's (`here`), the night's or the background's (`night`), or another session's (`other`). */
@@ -62,7 +60,8 @@ export type SidebarRow = {
   dream?: string;
 };
 
-export type SidebarPulse = { day: number; memories: number; lastSeq: number };
+/** Day, count and the log's newest seq, from the status file; `at`: when that file was written. */
+export type SidebarPulse = { day: number; memories: number; lastSeq: number; at?: number };
 
 /** A memory the sidebar names: its id when known, and its title (or, until the title is read, the words Claude was shown). */
 export type SidebarMemoryRef = {
@@ -149,6 +148,8 @@ export type SidebarOpen = {
   /** `fact · learned Oct 9`. */
   meta: string | null;
   at: number;
+  /** The text shown is not all of it (the status file carries a memory's start, or not the memory): end with `more`. */
+  cut?: boolean;
 };
 
 /**
@@ -247,8 +248,11 @@ declare module 'claude-code' {
   interface PluginState {
     counterparts: {
       pulse: SidebarPulse | null;
-      /** Whether the dashboard answered the last time it was asked. */
-      dash: 'unknown' | 'up' | 'down';
+      /**
+       * The status file at the last look: `up` read, `down` not there yet (no session has written it),
+       * `other` another store's, `unknown` not looked at yet.
+       */
+      dash: 'unknown' | 'up' | 'down' | 'other';
       mind: SidebarMind | null;
       saved: SidebarSaved[];
       today: SidebarToday | null;

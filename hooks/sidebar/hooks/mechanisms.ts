@@ -84,36 +84,6 @@ export function hex(col: Rgb, k = 1): string {
 }
 
 /**
- * The dashboard's address: core's default, fixed (v1 trim, 2026-10-14). The
- * sidebar no longer reads `COUNTERPARTS_DASHBOARD_PORT`: a dashboard started on
- * another port is not read from here. `register.tsx` writes this same literal
- * at each `$.http.fetch` (a reviewer reads the address at the call); this
- * constant serves the links.
- */
-export const DASHBOARD = 'http://127.0.0.1:4747';
-
-/**
- * The only links the sidebar opens: the dashboard's, at its fixed address, in
- * a strict character set.
- */
-export function isDashboardUrl(url: string): boolean {
-  return /^http:\/\/127\.0\.0\.1:4747\/[A-Za-z0-9#?=/_.~-]*$/.test(url);
-}
-
-/** The page each mechanism opens on. */
-export function mechUrl(id: MechId, base: string = DASHBOARD): string {
-  return `${base}/#health/mechanisms?id=${id}`;
-}
-export const MEMORIES_URL = `${DASHBOARD}/#memories`;
-/**
- * One memory's card on the dashboard (`#memories?id=`, 2026-10-10). A
- * dashboard older than that opens its Memories page instead.
- */
-export function memoryUrl(id: string, base: string = DASHBOARD): string {
-  return `${base}/#memories?id=${encodeURIComponent(id)}`;
-}
-
-/**
  * How to open the dashboard, said where it is down: the plugin's own command.
  * Every install that draws this sidebar has it (the sidebar ships in the
  * plugin), beside the npm install too. Until 2026-10-12 an npm install was

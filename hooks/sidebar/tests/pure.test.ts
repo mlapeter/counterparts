@@ -27,8 +27,8 @@ import {
   wrap,
   otherStore,
   parseStoreMarker,
-  storeOf,
 } from '../hooks/feed'
+import { foxSvg } from '../hooks/fox-svg'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { headRight } from '../hooks/desktop'
 import { FOOTER_ITEMS, footerLines, normAvatar, resumeWords, statusFor } from '../hooks/words'
@@ -38,7 +38,6 @@ import {
   advance,
   fineCell,
   fineCells,
-  foxSvg,
   halfCells,
   momentSteps,
   newDirector,
@@ -56,7 +55,7 @@ import {
 } from '../hooks/fox'
 import { FOX_FINAL } from '../hooks/fox-art'
 import { hookConfig, lookup, parentOf, parseRegistry, settingsHookConfig, under } from '../hooks/scopes'
-import { DASHBOARD, MECHS, isDashboardUrl, memoryUrl } from '../hooks/mechanisms'
+import { MECHS } from '../hooks/mechanisms'
 import { MORE, OPEN_MAX_LINES, bar, clip, heading, layoutBody, openedLines, textOf, wrapN } from '../hooks/sections'
 import { CLASSIC_HINT, CLASSIC_HINT_SHORT, TAIL_HINT, quietTail } from '../hooks/tail'
 import { P, applyTheme, cozy, normTheme, tron } from '../hooks/theme'
@@ -668,54 +667,39 @@ describe('the body, laid out', () => {
     expect(before.find(l => l.startsWith('Last Dream'))).toBe('Last Dream ' + '─'.repeat(15) + ' Oct 7')
   })
 
-  test('the dashboard down: the chart says, in cyan, how to start it; no line is a click (v1 runs no command)', () => {
+  test('no status file yet: the chart says, dim, it is waiting for the first session; no line is a click', () => {
     for (const w of [26, 32, 48, 64]) {
       const laid = layoutBody({ ...BASE, w, today: null, dash: 'down' }).lines
       const lines = textOf(laid)
       const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
       const to = lines.findIndex((l, i) => i > at && l.trim() === '')
-      expect(lines.slice(at + 1, to).join(' ')).toBe('Dashboard not running. Start it with /counterparts:dashboard')
-      for (const l of laid.slice(at + 1, to)) {
-        expect(l.key).toBeUndefined()
-        expect(l.segs[0]?.c).toBe('#00e5ff')
-      }
-      expect(lines.join(' ')).not.toMatch(/(^|[^/])counterparts dashboard/)
+      expect(lines.slice(at + 1, to).join(' ')).toBe('Waiting for the first session: memory writes what it did here after a turn.')
+      for (const l of laid.slice(at + 1, to)) expect(l.key).toBeUndefined()
+      expect(lines.join(' ')).not.toMatch(/dashboard/)
     }
   })
 
-  test('another store’s dashboard: no numbers, one dim line saying so', () => {
+  test('another store’s status file: no numbers, one dim line saying so', () => {
     const laid = layoutBody({ ...BASE, today: null, dream: null, dash: 'other' }).lines
     const lines = textOf(laid)
     const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
-    expect(lines.slice(at + 1, at + 3).join(' ')).toBe('The dashboard serves another memory.')
+    expect(lines.slice(at + 1, at + 3).join(' ')).toBe('The status file is another memory’s.')
     expect(laid[at + 1]?.key).toBeUndefined()
   })
-})
 
-describe('the dashboard’s address and links', () => {
-  test('one fixed address, 127.0.0.1:4747: no port is read (v1)', () => {
-    expect(DASHBOARD).toBe('http://127.0.0.1:4747')
-    expect(memoryUrl('mem_a1')).toBe('http://127.0.0.1:4747/#memories?id=mem_a1')
-  })
-
-  test('only the dashboard’s own links open: its fixed address, a strict character set', () => {
-    expect(isDashboardUrl('http://127.0.0.1:4747/')).toBe(true)
-    expect(isDashboardUrl('http://127.0.0.1:4747/#memories?id=mem_a1')).toBe(true)
-    expect(isDashboardUrl('http://localhost:4747/')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:5151/')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:47470/')).toBe(false)
-    expect(isDashboardUrl('http://evil.example:4747/')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:4747.evil.example/')).toBe(false)
-    expect(isDashboardUrl('https://127.0.0.1:4747/')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:4747/a b')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:4747/&calc')).toBe(false)
+  test('a status file over an hour old says its age where the chart says “times fired”; a fresh one does not', () => {
+    const fresh = textOf(layoutBody({ ...BASE, statusAt: BASE.now - 5 * 60000 }).lines)
+    expect(fresh.some(l => /^Mechanisms today ─+ times fired$/.test(l))).toBe(true)
+    const old = textOf(layoutBody({ ...BASE, statusAt: BASE.now - 3 * 3600000 }).lines)
+    expect(old.some(l => /^Mechanisms today ─+ 3 h ago$/.test(l))).toBe(true)
   })
 })
 
 describe('the footer and the pause, said (v1)', () => {
   test('at the docked pane’s 32 cells each item is one line, label · command; wider, the long labels', () => {
     const at = (w: number) => footerLines(w).map(l => l.label + l.how)
-    expect(at(32)).toEqual(['Intro · /counterparts:meet', 'Stats · /counterparts:dashboard', 'Pause · say “pause memory here”', 'Hide · /counterparts quiet'])
+    // `Dashboard · /counterparts:dashboard` is 35 cells: at 32 its command goes under it, whole
+    expect(at(32)).toEqual(['Intro · /counterparts:meet', 'Dashboard', '  /counterparts:dashboard', 'Pause · say “pause memory here”', 'Hide · /counterparts quiet'])
     expect(at(40)).toEqual(['5-minute intro · /counterparts:meet', 'Dashboard · /counterparts:dashboard', 'Pause here · say “pause memory here”', 'Hide this · /counterparts quiet'])
     for (const w of [16, 20, 26, 28, 32, 38, 48]) {
       const lines = footerLines(w)
@@ -726,14 +710,14 @@ describe('the footer and the pause, said (v1)', () => {
     }
     // narrower than an item: its short label, then the command under it, indented
     expect(footerLines(26).map(l => l.label + l.how)).toEqual([
-      'Intro · /counterparts:meet', 'Stats', '  /counterparts:dashboard', 'Pause', '  say “pause memory here”', 'Hide · /counterparts quiet',
+      'Intro · /counterparts:meet', 'Dashboard', '  /counterparts:dashboard', 'Pause', '  say “pause memory here”', 'Hide · /counterparts quiet',
     ])
   })
 
   test('paused or off, the footer’s pause line says how to resume instead', () => {
     expect(footerLines(40, true).map(l => l.label + l.how)).toContain('Resume here · say “resume memory here”')
     expect(footerLines(32, true).map(l => l.label + l.how)).toEqual([
-      'Intro · /counterparts:meet', 'Stats · /counterparts:dashboard', 'Resume', '  say “resume memory here”', 'Hide · /counterparts quiet',
+      'Intro · /counterparts:meet', 'Dashboard', '  /counterparts:dashboard', 'Resume', '  say “resume memory here”', 'Hide · /counterparts quiet',
     ])
     expect(footerLines(32, true).some(l => l.how.includes('pause memory'))).toBe(false)
   })
@@ -1000,7 +984,7 @@ describe('the fox', () => {
       t = a.next
     }
     expect(up).toEqual(['lieBlink', 'blink', 'idle'])
-    // left alone again: lying from 45 s, the nap at 2 min, curled from lying behind the lying blink
+    // left alone again: lying from 45 s, the nap at 2 min, asleep from lying behind the lying blink
     const start = t
     const later: string[] = []
     while (t < start + 125000) {
@@ -1094,9 +1078,6 @@ describe('the fox', () => {
   test('which store: the wake’s marker and a dashboard’s answer; another store only when both are known and differ', () => {
     expect(parseStoreMarker('<!-- counterparts:onboarding meet=done -->\n<!-- counterparts:store id=st_0123456789abcdef -->')).toBe('st_0123456789abcdef')
     expect(parseStoreMarker('<!-- counterparts:store id=st_xyz -->')).toBeNull()
-    expect(storeOf('{"store":"st_0123456789abcdef","version":"0.3.20"}')).toBe('st_0123456789abcdef')
-    expect(storeOf('{"store":null}')).toBeNull()
-    expect(storeOf('not json')).toBeNull()
     expect(otherStore('st_0123456789abcdef', 'st_fedcba9876543210')).toBe(true)
     expect(otherStore('st_0123456789abcdef', 'st_0123456789abcdef')).toBe(false)
     expect(otherStore(null, 'st_fedcba9876543210')).toBe(false)

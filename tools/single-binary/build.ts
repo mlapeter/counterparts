@@ -84,7 +84,7 @@ export function embeddedFiles(): string[] {
   const model = "node_modules/counterparts-model-potion";
   for (const f of ["model.safetensors", "vocab.txt", "package.json", "LICENSE"]) out.push(`${model}/${f}`);
   const web = "src/adapters/dashboard/web";
-  out.push(`${web}/app.html`, `${web}/app.js`);
+  out.push(`${web}/app.html`, `${web}/app.js`, `${web}/favicon.svg`);
   const walk = (dir: string): void => {
     for (const name of readdirSync(join(REPO, dir)).sort()) {
       const rel = `${dir}/${name}`;
