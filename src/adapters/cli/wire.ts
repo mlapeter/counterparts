@@ -1715,7 +1715,16 @@ function hookStillRuns(command: string, env: UiEnv, dirs: readonly string[]): bo
  *  folders does not count. */
 function npmCliOnPath(env: UiEnv, dirs: readonly string[]): boolean {
   const path = (env["PATH"] ?? "").split(process.platform === "win32" ? ";" : ":").filter((d) => d.length > 0);
-  return path.some((d) => existsSync(join(d, BIN.cli)) && !inPlugin(join(d, BIN.cli), env, dirs));
+  return path.some((d) => isFileAt(join(d, BIN.cli)) && !inPlugin(join(d, BIN.cli), env, dirs));
+}
+
+/** A file, not a folder: a `~/counterparts` checkout on PATH is no npm install. */
+function isFileAt(p: string): boolean {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /**
