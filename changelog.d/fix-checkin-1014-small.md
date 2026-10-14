@@ -3,3 +3,6 @@
   work fact unless it changed something, and to claim 0.4 or more only for what struck it
   or changed how it will work, so weak work memories fade on their own. The owner's
   rulings and corrections still stay high.
+- **A faded match is labelled "faded: weak, below reach".** Asking for facts used to label
+  it "not used for a long while", which was false for a memory two days old that simply
+  started weak. The dashboard's search says the same. Ranking is unchanged.
