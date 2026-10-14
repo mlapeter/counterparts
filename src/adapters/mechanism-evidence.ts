@@ -548,7 +548,13 @@ export function primeFelt(store: ReadOnlyStore, rows: readonly EventRow[]): void
     if (!FELT_EVENTS.has(row.name)) continue;
     for (const id of memoryIdsOf(payloadOf(row))) if (!known.has(id)) ids.add(id);
   }
-  readFelt(store, known, [...ids]);
+  // A failed batch leaves the scope unprimed: each row then asks for itself,
+  // inside `counted`'s own catch, so one bad read costs one row, not the build.
+  try {
+    readFelt(store, known, [...ids]);
+  } catch {
+    // unprimed
+  }
 }
 
 function readFelt(store: ReadOnlyStore, into: Map<string, readonly FeelingRow[]>, ids: readonly string[]): void {
@@ -567,11 +573,6 @@ export function feltOn(store: ReadOnlyStore, p: Payload): { id: string; feelings
     const feelings = known.get(id) ?? [];
     return feelings.length > 0 ? [{ id, feelings }] : [];
   });
-}
-
-/** `feltOn`'s ids alone. */
-export function feltIds(store: ReadOnlyStore, p: Payload): string[] {
-  return feltOn(store, p).map((f) => f.id);
 }
 
 function carriesFeeling(store: ReadOnlyStore, p: Payload): boolean {
