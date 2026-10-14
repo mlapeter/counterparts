@@ -39,7 +39,7 @@ What it does instead: **core writes a status file the sidebar reads**
   of the log plus the newest 40 `recall.decision`, 40 `gate.deposit`, 20
   `contradiction.settled` and 5 `dream.journaled` (each row slimmed to the
   detail keys `feed.ts` reads, `DETAIL_KEYS`), each mechanism's panel, and up
-  to 60 memories those rows name (title, kind, learned date, the first 1500
+  to 60 memories those rows name (title, kind, learned date, the first 800
   characters of the text; none for a confidential one). About 85 KB; to build
   and write, about 57 ms on the demo store (121 memories, 319 events) and 130
   ms with 25,000 more events. Rows are read by name and limit, not through the
@@ -69,7 +69,7 @@ What it does instead: **core writes a status file the sidebar reads**
 - **What changed for a person:** a surfaced memory's title replaces the gist
   at the next look after the turn's row lands (up to ~30 s, was ~2 s); `more`
   ends a text the file cut (or a memory it does not carry, whose card is "on
-  the dashboard") and stays the terminal's Link to the card; on a resume the
+  the dashboard") and is plain words (no links, below); on a resume the
   session's Memories and Saved are found among the file's rows (fewer than the
   dashboard's 200/150 per name); a mechanism's deeper firings come from the
   file's rows, not more reads. The dashboard keeps every endpoint; only the
@@ -79,14 +79,42 @@ What it does instead: **core writes a status file the sidebar reads**
   removed memory (`chaseSidebarStatus`; the next writer writes it again
   without). `uninstall` counts it as a file this package left.
 
+**After the review, the same day:**
+
+- **Only where the sidebar is installed:** the worker and the memory server
+  write the file only when this process is the plugin's (`CLAUDE_PLUGIN_ROOT`)
+  or `plugins/installed_plugins.json` records `counterparts@…` and the settings
+  leave it on (`sidebar-status.ts#sidebarInstalled`; `~/.claude.json` is never
+  read). Elsewhere they delete an old one. An npm-only install has none.
+- **Text:** 800 characters a memory (20 lines at the docked width, about 38
+  cells on the desktop: the pane as it was), `cut` beyond; a confidential
+  memory carries the dashboard's withheld sentence, never a blank.
+- **Which file:** each write leaves its path in the store
+  (`sessions/sidebar-status-path`), so a removal finds the file whatever the
+  layout (a `dataDir` outside the configuration's folder too); `start-fresh`
+  rewrites it for the new store.
+- **Two stores, one folder:** a write is skipped as "same" only for the same
+  store's file. **Racing writers:** a writer never renames over a newer seq of
+  its store's, and the sidebar never steps back to an older seq of the store it
+  shows.
+- **No links at all:** COUNTERPARTS and `more` are words on every surface; the
+  shipped sidebar holds no `http(s)://` but the SVG namespace in `fox-svg.ts`
+  (the desktop fox is back, its document built in that file alone, which reads
+  nothing). The footer's short label is `Dashboard` (its command goes under it
+  at 32 cells).
+- **Known limits, kept:** the memory server's write is synchronous on its event
+  loop (about 57 to 130 ms, measured above; a tool call landing then waits that
+  long), and a resumed session's rows come from the file's window (the newest
+  100, plus 40/40/20/5 of four names), not the dashboard's deeper reads.
+
 And the credential holds: the dashboard's favicon is a file now
 (`src/adapters/dashboard/web/favicon.svg`, same URL, same type and cache), so
 `server.ts` holds no namespace URL beside its `key`s; and the fox's SVG
-(`fox.ts#foxSvg`) is gone. That was more than the rectangle fallback: the
-desktop's fox WAS that SVG (the PNG inside an `<svg xmlns=…>`, the desktop's
-only picture element), so **the desktop draws no fox now** (tier `none`: the
-header alone, the count and the day on the title row; the terminal's fox is
-unchanged). `test/sidebar-shows-not-acts.test.ts` checks the directory flavor:
+(`fox.ts#foxSvg`) left `fox.ts`. That was more than the rectangle fallback:
+the desktop's fox WAS that SVG (the PNG inside an `<svg xmlns=…>`, the
+desktop's only picture element). For a while the desktop drew no fox; the
+validator then held nothing for the namespace in a file of its own, so it is
+back, in `fox-svg.ts`. `test/sidebar-shows-not-acts.test.ts` checks the directory flavor:
 no `$.http.fetch` or `/api/` in what the sidebar ships, and no shipped file
 holds `www.w3.org` but `favicon.svg`.
 

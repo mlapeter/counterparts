@@ -209,6 +209,9 @@ async function readStatus($: EngineInterface): Promise<Status | null> {
     // the last good one stands until the next read.
     if (parsed === null) return run.status
     run.statusStamp = stamp
+    // Two writers racing: an older file of the same store over a newer one is not shown (the log only grows).
+    const before = run.status
+    if (before !== null && parsed.storeId !== null && parsed.storeId === before.storeId && parsed.pulse.lastSeq < before.pulse.lastSeq) return before
     run.status = parsed
     return parsed
   } catch {

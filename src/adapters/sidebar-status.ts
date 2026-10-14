@@ -34,8 +34,8 @@
  * old file or the new one, never half of either, and two writers racing each
  * land whole. It never throws: the result says what happened.
  */
-import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join } from "node:path";
 
 import { Dashboard } from "./dashboard/index.js";
 import type { DashboardSource } from "./dashboard/source.js";
@@ -45,6 +45,8 @@ import { mechanismActivity } from "./dashboard/web/views/mechanism-panel.js";
 import { mechanismsView } from "./dashboard/web/views/mechanisms.js";
 import { memoriesHeld } from "./dashboard/web/views/shared.js";
 import { memoryDetail } from "./dashboard/web/views.js";
+import { pluginInstall } from "./host-wiring.js";
+import { PLUGIN_ROOT_ENV } from "./plugin.js";
 import { installedVersion } from "./sessions.js";
 import { storeId } from "./store-id.js";
 
@@ -63,15 +65,58 @@ export const NAMED_ROWS: Readonly<Record<string, number>> = {
 };
 /** Dreams carried (the newest is shown; a dream's firings read the changes of the few newest). */
 export const DREAMS = 3;
-/** Memories carried, and how much of each one's text. */
+/**
+ * Memories carried, and how much of each one's text: what an opened memory
+ * shows in the pane (20 lines at the docked width, 32 cells on the terminal,
+ * about 38 in the desktop's font), so the pane reads as it did when it asked
+ * the dashboard; a longer text ends with `more` (the rest is on the dashboard).
+ */
 export const MEMORY_CAP = 60;
-export const TEXT_CAP = 1500;
+export const TEXT_CAP = 800;
 /** The memory server writes the file at least this often while it runs, moved or not. */
 export const REFRESH_MS = 30 * 60_000;
 
 /** `<config dir>/sidebar.json` — beside the configuration, like `scopes.json`. */
 export function sidebarStatusPath(configPath: string): string {
   return join(dirname(configPath), SIDEBAR_FILE_NAME);
+}
+
+/**
+ * Where the store keeps the path of the status file last written for it, so a
+ * removal or a fresh start finds it whatever the layout (a `dataDir` outside
+ * the configuration's folder included). Host state, in `sessions/` like the
+ * rest of it (`core/store/paths.ts#LAYOUT`).
+ */
+export function sidebarPointerPath(dataDir: string): string {
+  return join(dataDir, "sessions", "sidebar-status-path");
+}
+
+/**
+ * IS THE SIDEBAR INSTALLED? The status file is written only for the plugin,
+ * which carries the sidebar: this process is the plugin's (`CLAUDE_PLUGIN_ROOT`
+ * set), or Claude Code's `plugins/installed_plugins.json` records a
+ * `counterparts@…` install that the settings leave on. `~/.claude.json` is
+ * never read. An npm-only install gets no file.
+ */
+export function sidebarInstalled(env: Record<string, string | undefined>, home: string): boolean {
+  if ((env[PLUGIN_ROOT_ENV] ?? "").trim().length > 0) return true;
+  try {
+    return pluginInstall({ home, env, cwd: null })?.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
+/** The file, gone (the sidebar is not installed, or the store it showed was set aside). Never throws. */
+export function removeSidebarStatus(configPath: string): boolean {
+  try {
+    const file = sidebarStatusPath(configPath);
+    if (!existsSync(file)) return false;
+    rmSync(file, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 type Row = { seq: number } & Record<string, unknown>;
@@ -186,7 +231,8 @@ export function buildSidebarStatus(src: DashboardSource, now: number, build: str
         memories[id] = null;
         continue;
       }
-      const text = d.confidential ? "" : d.text.trim();
+      // A confidential body is the dashboard's own withheld sentence (`views/memory.ts`), never its words.
+      const text = d.text.trim();
       memories[id] = {
         title: d.title,
         text: text.length > TEXT_CAP ? `${text.slice(0, TEXT_CAP).trimEnd()}…` : text,
@@ -258,9 +304,11 @@ export function writeSidebarStatus(opts: {
   if (opts.configPath.length === 0 || opts.dataDir.length === 0) return out(false, "no-config");
   const file = sidebarStatusPath(opts.configPath);
   if (!existsSync(dirname(file))) return out(false, "no-config");
+  const ours = storeId(opts.dataDir);
   if (opts.ifMoved !== undefined) {
     const stamp = readSidebarStamp(file);
-    if (stamp !== null && stamp.lastSeq >= opts.ifMoved.lastSeq && started - stamp.writtenAt < opts.ifMoved.maxAgeMs) {
+    // Only this store's file stands in for this store's write: two stores sharing a folder never suppress each other.
+    if (stamp !== null && stamp.storeId === ours && stamp.lastSeq >= opts.ifMoved.lastSeq && started - stamp.writtenAt < opts.ifMoved.maxAgeMs) {
       return out(false, "same", 0, stamp.lastSeq);
     }
   }
@@ -278,7 +326,14 @@ export function writeSidebarStatus(opts: {
     } catch {
       // a filesystem without modes: the write stands
     }
+    // Two writers racing: a file this store already wrote further on is not put back (the log only grows).
+    const there = readSidebarStamp(file);
+    if (there !== null && there.storeId !== null && there.storeId === status.storeId && there.lastSeq > status.pulse.lastSeq) {
+      rmSync(tmp, { force: true });
+      return out(false, "newer", 0, there.lastSeq);
+    }
     renameSync(tmp, file);
+    notePointer(opts.dataDir, file);
     return out(true, "written", Buffer.byteLength(text, "utf8"), status.pulse.lastSeq);
   } catch (err) {
     try {
@@ -302,26 +357,65 @@ export function writeSidebarStatus(opts: {
   }
 }
 
-/**
- * A REMOVAL'S CHASE (the console's `remove`, which calls this): the status file holds a few memories'
- * words, so a memory removed must not stay readable in it until the next
- * write. The file beside the store's parent (the layout `install` writes:
- * `<config dir>/store`, `<config dir>/sidebar.json`) is deleted when it names
- * the id; the next writer writes it again without the memory. Never throws:
- * the answer is a surface line for the removal's report, or null when there
- * was nothing to chase.
- */
-export function chaseSidebarStatus(storeDir: string, id: string): { chased: boolean; line: string } | null {
-  const file = join(dirname(storeDir), SIDEBAR_FILE_NAME);
+/** The path written for this store, kept in the store's `sessions/` (only when it changed). Never throws. */
+function notePointer(dataDir: string, file: string): void {
   try {
-    if (!existsSync(file)) return null;
-    if (!readFileSync(file, "utf8").includes(id)) return { chased: true, line: "sidebar status file (0, it did not name it)" };
-    rmSync(file, { force: true });
-    return { chased: true, line: "sidebar status file (deleted; written again without it)" };
+    const at = sidebarPointerPath(dataDir);
+    if (existsSync(at) && readFileSync(at, "utf8") === file) return;
+    mkdirSync(dirname(at), { recursive: true });
+    writeFileSync(at, file, { encoding: "utf8", mode: 0o600 });
   } catch {
-    return { chased: false, line: `sidebar status file — ${file} may still name it until the next write` };
+    // the beside-the-store guess still covers the usual layout
   }
 }
+
+/**
+ * Every status file that may show this store: the one its pointer names (the
+ * last one written for it, wherever the configuration is) and the one beside
+ * the store's parent (the layout `install` writes: `<config dir>/store`).
+ */
+export function sidebarFilesFor(storeDir: string): string[] {
+  const out = [join(dirname(storeDir), SIDEBAR_FILE_NAME)];
+  try {
+    const named = readFileSync(sidebarPointerPath(storeDir), "utf8").trim();
+    if (isAbsolute(named) && named.endsWith(`/${SIDEBAR_FILE_NAME}`) && !out.includes(named)) out.push(named);
+  } catch {
+    // no pointer: the usual layout only
+  }
+  return out;
+}
+
+/**
+ * A REMOVAL'S CHASE (the console's `remove`, which calls this): the status
+ * file holds a few memories' words, so a memory removed must not stay
+ * readable in it until the next write. Each file that may show this store
+ * (`sidebarFilesFor`) is deleted when it names the id; the next writer writes
+ * it again without the memory. Never throws: the answer is a surface line for
+ * the removal's report, or null when there was no file to look in.
+ */
+export function chaseSidebarStatus(storeDir: string, id: string): { chased: boolean; line: string } | null {
+  let looked = 0;
+  let deleted = 0;
+  const left: string[] = [];
+  for (const file of sidebarFilesFor(storeDir)) {
+    try {
+      if (!existsSync(file)) continue;
+      looked += 1;
+      if (!readFileSync(file, "utf8").includes(id)) continue;
+      rmSync(file, { force: true });
+      deleted += 1;
+    } catch {
+      left.push(file);
+    }
+  }
+  if (left.length > 0) return { chased: false, line: `sidebar status file — ${left.join(", ")} may still name it until the next write` };
+  if (looked === 0) return null;
+  return {
+    chased: true,
+    line: deleted === 0 ? "sidebar status file (0, it did not name it)" : "sidebar status file (deleted; written again without it)",
+  };
+}
+
 
 /**
  * The MCP server's writer: one timer at a time, never on a tool call's path

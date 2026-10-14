@@ -62,7 +62,7 @@ import { hostScope, openServer } from "../index.js";
 import { openLog } from "../../log/index.js";
 import type { LogEvent, ProcessLog } from "../../log/index.js";
 import { serveStdio } from "../stdio.js";
-import { SidebarStatusWriter } from "../../sidebar-status.js";
+import { SidebarStatusWriter, removeSidebarStatus, sidebarInstalled } from "../../sidebar-status.js";
 import { stoodDownServer } from "../stood-down.js";
 import { npmWiring } from "../../host-wiring.js";
 import { PLUGIN_ROOT_ENV, ensureFirstRun, installRoute, mcpGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
@@ -520,7 +520,10 @@ async function main(): Promise<void> {
   // SessionStart hook's path), a moment after each tool call, and whenever the
   // log moved under it (a turn's recall, another session, the night). Never
   // for an observer or in a directory set `off`, and never on a call's path.
-  if (!server.observer && stance !== "off") {
+  // Only where the sidebar is installed (the plugin): elsewhere an old file goes.
+  const sidebarWanted = sidebarInstalled(process.env, homedir());
+  if (!sidebarWanted) removeSidebarStatus(choice.path);
+  if (sidebarWanted && !server.observer && stance !== "off") {
     const store = server.counterpart.store;
     sidebar = new SidebarStatusWriter({
       configPath: choice.path,

@@ -81,7 +81,7 @@ the npm install, uninstall the plugin.
 
 The sidebar is a Claude Code mod (`hooks/sidebar/`). It shows what memory is doing; it
 doesn't act. It runs no command, calls no tool, starts no process, makes no network
-request and has no buttons. Its
+request, and has no buttons and no links. Its
 footer says how to do the rest yourself: `/counterparts:meet` for the 5-minute intro,
 `/counterparts:dashboard` for the dashboard, say "pause memory here" to Claude to pause
 memory in a folder, and `/counterparts quiet` to hide it (`/counterparts` opens it again).
@@ -91,7 +91,8 @@ This is everything it reaches outside its own pane:
   background processes (the one after each reply, and the memory server) write
   `sidebar.json` beside `~/.counterparts/claude-code.json`: the day and the count, today's
   counts, the last dream, recent activity and the memories it names (titles and the start
-  of their text). The sidebar reads that file every 15 to 30 seconds while it is open,
+  of their text, as much as the pane shows). They write it only while this plugin is
+  installed. The sidebar reads that file every 15 to 30 seconds while it is open,
   checks it was written by the memory this session uses (so it never shows another
   one), and sends nothing anywhere. Before the first reply of a new install it says it
   is waiting for the first session.
@@ -124,10 +125,16 @@ in `~/.counterparts/snapshots/` never include it. Both numbers can be changed in
 `~/.counterparts/claude-code.json` (`"retention": {"afterWriteUpDays": 3, "maxDays": 14}`).
 You can delete any one kind of data at any time without touching the rest, from the
 dashboard or with `counterparts delete conversation-text`, `delete backups` or
-`delete activity-log`. It never leaves your computer except as above. The sidebar's
-status file (`~/.counterparts/sidebar.json`, readable only by you) holds recent memories'
-titles and the start of their text, never conversation text; it is rewritten as memory
-changes, and removing a memory removes it from there too.
+`delete activity-log`. It never leaves your computer except as above.
+
+**The sidebar's status file.** While this plugin (and so the sidebar) is installed,
+Counterparts writes `~/.counterparts/sidebar.json`, readable only by you (mode 0600): the
+day and the count, today's counts per mechanism, the last dream, the recent activity log
+and the memories it names, each with its title, kind, date and the first 800 characters of
+its text (a confidential memory's text is withheld, as everywhere). Never conversation
+text. It is rewritten as memory changes; removing a memory removes it from there too,
+`start-fresh` rewrites it for the new store, and once the plugin is gone the next
+Counterparts process deletes it. An npm-only install never writes it.
 
 <!-- flavor:full -->
 **What else it reads and writes.** Besides the session transcript, it reads
@@ -228,15 +235,13 @@ differ with how much you use it.
 
 The sidebar's fox is drawn from small PNG files in the plugin's own folder
 (`hooks/sidebar/art/fox/`): a terminal that shows pictures (kitty, Ghostty) reads them
-itself. The script that builds them
+itself, and the desktop app's sidebar reads each one once. The script that builds them
 from the art is in the source repository (`tools/fox-art/`).
 
-The sidebar runs no programs and fetches nothing. In a terminal, COUNTERPARTS and the
-`more` after a long memory are links to the dashboard, which your terminal opens (in some
-terminals with a ⌘- or Ctrl-click). In the desktop app they are plain words, and the
-desktop app's sidebar draws no fox: `/counterparts:dashboard` starts the dashboard, or
-opens your browser on it when it is already running for your memory (it asks the page on
-127.0.0.1 which memory it serves).
+The sidebar runs no programs, fetches nothing and holds no links: COUNTERPARTS and the
+`more` after a long memory are plain words. `/counterparts:dashboard` starts the
+dashboard, or opens your browser on it when it is already running for your memory (it
+asks the page on 127.0.0.1 which memory it serves).
 
 The dashboard, when you open it, is a page served on 127.0.0.1 only (port 4747 unless
 you set `COUNTERPARTS_DASHBOARD_PORT`), and runs until the session that started it ends.

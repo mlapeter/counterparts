@@ -66,6 +66,7 @@
  * It exits 0 on every path. Nothing about a failed run may reach the host.
  */
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -102,7 +103,7 @@ import type { LiveEmbedder } from "../embed-client.js";
 import { DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../../spawn.js";
 import { backfillVectors, laggedSemantic } from "../vectors.js";
 import type { BackfillReport, LagReport } from "../vectors.js";
-import { writeSidebarStatus } from "../../sidebar-status.js";
+import { removeSidebarStatus, sidebarInstalled, writeSidebarStatus } from "../../sidebar-status.js";
 import type { SidebarWrite } from "../../sidebar-status.js";
 import { runSnapshot } from "../../snapshots.js";
 import type { SnapshotRunReport } from "../../snapshots.js";
@@ -674,13 +675,16 @@ async function main(): Promise<void> {
     observer: config.observer === true,
   });
   log.start();
+  const sidebarWanted = sidebarInstalled(process.env, homedir());
+  if (!sidebarWanted && removeSidebarStatus(choice.path)) log.event({ name: "runner.sidebar", data: { removed: true } });
   try {
     const report = await runOnce({
       config,
       signal: controller.signal,
       ...(pinnedSession() === null ? {} : { session: pinnedSession() as string }),
       ...(pinnedScope() === null ? {} : { scope: pinnedScope() as string }),
-      sidebarConfigPath: choice.path,
+      // Only where the sidebar is installed (the plugin); otherwise an old file goes.
+      ...(sidebarWanted ? { sidebarConfigPath: choice.path } : {}),
       onEvent: (name, data) => log.event({ name, data }),
     });
     log.end(report.reason, { swept: report.swept, minted: report.minted, code: report.code });

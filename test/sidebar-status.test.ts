@@ -25,9 +25,13 @@ import {
   TEXT_CAP,
   chaseSidebarStatus,
   readSidebarStamp,
+  removeSidebarStatus,
+  sidebarInstalled,
+  sidebarPointerPath,
   sidebarStatusPath,
   writeSidebarStatus,
 } from "../src/adapters/sidebar-status.js";
+import { storeId } from "../src/adapters/store-id.js";
 import { seedDemo, seedEmpty } from "../tools/demo/seed.js";
 
 let root: string;
@@ -212,5 +216,85 @@ describe("what else knows it", () => {
     expect(ownedKind(SIDEBAR_FILE_NAME, owned)).toBe("sidecar");
     expect(ownedKind(`${SIDEBAR_FILE_NAME}.4242.tmp`, owned)).toBe("sidecar");
     expect(ownedKind("sidebar.json.bak", owned)).toBeNull();
+  });
+});
+
+describe("the review's cases (2026-10-14)", () => {
+  test("a store outside the configuration's folder: the removal finds the file through the store's pointer", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-sidebar-custom-"));
+    try {
+      const store = join(dir, "elsewhere", "store");
+      seedEmpty({ dir: store });
+      const cfgDir = join(dir, "config");
+      mkdirSync(cfgDir);
+      const cfg = join(cfgDir, "claude-code.json");
+      writeFileSync(cfg, JSON.stringify({ dataDir: store }));
+      expect(writeSidebarStatus({ configPath: cfg, dataDir: store }).written).toBe(true);
+      const file = join(cfgDir, SIDEBAR_FILE_NAME);
+      expect(readFileSync(sidebarPointerPath(store), "utf8")).toBe(file);
+      writeFileSync(file, readFileSync(file, "utf8").replace('"memories":{', '"memories":{"mem_gone0002":{"title":"gone","text":"its words"},'));
+      expect(chaseSidebarStatus(store, "mem_gone0002")?.line).toBe("sidebar status file (deleted; written again without it)");
+      expect(existsSync(file)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("two stores sharing a folder never suppress each other; a writer never puts back an older file of its store", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-sidebar-two-"));
+    try {
+      const a = join(dir, "a");
+      const b = join(dir, "b");
+      seedEmpty({ dir: a });
+      seedEmpty({ dir: b });
+      storeId(a, { mint: true });
+      storeId(b, { mint: true });
+      const cfg = join(dir, "claude-code.json");
+      expect(writeSidebarStatus({ configPath: cfg, dataDir: a }).written).toBe(true);
+      // b at a seq no higher than a's: written all the same, the file there is another store's
+      const other = writeSidebarStatus({ configPath: cfg, dataDir: b, ifMoved: { lastSeq: 0, maxAgeMs: 60_000 } });
+      expect(other.written).toBe(true);
+      expect(readSidebarStamp(sidebarStatusPath(cfg))?.storeId).toBe(storeId(b));
+      // a newer file of b's own: an older write of b's does not replace it
+      const file = sidebarStatusPath(cfg);
+      const v = JSON.parse(readFileSync(file, "utf8")) as { pulse: { lastSeq: number } };
+      v.pulse.lastSeq = 1_000_000;
+      writeFileSync(file, JSON.stringify(v));
+      expect(writeSidebarStatus({ configPath: cfg, dataDir: b }).reason).toBe("newer");
+      expect(readSidebarStamp(file)?.lastSeq).toBe(1_000_000);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("written only where the sidebar is installed: the plugin's own process, or a counterparts plugin Claude Code records and leaves on", () => {
+    const home = mkdtempSync(join(tmpdir(), "counterparts-sidebar-home-"));
+    try {
+      expect(sidebarInstalled({}, home)).toBe(false); // npm only: no file
+      expect(sidebarInstalled({ CLAUDE_PLUGIN_ROOT: "/some/plugin" }, home)).toBe(true);
+      mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+      writeFileSync(
+        join(home, ".claude", "plugins", "installed_plugins.json"),
+        JSON.stringify({ version: 2, plugins: { "counterparts@counterparts": [{ scope: "user", installPath: "/x", version: "0.3.23" }] } }),
+      );
+      expect(sidebarInstalled({}, home)).toBe(true);
+      writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ enabledPlugins: { "counterparts@counterparts": false } }));
+      expect(sidebarInstalled({}, home)).toBe(false); // installed and switched off
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("an old file goes where the sidebar is not installed", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-sidebar-gone-"));
+    try {
+      const cfg = join(dir, "claude-code.json");
+      writeFileSync(join(dir, SIDEBAR_FILE_NAME), "{}");
+      expect(removeSidebarStatus(cfg)).toBe(true);
+      expect(existsSync(join(dir, SIDEBAR_FILE_NAME))).toBe(false);
+      expect(removeSidebarStatus(cfg)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
