@@ -1158,7 +1158,8 @@ export interface UninstallInput {
 
 /** What happened, for the one JSON line `uninstallJson` prints. */
 export interface UninstallRecord {
-  /** True once the hooks and the registration are out. */
+  /** True once the hooks and the registration are out (the registration left
+   *  as it is, on the plugin's keep arm: it is the npm install's). */
   unwired: boolean;
 }
 
@@ -1363,6 +1364,14 @@ export async function uninstall(input: UninstallInput): Promise<Outcome> {
     spawner: input.spawner,
     lister: input.lister,
     heading: true,
+    // THE PLUGIN'S KEEP ARM LEAVES THE `-s user` REGISTRATION ALONE. The
+    // plugin never runs `claude mcp add` (its server is plugin.json's), so a
+    // `counterparts` registered there is the npm install's, and removing it
+    // took the memory server from somebody who uninstalled only the plugin.
+    // Both flavors: the directory's cannot even read what it would remove.
+    // An arm that may delete or move the store still removes it: the store
+    // that registration opens is going, and M2 wants it confirmed gone.
+    leaveMcp: installRoute(env) === "plugin" && !moving && !offers(input),
   };
   u.blank();
   const removed = await unwire(wireInput);

@@ -1142,6 +1142,11 @@ export interface WireInput {
   /** Whether `unwire` may read `~/.claude.json`: `runtime.ts#readsHostUserConfig`
    *  by default; a test's seam. */
   readonly readsUserConfig?: boolean;
+  /** FOR `unwire` ONLY: leave the `-s user` registration alone — no `claude
+   *  mcp remove`. The plugin's uninstall that keeps the memory sets it
+   *  (`uninstall.ts`): the plugin never registers a server there, so one that
+   *  is there is the npm install's. */
+  readonly leaveMcp?: boolean;
 }
 
 export interface WireResult {
@@ -1628,6 +1633,17 @@ export function serverCensus(
   return { other, otherVersions, current, unplaced, mine, knowsMine: input.parents !== undefined };
 }
 
+/** What `unwire` says when it leaves the registration alone (`leaveMcp`):
+ *  nothing when a read shows none, one line when one is there or unread. */
+function leftMcpNote(u: Ui, mcp: McpReading, home: string): void {
+  if (!mcp.present && !mcp.unreadable && mcp.notRead !== true) return;
+  const which = mcp.present ? "The" : "Any";
+  u.hint(
+    `${which} "${MCP_SERVER_NAME}" memory server in ${tilde(mcp.file, home)} was left as it is: the ` +
+      "plugin never registers one there, so it is an npm install's, and `counterparts uninstall` removes it.",
+  );
+}
+
 /**
  * `counterparts unwire` — take OUR hooks out and deregister the server.
  *
@@ -1657,14 +1673,20 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   // read that failed is no evidence either way, which is the same stance the
   // removal below takes.
   // A file this build never opens (`notRead`) is no evidence either: the
-  // removal below asks `claude`.
-  if (!merged.changed && !mcp.present && !mcp.unreadable && mcp.notRead !== true) {
-    u.ok("nothing to disconnect: no Counterparts hooks and no memory server were found.");
+  // removal below asks `claude`. A registration left alone (`leaveMcp`) is
+  // not ours to disconnect, whatever the read says.
+  const leave = input.leaveMcp === true;
+  if (!merged.changed && (leave || (!mcp.present && !mcp.unreadable && mcp.notRead !== true))) {
+    u.ok(`nothing to disconnect: no Counterparts hooks${leave ? "" : " and no memory server"} were found.`);
     // SAID EVEN HERE: a wrapper is exactly the case where "nothing of ours"
     // needs a sentence, because the person can see a hook that mentions us and
     // would otherwise have no account of why it survived.
     wrappedNote(u, merged.wrapped, "left exactly as it is");
     u.hint(`looked in: ${sight.target}`);
+    if (leave) {
+      leftMcpNote(u, mcp, home);
+      return { outcome: "ok", hooks: "none", mcp: "skipped", backup: null, mcpConfirmed: false };
+    }
     u.hint(`and in:    ${mcp.file}`);
     return { outcome: "ok", hooks: "none", mcp: "absent", backup: null, mcpConfirmed: true };
   }
@@ -1674,7 +1696,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   if (input.dryRun) {
     u.hint("dry run — nothing below has been written.");
     for (const e of merged.events) u.hint(`${e.event}: would remove ${e.was ?? "our hook"}`);
-    u.hint(`would run: claude mcp remove ${MCP_SERVER_NAME} -s user`);
+    if (!leave) u.hint(`would run: claude mcp remove ${MCP_SERVER_NAME} -s user`);
     if (merged.foreignKept > 0) {
       u.hint(
         merged.foreignKept === 1
@@ -1698,9 +1720,9 @@ export async function unwire(input: WireInput): Promise<WireResult> {
       sight,
       home,
       merged.changed ? "(backup first)" : "(none of ours are there)",
-      "removed via `claude mcp remove`",
+      leave ? "left as it is" : "removed via `claude mcp remove`",
     );
-    const go = await confirm(io, "Remove the Counterparts hooks and the MCP server?", {
+    const go = await confirm(io, leave ? "Remove the Counterparts hooks?" : "Remove the Counterparts hooks and the MCP server?", {
       default: true,
     });
     if (!go) {
@@ -1753,6 +1775,14 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     u.ok(`no Counterparts hooks were in ${tilde(sight.target, home)}.`);
   }
 
+  // LEFT ALONE: not removed, so not confirmed gone either. Only the plugin's
+  // keep arm asks for this, and nothing it does next needs the confirmation.
+  if (leave) {
+    leftMcpNote(u, mcp, home);
+    u.hint("An open Claude Code session keeps working until you close it.");
+    return { outcome: "ok", hooks: hooksWord, mcp: "skipped", backup, mcpConfirmed: false };
+  }
+
   // THE REMOVE IS ATTEMPTED WHETHER OR NOT OUR READ SAW A REGISTRATION.
   //
   // `~/.claude.json` is the host's own state file — its documentation says so,
@@ -1789,11 +1819,12 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     return fresh.present || fresh.unreadable || fresh.notRead === true;
   };
   if (res.missing && mcp.notRead === true) {
-    // NOT LOOKED, AND NOBODY TO ASK (the plugin directory's build): that
-    // build never registers a server there itself, but an npm install's may
-    // be there, pointing at this same store, and nothing was looked at. Not
-    // confirmed, so uninstall stops before deleting or moving the store (M2):
-    // unknown is not absent (review of #481).
+    // NOT LOOKED, AND NOBODY TO ASK (the plugin directory's build, on the
+    // arms that may delete or move the store; its keep arm leaves the
+    // registration alone): that build never registers a server there itself,
+    // but an npm install's may be there, pointing at this same store, and
+    // nothing was looked at. Not confirmed, so uninstall stops before deleting
+    // or moving the store (M2): unknown is not absent (review of #481).
     mcpConfirmed = false;
     u.warn(
       "`claude` is not on this PATH and this version does not read Claude Code's own configuration, so whether a memory server is still registered (an npm install's, if there is one) could not be checked.",

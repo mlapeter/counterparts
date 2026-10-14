@@ -843,6 +843,73 @@ describe("`counterparts uninstall` on the command line", () => {
     expect(readFileSync(join(home, ".claude.json"), "utf8")).toBe(before);
   });
 
+  // THE PLUGIN NEVER REGISTERS A `-s user` SERVER (its own is plugin.json's),
+  // so one that is there is the npm install's, and uninstalling only the
+  // plugin took it away from a person with both.
+  describe("the plugin's uninstall and the npm install's registration", () => {
+    const PLUGIN_ENV = { ...ENV, CLAUDE_PLUGIN_ROOT: join(dirname(import.meta.dir)) };
+    function npmRegistration(): string {
+      writeFileSync(
+        join(home, ".claude.json"),
+        JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { command: "/usr/local/bin/counterparts-mcp", args: [] } } }),
+      );
+      return readFileSync(join(home, ".claude.json"), "utf8");
+    }
+    function recording(): { calls: string[][]; spawner: Spawner } {
+      const calls: string[][] = [];
+      return { calls, spawner: (args) => (calls.push([...args]), OK) };
+    }
+
+    test("the plugin's keep (`--keep-memories --json`) leaves it registered, and says whose it is", async () => {
+      await install();
+      const before = npmRegistration();
+      const spy = recording();
+      const c = consoleWith(null);
+      expect(await uninstallJson(input({ io: c.io, env: PLUGIN_ENV, keepMemories: true, spawner: spy.spawner }))).toBe("ok");
+      expect(spy.calls).not.toContainEqual(["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]);
+      expect(readFileSync(join(home, ".claude.json"), "utf8")).toBe(before);
+      const body = JSON.parse(text(c.out)) as { outcome: string; lines: string[] };
+      expect(body.outcome).toBe("ok");
+      expect(text(body.lines)).toContain("it is an npm install's");
+    });
+
+    test("…and the hooks still go when the plugin's keep finds them", async () => {
+      await install();
+      await wireIt();
+      npmRegistration();
+      const spy = recording();
+      expect(await uninstall(input({ env: PLUGIN_ENV, keepMemories: true, spawner: spy.spawner }))).toBe("ok");
+      expect(spy.calls).toEqual([]);
+      expect(readHost(home, home, ENV).events).toHaveLength(0);
+    });
+
+    test("the npm install's own uninstall still removes it", async () => {
+      await install();
+      npmRegistration();
+      const spy = recording();
+      expect(await uninstall(input({ keepMemories: true, spawner: spy.spawner }))).toBe("ok");
+      expect(spy.calls).toEqual([["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]]);
+    });
+
+    test("a plugin park still removes it: the store it opens is going (M2)", async () => {
+      await install();
+      npmRegistration();
+      const spy = recording();
+      expect(await uninstall(input({ env: PLUGIN_ENV, park: true, spawner: spy.spawner }))).toBe("ok");
+      expect(spy.calls).toContainEqual(["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]);
+    });
+
+    test("so does the plugin's plain arm at a terminal, which goes on to offer the delete", async () => {
+      await install();
+      npmRegistration();
+      const spy = recording();
+      const c = consoleWith(["y", ""]);
+      expect(await uninstall(input({ io: c.io, env: PLUGIN_ENV, yes: false, spawner: spy.spawner }))).toBe("ok");
+      expect(spy.calls).toContainEqual(["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]);
+      expect(existsSync(base())).toBe(true);
+    });
+  });
+
   test("somebody else's hooks survive an uninstall untouched", async () => {
     await install();
     const foreign = {
