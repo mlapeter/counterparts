@@ -337,7 +337,10 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     memory". The decision record carries `moodMatched` — admitted memories the mood
     lifted, a count, never which feeling. Adding that field moves the surface set (G15):
     the parallel run it protected ended 2026-09-21, and a durable count is the only way
-    the mechanism can be seen firing.
+    the mechanism can be seen firing. Since 2026-10-14 (lightly held) it also carries
+    `moodMatchedIds` — which admitted memories, ids only, at most `MOOD_MATCHED_IDS_CAP`
+    (64, `shownNotUsed`'s cap) — so a re-test with the weights on can compare their use.
+    Empty while `MOOD_SAME_WEIGHT`/`MOOD_CROSS_WEIGHT` stay 0.
     **The tension with G11, named.** §3 keeps v1's rule that the affect CUE is first-person
     only, "guarding against mood-congruent overgeneralization" — and this is mood-congruent
     recall, on purpose. The guard it keeps is structural rather than a subject rule: it
