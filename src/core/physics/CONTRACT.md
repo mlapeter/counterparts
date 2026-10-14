@@ -144,6 +144,11 @@ Exempt: the core, about owner/us, said by the owner, protected, a pending or rep
 today's `defaultClaimFor(...)` in either direction and with no exemptions — an owner memory
 written at the old flat 0.25 reads 0.40 — so an upgrader reads what a fresh install writes;
 the curve signature's `eraReads: 2` re-curves a store signed before it once.
+**2026-10-14 (Mike, lightly held; review 2026-10-18):** where the era LOWERS a claim
+(`eraClaim` below the stored claim), `curveSal` is `eraClaim` alone — the old relevance and
+predictive, scored under the same old field text, no longer floor it back up (on the live
+store they held 103 of 485 lowered claims exactly where they were); where it raises an old
+default, `sal()` with the era's claim, as before. `eraReads: 3`.
 **2026-10-11 (random-06, lightly held):** a dream's merged memory is read at its strongest
 original's moment (`meta.eraWrittenAt`, `store/operational.ts#eraCarriedFrom`) when that
 original was old, with its `claimedDefault` — so a merge does not move the era's reading.
