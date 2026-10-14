@@ -231,3 +231,14 @@ export function dreamHow(bundle: Pick<DreamBundle, "queue" | "shownAs">): string
  */
 export const RECALL_MODE_WORDS =
   'A question needs mode: "facts" — what happened, who said it, when, and whether it still holds (every match, ranked, with dates and speaker); or "meaning" — how something went, felt, and what it adds up to (a person, a project, us).';
+
+/** At most this many still-dated memories are listed beside a close (2026-10-14). */
+export const STILL_DATED_SHOWN = 5;
+
+/** The line beside them (`McpServer#stillDatedNear`, 2026-10-14). */
+export const STILL_DATED_HINT =
+  "These nearby memories still hold a date. If one is the same obligation as the one you just closed, close it too now: remember with updates: its id and eventDate: null (or status: done). If it is something else, leave it.";
+
+/** Beside a write that closed a dated memory and sent no title (2026-10-14). */
+export const TITLE_ASKED_NOTE =
+  "No title was given, and the old memory's was not carried over: this closes it, and the old title would read as still open. A title is asked for: give a memory that closes something its own short one (\"Taxes filed\").";

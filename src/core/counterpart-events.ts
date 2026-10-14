@@ -876,6 +876,8 @@ export const RECALL_DECISION_FIELDS = [
   "affectReason",
   // Emotion part A (2026-09-26): admitted memories the current mood lifted.
   "moodMatched",
+  // 2026-10-14: WHICH admitted memories the mood lifted, ids only, capped.
+  "moodMatchedIds",
   "sentinelRendered",
   "surfaced",
   "footnotes",
@@ -955,6 +957,7 @@ export function recallDecisionRecord(
     affectFlag: d.affectFlag,
     affectReason: d.affectReason,
     moodMatched: d.moodMatched,
+    moodMatchedIds: d.moodMatchedIds,
     sentinelRendered: d.sentinel !== null,
     surfaced: tierRows(d.surfaced, d.verdicts),
     footnotes: tierRows(d.footnotes, d.verdicts),

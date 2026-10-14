@@ -822,7 +822,7 @@ describe("what never comes back, and what comes back labeled", () => {
     expect(text).not.toContain("listed after");
     for (const id of fadedOnes) {
       const heading = text.split("\n").find((l) => l.includes(` · ${id} · `));
-      expect(heading).toContain("· faded: not used for a long while");
+      expect(heading).toContain("· faded: weak, below reach");
     }
     for (const id of visits.filter((v) => !fadedOnes.includes(v))) {
       expect(text.split("\n").find((l) => l.includes(` · ${id} · `))).not.toContain("faded");

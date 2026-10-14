@@ -575,9 +575,13 @@ const SETTLE_SERVED: readonly Privilege[] = SETTLE_PRIVILEGES.slice(2);
  * days. Why: f8 asked for attention, not category, and these are 01's anchors
  * with f8's three lines (struck or engaged ≥ 0.4, skimmed not, routine
  * 0.1–0.2) folded in; "they", not a name (01 D5).
+ * 2026-10-14 (Group 1 check-in, lightly held): of 494 new work memories only 40
+ * claimed ≤ 0.25 (median 0.40, ~9 lived days in reach), so routine work and
+ * ordinary work facts are now told to stay UNSET unless they changed something.
+ * The default floors in code are unchanged.
  */
 const SALIENCE_TEXT =
-  "Optional, 0-1: how much this caught your attention, as you felt it — not what category it is. About 0.2 a routine work event or status change (merged, cut, deployed); 0.3 an ordinary fact or step, or a reading you only skimmed; 0.4 or more a line that struck you or a reading you engaged with; 0.5 a lesson or decision that changes how you'll work; 0.7 something they told you about their life, a line or moment that moved you; 0.9 rare. Their rulings, preferences and corrections stay high even about work. A floor: unset, a default by what it is about applies.";
+  "Optional, 0-1: how much this caught your attention, as you felt it — not what category it is. Leave it UNSET for a routine work event (merged, cut, deployed) or an ordinary work fact or step unless it changed something: the default applies and fading chooses what stays. 0.3 a reading you only skimmed; 0.4 or more only for what struck you — a line, a reading you engaged with — or changed how you'll work (0.5 a lesson or decision); 0.7 something they told you about their life, a line or moment that moved you; 0.9 rare. Their rulings, preferences and corrections stay high even about work. A floor: unset, a default by what it is about applies.";
 
 /** `relevance`, redefined (01 C3, 2026-10-10): it used to read "how much this
  *  bears on what is being worked on" — a work bias in one of the averaged
@@ -865,6 +869,7 @@ const RECALL: ToolSpec = {
         description:
           "What you are trying to remember, in words. Needs mode. A time in it (\"last week\", \"in September\", \"around the cut-over\", \"where did we leave off\") filters a facts answer to that window.",
       },
+      query: { type: "string", description: "Another name for question." },
       mode: {
         type: "string",
         enum: ["facts", "meaning"],

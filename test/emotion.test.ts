@@ -64,6 +64,7 @@ import { memoryDetail } from "../src/adapters/dashboard/web/views/memory.js";
 import { mechanismsView } from "../src/adapters/dashboard/web/views/mechanisms.js";
 import { run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
+import { recallDecisionRecord } from "../src/core/counterpart-events.js";
 import { findable } from "./store-fixture.js";
 
 let dir: string;
@@ -587,12 +588,38 @@ describe("mood-matching never admits an uncued memory", () => {
     // The durable count is the admitted, lifted ones.
     const admittedLifted = after.verdicts.filter((x) => (x.verdict === "surfaced" || x.verdict === "footnoted") && (x.mood ?? 0) > 0);
     expect(after.moodMatched).toBe(admittedLifted.length);
+    // And WHICH ones (2026-10-14): the same memories, by id, on the decision.
+    expect(after.moodMatchedIds).toEqual(admittedLifted.map((x) => x.id));
+    expect(before.moodMatchedIds).toEqual([]);
 
     // Four hours later the mood has passed: nothing is lifted.
     clock += 4 * HOUR;
     const later = r.build({ ...turn, sessionId: "later" }).decision;
     expect(later.verdicts.every((x) => x.mood === undefined)).toBe(true);
     expect(later.moodMatched).toBe(0);
+    expect(later.moodMatchedIds).toEqual([]);
+  });
+
+  test("moodMatchedIds names the admitted memories the mood lifted (weights overridden; 2026-10-14)", () => {
+    let clock = Date.parse("2026-09-01T18:00:00Z");
+    const s = store({ now: () => clock });
+    for (const body of FILLER) s.put({ type: "memory", kind: "fact", body });
+    const put = (body: string): string => s.put({ type: "memory", kind: "fact", body });
+    const own = put("The kiln cracked the big bowl again during the glaze firing.");
+    const plain = put("The kiln shelf was rearranged to fit the new tiles.");
+    s.addFeelings(own, [{ whose: "owner", core: "sad", emotion: "lonely", strength: 1 }]);
+    clock += 10 * 24 * HOUR;
+    const moodNote = put("Feeling low about the studio today, nothing went right.");
+    s.addFeelings(moodNote, [{ whose: "owner", core: "sad", emotion: "lonely", strength: 1 }]);
+    const strong = { MOOD_SAME_WEIGHT: 1, MOOD_CROSS_WEIGHT: 1, MOOD_LOW_LOW_WEIGHT: 1 } as const;
+    const d = new Recall({ store: s, owner: true, tunables: strong }).build({ sessionId: "s-ids", text: "Any kiln news this week?", day: 0 }).decision;
+    const admittedLifted = d.verdicts.filter((x) => (x.verdict === "surfaced" || x.verdict === "footnoted") && (x.mood ?? 0) > 0);
+    expect(admittedLifted.map((x) => x.id)).toContain(own);
+    expect(d.moodMatched).toBe(admittedLifted.length);
+    expect(d.moodMatchedIds).toEqual(admittedLifted.map((x) => x.id));
+    expect(d.moodMatchedIds).not.toContain(plain);
+    // The durable row carries the list as it is.
+    expect(recallDecisionRecord(d, { date: null })["moodMatchedIds"]).toEqual(d.moodMatchedIds);
   });
 
   test("the turn gate reads recorded feelings as the emotional dimension when the turn is felt (§9 G10)", () => {

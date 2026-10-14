@@ -3047,11 +3047,12 @@ export class Counterpart {
    * The nearest few live memories of one just written (`reconsolidation.ts
    * #writeNeighbours`), for the write's result — minus the memory it updates.
    */
-  writeNeighbours(id: string, opts: { exclude?: readonly string[]; owner: boolean; session?: string | null }): Neighbour[] {
+  writeNeighbours(id: string, opts: { exclude?: readonly string[]; owner: boolean; session?: string | null; limit?: number }): Neighbour[] {
     try {
       return writeNeighbours(this.store, {
         id,
         owner: opts.owner,
+        ...(opts.limit === undefined ? {} : { limit: opts.limit }),
         ...(opts.exclude === undefined ? {} : { exclude: opts.exclude }),
         ...(opts.session === undefined ? {} : { session: opts.session }),
       });

@@ -574,3 +574,22 @@ Review 07 C3–C5, item 18 of the mechanisms work; the group-5 builder, lightly 
   uncalled outside tests and the demo; left in place.
 - **The dashboard's waiting list shows a repeat at its next occurrence** (C5), with
   `time#readableRecurrence`'s words ("every May 14").
+- **A close closes the whole chain; nearby dated memories are listed** (2026-10-14, Group 1
+  check-in, lightly held). One obligation (taxes) was found on a plain reminder, a moved
+  chain A→B→C→D and a separate list memory; a done note that `updates` one id cleared only
+  the holder, and the rest kept their dates. Now a write that closes a dated memory
+  (`eventDate: null`, or `status: done` spending it) also clears every other dated memory of
+  its `reminderFrom`/`reminderMovedTo` chain, both ways (`counterpart-deposit.ts
+  #reminderChain`, read before the move rewrites the holder's pointer, then
+  `#closeReminderChain`; reason `reminder-spent`, reported as `reminder.alsoClosed`). The
+  write's reply (both `remember` and each `session_end` entry) LISTS other dated memories
+  among the nearest of the new memory and the one it closed (`stillDated`, ids, titles and
+  dates, at most 5; `McpServer#stillDatedNear`), also when the write meant to close and
+  reached nothing; never closes them. Watch whether the model closes what it is shown.
+  Review of #493: the walk follows the RAW pointer ids (never `Store#resolve`, which can
+  jump onto another obligation through a supersede or merge) and stops at a superseded or
+  archived row; it keeps `closeThread`'s guards (a protected memory, and for a non-owner
+  session a confidential one or another directory's, keeps its date and is listed with
+  `skipped: true`); a cleared one is marked `reminderSpentBy` the closing memory. Undoing
+  the write's settle puts back only the holder's date, not the chain's: the settle records
+  one reminder, and carrying the chain in it is left for later.

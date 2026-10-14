@@ -575,6 +575,8 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   its own ranking; the answer is its rendering, shipped as `answer`, with the `ids` it
   showed. Those ids feed the seen set (`note.feelingsNow`) and the `asked` records, so
   quoting their words credits at the boundary (`counterpart.ts#creditReferences`).
+  `query` is read as `question` (2026-10-14, lightly held: the model sent it about twice a
+  day and was refused `no-argument`); `question` wins when both are sent.
 - **[M]** Facts mode (`facts.ts`) pools every memory the question's content words reach
   (each word's every hit, weighted by rarity), every memory linked to a card it names
   (`memory_subjects`), and the 100 nearest by meaning above this embedder's inline floor;
@@ -626,8 +628,9 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
 - **[M]** The header counts distinct facts; "may not be everything" only when the meaning
   cap cut or weak matches (below a fifth of the best score) were left out. Faded matches
   (below reach — `deliberate.ts#hasFaded`, the rule meaning mode shares) are ranked with
-  the live ones by how strongly they matched, bodies shown, each labeled `faded: not used
-  for a long while`; the header counts them (`3 of them faded`). Revised by b2+f8,
+  the live ones by how strongly they matched, bodies shown, each labeled `faded: weak,
+  below reach` (2026-10-14, lightly held: it was "not used for a long while", false for a
+  memory two days old that simply started weak); the header counts them (`3 of them faded`). Revised by b2+f8,
   2026-10-10, from Mike's 2026-10-03 ruling (title lines after the results), lightly held:
   the benchmark lost 15 counting answers to the faded lines (bench R2-2). Being shown
   credits nothing; an open or a quote credits as for any result. The whole answer stays
