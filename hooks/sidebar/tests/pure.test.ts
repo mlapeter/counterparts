@@ -55,7 +55,7 @@ import {
 } from '../hooks/fox'
 import { FOX_FINAL } from '../hooks/fox-art'
 import { hookConfig, lookup, parentOf, parseRegistry, settingsHookConfig, under } from '../hooks/scopes'
-import { DASHBOARD, MECHS, isDashboardUrl, memoryUrl } from '../hooks/mechanisms'
+import { MECHS } from '../hooks/mechanisms'
 import { MORE, OPEN_MAX_LINES, bar, clip, heading, layoutBody, openedLines, textOf, wrapN } from '../hooks/sections'
 import { CLASSIC_HINT, CLASSIC_HINT_SHORT, TAIL_HINT, quietTail } from '../hooks/tail'
 import { P, applyTheme, cozy, normTheme, tron } from '../hooks/theme'
@@ -695,30 +695,11 @@ describe('the body, laid out', () => {
   })
 })
 
-describe('the dashboard’s address and links', () => {
-  test('one fixed address, 127.0.0.1:4747: no port is read (v1)', () => {
-    expect(DASHBOARD).toBe('http://127.0.0.1:4747')
-    expect(memoryUrl('mem_a1')).toBe('http://127.0.0.1:4747/#memories?id=mem_a1')
-  })
-
-  test('only the dashboard’s own links open: its fixed address, a strict character set', () => {
-    expect(isDashboardUrl('http://127.0.0.1:4747/')).toBe(true)
-    expect(isDashboardUrl('http://127.0.0.1:4747/#memories?id=mem_a1')).toBe(true)
-    expect(isDashboardUrl('http://localhost:4747/')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:5151/')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:47470/')).toBe(false)
-    expect(isDashboardUrl('http://evil.example:4747/')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:4747.evil.example/')).toBe(false)
-    expect(isDashboardUrl('https://127.0.0.1:4747/')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:4747/a b')).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:4747/&calc')).toBe(false)
-  })
-})
-
 describe('the footer and the pause, said (v1)', () => {
   test('at the docked pane’s 32 cells each item is one line, label · command; wider, the long labels', () => {
     const at = (w: number) => footerLines(w).map(l => l.label + l.how)
-    expect(at(32)).toEqual(['Intro · /counterparts:meet', 'Stats · /counterparts:dashboard', 'Pause · say “pause memory here”', 'Hide · /counterparts quiet'])
+    // `Dashboard · /counterparts:dashboard` is 35 cells: at 32 its command goes under it, whole
+    expect(at(32)).toEqual(['Intro · /counterparts:meet', 'Dashboard', '  /counterparts:dashboard', 'Pause · say “pause memory here”', 'Hide · /counterparts quiet'])
     expect(at(40)).toEqual(['5-minute intro · /counterparts:meet', 'Dashboard · /counterparts:dashboard', 'Pause here · say “pause memory here”', 'Hide this · /counterparts quiet'])
     for (const w of [16, 20, 26, 28, 32, 38, 48]) {
       const lines = footerLines(w)
@@ -729,14 +710,14 @@ describe('the footer and the pause, said (v1)', () => {
     }
     // narrower than an item: its short label, then the command under it, indented
     expect(footerLines(26).map(l => l.label + l.how)).toEqual([
-      'Intro · /counterparts:meet', 'Stats', '  /counterparts:dashboard', 'Pause', '  say “pause memory here”', 'Hide · /counterparts quiet',
+      'Intro · /counterparts:meet', 'Dashboard', '  /counterparts:dashboard', 'Pause', '  say “pause memory here”', 'Hide · /counterparts quiet',
     ])
   })
 
   test('paused or off, the footer’s pause line says how to resume instead', () => {
     expect(footerLines(40, true).map(l => l.label + l.how)).toContain('Resume here · say “resume memory here”')
     expect(footerLines(32, true).map(l => l.label + l.how)).toEqual([
-      'Intro · /counterparts:meet', 'Stats · /counterparts:dashboard', 'Resume', '  say “resume memory here”', 'Hide · /counterparts quiet',
+      'Intro · /counterparts:meet', 'Dashboard', '  /counterparts:dashboard', 'Resume', '  say “resume memory here”', 'Hide · /counterparts quiet',
     ])
     expect(footerLines(32, true).some(l => l.how.includes('pause memory'))).toBe(false)
   })

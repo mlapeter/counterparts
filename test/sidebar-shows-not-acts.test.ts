@@ -6,7 +6,7 @@
  * the full flavor carries) runs no command, calls no tool, starts no process,
  * submits no prompt and fetches nothing: what it shows comes from the status
  * file core writes beside the configuration (`src/adapters/sidebar-status.ts`),
- * read with `$.fs.read`. The dashboard is only ever a link.
+ * read with `$.fs.read`. Nothing in it is a link (the dashboard is `/counterparts:dashboard`).
  *
  * And no file the directory flavor ships names the SVG namespace URL in code
  * (the directory's review read it beside an environment read, or an
@@ -49,6 +49,15 @@ describe("the directory's sidebar shows, and does not act", () => {
       expect({ f, fetch: /\bhttp\s*\.\s*fetch\b|\bfetch\s*\(/.test(text) }).toEqual({ f, fetch: false });
       expect({ f, api: /\/api\//.test(text) }).toEqual({ f, api: false });
     }
+  });
+
+  test("no address at all, not even a link: no http:// or https:// in anything it ships but the SVG namespace the desktop fox's document needs", () => {
+    for (const f of shipped) {
+      const text = source(f).replaceAll('xmlns="http://www.w3.org/2000/svg"', "");
+      expect({ f, url: /https?:\/\//.test(text) }).toEqual({ f, url: false });
+    }
+    expect(source("fox-svg.ts")).toContain('xmlns="http://www.w3.org/2000/svg"');
+    for (const f of shipped) expect({ f, link: /<Link\b|\bhref=\{/.test(source(f)) }).toEqual({ f, link: false });
   });
 
   test("what it shows, it reads from the status file beside the configuration", () => {

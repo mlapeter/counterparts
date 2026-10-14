@@ -122,8 +122,8 @@ export function memoryIn(s: Status | null, id: string): StatusMemory | null {
   return s?.memories[id] ?? null
 }
 
-/** What a memory the file does not carry shows when opened: its title, this, and `more` (its card on the dashboard). */
-export const NOT_CARRIED = 'Its full card is on the dashboard.'
+/** What a memory the file does not carry shows when opened: its title and where its card is. */
+export const NOT_CARRIED = 'Its full card is on the dashboard: /counterparts:dashboard'
 
 /** `just now`, `12 min ago`, `3 h ago`, `2 days ago`. */
 export function agoWords(ms: number): string {

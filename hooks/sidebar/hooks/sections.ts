@@ -75,10 +75,11 @@ export type Seg = { t: string; c: string; b?: true; i?: true; cw?: number; fill?
 /**
  * One row of the body: its pieces, and what a click on it names; `link`, a
  * click from column `from` (0-based, in cells) to the row's end names
- * another key instead (the `more` at the end of a cut text), and `href`, set
- * by the hooks module, makes that last piece a `Link` to the dashboard.
+ * another key instead (the `more` at the end of a cut text). The hooks
+ * module hands every row over without one (no links, 2026-10-14): `more` is
+ * words, the rest of the text is on the dashboard (`/counterparts:dashboard`).
  */
-export type Line = { segs: Seg[]; key?: string; link?: { from: number; key: string; href?: string } }
+export type Line = { segs: Seg[]; key?: string; link?: { from: number; key: string } }
 
 const seg = (t: string, c: string, o: { b?: boolean; i?: boolean } = {}): Seg => ({ t, c, ...(o.b ? { b: true as const } : {}), ...(o.i ? { i: true as const } : {}) })
 const line = (segs: Seg[], key?: string): Line => (key === undefined ? { segs } : { segs, key })

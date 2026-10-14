@@ -11,7 +11,7 @@
 import type { MechId } from './mechanisms'
 import { hex, stageOf } from './mechanisms'
 import { titleButton } from './pane'
-import type { PaneActions, PaneEls } from './pane'
+import type { PaneEls } from './pane'
 import { P, SURFACE } from './theme'
 import { cells } from './width'
 
@@ -47,14 +47,13 @@ export function litDot(id: MechId): string {
 /** The header and the blank row under it: two rows. */
 export function header(
   els: PaneEls,
-  actions: PaneActions,
   s: { w: number; paused: boolean; lit: MechId | null; day: number | null; count: string },
 ): JSX.Element[] {
   const { Box, Text } = els
   const { w } = s
   return [
     <Box key="head1" flexDirection="row" justifyContent="space-between" width={w}>
-      {titleButton(els, actions, { lead: true, paused: s.paused, dot: s.lit === null ? null : litDot(s.lit) })}
+      {titleButton(els, { lead: true, paused: s.paused, dot: s.lit === null ? null : litDot(s.lit) })}
       <Text color={P.dim}>{headRight(s.day, s.count, w)}</Text>
     </Box>,
     <Text key="head-gap"> </Text>,

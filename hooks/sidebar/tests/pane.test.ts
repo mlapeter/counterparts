@@ -222,8 +222,10 @@ test('drawn: the status file is read, and nothing is fetched; the header is COUN
     // the avatar off: no Raster on either surface, the count and the day on the title row
     expect(await ui.find({ type: 'Raster' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: '776 · day 18' })).toBeDefined()
-    // the arrow only where the title is a link (the terminal)
-    expect((await titleOf(ui))?.text).toContain(surface === 'terminal' ? '◉ COUNTERPARTS ↗' : '◉ COUNTERPARTS')
+    // plain words on every surface: no link, no arrow
+    expect((await titleOf(ui))?.text).toContain('◉ COUNTERPARTS')
+    expect((await titleOf(ui))?.text).not.toContain('↗')
+    expect(await ui.find({ type: 'Link' })).toBeUndefined()
     await ui.unmount()
   }
   expect(w.statuses.every(s => s === undefined)).toBe(true)
@@ -532,15 +534,12 @@ test('a click opens a memory in place whatever its length, and never the dashboa
   const more = lines.filter(l => / more$/.test(l))
   expect(more).toHaveLength(1)
   expect(more[0]).toMatch(/… more$/)
-  // a click on the line's words is the item's (it closes again); only `more` links to the dashboard, on that memory:
-  // a `Link` the surface opens, so a click on it posts nothing and the memory stays open
-  expect(await bodyLinks(ui)).toEqual(['http://127.0.0.1:4747/#memories?id=mem_long0001'])
-  await clickWord(ui, '… more', 'more')
-  expect((await bodyLines(ui)).join(' ')).toContain('sentence 3 of a long') // still open
+  // `more` is words, not a link (the rest is on the dashboard, `/counterparts:dashboard`): a click on it is the item's
+  expect(await bodyLinks(ui)).toEqual([])
   await w.clock.advance(5 * 60000) // a long read: nothing closes it but a click
   await settle(w)
   expect((await bodyLines(ui)).join(' ')).toContain('sentence 3 of a long')
-  await click(ui, '… more')
+  await clickWord(ui, '… more', 'more')
   expect((await bodyLines(ui)).join(' ')).not.toContain('sentence 3 of a long')
   expect(await bodyLinks(ui)).toEqual([])
   expect(w.mcp.filter(c => c.tool === 'recall')).toHaveLength(0)
@@ -794,7 +793,7 @@ test('no status file yet: the chart says, calmly, it is waiting for the first se
   expect(w.statuses.some(s => (s ?? '').includes('dashboard'))).toBe(false)
 })
 
-test('a memory the status file does not carry opens to its title and `more`, the link to its card', async ($, on) => {
+test('a memory the status file does not carry opens to its title, where its card is, and `more`, words not a link', async ($, on) => {
   const w = world(on)
   on('tool.call', () => ({ result: 'ok', text: '{"stored":true,"id":"mem_notcar01"}' }))
   await start($, w)
@@ -804,13 +803,12 @@ test('a memory the status file does not carry opens to its title and `more`, the
   await click(ui, 'Not carried')
   await settle(w)
   const lines = await bodyLines(ui)
-  expect(lines.join(' ')).toContain('Its full card is on the dashboard.')
-  expect(lines.some(l => / more$/.test(l))).toBe(true)
-  expect(await bodyLinks(ui)).toEqual(['http://127.0.0.1:4747/#memories?id=mem_notcar01'])
+  expect(lines.join(' ')).toContain('Its full card is on the dashboard: /counterparts:dashboard')
+  expect(await bodyLinks(ui)).toEqual([])
   await ui.unmount()
 })
 
-test('COUNTERPARTS on the terminal is a link to the dashboard, which the terminal opens; the sidebar runs no process', async ($, on) => {
+test('nothing in the pane is a link, on any surface, and the sidebar runs no process', async ($, on) => {
   const w = world(on)
   let ran = 0
   on('process.run', () => {
@@ -818,11 +816,12 @@ test('COUNTERPARTS on the terminal is a link to the dashboard, which the termina
     return { deny: 'the sidebar runs no process' }
   })
   await start($, w)
-  const ui = await mount($, w, 'terminal')
-  const link = await ui.find({ type: 'Link' })
-  expect(link?.props['href']).toBe('http://127.0.0.1:4747/')
-  expect(link?.text).toContain('COUNTERPARTS')
-  await ui.unmount()
+  for (const surface of SURFACES) {
+    const ui = await mount($, w, surface)
+    expect(await ui.find({ type: 'Link' })).toBeUndefined()
+    expect(await bodyLinks(ui)).toEqual([])
+    await ui.unmount()
+  }
   expect(ran).toBe(0)
   expect(w.commands).toHaveLength(0)
 })

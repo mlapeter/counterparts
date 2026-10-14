@@ -46,8 +46,6 @@ export type SidebarRow = {
   text: string;
   /** What opening it adds. */
   more: string[];
-  url: string;
-  label: string;
   /** Seen live in this session rather than read from the dashboard. */
   live?: true;
   /** This session's (`here`), the night's or the background's (`night`), or another session's (`other`). */

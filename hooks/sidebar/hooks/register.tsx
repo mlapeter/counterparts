@@ -32,9 +32,8 @@
  *     its old name note) / session_end (Saved) and on recall by id (`↗ opened`).
  *
  * No command is run, no tool is called, no process is started and nothing is
- * fetched from here (the directory build's policy read, 2026-10-14). The
- * dashboard is only ever a link: COUNTERPARTS, and the `more` after a cut
- * text. The speak-first, which submits one prompt once per install, is
+ * fetched from here (the directory build's policy read, 2026-10-14), and
+ * nothing is a link: the footer says `/counterparts:dashboard`. The speak-first, which submits one prompt once per install, is
  * `speak-first.tsx`, a hooks module of its own that only the full build
  * carries.
  *
@@ -88,7 +87,7 @@ import {
   titled,
 } from './feed'
 import type { DashDream, DashEvent, Firing, RecallBlock } from './feed'
-import { DASHBOARD, MECHS, isDashboardUrl, mechById, memoryUrl } from './mechanisms'
+import { MECHS, mechById } from './mechanisms'
 import type { MechId } from './mechanisms'
 import {
   IMAGE_COLS,
@@ -114,7 +113,7 @@ import {
 import type { FoxDetail, FoxEvent, FoxTier, Step } from './fox'
 import { foxSvg } from './fox-svg'
 import { footer, footerRows, frame, pausedBanner, plainBody } from './pane'
-import type { PaneActions, PaneEls } from './pane'
+import type { PaneEls } from './pane'
 import { lookup, parentOf, parseRegistry, settingsHookConfig } from './scopes'
 import type { RegistryMode } from './scopes'
 import { layoutBody } from './sections'
@@ -616,7 +615,7 @@ function deeperFirings(s: Status, id: MechId, panel: readonly DashEvent[], dream
 
 /** A click on a row of the body, by the key the layout gave it. */
 async function clickBody($: EngineInterface, key: string): Promise<void> {
-  // (Off the terminal the `more` that ends a cut text carries no link (`register.tsx#linkMore`): it posts nothing.)
+  // (The `more` that ends a cut text is plain words, with no link: a click on it is its row's.)
   if (key.startsWith('head:')) {
     const section = key.slice(5)
     await update($, focusA, f => (f === section ? null : section))
@@ -1050,19 +1049,13 @@ function wake($: EngineInterface): void {
 }
 
 /**
- * The body's lines for a surface. On the terminal each `more` that ends a cut
- * text is a Link to its memory's card on the dashboard (`isDashboardUrl`), an
- * OSC 8 link the terminal opens (⌘-click in iTerm2). Elsewhere (the desktop
- * draws a non-https link as plain text) it is left as words, with no link:
- * the sidebar runs nothing to open one (the plugin directory build,
- * 2026-10-14).
+ * The body's lines, with no link on any of them (2026-10-14): the `more` that
+ * ends a cut text is words, and a click on it is its row's. The rest is on the
+ * dashboard, which `/counterparts:dashboard` opens (the footer says so).
  */
-function linkMore(lines: readonly Line[], terminal: boolean): Line[] {
+function plainLines(lines: readonly Line[]): Line[] {
   return lines.map(l => {
-    if (l.link === undefined || !l.link.key.startsWith('more:')) return l
-    const id = l.link.key.slice(5)
-    const href = memoryUrl(id, DASHBOARD)
-    if (terminal && /^mem_[A-Za-z0-9]+$/.test(id) && isDashboardUrl(href)) return { ...l, link: { ...l.link, href } }
+    if (l.link === undefined) return l
     const { link: _dropped, ...rest } = l
     return rest
   })
@@ -1308,7 +1301,7 @@ export const register: Register = on => {
   // ── the pane ──────────────────────────────────────────────────────────────
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
-    const { Box, Text, Link } = els
+    const { Box, Text } = els
     const now = await $.clock.now()
     const [pulse, dash, mind, saved, today, dreamNow, open, mech, focus, firing, scope, view, avatar, theme] = await Promise.all([
       read($, pulseA), read($, dashA), read($, mindA), read($, savedA), read($, todayA), read($, dreamA), read($, openA), read($, mechA),
@@ -1340,9 +1333,7 @@ export const register: Register = on => {
 
     const roomy = fill >= ROOMY_ROWS
     const lit = firingNow[0] ?? (mech === null ? null : mech.id)
-    // Where the title links: the dashboard, on the terminal only (the desktop draws a non-https link as text).
-    const actions: PaneActions = { dashboardHref: e.surface === 'terminal' && isDashboardUrl(`${DASHBOARD}/`) ? `${DASHBOARD}/` : null }
-    const paneEls: PaneEls = { Box, Text, Link }
+    const paneEls: PaneEls = { Box, Text }
     const rows: JSX.Element[] = []
     let used = 0
     if (roomy) {
@@ -1361,7 +1352,7 @@ export const register: Register = on => {
       const step = advance(stage.director, now).step
       // An Image's first frame is blitted once mounted too: a refusal says it draws its alt here.
       stage.shown = tier === 'image' ? '' : stepKey(step)
-      const [title] = header(paneEls, actions, { w, paused, lit, day, count: countText })
+      const [title] = header(paneEls, { w, paused, lit, day, count: countText })
       const png = tier === 'svg' ? await pngData($, pngName(step)) : ''
       stageTop = [...rows, ...(title === undefined ? [] : [title]), stageElement(els, tier, step, png)]
       rows.length = 0
@@ -1371,7 +1362,7 @@ export const register: Register = on => {
       used += 1 + (tier === 'svg' ? (SURFACE.prose ? Math.ceil(10 * Math.min(1, (W * 7) / (STAGE_COLS * 6))) : 15) : stageRows(tier)) + 1
       if (!holding) startStage($)
     } else {
-      rows.push(...header(paneEls, actions, { w, paused, lit, day, count: countText }))
+      rows.push(...header(paneEls, { w, paused, lit, day, count: countText }))
       used += 2
     }
 
@@ -1393,7 +1384,7 @@ export const register: Register = on => {
     // The body's surface module stays here, its module a literal on the tag's own line: the engine reads a hooks
     // module's surface modules off its own source.
     if ('Client' in els) {
-      const bodyProps: BodyProps = { lines: linkMore(lines, e.surface === 'terminal'), prose: SURFACE.prose }
+      const bodyProps: BodyProps = { lines: plainLines(lines), prose: SURFACE.prose }
       rows.push(<els.Client key="body" module="./body.tsx" width={w} props={bodyProps} />)
     } else rows.push(plainBody(paneEls, lines))
     rows.push(<Box key="spacer" flexGrow={1} />)

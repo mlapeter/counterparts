@@ -17,7 +17,7 @@
  */
 
 import type { SidebarMeet, SidebarOnboarding, SidebarRow, SidebarSaved } from '../types';
-import { MECHS, MEMORIES_URL, mechById, mechUrl } from './mechanisms';
+import { MECHS, mechById } from './mechanisms';
 import type { MechId } from './mechanisms';
 import { cells, ellipsizeCells, headCells } from './width';
 
@@ -169,8 +169,6 @@ export function classify(e: DashEvent, session = '', since = 0): FeedRow | null 
     at: e.at,
     text: e.text,
     more: [],
-    url: mechUrl(rule.mech),
-    label: `${short} on the dashboard`,
     who,
     line: `${rule.word} · ${e.text}`,
     ...(named === undefined || named.id === null ? {} : { memory: { id: named.id, title: named.title } }),
@@ -179,7 +177,7 @@ export function classify(e: DashEvent, session = '', since = 0): FeedRow | null 
   if (rule.name === 'gate.deposit' || rule.name === 'gate.chunk') {
     const accepted = num(e, 'accepted');
     const text = named?.title ?? (accepted > 1 ? `${String(accepted)} memories written down` : 'a memory');
-    return { ...base, text, url: MEMORIES_URL, label: 'open on the dashboard', line: `kept · ${text}`, ...(named?.id ? { twinIds: [`mem:${named.id}`] } : {}) };
+    return { ...base, text, line: `kept · ${text}`, ...(named?.id ? { twinIds: [`mem:${named.id}`] } : {}) };
   }
   if (rule.name === 'recall.decision') {
     const turn = detail(e, 'turn');
