@@ -1006,7 +1006,7 @@ describe("`counterparts uninstall` on the command line", () => {
         ).toBe("ok");
         expect(spy.calls).toEqual([]);
         const body = JSON.parse(text(c.out)) as { lines: string[] };
-        expect(text(body.lines)).toContain("`counterparts` is on this PATH");
+        expect(text(body.lines)).toContain("an npm install of Counterparts is still here");
       });
 
       test("keep, with no npm `counterparts`: whatever is registered goes", async () => {

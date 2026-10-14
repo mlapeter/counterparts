@@ -1579,6 +1579,7 @@ async function offerDelete(
               "WAS DELETED. A server pointed at a store that is gone fails at every session start " +
               "with nothing on screen. Run the line above, then run this again.",
       );
+      if (rest.outcome === "ok") io.err(`The hooks are out; \`${BIN.cli} connect\` puts them back if you want them.`);
       return rest.outcome !== "ok" ? rest.outcome : "refused";
     }
   }

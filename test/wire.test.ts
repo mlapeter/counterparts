@@ -1123,7 +1123,17 @@ describe("unwire", () => {
       expect(fake.calls).toEqual([]);
       expect(result.mcp).toBe("skipped");
       expect(text(c.out)).toContain(`Any "${MCP_SERVER_NAME}" memory server`);
-      expect(text(c.out)).toContain("`counterparts` is on this PATH");
+      expect(text(c.out)).toContain("an npm install of Counterparts is still here");
+    });
+
+    test("the plugin directory's build, with a live npm hook but no `counterparts` on PATH: left", async () => {
+      liveShimSettings(program("npm/bin/counterparts-hook"));
+      const fake = spawnerThat(() => OK);
+      const c = consoleWith();
+      const result = await unwire(input({ io: c.io, spawner: fake.spawner, readsUserConfig: false, onlyDead: true }));
+      expect(fake.calls).toEqual([]);
+      expect(result).toMatchObject({ hooks: "none", mcp: "skipped" });
+      expect(text(c.out)).toContain("an npm install of Counterparts is still here");
     });
 
     test("the plugin directory's build, with no npm `counterparts`: `claude mcp remove`, tolerated", async () => {

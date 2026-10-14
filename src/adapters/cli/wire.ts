@@ -1658,15 +1658,18 @@ type LeftWhy = "live" | "unread" | "npm" | "absent";
  * THE PLUGIN'S RULE FOR THE REGISTRATION (`onlyDead`): removed only when what
  * it runs is gone. Read by `host-wiring.ts#npmWiring` — the stand-down's own
  * reader, so the two cannot disagree about live. The directory flavor never
- * opens `~/.claude.json` (`notRead`), so it asks the next best thing: is the
- * npm install's `counterparts` on this PATH? The plugin never puts one there
- * (the bundle refuses a top-level `bin/`), so one that is there is the npm
- * install's, and its registration is taken as live. None there: whatever is
- * registered under the name runs nothing of an npm install's, so it goes,
- * through `claude mcp remove`, which tolerates its absence.
+ * opens `~/.claude.json` (`notRead`), so it asks the next best things: is the
+ * npm install's `counterparts` on this PATH, or does one of our hooks in
+ * `settings.json` still run (`liveHooks`)? The plugin never puts either there
+ * (the bundle refuses a top-level `bin/`, and its hooks are hooks.json's), so
+ * either is a live npm install, whose `connect` registered its server from
+ * the same package, and the registration is taken as live. Neither: whatever
+ * is registered under the name runs nothing of an npm install's, so it goes,
+ * through `claude mcp remove`, which tolerates its absence. (A checkout's own
+ * registration, with no npm install and no hook, reads as gone here.)
  */
-function leftWhy(input: WireInput, mcp: McpReading): LeftWhy | null {
-  if (mcp.notRead === true) return runtimePresent(BIN.cli, input.env) ? "npm" : null;
+function leftWhy(input: WireInput, mcp: McpReading, liveHooks: boolean): LeftWhy | null {
+  if (mcp.notRead === true) return liveHooks || runtimePresent(BIN.cli, input.env) ? "npm" : null;
   if (mcp.unreadable) return "unread";
   if (!mcp.present) return "absent";
   const user = npmWiring({
@@ -1694,7 +1697,7 @@ function leftMcpNote(u: Ui, mcp: McpReading, why: LeftWhy, home: string): void {
   u.hint(
     why === "live"
       ? `The ${where} was left as it is: what it runs is still there, so it is the npm install's, and \`${BIN.cli} uninstall\` removes it.`
-      : `Any ${where} was left as it is: the npm install's \`${BIN.cli}\` is on this PATH, so it is that install's, and \`${BIN.cli} uninstall\` removes it.`,
+      : `Any ${where} was left as it is: an npm install of Counterparts is still here, so it is that install's, and \`${BIN.cli} uninstall\` removes it.`,
   );
 }
 
@@ -1743,7 +1746,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   // A file this build never opens (`notRead`) is no evidence either: the
   // removal below asks `claude`. A registration left alone (`onlyDead`, and
   // it still runs or cannot be told) is not ours to disconnect.
-  const why = input.onlyDead === true ? leftWhy(input, mcp) : null;
+  const why = input.onlyDead === true ? leftWhy(input, mcp, merged.spared > 0) : null;
   const leave = why !== null;
   if (!merged.changed && (leave || (!mcp.present && !mcp.unreadable && mcp.notRead !== true))) {
     u.ok(
