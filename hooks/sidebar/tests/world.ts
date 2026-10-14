@@ -227,8 +227,8 @@ export type World = {
 export function world(on: On, opts: WorldOptions = {}): World {
   const clock = mock.clock(on, { now: opts.now ?? T0 })
   // The plugin's own store, kept here so a test can read what was written.
-  // The fox is the default avatar; these tests are mostly the brain's, so they start turning (the fox's set `brain: 'fox'`).
-  const store: Record<string, unknown> = { brain: 'turning', ...(opts.store ?? {}) }
+  // The fox is the default avatar; most of these tests are the body's, so they start with none (the fox's set `brain: 'fox'`).
+  const store: Record<string, unknown> = { brain: 'off', ...(opts.store ?? {}) }
   on('store.get', (_$, e) => ({ value: store[e.key] }))
   on('store.set', (_$, e) => {
     store[e.key] = e.value

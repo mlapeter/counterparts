@@ -4,8 +4,10 @@
  * module by the key it carries (`{ click: 'mem:0' }`). From a row's link
  * column on (the `more` that ends a cut text): on the terminal that piece is
  * a `Link` to the dashboard, which the terminal opens, and the click posts
- * nothing; elsewhere (no `href`) it posts the link's key (`more:mem_…`), and
- * the hooks module runs `/counterparts:dashboard`.
+ * nothing. Elsewhere the hooks module hands the row over with no link (v1,
+ * 2026-10-14: the sidebar runs no command), so `more` is plain words there and
+ * a click on it is the row's. (A link with no `href` would post its key; none
+ * is drawn now.)
  *
  * Why not Buttons: the engine inverts a Button under the pointer and the
  * focus, so moving the mouse over a list lit row after row (v0.1, NOTES).
