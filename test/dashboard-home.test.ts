@@ -17,7 +17,7 @@ import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
 import { LANES, laneOf } from "../src/adapters/dashboard/web/lanes.js";
 import { narrate } from "../src/adapters/dashboard/web/narrate.js";
-import { router } from "../src/adapters/dashboard/web/server.js";
+import { router, withBrainSwitch } from "../src/adapters/dashboard/web/server.js";
 import { mergeRepeats } from "../src/adapters/dashboard/web/views/mechanism-panel.js";
 import { heroHeadline, ownerName } from "../src/adapters/dashboard/web/views/overview.js";
 import { memoriesHeld, memoriesLive } from "../src/adapters/dashboard/web/views/shared.js";
@@ -303,6 +303,28 @@ describe("the brain moved home", () => {
       return out;
     };
     for (const file of walk(WEB)) expect(`${relative(WEB, file)}: ${readFileSync(file, "utf8").includes("cdn.jsdelivr")}`).toBe(`${relative(WEB, file)}: false`);
+  });
+
+  // THE PLUGIN DIRECTORY'S BUNDLE carries no three.js (2026-10-14): the
+  // server says so in the page, and the home tab draws without the picture.
+  test("the page says whether the picture's library is here; without it the home tab never asks for the picture", async () => {
+    const app = readFileSync(join(WEB, "app.html"), "utf8");
+    expect(app.split('<meta name="counterparts-brain" content="on">').length).toBe(2);
+    withSource(emptyDir, (src) => {
+      expect(router(new URL(`http://${HOST}/`), HOST, src).body).toContain('<meta name="counterparts-brain" content="on">');
+    });
+    const off = withBrainSwitch(app, false);
+    expect(off).toContain('<meta name="counterparts-brain" content="off">');
+    expect(off).not.toContain('content="on"');
+    expect(withBrainSwitch(app, true)).toBe(app);
+    // The section loads the picture only on "on", and never by a static import.
+    const section = readFileSync(join(WEB, "pages/home/sections/brain.js"), "utf8");
+    expect(section).not.toMatch(/^import[^\n]*["']\.\.\/brain\.js["']/m);
+    const { pictureServed } = (await import(join(WEB, "pages/home/sections/brain.js"))) as { pictureServed: (doc: unknown) => boolean };
+    const docWith = (content: string | null) => ({ querySelector: () => (content === null ? null : { getAttribute: () => content }) });
+    expect(pictureServed(docWith("on"))).toBe(true);
+    expect(pictureServed(docWith(null))).toBe(true);
+    expect(pictureServed(docWith("off"))).toBe(false);
   });
 });
 

@@ -309,8 +309,12 @@ at. Then it:
    console, and captures a turn through the plugin's hook command into the store's
    buffer;
 9. runs doctor the way `/counterparts:doctor` does: the plugin install reads as connected;
-10. wires the npm hooks as well and checks there's one wake plus the stand-down line;
-    removes them and checks the plugin wakes on the same store;
+10. wires the npm hooks as well and checks there's one wake plus the stand-down line
+    (`--bundle=directory`: no stand-down line, since that flavor never reads
+    `~/.claude.json`; it then also checks a live npm registration there stands nothing
+    down, and that the hook, the server and doctor all finish with `~/.claude.json` a
+    FIFO no read could get past); removes them and checks the plugin wakes on the same
+    store;
 11. uninstalls the plugin and checks `~/.counterparts` is intact.
 
 Along the way it also checks that the sidebar's hooks module loads, `/counterparts:doctor`
@@ -362,9 +366,27 @@ shebang form of what `plugin-run.sh` passes Bun. So it needs Bun 1.3+ on the PAT
 Code starts with, and its README says so first. The code tells the trees apart by its own
 URL (`runtime.ts#entryScript`, `#TRANSPILED`): a script it spawns is its `.js` sibling
 there, and the console sets `CLAUDE_PLUGIN_ROOT` itself, as `plugin-run.sh cli` does. The
-build also refuses a directory-flavor file over 256 KiB that is not an image or font
-(the vendored three.js aside), a launcher left in the roots, and a tree that does not
-mirror the sources; it warns from 490 files. `build.ts --flavor directory --check <dir>`
+build also refuses any directory-flavor file over 256 KiB, a launcher left in the roots,
+and a tree that does not mirror the sources; it warns from 490 files. It leaves out the
+dashboard's 3D brain (`pages/home/brain.js`, the vendored three.js, ~670 KiB, and its
+licence): the server finds no three.js on disk, says so in the page
+(`<meta name="counterparts-brain" content="off">`, `server.ts#BRAIN_LIBRARY`), and the home
+tab draws "Today" across the row with no request for the picture.
+
+**The directory flavor never reads `~/.claude.json`** (owner's decision, 2026-10-14; the
+validator read the file's name as a credential). One helper, `runtime.ts#readsHostUserConfig`
+(false in the transpiled tree), gates every reader of it: `host-wiring.ts#npmWiring` (the
+whole stand-down detection: hooks and server alike find no npm wiring, and doctor's
+stood-down redirect never fires), `cli/install.ts#readHost` (doctor has no MCP clause;
+`mcpRead: false`), `cli/desktop.ts#readDesktop` (no Code-tab clash) and `cli/wire.ts#readMcp`
+(`notRead`: `/counterparts:uninstall` asks `claude mcp remove` and takes its answer, and
+with no `claude` says the line to run). It still reads the settings files and
+`installed_plugins.json` (doctor, uninstall, the sidebar). **Known limit:** with the npm
+install ALSO wired, the directory flavor does not stand down, so the memory is wired twice
+(the per-event claim below still keeps one wake per event; the memory tools are offered
+twice) until a marker-based check that needs no `~/.claude.json` lands. doctor's Claude
+Code line says both run; the bundle README says to keep one. The full flavor and the npm
+install are unchanged. `build.ts --flavor directory --check <dir>`
 rebuilds and names every file that differs from `<dir>`, with the Bun version (the
 transpiled bytes depend on it). `tools/plugin-loop/run.sh --bundle=directory` installs it
 through Claude Code from git and runs every step through the entries.

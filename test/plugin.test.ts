@@ -36,7 +36,9 @@ import type { Finding, HostReading } from "../src/adapters/claude-code/doctor.js
 import { Counterpart } from "../src/core/counterpart.js";
 import { TOOL_NAMES } from "../src/adapters/mcp/tools.js";
 import { Store } from "../src/core/store/index.js";
-import { isOurHookCommand as wireIsOurs } from "../src/adapters/cli/wire.js";
+import { isOurHookCommand as wireIsOurs, readMcp } from "../src/adapters/cli/wire.js";
+import { readDesktop } from "../src/adapters/cli/desktop.js";
+import { readsHostUserConfig } from "../src/adapters/runtime.js";
 import { HOST_SESSION_ENV } from "../src/adapters/claude-code/night-run.js";
 import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring, pluginInstall, readOurHook } from "../src/adapters/host-wiring.js";
 import {
@@ -49,6 +51,7 @@ import {
   installRoute,
   mcpGate,
   npmDoctorCommand,
+  pluginDoctorLine,
   pluginOrigin,
   runningAsPlugin,
   takeFirstRunNotice,
@@ -1408,6 +1411,46 @@ describe("doctor's Claude Code line knows the plugin", () => {
     expect(f.fix).toContain("counterparts disconnect");
     expect(f.fix).toContain("claude plugin uninstall counterparts@counterparts");
   });
+
+  // THE PLUGIN DIRECTORY'S BUILD (2026-10-14): it never opens ~/.claude.json
+  // (`runtime.ts#readsHostUserConfig`), so doctor has no MCP clause, and its
+  // plugin does not stand down beside the npm install.
+  test("the directory build: the plugin alone is connected, and ~/.claude.json is not read", () => {
+    recordPlugin();
+    // A directory where the file should be: read, it is "could not be read".
+    mkdirSync(join(home, ".claude.json"));
+    expect(readHost(home, project, {}).mcpUnreadable).toBe(true);
+    const host = readHost(home, project, {}, false);
+    expect(host.mcpRead).toBe(false);
+    expect(host.mcpUnreadable).toBe(false);
+    const f = hostFinding(host);
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("connected as the Claude Code plugin (counterparts@counterparts 0.3.12)");
+  });
+
+  test("the directory build beside the npm wiring: amber, says both run, names no ~/.claude.json and offers no registration", () => {
+    const hooks: Record<string, string[]> = {};
+    for (const e of HOST_EVENTS) hooks[e] = [liveHookCommand()];
+    writeSettings(hooks);
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { counterparts: { type: "stdio", command: process.execPath, args: ["run", MCP_SCRIPT] } } }),
+    );
+    recordPlugin(true);
+    const host = readHost(home, project, {}, false);
+    expect(host.mcp).toBe(false);
+    expect(host.runtimes.flatMap((r) => r.used)).toEqual(["hooks"]);
+    const f = hostFinding({ ...host, claudeOnPath: false, mcpAddLine: "claude mcp add counterparts" });
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("all 5 hook events are connected");
+    expect(f.detail).toContain("whose build does not check for this install, so both are running, on the same memory");
+    expect(f.detail).not.toContain("stands down");
+    expect(f.detail).not.toContain(".claude.json");
+    expect(f.data["mcpFile"]).toBeNull();
+    expect(f.fix).not.toContain("registers the memory tools");
+    expect(f.fix).not.toContain("claude mcp add");
+    expect(f.fix).toContain("claude plugin uninstall counterparts@counterparts");
+  });
 });
 
 // ── a paused folder with two wirings (rulings brief #19, 2026-10-10) ────────
@@ -1614,4 +1657,63 @@ describe("/counterparts:uninstall's two calls read one configuration", () => {
     }
     expect(existsSync(defaultChoice().path)).toBe(true);
   }, 120_000);
+});
+
+// ── the plugin directory's build never reads ~/.claude.json (2026-10-14) ────
+//
+// The owner's decision for Anthropic's directory: that build (the transpiled
+// tree, `runtime.ts#readsHostUserConfig`) never opens Claude Code's user
+// configuration. Every reader of it takes the flag, so each is held here from
+// source; `plugin-bundle.test.ts` runs the written tree against a file no read
+// could get past.
+describe("the directory build never reads ~/.claude.json", () => {
+  function wireBoth(): void {
+    const hooks: Record<string, string[]> = {};
+    for (const e of HOST_EVENTS) hooks[e] = [liveHookCommand()];
+    writeSettings(hooks);
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { counterparts: { type: "stdio", command: process.execPath, args: ["run", MCP_SCRIPT], env: {} } } }),
+    );
+  }
+
+  test("the helper: the sources read it, the transpiled tree does not", () => {
+    expect(readsHostUserConfig()).toBe(true);
+    expect(readsHostUserConfig(false)).toBe(true);
+    expect(readsHostUserConfig(true)).toBe(false);
+  });
+
+  test("no stand-down detection: npmWiring finds nothing, so neither gate stands down and doctor runs its own", () => {
+    wireBoth();
+    const full = npmWiring({ home, env: {}, cwd: project });
+    expect(hookGate(full, home).standDown).toBe(true);
+    expect(mcpGate(full, home).standDown).toBe(true);
+    const w = npmWiring({ home, env: {}, cwd: project, readsUserConfig: false });
+    expect(w).toEqual({ hooks: [], mcp: [] });
+    expect(hookGate(w, home)).toEqual({ standDown: false, line: null });
+    expect(mcpGate(w, home)).toEqual({ standDown: false, instructions: null });
+    expect(pluginDoctorLine(w, home)).toBeNull();
+  });
+
+  test("doctor's Desktop reading names no Code-tab clash it could only learn from ~/.claude.json", () => {
+    wireBoth();
+    const desktop = join(home, "Library", "Application Support", "Claude");
+    mkdirSync(desktop, { recursive: true });
+    writeFileSync(
+      join(desktop, "claude_desktop_config.json"),
+      JSON.stringify({ mcpServers: { counterparts: { command: process.execPath, args: ["run", MCP_SCRIPT], env: {} } } }),
+    );
+    expect(readDesktop(home, {}).codeTab).toBe(true);
+    const read = readDesktop(home, {}, false);
+    expect(read.state).toBe("entry");
+    expect(read.codeTab).toBe(false);
+    expect(read.codeDataDir).toBeNull();
+  });
+
+  test("uninstall's MCP reading is \"not looked\", never \"not registered\"", () => {
+    wireBoth();
+    expect(readMcp(home, {}, "", undefined, process.execPath).present).toBe(true);
+    const r = readMcp(home, {}, "", undefined, process.execPath, MCP_SCRIPT, false);
+    expect(r).toEqual({ file: join(home, ".claude.json"), present: false, matches: false, unreadable: false, notRead: true });
+  });
 });

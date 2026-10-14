@@ -57,7 +57,7 @@
  * the page carries, JSON). A GET to an action path is refused here, so no
  * link, image or prefetch can act.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -70,9 +70,9 @@ import { Dashboard } from "../index.js";
 import { upgradePending, upgradePendingSentence } from "../upgrade.js";
 import type { DashboardSource } from "../source.js";
 import {
+  ACTION_HEADER_NAME,
+  ACTION_META_NAME,
   MAX_BODY_BYTES,
-  TOKEN_HEADER,
-  TOKEN_META,
   checkActionRequest,
   newActionToken,
   runAction,
@@ -111,6 +111,23 @@ export const PORT_ENV = "COUNTERPARTS_DASHBOARD_PORT";
 const HERE = packagePath("src/adapters/dashboard/web");
 const APP_PATH = join(HERE, "app.html");
 
+/**
+ * The home tab's brain picture is drawn with three.js, the dashboard's one
+ * large file, which the plugin directory's bundle leaves out with the
+ * picture's module (tools/plugin-bundle/build.ts). Whether it is here is read
+ * off the file itself, per page load, and said in the page
+ * (`pages/home/sections/brain.js#pictureServed`): off, the home tab draws
+ * without the picture rather than ask for a module that is not there.
+ */
+export const BRAIN_LIBRARY = join(HERE, "shared", "vendor", "three.module.min.js");
+const BRAIN_ON = `<meta name="counterparts-brain" content="on">`;
+const BRAIN_OFF = `<meta name="counterparts-brain" content="off">`;
+
+/** The page as served: its brain tag turned off when the library is not here. */
+export function withBrainSwitch(page: string, served: boolean = existsSync(BRAIN_LIBRARY)): string {
+  return served ? page : page.replace(BRAIN_ON, BRAIN_OFF);
+}
+
 const NO_STORE = { "cache-control": "no-store" } as const;
 
 /**
@@ -118,7 +135,10 @@ const NO_STORE = { "cache-control": "no-store" } as const;
  * memory, so there is no fourth file to lose — and served at all because a
  * missing favicon is a console error, and this dashboard's bar is zero of them.
  * Static branding rather than a data view, so it is the one response that may
- * cache.
+ * cache. The `xmlns` stays: this is a standalone SVG document served as
+ * `image/svg+xml`, which a browser parses as XML and draws nothing of without
+ * the SVG namespace (inline `<svg>` in HTML is the case that needs none). It
+ * is a namespace name, never fetched.
  */
 const FAVICON_SVG =
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
@@ -182,10 +202,10 @@ function html(body: string): Reply {
  */
 function page(file: string, token?: string): Reply {
   try {
-    const text = readFileSync(file, "utf8");
+    const text = withBrainSwitch(readFileSync(file, "utf8"));
     if (token === undefined || !/^[0-9a-f]+$/.test(token)) return html(text);
     return html(
-      text.replace(`<meta name="${TOKEN_META}" content="">`, `<meta name="${TOKEN_META}" content="${token}">`),
+      text.replace(`<meta name="${ACTION_META_NAME}" content="">`, `<meta name="${ACTION_META_NAME}" content="${token}">`),
     );
   } catch {
     return json(
@@ -550,7 +570,7 @@ async function handleAction(
       host: header(req, "host"),
       origin: header(req, "origin"),
       contentType: header(req, "content-type"),
-      token: header(req, TOKEN_HEADER),
+      token: header(req, ACTION_HEADER_NAME),
       fetchSite: header(req, "sec-fetch-site"),
     },
     token,
