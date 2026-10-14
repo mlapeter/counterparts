@@ -346,6 +346,14 @@ describe("the rated field on session_end", () => {
     expect((out["drewOn"] as Record<string, unknown>)["credited"]).toEqual([foot]);
     expect(s.counterpart.store.row(foot)?.uses).toBe(0.5);
     expect(s.counterpart.store.row(openedId)?.uses).toBe(JSON.parse(before).rows[1].uses);
+    // The reader's `opened` lane rests on the row the recall tool wrote: tie the two halves.
+    const lookups = s.counterpart.store.eventLog({ name: "mcp.recall" }).map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
+    expect(lookups).toEqual([expect.objectContaining({ session: SESSION, path: "handle", ids: [openedId] })]);
+    s.counterpart.close();
+    open.splice(0);
+    const lines: string[] = [];
+    expect(probeCommand(dir, { out: (l) => lines.push(l), err: () => {} }, true)).toBe(0);
+    expect(lines.some((l) => /^total\s+opened\s+1\s+1\s+100\.0%/.test(l))).toBe(true);
   });
 
   test("with memories, a refused rating never fails the deposit", async () => {
