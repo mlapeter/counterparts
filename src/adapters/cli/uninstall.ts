@@ -1158,7 +1158,8 @@ export interface UninstallInput {
 
 /** What happened, for the one JSON line `uninstallJson` prints. */
 export interface UninstallRecord {
-  /** True once the hooks and the registration are out. */
+  /** True once the hooks and the registration are out (the registration left
+   *  as it is, on the plugin's keep arm: it is the npm install's). */
   unwired: boolean;
 }
 
