@@ -26,6 +26,7 @@ import {
   RECALL_BLOCK,
   SCOPES_FILE,
   SESSION,
+  STATUS_FILE,
   T0,
   VIEWPORT,
   ev,
@@ -163,7 +164,7 @@ const cmd = async ($: Engine, args: string): Promise<string> => (await $.command
 
 // ── opening, and where it opens ─────────────────────────────────────────────
 
-test('at session start nothing is opened or drawn and the dashboard is not read, but this folder’s registry entry is; a docking surface opens it at 34 columns (a dock 35 wide)', async ($, on) => {
+test('at session start nothing is opened or drawn and the status file is not read, but this folder’s registry entry is; a docking surface opens it at 34 columns (a dock 35 wide)', async ($, on) => {
   const w = world(on)
   await start($, w)
   expect(w.opens).toHaveLength(0)
@@ -174,7 +175,8 @@ test('at session start nothing is opened or drawn and the dashboard is not read,
   expect(w.lastStatus()).toBe('') // no status line in the normal case
   await band($, w, true)
   expect(w.opens).toEqual([{ id: PANE, title: 'Counterparts', columns: 34 }])
-  expect(w.fetches).toHaveLength(0) // still nothing read: the pane has not drawn
+  expect(w.fetches).toHaveLength(0)
+  expect(w.statusReads()).toBe(0) // still nothing read: the pane has not drawn
 })
 
 test('on the main screen (no docking) nothing is opened unasked and nothing is said; /counterparts opens it', async ($, on) => {
@@ -208,14 +210,13 @@ test('a docking terminal too narrow for an unasked pane: the dim tail under the 
   expect(await tail($, w)).toBeUndefined()
 })
 
-test('drawn: the dashboard is read; the header is COUNTERPARTS with the count and the day on its row, no brain, no search box; no status line', async ($, on) => {
+test('drawn: the status file is read, and nothing is fetched; the header is COUNTERPARTS with the count and the day on its row, no brain, no search box; no status line', async ($, on) => {
   const w = world(on)
   await start($, w)
   for (const surface of SURFACES) {
     const ui = await mount($, w, surface)
-    expect(w.fetches.some(u => u.endsWith('/api/pulse'))).toBe(true)
-    expect(w.fetches.some(u => u.endsWith('/api/mechanisms'))).toBe(true)
-    expect(w.fetches.some(u => u.includes('/api/dreams'))).toBe(true)
+    expect(w.fsReads).toContain(STATUS_FILE)
+    expect(w.fetches).toEqual([])
     expect((await titleOf(ui))?.text).toContain('COUNTERPARTS')
     expect(await ui.find({ type: 'Input' })).toBeUndefined()
     // the avatar off: no Raster on either surface, the count and the day on the title row
@@ -228,32 +229,40 @@ test('drawn: the dashboard is read; the header is COUNTERPARTS with the count an
   expect(w.statuses.every(s => s === undefined)).toBe(true)
 })
 
-test('the dashboard is read while the pane shows: cheap reads every 15 s, every 30 s once quiet, none when it is not shown', async ($, on) => {
+test('the status file is looked at while the pane shows: every 15 s, every 30 s once quiet, read again only when it changed, never when the pane is not shown', async ($, on) => {
   const w = world(on)
   await start($, w)
   const ui = await mount($, w, 'terminal')
-  const pulses = () => w.fetches.filter(u => u.endsWith('/api/pulse')).length
-  const since = () => w.fetches.filter(u => u.includes('sinceSeq=')).length
-  expect(pulses()).toBe(1)
+  const looks = () => w.fsReads.filter(f => f === STATUS_FILE).length
+  expect(looks()).toBe(1)
   await w.clock.advance(15000)
-  expect(since()).toBe(1)
-  expect(pulses()).toBe(1)
-  await w.clock.advance(15000 * 3)
-  expect(since()).toBe(4)
+  expect(looks()).toBe(1) // looked at, unchanged: not read again
+  w.events.push(ev(501, 'gate.deposit', 'I wrote down one memory.', 0, { accepted: '1', session: SESSION }))
   await w.clock.advance(15000)
-  expect(since()).toBe(4) // four quiet reads in a row: now every 30 s
+  await settle(w)
+  expect(looks()).toBe(2) // changed: read
+  const stats = (): number => w.fsReads.length
+  await w.clock.advance(15000 * 4) // four quiet looks in a row
+  const before = looks()
+  w.events.push(ev(502, 'gate.deposit', 'I wrote down one more.', 0, { accepted: '1', session: SESSION }))
   await w.clock.advance(15000)
-  expect(since()).toBe(5)
+  await settle(w)
+  expect(looks()).toBe(before) // now every 30 s: not yet
+  await w.clock.advance(15000)
+  await settle(w)
+  expect(looks()).toBe(before + 1)
   w.shown = false // the person showed another pane
-  const before = w.fetches.length
+  const n = stats()
   await w.clock.advance(120000)
-  expect(w.fetches.length).toBe(before)
+  expect(w.fsReads.filter(f => f === STATUS_FILE).length).toBe(looks())
+  expect(stats()).toBeGreaterThanOrEqual(n)
+  expect(w.fetches).toEqual([])
   await ui.unmount()
 })
 
 // ── the sections ────────────────────────────────────────────────────────────
 
-test('Memories and Subconscious: what the recall block put in front of Claude, titles read from the dashboard (a read that counts nothing), the message’s time on the heading', async ($, on) => {
+test('Memories and Subconscious: what the recall block put in front of Claude, titles from the status file (a read that counts nothing), the message’s time on the heading', async ($, on) => {
   const w = world(on)
   await start($, w)
   w.events.push(DECISION_T3)
@@ -268,25 +277,25 @@ test('Memories and Subconscious: what the recall block put in front of Claude, t
     expect(lines.join('\n')).not.toMatch(/[·•●]\s*Release/) // no dots or bullets on these
     await ui.unmount()
   }
-  expect(w.fetches.some(u => u.includes('/api/memory?id=mem_sur00001'))).toBe(true)
+  expect(w.fetches).toEqual([])
   expect(w.mcp.filter(c => c.tool === 'recall')).toHaveLength(0) // never the recall tool, which counts and credits
   expect(await tail($, w)).toBeUndefined() // the pane is open: no tail
 })
 
-test('a turn’s row not written yet when the block arrives: the gist stands, and the title comes a moment later', async ($, on) => {
+test('a turn’s row not in the status file yet when the block arrives: the gist stands, and the title comes at the next look', async ($, on) => {
   const w = world(on)
   await start($, w)
   const ui = await mount($, w, 'terminal')
   await block($, w)
   expect((await bodyLines(ui))[1]).toBe('Mike chose 35 columns on Oct 10:') // an ISO date shown short
   w.events.push(DECISION_T3) // written now
-  await w.clock.advance(1600)
+  await w.clock.advance(15000)
   await settle(w)
   expect((await bodyLines(ui))[1]).toBe('The sidebar is 35 columns wide')
   await ui.unmount()
 })
 
-test('a message with nothing said in full: no Memories section, and the time moves to Subconscious; the dashboard down leaves the words Claude read', async ($, on) => {
+test('a message with nothing said in full: no Memories section, and the time moves to Subconscious; no status file leaves the words Claude read', async ($, on) => {
   const w = world(on, { down: true })
   await start($, w)
   const ui = await mount($, w, 'terminal')
@@ -296,7 +305,7 @@ test('a message with nothing said in full: no Memories section, and the time mov
   expect(lines[0]).toMatch(/^Subconscious ─+ 1:35$/)
   await block($, w)
   lines = await bodyLines(ui)
-  expect(lines[1]).toBe('Mike chose 35 columns on Oct 10:') // the gist wraps; no title without the dashboard
+  expect(lines[1]).toBe('Mike chose 35 columns on Oct 10:') // the gist wraps; no title without the status file
   await ui.unmount()
 })
 
@@ -385,7 +394,7 @@ test('saved under the plugin’s own server name too', async ($, on) => {
   expect(await tail($, w)).toBe('Stored “From the plugin server” — x · /counterparts opens it')
 })
 
-test('Mechanisms today: times each fired today, from the dashboard; a zero dim with no bar, Schemas not built; a click lists its firings, grouped, and lights its region', async ($, on) => {
+test('Mechanisms today: times each fired today, from the status file; a zero dim with no bar, Schemas not built; a click lists its firings, grouped, and lights its region', async ($, on) => {
   const w = world(on)
   await start($, w)
   for (const surface of SURFACES) {
@@ -410,7 +419,7 @@ test('Mechanisms today: times each fired today, from the dashboard; a zero dim w
     const f = lines.findIndex(l => l.startsWith('Forgetting'))
     expect(lines[f + 1]).toBe('faded at 3:34:')
     expect(lines[f + 2]).toBe('An old plan that faded')
-    expect(w.fetches.some(u => u.endsWith('/api/mechanism?id=decay'))).toBe(true)
+    expect(w.fetches).toEqual([])
     // an event opens in place: it is short
     await click(ui, 'An old plan that faded')
     lines = await bodyLines(ui)
@@ -422,7 +431,7 @@ test('Mechanisms today: times each fired today, from the dashboard; a zero dim w
   }
 })
 
-test('a mechanism that fired today but names fewer than three in the panel (its lookback, its merged repeats): its own rows are read deeper', async ($, on) => {
+test('a mechanism that fired today but names fewer than three in the panel (its lookback, its merged repeats): the status file’s other rows of it are read too', async ($, on) => {
   const was = FIRED_TODAY.emotional ?? null
   FIRED_TODAY.emotional = 1
   try {
@@ -436,94 +445,46 @@ test('a mechanism that fired today but names fewer than three in the panel (its 
     await click(ui, 'Emotion')
     await settle(w)
     const shown = (await bodyLines(ui)).join('\n')
-    expect(w.fetches.some(u => u.includes('/api/activity?name=recall.decision&limit=150'))).toBe(true)
     expect(shown).toContain('brought closer at')
     expect(shown).toContain('The sidebar is 35 columns wide')
     expect(shown).not.toContain('nothing lately')
-    // nothing fired today and nothing in the panel: no deeper read
-    const before = w.fetches.length
-    await click(ui, 'Prospective')
-    await settle(w)
-    expect(w.fetches.slice(before).some(u => u.includes('/api/activity?name=prospective'))).toBe(false)
+    expect(w.fetches).toEqual([])
     await ui.unmount()
   } finally {
     FIRED_TODAY.emotional = was
   }
 })
 
-test('a dashboard older than v0.2 (no firedToday): today’s counts come from the feed’s rows of today, a dream’s rows once', async ($, on) => {
-  const w = world(on, { oldDashboard: true })
-  w.events.push(ev(402, 'dream.changed', 'In a dream I changed 5 things (1 merge).', 599, { applied: '5', merge: '1' }, 'drm_test0001'))
+test('past midnight with nothing new, a file written yesterday counts nothing today: yesterday’s bars do not stand as today’s', async ($, on) => {
+  // the file stays as it was written at 23:59 (its store's day named outright, so nothing in it changes)
+  const w = world(on, { now: new Date(2026, 9, 9, 23, 59, 0).getTime(), dashToday: '2026-10-09' })
   await start($, w)
   const ui = await mount($, w, 'terminal')
-  const lines = await bodyLines(ui)
-  const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
-  const count = (name: string): string => (lines.slice(at + 1, at + 13).find(l => l.startsWith(name)) ?? '').trim().split(/\s+/).at(-1) ?? ''
-  expect(count('Salience')).toBe('1')
-  expect(count('Forgetting')).toBe('1')
-  expect(count('Retrieval')).toBe('2')
-  expect(count('Consolidation')).toBe('2') // the promotion, and the dream's merge
-  expect(count('Dreaming')).toBe('1') // its journal and its changes: one dream
-  expect(count('Interference')).toBe('1')
-  expect(w.fetches.filter(u => u.includes('/api/activity?name=')).length).toBeGreaterThanOrEqual(18)
-  await ui.unmount()
-})
-
-test('a dashboard older than v0.2: a row that lands while today is counted is counted once, by the next poll', async ($, on) => {
-  const box: { w?: World } = {}
-  let landed = false
-  const w = world(on, {
-    oldDashboard: true,
-    // after the pulse said 500: a deposit lands while the cold read reads the deposits
-    onFetch: url => {
-      if (landed || url.pathname !== '/api/activity' || url.searchParams.get('name') !== 'gate.deposit') return
-      landed = true
-      box.w?.events.push(ev(600, 'gate.deposit', 'I wrote down one memory.', 0, { accepted: '1', session: SESSION }))
-    },
-  })
-  box.w = w
-  await start($, w)
-  const ui = await mount($, w, 'terminal')
+  await settle(w)
   const salience = async (): Promise<string> => {
     const lines = await bodyLines(ui)
     const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
     return (lines.slice(at + 1, at + 13).find(l => l.startsWith('Salience')) ?? '').trim().split(/\s+/).at(-1) ?? ''
   }
-  expect(landed).toBe(true)
-  expect(await salience()).toBe('1') // the cold read stops at 500
-  await w.clock.advance(15000)
+  expect(await salience()).toBe('3')
+  // a minute past midnight: the file still says yesterday's counts, written yesterday
+  await w.clock.advance(120000)
   await settle(w)
-  expect(await salience()).toBe('2') // the poll from 500 adds it, once
+  expect(await salience()).toBe('0')
   await ui.unmount()
 })
 
-test('past midnight with nothing new, today is read again: yesterday’s bars do not stand as today’s', async ($, on) => {
-  const w = world(on, { now: new Date(2026, 9, 9, 23, 59, 0).getTime() })
-  await start($, w)
-  const ui = await mount($, w, 'terminal')
-  await settle(w)
-  const reads = (): number => w.fetches.filter(u => u.endsWith('/api/mechanisms')).length
-  const before = reads()
-  expect(before).toBeGreaterThanOrEqual(1)
-  await w.clock.advance(15000) // a quiet poll, the same day: nothing to read again
-  expect(reads()).toBe(before)
-  await w.clock.advance(60000) // past midnight, nothing new
-  await settle(w)
-  expect(reads()).toBeGreaterThan(before)
-  await ui.unmount()
-})
-
-test('a dashboard whose store keeps another zone: its `today` differs from this clock’s all day, and quiet polls read nothing again', async ($, on) => {
+test('a store that keeps another zone: its `today` differs from this clock’s all day, and its counts still show', async ($, on) => {
   const w = world(on, { dashToday: '2026-10-10' })
   await start($, w)
   const ui = await mount($, w, 'terminal')
   await settle(w)
-  const reads = (): number => w.fetches.filter(u => u.endsWith('/api/mechanisms')).length
-  const before = reads()
-  expect(before).toBeGreaterThanOrEqual(1)
   for (let i = 0; i < 3; i++) await w.clock.advance(15000)
   await settle(w)
-  expect(reads()).toBe(before)
+  const lines = await bodyLines(ui)
+  const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
+  expect(lines[at + 1]).toMatch(/^Salience {8}▄+▖?\s+3$/)
+  expect(w.fsReads.filter(f => f === STATUS_FILE)).toHaveLength(1) // unchanged: read once
   await ui.unmount()
 })
 
@@ -614,7 +575,7 @@ test('clicks are the same every time: open A, open B (A closes), close B, open A
   await ui.unmount()
 })
 
-test('a Subconscious item opens in place by a dashboard read, not the recall tool, and stays open', async ($, on) => {
+test('a Subconscious item opens in place from the status file, not the recall tool, and stays open', async ($, on) => {
   const w = world(on)
   await start($, w)
   const ui = await mount($, w, 'terminal')
@@ -624,7 +585,8 @@ test('a Subconscious item opens in place by a dashboard read, not the recall too
   await settle(w)
   await w.clock.advance(5000)
   await settle(w)
-  expect(w.fetches.some(u => u.includes('/api/memory?id=mem_rel00001'))).toBe(true)
+  expect((await bodyLines(ui)).join(' ')).toContain('Every Friday, after the review.')
+  expect(w.fetches).toEqual([])
   expect(w.mcp.filter(c => c.tool === 'recall')).toHaveLength(0)
   await ui.unmount()
 })
@@ -805,34 +767,46 @@ test('a reload keeps the state: a `firing` v0.1 wrote ({ id, at }, no list) draw
   await ui.unmount()
 })
 
-// ── the dashboard, links ───────────────────────────────────────────
+// ── no status file yet, links ───────────────────────────────────────────
 
-/** The words the chart says while the dashboard is down, whatever the install. */
-const DOWN_SAYS = 'Dashboard not running. Start it with /counterparts:dashboard'
+/** The words the chart says before any session has written the status file. */
+const WAITING_SAYS = 'Waiting for the first session: memory writes what it did here after a turn.'
 
-test('with the dashboard down the chart says how to start it (/counterparts:dashboard), inside the pane, and a click runs nothing; the status line says nothing of it', async ($, on) => {
+test('no status file yet: the chart says, calmly, it is waiting for the first session, inside the pane; a click runs nothing; the status line says nothing of it', async ($, on) => {
   const w = world(on, { down: true })
   await start($, w)
   for (const surface of SURFACES) {
     const ui = await mount($, w, surface)
-    expect((await bodyLines(ui)).join(' ').replace(/ +/g, ' ')).toContain(DOWN_SAYS)
+    expect((await bodyLines(ui)).join(' ').replace(/ +/g, ' ')).toContain(WAITING_SAYS)
     await ui.unmount()
   }
   const ui = await mount($, w, 'terminal')
-  await click(ui, 'Dashboard not running')
+  await click(ui, 'Waiting for the first')
   await settle(w)
   expect(w.commands).toEqual([])
+  expect(w.fetches).toEqual([])
+  // the first session writes it: the next look shows it
+  w.noStatus = false
+  await w.clock.advance(15000)
+  await settle(w)
+  expect((await bodyLines(ui)).join(' ')).toContain('Salience')
   await ui.unmount()
   expect(w.statuses.some(s => (s ?? '').includes('dashboard'))).toBe(false)
 })
 
-test('down, a plugin-only install is told the same slash command, and nothing of the console', async ($, on) => {
-  const w = world(on, { down: true, tools: PLUGIN_TOOLS })
+test('a memory the status file does not carry opens to its title and `more`, the link to its card', async ($, on) => {
+  const w = world(on)
+  on('tool.call', () => ({ result: 'ok', text: '{"stored":true,"id":"mem_notcar01"}' }))
   await start($, w)
   const ui = await mount($, w, 'terminal')
-  const text = (await bodyLines(ui)).join(' ').replace(/ +/g, ' ')
-  expect(text).toContain(DOWN_SAYS)
-  expect(text).not.toMatch(/(^|[^/])counterparts dashboard/)
+  await $.tool.call({ tool: 'mcp__counterparts__note', title: 'Not carried', text: 'x' } as never)
+  await settle(w)
+  await click(ui, 'Not carried')
+  await settle(w)
+  const lines = await bodyLines(ui)
+  expect(lines.join(' ')).toContain('Its full card is on the dashboard.')
+  expect(lines.some(l => / more$/.test(l))).toBe(true)
+  expect(await bodyLinks(ui)).toEqual(['http://127.0.0.1:4747/#memories?id=mem_notcar01'])
   await ui.unmount()
 })
 
@@ -1327,7 +1301,7 @@ test('the fox is the avatar when none was chosen: under the title with the count
   expect(w.store['brain']).toBe('fox')
 })
 
-test('each terminal draws it its finest known way: a picture in Ghostty, sextants in iTerm2, half-blocks in Apple Terminal; the desktop an Svg', async ($, on) => {
+test('each terminal draws it its finest known way: a picture in Ghostty, sextants in iTerm2, half-blocks in Apple Terminal', async ($, on) => {
   const ghostty = world(on, foxEnv({ TERM_PROGRAM: 'ghostty' }))
   await start($, ghostty)
   const ui = await mount($, ghostty, 'terminal')
@@ -1355,18 +1329,17 @@ test('sextants in iTerm2: rows of Text, no Raster (a Raster takes no sextant), t
   await ui.unmount()
 })
 
-test('half-blocks in Apple Terminal, and the desktop draws an Svg of the same fox', async ($, on) => {
+test('half-blocks in Apple Terminal; the desktop draws no fox (no Svg is built), the header alone with the count and the day', async ($, on) => {
   const w = world(on, foxEnv({ TERM_PROGRAM: 'Apple_Terminal' }))
   await start($, w)
   let ui = await mount($, w, 'terminal')
   expect(await ui.find({ type: 'Raster', key: 'stage' })).toBeDefined()
   await ui.unmount()
   ui = await mount($, w, 'desktop')
-  const svg = await ui.find({ type: 'Svg' })
-  // the PNG's bytes, read from the plugin's folder (art/fox/) once, as the picture's data URI
-  expect(String(svg?.props['source'])).toContain('data:image/png;base64,iVBORw0KGgoidle.png')
-  expect(w.fsReads.filter(p => p.endsWith('/art/fox/idle.png'))).toHaveLength(1)
-  expect(svg?.props['alt']).toBe('a small fox')
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+  expect(w.fsReads.filter(p => p.endsWith('.png'))).toHaveLength(0)
+  expect((await titleOf(ui))?.text).toContain('COUNTERPARTS')
+  expect(await ui.find({ type: 'Text', text: '776 · day 18' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -1473,7 +1446,7 @@ test('after two minutes with nothing happening it naps, and the person’s promp
   await ui.unmount()
 })
 
-// ── which store the dashboard serves ───────────────────────────────────────
+// ── which store wrote the status file ──────────────────────────────────────
 
 async function wakeWithStore($: Engine, w: World, id: string): Promise<void> {
   await $.session.append({
@@ -1492,19 +1465,19 @@ async function wakeWithStore($: Engine, w: World, id: string): Promise<void> {
 const MINE = 'st_0123456789abcdef'
 const THEIRS = 'st_fedcba9876543210'
 
-test('another store’s dashboard on the port: none of its numbers, one dim line instead; when it matches again they come back', async ($, on) => {
+test('a status file another store wrote: none of its numbers, one dim line instead; when it matches again they come back', async ($, on) => {
   const w = world(on)
   await start($, w)
   await wakeWithStore($, w, MINE)
   w.dashStore = THEIRS
   const ui = await mount($, w, 'terminal')
   const body = (await bodyLines(ui)).join(' ')
-  expect(body).toContain('The dashboard serves another memory.')
+  expect(body).toContain('The status file is another memory’s.')
   expect(body).not.toContain('Salience')
   expect(body).not.toContain('Last Dream')
   expect(await ui.find({ type: 'Text', text: '776 · day 18' })).toBeUndefined()
-  expect(w.fetches.some(u => u.endsWith('/api/pulse'))).toBe(false)
-  // the right one comes up on the port
+  expect(w.fetches).toEqual([])
+  // the right store writes it again
   w.dashStore = MINE
   await w.clock.advance(31000)
   await settle(w)

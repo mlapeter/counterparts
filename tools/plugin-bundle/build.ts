@@ -431,8 +431,7 @@ export function traceWeb(repo: string, web: string, problems: string[] = []): st
     const clean = url.replace(/[?#].*$/, "");
     const rel = clean.startsWith("/") ? posix.join(web, clean) : posix.join(posix.dirname(from), clean);
     if (!isFile(repo, rel)) {
-      // The favicon is served from memory (server.ts#FAVICON_SVG).
-      if (clean !== "/favicon.svg") problems.push(`${from} references ${url}, which is not a file`);
+      problems.push(`${from} references ${url}, which is not a file`);
       return;
     }
     if (!out.has(rel)) {

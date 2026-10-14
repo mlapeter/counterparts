@@ -37,7 +37,8 @@ const DEFAULT_COLOR = 0x01000000
 
 // ── which way to draw it ────────────────────────────────────────────────────
 
-export type FoxTier = 'image' | 'fine' | 'basic' | 'svg'
+/** `none`: a surface with no cells or pictures a mod may draw the fox in (the desktop and the other remote ones). */
+export type FoxTier = 'image' | 'fine' | 'basic' | 'none'
 
 /** The person's override (`$.store` `avatarDetail`): `auto` lets the environment decide. */
 export type FoxDetail = 'auto' | 'images' | 'fine' | 'basic'
@@ -77,13 +78,15 @@ export function sextantsLikely(env: TierEnv): boolean {
 }
 
 /**
- * The tier for a drawing: the desktop and the other remote surfaces draw the
- * Svg; a terminal, the override or else the environment's answer. `noImages`:
+ * The tier for a drawing: the desktop and the other remote surfaces draw no
+ * fox (`none`, the header alone: their one picture element is an SVG
+ * document, which this mod no longer builds, 2026-10-14); a terminal, the
+ * override or else the environment's answer. `noImages`:
  * an Image here drew its alt (a refused blit said so), so `auto` stops trying.
  * `hasPngs` false (no PNG folder found): never a picture, whatever was asked.
  */
 export function pickTier(surface: string, detail: FoxDetail, env: TierEnv, noImages = false, hasPngs = true): FoxTier {
-  if (surface !== 'terminal') return 'svg'
+  if (surface !== 'terminal') return 'none'
   if (detail === 'images' && hasPngs) return 'image'
   if (detail === 'fine') return 'fine'
   if (detail === 'basic') return 'basic'
@@ -108,7 +111,7 @@ export function stageRows(tier: FoxTier): number {
   if (tier === 'basic') return Math.ceil(ART.half.box[1] / 2)
   if (tier === 'fine') return ART.sextant.rows
   if (tier === 'image') return IMAGE_ROWS
-  return 0 // the Svg sizes itself; the desktop counts no rows
+  return 0 // `none`: no stage
 }
 
 /** Where the fox's box starts on the 34-column stage: centred with room for the effects beside its head. */
@@ -615,40 +618,6 @@ export function pngName(step: Pick<Step, 'frame' | 'fx'>): string {
 /** The scale the build writes the PNGs at: art pixels x 3. */
 export const PNG_SCALE = 3
 
-// ── svg: the desktop ────────────────────────────────────────────────────────
-
-/** CSS pixels a half-block pixel takes on the desktop. */
-export const SVG_PX = 6
-
-/** The desktop's drawing: rects from the half-block pixels, run-length per row, then the PNG (`png`, base64; '' for none) over them. */
-export function foxSvg(step: Pick<Step, 'frame' | 'fx'>, png: string): { source: string; width: number; height: number } {
-  const cols = STAGE_COLS
-  const H = stageRows('basic') * 2
-  const px = halfPixels(step, cols)
-  const rects: string[] = []
-  for (let y = 0; y < H; y++) {
-    let x = 0
-    while (x < cols) {
-      const c = px[y * cols + x] ?? null
-      if (c === null) {
-        x++
-        continue
-      }
-      let n = 1
-      while (x + n < cols && px[y * cols + x + n] === c) n++
-      rects.push(`<rect x="${String(x)}" y="${String(y)}" width="${String(n)}" height="1" fill="${hex6(c)}"/>`)
-      x += n
-    }
-  }
-  // The PNG's box over the half-block fox's (the art lines both up: the same footprint, feet on the bottom line).
-  const [bw, bh] = ART.half.box
-  const image = png === '' ? '' : `<image x="${String(HALF_X0)}" y="${String(H - bh)}" width="${String(bw + 2)}" height="${String(bh)}" preserveAspectRatio="xMidYMax meet" style="image-rendering:pixelated" href="data:image/png;base64,${png}"/>`
-  // The picture alone when there is one: the half-block fox under it showed as a dark ghost edge on the
-  // desktop's light page (2026-10-13); it stays only as the fallback for a frame with no PNG.
-  const source = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${String(cols)} ${String(H)}" shape-rendering="crispEdges">${image === '' ? rects.join('') : image}</svg>`
-  return { source, width: cols * SVG_PX, height: H * SVG_PX }
-}
-
 /** The PNGs' pixel size, for a test. */
 export const PNG_SIZE = [ART.png.box[0] * PNG_SCALE, ART.png.box[1] * PNG_SCALE] as const
 
@@ -674,6 +643,4 @@ export const stage = {
   imageDenies: 0,
   /** The folder holding the PNGs (absolute), found at session start; null: none found, no pictures. */
   pngDir: null as string | null,
-  /** Each PNG's bytes (base64) once read, for the desktop's Svg; '' for one that could not be read. */
-  pngData: new Map<string, string>(),
 }

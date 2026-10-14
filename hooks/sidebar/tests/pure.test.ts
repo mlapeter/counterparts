@@ -27,7 +27,6 @@ import {
   wrap,
   otherStore,
   parseStoreMarker,
-  storeOf,
 } from '../hooks/feed'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { headRight } from '../hooks/desktop'
@@ -38,7 +37,6 @@ import {
   advance,
   fineCell,
   fineCells,
-  foxSvg,
   halfCells,
   momentSteps,
   newDirector,
@@ -668,27 +666,31 @@ describe('the body, laid out', () => {
     expect(before.find(l => l.startsWith('Last Dream'))).toBe('Last Dream ' + '─'.repeat(15) + ' Oct 7')
   })
 
-  test('the dashboard down: the chart says, in cyan, how to start it; no line is a click (v1 runs no command)', () => {
+  test('no status file yet: the chart says, dim, it is waiting for the first session; no line is a click', () => {
     for (const w of [26, 32, 48, 64]) {
       const laid = layoutBody({ ...BASE, w, today: null, dash: 'down' }).lines
       const lines = textOf(laid)
       const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
       const to = lines.findIndex((l, i) => i > at && l.trim() === '')
-      expect(lines.slice(at + 1, to).join(' ')).toBe('Dashboard not running. Start it with /counterparts:dashboard')
-      for (const l of laid.slice(at + 1, to)) {
-        expect(l.key).toBeUndefined()
-        expect(l.segs[0]?.c).toBe('#00e5ff')
-      }
-      expect(lines.join(' ')).not.toMatch(/(^|[^/])counterparts dashboard/)
+      expect(lines.slice(at + 1, to).join(' ')).toBe('Waiting for the first session: memory writes what it did here after a turn.')
+      for (const l of laid.slice(at + 1, to)) expect(l.key).toBeUndefined()
+      expect(lines.join(' ')).not.toMatch(/dashboard/)
     }
   })
 
-  test('another store’s dashboard: no numbers, one dim line saying so', () => {
+  test('another store’s status file: no numbers, one dim line saying so', () => {
     const laid = layoutBody({ ...BASE, today: null, dream: null, dash: 'other' }).lines
     const lines = textOf(laid)
     const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
-    expect(lines.slice(at + 1, at + 3).join(' ')).toBe('The dashboard serves another memory.')
+    expect(lines.slice(at + 1, at + 3).join(' ')).toBe('The status file is another memory’s.')
     expect(laid[at + 1]?.key).toBeUndefined()
+  })
+
+  test('a status file over an hour old says its age where the chart says “times fired”; a fresh one does not', () => {
+    const fresh = textOf(layoutBody({ ...BASE, statusAt: BASE.now - 5 * 60000 }).lines)
+    expect(fresh.some(l => /^Mechanisms today ─+ times fired$/.test(l))).toBe(true)
+    const old = textOf(layoutBody({ ...BASE, statusAt: BASE.now - 3 * 3600000 }).lines)
+    expect(old.some(l => /^Mechanisms today ─+ 3 h ago$/.test(l))).toBe(true)
   })
 })
 
@@ -832,7 +834,7 @@ describe('the fox', () => {
     expect(pickTier('terminal', 'images', { TERM_PROGRAM: 'Apple_Terminal' })).toBe('image')
     expect(pickTier('terminal', 'fine', {})).toBe('fine')
     expect(pickTier('terminal', 'basic', { TERM_PROGRAM: 'ghostty' })).toBe('basic')
-    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic', {})).toBe('svg')
+    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic', {})).toBe('none')
     expect(normDetail('images')).toBe('images')
     expect(normDetail('sharp')).toBe('auto')
   })
@@ -905,11 +907,6 @@ describe('the fox', () => {
     expect(pngName({ frame: 'perk', fx: [['nothing', 'spark']] })).toBe('perk.png')
     expect(pngName({ frame: 'no-such', fx: [] })).toBe('idle.png')
     expect(PNG_FRAMES.size).toBe(36)
-    const svg = foxSvg(idle, 'iVBORw0KGgo')
-    expect(svg.source.length).toBeLessThan(131072)
-    // the picture alone: the half-blocks under it showed as a ghost edge on the desktop's light page
-    expect(svg.source).not.toContain('<rect')
-    expect(svg.source).toContain('data:image/png;base64,')
   })
 
   test('the schedule: a short first hold, then the tail tip flicks; then still holds of 4–9 s, each ending in one small moment; one wake per change of what is on screen', () => {
@@ -1094,9 +1091,6 @@ describe('the fox', () => {
   test('which store: the wake’s marker and a dashboard’s answer; another store only when both are known and differ', () => {
     expect(parseStoreMarker('<!-- counterparts:onboarding meet=done -->\n<!-- counterparts:store id=st_0123456789abcdef -->')).toBe('st_0123456789abcdef')
     expect(parseStoreMarker('<!-- counterparts:store id=st_xyz -->')).toBeNull()
-    expect(storeOf('{"store":"st_0123456789abcdef","version":"0.3.20"}')).toBe('st_0123456789abcdef')
-    expect(storeOf('{"store":null}')).toBeNull()
-    expect(storeOf('not json')).toBeNull()
     expect(otherStore('st_0123456789abcdef', 'st_fedcba9876543210')).toBe(true)
     expect(otherStore('st_0123456789abcdef', 'st_0123456789abcdef')).toBe(false)
     expect(otherStore(null, 'st_fedcba9876543210')).toBe(false)

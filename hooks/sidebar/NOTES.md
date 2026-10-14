@@ -13,6 +13,80 @@ record of v0.2 and v0.1 (the brain, the switches, the intro button): where a
 later version changed something they say so, or v1's section does. Everything
 here is a working default.
 
+## No network: the status file (2026-10-14, later the same day)
+
+Why: the directory's validator still held v1. It reads a mod that can fetch
+AND run commands or tools (our `/counterparts` command answers on
+`command.run`) as one that could take over a system; it read the fetches to
+`http://127.0.0.1:4747/api/...` as "read local data / the conversation and
+send it out" and as a request to an address it could not read. Mike approved:
+the sidebar fetches nothing.
+
+What it does instead: **core writes a status file the sidebar reads**
+(`src/adapters/sidebar-status.ts` writes it, `hooks/status.ts` reads it):
+
+- **Where:** `sidebar.json` beside the configuration, next to `scopes.json`
+  (`~/.counterparts/sidebar.json` on an ordinary install). The sidebar finds it
+  the way it finds the registry (`register.tsx#scopesFile`: the wired hook's
+  `--config`, else `COUNTERPARTS_CONFIG`, else `~/.counterparts/claude-code.json`).
+  Not in the store: every top-level name there is classified
+  (`core/store/paths.ts#LAYOUT`) and an unclassified one refuses the store at
+  open, an older build's included.
+- **What:** `{ version: 1, storeId, writtenAt, build, pulse, today, dreams,
+  events, panels, memories }`, built by the dashboard's own view functions over
+  an observer handle: which store (the `/api/whoami` id), day/count/lastSeq,
+  today's `firedToday` per mechanism, the 3 newest dreams, the newest 100 rows
+  of the log plus the newest 40 `recall.decision`, 40 `gate.deposit`, 20
+  `contradiction.settled` and 5 `dream.journaled` (each row slimmed to the
+  detail keys `feed.ts` reads, `DETAIL_KEYS`), each mechanism's panel, and up
+  to 60 memories those rows name (title, kind, learned date, the first 1500
+  characters of the text; none for a confidential one). About 85 KB on the
+  demo store; about 90 ms to build and write.
+- **When (never on a hook's path):** the detached worker, last, after every
+  Stop and SessionEnd (`runner.ts` step 5, after the store closed); the memory
+  server 3 s after it starts (that is "at session start"), 1.5 s after any tool
+  call (one write for a burst: remember, session_end, dream, reflect…), when
+  the log's newest seq moved (one indexed read every 15 s: a turn's recall row,
+  another session, the night's dream), and every 30 minutes regardless (today's
+  counts turn over at midnight). Atomic: `sidebar.json.<pid>.tmp`, then a
+  rename; owner-only (0600). A server that finds the file already at the log's
+  newest seq skips the write (several sessions share one file). Never for an
+  observer or in a folder set off. Measured hook latency, before and after:
+  SessionStart 154/153 ms, UserPromptSubmit 128/128, Stop 134/133 (median of
+  12, a temp store): no change.
+- **The sidebar reads it** on the timer it had (15 s, 30 s after four quiet
+  looks, only while the pane shows): a `$.fs.stat` each look, a `$.fs.read`
+  only when its size or time changed. No file: Mechanisms says "Waiting for the
+  first session: memory writes what it did here after a turn." Another store's
+  (`storeId` against the wake's marker; either unknown carries on): "The status
+  file is another memory's." and none of its numbers. Over an hour old (no
+  writer has run since): the chart's heading says its age (`3 h ago`) where it
+  said `times fired`. Written before this clock's midnight: today's counts are
+  0 until the next file.
+- **What changed for a person:** a surfaced memory's title replaces the gist
+  at the next look after the turn's row lands (up to ~30 s, was ~2 s); `more`
+  ends a text the file cut (or a memory it does not carry, whose card is "on
+  the dashboard") and stays the terminal's Link to the card; on a resume the
+  session's Memories and Saved are found among the file's rows (fewer than the
+  dashboard's 200/150 per name); a mechanism's deeper firings come from the
+  file's rows, not more reads. The dashboard keeps every endpoint; only the
+  sidebar stopped calling them. The dashboard no longer needs to be running for
+  the sidebar to show anything.
+- **Removal chases it:** `cli/removal.ts` deletes the file when it names the
+  removed memory (`chaseSidebarStatus`; the next writer writes it again
+  without). `uninstall` counts it as a file this package left.
+
+And the credential holds: the dashboard's favicon is a file now
+(`src/adapters/dashboard/web/favicon.svg`, same URL, same type and cache), so
+`server.ts` holds no namespace URL beside its `key`s; and the fox's SVG
+(`fox.ts#foxSvg`) is gone. That was more than the rectangle fallback: the
+desktop's fox WAS that SVG (the PNG inside an `<svg xmlns=…>`, the desktop's
+only picture element), so **the desktop draws no fox now** (tier `none`: the
+header alone, the count and the day on the title row; the terminal's fox is
+unchanged). `test/sidebar-shows-not-acts.test.ts` checks the directory flavor:
+no `$.http.fetch` or `/api/` in what the sidebar ships, and no shipped file
+holds `www.w3.org` but `favicon.svg`.
+
 ## v1: the directory trim (2026-10-14)
 
 Why: the plugin directory's review read the sidebar, together, as a mod that
@@ -45,12 +119,12 @@ Removed:
   each mechanism). A stored `turning` or `still` reads as the fox. The header
   is the brainless one everywhere: `◉ COUNTERPARTS ↗` with the count and the
   day on its right; the `◉` still lights in the stage colour of whatever fired.
-- **`COUNTERPARTS_DASHBOARD_PORT`.** Every `$.http.fetch` names
+- **`COUNTERPARTS_DASHBOARD_PORT`.** Every `$.http.fetch` named
   `http://127.0.0.1:4747` whole at the call (the validator flags a computed
   address); links use the same address (`mechanisms.ts#DASHBOARD`). A
   dashboard on another port is not read: the trial rig's 4848 included,
-  accepted. `/api/whoami` still guards the store: another store's dashboard on
-  4747 shows "The dashboard serves another memory." and none of its numbers.
+  accepted. `/api/whoami` still guarded the store. (Later that day the fetches
+  went altogether: the status file, above.)
 
 Added: **the footer** (`words.ts#footerLines`), where the switches were, the
 same on terminal and desktop:
@@ -68,16 +142,15 @@ command under it, indented. A command is never cut.
 
 Renamed for the scanner, which reads a `key`/`token` word beside a URL as a
 credential: `fox.ts#PNG_KEYS` is `PNG_FRAMES`, a feed row's `keys` is
-`twinIds`. Kept: the `xmlns="http://www.w3.org/2000/svg"` in the fox's Svg
-(`fox.ts#foxSvg`): the engine draws an `Svg`'s source as an image on the
-desktop (`SvgProps`), and an SVG read as an image needs its namespace. The
-brain's `cellsSvg` (the other one) is gone with the brain.
+`twinIds`. Kept, that morning: the `xmlns` in the fox's Svg (`fox.ts#foxSvg`),
+which an SVG drawn as an image needs; it went that afternoon, with the
+desktop's fox (above). The brain's `cellsSvg` (the other one) is gone with the
+brain.
 
 Checked as text by `test/sidebar-shows-not-acts.test.ts` (the repository's
 bun tests): every file the directory flavor ships from `hooks/` has no
 `$.command.run`, `$.mcp.call`, `$.process.run`, `$.prompt.submit`,
-`$.tool.list` or `<Button`, and every `$.http.fetch` starts with the literal
-address.
+`$.tool.list` or `<Button`, and (since the status file) no `$.http.fetch`.
 
 What the bullets below say of the intro button, the desktop Buttons and the
 brain is the record of v0.2.

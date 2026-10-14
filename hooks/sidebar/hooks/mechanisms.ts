@@ -85,10 +85,10 @@ export function hex(col: Rgb, k = 1): string {
 
 /**
  * The dashboard's address: core's default, fixed (v1 trim, 2026-10-14). The
- * sidebar no longer reads `COUNTERPARTS_DASHBOARD_PORT`: a dashboard started on
- * another port is not read from here. `register.tsx` writes this same literal
- * at each `$.http.fetch` (a reviewer reads the address at the call); this
- * constant serves the links.
+ * sidebar reads no `COUNTERPARTS_DASHBOARD_PORT` and requests nothing from
+ * here: it reads the status file core writes (`status.ts`). This serves the
+ * links alone (COUNTERPARTS, and the `more` after a cut text), which the
+ * terminal opens.
  */
 export const DASHBOARD = 'http://127.0.0.1:4747';
 

@@ -131,22 +131,27 @@ export function withBrainSwitch(page: string, served: boolean = existsSync(BRAIN
 const NO_STORE = { "cache-control": "no-store" } as const;
 
 /**
- * A small mark: three dots on a rising diagonal, the middle one lit. Served from
- * memory, so there is no fourth file to lose — and served at all because a
- * missing favicon is a console error, and this dashboard's bar is zero of them.
- * Static branding rather than a data view, so it is the one response that may
- * cache. The `xmlns` stays: this is a standalone SVG document served as
- * `image/svg+xml`, which a browser parses as XML and draws nothing of without
- * the SVG namespace (inline `<svg>` in HTML is the case that needs none). It
- * is a namespace name, never fetched.
+ * A small mark: three dots on a rising diagonal, the middle one lit, in
+ * `favicon.svg` beside this file — served at all because a missing favicon is
+ * a console error, and this dashboard's bar is zero of them. Static branding
+ * rather than a data view, so it is the one response that may cache. A file,
+ * not a string here, since 2026-10-14: the plugin directory's review read the
+ * SVG namespace URL in this file beside its other identifiers as a credential
+ * risk. Read per request like the page; a missing one is the ordinary 404.
  */
-const FAVICON_SVG =
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
-  `<rect width="64" height="64" rx="13" fill="#0a0e14"/>` +
-  `<path d="M14 46 L32 32 L50 18" stroke="#00e5ff" stroke-opacity=".35" stroke-width="2.5" fill="none" stroke-linecap="round"/>` +
-  `<circle cx="14" cy="46" r="4.5" fill="#00bfa5"/>` +
-  `<circle cx="32" cy="32" r="7" fill="#00e5ff"/>` +
-  `<circle cx="50" cy="18" r="4.5" fill="#b388ff"/></svg>`;
+const FAVICON_PATH = join(HERE, "favicon.svg");
+
+function favicon(): Reply | null {
+  try {
+    return {
+      status: 200,
+      headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" },
+      body: readFileSync(FAVICON_PATH, "utf8"),
+    };
+  } catch {
+    return null;
+  }
+}
 
 const ALLOWED_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
@@ -268,11 +273,7 @@ export function router(
     // The brain lives on the home page now; an old bookmark lands there.
     if (path === "/brain") return { status: 302, headers: { location: "/#home", ...NO_STORE }, body: "" };
     if (path === "/favicon.svg" || path === "/favicon.ico") {
-      return {
-        status: 200,
-        headers: { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" },
-        body: FAVICON_SVG,
-      };
+      return favicon() ?? json({ error: `not found: ${path}` }, 404);
     }
 
     if (path === "/api/meta") return json(metaView(src));

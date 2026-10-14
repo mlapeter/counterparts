@@ -10,6 +10,7 @@
  */
 
 import type { SidebarScope } from '../types'
+import type { Status } from './status'
 
 /**
  * Body columns the sidebar asks for: 34, which the dock draws 35 wide with its
@@ -22,16 +23,13 @@ export const OPEN_COLUMNS = 34
 /** Rows of pane body from which the header gets a blank row above it (the mockups at 200x60 have one; at 160x48, not). */
 export const ROOMY_ROWS = 44
 
-/** The dashboard is read only while the pane is drawn: this often while things happen… */
+/** The status file (`status.ts`) is read only while the pane is drawn: this often while things happen… */
 export const POLL_MS = 15000
 
 /** …and this often after four quiet reads in a row. */
 export const POLL_IDLE_MS = 30000
 
-/** A gap longer than this since the last read starts over from a cold read. */
-export const STALE_MS = 10 * 60000
-
-/** How often the folder's registry is read again while no dashboard poll reads it (the pane closed or not shown). */
+/** How often the folder's registry is read again while no status poll reads it (the pane closed or not shown). */
 export const SCOPE_RECHECK_MS = 60000
 
 /** How long the registry's path, found from the settings, is trusted before it is looked up again. */
@@ -39,17 +37,6 @@ export const SCOPES_FILE_TTL_MS = 5 * 60000
 
 export const FIRING_MS = 2600
 
-/** Events that change the memory count, worth one read of `/api/pulse` (the dear one). */
-export const COUNT_EVENTS = new Set(['gate.deposit', 'gate.chunk', 'memory.pruned', 'memory.merged', 'dream.changed', 'contradiction.settled'])
-
-/**
- * A dashboard older than v0.2 says no `firedToday`: today's counts come from
- * each event's newest rows, this many first, read deeper (doubling) while all
- * of them are today's, to at most FALLBACK_MAX. Only on a cold read; polls add.
- */
-export const FALLBACK_LIMIT = 150
-
-export const FALLBACK_MAX = 1200
 
 /**
  * The speak-first's line (`speak-first.tsx`, a hooks module of its own): what it
@@ -96,13 +83,16 @@ export const run = {
   docks: undefined as boolean | undefined,
   /** The surface the band above the prompt last drew on (the pane opens narrower on the desktop). */
   surface: null as string | null,
-  cold: false,
   polling: false,
-  /** A dashboard read is scheduled or running. */
+  /** A status read is scheduled or running. */
   pollArmed: false,
   quietPolls: 0,
-  lastPollAt: 0,
+  /** The newest seq of the file last read (-1: none read yet): rows after it are new. */
   lastSeq: -1,
+  /** The status file's path, its stamp when last read, and what it said (`status.ts`). */
+  statusFile: null as string | null,
+  statusStamp: '',
+  status: null as Status | null,
   liveSeq: 0,
   /** An unasked pane this surface could not place yet: the tail says `/counterparts opens the sidebar` until it draws. */
   hint: false,
@@ -112,19 +102,11 @@ export const run = {
   redraws: 0,
   /** The body's text width at the last drawing: what the expand threshold is measured at. */
   bodyW: 32,
-  /** Whether the dashboard says `firedToday` (v0.2 and later); null until asked. */
-  firedToday: null as boolean | null,
-  /**
-   * The calendar day on this machine's clock when today's counts were last read: a new one starts them over.
-   * Not the dashboard's `today`, which is the store's zone: a store set to another zone would differ from this
-   * clock all day and read the counts again on every poll.
-   */
-  countedOn: '',
-  /** This session's rows were looked for on the dashboard (`seedSession`), once a module life. */
+  /** This session's rows were looked for in the status file (`seedSession`), once a module life. */
   seeded: false,
   /** The store this session's hooks opened, from the wake's `counterparts:store` marker; null until it says. */
   wakeStore: null as string | null,
-  /** The dashboard serves another store (`/api/whoami`): nothing is read from it until it matches again. */
+  /** The status file is another store's: nothing of it is shown until it matches again. */
   foreign: false,
 }
 

@@ -1,9 +1,11 @@
 /**
  * The world beneath the sidebar in a test: the engine's answers to every `$`
  * call it makes, from fixtures, and a record of what it asked for. Nothing
- * here reaches a network, a store or a real dashboard: `http.fetch` answers
- * from the fixtures below (shapes read off `/api/pulse`, `/api/activity` and a
- * `recall` facts answer; the words are invented).
+ * here reaches a network, a store or a real dashboard: the status file core
+ * writes for the sidebar (`sidebar.json` beside the configuration) is built
+ * from the fixtures below at each read, the way `src/adapters/sidebar-status.ts`
+ * builds it (the words are invented); `http.fetch` is recorded and refused, so
+ * a fetch the sidebar should never make shows.
  */
 import { mock } from 'claude-code/testing'
 import type { MockClock } from 'claude-code/testing'
@@ -17,6 +19,8 @@ export const PANE = 'counterparts'
 /** The test's home folder: the registry is read beside `<HOME>/.counterparts/claude-code.json` unless a settings hook names another. */
 export const HOME = '/home/test'
 export const SCOPES_FILE = `${HOME}/.counterparts/scopes.json`
+/** The status file core writes for the sidebar, beside the registry. */
+export const STATUS_FILE = `${HOME}/.counterparts/sidebar.json`
 /** 2026-10-09, 1:35pm in whatever zone the test runs in. */
 export const T0 = new Date(2026, 9, 9, 13, 35, 0).getTime()
 
@@ -57,7 +61,7 @@ export function ev(seq: number, name: string, text: string, minutesAgo: number, 
   }
 }
 
-/** The memories `/api/memory?id=` knows (the words invented). */
+/** The memories the status file carries (the words invented). */
 export const MEMORIES: Record<string, { title: string; text: string; kind: string; learnedOn: string }> = {
   mem_aaaa1111: { title: 'The sidebar draws the brain in braille', text: 'Braille dots, two by four a cell.', kind: 'fact', learnedOn: '2026-10-09' },
   mem_sur00001: { title: 'The sidebar is 35 columns wide', text: 'Mike chose 35 columns on 2026-10-10: width is scarce, so nothing decorates.', kind: 'fact', learnedOn: '2026-10-09' },
@@ -67,7 +71,7 @@ export const MEMORIES: Record<string, { title: string; text: string; kind: strin
   mem_fade0001: { title: 'An old plan that faded', text: 'It faded at the night.', kind: 'fact', learnedOn: '2026-09-01' },
 }
 
-/** Times each fired today, as a v0.2 dashboard's `/api/mechanisms` says them. */
+/** Times each fired today, as the status file says them (`firedToday`; null: not built). */
 export const FIRED_TODAY: Record<string, number | null> = {
   salience: 3, emotional: 0, decay: 4, interference: 1, retrieval: 12, association: 2, prospective: 0,
   consolidation: 1, dreaming: 1, reconsolidation: 2, 'episodic-semantic': 1, schema: null,
@@ -126,7 +130,7 @@ export const NPM_TOOLS = ['remember', 'note', 'recall', 'scope', 'session_end', 
 export const PLUGIN_TOOLS = ['remember', 'note', 'recall', 'scope', 'session_end', 'chapter'].map(t => ({ name: `mcp__plugin_counterparts_counterparts__${t}`, description: t, mcp: true }))
 
 export type WorldOptions = {
-  /** The dashboard refuses every request (not running). */
+  /** No status file yet (no session has written one). */
   down?: boolean;
   tools?: { name: string; description: string; mcp: boolean }[];
   placed?: boolean;
@@ -161,13 +165,9 @@ export type WorldOptions = {
   files?: Record<string, string>;
   /** The environment the module reads (`HOME` only, unless given). */
   env?: Record<string, string>;
-  /** A dashboard older than v0.2: `/api/mechanisms` says no `firedToday`. */
-  oldDashboard?: boolean;
   /** Where the mocked clock starts (`T0` unless given). */
   now?: number;
-  /** Called on each dashboard request before it is answered: a test can land a row mid-read. */
-  onFetch?: (url: URL) => void;
-  /** The dashboard's `today` (its store's zone), when it is not this clock's day. */
+  /** The status file's `today` (its store's zone), when it is not this clock's day. */
   dashToday?: string;
   /** What core's `/api/onboarding` answers (a 404, as a core from before onboarding, unless given): a body, served as JSON. */
   onboarding?: unknown;
@@ -175,7 +175,7 @@ export type WorldOptions = {
   turns?: number;
   /** The draft in the prompt box (`$.prompt.read()`): empty unless given. */
   draft?: string;
-  /** What `/api/mechanism?id=` lists as its activity (every event unless given): its lookback can miss sparse rows. */
+  /** What the status file's panel for a mechanism lists (every event unless given): its lookback can miss sparse rows. */
   panelActivity?: (id: string) => Ev[];
 }
 
@@ -205,7 +205,7 @@ export type World = {
   denied: number;
   /** The status line as it stands: the last text set, or '' when the last call cleared it (or none was made). */
   lastStatus: () => string;
-  /** The dashboard's event log (EVENTS to begin with): push to it, and the next poll reads the new ones. */
+  /** The store's event log (EVENTS to begin with): push to it, and the next status file carries the new ones. */
   events: Ev[];
   /** Each `tail` the hint line under the prompt was handed, in order (undefined: none). */
   tails: (string | undefined)[];
@@ -219,8 +219,14 @@ export type World = {
   onboarding: unknown;
   turns: number;
   draft: string;
-  /** The store `/api/whoami` names (undefined: a 404, an older core). */
+  /** The store the status file names (undefined or null: none, an older core or a store with no id yet). */
   dashStore: string | null | undefined;
+  /** Reads of the status file (`$.fs.read`). */
+  statusReads: () => number;
+  /** When the status file was last written (its `writtenAt`): when what it says last changed, or half an hour on. */
+  statusAt: number;
+  /** No status file: `down` to begin with; a test can write one later. */
+  noStatus: boolean;
 }
 
 /** Registers the test's answers beneath the plugin; call before the first `$` call. */
@@ -264,6 +270,9 @@ export function world(on: On, opts: WorldOptions = {}): World {
     turns: opts.turns ?? 0,
     draft: opts.draft ?? '',
     dashStore: undefined,
+    statusReads: () => w.fsReads.filter(f => f === statusPath).length,
+    statusAt: opts.now ?? T0,
+    noStatus: opts.down === true,
   }
   mock.env(on, opts.env ?? { HOME })
   // The scope registry as the server keeps it: `w.scope` is its one entry (none
@@ -278,18 +287,54 @@ export function world(on: On, opts: WorldOptions = {}): World {
           ? {}
           : { [w.scope.setBy]: { mode: w.scope.mode, since: '2026-10-09T13:00:00.000Z', ...(w.scope.mode === 'paused' ? { resumeTo: w.scope.resumeTo } : {}) } },
     })
+  // The status file, beside the registry: what `sidebar-status.ts` writes, from the fixtures as they stand.
+  const statusPath = `${registryAt.slice(0, registryAt.lastIndexOf('/'))}/sidebar.json`
+  let lastSaid = ''
+  const statusText = (): string => {
+    const now = clock.now()
+    const events = [...w.events].sort((a, b) => b.seq - a.seq)
+    const counts: Record<string, number> = {}
+    for (const [id, v] of Object.entries(FIRED_TODAY)) if (typeof v === 'number') counts[id] = v
+    const panels: Record<string, Ev[]> = {}
+    for (const id of Object.keys(FIRED_TODAY)) panels[id] = opts.panelActivity?.(id) ?? events
+    const memories: Record<string, unknown> = {}
+    for (const [id, m] of Object.entries(MEMORIES)) memories[id] = { ...m, text: m.text, cut: false, journal: false }
+    const said = {
+      version: 1,
+      storeId: w.dashStore ?? null,
+      build: '0.3.23',
+      pulse: { day: PULSE.day, memories: PULSE.memories, lastSeq: Math.max(PULSE.lastSeq, ...w.events.map(x => x.seq)) },
+      today: { date: opts.dashToday ?? localDay(now), counts },
+      dreams: [DREAM],
+      events,
+      panels,
+      memories,
+    }
+    // The writers write when the log moves, and at least every half hour while a session runs.
+    const text = JSON.stringify(said)
+    if (text !== lastSaid || now - w.statusAt >= 30 * 60000) {
+      lastSaid = text
+      w.statusAt = now
+    }
+    return JSON.stringify({ ...said, writtenAt: w.statusAt })
+  }
   // The fox's PNGs ship as files under the plugin's folder (art/fox/): there, and read as bytes.
   const isPng = (path: string): boolean => /\/art\/fox\/[A-Za-z0-9+]+\.png$/.test(path)
-  on('fs.exists', (_$, e) => ({ value: e.path === registryAt || e.path in files || isPng(e.path) }))
+  on('fs.exists', (_$, e) => ({ value: e.path === registryAt || e.path in files || isPng(e.path) || (e.path === statusPath && !w.noStatus) }))
   on('fs.read', (_$, e) => {
     w.fsReads.push(e.path)
     if (isPng(e.path)) return { value: { base64: `iVBORw0KGgo${e.path.slice(e.path.lastIndexOf('/') + 1)}` } }
     if (e.path === registryAt) return opts.scopesUnreadable === true ? { deny: 'EACCES: permission denied' } : { value: registry() }
+    if (e.path === statusPath && !w.noStatus) return { value: statusText() }
     const text = files[e.path]
     return text === undefined ? { deny: `ENOENT: no such file or directory, open '${e.path}'` } : { value: text }
   })
-  // Every folder resolves to itself, unless `links` names it.
+  // Every folder resolves to itself, unless `links` names it. The status file's time is when it was last written.
   on('fs.stat', (_$, e) => {
+    if (e.path === statusPath && !w.noStatus) {
+      const text = statusText()
+      return { value: { kind: 'file' as const, size: text.length, mtimeMs: w.statusAt, isLink: false } }
+    }
     const to = opts.links?.[e.path]
     return { value: { kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: to !== undefined, ...(e.resolve ? { realPath: to ?? e.path } : {}) } }
   })
@@ -357,36 +402,10 @@ export function world(on: On, opts: WorldOptions = {}): World {
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('tool.list', () => ({ value: opts.tools ?? NPM_TOOLS }))
   on('tool.check', () => ({ decision: opts.permission ?? 'allow' }))
+  // The sidebar fetches nothing (2026-10-14): a fetch is recorded, and refused.
   on('http.fetch', (_$, e) => {
     w.fetches.push(e.url)
-    if (opts.down === true) return { deny: 'ECONNREFUSED: Unable to connect.' }
-    const url = new URL(e.url)
-    opts.onFetch?.(url)
-    const ok = (body: unknown) => ({ value: { status: 200, ok: true, headers: {}, text: JSON.stringify(body) } })
-    if (url.pathname === '/api/pulse') return ok(PULSE)
-    if (url.pathname === '/api/activity') {
-      const name = url.searchParams.get('name')
-      const since = url.searchParams.get('sinceSeq')
-      const events = w.events.filter(x => (name === null || x.name === name) && (since === null || x.seq > Number(since))).sort((a, b) => b.seq - a.seq)
-      return ok({ events, total: events.length, lastSeq: Math.max(PULSE.lastSeq, ...w.events.map(x => x.seq)) })
-    }
-    if (url.pathname === '/api/mechanisms') {
-      const mechanisms = Object.entries(FIRED_TODAY).map(([id, v]) => (opts.oldDashboard === true ? { id, status: 'green' } : { id, status: 'green', firedToday: v }))
-      return ok({ livedDay: 18, fromDay: 12, days: 7, ...(opts.oldDashboard === true ? {} : { today: opts.dashToday ?? localDay(clock.now()) }), mechanisms, truncated: false })
-    }
-    if (url.pathname === '/api/mechanism') {
-      const id = url.searchParams.get('id') ?? ''
-      return ok({ id, found: true, built: true, livedDay: 18, activity: opts.panelActivity?.(id) ?? w.events })
-    }
-    if (url.pathname === '/api/memory') {
-      const id = url.searchParams.get('id') ?? ''
-      const m = MEMORIES[id]
-      return ok(m === undefined ? { found: false, id, absence: 'no such memory' } : { found: true, id, journal: false, confidential: false, ...m })
-    }
-    if (url.pathname === '/api/dreams') return ok({ dreams: [DREAM] })
-    if (url.pathname === '/api/whoami' && w.dashStore !== undefined) return ok({ store: w.dashStore, version: '0.3.20' })
-    if (url.pathname === '/api/onboarding' && w.onboarding !== undefined) return ok(w.onboarding)
-    return { value: { status: 404, ok: false, headers: {}, text: '{"error":"not found"}' } }
+    return { deny: 'the sidebar makes no network request' }
   })
   on('mcp.call', async (_$, e) => {
     w.mcp.push({ server: e.server, tool: e.tool, args: e.args })
