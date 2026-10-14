@@ -1,16 +1,86 @@
 # Sidebar mod: notes
 
 A Claude Code mod (a module of function hooks) inside the Counterparts plugin:
-a memory pane docked beside the transcript. **v0.2** (2026-10-10) is what
-memory is doing, in 35 columns: a small brain beside the title, the day, the
-count and a search box; Memories, Subconscious, Saved this session,
-Mechanisms today and Last Dream; three rows of switches. Closed (quiet), it is
-a dim tail under the prompt that ends with how to open it again. The design is
-the round-3 mockups Mike chose over three rounds that day
+a memory pane docked beside the transcript. **v1** (2026-10-14, the directory
+trim, below) shows memory and does not act: the fox (or no avatar) above the
+title, the day and the count; Memories, Subconscious, Saved this session,
+Mechanisms today and Last Dream; a footer of instructions. Closed (quiet), it
+is a dim tail under the prompt that ends with how to open it again. The
+design is the round-3 mockups Mike chose on 2026-10-10
 (`~/counterparts-notes/mockups/2026-10-10-mod-round3/`, with `FEEDBACK-all.md`
-there: its last section overrides the PNGs). v0.1's notes follow the v0.2
-section, as the record; where v0.2 changed something they say so. Everything
+there: its last section overrides the PNGs). The sections after v1's are the
+record of v0.2 and v0.1 (the brain, the switches, the intro button): where a
+later version changed something they say so, or v1's section does. Everything
 here is a working default.
+
+## v1: the directory trim (2026-10-14)
+
+Why: the plugin directory's review read the sidebar, together, as a mod that
+can take over Claude: it ran plugin commands, called a memory tool and could
+pause memory from a press. Mike: v1 shows memory, it doesn't act. One sidebar,
+both builds (the speak-first stays a module of its own, in the full build
+only). The full v0.2 is kept on the branch `sidebar-full-0.3.22`, to bring
+pieces back from later.
+
+Removed:
+
+- **"Start the 5-minute intro"** (its `$.command.run` of `/counterparts:meet`),
+  with the onboarding reads behind it (`/api/onboarding`, the wake's marker in
+  the sidebar; the speak-first still reads the marker itself).
+- **The desktop's COUNTERPARTS and `more` Buttons** that ran
+  `/counterparts:dashboard`, and the Mechanisms section's "Start the dashboard"
+  click. On the desktop COUNTERPARTS and `more` are plain words now (a
+  non-https Link draws as text there); on the terminal both stay `Link`s to the
+  dashboard, which the terminal opens.
+- **The folder switch** (on · paused · off): its `$.mcp.call` of `scope`, the
+  confirm row, the hover card, the notes, `$.tool.list` (to find the server),
+  and the paused banner's "click to resume". The banner and the amber status
+  line still say a folder is paused or off, read from the registry file as
+  before; they say how to resume (`say "resume memory here"` to Claude).
+  `/counterparts resume` keeps its name and says the same: it changes nothing.
+- **The view and avatar switches** in the footer: `/counterparts quiet`,
+  `/counterparts`, and `/counterparts avatar animal|off` do it.
+- **The brain** (the braille brain on a Raster, its timer, pulses, fps,
+  `/counterparts fps`, `/counterparts brain …`, `avatar brain`, the regions on
+  each mechanism). A stored `turning` or `still` reads as the fox. The header
+  is the brainless one everywhere: `◉ COUNTERPARTS ↗` with the count and the
+  day on its right; the `◉` still lights in the stage colour of whatever fired.
+- **`COUNTERPARTS_DASHBOARD_PORT`.** Every `$.http.fetch` names
+  `http://127.0.0.1:4747` whole at the call (the validator flags a computed
+  address); links use the same address (`mechanisms.ts#DASHBOARD`). A
+  dashboard on another port is not read: the trial rig's 4848 included,
+  accepted. `/api/whoami` still guards the store: another store's dashboard on
+  4747 shows "The dashboard serves another memory." and none of its numbers.
+
+Added: **the footer** (`words.ts#footerLines`), where the switches were, the
+same on terminal and desktop:
+
+    ────────────────────────────────
+    Intro · /counterparts:meet
+    Stats · /counterparts:dashboard
+    Pause · say "pause memory here"
+    Hide · /counterparts quiet
+
+The label dim, the command bright. Where every long label fits (a wide pane,
+or the desktop's narrower font) they read `5-minute intro`, `Dashboard`,
+`Pause here`, `Hide this`; narrower than an item, its short label, then the
+command under it, indented. A command is never cut.
+
+Renamed for the scanner, which reads a `key`/`token` word beside a URL as a
+credential: `fox.ts#PNG_KEYS` is `PNG_FRAMES`, a feed row's `keys` is
+`twinIds`. Kept: the `xmlns="http://www.w3.org/2000/svg"` in the fox's Svg
+(`fox.ts#foxSvg`): the engine draws an `Svg`'s source as an image on the
+desktop (`SvgProps`), and an SVG read as an image needs its namespace. The
+brain's `cellsSvg` (the other one) is gone with the brain.
+
+Checked as text by `test/sidebar-shows-not-acts.test.ts` (the repository's
+bun tests): every file the directory flavor ships from `hooks/` has no
+`$.command.run`, `$.mcp.call`, `$.process.run`, `$.prompt.submit`,
+`$.tool.list` or `<Button`, and every `$.http.fetch` starts with the literal
+address.
+
+What the bullets below say of the intro button, the desktop Buttons and the
+brain is the record of v0.2.
 
 ## For the plugin directory (2026-10-14)
 

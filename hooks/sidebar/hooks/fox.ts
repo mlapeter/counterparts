@@ -1,7 +1,7 @@
 /**
  * The fox at the top of the sidebar (2026-10-12): which way this surface
  * draws it, what it does when, and each frame in that way. Pure: no `$`, no
- * engine. The timer that drives it lives in `register.tsx` beside the brain's.
+ * engine. The timer that drives it lives in `register.tsx`.
  *
  * ONE DESIGN, FOUR WAYS TO DRAW IT. The art (`fox-art.ts`, the art agent's
  * data module, and the PNGs in `../art/fox/`, built from its export by
@@ -27,11 +27,13 @@
  * `/counterparts avatar detail auto|images|fine|basic` overrides the choice.
  */
 
-import { DEFAULT_COLOR } from './brain'
 import { encodeCells } from './cells'
 import { FOX_FINAL } from './fox-art'
 
 const ART = FOX_FINAL
+
+/** A Raster cell's colour that means the terminal's own default (RasterProps). */
+const DEFAULT_COLOR = 0x01000000
 
 // ── which way to draw it ────────────────────────────────────────────────────
 
@@ -94,7 +96,7 @@ export function pickTier(surface: string, detail: FoxDetail, env: TierEnv, noIma
 /** The stage is the pane's body width, edge to edge. */
 export const STAGE_COLS = 34
 
-/** Below this many pane rows the stage would crowd the body out: the brain's header instead. */
+/** Below this many pane rows the stage would crowd the body out: the plain header instead. */
 export const STAGE_MIN_PANE_ROWS = 30
 
 /** The Image's box in cells: the PNG's aspect at a cell twice as tall as wide, about the sextant fox's footprint. */
@@ -596,7 +598,7 @@ export function runs(line: readonly FineCell[]): FineCell[] {
  * The PNGs `tools/fox-art/build.ts` writes to `art/fox/<key>.png`: every frame, and every frame + effects pair a
  * moment draws (`frame+fx+fx`, as `stepKey` spells it).
  */
-export const PNG_KEYS: ReadonlySet<string> = new Set([
+export const PNG_FRAMES: ReadonlySet<string> = new Set([
   ...Object.keys(ART.png.frames),
   ...Object.values(MOMENTS).flatMap(m => m.filter(s => s.length > 2).map(([frame, , ...fx]) => stepKey({ frame, fx }))),
 ])
@@ -607,7 +609,7 @@ export const PNG_DIRS = ['hooks/sidebar/art/fox', 'art/fox'] as const
 /** The PNG's file name for a step: the frame with its effects, or the frame alone, or the idle frame. */
 export function pngName(step: Pick<Step, 'frame' | 'fx'>): string {
   const key = stepKey(step)
-  return `${PNG_KEYS.has(key) ? key : PNG_KEYS.has(step.frame) ? step.frame : 'idle'}.png`
+  return `${PNG_FRAMES.has(key) ? key : PNG_FRAMES.has(step.frame) ? step.frame : 'idle'}.png`
 }
 
 /** The scale the build writes the PNGs at: art pixels x 3. */

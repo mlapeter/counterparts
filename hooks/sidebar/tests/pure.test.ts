@@ -1,11 +1,10 @@
 /**
- * The pure parts, without the engine: the brain's cells, the cell encoding,
- * the feed's reading of the dashboard, the recall block and a facts answer.
+ * The pure parts, without the engine: the cell encoding, the feed's reading
+ * of the dashboard, the recall block, the footer's words, and the fox.
  */
 import { describe, expect, test } from 'claude-code/testing'
 
-import { Brain, DEFAULT_COLOR } from '../hooks/brain'
-import { cellsSvg, decodeCells, encodeCells, isRasterSafe } from '../hooks/cells'
+import { decodeCells, encodeCells, isRasterSafe } from '../hooks/cells'
 import {
   UNKNOWN_ONBOARDING,
   classify,
@@ -18,12 +17,10 @@ import {
   firingTitle,
   humanDates,
   mechFirings,
-  meetShows,
   openedIds,
   parseOnboarding,
   parseOnboardingMarker,
   parseRecallBlock,
-  resolveServer,
   savedItems,
   shortDir,
   surfacedIds,
@@ -34,7 +31,7 @@ import {
 } from '../hooks/feed'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { headRight } from '../hooks/desktop'
-import { failedPressNote, isRefusal } from '../hooks/words'
+import { FOOTER_ITEMS, footerLines, normAvatar, resumeWords, statusFor } from '../hooks/words'
 import {
   STAGE_COLS,
   TEXT_256,
@@ -47,7 +44,7 @@ import {
   newDirector,
   normDetail,
   pickTier,
-  PNG_KEYS,
+  PNG_FRAMES,
   pngName,
   runs,
   sextantBits,
@@ -59,67 +56,12 @@ import {
 } from '../hooks/fox'
 import { FOX_FINAL } from '../hooks/fox-art'
 import { hookConfig, lookup, parentOf, parseRegistry, settingsHookConfig, under } from '../hooks/scopes'
-import { MECHS, STAGES, dashboardBase, dashboardPort, isDashboardUrl, memoryUrl } from '../hooks/mechanisms'
+import { DASHBOARD, MECHS, isDashboardUrl, memoryUrl } from '../hooks/mechanisms'
 import { MORE, OPEN_MAX_LINES, bar, clip, heading, layoutBody, openedLines, textOf, wrapN } from '../hooks/sections'
 import { CLASSIC_HINT, CLASSIC_HINT_SHORT, TAIL_HINT, quietTail } from '../hooks/tail'
 import { P, applyTheme, cozy, normTheme, tron } from '../hooks/theme'
 import type { BodyState } from '../hooks/sections'
 import { DECISION_T3, EVENTS, RECALL_BLOCK, SESSION, T0, ev } from './world'
-
-describe('the brain', () => {
-  test('a frame is cols x rows cells of braille or blank, every one a Raster may hold', () => {
-    const brain = new Brain()
-    const cells = brain.frame(42, 14, T0)
-    expect(cells.length).toBe(42 * 14 * 3)
-    let braille = 0
-    for (let i = 0; i < cells.length; i += 3) {
-      const cp = cells[i] ?? 0
-      expect(isRasterSafe(cp)).toBe(true)
-      expect(cp === 0x20 || (cp >= 0x2800 && cp <= 0x28ff)).toBe(true)
-      if (cp > 0x2800) braille += 1
-    }
-    expect(braille).toBeGreaterThan(80) // a brain, not an empty box
-  })
-
-  test('no glow by cell background (it steps): every cell takes the one background given; paused, it is grey', () => {
-    const live = new Brain().frame(42, 14, T0)
-    for (let i = 2; i < live.length; i += 3) expect(live[i]).toBe(DEFAULT_COLOR)
-    const onBlack = new Brain().frame(42, 14, T0, { bg: [5, 8, 12] })
-    for (let i = 2; i < onBlack.length; i += 3) expect(onBlack[i]).toBe(0x05080c)
-    const grey = new Brain().frame(42, 14, T0, { mono: true })
-    for (let i = 0; i < grey.length; i += 3) {
-      expect(grey[i + 2]).toBe(DEFAULT_COLOR)
-      const fg = grey[i + 1] ?? 0
-      if ((grey[i] ?? 0) === 0x20) continue
-      const r = (fg >> 16) & 255, g = (fg >> 8) & 255, b = fg & 255
-      expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThan(40)
-    }
-  })
-
-  test('it sways: two frames apart in time differ; with nothing firing it comes to rest and asks for no frames', () => {
-    const brain = new Brain()
-    const a = encodeCells(brain.frame(42, 14, T0))
-    brain.step(T0 + 2000, 2000)
-    const b = encodeCells(brain.frame(42, 14, T0 + 2000))
-    expect(a === b).toBe(false)
-    expect(brain.mode()).toBe('calm')
-    for (let t = 2500; t <= 80000; t += 500) brain.step(T0 + t, 500) // a minute quiet, then it eases to a stop
-    expect(brain.mode()).toBe('rest')
-    brain.pulse('amygdala', STAGES.encoding.col, T0 + 80000)
-    brain.step(T0 + 80100, 100)
-    expect(brain.mode()).toBe('burst')
-  })
-
-  test('a picked mechanism tags its region with its name on its stage colour', () => {
-    const brain = new Brain()
-    brain.light('brainstem', STAGES.storage.col)
-    const cells = brain.frame(42, 14, T0, { tag: { region: 'brainstem', label: 'Forgetting', col: STAGES.storage.col } })
-    let text = ''
-    for (let i = 0; i < cells.length; i += 3) text += String.fromCharCode(cells[i] ?? 32)
-    expect(text).toContain(' Forgetting ')
-    expect(text).toContain('◆')
-  })
-})
 
 describe('cells', () => {
   test('encode and decode round-trip; the alphabet is standard padded base64', () => {
@@ -141,9 +83,9 @@ describe('cells', () => {
 describe('the feed', () => {
   test('an event proves a mechanism or is left out; this session’s in plain words, the night’s, and other sessions’ marked', () => {
     const rows = EVENTS.map(e => classify(e, SESSION))
-    expect(rows[0]).toMatchObject({ mech: 'salience', word: 'kept', text: 'The sidebar draws the brain in braille', who: 'here', keys: ['mem:mem_aaaa1111'], memory: { id: 'mem_aaaa1111', title: 'The sidebar draws the brain in braille' } })
+    expect(rows[0]).toMatchObject({ mech: 'salience', word: 'kept', text: 'The sidebar draws the brain in braille', who: 'here', twinIds: ['mem:mem_aaaa1111'], memory: { id: 'mem_aaaa1111', title: 'The sidebar draws the brain in braille' } })
     expect(rows[1]).toMatchObject({ mech: 'retrieval', word: 'recalled', text: '2 came to mind', who: 'here', more: ['Release notes go out on Fridays', 'Publishing waits for a review'] })
-    expect(rows[2]).toMatchObject({ mech: 'retrieval', who: 'other', keys: ['turn:sess-older:7'] })
+    expect(rows[2]).toMatchObject({ mech: 'retrieval', who: 'other', twinIds: ['turn:sess-older:7'] })
     expect(rows[3]).toBeNull() // a quiet turn
     expect(rows[4]).toMatchObject({ mech: 'dreaming', mechs: ['dreaming'], word: 'dreamed', who: 'night', dream: 'drm_test0001' })
     expect(rows[5]).toMatchObject({ mech: 'decay', word: 'faded', memory: { id: 'mem_fade0001', title: 'An old plan that faded' } })
@@ -426,12 +368,6 @@ describe('the feed', () => {
     })
     expect(firstSentence('No full stop at all')).toEqual({ first: 'No full stop at all', rest: '' })
     expect(firstSentence('“Who said it?” I asked. Then.')).toEqual({ first: '“Who said it?”', rest: 'I asked. Then.' })
-  })
-
-  test('the memory server: the npm install’s first, then the plugin’s', () => {
-    expect(resolveServer(['mcp__plugin_counterparts_counterparts__recall', 'mcp__counterparts__recall'])).toBe('counterparts')
-    expect(resolveServer(['mcp__plugin_counterparts_counterparts__recall'])).toBe('plugin_counterparts_counterparts')
-    expect(resolveServer(['mcp__other__recall'])).toBeNull()
   })
 
   test('a heading’s time: 1:35 today (the mockups’ clock, no am or pm), a date before today', () => {
@@ -732,15 +668,15 @@ describe('the body, laid out', () => {
     expect(before.find(l => l.startsWith('Last Dream'))).toBe('Last Dream ' + '─'.repeat(15) + ' Oct 7')
   })
 
-  test('the dashboard down: the chart is a cyan link that starts it, each of its lines a click on it', () => {
+  test('the dashboard down: the chart says, in cyan, how to start it; no line is a click (v1 runs no command)', () => {
     for (const w of [26, 32, 48, 64]) {
       const laid = layoutBody({ ...BASE, w, today: null, dash: 'down' }).lines
       const lines = textOf(laid)
       const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
       const to = lines.findIndex((l, i) => i > at && l.trim() === '')
-      expect(lines.slice(at + 1, to).join(' ')).toBe('Start the dashboard to see stats here')
+      expect(lines.slice(at + 1, to).join(' ')).toBe('Dashboard not running. Start it with /counterparts:dashboard')
       for (const l of laid.slice(at + 1, to)) {
-        expect(l.key).toBe('dash:start')
+        expect(l.key).toBeUndefined()
         expect(l.segs[0]?.c).toBe('#00e5ff')
       }
       expect(lines.join(' ')).not.toMatch(/(^|[^/])counterparts dashboard/)
@@ -751,62 +687,61 @@ describe('the body, laid out', () => {
     const laid = layoutBody({ ...BASE, today: null, dream: null, dash: 'other' }).lines
     const lines = textOf(laid)
     const at = lines.findIndex(l => l.startsWith('Mechanisms today'))
-    expect(lines.slice(at + 1, at + 3).join(' ')).toBe('This dashboard belongs to another memory.')
+    expect(lines.slice(at + 1, at + 3).join(' ')).toBe('The dashboard serves another memory.')
     expect(laid[at + 1]?.key).toBeUndefined()
   })
 })
 
-describe('the small brain', () => {
-  test('dim at rest; a region flashed (the still brain) lights in its stage colour and goes dark again', () => {
-    const brain = new Brain()
-    brain.hold(true)
-    const max = (c: Uint32Array): number => {
-      let m = 0
-      for (let i = 1; i < c.length; i += 3) {
-        const v = c[i] ?? 0
-        if (v === DEFAULT_COLOR) continue
-        m = Math.max(m, (v >> 16) & 255, (v >> 8) & 255, v & 255)
-      }
-      return m
-    }
-    const full = max(new Brain().frame(18, 6, T0))
-    const dim = encodeCells(brain.frame(18, 6, T0, { dimRest: 0.72 }))
-    expect(max(decodeCells(dim))).toBeLessThan(full)
-    brain.flash('brainstem', STAGES.storage.col)
-    const lit = encodeCells(brain.frame(18, 6, T0, { dimRest: 0.72 }))
-    expect(lit).not.toBe(dim)
-    brain.dark()
-    expect(encodeCells(brain.frame(18, 6, T0, { dimRest: 0.72 }))).toBe(dim)
+describe('the dashboard’s address and links', () => {
+  test('one fixed address, 127.0.0.1:4747: no port is read (v1)', () => {
+    expect(DASHBOARD).toBe('http://127.0.0.1:4747')
+    expect(memoryUrl('mem_a1')).toBe('http://127.0.0.1:4747/#memories?id=mem_a1')
+  })
+
+  test('only the dashboard’s own links open: its fixed address, a strict character set', () => {
+    expect(isDashboardUrl('http://127.0.0.1:4747/')).toBe(true)
+    expect(isDashboardUrl('http://127.0.0.1:4747/#memories?id=mem_a1')).toBe(true)
+    expect(isDashboardUrl('http://localhost:4747/')).toBe(false)
+    expect(isDashboardUrl('http://127.0.0.1:5151/')).toBe(false)
+    expect(isDashboardUrl('http://127.0.0.1:47470/')).toBe(false)
+    expect(isDashboardUrl('http://evil.example:4747/')).toBe(false)
+    expect(isDashboardUrl('http://127.0.0.1:4747.evil.example/')).toBe(false)
+    expect(isDashboardUrl('https://127.0.0.1:4747/')).toBe(false)
+    expect(isDashboardUrl('http://127.0.0.1:4747/a b')).toBe(false)
+    expect(isDashboardUrl('http://127.0.0.1:4747/&calc')).toBe(false)
   })
 })
 
-describe('the dashboard’s port and links', () => {
-  test('the port is read as core reads COUNTERPARTS_DASHBOARD_PORT; anything else is 4747', () => {
-    expect(dashboardPort(undefined)).toBe(4747)
-    expect(dashboardPort('')).toBe(4747)
-    expect(dashboardPort('5151')).toBe(5151)
-    expect(dashboardPort(' 5151 ')).toBe(5151)
-    expect(dashboardPort('nope')).toBe(4747)
-    expect(dashboardPort('70000')).toBe(4747)
-    expect(dashboardPort('-1')).toBe(4747)
-    // 0 asks the OS for any free port: nothing to find, so the default.
-    expect(dashboardPort('0')).toBe(4747)
-    expect(dashboardBase(5151)).toBe('http://localhost:5151')
-    expect(memoryUrl('mem_a1', dashboardBase(5151))).toBe('http://localhost:5151/#memories?id=mem_a1')
+describe('the footer and the pause, said (v1)', () => {
+  test('at the docked pane’s 32 cells each item is one line, label · command; wider, the long labels', () => {
+    const at = (w: number) => footerLines(w).map(l => l.label + l.how)
+    expect(at(32)).toEqual(['Intro · /counterparts:meet', 'Stats · /counterparts:dashboard', 'Pause · say “pause memory here”', 'Hide · /counterparts quiet'])
+    expect(at(40)).toEqual(['5-minute intro · /counterparts:meet', 'Dashboard · /counterparts:dashboard', 'Pause here · say “pause memory here”', 'Hide this · /counterparts quiet'])
+    for (const w of [16, 20, 26, 28, 32, 38, 48]) {
+      const lines = footerLines(w)
+      // never over the width while the longest command fits it; narrower, a command is never cut
+      if (w >= 23) for (const l of lines) expect(cells(l.label + l.how)).toBeLessThanOrEqual(w)
+      // every command is said whole, on some line
+      for (const it of FOOTER_ITEMS) expect(lines.some(l => l.how === it.how)).toBe(true)
+    }
+    // narrower than an item: its short label, then the command under it, indented
+    expect(footerLines(26).map(l => l.label + l.how)).toEqual([
+      'Intro · /counterparts:meet', 'Stats', '  /counterparts:dashboard', 'Pause', '  say “pause memory here”', 'Hide · /counterparts quiet',
+    ])
   })
 
-  test('only the dashboard’s own links open: localhost, the port read, a strict character set', () => {
-    expect(isDashboardUrl('http://localhost:4747/', 4747)).toBe(true)
-    expect(isDashboardUrl('http://localhost:5151/#memories?id=mem_a1', 5151)).toBe(true)
-    expect(isDashboardUrl('http://localhost:4747/', 5151)).toBe(false)
-    expect(isDashboardUrl('http://localhost:51510/', 5151)).toBe(false)
-    expect(isDashboardUrl('http://127.0.0.1:5151/', 5151)).toBe(false)
-    expect(isDashboardUrl('http://evil.example:5151/', 5151)).toBe(false)
-    expect(isDashboardUrl('http://localhost:5151.evil.example/', 5151)).toBe(false)
-    expect(isDashboardUrl('https://localhost:5151/', 5151)).toBe(false)
-    expect(isDashboardUrl('http://localhost:5151/a b', 5151)).toBe(false)
-    expect(isDashboardUrl('http://localhost:5151/&calc', 5151)).toBe(false)
-    expect(isDashboardUrl('http://localhost:0/', 0)).toBe(false)
+  test('/counterparts resume says how, and changes nothing; the status line says the same', () => {
+    const scope = { mode: 'paused', own: true, setBy: '/w/p', dir: '/w/p', error: null, busy: false, unread: null }
+    expect(resumeWords(scope)).toBe('Counterparts memory is paused in /w/p. To resume it, say “resume memory here” to Claude.')
+    expect(statusFor(scope)).toBe('⏸ Counterparts memory paused in this folder · say “resume memory here”')
+    expect(resumeWords({ ...scope, mode: 'on' })).toBe('Counterparts memory isn\'t paused in /w/p.')
+    expect(resumeWords({ ...scope, own: false, setBy: '/w' })).toContain('counterparts scope /w --resume')
+    expect(resumeWords({ ...scope, mode: 'unknown' })).toContain('say “resume memory here” to Claude')
+  })
+
+  test('the avatar as stored: off stays; the brain an older version stored is the fox', () => {
+    expect(normAvatar('off')).toBe('off')
+    for (const v of ['fox', 'turning', 'still', undefined, null, 'nope']) expect(normAvatar(v)).toBe('fox')
   })
 })
 
@@ -824,16 +759,6 @@ describe('the first meeting', () => {
     for (const bad of ['', '# Waking up', '<!-- counterparts:onboarding meet=maybe -->', '<!-- counterparts:recall t=3 -->', 'counterparts:onboarding meet=done']) {
       expect(parseOnboardingMarker(bad)).toBeNull()
     }
-  })
-  test('the button shows for not_started (unless this session’s speak-first is the introduction), later and offered; never where nothing can be kept', () => {
-    expect(meetShows('later', 'on', null, 's1')).toBe(true)
-    expect(meetShows('offered', 'unset', null, 's1')).toBe(true)
-    expect(meetShows('not_started', 'on', null, 's1')).toBe(true) // no speak-first (the directory build), or it stood down
-    expect(meetShows('not_started', 'on')).toBe(true)
-    expect(meetShows('not_started', 'on', 's1', 's1')).toBe(false) // this session's speak-first is introducing
-    expect(meetShows('not_started', 'on', 's0', 's1')).toBe(true)
-    for (const m of ['done', 'skipped', 'unknown'] as const) expect(meetShows(m, 'on', 's0', 's1')).toBe(false)
-    for (const f of ['paused', 'off', 'observer', 'unknown']) expect(meetShows('later', f, null, 's1')).toBe(false)
   })
 })
 
@@ -968,7 +893,7 @@ describe('the fox', () => {
     expect(pngName({ frame: 'perk', fx: [['spark0', 'spark']] })).toBe('perk+spark0.png')
     expect(pngName({ frame: 'perk', fx: [['nothing', 'spark']] })).toBe('perk.png')
     expect(pngName({ frame: 'no-such', fx: [] })).toBe('idle.png')
-    expect(PNG_KEYS.size).toBe(36)
+    expect(PNG_FRAMES.size).toBe(36)
     const svg = foxSvg(idle, 'iVBORw0KGgo')
     expect(svg.source.length).toBeLessThan(131072)
     // the picture alone: the half-blocks under it showed as a ghost edge on the desktop's light page
@@ -1199,23 +1124,5 @@ describe('the desktop layout', () => {
     // the terminal pads with spaces instead and carries none of it
     const term = layoutBody(state(false)).lines.filter(l => l.key?.startsWith('mech:'))
     for (const l of term) expect(l.segs.some(sg => sg.cw !== undefined || sg.fill !== undefined || sg.grow === true)).toBe(false)
-  })
-
-  test('cellsSvg: braille cells are their set dots, other glyphs filled cells, blanks nothing', () => {
-    const c = new Uint32Array([0x2801, 0xff0000, 0, 0x20, 0, 0, 0x2588, 0x00ff00, 0, 0x28ff, 0x01000000, 0])
-    const svg = cellsSvg(encodeCells(c), 4, 1, 8)
-    expect(svg.width).toBe(32)
-    expect(svg.height).toBe(16)
-    expect(svg.source.match(/<circle/g)).toHaveLength(1 + 8) // one dot in the first cell, all eight in the last
-    expect(svg.source).toContain('fill="#ff0000"')
-    expect(svg.source).toContain('<rect x="16" y="0" width="8" height="16" fill="#00ff00"/>')
-    expect(svg.source).toContain('fill="#8a8a8a"') // the default colour
-  })
-
-  test("isRefusal: auto mode's classifier, not the memory server's own word \"refused\"", () => {
-    expect(isRefusal(new Error('$.mcp.call counterparts.scope refused: The server-side auto mode classifier gave no verdict'))).toBe(true)
-    expect(isRefusal('refused')).toBe(false) // scopeOf's fallback for an error with no detail
-    expect(isRefusal('the search was refused')).toBe(false)
-    expect(failedPressNote('pause', 'refused')).toBe('The switch could not change this just now. Try again, or ask Claude.')
   })
 })
