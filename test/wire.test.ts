@@ -971,6 +971,42 @@ describe("unwire", () => {
     expect(fake.calls).toEqual([["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]]);
   });
 
+  // THE PLUGIN DIRECTORY'S BUILD never opens ~/.claude.json
+  // (`runtime.ts#readsHostUserConfig`): `claude`'s answer is all it has.
+  describe("a build that does not read ~/.claude.json", () => {
+    test("nothing in the settings is not \"nothing to disconnect\": it asks `claude`, and takes its not-found", async () => {
+      const c = consoleWith();
+      const fake = spawnerThat(() => ({ missing: false, code: 1, out: "", err: "No MCP server found" }));
+      const result = await unwire(input({ io: c.io, spawner: fake.spawner, readsUserConfig: false }));
+      expect(result.outcome).toBe("ok");
+      expect(fake.calls).toEqual([["mcp", "remove", MCP_SERVER_NAME, "-s", "user"]]);
+      expect(result.mcp).toBe("absent");
+      expect(result.mcpConfirmed).toBe(true);
+      expect(text(c.out)).not.toContain("nothing to disconnect");
+      expect(text(c.out)).not.toContain(".claude.json");
+    });
+
+    test("no `claude` to ask: nothing of its own is left, said with the line for an npm registration", async () => {
+      const c = consoleWith();
+      const result = await unwire(input({ io: c.io, spawner: spawnerThat(() => MISSING).spawner, readsUserConfig: false }));
+      expect(result.mcpConfirmed).toBe(true);
+      expect(text(c.out)).toContain("does not read Claude Code's own configuration");
+      expect(text(c.out)).toContain(`claude mcp remove ${MCP_SERVER_NAME} -s user`);
+    });
+
+    test("`claude` failing for another reason is not a confirmation", async () => {
+      const result = await unwire(
+        input({
+          io: consoleWith().io,
+          spawner: spawnerThat(() => ({ missing: false, code: 2, out: "", err: "boom" })).spawner,
+          readsUserConfig: false,
+        }),
+      );
+      expect(result.mcpConfirmed).toBe(false);
+      expect(result.mcp).toBe("printed");
+    });
+  });
+
   test("a console with no prompt and no --yes refuses rather than unwiring", async () => {
     await wire(input({ io: consoleWith().io }));
     const before = hashOf(settingsFile());

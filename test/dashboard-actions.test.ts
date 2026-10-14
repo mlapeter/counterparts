@@ -43,7 +43,7 @@ import { join, relative } from "node:path";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import {
   ACTIONS,
-  TOKEN_META,
+  ACTION_META_NAME,
   buildArgv,
   checkActionRequest,
   newActionToken,
@@ -291,14 +291,14 @@ describe("managing, over the wire", () => {
     const running = await startDashboard({ dir: f.dir, port: 0, config: f.config });
     try {
       const page = await (await fetch(`${running.url}/`)).text();
-      expect(page).toContain(`<meta name="${TOKEN_META}" content="${running.token}">`);
+      expect(page).toContain(`<meta name="${ACTION_META_NAME}" content="${running.token}">`);
     } finally {
       await running.stop();
     }
     const d = Dashboard.open({ dir: f.dir });
     try {
       const bare = router(new URL("http://127.0.0.1:4747/"), "127.0.0.1:4747", d.source);
-      expect(bare.body).toContain(`<meta name="${TOKEN_META}" content="">`);
+      expect(bare.body).toContain(`<meta name="${ACTION_META_NAME}" content="">`);
     } finally {
       d.close();
     }

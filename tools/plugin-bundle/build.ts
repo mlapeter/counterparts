@@ -55,9 +55,10 @@
  * It refuses, rather than writes, a bundle that breaks a directory rule it can
  * check here: a symlink, a test or module doc, a macOS/Windows system file, a
  * file over 5 MiB, more than 512 files, or versions that disagree; for the
- * directory flavor also a file over 256 KiB that is not an image or font (the
- * vendored three.js aside), a launcher left in a root it generated, and a
- * tree that does not mirror the sources one for one.
+ * directory flavor also any file over 256 KiB (2026-10-14: three.js, the one
+ * there was, is left out with the dashboard's brain picture), a launcher left
+ * in a root it generated, and a tree that does not mirror the sources one for
+ * one.
  */
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -78,9 +79,6 @@ export const WARN_FILES = 490;
 export const MAX_INSPECTED_BYTES = 256 * 1024; // larger, not an image or font: held for a reviewer
 export const MAX_FILE_BYTES = 5 * 1024 * 1024; // larger: validation stops
 
-/** Over 256 KiB and accepted (held for a reviewer, known): the vendored,
- *  already-minified three.js the dashboard's brain draws with. */
-export const ACCEPTED_LARGE: readonly string[] = ["src/adapters/dashboard/web/shared/vendor/three.module.min.js"];
 
 /** The only package the bundle installs: the embedding table, ~30 MB, too big to ship. */
 export const MODEL_PACKAGE = "counterparts-model-potion";
@@ -123,8 +121,17 @@ export const DIRECTORY_SHEBANG = "#!/usr/bin/env -S bun --no-env-file --config=/
 
 /** What the directory flavor leaves out although the trace reaches it: Node's
  *  loader, named by runtime.ts for a `node` command, which this bundle never
- *  writes (it runs under Bun alone). */
-const DIRECTORY_DROPPED: readonly string[] = ["src/adapters/node-hooks.mjs"];
+ *  writes (it runs under Bun alone); and the dashboard's brain picture — its
+ *  module, the vendored three.js (~670 KiB, the bundle's one file over the
+ *  directory's 256 KiB review line) and three's licence (2026-10-14). The
+ *  dashboard reads the library's absence off the disk and draws the home tab
+ *  without the picture (`dashboard/web/server.ts#BRAIN_LIBRARY`). */
+export const DIRECTORY_DROPPED: readonly string[] = [
+  "src/adapters/node-hooks.mjs",
+  "src/adapters/dashboard/web/pages/home/brain.js",
+  "src/adapters/dashboard/web/shared/vendor/three.module.min.js",
+  "src/adapters/dashboard/web/shared/vendor/MIT-three.txt",
+];
 
 /** Bare imports a module may make: the runtimes' built-ins, and the engine a
  *  hooks module (the sidebar) runs inside. Anything else would need an
@@ -683,7 +690,7 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
   }
   for (const [f, bytes] of sizes) {
     if (bytes >= MAX_FILE_BYTES) problems.push(`${f} is ${bytes} bytes, over the 5 MiB limit`);
-    else if (flavor === "directory" && bytes > MAX_INSPECTED_BYTES && !IMAGE_OR_FONT.test(f) && !ACCEPTED_LARGE.includes(f)) {
+    else if (flavor === "directory" && bytes > MAX_INSPECTED_BYTES) {
       problems.push(`${f} is ${bytes} bytes, over 256 KiB (the directory holds it for a reviewer)`);
     }
   }

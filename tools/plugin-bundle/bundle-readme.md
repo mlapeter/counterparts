@@ -50,8 +50,18 @@ Say "later" and it is offered again another day, on three days at most;
 A memory that already existed is never offered it. Check its health any time with
 `/counterparts:doctor`.
 
+<!-- flavor:full -->
 If you already use the npm install (`counterparts install`), the plugin notices and stands
 down, so the memory is never wired twice.
+<!-- /flavor:full -->
+<!-- flavor:directory -->
+If you also use the npm install (`counterparts install`), keep one or the other. This
+version of the plugin doesn't read Claude Code's user configuration file, where that
+install registers its memory server, so it doesn't notice the npm install and doesn't stand
+down for it: both run, on the same memory, and Claude is offered the memory tools twice.
+To keep only the plugin, run `counterparts disconnect` and restart Claude Code; to keep only
+the npm install, uninstall the plugin.
+<!-- /flavor:directory -->
 
 ## What it adds
 
@@ -111,6 +121,7 @@ You can delete any one kind of data at any time without touching the rest, from 
 dashboard or with `counterparts delete conversation-text`, `delete backups` or
 `delete activity-log`. It never leaves your computer except as above.
 
+<!-- flavor:full -->
 **What else it reads and writes.** Besides the session transcript, it reads
 `~/.claude/settings.json`, your project's `.claude/settings.json` and `settings.local.json`,
 `~/.claude.json` and Claude Code's `plugins/installed_plugins.json`, only to tell whether
@@ -118,6 +129,19 @@ the npm install is also set up, whether the plugin is on, and (for the sidebar) 
 configuration the hooks use. It doesn't read Claude Code's memory files, CLAUDE.md files or
 prompt history. Apart from `~/.counterparts`, it writes only to the plugin's own data
 folder (the downloaded program, if any), Claude Code's per-plugin storage (sidebar
+<!-- /flavor:full -->
+<!-- flavor:directory -->
+**What else it reads and writes.** Besides the session transcript, it reads
+`~/.claude/settings.json` and `settings.local.json`, your project's `.claude/settings.json`
+and `settings.local.json`, Claude Code's `plugins/installed_plugins.json` and (for
+`/counterparts:doctor`, on a Mac) Claude Desktop's `claude_desktop_config.json`, only to
+tell whether the plugin is on, whether the npm install or Claude Desktop is also set up, and
+(for the sidebar) which configuration the hooks use. This version doesn't read Claude
+Code's user configuration file (its MCP servers and per-project state), and none of these
+files is read by the hooks or the memory server of an installed plugin. It doesn't read
+Claude Code's memory files, CLAUDE.md files or prompt history. Apart from `~/.counterparts`,
+it writes only to Claude Code's per-plugin storage (sidebar
+<!-- /flavor:directory -->
 preferences) and small first-run files in your temp folder. The hooks start
 short-lived background processes on your computer for the slower work.
 `/counterparts:uninstall` lists running processes (`ps`) to find Counterparts' own before
@@ -218,5 +242,11 @@ the plugin first, quit Claude Code, and type the confirmation yourself in a term
 
 ## License
 
+<!-- flavor:full -->
 MIT. See [LICENSE](LICENSE). Bundled fonts (Outfit, Courier Prime) are under the SIL Open
 Font License and three.js under MIT; their licence texts sit beside them.
+<!-- /flavor:full -->
+<!-- flavor:directory -->
+MIT. See [LICENSE](LICENSE). Bundled fonts (Outfit, Courier Prime) are under the SIL Open
+Font License; their licence texts sit beside them.
+<!-- /flavor:directory -->

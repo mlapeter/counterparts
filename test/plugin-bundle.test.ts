@@ -7,14 +7,15 @@
  * installs a generated bundle as a real plugin in a throwaway home.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-  ACCEPTED_LARGE,
   BUNDLE_LOCKFILE,
   INVISIBLE,
+  DIRECTORY_DROPPED,
   DIRECTORY_ENTRIES,
   DIRECTORY_SHEBANG,
   EXTRA_KEYWORDS,
@@ -252,6 +253,8 @@ describe("the directory flavor", () => {
         .filter((p) => !/^src\/adapters\/(plugin-run\.sh|launch\.mjs|node-hooks\.mjs)$|\/bin\/[a-z-]+\.mjs$|^\.claude-plugin\/binaries\.json$/.test(p))
         // The directory's hooks module is the sidebar alone: no speak-first, and no full.tsx joining the two.
         .filter((p) => !/^hooks\/sidebar\/hooks\/(full|speak-first)\.tsx$/.test(p))
+        // The dashboard's brain picture and its three.js stay out (DIRECTORY_DROPPED).
+        .filter((p) => !DIRECTORY_DROPPED.includes(p))
         .map((p) => (p.startsWith("src/") && p.endsWith(".ts") && !p.endsWith(".d.ts") ? transpiledPath(p) : p)),
     );
     expect(dirPaths).toEqual([...expected].sort());
@@ -370,12 +373,26 @@ describe("the directory flavor", () => {
     expect(fullReadme).not.toMatch(/Requires Bun 1\.3\+|<!--/);
   });
 
-  test("within the directory's limits: file count, and nothing over 256 KiB but images, fonts and the vendored three.js", () => {
+  test("within the directory's limits: file count, and no file over 256 KiB at all", () => {
     expect(dirPaths.length).toBeLessThanOrEqual(MAX_FILES);
     expect(dir.warnings).toEqual([]);
-    for (const [f, text] of Object.entries(dir.generated)) {
-      if (!ACCEPTED_LARGE.includes(f)) expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MAX_INSPECTED_BYTES);
-    }
+    const sizes = [
+      ...Object.entries(dir.generated).map(([f, text]) => [f, Buffer.byteLength(text)] as const),
+      ...dir.copied.map((f) => [f, lstatSync(join(REPO, f)).size] as const),
+      ...Object.entries(dir.placed).map(([f, from]) => [f, lstatSync(join(REPO, from)).size] as const),
+    ];
+    expect(sizes.length).toBe(dirPaths.length);
+    expect(sizes.filter(([, bytes]) => bytes > MAX_INSPECTED_BYTES)).toEqual([]);
+  });
+
+  test("no three.js and no brain picture: the dashboard draws its home tab without them", () => {
+    expect(dirPaths.filter((p) => /three|pages\/home\/brain\.js$/i.test(p))).toEqual([]);
+    for (const f of DIRECTORY_DROPPED.filter((d) => d.includes("/dashboard/"))) expect(paths).toContain(f);
+    // The page module that loads the picture rides, and loads it only when the server says it is there.
+    expect(dirPaths).toContain("src/adapters/dashboard/web/pages/home/sections/brain.js");
+    const section = readFileSync(join(REPO, "src/adapters/dashboard/web/pages/home/sections/brain.js"), "utf8");
+    expect(section).not.toMatch(/^import[^\n]*["']\.\.\/brain\.js["']/m);
+    expect(section).toContain('import("../brain.js")');
   });
 
   test("no invisible or control character in any .js the directory flavor carries (the validator holds one)", () => {
@@ -432,5 +449,44 @@ describe("the directory flavor", () => {
       rmSync(join(out, "icon.png"));
       expect(driftLines(dir, out).sort()).toEqual(["differs  src/core/types.js", "extra    stale.txt", "missing  icon.png"]);
     });
+
+    // THE OWNER'S DECISION (2026-10-14): the directory's build never opens
+    // ~/.claude.json. Here that file is a FIFO with no writer, which any read
+    // would block on forever; the written tree's readers of it must all return.
+    test("the written tree never opens ~/.claude.json: every reader of it returns past a FIFO no read could get past", () => {
+      const out = join(work, "bundle");
+      writeBundle(dir, out);
+      const home = join(work, "home");
+      const project = join(home, "project");
+      mkdirSync(join(home, ".claude"), { recursive: true });
+      mkdirSync(project, { recursive: true });
+      const hook = `"${process.execPath}" run "${join(out, "src/adapters/claude-code/bin/hook.js")}"`;
+      writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: hook }] }] } }));
+      expect(spawnSync("mkfifo", [join(home, ".claude.json")]).status).toBe(0);
+      const probe = join(work, "probe.mjs");
+      writeFileSync(
+        probe,
+        [
+          "const [root, home, project] = process.argv.slice(2);",
+          "const env = { PATH: process.env.PATH };",
+          'const rt = await import(`${root}/src/adapters/runtime.js`);',
+          'const hw = await import(`${root}/src/adapters/host-wiring.js`);',
+          'const inst = await import(`${root}/src/adapters/cli/install.js`);',
+          'const desk = await import(`${root}/src/adapters/cli/desktop.js`);',
+          'const wire = await import(`${root}/src/adapters/cli/wire.js`);',
+          "console.log(JSON.stringify({",
+          "  reads: rt.readsHostUserConfig(),",
+          "  wiring: hw.npmWiring({ home, env, cwd: project }),",
+          "  host: inst.readHost(home, project, env).mcpRead,",
+          "  codeTab: desk.readDesktop(home, env).codeTab,",
+          '  notRead: wire.readMcp(home, env, "", undefined, process.execPath).notRead,',
+          "}));",
+        ].join("\n"),
+      );
+      const r = spawnSync(process.execPath, ["--no-install", probe, out, home, project], { encoding: "utf8", timeout: 30_000, cwd: work });
+      expect(r.signal).toBeNull();
+      expect(r.stderr).toBe("");
+      expect(JSON.parse(r.stdout)).toEqual({ reads: false, wiring: { hooks: [], mcp: [] }, host: false, codeTab: false, notRead: true });
+    }, 60_000);
   });
 });

@@ -85,7 +85,7 @@ import { DATA_DIR_ENV, isWithin } from "../../core/store/index.js";
 import { CONFIG_ENV, CONFIG_FLAG } from "../config-path.js";
 import { isOurHookCommand } from "../host-wiring.js";
 import { claudeCodeEnvMarker } from "../hosts.js";
-import { parseScriptInvocation, scriptArgs, shellTokens } from "../runtime.js";
+import { parseScriptInvocation, readsHostUserConfig, scriptArgs, shellTokens } from "../runtime.js";
 import { installedBuild, readServerRecords, sameBuild, serverBelieved } from "../sessions.js";
 import type { BuildStamp, ServerRecordRead } from "../sessions.js";
 import type { Io } from "./commands.js";
@@ -924,6 +924,10 @@ export interface McpReading {
   /** True when the file exists and could not be read — a different fact from
    *  "no registration", and the one that must not read as "not installed". */
   readonly unreadable: boolean;
+  /** True when this build does not open the file at all (the plugin
+   *  directory's, `runtime.ts#readsHostUserConfig`): `present` is then "not
+   *  looked", and only `claude` itself can say what is registered. */
+  readonly notRead?: boolean;
 }
 
 /**
@@ -937,8 +941,10 @@ export function readMcp(
   custom: string | undefined,
   exe: string,
   serve: string = MCP_SCRIPT,
+  readsUserConfig: boolean = readsHostUserConfig(),
 ): McpReading {
   const file = hostMcpFile(hostConfigBase(home, env));
+  if (!readsUserConfig) return { file, present: false, matches: false, unreadable: false, notRead: true };
   if (!existsSync(file)) return { file, present: false, matches: false, unreadable: false };
   let raw: unknown;
   try {
@@ -1133,6 +1139,9 @@ export interface WireInput {
   readonly lister: ProcessLister;
   /** `install` prints its own step heading; a bare `wire` prints one here. */
   readonly heading?: boolean;
+  /** Whether `unwire` may read `~/.claude.json`: `runtime.ts#readsHostUserConfig`
+   *  by default; a test's seam. */
+  readonly readsUserConfig?: boolean;
 }
 
 export interface WireResult {
@@ -1642,12 +1651,14 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   }
 
   const merged = mergeHooks(sight.value, "", "unwire");
-  const mcp = readMcp(home, env, input.store, input.custom, input.exe);
+  const mcp = readMcp(home, env, input.store, input.custom, input.exe, MCP_SCRIPT, input.readsUserConfig);
 
   // `mcp.unreadable` is NOT "nothing there": that file is the host's own and a
   // read that failed is no evidence either way, which is the same stance the
   // removal below takes.
-  if (!merged.changed && !mcp.present && !mcp.unreadable) {
+  // A file this build never opens (`notRead`) is no evidence either: the
+  // removal below asks `claude`.
+  if (!merged.changed && !mcp.present && !mcp.unreadable && mcp.notRead !== true) {
     u.ok("nothing to disconnect: no Counterparts hooks and no memory server were found.");
     // SAID EVEN HERE: a wrapper is exactly the case where "nothing of ours"
     // needs a sentence, because the person can see a hook that mentions us and
@@ -1771,10 +1782,21 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   // let the irreversible arm run. M2's own words are "a read of the
   // registration shows it ABSENT", and a read that failed shows nothing at all.
   const stillThere = (): boolean => {
-    const fresh = readMcp(home, env, input.store, input.custom, input.exe);
-    return fresh.present || fresh.unreadable;
+    const fresh = readMcp(home, env, input.store, input.custom, input.exe, MCP_SCRIPT, input.readsUserConfig);
+    // Not looked (`notRead`) is not "gone" either.
+    return fresh.present || fresh.unreadable || fresh.notRead === true;
   };
-  if (res.missing) {
+  if (res.missing && mcp.notRead === true) {
+    // NOT LOOKED, AND NOBODY TO ASK (the plugin directory's build): that
+    // build never registers a server there, so nothing of its own is left.
+    // An npm install's registration, if there is one, is that install's to
+    // remove; said, not refused (the known limit, docs/plugin.md).
+    mcpConfirmed = true;
+    u.hint(
+      `\`claude\` is not on this PATH and this version does not read Claude Code's own configuration, so no MCP registration was checked. If the npm install also registered one, remove it with: claude mcp remove ${MCP_SERVER_NAME} -s user`,
+    );
+    mcpWord = "absent";
+  } else if (res.missing) {
     mcpConfirmed = !stillThere();
     if (mcpConfirmed) {
       u.hint(`no MCP registration named "${MCP_SERVER_NAME}" was there to remove.`);
@@ -1788,10 +1810,11 @@ export async function unwire(input: WireInput): Promise<WireResult> {
     u.ok("memory server removed");
     mcpWord = "removed";
     mcpConfirmed = true;
-  } else if (notThere || !mcp.present) {
+  } else if (notThere || (!mcp.present && mcp.notRead !== true)) {
     // `claude` says there was nothing there. Believe it, and check the file
-    // too — this is the one place where two sources agreeing is cheap.
-    mcpConfirmed = !stillThere();
+    // too — this is the one place where two sources agreeing is cheap. A
+    // build that does not read the file has `claude`'s word alone, and takes it.
+    mcpConfirmed = mcp.notRead === true || !stillThere();
     u.hint(`no MCP registration named "${MCP_SERVER_NAME}" was there to remove.`);
     mcpWord = "absent";
   } else {

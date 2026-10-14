@@ -688,7 +688,13 @@ describe("the page's static files", () => {
         expect(`${url} → ${found === null ? "unservable" : "ok"}`).toBe(`${url} → ok`);
         if (found === null) continue;
         const src = readFileSync(found.file, "utf8");
-        for (const m of src.matchAll(/^\s*(?:import|export)\s[^;]*?from\s+"([^"]+)";?$/gm)) {
+        // Static imports, and a literal `import("…")` (the home tab's brain
+        // picture, loaded only when its three.js is installed).
+        const specs = [
+          ...src.matchAll(/^\s*(?:import|export)\s[^;]*?from\s+"([^"]+)";?$/gm),
+          ...src.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g),
+        ];
+        for (const m of specs) {
           const spec = m[1] as string;
           expect(`${url} imports ${spec}`).toMatch(/imports \.\.?\//);
           const target = "/" + relative(WEB, resolve(dirname(found.file), spec)).split("\\").join("/");

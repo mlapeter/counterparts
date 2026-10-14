@@ -672,7 +672,13 @@ fi
 
 # ── 6. the double-install guard ────────────────────────────────────────────
 
-step "with the npm hooks ALSO wired, the plugin stands down and says so once; one wake, not two"
+if [ "$FLAVOR" = directory ]; then
+  # The directory flavor never reads ~/.claude.json (runtime.ts#readsHostUserConfig),
+  # so it has no stand-down: the known limit, docs/plugin.md.
+  step "with the npm hooks ALSO wired, the directory flavor does not stand down (it has no stand-down to make) and says nothing of it"
+else
+  step "with the npm hooks ALSO wired, the plugin stands down and says so once; one wake, not two"
+fi
 mkdir -p "$HOME/.claude"
 cp "$HOME/.claude/settings.json" "$WORK/settings.before.json" 2>/dev/null || echo '{}' > "$WORK/settings.before.json"
 HOOK_SRC="$INSTALL_PATH/src/adapters/claude-code/bin/hook.ts"
@@ -694,7 +700,15 @@ OUTS=$(grep -F 'Hook SessionStart:startup (SessionStart) success' "$WORK/debug-t
 # A wake is the block that opens "Now: <date>" — plain stdout, or inside the
 # JSON envelope when a line for the person rides with it.
 WAKES=$(grep -c 'Now: ' <<<"$OUTS" || true)
-if grep -q "installed twice" <<<"$OUTS" && [ "$WAKES" = "1" ]; then
+if [ "$FLAVOR" = directory ]; then
+  # Both hooks run; the per-event claim decides how many wakes the session gets.
+  if ! grep -q "installed twice" <<<"$OUTS" && [ "${WAKES:-0}" -ge 1 ]; then
+    ok
+    echo "      wakes with both wired: $WAKES"
+  else
+    no "expected a wake and no stand-down line (wakes: $WAKES)" "$OUTS"
+  fi
+elif grep -q "installed twice" <<<"$OUTS" && [ "$WAKES" = "1" ]; then
   ok
 else
   no "expected one wake and one stand-down line (wakes: $WAKES)" "$OUTS"
@@ -709,6 +723,52 @@ if grep -q "Now: " <<<"$OUTS" && ! grep -q "installed twice" <<<"$OUTS" && ! gre
   ok
 else
   no "the plugin did not wake on the existing store" "$OUTS"
+fi
+
+if [ "$FLAVOR" = directory ]; then
+  step "directory flavor: ~/.claude.json is never opened (a live npm registration there stands nothing down; as a FIFO no read could pass, the hook, the server and doctor all finish)"
+  [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
+  cp "$HOME/.claude.json" "$WORK/claude-json.before"
+  bun -e '
+    const fs = require("fs");
+    const [file, exe, serve] = process.argv.slice(1);
+    const s = JSON.parse(fs.readFileSync(file, "utf8"));
+    s.mcpServers = { ...(s.mcpServers ?? {}), counterparts: { type: "stdio", command: exe, args: ["run", serve], env: {} } };
+    fs.writeFileSync(file, JSON.stringify(s, null, 2));
+  ' "$HOME/.claude.json" "$BUN_BIN" "$INSTALL_PATH/src/adapters/mcp/bin/serve.js"
+  LIST_RPC=$(
+    printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"claude-code","version":"plugin-loop"}}}'
+    printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+    printf '%s\n' '{"jsonrpc":"2.0","id":4,"method":"tools/list","params":{}}'
+  )
+  tools_in() { # tools_in <jsonl file>: how many tools the tools/list reply names
+    bun -e '
+      const line = require("fs").readFileSync(process.argv[1], "utf8").split("\n").find((l) => l.includes("\"id\":4"));
+      console.log((JSON.parse(line ?? "{}").result?.tools ?? []).length);
+    ' "$1" 2>/dev/null || echo 0
+  }
+  launch "$INSTALL_PATH" mcp
+  ( cd "$PROJECT" && printf '%s\n' "$LIST_RPC" | t 60 "${SERVE_ENV[@]}" "${LAUNCH[@]}" ) >"$WORK/mcp-registered.jsonl" 2>"$WORK/mcp-registered.err"
+  REGISTERED_TOOLS=$(tools_in "$WORK/mcp-registered.jsonl")
+  # The FIFO: a read of it blocks until a writer comes, and none does; `t`
+  # ends a blocked process with SIGALRM (exit 142).
+  rm -f "$HOME/.claude.json"
+  mkfifo "$HOME/.claude.json"
+  hook SessionStart ',"source":"startup"' >"$WORK/fifo-hook.out" 2>"$WORK/fifo-hook.err"; FIFO_HOOK=$?
+  ( cd "$PROJECT" && printf '%s\n' "$LIST_RPC" | t 60 "${SERVE_ENV[@]}" "${LAUNCH[@]}" ) >"$WORK/fifo-mcp.jsonl" 2>"$WORK/fifo-mcp.err"; FIFO_MCP=$?
+  launch "$INSTALL_PATH" cli
+  ( cd "$PROJECT" && t 120 "${SERVE_ENV[@]}" "${LAUNCH[@]}" doctor ) >"$WORK/fifo-doctor.txt" 2>&1; FIFO_DOCTOR=$?
+  FIFO_TOOLS=$(tools_in "$WORK/fifo-mcp.jsonl")
+  rm -f "$HOME/.claude.json"
+  cp "$WORK/claude-json.before" "$HOME/.claude.json"
+  if [ "${REGISTERED_TOOLS:-0}" -ge 5 ] && [ "$FIFO_HOOK" != 142 ] && [ "$FIFO_MCP" != 142 ] && [ "$FIFO_DOCTOR" != 142 ] &&
+     grep -q "Now: " "$WORK/fifo-hook.out" && [ "${FIFO_TOOLS:-0}" -ge 5 ] &&
+     grep -q "connected as the Claude Code plugin (counterparts@counterparts-loop" "$WORK/fifo-doctor.txt" &&
+     ! grep -q "standing down" "$WORK/fifo-doctor.txt"; then
+    ok
+  else
+    no "a reader opened ~/.claude.json, or the registration stood something down (tools beside a registration: $REGISTERED_TOOLS; past the FIFO: hook exit $FIFO_HOOK, server exit $FIFO_MCP and $FIFO_TOOLS tools, doctor exit $FIFO_DOCTOR)" "$(cat "$WORK/fifo-hook.err" "$WORK/fifo-mcp.err"; grep -E "Claude Code|standing" "$WORK/fifo-doctor.txt")"
+  fi
 fi
 
 # ── 7. uninstall keeps the memory ──────────────────────────────────────────

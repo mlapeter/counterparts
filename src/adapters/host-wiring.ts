@@ -35,7 +35,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
 import { CONFIG_FLAG } from "./config-path.js";
-import { BUN_CONFIG_PREFIX, BUN_NO_ENV_FILE, isBinaryName, parseScriptInvocation, runtimeOf, runtimePresent, shellTokens } from "./runtime.js";
+import {
+  BUN_CONFIG_PREFIX,
+  BUN_NO_ENV_FILE,
+  isBinaryName,
+  parseScriptInvocation,
+  readsHostUserConfig,
+  runtimeOf,
+  runtimePresent,
+  shellTokens,
+} from "./runtime.js";
 
 /** The name `counterparts connect` registers the server under
  *  (`cli/install.ts#MCP_SERVER_NAME`), spelled again because this module may
@@ -375,7 +384,15 @@ export function npmWiring(input: {
    * nothing. The server, once per session, passes `{ hooks: false }`.
    */
   readonly read?: { readonly hooks?: boolean; readonly mcp?: boolean };
+  /** `runtime.ts#readsHostUserConfig` by default; a test's seam. */
+  readonly readsUserConfig?: boolean;
 }): NpmWiring {
+  // THE PLUGIN DIRECTORY'S BUILD DOES NOT LOOK (2026-10-14): it never opens
+  // `~/.claude.json`, so it has no stand-down to decide, and it reads neither
+  // half (the settings files included) rather than stand its hooks down while
+  // its server serves tools beside a registration it cannot see. No wiring
+  // found is what every caller already handles: nothing stands down.
+  if (!(input.readsUserConfig ?? readsHostUserConfig())) return { hooks: [], mcp: [] };
   const { settings, globalConfig } = claudeUserFiles(input.home, input.env);
   const cwd = input.cwd === null || input.cwd.length === 0 ? null : resolve(input.cwd);
   const hooks: WiredHook[] = [];
