@@ -16,10 +16,12 @@ import {
   readWriteFacts,
   MEMORY_KINDS,
   reminderEcho,
+  titleEcho,
   undatedReminderWarning,
   factsEcho,
   threadOf,
 } from "./server-args.js";
+import { TITLE_ASKED_NOTE } from "./server-words.js";
 import type { FeelingsRead, ReminderRead, AboutRead, TraitsRead, FactsRead } from "./server-args.js";
 import type { McpServer } from "./server.js";
 
@@ -340,6 +342,7 @@ export async function depositEntries(
       ...server["recordAbout"](result, about.mark),
       ...server["recordTraits"](result, traits.inputs, model),
       ...reminderEcho(result, dated, server["today"]()),
+      ...titleEcho(result, TITLE_ASKED_NOTE),
       ...undatedReminderWarning(result, dated, draft["title"], draft["content"]),
       ...factsEcho(result, facts),
       ...server["settledOf"](result, draft["how"] !== undefined),

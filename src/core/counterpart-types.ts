@@ -565,6 +565,16 @@ export interface DepositResult {
    * one of the memory it revises (2026-10-11, `Counterpart#carryAbout`).
    */
   readonly aboutCarried?: { readonly mark: AboutMark; readonly from: string };
+  /**
+   * The title, when the writer sent none and this revision took the one of
+   * the memory it revises (2026-10-14, `counterpart-deposit.ts#carryTitle`).
+   */
+  readonly titleCarried?: { readonly title: string; readonly from: string };
+  /**
+   * True when this write CLOSED a dated memory without a title: the old one
+   * was not carried (it would read as still open), and the reply asks for one.
+   */
+  readonly titleAsked?: true;
 }
 
 /**

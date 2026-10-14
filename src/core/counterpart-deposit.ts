@@ -199,7 +199,12 @@ export async function deposit(
   const carry = cp["carryReminder"](held === null ? result.proposal : withoutUpdates(result.proposal), ctx.facts?.status ?? null);
   // v12: the writer's three fields, a revision's carried over where unsent.
   const facts = cp["carryFacts"](carry.proposal, ctx.facts);
-  const proposal: Proposal = facts === null ? carry.proposal : { ...carry.proposal, facts: { ...(facts.occurredOn === null ? {} : { occurredOn: facts.occurredOn }), ...(facts.saidBy === null ? {} : { saidBy: facts.saidBy }), ...(facts.status === null ? {} : { status: facts.status }) } };
+  const withFacts: Proposal = facts === null ? carry.proposal : { ...carry.proposal, facts: { ...(facts.occurredOn === null ? {} : { occurredOn: facts.occurredOn }), ...(facts.saidBy === null ? {} : { saidBy: facts.saidBy }), ...(facts.status === null ? {} : { status: facts.status }) } };
+  // Its title, a revision's carried over when none was sent — unless this
+  // write closes a dated memory (2026-10-14).
+  const closes = carry.from !== null && carry.proposal.eventDate === null;
+  const titled = carryTitle(cp, withFacts, closes, ctx.owner === undefined ? cp["owner"] : ctx.owner && !cp.observer);
+  const proposal: Proposal = titled.carried === undefined ? withFacts : { ...withFacts, title: titled.carried.title };
   // What it is about, a revision's carried over when none was sent (2026-10-11).
   const about = cp["carryAbout"](carry.proposal, ctx.about);
   const mint = mintProposal(cp.store, proposal, {
@@ -281,6 +286,8 @@ export async function deposit(
     ...(thread === null ? {} : { thread }),
     ...(facts === null ? {} : { facts }),
     ...(about === null ? {} : { aboutCarried: { mark: about.about, from: about.from } }),
+    ...(titled.carried === undefined ? {} : { titleCarried: titled.carried }),
+    ...(titled.asked ? { titleAsked: true as const } : {}),
     ...(slot === null ? {} : { slot }),
   };
 }
@@ -467,6 +474,34 @@ export function carryAbout(cp: Counterpart, p: Proposal, sent: string | null | u
     return null;
   }
   return row === undefined ? null : inheritFrom([row]).about;
+}
+
+/**
+ * A REVISION'S TITLE WHEN ITS WRITER SENT NONE (2026-10-14, Group 1 check-in,
+ * lightly held): 5 of 7 untitled live memories since 10-05 were revisions
+ * that carried `about`, `saidBy`, `status` and the date but not the title.
+ * Now the title of the memory it revises (declared and resolved, as
+ * `carryFacts` reads it) is carried — EXCEPT when the write closes a dated
+ * memory (its date dropped, or spent by `done`): "Pay taxes by the 15th" on
+ * the memory that says it was paid reads as still open, so nothing is
+ * carried and the reply asks for a title. A sent title always wins; a
+ * confidential memory's title is not carried for a session that is not the
+ * owner's. The old title passed the gate when it was stored.
+ */
+export function carryTitle(cp: Counterpart, p: Proposal, closes: boolean, owner: boolean): { carried?: { title: string; from: string }; asked: boolean } {
+  if (p.title !== null && p.title.trim().length > 0) return { asked: false };
+  if (closes) return { asked: true };
+  const target = p.updates?.method === "declared" ? p.updates.resolved : null;
+  if (target === null) return { asked: false };
+  try {
+    const row = cp.store.row(target);
+    const title = row?.title ?? null;
+    if (row === undefined || title === null || title.trim().length === 0) return { asked: false };
+    if (row.confidential === 1 && !owner) return { asked: false };
+    return { carried: { title, from: target }, asked: false };
+  } catch {
+    return { asked: false };
+  }
 }
 
 /**

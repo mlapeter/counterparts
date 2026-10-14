@@ -238,3 +238,7 @@ export const STILL_DATED_SHOWN = 5;
 /** The line beside them (`McpServer#stillDatedNear`, 2026-10-14). */
 export const STILL_DATED_HINT =
   "These nearby memories still hold a date. If one is the same obligation as the one you just closed, close it too now: remember with updates: its id and eventDate: null (or status: done). If it is something else, leave it.";
+
+/** Beside a write that closed a dated memory and sent no title (2026-10-14). */
+export const TITLE_ASKED_NOTE =
+  "No title was given, and the old memory's was not carried over: this closes it, and the old title would read as still open. A title is asked for: give a memory that closes something its own short one (\"Taxes filed\").";

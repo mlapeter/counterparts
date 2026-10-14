@@ -187,6 +187,7 @@ import {
   DESKTOP_DREAM_NOTE,
   STILL_DATED_HINT,
   STILL_DATED_SHOWN,
+  TITLE_ASKED_NOTE,
 } from "./server-words.js";
 import { resolveScope, SEEN_SESSIONS, EVENT_RING } from "./server-options.js";
 import type {
@@ -205,6 +206,7 @@ import {
   readTraits,
   readWriteFacts,
   reminderEcho,
+  titleEcho,
   undatedReminderWarning,
   factsEcho,
   threadOf,
@@ -1684,6 +1686,7 @@ export class McpServer {
       ...this.recordAbout(deposit, about.mark),
       ...this.recordTraits(deposit, traits.inputs, model),
       ...reminderEcho(deposit, dated, this.today()),
+      ...titleEcho(deposit, TITLE_ASKED_NOTE),
       ...undatedReminderWarning(deposit, dated, args["title"], text),
       ...factsEcho(deposit, facts),
       ...this.settledOf(deposit, args["how"] !== undefined),

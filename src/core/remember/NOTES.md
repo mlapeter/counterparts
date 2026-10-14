@@ -667,3 +667,12 @@ change of 2026-09-24. Left for the rules audit rather than rewritten here. The u
 default is now by what a memory is about (`physics.defaultClaimFor`), and an owed stretch
 stays owed for fourteen days of use (`coverage/` NOTES §9), which is how long retention
 holds its text.
+
+**A revision carries its title (2026-10-14, Group 1 check-in, lightly held).** Revisions
+via `updates` carried `about`, `saidBy`, `status` and the date but not the title, and 5 of
+the 7 untitled live memories since 10-05 were such revisions. Now an untitled revision
+takes the title of the memory it revises (`counterpart-deposit.ts#carryTitle`; reply
+`titleCarried`), except when it closes a dated memory (date dropped, or spent by `done`):
+the old title would read as still open, so nothing is carried and the reply says a title
+was not given and is asked for (`titleAsked`). A sent title wins. Only a DATED close
+withholds it; a `done` over an undated plan still carries the plan's title — watch for that.

@@ -183,3 +183,61 @@ describe("C. a close clears the whole reminder chain and lists other dated memor
     expect(r["stillDated"]).toBeUndefined();
   });
 });
+
+// ── D. a revision carries its title, unless it closes something ─────────────
+
+describe("D. a revision with no title carries the old one, except when it closes a dated memory", () => {
+  test("an untitled revision takes the old memory's title, and says so", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const old = String(payload(await s.call("remember", { text: "The zqharbour ferry runs twice a day in winter.", title: "Zqharbour ferry times" }))["id"]);
+    const r = payload(await s.call("remember", { text: "The zqharbour ferry runs three times a day in winter now.", updates: old }));
+    expect(store.readProse(String(r["id"])).title).toBe("Zqharbour ferry times");
+    expect(r["titleCarried"]).toEqual({ title: "Zqharbour ferry times", from: old });
+    expect(r["titleAsked"]).toBeUndefined();
+  });
+
+  test("a sent title wins", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const old = String(payload(await s.call("remember", { text: "The zqharbour ferry runs twice a day in winter.", title: "Zqharbour ferry times" }))["id"]);
+    const r = payload(await s.call("remember", { text: "The zqharbour ferry stopped for the season.", updates: old, title: "Zqharbour ferry stopped" }));
+    expect(store.readProse(String(r["id"])).title).toBe("Zqharbour ferry stopped");
+    expect(r["titleCarried"]).toBeUndefined();
+  });
+
+  test("closing a dated memory (eventDate null) carries no title and asks for one", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const old = String(payload(await s.call("remember", { text: "Renew the zqharbour mooring permit at the office.", title: "Renew mooring permit", eventDate: "2027-02-01" }))["id"]);
+    const r = payload(await s.call("remember", { text: "Renewed the zqharbour mooring permit at the office.", updates: old, eventDate: null }));
+    expect(store.readProse(String(r["id"])).title ?? null).toBeNull();
+    expect(r["titleCarried"]).toBeUndefined();
+    expect(String(r["titleAsked"])).toContain("A title is asked for");
+  });
+
+  test("status done on a dated memory carries no title either; on session_end too", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const old = String(payload(await s.call("remember", { text: "Renew the zqharbour mooring permit at the office.", title: "Renew mooring permit", eventDate: "2027-02-01" }))["id"]);
+    const body = payload(
+      await s.call("session_end", {
+        session: "sess_checkin",
+        memories: [{ content: "Renewed the zqharbour mooring permit at the office this morning.", updates: old, status: "done" }],
+      }),
+    );
+    const out = (body["outcomes"] as Record<string, unknown>[])[0]!;
+    expect(out["stored"]).toBe(true);
+    expect(store.readProse(String(out["id"])).title ?? null).toBeNull();
+    expect(String(out["titleAsked"])).toContain("A title is asked for");
+  });
+
+  test("status done on an undated memory still carries the title (only a dated close withholds it)", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    const old = String(payload(await s.call("remember", { text: "Plan: repaint the zqharbour boathouse door.", title: "Repaint boathouse door", status: "planned" }))["id"]);
+    const r = payload(await s.call("remember", { text: "Repainted the zqharbour boathouse door green.", updates: old, status: "done" }));
+    expect(store.readProse(String(r["id"])).title).toBe("Repaint boathouse door");
+    expect(r["titleAsked"]).toBeUndefined();
+  });
+});
