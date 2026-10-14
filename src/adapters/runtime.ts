@@ -121,8 +121,9 @@ export const TRANSPILED: boolean = MODULE_EXT === ".js";
  * opens that file. What that build gives up, every reader gated on this says:
  * the plugin no longer stands down beside the npm install's wiring (memory
  * wired twice until a marker-based check lands, docs/plugin.md), doctor has
- * no MCP-registration line and no Desktop Code-tab clash, and an uninstall
- * cannot confirm a `-s user` registration gone. The settings files and
+ * no MCP-registration line and no Desktop Code-tab clash, and an uninstall has
+ * only `claude mcp remove`'s word that a `-s user` registration is gone (with
+ * no `claude`, it says the line to run). The settings files and
  * `plugins/installed_plugins.json` are still read. `transpiled` is a test's seam.
  */
 export function readsHostUserConfig(transpiled: boolean = TRANSPILED): boolean {
