@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.3.23 — 2026-10-14
+
+The plugin's sidebar now shows your memory and does nothing else: it has no buttons and no links, runs no command, calls no tool and makes no network request. Its footer says how to do the rest yourself (`/counterparts:meet`, `/counterparts:dashboard`, say "pause memory here", `/counterparts quiet`). What it shows comes from a small file Counterparts writes for it, `~/.counterparts/sidebar.json`, only while the plugin is installed, so the dashboard no longer has to be running for the sidebar to show anything. The sidebar's brain is gone and the fox stays. The plugin directory's build of the plugin no longer reads Claude Code's user configuration file and leaves out the dashboard's 3D brain; beside an npm install it does not stand down, so keep one or the other. No store-format change (store v13, cache v6) and no wiring change: nothing to run after upgrading from 0.3.22, and `counterparts connect` is not needed.
+
+- **The sidebar shows memory and no longer acts.** It has no buttons: the "Start the
+  5-minute intro" row, the desktop's dashboard buttons, the folder switch (on, paused, off)
+  and its confirm, and the view and avatar switches are gone. Its footer says how instead:
+  `/counterparts:meet` for the intro, `/counterparts:dashboard` for the dashboard, say
+  "pause memory here" to Claude to pause a folder, `/counterparts quiet` to hide it. A
+  paused folder still says so, with how to resume; `/counterparts resume` now says how
+  rather than resuming. COUNTERPARTS and a long memory's `more` are plain words, not links.
+- **The sidebar makes no network request.** It used to ask the dashboard on 127.0.0.1;
+  now Counterparts' own background processes (the one after each reply, and the memory
+  server) write `~/.counterparts/sidebar.json` (mode 0600, beside `claude-code.json`) and
+  the sidebar reads it every 15 to 30 seconds while it is open. The file holds the day and
+  the count, today's counts, the last dream, recent activity and the memories it names
+  (title and the first 800 characters; a confidential memory's text is withheld). It is
+  written only while the plugin is installed; an npm-only install never writes it, and
+  once the plugin is gone the next Counterparts process deletes it. A surfaced memory's
+  title can take up to about 30 seconds to appear. `COUNTERPARTS_DASHBOARD_PORT` no longer
+  matters to the sidebar.
+- **The sidebar's brain is gone; the fox stays.** `/counterparts avatar` takes `animal` or
+  `off`; a brain chosen before shows the fox. `/counterparts fps` is gone with it.
+- **The directory build never reads `~/.claude.json`.** The plugin as built for
+  Anthropic's directory does not open Claude Code's user configuration file. The cost: it
+  can't see an npm install's memory server there, so beside a wired npm install it doesn't
+  stand down; both run on the same memory and Claude is offered the memory tools twice.
+  Keep one: `counterparts disconnect` and a restart keep only the plugin, uninstalling the
+  plugin keeps only the npm install. The npm install's doctor tells the two plugin builds
+  apart and says this. The marketplace's plugin (the full build) is unchanged and still
+  stands down.
+- **The directory build leaves out the dashboard's 3D brain** (and three.js); its home
+  page draws without the picture. No file in that build is over 256 KiB.
+- **Uninstalling the directory build with no `claude` on PATH keeps your memory.** It
+  can't confirm the memory server registration is gone, so it stops before deleting or
+  moving the store, and prints the `claude mcp remove` line to run.
+- The dashboard's icon is now a file of its own (same address, same picture).
+
 ## 0.3.22 — 2026-10-14
 
 The sidebar is ready for Anthropic's plugin directory, and the plugin now installs from a repository of its own. In the sidebar the search box is gone, COUNTERPARTS and a memory's `more` are links to the dashboard in a terminal and buttons in the desktop app, and the sidebar no longer runs a command to open a browser; `counterparts dashboard` opens the dashboard already running for your memory instead of failing on its port. The plugin's marketplace entry now names `counterparts-ai/counterparts-plugin`, a generated folder that holds only the plugin, so an install clones a few hundred files instead of the whole development repository; if you added the marketplace before, run `/plugin marketplace update counterparts` first, and your memory and the plugin's data folder stay where they are. Also: the memory tools tell a host which of them only read and which can take something away, and the context a session starts with offers the first meeting and its other steps instead of ordering them. No store-format change (store v13, cache v6) and no wiring change: nothing to run after upgrading from 0.3.21, and `counterparts connect` is not needed.
