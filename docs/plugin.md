@@ -402,23 +402,28 @@ and the directory flavor's hook and server read that file and nothing else:
   in, the live `-s user` server's program and script (either null when absent), the npm
   version, the writer's `CLAUDE_CONFIG_DIR`, and when it was written. Mode 0600, written to
   a temp file and renamed.
-- **Who writes it:** `counterparts connect` (and `install`, which runs it) at once; then the
-  npm install's own hooks, past the configuration refusals and an off or paused folder,
-  only when it is missing, names another build or Claude Code directory, or is a day old,
-  so `~/.claude.json` is parsed about once a day. Never the plugin's processes, never a
-  build that reads none of Claude Code's files. A project's wiring is not recorded: it must
-  not stand the plugin down in every other project.
+- **Who writes it:** `counterparts connect` (and `install`, which runs it) at once; the npm
+  install's server at its start; the npm install's hook at every session start, and at other
+  events only when it is missing, names another build, or is a day old (past the
+  configuration refusals and an off or paused folder), so a prompt doesn't parse
+  `~/.claude.json`. Never the plugin's processes, never a build that reads none of Claude
+  Code's files. A project's wiring is not recorded: it must not stand the plugin down in
+  every other project. Under a `CLAUDE_CONFIG_DIR` the file is `npm-live.<hash>.json`, one
+  per Claude Code directory.
 - **Who removes it:** `counterparts disconnect` and `uninstall` (first, so nothing stands
   down for wiring on its way out; if the wiring stays, the next npm hook writes it again).
   `/counterparts:uninstall`'s keep, which leaves a live npm install, leaves its marker.
 - **When it stands the plugin down:** each half (hooks, server) as `hookGate` and `mcpGate`
   already decide, when the marker names that half, the program it names is still on disk
   (a stat: an npm install removed without `counterparts uninstall` stands nothing down),
-  the marker is this Claude Code directory's, and it is under a week old. The age bound is
-  for npm wiring removed by hand (or a reset Claude Code) while the package stays: nothing
-  refreshes the marker then, and the plugin must not stay silent and memoryless for good.
-  Its cost: after a week without Claude Code, the first session may offer the tools twice
-  (the server decides once, at start, and may start before the npm hook refreshes it).
+  the marker is this Claude Code directory's, and it is under a week old (the hooks half:
+  two days). The age bound is for npm wiring removed by hand (or a reset Claude Code)
+  while the package stays: nothing refreshes the marker then, and the plugin must not stay
+  silent and memoryless for good. While either npm half still runs, its next session start
+  writes the truth, so a half removed by hand costs one session at most. The bound's cost:
+  after a week without Claude Code, the first session may offer the tools twice (the server
+  decides once, at start, and may start before the npm side refreshes it); after two days,
+  the first hook events are delivered by the claim rather than a stand-down.
 - An npm install from before this change writes no marker, so beside one both still run.
 
 doctor's Claude Code line says which, from either side: npm's doctor tells the flavor by

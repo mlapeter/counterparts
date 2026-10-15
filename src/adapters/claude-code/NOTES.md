@@ -2601,14 +2601,18 @@ running both, found confusing. The npm install now leaves `npm-live.json` beside
   Two holes: the nightly run's server is a non-plugin server under the plugin too (the run strips
   `CLAUDE_PLUGIN_ROOT`), and an npm install whose `claude mcp add` never happened would have stood the
   plugin's server down with no server left at all. So the marker records what the npm side READS of the
-  user-level wiring — the live hook's command and file, the live `-s user` server — written by the npm hook
-  (once a day, or when missing or another build's) and by `connect`. One writer per moment, one file, no
-  half lost to a race.
+  user-level wiring — the live hook's command and file, the live `-s user` server — written by `connect`, by
+  the npm server at its start, and by the npm hook at each session start (other events: once a day, or when
+  missing or another build's). Any npm-side writer is then truthful, the nightly server included; a race
+  between two only leaves one of two true readings. One file per Claude Code directory (`CLAUDE_CONFIG_DIR`
+  hashed into the name), so two configurations sharing a memory never rewrite each other's (review).
 - **User level only.** A hook in one project's settings must not stand the plugin down in every other.
-- **Program-exists, and a week.** Liveness is re-checked by stat. An age bound is kept as well, for npm wiring
-  removed by hand while the package stays: nobody refreshes the marker then, and without the bound the
-  plugin would stay down, memoryless, with its once-only line long said. The bound's cost is one session of
-  doubled tools after a week away.
+- **Program-exists, and a week (hooks: two days).** Liveness is re-checked by stat. An age bound is kept as
+  well, for npm wiring removed by hand while the package stays: nobody refreshes the marker then, and without
+  the bound the plugin would stay down, memoryless, with its once-only line long said. The hooks half's bound
+  is shorter because a plugin hook not standing down costs nothing (the claim) and an npm hook beside it
+  would have refreshed the file at its session start. The bounds' cost is one session of doubled tools after
+  a week away.
 - **Not in a paused folder.** The write sits after the folder checks in `runHook`, so an off or paused folder
   still writes nothing under the install (`a paused folder with two wirings` holds it).
 - **The line.** "Nothing needs to change" became "keeping one install is simpler", with both ways out

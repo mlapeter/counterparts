@@ -2367,6 +2367,16 @@ describe("connect writes the npm-live marker, disconnect removes it", () => {
     configured();
     await wire(live({ dryRun: true }));
     expect(existsSync(npmLivePath(configPath()))).toBe(false);
+    // Already connected, and a dry run: still nothing written.
+    await wire(live());
+    writeFileSync(
+      mcpFile(),
+      JSON.stringify({ mcpServers: { [MCP_SERVER_NAME]: { type: "stdio", command: process.execPath, args: scriptArgs(MCP_SCRIPT, process.execPath), env: { COUNTERPARTS_DATA_DIR: store() } } } }),
+    );
+    rmSync(npmLivePath(configPath()));
+    expect((await wire(live({ dryRun: true }))).hooks).toBe("already");
+    expect(existsSync(npmLivePath(configPath()))).toBe(false);
+    await unwire(live());
     await wire(live({ env: { ...ENV, CLAUDE_PLUGIN_ROOT: home } }));
     expect(existsSync(npmLivePath(configPath()))).toBe(false);
     await wire(live());

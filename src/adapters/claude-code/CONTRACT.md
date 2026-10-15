@@ -672,10 +672,11 @@ row, saying which source answered, existed until the keys were removed — §1a.
       down the same way, by the registration's NAME.) The plugin directory's
       flavor reads none of Claude Code's files, so it stands down by the npm
       install's marker instead (`adapters/npm-live.ts`, since 2026-10-15): a
-      reading of the user-level wiring that the npm hook writes beside the
-      configuration (at most daily, past the configuration refusals and an off
-      or paused folder) and `connect` writes at once, believed for a week and
-      only while the program it names is on disk. `connect`'s own rewrite keeps
+      reading of the user-level wiring that the npm side writes beside the
+      configuration (`connect` at once, the npm server at its start, the npm
+      hook at each session start and otherwise at most daily, past the
+      configuration refusals and an off or paused folder), believed for a week
+      (the hooks half: two days) and only while the program it names is on disk. `connect`'s own rewrite keeps
       the strict reading (`isOurHookCommand`): it rewrites only what it can fully
       parse. A writer that adds a flag writes it as ONE token, or older readers
       take its value for the script.

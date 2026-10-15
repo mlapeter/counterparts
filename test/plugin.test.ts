@@ -59,7 +59,9 @@ import {
 } from "../src/adapters/plugin.js";
 import type { ConfigChoice } from "../src/adapters/config-path.js";
 import {
+  NPM_LIVE_HOOKS_MAX_AGE_MS,
   NPM_LIVE_MAX_AGE_MS,
+  NPM_LIVE_NAME,
   NPM_LIVE_REFRESH_MS,
   noteNpmLive,
   npmLivePath,
@@ -1656,9 +1658,17 @@ describe("the npm install's marker (npm-live.ts)", () => {
     expect(mcpGate(directory(), home).standDown).toBe(true);
     expect(hookGate(directory(undefined, live.writtenAt + NPM_LIVE_MAX_AGE_MS + 1), home).standDown).toBe(false);
     expect(mcpGate(directory(undefined, live.writtenAt - NPM_LIVE_MAX_AGE_MS - 1), home).standDown).toBe(false);
-    expect(hookGate(directory(undefined, live.writtenAt + NPM_LIVE_MAX_AGE_MS - 1), home).standDown).toBe(true);
-    // Another Claude Code configuration directory's wiring says nothing about this one.
+    expect(mcpGate(directory(undefined, live.writtenAt + NPM_LIVE_MAX_AGE_MS - 1), home).standDown).toBe(true);
+    // The hooks half is believed for two days only: an npm hook beside it rewrites it at every session start.
+    expect(hookGate(directory(undefined, live.writtenAt + NPM_LIVE_HOOKS_MAX_AGE_MS - 1), home).standDown).toBe(true);
+    expect(hookGate(directory(undefined, live.writtenAt + NPM_LIVE_HOOKS_MAX_AGE_MS + 1), home).standDown).toBe(false);
+    expect(mcpGate(directory(undefined, live.writtenAt + NPM_LIVE_HOOKS_MAX_AGE_MS + 1), home).standDown).toBe(true);
+    // Another Claude Code configuration directory's wiring says nothing about this one: it has a file of its own,
+    // and a default-named file that claims another directory is not believed either.
     expect(npmWiringFromMarker({ configPath: configPath(), env: { CLAUDE_CONFIG_DIR: join(work, "other") } })).toEqual({ hooks: [], mcp: [] });
+    writeFileSync(npmLivePath(configPath()), JSON.stringify({ ...live, claudeConfigDir: join(work, "other") }));
+    expect(directory()).toEqual({ hooks: [], mcp: [] });
+    writeFileSync(npmLivePath(configPath()), JSON.stringify(live));
     // A shape this build does not know.
     writeFileSync(npmLivePath(configPath()), JSON.stringify({ ...live, version: 2 }));
     expect(directory()).toEqual({ hooks: [], mcp: [] });
@@ -1667,6 +1677,36 @@ describe("the npm install's marker (npm-live.ts)", () => {
     expect(removeNpmLive(configPath())).toBe(true);
     expect(removeNpmLive(configPath())).toBe(false);
   });
+
+  test("one file per Claude Code directory: two of them sharing one memory keep their own reading", () => {
+    configured();
+    const other = join(work, "claude-b");
+    mkdirSync(other, { recursive: true });
+    writeSettings({ Stop: [liveHookCommand()] });
+    noteNpmLive({ configPath: configPath(), home, env: {}, build: null });
+    expect(noteNpmLive({ configPath: configPath(), home, env: { CLAUDE_CONFIG_DIR: other }, build: null })).toBe("written");
+    const named = npmLivePath(configPath(), { CLAUDE_CONFIG_DIR: other });
+    expect(named).not.toBe(npmLivePath(configPath()));
+    expect(NPM_LIVE_NAME.test(named.split("/").pop() ?? "")).toBe(true);
+    // B's settings (at $CLAUDE_CONFIG_DIR/settings.json) hold nothing; A's reading is untouched.
+    expect(readNpmLive(configPath(), { CLAUDE_CONFIG_DIR: other })?.hooks).toBeNull();
+    expect(readNpmLive(configPath())?.hooks).not.toBeNull();
+    expect(noteNpmLive({ configPath: configPath(), home, env: {}, build: null })).toBe("fresh");
+    expect(removeNpmLive(configPath(), { CLAUDE_CONFIG_DIR: other })).toBe(true);
+    expect(existsSync(npmLivePath(configPath()))).toBe(true);
+  });
+
+  test("the npm install's server writes it at its start; the plugin's does not", async () => {
+    expect(ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: firstRunLockPath(configPath(), tmp), noticePath: noticeIn() }).state).toBe("created");
+    wireBoth();
+    const npmEnv = { PATH: emptyBin, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", CLAUDE_PROJECT_DIR: project, TMPDIR: tmp };
+    // The plugin's server, beside the npm registration: stands down, writes nothing.
+    launch("mcp", "", pluginEnv());
+    expect(existsSync(npmLivePath(configPath()))).toBe(false);
+    const r = spawnSync(process.execPath, ["run", MCP_SCRIPT], { input: "", encoding: "utf8", env: npmEnv, timeout: 60_000 });
+    expect(r.signal).toBeNull();
+    expect(readNpmLive(configPath())?.server?.script).toBe(MCP_SCRIPT);
+  }, 120_000);
 
   test("a half the npm install does not have stands nothing down: hooks only, and the plugin's server serves", () => {
     configured();

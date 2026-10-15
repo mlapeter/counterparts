@@ -223,6 +223,8 @@ function fingerprint(root: string, skipShm = false): string {
   const parts: string[] = [];
   const walk = (path: string, rel: string): void => {
     if (skipShm && rel.endsWith("-shm")) return;
+    // The npm install's wiring marker (`npm-live.ts`) is host state, not memory: `connect` writes it and the unwire removes it.
+    if (/\/npm-live(\.[0-9a-f]{8})?\.json$/.test(rel)) return;
     let stat;
     try {
       stat = statSync(path);
@@ -232,7 +234,7 @@ function fingerprint(root: string, skipShm = false): string {
     }
     if (stat.isDirectory()) {
       const names = readdirSync(path).sort();
-      parts.push(`${rel}/:[${names.filter((n) => !(skipShm && n.endsWith("-shm"))).join(",")}]`);
+      parts.push(`${rel}/:[${names.filter((n) => !(skipShm && n.endsWith("-shm")) && !/^npm-live(\.[0-9a-f]{8})?\.json$/.test(n)).join(",")}]`);
       for (const name of names) walk(join(path, name), `${rel}/${name}`);
       return;
     }
@@ -1905,8 +1907,9 @@ describe("uninstall, plain — the offer to delete", () => {
     expect(c.asked[2]).toBe(PHRASE_PROMPT);
     expect(existsSync(base())).toBe(false);
     const said = text(c.out);
-    // Every entry the plan named was on the screen before the question...
-    for (const e of plan.entries) expect(said).toContain(e.path.replace(home, "~"));
+    // Every entry the plan named was on the screen before the question (but the
+    // npm-live marker, which the unwire removes before the screen is drawn)...
+    for (const e of plan.entries.filter((x) => !x.path.endsWith("/npm-live.json"))) expect(said).toContain(e.path.replace(home, "~"));
     // ...and what went is exactly what the plan said would.
     expect(plan.targets).toEqual([base()]);
     expect(said).toContain("WARNING: nothing can bring these back afterwards.");

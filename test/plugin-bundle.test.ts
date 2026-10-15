@@ -496,6 +496,7 @@ describe("the directory flavor", () => {
           "  codeTab: desk.readDesktop(home, env).codeTab,",
           '  notRead: wire.readMcp(home, env, "", undefined, process.execPath).notRead,',
           '  gate: nl.npmWiringForGate({ home, env, cwd: project, configPath: `${home}/.counterparts/claude-code.json` }),',
+          '  writes: nl.noteNpmLive({ configPath: `${home}/.counterparts/claude-code.json`, home, env, build: "x", force: true }),',
           '  stands: [pl.hookGate(nl.npmWiringForGate({ home, env, cwd: project, configPath: `${home}/.counterparts/claude-code.json` }), home).standDown,',
           '    pl.mcpGate(nl.npmWiringForGate({ home, env, cwd: project, configPath: `${home}/.counterparts/claude-code.json` }), home).standDown],',
           "}));",
@@ -515,6 +516,7 @@ describe("the directory flavor", () => {
           mcp: [{ file: marker.server.file, scope: "user", command: marker.server.command, live: true, exe: process.execPath, script: serve }],
         },
         stands: [true, true],
+        writes: "skipped",
       });
     }, 60_000);
   });

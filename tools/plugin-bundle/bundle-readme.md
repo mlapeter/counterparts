@@ -60,9 +60,9 @@ the same memory, so nothing is lost either way: to keep only the plugin, run `co
 disconnect` and restart Claude Code; to keep only the npm install, run `/plugin uninstall`
 for this plugin. While both are there, the plugin stands down for the npm install. It
 doesn't read Claude Code's files to notice it: the npm install (from the version after
-0.3.24) leaves a small note, `~/.counterparts/npm-live.json`, when it connects and once a
-day while its hooks run, and the plugin stands down while that note is under a week old and
-the program it names is still there. An older npm install leaves no note, so with one of
+0.3.24) leaves a small note, `~/.counterparts/npm-live.json`, when it connects and as its
+sessions start, and the plugin stands down while that note is recent and the program it
+names is still there. An older npm install leaves no note, so with one of
 those both run and Claude is offered the memory tools twice.
 <!-- /flavor:directory -->
 
