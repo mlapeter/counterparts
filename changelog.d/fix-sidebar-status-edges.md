@@ -3,7 +3,8 @@
   until now nothing told the npm install's processes the sidebar was present, so they deleted
   its status file. The stood-down server now leaves a small marker beside the configuration
   while its session runs (`sidebar-plugin-here`, refreshed every ten minutes, counted for
-  thirty), and the memory server asks again at each write instead of once at its start.
+  thirty, or for up to a day while that server is still running, so a laptop waking from sleep
+  keeps the file), and the memory server asks again at each write instead of once at its start.
 - **After a rollback or a snapshot restore the sidebar catches up straight away.** A status
   file written before the store was put back named a later point in the log than the log now
   has, and both the writers and the sidebar kept it until the log caught up. A writer now

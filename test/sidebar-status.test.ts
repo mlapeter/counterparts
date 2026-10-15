@@ -21,6 +21,7 @@ import { pruneSessions } from "../src/adapters/sessions.js";
 import {
   DETAIL_KEYS,
   MEMORY_CAP,
+  PLUGIN_PRESENCE_ALIVE_MS,
   PLUGIN_PRESENCE_FRESH_MS,
   PLUGIN_PRESENCE_NAME,
   keepPluginPresence,
@@ -386,8 +387,17 @@ describe("the re-review's cases (2026-10-15)", () => {
       expect(statSync(pluginPresencePath(cfg)).mode & 0o777).toBe(0o600);
       expect(sidebarInstalled({}, home, cfg, now)).toBe(true);
       expect(sidebarInstalled({}, home)).toBe(false); // without the configuration, not asked
-      expect(sidebarInstalled({}, home, cfg, now + PLUGIN_PRESENCE_FRESH_MS + 1)).toBe(false); // stale: the session is gone
+      expect(JSON.parse(readFileSync(pluginPresencePath(cfg), "utf8")).pid).toBe(process.pid);
+      const gonePid = 2 ** 22 + 12345;
+      writeFileSync(pluginPresencePath(cfg), JSON.stringify({ writtenAt: now, pid: gonePid }));
+      expect(sidebarInstalled({}, home, cfg, now + PLUGIN_PRESENCE_FRESH_MS + 1)).toBe(false); // stale, its server gone: the session is gone
       expect(sidebarInstalled({}, home, cfg, now - PLUGIN_PRESENCE_FRESH_MS - 1)).toBe(false); // a clock that ran back
+      // older than fresh, its server still running (a laptop that slept): counted, for a day at most
+      writeFileSync(pluginPresencePath(cfg), JSON.stringify({ writtenAt: now - PLUGIN_PRESENCE_FRESH_MS - 60_000, pid: process.pid }));
+      expect(sidebarInstalled({}, home, cfg, now)).toBe(true);
+      expect(sidebarInstalled({}, home, cfg, now + PLUGIN_PRESENCE_ALIVE_MS)).toBe(false);
+      writeFileSync(pluginPresencePath(cfg), JSON.stringify({ writtenAt: now - PLUGIN_PRESENCE_FRESH_MS - 60_000, pid: gonePid }));
+      expect(sidebarInstalled({}, home, cfg, now)).toBe(false); // its server gone
       writeFileSync(pluginPresencePath(cfg), "not json");
       expect(sidebarInstalled({}, home, cfg, now)).toBe(false);
       const stop = keepPluginPresence(cfg);

@@ -114,13 +114,22 @@ export function sidebarPointerPath(dataDir: string): string {
  * server is alive for exactly as long as its session, so it says so: it
  * writes this marker beside the configuration at its start and again every
  * {@link PLUGIN_PRESENCE_EVERY_MS} while it runs, and a marker newer than
- * {@link PLUGIN_PRESENCE_FRESH_MS} counts as the sidebar installed. Nothing
- * removes it at exit (another session may still hold the plugin): it goes
- * stale on its own, and the file goes at the next write after that.
+ * {@link PLUGIN_PRESENCE_FRESH_MS} counts as the sidebar installed — and so
+ * does an older one whose server is still running (its `pid`), within
+ * {@link PLUGIN_PRESENCE_ALIVE_MS}: a laptop asleep stops the timer and not
+ * the wall clock, and the first turn after waking must not delete the file.
+ * Nothing removes it at exit (another session may still hold the plugin): it
+ * goes stale on its own, and the file goes at the next write after that.
+ *
+ * The marker lands beside the configuration THIS server resolved, the default
+ * one unless `COUNTERPARTS_CONFIG` says otherwise; an npm install registered
+ * with a configuration elsewhere looks beside its own and does not see it (the
+ * sidebar then stays empty, as before).
  */
 export const PLUGIN_PRESENCE_NAME = "sidebar-plugin-here";
 export const PLUGIN_PRESENCE_EVERY_MS = 10 * 60_000;
 export const PLUGIN_PRESENCE_FRESH_MS = 30 * 60_000;
+export const PLUGIN_PRESENCE_ALIVE_MS = 24 * 60 * 60_000;
 
 /** `<config dir>/sidebar-plugin-here` — beside the configuration, like the status file. */
 export function pluginPresencePath(configPath: string): string {
@@ -131,7 +140,7 @@ export function pluginPresencePath(configPath: string): string {
 export function notePluginPresence(configPath: string, now: number = Date.now()): boolean {
   try {
     if (configPath.length === 0 || !existsSync(dirname(configPath))) return false;
-    writeFileSync(pluginPresencePath(configPath), JSON.stringify({ writtenAt: now }), { encoding: "utf8", mode: 0o600 });
+    writeFileSync(pluginPresencePath(configPath), JSON.stringify({ writtenAt: now, pid: process.pid }), { encoding: "utf8", mode: 0o600 });
     return true;
   } catch {
     return false;
@@ -149,10 +158,23 @@ export function keepPluginPresence(configPath: string): () => void {
 /** A marker written within {@link PLUGIN_PRESENCE_FRESH_MS} of `now`. Never throws. */
 export function pluginPresent(configPath: string, now: number = Date.now()): boolean {
   try {
-    const v = JSON.parse(readFileSync(pluginPresencePath(configPath), "utf8")) as { writtenAt?: unknown };
-    return typeof v.writtenAt === "number" && now - v.writtenAt < PLUGIN_PRESENCE_FRESH_MS && v.writtenAt - now < PLUGIN_PRESENCE_FRESH_MS;
+    const v = JSON.parse(readFileSync(pluginPresencePath(configPath), "utf8")) as { writtenAt?: unknown; pid?: unknown };
+    if (typeof v.writtenAt !== "number" || v.writtenAt - now >= PLUGIN_PRESENCE_FRESH_MS) return false;
+    const age = now - v.writtenAt;
+    if (age < PLUGIN_PRESENCE_FRESH_MS) return true;
+    return age < PLUGIN_PRESENCE_ALIVE_MS && typeof v.pid === "number" && Number.isInteger(v.pid) && v.pid > 0 && alive(v.pid);
   } catch {
     return false;
+  }
+}
+
+/** A process with this pid runs (signal 0 asks without sending; EPERM is somebody's, still running). */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as { code?: unknown }).code === "EPERM";
   }
 }
 
@@ -626,9 +648,10 @@ export class SidebarStatusWriter {
       ...(seq === null ? {} : { ifMoved: { lastSeq: seq, maxAgeMs: 10 * 60_000 } }),
     });
     this.lastLookAt = Date.now();
-    // What the file now stands at (never above the log: see `writeSidebarStatus`), so a log put back moves it.
-    if (w.lastSeq !== null) this.lastSeq = w.lastSeq;
-    else if (seq !== null) this.lastSeq = seq;
+    // What this server's own handle said, the value the watch compares (a log put back moves it either way);
+    // the file's seq only when the handle could not say. Never a fresh open's: two handles that disagreed would rewrite every look.
+    if (seq !== null) this.lastSeq = seq;
+    else if (w.lastSeq !== null) this.lastSeq = w.lastSeq;
     try {
       this.opts.onWrite?.(w);
     } catch {

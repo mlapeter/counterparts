@@ -530,9 +530,11 @@ async function main(): Promise<void> {
   // Only where the sidebar is installed (the plugin): elsewhere an old file goes.
   // Asked again at each write: a plugin loaded from a folder says it is here
   // (`sidebar-status.ts#pluginPresent`) a moment after this server starts.
+  // Where a writer is armed it decides at its first write (a few seconds on, time for the plugin's marker to land).
   const sidebarWanted = (): boolean => sidebarInstalled(process.env, homedir(), choice.path);
-  if (!sidebarWanted()) removeSidebarStatus(choice.path);
-  if (!server.observer && stance !== "off") {
+  const sidebarArmed = !server.observer && stance !== "off";
+  if (!sidebarArmed && !sidebarWanted()) removeSidebarStatus(choice.path);
+  if (sidebarArmed) {
     const store = server.counterpart.store;
     sidebar = new SidebarStatusWriter({
       configPath: choice.path,
