@@ -795,28 +795,19 @@ function seeded(seed = 7): () => number {
 }
 
 describe('the fox', () => {
-  test('which way a surface draws it: pictures only where the terminal shows them (kitty, Ghostty, never under tmux or screen), sextants where the font has them, half-blocks everywhere else', () => {
-    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'ghostty' })).toBe('image')
-    expect(pickTier('terminal', 'auto', { TERM: 'xterm-kitty', KITTY_WINDOW_ID: '1' })).toBe('image')
-    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'ghostty', TMUX: '/tmp/tmux-501/default,1,0' })).toBe('basic')
-    expect(pickTier('terminal', 'auto', { TERM: 'xterm-kitty', STY: '1.pts-0' })).toBe('basic')
-    for (const p of ['iTerm.app', 'WezTerm', 'vscode']) expect(pickTier('terminal', 'auto', { TERM_PROGRAM: p })).toBe('fine')
-    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'Apple_Terminal' })).toBe('basic')
-    expect(pickTier('terminal', 'auto', {})).toBe('basic')
-    // the engine's own switch says yes or no outright
-    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'Apple_Terminal', CLAUDE_CODE_FORCE_TERMINAL_IMAGES: '1' })).toBe('image')
-    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'ghostty', CLAUDE_CODE_FORCE_TERMINAL_IMAGES: '0' })).toBe('fine')
+  test('which way a surface draws it: a picture first, half-blocks once the engine says the picture drew its alt; nothing about the terminal is read', () => {
+    expect(pickTier('terminal', 'auto')).toBe('image')
+    // an Image that drew its alt here: auto stops trying, and draws what every terminal draws
+    expect(pickTier('terminal', 'auto', true)).toBe('basic')
     // no PNG folder found: never a picture, not even when asked for one
-    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'ghostty' }, false, false)).toBe('fine')
-    expect(pickTier('terminal', 'images', { TERM_PROGRAM: 'ghostty' }, false, false)).toBe('fine')
-    expect(pickTier('terminal', 'images', { TERM_PROGRAM: 'Apple_Terminal' }, false, false)).toBe('basic')
-    expect(pickTier('terminal', 'images', {}, true)).toBe('image')
-    // an Image that drew its alt here: auto stops trying; an explicit choice stands
-    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'ghostty' }, true)).toBe('fine')
-    expect(pickTier('terminal', 'images', { TERM_PROGRAM: 'Apple_Terminal' })).toBe('image')
-    expect(pickTier('terminal', 'fine', {})).toBe('fine')
-    expect(pickTier('terminal', 'basic', { TERM_PROGRAM: 'ghostty' })).toBe('basic')
-    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic', {})).toBe('svg')
+    expect(pickTier('terminal', 'auto', false, false)).toBe('basic')
+    expect(pickTier('terminal', 'images', false, false)).toBe('basic')
+    // an explicit choice stands
+    expect(pickTier('terminal', 'images', true)).toBe('image')
+    expect(pickTier('terminal', 'fine')).toBe('fine')
+    expect(pickTier('terminal', 'fine', true, false)).toBe('fine')
+    expect(pickTier('terminal', 'basic')).toBe('basic')
+    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic')).toBe('svg')
     expect(normDetail('images')).toBe('images')
     expect(normDetail('sharp')).toBe('auto')
   })

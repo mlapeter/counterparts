@@ -62,7 +62,7 @@ import { hostScope, openServer } from "../index.js";
 import { openLog } from "../../log/index.js";
 import type { LogEvent, ProcessLog } from "../../log/index.js";
 import { serveStdio } from "../stdio.js";
-import { SidebarStatusWriter, removeSidebarStatus, sidebarInstalled } from "../../sidebar-status.js";
+import { SidebarStatusWriter, keepPluginPresence, removeSidebarStatus, sidebarInstalled } from "../../sidebar-status.js";
 import { stoodDownServer } from "../stood-down.js";
 import { npmWiringForGate } from "../../npm-live.js";
 import { PLUGIN_ROOT_ENV, ensureFirstRun, installRoute, mcpGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
@@ -352,11 +352,18 @@ async function main(): Promise<void> {
     );
     if (gate.standDown) {
       process.stderr.write("[counterparts] plugin server stood down: the npm install's server is registered in this host\n");
+      // THE SIDEBAR IS HERE all the same (2026-10-15): a plugin loaded with
+      // `--plugin-dir` is in no record the npm processes read, so this server,
+      // alive for the session, keeps a marker beside the configuration and the
+      // npm side's writers count it (`sidebar-status.ts#pluginPresent`). Only
+      // for a configuration this launch may name.
+      const stopPresence = (namedConfigRefusal(choice) ?? implicitConfigRefusal(choice)) === null ? keepPluginPresence(choice.path) : null;
       await serveStdio(stoodDownServer(gate.instructions ?? ""), process.stdin, {
         write: (chunk) => {
           process.stdout.write(chunk);
         },
       });
+      stopPresence?.();
       return;
     }
     try {
@@ -522,14 +529,19 @@ async function main(): Promise<void> {
   // log moved under it (a turn's recall, another session, the night). Never
   // for an observer or in a directory set `off`, and never on a call's path.
   // Only where the sidebar is installed (the plugin): elsewhere an old file goes.
-  const sidebarWanted = sidebarInstalled(process.env, homedir());
-  if (!sidebarWanted) removeSidebarStatus(choice.path);
-  if (sidebarWanted && !server.observer && stance !== "off") {
+  // Asked again at each write: a plugin loaded from a folder says it is here
+  // (`sidebar-status.ts#pluginPresent`) a moment after this server starts.
+  // Where a writer is armed it decides at its first write (a few seconds on, time for the plugin's marker to land).
+  const sidebarWanted = (): boolean => sidebarInstalled(process.env, homedir(), choice.path);
+  const sidebarArmed = !server.observer && stance !== "off";
+  if (!sidebarArmed && !sidebarWanted()) removeSidebarStatus(choice.path);
+  if (sidebarArmed) {
     const store = server.counterpart.store;
     sidebar = new SidebarStatusWriter({
       configPath: choice.path,
       dataDir: store.dir,
       ...(timeZone === undefined ? {} : { timeZone }),
+      wanted: sidebarWanted,
       newestSeq: () => store.eventLog({ order: "desc", limit: 1 })[0]?.seq ?? null,
       onWrite: (w) => toLog({ name: "mcp.sidebar", data: { written: w.written, reason: w.reason, bytes: w.bytes, ms: w.ms } }),
     });

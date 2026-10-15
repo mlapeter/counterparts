@@ -33,8 +33,22 @@
  * **How.** A temp file of this process's own, then a rename: a reader sees the
  * old file or the new one, never half of either, and two writers racing each
  * land whole. It never throws: the result says what happened.
+ *
+ * **The race it does not close (2026-10-15).** Each writer looks at the file
+ * just before its rename and keeps a newer one of its store; two writers can
+ * still both look, then both rename, and the older one lands last. Closing it
+ * would take a lock around a rename; the window is a few milliseconds, the
+ * next write puts it right, and the sidebar already keeps the newer file it
+ * holds over an older one of the same store (`hooks/sidebar/hooks/register.tsx`).
+ *
+ * **A store put back (2026-10-15).** A rollback or a snapshot restore keeps
+ * the store's id and lowers its log's newest seq, so a file written before it
+ * stands "ahead" of the log. No writer could have seen a seq the log does not
+ * have (the log only grows otherwise), so a file ahead of the log as it stands
+ * is the old store's and is written over; the sidebar takes a lower seq of the
+ * same store when the file is newer by more than a race could make it.
  */
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 
 import { Dashboard } from "./dashboard/index.js";
@@ -93,14 +107,94 @@ export function sidebarPointerPath(dataDir: string): string {
 }
 
 /**
+ * A PLUGIN LOADED FROM A FOLDER (2026-10-15). `claude --plugin-dir` beside an
+ * npm install loads the sidebar, but Claude Code records nothing of it in
+ * `installed_plugins.json`, and its own server stands down — so nothing said
+ * the sidebar was there and the npm processes deleted its file. The stood-down
+ * server is alive for exactly as long as its session, so it says so: it
+ * writes this marker beside the configuration at its start and again every
+ * {@link PLUGIN_PRESENCE_EVERY_MS} while it runs, and a marker newer than
+ * {@link PLUGIN_PRESENCE_FRESH_MS} counts as the sidebar installed — and so
+ * does an older one whose server is still running (its `pid`), within
+ * {@link PLUGIN_PRESENCE_ALIVE_MS}: a laptop asleep stops the timer and not
+ * the wall clock, and the first turn after waking must not delete the file.
+ * Nothing removes it at exit (another session may still hold the plugin): it
+ * goes stale on its own, and the file goes at the next write after that.
+ *
+ * The marker lands beside the configuration THIS server resolved, the default
+ * one unless `COUNTERPARTS_CONFIG` says otherwise; an npm install registered
+ * with a configuration elsewhere looks beside its own and does not see it (the
+ * sidebar then stays empty, as before).
+ */
+export const PLUGIN_PRESENCE_NAME = "sidebar-plugin-here";
+export const PLUGIN_PRESENCE_EVERY_MS = 10 * 60_000;
+export const PLUGIN_PRESENCE_FRESH_MS = 30 * 60_000;
+export const PLUGIN_PRESENCE_ALIVE_MS = 24 * 60 * 60_000;
+
+/** `<config dir>/sidebar-plugin-here` — beside the configuration, like the status file. */
+export function pluginPresencePath(configPath: string): string {
+  return join(dirname(configPath), PLUGIN_PRESENCE_NAME);
+}
+
+/** The marker, written now. Only into a folder that is there (never makes one). Never throws. */
+export function notePluginPresence(configPath: string, now: number = Date.now()): boolean {
+  try {
+    if (configPath.length === 0 || !existsSync(dirname(configPath))) return false;
+    writeFileSync(pluginPresencePath(configPath), JSON.stringify({ writtenAt: now, pid: process.pid }), { encoding: "utf8", mode: 0o600 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Write the marker now and every {@link PLUGIN_PRESENCE_EVERY_MS}; the timer is unref'd. Returns its stop. */
+export function keepPluginPresence(configPath: string): () => void {
+  notePluginPresence(configPath);
+  const t = setInterval(() => notePluginPresence(configPath), PLUGIN_PRESENCE_EVERY_MS);
+  t.unref?.();
+  return () => clearInterval(t);
+}
+
+/** A marker written within {@link PLUGIN_PRESENCE_FRESH_MS} of `now`. Never throws. */
+export function pluginPresent(configPath: string, now: number = Date.now()): boolean {
+  try {
+    const v = JSON.parse(readFileSync(pluginPresencePath(configPath), "utf8")) as { writtenAt?: unknown; pid?: unknown };
+    if (typeof v.writtenAt !== "number" || v.writtenAt - now >= PLUGIN_PRESENCE_FRESH_MS) return false;
+    const age = now - v.writtenAt;
+    if (age < PLUGIN_PRESENCE_FRESH_MS) return true;
+    return age < PLUGIN_PRESENCE_ALIVE_MS && typeof v.pid === "number" && Number.isInteger(v.pid) && v.pid > 0 && alive(v.pid);
+  } catch {
+    return false;
+  }
+}
+
+/** A process with this pid runs (signal 0 asks without sending; EPERM is somebody's, still running). */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as { code?: unknown }).code === "EPERM";
+  }
+}
+
+/**
  * IS THE SIDEBAR INSTALLED? The status file is written only for the plugin,
  * which carries the sidebar: this process is the plugin's (`CLAUDE_PLUGIN_ROOT`
  * set), or Claude Code's `plugins/installed_plugins.json` records a
- * `counterparts@…` install that the settings leave on. `~/.claude.json` is
- * never read. An npm-only install gets no file.
+ * `counterparts@…` install that the settings leave on, or (given the
+ * configuration) a plugin loaded from a folder said it is here
+ * ({@link pluginPresent}). `~/.claude.json` is never read. An npm-only install
+ * gets no file.
  */
-export function sidebarInstalled(env: Record<string, string | undefined>, home: string): boolean {
+export function sidebarInstalled(
+  env: Record<string, string | undefined>,
+  home: string,
+  configPath?: string,
+  now: number = Date.now(),
+): boolean {
   if ((env[PLUGIN_ROOT_ENV] ?? "").trim().length > 0) return true;
+  if (configPath !== undefined && configPath.length > 0 && pluginPresent(configPath, now)) return true;
   try {
     return pluginInstall({ home, env, cwd: null })?.enabled === true;
   } catch {
@@ -301,7 +395,8 @@ export function readSidebarStamp(file: string): { lastSeq: number; writtenAt: nu
  * Open the store as an observer, build the status, write it beside the
  * configuration. Never throws. `ifMoved`: skip when the file already stands at
  * the log's newest seq for this store (another session's server wrote it) —
- * unless it is older than `maxAgeMs`, so a calendar day's turn still lands.
+ * unless it is older than `maxAgeMs`, so a calendar day's turn still lands. A
+ * file AHEAD of that seq is a store put back (module doc) and is written over.
  */
 export function writeSidebarStatus(opts: {
   readonly configPath: string;
@@ -309,6 +404,8 @@ export function writeSidebarStatus(opts: {
   readonly timeZone?: string;
   readonly ifMoved?: { readonly lastSeq: number; readonly maxAgeMs: number };
   readonly now?: () => number;
+  /** Tests only: called after the temp file is written, before the look at the file there. */
+  readonly beforeRename?: () => void;
 }): SidebarWrite {
   const clock = opts.now ?? Date.now;
   const started = clock();
@@ -326,7 +423,7 @@ export function writeSidebarStatus(opts: {
   if (opts.ifMoved !== undefined) {
     const stamp = readSidebarStamp(file);
     // Only this store's file stands in for this store's write: two stores sharing a folder never suppress each other.
-    if (stamp !== null && stamp.storeId === ours && stamp.lastSeq >= opts.ifMoved.lastSeq && started - stamp.writtenAt < opts.ifMoved.maxAgeMs) {
+    if (stamp !== null && stamp.storeId === ours && stamp.lastSeq === opts.ifMoved.lastSeq && started - stamp.writtenAt < opts.ifMoved.maxAgeMs) {
       return out(false, "same", 0, stamp.lastSeq);
     }
   }
@@ -344,11 +441,16 @@ export function writeSidebarStatus(opts: {
     } catch {
       // a filesystem without modes: the write stands
     }
+    opts.beforeRename?.();
     // Two writers racing: a file this store already wrote further on is not put back (the log only grows).
+    // Unless it is further on than the log itself: a store put back (a rollback, a snapshot restored) — that file is the old store's.
     const there = readSidebarStamp(file);
     if (there !== null && there.storeId !== null && there.storeId === status.storeId && there.lastSeq > status.pulse.lastSeq) {
-      rmSync(tmp, { force: true });
-      return out(false, "newer", 0, there.lastSeq);
+      const logNow = dash.source.store.eventLog({ order: "desc", limit: 1 })[0]?.seq ?? 0;
+      if (there.lastSeq <= logNow) {
+        rmSync(tmp, { force: true });
+        return out(false, "newer", 0, there.lastSeq);
+      }
     }
     renameSync(tmp, file);
     notePointer(opts.dataDir, file);
@@ -375,11 +477,20 @@ export function writeSidebarStatus(opts: {
   }
 }
 
-/** The path written for this store, kept in the store's `sessions/` (only when it changed). Never throws. */
+/**
+ * The path written for this store, kept in the store's `sessions/`: rewritten
+ * when it changed, and touched at every write otherwise — SessionStart's prune
+ * (`sessions.ts#pruneSessions`) drops a file there a week after it last changed,
+ * and a pointer kept only on change went weekly. Never throws.
+ */
 function notePointer(dataDir: string, file: string): void {
   try {
     const at = sidebarPointerPath(dataDir);
-    if (existsSync(at) && readFileSync(at, "utf8") === file) return;
+    if (existsSync(at) && readFileSync(at, "utf8") === file) {
+      const now = new Date();
+      utimesSync(at, now, now);
+      return;
+    }
     mkdirSync(dirname(at), { recursive: true });
     writeFileSync(at, file, { encoding: "utf8", mode: 0o600 });
   } catch {
@@ -443,6 +554,11 @@ export function chaseSidebarStatus(storeDir: string, id: string): { chased: bool
  * every {@link REFRESH_MS} whatever moved, so today's counts turn over at
  * midnight and a file older than that says no writer is running (the sidebar
  * shows its age then). Every timer is unref'd: none keeps the process alive.
+ *
+ * A seq LOWER than the last one written moves it too (a store put back), and
+ * `wanted` is asked at each write, not once at the start: a plugin loaded from
+ * a folder says it is here a moment after this server starts, and one that has
+ * gone stops counting while this server still runs (the file then goes).
  */
 export class SidebarStatusWriter {
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -457,6 +573,8 @@ export class SidebarStatusWriter {
     readonly timeZone?: string;
     /** The log's newest seq, read cheaply on the server's own handle; null when it cannot say. */
     readonly newestSeq: () => number | null;
+    /** Is the sidebar installed, asked at each write (default: yes); no removes the file instead. */
+    readonly wanted?: () => boolean;
     readonly onWrite?: (w: SidebarWrite) => void;
   };
 
@@ -484,7 +602,7 @@ export class SidebarStatusWriter {
       } catch {
         seq = null;
       }
-      if ((seq !== null && seq > this.lastSeq) || Date.now() - this.lastLookAt > REFRESH_MS) this.schedule(0);
+      if ((seq !== null && seq !== this.lastSeq) || Date.now() - this.lastLookAt > REFRESH_MS) this.schedule(0);
     }, everyMs);
     this.interval.unref?.();
   }
@@ -504,6 +622,24 @@ export class SidebarStatusWriter {
     } catch {
       seq = null;
     }
+    let wanted = true;
+    try {
+      wanted = this.opts.wanted?.() ?? true;
+    } catch {
+      wanted = true;
+    }
+    if (!wanted) {
+      const removed = removeSidebarStatus(this.opts.configPath);
+      this.lastLookAt = Date.now();
+      if (seq !== null) this.lastSeq = seq;
+      // Said only when a file went: an npm-only install would otherwise log this at every turn.
+      try {
+        if (removed) this.opts.onWrite?.({ written: false, reason: "removed", bytes: 0, ms: 0, lastSeq: null });
+      } catch {
+        // as below
+      }
+      return;
+    }
     const w = writeSidebarStatus({
       configPath: this.opts.configPath,
       dataDir: this.opts.dataDir,
@@ -512,8 +648,10 @@ export class SidebarStatusWriter {
       ...(seq === null ? {} : { ifMoved: { lastSeq: seq, maxAgeMs: 10 * 60_000 } }),
     });
     this.lastLookAt = Date.now();
-    if (w.lastSeq !== null) this.lastSeq = Math.max(this.lastSeq, w.lastSeq);
-    else if (seq !== null) this.lastSeq = Math.max(this.lastSeq, seq);
+    // What this server's own handle said, the value the watch compares (a log put back moves it either way);
+    // the file's seq only when the handle could not say. Never a fresh open's: two handles that disagreed would rewrite every look.
+    if (seq !== null) this.lastSeq = seq;
+    else if (w.lastSeq !== null) this.lastSeq = w.lastSeq;
     try {
       this.opts.onWrite?.(w);
     } catch {
