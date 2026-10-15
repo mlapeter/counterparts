@@ -50,7 +50,9 @@ import {
   SUMMARY_CHAPTER_META,
   automaticSummaryText,
   chapterSummaries,
+  SUMMARY_DUPLICATE_REASON,
   chaptersCoveredByCopies,
+  summaryOf,
   summaryTitle,
 } from "./summaries.js";
 import { scanSecrets } from "../encode/secrets.js";
@@ -157,6 +159,7 @@ import {
   NO_GATE,
   EPISODE_ABOUT_META,
   appendChapter,
+  chapterAbout,
   askDue,
   askText,
   asksSpentOn,
@@ -593,7 +596,6 @@ export interface SummaryOutcome {
   readonly chapter: number;
   readonly reason?: string;
 }
-
 
 /**
  * Why a page write did not land. Every one of them is named to the caller.
@@ -2804,6 +2806,9 @@ export class Self {
         return { outcome: "rewritten", id: standing.id, chapter };
       }
       const id = this.putSummary({ episodeId, doc, chapter, kind: "written", body, sessionId: input.sessionId, handles: [], about: input.about ?? null });
+      // An automatic one a boundary wrote meanwhile leaves (written once).
+      const kept = this.settleSummaries(episodeId, chapter, input.day);
+      if (kept !== null && kept !== id) return { outcome: "kept", id: kept, chapter };
       this.onSummaryNamed?.({ id, text: chapterText, day: input.day, credit: true });
       this.emit("self.episode.summary", episodeId, { chapter, memory: id, kind: "written", bytes: byteLength(body) });
       return { outcome: "written", id, chapter };
@@ -2814,7 +2819,40 @@ export class Self {
   }
 
   /**
+   * WRITTEN ONCE, EVEN ACROSS PROCESSES (review of #504): the check for a
+   * chapter's summary and the write of one are two steps, and another
+   * session's boundary may write an automatic summary between them. After a
+   * write, the chapter's live summaries are settled: a written one stands
+   * over an automatic one, then the oldest; any other is archived
+   * `SUMMARY_DUPLICATE_REASON` and its links go to the one that stands.
+   * Returns the id that stands (null when none reads). Never throws.
+   */
+  private settleSummaries(episodeId: string, chapter: number, day: number): string | null {
+    try {
+      const live = (this.store.copiesOf([episodeId]).get(episodeId) ?? [])
+        .map((c) => summaryOf(this.store, c.id))
+        .filter((s): s is NonNullable<typeof s> => s !== null && s.chapter === chapter)
+        .sort((a, b) => (a.kind === b.kind ? a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1) : a.kind === "written" ? -1 : 1));
+      const [stands, ...others] = live;
+      if (stands === undefined) return null;
+      for (const other of others) {
+        this.store.archive(other.id, SUMMARY_DUPLICATE_REASON);
+        try {
+          this.retarget?.(other.id, stands.id, day);
+        } catch {
+          /* the links, never the summary */
+        }
+        this.emit("self.episode.summary.duplicate", episodeId, { chapter, archived: other.id, stands: stands.id });
+      }
+      return stands.id;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * ONE SUMMARY MEMORY, in the shape the chapter copy had (so every reader of
+
    * that shape keeps working): a self-kind memory, `source: episode`,
    * `origin_ref` the chapter's id, `meta.episodeId`, plus `meta.chapter` and
    * `meta.chapterSummary`. It FADES like an ordinary memory (Mike,
@@ -2872,7 +2910,6 @@ export class Self {
     }
     return this.store.put(put);
   }
-
 
   /**
    * THE CHAPTERS THIS SESSION'S EPISODE STILL OWES A SUMMARY, written now as
@@ -2952,7 +2989,11 @@ export class Self {
         continue;
       }
       const body = verdict.text !== undefined && verdict.text.length > 0 ? verdict.text : auto;
-      const id = this.putSummary({ episodeId, doc, chapter: k, kind: "automatic", body, sessionId, handles, about: null });
+      // The mark this chapter's call gave, else (putSummary) the episode's latest.
+      const id = this.putSummary({ episodeId, doc, chapter: k, kind: "automatic", body, sessionId, handles, about: aboutMarkOf(chapterAbout(doc.meta, k)) });
+      // A session's summary that landed meanwhile stands; this one leaves.
+      const stands = this.settleSummaries(episodeId, k, d);
+      if (stands !== null && stands !== id) continue;
       this.onSummaryNamed?.({ id, text: chapterText, day: d, credit: true });
       this.emit("self.episode.summary", episodeId, { chapter: k, memory: id, kind: "automatic", bytes: byteLength(body) });
       written.push(id);

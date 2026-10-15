@@ -784,6 +784,8 @@ export const NIGHT_WRITER_MEMORY_BYTES = 40_000;
  */
 export const WRITER_JOURNAL_CHARS = 14_000;
 export const WRITER_JOURNAL_SHARE = 0.35;
+/** What one journal line costs the block beside its text and title: "- ", ", chapter N", "(summary)", the newline. */
+export const WRITER_JOURNAL_LINE_FRAMING = 40;
 export const NIGHT_WRITER_MEMORY_MAX = 150;
 
 /** The tool the nightly writer is told to write the page with — the MCP server's `self_page`. */
@@ -937,7 +939,7 @@ export function writerInstruction(
   const journaled = journal !== undefined && journal.entries.length > 0;
   if (input.memories.length === 0 && journaled) {
     lines.push(
-      `Besides the journal below, nothing was written down on ${input.about}${input.dropped > 0 ? ` that fit this block (${String(input.dropped)} did not)` : ""}.`,
+      `Besides the journal below, nothing was written down on ${input.about}${input.dropped > 0 ? ` that fit this block (${String(input.dropped)} did not)` : ""}${input.omitted > 0 ? ` that can be shown here (${String(input.omitted)} held back as confidential)` : ""}.`,
     );
   } else if (input.memories.length === 0) {
     // "THE DAY WAS EMPTY" AND "I COULD NOT READ THE DAY" ARE DIFFERENT THINGS,

@@ -2129,3 +2129,14 @@ The design check is in the owner's notes (2026-10-15, "journal storage ramificat
   another directory" reads the mark off the live copies and summaries only, so a summary
   pruned months later takes its chapter's mark with it (the window that reads it is a
   fortnight).
+- **Review of #504, what changed:** (1) a chapter's use credited every summary its
+  episode held — 51 at once on a long session, which undid the fading; now only the
+  summaries recall folded into the chapter shown, carrying at least half the pair's match
+  (recall NOTES). (2) Each chapter keeps its own `about` (`meta.abouts`), so an automatic
+  summary takes its chapter's mark, not the episode's latest; the wake's "about me" test
+  is now "any chapter", said in CONTRACT §3. (4) Written-once across processes:
+  `settleSummaries` after every write, `summary-duplicate` for the loser. (5) CONTRACT
+  G10 says what the code does (no second AUTOMATIC summary; a session's later one is
+  written). (6) The writer's "nothing besides the journal" line names confidential
+  rows held back; the journal's cost counts each line's framing. `self.episode.reconciled`'s
+  `ingested` counts summaries written now, not episodes.

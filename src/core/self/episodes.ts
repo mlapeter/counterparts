@@ -553,6 +553,30 @@ export function readChapterLead(text: string): ChapterLead {
  */
 export const EPISODE_ABOUT_META = "about";
 
+/**
+ * EACH CHAPTER'S OWN `about` (2026-10-15): `{ "1": "us", "3": "work" }`, the
+ * mark the chapter call gave, carried whole like `models`. A chapter's summary
+ * takes its own chapter's mark — an automatic one, written later at the
+ * boundary, reads it here — where `EPISODE_ABOUT_META` holds only the latest.
+ */
+export const CHAPTER_ABOUT_META = "abouts";
+
+/** The mark the chapter call gave chapter `n`, or null. */
+export function chapterAbout(meta: Record<string, unknown>, n: number): string | null {
+  const raw = meta[CHAPTER_ABOUT_META];
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const v = (raw as Record<string, unknown>)[String(n)];
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+function chapterAbouts(meta: Record<string, unknown>): Record<string, string> {
+  const raw = meta[CHAPTER_ABOUT_META];
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) if (/^\d+$/.test(k) && typeof v === "string") out[k] = v;
+  return out;
+}
+
 export function appendChapter(
   store: Store,
   state: EpisodeState,
@@ -576,7 +600,7 @@ export function appendChapter(
         chapters: chapter,
         ...(model === undefined ? {} : { models: { [String(chapter)]: model } }),
         [CHAPTER_AT_META]: { [String(chapter)]: store.now() },
-        ...(opts.about === undefined ? {} : { [EPISODE_ABOUT_META]: opts.about }),
+        ...(opts.about === undefined ? {} : { [EPISODE_ABOUT_META]: opts.about, [CHAPTER_ABOUT_META]: { [String(chapter)]: opts.about } }),
       },
       // The experiencer writing its own journal is the "episode" channel —
       // consistent with the memory its ingestion mints (PR-2 review nit).
@@ -607,6 +631,9 @@ export function appendChapter(
   // v12: the moment each chapter opened, carried whole like `models`.
   const moments = chapterMoments(prior.meta);
   if (opensChapter) moments[String(num)] = store.now();
+  // Each chapter's own mark, carried whole too (2026-10-15).
+  const abouts = chapterAbouts(prior.meta);
+  if (opts.about !== undefined) abouts[String(num)] = opts.about;
   // AN APPEND, NOT A REVISION (2026-10-15): the stored body is kept whole as
   // the new one's prefix — a blank line is added to reach the next paragraph,
   // never taken away — so `appendBody` can hold the prefix as its guarantee
@@ -620,8 +647,10 @@ export function appendChapter(
       ...(Object.keys(models).length === 0 ? {} : { models }),
       ...(Object.keys(moments).length === 0 ? {} : { [CHAPTER_AT_META]: moments }),
       ...(opts.about === undefined ? {} : { [EPISODE_ABOUT_META]: opts.about }),
+      ...(Object.keys(abouts).length === 0 ? {} : { [CHAPTER_ABOUT_META]: abouts }),
     },
     // The row's `model` is the LAST writer's (a body change with none is NULL).
+
     ...(model === undefined ? {} : { model }),
   });
   return { episodeId: state.episodeId, chapter: num, created: false, heading: opensChapter };

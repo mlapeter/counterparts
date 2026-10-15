@@ -83,7 +83,13 @@ counted by doctor, and said in the next morning share).
   an ordinary self-kind memory in the shape the full copy had (`source: episode`,
   `origin_ref` = the chapter's id, `meta.episodeId`) plus `meta.chapter`, so recall's
   fold, use credit and the wake's confidential and `about` flags read it unchanged; the
-  cards the CHAPTER names are credited to it and linked to it as subjects. A summary the
+  cards the CHAPTER names are credited to it and linked to it as subjects. Its `about` is
+  its OWN chapter's (`meta.abouts` on the episode, carried whole), so the wake's "about
+  me, from another directory" now takes a session in when ANY of its chapters is marked
+  me, us or owner — before, the latest chapter's mark replaced the earlier ones on the
+  one copy. A use of the chapter credits only the summaries recall folded into it that
+  carried at least half the pair's match (`recall/activate.ts#FOLD_CREDIT_SHARE`, kept in
+  the gate state as `folded`), never every chapter's summary at once. A summary the
   session writes later replaces an automatic one in place (a revision: the engine's words
   are its version); one the session wrote is never replaced. The chapter keeps every word.
   `summaries.ts`, `index.ts#summaryAtChapter`, `#ingestEpisode`. *Reachable only from
@@ -416,8 +422,13 @@ proposals and their archive; render and delivery telemetry.
    not actually shorter; protected content is excluded independently of any mark.
 10. **[M]** A chapter's summary is written once, checked against active *and* archived
     memories, so an archival decision (a prune, a merge) is not undone by a stray touch:
-    a chapter whose summary left gets no second one (2026-10-15; was: episodes ingest
-    idempotently by identity).
+    the boundary writes no second AUTOMATIC summary for a chapter whose summary left. A
+    summary the session itself gives later is still written (its words, not the
+    engine's). Two processes crossing between the check and the write leave two live
+    summaries for a moment; the writer settles them — the session's stands over an
+    automatic one, then the oldest — and archives the other `summary-duplicate`
+    (`Self#settleSummaries`). (2026-10-15; was: episodes ingest idempotently by
+    identity.)
 
 11. **[M]** Observers receive the wake and are never asked for an episode. Accepted cost:
     instrument runs leave no episode (scar E7).

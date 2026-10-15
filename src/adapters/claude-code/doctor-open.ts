@@ -312,6 +312,32 @@ export function journalFindings(store: Store): Finding[] {
  * Amber, never red — the chapter itself is a row in the database and is not at
  * risk, which is exactly what the detail says.
  */
+export function journalCopyFindings(store: Store): Finding[] {
+
+  const day = store.livedDay();
+  const failed = newestRows(store, JOURNAL_COPY_FAILED_EVENT, 1, day);
+  if (failed.unknown || failed.rows.length === 0) return [];
+  const newestFailed = failed.rows[failed.rows.length - 1] as EventRow;
+  const written = newestRows(store, JOURNAL_COPY_WRITTEN_EVENT, 1, day);
+  const newestWritten = written.rows[written.rows.length - 1];
+  // A later success is the fix, and a fixed fault is not a line.
+  if (newestWritten !== undefined && newestWritten.seq > newestFailed.seq) return [];
+  const payload = payloadOf(newestFailed);
+  const reason = typeof payload["reason"] === "string" ? payload["reason"] : "no reason recorded";
+  const on = typeof payload["date"] === "string" ? payload["date"] : "(date unrecorded)";
+  const episode = newestFailed.ref ?? "(unrecorded)";
+  return [
+    finding(
+      "journal-copy",
+      "amber",
+      "Journal copy",
+      `the readable copy of the journal could not be written on ${on} (${episode}: ${reason}), and nothing has written one since. The chapters themselves are rows in the database and are unharmed.`,
+      "Check that the store directory is writable; the next chapter or the next session boundary writes it again, and deleting journal/ loses nothing.",
+      { episode, reason, on },
+    ),
+  ];
+}
+
 /** The window the summaries line counts over, in days. */
 const SUMMARY_WINDOW_DAYS = 7;
 
@@ -348,32 +374,6 @@ export function chapterSummaryFindings(store: Store): Finding[] {
       `${String(written)} written by the session, ${String(automatic)} automatic (its opening lines, because the session gave none), over the last ${String(SUMMARY_WINDOW_DAYS)} days`,
       "",
       { written, automatic, days: SUMMARY_WINDOW_DAYS },
-    ),
-  ];
-}
-
-export function journalCopyFindings(store: Store): Finding[] {
-
-  const day = store.livedDay();
-  const failed = newestRows(store, JOURNAL_COPY_FAILED_EVENT, 1, day);
-  if (failed.unknown || failed.rows.length === 0) return [];
-  const newestFailed = failed.rows[failed.rows.length - 1] as EventRow;
-  const written = newestRows(store, JOURNAL_COPY_WRITTEN_EVENT, 1, day);
-  const newestWritten = written.rows[written.rows.length - 1];
-  // A later success is the fix, and a fixed fault is not a line.
-  if (newestWritten !== undefined && newestWritten.seq > newestFailed.seq) return [];
-  const payload = payloadOf(newestFailed);
-  const reason = typeof payload["reason"] === "string" ? payload["reason"] : "no reason recorded";
-  const on = typeof payload["date"] === "string" ? payload["date"] : "(date unrecorded)";
-  const episode = newestFailed.ref ?? "(unrecorded)";
-  return [
-    finding(
-      "journal-copy",
-      "amber",
-      "Journal copy",
-      `the readable copy of the journal could not be written on ${on} (${episode}: ${reason}), and nothing has written one since. The chapters themselves are rows in the database and are unharmed.`,
-      "Check that the store directory is writable; the next chapter or the next session boundary writes it again, and deleting journal/ loses nothing.",
-      { episode, reason, on },
     ),
   ];
 }

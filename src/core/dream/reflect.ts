@@ -771,7 +771,7 @@ export class Reflections {
       const r = this.store.row(cid);
       if (r === undefined || (r.confidential === 1 && !this.bundleOwner)) return { id: cid, title: null, entries: [{ chapter: null, day: null, fidelity: "line", text: gone, chars: 0 }], earlier: 0 };
       // The line `begin` fitted: the chapter's summary when it has one.
-      const all = withSummaries(chapterEntries(r.body), chapterSummaries(this.store, [cid]).get(cid));
+      const all = withSummaries(chapterEntries(r.body), chapterSummaries(this.store, [cid]).get(cid), index?.ref === row.id ? index.at : 0);
       const entries = [];
       for (const e of all) {
         const f = fidelityOf(entryKey(cid, e.index));
@@ -1673,7 +1673,12 @@ export class Reflections {
       // return to, feel or mark here.
       if (row === undefined || !this.showable(row) || row.source === "dreamed" || row.source === "reflection") continue;
       const f = emotionalIntensity(this.store.physicsOf(mid));
-      if (row.birth_day >= day - T.CHAPTER_DAYS) recent.push({ id: mid, felt: f, at: row.created_at ?? 0 });
+      // Not the journal's own memories (2026-10-15, review of #504): a chapter's
+      // summary reaches the reflection as its chapter's line in `chapters`,
+      // and in this lane the same chapter would be in the bundle twice. The
+      // core lanes below still take a summary about me: being offered for the
+      // core is a different question from being shown the day.
+      if (row.birth_day >= day - T.CHAPTER_DAYS && !isJournalCopy(row)) recent.push({ id: mid, felt: f, at: row.created_at ?? 0 });
       // UNMARKED WORK THAT MAY NOT BE WORK (owner pick 4): only a memory NOBODY
       // marked — a writer's mark is never offered to be overridden here. Skills
       // too since 2026-10-11 (the about-marks review: 5 of 34 unmarked skills

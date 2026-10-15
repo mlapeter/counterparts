@@ -38,6 +38,13 @@ import { readChapterLead } from "./episodes.js";
 export { CHAPTER_SUMMARY_META };
 export type { ChapterSummaryKind };
 
+/**
+ * The archive reason of a second live summary of one chapter (review of #504):
+ * a boundary's automatic summary and the session's own can cross between a
+ * check and a write in two processes; the session's stands (`Self#settleSummaries`).
+ */
+export const SUMMARY_DUPLICATE_REASON = "summary-duplicate";
+
 /** A summary's `meta` key for the chapter it stands for, 1-based (`chaptersOf`'s order, as in `epi_…#N`). */
 export const SUMMARY_CHAPTER_META = "chapter";
 
@@ -58,6 +65,8 @@ export interface ChapterSummary {
   readonly body: string;
   readonly archived: boolean;
   readonly createdAt: number;
+  /** When its words were last written (a rewrite over an automatic one moves it). */
+  readonly writtenAt: number;
 }
 
 /**
@@ -110,7 +119,7 @@ export function summaryOf(store: ReadOnlyStore, id: string): ChapterSummary | nu
     const kind = chapterSummaryKind(meta);
     const chapter = meta[SUMMARY_CHAPTER_META];
     if (kind === null || typeof chapter !== "number" || !Number.isInteger(chapter) || chapter < 1) return null;
-    return { id, episodeId: row.origin_ref, chapter, kind, body: row.body, archived: row.archived === 1, createdAt: row.created_at ?? 0 };
+    return { id, episodeId: row.origin_ref, chapter, kind, body: row.body, archived: row.archived === 1, createdAt: row.created_at ?? 0, writtenAt: row.updated_at ?? row.created_at ?? 0 };
   } catch {
     return null;
   }

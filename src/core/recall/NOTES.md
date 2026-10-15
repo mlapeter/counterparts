@@ -1174,3 +1174,16 @@ call (`ref` the session) and touches nothing else. What the build chose:
   as drawn on at this boundary, never merely named; a call whose every entry is refused
   writes no row, so it moves no window; the reader leaves out sessions from before the
   first rating row's date and says how many.
+
+## 2026-10-15 — a chapter's use credits the summaries it folded, not all of them
+
+- With one summary memory per chapter (self NOTES 2026-10-15), `creditCopies` forwarded a
+  chapter's use to every live summary of the episode: one use of a 51-chapter session
+  credited 51 summaries, which kept them all from fading (review of #504). Activation now
+  reports, per chapter shown, the journal rows it folded that carried at least
+  `FOLD_CREDIT_SHARE` (half) of the pair's match (`ActivationResult.folded`); the record
+  step keeps them in the gate state (`folded`, kind `folded` rows in `gate_session`, no
+  schema change, bounded with the chapter's surfaced record); `creditCopies` credits a
+  summary only when it was folded into that chapter this session. Frozen full copies are
+  credited as before. In the test: a sibling summary with a stray cue weight of 0.15
+  against the chapter's 3.0 is not credited; the matching one (3.0) is.

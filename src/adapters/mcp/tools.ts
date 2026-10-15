@@ -1243,7 +1243,7 @@ const CHAPTER: ToolSpec = {
     },
     {
       claim:
-        "`about` is carried to this chapter's summary; each chapter's summary keeps its own chapter's mark. Only me, us and owner let the chapter reach a wake in another directory.",
+        "`about` is carried to this chapter's summary; each chapter's summary keeps its own chapter's mark. One chapter marked me, us or owner takes its session into a wake in another directory.",
       mechanizedBy: "src/core/self/episodes.ts#appendChapter (meta.about) -> src/core/self/index.ts#putSummary -> src/core/counterpart.ts#selfChapterElsewhere",
     },
   ],

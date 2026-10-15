@@ -171,7 +171,7 @@ import type {
   WriterInput,
 } from "./self/index.js";
 import { acceptsReflectedFeeling, keepCore, ownerNames, retireCore } from "./sleep/index.js";
-import { WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE } from "./self/writer.js";
+import { WRITER_JOURNAL_CHARS, WRITER_JOURNAL_LINE_FRAMING, WRITER_JOURNAL_SHARE } from "./self/writer.js";
 import type { WriterJournal } from "./self/writer.js";
 import { dayJournal } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
@@ -3521,7 +3521,10 @@ export class Counterpart {
       const entries = day.chapters.flatMap((c) =>
         c.entries.map((e) => ({ episode: c.id, title: c.title, chapter: e.chapter, fidelity: e.fidelity, text: e.text, chars: e.chars })),
       );
-      return { entries, total: day.entries, notShown: day.notShown, omitted: day.omitted, chars: day.used };
+      // What the block spends on them: the fitted text (wire characters, a
+      // non-ASCII one as three — about its bytes) and each line's framing.
+      const framing = entries.reduce((n, e) => n + WRITER_JOURNAL_LINE_FRAMING + (e.title?.length ?? 0), 0);
+      return { entries, total: day.entries, notShown: day.notShown, omitted: day.omitted, chars: day.used + framing };
     } catch {
       return null;
     }

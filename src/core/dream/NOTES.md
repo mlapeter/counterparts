@@ -726,3 +726,8 @@ the live ~52):
   dream no longer replays (returns to) a summary, so a summary is strengthened by use in
   recall only; and a day of chapters with no memories raises the dream's "new since"
   count by nothing.
+- **Review of #504:** a later part renders a chapter's summary only if it was written
+  by the time the fit ran (`withSummaries(…, asOf)`, the index's `at`), so a summary
+  written or rewritten between begin and part cannot make the part longer than `pack`
+  measured. The reflection's `recent` lane leaves the journal's own memories out, as the
+  dream's queue does (the core lanes still take a summary about me).

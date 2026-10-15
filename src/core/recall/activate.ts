@@ -277,6 +277,12 @@ export interface ActivationResult {
   /** Journal copies folded into their own chapter before the cut (2026-09-30,
    *  U13). Reported, not recorded, for `capped`'s reason. */
   readonly collapsed: number;
+  /**
+   * WHICH journal rows each chapter absorbed (2026-10-15): chapter id → the
+   * copies and summaries folded into it. A use of the chapter credits only
+   * these, never every summary its episode holds (`Recall#creditCopies`).
+   */
+  readonly folded: ReadonlyMap<string, readonly string[]>;
   /** Rows the exact recheck found BELOW REACH and left out (2026-10-10) —
    *  candidates and would-be pointers. Reported, not recorded. */
   readonly belowReach: number;
@@ -861,6 +867,8 @@ export function activate(
   /** copy id -> the chapter it was folded into, and the reverse. */
   const collapsedInto = new Map<string, string>();
   const absorbed = new Map<string, string[]>();
+  /** Of those, the rows the turn itself reached (2026-10-15): a use of the chapter credits these. */
+  const reachedFold = new Map<string, string[]>();
   if (copyOf.size > 0) {
     const byId = new Map(scored.map((c) => [c.id, c]));
     const gone = new Set<string>();
@@ -879,6 +887,11 @@ export function activate(
       byId.set(chapterId, { ...chapter, cue, temporal, semantic, arrival, activation, sal, cutKey: salienceRank(activation, sal, t), feeling, stamp });
       collapsedInto.set(copyId, chapterId);
       absorbed.set(chapterId, [...(absorbed.get(chapterId) ?? []), copyId]);
+      // It carried a real share of the pair's match — at least half of what
+      // the whole episode matched on, by words and meaning — not the faint
+      // likeness every chapter of a long session has to a turn about another.
+      const own = copy.cue - copy.stamp + copy.semantic;
+      if (own > 0 && own >= FOLD_CREDIT_SHARE * (chapter.cue - chapter.stamp + chapter.semantic)) reachedFold.set(chapterId, [...(reachedFold.get(chapterId) ?? []), copyId]);
       // The pair's place in the feeling lane's order is the better half's.
       const rank = Math.min(feelingRank.get(chapterId) ?? Number.POSITIVE_INFINITY, feelingRank.get(copyId) ?? Number.POSITIVE_INFINITY);
       if (Number.isFinite(rank)) feelingRank.set(chapterId, rank);
@@ -1184,7 +1197,9 @@ export function activate(
           },
     dropped,
     collapsed,
+    folded: reachedFold,
     belowReach: belowReachCount,
+
     feeling:
       feelingAsk === null
         ? null
@@ -1198,6 +1213,14 @@ export function activate(
           },
   };
 }
+
+/**
+ * How much of a folded pair's match a journal row must carry for a use of the
+ * chapter to credit it (2026-10-15): half. A chapter's summary that matched the
+ * turn earns its chapter's use; its sibling summaries, which merely sit in the
+ * same episode, do not. CAL.
+ */
+export const FOLD_CREDIT_SHARE = 0.5;
 
 /**
  * The chapter a JOURNAL COPY was minted from, or null for any other row — read

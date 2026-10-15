@@ -82,17 +82,24 @@ export const SUMMARY_LINE_BYTES = 600;
 export interface SummaryForLine {
   readonly kind: "written" | "automatic";
   readonly body: string;
+  readonly writtenAt?: number;
 }
 
 /**
  * THE ENTRIES WITH THEIR CHAPTERS' SUMMARIES ON (2026-10-15): each entry
  * whose chapter has a summary the session WROTE carries it, by the chapter
- * number its heading names. Pure.
+ * number its heading names; with `asOf`, only one written by then. Pure.
  */
-export function withSummaries(entries: readonly ChapterEntry[], byChapter: ReadonlyMap<number, SummaryForLine> | undefined): ChapterEntry[] {
+export function withSummaries(
+  entries: readonly ChapterEntry[],
+  byChapter: ReadonlyMap<number, SummaryForLine> | undefined,
+  /** Only a summary written by then — a later part renders the line its fit measured (review of #504). */
+  asOf?: number,
+): ChapterEntry[] {
   if (byChapter === undefined || byChapter.size === 0) return [...entries];
   return entries.map((e) => {
     const s = e.chapter === null ? undefined : byChapter.get(e.chapter);
+    if (s !== undefined && asOf !== undefined && (s.writtenAt ?? 0) > asOf) return e;
     return s === undefined || s.kind !== "written" || s.body.trim().length === 0 ? e : { ...e, summary: s.body };
   });
 }
@@ -115,8 +122,7 @@ export function summarized(store: ReadOnlyStore, episodes: readonly EpisodeInVie
 }
 
 /**
- * AN ENTRY AS ONE LINE:
- its chapter's summary when the session wrote one
+ * AN ENTRY AS ONE LINE: its chapter's summary when the session wrote one
  * (flattened, kept to `summaryBytes`), else its first words as before
  * (`fit#lineOf`, kept to `lineBytes`).
  */

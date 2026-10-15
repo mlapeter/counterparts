@@ -3301,7 +3301,7 @@ export class Dreams {
         continue;
       }
       // The line `begin` fitted: the chapter's summary when it has one.
-      const entry = withSummaries([raw], chapterSummaries(this.store, [eid]).get(eid))[0] ?? raw;
+      const entry = withSummaries([raw], chapterSummaries(this.store, [eid]).get(eid), offered.at)[0] ?? raw;
       const f = fidelity(entryKey(eid, entry.index));
       // At the length the fit measured (an index from before 2026-10-15 has none: an ordinary line).
       const text = f === "line" ? entryLine(entry, DREAM_TUNABLES.LINE_BYTES, offered.lineCap ?? DREAM_TUNABLES.LINE_BYTES) : clipWire(entry.text, DREAM_TUNABLES.ENTRY_CHARS);

@@ -222,6 +222,39 @@ describe("the `chapter` call writes ONE summary memory per chapter, in the copy'
     expect(c.store.subjectsOf(id)).toContain(ada.id as string);
   });
 
+  test("a chapter's use credits only the summaries recall folded into it, not every chapter's", () => {
+    const c = brain();
+    for (const body of [
+      "Ran the morning loop around the reservoir before breakfast.",
+      "The tax filing deadline moved to October this year.",
+      "Prefers dense espresso over filter coffee at home.",
+      "The garage door opener needs a new battery soon.",
+      "Rebasing keeps the history readable for reviewers.",
+      "The neighbour's cat sits on the fence every evening.",
+      "Bought hiking boots that finally fit properly.",
+      "The library closes early on Sundays now.",
+      "Wrote a short letter to an old teacher.",
+      "The kitchen tap drips when the pressure is high.",
+      "Set up a standing desk in the spare bedroom.",
+      "The bus route changed and adds ten minutes.",
+    ]) c.store.put({ type: "memory", kind: "fact", body });
+    nextChapter(c);
+    const one = c.appendEpisode(SESSION, CHAPTER_ONE, { summary: SUMMARY_ONE });
+    nextChapter(c);
+    const two = c.appendEpisode(SESSION, "In the evening the zqbarometer fell fast and we covered the kiln shed against the storm.", {
+      summary: "The zqbarometer fell fast in the evening; we covered the kiln shed before the storm.",
+    });
+    const episodeId = one.episodeId as string;
+    c.store.advanceClock("2030-01-01");
+    const shown = c.recall.recall({ sessionId: "credit-sess", text: "the zqbarometer storm" });
+    expect([...shown.decision.surfaced, ...shown.decision.footnotes]).toContain(episodeId);
+    expect(c.recall.gateState("credit-sess").folded?.[two.summary?.id as string]).toBe(episodeId);
+    const before = { one: c.store.row(one.summary?.id as string)?.uses ?? 0, two: c.store.row(two.summary?.id as string)?.uses ?? 0 };
+    expect(c.resolveUse("credit-sess", episodeId, "referenced").reason).toBe("credited");
+    expect(c.store.row(two.summary?.id as string)?.uses).toBeGreaterThan(before.two);
+    expect(c.store.row(one.summary?.id as string)?.uses).toBe(before.one);
+  });
+
   test("a summary the gate refuses costs the summary, never the chapter", () => {
     const c = brain();
     nextChapter(c);
@@ -265,6 +298,41 @@ describe("a chapter the session gave no summary gets an AUTOMATIC one at the bou
     expect(c.store.versions(now?.id as string).map((v) => v.body)).toEqual([CHAPTER_ONE]);
     // And the next boundary writes nothing more.
     expect((await c.sessionEnd({ date: "2026-10-14" })).episodes.ingested).toBe(0);
+  });
+
+  test("an automatic summary takes ITS chapter's mark, not the episode's latest", async () => {
+    const c = brain();
+    nextChapter(c);
+    const one = c.appendEpisode(SESSION, CHAPTER_ONE, { about: "us" });
+    nextChapter(c);
+    c.appendEpisode(SESSION, "The second stretch went to cleaning the zqshelves and nothing else much happened.", { about: "work" });
+    await c.sessionEnd({ date: "2026-10-14" });
+    const all = summariesOf(c, one.episodeId as string);
+    expect(all.map((x) => [x.meta["chapter"], c.store.row(x.id)?.about])).toEqual([
+      [1, "us"],
+      [2, "work"],
+    ]);
+  });
+
+  test("two live summaries of one chapter (a boundary and a chapter call crossing) are settled: the session's stands", () => {
+    const c = brain();
+    nextChapter(c);
+    const written = c.appendEpisode(SESSION, CHAPTER_ONE, { summary: SUMMARY_ONE });
+    const episodeId = written.episodeId as string;
+    // What a boundary in another process would have written between the check and the put.
+    const stray = c.store.put({
+      type: "memory",
+      kind: "self",
+      body: CHAPTER_ONE,
+      meta: { episodeId, chapter: 1, chapterSummary: "automatic" },
+      source: "episode",
+      origin: { session: SESSION, ref: episodeId },
+    });
+    const stands = (c.self as unknown as { settleSummaries(e: string, ch: number, d: number): string | null }).settleSummaries(episodeId, 1, c.store.livedDay());
+    expect(stands).toBe(written.summary?.id as string);
+    expect(c.store.row(stray)?.archived).toBe(1);
+    expect(c.store.row(stray)?.archived_reason).toBe("summary-duplicate");
+    expect(summariesOf(c, episodeId).map((x) => x.id)).toEqual([written.summary?.id as string]);
   });
 
   test("a long chapter's automatic summary is its opening, cut at a sentence, never past the room", () => {
@@ -344,6 +412,9 @@ describe("whole-day views show a chapter's line as its summary", () => {
       ]),
     );
     expect(entryLine(entries[0]!, 200)).toBe("What chapter one was, as its session put it.");
+    // A later part renders only what was there when its fit ran (`asOf`).
+    const later = withSummaries(chapterEntries(body), new Map([[1, { kind: "written" as const, body: "Written after the fit.", writtenAt: 2_000 }]]), 1_000);
+    expect(entryLine(later[0]!, 200)).toBe("First words of chapter one.");
     expect(entryLine(entries[1]!, 200)).toBe("First words of chapter two.");
     const fitted = fitEpisodes([{ row: { id: "epi_x", title: null }, at: 1, fresh: entries, earlier: 0 }], {
       room: 10_000,
