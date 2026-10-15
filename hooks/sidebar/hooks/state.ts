@@ -9,7 +9,8 @@
  * file (NOTES, "The split").
  */
 
-import type { SidebarScope } from '../types'
+import type { SidebarScope, SidebarMeet } from '../types'
+import type { Glance } from './feed'
 import type { Status } from './status'
 
 /**
@@ -64,6 +65,10 @@ export const UNKNOWN_SCOPE: SidebarScope = { mode: 'unknown', own: false, setBy:
 
 export const run = {
   session: '',
+  /** Where the first meeting stands, from the wake's onboarding marker: the footer drops its intro line once done or skipped. */
+  meet: 'unknown' as SidebarMeet | 'unknown',
+  /** The wake's first glance line (Last here, Coming up, Yesterday): shown until the session has something of its own. */
+  glance: null as Glance | null,
   interactive: false,
   /** The first drawing's one-time work (a quiet scope read, if the start's found none) is done. */
   woke: false,

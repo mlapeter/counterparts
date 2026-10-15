@@ -81,6 +81,8 @@ import {
   otherStore,
   ourTool,
   parseRecallBlock,
+  parseGlance,
+  parseOnboardingMarker,
   parseStoreMarker,
   savedItems,
   surfacedIds,
@@ -95,6 +97,7 @@ import {
   IMAGE_X0,
   STAGE_COLS,
   STAGE_MIN_PANE_ROWS,
+  TIER_ENV,
   advance,
   fineCells,
   halfCells,
@@ -624,10 +627,10 @@ async function clickBody($: EngineInterface, key: string): Promise<void> {
     await update($, focusA, f => (f === section ? null : section))
     return
   }
-  if (key === 'dream') {
+  if (key === 'dream' || key === 'glance') {
     const at = await $.clock.now()
     const cur = await read($, openA)
-    await update($, openA, () => (cur?.key === 'dream' ? null : { key, id: null, status: 'ready' as const, title: null, text: '', meta: null, at }))
+    await update($, openA, () => (cur?.key === key ? null : { key, id: null, status: 'ready' as const, title: null, text: '', meta: null, at }))
     return
   }
   if (key.startsWith('mech:')) {
@@ -879,7 +882,7 @@ async function foxEvent($: EngineInterface, ev: FoxEvent): Promise<void> {
  * Image is a blit; in sextants (Text) or on the desktop (an Svg) a redraw of
  * the pane. A pane no longer shown stops it (the next drawing starts it). A
  * refused blit stops it; an Image refused twice in a row because it draws
- * its alt here leaves `auto` drawing half-blocks for the session. Any other
+ * its alt here leaves `auto` drawing sextants or half-blocks for the session. Any other
  * refusal (not mounted yet, another size, the terminal not yet asked) is not
  * counted: it says nothing about pictures.
  */
@@ -1098,7 +1101,15 @@ export const register: Register = on => {
     stage.pngDir = await findPngDir($)
     stage.pngData.clear()
     if (stage.pngDir === null) stage.noImages = true
-    // What this terminal can draw the fox with is not read: `auto` tries a picture and the engine says (fox.ts, `pickTier`).
+    // Pictures: tried, and the engine says. Where they can't show, whether the font draws sextants, read once (fox.ts).
+    // (Each name spelled out: the engine lists the variables a module reads.)
+    const envVals = await Promise.all([
+      $.env.get('TERM_PROGRAM').catch(() => undefined),
+      $.env.get('TERM').catch(() => undefined),
+      $.env.get('KITTY_WINDOW_ID').catch(() => undefined),
+      $.env.get('WEZTERM_EXECUTABLE').catch(() => undefined),
+    ])
+    stage.env = Object.fromEntries(TIER_ENV.map((k, i) => [k, envVals[i]]).filter(([, v]) => typeof v === 'string'))
     await update($, themeA, () => normTheme(themePref))
     await update($, viewA, () => normView(viewPref))
     await update($, brainA, () => normAvatar(brainPref))
@@ -1141,7 +1152,7 @@ export const register: Register = on => {
         return {
           text:
             d === 'auto'
-              ? 'The fox is drawn as a picture where this terminal shows one, in half-blocks where it does not.'
+              ? 'The fox is drawn the best way this terminal shows: a picture, else sextants, else half-blocks.'
               : d === 'images'
                 ? 'The fox is drawn as a picture (kitty, Ghostty); a terminal that cannot shows its name instead.'
                 : d === 'fine'
@@ -1225,6 +1236,17 @@ export const register: Register = on => {
       // The wake's store marker: which store this session's hooks opened (the status file must be the same store's).
       const storeId = parseStoreMarker(text)
       if (storeId !== null) run.wakeStore = storeId
+      // The wake's onboarding marker: once the first meeting is done or skipped, the footer stops offering it.
+      const glanceNow = parseGlance(text)
+      if (glanceNow !== null) {
+        run.glance = glanceNow
+        $.ui.invalidate('ui.render')
+      }
+      const meet = parseOnboardingMarker(text)
+      if (meet !== null && meet !== run.meet) {
+        run.meet = meet
+        $.ui.invalidate('ui.render')
+      }
     } catch {
       // the row is stored whatever the sidebar made of it
     }
@@ -1239,6 +1261,9 @@ export const register: Register = on => {
       await update($, savedA, () => [])
       await update($, mindA, () => null)
       await update($, openA, () => null)
+      // the next session's wake says these again; until it does, nothing stale
+      run.glance = null
+      run.meet = 'unknown'
     }
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -1319,7 +1344,7 @@ export const register: Register = on => {
     run.bodyW = w
     // The fox's stage: on a pane tall and wide enough, in the tier this surface draws (fox.ts); else, or with the
     // avatar off, the header alone.
-    const tier = pickTier(e.surface, stage.detail, stage.noImages, stage.pngDir !== null)
+    const tier = pickTier(e.surface, stage.detail, stage.env, stage.noImages, stage.pngDir !== null)
     const drawsStage = tier === 'svg' ? 'Svg' in els : 'Raster' in els
     const hasStage = mode === 'fox' && drawsStage && !inline && fill >= STAGE_MIN_PANE_ROWS && W >= (SURFACE.prose ? STAGE_MIN_PROSE_COLS : STAGE_COLS)
     // While the pane holds the keyboard the fox holds still.
@@ -1373,11 +1398,12 @@ export const register: Register = on => {
     // The desktop sets text in its own font, about a fifth narrower than the cells the pane is measured in:
     // the body wraps to that, and the footer fits its lines to it (2026-10-13, Mike: "hard to read").
     const bodyW = SURFACE.prose ? Math.floor(w * 1.2) : w
-    const footRows = footerRows(bodyW, paused)
+    const footShow = { intro: run.meet !== 'done' && run.meet !== 'skipped', fox: mode !== 'off' }
+    const footRows = footerRows(bodyW, paused, footShow)
     // The desktop's rows are its font's, a little taller than the cells it reports: two rows of headroom keep its
     // pane from scrolling by a line (2026-10-13).
     const bodyRows = Math.max(4, fill - used - footRows - (SURFACE.prose ? 2 : 0))
-    const { lines } = layoutBody({ w: bodyW, rows: bodyRows, now, mind, saved, today, dream: dreamNow, open, mech, focus, dash, prose: SURFACE.prose, cellsW: w, statusAt: pulse?.at ?? null })
+    const { lines } = layoutBody({ w: bodyW, rows: bodyRows, now, mind, saved, today, dream: dreamNow, open, mech, focus, dash, prose: SURFACE.prose, cellsW: w, statusAt: pulse?.at ?? null, glance: run.glance })
     // The body's surface module stays here, its module a literal on the tag's own line: the engine reads a hooks
     // module's surface modules off its own source.
     if ('Client' in els) {
@@ -1387,7 +1413,7 @@ export const register: Register = on => {
     rows.push(<Box key="spacer" flexGrow={1} />)
 
     // ── the footer: how to do what the pane doesn't (the intro, the dashboard, a pause, hiding it) ──
-    rows.push(footer(paneEls, { w, fit: bodyW, prose: SURFACE.prose, paused }))
+    rows.push(footer(paneEls, { w, fit: bodyW, prose: SURFACE.prose, paused, show: footShow }))
 
     return frame(paneEls, W, fill, rows, stageTop)
   })

@@ -1426,6 +1426,17 @@ test('a terminal that turns out to draw an Image’s alt: two refused picture bl
   await ui.unmount()
 })
 
+test('iTerm2, where pictures draw their alt: the sextant fox, not half-blocks', async ($, on) => {
+  const w = world(on, { ...FOX, env: { HOME, TERM_PROGRAM: 'iTerm.app' }, noPictures: true })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await noPictures(w)
+  expect(await ui.find({ type: 'Image' })).toBeUndefined()
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  expect([...(await texts(ui))].some(ch => (ch.codePointAt(0) ?? 0) >= 0x1fb00 && (ch.codePointAt(0) ?? 0) <= 0x1fb3b)).toBe(true)
+  await ui.unmount()
+})
+
 test('a picture refused for another reason (not mounted yet) is not counted: auto keeps trying pictures', async ($, on) => {
   const w = world(on, { ...FOX, blitDeny: true })
   await start($, w)
@@ -1573,4 +1584,30 @@ test('there is no search box, whatever the environment says (COUNTERPARTS_SIDEBA
     expect(await ui.find({ key: 'head2' })).toBeUndefined()
     await ui.unmount()
   }
+})
+
+test('the glance: the wake\'s Last here under the dream, three lines; a click opens all of it, another closes it; the intro leaves the footer once met', async ($, on) => {
+  const w = world(on, FOX)
+  await start($, w)
+  const long = 'We moved the fox to pictures first. Then the footer lost its intro line. Then the bars went to a log scale. Then the glance came, and it read the wake. Then it learned to open on a click, like the dream does.'
+  await $.session.append({
+    door: 'hook-context',
+    origin: { kind: 'hook', event: 'SessionStart' },
+    uuid: 'wake-glance',
+    message: { type: 'attachment', name: 'hook_additional_context', content: [{ type: 'text', text: `<system-reminder>\nSessionStart hook additional context: <!-- counterparts:onboarding meet=done -->\nLast here: ${long}\n</system-reminder>` }] },
+  } as never)
+  await settle(w)
+  const ui = await mount($, w, 'terminal')
+  let lines = await bodyLines(ui)
+  const at = lines.findIndex(l => l.startsWith('Last here'))
+  expect(at).toBeGreaterThan(lines.findIndex(l => l.startsWith('Last Dream')))
+  expect(lines.join(' ')).not.toContain('like the dream does')
+  await click(ui, 'We moved the fox')
+  lines = await bodyLines(ui)
+  expect(lines.join(' ')).toContain('like the dream does.')
+  await click(ui, 'We moved the fox')
+  expect((await bodyLines(ui)).join(' ')).not.toContain('like the dream does')
+  expect((await texts(ui)).includes('/counterparts:meet')).toBe(false)
+  expect((await texts(ui)).includes('/counterparts avatar off')).toBe(true)
+  await ui.unmount()
 })
