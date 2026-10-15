@@ -7,16 +7,19 @@ binary each have their own detail, linked below rather than repeated.
 ## 1. The release commit
 
 Branch `release/<version>` from master at the commit being released. The release commit
-sets the version in four places:
+sets the version in four places, and moves one example:
 
 - `package.json` `"version"`;
-- `SERVER_VERSION` in `src/adapters/mcp/server.ts` (the version the memory server reports;
+- `SERVER_VERSION` in `src/adapters/mcp/server-words.ts` (the version the memory server reports;
   an open session compares it to say "Counterparts was updated");
 - `"version"` in `.claude-plugin/plugin.json`;
 - the marketplace entry's `"ref"` in `.claude-plugin/marketplace.json`, as `v<version>`.
   Since 0.3.22 the entry's `url` is the bundle repository,
   `https://github.com/counterparts-ai/counterparts-plugin.git` (3b), so the ref names
   that repository's tag; only the ref moves.
+
+The example of that entry in [plugin.md](plugin.md#releases-only-the-marketplace-pins-a-tag)
+(`"ref": "v<version>"`) moves with it.
 
 `test/mcp.test.ts` fails until `SERVER_VERSION` agrees with `package.json`, and
 `test/plugin.test.ts` until the plugin's version and the pin do
