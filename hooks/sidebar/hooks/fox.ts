@@ -10,15 +10,15 @@
  *
  * - `image`: an `Image` of the PNG file, which the terminal reads itself
  *   (`{ file, format: 'png' }`), where the terminal draws pictures
- *   (kitty, Ghostty). Elsewhere an Image draws its alt text, dim, so this is
- *   chosen only where the environment says so, and a blit refused because the
- *   Image draws its alt drops to `fine` for the session (register.tsx).
- * - `fine`: sextants (U+1FB00, 2 x 3 pixels a cell, two colours a cell), in
- *   terminals whose font has them (iTerm2, WezTerm, VS Code, Ghostty, kitty).
+ *   (kitty, Ghostty). Elsewhere an Image draws its alt text, dim, so `auto`
+ *   tries it first and a blit refused because the Image draws its alt drops
+ *   to `basic` for the session (register.tsx).
+ * - `fine`: sextants (U+1FB00, 2 x 3 pixels a cell, two colours a cell), when
+ *   the person chooses them; fonts that have them: iTerm2, WezTerm, VS Code, Ghostty, kitty.
  *   A `Raster` takes only BMP code points and sextants are not BMP, so this
  *   tier is rows of `Text` runs, and a frame change is a redraw of the pane.
- * - `basic`: half-blocks (`▀`, two pixels a cell) on a `Raster`, everywhere
- *   else (Apple Terminal, tmux, anything unknown). A frame change is a blit.
+ * - `basic`: half-blocks (`▀`, two pixels a cell) on a `Raster`, wherever a
+ *   picture drew its alt (Apple Terminal, iTerm2, tmux, anything unknown). A frame change is a blit.
  * - `svg`: the desktop app (no Raster, no Image): an `Svg` of rects from the
  *   half-block pixels, with the PNG frame over them as a data URI (the rects
  *   are what shows if the surface drops the image, or the file can't be read);

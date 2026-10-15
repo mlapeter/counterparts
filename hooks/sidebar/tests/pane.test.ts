@@ -1426,6 +1426,16 @@ test('a terminal that turns out to draw an Image’s alt: two refused picture bl
   await ui.unmount()
 })
 
+test('a picture refused for another reason (not mounted yet) is not counted: auto keeps trying pictures', async ($, on) => {
+  const w = world(on, { ...FOX, blitDeny: true })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await noPictures(w)
+  expect(await ui.find({ type: 'Image', key: 'stage' })).toBeDefined()
+  expect(await ui.find({ type: 'Raster', key: 'stage' })).toBeUndefined()
+  await ui.unmount()
+})
+
 test('the fox is still for long holds: the tail tip flicks within seconds, then one blit per change of what is on screen, none between; a save writes on the notepad at once', async ($, on) => {
   const w = world(on, foxDetail('basic'))
   on('tool.call', () => ({ result: 'ok', text: '{"stored":true,"id":"mem_f0000001"}' }))

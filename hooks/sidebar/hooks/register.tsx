@@ -877,9 +877,14 @@ async function foxEvent($: EngineInterface, ev: FoxEvent): Promise<void> {
  * between (a still hold is one wait of 4–9 s). A change on a Raster or an
  * Image is a blit; in sextants (Text) or on the desktop (an Svg) a redraw of
  * the pane. A pane no longer shown stops it (the next drawing starts it). A
- * refused blit stops it; an Image refused twice in a row (it draws its alt
- * here) leaves `auto` drawing sextants for the session.
+ * refused blit stops it; an Image refused twice in a row because it draws
+ * its alt here leaves `auto` drawing half-blocks for the session. Any other
+ * refusal (not mounted yet, another size, the terminal not yet asked) is not
+ * counted: it says nothing about pictures.
  */
+/** What the engine's blit refusal says when an Image draws its alt (Claude Code 2.1.300). */
+const ALT_REFUSAL = 'draws its alt'
+
 async function stageStep($: EngineInterface, gen: number): Promise<void> {
   if (gen !== stage.gen || !stage.live) return
   const now = await $.clock.now()
@@ -915,7 +920,7 @@ async function stageStep($: EngineInterface, gen: number): Promise<void> {
             if (tier === 'image') stage.imageDenies = 0
             return
           }
-          if (tier === 'image') {
+          if (tier === 'image' && r.deny.includes(ALT_REFUSAL)) {
             stage.imageDenies += 1
             if (stage.imageDenies >= 2) stage.noImages = true
           }
@@ -1135,7 +1140,7 @@ export const register: Register = on => {
         return {
           text:
             d === 'auto'
-              ? 'The fox is drawn the finest way this terminal is known to show.'
+              ? 'The fox is drawn as a picture where this terminal shows one, in half-blocks where it does not.'
               : d === 'images'
                 ? 'The fox is drawn as a picture (kitty, Ghostty); a terminal that cannot shows its name instead.'
                 : d === 'fine'

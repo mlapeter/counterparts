@@ -377,7 +377,11 @@ export function world(on: On, opts: WorldOptions = {}): World {
       w.denied += 1
       return { value: { deny: 'not mounted' } }
     }
-    if (opts.blitDeny === true || w.denied < (opts.blitDenyFirst ?? 0) || (opts.noPictures === true && 'source' in (e as object))) {
+    if (opts.noPictures === true && 'source' in (e as object)) {
+      w.denied += 1
+      return { value: { deny: 'the Image draws its alt here: the terminal draws no placeholder images (test)' } }
+    }
+    if (opts.blitDeny === true || w.denied < (opts.blitDenyFirst ?? 0)) {
       w.denied += 1
       return { value: { deny: 'not mounted' } }
     }
