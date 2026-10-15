@@ -108,10 +108,14 @@ side by side. It drops a plugin's MCP server as a duplicate only when the comman
 identical, and ours never is. So when the npm wiring is live, the plugin stands down:
 
 - Hooks: if a live hook of ours is in user, project or local settings, the plugin's
-  hooks exit at once. At SessionStart the person sees one line about it. For a real
-  install (under Claude Code's plugins directory, or the path `installed_plugins.json`
-  records): "installed twice … nothing needs to change. Optional, only if you want
-  the plugin alone: `counterparts disconnect` …". For a plugin run from a folder
+  hooks exit at once. At the first SessionStart that finds both, the person sees one
+  line about it. For a real install (under Claude Code's plugins directory, or the
+  path `installed_plugins.json` records): "installed twice … Keeping one install is
+  simpler, and nothing is lost either way: to keep only the plugin, run `counterparts
+  disconnect` in a terminal and restart Claude Code; to keep only the npm install, run
+  `/plugin uninstall counterparts@<marketplace>`" (the marketplace read off the
+  install's path; `plugin.ts#keepOne`). The server's `instructions` carry the same two
+  ways out, as something for the person, if it comes up. For a plugin run from a folder
   (`claude --plugin-dir <checkout>`): "running from a folder … as expected. Nothing to
   do." It never suggests `disconnect` there: that would leave the live memory wired to
   a development copy, and every session started without `--plugin-dir` memoryless.
@@ -310,11 +314,11 @@ at. Then it:
    buffer;
 9. runs doctor the way `/counterparts:doctor` does: the plugin install reads as connected;
 10. wires the npm hooks as well and checks there's one wake plus the stand-down line
-    (`--bundle=directory`: no stand-down line, since that flavor never reads
-    `~/.claude.json`; it then also checks a live npm registration there stands nothing
-    down, and that the hook, the server and doctor all finish with `~/.claude.json` a
-    FIFO no read could get past); removes them and checks the plugin wakes on the same
-    store;
+    (`--bundle=directory`: no stand-down line, since that flavor reads no Claude Code
+    file and its own entries, wired into settings, write no marker; it then also checks a
+    live npm registration there stands nothing down, and that the hook, the server and
+    doctor all finish with `~/.claude.json` a FIFO no read could get past); removes them
+    and checks the plugin wakes on the same store;
 11. uninstalls the plugin and checks `~/.counterparts` is intact.
 
 Along the way it also checks that the sidebar's hooks module loads, `/counterparts:doctor`
@@ -385,13 +389,45 @@ unconfirmed, so it deletes and moves no memory; `/counterparts:uninstall`'s keep
 removes only a registration whose program is gone, takes an npm install's `counterparts` on
 PATH, or a Counterparts hook in `settings.json` that still runs, as that install still being
 there, and leaves it). It still reads the settings files and
-`installed_plugins.json` (doctor, uninstall, the sidebar). **Known limit:** with the npm
-install ALSO wired, the directory flavor does not stand down, so the memory is wired twice
-(the per-event claim below still keeps one wake per event; the memory tools are offered
-twice) until a marker-based check that needs no `~/.claude.json` lands. doctor's Claude
-Code line says both run, from either side (npm's doctor tells the flavor by the files at the
-plugin's `installPath`); the bundle README says to keep one. The full flavor and the npm
-install are unchanged. `build.ts --flavor directory --check <dir>`
+`installed_plugins.json` (doctor, uninstall, the sidebar).
+
+**The directory flavor stands down by the npm install's marker** (2026-10-15). Until then,
+with the npm install ALSO wired, it did not stand down: the per-event claim kept one wake
+per event, but Claude was offered every memory tool twice (the owner, running both). Now
+the npm install leaves `npm-live.json` beside the configuration (`adapters/npm-live.ts`),
+and the directory flavor's hook and server read that file and nothing else:
+
+- **What it holds:** a reading of the npm install's USER-level wiring, made by the side
+  that may read Claude Code's files: the live hook's command and the settings file it is
+  in, the live `-s user` server's program and script (either null when absent), the npm
+  version, the writer's `CLAUDE_CONFIG_DIR`, and when it was written. Mode 0600, written to
+  a temp file and renamed.
+- **Who writes it:** `counterparts connect` (and `install`, which runs it) at once; then the
+  npm install's own hooks, past the configuration refusals and an off or paused folder,
+  only when it is missing, names another build or Claude Code directory, or is a day old,
+  so `~/.claude.json` is parsed about once a day. Never the plugin's processes, never a
+  build that reads none of Claude Code's files. A project's wiring is not recorded: it must
+  not stand the plugin down in every other project.
+- **Who removes it:** `counterparts disconnect` and `uninstall` (first, so nothing stands
+  down for wiring on its way out; if the wiring stays, the next npm hook writes it again).
+  `/counterparts:uninstall`'s keep, which leaves a live npm install, leaves its marker.
+- **When it stands the plugin down:** each half (hooks, server) as `hookGate` and `mcpGate`
+  already decide, when the marker names that half, the program it names is still on disk
+  (a stat: an npm install removed without `counterparts uninstall` stands nothing down),
+  the marker is this Claude Code directory's, and it is under a week old. The age bound is
+  for npm wiring removed by hand (or a reset Claude Code) while the package stays: nothing
+  refreshes the marker then, and the plugin must not stay silent and memoryless for good.
+  Its cost: after a week without Claude Code, the first session may offer the tools twice
+  (the server decides once, at start, and may start before the npm hook refreshes it).
+- An npm install from before this change writes no marker, so beside one both still run.
+
+doctor's Claude Code line says which, from either side: npm's doctor tells the flavor by
+the files at the plugin's `installPath` (`npm-live.js` there: it reads the marker) and
+reads the marker itself; the bundle README says keeping one is simpler. The full flavor
+keeps reading the real wiring and never looks at the marker. Not carried over: the full
+flavor's `/counterparts:doctor` redirect to the npm install's doctor when standing down
+(the directory flavor runs its own doctor, whose Claude Code line names both installs).
+`build.ts --flavor directory --check <dir>`
 rebuilds and names every file that differs from `<dir>`, with the Bun version (the
 transpiled bytes depend on it). `tools/plugin-loop/run.sh --bundle=directory` installs it
 through Claude Code from git and runs every step through the entries.

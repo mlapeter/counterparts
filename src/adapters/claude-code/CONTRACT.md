@@ -669,7 +669,13 @@ row, saying which source answered, existed until the keys were removed — §1a.
       or its `.mjs` shim, `counterparts-hook`, or `<binary> hook`, whatever one-token
       flags come before or after `run`, and nothing with a shell operator in it.
       So a plugin reads what a newer `connect` writes. (The plugin's server stands
-      down the same way, by the registration's NAME.) `connect`'s own rewrite keeps
+      down the same way, by the registration's NAME.) The plugin directory's
+      flavor reads none of Claude Code's files, so it stands down by the npm
+      install's marker instead (`adapters/npm-live.ts`, since 2026-10-15): a
+      reading of the user-level wiring that the npm hook writes beside the
+      configuration (at most daily, past the configuration refusals and an off
+      or paused folder) and `connect` writes at once, believed for a week and
+      only while the program it names is on disk. `connect`'s own rewrite keeps
       the strict reading (`isOurHookCommand`): it rewrites only what it can fully
       parse. A writer that adds a flag writes it as ONE token, or older readers
       take its value for the script.

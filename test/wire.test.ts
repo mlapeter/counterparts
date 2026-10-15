@@ -73,6 +73,7 @@ import type { ProcessLister, SpawnResult, Spawner, WireInput } from "../src/adap
 import { PromptAborted, ui } from "../src/adapters/cli/ui.js";
 import { EMPTY_BUNFIG, scriptArgs } from "../src/adapters/runtime.js";
 import { recordServerLaunch } from "../src/adapters/sessions.js";
+import { npmLivePath, readNpmLive } from "../src/adapters/npm-live.js";
 import type { BuildStamp } from "../src/adapters/sessions.js";
 
 // ── the harness ─────────────────────────────────────────────────────────────
@@ -2331,5 +2332,48 @@ describe("review n3 — the work done during the question is not done twice", ()
     expect(backups().length).toBe(beforeBackups + 1);
     expect(text(c.out)).toContain("no Counterparts hooks were left in");
     expect(text(c.out)).not.toContain("hooks removed from");
+  });
+});
+
+// ── the npm install's marker (`npm-live.ts`, 2026-10-15) ────────────────────
+//
+// `connect` writes it the moment it wires, so a directory-flavor plugin
+// beside this install stands down from the next session on; `disconnect`
+// removes it first, so nothing stands down for wiring on its way out.
+describe("connect writes the npm-live marker, disconnect removes it", () => {
+  function configured(): void {
+    mkdirSync(dirname(configPath()), { recursive: true });
+    writeFileSync(configPath(), "{}");
+  }
+  const live = (over: Partial<WireInput> = {}): WireInput => input({ io: consoleWith().io, exe: process.execPath, ...over });
+
+  test("connect: a reading of what it wired; disconnect: gone", async () => {
+    configured();
+    expect((await wire(live())).outcome).toBe("ok");
+    const m = readNpmLive(configPath());
+    expect(m?.hooks?.command).toBe(hookCommand(undefined, process.execPath));
+    expect(m?.hooks?.file).toBe(settingsFile());
+    // The fake `claude` registered nothing in ~/.claude.json: no server half.
+    expect(m?.server).toBeNull();
+    // Already connected: written again all the same.
+    rmSync(npmLivePath(configPath()));
+    expect((await wire(live())).hooks).toBe("already");
+    expect(existsSync(npmLivePath(configPath()))).toBe(true);
+    expect((await unwire(live())).outcome).toBe("ok");
+    expect(existsSync(npmLivePath(configPath()))).toBe(false);
+  });
+
+  test("a dry run writes and removes nothing; the plugin's own console writes none", async () => {
+    configured();
+    await wire(live({ dryRun: true }));
+    expect(existsSync(npmLivePath(configPath()))).toBe(false);
+    await wire(live({ env: { ...ENV, CLAUDE_PLUGIN_ROOT: home } }));
+    expect(existsSync(npmLivePath(configPath()))).toBe(false);
+    await wire(live());
+    await unwire(live({ dryRun: true }));
+    expect(existsSync(npmLivePath(configPath()))).toBe(true);
+    // The plugin's uninstall rule (`onlyDead`) leaves a live npm install, and its marker.
+    await unwire(live({ onlyDead: true }));
+    expect(existsSync(npmLivePath(configPath()))).toBe(true);
   });
 });

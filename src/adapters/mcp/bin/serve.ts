@@ -64,7 +64,7 @@ import type { LogEvent, ProcessLog } from "../../log/index.js";
 import { serveStdio } from "../stdio.js";
 import { SidebarStatusWriter, removeSidebarStatus, sidebarInstalled } from "../../sidebar-status.js";
 import { stoodDownServer } from "../stood-down.js";
-import { npmWiring } from "../../host-wiring.js";
+import { npmWiringForGate } from "../../npm-live.js";
 import { PLUGIN_ROOT_ENV, ensureFirstRun, installRoute, mcpGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
@@ -345,7 +345,8 @@ async function main(): Promise<void> {
     const home = homedir();
     const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
     const gate = mcpGate(
-      npmWiring({ home, env: process.env, cwd: projectDir, read: { hooks: false } }),
+      // The directory flavor reads the npm install's marker instead (`npm-live.ts`).
+      npmWiringForGate({ home, env: process.env, cwd: projectDir, configPath: choice.path, read: { hooks: false } }),
       home,
       pluginOrigin({ home, env: process.env, cwd: projectDir }),
     );

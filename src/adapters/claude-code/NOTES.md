@@ -2589,3 +2589,29 @@ outside the disclosed files. The hooks no longer ask who delivers, `loadConfig` 
 resolver moved to `tools/parallel/primacy.ts` for the instrument that still reads old run directories.
 The `adapter.primacy.*` event names stay in core and the dashboard so a store's old rows still read.
 Earlier entries above that mention primacy describe the code as it was then.
+
+## 2026-10-15 — the directory flavor stands down by a marker
+
+The directory flavor reads none of Claude Code's files (2026-10-14), so beside a live npm install it stood
+nothing down: the claim kept one wake per event, but every memory tool was offered twice, which the owner,
+running both, found confusing. The npm install now leaves `npm-live.json` beside the configuration
+(`adapters/npm-live.ts`); the directory flavor's gates read it and nothing else. What the build settled:
+
+- **A reading, not a heartbeat.** The first sketch had the npm hook and the npm server each stamp "I ran".
+  Two holes: the nightly run's server is a non-plugin server under the plugin too (the run strips
+  `CLAUDE_PLUGIN_ROOT`), and an npm install whose `claude mcp add` never happened would have stood the
+  plugin's server down with no server left at all. So the marker records what the npm side READS of the
+  user-level wiring — the live hook's command and file, the live `-s user` server — written by the npm hook
+  (once a day, or when missing or another build's) and by `connect`. One writer per moment, one file, no
+  half lost to a race.
+- **User level only.** A hook in one project's settings must not stand the plugin down in every other.
+- **Program-exists, and a week.** Liveness is re-checked by stat. An age bound is kept as well, for npm wiring
+  removed by hand while the package stays: nobody refreshes the marker then, and without the bound the
+  plugin would stay down, memoryless, with its once-only line long said. The bound's cost is one session of
+  doubled tools after a week away.
+- **Not in a paused folder.** The write sits after the folder checks in `runHook`, so an off or paused folder
+  still writes nothing under the install (`a paused folder with two wirings` holds it).
+- **The line.** "Nothing needs to change" became "keeping one install is simpler", with both ways out
+  (`plugin.ts#keepOne`), the plugin's id read off its install path, phrased for the person and asking nothing
+  of the model. The folder-origin wording is unchanged.
+

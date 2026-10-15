@@ -673,8 +673,11 @@ fi
 # ── 6. the double-install guard ────────────────────────────────────────────
 
 if [ "$FLAVOR" = directory ]; then
-  # The directory flavor never reads ~/.claude.json (runtime.ts#readsHostUserConfig),
-  # so it has no stand-down: the known limit, docs/plugin.md.
+  # The directory flavor never reads ~/.claude.json (runtime.ts#readsHostUserConfig):
+  # it stands down by the npm install's marker (npm-live.ts) instead, which only a
+  # source install writes. The "npm hooks" here are this bundle's own entries wired
+  # into settings, a transpiled tree that writes none, so nothing stands down; the
+  # marker's stand-down is held by test/plugin-bundle.test.ts against the written tree.
   step "with the npm hooks ALSO wired, the directory flavor does not stand down (it has no stand-down to make) and says nothing of it"
 else
   step "with the npm hooks ALSO wired, the plugin stands down and says so once; one wake, not two"
