@@ -10,19 +10,22 @@
  * but Claude was offered every memory tool twice (the owner, running both,
  * 2026-10-15).
  *
- * **Who writes it.** The npm install's own hook, which is not the plugin's and
- * may read Claude Code's files: what it writes is a READING of the user-level
+ * **Who writes it.** The npm install's own hook and server, which are not the
+ * plugin's and may read Claude Code's files: what they write is a READING of the user-level
  * wiring (`npmWiring` with no project, so only `~/.claude/settings.json` and the
  * `-s user` registration), the same entries the full flavor stands down for —
  * the live hook's command and the file it is in, the live server's program and
  * script, or null for a half that is not there. `counterparts connect` (and
  * `install`, which runs it) writes it the moment it wires; `disconnect` and
- * `uninstall` remove it. A hook rewrites it only when it is missing, names
- * another build or Claude Code configuration directory, or is older than
- * {@link NPM_LIVE_REFRESH_MS}, so `~/.claude.json` is parsed about once a day,
- * not per prompt; a reading that found nothing is written too (nulls), for the
- * same reason. Never written from the plugin's own processes, and never by a
- * build that does not read those files.
+ * `uninstall` remove it. The npm server rewrites it at its start, and the npm
+ * hook at every session start (one parse of `~/.claude.json` each, the cost the
+ * full flavor's server already pays); every other hook only when it is
+ * missing, names another build, or is older than {@link NPM_LIVE_REFRESH_MS},
+ * so a prompt does not parse that file; a reading that found nothing is
+ * written too (nulls), for the same reason. Since it is a reading, any npm-side
+ * writer is truthful — the nightly run's server (a non-plugin server even under
+ * the plugin) or Claude Desktop's included. Never written from the plugin's own
+ * processes, and never by a build that does not read those files.
  *
  * **Who reads it.** Only the plugin's hook and server in the directory flavor
  * ({@link npmWiringForGate}). They read this file and nothing else, then check
@@ -32,19 +35,22 @@
  * gone, so it stands nothing down. The full flavor keeps reading the real
  * wiring and never looks here.
  *
- * **Age.** A marker older than {@link NPM_LIVE_MAX_AGE_MS} is not believed
- * either. Program-exists alone misses one case: npm wiring removed by hand (or
- * a Claude Code configuration reset) while the package stays. No npm hook runs
- * then, so nobody refreshes the file, and without a bound the plugin would
- * stand down beside wiring that no longer exists, with memory off and nothing
- * said after the once-only line. The cost of the bound is the other way round
- * and smaller: after a week without Claude Code, the first session may offer
- * the tools twice (the server decides once, at start, and can start before the
- * npm hook refreshes the file); hooks stay single through the claim.
+ * **Age.** A server half older than {@link NPM_LIVE_MAX_AGE_MS}, and a hooks
+ * half older than {@link NPM_LIVE_HOOKS_MAX_AGE_MS}, are not believed either.
+ * Program-exists alone misses one case: npm wiring removed by hand (or a Claude
+ * Code configuration reset) while the package stays. Nothing of the npm
+ * install's runs then, so nobody refreshes the file, and without a bound the
+ * plugin would stand down beside wiring that no longer exists, with memory off
+ * and nothing said after the once-only line. (While either npm half still runs,
+ * its next session start writes the truth.) The cost of the bound is the other
+ * way round and smaller: after a week without Claude Code, the first session
+ * may offer the tools twice (the server decides once, at start, and can start
+ * before the npm side refreshes the file); hooks stay single through the claim.
  *
- * **Which Claude Code.** The file records the writer's `CLAUDE_CONFIG_DIR`, and
- * a reader under another one ignores it: wiring in one Claude Code
- * configuration says nothing about a session of another.
+ * **Which Claude Code.** One file per `CLAUDE_CONFIG_DIR` (`npmLivePath`), and
+ * the file records it too: wiring in one Claude Code configuration says nothing
+ * about a session of another, and two of them sharing one memory never rewrite
+ * each other's reading.
  *
  * **Where.** Beside the configuration, like `scopes.json` and `sidebar.json`:
  * the npm hooks and the plugin resolve the same default configuration, so the
@@ -53,6 +59,7 @@
  * Written to a temp file of this process's own and renamed, mode 0600. Never
  * throws.
  */
+import { createHash } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
@@ -61,16 +68,32 @@ import type { NpmWiring, WiredHook, WiredMcp } from "./host-wiring.js";
 import { readsHostUserConfig, runtimePresent } from "./runtime.js";
 
 export const NPM_LIVE_FILE_NAME = "npm-live.json";
+/** Every name this module writes beside the configuration, temp siblings included (`uninstall`). */
+export const NPM_LIVE_NAME = /^npm-live(\.[0-9a-f]{8})?\.json(\.\d+\.tmp)?$/;
 /** The file's shape. A reader that does not know a version stands nothing down. */
 export const NPM_LIVE_VERSION = 1;
-/** A hook rewrites the file once it is this old. */
+/** A hook rewrites the file once it is this old (a session start, and the npm server's start, always do). */
 export const NPM_LIVE_REFRESH_MS = 24 * 60 * 60_000;
-/** A reader believes it for this long after it was written. */
+/** A reader believes its server half for this long after it was written… */
 export const NPM_LIVE_MAX_AGE_MS = 7 * 24 * 60 * 60_000;
+/**
+ * …and its hooks half for this long (review of this change). A plugin hook
+ * firing means Claude Code is in use, and an npm hook running beside it
+ * rewrites the file at every session start, so a hooks half this old names
+ * hooks that no longer run. Not standing down for one event costs nothing:
+ * the claim keeps one delivery per event.
+ */
+export const NPM_LIVE_HOOKS_MAX_AGE_MS = 2 * 24 * 60 * 60_000;
 
-/** `<config dir>/npm-live.json`. */
-export function npmLivePath(configPath: string): string {
-  return join(dirname(configPath), NPM_LIVE_FILE_NAME);
+/**
+ * `<config dir>/npm-live.json`, or `npm-live.<8 hex>.json` under a
+ * `CLAUDE_CONFIG_DIR` (keyed by it): two Claude Code configurations sharing one
+ * memory each keep their own reading, and never rewrite each other's.
+ */
+export function npmLivePath(configPath: string, env: Record<string, string | undefined> = {}): string {
+  const moved = claudeConfigDirOf(env);
+  const name = moved === null ? NPM_LIVE_FILE_NAME : `npm-live.${createHash("sha256").update(moved).digest("hex").slice(0, 8)}.json`;
+  return join(dirname(configPath), name);
 }
 
 export interface NpmLiveHooks {
@@ -117,10 +140,10 @@ function str(r: Record<string, unknown>, k: string): string | null {
 }
 
 /** The marker, or null when absent, unreadable or not one this build knows. */
-export function readNpmLive(configPath: string): NpmLiveMarker | null {
+export function readNpmLive(configPath: string, env: Record<string, string | undefined> = {}): NpmLiveMarker | null {
   let value: unknown;
   try {
-    value = JSON.parse(readFileSync(npmLivePath(configPath), "utf8"));
+    value = JSON.parse(readFileSync(npmLivePath(configPath, env), "utf8"));
   } catch {
     return null;
   }
@@ -167,14 +190,15 @@ export function npmWiringFromMarker(input: {
   readonly now?: number;
 }): NpmWiring {
   const none: NpmWiring = { hooks: [], mcp: [] };
-  const marker = readNpmLive(input.configPath);
+  const marker = readNpmLive(input.configPath, input.env);
   if (marker === null) return none;
   if (marker.claudeConfigDir !== claudeConfigDirOf(input.env)) return none;
   // The DISTANCE from now, as the claims' lock: a marker dated ahead after the
   // clock stepped back is as old as it is far.
-  if (Math.abs((input.now ?? Date.now()) - marker.writtenAt) > NPM_LIVE_MAX_AGE_MS) return none;
+  const age = Math.abs((input.now ?? Date.now()) - marker.writtenAt);
+  if (age > NPM_LIVE_MAX_AGE_MS) return none;
   const hooks: WiredHook[] = [];
-  if (input.read?.hooks !== false && marker.hooks !== null) {
+  if (input.read?.hooks !== false && marker.hooks !== null && age <= NPM_LIVE_HOOKS_MAX_AGE_MS) {
     hooks.push({ file: marker.hooks.file, event: "*", command: marker.hooks.command, live: hookCommandLive(marker.hooks.command, input.env) });
   }
   const mcp: WiredMcp[] = [];
@@ -249,7 +273,7 @@ export function noteNpmLive(input: {
     if (!(input.readsUserConfig ?? readsHostUserConfig())) return "skipped";
     if (input.configPath.length === 0 || !existsSync(input.configPath)) return "skipped";
     const now = input.now ?? Date.now();
-    const there = input.force === true ? null : readNpmLive(input.configPath);
+    const there = input.force === true ? null : readNpmLive(input.configPath, input.env);
     const configDir = claudeConfigDirOf(input.env);
     if (
       there !== null &&
@@ -276,7 +300,7 @@ export function noteNpmLive(input: {
           ? null
           : { file: mcp.file, scope: "user", exe: mcp.exe, script: mcp.script ?? null, command: mcp.command },
     };
-    const file = npmLivePath(input.configPath);
+    const file = npmLivePath(input.configPath, input.env);
     const tmp = `${file}.${String(process.pid)}.tmp`;
     try {
       writeFileSync(tmp, `${JSON.stringify(marker)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -296,10 +320,10 @@ export function noteNpmLive(input: {
   }
 }
 
-/** The marker, gone (`disconnect`, `uninstall`). True when there was one. Never throws. */
-export function removeNpmLive(configPath: string): boolean {
+/** This Claude Code configuration's marker, gone (`disconnect`, `uninstall`). True when there was one. Never throws. */
+export function removeNpmLive(configPath: string, env: Record<string, string | undefined> = {}): boolean {
   try {
-    const file = npmLivePath(configPath);
+    const file = npmLivePath(configPath, env);
     if (!existsSync(file)) return false;
     rmSync(file, { force: true });
     return true;

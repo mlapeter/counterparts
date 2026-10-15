@@ -921,11 +921,14 @@ async function runHook(
   // THE NPM INSTALL SAYS IT IS WIRED (`npm-live.ts`), for a plugin of the
   // directory flavor beside it, which reads none of Claude Code's files. Here,
   // past the configuration refusals (the explicit-dir guard among them) and a
-  // folder that is off or paused, which write nothing. Usually one small read
-  // that finds the file fresh; about once a day, one reading of the user-level
-  // wiring. Never from the plugin's own hook.
+  // folder that is off or paused, which write nothing. At a session start, one
+  // reading of the user-level wiring (so wiring removed by hand is known by the
+  // next session); at any other event, usually one small read that finds the
+  // file fresh. Written in an observer folder too: it is host state beside the
+  // configuration, not memory. Never from the plugin's own hook.
   if (!runningAsPlugin(process.env)) {
-    if (noteNpmLive({ configPath: choice.path, home: homedir(), env: process.env, build: installedVersion() }) === "failed") {
+    const force = name === "session-start";
+    if (noteNpmLive({ configPath: choice.path, home: homedir(), env: process.env, build: installedVersion(), force }) === "failed") {
       process.stderr.write("[counterparts] could not write the npm-live marker beside the configuration\n");
     }
   }

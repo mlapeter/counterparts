@@ -1266,7 +1266,7 @@ export async function wire(input: WireInput): Promise<WireResult> {
     u.hint(`hooks: ${tilde(sight.target, home)}`);
     u.hint(`tools: ${tilde(mcp.file, home)} (registered as "${MCP_SERVER_NAME}")`);
     u.hint("Nothing was changed and no backup was taken.");
-    noteWired(input);
+    if (!input.dryRun) noteWired(input);
     return { outcome: "ok", hooks: "already", mcp: "already", backup: null, mcpConfirmed: false };
   }
 
@@ -1417,8 +1417,10 @@ export async function wire(input: WireInput): Promise<WireResult> {
  * now rather than at the next hook, so a plugin beside this install stands
  * down from the next session on. A reading of what is wired, so a half that
  * did not take (`claude` missing) is written as absent. Not from the plugin's
- * own console: its `connect` would wire the plugin's copy into settings, and
- * the hook that runs there writes the marker itself.
+ * own console, whose `connect` would wire the plugin's copy into settings: a
+ * launcher-flavor hook run from there writes the marker itself, and a
+ * directory-flavor one writes none (it reads no Claude Code file), so that
+ * copy then runs beside the settings wiring — a rare path, left as it is.
  */
 function noteWired(input: WireInput): void {
   if ((input.env[PLUGIN_ROOT_ENV] ?? "").trim().length > 0) return;
@@ -1840,7 +1842,7 @@ export async function unwire(input: WireInput): Promise<WireResult> {
   // is safe whatever follows: if the wiring stays (a refusal below), the next
   // npm hook finds no marker and writes it again. Not for the plugin's rule,
   // which leaves a live npm install as it is.
-  if (input.onlyDead !== true && input.dryRun !== true) removeNpmLive(input.configPath);
+  if (input.onlyDead !== true && input.dryRun !== true) removeNpmLive(input.configPath, env);
 
   // THE PLUGIN'S RULE (`onlyDead`): a hook that still runs stays.
   const dirs = input.onlyDead === true ? pluginDirs(env, home) : [];
