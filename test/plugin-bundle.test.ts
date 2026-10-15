@@ -463,6 +463,19 @@ describe("the directory flavor", () => {
       const hook = `"${process.execPath}" run "${join(out, "src/adapters/claude-code/bin/hook.js")}"`;
       writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: hook }] }] } }));
       expect(spawnSync("mkfifo", [join(home, ".claude.json")]).status).toBe(0);
+      // The npm install's marker (`npm-live.ts`): what this build stands down by instead.
+      const serve = join(out, "src/adapters/mcp/bin/serve.js");
+      mkdirSync(join(home, ".counterparts"), { recursive: true });
+      writeFileSync(join(home, ".counterparts", "claude-code.json"), "{}");
+      const marker = {
+        version: 1,
+        build: "0.3.25",
+        claudeConfigDir: null,
+        writtenAt: Date.now(),
+        hooks: { file: join(home, ".claude", "settings.json"), command: hook },
+        server: { file: join(home, ".claude.json"), scope: "user", exe: process.execPath, script: serve, command: `${process.execPath} run ${serve}` },
+      };
+      writeFileSync(join(home, ".counterparts", "npm-live.json"), JSON.stringify(marker));
       const probe = join(work, "probe.mjs");
       writeFileSync(
         probe,
@@ -474,19 +487,37 @@ describe("the directory flavor", () => {
           'const inst = await import(`${root}/src/adapters/cli/install.js`);',
           'const desk = await import(`${root}/src/adapters/cli/desktop.js`);',
           'const wire = await import(`${root}/src/adapters/cli/wire.js`);',
+          'const nl = await import(`${root}/src/adapters/npm-live.js`);',
+          'const pl = await import(`${root}/src/adapters/plugin.js`);',
           "console.log(JSON.stringify({",
           "  reads: rt.readsHostUserConfig(),",
           "  wiring: hw.npmWiring({ home, env, cwd: project }),",
           "  host: inst.readHost(home, project, env).mcpRead,",
           "  codeTab: desk.readDesktop(home, env).codeTab,",
           '  notRead: wire.readMcp(home, env, "", undefined, process.execPath).notRead,',
+          '  gate: nl.npmWiringForGate({ home, env, cwd: project, configPath: `${home}/.counterparts/claude-code.json` }),',
+          '  writes: nl.noteNpmLive({ configPath: `${home}/.counterparts/claude-code.json`, home, env, build: "x", force: true }),',
+          '  stands: [pl.hookGate(nl.npmWiringForGate({ home, env, cwd: project, configPath: `${home}/.counterparts/claude-code.json` }), home).standDown,',
+          '    pl.mcpGate(nl.npmWiringForGate({ home, env, cwd: project, configPath: `${home}/.counterparts/claude-code.json` }), home).standDown],',
           "}));",
         ].join("\n"),
       );
       const r = spawnSync(process.execPath, ["--no-install", probe, out, home, project], { encoding: "utf8", timeout: 30_000, cwd: work });
       expect(r.signal).toBeNull();
       expect(r.stderr).toBe("");
-      expect(JSON.parse(r.stdout)).toEqual({ reads: false, wiring: { hooks: [], mcp: [] }, host: false, codeTab: false, notRead: true });
+      expect(JSON.parse(r.stdout)).toEqual({
+        reads: false,
+        wiring: { hooks: [], mcp: [] },
+        host: false,
+        codeTab: false,
+        notRead: true,
+        gate: {
+          hooks: [{ file: marker.hooks.file, event: "*", command: hook, live: true }],
+          mcp: [{ file: marker.server.file, scope: "user", command: marker.server.command, live: true, exe: process.execPath, script: serve }],
+        },
+        stands: [true, true],
+        writes: "skipped",
+      });
     }, 60_000);
   });
 });

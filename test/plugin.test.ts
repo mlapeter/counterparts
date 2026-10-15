@@ -58,6 +58,19 @@ import {
   twiceNoticePath,
 } from "../src/adapters/plugin.js";
 import type { ConfigChoice } from "../src/adapters/config-path.js";
+import {
+  NPM_LIVE_HOOKS_MAX_AGE_MS,
+  NPM_LIVE_MAX_AGE_MS,
+  NPM_LIVE_NAME,
+  NPM_LIVE_REFRESH_MS,
+  noteNpmLive,
+  npmLivePath,
+  npmMarkerReading,
+  npmWiringForGate,
+  npmWiringFromMarker,
+  readNpmLive,
+  removeNpmLive,
+} from "../src/adapters/npm-live.js";
 import { runOnce, runnerConfig } from "../src/adapters/claude-code/bin/runner.js";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -400,19 +413,24 @@ describe("npmWiring and the two gates", () => {
     expect(mcpGate(w, home)).toEqual({ standDown: false, instructions: null });
   });
 
-  test("live npm hooks, an installed plugin: its hooks stand down, and moving is offered as optional", () => {
+  test("live npm hooks, an installed plugin: its hooks stand down, and keeping one install is recommended, both ways named", () => {
     writeSettings({ SessionStart: [liveHookCommand()], Stop: [liveHookCommand()] });
     const w = npmWiring({ home, env: {}, cwd: project });
     expect(w.hooks.map((h) => [h.event, h.live])).toEqual([
       ["SessionStart", true],
       ["Stop", true],
     ]);
-    const gate = hookGate(w, home, { installed: true, root: join(home, ".claude", "plugins", "cache", "m", "counterparts", "0.3.13") });
+    const gate = hookGate(w, home, pluginOrigin({ home, env: {}, root: join(home, ".claude", "plugins", "cache", "m", "counterparts", "0.3.13") }));
     expect(gate.standDown).toBe(true);
     expect(gate.line).toContain("installed twice");
     expect(gate.line).toContain("~/.claude/settings.json");
-    expect(gate.line).toContain("nothing needs to change");
-    expect(gate.line).toContain("Optional, only if you want the plugin alone: `counterparts disconnect`");
+    expect(gate.line).not.toContain("nothing needs to change");
+    expect(gate.line).toContain("Keeping one install is simpler, and nothing is lost either way");
+    expect(gate.line).toContain("to keep only the plugin, run `counterparts disconnect` in a terminal and restart Claude Code");
+    // The marketplace is read off the install cache's path.
+    expect(gate.line).toContain("to keep only the npm install, run `/plugin uninstall counterparts@m`");
+    // Without a path that says, our own marketplace's id.
+    expect(hookGate(w, home).line).toContain("`/plugin uninstall counterparts@counterparts`");
   });
 
   test("live npm wiring, the plugin run from a folder (--plugin-dir): expected, and nothing is suggested", () => {
@@ -429,14 +447,19 @@ describe("npmWiring and the two gates", () => {
     expect(server.standDown).toBe(true);
     expect(server.instructions).toContain("Nothing needs to change");
     expect(server.instructions).not.toContain("`counterparts disconnect`");
-    // An install's server says moving is the person's choice, never one to make for them.
-    expect(mcpGate(npmWiring({ home, env: {}, cwd: project }), home).instructions).toContain("never one to make for them");
+    // An install's server names both ways out, for the person, and asks nothing of the model.
+    const installed = mcpGate(npmWiring({ home, env: {}, cwd: project }), home).instructions ?? "";
+    expect(installed).toContain("For the person, if it comes up: keeping one install is simpler, and nothing is lost either way");
+    expect(installed).toContain("`counterparts disconnect`");
+    expect(installed).toContain("`/plugin uninstall counterparts@counterparts`");
+    expect(installed).toContain("Which one to keep is theirs to decide");
+    expect(installed).not.toContain("Nothing needs to change");
   });
 
   test("pluginOrigin: under Claude Code's plugins directory, or the recorded install path, is an install; anything else is a folder", () => {
     const cached = join(home, ".claude", "plugins", "cache", "m", "counterparts", "0.3.13");
     mkdirSync(cached, { recursive: true });
-    expect(pluginOrigin({ home, env: {}, root: cached }).installed).toBe(true);
+    expect(pluginOrigin({ home, env: {}, root: cached })).toEqual({ installed: true, root: cached, id: "counterparts@m" });
     const dev = join(work, "checkout");
     mkdirSync(dev, { recursive: true });
     expect(pluginOrigin({ home, env: {}, root: dev })).toEqual({ installed: false, root: dev });
@@ -445,11 +468,12 @@ describe("npmWiring and the two gates", () => {
       join(home, ".claude", "plugins", "installed_plugins.json"),
       JSON.stringify({ version: 2, plugins: { "counterparts@local": [{ scope: "user", installPath: dev, version: "0.3.13" }] } }),
     );
-    expect(pluginOrigin({ home, env: {}, root: dev }).installed).toBe(true);
+    expect(pluginOrigin({ home, env: {}, root: dev })).toEqual({ installed: true, root: dev, id: "counterparts@local" });
     // CLAUDE_CODE_PLUGIN_CACHE_DIR moves the plugins directory.
     const moved = join(work, "plugin-cache");
     mkdirSync(join(moved, "cache", "x"), { recursive: true });
-    expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: join(moved, "cache", "x") }).installed).toBe(true);
+    // Too short a path under it to name a marketplace and a plugin: an install, with no id.
+    expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: join(moved, "cache", "x") })).toEqual({ installed: true, root: join(moved, "cache", "x") });
     expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: cached }).installed).toBe(false);
   });
 
@@ -1347,6 +1371,7 @@ describe("doctor's Claude Code line knows the plugin", () => {
       projectPath: null,
       enabled: true,
       standsDown: null,
+      readsMarker: false,
     });
     recordPlugin(false);
     expect(pluginInstall({ home, env: {}, cwd: project })?.enabled).toBe(false);
@@ -1441,8 +1466,25 @@ describe("doctor's Claude Code line knows the plugin", () => {
     expect(f.detail).toContain("so both are running, on the same memory");
     expect(f.detail).toContain("wired twice until a later version");
     expect(f.detail).not.toContain("stands down");
-    expect(f.fix).toContain("remove one");
+    expect(f.fix).toContain("keeping one is simpler, and nothing is lost either way");
     expect(f.fix).toContain("claude plugin uninstall counterparts@counterparts");
+    expect(f.fix).toContain("`/plugin uninstall counterparts@counterparts` inside Claude Code");
+  });
+
+  test("npm's doctor beside a directory flavor that reads the marker: stands down once the marker holds, both run until then", () => {
+    mkdirSync(join(home, "cache", "0.3.12", "src", "adapters"), { recursive: true });
+    writeFileSync(join(home, "cache", "0.3.12", "src", "adapters", "npm-live.js"), "");
+    let f = npmBesidePlugin("runtime.js");
+    expect(f.detail).toContain("has no word from this install yet, so both are running");
+    // The npm side's write (a hook, `connect`): from now on the plugin stands down.
+    mkdirSync(dirname(defaultChoice().path), { recursive: true });
+    writeFileSync(defaultChoice().path, "{}");
+    expect(noteNpmLive({ configPath: defaultChoice().path, home, env: {}, build: "0.3.25" })).toBe("written");
+    const host = readHost(home, project, {});
+    f = hostFinding({ ...host, npmMarker: npmMarkerReading(defaultChoice().path, {}) });
+    expect(f.detail).toContain("which stands down while this wiring is live");
+    expect(f.detail).not.toContain("both are running");
+    expect(f.fix).toContain("keeping one is simpler");
   });
 
   test("npm's doctor beside the LAUNCHER flavor of the plugin: it stands down", () => {
@@ -1493,14 +1535,205 @@ describe("doctor's Claude Code line knows the plugin", () => {
     const f = hostFinding({ ...host, claudeOnPath: false, mcpAddLine: "claude mcp add counterparts" });
     expect(f.severity).toBe("amber");
     expect(f.detail).toContain("all 5 hook events are connected");
-    expect(f.detail).toContain("whose build does not check for the other install, so both are running, on the same memory");
+    expect(f.detail).toContain("reads none of Claude Code's files and has no word from this install yet, so both are running, on the same memory");
     expect(f.detail).not.toContain("stands down");
     expect(f.detail).not.toContain(".claude.json");
+    // With the npm install's marker beside the configuration, it stands down.
+    const marked = hostFinding({ ...host, npmMarker: { hooks: true, server: true } });
+    expect(marked.detail).toContain("which stands down while this wiring is live");
     expect(f.data["mcpFile"]).toBeNull();
     expect(f.fix).not.toContain("registers the memory tools");
     expect(f.fix).not.toContain("claude mcp add");
     expect(f.fix).toContain("claude plugin uninstall counterparts@counterparts");
   });
+});
+
+// ── the npm install's marker, for the directory flavor (2026-10-15) ─────────
+//
+// The directory build reads none of Claude Code's files, so it stands down by
+// a marker the npm install writes beside the configuration (`npm-live.ts`).
+describe("the npm install's marker (npm-live.ts)", () => {
+  const configPath = (): string => defaultChoice().path;
+  function configured(): void {
+    mkdirSync(dirname(configPath()), { recursive: true });
+    writeFileSync(configPath(), "{}");
+  }
+  function wireBoth(): void {
+    const hooks: Record<string, string[]> = {};
+    for (const e of HOST_EVENTS) hooks[e] = [liveHookCommand()];
+    writeSettings(hooks);
+    writeFileSync(
+      join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { counterparts: { type: "stdio", command: process.execPath, args: ["run", MCP_SCRIPT], env: {} } } }),
+    );
+  }
+  /** The directory flavor's view, from source (`readsUserConfig: false`). */
+  function directory(read?: { hooks?: boolean; mcp?: boolean }, now?: number) {
+    return npmWiringForGate({ home, env: {}, cwd: project, configPath: configPath(), readsUserConfig: false, ...(read === undefined ? {} : { read }), ...(now === undefined ? {} : { now }) });
+  }
+
+  test("the npm side writes a reading of the user-level wiring: owner-only, the live hook and server, the build and when", () => {
+    configured();
+    wireBoth();
+    expect(noteNpmLive({ configPath: configPath(), home, env: {}, build: "0.3.25", now: 1_000 })).toBe("written");
+    expect(statSync(npmLivePath(configPath())).mode & 0o777).toBe(0o600);
+    const m = readNpmLive(configPath());
+    expect(m?.build).toBe("0.3.25");
+    expect(m?.writtenAt).toBe(1_000);
+    expect(m?.claudeConfigDir).toBeNull();
+    expect(m?.hooks).toEqual({ file: join(home, ".claude", "settings.json"), command: liveHookCommand() });
+    expect(m?.server?.exe).toBe(process.execPath);
+    expect(m?.server?.script).toBe(MCP_SCRIPT);
+    expect(m?.server?.file).toBe(join(home, ".claude.json"));
+    // Cheap after that: fresh until a day has passed, or the build or the Claude Code directory changes.
+    expect(noteNpmLive({ configPath: configPath(), home, env: {}, build: "0.3.25", now: 1_000 + NPM_LIVE_REFRESH_MS - 1 })).toBe("fresh");
+    expect(noteNpmLive({ configPath: configPath(), home, env: {}, build: "0.3.25", now: 1_000 + NPM_LIVE_REFRESH_MS })).toBe("written");
+    expect(noteNpmLive({ configPath: configPath(), home, env: {}, build: "0.3.26", now: 1_000 + NPM_LIVE_REFRESH_MS })).toBe("written");
+    // No temp file is left beside it.
+    expect(readdirSync(dirname(configPath())).filter((n) => n.includes(".tmp"))).toEqual([]);
+  });
+
+  test("a project's wiring is not the user's: a hook in one project's settings writes no hooks half", () => {
+    configured();
+    mkdirSync(join(project, ".claude"), { recursive: true });
+    writeFileSync(join(project, ".claude", "settings.json"), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: "command", command: liveHookCommand() }] }] } }));
+    expect(noteNpmLive({ configPath: configPath(), home, env: {}, build: null })).toBe("written");
+    expect(readNpmLive(configPath())).toMatchObject({ hooks: null, server: null });
+    expect(directory()).toEqual({ hooks: [], mcp: [] });
+  });
+
+  test("skipped with no install, and in a build that reads none of Claude Code's files", () => {
+    wireBoth();
+    expect(noteNpmLive({ configPath: configPath(), home, env: {}, build: null })).toBe("skipped");
+    configured();
+    expect(noteNpmLive({ configPath: configPath(), home, env: {}, build: null, readsUserConfig: false })).toBe("skipped");
+    expect(existsSync(npmLivePath(configPath()))).toBe(false);
+  });
+
+  test("the directory flavor with a live marker stands down, hooks and server, with the keep-one line", () => {
+    configured();
+    wireBoth();
+    noteNpmLive({ configPath: configPath(), home, env: {}, build: "0.3.25" });
+    // Claude Code's files are gone from under it: the marker alone decides.
+    rmSync(join(home, ".claude.json"));
+    rmSync(join(home, ".claude", "settings.json"));
+    const origin = pluginOrigin({ home, env: {}, root: join(home, ".claude", "plugins", "cache", "claude-plugins-official", "counterparts", "0.3.25") });
+    expect(origin).toMatchObject({ installed: true, id: "counterparts@claude-plugins-official" });
+    const hooks = hookGate(directory({ mcp: false }), home, origin);
+    expect(hooks.standDown).toBe(true);
+    expect(hooks.line).toContain("the npm install (its hooks in ~/.claude/settings.json) and this plugin");
+    expect(hooks.line).toContain("`/plugin uninstall counterparts@claude-plugins-official`");
+    const server = mcpGate(directory({ hooks: false }), home, origin);
+    expect(server.standDown).toBe(true);
+    expect(server.instructions).toContain("user scope, ~/.claude.json");
+    expect(server.instructions).toContain("Which one to keep is theirs to decide");
+    expect(npmMarkerReading(configPath(), {})).toEqual({ hooks: true, server: true });
+    // The full flavor never looks at it: with nothing wired, nothing stands down.
+    expect(npmWiringForGate({ home, env: {}, cwd: project, configPath: configPath(), readsUserConfig: true })).toEqual({ hooks: [], mcp: [] });
+  });
+
+  test("a stale marker stands nothing down: its program gone, too old, another Claude Code directory, or none at all", () => {
+    configured();
+    expect(hookGate(directory(), home).standDown).toBe(false);
+    // An npm install removed without `counterparts uninstall`: the program it names is gone.
+    const gone = join(work, "gone", "src", "adapters", "claude-code", "bin", "hook.ts");
+    const marker = {
+      version: 1,
+      build: "0.3.25",
+      claudeConfigDir: null,
+      writtenAt: Date.now(),
+      hooks: { file: join(home, ".claude", "settings.json"), command: `"${process.execPath}" run "${gone}"` },
+      server: { file: join(home, ".claude.json"), scope: "user", exe: process.execPath, script: gone.replace("claude-code/bin/hook.ts", "mcp/bin/serve.ts"), command: "x" },
+    };
+    writeFileSync(npmLivePath(configPath()), JSON.stringify(marker));
+    expect(directory().hooks.map((h) => h.live)).toEqual([false]);
+    expect(directory().mcp.map((m) => m.live)).toEqual([false]);
+    expect(hookGate(directory(), home).standDown).toBe(false);
+    expect(mcpGate(directory(), home).standDown).toBe(false);
+    expect(npmMarkerReading(configPath(), {})).toEqual({ hooks: false, server: false });
+    // Live programs, but written more than a week ago (or a week ahead): not believed.
+    const live = { ...marker, hooks: { ...marker.hooks, command: liveHookCommand() }, server: { ...marker.server, script: MCP_SCRIPT } };
+    writeFileSync(npmLivePath(configPath()), JSON.stringify(live));
+    expect(hookGate(directory(), home).standDown).toBe(true);
+    expect(mcpGate(directory(), home).standDown).toBe(true);
+    expect(hookGate(directory(undefined, live.writtenAt + NPM_LIVE_MAX_AGE_MS + 1), home).standDown).toBe(false);
+    expect(mcpGate(directory(undefined, live.writtenAt - NPM_LIVE_MAX_AGE_MS - 1), home).standDown).toBe(false);
+    expect(mcpGate(directory(undefined, live.writtenAt + NPM_LIVE_MAX_AGE_MS - 1), home).standDown).toBe(true);
+    // The hooks half is believed for two days only: an npm hook beside it rewrites it at every session start.
+    expect(hookGate(directory(undefined, live.writtenAt + NPM_LIVE_HOOKS_MAX_AGE_MS - 1), home).standDown).toBe(true);
+    expect(hookGate(directory(undefined, live.writtenAt + NPM_LIVE_HOOKS_MAX_AGE_MS + 1), home).standDown).toBe(false);
+    expect(mcpGate(directory(undefined, live.writtenAt + NPM_LIVE_HOOKS_MAX_AGE_MS + 1), home).standDown).toBe(true);
+    // Another Claude Code configuration directory's wiring says nothing about this one: it has a file of its own,
+    // and a default-named file that claims another directory is not believed either.
+    expect(npmWiringFromMarker({ configPath: configPath(), env: { CLAUDE_CONFIG_DIR: join(work, "other") } })).toEqual({ hooks: [], mcp: [] });
+    writeFileSync(npmLivePath(configPath()), JSON.stringify({ ...live, claudeConfigDir: join(work, "other") }));
+    expect(directory()).toEqual({ hooks: [], mcp: [] });
+    writeFileSync(npmLivePath(configPath()), JSON.stringify(live));
+    // A shape this build does not know.
+    writeFileSync(npmLivePath(configPath()), JSON.stringify({ ...live, version: 2 }));
+    expect(directory()).toEqual({ hooks: [], mcp: [] });
+    writeFileSync(npmLivePath(configPath()), "not json");
+    expect(directory()).toEqual({ hooks: [], mcp: [] });
+    expect(removeNpmLive(configPath())).toBe(true);
+    expect(removeNpmLive(configPath())).toBe(false);
+  });
+
+  test("one file per Claude Code directory: two of them sharing one memory keep their own reading", () => {
+    configured();
+    const other = join(work, "claude-b");
+    mkdirSync(other, { recursive: true });
+    writeSettings({ Stop: [liveHookCommand()] });
+    noteNpmLive({ configPath: configPath(), home, env: {}, build: null });
+    expect(noteNpmLive({ configPath: configPath(), home, env: { CLAUDE_CONFIG_DIR: other }, build: null })).toBe("written");
+    const named = npmLivePath(configPath(), { CLAUDE_CONFIG_DIR: other });
+    expect(named).not.toBe(npmLivePath(configPath()));
+    expect(NPM_LIVE_NAME.test(named.split("/").pop() ?? "")).toBe(true);
+    // B's settings (at $CLAUDE_CONFIG_DIR/settings.json) hold nothing; A's reading is untouched.
+    expect(readNpmLive(configPath(), { CLAUDE_CONFIG_DIR: other })?.hooks).toBeNull();
+    expect(readNpmLive(configPath())?.hooks).not.toBeNull();
+    expect(noteNpmLive({ configPath: configPath(), home, env: {}, build: null })).toBe("fresh");
+    expect(removeNpmLive(configPath(), { CLAUDE_CONFIG_DIR: other })).toBe(true);
+    expect(existsSync(npmLivePath(configPath()))).toBe(true);
+  });
+
+  test("the npm install's server writes it at its start; the plugin's does not", async () => {
+    expect(ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: firstRunLockPath(configPath(), tmp), noticePath: noticeIn() }).state).toBe("created");
+    wireBoth();
+    const npmEnv = { PATH: emptyBin, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", CLAUDE_PROJECT_DIR: project, TMPDIR: tmp };
+    // The plugin's server, beside the npm registration: stands down, writes nothing.
+    launch("mcp", "", pluginEnv());
+    expect(existsSync(npmLivePath(configPath()))).toBe(false);
+    const r = spawnSync(process.execPath, ["run", MCP_SCRIPT], { input: "", encoding: "utf8", env: npmEnv, timeout: 60_000 });
+    expect(r.signal).toBeNull();
+    expect(readNpmLive(configPath())?.server?.script).toBe(MCP_SCRIPT);
+  }, 120_000);
+
+  test("a half the npm install does not have stands nothing down: hooks only, and the plugin's server serves", () => {
+    configured();
+    writeSettings({ Stop: [liveHookCommand()] });
+    noteNpmLive({ configPath: configPath(), home, env: {}, build: null });
+    expect(hookGate(directory(), home).standDown).toBe(true);
+    expect(mcpGate(directory(), home).standDown).toBe(false);
+  });
+
+  test("written by the npm install's hook, never by the plugin's", () => {
+    expect(ensureFirstRun({ choice: defaultChoice(), env: firstRunEnv(), home, lockPath: firstRunLockPath(configPath(), tmp), noticePath: noticeIn() }).state).toBe("created");
+    // The plugin alone: its hooks run and write no marker.
+    for (const name of ["SessionStart", "UserPromptSubmit"]) expect(launch("hook", payload(name), pluginEnv()).code).toBe(0);
+    expect(existsSync(npmLivePath(configPath()))).toBe(false);
+    // The npm install's hook, wired in settings: it writes one.
+    wireBoth();
+    const npmEnv = { PATH: emptyBin, HOME: home, USERPROFILE: home, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", CLAUDE_PROJECT_DIR: project, TMPDIR: tmp };
+    const r = spawnSync(process.execPath, ["run", HOOK_SCRIPT], { input: payload("UserPromptSubmit", "npm-marker-1"), encoding: "utf8", env: npmEnv, timeout: 60_000 });
+    expect(r.status).toBe(0);
+    const m = readNpmLive(configPath());
+    expect(m?.hooks?.command).toBe(liveHookCommand());
+    expect(m?.server?.script).toBe(MCP_SCRIPT);
+    // Under the explicit-dir guard it writes nothing: a configuration nobody named is not touched.
+    removeNpmLive(configPath());
+    spawnSync(process.execPath, ["run", HOOK_SCRIPT], { input: payload("UserPromptSubmit", "npm-marker-2"), encoding: "utf8", env: { ...npmEnv, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" }, timeout: 60_000 });
+    expect(existsSync(npmLivePath(configPath()))).toBe(false);
+  }, 120_000);
 });
 
 // ── a paused folder with two wirings (rulings brief #19, 2026-10-10) ────────

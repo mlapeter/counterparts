@@ -64,7 +64,8 @@ import type { LogEvent, ProcessLog } from "../../log/index.js";
 import { serveStdio } from "../stdio.js";
 import { SidebarStatusWriter, keepPluginPresence, removeSidebarStatus, sidebarInstalled } from "../../sidebar-status.js";
 import { stoodDownServer } from "../stood-down.js";
-import { npmWiring } from "../../host-wiring.js";
+import { noteNpmLive, npmWiringForGate } from "../../npm-live.js";
+import { installedVersion } from "../../sessions.js";
 import { PLUGIN_ROOT_ENV, ensureFirstRun, installRoute, mcpGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
@@ -344,11 +345,11 @@ async function main(): Promise<void> {
   if (runningAsPlugin(process.env)) {
     const home = homedir();
     const projectDir = process.env["CLAUDE_PROJECT_DIR"] ?? process.cwd();
-    const gate = mcpGate(
-      npmWiring({ home, env: process.env, cwd: projectDir, read: { hooks: false } }),
-      home,
-      pluginOrigin({ home, env: process.env, cwd: projectDir }),
-    );
+    // The directory flavor reads the npm install's marker instead (`npm-live.ts`).
+    const wiring = npmWiringForGate({ home, env: process.env, cwd: projectDir, configPath: choice.path, read: { hooks: false } });
+    // Where the plugin was loaded from changes only the stood-down words, so it
+    // is read only for them (`pluginOrigin` may read Claude Code's plugin record).
+    const gate = mcpGate(wiring, home, wiring.mcp.some((m) => m.live) ? pluginOrigin({ home, env: process.env, cwd: projectDir }) : undefined);
     if (gate.standDown) {
       process.stderr.write("[counterparts] plugin server stood down: the npm install's server is registered in this host\n");
       // THE SIDEBAR IS HERE all the same (2026-10-15): a plugin loaded with
@@ -391,6 +392,13 @@ async function main(): Promise<void> {
     process.stderr.write(`${unreadable}\n`);
     process.exitCode = 1;
     return;
+  }
+  // THE NPM INSTALL SAYS IT IS WIRED (`npm-live.ts`): a reading of the
+  // user-level wiring, once per start, for a plugin of the directory flavor
+  // beside it. Any non-plugin server's reading is true (the nightly run's,
+  // Claude Desktop's), and a build that reads no Claude Code file writes none.
+  if (!runningAsPlugin(process.env)) {
+    noteNpmLive({ configPath: choice.path, home: homedir(), env: process.env, build: installedVersion(), force: true });
   }
   // stderr, never stdout — stdout is the JSON-RPC wire. This is this entry
   // point's "which file answered": printed at every launch, before a byte of

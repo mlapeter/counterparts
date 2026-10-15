@@ -55,12 +55,15 @@ If you already use the npm install (`counterparts install`), the plugin notices 
 down, so the memory is never wired twice.
 <!-- /flavor:full -->
 <!-- flavor:directory -->
-If you also use the npm install (`counterparts install`), keep one or the other. This
-version of the plugin doesn't read Claude Code's user configuration file, where that
-install registers its memory server, so it doesn't notice the npm install and doesn't stand
-down for it: both run, on the same memory, and Claude is offered the memory tools twice.
-To keep only the plugin, run `counterparts disconnect` and restart Claude Code; to keep only
-the npm install, uninstall the plugin.
+If you also use the npm install (`counterparts install`), keeping one is simpler. Both use
+the same memory, so nothing is lost either way: to keep only the plugin, run `counterparts
+disconnect` and restart Claude Code; to keep only the npm install, run `/plugin uninstall`
+for this plugin. While both are there, the plugin stands down for the npm install. It
+doesn't read Claude Code's files to notice it: the npm install (from the version after
+0.3.24) leaves a small note, `~/.counterparts/npm-live.json`, when it connects and as its
+sessions start, and the plugin stands down while that note is recent and the program it
+names is still there. An older npm install leaves no note, so with one of
+those both run and Claude is offered the memory tools twice.
 <!-- /flavor:directory -->
 
 ## What it adds
