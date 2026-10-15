@@ -146,9 +146,16 @@ export type FooterLine = { label: string; how: string }
 /** Where memory is paused or off, the pause line says how to resume instead. */
 const RESUME_ITEM = { label: 'Resume here', short: 'Resume', how: RESUME_SAY }
 
+/** For someone who'd rather not have the fox: shown while it is the avatar (Mike, 2026-10-15). */
+const NO_FOX_ITEM = { label: 'Hide the fox', short: 'Fox', how: '/counterparts avatar off' }
+
+/** Which optional lines the footer carries: the intro until the first meeting is done or skipped; the fox's line while it shows. */
+export type FooterShow = { intro: boolean; fox: boolean }
+
 /** The footer's lines at `w` cells; `paused`: this folder is paused or off. */
-export function footerLines(w: number, paused = false): FooterLine[] {
-  const items = paused ? FOOTER_ITEMS.map(it => (it.how === PAUSE_SAY ? RESUME_ITEM : it)) : FOOTER_ITEMS
+export function footerLines(w: number, paused = false, show: FooterShow = { intro: true, fox: false }): FooterLine[] {
+  const base = paused ? FOOTER_ITEMS.map(it => (it.how === PAUSE_SAY ? RESUME_ITEM : it)) : FOOTER_ITEMS
+  const items = [...base.filter(it => show.intro || it.how !== '/counterparts:meet'), ...(show.fox ? [NO_FOX_ITEM] : [])]
   const fits = (label: string, how: string): boolean => [...`${label} · ${how}`].length <= w
   // One set of labels for every line, so they read alike: the long ones only where all of them fit.
   const long = items.every(it => fits(it.label, it.how))

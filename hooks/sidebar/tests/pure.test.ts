@@ -31,6 +31,8 @@ import {
 import { foxSvg } from '../hooks/fox-svg'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { headRight } from '../hooks/desktop'
+import { parseGlance } from '../hooks/feed'
+import { leadDate } from '../hooks/sections'
 import { FOOTER_ITEMS, footerLines, normAvatar, resumeWords, statusFor } from '../hooks/words'
 import {
   STAGE_COLS,
@@ -517,10 +519,14 @@ describe('the body, laid out', () => {
     expect(cells(clip('記憶記憶記憶記憶記憶記憶記憶記憶記憶', 12))).toBeLessThanOrEqual(12)
   })
 
-  test('half-height bars in half-cell steps, at least one half', () => {
+  test('half-height bars in half-cell steps, at least one half, on a log scale: 1, 10 and 100 are even steps', () => {
     expect(bar(92, 92, 12)).toBe('▄'.repeat(12))
-    expect(bar(1, 92, 12)).toBe('▖')
-    expect(bar(46, 92, 12)).toBe('▄▄▄▄▄▄')
+    expect(bar(1, 92, 12)).toBe('▄▄')
+    expect(bar(46, 92, 12)).toBe('▄'.repeat(10))
+    expect(bar(0, 92, 12)).toBe('▖')
+    const len = (v: number) => [...bar(v, 999, 30)].length
+    expect(len(10) - len(1)).toBeGreaterThan(5)
+    expect(Math.abs(len(100) - len(10) - (len(10) - len(1)))).toBeLessThanOrEqual(3)
   })
 
   test('the five sections in order, a blank row between; no line over the width, and no line starts with a bullet, a gutter or an indent but a saved item’s dot', () => {
@@ -1107,5 +1113,28 @@ describe('the desktop layout', () => {
     // the terminal pads with spaces instead and carries none of it
     const term = layoutBody(state(false)).lines.filter(l => l.key?.startsWith('mech:'))
     for (const l of term) expect(l.segs.some(sg => sg.cw !== undefined || sg.fill !== undefined || sg.grow === true)).toBe(false)
+  })
+})
+
+describe('the glance: the wake\'s first line that has something', () => {
+  const LEFT = 'Where I left off in this directory (written 10-14 19:37 by session 7c992a20 on Opus 5.5): Shipping the onboarding fixes; next is the site deploy.\n(The whole of it is sch_226878f5b865 — expand it with the counterparts recall tool.)'
+  const COMING = 'Coming up:\n- 2026-10-11 (due 2026-10-15) · Second check of the lists trial. (earlier: [mem_9d3ce7633f97])\n- 2026-10-20 · Other'
+  const YESTERDAY = 'Yesterday, Oct 14: epi_8c87c42ae316; epi_a042be2d13d7; and 2 more.'
+  test('Last here first, then where it was left off, then Coming up, then Yesterday; ids and pointers left out', () => {
+    expect(parseGlance(`Last here: I, Oct 14 evening, "Fox polish". We tried half-blocks.\n${LEFT}`)).toEqual({ head: 'Last here', text: 'I, Oct 14 evening, "Fox polish". We tried half-blocks.' })
+    expect(parseGlance(`${LEFT}\n${COMING}`)).toEqual({ head: 'Last here', text: 'Shipping the onboarding fixes; next is the site deploy.' })
+    expect(parseGlance(`${COMING}\n${YESTERDAY}`)).toEqual({ head: 'Coming up', text: '2026-10-15 · Second check of the lists trial.' })
+    expect(parseGlance('Yesterday, Oct 14: the fox shipped; the directory submitted.')).toEqual({ head: 'Yesterday, Oct 14', text: 'the fox shipped; the directory submitted.' })
+  })
+  test('a Coming up date reads as words', () => {
+    const now = new Date('2026-10-15T09:00:00').getTime()
+    expect(leadDate('2026-10-15 · Vote', now)).toBe('Today · Vote')
+    expect(leadDate('2026-10-16 · Vote', now)).toBe('Tomorrow · Vote')
+    expect(leadDate('2026-10-20 · Vote', now)).toBe('Oct 20 · Vote')
+    expect(leadDate('no date here', now)).toBe('no date here')
+  })
+  test('a line of ids only, or nothing at all, is no glance', () => {
+    expect(parseGlance(YESTERDAY)).toBeNull()
+    expect(parseGlance('Who I am:\nnothing here')).toBeNull()
   })
 })

@@ -81,6 +81,8 @@ import {
   otherStore,
   ourTool,
   parseRecallBlock,
+  parseGlance,
+  parseOnboardingMarker,
   parseStoreMarker,
   savedItems,
   surfacedIds,
@@ -1225,6 +1227,17 @@ export const register: Register = on => {
       // The wake's store marker: which store this session's hooks opened (the status file must be the same store's).
       const storeId = parseStoreMarker(text)
       if (storeId !== null) run.wakeStore = storeId
+      // The wake's onboarding marker: once the first meeting is done or skipped, the footer stops offering it.
+      const glanceNow = parseGlance(text)
+      if (glanceNow !== null) {
+        run.glance = glanceNow
+        $.ui.invalidate('ui.render')
+      }
+      const meet = parseOnboardingMarker(text)
+      if (meet !== null && meet !== run.meet) {
+        run.meet = meet
+        $.ui.invalidate('ui.render')
+      }
     } catch {
       // the row is stored whatever the sidebar made of it
     }
@@ -1373,11 +1386,12 @@ export const register: Register = on => {
     // The desktop sets text in its own font, about a fifth narrower than the cells the pane is measured in:
     // the body wraps to that, and the footer fits its lines to it (2026-10-13, Mike: "hard to read").
     const bodyW = SURFACE.prose ? Math.floor(w * 1.2) : w
-    const footRows = footerRows(bodyW, paused)
+    const footShow = { intro: run.meet !== 'done' && run.meet !== 'skipped', fox: mode !== 'off' }
+    const footRows = footerRows(bodyW, paused, footShow)
     // The desktop's rows are its font's, a little taller than the cells it reports: two rows of headroom keep its
     // pane from scrolling by a line (2026-10-13).
     const bodyRows = Math.max(4, fill - used - footRows - (SURFACE.prose ? 2 : 0))
-    const { lines } = layoutBody({ w: bodyW, rows: bodyRows, now, mind, saved, today, dream: dreamNow, open, mech, focus, dash, prose: SURFACE.prose, cellsW: w, statusAt: pulse?.at ?? null })
+    const { lines } = layoutBody({ w: bodyW, rows: bodyRows, now, mind, saved, today, dream: dreamNow, open, mech, focus, dash, prose: SURFACE.prose, cellsW: w, statusAt: pulse?.at ?? null, glance: run.glance })
     // The body's surface module stays here, its module a literal on the tag's own line: the engine reads a hooks
     // module's surface modules off its own source.
     if ('Client' in els) {
@@ -1387,7 +1401,7 @@ export const register: Register = on => {
     rows.push(<Box key="spacer" flexGrow={1} />)
 
     // ── the footer: how to do what the pane doesn't (the intro, the dashboard, a pause, hiding it) ──
-    rows.push(footer(paneEls, { w, fit: bodyW, prose: SURFACE.prose, paused }))
+    rows.push(footer(paneEls, { w, fit: bodyW, prose: SURFACE.prose, paused, show: footShow }))
 
     return frame(paneEls, W, fill, rows, stageTop)
   })
