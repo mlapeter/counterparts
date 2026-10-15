@@ -1252,6 +1252,9 @@ export const register: Register = on => {
       await update($, savedA, () => [])
       await update($, mindA, () => null)
       await update($, openA, () => null)
+      // the next session's wake says these again; until it does, nothing stale
+      run.glance = null
+      run.meet = 'unknown'
     }
     return next(e)
   }).catch(($, e, next) => next(e))

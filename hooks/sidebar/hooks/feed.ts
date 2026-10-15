@@ -805,6 +805,13 @@ const GLANCE_LAST = /^Last here:\s*(.+)$/m
 const GLANCE_LEFT_OFF = /^Where I left off in this directory \([^)]*\):\s*(.+)$/m
 const GLANCE_COMING = /^Coming up:\s*\n-\s*(.+)$/m
 const GLANCE_YESTERDAY = /^Yesterday, ([^:]+):\s*(.+)$/m
+/**
+ * A Coming up item's date, every way core's `datePrefix` (self/briefing.ts)
+ * writes it: `due D`, `was due D`, `due D, every May 14`, `[by ]L (due D…)`,
+ * `[by ]L (was due D…)`, `[by ]L (of H)`, `[by ]L` — then ` · `. The date it
+ * is about comes out alone: the due date where there is one, else the learned.
+ */
+const COMING_DATE = /^(?:by\s+)?(?:(?:was due|due)\s+(\d{4}-\d{2}-\d{2})(?:,[^·]*)?|(\d{4}-\d{2}-\d{2})(?:\s*\((was due|due|of)\s+(\d{4}-\d{2}-\d{2})[^)]*\))?)\s*·\s*/
 
 /** Memory, chapter and handoff ids, and the asides that only point at them: not for the person. */
 function forPerson(text: string): string {
@@ -812,6 +819,7 @@ function forPerson(text: string): string {
     .replace(/\((?:earlier|the whole of it is|expand)[^)]*\)/gi, '')
     .replace(/\[?\b(?:mem|epi|sch|ctr)_[0-9a-f]{6,}\b\]?,?/g, '')
     .replace(/\(\s*\)/g, '')
+    .replace(/[;,]\s*(?=[;,.]|$)/g, '')
     .replace(/\s+([.,;])/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .trim()
@@ -825,7 +833,8 @@ export function parseGlance(text: string): Glance | null {
   }
   const coming = GLANCE_COMING.exec(text)?.[1]
   if (coming !== undefined) {
-    const t = forPerson(coming.replace(/^(\d{4}-\d{2}-\d{2})(?:\s*\(due (\d{4}-\d{2}-\d{2})\))?\s*·\s*/, (_m, d: string, due?: string) => `${due ?? d} · `))
+    const t = forPerson(coming.replace(COMING_DATE, (_m, lone?: string, learned?: string, word?: string, inner?: string) =>
+      `${lone ?? (word === 'of' ? learned : inner ?? learned) ?? ''} · `))
     if (t.length > 0) return { head: 'Coming up', text: t }
   }
   const y = GLANCE_YESTERDAY.exec(text)

@@ -1126,6 +1126,19 @@ describe('the glance: the wake\'s first line that has something', () => {
     expect(parseGlance(`${COMING}\n${YESTERDAY}`)).toEqual({ head: 'Coming up', text: '2026-10-15 · Second check of the lists trial.' })
     expect(parseGlance('Yesterday, Oct 14: the fox shipped; the directory submitted.')).toEqual({ head: 'Yesterday, Oct 14', text: 'the fox shipped; the directory submitted.' })
   })
+  test('every date form core writes before a Coming up item comes out as the one date it is about', () => {
+    const c = (prefix: string) => parseGlance(`Coming up:\n- ${prefix}Vote`)?.text
+    expect(c('due 2026-10-15 · ')).toBe('2026-10-15 · Vote')
+    expect(c('was due 2026-10-14 · ')).toBe('2026-10-14 · Vote')
+    expect(c('due 2026-10-15, every Oct 15 · ')).toBe('2026-10-15 · Vote')
+    expect(c('2026-05-14 (due 2027-05-14, every May 14) · ')).toBe('2027-05-14 · Vote')
+    expect(c('by 2026-10-01 (was due 2026-10-14) · ')).toBe('2026-10-14 · Vote')
+    expect(c('2026-10-01 (of 2026-09-30) · ')).toBe('2026-10-01 · Vote')
+    expect(c('by 2026-10-20 · ')).toBe('2026-10-20 · Vote')
+  })
+  test('Yesterday with some titles and some ids: the ids go, and their separators with them', () => {
+    expect(parseGlance('Yesterday, Oct 14: "Fox polish" (epi_8c87c42ae316); epi_a042be2d13d7; epi_10ae407be15a; and 3 more.')?.text).toBe('"Fox polish"; and 3 more.')
+  })
   test('a Coming up date reads as words', () => {
     const now = new Date('2026-10-15T09:00:00').getTime()
     expect(leadDate('2026-10-15 · Vote', now)).toBe('Today · Vote')
