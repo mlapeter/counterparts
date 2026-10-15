@@ -1158,7 +1158,10 @@ describe("the npm install's hook and server never take themselves for the plugin
       PATH: emptyBin,
       HOME: home,
       USERPROFILE: home,
-      TZ: "UTC",
+      // The suite's own zone, not a fixed one: the in-process runner dates the
+      // store's first day in this zone, so a child in another zone can read
+      // tomorrow (Denver after 18:00 vs UTC) and wake on day 2 instead of day 1.
+      TZ: Intl.DateTimeFormat().resolvedOptions().timeZone,
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0",
       CLAUDE_PROJECT_DIR: project,
       ...extra,
