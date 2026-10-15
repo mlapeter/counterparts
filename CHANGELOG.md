@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.3.24 — 2026-10-14
+
+Forgetting now waits: a memory is put away only after 14 lived days under the floor, not 14 days after it was last used, and a release that changes how strength is read starts that wait fresh for everything it lowered. So nothing is archived for the first 14 lived days after you upgrade to this release; archived memories keep their words and stay readable by id. Old claims the claims era lowers now read at today's default all the way down. At the end-of-session ask Claude now also rates the memories it was shown, 0 to 3; the ratings are only recorded and change nothing yet. The `salience` field tells Claude to leave routine work at the default, a faded match is labelled "faded: weak, below reach", closing a reminder closes every memory it moved through, a revision with no title keeps the old one's, and `recall` takes `query` as another name for `question`. With both the plugin and the npm install, uninstalling the plugin and keeping the memories leaves the npm install's memory server and hooks working. The sidebar counts feelings under Emotion. `/plugin update counterparts@counterparts` may do nothing; `/plugin marketplace update counterparts` followed by uninstalling and reinstalling the plugin works, and your memory in `~/.counterparts` stays where it is. No store-format change (store v13, cache v6) and no wiring change: nothing to run after upgrading from 0.3.23, and `counterparts connect` is not needed. Going back to 0.3.23 gives up the wait: it counts 14 days from last use again.
+
+- **A memory leaves only after 14 lived days under the floor.** The floor prune used to count
+  its 14 days from a memory's last use, so a memory unused for weeks was archived the first
+  night it faded under the floor. Now it waits 14 lived days under the floor first, and a
+  build that changes how strength is read never archives anything the night it arrives: the
+  wait for everything it lowered starts that night, so a store archives nothing for its
+  first 14 lived days on this release, whichever release it upgraded from. Archived memories
+  still keep their words and stay readable by id.
+- **Old claims now read at today's default all the way down.** A memory written before the
+  claims era whose claim the era lowers now reads at that default as a whole, instead of being
+  held up by the relevance and predictive scores written alongside the old claim; a quarter
+  of the lowered memories were not lowered at all before. Memories the era raises, and the
+  ones it leaves alone (the core, the owner's own, protected, a pending or repeating date),
+  read as before. No store-format change.
+- **Claude now scores the memories it was shown.** At the end-of-session ask, Claude rates
+  each footnote it was shown since it last wrote, and every memory it says it drew on, from
+  0 (noise) to 3 (changed what it did or said). The scores are only recorded: they change
+  nothing about any memory yet. `counterparts probe-oq4` prints them by day and by kind of
+  showing, beside what the replies actually used.
+- **Routine work is left at the default salience.** The `salience` field on `remember` and
+  `session_end` now tells Claude to leave it unset for a routine work event or an ordinary
+  work fact unless it changed something, and to claim 0.4 or more only for what struck it
+  or changed how it will work, so weak work memories fade on their own. The owner's
+  rulings and corrections still stay high.
+- **A faded match is labelled "faded: weak, below reach".** Asking for facts used to label
+  it "not used for a long while", which was false for a memory two days old that simply
+  started weak. The dashboard's search says the same. Ranking is unchanged.
+- **Closing a reminder closes all of it.** When a memory says a dated thing is done (its
+  date dropped, or `status: done`), every earlier or later memory the same reminder moved
+  through loses its date too, so one "done" stops it coming back. Other memories nearby
+  that still hold a date are listed in the reply, by id and title, so Claude can close
+  them in the same step if they are the same thing; they are never closed for it.
+- **A revision keeps its title.** A memory that revises another (`updates`) and has no title
+  of its own now takes the old one's, as it already took what it was about, who said it,
+  its status and its date. When it closes something (a dated thing done, or any
+  `status: done`), the old title would read as still open, so none is carried and the
+  reply asks for a title. A confidential memory's title is never carried.
+- **`recall` takes `query` as another name for `question`.** A recall sent with `query`
+  used to be refused for having no question; it is now answered as one. A mode is still
+  required.
+- **Uninstalling the plugin no longer takes the npm install's memory server with it.** With
+  both installed, the plugin's uninstall (keeping the memories) ran `claude mcp remove
+  counterparts -s user`, which removed the server the npm install registered. The plugin
+  never registers one there, so it now leaves it alone and says so; `counterparts
+  uninstall` still removes its own.
+- **Uninstalling the plugin leaves a working npm install's hooks alone too, and cleans up
+  after one that is gone.** With both installed, the plugin's uninstall (keeping the
+  memories) took the npm install's wake and recall hooks out of `~/.claude/settings.json`.
+  It now removes a Counterparts hook or memory server only when the program it runs is no
+  longer there, which is what an npm install removed without `counterparts uninstall`
+  leaves behind. Run at a terminal, the plugin's uninstall now asks whether to delete the
+  memories before it removes anything of the npm install's, so answering no leaves that
+  install working. A hook line written as `~/…counterparts-hook`
+  or `$HOME/…` now reads as live, here and in doctor and the plugin's stand-down, as the
+  shell that runs it would read it.
+- **The sidebar counts feelings under Emotion.** "Mechanisms today" showed Emotion at 0
+  every day, because its only proof was a mood match, and mood matching is off. It now
+  counts a memory saved with a feeling and a memory carrying a feeling that came to mind,
+  and opening Emotion lists those memories with their feeling words. The dashboard's
+  Emotion light reads the same proofs. `sidebar.json` gains a `felt` detail on those rows
+  (its version stays 1).
+- The sidebar's footer says "Dash · /counterparts:dashboard", which fits the docked pane
+  on one line.
+
 ## 0.3.23 — 2026-10-14
 
 The plugin's sidebar now shows your memory and does nothing else: it has no buttons and no links, runs no command, calls no tool and makes no network request. Its footer says how to do the rest yourself (`/counterparts:meet`, `/counterparts:dashboard`, say "pause memory here", `/counterparts quiet`). What it shows comes from a small file Counterparts writes for it, `~/.counterparts/sidebar.json`, only while the plugin is installed, so the dashboard no longer has to be running for the sidebar to show anything. The sidebar's brain is gone and the fox stays. The plugin directory's build of the plugin no longer reads Claude Code's user configuration file and leaves out the dashboard's 3D brain; beside an npm install it does not stand down, so keep one or the other. No store-format change (store v13, cache v6) and no wiring change: nothing to run after upgrading from 0.3.22, and `counterparts connect` is not needed.

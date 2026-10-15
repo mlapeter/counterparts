@@ -12,7 +12,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 | | |
 |---|---|
-| **On npm** | 0.3.23 (Oct 14) |
+| **On npm** | 0.3.24 (Oct 14) |
 | **On master, not released** | nothing yet |
 | **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11); the plugin with neither, as one downloaded program (0.3.14). Not Windows. |
@@ -81,6 +81,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 ## Recently done
 
+- **10-14**: 0.3.24 on npm: a memory leaves only after 14 lived days under the floor, and a curve change starts that wait fresh, so nothing is archived for 14 lived days after upgrading; old claims the era lowers read at today's default all the way down (#494); Claude rates the memories it was shown 0–3 at the session_end ask, tracking only (#492); routine work left at the default salience by the tool text, "faded: weak, below reach", a reminder's whole moved chain closes together, an untitled revision keeps its title, `recall` takes `query` (#493); the plugin's uninstall leaves a working npm install's memory server and hooks alone (#487, #491); the sidebar counts feelings under Emotion (#488) and its footer fits the docked pane (#486); no store-format change, nothing to run after upgrading from 0.3.23
 - **10-14**: 0.3.23 on npm, the build for Anthropic's plugin directory: the sidebar shows memory and acts on nothing (no buttons, no links, no network: it reads `~/.counterparts/sidebar.json`, written only while the plugin is installed), the brain gone and the fox kept (#480, #483); the directory build never reads `~/.claude.json` (no stand-down beside an npm install there, a known limit) and drops the dashboard's 3D brain (#481, #482); no store-format change, nothing to run after upgrading from 0.3.22
 - **10-14**: 0.3.22 on npm: the plugin installs from its own generated repository, counterparts-ai/counterparts-plugin, which also carries the directory flavor (#475); the sidebar ready for Anthropic's directory: links in a terminal, buttons on the desktop, no search, the fox from image files, `counterparts dashboard` opens the one already running (#477, #478); MCP tool annotations (#474); session context offers rather than orders (#476); no store-format change, nothing to run after upgrading from 0.3.21
 - **10-13**: 0.3.21 on npm: conversation text kept 3 days after write-up and never more than 14 days, never in a backup, `counterparts delete conversation-text|backups|activity-log` and "Delete data…" on the dashboard (#468); recall's carried words cleared past the same ceiling (#471); the plugin installs over HTTPS (#467); "installed twice" said once (#469); the fox polished and the sidebar's Desktop layout (#470, #472); no store-format change, nothing to run after upgrading from 0.3.20
