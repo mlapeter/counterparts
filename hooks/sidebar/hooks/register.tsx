@@ -131,7 +131,7 @@ import {
   quiet,
   run,
 } from './state'
-import { NOT_CARRIED, STATUS_FILE, memoryIn, parseStatus, rowsNamed, rowsSince } from './status'
+import { NOT_CARRIED, STATUS_FILE, keepsBefore, memoryIn, parseStatus, rowsNamed, rowsSince } from './status'
 import type { Status } from './status'
 import { CLASSIC_HINT, NARROW_HINT, TAIL_HINT, TAIL_SPARE, narrowHint, quietTail } from './tail'
 import { P, SURFACE, applyTheme, normTheme } from './theme'
@@ -209,9 +209,10 @@ async function readStatus($: EngineInterface): Promise<Status | null> {
     // the last good one stands until the next read.
     if (parsed === null) return run.status
     run.statusStamp = stamp
-    // Two writers racing: an older file of the same store over a newer one is not shown (the log only grows).
+    // Two writers racing: an older file of the same store over a newer one is not shown (the log only grows),
+    // unless it is newer by more than a race makes it — a store put back (`keepsBefore`).
     const before = run.status
-    if (before !== null && parsed.storeId !== null && parsed.storeId === before.storeId && parsed.pulse.lastSeq < before.pulse.lastSeq) return before
+    if (keepsBefore(before, parsed)) return before
     run.status = parsed
     return parsed
   } catch {

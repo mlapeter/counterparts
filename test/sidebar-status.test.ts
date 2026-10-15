@@ -9,7 +9,7 @@
  * removes.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,9 +17,15 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import { ownedKind, ownedNames } from "../src/adapters/cli/uninstall.js";
 import { openServer } from "../src/adapters/mcp/index.js";
+import { pruneSessions } from "../src/adapters/sessions.js";
 import {
   DETAIL_KEYS,
   MEMORY_CAP,
+  PLUGIN_PRESENCE_FRESH_MS,
+  PLUGIN_PRESENCE_NAME,
+  keepPluginPresence,
+  notePluginPresence,
+  pluginPresencePath,
   SIDEBAR_FILE_NAME,
   SIDEBAR_STATUS_VERSION,
   SidebarStatusWriter,
@@ -34,6 +40,15 @@ import {
 } from "../src/adapters/sidebar-status.js";
 import { storeId } from "../src/adapters/store-id.js";
 import { seedDemo, seedEmpty } from "../tools/demo/seed.js";
+
+// The sidebar mod's own module, outside this project's type-check (extensionless imports, `tsc -p hooks/sidebar` checks it).
+type ModStatus = { storeId: string | null; writtenAt: number; pulse: { lastSeq: number } };
+const STATUS_TS: string = "../hooks/sidebar/hooks/status.ts";
+const { PUT_BACK_MS, keepsBefore, parseStatus } = (await import(STATUS_TS)) as {
+  PUT_BACK_MS: number;
+  keepsBefore: (before: ModStatus | null, next: ModStatus) => boolean;
+  parseStatus: (text: string) => ModStatus | null;
+};
 
 let root: string;
 let rich: string;
@@ -256,13 +271,23 @@ describe("the review's cases (2026-10-14)", () => {
       const other = writeSidebarStatus({ configPath: cfg, dataDir: b, ifMoved: { lastSeq: 0, maxAgeMs: 60_000 } });
       expect(other.written).toBe(true);
       expect(readSidebarStamp(sidebarStatusPath(cfg))?.storeId).toBe(storeId(b));
-      // a newer file of b's own: an older write of b's does not replace it
+      // a newer file of b's own, written by a writer that raced this one (the log moved under it): not replaced
       const file = sidebarStatusPath(cfg);
-      const v = JSON.parse(readFileSync(file, "utf8")) as { pulse: { lastSeq: number } };
-      v.pulse.lastSeq = 1_000_000;
-      writeFileSync(file, JSON.stringify(v));
-      expect(writeSidebarStatus({ configPath: cfg, dataDir: b }).reason).toBe("newer");
-      expect(readSidebarStamp(file)?.lastSeq).toBe(1_000_000);
+      const race = writeSidebarStatus({
+        configPath: cfg,
+        dataDir: b,
+        beforeRename: () => {
+          const c = Counterpart.open({ dir: b, owner: true });
+          try {
+            c.store.appendEvent({ name: "test.moved", day: c.store.livedDay(), payload: {} });
+          } finally {
+            c.close();
+          }
+          expect(writeSidebarStatus({ configPath: cfg, dataDir: b }).written).toBe(true);
+        },
+      });
+      expect(race.reason).toBe("newer");
+      expect(readSidebarStamp(file)?.lastSeq).toBe(race.lastSeq ?? -1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -341,6 +366,130 @@ describe("Emotion in the file (2026-10-14)", () => {
       expect(deposits.map(feltOf)).toEqual([null, [{ id: felt, words: ["proud"] }]]);
       expect(s["memories"][felt]["title"]).toBe("The rota went up untouched");
       expect(DETAIL_KEYS.has("felt")).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the re-review's cases (2026-10-15)", () => {
+  test("a plugin loaded from a folder beside an npm install: its stood-down server's marker counts as the sidebar installed, while fresh", () => {
+    const home = mkdtempSync(join(tmpdir(), "counterparts-sidebar-presence-"));
+    try {
+      const cfg = join(home, ".counterparts", "claude-code.json");
+      expect(notePluginPresence(cfg)).toBe(false); // never makes the folder
+      mkdirSync(join(home, ".counterparts"));
+      const now = Date.now();
+      expect(sidebarInstalled({}, home, cfg, now)).toBe(false);
+      expect(notePluginPresence(cfg, now)).toBe(true);
+      expect(pluginPresencePath(cfg)).toBe(join(home, ".counterparts", PLUGIN_PRESENCE_NAME));
+      expect(statSync(pluginPresencePath(cfg)).mode & 0o777).toBe(0o600);
+      expect(sidebarInstalled({}, home, cfg, now)).toBe(true);
+      expect(sidebarInstalled({}, home)).toBe(false); // without the configuration, not asked
+      expect(sidebarInstalled({}, home, cfg, now + PLUGIN_PRESENCE_FRESH_MS + 1)).toBe(false); // stale: the session is gone
+      expect(sidebarInstalled({}, home, cfg, now - PLUGIN_PRESENCE_FRESH_MS - 1)).toBe(false); // a clock that ran back
+      writeFileSync(pluginPresencePath(cfg), "not json");
+      expect(sidebarInstalled({}, home, cfg, now)).toBe(false);
+      const stop = keepPluginPresence(cfg);
+      stop();
+      expect(sidebarInstalled({}, home, cfg)).toBe(true);
+      const owned = ownedNames(cfg, { dataDir: join(home, ".counterparts", "store") }, join(home, ".counterparts", "store"));
+      expect(ownedKind(PLUGIN_PRESENCE_NAME, owned)).toBe("sidecar");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("the memory server asks at each write: not installed removes the file, installed later writes it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-sidebar-wanted-"));
+    try {
+      const store = join(dir, "store");
+      seedEmpty({ dir: store });
+      const cfg = join(dir, "claude-code.json");
+      writeFileSync(cfg, JSON.stringify({ dataDir: store }));
+      writeFileSync(join(dir, SIDEBAR_FILE_NAME), "{}");
+      let wanted = false;
+      const reasons: string[] = [];
+      const w = new SidebarStatusWriter({ configPath: cfg, dataDir: store, newestSeq: () => null, wanted: () => wanted, onWrite: (r) => reasons.push(r.reason) });
+      try {
+        w.schedule(0);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(existsSync(join(dir, SIDEBAR_FILE_NAME))).toBe(false);
+        w.schedule(0);
+        await new Promise((r) => setTimeout(r, 50));
+        expect(reasons).toEqual(["removed"]); // nothing more said while there is nothing to remove
+        wanted = true;
+        w.schedule(0);
+        await new Promise((r) => setTimeout(r, 200));
+        expect(existsSync(join(dir, SIDEBAR_FILE_NAME))).toBe(true);
+        expect(reasons).toEqual(["removed", "written"]);
+      } finally {
+        w.stop();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a store put back (same id, a lower seq): the file ahead of the log is written over, by a plain write and by the server's", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-sidebar-putback-"));
+    try {
+      const store = join(dir, "store");
+      seedEmpty({ dir: store });
+      storeId(store, { mint: true });
+      const cfg = join(dir, "claude-code.json");
+      const first = writeSidebarStatus({ configPath: cfg, dataDir: store });
+      expect(first.written).toBe(true);
+      const file = sidebarStatusPath(cfg);
+      const ahead = (): void => {
+        const v = JSON.parse(readFileSync(file, "utf8")) as { pulse: { lastSeq: number } };
+        v.pulse.lastSeq = (first.lastSeq ?? 0) + 500; // what it said before the restore
+        writeFileSync(file, JSON.stringify(v));
+      };
+      ahead();
+      // the server's write: the file is not "the same" as the log's seq, it is ahead of it
+      const served = writeSidebarStatus({ configPath: cfg, dataDir: store, ifMoved: { lastSeq: first.lastSeq ?? 0, maxAgeMs: 60_000 } });
+      expect(served.reason).toBe("written");
+      expect(readSidebarStamp(file)?.lastSeq).toBe(first.lastSeq ?? -1);
+      ahead();
+      expect(writeSidebarStatus({ configPath: cfg, dataDir: store }).reason).toBe("written");
+      expect(readSidebarStamp(file)?.lastSeq).toBe(first.lastSeq ?? -1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the sidebar takes a lower seq of the same store when the file is newer by more than a race makes it", () => {
+    const text = (storeId: string | null, lastSeq: number, writtenAt: number): string =>
+      JSON.stringify({ version: SIDEBAR_STATUS_VERSION, storeId, writtenAt, build: null, pulse: { day: 1, memories: 0, lastSeq }, today: null, dreams: [], events: [], panels: {}, memories: {} });
+    const t = 1_800_000_000_000;
+    const before = parseStatus(text("st_0000000000000001", 50, t));
+    expect(before).not.toBeNull();
+    const at = (storeId: string | null, lastSeq: number, writtenAt: number) => parseStatus(text(storeId, lastSeq, writtenAt))!;
+    expect(keepsBefore(null, at("st_0000000000000001", 10, t))).toBe(false);
+    expect(keepsBefore(before, at("st_0000000000000001", 49, t - 5))).toBe(true); // a race: older file, landed late
+    expect(keepsBefore(before, at("st_0000000000000001", 49, t + PUT_BACK_MS - 1))).toBe(true);
+    expect(keepsBefore(before, at("st_0000000000000001", 10, t + PUT_BACK_MS))).toBe(false); // put back
+    expect(keepsBefore(before, at("st_0000000000000001", 60, t))).toBe(false); // moved on
+    expect(keepsBefore(before, at("st_0000000000000002", 10, t))).toBe(false); // another store
+    expect(keepsBefore(before, at(null, 10, t))).toBe(false);
+  });
+
+  test("the store's pointer is touched at every write, so SessionStart's weekly prune keeps it", () => {
+    const dir = mkdtempSync(join(tmpdir(), "counterparts-sidebar-pointer-"));
+    try {
+      const store = join(dir, "store");
+      seedEmpty({ dir: store });
+      const cfg = join(dir, "claude-code.json");
+      expect(writeSidebarStatus({ configPath: cfg, dataDir: store }).written).toBe(true);
+      const pointer = sidebarPointerPath(store);
+      const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+      utimesSync(pointer, old, old);
+      expect(writeSidebarStatus({ configPath: cfg, dataDir: store }).written).toBe(true);
+      expect(Date.now() - statSync(pointer).mtimeMs).toBeLessThan(60_000);
+      pruneSessions(store);
+      expect(existsSync(pointer)).toBe(true);
+      expect(readFileSync(pointer, "utf8")).toBe(sidebarStatusPath(cfg));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
