@@ -132,7 +132,6 @@ export function shownOf(
     fromChapter ??= bare.date;
     if (fromChapter === null && typeof opts.chapterDay === "string" && DAY.test(opts.chapterDay)) fromChapter = opts.chapterDay;
   }
-
   const lifted = liftDate(flat);
   const width = opts.width ?? 320;
   const text = lifted.rest.length > width ? `${lifted.rest.slice(0, width - 1).trimEnd()}…` : lifted.rest;

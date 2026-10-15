@@ -2337,6 +2337,5 @@ function probeLabel(probe: ProbeId): string {
   if (probe === "returns.dream") return "the returns table (dream replays)";
   if (probe === "dreamed") return "memories a dream wrote";
   if (probe === "chapters") return "the journal's chapters";
-
   return `the ${probe.replace(".", " ")} table`;
 }

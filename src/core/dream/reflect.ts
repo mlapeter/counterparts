@@ -780,7 +780,6 @@ export class Reflections {
         // still bounded: whatever it holds now reads within ENTRY_CHARS.
         // At the length the fit measured (an index from before 2026-10-15 has none: an ordinary line).
         const text = f === "line" ? entryLine(e, T.LINE_BYTES, index?.ref === row.id ? (index.lineCap ?? T.LINE_BYTES) : T.LINE_BYTES) : clipWire(e.text, T.ENTRY_CHARS);
-
         entries.push(shownEntry(e, { fidelity: f === "line" ? "line" : text === e.text ? "whole" : "excerpt", text, chars: e.text.length }));
       }
       return { id: cid, title: r.title, entries, earlier: all.length - entries.length };
@@ -2015,7 +2014,6 @@ export class Reflections {
     }
     // A CHAPTER'S LINE IS ITS SUMMARY when the session wrote one (2026-10-15).
     return fitEpisodes(summarized(this.store, episodes), { room, owner: ownerNames(this.store), day, lineBytes: T.LINE_BYTES, entryChars: T.ENTRY_CHARS });
-
   }
 
   /** An entry of the last few lived days (one with no day in its heading counts as recent). */

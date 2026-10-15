@@ -241,7 +241,6 @@ export function fitEpisodes(
     entryChars: number;
     /** The longest a written summary may be as an entry's line (`summaryLineBytes` of the room when absent). */
     summaryBytes?: number;
-
     reads?: Readonly<Record<string, number>>;
     unread?: Readonly<Record<string, readonly number[]>>;
   },

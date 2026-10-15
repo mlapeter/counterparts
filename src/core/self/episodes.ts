@@ -650,7 +650,6 @@ export function appendChapter(
       ...(Object.keys(abouts).length === 0 ? {} : { [CHAPTER_ABOUT_META]: abouts }),
     },
     // The row's `model` is the LAST writer's (a body change with none is NULL).
-
     ...(model === undefined ? {} : { model }),
   });
   return { episodeId: state.episodeId, chapter: num, created: false, heading: opensChapter };

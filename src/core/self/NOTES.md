@@ -2092,7 +2092,7 @@ The design check is in the owner's notes (2026-10-15, "journal storage ramificat
   `meta.chapterSummary`. Title: the episode's, `— chapter N` after the first, so a
   session's summaries do not read as duplicates of one another. `happened_on`: the day the
   chapter's heading names (the dashboard reads a chapter memory's date from it, since the
-  summary has no heading). `about`: the chapter call's, else the episode's own; an `about`
+  summary has no heading). `about`: its own chapter's (`meta.abouts`; the episode's latest only for an episode written before per-chapter marks — an unmarked chapter's summary is unmarked); an `about`
   given later in the same chapter updates that chapter's summary only (and a frozen copy).
 - **Names:** the cards the CHAPTER names are credited to the summary and linked to it as
   subjects (`Counterpart#summaryNamed`), the 419 subject links the copies held being the
@@ -2140,3 +2140,12 @@ The design check is in the owner's notes (2026-10-15, "journal storage ramificat
   written). (6) The writer's "nothing besides the journal" line names confidential
   rows held back; the journal's cost counts each line's framing. `self.episode.reconciled`'s
   `ingested` counts summaries written now, not episodes.
+- **Second review (of e6920860):** the half-share bar for fold credit was judged inside
+  the fold loop, against the match merged SO FAR, so a weak summary folded before a
+  strong sibling passed; it is now judged after every fold, against the pair's final
+  match (`recall/activate.ts#foldCredited`, pure, tested weak-first). An unmarked
+  chapter's summary is now unmarked: the episode's latest mark is lent only to an
+  episode from before per-chapter marks (no `abouts`). The page writer's journal cost is
+  measured as the block renders it (`writer.ts#journalBlockChars`), framing and excerpt
+  notes included. When a boundary loses a duplicate race its summary is archived
+  without name credit; the summary that stands was credited by its own write.

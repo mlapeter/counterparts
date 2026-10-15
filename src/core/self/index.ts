@@ -152,11 +152,11 @@ import type {
   WriterInput,
   WriterJournal,
 } from "./writer.js";
-
 import { COUNTER_PREFIX, FROZEN_KINDS, counterKey, decide } from "./freeze.js";
 import type { ClaimDirection, ClaimSource, FreezeReason, FreezeVerdict } from "./freeze.js";
 import {
   NO_GATE,
+  CHAPTER_ABOUT_META,
   EPISODE_ABOUT_META,
   appendChapter,
   chapterAbout,
@@ -2852,7 +2852,6 @@ export class Self {
 
   /**
    * ONE SUMMARY MEMORY, in the shape the chapter copy had (so every reader of
-
    * that shape keeps working): a self-kind memory, `source: episode`,
    * `origin_ref` the chapter's id, `meta.episodeId`, plus `meta.chapter` and
    * `meta.chapterSummary`. It FADES like an ordinary memory (Mike,
@@ -2860,7 +2859,7 @@ export class Self {
    * its kind (`physics.defaultClaimFor`, recorded `claimedDefault` like a
    * note's) rather than the copy's zero, which would have put it below reach
    * from its first day. Its title is the episode's, with the chapter's number
-   * after the first. Its mark: the one given, else the episode's own.
+   * after the first. Its mark: its own chapter's (the episode's latest only for an episode from before per-chapter marks).
    */
   private putSummary(input: {
     episodeId: string;
@@ -2873,7 +2872,13 @@ export class Self {
     about: AboutMark | null;
   }): string {
     const { doc } = input;
-    const mark = input.about ?? aboutMarkOf(doc.meta[EPISODE_ABOUT_META]);
+    // ITS OWN CHAPTER'S MARK (review of e6920860): the one given, else the one
+    // that chapter's call recorded (`meta.abouts`). Only an episode from before
+    // per-chapter marks (no `abouts` at all) falls back to the episode's latest
+    // mark; otherwise an unmarked chapter's summary is unmarked, never another
+    // chapter's "owner" with that mark's floor.
+    const legacy = doc.meta[CHAPTER_ABOUT_META] === undefined;
+    const mark = input.about ?? aboutMarkOf(chapterAbout(doc.meta, input.chapter)) ?? (legacy ? aboutMarkOf(doc.meta[EPISODE_ABOUT_META]) : null);
     const put: Parameters<Store["put"]>[0] = {
       type: "memory",
       kind: "self",
@@ -2989,8 +2994,8 @@ export class Self {
         continue;
       }
       const body = verdict.text !== undefined && verdict.text.length > 0 ? verdict.text : auto;
-      // The mark this chapter's call gave, else (putSummary) the episode's latest.
-      const id = this.putSummary({ episodeId, doc, chapter: k, kind: "automatic", body, sessionId, handles, about: aboutMarkOf(chapterAbout(doc.meta, k)) });
+      // The mark this chapter's call gave (putSummary reads it).
+      const id = this.putSummary({ episodeId, doc, chapter: k, kind: "automatic", body, sessionId, handles, about: null });
       // A session's summary that landed meanwhile stands; this one leaves.
       const stands = this.settleSummaries(episodeId, k, d);
       if (stands !== null && stands !== id) continue;

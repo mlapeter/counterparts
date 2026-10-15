@@ -251,7 +251,6 @@ describe("(a) the links a regrown copy was left holding before this are carried 
     coUse(c, second, n, 4);
     coUse(c, first, second, 1);
     const third = regrow(c, "And the night after, writing it all down while it was still warm.").newCopy;
-
     const strongest = Math.max(c.associate.weightAt(first, n), c.associate.weightAt(second, n));
     c.store.updateMeta(REGROWN_RELINK_META, () => null);
     c.close();

@@ -20,6 +20,7 @@
  * Hermetic: a fresh temp data dir per test, removed after.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,11 +31,12 @@ import type { McpServer, ToolResult } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { SUMMARY_LINE_BYTES, chapterEntries, dayJournal, entryLine, fitEpisodes, summaryLineBytes, withSummaries } from "../src/core/dream/slices.js";
 import { belowReach } from "../src/core/physics/index.js";
+import { foldCredited } from "../src/core/recall/activate.js";
 import { isJournalCopy } from "../src/core/sleep/types.js";
 import { AUTO_SUMMARY_CHARS, automaticSummaryText, chapterSummaries, chaptersCoveredByCopies, summaryTitle } from "../src/core/self/summaries.js";
 import { writerInstruction } from "../src/core/self/writer.js";
 import { chaptersOf } from "../src/core/handoff/last-here.js";
-import { Store, isStoreError, reachExempt, rowToPhysics } from "../src/core/store/index.js";
+import { Store, isStoreError, paths, reachExempt, rowToPhysics } from "../src/core/store/index.js";
 
 const SESSION = "sess_summaries";
 let root: string;
@@ -255,6 +257,49 @@ describe("the `chapter` call writes ONE summary memory per chapter, in the copy'
     expect(c.store.row(one.summary?.id as string)?.uses).toBe(before.one);
   });
 
+  test("the half-share bar is the pair's FINAL match, judged after every fold, weak sibling first (review of e6920860)", () => {
+    // Episode body 0.2, then S1 0.3, then S2 0.9, in that fold order. Judged
+    // as they folded, S1 passed 0.3 >= 0.5 x 0.2; against the final 0.9 it
+    // carries a third and is not credited.
+    const credited = foldCredited(
+      new Map([["epi_x", ["s1_weak", "s2_strong"]]]),
+      new Map([["s1_weak", 0.3], ["s2_strong", 0.9]]),
+      () => Math.max(0.2, 0.3, 0.9),
+    );
+    expect(credited.get("epi_x")).toEqual(["s2_strong"]);
+    expect(foldCredited(new Map([["epi_y", ["a"]]]), new Map([["a", 0.3]]), () => null).size).toBe(0);
+  });
+
+  test("through recall: the summary that out-matches its episode is credited, its weak sibling is not", () => {
+    // A summary that out-matches its episode's body, and a weak sibling: the
+    // sibling is under half of the final match. Several fresh stores (ids are
+    // random), so no one store's order decides it.
+    for (let round = 0; round < 8; round += 1) {
+      rmSync(dir, { recursive: true, force: true });
+      substance = 0;
+      const c = brain();
+      for (let i = 0; i < 12; i += 1) c.store.put({ type: "memory", kind: "fact", body: `Filler memory number ${String(i)} about the garden, the bus and the library.` });
+      nextChapter(c);
+      const weak = c.appendEpisode(
+        SESSION,
+        "A long afternoon of sorting the shelves, labelling boxes, sweeping, and in passing a zqquartz offcut turned up under the bench among the rest of the clutter we cleared.",
+        { summary: "Sorted the shelves and boxes; a zqquartz offcut turned up under the bench among the clutter we cleared." },
+      );
+      nextChapter(c);
+      const strong = c.appendEpisode(SESSION, "The evening went to the glaze buckets, and nothing much else happened worth saying.", {
+        summary: "The zqgeode split clean: zqgeode halves, a zqgeode shell, and zqquartz inside it.",
+      });
+      const episodeId = weak.episodeId as string;
+      const shown = c.recall.recall({ sessionId: `order-${String(round)}`, text: "the zqquartz zqgeode" });
+      expect([...shown.decision.surfaced, ...shown.decision.footnotes]).toContain(episodeId);
+      const folded = c.recall.gateState(`order-${String(round)}`).folded ?? {};
+      expect(folded[strong.summary?.id as string]).toBe(episodeId);
+      expect(folded[weak.summary?.id as string]).toBeUndefined();
+      c.close();
+      open.splice(open.indexOf(c), 1);
+    }
+  });
+
   test("a summary the gate refuses costs the summary, never the chapter", () => {
     const c = brain();
     nextChapter(c);
@@ -312,6 +357,43 @@ describe("a chapter the session gave no summary gets an AUTOMATIC one at the bou
       [1, "us"],
       [2, "work"],
     ]);
+  });
+
+  test("an UNMARKED chapter's summary is unmarked — never a later chapter's mark (review of e6920860)", async () => {
+    const c = brain();
+    nextChapter(c);
+    const one = c.appendEpisode(SESSION, CHAPTER_ONE);
+    nextChapter(c);
+    c.appendEpisode(SESSION, "The second stretch went to cleaning the zqshelves and nothing else much happened.", { summary: "Cleaned the zqshelves; nothing else much happened that afternoon." });
+    nextChapter(c);
+    c.appendEpisode(SESSION, "Then Mike talked about his week, and the worry under it, for a long while.", { about: "owner" });
+    await c.sessionEnd({ date: "2026-10-14" });
+    const all = summariesOf(c, one.episodeId as string);
+    expect(all.map((x) => [x.meta["chapter"], c.store.row(x.id)?.about ?? null])).toEqual([
+      [1, null],
+      [2, null],
+      [3, "owner"],
+    ]);
+    // The unmarked one has the floor of an unmarked self-kind memory, not the owner mark's choice.
+    expect(c.store.row(all[0]!.id)?.about_by ?? null).toBeNull();
+  });
+
+  test("an episode from before per-chapter marks (no `abouts`) still lends its latest mark", async () => {
+    const c = brain();
+    nextChapter(c);
+    const one = c.appendEpisode(SESSION, CHAPTER_ONE, { about: "us" });
+    const episodeId = one.episodeId as string;
+    // As a pre-2026-10-15 episode reads: the latest mark, no per-chapter map.
+    const db = new Database(paths.operational(dir));
+    const meta = JSON.parse((db.query("SELECT meta FROM memories WHERE id = ?").get(episodeId) as { meta: string }).meta) as Record<string, unknown>;
+    delete meta["abouts"];
+    db.run("UPDATE memories SET meta = ? WHERE id = ?", [JSON.stringify(meta), episodeId]);
+    db.close();
+    expect(c.store.readProse(episodeId).meta["abouts"]).toBeUndefined();
+    expect(meta["about"]).toBe("us");
+    await c.sessionEnd({ date: "2026-10-14" });
+    const [s] = summariesOf(c, episodeId);
+    expect(c.store.row(s!.id)?.about).toBe("us");
   });
 
   test("two live summaries of one chapter (a boundary and a chapter call crossing) are settled: the session's stands", () => {

@@ -295,7 +295,6 @@ export function saveGateState(store: Store, state: GateState, max: number): void
     rows.push({ sessionId: state.sessionId, kind: FOLDED_KIND, ref: id, turn: at.turn, lastDay: state.lastDay, value: chapter });
   }
   for (const [id, rec] of Object.entries(bound(state.credited, max))) {
-
     rows.push({
       sessionId: state.sessionId,
       kind: "credited",

@@ -75,7 +75,6 @@ import { mindRanked, noteMindShown } from "./mind.js";
 import type { MindItem } from "./mind.js";
 import { chapterEntries, entryKey, entryLine, fitEpisodes, shownEntry, summarized, withSummaries } from "./slices.js";
 import { chapterSummaries } from "../self/summaries.js";
-
 import type { ChapterEntry, EpisodeInView, EpisodesFit, ShownChapter, ShownEntry } from "./slices.js";
 import { BUNDLE_OWNER, DREAM_ACTIONS, DREAM_TUNABLES } from "./tunables.js";
 import type { DreamAction } from "./tunables.js";
@@ -3305,7 +3304,6 @@ export class Dreams {
       const f = fidelity(entryKey(eid, entry.index));
       // At the length the fit measured (an index from before 2026-10-15 has none: an ordinary line).
       const text = f === "line" ? entryLine(entry, DREAM_TUNABLES.LINE_BYTES, offered.lineCap ?? DREAM_TUNABLES.LINE_BYTES) : clipWire(entry.text, DREAM_TUNABLES.ENTRY_CHARS);
-
       ch.entries.push(shownEntry(entry, { fidelity: f === "line" ? "line" : text === entry.text ? "whole" : "excerpt", text, chars: entry.text.length }));
     }
     const body = { dream: input.dream, part: input.part, of, memories, chapters: [...chapters.values()] };

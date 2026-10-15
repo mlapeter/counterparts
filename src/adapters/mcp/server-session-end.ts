@@ -738,5 +738,4 @@ function summaryAnswer(s: NonNullable<ChapterResult["summary"]>): Record<string,
     out["note"] = "The summary was turned away; the chapter's opening lines will stand in.";
   }
   return out;
-
 }

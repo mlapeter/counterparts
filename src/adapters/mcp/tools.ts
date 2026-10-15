@@ -1294,7 +1294,6 @@ const CHAPTER: ToolSpec = {
         description:
           "Also write a summary of this chapter that you'd want to find it by later: what happened, what was decided, the names, numbers and words someone would search for. It's the memory that stands for the chapter; the chapter keeps every word. If a part deserves its own memory (a decision, a date, a quote), remember it separately too. A few sentences; written once per chapter — without one, the chapter's opening lines stand in.",
       },
-
       drewOn: DREW_ON_PROPERTY,
     },
     required: ["text"],

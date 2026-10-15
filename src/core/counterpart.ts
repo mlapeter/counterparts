@@ -171,11 +171,10 @@ import type {
   WriterInput,
 } from "./self/index.js";
 import { acceptsReflectedFeeling, keepCore, ownerNames, retireCore } from "./sleep/index.js";
-import { WRITER_JOURNAL_CHARS, WRITER_JOURNAL_LINE_FRAMING, WRITER_JOURNAL_SHARE } from "./self/writer.js";
+import { WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, journalBlockChars } from "./self/writer.js";
 import type { WriterJournal } from "./self/writer.js";
 import { dayJournal } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
-
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
 import type { CyclePartial, CycleReport } from "./sleep/index.js";
 import { ABOUT_MARKS, CORE_ABOUT_MARKS, Store, assertSafeDataDir, rowTombstoned, hashText, indexTextOf } from "./store/index.js";
@@ -3212,7 +3211,6 @@ export class Counterpart {
   }
 
   /** Through the REAL battery: a first-person reflection is not exempt (SEAMS H). */
-
   ingestEpisode(input: { sessionId: string; day?: number; handles?: readonly string[] }): IngestResult {
     return this.self.ingestEpisode(input);
   }
@@ -3521,10 +3519,9 @@ export class Counterpart {
       const entries = day.chapters.flatMap((c) =>
         c.entries.map((e) => ({ episode: c.id, title: c.title, chapter: e.chapter, fidelity: e.fidelity, text: e.text, chars: e.chars })),
       );
-      // What the block spends on them: the fitted text (wire characters, a
-      // non-ASCII one as three — about its bytes) and each line's framing.
-      const framing = entries.reduce((n, e) => n + WRITER_JOURNAL_LINE_FRAMING + (e.title?.length ?? 0), 0);
-      return { entries, total: day.entries, notShown: day.notShown, omitted: day.omitted, chars: day.used + framing };
+      // What the block spends on them, measured as it renders (framing included).
+      const journal = { entries, total: day.entries, notShown: day.notShown, omitted: day.omitted };
+      return { ...journal, chars: journalBlockChars(input.about, journal) };
     } catch {
       return null;
     }

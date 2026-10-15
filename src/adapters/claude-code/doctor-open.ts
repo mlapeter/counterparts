@@ -313,7 +313,6 @@ export function journalFindings(store: Store): Finding[] {
  * risk, which is exactly what the detail says.
  */
 export function journalCopyFindings(store: Store): Finding[] {
-
   const day = store.livedDay();
   const failed = newestRows(store, JOURNAL_COPY_FAILED_EVENT, 1, day);
   if (failed.unknown || failed.rows.length === 0) return [];
