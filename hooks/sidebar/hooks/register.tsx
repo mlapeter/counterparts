@@ -95,7 +95,6 @@ import {
   IMAGE_X0,
   STAGE_COLS,
   STAGE_MIN_PANE_ROWS,
-  TIER_ENV,
   advance,
   fineCells,
   halfCells,
@@ -878,9 +877,14 @@ async function foxEvent($: EngineInterface, ev: FoxEvent): Promise<void> {
  * between (a still hold is one wait of 4–9 s). A change on a Raster or an
  * Image is a blit; in sextants (Text) or on the desktop (an Svg) a redraw of
  * the pane. A pane no longer shown stops it (the next drawing starts it). A
- * refused blit stops it; an Image refused twice in a row (it draws its alt
- * here) leaves `auto` drawing sextants for the session.
+ * refused blit stops it; an Image refused twice in a row because it draws
+ * its alt here leaves `auto` drawing half-blocks for the session. Any other
+ * refusal (not mounted yet, another size, the terminal not yet asked) is not
+ * counted: it says nothing about pictures.
  */
+/** What the engine's blit refusal says when an Image draws its alt (Claude Code 2.1.300). */
+const ALT_REFUSAL = 'draws its alt'
+
 async function stageStep($: EngineInterface, gen: number): Promise<void> {
   if (gen !== stage.gen || !stage.live) return
   const now = await $.clock.now()
@@ -916,7 +920,7 @@ async function stageStep($: EngineInterface, gen: number): Promise<void> {
             if (tier === 'image') stage.imageDenies = 0
             return
           }
-          if (tier === 'image') {
+          if (tier === 'image' && r.deny.includes(ALT_REFUSAL)) {
             stage.imageDenies += 1
             if (stage.imageDenies >= 2) stage.noImages = true
           }
@@ -1093,18 +1097,7 @@ export const register: Register = on => {
     stage.pngDir = await findPngDir($)
     stage.pngData.clear()
     if (stage.pngDir === null) stage.noImages = true
-    // What this terminal can draw the fox with, read once (fox.ts, `pickTier`).
-    // (Each name spelled out: the engine lists the variables a module reads.)
-    const envVals = await Promise.all([
-      $.env.get('TERM_PROGRAM').catch(() => undefined),
-      $.env.get('TERM').catch(() => undefined),
-      $.env.get('KITTY_WINDOW_ID').catch(() => undefined),
-      $.env.get('WEZTERM_EXECUTABLE').catch(() => undefined),
-      $.env.get('TMUX').catch(() => undefined),
-      $.env.get('STY').catch(() => undefined),
-      $.env.get('CLAUDE_CODE_FORCE_TERMINAL_IMAGES').catch(() => undefined),
-    ])
-    stage.env = Object.fromEntries(TIER_ENV.map((k, i) => [k, envVals[i]]).filter(([, v]) => typeof v === 'string'))
+    // What this terminal can draw the fox with is not read: `auto` tries a picture and the engine says (fox.ts, `pickTier`).
     await update($, themeA, () => normTheme(themePref))
     await update($, viewA, () => normView(viewPref))
     await update($, brainA, () => normAvatar(brainPref))
@@ -1147,7 +1140,7 @@ export const register: Register = on => {
         return {
           text:
             d === 'auto'
-              ? 'The fox is drawn the finest way this terminal is known to show.'
+              ? 'The fox is drawn as a picture where this terminal shows one, in half-blocks where it does not.'
               : d === 'images'
                 ? 'The fox is drawn as a picture (kitty, Ghostty); a terminal that cannot shows its name instead.'
                 : d === 'fine'
@@ -1325,7 +1318,7 @@ export const register: Register = on => {
     run.bodyW = w
     // The fox's stage: on a pane tall and wide enough, in the tier this surface draws (fox.ts); else, or with the
     // avatar off, the header alone.
-    const tier = pickTier(e.surface, stage.detail, stage.env, stage.noImages, stage.pngDir !== null)
+    const tier = pickTier(e.surface, stage.detail, stage.noImages, stage.pngDir !== null)
     const drawsStage = tier === 'svg' ? 'Svg' in els : 'Raster' in els
     const hasStage = mode === 'fox' && drawsStage && !inline && fill >= STAGE_MIN_PANE_ROWS && W >= (SURFACE.prose ? STAGE_MIN_PROSE_COLS : STAGE_COLS)
     // While the pane holds the keyboard the fox holds still.

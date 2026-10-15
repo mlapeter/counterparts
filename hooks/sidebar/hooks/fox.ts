@@ -10,15 +10,15 @@
  *
  * - `image`: an `Image` of the PNG file, which the terminal reads itself
  *   (`{ file, format: 'png' }`), where the terminal draws pictures
- *   (kitty, Ghostty). Elsewhere an Image draws its alt text, dim, so this is
- *   chosen only where the environment says so, and a blit refused because the
- *   Image draws its alt drops to `fine` for the session (register.tsx).
- * - `fine`: sextants (U+1FB00, 2 x 3 pixels a cell, two colours a cell), in
- *   terminals whose font has them (iTerm2, WezTerm, VS Code, Ghostty, kitty).
+ *   (kitty, Ghostty). Elsewhere an Image draws its alt text, dim, so `auto`
+ *   tries it first and a blit refused because the Image draws its alt drops
+ *   to `basic` for the session (register.tsx).
+ * - `fine`: sextants (U+1FB00, 2 x 3 pixels a cell, two colours a cell), when
+ *   the person chooses them; fonts that have them: iTerm2, WezTerm, VS Code, Ghostty, kitty.
  *   A `Raster` takes only BMP code points and sextants are not BMP, so this
  *   tier is rows of `Text` runs, and a frame change is a redraw of the pane.
- * - `basic`: half-blocks (`▀`, two pixels a cell) on a `Raster`, everywhere
- *   else (Apple Terminal, tmux, anything unknown). A frame change is a blit.
+ * - `basic`: half-blocks (`▀`, two pixels a cell) on a `Raster`, wherever a
+ *   picture drew its alt (Apple Terminal, iTerm2, tmux, anything unknown). A frame change is a blit.
  * - `svg`: the desktop app (no Raster, no Image): an `Svg` of rects from the
  *   half-block pixels, with the PNG frame over them as a data URI (the rects
  *   are what shows if the surface drops the image, or the file can't be read);
@@ -40,57 +40,31 @@ const DEFAULT_COLOR = 0x01000000
 /** `svg`: the desktop and the other remote surfaces, drawn as an Svg (`fox-svg.ts`). */
 export type FoxTier = 'image' | 'fine' | 'basic' | 'svg'
 
-/** The person's override (`$.store` `avatarDetail`): `auto` lets the environment decide. */
+/** The person's override (`$.store` `avatarDetail`): `auto` tries a picture and lets the engine say. */
 export type FoxDetail = 'auto' | 'images' | 'fine' | 'basic'
 
 export function normDetail(v: unknown): FoxDetail {
   return v === 'images' || v === 'fine' || v === 'basic' ? v : 'auto'
 }
 
-/** The environment variables the choice reads, read once at session start. */
-export const TIER_ENV = ['TERM_PROGRAM', 'TERM', 'KITTY_WINDOW_ID', 'WEZTERM_EXECUTABLE', 'TMUX', 'STY', 'CLAUDE_CODE_FORCE_TERMINAL_IMAGES'] as const
-
-export type TierEnv = Partial<Record<(typeof TIER_ENV)[number], string>>
-
-const present = (v: string | undefined): boolean => v !== undefined && v !== ''
-
-/**
- * Whether this terminal draws an `Image`'s pixels. The engine says no such
- * thing to a mod (RenderViewport is columns, rows and isFullscreen only), so
- * this is the engine's own rule as its docs give it, read conservatively:
- * kitty or Ghostty, never under tmux or screen; CLAUDE_CODE_FORCE_TERMINAL_IMAGES
- * says yes or no outright.
- */
-export function imagesLikely(env: TierEnv): boolean {
-  const force = (env.CLAUDE_CODE_FORCE_TERMINAL_IMAGES ?? '').trim().toLowerCase()
-  if (['1', 'true', 'yes', 'on'].includes(force)) return true
-  if (['0', 'false', 'no', 'off'].includes(force)) return false
-  if (present(env.TMUX) || present(env.STY)) return false
-  return env.TERM_PROGRAM === 'ghostty' || env.TERM === 'xterm-ghostty' || env.TERM === 'xterm-kitty' || present(env.KITTY_WINDOW_ID)
-}
-
-/** Whether this terminal's font has sextants: the ones known to draw them; under tmux or screen the outer one is unknown. */
-export function sextantsLikely(env: TierEnv): boolean {
-  if (present(env.TMUX) || present(env.STY)) return false
-  const p = env.TERM_PROGRAM ?? ''
-  if (p === 'iTerm.app' || p === 'WezTerm' || p === 'vscode' || p === 'ghostty') return true
-  return env.TERM === 'xterm-kitty' || env.TERM === 'xterm-ghostty' || present(env.KITTY_WINDOW_ID) || present(env.WEZTERM_EXECUTABLE)
-}
-
 /**
  * The tier for a drawing: the desktop and the other remote surfaces draw the
- * Svg (`fox-svg.ts`, a file of its own); a terminal, the override or else the
- * environment's answer. `noImages`:
- * an Image here drew its alt (a refused blit said so), so `auto` stops trying.
+ * Svg (`fox-svg.ts`, a file of its own); a terminal, the override or else a
+ * picture first. Nothing about the terminal is read (2026-10-15: no
+ * environment variables, so the plugin directory's scan has none to list):
+ * the engine draws an `Image`'s pixels where the terminal can and its alt
+ * elsewhere, and says so by refusing the blit. `noImages`: an Image here drew
+ * its alt, so `auto` draws half-blocks, which every terminal draws; sextants
+ * (`fine`) are the person's choice, as a font without them shows boxes.
  * `hasPngs` false (no PNG folder found): never a picture, whatever was asked.
  */
-export function pickTier(surface: string, detail: FoxDetail, env: TierEnv, noImages = false, hasPngs = true): FoxTier {
+export function pickTier(surface: string, detail: FoxDetail, noImages = false, hasPngs = true): FoxTier {
   if (surface !== 'terminal') return 'svg'
   if (detail === 'images' && hasPngs) return 'image'
   if (detail === 'fine') return 'fine'
   if (detail === 'basic') return 'basic'
-  if (detail !== 'images' && !noImages && hasPngs && imagesLikely(env)) return 'image'
-  return sextantsLikely(env) ? 'fine' : 'basic'
+  if (detail === 'auto' && !noImages && hasPngs) return 'image'
+  return 'basic'
 }
 
 // ── the stage's footprint ───────────────────────────────────────────────────
@@ -634,9 +608,8 @@ export const stage = {
   shown: '',
   tier: 'basic' as FoxTier,
   director: null as Director | null,
-  env: {} as TierEnv,
   detail: 'auto' as FoxDetail,
-  /** An Image here drew its alt: `auto` draws sextants for the rest of the session. */
+  /** An Image here drew its alt: `auto` draws half-blocks for the rest of the session. */
   noImages: false,
   /** Image blits refused in a row. */
   imageDenies: 0,
