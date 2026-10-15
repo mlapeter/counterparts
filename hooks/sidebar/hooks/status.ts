@@ -102,6 +102,24 @@ export function parseStatus(text: string): Status | null {
   }
 }
 
+/**
+ * How much newer a file must be to stand over a higher seq of its own store.
+ * Two writers racing land an older file a few milliseconds late, its
+ * `writtenAt` older too; a store put back (a rollback, a snapshot restored:
+ * same id, a lower seq) is written later than that, so its file is taken.
+ */
+export const PUT_BACK_MS = 5000
+
+/**
+ * Does the file read before stand over the one just read? Only for the same
+ * store, at a higher seq, when the new one is not newer by {@link PUT_BACK_MS}.
+ */
+export function keepsBefore(before: Status | null, next: Status): boolean {
+  if (before === null || next.storeId === null || next.storeId !== before.storeId) return false
+  if (next.pulse.lastSeq >= before.pulse.lastSeq) return false
+  return next.writtenAt - before.writtenAt < PUT_BACK_MS
+}
+
 /** The rows named `name`, newest first, at most `limit`. */
 export function rowsNamed(s: Status, name: string, limit = Infinity): DashEvent[] {
   const out: DashEvent[] = []

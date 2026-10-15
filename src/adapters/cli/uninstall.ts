@@ -26,7 +26,8 @@
  *   - the configuration file, and our own temp and backup siblings of it;
  *   - `scopes.json` and its siblings;
  *   - `sidebar.json` (what the Claude Code sidebar shows, `sidebar-status.ts`)
- *     and its temp siblings — a file this package left;
+ *     and its temp siblings, and `sidebar-plugin-here` (a folder-loaded plugin's
+ *     marker, same file) — files this package left;
  *   - `snapshots/`, when it is the one this layout owns rather than a directory
  *     the owner pointed at;
  *   - the STORE — at `dataDir`, **wherever that is**, which is the other half of
@@ -93,7 +94,7 @@ import { basename, dirname, isAbsolute, join, parse as parsePath, resolve } from
 import { Store, assertSafeDataDir, dateOf, isWithin, storeExists } from "../../core/store/index.js";
 import { isJournal } from "../../core/sleep/index.js";
 import { SCOPES_FILE_NAME, shellWord } from "../scopes.js";
-import { SIDEBAR_FILE_NAME } from "../sidebar-status.js";
+import { PLUGIN_PRESENCE_NAME, SIDEBAR_FILE_NAME } from "../sidebar-status.js";
 import { PLUGIN_ROOT_ENV, installRoute } from "../plugin.js";
 import { pluginInstall } from "../host-wiring.js";
 import { pluginConsoleWords } from "../runtime.js";
@@ -299,7 +300,7 @@ export function ownedKind(name: string, owned: OwnedNames): OwnedKind | null {
   if (name === owned.scopes) return "scopes";
   if (owned.snapshots !== null && name === owned.snapshots) return "snapshots";
   if (owned.store !== null && name === owned.store) return "store";
-  if (name === SIDEBAR_FILE_NAME || /^sidebar\.json\.\d+\.tmp$/.test(name)) return "sidecar";
+  if (name === SIDEBAR_FILE_NAME || name === PLUGIN_PRESENCE_NAME || /^sidebar\.json\.\d+\.tmp$/.test(name)) return "sidecar";
   const bases = [owned.config, owned.scopes, owned.snapshots, owned.store];
   for (const base of bases) {
     if (base === null || !name.startsWith(`${base}.`)) continue;
