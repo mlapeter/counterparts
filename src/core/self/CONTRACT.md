@@ -74,11 +74,30 @@ counted by doctor, and said in the next morning share).
   one since 2026-09-23 (`calendar.ts`, NOTES §22). Since 2026-09-24 turns are the ones the
   PERSON typed, and an ask is due on typed turns OR conversation text from both roles,
   whichever comes first (NOTES §23).*
-- **Episodes are context and source, in that order**, ingested once as ordinary self-kind
-  memories with named handles. **"Episode" is not a memory kind.** [v1 §13 G6, Appendix A #11]
-  *Reachable only from 2026-09-04: `ingestEpisode` had no caller outside its own tests, so
-  the journal was a file that never became a memory. The door is `reconcileEpisodes` at
-  `Counterpart.sessionEnd` — the boundary, not a script.*
+- **Episodes are context and source, in that order; each CHAPTER becomes memory as ONE
+  SUMMARY, written once.** **"Episode" is not a memory kind.** [v1 §13 G6, Appendix A #11]
+  The summary is what the session wants to find the chapter by later, in its own words —
+  given with the `chapter` call (`summary`), through the same gate as the chapter — or,
+  when it gave none, an AUTOMATIC one the boundary writes from the chapter's title and
+  opening lines (`meta.chapterSummary: written | automatic`; doctor counts the two). It is
+  an ordinary self-kind memory in the shape the full copy had (`source: episode`,
+  `origin_ref` = the chapter's id, `meta.episodeId`) plus `meta.chapter`, so recall's
+  fold, use credit and the wake's confidential and `about` flags read it unchanged; the
+  cards the CHAPTER names are credited to it and linked to it as subjects. A summary the
+  session writes later replaces an automatic one in place (a revision: the engine's words
+  are its version); one the session wrote is never replaced. The chapter keeps every word.
+  `summaries.ts`, `index.ts#summaryAtChapter`, `#ingestEpisode`. *Reachable only from
+  2026-09-04: `ingestEpisode` had no caller outside its own tests, so the journal was a
+  file that never became a memory. The door is `reconcileEpisodes` at
+  `Counterpart.sessionEnd` — the boundary, not a script.* *Until 2026-10-15 the memory was a
+  FULL COPY of the episode, "ingested as an ordinary memory with the same body" and
+  rebuilt each time a chapter grew. That design is REVERSED ON PURPOSE (Mike, P1): on the
+  owner's store every one of 101 live copies, 320 archived copies and 326 version rows was
+  an exact prefix of its chapter — the journal kept three times — while recall already
+  showed the chapter for the copy and the decay pass already skipped it. The 101 copies
+  stay as they are, frozen; their chapters get no summary
+  (`summaries.ts#chaptersCoveredByCopies`); the 320 archived ones wait for the next
+  store-format batch.*
 - **Forgetting applies to what an episode PRODUCED, never to the episode.** The journal is
   the owner's own account and the source the memory was made from, so it is outside decay,
   dedup, consolidation and the floor prune (`sleep/CONTRACT.md` §5 G15,
@@ -88,16 +107,36 @@ counted by doctor, and said in the next morning share).
   224 migrated episodes sit in the episodic band at zero on every dimension, so the phases
   that walk "every row" would have archived the whole journal at the floor — and an
   archived episode stops reconciling, so the memories it had not yet minted would never
-  exist.*
+  exist.* *2026-10-10 to 10-15 this line was contradicted by the code: the full copy was
+  exempted from decay and the prune "like the chapter" (review 03 C4a), so nothing an
+  episode produced faded. Since 2026-10-15 it holds again (Mike): a SUMMARY is born with an
+  ordinary self-kind memory's default floor (`physics.defaultClaimFor`, `claimedDefault`)
+  — the copy's zero would have put it below reach from its first day — and fades,
+  leaves reach and is pruned like any memory (`store/operational.ts#isChapterSummary`
+  narrows `reachExempt` and `sleep/types.ts#isJournalCopy`). The frozen full copies KEEP
+  the exemption: they are the only memory their chapters have (no summary is written
+  for a chapter a copy covers), they carry the `about` marks and confidential flags the
+  wake reads (71 marks on the owner's store) and the links and subject links learned on
+  them (about 1,436 edge rows, 419 subject links), and they hold no salience of their own
+  — let fade, they would leave at the floor in one wave and take those with them, for no
+  gain the chapter does not already keep.*
 - **The narration→span join is identity-safe** — spans with no session identity are skipped
   outright, because every anonymous session collapses to the same marker. [v1 §13 G7]
 - **Ingestion is ordinary and the gates apply**: a first-person reflection is not exempt from
   never durably encoding a credential. [v1 §13 G8]
-- **Add-first regrowth within a bounded window that CLOSES** — a deliberate deviation from
-  human reconsolidation, which reopens on every retrieval. [v1 §13 G11–G12] The new copy
-  inherits the links the archived one had learned, through the injected `retarget`
-  (`associate.retargetOnSupersede`, 2026-10-09); without it they were stranded on a row
-  that conducts nothing.
+- **Nothing regrows (2026-10-15).** *Was: add-first regrowth within a bounded window that
+  CLOSES [v1 §13 G11–G12], the new copy inheriting the archived one's links. A summary is
+  written once per chapter and a new chapter gets its own, so there is nothing to regrow
+  and no window (`REGROW_WINDOW_DAYS` is gone). The once-at-open carry of links stranded on
+  copies archived before 2026-10-09 (`Counterpart#relinkRegrownCopies`) stays, for the
+  rows a store already holds.*
+- **An append is not a revision (2026-10-15).** A chapter is only ever added after the
+  last: `store#appendBody` writes the grown body and refuses any that does not begin with
+  the stored one whole, so every earlier state of the episode is its own prefix and no
+  version row is kept for it — the store's named deviation from "an overwrite keeps the
+  prior version" (`store/CONTRACT.md` §5 G5). Each chapter's written moment stays in the
+  episode's meta (`CHAPTER_AT_META`); an episode from before is still read from its old
+  `episode-chapter` versions (`chapter-address.ts`).
 - **Named handles are aliases, not a second lookup path** — "the lighthouse conversation" enters
   through the ordinary rarity-weighted name channel. [v1 §9.2]
 - **Lived salience is the only legitimate identity input.** [v1 §14.2, earned 2026-08-24]
@@ -375,8 +414,11 @@ proposals and their archive; render and delivery telemetry.
    — accepted *and* rejected, with reasons and both texts — is archived **before** anything
    is applied; every proposal is re-judged at write time and rejected if empty, over cap, or
    not actually shorter; protected content is excluded independently of any mark.
-10. **[M]** Episodes ingest idempotently by identity, against active *and* archived memories,
-    so archival decisions are not resurrected by a stray touch.
+10. **[M]** A chapter's summary is written once, checked against active *and* archived
+    memories, so an archival decision (a prune, a merge) is not undone by a stray touch:
+    a chapter whose summary left gets no second one (2026-10-15; was: episodes ingest
+    idempotently by identity).
+
 11. **[M]** Observers receive the wake and are never asked for an episode. Accepted cost:
     instrument runs leave no episode (scar E7).
 12. **[M]** Every derived surface has a scheduled reconciler, and a test asserts each runs at
@@ -663,7 +705,7 @@ at once (one read of an episode's moments; recall's meaning mode).
 
 ## 6. Scars honored
 
-**E7** (observers receive but deposit nothing) · **E8** (episode pacing and the regrow
+**E7** (observers receive but deposit nothing) · **E8** (episode pacing and — until 2026-10-15, when nothing regrows any more — the regrow
 window run on lived days; the ask CAP ran on them too from 2026-09-04 and moved to the
 CALENDAR DATE on 2026-09-11 — the lived-day clock advances only inside the sleep cycle a
 detached worker runs, so a worker that could not start left the cap spent forever, I32 —

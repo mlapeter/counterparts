@@ -214,7 +214,20 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
    version row carries `learned_on` and `happened_on` as well as the words, because
    `revise({learnedOn})` travels this same door precisely so a corrected date keeps its
    prior version — taking the dates from the live row would silently rewrite every version
-   behind a correction.)*
+   behind a correction.)* **One named deviation (2026-10-15): an APPEND is not a revision.**
+   `appendBody` writes a body that must begin with the stored one whole — refused
+   `APPEND_NOT_PREFIX`, nothing written, otherwise — and keeps no version row, because the
+   prior state IS the new body's prefix and a version would hold the same words a second
+   time. Written for the journal, where a chapter is only ever added after the last
+   (`self/episodes.ts#appendChapter`): on the owner's store all 326 version rows the
+   appends had left were exact prefixes of their episodes (1.98 MB), beside 421 chapter
+   copies that were too. Constitution 7's "revisions keep their history" holds by
+   construction — the history is in the row; what an append changes in `meta` (the latest
+   chapter's `about`; the chapter moments are carried whole, and each chapter's moment
+   stays in the episode's meta, which is what doctor's fired page reads now) is not kept.
+   An append does not advance `revision`.
+   The versions appends left before stay, and prune by retention like any.
+
 6. **[M] Removal is ordered so every crash point is safe**: at each moment a memory is
    fully alive, or dark *and* recorded. A failed record append is never reported as
    success — if the record cannot be written, nothing moves (§16 G10–G11).

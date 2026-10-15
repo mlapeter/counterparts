@@ -2072,3 +2072,60 @@ random-f8's, lightly held.
 - **Named costs.** The dashboard and doctor show the published bundle, which is no longer
   byte for byte what a session got; a session start's trims leave no durable row (the
   turn-end's `self.briefing` row is still the day's record).
+
+## 2026-10-15 — chapter summaries replace the full copies (P1, Mike)
+
+The design check is in the owner's notes (2026-10-15, "journal storage ramifications" and
+"dups and chapter copies"); what was built, and what it chose:
+
+- **One summary memory per chapter, written once** (`summaries.ts`,
+  `index.ts#summaryAtChapter`). The `chapter` tool takes `summary`; it goes through the
+  same gate as the chapter. A second summary for a chapter that has one the session wrote
+  is kept out (`kept`, said in the result). A chapter with no summary gets an AUTOMATIC one
+  at the boundary (`ingestEpisode`, still the name of the door): the opening ~600
+  characters of the chapter, cut at a sentence, its title on the row. A summary written
+  later REPLACES an automatic one in place — `revise`, so the engine's words are its
+  version and the row keeps its id, links and marks. "Written once" counts archived
+  summaries too: a summary the prune or a merge took is not written again.
+- **Shape:** the copy's (`source: episode`, `origin_ref`, `meta.episodeId`, kind `self`)
+  plus `meta.chapter` (1-based, `chaptersOf`'s order — the `epi_…#N` number) and
+  `meta.chapterSummary`. Title: the episode's, `— chapter N` after the first, so a
+  session's summaries do not read as duplicates of one another. `happened_on`: the day the
+  chapter's heading names (the dashboard reads a chapter memory's date from it, since the
+  summary has no heading). `about`: the chapter call's, else the episode's own; an `about`
+  given later in the same chapter updates that chapter's summary only (and a frozen copy).
+- **Names:** the cards the CHAPTER names are credited to the summary and linked to it as
+  subjects (`Counterpart#summaryNamed`), the 419 subject links the copies held being the
+  thing that would otherwise thin. An append that continues a chapter credits its new
+  words to the summary standing. A rewrite links without crediting again.
+- **Fading (Mike's decision):** a summary is born with the default floor an authored
+  self-kind memory gets (`defaultClaimFor`, 0.4, recorded `claimedDefault`) — at the copy's
+  zero it would have been below reach on its first day — and decays, leaves reach and is
+  pruned like one. Measured on the physics: unused, it stays in reach about three weeks
+  and reaches the prune floor in about nine months. **The frozen full copies keep their
+  exemption** (CONTRACT §3 says why: they are their chapters' only memory, they carry the
+  marks and links, and at zero salience they would all leave in one wave).
+- **No regrowth.** `findIngested`, `memoriesForEpisode`, the regrow window and
+  `copyAbout` are gone; the 101 live copies stay frozen; a chapter a copy covers gets no
+  summary (`chaptersCoveredByCopies`: the most chapters any copy of the episode held), a
+  chapter written after it does. The 320 archived copies are untouched (the next batch).
+- **Appends keep no version** (`store#appendBody`). `appendChapter` now keeps the stored
+  body whole and adds the blank line it needs, instead of `trimEnd()`-ing it, so the
+  prefix guarantee holds byte for byte.
+- **The page writer reads the day's chapters** (`dream/slices.ts#dayJournal`, composed by
+  `Counterpart#pageWriterInput`): a room of its own (`WRITER_JOURNAL_CHARS` 14,000, at most
+  35% of the block's budget) taken out of the same 40 KB, a line for every chapter of the
+  day across sessions — its summary when the session wrote one — and the most important
+  whole. The journal's own memories (summaries, copies) are no longer listed among the
+  day's memories. Measured on a copy of the owner's store: on the busiest day (10-11, 51
+  chapters, 75k characters) the writer had kept 75 memories and **none** of the day's 3
+  copies (strength 0 lost every time) — it never saw the journal; now it sees 43 of the
+  51 chapters as lines and 49 memories in the rest. On 10-12 (34 chapters): all 34, two
+  whole. On 09-27 (13): all, seven whole.
+- **Doctor:** `Chapter summaries` — written vs automatic over the week, green, silent with
+  none.
+- **Not done, said:** the dashboard still lists a summary as "journal" (unscored, no
+  curve on its card) as it did the copy, though it now fades; the wake's "about me from
+  another directory" reads the mark off the live copies and summaries only, so a summary
+  pruned months later takes its chapter's mark with it (the window that reads it is a
+  fortnight).

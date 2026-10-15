@@ -698,3 +698,31 @@ the live ~52):
   saw (so it was offered as a line too), as a line: a part cost more than `pack` measured.
   Once the queue read whole, the CJK limits test showed it (25.2k over a 24k part). Fixed
   in `reflect.ts#part`: an id is read as an id before a line.
+
+## 2026-10-15 — a chapter's line is its summary (chapter summaries, P1)
+
+- **What changed.** A journal entry's LINE — what the dream, the reflection and now the
+  page writer show of a chapter the room does not take whole — is the chapter's summary
+  when its session wrote one (`slices.ts#withSummaries`, `entryLine`); an automatic summary
+  is the chapter's first words already, so it leaves the line as it was. The part
+  renderers (`Dreams#part`, `Reflections#part`) render the same line at the same length,
+  read off the run's index (`FitIndex.lineCap`).
+- **How long, measured on a copy of the owner's store** (stand-in summaries of ~900
+  characters on every chapter of the day). The busiest day, 10-11: 51 chapters, 75,032
+  characters. Before: the dream's 30k journal room took 9 chapters whole and 42 as lines;
+  the reflection's 24k, 5 whole. With every summary shown whole as its line (capped at
+  600 bytes), the dream kept 1 whole and left 10 entries out altogether; the reflection 1
+  whole, 18 out. So the line is ADAPTIVE (`summaryLineBytes`): 40% of the room spread over
+  the entries in view, never shorter than an ordinary line (200 bytes), never longer than
+  `SUMMARY_LINE_BYTES` (600). On 10-11: dream 7 whole + 44 summary lines (the 5 most
+  important chapters whole, as before), reflection 5 whole (as before). 10-12 (34
+  chapters): dream 13 → 10 whole, reflection 9 → 7, every entry shown. 09-27 (13
+  chapters): unchanged, all whole. A quiet day reads its summaries at up to 600 bytes.
+- **The queue leaves the journal's own memories out** (`Dreams#queue`): a chapter's
+  summary — and a frozen full copy — reach the dream as their chapter's line in the
+  journal section; queued as new memories too, the same chapter would be in the bundle
+  twice. Before, the day's copies came in as memories cut to 4,000 characters each: on
+  10-12, 6 copies and 23,519 characters; on 10-11, 3 and 9,775. Now none. Named cost: a
+  dream no longer replays (returns to) a summary, so a summary is strengthened by use in
+  recall only; and a day of chapters with no memories raises the dream's "new since"
+  count by nothing.

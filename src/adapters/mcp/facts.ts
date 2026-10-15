@@ -878,7 +878,10 @@ function factItem(
   const earlier: EarlierVersion[] = [];
   const versions = safe(() => store.versions(c.id), []);
   for (const v of [...versions].reverse()) {
-    if (v.body.length === 0 || v.body === doc.body || v.reason === "episode-chapter") continue;
+    // A journal's own appends are not earlier readings of it: each is the
+    // current body's prefix (`episode-append` was listed until 2026-10-15),
+    // and since then an append keeps no version at all (`store#appendBody`).
+    if (v.body.length === 0 || v.body === doc.body || v.reason === "episode-chapter" || v.reason === "episode-append") continue;
     earlier.push({
       text: plainLine(v.title ?? v.body, 60),
       learned: v.learned_on.length > 0 ? v.learned_on : null,

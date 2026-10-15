@@ -692,6 +692,8 @@ export interface ChapterResult {
   readonly episodeId: string | null;
   readonly chapter: number;
   readonly created: boolean;
+  /** The chapter's summary memory (2026-10-15): written, kept, refused… Null when nothing was written. */
+  readonly summary: ChapterAppend["summary"];
 }
 
 export interface SessionEndReport {

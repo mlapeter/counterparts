@@ -88,7 +88,8 @@ import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { feelingWeeks } from "./feeling-weeks.js";
 import type { FeelingWeeks } from "./feeling-weeks.js";
 import { isWorkMemory } from "../self/work.js";
-import { chapterEntries, entryKey, fitEpisodes, shownEntry } from "./slices.js";
+import { chapterEntries, entryKey, entryLine, fitEpisodes, shownEntry, summarized, withSummaries } from "./slices.js";
+import { chapterSummaries } from "../self/summaries.js";
 import type { ChapterEntry, EpisodeInView, EpisodesFit, ShownChapter } from "./slices.js";
 import { BUNDLE_OWNER, DREAM_TUNABLES } from "./tunables.js";
 import { mindRanked, noteMindShown } from "./mind.js";
@@ -628,7 +629,7 @@ export class Reflections {
     this.store.updateReflection(id, {
       detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, ...(composed.unmarked.length > 0 ? { unmarked: composed.unmarked } : {}) },
     });
-    writeIndex(this.store, "reflection", { ref: id, at: this.store.now(), offered: fitted.offered, looked: [] });
+    writeIndex(this.store, "reflection", { ref: id, at: this.store.now(), offered: fitted.offered, looked: [], lineCap: fitted.lineCap });
     this.record("reflection.begun", id, { dream: dreamId, shown: shown.length, ...fitRecord });
     const instructions = this.instructions(id, input.session, bundle);
     return { ok: true, bundle, text: render(id, bundle), instructions };
@@ -769,14 +770,17 @@ export class Reflections {
     const chapters = ids.c.map((cid): ShownChapter => {
       const r = this.store.row(cid);
       if (r === undefined || (r.confidential === 1 && !this.bundleOwner)) return { id: cid, title: null, entries: [{ chapter: null, day: null, fidelity: "line", text: gone, chars: 0 }], earlier: 0 };
-      const all = chapterEntries(r.body);
+      // The line `begin` fitted: the chapter's summary when it has one.
+      const all = withSummaries(chapterEntries(r.body), chapterSummaries(this.store, [cid]).get(cid));
       const entries = [];
       for (const e of all) {
         const f = fidelityOf(entryKey(cid, e.index));
         if (f === null || f === "id") continue;
         // An entry whose place moved since begin (the body was rewritten) is
         // still bounded: whatever it holds now reads within ENTRY_CHARS.
-        const text = f === "line" ? lineOf({ body: e.text }, T.LINE_BYTES) : clipWire(e.text, T.ENTRY_CHARS);
+        // At the length the fit measured (an index from before 2026-10-15 has none: an ordinary line).
+        const text = f === "line" ? entryLine(e, T.LINE_BYTES, index?.ref === row.id ? (index.lineCap ?? T.LINE_BYTES) : T.LINE_BYTES) : clipWire(e.text, T.ENTRY_CHARS);
+
         entries.push(shownEntry(e, { fidelity: f === "line" ? "line" : text === e.text ? "whole" : "excerpt", text, chars: e.text.length }));
       }
       return { id: cid, title: r.title, entries, earlier: all.length - entries.length };
@@ -1854,7 +1858,7 @@ export class Reflections {
       limits: { ...T.LIMITS },
     };
     noteMindShown(this.store, bundle.onMind, day);
-    return { bundle, offered };
+    return { bundle, offered, lineCap: chaptersFit.summaryBytes };
   }
 
   /**
@@ -2004,7 +2008,9 @@ export class Reflections {
       const fresh = entries.filter((e) => this.entryInView(e, day));
       if (fresh.length > 0) episodes.push({ row, at, fresh, earlier: entries.length - fresh.length });
     }
-    return fitEpisodes(episodes, { room, owner: ownerNames(this.store), day, lineBytes: T.LINE_BYTES, entryChars: T.ENTRY_CHARS });
+    // A CHAPTER'S LINE IS ITS SUMMARY when the session wrote one (2026-10-15).
+    return fitEpisodes(summarized(this.store, episodes), { room, owner: ownerNames(this.store), day, lineBytes: T.LINE_BYTES, entryChars: T.ENTRY_CHARS });
+
   }
 
   /** An entry of the last few lived days (one with no day in its heading counts as recent). */
@@ -2384,6 +2390,8 @@ function mergeFits(shared: FitOutcome, offer: FitOutcome): Pick<FitOutcome, "pla
 interface Composed {
   readonly bundle: ReflectBundle;
   readonly offered: { whole: string[]; excerpt: string[]; line: string[]; id: string[] };
+  /** The longest a chapter's summary was as a line (2026-10-15), so `part` renders what the fit measured. */
+  readonly lineCap: number;
 }
 
 /** The bundle's other furniture, reserved from the room: ids, lists, the questions, the limits. */

@@ -5,6 +5,7 @@ import { Counterpart } from "../../core/counterpart.js";
 import {
   Store,
   assertPreMigrationTarget,
+  chapterSummaryKind,
   isStoreError,
   paths,
   pendingMigration,
@@ -311,7 +312,48 @@ export function journalFindings(store: Store): Finding[] {
  * Amber, never red — the chapter itself is a row in the database and is not at
  * risk, which is exactly what the detail says.
  */
+/** The window the summaries line counts over, in days. */
+const SUMMARY_WINDOW_DAYS = 7;
+
+/**
+ * CHAPTER SUMMARIES (2026-10-15): how many of the last week's chapters got a
+ * summary their session WROTE, and how many stand on an AUTOMATIC one the
+ * boundary wrote from the chapter's opening lines because the session gave
+ * none. Green and informational — a run of automatic ones says sessions are
+ * skipping the `summary` field, which is worth seeing, not a fault. Silent
+ * when the week holds no summary at all (a store before the change, or a
+ * quiet week). One read of the journal's memories; meta only.
+ */
+export function chapterSummaryFindings(store: Store): Finding[] {
+  const since = store.now() - SUMMARY_WINDOW_DAYS * 86_400_000;
+  let written = 0;
+  let automatic = 0;
+  try {
+    for (const id of store.list({ type: "memory", source: "episode" })) {
+      const row = store.row(id);
+      if (row === undefined || (row.created_at ?? 0) < since) continue;
+      const kind = chapterSummaryKind(row.meta);
+      if (kind === "written") written += 1;
+      else if (kind === "automatic") automatic += 1;
+    }
+  } catch {
+    return [];
+  }
+  if (written + automatic === 0) return [];
+  return [
+    finding(
+      "chapter-summaries",
+      "green",
+      "Chapter summaries",
+      `${String(written)} written by the session, ${String(automatic)} automatic (its opening lines, because the session gave none), over the last ${String(SUMMARY_WINDOW_DAYS)} days`,
+      "",
+      { written, automatic, days: SUMMARY_WINDOW_DAYS },
+    ),
+  ];
+}
+
 export function journalCopyFindings(store: Store): Finding[] {
+
   const day = store.livedDay();
   const failed = newestRows(store, JOURNAL_COPY_FAILED_EVENT, 1, day);
   if (failed.unknown || failed.rows.length === 0) return [];

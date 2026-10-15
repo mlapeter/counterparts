@@ -120,7 +120,7 @@ import { finding, tilde, payloadOf, str, num, off, newestRows, undetermined } fr
 import type { Finding } from "./doctor-finding.js";
 import { checkoutFindings } from "./doctor-checkout.js";
 import type { CheckoutReading } from "./doctor-checkout.js";
-import { openFindings, journalFindings, journalCopyFindings } from "./doctor-open.js";
+import { openFindings, journalFindings, journalCopyFindings, chapterSummaryFindings } from "./doctor-open.js";
 import type { OpenReading, MigrationReading } from "./doctor-open.js";
 import {
   metaJson,
@@ -3336,6 +3336,9 @@ export function doctorFindings(input: DoctorInput): Finding[] {
       : [["crash-write-up", (): Finding[] => crashWriteUpFindings(input, store, owedReading)] as const]),
     // F6: silent unless a copy failure is standing. Two bounded event reads.
     ["journal-copy", () => journalCopyFindings(store)],
+    // 2026-10-15: written vs automatic chapter summaries this week. Silent without any.
+    ["chapter-summaries", () => chapterSummaryFindings(store)],
+
     // The process log (2026-09-30): one directory listing and today's file.
     // Not in the session-start reading: it is never red, and it reads a file.
     ...(input.budgetMs !== undefined ? [] : [["log", (): Finding[] => logFindings(input)] as const]),

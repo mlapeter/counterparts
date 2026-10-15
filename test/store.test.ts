@@ -1822,6 +1822,7 @@ describe("observer mode is enforced at the store seam", () => {
     put: [mem("x")],
     putMany: [[mem("x")]],
     revise: ["mem_000000000000", { body: "y" }],
+    appendBody: ["mem_000000000000", { body: "y and more" }],
     supersede: ["mem_000000000000", mem("y")],
     archive: ["mem_000000000000", "reason"],
     updatePhysics: ["mem_000000000000", { uses: 1 }],
