@@ -1585,3 +1585,29 @@ test('there is no search box, whatever the environment says (COUNTERPARTS_SIDEBA
     await ui.unmount()
   }
 })
+
+test('the glance: the wake\'s Last here under the dream, three lines; a click opens all of it, another closes it; the intro leaves the footer once met', async ($, on) => {
+  const w = world(on, FOX)
+  await start($, w)
+  const long = 'We moved the fox to pictures first. Then the footer lost its intro line. Then the bars went to a log scale. Then the glance came, and it read the wake. Then it learned to open on a click, like the dream does.'
+  await $.session.append({
+    door: 'hook-context',
+    origin: { kind: 'hook', event: 'SessionStart' },
+    uuid: 'wake-glance',
+    message: { type: 'attachment', name: 'hook_additional_context', content: [{ type: 'text', text: `<system-reminder>\nSessionStart hook additional context: <!-- counterparts:onboarding meet=done -->\nLast here: ${long}\n</system-reminder>` }] },
+  } as never)
+  await settle(w)
+  const ui = await mount($, w, 'terminal')
+  let lines = await bodyLines(ui)
+  const at = lines.findIndex(l => l.startsWith('Last here'))
+  expect(at).toBeGreaterThan(lines.findIndex(l => l.startsWith('Last Dream')))
+  expect(lines.join(' ')).not.toContain('like the dream does')
+  await click(ui, 'We moved the fox')
+  lines = await bodyLines(ui)
+  expect(lines.join(' ')).toContain('like the dream does.')
+  await click(ui, 'We moved the fox')
+  expect((await bodyLines(ui)).join(' ')).not.toContain('like the dream does')
+  expect((await texts(ui)).includes('/counterparts:meet')).toBe(false)
+  expect((await texts(ui)).includes('/counterparts avatar off')).toBe(true)
+  await ui.unmount()
+})

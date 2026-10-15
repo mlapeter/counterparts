@@ -522,8 +522,10 @@ const GLANCE_LINES = 3
 /** Before anything happens: where things were left, what's coming up, or yesterday (the wake's own lines). */
 function glance(s: BodyState, f: Fold): Line[] {
   const g = s.glance
-  if (g === null || g === undefined || f.glanceOff) return []
-  return [heading(g.head, '', s.w, { key: 'glance' }), ...plain(wrapN(humanDates(leadDate(g.text, s.now), s.now), s.w, GLANCE_LINES), P.text, 'glance')]
+  const opened = s.open?.key === 'glance'
+  // Opened (a click, as the dream opens), it is the one opened text, and shortens only as an opened text does.
+  if (g === null || g === undefined || (f.glanceOff && !opened)) return []
+  return [heading(g.head, '', s.w, { key: 'glance' }), ...plain(wrapN(humanDates(leadDate(g.text, s.now), s.now), s.w, opened ? f.text : GLANCE_LINES), P.text, 'glance')]
 }
 
 // ── the ladder ───────────────────────────────────────────────────────────────

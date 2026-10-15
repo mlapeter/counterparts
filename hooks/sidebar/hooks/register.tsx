@@ -627,10 +627,10 @@ async function clickBody($: EngineInterface, key: string): Promise<void> {
     await update($, focusA, f => (f === section ? null : section))
     return
   }
-  if (key === 'dream') {
+  if (key === 'dream' || key === 'glance') {
     const at = await $.clock.now()
     const cur = await read($, openA)
-    await update($, openA, () => (cur?.key === 'dream' ? null : { key, id: null, status: 'ready' as const, title: null, text: '', meta: null, at }))
+    await update($, openA, () => (cur?.key === key ? null : { key, id: null, status: 'ready' as const, title: null, text: '', meta: null, at }))
     return
   }
   if (key.startsWith('mech:')) {
