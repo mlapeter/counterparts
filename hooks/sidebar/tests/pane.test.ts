@@ -1426,6 +1426,17 @@ test('a terminal that turns out to draw an Image’s alt: two refused picture bl
   await ui.unmount()
 })
 
+test('iTerm2, where pictures draw their alt: the sextant fox, not half-blocks', async ($, on) => {
+  const w = world(on, { ...FOX, env: { HOME, TERM_PROGRAM: 'iTerm.app' }, noPictures: true })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await noPictures(w)
+  expect(await ui.find({ type: 'Image' })).toBeUndefined()
+  expect(await ui.find({ type: 'Raster' })).toBeUndefined()
+  expect([...(await texts(ui))].some(ch => (ch.codePointAt(0) ?? 0) >= 0x1fb00 && (ch.codePointAt(0) ?? 0) <= 0x1fb3b)).toBe(true)
+  await ui.unmount()
+})
+
 test('a picture refused for another reason (not mounted yet) is not counted: auto keeps trying pictures', async ($, on) => {
   const w = world(on, { ...FOX, blitDeny: true })
   await start($, w)

@@ -801,19 +801,22 @@ function seeded(seed = 7): () => number {
 }
 
 describe('the fox', () => {
-  test('which way a surface draws it: a picture first, half-blocks once the engine says the picture drew its alt; nothing about the terminal is read', () => {
-    expect(pickTier('terminal', 'auto')).toBe('image')
-    // an Image that drew its alt here: auto stops trying, and draws what every terminal draws
-    expect(pickTier('terminal', 'auto', true)).toBe('basic')
+  test('which way a surface draws it: a picture first; where the engine says it drew its alt, sextants where the font has them, else half-blocks', () => {
+    expect(pickTier('terminal', 'auto', {})).toBe('image')
+    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'Apple_Terminal' })).toBe('image')
+    // an Image that drew its alt here: auto stops trying, and draws the next best
+    for (const p of ['iTerm.app', 'WezTerm', 'vscode', 'ghostty']) expect(pickTier('terminal', 'auto', { TERM_PROGRAM: p }, true)).toBe('fine')
+    expect(pickTier('terminal', 'auto', { TERM: 'xterm-kitty' }, true)).toBe('fine')
+    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'Apple_Terminal' }, true)).toBe('basic')
+    expect(pickTier('terminal', 'auto', {}, true)).toBe('basic')
     // no PNG folder found: never a picture, not even when asked for one
-    expect(pickTier('terminal', 'auto', false, false)).toBe('basic')
-    expect(pickTier('terminal', 'images', false, false)).toBe('basic')
+    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'iTerm.app' }, false, false)).toBe('fine')
+    expect(pickTier('terminal', 'images', {}, false, false)).toBe('basic')
     // an explicit choice stands
-    expect(pickTier('terminal', 'images', true)).toBe('image')
-    expect(pickTier('terminal', 'fine')).toBe('fine')
-    expect(pickTier('terminal', 'fine', true, false)).toBe('fine')
-    expect(pickTier('terminal', 'basic')).toBe('basic')
-    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic')).toBe('svg')
+    expect(pickTier('terminal', 'images', {}, true)).toBe('image')
+    expect(pickTier('terminal', 'fine', {})).toBe('fine')
+    expect(pickTier('terminal', 'basic', { TERM_PROGRAM: 'iTerm.app' })).toBe('basic')
+    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic', {})).toBe('svg')
     expect(normDetail('images')).toBe('images')
     expect(normDetail('sharp')).toBe('auto')
   })

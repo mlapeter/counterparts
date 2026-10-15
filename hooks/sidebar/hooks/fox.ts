@@ -12,13 +12,13 @@
  *   (`{ file, format: 'png' }`), where the terminal draws pictures
  *   (kitty, Ghostty). Elsewhere an Image draws its alt text, dim, so `auto`
  *   tries it first and a blit refused because the Image draws its alt drops
- *   to `basic` for the session (register.tsx).
- * - `fine`: sextants (U+1FB00, 2 x 3 pixels a cell, two colours a cell), when
- *   the person chooses them; fonts that have them: iTerm2, WezTerm, VS Code, Ghostty, kitty.
+ *   to `fine` or `basic` for the session (register.tsx).
+ * - `fine`: sextants (U+1FB00, 2 x 3 pixels a cell, two colours a cell), where a
+ *   picture can't show and the font has them (iTerm2, WezTerm, VS Code, Ghostty, kitty).
  *   A `Raster` takes only BMP code points and sextants are not BMP, so this
  *   tier is rows of `Text` runs, and a frame change is a redraw of the pane.
- * - `basic`: half-blocks (`▀`, two pixels a cell) on a `Raster`, wherever a
- *   picture drew its alt (Apple Terminal, iTerm2, tmux, anything unknown). A frame change is a blit.
+ * - `basic`: half-blocks (`▀`, two pixels a cell) on a `Raster`, everywhere
+ *   else (Apple Terminal, tmux, anything unknown). A frame change is a blit.
  * - `svg`: the desktop app (no Raster, no Image): an `Svg` of rects from the
  *   half-block pixels, with the PNG frame over them as a data URI (the rects
  *   are what shows if the surface drops the image, or the file can't be read);
@@ -48,23 +48,41 @@ export function normDetail(v: unknown): FoxDetail {
 }
 
 /**
+ * The environment variables the fallback reads, once at session start: which
+ * terminals' fonts draw sextants. Pictures need none (the engine says); these
+ * four only choose sextants over half-blocks where a picture can't show
+ * (Mike, 2026-10-15: the best fox each terminal can draw).
+ */
+export const TIER_ENV = ['TERM_PROGRAM', 'TERM', 'KITTY_WINDOW_ID', 'WEZTERM_EXECUTABLE'] as const
+
+export type TierEnv = Partial<Record<(typeof TIER_ENV)[number], string>>
+
+const present = (v: string | undefined): boolean => v !== undefined && v !== ''
+
+/** Whether this terminal's font has sextants: the ones known to draw them. */
+export function sextantsLikely(env: TierEnv): boolean {
+  const p = env.TERM_PROGRAM ?? ''
+  if (p === 'iTerm.app' || p === 'WezTerm' || p === 'vscode' || p === 'ghostty') return true
+  return env.TERM === 'xterm-kitty' || env.TERM === 'xterm-ghostty' || present(env.KITTY_WINDOW_ID) || present(env.WEZTERM_EXECUTABLE)
+}
+
+/**
  * The tier for a drawing: the desktop and the other remote surfaces draw the
  * Svg (`fox-svg.ts`, a file of its own); a terminal, the override or else a
- * picture first. Nothing about the terminal is read (2026-10-15: no
- * environment variables, so the plugin directory's scan has none to list):
- * the engine draws an `Image`'s pixels where the terminal can and its alt
- * elsewhere, and says so by refusing the blit. `noImages`: an Image here drew
- * its alt, so `auto` draws half-blocks, which every terminal draws; sextants
- * (`fine`) are the person's choice, as a font without them shows boxes.
+ * picture first. Whether pictures show is not guessed: the engine
+ * draws an `Image`'s pixels where the terminal can and its alt elsewhere, and
+ * says so by refusing the blit. `noImages`: an Image here drew its alt, so
+ * `auto` draws the next best: sextants where the terminal's font is known to
+ * have them (`sextantsLikely`), else half-blocks, which every terminal draws.
  * `hasPngs` false (no PNG folder found): never a picture, whatever was asked.
  */
-export function pickTier(surface: string, detail: FoxDetail, noImages = false, hasPngs = true): FoxTier {
+export function pickTier(surface: string, detail: FoxDetail, env: TierEnv = {}, noImages = false, hasPngs = true): FoxTier {
   if (surface !== 'terminal') return 'svg'
   if (detail === 'images' && hasPngs) return 'image'
   if (detail === 'fine') return 'fine'
   if (detail === 'basic') return 'basic'
   if (detail === 'auto' && !noImages && hasPngs) return 'image'
-  return 'basic'
+  return sextantsLikely(env) ? 'fine' : 'basic'
 }
 
 // ── the stage's footprint ───────────────────────────────────────────────────
@@ -608,8 +626,9 @@ export const stage = {
   shown: '',
   tier: 'basic' as FoxTier,
   director: null as Director | null,
+  env: {} as TierEnv,
   detail: 'auto' as FoxDetail,
-  /** An Image here drew its alt: `auto` draws half-blocks for the rest of the session. */
+  /** An Image here drew its alt: `auto` draws sextants or half-blocks for the rest of the session. */
   noImages: false,
   /** Image blits refused in a row. */
   imageDenies: 0,

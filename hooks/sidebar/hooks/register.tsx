@@ -97,6 +97,7 @@ import {
   IMAGE_X0,
   STAGE_COLS,
   STAGE_MIN_PANE_ROWS,
+  TIER_ENV,
   advance,
   fineCells,
   halfCells,
@@ -881,7 +882,7 @@ async function foxEvent($: EngineInterface, ev: FoxEvent): Promise<void> {
  * Image is a blit; in sextants (Text) or on the desktop (an Svg) a redraw of
  * the pane. A pane no longer shown stops it (the next drawing starts it). A
  * refused blit stops it; an Image refused twice in a row because it draws
- * its alt here leaves `auto` drawing half-blocks for the session. Any other
+ * its alt here leaves `auto` drawing sextants or half-blocks for the session. Any other
  * refusal (not mounted yet, another size, the terminal not yet asked) is not
  * counted: it says nothing about pictures.
  */
@@ -1100,7 +1101,15 @@ export const register: Register = on => {
     stage.pngDir = await findPngDir($)
     stage.pngData.clear()
     if (stage.pngDir === null) stage.noImages = true
-    // What this terminal can draw the fox with is not read: `auto` tries a picture and the engine says (fox.ts, `pickTier`).
+    // Pictures: tried, and the engine says. Where they can't show, whether the font draws sextants, read once (fox.ts).
+    // (Each name spelled out: the engine lists the variables a module reads.)
+    const envVals = await Promise.all([
+      $.env.get('TERM_PROGRAM').catch(() => undefined),
+      $.env.get('TERM').catch(() => undefined),
+      $.env.get('KITTY_WINDOW_ID').catch(() => undefined),
+      $.env.get('WEZTERM_EXECUTABLE').catch(() => undefined),
+    ])
+    stage.env = Object.fromEntries(TIER_ENV.map((k, i) => [k, envVals[i]]).filter(([, v]) => typeof v === 'string'))
     await update($, themeA, () => normTheme(themePref))
     await update($, viewA, () => normView(viewPref))
     await update($, brainA, () => normAvatar(brainPref))
@@ -1143,7 +1152,7 @@ export const register: Register = on => {
         return {
           text:
             d === 'auto'
-              ? 'The fox is drawn as a picture where this terminal shows one, in half-blocks where it does not.'
+              ? 'The fox is drawn the best way this terminal shows: a picture, else sextants, else half-blocks.'
               : d === 'images'
                 ? 'The fox is drawn as a picture (kitty, Ghostty); a terminal that cannot shows its name instead.'
                 : d === 'fine'
@@ -1335,7 +1344,7 @@ export const register: Register = on => {
     run.bodyW = w
     // The fox's stage: on a pane tall and wide enough, in the tier this surface draws (fox.ts); else, or with the
     // avatar off, the header alone.
-    const tier = pickTier(e.surface, stage.detail, stage.noImages, stage.pngDir !== null)
+    const tier = pickTier(e.surface, stage.detail, stage.env, stage.noImages, stage.pngDir !== null)
     const drawsStage = tier === 'svg' ? 'Svg' in els : 'Raster' in els
     const hasStage = mode === 'fox' && drawsStage && !inline && fill >= STAGE_MIN_PANE_ROWS && W >= (SURFACE.prose ? STAGE_MIN_PROSE_COLS : STAGE_COLS)
     // While the pane holds the keyboard the fox holds still.
