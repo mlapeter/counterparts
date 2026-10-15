@@ -1320,13 +1320,19 @@ for (const [stored, color] of [
 // ── the fox at the top ─────────────────────────────────────────────────────
 
 const FOX: WorldOptions = { store: { brain: 'fox' } }
-const foxEnv = (env: Record<string, string>): WorldOptions => ({ ...FOX, env: { HOME, ...env } })
+const foxDetail = (avatarDetail: string): WorldOptions => ({ store: { ...FOX.store, avatarDetail } })
+/** A terminal that draws no pictures, once the engine has said so: two refused picture blits. */
+const noPictures = async (w: World): Promise<void> => {
+  await w.clock.advance(2000)
+  await settle(w)
+}
 const stageBlits = (w: World) => w.blits.filter(b => b.key === 'stage')
 
 test('the fox is the avatar when none was chosen: under the title with the count and the day on its right, edge to edge, a thin rule under it; a short pane draws the header alone', async ($, on) => {
-  const w = world(on, { store: { brain: undefined } })
+  const w = world(on, { store: { brain: undefined }, noPictures: true })
   await start($, w)
   const ui = await mount($, w, 'terminal')
+  await noPictures(w)
   const r = await ui.find({ type: 'Raster', key: 'stage' })
   expect(r?.props['columns']).toBe(34)
   expect(r?.props['rows']).toBe(15)
@@ -1347,8 +1353,8 @@ test('the fox is the avatar when none was chosen: under the title with the count
   expect(w.store['brain']).toBe('fox')
 })
 
-test('each terminal draws it its finest known way: a picture in Ghostty, sextants in iTerm2, half-blocks in Apple Terminal; the desktop an Svg', async ($, on) => {
-  const ghostty = world(on, foxEnv({ TERM_PROGRAM: 'ghostty' }))
+test('a terminal draws a picture first, whatever it is: nothing about it is read', async ($, on) => {
+  const ghostty = world(on, FOX)
   await start($, ghostty)
   const ui = await mount($, ghostty, 'terminal')
   const img = await ui.find({ type: 'Image', key: 'stage' })
@@ -1363,8 +1369,8 @@ test('each terminal draws it its finest known way: a picture in Ghostty, sextant
   await ui.unmount()
 })
 
-test('sextants in iTerm2: rows of Text, no Raster (a Raster takes no sextant), the count still on the title row', async ($, on) => {
-  const w = world(on, foxEnv({ TERM_PROGRAM: 'iTerm.app' }))
+test('sextants when the person chose them: rows of Text, no Raster (a Raster takes no sextant), the count still on the title row', async ($, on) => {
+  const w = world(on, foxDetail('fine'))
   await start($, w)
   const ui = await mount($, w, 'terminal')
   expect(await ui.find({ type: 'Raster' })).toBeUndefined()
@@ -1375,10 +1381,11 @@ test('sextants in iTerm2: rows of Text, no Raster (a Raster takes no sextant), t
   await ui.unmount()
 })
 
-test('half-blocks in Apple Terminal, and the desktop draws an Svg of the same fox', async ($, on) => {
-  const w = world(on, foxEnv({ TERM_PROGRAM: 'Apple_Terminal' }))
+test('half-blocks where pictures are not drawn, and the desktop draws an Svg of the same fox', async ($, on) => {
+  const w = world(on, { ...FOX, noPictures: true })
   await start($, w)
   let ui = await mount($, w, 'terminal')
+  await noPictures(w)
   expect(await ui.find({ type: 'Raster', key: 'stage' })).toBeDefined()
   await ui.unmount()
   ui = await mount($, w, 'desktop')
@@ -1391,7 +1398,7 @@ test('half-blocks in Apple Terminal, and the desktop draws an Svg of the same fo
 })
 
 test('/counterparts avatar detail overrides the choice, stored for every session', async ($, on) => {
-  const w = world(on, foxEnv({ TERM_PROGRAM: 'Apple_Terminal' }))
+  const w = world(on, { ...FOX, noPictures: true })
   await start($, w)
   const ui = await mount($, w, 'terminal')
   expect(await cmd($, 'avatar detail fine')).toContain('sextants')
@@ -1408,19 +1415,19 @@ test('/counterparts avatar detail overrides the choice, stored for every session
   await ui.unmount()
 })
 
-test('a terminal that turns out to draw an Image’s alt: two refused picture blits, and auto draws sextants instead', async ($, on) => {
-  const w = world(on, { ...foxEnv({ TERM_PROGRAM: 'ghostty' }), blitDeny: true })
+test('a terminal that turns out to draw an Image’s alt: two refused picture blits, and auto draws half-blocks instead', async ($, on) => {
+  const w = world(on, { ...FOX, noPictures: true })
   await start($, w)
   const ui = await mount($, w, 'terminal')
-  await w.clock.advance(2000)
-  await settle(w)
+  await noPictures(w)
   expect(await ui.find({ type: 'Image' })).toBeUndefined()
-  expect([...(await texts(ui))].some(ch => (ch.codePointAt(0) ?? 0) >= 0x1fb00)).toBe(true)
+  expect(await ui.find({ type: 'Raster', key: 'stage' })).toBeDefined()
+  expect([...(await texts(ui))].some(ch => (ch.codePointAt(0) ?? 0) >= 0x1fb00)).toBe(false)
   await ui.unmount()
 })
 
 test('the fox is still for long holds: the tail tip flicks within seconds, then one blit per change of what is on screen, none between; a save writes on the notepad at once', async ($, on) => {
-  const w = world(on, FOX)
+  const w = world(on, foxDetail('basic'))
   on('tool.call', () => ({ result: 'ok', text: '{"stored":true,"id":"mem_f0000001"}' }))
   await start($, w)
   const ui = await mount($, w, 'terminal')
@@ -1477,7 +1484,7 @@ test('no timer while the pane is hidden or holds the keyboard: nothing is drawn,
 })
 
 test('after two minutes with nothing happening it naps, and the person’s prompt wakes it', async ($, on) => {
-  const w = world(on, { ...foxEnv({ TERM_PROGRAM: 'iTerm.app' }) })
+  const w = world(on, foxDetail('fine'))
   await start($, w)
   const ui = await mount($, w, 'terminal')
   await w.clock.advance(200000)

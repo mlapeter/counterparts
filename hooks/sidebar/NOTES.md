@@ -448,28 +448,29 @@ module is generated from.
 
 | tier | where | how | a frame change |
 |---|---|---|---|
-| `image` | kitty, Ghostty | `Image` of the PNG, 30 × 16 cells | a blit of the new `{ png }` |
-| `fine` | iTerm2, WezTerm, VS Code (and Ghostty/kitty where pictures don't show) | sextants (2 × 3 pixels a cell, two colours), as rows of `Text` runs | a redraw of the pane |
-| `basic` | everything else: Apple Terminal, tmux, screen, unknown | half-blocks on a `Raster`, 34 × 15 | a blit of the cells |
+| `image` | `auto`'s first try everywhere; drawn where the terminal shows pictures (kitty, Ghostty) | `Image` of the PNG, 30 × 16 cells | a blit of the new `{ png }` |
+| `fine` | the person's choice (`avatar detail fine`): iTerm2, WezTerm, VS Code, kitty and Ghostty draw them | sextants (2 × 3 pixels a cell, two colours), as rows of `Text` runs | a redraw of the pane |
+| `basic` | `auto` wherever a picture drew its alt: Apple Terminal, iTerm2, tmux, screen, unknown | half-blocks on a `Raster`, 34 × 15 | a blit of the cells |
 | `svg` | the desktop app (no Raster, no Image) | `Svg`: rects from the half-block pixels, the PNG over them as a data URI | a redraw |
 
 `/counterparts avatar detail auto|images|fine|basic` overrides the choice. It
 is stored in `$.store` as `avatarDetail`.
 
-- **No capability flag exists.** `RenderViewport` gives columns, rows and
-  `isFullscreen`, and nothing on `e.surface` says whether the terminal draws
-  pictures. So the choice reads the environment once at session start
-  (`TERM_PROGRAM`, `TERM`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`, `TMUX`, `STY`,
-  `CLAUDE_CODE_FORCE_TERMINAL_IMAGES`). Pictures are chosen only for
-  `TERM_PROGRAM=ghostty`, `TERM=xterm-ghostty|xterm-kitty` or a
-  `KITTY_WINDOW_ID`, and never under tmux or screen. The force variable says
-  yes or no outright. **Assumed, not seen:** what Ghostty and kitty set (taken
-  from their docs, not observed here).
+- **No capability flag exists, and nothing is read in its place (2026-10-15).**
+  `RenderViewport` gives columns, rows and `isFullscreen`, and nothing on
+  `e.surface` says whether the terminal draws pictures. Until 0.3.24 the choice
+  read seven environment variables (`TERM_PROGRAM`, `TERM`, `KITTY_WINDOW_ID`,
+  `WEZTERM_EXECUTABLE`, `TMUX`, `STY`, `CLAUDE_CODE_FORCE_TERMINAL_IMAGES`);
+  the plugin directory's scan listed them under "uses a credential", so they
+  are gone. `auto` now draws a picture first everywhere and lets the engine say.
 - **The runtime check.** `$.ui.blit` on an Image is refused when "the Image
   draws its alt there". In `auto`, two refused picture blits in a row switch
-  the session to sextants. Right after mounting, an Image's first frame is
-  blitted again as a probe, so a wrong guess shows the dim `a small fox` alt for
-  about two drawings, not until the next moment.
+  the session to half-blocks. Right after mounting, an Image's first frame is
+  blitted again as a probe, so a terminal without pictures shows the dim
+  `a small fox` alt for about two drawings. Half-blocks, not sextants: a font
+  without sextants draws boxes (term-loop's renderer did), and nothing tells
+  the two apart without reading the terminal's name. Sextants stay one
+  command away (`/counterparts avatar detail fine`).
 - **Why the sextants are Text and not a Raster.** `RasterProps.cells` takes
   "one printable width-1 BMP character". U+1FB00–1FB3B are not BMP, so a
   Raster of them would be refused. **Unverified live:** that the engine

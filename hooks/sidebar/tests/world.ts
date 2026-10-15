@@ -143,6 +143,8 @@ export type WorldOptions = {
   blitDeny?: boolean;
   /** The first N blits are refused (a Raster not mounted yet), the rest taken. */
   blitDenyFirst?: number;
+  /** A terminal that draws no pictures: every Image blit is refused as the engine refuses one drawing its alt; Raster blits are taken. */
+  noPictures?: boolean;
   store?: Record<string, unknown>;
   /** What the person's permission settings say about the memory tools (`allow` unless given): the test's `tool.check` answer only; the sidebar reads the folder's state from the registry file, so nothing it does turns on this. */
   permission?: 'allow' | 'ask' | 'deny';
@@ -375,7 +377,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
       w.denied += 1
       return { value: { deny: 'not mounted' } }
     }
-    if (opts.blitDeny === true || w.denied < (opts.blitDenyFirst ?? 0)) {
+    if (opts.blitDeny === true || w.denied < (opts.blitDenyFirst ?? 0) || (opts.noPictures === true && 'source' in (e as object))) {
       w.denied += 1
       return { value: { deny: 'not mounted' } }
     }

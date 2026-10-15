@@ -95,7 +95,6 @@ import {
   IMAGE_X0,
   STAGE_COLS,
   STAGE_MIN_PANE_ROWS,
-  TIER_ENV,
   advance,
   fineCells,
   halfCells,
@@ -1093,18 +1092,7 @@ export const register: Register = on => {
     stage.pngDir = await findPngDir($)
     stage.pngData.clear()
     if (stage.pngDir === null) stage.noImages = true
-    // What this terminal can draw the fox with, read once (fox.ts, `pickTier`).
-    // (Each name spelled out: the engine lists the variables a module reads.)
-    const envVals = await Promise.all([
-      $.env.get('TERM_PROGRAM').catch(() => undefined),
-      $.env.get('TERM').catch(() => undefined),
-      $.env.get('KITTY_WINDOW_ID').catch(() => undefined),
-      $.env.get('WEZTERM_EXECUTABLE').catch(() => undefined),
-      $.env.get('TMUX').catch(() => undefined),
-      $.env.get('STY').catch(() => undefined),
-      $.env.get('CLAUDE_CODE_FORCE_TERMINAL_IMAGES').catch(() => undefined),
-    ])
-    stage.env = Object.fromEntries(TIER_ENV.map((k, i) => [k, envVals[i]]).filter(([, v]) => typeof v === 'string'))
+    // What this terminal can draw the fox with is not read: `auto` tries a picture and the engine says (fox.ts, `pickTier`).
     await update($, themeA, () => normTheme(themePref))
     await update($, viewA, () => normView(viewPref))
     await update($, brainA, () => normAvatar(brainPref))
@@ -1325,7 +1313,7 @@ export const register: Register = on => {
     run.bodyW = w
     // The fox's stage: on a pane tall and wide enough, in the tier this surface draws (fox.ts); else, or with the
     // avatar off, the header alone.
-    const tier = pickTier(e.surface, stage.detail, stage.env, stage.noImages, stage.pngDir !== null)
+    const tier = pickTier(e.surface, stage.detail, stage.noImages, stage.pngDir !== null)
     const drawsStage = tier === 'svg' ? 'Svg' in els : 'Raster' in els
     const hasStage = mode === 'fox' && drawsStage && !inline && fill >= STAGE_MIN_PANE_ROWS && W >= (SURFACE.prose ? STAGE_MIN_PROSE_COLS : STAGE_COLS)
     // While the pane holds the keyboard the fox holds still.
