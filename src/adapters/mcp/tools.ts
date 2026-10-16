@@ -1238,13 +1238,13 @@ const CHAPTER: ToolSpec = {
     },
     {
       claim:
-        "The episode becomes MEMORY only through ordinary ingestion at the boundary — once, as a self-kind memory, through the same battery everything else crosses. Writing here is not a way to write memory directly.",
-      mechanizedBy: "src/core/counterpart.ts#sessionEnd -> src/core/self/index.ts#reconcileEpisodes -> ingestEpisode",
+        "Each chapter has ONE summary memory, written once: the `summary` you give, through the same battery everything else crosses — or, when you give none, one the boundary writes from the chapter's title and opening lines, marked automatic. A summary you give later for the same chapter replaces an automatic one; it never replaces one you wrote. The summary is an ordinary memory and fades like one; the chapter keeps every word.",
+      mechanizedBy: "src/core/self/index.ts#summaryAtChapter + src/core/self/index.ts#reconcileEpisodes -> ingestEpisode",
     },
     {
       claim:
-        "`about` is carried to the chapter's memory copy, and kept when the copy regrows; a later chapter's mark replaces an earlier one. Only me, us and owner let the chapter reach a wake in another directory.",
-      mechanizedBy: "src/core/self/episodes.ts#appendChapter (meta.about) -> src/core/self/index.ts#ingestEpisode -> src/core/counterpart.ts#selfChapterElsewhere",
+        "`about` is carried to this chapter's summary; each chapter's summary keeps its own chapter's mark. One chapter marked me, us or owner takes its session into a wake in another directory.",
+      mechanizedBy: "src/core/self/episodes.ts#appendChapter (meta.about) -> src/core/self/index.ts#putSummary -> src/core/counterpart.ts#selfChapterElsewhere",
     },
   ],
   // The engine's (2026-10-11): what the gate and the store do with a chapter,
@@ -1257,8 +1257,8 @@ const CHAPTER: ToolSpec = {
     },
     {
       claim:
-        "Every earlier state of the episode is kept: appending revises, and revision archives what was there first.",
-      mechanizedBy: "src/core/store/index.ts#revise (archive-on-overwrite)",
+        "Every earlier state of the episode is kept: a chapter is only ever added after the last, and the store refuses an append whose words do not begin with everything already there.",
+      mechanizedBy: "src/core/store/index.ts#appendBody (APPEND_NOT_PREFIX)",
     },
     {
       claim: "Under observer stance nothing is written and the refusal says so.",
@@ -1287,7 +1287,12 @@ const CHAPTER: ToolSpec = {
         type: "string",
         enum: ["me", "us", "owner", "work", "world"],
         description:
-          "What this session was about, by meaning — me, us, owner, work or world, as for a memory. Please set it: it goes to the chapter's memory copy, and only me, us or owner carry the chapter into a wake in another directory. A session that was only building is work; one about people, feelings or life outside the work is owner or us.",
+          "What this session was about, by meaning — me, us, owner, work or world, as for a memory. Please set it: it goes to the chapter's summary, and only me, us or owner carry the chapter into a wake in another directory. A session that was only building is work; one about people, feelings or life outside the work is owner or us.",
+      },
+      summary: {
+        type: "string",
+        description:
+          "Also write a summary of this chapter that you'd want to find it by later: what happened, what was decided, the names, numbers and words someone would search for. It's the memory that stands for the chapter; the chapter keeps every word. If a part deserves its own memory (a decision, a date, a quote), remember it separately too. A few sentences; written once per chapter — without one, the chapter's opening lines stand in.",
       },
       drewOn: DREW_ON_PROPERTY,
     },

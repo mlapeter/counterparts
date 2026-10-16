@@ -900,6 +900,24 @@ describe("what never comes back, and what comes back labeled", () => {
     expect(text).toContain("my journal · written");
   });
 
+  test("a chapter's own appends are never listed as EARLIER versions of it (2026-10-15)", () => {
+    const c = brain();
+    seed(c);
+    c.episodeAsk("s1", { turns: 12, bytes: 9_000 });
+    const written = c.appendEpisode("s1", "Walked the zqlighthouse path in the fog.");
+    const id = written.episodeId as string;
+    // The version rows appends left before `store#appendBody`: each is the body's prefix.
+    const prior = c.store.readProse(id).body;
+    c.store.revise(id, { body: `${prior}\nAnd the foghorn started up as we turned back.\n`, reason: "episode-append" });
+    const r = ask(c, "zqlighthouse");
+    const hit = r.memories.find((m) => m.id === id);
+    expect(hit).toBeDefined();
+    expect(hit?.earlier).toEqual([]);
+    // A new append keeps no version at all.
+    c.appendEpisode("s1", "Then the zqlighthouse keeper waved from the gallery.");
+    expect(c.store.versions(id).length).toBe(1);
+  });
+
   test("near-duplicates are shown once", () => {
     const c = brain();
     seed(c);

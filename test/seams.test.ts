@@ -401,6 +401,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       put: [{ type: "memory", kind: "fact", body: "x" }],
       putMany: [[{ type: "memory", kind: "fact", body: "x" }]],
       revise: [seedId, { body: "y" }],
+      appendBody: [seedId, { body: "y and more" }],
       supersede: [seedId, { type: "memory", kind: "fact", body: "y" }],
       archive: [seedId, "reason"],
       updatePhysics: [seedId, { uses: 1 }],

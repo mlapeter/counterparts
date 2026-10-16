@@ -34,6 +34,7 @@ import {
   CHAPTER_AT_META,
   CHAPTER_MOMENT_GRACE_MS,
   chapterAddress,
+  chapterHeading,
   parseChapterAddress,
   resolveChapter,
 } from "../src/core/self/index.js";
@@ -583,9 +584,15 @@ describe("chapter addresses", () => {
     const one = c.appendEpisode(session, "The first stretch, written before chapters kept their moments.", {});
     const t1 = clock;
     clock += 30 * 60_000;
-    c.episodeAsk(session, { turns: 30, bytes: 30_000 });
-    c.appendEpisode(session, "The second stretch, also from before.", {});
     const episodeId = one.episodeId as string;
+    // The second chapter as an append wrote it before 2026-10-15: a revise
+    // that kept the one-chapter body as an `episode-chapter` version (an
+    // append keeps none since, `store#appendBody`).
+    const prior = c.store.readProse(episodeId).body;
+    c.store.revise(episodeId, {
+      body: `${prior.trimEnd()}\n\n${chapterHeading(2, c.store.livedDay())}\n\nThe second stretch, also from before.\n`,
+      reason: "episode-chapter",
+    });
     // Take the stored moments away, as an episode written before v12 has none.
     const db = new Database(paths.operational(dir));
     const meta = JSON.parse((db.query("SELECT meta FROM memories WHERE id = ?").get(episodeId) as { meta: string }).meta) as Record<string, unknown>;

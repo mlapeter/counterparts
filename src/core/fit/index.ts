@@ -416,6 +416,12 @@ export interface FitIndex {
    * the reader (`Dreams#requeueSpilled`).
    */
   readonly fresh?: readonly string[];
+  /**
+   * The longest a chapter's written summary was as a line in this run's fit
+   * (2026-10-15, `dream/slices.ts#summaryLineBytes`), so a later part renders
+   * the line the fit measured. Absent: an ordinary line.
+   */
+  readonly lineCap?: number;
 }
 
 export function indexKey(mechanism: FitMechanism): string {

@@ -2152,3 +2152,18 @@ What changed with it, measured:
   at `close()`; under node it always did. A process that closed before the rename is no
   longer a late closer at all. macOS's SQLite keeps the files and is not exposed. Not built
   further.
+
+## 2026-10-15 — `appendBody`: an append is not a revision
+
+- The journal's appends went through `revise`, which keeps the prior body as a version
+  row. Every one of the 326 such rows on the owner's store was an exact prefix of its
+  episode's current body (1.98 MB), so a version held nothing the row did not. `appendBody`
+  writes the grown body and keeps no version; it refuses (`APPEND_NOT_PREFIX`) any body
+  that does not begin with the stored one whole, or adds nothing, so the guarantee holds by
+  construction rather than by a flag on `revise`. CONTRACT §5 G5 names the deviation.
+- It does not advance `revision` (the version sequence), recomputes `confidential` from
+  meta as `revise` does, records the last writer's model (NULL when none is named) and
+  relinks subjects for a memory row (the journal's rows are episodes, so in practice none).
+- `isChapterSummary` / `chapterSummaryKind` / `CHAPTER_SUMMARY_META` live in
+  `operational.ts` because `reachExempt` reads them: a chapter's summary is not exempt
+  from reach, a frozen full copy still is. No schema change.

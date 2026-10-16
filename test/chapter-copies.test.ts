@@ -239,14 +239,22 @@ describe("(c) the census counts replaced copies apart from real exits", () => {
   test("a regrown copy is `replaced`, a removal is still `exited`", async () => {
     const s = server();
     const c = s.counterpart;
-    chapterWithCopy(c, "The morning part of the zqorchard day.");
-    // The chapter grows; the next ingestion rebuilds the copy and archives the old one.
+    const { episodeId, copyId } = chapterWithCopy(c, "The morning part of the zqorchard day.");
+    // The chapter grows, and its copy is rebuilt the way the builds before
+    // 2026-10-15 did it (nothing regrows since): a new full copy, the old one
+    // archived `episode-regrown` — rows a live store still holds.
     c.episodeAsk("s1", { turns: 40, bytes: 40_000 });
     c.appendEpisode("s1", "And the evening, which mattered more.");
-    const grown = c.ingestEpisode({ sessionId: "s1" });
-    expect(grown.reason).toBe("regrown");
-    expect(grown.archived.length).toBe(1);
-    expect(c.store.row(grown.archived[0] as string)?.archived_reason).toBe("episode-regrown");
+    c.store.put({
+      type: "memory",
+      kind: "self",
+      body: c.store.readProse(episodeId).body,
+      meta: { episodeId, sessionId: "s1" },
+      source: "episode",
+      origin: { session: "s1", ref: episodeId },
+    });
+    c.store.archive(copyId, "episode-regrown");
+    expect(c.store.row(copyId)?.archived_reason).toBe("episode-regrown");
 
     const removed = c.store.put({ type: "memory", kind: "self", body: "A self-note the owner took back." });
     c.store.appendRemovalRecord({ memoryId: removed, stage: "requested", actor: "owner" });
