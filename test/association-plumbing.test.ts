@@ -63,22 +63,48 @@ function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
   return c;
 }
 
-/** A chapter for session `s1` and its first copy. */
+/**
+ * A FULL CHAPTER COPY as the builds before 2026-10-15 wrote one (`ingestEpisode`
+ * then; a chapter gets a summary instead since): the episode's whole body,
+ * `source: episode`, `origin_ref` and `meta.episodeId` the chapter's id.
+ */
+function legacyCopy(c: Counterpart, episodeId: string): string {
+  const body = c.store.readProse(episodeId).body;
+  return c.store.put({
+    type: "memory",
+    kind: "self",
+    body,
+    meta: { episodeId, episodeKey: `${episodeId}:${String(body.length)}`, sessionId: "s1", handles: [] },
+    source: "episode",
+    origin: { session: "s1", ref: episodeId },
+  });
+}
+
+let episode = "";
+
+/** A chapter for session `s1` and its first (legacy) copy. */
 function chapterWithCopy(c: Counterpart): { episodeId: string; copyId: string } {
   c.episodeAsk("s1", { turns: 12, bytes: 9_000 });
   const written = c.appendEpisode("s1", "The morning the orchard ladder finally came back from the repair shop.");
-  const out = c.ingestEpisode({ sessionId: "s1" });
-  expect(out.ingested).toBe(true);
-  return { episodeId: written.episodeId as string, copyId: out.memoryId as string };
+  episode = written.episodeId as string;
+  return { episodeId: episode, copyId: legacyCopy(c, episode) };
 }
 
-/** The chapter grows, and the next ingestion regrows its copy. */
-function regrow(c: Counterpart): { newCopy: string; archived: readonly string[] } {
+/**
+ * The chapter grows, and its copy is regrown the way those builds did it:
+ * the new copy first, then the old one archived `episode-regrown`, its links
+ * handed on through `associate.retargetOnSupersede` (a test may stub it).
+ */
+function regrow(c: Counterpart, words = "And the evening, when the ladder held and the high branches were picked at last."): { newCopy: string; archived: readonly string[] } {
   c.episodeAsk("s1", { turns: 40, bytes: 40_000 });
-  c.appendEpisode("s1", "And the evening, when the ladder held and the high branches were picked at last.");
-  const out = c.ingestEpisode({ sessionId: "s1" });
-  expect(out.reason).toBe("regrown");
-  return { newCopy: out.memoryId as string, archived: out.archived };
+  c.appendEpisode("s1", words);
+  const stale = (c.store.copiesOf([episode]).get(episode) ?? []).map((x) => x.id);
+  const newCopy = legacyCopy(c, episode);
+  for (const id of stale) {
+    c.store.archive(id, "episode-regrown");
+    c.associate.retargetOnSupersede(id, newCopy, c.store.livedDay());
+  }
+  return { newCopy, archived: stale };
 }
 
 function neighbour(c: Counterpart): string {
@@ -118,55 +144,11 @@ const NO_RETARGET: FlushReport = {
 // (a) the links go with the words
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("(a) a regrown chapter copy keeps the links its archived copy learned", () => {
-  test("the new copy inherits each live link, both ways, at the weight it stands at; the old copy conducts nothing", () => {
-    const c = brain();
-    const { copyId } = chapterWithCopy(c);
-    const n = neighbour(c);
-    coUse(c, copyId, n, 3);
-    expect(c.associate.linked(copyId, n)).toBe(true);
-    const learned = c.associate.weightAt(copyId, n);
-
-    const { newCopy, archived } = regrow(c);
-    expect(archived).toEqual([copyId]);
-    expect(c.store.row(copyId)?.archived_reason).toBe("episode-regrown");
-    // The old copy is archived, so its rows stop conducting (contract G8)…
-    expect(c.associate.linked(copyId, n)).toBe(false);
-    // …and the new one carries what it had: the same lived day, the same weight.
-    expect(c.associate.linked(newCopy, n)).toBe(true);
-    expect(c.associate.linked(n, newCopy)).toBe(true);
-    expect(c.associate.weightAt(newCopy, n)).toBeCloseTo(learned, 9);
-    expect(c.associate.events("associate.retarget").at(-1)?.data?.["successor"]).toBe(newCopy);
-  });
-
-  test("a second regrowth carries the links on again, so a chapter's links follow it through every copy", () => {
-    const c = brain();
-    const { copyId } = chapterWithCopy(c);
-    const n = neighbour(c);
-    coUse(c, copyId, n, 2);
-    const second = regrow(c).newCopy;
-    c.episodeAsk("s1", { turns: 80, bytes: 80_000 });
-    c.appendEpisode("s1", "And the night after, writing it all down while it was still warm.");
-    const third = c.ingestEpisode({ sessionId: "s1" });
-    expect(third.archived).toEqual([second]);
-    expect(c.associate.linked(third.memoryId as string, n)).toBe(true);
-    expect(c.associate.linked(second, n)).toBe(false);
-  });
-
-  test("a retarget that THROWS costs the links, never the copy", () => {
-    const c = brain();
-    const { copyId } = chapterWithCopy(c);
-    const n = neighbour(c);
-    coUse(c, copyId, n, 2);
-    c.associate.retargetOnSupersede = () => {
-      throw new Error("edge table locked");
-    };
-    const { newCopy, archived } = regrow(c);
-    expect(archived).toEqual([copyId]);
-    expect(c.store.row(newCopy)?.archived).toBe(0);
-    expect(c.self.events("self.episode.relink.failed").at(-1)?.data?.["failed"]).toBe(1);
-  });
-});
+// (a)'s regrowth itself — a new copy inheriting its archived copy's links at
+// the boundary — went with the copies on 2026-10-15: a chapter gets ONE
+// summary, written once, and nothing regrows (`test/chapter-summaries.test.ts`).
+// What stays is the once-at-open carry below, for the archived copies a store
+// already holds.
 
 describe("(a) the links a regrown copy was left holding before this are carried once, at the next open", () => {
   /** The store as a build before this one left it: the copy regrown, its links stranded. */
@@ -268,9 +250,7 @@ describe("(a) the links a regrown copy was left holding before this are carried 
     const second = regrow(c).newCopy;
     coUse(c, second, n, 4);
     coUse(c, first, second, 1);
-    c.episodeAsk("s1", { turns: 80, bytes: 80_000 });
-    c.appendEpisode("s1", "And the night after, writing it all down while it was still warm.");
-    const third = c.ingestEpisode({ sessionId: "s1" }).memoryId as string;
+    const third = regrow(c, "And the night after, writing it all down while it was still warm.").newCopy;
     const strongest = Math.max(c.associate.weightAt(first, n), c.associate.weightAt(second, n));
     c.store.updateMeta(REGROWN_RELINK_META, () => null);
     c.close();

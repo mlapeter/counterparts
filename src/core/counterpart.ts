@@ -170,7 +170,11 @@ import type {
   WakeTrigger,
   WriterInput,
 } from "./self/index.js";
-import { acceptsReflectedFeeling, keepCore, retireCore } from "./sleep/index.js";
+import { acceptsReflectedFeeling, keepCore, ownerNames, retireCore } from "./sleep/index.js";
+import { WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, journalBlockChars } from "./self/writer.js";
+import type { WriterJournal } from "./self/writer.js";
+import { dayJournal } from "./dream/slices.js";
+import { DREAM_TUNABLES } from "./dream/tunables.js";
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
 import type { CyclePartial, CycleReport } from "./sleep/index.js";
 import { ABOUT_MARKS, CORE_ABOUT_MARKS, Store, assertSafeDataDir, rowTombstoned, hashText, indexTextOf } from "./store/index.js";
@@ -521,6 +525,10 @@ export class Counterpart {
         this.relay("self", e);
       },
       onMemoryMinted: (m) => this.creditNamedIn(m.title, m.body, m.day, m.id, "episode"),
+      // A CHAPTER'S SUMMARY stands for the chapter's words (2026-10-15): the
+      // cards they name are credited to it and linked to it as subjects, as
+      // the full copy's were — a summary names fewer people than its chapter.
+      onSummaryNamed: (m) => this.summaryNamed(m),
       // SEAMS E once more: a regrown chapter copy inherits its archived copy's
       // links, as a revision's successor and a dream merge's memory do.
       retarget: (oldId, newId, day) => {
@@ -3137,9 +3145,10 @@ export class Counterpart {
     /** `model`: the model writing this chapter, when the host knows it.
      *  `scope`: the project it was written in — the one whose unwritten pieces
      *  it writes up (`coverage/`); without it, a chapter claims nothing.
-     *  `about`: what the session was about, carried to the chapter's memory
-     *  copy (2026-10-01, `self/index.ts#appendChapter`). */
-    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string; about?: AboutMark } = {},
+     *  `about`: what the session was about, carried to the chapter's summary
+     *  (2026-10-01, `self/index.ts#appendChapter`). `summary`: the chapter's
+     *  summary memory in the session's words (2026-10-15), gated by `self/`. */
+    opts: { day?: number; title?: string; happenedOn?: string; model?: string; scope?: string; about?: AboutMark; summary?: string } = {},
   ): ChapterResult {
     const verdict = episodeGate()({ text, handles: [], sessionId });
     if (!verdict.ok) {
@@ -3154,6 +3163,7 @@ export class Counterpart {
         episodeId: null,
         chapter: 0,
         created: false,
+        summary: null,
       };
     }
     // The GATE's text, never the draft — the same rule ingestion follows.
@@ -3183,7 +3193,25 @@ export class Counterpart {
       episodeId: written.episodeId,
       chapter: written.chapter,
       created: written.created,
+      summary: written.summary,
     };
+  }
+
+  /**
+   * THE WORDS A CHAPTER'S SUMMARY STANDS FOR (2026-10-15): the cards the
+   * chapter names are credited (`credit`) and linked to the summary as its
+   * subjects, beside the ones its own words name. Writer-only; fail-open — a
+   * summary that loses its links keeps its words.
+   */
+  private summaryNamed(m: { id: string; text: string; day: number; credit: boolean }): void {
+    if (this.observer) return;
+    if (m.credit) this.creditNamedIn(null, m.text, m.day, m.id, "episode");
+    try {
+      const subjects = this.schemas.subjectsIn(m.text);
+      if (subjects.length > 0) this.store.linkSubjects(subjects.map((subjectId) => ({ memoryId: m.id, subjectId })), "write");
+    } catch (err) {
+      this.emit("counterpart.summary.subjects.failed", m.id, { code: errCode(err) });
+    }
   }
 
   /** Through the REAL battery: a first-person reflection is not exempt (SEAMS H). */
@@ -3457,10 +3485,50 @@ export class Counterpart {
     max?: number;
     omit?: (m: { id: string; confidential: boolean; protectedRow: boolean }) => boolean;
   }): WriterInput {
+    const omit = opts.omit ?? ((m): boolean => m.confidential);
+    const budget = opts.budgetBytes ?? this.self.tunables.PAGE_WRITER_MEMORY_BYTES;
+    // THE DAY'S JOURNAL (2026-10-15), in a room of its own taken out of the
+    // same budget: the chapters across sessions, a line each (its summary
+    // when the session wrote one) and the most important whole. It used to
+    // reach the writer only as full chapter copies among the memories.
+    const journal = this.writerJournal({
+      about: opts.about,
+      day: opts.day ?? this.store.livedDay(),
+      room: Math.min(WRITER_JOURNAL_CHARS, Math.floor(budget * WRITER_JOURNAL_SHARE)),
+      // The same stance the memories get: a confidential session only where
+      // the caller's filter would let a confidential memory through.
+      confidential: !omit({ id: "", confidential: true, protectedRow: false }),
+    });
     return this.self.pageWriterInput({
       ...opts,
-      omit: opts.omit ?? ((m): boolean => m.confidential),
+      budgetBytes: Math.max(0, budget - (journal?.chars ?? 0)),
+      omit,
+      ...(journal === null ? {} : { journal }),
     });
+  }
+
+  /** The day's journal for the page writer (`dream/slices.ts#dayJournal`), or null when there is none or it will not read. Pure. */
+  private writerJournal(input: { about: string; day: number; room: number; confidential: boolean }): WriterJournal | null {
+    try {
+      const day = dayJournal(this.store, {
+        about: input.about,
+        room: input.room,
+        owner: ownerNames(this.store),
+        day: input.day,
+        lineBytes: DREAM_TUNABLES.LINE_BYTES,
+        entryChars: DREAM_TUNABLES.ENTRY_CHARS,
+        confidential: input.confidential,
+      });
+      if (day.entries === 0 && day.omitted === 0) return null;
+      const entries = day.chapters.flatMap((c) =>
+        c.entries.map((e) => ({ episode: c.id, title: c.title, chapter: e.chapter, fidelity: e.fidelity, text: e.text, chars: e.chars })),
+      );
+      // What the block spends on them, measured as it renders (framing included).
+      const journal = { entries, total: day.entries, notShown: day.notShown, omitted: day.omitted };
+      return { ...journal, chars: journalBlockChars(input.about, journal) };
+    } catch {
+      return null;
+    }
   }
 
   /** The run's durable row — the only thing S2 writes that is not the page. */

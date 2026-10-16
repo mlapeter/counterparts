@@ -1872,13 +1872,14 @@ describe("episodes", () => {
     expect(self.episodeState("s1", 4).asksDay).toBe(self.calendarToday());
   });
 
-  test("chapters append IN THE MOMENT, in sequence, keeping every earlier version", () => {
+  test("chapters append IN THE MOMENT, in sequence, every earlier state the body's own prefix", () => {
     const s = store();
     const self = new Self({ store: s, gate: PASS_GATE });
     self.openChapter("s1", SUBSTANCE);
     const first = self.appendChapter("s1", "We started with the migration and it went badly.");
     expect(first.created).toBe(true);
     expect(first.chapter).toBe(1);
+    const before = s.readProse(first.episodeId ?? "").body;
 
     self.openChapter("s1", { turns: 20, bytes: 16_000 });
     const second = self.appendChapter("s1", "Then the fix landed and I felt the relief of it.");
@@ -1890,8 +1891,11 @@ describe("episodes", () => {
     expect(body.indexOf("chapter 1")).toBeLessThan(body.indexOf("chapter 2"));
     expect(body).toContain("migration");
     expect(body).toContain("relief");
-    // Archive-on-overwrite: the pre-append state is still readable.
-    expect(s.versions(second.episodeId ?? "").length).toBe(1);
+    // An append is not a revision (2026-10-15, `store#appendBody`): no
+    // version row, because the pre-append state is the body's own prefix.
+    expect(s.versions(second.episodeId ?? "").length).toBe(0);
+    expect(body.startsWith(before)).toBe(true);
+    expect(body.length).toBeGreaterThan(before.length);
   });
 
   test("appending twice INSIDE one chapter continues it — one heading, not two", () => {
@@ -1974,7 +1978,7 @@ describe("episodes", () => {
     expect(refusingSelf.events("self.episode.ingest.refused").length).toBe(1);
   });
 
-  test("an episode ingests ONCE, as an ordinary self-kind memory with handles", () => {
+  test("a chapter with no summary gets an AUTOMATIC one at the boundary — once, as an ordinary self-kind memory with handles", () => {
     const s = store();
     const self = new Self({ store: s, gate: PASS_GATE });
     self.openChapter("s1", SUBSTANCE);
@@ -1983,33 +1987,40 @@ describe("episodes", () => {
 
     expect(out.ingested).toBe(true);
     expect(out.reason).toBe("ingested");
+    expect(out.summaries).toEqual([out.memoryId ?? ""]);
     const mem = s.read(out.memoryId ?? "");
     expect(mem.physics.kind).toBe("self");
     expect(mem.doc.type).toBe("memory");
     expect(mem.doc.meta["handles"]).toEqual(["the ambiguous spec"]);
     expect(mem.doc.meta["episodeId"]).toBe(out.episodeId);
+    expect(mem.doc.meta["chapter"]).toBe(1);
+    expect(mem.doc.meta["chapterSummary"]).toBe("automatic");
+    // The chapter's opening, heading taken off: a short chapter whole.
+    expect(mem.doc.body).toBe("I learned that I stall when the spec is ambiguous.");
 
     const again = self.ingestEpisode({ sessionId: "s1" });
     expect(again.ingested).toBe(false);
     expect(again.reason).toBe("already-ingested");
-    expect(again.memoryId).toBe(out.memoryId);
+    expect(s.list({ type: "memory" }).length).toBe(1);
   });
 
-  test("idempotency holds against ARCHIVED memories too", () => {
+  test("a summary is written ONCE: one the prune or a merge archived is not written again", () => {
     const s = store();
     const self = new Self({ store: s, gate: PASS_GATE });
     self.openChapter("s1", SUBSTANCE);
     self.appendChapter("s1", "The first account of the day.");
     const first = self.ingestEpisode({ sessionId: "s1" });
     s.archive(first.memoryId ?? "", "consolidation-decided");
+    // A new body, so the boundary's cheap skip does not hide the question.
+    self.appendChapter("s1", "A line more, inside the same chapter.");
 
     const again = self.ingestEpisode({ sessionId: "s1" });
     expect(again.reason).toBe("already-ingested");
-    expect(again.memoryId).toBe(first.memoryId);
     expect(s.read(first.memoryId ?? "").archived).toBe(true);
+    expect(s.list({ type: "memory" }).length).toBe(1);
   });
 
-  test("a grown episode re-ingests ADD-FIRST: the new memory exists before the old is archived", () => {
+  test("a grown episode gets a summary for its NEW chapter only — nothing regrows, nothing is archived", () => {
     const s = store();
     const self = new Self({ store: s, gate: PASS_GATE });
     self.openChapter("s1", SUBSTANCE);
@@ -2020,29 +2031,15 @@ describe("episodes", () => {
     self.appendChapter("s1", "The evening half, which is the half that mattered.");
     const second = self.ingestEpisode({ sessionId: "s1" });
 
-    expect(second.reason).toBe("regrown");
+    expect(second.reason).toBe("ingested");
+    expect(second.archived).toEqual([]);
     expect(second.memoryId).not.toBe(first.memoryId);
-    expect(second.archived).toEqual([first.memoryId ?? ""]);
-    expect(s.read(first.memoryId ?? "").archived).toBe(true);
-    expect(s.read(first.memoryId ?? "").archivedReason).toBe("episode-regrown");
-    expect(s.read(second.memoryId ?? "").archived).toBe(false);
-    expect(s.read(second.memoryId ?? "").doc.body).toContain("the half that mattered");
-  });
-
-  test("the regrow window CLOSES, and the refusal says why", () => {
-    const s = store();
-    const self = new Self({ store: s, gate: PASS_GATE, tunables: { REGROW_WINDOW_DAYS: 1 } });
-    self.openChapter("s1", SUBSTANCE);
-    self.appendChapter("s1", "Day zero's account.", { day: 0 });
-    const first = self.ingestEpisode({ sessionId: "s1", day: 0 });
-    expect(first.ingested).toBe(true);
-
-    self.openChapter("s1", { turns: 20, bytes: 16_000 });
-    self.appendChapter("s1", "A late addition, well after the window.", { day: 5 });
-    const late = self.ingestEpisode({ sessionId: "s1", day: 5 });
-    expect(late.ingested).toBe(false);
-    expect(late.reason).toBe("window-closed");
-    expect(late.memoryId).toBe(first.memoryId);
+    expect(s.read(first.memoryId ?? "").archived).toBe(false);
+    expect(s.read(first.memoryId ?? "").doc.body).toBe("The morning half of the day.");
+    const evening = s.read(second.memoryId ?? "");
+    expect(evening.doc.meta["chapter"]).toBe(2);
+    expect(evening.doc.body).toContain("the half that mattered");
+    expect(evening.doc.body.includes("morning")).toBe(false);
   });
 
   test("nothing to ingest is its own reason, not an error", () => {

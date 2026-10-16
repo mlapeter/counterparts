@@ -82,32 +82,112 @@ those both run and Claude is offered the memory tools twice.
 
 ## What the sidebar does
 
+<!-- flavor:directory -->
 The sidebar is a Claude Code mod (`hooks/sidebar/`). It shows what memory is doing; it
 doesn't act. It runs no command, calls no tool, starts no process, makes no network
-request, and has no buttons and no links. Its
+request, and has no buttons and no links: a click on a row opens or folds it, and
+that is all a click does. Its
+<!-- /flavor:directory -->
+<!-- flavor:full -->
+The sidebar is a Claude Code mod (`hooks/sidebar/`). It shows what memory is doing; apart
+from one message on a new install (below), it doesn't act. It runs no command, calls no
+tool, starts no process, makes no network request, and has no buttons and no links: a
+click on a row opens or folds it, and that is all a click does. Its
+<!-- /flavor:full -->
 footer says how to do the rest yourself: `/counterparts:meet` for the 5-minute intro,
 `/counterparts:dashboard` for the dashboard, say "pause memory here" to Claude to pause
 memory in a folder, and `/counterparts quiet` to hide it (`/counterparts` opens it again).
-This is everything it reaches outside its own pane:
 
-- **A status file Counterparts writes for it, in `~/.counterparts`.** Counterparts' own
-  background processes (the one after each reply, and the memory server) write
-  `sidebar.json` beside `~/.counterparts/claude-code.json`: the day and the count, today's
-  counts, the last dream, recent activity and the memories it names (titles and the start
-  of their text, as much as the pane shows). They write it only while this plugin is
-  installed. The sidebar reads that file every 15 to 30 seconds while it is open,
-  checks it was written by the memory this session uses (so it never shows another
-  one), and sends nothing anywhere. Before the first reply of a new install it says it
-  is waiting for the first session.
-- **Where this folder stands.** It reads the scope file the hooks read (beside
-  `~/.counterparts/claude-code.json`), to say when memory is paused or off here.
-- **What it watches.** It sees your slash commands and Counterparts' own tool calls only to
-  update what it shows, and passes every one on unchanged: it never approves, denies or
-  alters a command or a tool call, and never changes a setting.
+### What it can reach
+
+This is everything it reaches outside its own pane.
+
+- **Reads.**
+  - `sidebar.json`, the status file Counterparts writes for it (what it holds: "The
+    sidebar's status file" below), every 15 to 30 seconds while the pane is open. It checks
+    the file was written by the memory this session uses, so it never shows another one.
+  - Where Counterparts' configuration is, found as the hooks find it: the `--config` on
+    Counterparts' own hook line in Claude Code's user settings or this project's
+    `.claude/settings.json` and `settings.local.json`, else `COUNTERPARTS_CONFIG`, else
+    `~/.counterparts/claude-code.json`. It looks at session start, every five minutes, and
+    on `/counterparts`, and uses nothing else in those files.
+  - The scope file beside that configuration, to say when memory is paused or off in this
+    folder.
+  - The fox's PNG frames, from the plugin's own folder.
+  - Nine environment variables: `TERM_PROGRAM`, `TERM`, `KITTY_WINDOW_ID` and
+    `WEZTERM_EXECUTABLE` once at session start, to draw the finest fox the terminal's font
+    has; `HOME`, `USERPROFILE`, `CLAUDE_CONFIG_DIR` and `COUNTERPARTS_CONFIG` whenever it
+    looks for the configuration (above); and `COUNTERPARTS_SIDEBAR_SESSION`, which only a
+    preview or a test sets, to show another session.
+  - The text hooks add to the session (any plugin's), to find what Counterparts' own hooks
+    marked in it: the memories that came to mind, which memory this session uses, the
+    first lines of the wake (Last here, Coming up, Yesterday) and where the first meeting
+    stands. It keeps nothing else of that text.
+  - The name of each tool call, to find Counterparts' own; of those, the arguments and the
+    result, to show what was saved. Of each prompt, where it came from (typed, or sent by
+    a plugin), so the fox looks up.
 <!-- flavor:full -->
-- **One message, once.** On a new install, before you type anything, it sends "Meet your
-  new counterpart." so Claude can introduce itself (see Install).
+  - Of a prompt a plugin sent, whether it is its own "Meet your new counterpart.". Before
+    it speaks first (below): whether you have run a slash command or sent a prompt, how
+    many turns the session has, and whether your prompt box holds a draft, so it never
+    speaks over you.
 <!-- /flavor:full -->
+<!-- flavor:directory -->
+- **Runs.** Nothing: no process, no command, no tool call, no request to the model.
+- **Sends.** Nothing, anywhere.
+- **Keeps.** In Claude Code's per-plugin storage, the view, theme, avatar and avatar detail
+  you choose with `/counterparts`. Everything else it holds ends with the session.
+- **Hostile input.** It approves, denies and changes nothing: every command, prompt and
+  tool call passes on as it came (its own `/counterparts` it answers itself), and it
+  never changes a setting. Text another hook adds can't make it act; at worst, a forged
+  Counterparts marker changes what the pane shows.
+<!-- /flavor:directory -->
+<!-- flavor:full -->
+- **Runs.** No process, no command, no tool call. One message: in a session of a new
+  memory, before you type anything (once per memory: a new install, or after
+  `start-fresh`), it sends "Meet your new counterpart." so Claude can introduce itself
+  (see Install).
+- **Sends.** Nothing over the network.
+- **Keeps.** In Claude Code's per-plugin storage, the view, theme, avatar and avatar detail
+  you choose with `/counterparts`, and where the first meeting stands, so it speaks first
+  once per memory. Everything else it holds ends with the session.
+- **Hostile input.** It approves, denies and changes nothing: every command, prompt and
+  tool call passes on as it came (its own `/counterparts` it answers itself, and its own
+  "Meet your new counterpart." it drops when you typed first), and it never changes a
+  setting. Text another hook adds can make it do one thing at most: a forged Counterparts
+  marker can change what the pane shows, and can make it send "Meet your new
+  counterpart." at most once a session.
+<!-- /flavor:full -->
+
+`claude plugin validate` says that where an organization manages Claude Code, the hooks
+that read what other hooks add to the session don't run in a plugin a person installs.
+There the pane can't see the wake or what comes to mind at each prompt: the glance and
+Memories and Subconscious stay empty (a resumed session shows what the status file held when the pane
+first looked), it can't check the status file is this session's memory's, and
+<!-- flavor:directory -->
+the footer keeps offering the intro.
+<!-- /flavor:directory -->
+<!-- flavor:full -->
+it never speaks first.
+<!-- /flavor:full -->
+
+The sidebar's lines from `claude plugin validate`, Claude Code 2.1.301:
+
+<!-- flavor:directory -->
+    ❯ ./sidebar/hooks/register.tsx hooks: session.start, command.run{command=counterparts}, tool.call, prompt.submit, session.append{door=hook-context}, session.end, ui.close{id=counterparts}, ui.message, ui.render{component=PromptHint}, ui.render{component=AbovePrompt}, ui.render{component=Pane, requestId=counterparts}
+    ❯ ./sidebar/hooks/register.tsx calls: $.clock.after, $.clock.every, $.clock.now, $.command.register, $.env.get, $.fs.exists (via findPngDir, readScopeFile, readStatus, readText), $.fs.read (via pngData, readScopeFile, readStatus, readText), $.fs.stat (via canonicalPath, readStatus), $.session.id, $.state.get, $.state.set, $.store.get, $.store.set (via setAvatar, setDetail, setTheme, setView), $.ui.blit (via stageStep), $.ui.close (via closeQuiet), $.ui.invalidate, $.ui.open (via openPane), $.ui.panes (via paneShown), $.ui.resolve, $.ui.status (via refreshStatus)
+    ❯ ./sidebar/hooks/register.tsx env writes: nothing
+    ❯ ./sidebar/hooks/register.tsx env reads: CLAUDE_CONFIG_DIR, COUNTERPARTS_CONFIG, COUNTERPARTS_SIDEBAR_SESSION, HOME, KITTY_WINDOW_ID, TERM, TERM_PROGRAM, USERPROFILE, WEZTERM_EXECUTABLE
+<!-- /flavor:directory -->
+<!-- flavor:full -->
+    ❯ ./sidebar/hooks/full.tsx hooks: session.start, command.run{command=counterparts}, tool.call, prompt.submit, session.append{door=hook-context}, session.end, ui.close{id=counterparts}, ui.message, ui.render{component=PromptHint}, ui.render{component=AbovePrompt}, ui.render{component=Pane, requestId=counterparts}, session.start{isInteractive=true}, command.run{origin has {kind=/"^(composer|bridge)$"/}}, prompt.submit{origin has {kind=/"^(composer|bridge|plugin)$"/}}, session.append{door=hook-context, origin has {kind=hook, event=SessionStart}}
+    ❯ ./sidebar/hooks/full.tsx calls: $.clock.after, $.clock.every, $.clock.now, $.command.register, $.env.get, $.fs.exists (via findPngDir, readScopeFile, readStatus, readText), $.fs.read (via pngData, readScopeFile, readStatus, readText), $.fs.stat (via canonicalPath, readStatus), $.prompt.read (via draftNow), $.prompt.submit (via speakFirst), $.session.id, $.session.turns (via turnsSoFar), $.state.get, $.state.set, $.store.get, $.store.set (via setAvatar, setDetail, setTheme, setView, speakFirst, takeMeet), $.ui.blit (via stageStep), $.ui.close (via closeQuiet), $.ui.invalidate, $.ui.open (via openPane), $.ui.panes (via paneShown), $.ui.resolve, $.ui.status (via refreshStatus)
+    ❯ ./sidebar/hooks/full.tsx env writes: nothing
+    ❯ ./sidebar/hooks/full.tsx env reads: CLAUDE_CONFIG_DIR, COUNTERPARTS_CONFIG, COUNTERPARTS_SIDEBAR_SESSION, HOME, KITTY_WINDOW_ID, TERM, TERM_PROGRAM, USERPROFILE, WEZTERM_EXECUTABLE
+<!-- /flavor:full -->
+
+`$.state` is the pane's own memory for the session; `$.store` is the per-plugin storage
+above. Run `claude plugin validate .` in the plugin's folder to see the same.
 
 ## What it runs, sends and fetches
 
@@ -155,8 +235,9 @@ and `settings.local.json`, Claude Code's `plugins/installed_plugins.json` and (f
 `/counterparts:doctor`, on a Mac) Claude Desktop's `claude_desktop_config.json`, only to
 tell whether the plugin is on, whether the npm install or Claude Desktop is also set up, and
 (for the sidebar) which configuration the hooks use. This version doesn't read Claude
-Code's user configuration file (its MCP servers and per-project state), and none of these
-files is read by the hooks or the memory server of an installed plugin. It doesn't read
+Code's user configuration file (its MCP servers and per-project state). Of these files, the
+installed plugin's hooks and memory server read none, and the sidebar reads only the settings
+files, for Counterparts' own hook line ("What it can reach" above). It doesn't read
 Claude Code's memory files, CLAUDE.md files or prompt history. Apart from `~/.counterparts`,
 it writes only to Claude Code's per-plugin storage (sidebar
 <!-- /flavor:directory -->
@@ -166,8 +247,8 @@ short-lived background processes on your computer for the slower work.
 it changes anything.
 
 **Settings and tool calls.** The plugin never changes Claude Code's settings or
-permissions, and its hooks never block, change or approve a tool call (the sidebar only
-watches Counterparts' own tool calls to show what was saved). It leaves Claude Code's own
+permissions, and its hooks never block, change or approve a tool call (what the sidebar
+watches: "What it can reach" above). It leaves Claude Code's own
 memory (MEMORY.md and its prompt section) as it is. At the end of a
 reply the hooks may ask Claude, in a line you can see, to take one more short turn to
 write the session up as memories. The one exception for settings is

@@ -752,16 +752,14 @@ describe("the tables that stand in for a mechanism with no event", () => {
    */
   test("a dated table counts PER ROW, not 'the newest one is recent, so all of them are'", () => {
     const s = store();
-    const id = s.put({ type: "memory", kind: "fact", body: "a memory that gets revised twice" });
-    const old = Store.open({ dir, now: () => at(daysBefore(TODAY, 20)) });
-    old.revise(id, {
-      body: "the first revision of that memory, written weeks ago",
-      reason: "episode-chapter",
-    });
-    old.close();
-    s.revise(id, {
-      body: "the second revision of that memory, written today",
-      reason: "episode-chapter",
+    // The journal's chapters, each dated by the moment it was written
+    // (`meta.chapterAt`, since 2026-10-15; the `episode-chapter` version rows
+    // it read before are no longer written): one weeks ago, one today.
+    s.put({
+      type: "episode",
+      kind: "self",
+      body: "## chapter 1 — lived day 0\n\nThe first chapter, weeks ago.\n\n## chapter 2 — lived day 1\n\nThe second, today.\n",
+      meta: { sessionId: "s1", chapters: 2, chapterAt: { "1": at(daysBefore(TODAY, 20)), "2": at(TODAY) } },
     });
     const chapter = pick(report(s), "journal-chapter");
     expect(chapter.total).toBe(2);

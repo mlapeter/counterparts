@@ -98,8 +98,8 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       "It is bound to ONE session exactly as `session_end` is",
       "The chapter number comes back from what was actually WRITTEN",
       "A second call inside the same chapter continues it",
-      "The episode becomes MEMORY only through ordinary ingestion",
-      "`about` is carried to the chapter's memory copy",
+      "Each chapter has ONE summary memory, written once",
+      "`about` is carried to this chapter's summary",
     ],
     self_page: ["It writes ONE row, kept with its versions"],
     reflect: [
@@ -199,12 +199,14 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // chapter +33 on 2026-10-11 (chapter wording): "a diary of what
       // happened" in the summary and the diary-vs-log Do NOT line. The
       // `about` claim, last of its leads, ends at 1,778, the description's end.
-      chapter: { total: 1778, beforeList: 761 },
+      // +202 on 2026-10-15 (chapter summaries): the summary claim replaces the
+      // ingestion one; the `about` claim still ends inside the cut, at 1,980.
+      chapter: { total: 1980, beforeList: 761 },
       scope: { total: 1514, beforeList: 755 },
       self_page: { total: 4846, beforeList: 1772 },
       // +18 on 2026-10-12 (onboarding round 1): the `undo` phase, said ("undo that dream").
       dream: { total: 3787, beforeList: 1782 },
-      reflect: { total: 2808, beforeList: 1331 },
+      reflect: { total: 3146, beforeList: 1454 },
       // `meet` (2026-10-11): kept short on purpose — its script is its result.
       meet: { total: 459, beforeList: 210 },
       wake: { total: 1958, beforeList: 1229 },
