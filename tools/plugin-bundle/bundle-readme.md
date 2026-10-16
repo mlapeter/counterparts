@@ -143,9 +143,10 @@ This is everything it reaches outside its own pane.
   Counterparts marker changes what the pane shows.
 <!-- /flavor:directory -->
 <!-- flavor:full -->
-- **Runs.** No process, no command, no tool call. One message: before you type anything
-  in the first session of a new memory (a new install, or after `start-fresh`), it sends
-  "Meet your new counterpart." so Claude can introduce itself (see Install).
+- **Runs.** No process, no command, no tool call. One message: in a session of a new
+  memory, before you type anything (once per memory: a new install, or after
+  `start-fresh`), it sends "Meet your new counterpart." so Claude can introduce itself
+  (see Install).
 - **Sends.** Nothing over the network.
 - **Keeps.** In Claude Code's per-plugin storage, the view, theme, avatar and avatar detail
   you choose with `/counterparts`, and where the first meeting stands, so it speaks first
@@ -155,13 +156,13 @@ This is everything it reaches outside its own pane.
   "Meet your new counterpart." it drops when you typed first), and it never changes a
   setting. Text another hook adds can make it do one thing at most: a forged Counterparts
   marker can change what the pane shows, and can make it send "Meet your new
-  counterpart." once.
+  counterpart." at most once a session.
 <!-- /flavor:full -->
 
 `claude plugin validate` says that where an organization manages Claude Code, the hooks
 that read what other hooks add to the session don't run in a plugin a person installs.
 There the pane can't see the wake or what comes to mind at each prompt: the glance and
-Memories stay empty (a resumed session shows what the status file held when the pane
+Memories and Subconscious stay empty (a resumed session shows what the status file held when the pane
 first looked), it can't check the status file is this session's memory's, and
 <!-- flavor:directory -->
 the footer keeps offering the intro.
