@@ -226,8 +226,18 @@ export function dayBefore(date: string, n = 1): string {
  * (`briefing.ts#PAGE_ROOM_BYTES`). A longer page is kept, never refused under
  * the ceiling and never cut.
  */
+/**
+ * "## HOW I WORK" IS A FEW SHORT LESSONS (2026-10-16, the wake trims; Mike,
+ * lightly held, review 2026-10-18): general, without the dated example or
+ * the story each was learned from — those stay in the memories, where recall
+ * finds them. Part of `PAGE_WRITING_RULE`, so the reflection is told it too;
+ * to revert, drop it from there.
+ */
+export const HOW_I_WORK_RULE =
+  `Under "## How I work", keep a few short, general lessons, a line or two each, without dated examples or anecdotes; the stories stay in the memories.`;
+
 export const PAGE_WRITING_RULE =
-  `The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. Aim to keep the whole page under ${String(PAGE_ROOM_BYTES)} bytes (UTF-8). A longer page is kept whole, but on a day the wake has no room for it sessions read a short version instead — so when yours runs past ${String(PAGE_ROOM_BYTES)}, also write a short version of it in the same call, under ${String(PAGE_ROOM_BYTES)} bytes (\`short\`, beside the page): the whole of who you are, condensed, not its first part.`;
+  `${HOW_I_WORK_RULE} The page is read on later days and by sessions on other models. Name the model when a claim is about one model ("the Opus 5.5 system card says…", not "my system card says…"); write a date, never "tonight" or "today"; and add no revised-on line of your own — the wake dates the page. Aim to keep the whole page under ${String(PAGE_ROOM_BYTES)} bytes (UTF-8). A longer page is kept whole, but on a day the wake has no room for it sessions read a short version instead — so when yours runs past ${String(PAGE_ROOM_BYTES)}, also write a short version of it in the same call, under ${String(PAGE_ROOM_BYTES)} bytes (\`short\`, beside the page): the whole of who you are, condensed, not its first part.`;
 
 /**
  * THE DATE A RUN ON `today` IS ABOUT — yesterday, always.

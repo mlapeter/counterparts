@@ -485,27 +485,28 @@ describe("its room in the wake", () => {
     const k = afternoon();
     fill(k.c);
     // The bundle composed before session A exists, at a tight ceiling, with
-    // no chapter anywhere: nothing reserved, the lanes fill it. 2,700 rather
+    // no chapter anywhere: nothing reserved, the lanes fill it. 2,680 rather
     // than 3,000: this fixture's identity lane caps at 24 elements, about
     // 2,800 bytes, so at 3,000 the cap binds before the ceiling does. (It was
     // 2,600 until the preface grew by the whole-wake sentence, 2026-10-10:
     // the composition fills in whole elements, and at 2,600 the slack it left
     // happened to hold the line. 2,650 until the identity lane's count line
-    // was reserved, 2026-10-12, which moved the slack again.)
-    k.c.rebrief({ budgetBytes: 2_700, at: "2026-09-30" });
+    // was reserved, 2026-10-12, which moved the slack again; 2,680 since
+    // the shorter header and dates of 2026-10-16 moved it once more.)
+    k.c.rebrief({ budgetBytes: 2_680, at: "2026-09-30" });
     const s = k.server(A);
     for (const m of [1, 20, 40]) k.talk(A, at(16, m));
     k.set(at(16, 45));
     await s.call("chapter", { session: A, text: "Short and to the point: the loop test passed.", title: "Loop test" });
     // Before the worker runs, the line has no room.
-    expect(k.c.wake(2_700, { date: "2026-09-30" }, { scope: HERE, session: B }).text).not.toContain("Last here:");
+    expect(k.c.wake(2_680, { date: "2026-09-30" }, { scope: HERE, session: B }).text).not.toContain("Last here:");
     // The turn-end worker's own call, as `runner.ts` makes it — no rebrief.
-    const refreshed = k.c.refreshWake({ budgetBytes: 2_700, at: "2026-09-30" });
+    const refreshed = k.c.refreshWake({ budgetBytes: 2_680, at: "2026-09-30" });
     expect(refreshed.reason).toBe("rendered");
     expect(refreshed.triggers).toContain("write-up");
-    const woke = k.c.wake(2_700, { date: "2026-09-30" }, { scope: HERE, session: B });
+    const woke = k.c.wake(2_680, { date: "2026-09-30" }, { scope: HERE, session: B });
     expect(woke.text).toContain("Last here: session a1b2c3d4");
-    expect(woke.bytes).toBeLessThanOrEqual(2_700);
+    expect(woke.bytes).toBeLessThanOrEqual(2_680);
   });
 
   test("past the fortnight the line is gone, and so is its reserve", async () => {

@@ -44,6 +44,7 @@ import {
   ARRIVING_NEAR_DAYS,
   BRIEFING_KEY,
   COLLAPSED_WORDS,
+  NONE_TODAY_WORDS,
   FRAMING,
   PAGE_END_LINES,
   PAGE_FLOOR_RESERVE_BYTES,
@@ -73,7 +74,7 @@ import {
 import type { HorizonItem } from "../src/core/self/index.js";
 import type { SelfTunables } from "../src/core/self/tunables.js";
 import { Store } from "../src/core/store/index.js";
-import { readableDate, startOfLocalDay } from "../src/core/time.js";
+import { readableDate, startOfLocalDay, yearOf } from "../src/core/time.js";
 
 const BUDGET = PAGE_HOST_BUDGET_BYTES;
 const SCOPE = "/work/studio";
@@ -204,7 +205,7 @@ function workBlock(a: Adapter): number {
   const store = a.counterpart.store;
   const t = SELF_TUNABLES;
   const day = store.livedDay();
-  const lines = workHere(store, SCOPE, { day, max: t.WORK_HERE_MAX, pool: t.WORK_HERE_POOL, excerpt: t.WORK_HERE_EXCERPT, skip: settledOver(store) });
+  const lines = workHere(store, SCOPE, { day, max: t.WORK_HERE_MAX, pool: t.WORK_HERE_POOL, excerpt: t.WORK_HERE_EXCERPT, skip: settledOver(store), year: yearOf(store.today()) });
   return workHereBytes(rotateWork(lines, t.WORK_HERE_MAX, day));
 }
 
@@ -276,8 +277,14 @@ const REMINDERS = [
   "The kiln inspector comes on the eleventh; the gate code is in the blue folder.",
 ] as const;
 
-/** When each is due: the morning the wake is read, and the two days after. */
-const DUES = ["2026-10-09", "2026-10-10", "2026-10-11"] as const;
+/**
+ * When each is due: all three the morning the wake is read — what "Coming
+ * up" lists since 2026-10-16 (`COMING_UP_TODAY_ONLY`: due today; the overdue
+ * are counted since the review of #511). Until then the two days after; the
+ * composition tests below (section 4) still exercise other dates, with the
+ * switch off.
+ */
+const DUES = ["2026-10-09", "2026-10-09", "2026-10-09"] as const;
 
 /** The same, each longer than the slack the furniture's reserve leaves beside a page at its room. */
 const LONG = REMINDERS.map((r) => `${r} ${"It matters, and the details are written down in the studio notebook on the shelf by the door. ".repeat(4).trim()}`);
@@ -358,7 +365,7 @@ function lower(text: string): { handoffs: number; work: number; yesterday: strin
   return {
     handoffs: lines.filter((l) => /^\d\) From session /.test(l)).length,
     work: (lane(text, WORK_HERE_HEADING) ?? []).filter((l) => l.startsWith("- ")).length,
-    yesterday: lines.find((l) => l.startsWith("Yesterday, ")) ?? null,
+    yesterday: lines.find((l) => l.startsWith("Yesterday")) ?? null,
   };
 }
 
@@ -426,7 +433,8 @@ describe("at 9,000, an over-room page, four handoffs, yesterday's titles — eve
           expect(readSentinel(m.text).intact).toBe(true);
           expect(bytes(m.text)).toBeLessThanOrEqual(BUDGET);
           // Through the wake assembled at session start (2026-10-10).
-          expect(m.text).toContain("assembled at session start");
+          // Assembled at session start: the preface says no "composed at the last boundary".
+          expect(m.text).not.toContain("composed at the last boundary");
           // The page is borrowing past its room, and an ordinary dated line
           // never pushes it down a rung: it prints on the rung it prints on without them.
           expect((m.row["page"] as Record<string, unknown>)["rung"]).toBe((twin.row["page"] as Record<string, unknown>)["rung"]);
@@ -487,7 +495,7 @@ describe("a plain reminder due the morning the wake is read, under the widest de
         expect(collapsed).toBe(false);
         expect(listed.length).toBe(2);
         expect(listed[0]).toEndWith(REMINDERS[0]);
-        expect(listed[0]).toContain("(due 2026-10-09)");
+        expect(listed[0]).toContain("(due Oct 9)");
         expect(readSentinel(m.text).intact).toBe(true);
         expect(bytes(m.text)).toBeLessThanOrEqual(BUDGET);
         expect(m.row["trimmedLanes"]).not.toHaveProperty("horizon");
@@ -542,7 +550,7 @@ describe("a plain reminder due the morning the wake is read, under the widest de
           const { listed } = arriving(text);
           expect({ zone, pageBytes, listed: listed.length }).toEqual({ zone, pageBytes, listed: 1 });
           expect(listed[0]).toEndWith(said);
-          expect(listed[0]).toContain("(due 2026-10-09)");
+          expect(listed[0]).toContain("(due Oct 9)");
           expect(row["trimmedLanes"]).not.toHaveProperty("horizon");
           // The room it took is past the composition's budget: with no work
           // lines and one handoff, only the room kept for that handoff.
@@ -555,9 +563,13 @@ describe("a plain reminder due the morning the wake is read, under the widest de
     // The same line, not plain and not due that morning: an ordinary dated
     // item, which the newest handoff's room is kept from — at session start
     // too, near as it is (its floor, review of #445).
+    // Since 2026-10-16 ("Coming up" = today) it is not due that morning, so
+    // it is counted as a later date — not a line the room took — and the
+    // count says why.
     const { row, text } = await one("America/Denver", 7_400, body(2), undefined);
     expect(arriving(text).listed.length).toBe(0);
-    expect((row["trimmedLanes"] as Record<string, number>)["horizon"]).toBe(1);
+    expect(row["trimmedLanes"] ?? {}).not.toHaveProperty("horizon");
+    expect(countedLanes(text).horizon).toBe(1);
     expect(text).toContain("Handoff 0: the glaze tiles dry on rack two.");
   }, 60_000);
 
@@ -591,7 +603,9 @@ describe("at the composition: three dated items, and who gives the room", () => 
   function selfWith(page: string, short?: string, bodies: readonly string[] = REMINDERS, tunables?: Partial<SelfTunables>): { me: Self; store: Store; ids: string[] } {
     const store = Store.open({ dir: freshDir() });
     closers.push(store);
-    const me = new Self({ store, gate: episodeGate(), ...(tunables === undefined ? {} : { tunables }) });
+    // The lane as it was before "Coming up" = today (2026-10-16): these tests
+    // are about who gives the room to several dated lines, whatever their date.
+    const me = new Self({ store, gate: episodeGate(), tunables: { COMING_UP_TODAY_ONLY: false, ...tunables } });
     const w = me.revisePage(page, { by: "owner", reason: "a long page", ...(short === undefined ? {} : { short }) });
     expect(w.written).toBe(true);
     const ids = bodies.map((body, i) =>
@@ -622,7 +636,7 @@ describe("at the composition: three dated items, and who gives the room", () => 
         // In order: the handoffs' room is lent only once "Work here"'s is
         // gone and the Yesterday line has given every title to its id — and
         // that line is never dropped while it can say its pointers.
-        const y = out.text.split("\n").find((l) => l.startsWith("Yesterday, ")) ?? "";
+        const y = out.text.split("\n").find((l) => l.startsWith("Yesterday")) ?? "";
         expect([full, ...shorter]).toContain(y);
         if (out.budgetBytes > COMPOSE + SHARE) {
           handoffsGave += 1;
@@ -664,13 +678,14 @@ describe("at the composition: three dated items, and who gives the room", () => 
     // lend; reminders longer than the furniture's slack.
     const lend = wholeCost(7_012) - (COMPOSE - PAGE_FLOOR_RESERVE_BYTES);
     expect(lend).toBeGreaterThan(0);
-    const { me, ids } = selfWith(pageOfSize(7_012), SHORT, LONG);
+    const { me, ids } = selfWith(pageOfSize(7_012), SHORT, LONG, { WAKE_LINE_BYTES: Number.POSITIVE_INFINITY });
     const first = ids[0] ?? "";
     const base = { budgetBytes: COMPOSE, day: 2, lendBytes: lend };
     // Nothing dated: whole, on borrowed room.
     expect(me.build(base).page?.rung).toBe("whole");
     // An ordinary dated item: the page's borrowing outranks it, so the page stays whole and the item says so in one line.
     const quiet = me.build({ ...base, horizon: [{ id: first, due: "2026-10-09" }] });
+    // (Whole items, below: as a line the reminder fits the furniture's slack.)
     expect(quiet.page?.rung).toBe("whole");
     expect(quiet.counts.horizon).toBe(0);
     // Counted, in its own line or folded with the others (2026-10-12).
@@ -694,8 +709,9 @@ describe("at the composition: three dated items, and who gives the room", () => 
     const line = { elsewhere: away, elsewhereShorter: [bare] };
     // `extra`: how much "Work here" lends past what the whole page needs —
     // none, more than the line, enough for a long reminder and Nearby's count (reserved since 2026-10-12) but not for those
-    // and the line, and enough for all.
-    for (const extra of [0, 200, 500, 1_200]) {
+    // and the line, and enough for all. (440, not 500, since the shorter
+    // furniture and dates of 2026-10-16 left the line ~30 bytes more slack.)
+    for (const extra of [0, 200, 440, 1_200]) {
       const lend = wholeCost(7_012) - (COMPOSE - PAGE_FLOOR_RESERVE_BYTES) + extra;
       const { me, ids } = selfWith(pageOfSize(7_012), SHORT, LONG);
       const first = ids[0] ?? "";
@@ -724,7 +740,7 @@ describe("at the composition: three dated items, and who gives the room", () => 
       expect(due.counts.horizon).toBe(1);
       expect(due.page?.rung).toBe(alone.page?.rung);
       expect(due.bytes).toBeLessThanOrEqual(due.budgetBytes);
-      if (extra === 500) {
+      if (extra === 440) {
         expect(due.page?.rung).toBe("whole");
         expect(due.elsewhere).not.toBe(away);
       }
@@ -756,7 +772,8 @@ describe("at the composition: three dated items, and who gives the room", () => 
   });
 
   test("the room kept for the newest handoff is lent to a due-day plain reminder, and to nothing else (review of #367)", () => {
-    const { me, ids } = selfWith(pageOfSize(6_000), undefined, LONG);
+    // Whole items: as a line the ordinary one fits the furniture's slack.
+    const { me, ids } = selfWith(pageOfSize(6_000), undefined, LONG, { WAKE_LINE_BYTES: Number.POSITIVE_INFINITY });
     const first = ids[0] ?? "";
     // The page whole with nothing to spare, nothing else to lend.
     const b = wholeCost(6_000) + PAGE_FLOOR_RESERVE_BYTES;
@@ -858,7 +875,7 @@ describe("a plain reminder due today, cued out and told overnight, still reaches
       // The whole wake, around it: the Yesterday line, "Last here" (where it
       // fits), "Last said here", the handoffs — what gives way is below it.
       const lines = m.text.split("\n");
-      expect(lines.some((l) => l.startsWith("Yesterday, "))).toBe(true);
+      expect(lines.some((l) => l.startsWith("Yesterday"))).toBe(true);
       expect(lower(m.text).handoffs).toBeGreaterThanOrEqual(1);
       if (pageBytes !== 6_950) {
         expect(lines.some((l) => l.startsWith("Last here: "))).toBe(true);
@@ -912,12 +929,18 @@ describe("doctor's Wake line says so, in amber, when a dated item went unlisted"
     const cost = (n: number): number => pageBlockBytes({ top: pageTopLine("whole", n), text: "x".repeat(n), end: PAGE_END_LINES.whole });
     while (cost(size + 1) <= room) size += 1;
     a.counterpart.revisePage(pageOfSize(size), { by: "owner", reason: "at the room" });
-    reminder(a, "2026-10-10", LONG[1] ?? "");
+    // Due the day of the render: "Coming up" lists them (2026-10-16), as
+    // far as they fit: one line alone would, in the furniture's slack, but
+    // not beside the second and the lane's count, so both are counted.
+    // (Until then one reminder two days out, which the shorter furniture and
+    // dates of 2026-10-16 now leave room for.)
+    reminder(a, "2026-10-08", LONG[1] ?? "");
+    reminder(a, "2026-10-08", LONG[2] ?? "");
     await worker(dataDir, zone, small);
     expect((lastBriefing(a)["page"] as Record<string, unknown>)["rung"]).toBe("whole");
-    expect(lastBriefing(a)["trimmedLanes"]).toEqual({ horizon: 1 });
+    expect(lastBriefing(a)["trimmedLanes"]).toEqual({ horizon: 2 });
     // Counted, never gone without a word (2026-10-12): a step-down, not red.
-    expect(lastBriefing(a)["counted"]).toBe(1);
+    expect(lastBriefing(a)["counted"]).toBe(2);
     expect(lastBriefing(a)["untold"]).toBe(0);
     const f = wakeArrivalFindings(store).find((x) => x.key === "wake");
     expect(f?.severity).toBe("amber");
@@ -953,10 +976,14 @@ describe("doctor's Wake line says so, in amber, when a dated item went unlisted"
 });
 
 // The store read in section 2 is the published bundle, not the live one.
-test("the stored bundle and the delivered one agree on what Arriving lists", async () => {
+// Since 2026-10-16 ("Coming up" = today) each lists what is due by its own
+// date: the evening's bundle counts the two due the next morning; the
+// morning's wake lists both.
+test("the stored bundle and the delivered one each list what is due by their own date", async () => {
   const m = await morning("Pacific/Kiritimati", { pageBytes: 6_767, dated: 2 });
   const stored = m.a.counterpart.store.getMeta(BRIEFING_KEY) ?? "";
-  expect(arriving(stored).listed.length).toBe(2);
+  expect(arriving(stored).listed.length).toBe(0);
+  expect(countedLanes(stored).horizon).toBe(2);
   expect(arriving(m.text).listed.length).toBe(2);
 });
 
@@ -986,11 +1013,14 @@ describe("at session start, dated items due within the next few days have first 
       const m = await morning(zone, { pageBytes: 6_472, dated: 3, widest: true, short: true, bodies: LONG });
       const stored = m.a.counterpart.store.getMeta(BRIEFING_KEY) ?? "";
       // Two since #489 C: each long line is its title or first line and id.
-      expect(arriving(stored).listed.length).toBe(2);
+      // The evening's: none, all three due the next morning and counted;
+      // the morning's all three ("Coming up" = today, 2026-10-16).
+      expect(arriving(stored).listed.length).toBe(0);
+      expect(countedLanes(stored).horizon).toBe(3);
       const { listed, collapsed } = arriving(m.text);
       expect(collapsed).toBe(false);
-      expect(listed.length).toBe(2);
-      expect(listed[0]).toContain("(due 2026-10-09)");
+      expect(listed.length).toBe(3);
+      expect(listed[0]).toContain("(due Oct 9)");
       expect(lower(m.text).handoffs).toBeGreaterThanOrEqual(1);
       // The newest, in full (listed first).
       expect(m.text).toMatch(/^1\) From session [^\n]*: Handoff \d: the glaze tiles dry on rack two/m);
@@ -1065,8 +1095,8 @@ describe("a plain reminder is never told to a turn no person started", () => {
     expect(collapsed).toBe(false);
     expect(listed.length).toBe(1);
     expect(listed[0]).toEndWith(HAND_BACK_BODY);
-    expect(listed[0]).toContain("(due 2026-10-09)");
-    expect(m.text.split("\n").some((l) => l.startsWith("Yesterday, "))).toBe(true);
+    expect(listed[0]).toContain("(due Oct 9)");
+    expect(m.text.split("\n").some((l) => l.startsWith("Yesterday"))).toBe(true);
     expect(m.text.split("\n").some((l) => l.startsWith("Last here: "))).toBe(true);
     expect(m.text).toContain(SHORT);
     expect(lower(m.text).handoffs).toBeGreaterThanOrEqual(1);
@@ -1118,7 +1148,14 @@ describe("the owner's 10-12 morning: nothing the wake chose goes unmentioned", (
         bodies: SEVEN,
         overnight: async (a, _ids, dataDir) => {
           for (const body of FACTS) a.counterpart.store.put({ type: "memory", kind: "fact", body, learnedOn: "2026-10-05", salience: SALIENT });
+          // Re-rendered so they are in the published bundle: a turn-end
+          // worker renders only when something marked it behind, and these
+          // were put straight into the store. (Until 2026-10-16 "Nearby" here
+          // was filled by the dated items past prospective's count, listed
+          // there too; a later date counted under "Coming up" is in no other
+          // lane now.)
           await worker(dataDir, zone);
+          a.counterpart.rebrief({ budgetBytes: BUDGET, at: "2026-10-08" });
         },
       });
       const text = m.text;
@@ -1130,7 +1167,7 @@ describe("the owner's 10-12 morning: nothing the wake chose goes unmentioned", (
         nearby: { listed: listed(FRAMING.hints), counted: counted.hints ?? 0 },
         handoffs: lower(text).handoffs,
         older: /\+(\d+) older here: sch_/.exec(text)?.[1] ?? "0",
-        yesterday: text.split("\n").find((l) => l.startsWith("Yesterday, ")) ?? null,
+        yesterday: text.split("\n").find((l) => l.startsWith("Yesterday")) ?? null,
         page: (m.row["page"] as Record<string, unknown> | undefined)?.["rung"],
         folded: text.split("\n").some(isFoldedLine),
         quiet: m.a.counterpart.events("counterpart.wake.assembled").at(-1)?.data?.["quiet"] ?? 0,

@@ -566,11 +566,12 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
   });
 
   test("a page that needs the room borrows it first: the line is given up, the page stays whole, Last here and the handoffs stay", () => {
-    // A 6.5 KB page beside four handoffs borrows the room the line was
+    // A 6.7 KB page (6.5 until the shorter preface and header of 2026-10-16
+    // gave the composition room) beside four handoffs borrows the room the line was
     // reserved (it rides Work here's term, which the page borrows before it
     // steps down a rung).
     // Whole items (#489 C's lines left off): the lanes beside the page need the room.
-    const w = ownerMorning(BUDGET, 6_500, true);
+    const w = ownerMorning(BUDGET, 6_700, true);
     const text = morningWake(w, B);
     const quiet = morningWake(w, A);
     expect(lineOf(text)).toBeUndefined();

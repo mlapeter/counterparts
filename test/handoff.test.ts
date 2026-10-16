@@ -56,7 +56,7 @@ import { isHandoff } from "../src/core/recall/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { Store } from "../src/core/store/index.js";
 import { localDate } from "../src/core/time.js";
-import { PREFACE_RESERVE_BYTES, readSentinel } from "../src/core/self/index.js";
+import { PREFACE_RESERVE_BYTES, PUBLISHED_WORDS, readSentinel } from "../src/core/self/index.js";
 import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { DURABLE_EVENT_NAMES } from "../src/adapters/dashboard/registries.js";
 import { NARRATORS, REF_KIND } from "../src/adapters/dashboard/web/narrate.js";
@@ -1687,7 +1687,9 @@ describe("several sessions leave handoffs in one directory", () => {
     c.writeHandoff(BODY, { scope: HERE, session: "sess_1" });
     c.writeHandoff(BODY_TWO, { scope: HERE, session: "sess_2" });
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
-    const plain = c.wake(9_000, { date: "2026-09-20" }, { scope: THERE }).bytes;
+    // At 9,000 the wake is assembled; at any other ceiling it is the
+    // published bundle, whose preface says so (`PUBLISHED_WORDS`, 2026-10-16).
+    const plain = c.wake(9_000, { date: "2026-09-20" }, { scope: THERE }).bytes + Buffer.byteLength(PUBLISHED_WORDS);
     c.wake(plain + 8, { date: "2026-09-20" }, { scope: HERE });
     const row = c.store.eventLog({ name: HANDOFF_REFUSED_EVENT, limit: 1 })[0];
     const reported = (JSON.parse(row?.payload ?? "{}") as Record<string, unknown>)["bytes"] as number;
@@ -1778,7 +1780,9 @@ describe("several sessions leave handoffs in one directory", () => {
     c.writeHandoff(BODY, { scope: HERE, session: "sess_1" });
     c.writeHandoff(BODY_TWO, { scope: HERE, session: "sess_2" });
     c.rebrief({ budgetBytes: 9_000, at: "2026-09-20" });
-    const plain = c.wake(9_000, { date: "2026-09-20" }, { scope: THERE }).bytes;
+    // At 9,000 the wake is assembled; at any other ceiling it is the
+    // published bundle, whose preface says so (`PUBLISHED_WORDS`, 2026-10-16).
+    const plain = c.wake(9_000, { date: "2026-09-20" }, { scope: THERE }).bytes + Buffer.byteLength(PUBLISHED_WORDS);
     const ladder = c.handoffs.pointerChoices(HERE);
     expect(ladder).toHaveLength(3); // two shown, one shown, the newest alone
     const [full, , alone] = ladder.map((r) => bytesOf(r.block));

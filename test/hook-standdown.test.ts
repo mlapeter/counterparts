@@ -746,7 +746,10 @@ function onlyNow(stdout: string): boolean {
 }
 
 /** The first meeting's marker, on its own line under the clock at a session start (2026-10-11). */
-const MEET_MARKER = /^<!-- counterparts:onboarding meet=[a-z_]+ -->\n(?:<!-- counterparts:store id=st_[0-9a-f]{16} -->\n)?/;
+// The wake's tag line (2026-10-16, `wakeTagLead`): the first meeting's and
+// the store's markers, then the wake's own head tag on the same line — or,
+// before a bootstrap line, on a line of their own.
+const MEET_MARKER = /^<!-- counterparts:onboarding meet=[a-z_]+ -->(?: <!-- counterparts:store id=st_[0-9a-f]{16} -->)?(?:\n| (?=<!-- counterparts:wake ))/;
 function withoutNow(text: string): string {
   expect(text).toMatch(NOW_LINE);
   return text.replace(NOW_LINE, "").replace(MEET_MARKER, "");

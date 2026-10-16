@@ -198,17 +198,17 @@ describe("the wake on resume", () => {
     const w = await world(at(9));
     beginNewInstall(w.c.store);
     const first = start(w, at(9), "startup").result;
-    expect(first.injection.split("\n")).toContain("<!-- counterparts:onboarding meet=not_started -->");
+    expect(first.injection).toMatch(/^<!-- counterparts:onboarding meet=not_started -->(?: |$)/m);
     expect(first.ask ?? "").toContain(MEET_LINE_OPEN);
     const resumed = start(w, at(11), "resume").result;
     expect(resumed.reason).toBe("resumed");
     const lines = resumed.injection.split("\n");
-    expect(lines).toContain("<!-- counterparts:onboarding meet=not_started -->");
-    expect(lines.indexOf("<!-- counterparts:onboarding meet=not_started -->")).toBe(1);
+    expect(lines.some((l) => l.startsWith("<!-- counterparts:onboarding meet=not_started -->"))).toBe(true);
+    expect(lines.findIndex((l) => l.startsWith("<!-- counterparts:onboarding meet=not_started -->"))).toBe(1);
     expect(resumed.ask ?? "").not.toContain(MEET_LINE_OPEN);
     // An upgraded store's resume says done.
     w.c.store.setMeta("onboarding.meet", "done");
-    expect(start(w, at(12), "resume").result.injection.split("\n")).toContain("<!-- counterparts:onboarding meet=done -->");
+    expect(start(w, at(12), "resume").result.injection).toMatch(/^<!-- counterparts:onboarding meet=done -->(?: |$)/m);
   });
 
   test("the hook carries the host's source into the input, and nothing on an event without one", () => {

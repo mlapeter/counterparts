@@ -142,7 +142,7 @@ async function dayOneThenNextWake(hook: Hook): Promise<string> {
 
 function expectComposed(wake: string): void {
   expect(wake).not.toContain(BOOTSTRAP);
-  expect(wake).toContain("<!-- counterparts:wake day=");
+  expect(wake).toContain("<!-- counterparts:wake elements=");
   // Day one's content, in the next session's wake.
   expect(wake).toContain("Pratt");
 }

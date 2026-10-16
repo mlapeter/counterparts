@@ -122,11 +122,11 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere, workSince } from "./coverage/index.js";
-import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
+import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
 import type { ChapterHere, LastHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
 import { LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, lastExchangeLine, withExchange } from "./handoff/last-exchange.js";
 import type { LastExchange } from "./handoff/last-exchange.js";
-import { addDays, isDay, localStamp, localStampAfter, startOfLocalDay } from "./time.js";
+import { addDays, isDay, localStamp, localStampAfter, startOfLocalDay, yearOf } from "./time.js";
 import type { Recurrence } from "./time.js";
 import { EPISODE_REGROWN_REASON, leftAs } from "./leaving.js";
 import type { LeftAs } from "./leaving.js";
@@ -785,10 +785,13 @@ export class Counterpart {
       const horizon = asked.items.map((i) => (nearDue(i.due, at) ? { ...i, near: true } : i));
       const out = this.self.assemble({
         day,
+        at,
         ceilingBytes: budget,
         publishedHash: hashText(stored),
         horizon,
-        ...(asked.more.length === 0 ? {} : { horizonMore: asked.more }),
+        ...(asked.more.length === 0
+          ? {}
+          : { horizonMore: asked.more, horizonMoreItems: asked.moreItems.map((i) => (nearDue(i.due, at) ? { ...i, near: true } : i)) }),
         ...this.yesterdayFor(at, { here }),
         ...this.elsewhereFor(at, here),
       });
@@ -1201,6 +1204,7 @@ export class Counterpart {
         pool: t.WORK_HERE_POOL,
         excerpt: t.WORK_HERE_EXCERPT,
         skip: settledOver(this.store),
+        year: yearOf(this.store.today()),
       });
       return { lines: rotateWork(ranked, t.WORK_HERE_MAX, day), found: ranked.length };
     } catch {
@@ -1420,9 +1424,11 @@ export class Counterpart {
       const all = chaptersOn(this.store, date, { fromDay });
       const day = reader === undefined ? all : all.filter((c) => this.nameableHere(c.scope ?? null, c.aboutMe === true, reader.here));
       const hidden = all.length - day.length;
-      const line = yesterdayLine(day, date, undefined, hidden);
+      // Undated at a session start, read under its `Now:` line (2026-10-16).
+      const dated = reader === undefined || !YESTERDAY_UNDATED_AT_START;
+      const line = yesterdayLine(day, date, undefined, hidden, dated);
       if (line === null) return {};
-      const shorter = yesterdayShorter(day, date, hidden);
+      const shorter = yesterdayShorter(day, date, hidden, dated);
       return shorter.length === 0 ? { yesterday: line } : { yesterday: line, yesterdayShorter: shorter };
     } catch {
       return {};

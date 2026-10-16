@@ -84,7 +84,8 @@ const laneLines = (text: string, heading: string): string[] => {
   }
   return out;
 };
-const DATED = /^- \d{4}-\d{2}-\d{2} · /;
+/** A day this year prints short (`Oct 16`, 2026-10-16); any other, whole. */
+const DATED = /^- (?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2}) · /;
 
 function freshStore(): Store {
   const s = Store.open({ dir: mkdtempSync(join(root, "s-")) });
@@ -109,7 +110,7 @@ function dated(s: Store, body: string, title?: string): string {
 }
 
 /** Store-wide craft, so "How I work" is a lane of the composition. */
-const STORE_CRAFT = { CRAFT_AT_DELIVERY: false } as const;
+const STORE_CRAFT = { CRAFT_AT_DELIVERY: false, CRAFT_IN_WAKE: true } as const;
 
 describe("a long list item is a line: date · title [id]", () => {
   test("past the threshold a titled item is its title and id; under it, whole; the threshold is the tunable", () => {

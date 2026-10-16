@@ -28,6 +28,7 @@ import { join } from "node:path";
 import { Dashboard, NEVER, NONE, VIEWS } from "../src/adapters/dashboard/index.js";
 import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
 import { FORBIDDEN_ROOT_NAMES, Store, assertSafeDataDir } from "../src/core/store/index.js";
+import { shortDay, yearOf } from "../src/core/time.js";
 import { CAST, DAYS } from "../tools/demo/script.js";
 import {
   DemoTargetRefused,
@@ -225,10 +226,12 @@ describe("the rich store", () => {
     } finally {
       s.close();
     }
-    const dated = [...briefing.matchAll(/^- (\d{4}-\d{2}-\d{2}) ·/gm)].map((m) => m[1] ?? "");
+    // Whole, or short in the wake's own year (`Oct 15`, 2026-10-16).
+    const dated = [...briefing.matchAll(/^- (\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2}) ·/gm)].map((m) => m[1] ?? "");
     expect(dated.length).toBeGreaterThan(10);
     expect(new Set(dated).size).toBeGreaterThan(5);
-    expect(dated.includes(new Date().toISOString().slice(0, 10))).toBe(false);
+    const today = new Date().toISOString().slice(0, 10);
+    expect(dated.includes(today) || dated.includes(shortDay(today, yearOf(today)))).toBe(false);
   });
 
   test("thirty lived days, advanced by real sleep cycles", () => {

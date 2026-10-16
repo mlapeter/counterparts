@@ -532,12 +532,14 @@ proposals and their archive; render and delivery telemetry.
     not make (a host's preview keeps the head). The rung is recorded on the render's row
     (`pageRung`, and `page` on the durable `self.briefing`), and doctor's Self page line
     says it: green for whole or the short version, amber below. **The room is the writer's
-    TARGET, not a refusal** — `PAGE_ROOM_BYTES`, `pageRoomBytes` at 9,000
-    (`PAGE_HOST_BUDGET_BYTES`, the install default and the ceiling every host reads): 9,000
-    less the widest delivery reserves (`deliveryReserveBound`: the preface's 293 and an
-    eighth of the ceiling each for the handoff pointer and "Work here"), less the
-    furniture, less the top and end lines (`PAGE_FRAME_RESERVE_BYTES`), **5,681 bytes**. A
-    page within it prints whole at that ceiling or a larger one. A page past it is KEPT —
+    TARGET, not a refusal** — `PAGE_ROOM_BYTES`, **4,600 bytes** since 2026-10-16 (the wake
+    trims, lightly held), under `pageRoomBytes` at 9,000 (`PAGE_HOST_BUDGET_BYTES`, the
+    install default and the ceiling every host reads): 9,000 less the widest delivery
+    reserves (`deliveryReserveBound`: the preface's 224 and an eighth of the ceiling each
+    for the handoff pointer and "Work here"), less the furniture, less the top and end
+    lines (`PAGE_FRAME_RESERVE_BYTES`), 5,750 bytes. A page within that prints whole at that
+    ceiling or a larger one; the target sits about a thousand bytes under it so the lists
+    beside the page have room. A page past it is KEPT —
     refused only past the 16,384-byte ceiling (`PAGE_MAX_BYTES`) — and its writer is asked
     for a short version within the same number, in the same call (the nightly writer, the
     reflection, the `self_page` tool's `short`, the console's `--short`). Measured in BYTES
@@ -688,7 +690,9 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `WAKE_LINE_BYTES` | 240 | A list item ("How I work", "Still open", "Might be relevant", "Coming up") longer than this prints as `date · title [id]` (G2, #489 C, 2026-10-16, lightly held). CAL. |
 | `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
 | `PAGE_MAX_BYTES` | 16,384 | The WRITE CEILING, in bytes: a sanity bound. Past it a revision is refused rather than cut — what gets cut at write time is the only copy — and the refusal names it. #358 lowered it to the room (6,078) for one day, 2026-10-09, as a stopgap; the page's history kept missing that by a few hundred bytes. |
-| `PAGE_ROOM_BYTES` | 5,681 (`briefing.ts#PAGE_ROOM_BYTES`) | The page's ROOM, in bytes: the TARGET its writer is told, and the most a page — or its short version — may be for the wake to print it whole at 9,000 under the widest reserves, top and end lines counted (§16). Past it the page is kept, and a short version is kept with it only then and only within this. Derived, not chosen; a value above the default gives up the every-day guarantee. |
+| `PAGE_ROOM_BYTES` | 4,600 (`briefing.ts#PAGE_ROOM_BYTES`) | The page's TARGET, in bytes, the one its writer is told (2026-10-16, the wake trims, lightly held; until then the whole room, 5,681), under the most a page — or its short version — may be for the wake to print it whole at 9,000 under the widest reserves, top and end lines counted (`pageRoomBytes(9_000)`, 5,750; §16). Past it the page is kept, and a short version is kept with it only then and only within this. A value above `pageRoomBytes(9_000)` gives up the every-day guarantee. |
+| `CRAFT_IN_WAKE` | false | Whether the store-wide "How I work:" list (skill-kind above the warm floor, not this directory's work) is a lane of the wake (2026-10-16, the wake trims, lightly held). Off: in no lane, listed or counted; the page's "## How I work" says the lessons, and a craft memory still comes up per turn as a footnote. |
+| `COMING_UP_TODAY_ONLY` | true | "Coming up" lists what is due the day the wake is for or past its date, and a plain reminder due the day it is read; the later dates are counted in the lane's one line with their recall ids, and are in no other lane (2026-10-16, the wake trims, lightly held). Off: the lane by date, as before. |
 | `PAGE_STALE_DAYS` | 14 | Calendar days after which the wake says the page has not been revised. Calendar, not lived: the lived clock has run 7 days across 15 calendar ones here. |
 | `PAGE_EMPTY_SHOWS_LIST` | true | What "Who I am" shows while NO page has been written: `true` keeps the rotating list exactly as it is today, `false` prints the still-forming line instead. A page that exists replaces the list under both. The owner's choice, unmade; the default changes nothing until a page is written. |
 | `PAGE_ON_EGRESS` | true | Whether a composition that FILTERS (`omit` — the crash fallback woken as the self) carries the page. The owner's decision of 2026-09-17; `false` gives that composition no page and the identity list the filter left standing. |

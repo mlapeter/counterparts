@@ -177,7 +177,8 @@ describe("Nearby is personal; work waits for its directory", () => {
   });
 
   test("the switch off is the lanes as they were: skill above the warm floor is craft, a fact is Nearby", () => {
-    const c = counterpart({ CRAFT_AT_DELIVERY: false });
+    // And the craft lane in the wake, as it was before 2026-10-16 (`CRAFT_IN_WAKE`).
+    const c = counterpart({ CRAFT_AT_DELIVERY: false, CRAFT_IN_WAKE: true });
     put(c, "The build cache lives under the project's tmp folder.", { scope: WORKSHOP, about: "work" });
     put(c, "I run the narrow test file before the whole suite.", { kind: "skill" });
     const text = wake(c, WORKSHOP);
@@ -200,7 +201,7 @@ describe("the craft lane, composed at delivery for the session's directory", () 
     expect(lines.join("\n")).toContain(w2);
     expect(here).not.toContain(lib);
     // Title, an excerpt, and the id the recall tool expands.
-    expect(lines.find((l) => l.includes(w1))).toMatch(/^- 20\d\d-\d\d-\d\d · Trailing commas — The parser rejects .*\(mem_[0-9a-f]+\)$/);
+    expect(lines.find((l) => l.includes(w1))).toMatch(/^- (?:20\d\d-\d\d-\d\d|[A-Z][a-z]{2} \d{1,2}) · Trailing commas — The parser rejects .*\(mem_[0-9a-f]+\)$/);
     const there = wake(c, LIBRARY);
     expect(under(there, WORK_HERE_HEADING)).toEqual([expect.stringContaining(lib)]);
     expect(there).not.toContain(w1);
@@ -314,7 +315,10 @@ describe("the craft lane, composed at delivery for the session's directory", () 
     // A ceiling with room for the handoff and not for the work: the handoff stays.
     const full = c.wake(BUDGET, { date: "2026-10-01" }, { scope: WORKSHOP, session: "s-reader" });
     const workBytes = new TextEncoder().encode(`${[WORK_HERE_HEADING, ...under(full.text, WORK_HERE_HEADING)].join("\n")}\n\n`).length;
-    const tight = full.bytes - workBytes + 10;
+    // +45: the squeezed wake, at another ceiling, is the published bundle,
+    // whose preface says "(composed at the last boundary)" — 32 bytes the
+    // assembled one at the full ceiling leaves out (the short preface, 2026-10-16).
+    const tight = full.bytes - workBytes + 45;
     const squeezed = c.wake(tight, { date: "2026-10-01" }, { scope: WORKSHOP, session: "s-reader" });
     expect(squeezed.bytes).toBeLessThanOrEqual(tight);
     expect(squeezed.text).toContain("Where I left off");

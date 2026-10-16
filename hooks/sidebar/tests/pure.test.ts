@@ -761,6 +761,17 @@ describe('the first meeting', () => {
       expect(parseOnboardingMarker(bad)).toBeNull()
     }
   })
+  test('the wake’s one tag line (2026-10-16): the marker, the store’s and the wake’s head on one line, each read as before', () => {
+    const line = 'Now: Fri 16 Oct 2026, 9:37 am MDT\n<!-- counterparts:onboarding meet=done --> <!-- counterparts:store id=st_0123456789abcdef --> <!-- counterparts:wake elements=3 bytes=8885 -->\nCounterparts memory, day 25 · 1,808 memories.'
+    expect(parseOnboardingMarker(line)).toBe('done')
+    expect(parseStoreMarker(line)).toBe('st_0123456789abcdef')
+    // Before a bootstrap line, the two markers alone on the line.
+    expect(parseOnboardingMarker('<!-- counterparts:onboarding meet=offered --> <!-- counterparts:store id=st_0123456789abcdef -->\nNo briefing has been composed yet')).toBe('offered')
+    // And the three lines of before it, as an older core writes them.
+    const old = '<!-- counterparts:onboarding meet=later -->\n<!-- counterparts:store id=st_fedcba9876543210 -->\n<!-- counterparts:wake day=25 elements=3 bytes=8885 -->'
+    expect(parseOnboardingMarker(old)).toBe('later')
+    expect(parseStoreMarker(old)).toBe('st_fedcba9876543210')
+  })
 })
 
 describe('the themes', () => {
@@ -1128,6 +1139,21 @@ describe('the glance: the wake\'s first line that has something', () => {
     expect(parseGlance(`${LEFT}\n${COMING}`)).toEqual({ head: 'Last here', text: 'Shipping the onboarding fixes; next is the site deploy.' })
     expect(parseGlance(`${COMING}\n${YESTERDAY}`)).toEqual({ head: 'Coming up', text: '2026-10-15 · Second check of the lists trial.' })
     expect(parseGlance('Yesterday, Oct 14: the fox shipped; the directory submitted.')).toEqual({ head: 'Yesterday, Oct 14', text: 'the fox shipped; the directory submitted.' })
+    // At a session start since 2026-10-16 the line carries no date (the `Now:` line does).
+    expect(parseGlance('Yesterday: the fox shipped; the directory submitted.')).toEqual({ head: 'Yesterday', text: 'the fox shipped; the directory submitted.' })
+  })
+  test('short dates (2026-10-16): a Coming up item written `Oct 11 (due Oct 15)` comes out as the one date too', () => {
+    const c = (prefix: string) => parseGlance(`Coming up:\n- ${prefix}Vote`)?.text
+    expect(c('Oct 11 (due Oct 15) · ')).toBe('Oct 15 · Vote')
+    expect(c('due Oct 15 · ')).toBe('Oct 15 · Vote')
+    expect(c('was due yesterday, Oct 14 · ')).toBe('Oct 14 · Vote')
+    expect(c('Oct 1 (was due yesterday, Oct 14) · ')).toBe('Oct 14 · Vote')
+    expect(c('by Sep 3 · ')).toBe('Sep 3 · Vote')
+    expect(c('Oct 1 (of Sep 30) · ')).toBe('Oct 1 · Vote')
+    const now = new Date('2026-10-15T09:00:00').getTime()
+    expect(leadDate('Oct 15 · Vote', now)).toBe('Today · Vote')
+    expect(leadDate('Oct 16 · Vote', now)).toBe('Tomorrow · Vote')
+    expect(leadDate('Oct 20 · Vote', now)).toBe('Oct 20 · Vote')
   })
   test('every date form core writes before a Coming up item comes out as the one date it is about', () => {
     const c = (prefix: string) => parseGlance(`Coming up:\n- ${prefix}Vote`)?.text

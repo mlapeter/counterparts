@@ -505,15 +505,22 @@ function dream(s: BodyState, f: Fold): Line[] {
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-/** A `Coming up` item's leading date in words: `Today · …`, `Tomorrow · …`, else `Oct 20 · …`. */
+/** A `Coming up` item's leading date in words: `Today · …`, `Tomorrow · …`, else `Oct 20 · …`.
+ *  Core writes it whole (`2026-10-20`) or, since 2026-10-16, short in the wake's year (`Oct 20`). */
 export function leadDate(text: string, now: number): string {
-  return text.replace(/^(\d{4})-(\d{2})-(\d{2}) · /, (whole, y: string, m: string, d: string) => {
-    const day = `${y}-${m}-${d}`
-    if (day === dateOf(now)) return 'Today · '
-    if (day === dateOf(now + 86_400_000)) return 'Tomorrow · '
+  const short = (ymd: string): string => {
+    const [, m, d] = ymd.split('-')
     const name = MONTHS[Number(m) - 1]
-    return name === undefined ? whole : `${name} ${String(Number(d))} · `
-  })
+    return name === undefined ? ymd : `${name} ${String(Number(d))}`
+  }
+  const words = (said: string, day: string | null): string => {
+    if (day === dateOf(now) || said === short(dateOf(now))) return 'Today · '
+    if (day === dateOf(now + 86_400_000) || said === short(dateOf(now + 86_400_000))) return 'Tomorrow · '
+    return `${day === null ? said : short(day)} · `
+  }
+  return text
+    .replace(/^(\d{4}-\d{2}-\d{2}) · /, (_whole, day: string) => words(day, day))
+    .replace(/^([A-Z][a-z]{2} \d{1,2}) · /, (_whole, said: string) => words(said, null))
 }
 
 /** Lines the glance may take. */

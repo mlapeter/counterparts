@@ -4540,8 +4540,9 @@ describe("rebrief — the owner's out-of-band wake re-render", () => {
     const after = store({ observer: true });
     const bundle = after.getMeta(BRIEFING_KEY) ?? "";
     // The bundle is really there, and every element in it carries its date.
-    expect(bundle).toContain("- 2026-07-26 · The credential fix sits uncommitted pending review.");
-    expect(bundle).toContain("- 2026-09-04 · The parallel run started this morning.");
+    // Whole, or short in the wake's year (2026-10-16).
+    expect(bundle).toMatch(/^- (?:2026-07-26|Jul 26) · The credential fix sits uncommitted pending review\.$/m);
+    expect(bundle).toMatch(/^- (?:2026-09-04|Sep 4) · The parallel run started this morning\.$/m);
     // The skill is work, delivered in its directory (lane 8), not stored here.
     expect(bundle).not.toContain("I read the whole file before editing one line of it.");
     expect(readSentinel(bundle).intact).toBe(true);

@@ -556,11 +556,12 @@ describe("the wake and recall show how often, beside the date", () => {
       meta: { [RECURRING_META]: "weekly" },
       salience: { novelty: null, relevance: 0.8, emotional: 0.8, predictive: 0.8 },
     });
-    c.rebrief({ budgetBytes: 20_000, at: "2026-10-10" });
-    const lines = c.wake(20_000, { date: "2026-10-10" }).text.split("\n");
+    // Read on the Monday: "Coming up" lists what is due today (2026-10-16).
+    c.rebrief({ budgetBytes: 20_000, at: "2026-10-12" });
+    const lines = c.wake(20_000, { date: "2026-10-12" }).text.split("\n");
     const at = lines.indexOf("Coming up:");
     expect(at).toBeGreaterThan(-1);
-    expect(lines[at + 1]).toBe("- 2026-08-25 (due 2026-10-12, every Monday) · The recycling goes out to the curb on Monday mornings.");
+    expect(lines[at + 1]).toBe("- Aug 25 (due Oct 12, every Monday) · The recycling goes out to the curb on Monday mornings.");
   });
 
   test("a DAILY repeat takes no Arriving line: rendered one evening, read the next morning, it would say yesterday (review of #339)", () => {
@@ -575,14 +576,16 @@ describe("the wake and recall show how often, beside the date", () => {
     expect(p.arrivals({ at: "2026-10-10", day: 5 }).arrivals.map((a) => a.memoryId).sort()).toEqual([daily, weekly].sort());
     expect(p.horizon({ at: "2026-10-10", day: 5 }).items.map((i) => i.memoryId)).toEqual([weekly]);
     // Through the wake as the boundary renders it (`at` = the evening's day),
-    // read the next morning: no "every day", and nothing dated yesterday.
-    c.rebrief({ budgetBytes: 20_000, at: "2026-10-10" });
-    const lines = c.wake(20_000, { date: "2026-10-11" }).text.split("\n");
+    // read the next morning: no "every day", and nothing dated yesterday. (The
+    // Sunday evening and the Monday it is due, since "Coming up" lists what
+    // is due today, 2026-10-16.)
+    c.rebrief({ budgetBytes: 20_000, at: "2026-10-11" });
+    const lines = c.wake(20_000, { date: "2026-10-12" }).text.split("\n");
     const at = lines.indexOf("Coming up:");
     expect(at).toBeGreaterThan(-1);
     const lane: string[] = [];
     for (let i = at + 1; i < lines.length && (lines[i] ?? "").startsWith("- "); i++) lane.push(lines[i] as string);
-    expect(lane).toEqual(["- 2026-08-25 (due 2026-10-12, every Monday) · The recycling goes out to the curb on Monday mornings."]);
+    expect(lane).toEqual(["- Aug 25 (due Oct 12, every Monday) · The recycling goes out to the curb on Monday mornings."]);
     expect(lines.join("\n")).not.toContain("every day");
   });
 

@@ -111,7 +111,9 @@ describe("the store id", () => {
     const lines = injection.split("\n");
     const at = lines.findIndex((l) => l.startsWith("<!-- counterparts:onboarding"));
     expect(at).toBeGreaterThanOrEqual(0);
-    expect(lines[at + 1]).toBe(`<!-- counterparts:store id=${String(whoami(a).body["store"])} -->`);
+    // Beside it on the wake's one tag line (2026-10-16), its text whole.
+    expect(lines[at]).toStartWith(`<!-- counterparts:onboarding meet=`);
+    expect(lines[at]).toContain(` <!-- counterparts:store id=${String(whoami(a).body["store"])} -->`);
     expect(injection).not.toContain(storeId(b));
   });
 });

@@ -82,6 +82,7 @@ import { nightRowTimeoutMs, planNightRunner } from "./night-run.js";
 import { NOTHING_OWED_BEFORE_KEY, catchUpOf, catchUpWords, owedBefore } from "./night-catch-up.js";
 import type { NightKind } from "./night-run.js";
 import { spawnDetached } from "../spawn.js";
+import { ONE_TAG_LINE, wakeTagLead } from "../store-id.js";
 import type { SpawnOutcome } from "../spawn.js";
 import { NO_ARRIVAL, STOP_ASK_OPENER, readWakeArrival, startedByHost } from "./transcript.js";
 import type { WakeArrival } from "./transcript.js";
@@ -693,14 +694,15 @@ export class ClaudeCodeAdapter extends Lifecycle {
       // are Claude Desktop's server, which serves a call as this session only
       // when the call names it. A terminal session's wake is unchanged.
       const codeTab = codeTabSessionLine(input);
-      // THE FIRST MEETING'S MARKER (2026-10-11), on its own line under the
-      // clock, on every session-start wake: the state word only, for the mod,
-      // which cannot reach the dashboard before somebody starts it. The store
-      // marker on the line under it (2026-10-12) says which store this session
-      // opened, so the mod can tell this store's dashboard from another's.
-      const storeLine = this.storeMarker();
-      const marker = `${this.onboardingMarker(input)}\n${storeLine.length === 0 ? "" : `${storeLine}\n`}`;
-      const lead = `${woke.text.length === 0 && plain.context.length === 0 && codeTab === null ? "" : `${this.nowLine()}\n`}${marker}${codeTab === null ? "" : `${codeTab}\n`}${plain.context}`;
+      // THE FIRST MEETING'S MARKER (2026-10-11), on every session-start wake:
+      // the state word only, for the mod, which cannot reach the dashboard
+      // before somebody starts it. The store marker beside it (2026-10-12)
+      // says which store this session opened, so the mod can tell this
+      // store's dashboard from another's. Since 2026-10-16 both ride on the
+      // wake's own head line, just above its body (`wakeTagLead`, lightly
+      // held); `ONE_TAG_LINE` off puts them back under the clock.
+      const tags = wakeTagLead([this.onboardingMarker(input), this.storeMarker()], woke.text);
+      const lead = `${woke.text.length === 0 && plain.context.length === 0 && codeTab === null ? "" : `${this.nowLine()}\n`}${ONE_TAG_LINE ? "" : tags}${codeTab === null ? "" : `${codeTab}\n`}${plain.context}${ONE_TAG_LINE ? tags : ""}`;
       const sent = woke.bytes + Buffer.byteLength(lead, "utf8");
       const rides =
         plain.due.length > 0 &&

@@ -430,13 +430,22 @@ function counterpartWithDate(date: string, mode?: "plain" | "quiet"): { c: Count
 describe("the Arriving line says when it is due (2026-10-01)", () => {
   test("the learned date, then the due date: never the learned date alone", () => {
     // A watch list read "2026-09-27 · …" while the item was due 2026-10-03.
+    // Read on its day: "Coming up" lists what is due today or past (2026-10-16),
+    // each date short in the wake's own year.
     const { c } = counterpartWithDate("2026-10-03");
-    c.rebrief({ budgetBytes: 20_000, at: "2026-10-01" });
-    const text = c.wake(20_000, { date: "2026-10-01" }).text;
+    c.rebrief({ budgetBytes: 20_000, at: "2026-10-03" });
+    const text = c.wake(20_000, { date: "2026-10-03" }).text;
     const lines = text.split("\n");
     const at = lines.indexOf("Coming up:");
     expect(at).toBeGreaterThan(-1);
-    expect(lines[at + 1]).toBe("- 2026-08-25 (due 2026-10-03) · The Portland move lands on the fourth and the truck is booked.");
+    expect(lines[at + 1]).toBe("- Aug 25 (due Oct 3) · The Portland move lands on the fourth and the truck is booked.");
+    // Two days before, it is counted, not listed: not due yet.
+    c.rebrief({ budgetBytes: 20_000, at: "2026-10-01" });
+    const before = c.wake(20_000, { date: "2026-10-01" }).text;
+    // Nor listed in another lane: a date counted under "Coming up" is that lane's.
+    expect(before).not.toContain("(due Oct 3)");
+    expect(before).not.toContain("The Portland move");
+    expect(before).toMatch(/^Coming up: 1 — none due today; recall ids: mem_[0-9a-f]+$/m);
   });
 
   test("due on the day it was learned: one date, stated once — as the due date (2026-10-09)", () => {
@@ -444,11 +453,11 @@ describe("the Arriving line says when it is due (2026-10-01)", () => {
     // said nothing about WHEN, and gave the delivery no date to put in the past
     // tense the morning after.
     const { c } = counterpartWithDate("2026-08-25");
-    c.rebrief({ budgetBytes: 20_000, at: "2026-08-24" });
-    const lines = c.wake(20_000, { date: "2026-08-24" }).text.split("\n");
+    c.rebrief({ budgetBytes: 20_000, at: "2026-08-25" });
+    const lines = c.wake(20_000, { date: "2026-08-25" }).text.split("\n");
     const at = lines.indexOf("Coming up:");
     expect(at).toBeGreaterThan(-1);
-    expect(lines[at + 1]).toBe("- due 2026-08-25 · The Portland move lands on the fourth and the truck is booked.");
+    expect(lines[at + 1]).toBe("- due Aug 25 · The Portland move lands on the fourth and the truck is booked.");
   });
 });
 
@@ -647,7 +656,8 @@ describe("plain reminders reach the person AND the model, through the hooks", ()
     const id = dated(a.counterpart.store, "2026-10-15", { title: "pay your taxes", meta: { [CUE_MODE_META]: "plain" } });
     const result = a.sessionStart(input());
     expect(result.notices).toEqual(["Today: pay your taxes"]);
-    expect(result.injection).toMatch(/^Now: .*\n<!-- counterparts:onboarding meet=done -->\n<!-- counterparts:store id=st_[0-9a-f]{16} -->\nPlain reminder \(they asked to be told\) — Today: pay your taxes \[/);
+    // Right under the clock; the tag line (2026-10-16) sits under it, on the wake's head.
+    expect(result.injection).toMatch(/^Now: .*\nPlain reminder \(they asked to be told\) — Today: pay your taxes \[[^\n]*\n<!-- counterparts:onboarding meet=done --> <!-- counterparts:store id=st_[0-9a-f]{16} -->/);
     expect(result.injection).toContain(`[${id}]`);
     // Nothing is claimed until the delivery knows the envelope carries it.
     expect(a.counterpart.store.eventLog({ name: PROSPECTIVE_PLAIN_EVENT })).toEqual([]);
