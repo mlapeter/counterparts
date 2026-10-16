@@ -190,6 +190,7 @@ import { lineOf } from "../fit/index.js";
 import { withTunables } from "./tunables.js";
 import type { SelfTunables } from "./tunables.js";
 import { calendarDate } from "./calendar.js";
+import { isDay, yearOf } from "../time.js";
 import { markWakeBehind } from "./behind.js";
 import { pairOrder, standingOf } from "../recall/standing.js";
 
@@ -339,11 +340,15 @@ export interface AssembleRequest
     "day" | "yesterday" | "yesterdayShorter" | "elsewhere" | "elsewhereShorter"
   > {
   readonly ceilingBytes: number;
+  /** The session's calendar date (`BoundaryRequest.at`). */
+  readonly at?: string;
   /** The hash of the bundle published now (`hashText`): a record written
    *  beside another bundle is not this one's. */
   readonly publishedHash: string;
   readonly horizon?: readonly HorizonItem[];
   readonly horizonMore?: readonly string[];
+  /** `horizonMore` with their dates (`BoundaryRequest.horizonMoreItems`). */
+  readonly horizonMoreItems?: readonly HorizonItem[];
 }
 
 /**
@@ -428,9 +433,23 @@ export interface HorizonItem {
    * #ROOM_ORDER`'s `arrivingNear`).
    */
   readonly near?: boolean;
+  /**
+   * DUE ON THE DAY THE WAKE IS FOR (2026-10-16): `due` is the date the
+   * caller asked about (`core/briefing.ts#horizonFor`). With `past` and
+   * `plainDue`, what "Coming up" lists while `COMING_UP_TODAY_ONLY` is on.
+   */
+  readonly today?: boolean;
 }
 
 export interface BoundaryRequest extends BriefingRequest {
+  /**
+   * THE CALENDAR DATE THE WAKE IS COMPOSED FOR (2026-10-16), `YYYY-MM-DD`:
+   * the date the horizon was asked about (`core/briefing.ts#selfRenderer`,
+   * `Counterpart#assembleWake`). Its year is the one a date prints short in
+   * (`time.ts#shortDay`), and "Coming up" lists what is due by it
+   * (`COMING_UP_TODAY_ONLY`). Absent: the store's today.
+   */
+  readonly at?: string;
   /**
    * THE HOST'S REPORTED BUDGET this composition's `budgetBytes` was cut from
    * (2026-10-10), recorded with what it showed (`WAKE_SHOWN_KEY`) so a
@@ -447,6 +466,13 @@ export interface BoundaryRequest extends BriefingRequest {
    * owner's wake only (ignored with `omit`).
    */
   readonly horizonMore?: readonly string[];
+  /**
+   * THE SAME ITEMS WITH THEIR DATES (2026-10-16), in `horizonMore`'s order:
+   * one due today or past its date is listed under `COMING_UP_TODAY_ONLY`
+   * although `prospective/`'s count left it out. Absent: `horizonMore`'s
+   * ids are counted, as before.
+   */
+  readonly horizonMoreItems?: readonly HorizonItem[];
   /** When supplied, the boundary ensures the identity core's home row exists in
    *  the shape `schemas/` indexes. Idempotent (schemas/INTERFACE-GAPS #5). */
   readonly identityCore?: IdentityCoreSpec;
@@ -897,7 +923,9 @@ export class Self {
     // A PLAIN REMINDER DUE THE DAY THE WAKE IS READ LEADS THE LANE (2026-10-10),
     // the rest in the order supplied: the lane trims from its end, and its
     // head is what no lane below it may take (`briefing.ts#arrivingHead`).
-    const supplied: Ranked[] = (req.horizon ?? []).map((h) => this.horizonRank(h, req.day));
+    // "Coming up" = today (`COMING_UP_TODAY_ONLY`, 2026-10-16): the rest counted.
+    const coming = this.comingUp(req.horizon, req.horizonMore, req.horizonMoreItems, req.at);
+    const supplied: Ranked[] = coming.listed.map((h) => this.horizonRank(h, req.day));
     // Then, at session start, the ones due within the next few days
     // (`HorizonItem.near`, 2026-10-12): first claim on its room.
     const horizon: Ranked[] = [
@@ -905,12 +933,16 @@ export class Self {
       ...supplied.filter((r) => r.due !== true && r.near === true),
       ...supplied.filter((r) => r.due !== true && r.near !== true),
     ];
-    const lanes: Lanes = rankLanes(scanned, horizon, this.tunables, {
-      settledOver: settledOver(this.store),
-      coveredByPage: this.pageCovers(scanned),
-      workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
-      ...(req.horizonMore === undefined || req.omit !== undefined ? {} : { horizonMore: req.horizonMore }),
-    });
+    const lanes: Lanes = {
+      ...rankLanes(scanned, horizon, this.tunables, {
+        settledOver: settledOver(this.store),
+        coveredByPage: this.pageCovers(scanned),
+        workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
+        ...(coming.more.length === 0 || req.omit !== undefined ? {} : { horizonMore: coming.more }),
+        ...(coming.later.length === 0 ? {} : { later: coming.later }),
+      }),
+      ...(coming.later.length === 0 || req.omit !== undefined ? {} : { later: coming.later }),
+    };
     const docs = new Map<string, ProseDoc>();
     // Provenance rides along from the SAME scan the docs came from: the render
     // dates a migrated element as an upper bound, and a second row read per
@@ -968,7 +1000,8 @@ export class Self {
     };
     // Arriving, as the turn-end ranks it: a due-day plain reminder first, an
     // identity element left to its own lane.
-    const supplied = (req.horizon ?? []).filter((h) => bandOf(h.id) !== "identity").map((h) => this.horizonRank(h, day));
+    const coming = this.comingUp(req.horizon, req.horizonMore, req.horizonMoreItems, req.at);
+    const supplied = coming.listed.filter((h) => bandOf(h.id) !== "identity").map((h) => this.horizonRank(h, day));
     // Then, at session start, the ones due within the next few days
     // (`HorizonItem.near`, 2026-10-12): first claim on its room.
     const horizon: Ranked[] = [
@@ -990,11 +1023,13 @@ export class Self {
     const fresh = rankLanes(open, horizon, this.tunables, {
       settledOver: settled,
       workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
-      ...(req.horizonMore === undefined ? {} : { horizonMore: req.horizonMore }),
+      ...(coming.more.length === 0 ? {} : { horizonMore: coming.more }),
+      ...(coming.later.length === 0 ? {} : { later: coming.later }),
     });
     // The stateful lanes, as the published bundle showed them.
     const opened = new Set(openIds);
-    const arriving = new Set(fresh.horizon.map((r) => r.id));
+    // A later date counted under "Coming up" (2026-10-16) is no other lane's either.
+    const arriving = new Set([...fresh.horizon.map((r) => r.id), ...coming.later]);
     const carried = (ids: readonly string[], lane: "identity" | "craft" | "hints"): Scanned[] => {
       const out: Scanned[] = [];
       for (const id of ids) {
@@ -1014,22 +1049,27 @@ export class Self {
     const covered = hintsScanned.length === 0 ? new Set<string>() : this.pageCovers(hintsScanned);
     const lanes: Lanes = {
       identity: carried(shown.identity, "identity").map((s) => rankedAs(note(s), "identity")),
-      craft: carried(shown.craft, "craft").map((s) => rankedAs(note(s), "craft")),
+      // A bundle published before the craft lane left the wake (2026-10-16)
+      // still names its craft: not carried while `CRAFT_IN_WAKE` is off.
+      craft: this.tunables.CRAFT_IN_WAKE ? carried(shown.craft, "craft").map((s) => rankedAs(note(s), "craft")) : [],
       hints: hintsScanned.filter((s) => !covered.has(s.id)).map((s) => rankedAs(note(s), "hints")),
       threads: fresh.threads,
       horizon: fresh.horizon,
       overflow: {
         identity: [...shown.more.identity],
-        craft: [...shown.more.craft],
+        craft: this.tunables.CRAFT_IN_WAKE ? [...shown.more.craft] : [],
         hints: [],
         threads: fresh.overflow?.threads ?? [],
         horizon: fresh.overflow?.horizon ?? [],
       },
+      ...(coming.later.length === 0 ? {} : { later: coming.later }),
     };
     return this.composeLanes(lanes, docs, sources, {
       day,
+      ...(req.at === undefined ? {} : { at: req.at }),
       budgetBytes: shown.budget,
       ...(req.horizon === undefined ? {} : { horizon: req.horizon }),
+      ...(req.horizonMoreItems === undefined ? {} : { horizonMoreItems: req.horizonMoreItems }),
       ...(req.yesterday === undefined ? {} : { yesterday: req.yesterday }),
       ...(req.yesterdayShorter === undefined ? {} : { yesterdayShorter: req.yesterdayShorter }),
       ...(req.elsewhere === undefined ? {} : { elsewhere: req.elsewhere }),
@@ -1058,19 +1098,23 @@ export class Self {
     // passes `omit` is not owner-facing — the background sweep's, read by a
     // model with no recall tool — so a line's `[id]` would point nowhere and
     // its text would be lost. Its items print whole, as before #489 C.
+    // SHORT DATES IN THIS YEAR (2026-10-16, the wake trims): the year of
+    // the date the composition is for (`at`, else the store's today) rides
+    // on every resolved item (`time.ts#shortDay`).
+    const year = yearOf(req.at ?? this.store.today());
     const base: Resolve =
       req.omit === undefined
-        ? resolved
+        ? (id) => ({ ...resolved(id), year })
         : (id) => {
             const { line: _line, ...whole } = resolved(id);
-            return whole;
+            return { ...whole, year };
           };
     // An arriving occasion's due date, beside its learned one (2026-10-01).
     // A repeating one says how often, beside it (2026-10-09).
     // One already behind the day the wake is composed for says it WAS due
     // (2026-10-09).
     const dues = new Map<string, { due: string; every?: string; duePast?: boolean }>();
-    for (const h of req.horizon ?? []) {
+    for (const h of [...(req.horizon ?? []), ...(req.horizonMoreItems ?? [])]) {
       if (h.due === undefined || h.due.trim() === "") continue;
       const every = h.every?.trim() ?? "";
       dues.set(h.id, {
@@ -1173,6 +1217,9 @@ export class Self {
             : { handoffKeepBytes: Math.max(0, Math.floor(req.handoffKeepBytes)) }),
           // "Today, elsewhere" (2026-10-10): asked for at session start only.
           ...(req.elsewhere === undefined || req.omit !== undefined ? {} : { elsewhere: req.elsewhere }),
+          // What "Coming up" counts for its later date (2026-10-16), so its
+          // line says "none due today" rather than "no room".
+          ...(lanes.later === undefined || lanes.later.length === 0 || req.omit !== undefined ? {} : { horizonLater: lanes.later }),
           ...(req.elsewhereShorter === undefined || req.elsewhere === undefined || req.omit !== undefined
             ? {}
             : { elsewhereShorter: req.elsewhereShorter }),
@@ -2022,6 +2069,7 @@ export class Self {
       page.revisedOn,
       this.pageStale(page),
       this.tunables.PAGE_STALE_DAYS,
+      this.store.today(),
     );
     // THE PAGE'S OWN "LAST REVISED" LINE IS NOT PRINTED (2026-10-09): the
     // dateline above is the wake's, and a page that carried one of its own
@@ -3139,6 +3187,39 @@ export class Self {
   }
 
   // ── internals ────────────────────────────────────────────────────────────
+
+  /**
+   * "COMING UP" = TODAY (2026-10-16, the wake trims; Mike, lightly held).
+   * `listed`: the arriving items the lane lists — due on or before the day
+   * the wake is for (`today`, else `at`, else the store's today), past their
+   * date (`past`), a plain reminder due the day it is read (`plainDue`), or
+   * one with no date (nothing to count it by) — including one `prospective/`'s
+   * count left out (`horizonMoreItems`). `later`: the ids it counts instead,
+   * in the order offered. `more`: what the lane's overflow takes, the later
+   * ids and then any of the count's ids that came without a date. Off
+   * (`COMING_UP_TODAY_ONLY`): the items and the count as supplied. Reads
+   * only the store's clock.
+   */
+  private comingUp(
+    items: readonly HorizonItem[] | undefined,
+    moreIds: readonly string[] | undefined,
+    moreItems: readonly HorizonItem[] | undefined,
+    at: string | undefined,
+  ): { listed: HorizonItem[]; later: string[]; more: string[] } {
+    if (!this.tunables.COMING_UP_TODAY_ONLY) return { listed: [...(items ?? [])], later: [], more: [...(moreIds ?? [])] };
+    // The composition's date as well as the caller's word (`today`, `past`):
+    // a caller that names only the date is read by it.
+    const today = at ?? this.store.today();
+    const now = (h: HorizonItem): boolean => {
+      const due = h.due?.trim() ?? "";
+      return h.plainDue === true || h.past === true || h.today === true || due === "" || (isDay(due) && due <= today);
+    };
+    const dated = new Set((moreItems ?? []).map((h) => h.id));
+    const listed = [...(items ?? []).filter(now), ...(moreItems ?? []).filter(now)];
+    const later = [...(items ?? []).filter((h) => !now(h)), ...(moreItems ?? []).filter((h) => !now(h))].map((h) => h.id);
+    const undated = (moreIds ?? []).filter((id) => !dated.has(id));
+    return { listed, later, more: [...later, ...undated] };
+  }
 
   private horizonRank(item: HorizonItem, day: number): Ranked {
     let kind: Kind = "fact";

@@ -1447,9 +1447,10 @@ describe("the first-launch question", () => {
     // describe the bundle and nothing else (§1 G2, scar §2.3) — not even the
     // clock line that rides above it since 2026-09-25 (docs/time.md rule 5),
     // nor the first meeting's marker under it (2026-10-11), nor the store's
-    // marker under that (2026-10-12).
-    expect(first.injection).toMatch(/^Now: [^\n]+\n<!-- counterparts:onboarding meet=done -->\n/);
-    expect(first.bytes).toBe(Buffer.byteLength(first.injection.replace(/^Now: [^\n]+\n<!-- counterparts:onboarding meet=[a-z_]+ -->\n<!-- counterparts:store id=st_[0-9a-f]{16} -->\n/, ""), "utf8"));
+    // marker beside it (2026-10-12) — one tag line since 2026-10-16, ending
+    // on the wake's own head tag, or on its own line before a bootstrap line.
+    expect(first.injection).toMatch(/^Now: [^\n]+\n<!-- counterparts:onboarding meet=done -->(?: |\n)/);
+    expect(first.bytes).toBe(Buffer.byteLength(first.injection.replace(/^Now: [^\n]+\n<!-- counterparts:onboarding meet=[a-z_]+ --> <!-- counterparts:store id=st_[0-9a-f]{16} -->(?:\n| (?=<!-- counterparts:wake ))/, ""), "utf8"));
 
     // Recorded on the session, so a SessionStart that fires again — a resume, a
     // clear — does not ask a second time.

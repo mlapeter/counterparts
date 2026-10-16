@@ -711,7 +711,9 @@ Built against core's onboarding state, which core was building in parallel
 the SessionStart wake's marker**, `<!-- counterparts:onboarding
 meet=<state> -->` on a line of its own (right under the `Now:` clock line,
 outside the wake block; nothing in the mod reads the wake by line
-position), written on every wake, compactions included, and on a same-day
+position; since 2026-10-16 it opens the wake's one tag line, beside the
+store marker and the wake's head tag, its text unchanged — core's
+`store-id.ts#wakeTagLead`), written on every wake, compactions included, and on a same-day
 resume's short wake (core #415: one line pointing at the wake above). The
 marker is the only thing the mod reads from the wake (day and count are the
 dashboard's), so the short form changes nothing; a resumed session has

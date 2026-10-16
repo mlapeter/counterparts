@@ -2183,3 +2183,31 @@ Lightly held, Mike's call of 2026-10-16 ("we'll see how it looks tomorrow").
 - **Tests that pinned whole-text scarcity** (a lane with no room for one line, the share
   against craft that could not fill the rest, a page that needs "Last said here"'s room)
   now run with `WAKE_LINE_BYTES: Infinity`, so they still test what they were written for.
+
+## 2026-10-16 — the wake trims (Mike, lightly held, review 2026-10-18)
+
+- **What.** One tag line at the top (`store-id.ts#wakeTagLead`, the head tag without `day=`);
+  today's date on the `Now:` line only (`SHORT_PREFACE`, `YESTERDAY_UNDATED_AT_START`,
+  `PAGE_DATELINE_TODAY`, short item dates `SHORT_DATES`); a shorter header and framing line;
+  the page's target 4,600 (`PAGE_ROOM_BYTES`, under the 5,750 room) with "## How I work" as
+  short general lessons (`HOW_I_WORK_RULE`); craft out of the wake (`CRAFT_IN_WAKE`);
+  "Coming up" = today (`COMING_UP_TODAY_ONLY`). Each change and its revert is in
+  `docs/decisions.d/wake-trims-1016.md`.
+- **The markers kept their text.** The plugin's sidebar draws beside a newer npm install's
+  hooks and reads each marker by its own pattern, so a merged tag would have cost an older
+  sidebar the first meeting's state and the store check. They share a line instead.
+- **Where the date comes from.** A short date needs the year it is short in; it is the
+  composition's date (`BoundaryRequest.at`, threaded from `selfRenderer` and
+  `Counterpart#assembleWake`), else the store's today. A test that passes an explicit 2026
+  date stays right in 2027. `arrivingTense` reads a short date as the day nearest today
+  (`time.ts#dayOfShort`).
+- **Later dates are in no other lane.** Moving them out of the horizon lane first let them
+  fall into "Might be relevant" (a test caught it: `rankLanes` keeps only the horizon's own
+  ids out). `Lanes.later` keeps them out of every lane, as an arriving item is. The 10-12
+  morning test had been getting its "Nearby" from exactly that duplication: dated items past
+  prospective's count listed there too.
+- **The published bundle's preface is 32 bytes longer** than the assembled one's ("(composed
+  at the last boundary)", `PUBLISHED_WORDS`); tests that compare a wake at one ceiling with a
+  wake at another add it.
+- **Numbers.** A copy of the owner's store at 9,000: 3 items before, 4 after with the
+  5,525-byte page, 9 with a page at 4,600. `test/wake-trims.test.ts` at production scale: 5 → 14.

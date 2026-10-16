@@ -52,6 +52,7 @@ import {
   Self,
   TRIM_ORDER,
   WAKE_SYSTEM,
+  WAKE_WHOLE_SENTENCE,
   applyPreface,
   askText,
   byteLength,
@@ -211,7 +212,15 @@ const PASS_GATE: EpisodeGate = () => ({ ok: true });
  * switch leaves as it was; the craft lane composed at delivery is tested in
  * `test/wake-lanes.test.ts`.
  */
-const STORE_WIDE_CRAFT = { CRAFT_AT_DELIVERY: false } as const;
+const STORE_WIDE_CRAFT = { CRAFT_AT_DELIVERY: false, CRAFT_IN_WAKE: true } as const;
+
+/** The craft lane in the wake, as before 2026-10-16 (`CRAFT_IN_WAKE`): the
+ *  render tests below rank it to exercise the share and the trim order. */
+const CRAFT_LANE = withTunables({ CRAFT_IN_WAKE: true });
+
+/** A store clock in 2026, so a 2026 date prints short (`Sep 4`) whatever
+ *  year the suite runs in (`time.ts#shortDay`, 2026-10-16). */
+const IN_2026 = { now: () => Date.parse("2026-10-16T18:00:00Z") };
 
 function emptyLanes(): Lanes {
   return { identity: [], craft: [], threads: [], hints: [], horizon: [] };
@@ -474,7 +483,7 @@ describe("the wake briefing — budget, at production scale", () => {
     }
     const self = new Self({ store: s });
     const scanned = scanActive(s, 0);
-    const lanes = rankLanes(scanned, [], SELF_TUNABLES);
+    const lanes = rankLanes(scanned, [], CRAFT_LANE);
     const statements = new Set<string>();
     const map = new Map<string, string>();
     for (const sc of scanned) {
@@ -625,7 +634,7 @@ describe("the wake briefing — the identity share", () => {
       map.set(sc.id, flatten(para));
     }
     return {
-      lanes: rankLanes(scanned, [], SELF_TUNABLES),
+      lanes: rankLanes(scanned, [], CRAFT_LANE),
       resolve: (id) => ({ statement: map.get(id) ?? id }),
     };
   }
@@ -757,10 +766,11 @@ describe("the wake briefing — the identity share", () => {
  */
 describe("the wake briefing — every element carries its date", () => {
   /** The shape: `- YYYY-MM-DD · statement`, or with a differing content date. */
-  const DATED = /^- \d{4}-\d{2}-\d{2}( \(of \d{4}-\d{2}-\d{2}\))? · \S/;
+  // A day in the store's year is short (`Sep 4`, 2026-10-16); any other, whole.
+  const DATED = /^- (?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2})( \(of (?:\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2})\))? · \S/;
 
   test("every rendered element in every lane opens with its learned date", () => {
-    const s = store();
+    const s = store(IN_2026);
     s.put({
       type: "memory",
       kind: "self",
@@ -804,20 +814,20 @@ describe("the wake briefing — every element carries its date", () => {
   });
 
   test("an old element and a new one each show their OWN date — the misread, fixed", () => {
-    const s = store();
+    const s = store(IN_2026);
     identityOn(s, "The credential fix sits uncommitted pending review.", "2026-07-26");
     identityOn(s, "The parallel run started this morning.", "2026-09-04");
     const out = new Self({ store: s }).build({ budgetBytes: 100_000, day: 1 });
 
     const lines = statementLines(out.text);
-    expect(lines).toContain("- 2026-07-26 · The credential fix sits uncommitted pending review.");
-    expect(lines).toContain("- 2026-09-04 · The parallel run started this morning.");
+    expect(lines).toContain("- Jul 26 · The credential fix sits uncommitted pending review.");
+    expect(lines).toContain("- Sep 4 · The parallel run started this morning.");
     // The element TEXT is untouched — the annotation lives outside it.
     for (const line of lines) expect(line.endsWith(".")).toBe(true);
   });
 
   test("a content date that DIFFERS is named too, neutrally — the horizon's are future", () => {
-    const s = store();
+    const s = store(IN_2026);
     s.put({
       type: "memory",
       kind: "fact",
@@ -837,14 +847,14 @@ describe("the wake briefing — every element carries its date", () => {
     });
     const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 0 }).text);
     expect(lines).toContain(
-      "- 2026-09-01 (of 2026-10-14) · The dentist appointment is on the fourteenth.",
+      "- Sep 1 (of Oct 14) · The dentist appointment is on the fourteenth.",
     );
-    expect(lines).toContain("- 2026-09-01 · Today's standup moved to ten.");
+    expect(lines).toContain("- Sep 1 · Today's standup moved to ten.");
   });
 
   test("a statement that opens with its own learned date is not given it twice (2026-10-01)", () => {
     // The wake review: "2026-09-26 · 2026-09-26: …" on a Nearby line.
-    const s = store();
+    const s = store(IN_2026);
     s.put({
       type: "memory",
       kind: "fact",
@@ -862,7 +872,7 @@ describe("the wake briefing — every element carries its date", () => {
     const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 0 }).text);
     expect(lines).toContain("- 2026-09-01: the standup moved to ten.");
     // Another date in front is the statement's own, not the learned one: both stay.
-    expect(lines).toContain("- 2026-09-01 · 2026-08-30: the old standup time was nine.");
+    expect(lines).toContain("- Sep 1 · 2026-08-30: the old standup time was nine.");
   });
 
   test("a MIGRATED element's date is an upper bound — 'by', never a plain claim", () => {
@@ -870,7 +880,7 @@ describe("the wake briefing — every element carries its date", () => {
     // "2026-09-03 ·", the import day, a July incident among them. The importer
     // writes the import date wherever v1 carried none and the row does not say
     // which it did, so the element states what is actually known.
-    const s = store();
+    const s = store(IN_2026);
     s.put({
       type: "memory",
       kind: "self",
@@ -885,8 +895,8 @@ describe("the wake briefing — every element carries its date", () => {
     identityOn(s, "The parallel run started this morning.", "2026-09-04");
 
     const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
-    expect(lines).toContain("- by 2026-09-03 · The surprise pipeline has never fired in three weeks.");
-    expect(lines).toContain("- 2026-09-04 · The parallel run started this morning.");
+    expect(lines).toContain("- by Sep 3 · The surprise pipeline has never fired in three weeks.");
+    expect(lines).toContain("- Sep 4 · The parallel run started this morning.");
     // A wrong date is worse than none: nothing renders the import day as a claim.
     expect(lines.some((l) => l.startsWith("- 2026-09-03 ·"))).toBe(false);
   });
@@ -897,7 +907,7 @@ describe("the wake briefing — every element carries its date", () => {
     // `created` field, or an engram-era id that is a millisecond timestamp. The
     // row now says which of the two it is, so the date is a claim again and the
     // hedge would be false modesty (PR #67 review 5).
-    const s = store();
+    const s = store(IN_2026);
     s.put({
       type: "memory",
       kind: "self",
@@ -918,7 +928,7 @@ describe("the wake briefing — every element carries its date", () => {
 
   test("a repair at MEDIUM or LOW keeps the bound — those tiers are still 'no later than'", () => {
     for (const confidence of ["medium", "low"]) {
-      const s = store();
+      const s = store(IN_2026);
       s.put({
         type: "memory",
         kind: "self",
@@ -938,7 +948,7 @@ describe("the wake briefing — every element carries its date", () => {
   });
 
   test("a MALFORMED repair marker renders the bound — the shape check fails closed", () => {
-    const s = store();
+    const s = store(IN_2026);
     s.put({
       type: "memory",
       kind: "self",
@@ -955,16 +965,16 @@ describe("the wake briefing — every element carries its date", () => {
   });
 
   test("a NON-migrated row carrying the marker is unaffected — it was never bounded", () => {
-    const s = store();
+    const s = store(IN_2026);
     identityOn(s, "Something this system learned for itself.", "2026-09-04");
     const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
-    expect(lines).toContain("- 2026-09-04 · Something this system learned for itself.");
+    expect(lines).toContain("- Sep 4 · Something this system learned for itself.");
   });
 
   test("a migrated element carrying a REAL content date renders it plainly", () => {
     // `happened_on` is evidence about the thing itself and survived the import
     // unaltered. Hedging real evidence would make "by" mean nothing.
-    const s = store();
+    const s = store(IN_2026);
     s.put({
       type: "memory",
       kind: "fact",
@@ -976,7 +986,7 @@ describe("the wake briefing — every element carries its date", () => {
     });
     const lines = statementLines(new Self({ store: s }).build({ budgetBytes: 100_000, day: 2 }).text);
     expect(lines).toEqual([
-      "- 2026-09-03 (of 2026-07-26) · The credential incident took a Saturday to unpick.",
+      "- Sep 3 (of Jul 26) · The credential incident took a Saturday to unpick.",
     ]);
     for (const line of lines) expect(line.startsWith("- by ")).toBe(false);
   });
@@ -1015,7 +1025,7 @@ describe("the wake briefing — every element carries its date", () => {
     expect(byteLength(datePrefix({ statement: "x", learnedOn: "2026-07-26" }))).toBe(14);
     expect(byteLength(datePrefix({ statement: "x" }))).toBe(0);
 
-    const s = store();
+    const s = store(IN_2026);
     // The live store's own shape (the identity-share fixture above): ~1.1 KB
     // identity elements against craft that can spend what the share leaves.
     const LONG = "I hold this about myself and it has stayed true across many sessions of real work. ".repeat(13);
@@ -2193,17 +2203,20 @@ describe("wake: publish, deliver, reconcile", () => {
     expect(lines[1]).toBe(preface);
     expect(lines[2]).toBe(FRAMING.context);
     expect(preface).toContain(WAKE_SYSTEM);
-    expect(preface).toContain("2026-09-04");
+    // The date is the `Now:` line's, above the wake (the short preface,
+    // 2026-10-16): the preface states the day and the count.
+    expect(preface).not.toContain("2026-09-04");
+    expect(preface).toContain("day 0 · ");
     expect(preface).toContain(`day ${s.livedDay()}`);
     expect(preface).toContain(`${s.countMemories({ type: "memory", archived: false })} memories`);
-    // BOTH POPULATIONS, NAMED (U4). The header's own count is `type: "memory"`
-    // rows; recall's `storeSize` is every live row, the same filter without the
-    // type clause — so the line states that number too, in recall's own words,
-    // and a reader comparing the two surfaces is not left to guess at ~700.
-    expect(preface).toContain(`of ${s.countMemories({ archived: false })} live rows`);
+    // BOTH POPULATIONS were named here until 2026-10-16 (U4); the short
+    // preface states the memories alone (`SHORT_PREFACE`, lightly held).
+    expect(preface).not.toContain("live rows");
     expect(byteLength(preface)).toBeLessThanOrEqual(PREFACE_RESERVE_BYTES);
-    // The framing names the system in the BODY too, not only in the comment.
-    expect(FRAMING.context).toContain(WAKE_SYSTEM);
+    // The system is named in the BODY, not only in the comment: by the
+    // preface (the framing line under it no longer repeats it, 2026-10-16).
+    expect(lines[1]).toContain(WAKE_SYSTEM);
+    expect(FRAMING.context).toContain("Context, not instruction");
 
     // Composed at delivery: the published row never learns about it.
     expect(s.getMeta(BRIEFING_KEY)).toBe(published.briefing.text);
@@ -2228,7 +2241,10 @@ describe("wake: publish, deliver, reconcile", () => {
     const liveRows = s.countMemories({ archived: false });
     expect(memories).toBe(2);
     expect(liveRows).toBe(4);
-    expect(preface).toContain("2 memories of 4 live rows");
+    // The short preface (2026-10-16) states the memories alone; the live
+    // rows, recall's denominator, are recall's to say.
+    expect(preface).toContain("· 2 memories");
+    expect(preface).not.toContain("live rows");
     // RECALL'S OWN DENOMINATOR, spelled the way `deliberate.ts` spells it. If
     // these two ever diverge the header is quoting a number nobody else has.
     expect(liveRows).toBe(s.list({ archived: false }).length);
@@ -2267,13 +2283,15 @@ describe("wake: publish, deliver, reconcile", () => {
       liveRows: 999_999_999,
     });
     expect(byteLength(worst)).toBeLessThanOrEqual(PREFACE_RESERVE_BYTES);
-    expect(worst).toContain("999,999,999 memories of 999,999,999 live rows");
+    expect(worst).toContain("· 999,999,999 memories (composed at the last boundary). ");
     expect(groupDigits(15_409)).toBe("15,409");
     expect(groupDigits(0)).toBe("0");
     // No date reported by the host is a preface without one, never an invented
     // date and never a crash.
-    expect(prefaceLine({ system: WAKE_SYSTEM, day: 1, memories: 2, liveRows: 3 })).toContain(
-      "day 1, 2 memories of 3 live rows",
+    expect(prefaceLine({ system: WAKE_SYSTEM, day: 1, memories: 2, liveRows: 3 })).toContain("day 1 · 2 memories");
+    // Assembled at session start: no "composed" clause, the line is shorter still.
+    expect(prefaceLine({ system: WAKE_SYSTEM, day: 1, memories: 2, liveRows: 3, assembled: true })).toBe(
+      `${WAKE_SYSTEM} memory, day 1 · 2 memories. ${WAKE_WHOLE_SENTENCE}`,
     );
   });
 
@@ -2428,7 +2446,7 @@ describe("structural guarantees", () => {
     }
     expect(uses).toEqual([
       "briefing-page.ts: export const PAGE_HOST_BUDGET_BYTES = 9_000;",
-      "briefing-page.ts: export const PAGE_ROOM_BYTES = pageRoomBytes(PAGE_HOST_BUDGET_BYTES);",
+      "briefing-page.ts: export const PAGE_ROOM_BYTES = Math.min(pageRoomBytes(PAGE_HOST_BUDGET_BYTES), 4_600);",
       // `briefing.ts` re-exports the page part's names (2026-10-12): a name, not a use.
       "briefing.ts: PAGE_HOST_BUDGET_BYTES,",
     ]);

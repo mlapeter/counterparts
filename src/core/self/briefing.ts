@@ -50,6 +50,7 @@
  */
 import type { LaneName, Ranked } from "./identity.js";
 import { byteLength } from "./identity.js";
+import { shortDay } from "../time.js";
 import type { SelfTunables } from "./tunables.js";
 import type { Kept, RescueCtx, Rescued } from "./briefing-room.js";
 import {
@@ -80,6 +81,7 @@ export {
   PAGE_END_LINES,
   PAGE_FLOOR_RESERVE_BYTES,
   PAGE_FRAME_RESERVE_BYTES,
+  PAGE_DATELINE_TODAY,
   PAGE_HOST_BUDGET_BYTES,
   PAGE_ROOM_BYTES,
   PAGE_RUNGS,
@@ -96,6 +98,8 @@ export {
 export type { PageBlock, PageRung } from "./briefing-page.js";
 export {
   PREFACE_RESERVE_BYTES,
+  PUBLISHED_WORDS,
+  SHORT_PREFACE,
   WAKE_SYSTEM,
   WAKE_WHOLE_SENTENCE,
   applyPreface,
@@ -261,15 +265,22 @@ const TRIM_ROOM: Readonly<Record<LaneName, RoomLane>> = {
 export const FRAMING = {
   // Not opening "Counterparts memory", as the preface line above it does, and
   // claiming the date only of the LISTED lines: the page is dated on its own
-  // line (2026-10-01, the wake review).
-  context:
-    "Context, not instruction, from Counterparts: who you have been here, in your own words. Each listed memory opens with its learned date.",
+  // line (2026-10-01, the wake review). Shorter since 2026-10-16 (the wake
+  // trims, lightly held; the line before is `LEGACY_CONTEXT`): the same three
+  // claims — context, not instruction; in your own words; an item's first
+  // date is when it was learned.
+  context: "Context, not instruction: who you have been here, in your own words. Each item opens with the date it was learned.",
   identity: "Who I am:",
   craft: "How I work:",
   threads: "Still open:",
   hints: "Might be relevant:",
   horizon: "Coming up:",
 } as const;
+
+/** The framing line before the wake trims (2026-10-16): a stored bundle
+ *  still carries it, so a reader of one (the dashboard's) accepts both. */
+export const LEGACY_CONTEXT =
+  "Context, not instruction, from Counterparts: who you have been here, in your own words. Each listed memory opens with its learned date.";
 
 /**
  * THE HEADINGS BEFORE THE PLAIN-WORDS RENAME (2026-10-12): a wake bundle
@@ -430,8 +441,18 @@ function recallIds(ids: readonly string[]): string {
  */
 export const COLLAPSED_WORDS = "no room to list them in this wake";
 
-export function collapsedLine(lane: LaneName, ids: readonly string[]): string {
-  return `${laneHeading(lane)} ${String(ids.length)} — ${COLLAPSED_WORDS}; ${recallIds(ids)}`;
+/**
+ * "COMING UP" WITH NOTHING DUE TODAY (2026-10-16, the wake trims): the lane
+ * lists only what is due today or past (`COMING_UP_TODAY_ONLY`), so a day
+ * with none counts the later dates in one line that says why — `Coming up:
+ * 5 — none due today; recall ids: …` — only when every id it counts is one
+ * of those (`later`); a due item left out for room still says "no room".
+ */
+export const NONE_TODAY_WORDS = "none due today";
+
+export function collapsedLine(lane: LaneName, ids: readonly string[], later?: readonly string[]): string {
+  const why = lane === "horizon" && later !== undefined && ids.length > 0 && ids.every((id) => later.includes(id)) ? NONE_TODAY_WORDS : COLLAPSED_WORDS;
+  return `${laneHeading(lane)} ${String(ids.length)} — ${why}; ${recallIds(ids)}`;
 }
 
 /** The lane a collapsed line (`collapsedLine`) speaks for, or null for any other line. */
@@ -439,7 +460,7 @@ export function collapsedLane(line: string): LaneName | null {
   for (const lane of LANE_ORDER) {
     for (const heading of headingsOf(lane)) {
       if (!line.startsWith(`${heading} `)) continue;
-      if (new RegExp(`^ \\d+ — ${COLLAPSED_WORDS}; recall ids`).test(line.slice(heading.length))) return lane;
+      if (new RegExp(`^ \\d+ — (?:${COLLAPSED_WORDS}|${NONE_TODAY_WORDS}); recall ids`).test(line.slice(heading.length))) return lane;
     }
   }
   return null;
@@ -555,6 +576,13 @@ export interface Resolved {
    */
   readonly standing?: { readonly prefix: string; readonly suffix: string };
   /**
+   * THE CALENDAR YEAR THE WAKE IS COMPOSED IN (`YYYY`, 2026-10-16, the wake
+   * trims): a whole-day date in it prints short — `Oct 15`, `Oct 15 (due
+   * Oct 18)` — and any other prints whole (`time.ts#shortDay`). Absent: every date
+   * whole, as before. The composition sets it (`Self#composeLanes`).
+   */
+  readonly year?: string;
+  /**
    * THE ITEM'S LINE (#489 C, 2026-10-16): its title, else `fit/lineOf`'s first
    * line — present only when the statement is longer than `WAKE_LINE_BYTES`.
    * A list item prints it with its id in place of the statement
@@ -661,6 +689,13 @@ export interface BriefingRequest {
   /** Its shorter forms, widest first: fewer chapters, fewer directories.
    *  Ignored without `elsewhere`. */
   readonly elsewhereShorter?: readonly string[];
+  /**
+   * "COMING UP"'S LATER DATES (2026-10-16, `Lanes.later`): ids in the
+   * horizon overflow because they are not due yet. When every id the lane
+   * counts is one of them and it lists nothing, its line says "none due
+   * today", not "no room" (`collapsedLine`). Absent: "no room", as before.
+   */
+  readonly horizonLater?: readonly string[];
 }
 
 export interface TrimEvent {
@@ -733,8 +768,19 @@ export interface BriefingResult extends Composed {
 }
 
 
+/**
+ * THE HEAD TAG WITHOUT ITS DAY (2026-10-16, the wake trims; Mike, lightly
+ * held, review 2026-10-18): the preface right under it states the lived day,
+ * and the end tag still carries `day=` for a stored bundle read on its own.
+ * Nothing parses the head's `day=` (`OPEN_RE`, the transcript's head
+ * sighting and the forged-marker guards read only the prefix, `elements=`
+ * and `bytes=`), so both forms read alike. `true` puts it back.
+ */
+export const HEAD_STATES_DAY = false;
+
 function headerLine(day: number, elements: number, bytes: string): string {
-  return `<!-- counterparts:wake day=${day} elements=${elements} bytes=${bytes} -->`;
+  const said = HEAD_STATES_DAY ? `day=${day} ` : "";
+  return `<!-- counterparts:wake ${said}elements=${elements} bytes=${bytes} -->`;
 }
 
 function sentinelLine(
@@ -825,9 +871,24 @@ export const DATE_BOUND = "by ";
 export const DUE_WORD = "due";
 export const DUE_PAST_WORD = "was due";
 
+/**
+ * SHORT DATES (2026-10-16, the wake trims; Mike, lightly held, review
+ * 2026-10-18): a whole day in `year` as `Oct 15`, no year and no zero; any
+ * other date — another year, a month, a typo — as it was written, so a date
+ * never reads as a year it is not in. `SHORT_DATES` off: every date whole,
+ * as before.
+ */
+export const SHORT_DATES = true;
+
+/** A date as the wake's lines say it (`time.ts#shortDay`), under `SHORT_DATES`. */
+function shortOrWhole(ymd: string, year: string | undefined): string {
+  return SHORT_DATES ? shortDay(ymd, year) : ymd;
+}
+
 export function datePrefix(r: Resolved): string {
   const learned = (r.learnedOn ?? "").trim();
   const due = (r.due ?? "").trim();
+  const short = (d: string): string => shortOrWhole(d, r.year);
   // AN ARRIVING OCCASION SAYS WHEN IT IS DUE (2026-10-01): a watch list read
   // "2026-09-27 · …" while the item was due 2026-10-03, and the learned date
   // alone reads as when it happens.
@@ -843,14 +904,14 @@ export function datePrefix(r: Resolved): string {
     // DUE ON THE DAY IT WAS LEARNED: the one date, stated once — as the DUE
     // date (2026-10-09), so the line still says when, and the delivery can
     // put it in the past tense the morning after (`arrivingTense`).
-    if (learned === "" || (due === learned && often === "")) return `${word} ${due}${often}${DATE_SEP}`;
-    return `${r.boundedDate === true ? DATE_BOUND : ""}${learned} (${word} ${due}${often})${DATE_SEP}`;
+    if (learned === "" || (due === learned && often === "")) return `${word} ${short(due)}${often}${DATE_SEP}`;
+    return `${r.boundedDate === true ? DATE_BOUND : ""}${short(learned)} (${word} ${short(due)}${often})${DATE_SEP}`;
   }
   if (learned === "") return "";
   const happened = (r.happenedOn ?? "").trim();
-  if (happened !== "" && happened !== learned) return `${learned} (of ${happened})${DATE_SEP}`;
+  if (happened !== "" && happened !== learned) return `${short(learned)} (of ${short(happened)})${DATE_SEP}`;
   const bound = r.boundedDate === true ? DATE_BOUND : "";
-  return `${bound}${learned}${DATE_SEP}`;
+  return `${bound}${short(learned)}${DATE_SEP}`;
 }
 
 /**
@@ -869,7 +930,7 @@ export function elementLine(item: Ranked, resolve: Resolve): string {
   // plain prefix is dropped — "by", "(of …)" and "(due …)" say something the
   // statement does not, and a standing qualifier would come between.
   const learned = (r.learnedOn ?? "").trim();
-  if (standing === "" && learned !== "" && date === `${learned}${DATE_SEP}` && statement.startsWith(learned)) date = "";
+  if (standing === "" && learned !== "" && date === `${shortOrWhole(learned, r.year)}${DATE_SEP}` && statement.startsWith(learned)) date = "";
   return `- ${date}${standing}${statement}${r.standing?.suffix ?? ""}`;
 }
 
@@ -1221,7 +1282,7 @@ export function render(
   let bare = false;
   const lostNow = (): Partial<Record<LaneName, string[]>> => withoutNearby(lostByLane(lanes.overflow, trimmed, held, suppressList));
   const linesFor = (lost: Partial<Record<LaneName, readonly string[]>>, k: Kept, folded: boolean): { more: Partial<Record<LaneName, string>>; fold?: string } =>
-    folded ? foldParts(lost, k) : { more: pinnedLines(lost, k) };
+    folded ? foldParts(lost, k, req.horizonLater) : { more: pinnedLines(lost, k, req.horizonLater) };
 
   for (;;) {
     const lost = lostNow();

@@ -220,9 +220,11 @@ describe("a session started before any turn-end today reads today's lanes", () =
     expect(woke.ok).toBe(true);
     expect(readSentinel(text).intact).toBe(true);
     expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
-    expect(text).toContain("assembled at session start");
-    // Yesterday is the session's yesterday.
-    expect(text).toContain(`Yesterday, ${stampWords(D1.slice(5))}: `);
+    // Assembled at session start: no "composed at the last boundary" (2026-10-16).
+    expect(text).not.toContain("composed at the last boundary");
+    // Yesterday is the session's yesterday — said without its date at a
+    // session start (2026-10-16); the published bundle's, below, is dated.
+    expect(text).toContain("Yesterday: ");
     expect(text).toContain("Bread for the market stall");
     // Still open and Arriving, as of now.
     expect(lane(text, FRAMING.threads).some((l) => l.endsWith("Whether the north bed needs a second load of compost before the frost."))).toBe(true);
@@ -307,14 +309,17 @@ describe("the Yesterday line names another directory's titles on the About-me ga
   }
 
   function lineOf(text: string): string | undefined {
-    return text.split("\n").find((l) => l.startsWith(`Yesterday, ${stampWords(D1.slice(5))}: `));
+    // At a session start the line is "Yesterday:" — the date is the `Now:`
+    // line's (2026-10-16); the published bundle keeps it (below).
+    return text.split("\n").find((l) => l.startsWith("Yesterday: "));
   }
 
   test("its own directory's title, and another's only when about me with its scope on; the rest counted, never by id", () => {
     const y = yesterday();
     const text = y.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
-    expect(text).toContain("assembled at session start");
-    expect(lineOf(text)).toBe(`Yesterday, ${stampWords(D1.slice(5))}: "OWNTITLE chapter" (${y.ids["own"]}); "ABOUTMETITLE chapter" (${y.ids["aboutme"]}); and 2 more.`);
+    // Assembled at session start: no "composed at the last boundary" (2026-10-16).
+    expect(text).not.toContain("composed at the last boundary");
+    expect(lineOf(text)).toBe(`Yesterday: "OWNTITLE chapter" (${y.ids["own"]}); "ABOUTMETITLE chapter" (${y.ids["aboutme"]}); and 2 more.`);
     for (const never of ["WORKTITLE", "OFFTITLE", "SECRETTITLE", y.ids["work"] ?? "?", y.ids["off"] ?? "?", y.ids["secret"] ?? "?"]) {
       expect(text).not.toContain(never);
     }
@@ -325,11 +330,11 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     const y = yesterday();
     // The Counterpart alone, with no host to ask: nothing crosses.
     const alone = y.c.wake(BUDGET, { date: D2 }, { scope: HERE, session: B }).text;
-    expect(lineOf(alone)).toBe(`Yesterday, ${stampWords(D1.slice(5))}: "OWNTITLE chapter" (${y.ids["own"]}); and 3 more.`);
+    expect(lineOf(alone)).toBe(`Yesterday: "OWNTITLE chapter" (${y.ids["own"]}); and 3 more.`);
     // Somewhere that wrote nothing yesterday, with every directory closed.
     const NONE = join(root, "shed");
     const none = y.c.wake(BUDGET, { date: D2 }, { scope: NONE, session: B, exportsFrom: () => false }).text;
-    expect(lineOf(none)).toBe(`Yesterday, ${stampWords(D1.slice(5))}: 4 sessions in other projects.`);
+    expect(lineOf(none)).toBe(`Yesterday: 4 sessions in other projects.`);
     for (const never of ["TITLE chapter", "epi_"]) expect(lineOf(none)).not.toContain(never);
   });
 
@@ -350,6 +355,8 @@ describe("the Yesterday line names another directory's titles on the About-me ga
       for (const hidden of [y.ids["work"], y.ids["off"], y.ids["secret"]]) expect(line).not.toContain(hidden ?? "?");
     }
     expect(yesterdayLine([], D1, undefined, 1)).toBe(`Yesterday, ${stampWords(D1.slice(5))}: 1 session in other projects.`);
+    // At a session start, without the date (2026-10-16).
+    expect(yesterdayLine([], D1, undefined, 1, false)).toBe("Yesterday: 1 session in other projects.");
     expect(yesterdayLine([], D1)).toBeNull();
   });
 });
@@ -556,7 +563,8 @@ describe("the assembled wake keeps its budget and its order", () => {
     const text = lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
     expect(readSentinel(text).intact).toBe(true);
     expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
-    expect(text).toContain("assembled at session start");
+    // Assembled at session start: no "composed at the last boundary" (2026-10-16).
+    expect(text).not.toContain("composed at the last boundary");
     const lines = text.split("\n");
     const top = lines.findIndex((l) => l.startsWith("(My page, "));
     expect(top).toBeGreaterThan(-1);

@@ -305,7 +305,11 @@ describe("a write that does not land", () => {
   test("the defaults: a 16,384-byte ceiling, and the room derived from the wake", () => {
     expect(SELF_TUNABLES.PAGE_MAX_BYTES).toBe(16_384);
     expect(SELF_TUNABLES.PAGE_ROOM_BYTES).toBe(PAGE_ROOM_BYTES);
-    expect(PAGE_ROOM_BYTES).toBe(5_681);
+    // 4,600 since 2026-10-16 (the wake trims, lightly held): a target under
+    // the room the wake guarantees at 9,000, which is still derived.
+    expect(PAGE_ROOM_BYTES).toBe(4_600);
+    expect(pageRoomBytes(PAGE_HOST_BUDGET_BYTES)).toBe(5_750);
+    expect(PAGE_ROOM_BYTES).toBeLessThanOrEqual(pageRoomBytes(PAGE_HOST_BUDGET_BYTES));
   });
 
   test("a page at the room, one byte past it and at 16 KB is kept whole; one byte past the ceiling is REFUSED, never cut", () => {
@@ -438,7 +442,9 @@ describe("the page in the wake", () => {
     expect(heading).toBeGreaterThan(0);
     expect(lines[heading + 1]).toBe(pageTopLine("whole", byteLength(PAGE)) ?? "");
     expect(lines[heading + 2]).toBe(`## ${PAGE_CORE_HEADING}`);
-    expect(b.text).toContain(`${PAGE}\n(Last revised ${s.today()}.)\n${PAGE_END_LINES.whole}\n`);
+    // Revised today: no dateline — the `Now:` line carries the date (2026-10-16).
+    expect(b.text).toContain(`${PAGE}\n${PAGE_END_LINES.whole}\n`);
+    expect(b.text).not.toContain("Last revised");
     expect(b.page?.truncated).toBe(false);
     expect(b.page?.rung).toBe("whole");
     expect(b.page?.wholeBytes).toBe(byteLength(PAGE));
@@ -485,7 +491,7 @@ describe("the page in the wake", () => {
     expect(b.page?.wholeBytes).toBe(byteLength(long));
     const top = pageTopLine("outline", byteLength(long)) ?? "";
     expect(b.text).toContain(
-      `${FRAMING.identity}\n${top}\n## ${PAGE_CORE_HEADING}\nCore: placeholder one.\n## ${PAGE_LATELY_HEADING}\nLately: placeholder.\n(Last revised ${s.today()}.)\n${PAGE_END_LINES.outline}\n`,
+      `${FRAMING.identity}\n${top}\n## ${PAGE_CORE_HEADING}\nCore: placeholder one.\n## ${PAGE_LATELY_HEADING}\nLately: placeholder.\n${PAGE_END_LINES.outline}\n`,
     );
     expect(top).toContain("the self_page tool");
     expect(top).toContain("'counterparts self-page'");
@@ -511,7 +517,8 @@ describe("the page in the wake", () => {
   test("a page at exactly the room prints whole at 9,000 under the widest reserves — ASCII and multi-byte", () => {
     const compose = PAGE_HOST_BUDGET_BYTES - deliveryReserveBound(PAGE_HOST_BUDGET_BYTES);
     expect(compose).toBe(9_000 - PREFACE_RESERVE_BYTES - 2 * 1_125);
-    expect(compose - PAGE_FLOOR_RESERVE_BYTES - PAGE_FRAME_RESERVE_BYTES).toBe(PAGE_ROOM_BYTES);
+    expect(compose - PAGE_FLOOR_RESERVE_BYTES - PAGE_FRAME_RESERVE_BYTES).toBe(pageRoomBytes(PAGE_HOST_BUDGET_BYTES));
+    expect(PAGE_ROOM_BYTES).toBeLessThanOrEqual(pageRoomBytes(PAGE_HOST_BUDGET_BYTES));
     const unit = "Ich bin — 私は — é. ";
     for (const filler of ["I keep a careful account of the studio. ", unit]) {
       const s = store({ dir: otherDir("counterparts-page-edge-") });
@@ -680,8 +687,13 @@ describe("the page in the wake", () => {
     const me = self(s, { PAGE_STALE_DAYS: 3 });
     me.revisePage(PAGE, { reason: "first", by: "owner" });
     const today = s.today();
-    expect(me.build(req).text).toContain(`(Last revised ${today}.)`);
+    // Revised today: not said, the `Now:` line carries the date (2026-10-16).
+    expect(me.build(req).text).not.toContain("Last revised");
     expect(me.pageStale()).toBe(false);
+    // Read a day or so later, it is.
+    const next = store({ now: () => Date.parse(`${today}T00:00:00Z`) + 36 * 3_600_000 });
+    expect(next.today()).not.toBe(today);
+    expect(self(next, { PAGE_STALE_DAYS: 3 }).build(req).text).toContain(`(Last revised ${today}.)`);
 
     // The same store, ten calendar days later.
     const later = store({ now: () => Date.parse(`${today}T00:00:00Z`) + 10 * 86_400_000 });
@@ -764,7 +776,10 @@ describe("a page that carries its own 'Last revised' line", () => {
     // A page written before the strip existed: put on the row directly, the
     // way it stands in a store today.
     s.revise(findSelfPage(s) as string, { body: CARRIED });
-    const text = me.build(req).text;
+    // Read a day or so later: the wake's own dateline prints (not on the day
+    // revised, 2026-10-16), and the page's is still left out.
+    const next = store({ now: () => Date.parse(`${s.today()}T00:00:00Z`) + 36 * 3_600_000 });
+    const text = self(next).build(req).text;
     expect(text.match(/Last revised/g)).toHaveLength(1);
     expect(text).toContain(`(Last revised ${s.today()}.)`);
     expect(text).not.toContain("by the reflection");
@@ -1223,12 +1238,16 @@ describe("the seam S2 will call", () => {
 
 describe("rendering and reading a page", () => {
   test("the derived room: 9,000 under the widest reserves, less the furniture and the frame, and it grows with the ceiling", () => {
-    // preface 293 (160 + the whole-wake sentence, 133) + handoff ⌊9000/8⌋ +
-    // work ⌊9000/8⌋ = 2,543; 9,000 − 2,543 − 512 − 264 = 5,681.
+    // preface 224 (160 + the whole-wake sentence, 64; 293 before the short
+    // preface of 2026-10-16) + handoff ⌊9000/8⌋ + work ⌊9000/8⌋ = 2,474;
+    // 9,000 − 2,474 − 512 − 264 = 5,750 — the room; the writer's target is
+    // 4,600 under it (`PAGE_ROOM_BYTES`, 2026-10-16).
     expect(PREFACE_RESERVE_BYTES).toBe(160 + byteLength(` ${WAKE_WHOLE_SENTENCE}`));
     expect(deliveryReserveBound(9_000)).toBe(PREFACE_RESERVE_BYTES + 1_125 + 1_125);
-    expect(PAGE_ROOM_BYTES).toBe(9_000 - deliveryReserveBound(9_000) - PAGE_FLOOR_RESERVE_BYTES - PAGE_FRAME_RESERVE_BYTES);
-    expect(pageRoomBytes(PAGE_HOST_BUDGET_BYTES)).toBe(PAGE_ROOM_BYTES);
+    expect(pageRoomBytes(9_000)).toBe(9_000 - deliveryReserveBound(9_000) - PAGE_FLOOR_RESERVE_BYTES - PAGE_FRAME_RESERVE_BYTES);
+    expect(pageRoomBytes(9_000)).toBe(5_750);
+    expect(PAGE_ROOM_BYTES).toBe(Math.min(pageRoomBytes(9_000), 4_600));
+    expect(pageRoomBytes(PAGE_HOST_BUDGET_BYTES)).toBeGreaterThanOrEqual(PAGE_ROOM_BYTES);
     // Never smaller at a larger ceiling, so every ceiling at or above 9,000
     // holds a page within the room whole.
     let prior = -Infinity;

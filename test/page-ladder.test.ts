@@ -152,9 +152,11 @@ describe("each rung, chosen at its exact edge — whole text every time", () => 
       expect(at.overBudget).toBe(false);
       expect(readSentinel(at.text).intact).toBe(true);
       const block = blockOf(me, rung);
-      // The block prints as composed: top line, text, the dateline, the end line.
+      // The block prints as composed: top line, text, the dateline (none on
+      // the day the page was revised, 2026-10-16), the end line.
       expect(at.text).toContain(`${FRAMING.identity}\n${block.top === null ? "" : `${block.top}\n`}${block.text}\n`);
-      if (block.end !== null) expect(at.text).toContain(`.)\n${block.end}\n`);
+      if (block.end !== null) expect(at.text).toContain(`${block.text}\n${block.end}\n`);
+      expect(at.text).not.toContain("(Last revised ");
       // One byte under the edge, the first rung below it that fits — rungs
       // are offered in order, not by size: a short version smaller than the
       // outline is preferred whenever it fits, and when it does not, neither

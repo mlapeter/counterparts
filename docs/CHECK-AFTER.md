@@ -51,6 +51,37 @@ changes a decision.
 - **Changes a decision if:** a memory Mike would miss left reach, or routine work notes are still in reach
   after ~3 lived days.
 
+## Due 2026-10-18 (the wake trims, 2026-10-16, lightly held — docs/decisions.d/wake-trims-1016.md)
+
+Two days after they are installed, on the owner's session-start wakes (read-only).
+
+### The wake's elements and bytes
+- **Look at:** the end tag of a morning wake (`<!-- counterparts:wake/end … elements=N bytes=M -->`)
+  and the lines above it: how many items "Still open", "Might be relevant" and "Coming up" list,
+  and what is only counted. 10-16 before: `elements=3 bytes=8885`.
+- **Why:** the trims (one tag line, the date once, a shorter header, craft out, "Coming up" =
+  today, a page target of 4,600) were for room for the lists; a copy of the store measured 4 with
+  today's page and 9 with a page at 4,600.
+- **Changes a decision if:** elements stays near 3–4 after the page is rewritten → the room is
+  going elsewhere ("Work here", the handoffs), and the order in `ROOM_ORDER` is the next question,
+  not more trims.
+
+### Whether the page writer hit ~4,600
+- **Look at:** the page's size (`counterparts self-page`, doctor's Self page line) after the 10-16
+  and 10-17 nights, and its "## How I work" section.
+- **Why:** the writer is told to aim under 4,600 and to keep "How I work" to short general
+  lessons without dated examples.
+- **Changes a decision if:** still well over 4,600, or it lost something Mike misses → the
+  target goes back toward 5,750 (`PAGE_ROOM_BYTES`), or the instruction is reworded.
+
+### Whether a due item was missed
+- **Look at:** reminders and dated items due 10-16..10-18: each was under "Coming up" on its day
+  (or said plainly under the clock for a plain one), and a later one showed as a footnote around
+  its date; doctor's Wake line for a dated item counted, not listed.
+- **Why:** "Coming up" now lists only what is due today or past; the rest is a count with ids.
+- **Changes a decision if:** anything due was missed, or an overdue item in its grace days
+  crowded out today's → `COMING_UP_TODAY_ONLY` off, or a shorter grace for the lane.
+
 ## Due at lived day 27 (7 lived days after the new curve's first pass)
 
 ### Item 6: exit at 7 instead of 14 — a dry run

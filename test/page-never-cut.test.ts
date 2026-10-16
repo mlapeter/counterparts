@@ -60,7 +60,7 @@ import {
   workHereBytes,
   writerInstruction,
 } from "../src/core/self/index.js";
-import { startOfLocalDay } from "../src/core/time.js";
+import { startOfLocalDay, yearOf } from "../src/core/time.js";
 
 const BUDGET = PAGE_HOST_BUDGET_BYTES;
 const SCOPE = "/work/studio";
@@ -144,7 +144,8 @@ function pageOfSize(kind: "ascii" | "multibyte", size = PAGE_ROOM_BYTES): string
   page += "## Lately\n\n";
   page += "x".repeat(size - bytes(page) - 1) + ".";
   expect(bytes(page)).toBe(size);
-  if (kind === "multibyte") expect(page.length).toBeLessThan(size - 1_000);
+  // (900, not 1,000, since the room is 4,600: 2026-10-16.)
+  if (kind === "multibyte") expect(page.length).toBeLessThan(size - 900);
   return page;
 }
 
@@ -158,7 +159,7 @@ function workBlock(a: ReturnType<typeof openAdapter>): number {
   const store = a.counterpart.store;
   const t = SELF_TUNABLES;
   const day = store.livedDay();
-  const lines = workHere(store, SCOPE, { day, max: t.WORK_HERE_MAX, pool: t.WORK_HERE_POOL, excerpt: t.WORK_HERE_EXCERPT, skip: settledOver(store) });
+  const lines = workHere(store, SCOPE, { day, max: t.WORK_HERE_MAX, pool: t.WORK_HERE_POOL, excerpt: t.WORK_HERE_EXCERPT, skip: settledOver(store), year: yearOf(store.today()) });
   return workHereBytes(rotateWork(lines, t.WORK_HERE_MAX, day));
 }
 
@@ -281,7 +282,8 @@ describe("the page at its room prints whole at 9,000 under the widest reserves (
     });
 
     test(`${zone}: a ceiling configured too small for the page steps down to its outline — whole sentences, both doors named, none of the rest`, async () => {
-      const small = 6_000;
+      // 5,000, not 6,000, since the room is 4,600 (2026-10-16): too small for it whole.
+      const small = 5_000;
       clock(zone, "2026-10-08", 21);
       const a = adapter(zone, small);
       const page = pageOfSize("multibyte");

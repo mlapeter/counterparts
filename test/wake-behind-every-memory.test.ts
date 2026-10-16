@@ -163,7 +163,8 @@ describe("a memory written with note reaches the wake at the next turn-end", () 
     for (const args of [
       { text: "THREAD-MARK: should the importer retry on a 429?", unresolved: true, relevance: 0.9, emotional: 0.7, predictive: 0.9 },
       { text: "NEARBY-MARK: the owner was ill with pneumonia last week.", about: "owner", relevance: 0.95, emotional: 0.9, predictive: 0.9 },
-      { text: "ARRIVING-MARK: the dentist appointment.", eventDate: d2, about: "owner", relevance: 0.9, emotional: 0.6, predictive: 0.9 },
+      // Due the day session B wakes: "Coming up" lists what is due today (2026-10-16).
+      { text: "ARRIVING-MARK: the dentist appointment.", eventDate: d1, about: "owner", relevance: 0.9, emotional: 0.6, predictive: 0.9 },
     ]) {
       stored(await mcp.call("note", args));
     }

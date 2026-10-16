@@ -97,7 +97,10 @@ import { findable } from "./store-fixture.js";
  */
 const NOW_LINE = /^Now: [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [ap]m \S+\n/;
 /** The first meeting's marker, on its own line under the clock at a session start (2026-10-11). */
-const MEET_MARKER = /^<!-- counterparts:onboarding meet=[a-z_]+ -->\n(?:<!-- counterparts:store id=st_[0-9a-f]{16} -->\n)?/;
+// The wake's tag line (2026-10-16, `wakeTagLead`): the first meeting's and
+// the store's markers, then the wake's own head tag on the same line — or,
+// before a bootstrap line, on a line of their own.
+const MEET_MARKER = /^<!-- counterparts:onboarding meet=[a-z_]+ -->(?: <!-- counterparts:store id=st_[0-9a-f]{16} -->)?(?:\n| (?=<!-- counterparts:wake ))/;
 function withoutNow(text: string): string {
   expect(text).toMatch(NOW_LINE);
   return text.replace(NOW_LINE, "").replace(MEET_MARKER, "");
@@ -502,8 +505,10 @@ describe("session-start — the injection carries a sentinel and honours the HOS
     const lines = wake.split("\n");
     expect(lines[0] ?? "").toContain("<!-- counterparts:wake ");
     expect(lines[1] ?? "").toContain("Counterparts memory, day ");
-    expect(lines[1] ?? "").toContain("2026-01-02");
-    expect(lines[1] ?? "").toContain(" memories ");
+    // The date is the clock line's, above (the short preface, 2026-10-16).
+    expect(lines[1] ?? "").not.toContain("2026-01-02");
+    expect(result.injection).toMatch(NOW_LINE);
+    expect(lines[1] ?? "").toContain(" memories");
 
     // Counted: the hook's bytes, the sentinel's bytes and the text agree, and
     // the whole thing still fits what the host said it can carry.

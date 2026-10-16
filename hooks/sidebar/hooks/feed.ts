@@ -804,14 +804,16 @@ export type Glance = { head: string; text: string }
 const GLANCE_LAST = /^Last here:\s*(.+)$/m
 const GLANCE_LEFT_OFF = /^Where I left off in this directory \([^)]*\):\s*(.+)$/m
 const GLANCE_COMING = /^Coming up:\s*\n-\s*(.+)$/m
-const GLANCE_YESTERDAY = /^Yesterday, ([^:]+):\s*(.+)$/m
+// "Yesterday, Oct 15: …", or since 2026-10-16 at a session start "Yesterday: …" (its date on the `Now:` line).
+const GLANCE_YESTERDAY = /^Yesterday(?:, ([^:]+))?:\s*(.+)$/m
 /**
  * A Coming up item's date, every way core's `datePrefix` (self/briefing.ts)
  * writes it: `due D`, `was due D`, `due D, every May 14`, `[by ]L (due D…)`,
  * `[by ]L (was due D…)`, `[by ]L (of H)`, `[by ]L` — then ` · `. The date it
  * is about comes out alone: the due date where there is one, else the learned.
  */
-const COMING_DATE = /^(?:by\s+)?(?:(?:was due|due)\s+(\d{4}-\d{2}-\d{2})(?:,[^·]*)?|(\d{4}-\d{2}-\d{2})(?:\s*\((was due|due|of)\s+(\d{4}-\d{2}-\d{2})[^)]*\))?)\s*·\s*/
+// Each date whole (`2026-10-15`) or, since 2026-10-16, short in the wake's year (`Oct 15`).
+const COMING_DATE = /^(?:by\s+)?(?:(?:was due|due)\s+(?:yesterday,\s+)?(\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2})(?:,[^·]*)?|(\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2})(?:\s*\((was due|due|of)\s+(?:yesterday,\s+)?(\d{4}-\d{2}-\d{2}|[A-Z][a-z]{2} \d{1,2})[^)]*\))?)\s*·\s*/
 
 /** Memory, chapter and handoff ids, and the asides that only point at them: not for the person. */
 function forPerson(text: string): string {
@@ -840,7 +842,7 @@ export function parseGlance(text: string): Glance | null {
   const y = GLANCE_YESTERDAY.exec(text)
   if (y !== null) {
     const t = forPerson(y[2] ?? '').replace(/^[\s;,]*(?:and \d+ more)?[.;\s]*$/, '')
-    if (t.length > 0) return { head: `Yesterday, ${y[1] ?? ''}`.trim(), text: t }
+    if (t.length > 0) return { head: y[1] === undefined ? 'Yesterday' : `Yesterday, ${y[1]}`, text: t }
   }
   return null
 }
