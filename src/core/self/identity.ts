@@ -358,9 +358,12 @@ export interface Lanes {
   /**
    * "COMING UP"'S LATER DATES, by id (2026-10-16, `COMING_UP_TODAY_ONLY`):
    * the arriving items counted rather than listed because they are not due
-   * yet — in the horizon overflow, and named here so its line can say so.
+   * today — later or overdue — in the horizon overflow, and named here so
+   * its line can say so.
    */
   later?: readonly string[];
+  /** Those of `later` past their date (review of #511): counted as overdue. */
+  overdue?: readonly string[];
 }
 
 /**

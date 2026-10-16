@@ -78,9 +78,11 @@ Two days after they are installed, on the owner's session-start wakes (read-only
 - **Look at:** reminders and dated items due 10-16..10-18: each was under "Coming up" on its day
   (or said plainly under the clock for a plain one), and a later one showed as a footnote around
   its date; doctor's Wake line for a dated item counted, not listed.
-- **Why:** "Coming up" now lists only what is due today or past; the rest is a count with ids.
-- **Changes a decision if:** anything due was missed, or an overdue item in its grace days
-  crowded out today's → `COMING_UP_TODAY_ONLY` off, or a shorter grace for the lane.
+- **Why:** "Coming up" now lists only what is due today; the rest — overdue and later — is a
+  count with ids, the overdue named as such.
+- **Changes a decision if:** anything due was missed, or an overdue item counted rather than
+  listed was let slip → list the overdue again (after today's, or the first N), or
+  `COMING_UP_TODAY_ONLY` off.
 
 ## Due at lived day 27 (7 lived days after the new curve's first pass)
 

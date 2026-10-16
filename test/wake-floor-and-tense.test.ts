@@ -49,6 +49,7 @@ import {
   PREFACE_RESERVE_BYTES,
   SELF_TUNABLES,
   arrivingTense,
+  NONE_TODAY_WORDS,
   collapsedLane,
   collapsedLine,
   compose,
@@ -249,9 +250,9 @@ describe("Still open keeps its first item beside a long page, and the page is ne
     const ids = openQuestions(a);
     const page = longPage(a, pageBytes);
     work(a);
-    reminder(a, "2026-10-08", "The dentist appointment is at nine and the forms are in the blue folder.");
-    // Due the morning the wake is read ("Coming up" lists what is due today
-    // or past, 2026-10-16): the note goes the evening before the tenth.
+    // Both due the morning the wake is read ("Coming up" lists only what is
+    // due today, 2026-10-16; review of #511): the note goes the evening before the tenth.
+    reminder(a, "2026-10-09", "The dentist appointment is at nine and the forms are in the blue folder.");
     reminder(a, "2026-10-09", "Rosa's surgery is on the tenth; send a note the evening before.");
     await worker(zone);
     clock(zone, "2026-10-09", 8);
@@ -591,11 +592,13 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
       // The next morning, before any worker has run on the 9th.
       clock(zone, "2026-10-09", 8);
       const { text } = sessionStart(a, zone, "s-morning");
-      // At session start the one still to come is counted, not listed — it
-      // is not due yet (2026-10-16) — and the one past says so.
-      const morningLane = lane(text, FRAMING.horizon) ?? [];
-      expect(morningLane[0]).toBe("- Oct 1 (was due yesterday, Oct 8) · The dentist appointment is at nine and the forms are in the blue folder.");
-      expect(morningLane[1]).toStartWith("(1 more coming up; recall ids: mem_");
+      // At session start "Coming up" lists only what is due today (2026-10-16;
+      // review of #511): the one past and the one still to come are both
+      // counted, by id, the past one said to be overdue. (The tense of a
+      // delivered "due" line is `arrivingTense`'s, tested on its own below.)
+      expect(lane(text, FRAMING.horizon)).toBeNull();
+      expect(text).toContain(`${FRAMING.horizon} 2 — ${NONE_TODAY_WORDS}, 1 overdue; recall ids: mem_`);
+      expect(text).not.toContain("dentist appointment");
       // The date is the `Now:` line's, above the wake, not the preface's (2026-10-16).
       expect(text).not.toContain("2026-10-09");
       expect(readSentinel(text).intact).toBe(true);
@@ -609,15 +612,17 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
       reminder(a, "2026-10-08", "The dentist appointment is at nine and the forms are in the blue folder.");
       await worker(zone);
       const stored = lane(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "", FRAMING.horizon);
-      expect(stored).toEqual(["- Oct 1 (was due Oct 8) · The dentist appointment is at nine and the forms are in the blue folder."]);
-      expect(lane(sessionStart(a, zone, "s1").text, FRAMING.horizon)?.[0]).toBe(
-        "- Oct 1 (was due yesterday, Oct 8) · The dentist appointment is at nine and the forms are in the blue folder.",
-      );
-      // Three days on, with no render in between (nobody worked): a date, no "yesterday".
+      // In its grace days it is overdue: counted and said so, not listed
+      // ("Coming up" = today; review of #511) — in the stored bundle and at session start.
+      const overdue = `${FRAMING.horizon} 1 — ${NONE_TODAY_WORDS}, 1 overdue; recall ids: mem_`;
+      expect(stored).toBeNull();
+      expect(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "").toContain(overdue);
+      expect(sessionStart(a, zone, "s1").text).toContain(overdue);
+      // Three days on, with no render in between (nobody worked): still counted, still overdue.
       clock(zone, "2026-10-11", 9);
-      expect(lane(sessionStart(a, zone, "s2").text, FRAMING.horizon)?.[0]).toBe(
-        "- Oct 1 (was due Oct 8) · The dentist appointment is at nine and the forms are in the blue folder.",
-      );
+      const later = sessionStart(a, zone, "s2").text;
+      expect(later).not.toContain("dentist appointment");
+      expect(later).toContain(overdue);
     });
   }
 
@@ -627,8 +632,9 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
     a.counterpart.store.put({ type: "memory", kind: "person", body: "Call the plumber back about the boiler.", learnedOn: "2026-10-08", eventDate: "2026-10-08", salience: SALIENT });
     await worker("America/Denver");
     expect(lane(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "", FRAMING.horizon)).toEqual(["- due Oct 8 · Call the plumber back about the boiler."]);
+    // The morning after it is overdue: counted and said so (review of #511).
     clock("America/Denver", "2026-10-09", 8);
-    expect(lane(sessionStart(a, "America/Denver", "s1").text, FRAMING.horizon)).toEqual(["- was due yesterday, Oct 8 · Call the plumber back about the boiler."]);
+    expect(sessionStart(a, "America/Denver", "s1").text).toContain(`${FRAMING.horizon} 1 — ${NONE_TODAY_WORDS}, 1 overdue; recall ids: mem_`);
   });
 
   test("TOLD PLAINLY ON ITS DAY, it stays listed that day and is not in the next morning's wake", async () => {

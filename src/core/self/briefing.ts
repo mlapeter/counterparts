@@ -347,9 +347,27 @@ const LEGACY_MORE_NOUN: Readonly<Partial<Record<LaneName, string>>> = {
   horizon: "arriving",
 };
 
-/** `(3 more still open; recall ids: mem_…, mem_…, mem_…)` */
-export function moreLine(lane: LaneName, ids: readonly string[]): string {
-  return `(${String(ids.length)} more ${MORE_NOUN[lane]}; ${recallIds(ids)})`;
+/**
+ * "Coming up"'s ids past their date, among `ids` (review of #511): the lane
+ * lists only what is due today and counts the overdue by name. Zero for any
+ * other lane.
+ */
+function overdueAmong(lane: LaneName, ids: readonly string[], overdue: readonly string[] | undefined): number {
+  if (lane !== "horizon" || overdue === undefined || overdue.length === 0) return 0;
+  const past = new Set(overdue);
+  return ids.filter((id) => past.has(id)).length;
+}
+
+/** The overdue word, and its count line's form when every id is overdue. */
+export const OVERDUE_WORD = "overdue";
+
+/** `(3 more still open; recall ids: mem_…, mem_…, mem_…)`, and for "Coming up"
+ *  `(2 overdue, 4 more coming up; recall ids: …)` or `(2 overdue; recall ids: …)`. */
+export function moreLine(lane: LaneName, ids: readonly string[], overdue?: readonly string[]): string {
+  const late = overdueAmong(lane, ids, overdue);
+  if (late === 0) return `(${String(ids.length)} more ${MORE_NOUN[lane]}; ${recallIds(ids)})`;
+  const rest = ids.length - late;
+  return `(${String(late)} ${OVERDUE_WORD}${rest === 0 ? "" : `, ${String(rest)} more ${MORE_NOUN[lane]}`}; ${recallIds(ids)})`;
 }
 
 /**
@@ -412,6 +430,12 @@ export function countedLanes(text: string): Partial<Record<LaneName, number>> {
       out[lane] = Number(more[1]);
       continue;
     }
+    // "Coming up"'s overdue (review of #511): `(2 overdue, 4 more coming up; …)`, `(2 overdue; …)`.
+    const late = new RegExp(`^\\((\\d+) ${OVERDUE_WORD}(?:, (\\d+) more ${MORE_NOUN.horizon})?; recall ids`).exec(line);
+    if (late !== null) {
+      out.horizon = Number(late[1]) + Number(late[2] ?? 0);
+      continue;
+    }
     if (!isFoldedLine(line)) continue;
     for (const m of line.slice(FOLDED_WORDS.length + 1).matchAll(/(\d+) ([^;(]+?) \(recall ids: /g)) {
       const l = byNoun.get(m[2] ?? "");
@@ -450,17 +474,25 @@ export const COLLAPSED_WORDS = "no room to list them in this wake";
  */
 export const NONE_TODAY_WORDS = "none due today";
 
-export function collapsedLine(lane: LaneName, ids: readonly string[], later?: readonly string[]): string {
-  const why = lane === "horizon" && later !== undefined && ids.length > 0 && ids.every((id) => later.includes(id)) ? NONE_TODAY_WORDS : COLLAPSED_WORDS;
+export function collapsedLine(lane: LaneName, ids: readonly string[], counted?: HorizonCounted): string {
+  const later = counted?.horizonLater;
+  const none = lane === "horizon" && later !== undefined && ids.length > 0 && ids.every((id) => later.includes(id));
+  // Those past their date said as such (review of #511): `none due today, 2 overdue`.
+  const late = none ? overdueAmong(lane, ids, counted?.horizonOverdue) : 0;
+  const why = none ? `${NONE_TODAY_WORDS}${late === 0 ? "" : `, ${String(late)} ${OVERDUE_WORD}`}` : COLLAPSED_WORDS;
   return `${laneHeading(lane)} ${String(ids.length)} — ${why}; ${recallIds(ids)}`;
 }
+
+/** What "Coming up" counts rather than lists, as a composition's request
+ *  carries it (`BriefingRequest.horizonLater`, `.horizonOverdue`). */
+export type HorizonCounted = Pick<BriefingRequest, "horizonLater" | "horizonOverdue">;
 
 /** The lane a collapsed line (`collapsedLine`) speaks for, or null for any other line. */
 export function collapsedLane(line: string): LaneName | null {
   for (const lane of LANE_ORDER) {
     for (const heading of headingsOf(lane)) {
       if (!line.startsWith(`${heading} `)) continue;
-      if (new RegExp(`^ \\d+ — (?:${COLLAPSED_WORDS}|${NONE_TODAY_WORDS}); recall ids`).test(line.slice(heading.length))) return lane;
+      if (new RegExp(`^ \\d+ — (?:${COLLAPSED_WORDS}|${NONE_TODAY_WORDS}(?:, \\d+ ${OVERDUE_WORD})?); recall ids`).test(line.slice(heading.length))) return lane;
     }
   }
   return null;
@@ -696,6 +728,9 @@ export interface BriefingRequest {
    * today", not "no room" (`collapsedLine`). Absent: "no room", as before.
    */
   readonly horizonLater?: readonly string[];
+  /** Those of `horizonLater` past their date (review of #511): the line
+   *  counts them as overdue. Absent: none said so. */
+  readonly horizonOverdue?: readonly string[];
 }
 
 export interface TrimEvent {
@@ -1282,7 +1317,7 @@ export function render(
   let bare = false;
   const lostNow = (): Partial<Record<LaneName, string[]>> => withoutNearby(lostByLane(lanes.overflow, trimmed, held, suppressList));
   const linesFor = (lost: Partial<Record<LaneName, readonly string[]>>, k: Kept, folded: boolean): { more: Partial<Record<LaneName, string>>; fold?: string } =>
-    folded ? foldParts(lost, k, req.horizonLater) : { more: pinnedLines(lost, k, req.horizonLater) };
+    folded ? foldParts(lost, k, req) : { more: pinnedLines(lost, k, req) };
 
   for (;;) {
     const lost = lostNow();

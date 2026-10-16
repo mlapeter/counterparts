@@ -48,12 +48,15 @@
   footnote ("Quietly available"), by the same gate as any other kind (no new mechanism).
   "Work here" is unchanged. Revert: `CRAFT_IN_WAKE: true` (`src/core/self/tunables.ts`).
 - Decided by Mike, 2026-10-16, lightly held, review 2026-10-18: **"Coming up" lists only what is
-  due today or past.** Before: the first two by date, whatever the date, and the rest counted.
-  After: what is due the day the wake is for, what is past its date in its grace days, and a
-  plain reminder due the day it is read (whole, as before), including one prospective's count
-  left out; every later date counted in the lane's one line ("(5 more coming up; recall ids:
-  …)", or "Coming up: 5 — none due today; recall ids: …"), and in no other lane (until now a
-  date past the count could also show under "Might be relevant"). They come back on their
+  due today.** Before: the first two by date, whatever the date, and the rest counted.
+  After: what is due the day the wake is for, and a plain reminder due the day it is read
+  (whole, as before), including one prospective's count left out; every other date — later,
+  or overdue in its grace days — counted in the lane's one line, the overdue named as such
+  ("(2 overdue, 4 more coming up; recall ids: …)", or "Coming up: 6 — none due today, 2
+  overdue; recall ids: …"), and in no other lane (until now a date past the count could also
+  show under "Might be relevant"). Overdue counted, not listed: the coordinator's call in the
+  review of #511, after a render of the owner's store listed stale "was due Oct 11" items and
+  Mike's ask was "just what's due today". They come back on their
   own: a date cues recall around it (`prospective.arrivals()` → recall's temporal cues), and a
   plain reminder is said outright on its day (`Counterpart#plainDueToday`). Revert:
   `COMING_UP_TODAY_ONLY: false` (`src/core/self/tunables.ts`).

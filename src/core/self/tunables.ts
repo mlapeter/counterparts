@@ -87,10 +87,11 @@ export interface SelfTunables {
   /**
    * "COMING UP" = TODAY (2026-10-16, the wake trims; Mike, lightly held,
    * review 2026-10-18). On: the lane lists what is due the day the wake is
-   * for, or past its date in its grace days, and a plain reminder due the
-   * day it is read (whole, as before); every later date is counted in the
-   * lane's one line with its recall ids ("(5 more coming up; recall ids:
-   * …)", or "Coming up: 5 — none due today; …" when nothing is listed).
+   * for, and a plain reminder due the day it is read (whole, as before);
+   * every other date — later, or past its date in its grace days (review of
+   * #511) — is counted in the lane's one line with its recall ids ("(2
+   * overdue, 4 more coming up; recall ids: …)", or "Coming up: 6 — none due
+   * today, 2 overdue; …" when nothing is listed).
    * Those return on their own: a date cues recall around it, as a per-turn
    * footnote (`prospective.arrivals()` → recall's temporal cues), and a plain
    * reminder is said outright on its day (`Counterpart#plainDueToday`). Off:

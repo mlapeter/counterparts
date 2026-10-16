@@ -45,6 +45,7 @@ import {
   arrivingTense,
   collapsedLane,
   collapsedLine,
+  moreLine,
   countedLanes,
   datePrefix,
   deliveryReserveBound,
@@ -382,20 +383,20 @@ describe("5. How I work: leaves the wake; a craft memory is still a footnote", (
 // 6. Coming up = today
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("6. Coming up lists what is due today or past, and counts the rest in one line", () => {
-  test("a real session start: today's and the overdue one listed, the later one counted by id, and in no other lane", () => {
+describe("6. Coming up lists what is due today, and counts the rest — overdue and later — in one line", () => {
+  test("a real session start: today's listed; the overdue and the later one counted by id, the overdue said so, and in no other lane", () => {
     expect(SELF_TUNABLES.COMING_UP_TODAY_ONLY).toBe(true);
     const w = world();
     expect(w.c.rebrief({ budgetBytes: BUDGET, at: TODAY }).published).toBe(true);
     const wake = sessionStart(w);
     const coming = lane(wake, FRAMING.horizon);
     const listed = coming.filter((l) => l.startsWith("- "));
-    expect(listed.length).toBe(2);
+    expect(listed.length).toBe(1);
     expect(listed.some((l) => l.endsWith("The seed order closes at noon; the list is in the green folder."))).toBe(true);
-    expect(listed.some((l) => l.endsWith("Return the borrowed tiller to the neighbour."))).toBe(true);
-    expect(coming[coming.length - 1]).toBe(`(1 more coming up; recall ids: ${w.ids["later"] ?? ""})`);
+    expect(coming[coming.length - 1]).toBe(`(1 overdue, 1 more coming up; recall ids: ${w.ids["past"] ?? ""}, ${w.ids["later"] ?? ""})`);
     expect(wake).not.toContain("compost heap");
-    expect(countedLanes(wake).horizon).toBe(1);
+    expect(wake).not.toContain("borrowed tiller");
+    expect(countedLanes(wake).horizon).toBe(2);
     // A later date counted is the lane doing its job, not a dated item left
     // out for want of room: doctor's Wake line says nothing about it.
     const f = wakeArrivalFindings(w.c.store).find((x) => x.key === "wake");
@@ -416,7 +417,18 @@ describe("6. Coming up lists what is due today or past, and counts the rest in o
     expect(collapsedLane(line)).toBe("horizon");
     expect(countedLanes(out.text).horizon).toBe(2);
     // A due item the room left out still says "no room".
-    expect(collapsedLine("horizon", [a, b], [b])).toContain(COLLAPSED_WORDS);
+    expect(collapsedLine("horizon", [a, b], { horizonLater: [b] })).toContain(COLLAPSED_WORDS);
+    // Nothing due today, one of them overdue: said so, and still read back.
+    const late = collapsedLine("horizon", [a, b], { horizonLater: [a, b], horizonOverdue: [a] });
+    expect(late).toBe(`${FRAMING.horizon} 2 — ${NONE_TODAY_WORDS}, 1 overdue; recall ids: ${a}, ${b}`);
+    expect(collapsedLane(late)).toBe("horizon");
+    expect(countedLanes(late).horizon).toBe(2);
+    // Only overdue, under a listed item: `(2 overdue; …)`, counted as 2.
+    const only = moreLine("horizon", [a, b], [a, b]);
+    expect(only).toBe(`(2 overdue; recall ids: ${a}, ${b})`);
+    expect(countedLanes(only).horizon).toBe(2);
+    // Another lane never says overdue.
+    expect(moreLine("threads", [a], [a])).toBe(`(1 more still open; recall ids: ${a})`);
     // The switch off: the lane as before, both listed.
     const before = new Self({ store: s, tunables: { COMING_UP_TODAY_ONLY: false } }).build({ budgetBytes: 40_000, day: 1, at: TODAY, horizon: [{ id: a, due: "2026-10-18" }, { id: b, due: "2026-10-19" }] });
     expect(before.counts.horizon).toBe(2);

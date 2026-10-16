@@ -942,6 +942,7 @@ export class Self {
         ...(coming.later.length === 0 ? {} : { later: coming.later }),
       }),
       ...(coming.later.length === 0 || req.omit !== undefined ? {} : { later: coming.later }),
+      ...(coming.overdue.length === 0 || req.omit !== undefined ? {} : { overdue: coming.overdue }),
     };
     const docs = new Map<string, ProseDoc>();
     // Provenance rides along from the SAME scan the docs came from: the render
@@ -1063,6 +1064,7 @@ export class Self {
         horizon: fresh.overflow?.horizon ?? [],
       },
       ...(coming.later.length === 0 ? {} : { later: coming.later }),
+      ...(coming.overdue.length === 0 ? {} : { overdue: coming.overdue }),
     };
     return this.composeLanes(lanes, docs, sources, {
       day,
@@ -1220,6 +1222,8 @@ export class Self {
           // What "Coming up" counts for its later date (2026-10-16), so its
           // line says "none due today" rather than "no room".
           ...(lanes.later === undefined || lanes.later.length === 0 || req.omit !== undefined ? {} : { horizonLater: lanes.later }),
+          // And which of them are past their date, so it says "overdue" (review of #511).
+          ...(lanes.overdue === undefined || lanes.overdue.length === 0 || req.omit !== undefined ? {} : { horizonOverdue: lanes.overdue }),
           ...(req.elsewhereShorter === undefined || req.elsewhere === undefined || req.omit !== undefined
             ? {}
             : { elsewhereShorter: req.elsewhereShorter }),
@@ -3190,13 +3194,14 @@ export class Self {
 
   /**
    * "COMING UP" = TODAY (2026-10-16, the wake trims; Mike, lightly held).
-   * `listed`: the arriving items the lane lists — due on or before the day
-   * the wake is for (`today`, else `at`, else the store's today), past their
-   * date (`past`), a plain reminder due the day it is read (`plainDue`), or
-   * one with no date (nothing to count it by) — including one `prospective/`'s
-   * count left out (`horizonMoreItems`). `later`: the ids it counts instead,
-   * in the order offered. `more`: what the lane's overflow takes, the later
-   * ids and then any of the count's ids that came without a date. Off
+   * `listed`: the arriving items the lane lists — due on the day the wake
+   * is for (`today`, else `at`, else the store's today), a plain reminder due
+   * the day it is read (`plainDue`), or one with no date (nothing to count it
+   * by) — including one `prospective/`'s count left out (`horizonMoreItems`).
+   * `later`: every id it counts instead, the overdue first. `overdue`: those
+   * past their date (`past`, or a day before), which the count line names
+   * as such (review of #511). `more`: what the lane's overflow takes, the
+   * later ids and then any of the count's ids that came without a date. Off
    * (`COMING_UP_TODAY_ONLY`): the items and the count as supplied. Reads
    * only the store's clock.
    */
@@ -3205,20 +3210,27 @@ export class Self {
     moreIds: readonly string[] | undefined,
     moreItems: readonly HorizonItem[] | undefined,
     at: string | undefined,
-  ): { listed: HorizonItem[]; later: string[]; more: string[] } {
-    if (!this.tunables.COMING_UP_TODAY_ONLY) return { listed: [...(items ?? [])], later: [], more: [...(moreIds ?? [])] };
+  ): { listed: HorizonItem[]; later: string[]; overdue: string[]; more: string[] } {
+    if (!this.tunables.COMING_UP_TODAY_ONLY) return { listed: [...(items ?? [])], later: [], overdue: [], more: [...(moreIds ?? [])] };
     // The composition's date as well as the caller's word (`today`, `past`):
     // a caller that names only the date is read by it.
     const today = at ?? this.store.today();
-    const now = (h: HorizonItem): boolean => {
-      const due = h.due?.trim() ?? "";
-      return h.plainDue === true || h.past === true || h.today === true || due === "" || (isDay(due) && due <= today);
-    };
+    const due = (h: HorizonItem): string => h.due?.trim() ?? "";
+    // Listed: due today, a plain reminder due the day it is read
+    // (`plainDue`), or no date to count it by. Past its date (`past`, or a
+    // day before today) is counted as overdue, not listed (2026-10-16,
+    // review of #511: "just what's due today").
+    const now = (h: HorizonItem): boolean => h.plainDue === true || h.today === true || due(h) === "" || (isDay(due(h)) && due(h) === today);
+    const late = (h: HorizonItem): boolean => !now(h) && (h.past === true || (isDay(due(h)) && due(h) < today));
+    const all = [...(items ?? []), ...(moreItems ?? [])];
     const dated = new Set((moreItems ?? []).map((h) => h.id));
-    const listed = [...(items ?? []).filter(now), ...(moreItems ?? []).filter(now)];
-    const later = [...(items ?? []).filter((h) => !now(h)), ...(moreItems ?? []).filter((h) => !now(h))].map((h) => h.id);
+    const listed = all.filter(now);
+    const overdue = all.filter(late).map((h) => h.id);
+    // Every id counted rather than listed, overdue first, so the count line
+    // names them first (`moreLine`).
+    const later = [...overdue, ...all.filter((h) => !now(h) && !late(h)).map((h) => h.id)];
     const undated = (moreIds ?? []).filter((id) => !dated.has(id));
-    return { listed, later, more: [...later, ...undated] };
+    return { listed, later, overdue, more: [...later, ...undated] };
   }
 
   private horizonRank(item: HorizonItem, day: number): Ranked {

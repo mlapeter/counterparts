@@ -278,12 +278,13 @@ const REMINDERS = [
 ] as const;
 
 /**
- * When each is due: the morning the wake is read, and the two days before it
- * — what "Coming up" lists since 2026-10-16 (`COMING_UP_TODAY_ONLY`: due
- * today or past its date). Until then the two after; the composition tests
- * below (section 4) still exercise later dates, with the switch off.
+ * When each is due: all three the morning the wake is read — what "Coming
+ * up" lists since 2026-10-16 (`COMING_UP_TODAY_ONLY`: due today; the overdue
+ * are counted since the review of #511). Until then the two days after; the
+ * composition tests below (section 4) still exercise other dates, with the
+ * switch off.
  */
-const DUES = ["2026-10-09", "2026-10-08", "2026-10-07"] as const;
+const DUES = ["2026-10-09", "2026-10-09", "2026-10-09"] as const;
 
 /** The same, each longer than the slack the furniture's reserve leaves beside a page at its room. */
 const LONG = REMINDERS.map((r) => `${r} ${"It matters, and the details are written down in the studio notebook on the shelf by the door. ".repeat(4).trim()}`);
@@ -976,13 +977,13 @@ describe("doctor's Wake line says so, in amber, when a dated item went unlisted"
 
 // The store read in section 2 is the published bundle, not the live one.
 // Since 2026-10-16 ("Coming up" = today) each lists what is due by its own
-// date: the evening's bundle the one due that evening, counting the next
-// morning's; the morning's wake both.
+// date: the evening's bundle counts the two due the next morning; the
+// morning's wake lists both.
 test("the stored bundle and the delivered one each list what is due by their own date", async () => {
   const m = await morning("Pacific/Kiritimati", { pageBytes: 6_767, dated: 2 });
   const stored = m.a.counterpart.store.getMeta(BRIEFING_KEY) ?? "";
-  expect(arriving(stored).listed.length).toBe(1);
-  expect(countedLanes(stored).horizon).toBe(1);
+  expect(arriving(stored).listed.length).toBe(0);
+  expect(countedLanes(stored).horizon).toBe(2);
   expect(arriving(m.text).listed.length).toBe(2);
 });
 
@@ -1012,10 +1013,10 @@ describe("at session start, dated items due within the next few days have first 
       const m = await morning(zone, { pageBytes: 6_472, dated: 3, widest: true, short: true, bodies: LONG });
       const stored = m.a.counterpart.store.getMeta(BRIEFING_KEY) ?? "";
       // Two since #489 C: each long line is its title or first line and id.
-      // The evening's: the one due that day and the one past it; the
-      // morning's all three — today's and two in their grace days
-      // ("Coming up" = today, 2026-10-16).
-      expect(arriving(stored).listed.length).toBe(2);
+      // The evening's: none, all three due the next morning and counted;
+      // the morning's all three ("Coming up" = today, 2026-10-16).
+      expect(arriving(stored).listed.length).toBe(0);
+      expect(countedLanes(stored).horizon).toBe(3);
       const { listed, collapsed } = arriving(m.text);
       expect(collapsed).toBe(false);
       expect(listed.length).toBe(3);
