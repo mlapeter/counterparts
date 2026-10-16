@@ -584,7 +584,7 @@ describe("each fact's labeled lines", () => {
     });
     c.store.put({ type: "memory", kind: "fact", body: "The zqgym closes on public holidays." });
     const text = renderFacts(ask(c, "zqgym"));
-    expect(text).toContain("you said · done · happened 09-28");
+    expect(text).toContain("you said · done · happened Mon 09-28");
     expect(text).toMatch(/learned 10-03 in \/scope\/one · this session · CURRENT/);
     // Unknown fields say so: most rows predate v12.
     expect(text).toContain("speaker unknown · status unknown · no event date");
@@ -594,7 +594,20 @@ describe("each fact's labeled lines", () => {
     const c = brain();
     seed(c);
     c.store.put({ type: "memory", kind: "fact", body: "The zqdentist visit is booked.", saidBy: "self", status: "planned", occurredOn: "2026-10-20" });
-    expect(renderFacts(ask(c, "zqdentist"))).toContain("I said · planned · for 10-20");
+    expect(renderFacts(ask(c, "zqdentist"))).toContain("I said · planned · for Tue 10-20");
+  });
+
+  test("an event date carries its weekday, a range on both ends; the learned date does not", () => {
+    const c = brain();
+    seed(c);
+    c.store.put({ type: "memory", kind: "fact", body: "The zqtrip to the coast.", status: "done", occurredOn: "2026-09-14..2026-09-16" });
+    c.store.put({ type: "memory", kind: "fact", body: "The zqclinic visit last winter.", status: "done", occurredOn: "2025-12-31" });
+    c.store.put({ type: "memory", kind: "fact", body: "The zqmonth review.", status: "done", occurredOn: "2026-09" });
+    const trip = renderFacts(ask(c, "zqtrip"));
+    expect(trip).toContain("happened Mon 09-14..Wed 09-16");
+    expect(trip).toMatch(/\n {3}learned 10-03 /);
+    expect(renderFacts(ask(c, "zqclinic"))).toContain("happened Wed 2025-12-31");
+    expect(renderFacts(ask(c, "zqmonth"))).toContain("happened 2026-09\n");
   });
 });
 
@@ -1247,8 +1260,8 @@ describe("order within a day (renderAt#sameDayTimes)", () => {
     at("2026-10-03T16:52:00Z"); // 09:52
     c.store.put({ type: "memory", kind: "fact", body: "The zqchannel is close to 1300 followers.", occurredOn: "2026-10-03" });
     const text = renderFacts(ask(c, "zqchannel followers"));
-    expect(text).toContain("happened 10-03\n   learned 10-03 05:27 ·");
-    expect(text).toContain("happened 10-03\n   learned 10-03 09:52 ·");
+    expect(text).toContain("happened Sat 10-03\n   learned 10-03 05:27 ·");
+    expect(text).toContain("happened Sat 10-03\n   learned 10-03 09:52 ·");
   });
 
   test("a lone result, different event days, different learned days and one shared minute show nothing new", () => {

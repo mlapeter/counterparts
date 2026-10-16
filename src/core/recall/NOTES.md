@@ -1199,3 +1199,12 @@ call (`ref` the session) and touches nothing else. What the build chose:
   (03-31 → 02-28). Plain "last month" ("what did I buy last month?") is still the calendar
   month with the stretch — a guess about how people say it; revisit if questions say
   otherwise.
+
+## 2026-10-16 — facts lines show the event date's weekday
+
+- Lightly held. Recall's facts mode now prints "happened Mon 05-15" (a range "Mon
+  05-15..Wed 05-17"; "for" on planned things too), so "what time did I reach the clinic on
+  Monday?" can be matched without the reader working weekdays out. The weekday is the
+  calendar date's own, no zone. Only that line: `shortDateWithWeekday` beside
+  `shortDate` in `adapters/mcp/facts.ts`; learned dates, the time line, wake and
+  footnotes are unchanged. Month- or year-only dates carry no weekday.
