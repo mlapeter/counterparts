@@ -586,7 +586,9 @@ describe("the re-review's residuals (R1, R7, R8)", () => {
     recordSession(dir, { sessionId: "recent", scope: SCOPE, phase: "start", at: NOW - 2 * DAY });
     b.set(NOW);
     // The registry forgets it (as `pruneSessions` would, given a later clock)...
-    expect(pruneSessions(dir, NOW + 30 * DAY)).toBe(1);
+    // Later than the record file's real mtime, which the prune reads; a clock
+    // fixed from NOW stopped being later once the calendar passed it (10-16).
+    expect(pruneSessions(dir, Date.now() + 30 * DAY)).toBe(1);
     // ...and it is still kept: it is young, and that reads the buffer alone.
     const [h] = planRetention(b.c.spans, sources(b.c));
     expect(h?.open).toBe(false);
