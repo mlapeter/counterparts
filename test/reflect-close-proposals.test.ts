@@ -180,6 +180,31 @@ describe("stale open threads, proposed closed", () => {
     expect(c.reflections.close({ reflection: begun.bundle.reflection, session: SESSION, ids: [w.stale] })).toEqual({ ok: false, reason: "nothing-proposed" });
     expect(openFlag(c, w.stale)).toBe(true);
   });
+  test("from a session that is not the owner's, close refuses a thread written in another directory", () => {
+    let c = brain();
+    nextDay(c);
+    const there = mem(c, "Open: is the other project's deploy done?", { meta: { unresolved: true }, origin: { scope: "/a" } });
+    for (let i = 0; i < REFLECT_TUNABLES.STALE_OPEN_DAYS + 1; i += 1) nextDay(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    const id = begun.bundle.reflection;
+    const done = c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", close: [there] });
+    if (!done.ok) throw new Error(done.reason);
+    expect(done.outcome.close.proposed).toEqual([there]);
+    c.close();
+    open.splice(0);
+    c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+    open.push(c);
+    const elsewhere = c.reflections.close({ reflection: id, session: "s-guest", ids: [there], scope: "/b" });
+    if (!elsewhere.ok) throw new Error(elsewhere.reason);
+    expect(elsewhere.closed).toEqual([]);
+    expect(elsewhere.refused).toEqual([{ id: there, reason: "other-directory" }]);
+    expect(openFlag(c, there)).toBe(true);
+    const here = c.reflections.close({ reflection: id, session: "s-guest", ids: [there], scope: "/a" });
+    if (!here.ok) throw new Error(here.reason);
+    expect(here.closed).toEqual([there]);
+    expect(openFlag(c, there)).toBe(false);
+  });
 });
 
 describe("the reflect tool's close phase", () => {
