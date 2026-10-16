@@ -476,6 +476,45 @@ describe("time in a question (time-ask.ts)", () => {
     const kiriSun = { now: Date.parse("2026-10-03T11:00:00Z"), zone: "Pacific/Kiritimati" };
     expect(readTimeAsk("last Saturday", kiriSun)?.window).toEqual({ from: "2026-10-03", to: "2026-10-03" });
   });
+
+  test("\"in the last month\" and \"the past N months\" roll back from today; plain \"last month\" stays the calendar month", () => {
+    const may30 = { now: Date.parse("2023-05-30T19:00:00Z"), zone: "America/Los_Angeles" };
+    const rolling = { from: "2023-04-30", to: "2023-05-30" };
+    for (const q of [
+      "How many plants did I acquire in the last month?",
+      "what did I buy in the past month",
+      "the past month at the gym",
+      "over the last month what changed",
+      "within the last month did I call her",
+      "during the last month",
+      "past month spending",
+    ]) {
+      const a = readTimeAsk(q, may30);
+      expect({ q, said: a?.said, window: a?.window, stretch: a?.stretch }).toEqual({ q, said: rolling, window: rolling, stretch: 0 });
+    }
+    expect(readTimeAsk("How many plants did I acquire in the last month", may30)?.rest).toBe("How many plants did I acquire");
+    expect(readTimeAsk("within the last month did I call her", may30)?.rest).toBe("did I call her");
+    const calendar = readTimeAsk("what did I buy last month?", may30);
+    expect(calendar?.said).toEqual({ from: "2023-04-01", to: "2023-04-30" });
+    expect(calendar?.stretch).toBe(2);
+    for (const [q, from] of [
+      ["the last two months", "2023-03-30"],
+      ["in the last four months what did I read", "2023-01-30"],
+      ["past 3 months", "2023-02-28"],
+      ["last 6 months of runs", "2022-11-30"],
+      ["over the past twelve months", "2022-05-30"],
+    ] as const) {
+      const a = readTimeAsk(q, may30);
+      expect({ q, said: a?.said, stretch: a?.stretch }).toEqual({ q, said: { from, to: "2023-05-30" }, stretch: 0 });
+    }
+    // Month end: a month back from 03-31 is the last day February has.
+    const mar31 = { now: Date.parse("2023-03-31T19:00:00Z"), zone: "America/Los_Angeles" };
+    expect(readTimeAsk("the past month", mar31)?.said).toEqual({ from: "2023-02-28", to: "2023-03-31" });
+    const leap = { now: Date.parse("2024-03-31T19:00:00Z"), zone: "America/Los_Angeles" };
+    expect(readTimeAsk("the past month", leap)?.said).toEqual({ from: "2024-02-29", to: "2024-03-31" });
+    const jan15 = { now: Date.parse("2024-01-15T19:00:00Z"), zone: "America/Los_Angeles" };
+    expect(readTimeAsk("in the last month", jan15)?.said).toEqual({ from: "2023-12-15", to: "2024-01-15" });
+  });
 });
 
 describe("the pool is every match, and the header counts it", () => {
