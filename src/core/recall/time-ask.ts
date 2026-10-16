@@ -510,12 +510,12 @@ export function readTimeAsk(text: string, clock: { now: number; zone: string }):
   // A rolling stretch back from today, as "the past week" is: "in the last
   // month" asked 05-30 means 04-30..05-30, not April, which hid what happened
   // in May (2026-10-16). Plain "last month" stays the calendar month.
-  const pastMonths = new RegExp(`\\b(?:the\\s+)?(?:past|last)\\s+(${NUMBER_ALT})\\s+months?\\b`, "i").exec(text);
+  const pastMonths = new RegExp(`\\b(?:the\\s+)?(?:past|last)\\s+(${NUMBER_ALT})(?:\\s+of)?\\s+months?\\b`, "i").exec(text);
   if (pastMonths !== null) {
     const n = Math.max(1, numberOf(pastMonths[1] as string) ?? 3);
     return ask(pastMonths[0], { from: monthsBack(today, n), to: today }, 0, without(text, pastMonths[0]));
   }
-  const pastMonth = /\b(?:in|over|within|during|for)\s+the\s+(?:past|last)\s+month\b|\b(?:the\s+)?past\s+month\b/i.exec(text);
+  const pastMonth = /\b(?:in|over|within|during|for)\s+the\s+(?:past|last)\s+month\b(?!\s+of\b)|\b(?:the\s+)?past\s+month\b(?!\s+of\b)/i.exec(text);
   if (pastMonth !== null) {
     return ask(pastMonth[0], { from: monthsBack(today, 1), to: today }, 0, without(text, pastMonth[0]));
   }

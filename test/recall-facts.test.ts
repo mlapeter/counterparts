@@ -497,12 +497,16 @@ describe("time in a question (time-ask.ts)", () => {
     const calendar = readTimeAsk("what did I buy last month?", may30);
     expect(calendar?.said).toEqual({ from: "2023-04-01", to: "2023-04-30" });
     expect(calendar?.stretch).toBe(2);
+    // "the last month of <x>" names a month, not a stretch back from today.
+    expect(readTimeAsk("during the last month of the season", may30)?.stretch).toBe(2);
     for (const [q, from] of [
       ["the last two months", "2023-03-30"],
       ["in the last four months what did I read", "2023-01-30"],
       ["past 3 months", "2023-02-28"],
       ["last 6 months of runs", "2022-11-30"],
       ["over the past twelve months", "2022-05-30"],
+      ["in the last couple of months", "2023-03-30"],
+      ["past couple of months", "2023-03-30"],
     ] as const) {
       const a = readTimeAsk(q, may30);
       expect({ q, said: a?.said, stretch: a?.stretch }).toEqual({ q, said: { from, to: "2023-05-30" }, stretch: 0 });
