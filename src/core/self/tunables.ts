@@ -185,6 +185,18 @@ export interface SelfTunables {
    */
   PAGE_WRITER_ASKS_PER_DAY: number;
 
+  // ── list items as a line (#489 C, 2026-10-16) ───────────────────────────
+  /**
+   * A list item ("How I work", "Still open", "Might be relevant", "Coming
+   * up") whose first paragraph is longer than this many bytes prints as a
+   * line — `date · title [id]` — and recall reads it whole. Shorter items,
+   * a plain reminder due the day the wake is read, and the identity list stay
+   * whole. Measured 2026-10-15 on a copy of the live store: items ran 350–1,100
+   * bytes and only 3–4 fit beside the page; titles average about 67. Mike,
+   * 2026-10-16, lightly held. CAL.
+   */
+  WAKE_LINE_BYTES: number;
+
   // ── budget telemetry ──────────────────────────────────────────────────────
   /** Fraction of the budget at which the render reports pressure. A budget gets
    *  an event when APPROACHED and one when crossed (scar §2.4). [v1: 0.9] */
@@ -245,6 +257,8 @@ export const SELF_TUNABLES: SelfTunables = {
   PAGE_WRITER_MEMORY_BYTES: 8_192,
   PAGE_WRITER_MEMORY_MAX: 40,
   PAGE_WRITER_ASKS_PER_DAY: 2,
+
+  WAKE_LINE_BYTES: 240,
 
   BUDGET_PRESSURE: 0.9,
 

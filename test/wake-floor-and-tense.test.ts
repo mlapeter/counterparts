@@ -278,7 +278,13 @@ describe("Still open keeps its first item beside a long page, and the page is ne
         expect(listed.length).toBeGreaterThanOrEqual(1);
         expect(open[0]?.startsWith("- ")).toBe(true);
         const bodies = ids.map((id) => a.counterpart.store.readProse(id).body);
-        for (const line of listed) expect(bodies).toContain(line.slice(line.indexOf(" · ") + 3));
+        // Each item whole, or — longer than `WAKE_LINE_BYTES` (#489 C) — its line and its id.
+        for (const line of listed) {
+          const shown = line.slice(line.indexOf(" · ") + 3);
+          const id = /\[([^\]]+)\]$/.exec(shown)?.[1];
+          if (id === undefined) expect(bodies).toContain(shown);
+          else expect(ids).toContain(id);
+        }
         expect(open[open.length - 1]).toStartWith(`(${String(25 - listed.length)} more still open; `);
         // And what gave way was "Work here" (fewer lines), not the reminders or
         // yesterday's chapters: both Arriving lines, all four titles.

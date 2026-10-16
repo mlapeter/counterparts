@@ -1031,7 +1031,9 @@ describe("the wake briefing — every element carries its date", () => {
         learnedOn: "2026-08-14",
       });
     }
-    const self = new Self({ store: s, tunables: STORE_WIDE_CRAFT });
+    // Whole items (no line form, #489 C): the share is what this pins, and
+    // craft as lines would leave identity the leftover.
+    const self = new Self({ store: s, tunables: withTunables({ ...STORE_WIDE_CRAFT, WAKE_LINE_BYTES: Number.POSITIVE_INFINITY }) });
     const BUDGET = 9_000;
     const out = self.build({ budgetBytes: BUDGET, day: 0 });
 

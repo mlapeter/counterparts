@@ -720,9 +720,13 @@ export class Counterpart {
     // older build published, no budget, another ceiling, anything that
     // throws — delivers the published bundle as it always was.
     let withPointer: WakeResult;
+    // The ids the assembled wake listed as a line (#489 C): the host's
+    // adapter writes them to the lookup ledger, since a wake writes nothing.
+    let lined: readonly string[] = [];
     this.delivering = delivery !== undefined;
     try {
       const assembled = delivery === undefined ? null : this.assembleWake(delivery, here);
+      lined = assembled?.lined ?? [];
       const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
       this.deliveredThreads = assembled === null ? null : new Set(assembled.kept.threads);
       withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
@@ -738,7 +742,7 @@ export class Counterpart {
       preface: withPointer.preface !== null,
       budgetBytes: this.reportedBudget,
     });
-    return { ...withPointer, budgetBytes: this.reportedBudget };
+    return { ...withPointer, budgetBytes: this.reportedBudget, lined };
   }
 
   /**

@@ -2061,6 +2061,15 @@ describe("hook records", () => {
       }),
     );
     expect(said).toEqual({ person: true, headless: false, night: false, "watched-sdk": true });
+    // The nightly run's wake writes no lookup ledger, so its row offers no
+    // lines for doctor to count (review of #508); a person's start does.
+    const lined = Object.fromEntries(
+      a.counterpart.store.eventLog({ name: "adapter.wake.injected", limit: 10 }).map((r) => {
+        const p = JSON.parse(r.payload ?? "{}") as Record<string, unknown>;
+        return [String(p["session"]), "lined" in p];
+      }),
+    );
+    expect(lined).toMatchObject({ person: true, night: false });
   });
 
   test("the DELIVERY is evidenced too: wake, recall, delivery-check and episode-ask rows are durable (G2/G4)", () => {

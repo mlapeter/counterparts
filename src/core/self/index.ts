@@ -186,6 +186,7 @@ import {
   syncJournalCopy,
 } from "./journal-file.js";
 import type { JournalCopyOutcome } from "./journal-file.js";
+import { lineOf } from "../fit/index.js";
 import { withTunables } from "./tunables.js";
 import type { SelfTunables } from "./tunables.js";
 import { calendarDate } from "./calendar.js";
@@ -1052,7 +1053,18 @@ export class Self {
     sources: Map<string, string | null>,
     req: BoundaryRequest,
   ): BriefingResult {
-    const base: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
+    const resolved: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
+    // WHOLE TEXT WHERE NOBODY CAN RECALL (review of #508): a composition that
+    // passes `omit` is not owner-facing — the background sweep's, read by a
+    // model with no recall tool — so a line's `[id]` would point nowhere and
+    // its text would be lost. Its items print whole, as before #489 C.
+    const base: Resolve =
+      req.omit === undefined
+        ? resolved
+        : (id) => {
+            const { line: _line, ...whole } = resolved(id);
+            return whole;
+          };
     // An arriving occasion's due date, beside its learned one (2026-10-01).
     // A repeating one says how often, beside it (2026-10-09).
     // One already behind the day the wake is composed for says it WAS due
@@ -3186,7 +3198,16 @@ export class Self {
       happenedOn?: string;
       boundedDate?: boolean;
       standing?: { prefix: string; suffix: string };
+      line?: string;
     } = { statement: statement.length > 0 ? statement : id };
+    // A LONG ITEM'S LINE (#489 C, 2026-10-16): its title, else `lineOf`'s
+    // first line — offered only past `WAKE_LINE_BYTES`, and only when the line
+    // and its id are shorter than the statement. Which lanes print it is
+    // `briefing.ts#asLine`'s decision.
+    if (Buffer.byteLength(statement) > this.tunables.WAKE_LINE_BYTES) {
+      const line = lineOf(doc);
+      if (line.length > 0 && Buffer.byteLength(`${line} [${id}]`) < Buffer.byteLength(statement)) out.line = line;
+    }
     // Its standing in a contradiction — the same words recall uses (review of
     // #284, S3): hints, threads and identity alike. Never fails a render.
     try {

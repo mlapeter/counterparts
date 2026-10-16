@@ -249,7 +249,19 @@ proposals and their archive; render and delivery telemetry.
    deterministic at a fixed budget — the host's case — but does not preserve the
    smaller-budget-is-a-subset property across budgets when one element is larger than the
    difference between them (NOTES §9, with the measurement). Truncating a belief to keep
-   that property is the worse trade.* **A lane that lost elements says so** (2026-09-29,
+   that property is the worse trade.* **A long list item is a line** (#489 C, 2026-10-16;
+   Mike, a lightly held default to look at again after a few days of use): in "How I work",
+   "Still open", "Might be relevant" and "Coming up", an item whose first paragraph is
+   longer than `WAKE_LINE_BYTES` (240, CAL) prints as `date · title [id]` — its title, else
+   `fit/lineOf`'s first line with its cut said by "…" — and recall reads the rest by the id
+   (`briefing.ts#asLine`). The id prints once. Whole text stays for shorter items, a plain
+   reminder due the day the wake is read, and the identity list on a store with no page.
+   Once the lanes fit, the first item of "Still open" and then of "Coming up" goes back to
+   whole text when that fits in the room left over and changes no lane's count. Measured
+   on a copy of the live store at 9,000 bytes: 3 → 14 lane elements, page still whole; the
+   ids offered as lines are the lookup ledger's `fit.index.wake` (written by the adapter at
+   session start, since a wake writes nothing), and doctor's Lookups line counts how many a
+   session expanded. **A lane that lost elements says so** (2026-09-29,
    a working default): what its cap (`rankLanes`' `overflow`), the identity share or the
    trim left out gets one furniture line under the lane — how many more, and up to
    `MORE_LINE_IDS` ids the recall tool reads whole (`briefing.ts#moreLine`). **Nothing is
@@ -673,6 +685,7 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `HINT_HABITUATION` | 1 | The pull a load leaves: `1 / (1 + HINT_HABITUATION × load)`. |
 | `HORIZON_MAX` | 6 | Arriving occasions considered (source borrowed — INTERFACE-GAPS §3). |
 | `WARM_FLOOR` | 0.35 | Decayed strength a non-identity element must reach to be craft or a hint. Identity faces no floor. |
+| `WAKE_LINE_BYTES` | 240 | A list item ("How I work", "Still open", "Might be relevant", "Coming up") longer than this prints as `date · title [id]` (G2, #489 C, 2026-10-16, lightly held). CAL. |
 | `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
 | `PAGE_MAX_BYTES` | 16,384 | The WRITE CEILING, in bytes: a sanity bound. Past it a revision is refused rather than cut — what gets cut at write time is the only copy — and the refusal names it. #358 lowered it to the room (6,078) for one day, 2026-10-09, as a stopgap; the page's history kept missing that by a few hundred bytes. |
 | `PAGE_ROOM_BYTES` | 5,681 (`briefing.ts#PAGE_ROOM_BYTES`) | The page's ROOM, in bytes: the TARGET its writer is told, and the most a page — or its short version — may be for the wake to print it whole at 9,000 under the widest reserves, top and end lines counted (§16). Past it the page is kept, and a short version is kept with it only then and only within this. Derived, not chosen; a value above the default gives up the every-day guarantee. |
