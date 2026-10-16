@@ -184,6 +184,16 @@ describe("a long list item is a line: date · title [id]", () => {
     expect(lines[1]?.endsWith(` · Kiln shelves want wash [${later}]`)).toBe(true);
     expect(out.lined).toEqual([later]);
   });
+
+  test("a composition that omits (the background sweep's, read with no recall tool) prints every item whole", () => {
+    const s = freshStore();
+    const body = longBody("Draining the hose before a frost: the long account.");
+    const id = craft(s, body, "Drain the hose before a frost");
+    const out = new Self({ store: s, tunables: STORE_CRAFT }).build({ budgetBytes: 40_000, day: 0, omit: () => false });
+    expect(out.text).toContain(body);
+    expect(out.text).not.toContain(`[${id}]`);
+    expect(out.lined).toEqual([]);
+  });
 });
 
 // ── render-level: the id once, and the first-item upgrade ───────────────────

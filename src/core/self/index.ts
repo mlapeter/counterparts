@@ -1007,7 +1007,18 @@ export class Self {
     sources: Map<string, string | null>,
     req: BoundaryRequest,
   ): BriefingResult {
-    const base: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
+    const resolved: Resolve = req.resolve ?? ((id) => this.resolveStatement(id, docs, sources));
+    // WHOLE TEXT WHERE NOBODY CAN RECALL (review of #508): a composition that
+    // passes `omit` is not owner-facing — the background sweep's, read by a
+    // model with no recall tool — so a line's `[id]` would point nowhere and
+    // its text would be lost. Its items print whole, as before #489 C.
+    const base: Resolve =
+      req.omit === undefined
+        ? resolved
+        : (id) => {
+            const { line: _line, ...whole } = resolved(id);
+            return whole;
+          };
     // An arriving occasion's due date, beside its learned one (2026-10-01).
     // A repeating one says how often, beside it (2026-10-09).
     // One already behind the day the wake is composed for says it WAS due
