@@ -1508,9 +1508,11 @@ export class Reflections {
     // The stale open list it was shown, and what it proposed closing (2026-10-16).
     const offeredStaleList = parseDetail(row.detail)["staleOpen"];
     if (Array.isArray(offeredStaleList)) detail["staleOpen"] = offeredStaleList;
-    const keptProposed = shareLocked ? priorProposed : proposed;
+    // The share that stands is the one that asks: when another session took it
+    // mid-finish, the earlier proposals stand with it (review, 2026-10-16).
+    const keptProposed = shareStands ? proposed : priorProposed;
     if (keptProposed.length > 0) detail["closeProposed"] = keptProposed;
-    const keptLine = shareLocked ? priorCloseLine : closeLine;
+    const keptLine = shareStands ? closeLine : priorCloseLine;
     if (keptLine !== null) detail["closeLine"] = keptLine;
     const closedEarlier = parseDetail(row.detail)["closed"];
     if (Array.isArray(closedEarlier)) detail["closed"] = closedEarlier;
@@ -1552,7 +1554,7 @@ export class Reflections {
         ? null
         : `Not written: ${missed.join("; ")}. You can fix these and call finish again with reflection ${row.id} and just those parts — the entry and everything already written stand.`;
 
-    const handBack = this.handBack(row, !shareLocked && share.offered ? shareText : null, nothingMuch, pageStands, tellAlso, shareLocked ? null : this.closeHow(row.id, proposed));
+    const handBack = this.handBack(row, !shareLocked && share.offered ? shareText : null, nothingMuch, pageStands, tellAlso, shareStands ? this.closeHow(row.id, proposed) : null);
     return {
       ok: true,
       outcome: {
@@ -2257,6 +2259,8 @@ export class Reflections {
     for (const mid of ids) {
       const v = see(mid);
       if (v === null || v.row.source === "dreamed") continue;
+      // Settled over by a later memory: that one carries it now.
+      if (headOf(this.store, mid) !== null) continue;
       const untouched = day - Math.max(v.row.birth_day, v.row.last_used_day);
       if (untouched < T.STALE_OPEN_DAYS) continue;
       try {
