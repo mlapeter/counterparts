@@ -37,6 +37,7 @@ import { AUTO_SUMMARY_CHARS, automaticSummaryText, chapterSummaries, chaptersCov
 import { writerInstruction } from "../src/core/self/writer.js";
 import { chaptersOf } from "../src/core/handoff/last-here.js";
 import { Store, isStoreError, paths, reachExempt, rowToPhysics } from "../src/core/store/index.js";
+import { localDate } from "../src/core/time.js";
 
 const SESSION = "sess_summaries";
 let root: string;
@@ -533,17 +534,19 @@ describe("whole-day views show a chapter's line as its summary", () => {
     nextChapter(c);
     const written = c.appendEpisode(SESSION, CHAPTER_ONE, { summary: SUMMARY_ONE, title: "The zqkiln afternoon" });
     c.store.put({ type: "memory", kind: "fact", body: "The zqkiln shelf paper is nearly out; order more this week." });
-    const day = dayJournal(c.store, { about: "2026-10-14", room: 14_000, owner: [], day: c.store.livedDay(), lineBytes: 200, entryChars: 6_000, confidential: true });
+    // The clock's own local day, so the suite's far-ahead time zone reads the same day.
+    const about = localDate(clock, c.store.zone());
+    const day = dayJournal(c.store, { about, room: 14_000, owner: [], day: c.store.livedDay(), lineBytes: 200, entryChars: 6_000, confidential: true });
     expect(day.entries).toBe(1);
     expect(day.chapters[0]?.id).toBe(written.episodeId as string);
 
-    clock = Date.parse("2026-10-15T09:00:00Z");
-    const input = c.pageWriterInput({ about: "2026-10-14" });
+    clock += 24 * 3_600_000;
+    const input = c.pageWriterInput({ about });
     expect(input.journal?.total).toBe(1);
     expect(input.journal?.entries[0]?.episode).toBe(written.episodeId as string);
     expect(input.memories.map((m) => m.id)).not.toContain(written.summary?.id);
     const text = writerInstruction(input, { tool: "counterparts self_page" });
-    expect(text).toContain("The journal on 2026-10-14");
+    expect(text).toContain(`The journal on ${about}`);
     expect(text).toContain("zqkiln");
   });
 
@@ -554,7 +557,7 @@ describe("whole-day views show a chapter's line as its summary", () => {
     const written = c.appendEpisode(SESSION, long, { summary: SUMMARY_ONE });
     const byEpisode = chapterSummaries(c.store, [written.episodeId as string]);
     expect(byEpisode.get(written.episodeId as string)?.get(1)?.kind).toBe("written");
-    const day = dayJournal(c.store, { about: "2026-10-14", room: 400, owner: [], day: c.store.livedDay(), lineBytes: 200, entryChars: 6_000, confidential: true });
+    const day = dayJournal(c.store, { about: localDate(clock, c.store.zone()), room: 400, owner: [], day: c.store.livedDay(), lineBytes: 200, entryChars: 6_000, confidential: true });
     expect(day.chapters[0]?.entries[0]?.fidelity).toBe("line");
     expect(day.chapters[0]?.entries[0]?.text).toBe(SUMMARY_ONE);
   });
