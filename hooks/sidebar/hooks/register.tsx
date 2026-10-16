@@ -1429,9 +1429,12 @@ export const register: Register = on => {
     const bodyW = SURFACE.prose ? Math.floor(w * 1.2) : w
     const footShow = { intro: run.meet !== 'done' && run.meet !== 'skipped', fox: mode !== 'off' }
     // The full build: "Meet your counterpart" at the top of the body while the meeting waits (not while this
-    // session's speak-first is the introduction), and a footer whose rows can be clicked.
+    // session's speak-first is the introduction), and a footer whose rows can be clicked. The rows that fill the
+    // prompt box only on the terminal: on the desktop `$.prompt.fill` may refuse (`no_composer`, a surface that
+    // draws its own composer), unmeasured, so there the footer says the commands as the directory's does.
+    const fills = e.surface === 'terminal'
     const meet =
-      full !== null && full.meetShows(run.meet, scope.mode, firedIn(await $.store.get(MEET_FLAG)), run.session)
+      full !== null && fills && full.meetShows(run.meet, scope.mode, firedIn(await $.store.get(MEET_FLAG)), run.session, run.meetFilledIn)
         ? full.meetLines(bodyW, note?.key === 'fill:meet' ? note.text : null)
         : []
     const foot =
@@ -1447,6 +1450,7 @@ export const register: Register = on => {
             note: note?.key === 'fill:dash' ? note.text : null,
             // the intro line only where the meeting waits and the Meet row isn't drawn (no repeats)
             intro: meet.length === 0 && footShow.intro,
+            fills,
           })
     const footRows = foot === null ? footerRows(bodyW, paused, footShow) : foot.length
     // The desktop's rows are its font's, a little taller than the cells it reports: two rows of headroom keep its

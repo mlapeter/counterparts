@@ -183,6 +183,8 @@ export type WorldOptions = {
   dashboard?: string;
   /** The prompt box refuses a fill (`$.prompt.fill`) with this cause ('' : a hook's refusal, no cause). */
   fillRefusal?: 'dialog' | 'no_composer' | '';
+  /** A draft that lands in the prompt box between the module's read and its fill. */
+  typedBeforeFill?: string;
 }
 
 /** The local calendar day of `at`, as the sidebar and the dashboard name it. */
@@ -355,6 +357,8 @@ export function world(on: On, opts: WorldOptions = {}): World {
   // The prompt box: it takes a fill (over the draft, as `replace` does) unless the test says it refuses.
   on('prompt.fill', (_$, e) => {
     if (opts.fillRefusal !== undefined) return opts.fillRefusal === '' ? { isFilled: false } : { isFilled: false, refusal: opts.fillRefusal }
+    // the person typed between the module's read and its fill
+    if (opts.typedBeforeFill !== undefined) w.draft = opts.typedBeforeFill
     w.fills.push({ text: e.text, mode: e.mode })
     w.draft = e.mode === 'replace' ? e.text : `${w.draft}${e.text}`
     return { isFilled: true }

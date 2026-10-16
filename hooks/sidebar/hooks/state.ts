@@ -125,6 +125,8 @@ export const run = {
   full: null as FullPane | null,
   /** Why the prompt box did not take a clicked item's command (`actions.tsx`): drawn under that item for FILL_NOTE_MS. */
   fillNote: null as { key: string; text: string; at: number } | null,
+  /** The session in which a click on the Meet row put `/counterparts:meet` in the box: the meeting has begun there. */
+  meetFilledIn: null as string | null,
 }
 
 // ── small helpers ───────────────────────────────────────────────────────────

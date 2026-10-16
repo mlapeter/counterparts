@@ -13,6 +13,8 @@
  *     in the prompt box (`$.prompt.fill`), and the person presses Enter. Only
  *     into an empty box: a draft stays as it is, and the row says so; so does
  *     a box that would not take it (a dialog up).
+ *     Terminal only, like the next: on the desktop `$.prompt.fill` may refuse
+ *     (`no_composer`), unmeasured, so there the footer says the commands.
  *   - The footer's Dashboard line, the same way: a click puts
  *     `/counterparts:dashboard` in the prompt box (it starts the dashboard, or
  *     opens the browser on one already serving this store).
@@ -55,10 +57,15 @@ export const FILLS: Readonly<Record<string, string>> = {
 export const MEET_ROW = 'Meet your counterpart'
 
 /**
- * Only an address on this machine is drawn as a link: core writes the dashboard's own
- * (`sidebar-status.ts#dashboardUrl`); anything else in the file draws the plain title.
+ * Only the address core writes is drawn as a link (`sidebar-status.ts#dashboardUrl`): 127.0.0.1 on
+ * a port, 1 to 65535. Anything else in the file draws the plain title.
  */
-const LOOPBACK = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):\d{1,5}\/?$/
+const DASHBOARD_AT = /^http:\/\/127\.0\.0\.1:([1-9]\d{0,4})\/?$/
+
+function isDashboardAddress(href: string): boolean {
+  const m = DASHBOARD_AT.exec(href)
+  return m !== null && Number(m[1]) <= 65535
+}
 
 // ── the engine, through `$` (a click's command, put in the prompt box) ─────
 
@@ -71,15 +78,22 @@ async function noteFor($: EngineInterface, key: string, text: string | null): Pr
 
 /**
  * The command into the prompt box, for the person to send: only into an empty box (a slash command
- * goes at the start of a prompt, and a draft is the person's). Never submitted from here.
+ * goes at the start of a prompt, and a draft is the person's). Never submitted from here. Appended,
+ * not replaced: on an empty box the same, and a draft typed between the read and the fill is never
+ * wiped (the box then holds more than the command, and the note says so).
  */
 async function fillPrompt($: EngineInterface, key: string, command: string): Promise<void> {
+  const draftNote = `Your draft is in the prompt box: send or clear it, then click again (or type ${command}).`
   const box = await $.prompt.read()
   const draft = box.text.trim()
   if (draft === command) return noteFor($, key, null)
-  if (draft !== '') return noteFor($, key, `Your draft is in the prompt box: send or clear it, then click again (or type ${command}).`)
-  const r = await $.prompt.fill({ text: command })
-  if (r.isFilled) return noteFor($, key, null)
+  if (draft !== '') return noteFor($, key, draftNote)
+  const r = await $.prompt.fill({ text: command, mode: 'append' })
+  if (r.isFilled) {
+    if (r.text.trim() !== command) return noteFor($, key, draftNote)
+    if (key === 'fill:meet') run.meetFilledIn = run.session
+    return noteFor($, key, null)
+  }
   return noteFor($, key, r.refusal === 'dialog' ? 'A dialog is open: close it, then click again.' : `The prompt box did not take it: type ${command}`)
 }
 
@@ -88,19 +102,21 @@ async function fillPrompt($: EngineInterface, key: string, command: string): Pro
 /**
  * Whether the sidebar shows "Meet your counterpart" (as v0.2's "Start the 5-minute intro"): core
  * says the meeting never started (`not_started`), was put off (`later`), or was offered and not
- * finished (`offered`). Not while this very session's speak-first is the introduction (`firedIn`,
- * the mark `speak-first.tsx` writes); never in a folder where the meeting can't keep anything
- * (`canMeet`), and never for an unknown state.
+ * finished (`offered`). Not once a meeting has begun in this very session, for `not_started` or
+ * `offered`: its speak-first went out here (`firedIn`, the mark `speak-first.tsx` writes), or a click
+ * on the row put `/counterparts:meet` in the box here (`filledIn`). Never in a folder where the
+ * meeting can't keep anything (`canMeet`), and never for an unknown state.
  */
-export function meetShows(meet: string, folderMode: string, firedIn: string | null, session: string): boolean {
+export function meetShows(meet: string, folderMode: string, firedIn: string | null, session: string, filledIn: string | null = null): boolean {
   if (!canMeet(folderMode)) return false
-  if (meet === 'not_started') return firedIn === null || firedIn !== session
-  return meet === 'later' || meet === 'offered'
+  const begunHere = session !== '' && (firedIn === session || filledIn === session)
+  if (meet === 'not_started' || meet === 'offered') return !begunHere
+  return meet === 'later'
 }
 
 /** COUNTERPARTS as a link to the dashboard: only to an address on this machine. */
 export function titleLink(els: Pick<Elements['terminal'], 'Link'>, href: string | null): TitleLink {
-  if (href === null || !LOOPBACK.test(href)) return null
+  if (href === null || !isDashboardAddress(href)) return null
   const { Link } = els
   return (words: JSX.Element[]) => <Link href={href}>{words}</Link>
 }
@@ -164,11 +180,11 @@ function switchLine(label: string, opts: readonly [string, string][], on: string
  * while `intro` (the meeting waits but the Meet row is not drawn: core's state unknown, a folder
  * paused), the Dashboard line clickable, then the view and avatar switches.
  */
-export function footLines(s: { fit: number; w: number; prose: boolean; paused: boolean; view: string; avatar: string; note: string | null; intro: boolean }): Line[] {
+export function footLines(s: { fit: number; w: number; prose: boolean; paused: boolean; view: string; avatar: string; note: string | null; intro: boolean; fills: boolean }): Line[] {
   const out: Line[] = [s.prose ? { segs: [] } : { segs: [{ t: '─'.repeat(s.w), c: P.faint }] }]
   for (const l of footerLines(s.fit, s.paused, { intro: s.intro, fox: false, hide: false })) {
     const segs: Seg[] = [...(l.label === '' ? [] : [{ t: l.label, c: P.mid }]), ...(l.how === '' ? [] : [{ t: l.how, c: P.hi }])]
-    const key = l.of === FILLS['fill:dash'] ? 'fill:dash' : undefined
+    const key = s.fills && l.of === FILLS['fill:dash'] ? 'fill:dash' : undefined
     out.push(key === undefined ? { segs } : { segs, key })
   }
   if (s.note !== null) out.push(...noteLines(s.note, s.fit, 'fill:dash'))

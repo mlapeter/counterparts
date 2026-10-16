@@ -97,16 +97,19 @@ from one message on a new install (below), it doesn't act on its own. It runs no
 calls no tool, starts no process, makes no network request, and has no buttons: a click
 on a row opens or folds it, and four kinds of row do one thing more when you click them.
 
-- **Meet your counterpart**, at the top while the first meeting isn't done or skipped,
-  puts `/counterparts:meet` in your prompt box; you press Enter. It only fills an empty
-  box: with a draft there it leaves it alone and says so under the row, as it does when
-  the box won't take it (a dialog is open).
-- **The footer's Dashboard line** puts `/counterparts:dashboard` in your prompt box the
-  same way (it starts the dashboard, or opens your browser on one already running).
+- **Meet your counterpart**, on the terminal, at the top while the first meeting isn't
+  done or skipped, puts `/counterparts:meet` in your prompt box; you press Enter. It only
+  fills an empty box and never writes over what is there: with a draft it says so under
+  the row, as it does when the box won't take it (a dialog is open).
+- **The footer's Dashboard line**, on the terminal, puts `/counterparts:dashboard` in your
+  prompt box the same way (it starts the dashboard, or opens your browser on one already
+  running). In the desktop app neither row fills the box: the footer says both commands
+  instead.
 - **COUNTERPARTS ↗**, on the terminal, is a link to the dashboard: your terminal opens it
   (⌘-click in iTerm2) while the dashboard runs. The address is the one Counterparts writes
   in its status file (`http://127.0.0.1:4747`, or `COUNTERPARTS_DASHBOARD_PORT`'s port);
-  the sidebar draws no other. The desktop app shows it as words.
+  the sidebar draws a link only to `http://127.0.0.1` on a port, no other. The desktop app
+  shows it as words.
 - **The view and avatar switches** in the footer: `view` closes the pane to quiet (the
   tail under the prompt; `/counterparts` opens it again), `avatar` turns the fox on or off.
   Each sets one choice in Claude Code's per-plugin storage, as `/counterparts quiet` and
@@ -176,7 +179,9 @@ This is everything it reaches outside its own pane.
   "Meet your new counterpart." it drops when you typed first), and it never changes a
   setting. Text another hook adds can make it do one thing at most: a forged Counterparts
   marker can change what the pane shows, and can make it send "Meet your new
-  counterpart." at most once a session.
+  counterpart." at most once a session. The dashboard address in the status file is drawn
+  as a link only when it is `http://127.0.0.1` on a port; anything else there draws plain
+  words.
 <!-- /flavor:full -->
 
 `claude plugin validate` says that where an organization manages Claude Code, the hooks

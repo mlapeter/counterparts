@@ -1647,7 +1647,50 @@ async function allLinks(ui: Ui): Promise<string[]> {
 
 const DASH_AT = 'http://127.0.0.1:4747'
 
-for (const surface of SURFACES) {
+test('full build, desktop: no Meet row and no clickable Dashboard line (a fill there is unmeasured); the footer says both commands, as the directory’s does', async ($, on) => {
+  const w = world(on, { dashboard: DASH_AT })
+  await start($, w)
+  await wake($, w, 'later')
+  const ui = await mount($, w, 'desktop')
+  expect((await bodyLines(ui)).join(' ')).not.toContain('Meet your counterpart')
+  const foot = (await footOf(ui)).join(' ')
+  expect(foot).toContain('/counterparts:meet')
+  expect(foot).toContain('/counterparts:dashboard')
+  await clickFoot(ui, '/counterparts:dashboard')
+  await settle(w)
+  expect(w.fills).toEqual([])
+  expect(await footOf(ui)).toContain('view ● sidebar ○ quiet') // the switches stay: they only set the store
+  await ui.unmount()
+})
+
+test('full build: a draft typed between the read and the fill is kept (the command is appended, never over it), and the row says so', async ($, on) => {
+  const w = world(on, { typedBeforeFill: 'my own words' })
+  await start($, w)
+  await wake($, w, 'later')
+  const ui = await mount($, w, 'terminal')
+  await click(ui, 'Meet your counterpart')
+  await settle(w)
+  expect(w.draft.startsWith('my own words')).toBe(true)
+  expect((await bodyLines(ui)).join(' ')).toContain('Your draft is in the prompt box')
+  expect((await bodyLines(ui)).join(' ')).toContain('Meet your counterpart') // not begun: the row stays
+  await ui.unmount()
+})
+
+test('full build: a Meet click that began the meeting hides the row for offered too, in this session', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  await wake($, w, 'offered')
+  const ui = await mount($, w, 'terminal')
+  await click(ui, 'Meet your counterpart')
+  await settle(w)
+  expect(w.fills).toEqual([{ text: '/counterparts:meet', mode: 'append' }])
+  await w.clock.advance(20000)
+  await settle(w)
+  expect((await bodyLines(ui)).join(' ')).not.toContain('Meet your counterpart')
+  await ui.unmount()
+})
+
+for (const surface of ['terminal'] as const) {
   test(`full build, ${surface}: “Meet your counterpart” tops the body while the meeting waits; a click puts /counterparts:meet in the empty prompt box, and nothing is run or sent`, async ($, on) => {
     const w = world(on)
     await start($, w)
@@ -1656,7 +1699,7 @@ for (const surface of SURFACES) {
     expect((await bodyLines(ui))[0]).toBe('Meet your counterpart')
     await click(ui, 'Meet your counterpart')
     await settle(w)
-    expect(w.fills).toEqual([{ text: '/counterparts:meet', mode: 'replace' }])
+    expect(w.fills).toEqual([{ text: '/counterparts:meet', mode: 'append' }])
     expect(w.submits).toEqual([])
     expect(w.commands).toEqual([])
     expect(w.mcp).toHaveLength(0)
@@ -1771,6 +1814,9 @@ test('full build: on the terminal COUNTERPARTS ↗ links to the dashboard at the
 for (const [name, opts] of [
   ['a core from before 2026-10-16 (no address)', {}],
   ['an address off this machine', { dashboard: 'https://example.com' }],
+  ['localhost, which core never writes', { dashboard: 'http://localhost:4747' }],
+  ['a port past 65535', { dashboard: 'http://127.0.0.1:70000' }],
+  ['port 0', { dashboard: 'http://127.0.0.1:0' }],
 ] as const) {
   test(`full build: ${name}: COUNTERPARTS is words, with no ↗`, async ($, on) => {
     const w = world(on, opts)
@@ -1782,18 +1828,19 @@ for (const [name, opts] of [
   })
 }
 
+test('full build, terminal: the footer\'s Dashboard line puts /counterparts:dashboard in the prompt box', async ($, on) => {
+  const w = world(on, { dashboard: DASH_AT })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await clickFoot(ui, '/counterparts:dashboard')
+  await settle(w)
+  expect(w.fills).toEqual([{ text: '/counterparts:dashboard', mode: 'append' }])
+  expect(w.commands).toEqual([])
+  expect(w.fetches).toHaveLength(0)
+  await ui.unmount()
+})
+
 for (const surface of SURFACES) {
-  test(`full build, ${surface}: the footer's Dashboard line puts /counterparts:dashboard in the prompt box`, async ($, on) => {
-    const w = world(on, { dashboard: DASH_AT })
-    await start($, w)
-    const ui = await mount($, w, surface)
-    await clickFoot(ui, '/counterparts:dashboard')
-    await settle(w)
-    expect(w.fills).toEqual([{ text: '/counterparts:dashboard', mode: 'replace' }])
-    expect(w.commands).toEqual([])
-    expect(w.fetches).toHaveLength(0)
-    await ui.unmount()
-  })
 
   test(`full build, ${surface}: the view and avatar switches are rows: a click sets the stored avatar, and view closes the pane to quiet; no brain`, async ($, on) => {
     const w = world(on, FOX)

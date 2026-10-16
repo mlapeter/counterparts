@@ -44,11 +44,11 @@ export type FullPane = {
   /** COUNTERPARTS as a link to the dashboard at `href` (core's status file says where), or null where it can't be one. */
   titleLink: (els: Pick<Elements['terminal'], 'Link'>, href: string | null) => TitleLink
   /** Whether "Meet your counterpart" shows: core's state, the folder, and this session's speak-first. */
-  meetShows: (meet: string, folderMode: string, firedIn: string | null, session: string) => boolean
+  meetShows: (meet: string, folderMode: string, firedIn: string | null, session: string, filledIn: string | null) => boolean
   /** The Meet row (and a note under it), then a blank row: lines for the top of the body. */
   meetLines: (w: number, note: string | null) => Line[]
   /** The footer, in lines the body's surface module draws (so its rows can be clicked): its rule, the instructions, the switches. */
-  footLines: (s: { fit: number; w: number; prose: boolean; paused: boolean; view: string; avatar: string; note: string | null; intro: boolean }) => Line[]
+  footLines: (s: { fit: number; w: number; prose: boolean; paused: boolean; view: string; avatar: string; note: string | null; intro: boolean; fills: boolean }) => Line[]
 }
 
 // ── the title, which the header places ──

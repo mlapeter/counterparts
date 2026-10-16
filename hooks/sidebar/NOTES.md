@@ -20,23 +20,30 @@ dashboard link and the switches too; the directory submission is under review
 and its build must not change. So they come back in the plugin's own build
 only, each acting as little as it can:
 
-- **"Meet your counterpart"**, the body's first row while `meetShows` (core's
-  state `not_started`/`offered`/`later`, a folder that can meet, not while this
-  session's speak-first introduces): a click puts `/counterparts:meet` in the
-  prompt box (`$.prompt.fill`); the person presses Enter. Only into an empty
-  box: a draft stays, and a line under the row says so (amber, 8 s); so does a
-  refusal (`dialog`, or a hook's). No toast. The footer's intro line goes in
-  the full build (the row is the way; no repeats).
+- **"Meet your counterpart"** (terminal only), the body's first row while
+  `meetShows` (core's state `not_started`/`offered`/`later`, a folder that can
+  meet; for `not_started` and `offered` not once a meeting began in this
+  session: its speak-first went out here, or a click here filled the box): a
+  click puts `/counterparts:meet` in the prompt box (`$.prompt.fill`, mode
+  `append`, so a draft typed between the read and the fill is never wiped); the
+  person presses Enter. Only into an empty box: a draft stays, and a line under
+  the row says so (amber, 8 s); so does a box that afterwards holds more than
+  the command, and a refusal (`dialog`, or a hook's). No toast. The footer's
+  intro line goes while the row shows (no repeats).
+- **Desktop: unmeasured.** `$.prompt.fill` may refuse there with `no_composer`
+  (a surface that draws its own composer). Until that is measured the desktop
+  draws neither fill row: no Meet row, and the footer's Dashboard and intro
+  lines are words, as in the directory's build. The switches stay (store-only).
 - **The dashboard:** core writes its address into `sidebar.json` as data
   (`dashboard`, `sidebar-status.ts#dashboardUrl`: `COUNTERPARTS_DASHBOARD_PORT`
   or 4747, as the server takes it; port 0 is null; version stays 1). On the
-  terminal COUNTERPARTS ↗ is a `Link` to it, drawn only for a loopback address;
-  the desktop draws a non-https link as words, so the title stays words there.
-  Whether a dashboard is running isn't known (the writer is synchronous and
-  skips writes while nothing moved, so an up/down would go stale): a click on a
-  dead one opens a page that fails. The footer's Dashboard line, on both
-  surfaces, puts `/counterparts:dashboard` in the prompt box, which starts it or
-  opens the browser on one already serving this store.
+  terminal COUNTERPARTS ↗ is a `Link` to it, drawn only for what core writes:
+  `http://127.0.0.1:<1–65535>`; the desktop draws a non-https link as words, so
+  the title stays words there. Whether a dashboard is running isn't known (the
+  writer is synchronous and skips writes while nothing moved, so an up/down
+  would go stale): a click on a dead one opens a page that fails. The footer's
+  Dashboard line, on the terminal, puts `/counterparts:dashboard` in the prompt
+  box, which starts it or opens the browser on one already serving this store.
 - **The view and avatar switches**, the footer's last two rows: `view ●
   sidebar ○ quiet` (a click closes to quiet), `avatar ● animal ○ off` (a click
   turns it to the other). Store-only, as the commands do (`setSwitch` →
