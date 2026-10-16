@@ -743,8 +743,10 @@ export class ClaudeCodeAdapter extends Lifecycle {
         resumed,
         // How many items it listed as a line (#489 C): doctor's Lookups line
         // reads what was offered from here, and what was expanded from
-        // `mcp.recall`'s `fromIndex.wake`.
-        lined: woke.lined?.length ?? 0,
+        // `mcp.recall`'s `fromIndex.wake`. Not on the nightly run's row: its
+        // wake writes no ledger (`Lifecycle#noteWakeIndex`), so its lines
+        // could never count as looked up (review of #508).
+        ...(input.nightRun === true ? {} : { lined: woke.lined?.length ?? 0 }),
       });
       // THE QUESTION RIDES BESIDE THE WAKE, NEVER INSIDE IT, and only if it
       // FITS.
