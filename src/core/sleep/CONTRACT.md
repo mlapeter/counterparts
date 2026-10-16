@@ -104,7 +104,9 @@ alone.
   changes today, keyed by store v13's `next_change_day`, which a trigger clears whenever an
   input of the curve is written. Chapters' copies, handoffs and entity cards are not ranked
   (`store/operational.ts#reachExempt`); the prune never takes a chapter's copy or a live
-  handoff; the wait is 14 lived days under the floor, never counted from before a new
+  handoff — since 2026-10-15 the frozen FULL copies only: a chapter's SUMMARY is an
+  ordinary memory, ranked, decayed and pruned like one (`isChapterSummary`, self/CONTRACT
+  §3); the wait is 14 lived days under the floor, never counted from before a new
   curve arrived (`decay.ts#curveSinceDay`, 2026-10-14; `physics/` §5.8, archival). The census is one
   grouped read. `NOTES.md` 2026-10-10.)*
 - **The accommodation phase, the ledger phase, and their forensics holds are gone** (owner

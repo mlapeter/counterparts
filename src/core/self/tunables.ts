@@ -216,9 +216,6 @@ export interface SelfTunables {
    * history is in self NOTES, "The cap moved off the lived day"). CAL.
    */
   MAX_ASKS_PER_SESSION: number;
-  /** Lived days an episode may be re-ingested after its first ingest. The window
-   *  CLOSES — a deliberate deviation from human reconsolidation (§13 G12). CAL. */
-  REGROW_WINDOW_DAYS: number;
 }
 
 export const SELF_TUNABLES: SelfTunables = {
@@ -262,7 +259,6 @@ export const SELF_TUNABLES: SelfTunables = {
   REASK_TEXT_BYTES: 24_000,
   // 12, not 6: typed-turn pacing spaces asks further apart, so the backstop can be looser.
   MAX_ASKS_PER_SESSION: 12,
-  REGROW_WINDOW_DAYS: 3,
 };
 
 export function withTunables(overrides: Partial<SelfTunables>): SelfTunables {

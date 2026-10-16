@@ -439,18 +439,22 @@ describe("the root binds the seams a caller would otherwise have to remember", (
     expect(again.episodes.ingested).toBe(0);
     expect(again.episodes.skipped).toBe(1);
 
-    // A chapter appended AFTER the first ingest regrows it, add-first, at the
-    // next boundary — the open journal is why the window exists at all.
+    // A chapter appended AFTER the first boundary gets its OWN summary at the
+    // next one (2026-10-15): the first chapter's stays as it was — nothing
+    // regrows, nothing is archived.
     c.episodeAsk("s1", { turns: 40, bytes: 40_000 });
     c.appendEpisode("s1", "And the evening, which is the half that mattered.");
     const grown = await c.sessionEnd({ date: "2026-01-04" });
-    expect(grown.episodes.regrown).toBe(1);
+    expect(grown.episodes.regrown).toBe(0);
+    expect(grown.episodes.ingested).toBe(1);
     const live = c.store
       .list({ type: "memory", archived: false })
       .map((id) => c.store.readProse(id))
       .filter((d) => d.meta["episodeId"] === written.episodeId);
-    expect(live.length).toBe(1);
-    expect(live[0]?.body).toContain("the half that mattered");
+    expect(live.length).toBe(2);
+    expect(live.map((d) => d.meta["chapter"]).sort()).toEqual([1, 2]);
+    expect(live.find((d) => d.meta["chapter"] === 2)?.body).toContain("the half that mattered");
+    expect(live.find((d) => d.meta["chapter"] === 1)?.body.includes("the half that mattered")).toBe(false);
   });
 
   test("a credential in an episode body is REDACTED, and the redacted text is what lands", () => {
