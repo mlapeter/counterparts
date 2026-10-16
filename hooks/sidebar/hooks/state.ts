@@ -11,7 +11,11 @@
 
 import type { SidebarScope, SidebarMeet } from '../types'
 import type { Glance } from './feed'
+import type { FullPane } from './pane'
 import type { Status } from './status'
+
+/** How long the line under a clicked item says why the prompt box did not take its command. */
+export const FILL_NOTE_MS = 8000
 
 /**
  * Body columns the sidebar asks for: 34, which the dock draws 35 wide with its
@@ -113,6 +117,16 @@ export const run = {
   wakeStore: null as string | null,
   /** The status file is another store's: nothing of it is shown until it matches again. */
   foreign: false,
+  /**
+   * THE FULL PLUGIN'S PIECES (2026-10-16): the Meet row, the title's link to the dashboard, the footer's
+   * clickable lines and switches. Set by `actions.tsx` when `full.tsx` registers it, the one place the full
+   * build turns them on; null in the plugin directory's build, which never loads that file and draws none.
+   */
+  full: null as FullPane | null,
+  /** Why the prompt box did not take a clicked item's command (`actions.tsx`): drawn under that item for FILL_NOTE_MS. */
+  fillNote: null as { key: string; text: string; at: number } | null,
+  /** The session in which a click on the Meet row put `/counterparts:meet` in the box: the meeting has begun there. */
+  meetFilledIn: null as string | null,
 }
 
 // ── small helpers ───────────────────────────────────────────────────────────

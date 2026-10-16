@@ -179,6 +179,12 @@ export type WorldOptions = {
   draft?: string;
   /** What the status file's panel for a mechanism lists (every event unless given): its lookback can miss sparse rows. */
   panelActivity?: (id: string) => Ev[];
+  /** The dashboard's address the status file carries (none unless given: a core from before 2026-10-16). */
+  dashboard?: string;
+  /** The prompt box refuses a fill (`$.prompt.fill`) with this cause ('' : a hook's refusal, no cause). */
+  fillRefusal?: 'dialog' | 'no_composer' | '';
+  /** A draft that lands in the prompt box between the module's read and its fill. */
+  typedBeforeFill?: string;
 }
 
 /** The local calendar day of `at`, as the sidebar and the dashboard name it. */
@@ -217,6 +223,8 @@ export type World = {
   submits: string[];
   /** Plugin commands the module ran (`$.command.run`), by name. */
   commands: string[];
+  /** What the module put in the prompt box (`$.prompt.fill`), in order, as the box took it. */
+  fills: { text: string; mode: string }[];
   /** What `/api/onboarding` answers now (undefined: 404): a test can move core's state. */
   onboarding: unknown;
   turns: number;
@@ -268,6 +276,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
     closes: [],
     submits: [],
     commands: [],
+    fills: [],
     onboarding: opts.onboarding,
     turns: opts.turns ?? 0,
     draft: opts.draft ?? '',
@@ -305,6 +314,7 @@ export function world(on: On, opts: WorldOptions = {}): World {
       version: 1,
       storeId: w.dashStore ?? null,
       build: '0.3.23',
+      ...(opts.dashboard === undefined ? {} : { dashboard: opts.dashboard }),
       pulse: { day: PULSE.day, memories: PULSE.memories, lastSeq: Math.max(PULSE.lastSeq, ...w.events.map(x => x.seq)) },
       today: { date: opts.dashToday ?? localDay(now), counts },
       dreams: [DREAM],
@@ -344,6 +354,15 @@ export function world(on: On, opts: WorldOptions = {}): World {
   on('session.id', () => ({ value: SESSION }))
   on('session.turns', () => ({ value: w.turns }))
   on('prompt.read', () => ({ value: { text: w.draft, cursor: w.draft.length } }))
+  // The prompt box: it takes a fill (over the draft, as `replace` does) unless the test says it refuses.
+  on('prompt.fill', (_$, e) => {
+    if (opts.fillRefusal !== undefined) return opts.fillRefusal === '' ? { isFilled: false } : { isFilled: false, refusal: opts.fillRefusal }
+    // the person typed between the module's read and its fill
+    if (opts.typedBeforeFill !== undefined) w.draft = opts.typedBeforeFill
+    w.fills.push({ text: e.text, mode: e.mode })
+    w.draft = e.mode === 'replace' ? e.text : `${w.draft}${e.text}`
+    return { isFilled: true }
+  })
   on('prompt.submit', (_$, e) => {
     w.submits.push(e.text)
     return { text: e.text }

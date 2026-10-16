@@ -19,8 +19,11 @@ import { ownedKind, ownedNames } from "../src/adapters/cli/uninstall.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { pruneSessions } from "../src/adapters/sessions.js";
 import {
+  DASHBOARD_PORT,
+  DASHBOARD_PORT_ENV,
   DETAIL_KEYS,
   MEMORY_CAP,
+  dashboardUrl,
   PLUGIN_PRESENCE_ALIVE_MS,
   PLUGIN_PRESENCE_FRESH_MS,
   PLUGIN_PRESENCE_NAME,
@@ -503,5 +506,29 @@ describe("the re-review's cases (2026-10-15)", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the dashboard's address, as data (2026-10-16)", () => {
+  test("the port the dashboard serves on with no --port: COUNTERPARTS_DASHBOARD_PORT, else the server's default", async () => {
+    const { DEFAULT_PORT, PORT_ENV } = await import("../src/adapters/dashboard/web/server.js");
+    expect(DASHBOARD_PORT).toBe(DEFAULT_PORT);
+    expect(DASHBOARD_PORT_ENV).toBe(PORT_ENV);
+    expect(dashboardUrl({})).toBe(`http://127.0.0.1:${String(DEFAULT_PORT)}`);
+    expect(dashboardUrl({ [PORT_ENV]: "4848" })).toBe("http://127.0.0.1:4848");
+    expect(dashboardUrl({ [PORT_ENV]: "not a port" })).toBe(`http://127.0.0.1:${String(DEFAULT_PORT)}`);
+    expect(dashboardUrl({ [PORT_ENV]: "70000" })).toBe(`http://127.0.0.1:${String(DEFAULT_PORT)}`);
+    // a random port is not known ahead: no address, no link
+    expect(dashboardUrl({ [PORT_ENV]: "0" })).toBeNull();
+  });
+
+  test("the file carries it, and the sidebar's reader of version 1 still reads the file", () => {
+    writeSidebarStatus({ configPath: config, dataDir: rich });
+    const s = status();
+    expect(s["version"]).toBe(SIDEBAR_STATUS_VERSION);
+    expect(s["dashboard"]).toBe(dashboardUrl());
+    const parsed = parseStatus(readFileSync(sidebarStatusPath(config), "utf8")) as (ModStatus & { dashboard?: unknown }) | null;
+    expect(parsed).not.toBeNull();
+    expect(parsed?.dashboard).toBe(dashboardUrl());
   });
 });

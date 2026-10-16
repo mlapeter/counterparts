@@ -16,7 +16,13 @@
  * image draws nothing without it).
  *
  * The fuller sidebar (the brain, the folder switch, the intro and dashboard
- * buttons) is kept on the branch `sidebar-full-0.3.22`.
+ * buttons) is kept on the branch `sidebar-full-0.3.22`. Some of it is back in
+ * the full flavor only (2026-10-16), in `actions.tsx`, which only `full.tsx`
+ * imports: the Meet row and the Dashboard line put a command in the prompt box
+ * (`$.prompt.fill`), COUNTERPARTS is a link to the address core writes, and the
+ * view and avatar switches set the store. The checks below hold that none of
+ * it reaches the directory flavor: the bundle's plan leaves the file out, and
+ * no file it ships fills or reads the prompt box or draws a link.
  */
 import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
@@ -26,7 +32,7 @@ import { planBundle } from "../tools/plugin-bundle/build.js";
 
 const REPO = join(import.meta.dir, "..");
 const DIR = join(REPO, "hooks", "sidebar", "hooks");
-const FULL_ONLY = new Set(["speak-first.tsx", "full.tsx"]);
+const FULL_ONLY = new Set(["speak-first.tsx", "full.tsx", "actions.tsx"]);
 const shipped = readdirSync(DIR).filter((f) => /\.tsx?$/.test(f) && !FULL_ONLY.has(f)).sort();
 const source = (f: string): string => readFileSync(join(DIR, f), "utf8");
 
@@ -37,7 +43,7 @@ describe("the directory's sidebar shows, and does not act", () => {
     expect(shipped).toContain("status.ts");
   });
 
-  for (const call of ["$.command.run(", "$.mcp.call(", "$.process.run(", "$.prompt.submit(", "$.tool.list(", "$.http.fetch("]) {
+  for (const call of ["$.command.run(", "$.mcp.call(", "$.process.run(", "$.prompt.submit(", "$.tool.list(", "$.http.fetch(", "$.prompt.fill(", "$.prompt.read("]) {
     test(`no ${call}...) anywhere it ships`, () => {
       for (const f of shipped) expect({ f, has: source(f).includes(call) }).toEqual({ f, has: false });
     });
@@ -85,6 +91,12 @@ describe("the directory flavor names no SVG namespace URL in code", () => {
     const names = files.map(([f]) => f);
     expect(names).toContain("hooks/sidebar/hooks/register.tsx");
     expect(names).toContain("src/adapters/dashboard/web/server.js");
+  });
+
+  test("it ships none of the full flavor's files: no actions, no speak-first", () => {
+    const names = files.map(([f]) => f);
+    for (const f of FULL_ONLY) expect({ f, shipped: names.includes(`hooks/sidebar/hooks/${f}`) }).toEqual({ f, shipped: false });
+    expect(planBundle(REPO, "full").copied).toContain("hooks/sidebar/hooks/actions.tsx");
   });
 
   test("no shipped file holds www.w3.org but the favicon and the desktop fox's own file, which reads nothing", () => {
