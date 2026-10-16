@@ -13,6 +13,52 @@ record of v0.2 and v0.1 (the brain, the switches, the intro button): where a
 later version changed something they say so, or v1's section does. Everything
 here is a working default.
 
+## Some of it back, in the full build only (2026-10-16)
+
+Why: the trim was in shared code, so npm/plugin users lost the intro, the
+dashboard link and the switches too; the directory submission is under review
+and its build must not change. So they come back in the plugin's own build
+only, each acting as little as it can:
+
+- **"Meet your counterpart"**, the body's first row while `meetShows` (core's
+  state `not_started`/`offered`/`later`, a folder that can meet, not while this
+  session's speak-first introduces): a click puts `/counterparts:meet` in the
+  prompt box (`$.prompt.fill`); the person presses Enter. Only into an empty
+  box: a draft stays, and a line under the row says so (amber, 8 s); so does a
+  refusal (`dialog`, or a hook's). No toast. The footer's intro line goes in
+  the full build (the row is the way; no repeats).
+- **The dashboard:** core writes its address into `sidebar.json` as data
+  (`dashboard`, `sidebar-status.ts#dashboardUrl`: `COUNTERPARTS_DASHBOARD_PORT`
+  or 4747, as the server takes it; port 0 is null; version stays 1). On the
+  terminal COUNTERPARTS ↗ is a `Link` to it, drawn only for a loopback address;
+  the desktop draws a non-https link as words, so the title stays words there.
+  Whether a dashboard is running isn't known (the writer is synchronous and
+  skips writes while nothing moved, so an up/down would go stale): a click on a
+  dead one opens a page that fails. The footer's Dashboard line, on both
+  surfaces, puts `/counterparts:dashboard` in the prompt box, which starts it or
+  opens the browser on one already serving this store.
+- **The view and avatar switches**, the footer's last two rows: `view ●
+  sidebar ○ quiet` (a click closes to quiet), `avatar ● animal ○ off` (a click
+  turns it to the other). Store-only, as the commands do (`setSwitch` →
+  `closeQuiet`/`openPane`/`setAvatar`). No brain. They replace the footer's
+  Hide and Hide-the-fox lines.
+
+How it is gated: `actions.tsx` is a hooks module of its own that only
+`full.tsx` imports (registered first: its one hook, `ui.message` matched to
+`fill:meet|fill:dash`, must be outer, since the sidebar's answers every other
+click without `next`). Registering it sets `state.ts#run.full` to its pure
+pieces (`FullPane`, in `pane.tsx`): the title link, `meetShows`, the Meet
+lines, the footer lines. `register.tsx` draws them only when `run.full` is set,
+and acts on a `set:` click only then; the directory's build never loads
+`actions.tsx`, so `run.full` stays null and its `claude plugin validate` lines
+are what they were (checked 2026-10-16, before and after: identical). The full
+footer is drawn by `body.tsx` too (a second `Client`, key `foot`), so its rows
+are clicked the way body rows are: no Buttons (they invert under the pointer,
+and are dark on the desktop's black, 837ac707). A switch is one click target a
+row, not one a word. `test/sidebar-shows-not-acts.test.ts` now also forbids
+`$.prompt.fill(` and `$.prompt.read(` in what the directory ships, and checks
+the bundle's plan leaves `actions.tsx` out.
+
 ## No network: the status file (2026-10-14, later the same day)
 
 Why: the directory's validator still held v1. It reads a mod that can fetch

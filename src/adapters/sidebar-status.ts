@@ -91,6 +91,27 @@ export const TEXT_CAP = 800;
 /** The memory server writes the file at least this often while it runs, moved or not. */
 export const REFRESH_MS = 30 * 60_000;
 
+/**
+ * THE DASHBOARD'S ADDRESS, AS DATA (2026-10-16). The full plugin's sidebar
+ * draws COUNTERPARTS as a link to the dashboard, and the sidebar's own files
+ * spell no address (`test/sidebar-shows-not-acts.test.ts`), so core writes the
+ * one the dashboard serves on here: the port `web/server.ts#resolvePort` takes
+ * with no `--port` (`COUNTERPARTS_DASHBOARD_PORT`, else 4747), restated rather
+ * than imported, as `cli/commands-dashboard.ts` does, to keep the server out of
+ * this module graph (`test/sidebar-status.test.ts` holds the two together).
+ * Port 0 (a random port): null, and the sidebar draws no link. Whether a
+ * dashboard is running there is not known here: the write is synchronous and
+ * skipped while nothing moved, so an up or down written here would go stale.
+ */
+export const DASHBOARD_PORT_ENV = "COUNTERPARTS_DASHBOARD_PORT";
+export const DASHBOARD_PORT = 4747;
+
+export function dashboardUrl(env: Readonly<Record<string, string | undefined>> = process.env): string | null {
+  const fromEnv = Number.parseInt(env[DASHBOARD_PORT_ENV] ?? "", 10);
+  const port = Number.isInteger(fromEnv) && fromEnv >= 0 && fromEnv < 65536 ? fromEnv : DASHBOARD_PORT;
+  return port === 0 ? null : `http://127.0.0.1:${String(port)}`;
+}
+
 /** `<config dir>/sidebar.json` — beside the configuration, like `scopes.json`. */
 export function sidebarStatusPath(configPath: string): string {
   return join(dirname(configPath), SIDEBAR_FILE_NAME);
@@ -234,6 +255,8 @@ export interface SidebarStatus {
   readonly writtenAt: number;
   /** The package version that wrote it. */
   readonly build: string | null;
+  /** Where the dashboard serves when it runs ({@link dashboardUrl}); null: no address known. Added within version 1: an older reader ignores it. */
+  readonly dashboard: string | null;
   readonly pulse: { readonly day: number; readonly memories: number; readonly lastSeq: number };
   /** Times each mechanism fired on the person's calendar day (`mechanismsView`). */
   readonly today: { readonly date: string; readonly counts: Readonly<Record<string, number>> } | null;
@@ -272,13 +295,18 @@ function slim(r: Row): Row {
 const MEMORY_ID = /\bmem_[A-Za-z0-9]+\b/g;
 
 /** The status, from an open observer source. Pure but for the reads. */
-export function buildSidebarStatus(src: DashboardSource, now: number, build: string | null = installedVersion()): SidebarStatus {
+export function buildSidebarStatus(
+  src: DashboardSource,
+  now: number,
+  build: string | null = installedVersion(),
+  dashboard: string | null = dashboardUrl(),
+): SidebarStatus {
   // One feeling read per batch of rows for the whole build (`feltScope`): the
   // counts, the panels and the rows below all ask which memories carry one.
-  return feltScope(src.store, () => statusOf(src, now, build));
+  return feltScope(src.store, () => statusOf(src, now, build, dashboard));
 }
 
-function statusOf(src: DashboardSource, now: number, build: string | null): SidebarStatus {
+function statusOf(src: DashboardSource, now: number, build: string | null, dashboard: string | null): SidebarStatus {
   const store = src.store;
   // The newest rows, narrated as the activity feed narrates them, read by name
   // and limit alone (the feed's own view also counts the whole log per call).
@@ -362,6 +390,7 @@ function statusOf(src: DashboardSource, now: number, build: string | null): Side
     storeId: storeId(src.store.dir),
     writtenAt: now,
     build,
+    dashboard,
     pulse: { day: p.day, memories: p.memories, lastSeq: p.lastSeq },
     today,
     dreams,

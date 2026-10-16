@@ -38,6 +38,12 @@ export type Status = {
   storeId: string | null
   writtenAt: number
   build: string | null
+  /**
+   * Where the dashboard serves when it runs, as core wrote it (2026-10-16): data, never spelled or built
+   * here. Only the full plugin draws it, as a link (`actions.tsx`, which checks it is this machine's). Null:
+   * a file from before, or no address known.
+   */
+  dashboard: string | null
   pulse: { day: number; memories: number; lastSeq: number }
   today: { date: string; counts: Record<string, number> } | null
   dreams: DashDream[]
@@ -93,6 +99,7 @@ export function parseStatus(text: string): Status | null {
     storeId: typeof v.storeId === 'string' && /^st_[0-9a-f]{16}$/.test(v.storeId) ? v.storeId : null,
     writtenAt: v.writtenAt,
     build: typeof v.build === 'string' ? v.build : null,
+    dashboard: typeof v.dashboard === 'string' && v.dashboard.length <= 64 ? v.dashboard : null,
     pulse: { day: p.day, memories: p.memories, lastSeq: p.lastSeq },
     today,
     dreams: Array.isArray(v.dreams) ? (v.dreams.filter(d => isObj(d) && typeof d.id === 'string') as DashDream[]) : [],

@@ -251,8 +251,8 @@ describe("the directory flavor", () => {
     const expected = new Set(
       paths
         .filter((p) => !/^src\/adapters\/(plugin-run\.sh|launch\.mjs|node-hooks\.mjs)$|\/bin\/[a-z-]+\.mjs$|^\.claude-plugin\/binaries\.json$/.test(p))
-        // The directory's hooks module is the sidebar alone: no speak-first, and no full.tsx joining the two.
-        .filter((p) => !/^hooks\/sidebar\/hooks\/(full|speak-first)\.tsx$/.test(p))
+        // The directory's hooks module is the sidebar alone: no speak-first, no actions (2026-10-16), and no full.tsx joining them.
+        .filter((p) => !/^hooks\/sidebar\/hooks\/(full|speak-first|actions)\.tsx$/.test(p))
         // The dashboard's brain picture and its three.js stay out (DIRECTORY_DROPPED).
         .filter((p) => !DIRECTORY_DROPPED.includes(p))
         .map((p) => (p.startsWith("src/") && p.endsWith(".ts") && !p.endsWith(".d.ts") ? transpiledPath(p) : p)),

@@ -87,16 +87,33 @@ The sidebar is a Claude Code mod (`hooks/sidebar/`). It shows what memory is doi
 doesn't act. It runs no command, calls no tool, starts no process, makes no network
 request, and has no buttons and no links: a click on a row opens or folds it, and
 that is all a click does. Its
-<!-- /flavor:directory -->
-<!-- flavor:full -->
-The sidebar is a Claude Code mod (`hooks/sidebar/`). It shows what memory is doing; apart
-from one message on a new install (below), it doesn't act. It runs no command, calls no
-tool, starts no process, makes no network request, and has no buttons and no links: a
-click on a row opens or folds it, and that is all a click does. Its
-<!-- /flavor:full -->
 footer says how to do the rest yourself: `/counterparts:meet` for the 5-minute intro,
 `/counterparts:dashboard` for the dashboard, say "pause memory here" to Claude to pause
 memory in a folder, and `/counterparts quiet` to hide it (`/counterparts` opens it again).
+<!-- /flavor:directory -->
+<!-- flavor:full -->
+The sidebar is a Claude Code mod (`hooks/sidebar/`). It shows what memory is doing; apart
+from one message on a new install (below), it doesn't act on its own. It runs no command,
+calls no tool, starts no process, makes no network request, and has no buttons: a click
+on a row opens or folds it, and four kinds of row do one thing more when you click them.
+
+- **Meet your counterpart**, at the top while the first meeting isn't done or skipped,
+  puts `/counterparts:meet` in your prompt box; you press Enter. It only fills an empty
+  box: with a draft there it leaves it alone and says so under the row, as it does when
+  the box won't take it (a dialog is open).
+- **The footer's Dashboard line** puts `/counterparts:dashboard` in your prompt box the
+  same way (it starts the dashboard, or opens your browser on one already running).
+- **COUNTERPARTS ↗**, on the terminal, is a link to the dashboard: your terminal opens it
+  (⌘-click in iTerm2) while the dashboard runs. The address is the one Counterparts writes
+  in its status file (`http://127.0.0.1:4747`, or `COUNTERPARTS_DASHBOARD_PORT`'s port);
+  the sidebar draws no other. The desktop app shows it as words.
+- **The view and avatar switches** in the footer: `view` closes the pane to quiet (the
+  tail under the prompt; `/counterparts` opens it again), `avatar` turns the fox on or off.
+  Each sets one choice in Claude Code's per-plugin storage, as `/counterparts quiet` and
+  `/counterparts avatar` do.
+
+The footer also says how to pause memory in a folder: say "pause memory here" to Claude.
+<!-- /flavor:full -->
 
 ### What it can reach
 
@@ -130,7 +147,8 @@ This is everything it reaches outside its own pane.
   - Of a prompt a plugin sent, whether it is its own "Meet your new counterpart.". Before
     it speaks first (below): whether you have run a slash command or sent a prompt, how
     many turns the session has, and whether your prompt box holds a draft, so it never
-    speaks over you.
+    speaks over you. Before it fills the prompt box on a click, whether it holds a draft.
+  - The dashboard's address, from the status file, for the title's link.
 <!-- /flavor:full -->
 <!-- flavor:directory -->
 - **Runs.** Nothing: no process, no command, no tool call, no request to the model.
@@ -146,11 +164,13 @@ This is everything it reaches outside its own pane.
 - **Runs.** No process, no command, no tool call. One message: in a session of a new
   memory, before you type anything (once per memory: a new install, or after
   `start-fresh`), it sends "Meet your new counterpart." so Claude can introduce itself
-  (see Install).
-- **Sends.** Nothing over the network.
+  (see Install). On a click on Meet or Dashboard, it puts that command in your empty
+  prompt box, and sends nothing: you do.
+- **Sends.** Nothing over the network. The title's link is your terminal's to open.
 - **Keeps.** In Claude Code's per-plugin storage, the view, theme, avatar and avatar detail
-  you choose with `/counterparts`, and where the first meeting stands, so it speaks first
-  once per memory. Everything else it holds ends with the session.
+  you choose with `/counterparts` or the footer's switches, and where the first meeting
+  stands, so it speaks first once per memory. Everything else it holds ends with the
+  session.
 - **Hostile input.** It approves, denies and changes nothing: every command, prompt and
   tool call passes on as it came (its own `/counterparts` it answers itself, and its own
   "Meet your new counterpart." it drops when you typed first), and it never changes a
@@ -180,8 +200,8 @@ The sidebar's lines from `claude plugin validate`, Claude Code 2.1.301:
     ❯ ./sidebar/hooks/register.tsx env reads: CLAUDE_CONFIG_DIR, COUNTERPARTS_CONFIG, COUNTERPARTS_SIDEBAR_SESSION, HOME, KITTY_WINDOW_ID, TERM, TERM_PROGRAM, USERPROFILE, WEZTERM_EXECUTABLE
 <!-- /flavor:directory -->
 <!-- flavor:full -->
-    ❯ ./sidebar/hooks/full.tsx hooks: session.start, command.run{command=counterparts}, tool.call, prompt.submit, session.append{door=hook-context}, session.end, ui.close{id=counterparts}, ui.message, ui.render{component=PromptHint}, ui.render{component=AbovePrompt}, ui.render{component=Pane, requestId=counterparts}, session.start{isInteractive=true}, command.run{origin has {kind=/"^(composer|bridge)$"/}}, prompt.submit{origin has {kind=/"^(composer|bridge|plugin)$"/}}, session.append{door=hook-context, origin has {kind=hook, event=SessionStart}}
-    ❯ ./sidebar/hooks/full.tsx calls: $.clock.after, $.clock.every, $.clock.now, $.command.register, $.env.get, $.fs.exists (via findPngDir, readScopeFile, readStatus, readText), $.fs.read (via pngData, readScopeFile, readStatus, readText), $.fs.stat (via canonicalPath, readStatus), $.prompt.read (via draftNow), $.prompt.submit (via speakFirst), $.session.id, $.session.turns (via turnsSoFar), $.state.get, $.state.set, $.store.get, $.store.set (via setAvatar, setDetail, setTheme, setView, speakFirst, takeMeet), $.ui.blit (via stageStep), $.ui.close (via closeQuiet), $.ui.invalidate, $.ui.open (via openPane), $.ui.panes (via paneShown), $.ui.resolve, $.ui.status (via refreshStatus)
+    ❯ ./sidebar/hooks/full.tsx hooks: ui.message{data has {click=fill:meet|fill:dash}}, session.start, command.run{command=counterparts}, tool.call, prompt.submit, session.append{door=hook-context}, session.end, ui.close{id=counterparts}, ui.message, ui.render{component=PromptHint}, ui.render{component=AbovePrompt}, ui.render{component=Pane, requestId=counterparts}, session.start{isInteractive=true}, command.run{origin has {kind=/"^(composer|bridge)$"/}}, prompt.submit{origin has {kind=/"^(composer|bridge|plugin)$"/}}, session.append{door=hook-context, origin has {kind=hook, event=SessionStart}}
+    ❯ ./sidebar/hooks/full.tsx calls: $.clock.after, $.clock.every, $.clock.now, $.command.register, $.env.get, $.fs.exists (via findPngDir, readScopeFile, readStatus, readText), $.fs.read (via pngData, readScopeFile, readStatus, readText), $.fs.stat (via canonicalPath, readStatus), $.prompt.fill (via fillPrompt), $.prompt.read (via draftNow, fillPrompt), $.prompt.submit (via speakFirst), $.session.id, $.session.turns (via turnsSoFar), $.state.get, $.state.set, $.store.get, $.store.set (via setAvatar, setDetail, setTheme, setView, speakFirst, takeMeet), $.ui.blit (via stageStep), $.ui.close (via closeQuiet), $.ui.invalidate, $.ui.open (via openPane), $.ui.panes (via paneShown), $.ui.resolve, $.ui.status (via refreshStatus)
     ❯ ./sidebar/hooks/full.tsx env writes: nothing
     ❯ ./sidebar/hooks/full.tsx env reads: CLAUDE_CONFIG_DIR, COUNTERPARTS_CONFIG, COUNTERPARTS_SIDEBAR_SESSION, HOME, KITTY_WINDOW_ID, TERM, TERM_PROGRAM, USERPROFILE, WEZTERM_EXECUTABLE
 <!-- /flavor:full -->

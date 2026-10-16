@@ -78,6 +78,21 @@ async function bodyLines(ui: Ui): Promise<string[]> {
   return kids.map(flat)
 }
 
+/** The full build's footer, drawn by the body's surface module too (`actions.tsx`): one string a line. */
+async function footOf(ui: Ui): Promise<string[]> {
+  const root = (await ui.drawn({ in: 'foot' })) as unknown as Drawn
+  const kids = (root.children ?? (root.props?.['children'] as unknown[] | undefined) ?? []) as unknown[]
+  return kids.map(flat)
+}
+
+/** A plain click on the first line of the footer that holds `match`. */
+async function clickFoot(ui: Ui, match: string): Promise<void> {
+  const lines = await footOf(ui)
+  const y = lines.findIndex(l => l.includes(match))
+  if (y < 0) throw new Error(`no footer line holding ${match} in: ${lines.join(' | ')}`)
+  await ui.pointer({ type: 'down', x: 2, y, button: 'left', in: 'foot' })
+}
+
 /** The title: a Box around a Link on the terminal, around plain text elsewhere. */
 async function titleOf(ui: Ui) {
   return ui.find({ type: 'Box', key: 'title' })
@@ -668,9 +683,9 @@ test('views: two, the sidebar and quiet; quiet is only the dim tail, ending with
   await start($, w)
   await band($, w, true)
   const ui = await mount($, w, 'terminal')
-  // no switch in the pane (v1): the footer says how, and /counterparts quiet does it
+  // no Button in the pane; the full build's footer has the view switch (2026-10-16), and /counterparts quiet does it too
   expect(await ui.find({ type: 'Button' })).toBeUndefined()
-  expect(await texts(ui)).toContain('/counterparts quiet')
+  expect(await footOf(ui)).toContain('view ● sidebar ○ quiet')
   await $.tool.call({ tool: 'mcp__counterparts__note', title: 'Quiet me (2026-10-09)', text: 'x' } as never)
   await settle(w)
   expect(await tail($, w)).toBeUndefined() // the pane shows: no tail
@@ -1282,7 +1297,8 @@ test('two surfaces drawing in turn: the desktop drawn last leaves the terminal i
     const tl = await bodyLines(term)
     expect(tl.some(l => /^Mechanisms today ─+ times fired$/.test(l))).toBe(true)
     expect((await colorOf(term, 'COUNTERPARTS'))).toBe('#00e5ff')
-    expect((await texts(term)).includes('───')).toBe(true)
+    expect((await footOf(term)).some(l => l.includes('───'))).toBe(true)
+    expect((await footOf(desk)).some(l => l.includes('─'))).toBe(false)
     expect((await bodyLines(desk)).some(l => l.includes('─'))).toBe(false)
     expect((await colorOf(desk, 'COUNTERPARTS'))).toBe('suggestion')
   }
@@ -1607,7 +1623,188 @@ test('the glance: the wake\'s Last here under the dream, three lines; a click op
   expect(lines.join(' ')).toContain('like the dream does.')
   await click(ui, 'We moved the fox')
   expect((await bodyLines(ui)).join(' ')).not.toContain('like the dream does')
-  expect((await texts(ui)).includes('/counterparts:meet')).toBe(false)
-  expect((await texts(ui)).includes('/counterparts avatar off')).toBe(true)
+  expect([...(await bodyLines(ui)), ...(await footOf(ui))].join(' ')).not.toContain('Meet your counterpart')
+  expect((await footOf(ui)).join(' ')).not.toContain('/counterparts:meet')
+  expect(await footOf(ui)).toContain('avatar ● animal ○ off')
   await ui.unmount()
 })
+
+// ── the full build's pieces (actions.tsx, 2026-10-16): these tests load full.tsx, as the plugin's own build does ──
+
+/** Every `Link` drawn anywhere in the pane, by its address. */
+async function allLinks(ui: Ui): Promise<string[]> {
+  const out: string[] = []
+  const walk = (n: unknown): void => {
+    if (Array.isArray(n)) return n.forEach(walk)
+    if (n === null || typeof n !== 'object') return
+    const d = n as Drawn & { type?: unknown }
+    if (d.type === 'Link' && typeof d.props?.['href'] === 'string') out.push(d.props['href'] as string)
+    walk(d.children ?? d.props?.['children'] ?? [])
+  }
+  walk(await ui.drawn())
+  return out
+}
+
+const DASH_AT = 'http://127.0.0.1:4747'
+
+for (const surface of SURFACES) {
+  test(`full build, ${surface}: “Meet your counterpart” tops the body while the meeting waits; a click puts /counterparts:meet in the empty prompt box, and nothing is run or sent`, async ($, on) => {
+    const w = world(on)
+    await start($, w)
+    await wake($, w, 'later')
+    const ui = await mount($, w, surface)
+    expect((await bodyLines(ui))[0]).toBe('Meet your counterpart')
+    await click(ui, 'Meet your counterpart')
+    await settle(w)
+    expect(w.fills).toEqual([{ text: '/counterparts:meet', mode: 'replace' }])
+    expect(w.submits).toEqual([])
+    expect(w.commands).toEqual([])
+    expect(w.mcp).toHaveLength(0)
+    expect(await ui.find({ type: 'Button' })).toBeUndefined()
+    // the footer no longer says the intro: the row is the way
+    expect((await footOf(ui)).join(' ')).not.toContain('/counterparts:meet')
+    await ui.unmount()
+  })
+}
+
+test('full build: a draft in the prompt box stays; the row says so under it, and the note goes after a few seconds', async ($, on) => {
+  const w = world(on, { draft: 'half a thought' })
+  await start($, w)
+  await wake($, w, 'offered')
+  const ui = await mount($, w, 'terminal')
+  await click(ui, 'Meet your counterpart')
+  await settle(w)
+  expect(w.fills).toEqual([])
+  expect(w.draft).toBe('half a thought')
+  let body = (await bodyLines(ui)).join(' ')
+  expect(body).toContain('Your draft is in the prompt box: send or clear it, then click again')
+  await w.clock.advance(9000)
+  await settle(w)
+  body = (await bodyLines(ui)).join(' ')
+  expect(body).not.toContain('Your draft is in the prompt box')
+  expect(body).toContain('Meet your counterpart')
+  await ui.unmount()
+})
+
+// (The engine's own `dialog` cause cannot be had here: the test's prompt box is a hook, whose cause the site strips.)
+for (const [refusal, says] of [
+  ['', 'The prompt box did not take it: type /counterparts:meet'],
+] as const) {
+  test(`full build: a prompt box that will not take it (${refusal === '' ? 'a hook refused' : refusal}) is said under the row, briefly`, async ($, on) => {
+    const w = world(on, { fillRefusal: refusal })
+    await start($, w)
+    await wake($, w, 'later')
+    const ui = await mount($, w, 'terminal')
+    await click(ui, 'Meet your counterpart')
+    await settle(w)
+    expect(w.fills).toEqual([])
+    expect((await bodyLines(ui)).join(' ')).toContain(says)
+    await ui.unmount()
+  })
+}
+
+for (const [name, meet, opts] of [
+  ['the meeting is done', 'done', {}],
+  ['the meeting was skipped', 'skipped', {}],
+  ['core says nothing (an older core)', null, {}],
+  ['the folder is paused', 'later', { scopeMode: 'paused' }],
+] as const) {
+  test(`full build: no Meet row when ${name}`, async ($, on) => {
+    const w = world(on, opts)
+    await start($, w)
+    await wake($, w, meet)
+    const ui = await mount($, w, 'terminal')
+    expect((await bodyLines(ui)).join(' ')).not.toContain('Meet your counterpart')
+    await ui.unmount()
+  })
+}
+
+test('full build: no Meet row while this session’s speak-first is the introduction; an earlier session’s that never reached core leaves it', async ($, on) => {
+  const w = world(on)
+  await start($, w)
+  await wake($, w, 'not_started')
+  expect(w.submits).toEqual([MEET])
+  const ui = await mount($, w, 'terminal')
+  expect((await bodyLines(ui)).join(' ')).not.toContain('Meet your counterpart')
+  await ui.unmount()
+})
+
+test('full build: a speak-first from an earlier session that never reached core leaves the Meet row', async ($, on) => {
+  const w = world(on, { store: { meetTriggered: { session: 'sess-older', at: T0 - 60000 } } })
+  await start($, w)
+  await wake($, w, 'not_started')
+  expect(w.submits).toEqual([])
+  const ui = await mount($, w, 'terminal')
+  expect((await bodyLines(ui))[0]).toBe('Meet your counterpart')
+  await ui.unmount()
+})
+
+test('full build: on the terminal COUNTERPARTS ↗ links to the dashboard at the address core wrote; the desktop draws it as words; no address, or one off this machine, no link', async ($, on) => {
+  const w = world(on, { dashboard: DASH_AT })
+  await start($, w)
+  const term = await mount($, w, 'terminal')
+  expect(await allLinks(term)).toEqual([DASH_AT])
+  expect(await texts(term)).toContain('↗')
+  const desk = await mount($, w, 'desktop')
+  expect(await allLinks(desk)).toEqual([])
+  await desk.unmount()
+  await term.unmount()
+})
+
+for (const [name, opts] of [
+  ['a core from before 2026-10-16 (no address)', {}],
+  ['an address off this machine', { dashboard: 'https://example.com' }],
+] as const) {
+  test(`full build: ${name}: COUNTERPARTS is words, with no ↗`, async ($, on) => {
+    const w = world(on, opts)
+    await start($, w)
+    const ui = await mount($, w, 'terminal')
+    expect(await allLinks(ui)).toEqual([])
+    expect(await texts(ui)).not.toContain('↗')
+    await ui.unmount()
+  })
+}
+
+for (const surface of SURFACES) {
+  test(`full build, ${surface}: the footer's Dashboard line puts /counterparts:dashboard in the prompt box`, async ($, on) => {
+    const w = world(on, { dashboard: DASH_AT })
+    await start($, w)
+    const ui = await mount($, w, surface)
+    await clickFoot(ui, '/counterparts:dashboard')
+    await settle(w)
+    expect(w.fills).toEqual([{ text: '/counterparts:dashboard', mode: 'replace' }])
+    expect(w.commands).toEqual([])
+    expect(w.fetches).toHaveLength(0)
+    await ui.unmount()
+  })
+
+  test(`full build, ${surface}: the view and avatar switches are rows: a click sets the stored avatar, and view closes the pane to quiet; no brain`, async ($, on) => {
+    const w = world(on, FOX)
+    await start($, w)
+    await band($, w, true)
+    const ui = await mount($, w, surface)
+    let foot = await footOf(ui)
+    expect(foot).toContain('view ● sidebar ○ quiet')
+    expect(foot).toContain('avatar ● animal ○ off')
+    expect(foot.join(' ')).not.toContain('brain')
+    // the switches stand in for these two lines of the directory's footer
+    expect(foot.join(' ')).not.toContain('/counterparts quiet')
+    expect(foot.join(' ')).not.toContain('/counterparts avatar off')
+    await clickFoot(ui, 'avatar ●')
+    await settle(w)
+    expect(w.store['brain']).toBe('off')
+    foot = await footOf(ui)
+    expect(foot).toContain('avatar ○ animal ● off')
+    await clickFoot(ui, 'avatar ○')
+    await settle(w)
+    expect(w.store['brain']).toBe('fox')
+    await clickFoot(ui, 'view ●')
+    await settle(w)
+    expect(w.store['view']).toBe('quiet')
+    expect(w.closes).toContain(PANE)
+    expect(w.fills).toEqual([])
+    expect(w.commands).toEqual([])
+    expect(await ui.find({ type: 'Button' })).toBeUndefined()
+    await ui.unmount()
+  })
+}
