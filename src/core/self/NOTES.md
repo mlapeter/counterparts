@@ -2072,3 +2072,37 @@ random-f8's, lightly held.
 - **Named costs.** The dashboard and doctor show the published bundle, which is no longer
   byte for byte what a session got; a session start's trims leave no durable row (the
   turn-end's `self.briefing` row is still the day's record).
+
+## 2026-10-16 — a long list item is a line (#489 C)
+
+Lightly held, Mike's call of 2026-10-16 ("we'll see how it looks tomorrow").
+
+- **Why.** Measured 2026-10-15 on the owner's morning wake (9,116 bytes against 9,000): the
+  page took 4,840, and every listed memory was printed as its whole first paragraph — 350 to
+  1,100 bytes each, median about 550. About 2,200 bytes were left for every lane together,
+  so craft listed 0 of 3, hints 0 of 8, "Still open" 1 of 60. The trim was working; each
+  item cost too much. The design pass is on #489.
+- **What.** `resolveStatement` offers a `line` (title, else `fit/lineOf`) for a statement
+  longer than `WAKE_LINE_BYTES` (240) when the line and id are shorter than it;
+  `briefing.ts#asLine` prints it as `date · line [id]` in every lane but identity, never for
+  a due-day plain reminder (`Ranked.due`) or an upgraded item (`Ranked.whole`). Deciding it
+  in `elementLine` keeps every rescue, the share and the fold on one byte count. The id is
+  not repeated when a standing prefix already names it (the "Core, being reconsidered"
+  line, which the prototype printed with two).
+- **The upgrade.** After the rescues, `render` tries the first item of "Still open", then
+  of "Coming up", whole; it keeps the change only when `tellLost` says the same counts and
+  the composition stays under the same limit. Not gated on "nothing trimmed" as identity's
+  leftover is: a lane that lost items keeps its count either way.
+- **Numbers.** On the 2026-10-15 store copy the prototype went from 3 to 14 lane elements
+  at 9,000 with the page whole; the lanes cost 2,130 bytes (78–210 per item). The hermetic
+  production-scale test (`test/wake-lines.test.ts`: page at its 5,681-byte room, 3 craft,
+  25 open, 8 warm, 2 dated, ~550-byte titled items) goes from 4 to 18 lane elements, 8,569
+  bytes, 16 of them lines.
+- **Measuring it.** `fit.index.wake` holds the ids the newest session start listed as
+  lines (`Lifecycle#noteWakeIndex`; the core wake still writes nothing), and the
+  `adapter.wake.injected` row carries `lined`. Doctor's Lookups line adds "wake: N looked
+  up of M offered in part, over K session starts". Near zero after a week means the titles
+  are too thin or the lines read as truncation — revisit then.
+- **Tests that pinned whole-text scarcity** (a lane with no room for one line, the share
+  against craft that could not fill the rest, a page that needs "Last said here"'s room)
+  now run with `WAKE_LINE_BYTES: Infinity`, so they still test what they were written for.

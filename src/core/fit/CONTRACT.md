@@ -59,11 +59,16 @@ few chunks and reaches the rest through pointers.
   entries as slices, the bundle in parts, fidelity on merges and gists.
 - `dream/reflect.ts` — the whole core, every candidate and the last few days as lines at least,
   the most felt whole, chapters as slices, fidelity per item.
+- `self/` — the wake (#489 C, 2026-10-16): a long list item prints as its line (title, else
+  `lineOf`) and id, the first item of "Still open" and "Coming up" whole when there is room
+  left over; the ids offered as lines are `fit.index.wake`, written at session start by
+  `adapters/lifecycle.ts` and counted within `LOOKUP_WINDOW_MS` (a wake has no run row).
 - `adapters/mcp` — the recall tool counts lookups against the ledger (the `mcp.recall` row's
-  `fromIndex`); `claude-code/doctor.ts` surfaces the count (`Lookups`).
+  `fromIndex`); `claude-code/doctor.ts` surfaces the count (`Lookups`), the wake's offered
+  count from each `adapter.wake.injected` row's `lined`.
 
-Deliberate recall and the wake composer already fit this way on their own and were left as
-they are.
+Deliberate recall fits this way on its own and was left as it is. The wake composer did not
+(it printed an item whole or as an id, nothing between) until #489 C.
 
 ## 5. Guarantees (as of 2026-09-28)
 

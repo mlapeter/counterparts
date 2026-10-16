@@ -36,7 +36,10 @@
  *     someone is, is not a smaller identity; it is a corrupted one. The same is
  *     true of the self page (2026-10-09): every rung of its ladder is whole
  *     text — the page, its short version, its outline, its headings, or one
- *     line saying where to read it (`PageRung`, 2026-10-10).
+ *     line saying where to read it (`PageRung`, 2026-10-10). A long list item
+ *     printed as its line (`asLine`, #489 C) is not a cut statement either:
+ *     its title is whole, and its id points at the rest — only an untitled
+ *     memory's fallback (`fit/lineOf`) is a cut, and it says so with "…".
  *   - **The header AND the tail sentinel each state the bundle's own true counts
  *     and bytes**, so a truncated injection is detectable from a truncation
  *     preview alone — from either end (§1 G2). Because both lines state a number
@@ -551,6 +554,13 @@ export interface Resolved {
    * current. Absent: nothing to say.
    */
   readonly standing?: { readonly prefix: string; readonly suffix: string };
+  /**
+   * THE ITEM'S LINE (#489 C, 2026-10-16): its title, else `fit/lineOf`'s first
+   * line — present only when the statement is longer than `WAKE_LINE_BYTES`.
+   * A list item prints it with its id in place of the statement
+   * (`asLine`); absent, the statement prints whole as before.
+   */
+  readonly line?: string;
 }
 
 export type Resolve = (id: string) => Resolved;
@@ -717,6 +727,9 @@ export interface BriefingResult extends Composed {
   /** The "Today, elsewhere" line as it printed (the form the room allowed),
    *  or absent when none was asked for or none fit. */
   readonly elsewhere?: string;
+  /** The ids this wake listed as a line, not whole (#489 C, `asLine`), in
+   *  lane order — what the lookup ledger's `fit.index.wake` offers. */
+  readonly lined?: readonly string[];
 }
 
 
@@ -847,8 +860,8 @@ export function datePrefix(r: Resolved): string {
  */
 export function elementLine(item: Ranked, resolve: Resolve): string {
   const r = resolve(item.id);
-  const statement = flatten(r.statement);
   const standing = r.standing?.prefix ?? "";
+  const statement = asLine(item, r) ? lineText(item.id, r) : flatten(r.statement);
   let date = datePrefix(r);
   // ONE DATE, NOT TWO (2026-10-01, the wake review): a statement that already
   // opens with the very date the prefix would state ("2026-09-26: …") read
@@ -858,6 +871,30 @@ export function elementLine(item: Ranked, resolve: Resolve): string {
   const learned = (r.learnedOn ?? "").trim();
   if (standing === "" && learned !== "" && date === `${learned}${DATE_SEP}` && statement.startsWith(learned)) date = "";
   return `- ${date}${standing}${statement}${r.standing?.suffix ?? ""}`;
+}
+
+/**
+ * A LONG LIST ITEM IS A LINE (#489 C, 2026-10-16; Mike, lightly held): in
+ * "How I work", "Still open", "Might be relevant" and "Coming up", an item
+ * whose statement is longer than `WAKE_LINE_BYTES` (the resolver gives it a
+ * `line`) prints as `date · title [id]`, and recall reads it whole by the id.
+ * A title is whole text, so this is not a cut statement; an untitled memory
+ * falls back to `fit/lineOf`'s first line, whose own cut says "…". Whole
+ * stays whole for the identity list, a plain reminder due the day the wake is
+ * read (`Ranked.due`), and an item the leftover room upgraded
+ * (`Ranked.whole`). Decided here, for every composition and every rescue, so
+ * the byte accounting cannot disagree with the line printed.
+ */
+export function asLine(item: Ranked, r: Resolved): boolean {
+  return r.line !== undefined && item.lane !== "identity" && item.due !== true && item.whole !== true;
+}
+
+/** The line's words, the id once: not again when its standing already names it. */
+function lineText(id: string, r: Resolved): string {
+  const line = flatten(r.line ?? "");
+  const tag = `[${id}]`;
+  const named = (r.standing?.prefix ?? "").includes(tag) || (r.standing?.suffix ?? "").includes(tag);
+  return named ? line : `${line} ${tag}`;
 }
 
 /** Every lane empty — the floor a composition cannot go below. */
@@ -1326,18 +1363,39 @@ export function render(
       }
       // THE LANES' LINES, last and checked: each lane that lost something is
       // counted, in its own line or the folded one (`tellLost`).
-      const told = tellLost({
-        kept,
-        lost: lostByLane(lanes.overflow, trimmed, held, suppressList),
-        req,
-        resolve,
-        coreName,
-        identity,
-        ...(said === undefined ? {} : { yesterday: said }),
-        ...(away === undefined ? {} : { elsewhere: away }),
-        limit: budgetBytes,
-        ...(first === null ? {} : { pinned: first.pinned }),
-      });
+      const tell = (): ReturnType<typeof tellLost> =>
+        tellLost({
+          kept,
+          lost: lostByLane(lanes.overflow, trimmed, held, suppressList),
+          req,
+          resolve,
+          coreName,
+          identity,
+          ...(said === undefined ? {} : { yesterday: said }),
+          ...(away === undefined ? {} : { elsewhere: away }),
+          limit: budgetBytes,
+          ...(first === null ? {} : { pinned: first.pinned }),
+        });
+      let told = tell();
+      // THE TOP ITEMS WHOLE, ON ROOM LEFT OVER (#489 C, 2026-10-16; Mike,
+      // lightly held): once the lanes fit as lines, the first item of "Still
+      // open" and then of "Coming up" is printed whole when that fits in what
+      // is left — breadth first, as `fit()` places. One item per lane, and
+      // only when nothing else moves: every lane's count stays as it was and
+      // nothing past this render's room is taken. Unlike identity's leftover
+      // above, not only when nothing was trimmed: a lane that lost items still
+      // has its count, and the upgrade takes only bytes nobody else was given.
+      for (const lane of ["threads", "horizon"] as const) {
+        const top = kept[lane][0];
+        if (top === undefined || !asLine(top, resolve(top.id))) continue;
+        kept[lane][0] = { ...top, whole: true };
+        const next = tell();
+        const same =
+          next.folded === told.folded &&
+          JSON.stringify([next.more, next.untold, next.quiet]) === JSON.stringify([told.more, told.untold, told.quiet]);
+        if (same && next.composed.bytes <= budgetBytes) told = next;
+        else kept[lane][0] = top;
+      }
       // AN ARRIVING ID THE COUNT COULD NOT NAME LEAVES A TRIM ROW (review of
       // #367, 2026-10-10). One past the lane's cap — `prospective/`'s count
       // (`BoundaryRequest.horizonMore`) or the lane's own — was never a line
@@ -1371,6 +1429,7 @@ export function render(
         pressure: composed.bytes >= budgetBytes * t.BUDGET_PRESSURE,
         overBudget: !fits,
         ...(away === undefined ? {} : { elsewhere: away }),
+        lined: LANE_ORDER.flatMap((lane) => kept[lane].filter((r) => asLine(r, resolve(r.id))).map((r) => r.id)),
         page:
           identity.page === null
             ? null

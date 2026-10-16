@@ -59,6 +59,12 @@ export interface Ranked {
   /** Horizon only, at session start (2026-10-12): due within the next few
    *  days (`HorizonItem.near`, `briefing.ts#ROOM_ORDER`'s `arrivingNear`). */
   readonly near?: boolean;
+  /**
+   * Set by the render alone (#489 C, 2026-10-16): the first item of "Still
+   * open" or "Coming up", upgraded from its line to whole text because the
+   * room was left over (`briefing.ts#asLine`).
+   */
+  readonly whole?: boolean;
 }
 
 /**

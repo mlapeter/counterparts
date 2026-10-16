@@ -111,9 +111,17 @@ interface World {
   hooks(opts?: { mode?: ScopeVerdict["mode"] }): ClaudeCodeAdapter;
 }
 
-function world(start: number, opts: { budget?: number } = {}): World {
+function world(start: number, opts: { budget?: number; wholeItems?: boolean } = {}): World {
   let now = start;
-  const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: opts.budget ?? BUDGET, now: () => now, timeZone: ZONE });
+  // `wholeItems`: no line form (#489 C), for a morning whose lanes must need the room.
+  const c = Counterpart.open({
+    dir: storeDir,
+    owner: true,
+    budgetBytes: opts.budget ?? BUDGET,
+    now: () => now,
+    timeZone: ZONE,
+    ...(opts.wholeItems === true ? { selfTunables: { WAKE_LINE_BYTES: Number.POSITIVE_INFINITY } } : {}),
+  });
   open.push(c);
   return {
     c,
@@ -476,8 +484,8 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
 
   /** The owner's morning (`wake-fresh-today.test.ts#ownerMorning`), with the
    *  session that worked here last evening, its chapter and its words. */
-  function ownerMorning(budget = BUDGET, pageBytesAt = 5_900): World {
-    const w = world(at(18, 0, "2026-10-10"), { budget });
+  function ownerMorning(budget = BUDGET, pageBytesAt = 5_900, wholeItems = false): World {
+    const w = world(at(18, 0, "2026-10-10"), { budget, wholeItems });
     const { c } = w;
     const para = "I keep the garden's ledger, I name what I do not know before I guess, and I write down what held.";
     let page = "## Core\n\n";
@@ -561,7 +569,8 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     // A 6.5 KB page beside four handoffs borrows the room the line was
     // reserved (it rides Work here's term, which the page borrows before it
     // steps down a rung).
-    const w = ownerMorning(BUDGET, 6_500);
+    // Whole items (#489 C's lines left off): the lanes beside the page need the room.
+    const w = ownerMorning(BUDGET, 6_500, true);
     const text = morningWake(w, B);
     const quiet = morningWake(w, A);
     expect(lineOf(text)).toBeUndefined();

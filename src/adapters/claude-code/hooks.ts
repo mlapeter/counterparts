@@ -536,7 +536,7 @@ export const RESUME_WAKE_LINE =
   "Counterparts: this session was resumed; the wake it was handed when it started (above) still holds.";
 
 /** What `sessionStart` hands the host: a composed wake, or a resume's line. */
-type WokeHere = Pick<ReturnType<Lifecycle["composeWake"]>, "text" | "ok" | "bytes" | "sentinel" | "preface"> & {
+type WokeHere = Pick<ReturnType<Lifecycle["composeWake"]>, "text" | "ok" | "bytes" | "sentinel" | "preface" | "lined"> & {
   readonly reason: string;
 };
 
@@ -741,6 +741,10 @@ export class ClaudeCodeAdapter extends Lifecycle {
         interactive: isInteractive(input) && input.nightRun !== true,
         // A resume's short wake (2026-10-11): `bytes` is the line, not a bundle.
         resumed,
+        // How many items it listed as a line (#489 C): doctor's Lookups line
+        // reads what was offered from here, and what was expanded from
+        // `mcp.recall`'s `fromIndex.wake`.
+        lined: woke.lined?.length ?? 0,
       });
       // THE QUESTION RIDES BESIDE THE WAKE, NEVER INSIDE IT, and only if it
       // FITS.

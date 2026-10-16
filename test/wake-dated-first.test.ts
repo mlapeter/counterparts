@@ -71,6 +71,7 @@ import {
   workHereBytes,
 } from "../src/core/self/index.js";
 import type { HorizonItem } from "../src/core/self/index.js";
+import type { SelfTunables } from "../src/core/self/tunables.js";
 import { Store } from "../src/core/store/index.js";
 import { readableDate, startOfLocalDay } from "../src/core/time.js";
 
@@ -587,10 +588,10 @@ describe("a plain reminder due the morning the wake is read, under the widest de
 
 describe("at the composition: three dated items, and who gives the room", () => {
   const ZONE = "America/Denver";
-  function selfWith(page: string, short?: string, bodies: readonly string[] = REMINDERS): { me: Self; store: Store; ids: string[] } {
+  function selfWith(page: string, short?: string, bodies: readonly string[] = REMINDERS, tunables?: Partial<SelfTunables>): { me: Self; store: Store; ids: string[] } {
     const store = Store.open({ dir: freshDir() });
     closers.push(store);
-    const me = new Self({ store, gate: episodeGate() });
+    const me = new Self({ store, gate: episodeGate(), ...(tunables === undefined ? {} : { tunables }) });
     const w = me.revisePage(page, { by: "owner", reason: "a long page", ...(short === undefined ? {} : { short }) });
     expect(w.written).toBe(true);
     const ids = bodies.map((body, i) =>
@@ -737,7 +738,8 @@ describe("at the composition: three dated items, and who gives the room", () => 
     // "Coming up:" — the count line had no rescue when the lane listed nothing.
     const lens = [486, 1270, 263, 415, 134, 288, 483];
     const bodies = lens.map((n, i) => `${`Item ${String(i)} ${"word ".repeat(400)}`.slice(0, n - 1)}.`);
-    const { me, ids } = selfWith(pageOfSize(6_472), undefined, bodies);
+    // Whole items (no line form, #489 C): the case is a lane with no room for even one line.
+    const { me, ids } = selfWith(pageOfSize(6_472), undefined, bodies, { WAKE_LINE_BYTES: Number.POSITIVE_INFINITY });
     const dues = ["2026-10-14", "2026-10-14", "2026-10-14", "2026-10-15", "2026-10-15", "2026-10-11", "2026-10-15"];
     const horizon = ids.map((id, i) => ({ id, due: dues[i] ?? "" }));
     const out = me.build({ budgetBytes: 6_637, day: 2, horizon, lendBytes: 952, handoffKeepBytes: 673, yesterday: full, yesterdayShorter: shorter });
@@ -983,10 +985,11 @@ describe("at session start, dated items due within the next few days have first 
     for (const zone of ZONES) {
       const m = await morning(zone, { pageBytes: 6_472, dated: 3, widest: true, short: true, bodies: LONG });
       const stored = m.a.counterpart.store.getMeta(BRIEFING_KEY) ?? "";
-      expect(arriving(stored).listed.length).toBe(1);
+      // Two since #489 C: each long line is its title or first line and id.
+      expect(arriving(stored).listed.length).toBe(2);
       const { listed, collapsed } = arriving(m.text);
       expect(collapsed).toBe(false);
-      expect(listed.length).toBe(1);
+      expect(listed.length).toBe(2);
       expect(listed[0]).toContain("(due 2026-10-09)");
       expect(lower(m.text).handoffs).toBeGreaterThanOrEqual(1);
       // The newest, in full (listed first).

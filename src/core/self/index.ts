@@ -174,6 +174,7 @@ import {
   syncJournalCopy,
 } from "./journal-file.js";
 import type { JournalCopyOutcome } from "./journal-file.js";
+import { lineOf } from "../fit/index.js";
 import { withTunables } from "./tunables.js";
 import type { SelfTunables } from "./tunables.js";
 import { calendarDate } from "./calendar.js";
@@ -3051,7 +3052,16 @@ export class Self {
       happenedOn?: string;
       boundedDate?: boolean;
       standing?: { prefix: string; suffix: string };
+      line?: string;
     } = { statement: statement.length > 0 ? statement : id };
+    // A LONG ITEM'S LINE (#489 C, 2026-10-16): its title, else `lineOf`'s
+    // first line — offered only past `WAKE_LINE_BYTES`, and only when the line
+    // and its id are shorter than the statement. Which lanes print it is
+    // `briefing.ts#asLine`'s decision.
+    if (Buffer.byteLength(statement) > this.tunables.WAKE_LINE_BYTES) {
+      const line = lineOf(doc);
+      if (line.length > 0 && Buffer.byteLength(`${line} [${id}]`) < Buffer.byteLength(statement)) out.line = line;
+    }
     // Its standing in a contradiction — the same words recall uses (review of
     // #284, S3): hints, threads and identity alike. Never fails a render.
     try {
