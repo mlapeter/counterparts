@@ -101,7 +101,9 @@ Each empties its clone (keeping `.git`) and writes the bundle. Check each with
 `claude plugin validate <clone>`, `tools/plugin-loop/run.sh --bundle` (and
 `--bundle=directory`), and `build.ts [--flavor directory] --check <clone>` against a
 second build (the directory flavor's bytes depend on the Bun version), then commit them
-there. At publish, push the full flavor to `main` and tag it `v<version>`, and push the
+there. When the sidebar changed, compare `validate`'s hooks, calls and env lines with the
+README's "What it can reach" (`tools/plugin-bundle/bundle-readme.md`, one block per
+flavor) and update both. At publish, push the full flavor to `main` and tag it `v<version>`, and push the
 directory flavor to the `directory` branch. The tag must be on GitHub before the release
 PR merges: master's marketplace is read live, and it names that tag.
 
