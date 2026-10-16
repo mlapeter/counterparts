@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.3.25 — 2026-10-16
+
+A chapter of the journal is now stood for by one short summary memory instead of a full copy: the `chapter` tool takes a `summary`, the engine writes a short one from the chapter's opening lines when the session gives none, and summaries fade like any other memory while the chapter itself keeps every word. The nightly reflection can propose closing items that have sat in "Still open" for days, and nothing closes until you say yes. The wake is shorter and lists more: long items as one line each, the tags on one line, today's date said once, "Coming up" only what is due today, and the self page written to about 4,600 bytes. Recall reads "in the last month" and "the past 3 months" as rolling windows, and facts' event dates carry their weekday. The plugin's sidebar says where you left off, can be clicked again in a few small ways, and the build from Anthropic's directory stands down beside the npm install. No store-format change (store v13, cache v6) and no wiring change: nothing to run after upgrading from 0.3.24, and `counterparts connect` is not needed.
+
+- **The sidebar's fox tries a picture first, everywhere.** Instead of guessing from your
+  terminal's name whether it can show pictures, it tries one and lets Claude Code say: where
+  the picture can't show, it draws the finer sextant fox in terminals whose fonts have them
+  (iTerm2, WezTerm, VS Code, Ghostty, kitty) and the half-block fox elsewhere. It reads four
+  environment variables for that, down from seven.
+- **The sidebar keeps its numbers beside an npm install when the plugin is loaded from a
+  folder.** A plugin started with `claude --plugin-dir` stands its own server down there, and
+  until now nothing told the npm install's processes the sidebar was present, so they deleted
+  its status file. The stood-down server now leaves a small marker beside the configuration
+  while its session runs (`sidebar-plugin-here`, refreshed every ten minutes, counted for
+  thirty, or for up to a day while that server is still running, so a laptop waking from sleep
+  keeps the file), and the memory server asks again at each write instead of once at its start.
+- **After a rollback or a snapshot restore the sidebar catches up straight away.** A status
+  file written before the store was put back named a later point in the log than the log now
+  has, and both the writers and the sidebar kept it until the log caught up. A writer now
+  replaces a file that is ahead of the log, and the sidebar accepts an older point in the log
+  from the same store when the file is more than five seconds newer.
+- **The store's note of where the sidebar file lives no longer disappears every week.** It is
+  touched on every write, so the session-start cleanup keeps it.
+- **The plugin from Anthropic's directory stands down beside the npm install.** It reads none
+  of Claude Code's files, so it couldn't tell the npm install was there, and Claude was
+  offered every memory tool twice. The npm install now leaves a small note beside its
+  configuration, `~/.counterparts/npm-live.json`, when it connects and as its sessions
+  start; the plugin's hooks and server stand down while the note is recent and the program
+  it names is still installed. `counterparts disconnect` and
+  `uninstall` remove it.
+- **Installed twice now recommends keeping one.** The session-start line, the stood-down
+  server's note and `counterparts doctor` no longer say "nothing needs to change": both use
+  the same memory, so nothing is lost either way, and they name both ways out, `counterparts
+  disconnect` (keep the plugin) or `/plugin uninstall counterparts@…` (keep the npm install).
+- **The sidebar says where you left off.** Under the last dream, the sidebar shows the first
+  of these that has something: where you left off in this folder ("Last here"), what's
+  coming up next (with its date as "Today", "Tomorrow" or "Oct 20"), or what happened
+  yesterday. Click it to read all of it, as with the dream. It's the first thing to make room when the session fills the sidebar.
+- **The sidebar's footer stops offering the intro once you've had it,** and while the fox
+  shows it says how to hide it: `/counterparts avatar off`.
+- **The "Mechanisms today" bars are on a log scale,** so a mechanism that fired once and one
+  that fired a dozen times look different even beside one that fired a hundred times. The
+  count beside each bar is unchanged.
+- **The plugin's README says what the sidebar can reach.** A "What it can reach" section
+  lists what it reads (the nine environment variables among them), runs, sends and keeps,
+  how it treats text other hooks add, and the `claude plugin validate` lines that show it.
+- **A chapter is stood for by a summary, not a full copy.** The `chapter` tool takes a
+  `summary`: the memory that stands for the chapter, while the chapter keeps every word. When
+  a session gives none, the engine writes a short one from the chapter's opening lines, and a
+  summary the session writes later replaces it. Summaries are ordinary memories and fade like
+  one; the full copies made before this release stay as they are. Dreams and reflections see a
+  busy day's chapters as their summaries, so more of the day fits. Doctor has a `Chapter
+  summaries` line: written vs automatic over the week. No store-format change.
+- **The nightly reflection proposes closing stale open items.** It is shown up to five
+  memories still open after four lived days untouched, and may propose closing the ones that
+  look done; the proposal comes as one question in what it shares. Nothing closes until you
+  say yes, and then the reflect tool's new `close` phase closes only what it proposed.
+- **The wake lists more of what's open, coming up and relevant.** A long memory in "How I
+  work", "Still open", "Might be relevant" or "Coming up" now shows as one line, its date,
+  its title and its id, instead of its whole first paragraph, so many more fit beside the
+  self page. The first item of "Still open" and of "Coming up" is still shown in full when
+  there's room, and so is a reminder due today. Recall reads any of them in full by its id.
+- **Doctor's Lookups line counts the wake too:** how many of the items it listed as a line a
+  session then read in full.
+- **The plugin's sidebar can be clicked again, in a few small ways.** In the terminal,
+  "Meet your counterpart" sits at the top while the first meeting is waiting: a click puts `/counterparts:meet` in your
+  prompt box, and you press Enter (a draft you are writing is left alone, and the row says so).
+  The footer's Dashboard line does the same with `/counterparts:dashboard`. On the terminal,
+  COUNTERPARTS ↗ links to the dashboard again; Counterparts now writes the dashboard's address
+  into the sidebar's status file for it. The footer's view and avatar switches are back: one
+  click closes the pane to quiet, or turns the fox on or off. The plugin directory's build of
+  the sidebar is unchanged.
+- **Recall reads "in the last month" as a rolling month.** "In the last month", "the past
+  month" and "the past 3 months" (digits or words) now mean back from today, like "the past
+  week"; plain "last month" is still the calendar month. Facts' event dates carry their
+  weekday ("happened Mon 05-15").
+- **A shorter, roomier wake.** The three tags at the top of a session's memory share one line;
+  today's date is said once, on the `Now:` line (the header, "Yesterday" and the page's
+  "Last revised" no longer repeat it, and item dates read "Oct 15 (due Oct 18)"); the header
+  and the line under it are shorter. "How I work" no longer lists craft memories (they still
+  come up when a conversation reaches them), and "Coming up" lists what is due today,
+  with one line counting the rest by id (the overdue said so). The self page is now written to about
+  4,600 bytes, with "How I work" as a few short lessons. The room goes to the lists.
+
 ## 0.3.24 — 2026-10-14
 
 Forgetting now waits: a memory is put away only after 14 lived days under the floor, not 14 days after it was last used, and a release that changes how strength is read starts that wait fresh for everything it lowered. So nothing is archived for the first 14 lived days after you upgrade to this release; archived memories keep their words and stay readable by id. Old claims the claims era lowers now read at today's default all the way down. At the end-of-session ask Claude now also rates the memories it was shown, 0 to 3; the ratings are only recorded and change nothing yet. The `salience` field tells Claude to leave routine work at the default, a faded match is labelled "faded: weak, below reach", closing a reminder closes every memory it moved through, a revision with no title keeps the old one's, and `recall` takes `query` as another name for `question`. With both the plugin and the npm install, uninstalling the plugin and keeping the memories leaves the npm install's memory server and hooks working. The sidebar counts feelings under Emotion. If `/plugin update counterparts@counterparts` does nothing, run `/plugin marketplace update counterparts`, then `/plugin uninstall counterparts@counterparts` and `/plugin install counterparts@counterparts`. These are Claude Code's own plugin commands, not `/counterparts:uninstall`, and your memories in `~/.counterparts` are untouched. No store-format change (store v13, cache v6) and no wiring change: nothing to run after upgrading from 0.3.23, and `counterparts connect` is not needed. Going back to 0.3.23 gives up the wait: it counts 14 days from last use again.
