@@ -31,6 +31,8 @@ import {
 import { foxSvg } from '../hooks/fox-svg'
 import { cells, ellipsizeCells, padCells } from '../hooks/width'
 import { headRight } from '../hooks/desktop'
+import { parseGlance } from '../hooks/feed'
+import { leadDate } from '../hooks/sections'
 import { FOOTER_ITEMS, footerLines, normAvatar, resumeWords, statusFor } from '../hooks/words'
 import {
   STAGE_COLS,
@@ -517,10 +519,14 @@ describe('the body, laid out', () => {
     expect(cells(clip('記憶記憶記憶記憶記憶記憶記憶記憶記憶', 12))).toBeLessThanOrEqual(12)
   })
 
-  test('half-height bars in half-cell steps, at least one half', () => {
+  test('half-height bars in half-cell steps, at least one half, on a log scale: 1, 10 and 100 are even steps', () => {
     expect(bar(92, 92, 12)).toBe('▄'.repeat(12))
-    expect(bar(1, 92, 12)).toBe('▖')
-    expect(bar(46, 92, 12)).toBe('▄▄▄▄▄▄')
+    expect(bar(1, 92, 12)).toBe('▄▄')
+    expect(bar(46, 92, 12)).toBe('▄'.repeat(10))
+    expect(bar(0, 92, 12)).toBe('▖')
+    const len = (v: number) => [...bar(v, 999, 30)].length
+    expect(len(10) - len(1)).toBeGreaterThan(5)
+    expect(Math.abs(len(100) - len(10) - (len(10) - len(1)))).toBeLessThanOrEqual(3)
   })
 
   test('the five sections in order, a blank row between; no line over the width, and no line starts with a bullet, a gutter or an indent but a saved item’s dot', () => {
@@ -795,19 +801,22 @@ function seeded(seed = 7): () => number {
 }
 
 describe('the fox', () => {
-  test('which way a surface draws it: a picture first, half-blocks once the engine says the picture drew its alt; nothing about the terminal is read', () => {
-    expect(pickTier('terminal', 'auto')).toBe('image')
-    // an Image that drew its alt here: auto stops trying, and draws what every terminal draws
-    expect(pickTier('terminal', 'auto', true)).toBe('basic')
+  test('which way a surface draws it: a picture first; where the engine says it drew its alt, sextants where the font has them, else half-blocks', () => {
+    expect(pickTier('terminal', 'auto', {})).toBe('image')
+    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'Apple_Terminal' })).toBe('image')
+    // an Image that drew its alt here: auto stops trying, and draws the next best
+    for (const p of ['iTerm.app', 'WezTerm', 'vscode', 'ghostty']) expect(pickTier('terminal', 'auto', { TERM_PROGRAM: p }, true)).toBe('fine')
+    expect(pickTier('terminal', 'auto', { TERM: 'xterm-kitty' }, true)).toBe('fine')
+    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'Apple_Terminal' }, true)).toBe('basic')
+    expect(pickTier('terminal', 'auto', {}, true)).toBe('basic')
     // no PNG folder found: never a picture, not even when asked for one
-    expect(pickTier('terminal', 'auto', false, false)).toBe('basic')
-    expect(pickTier('terminal', 'images', false, false)).toBe('basic')
+    expect(pickTier('terminal', 'auto', { TERM_PROGRAM: 'iTerm.app' }, false, false)).toBe('fine')
+    expect(pickTier('terminal', 'images', {}, false, false)).toBe('basic')
     // an explicit choice stands
-    expect(pickTier('terminal', 'images', true)).toBe('image')
-    expect(pickTier('terminal', 'fine')).toBe('fine')
-    expect(pickTier('terminal', 'fine', true, false)).toBe('fine')
-    expect(pickTier('terminal', 'basic')).toBe('basic')
-    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic')).toBe('svg')
+    expect(pickTier('terminal', 'images', {}, true)).toBe('image')
+    expect(pickTier('terminal', 'fine', {})).toBe('fine')
+    expect(pickTier('terminal', 'basic', { TERM_PROGRAM: 'iTerm.app' })).toBe('basic')
+    for (const s of ['desktop', 'vscode', 'mobile']) expect(pickTier(s, 'basic', {})).toBe('svg')
     expect(normDetail('images')).toBe('images')
     expect(normDetail('sharp')).toBe('auto')
   })
@@ -1107,5 +1116,41 @@ describe('the desktop layout', () => {
     // the terminal pads with spaces instead and carries none of it
     const term = layoutBody(state(false)).lines.filter(l => l.key?.startsWith('mech:'))
     for (const l of term) expect(l.segs.some(sg => sg.cw !== undefined || sg.fill !== undefined || sg.grow === true)).toBe(false)
+  })
+})
+
+describe('the glance: the wake\'s first line that has something', () => {
+  const LEFT = 'Where I left off in this directory (written 10-14 19:37 by session 7c992a20 on Opus 5.5): Shipping the onboarding fixes; next is the site deploy.\n(The whole of it is sch_226878f5b865 — expand it with the counterparts recall tool.)'
+  const COMING = 'Coming up:\n- 2026-10-11 (due 2026-10-15) · Second check of the lists trial. (earlier: [mem_9d3ce7633f97])\n- 2026-10-20 · Other'
+  const YESTERDAY = 'Yesterday, Oct 14: epi_8c87c42ae316; epi_a042be2d13d7; and 2 more.'
+  test('Last here first, then where it was left off, then Coming up, then Yesterday; ids and pointers left out', () => {
+    expect(parseGlance(`Last here: I, Oct 14 evening, "Fox polish". We tried half-blocks.\n${LEFT}`)).toEqual({ head: 'Last here', text: 'I, Oct 14 evening, "Fox polish". We tried half-blocks.' })
+    expect(parseGlance(`${LEFT}\n${COMING}`)).toEqual({ head: 'Last here', text: 'Shipping the onboarding fixes; next is the site deploy.' })
+    expect(parseGlance(`${COMING}\n${YESTERDAY}`)).toEqual({ head: 'Coming up', text: '2026-10-15 · Second check of the lists trial.' })
+    expect(parseGlance('Yesterday, Oct 14: the fox shipped; the directory submitted.')).toEqual({ head: 'Yesterday, Oct 14', text: 'the fox shipped; the directory submitted.' })
+  })
+  test('every date form core writes before a Coming up item comes out as the one date it is about', () => {
+    const c = (prefix: string) => parseGlance(`Coming up:\n- ${prefix}Vote`)?.text
+    expect(c('due 2026-10-15 · ')).toBe('2026-10-15 · Vote')
+    expect(c('was due 2026-10-14 · ')).toBe('2026-10-14 · Vote')
+    expect(c('due 2026-10-15, every Oct 15 · ')).toBe('2026-10-15 · Vote')
+    expect(c('2026-05-14 (due 2027-05-14, every May 14) · ')).toBe('2027-05-14 · Vote')
+    expect(c('by 2026-10-01 (was due 2026-10-14) · ')).toBe('2026-10-14 · Vote')
+    expect(c('2026-10-01 (of 2026-09-30) · ')).toBe('2026-10-01 · Vote')
+    expect(c('by 2026-10-20 · ')).toBe('2026-10-20 · Vote')
+  })
+  test('Yesterday with some titles and some ids: the ids go, and their separators with them', () => {
+    expect(parseGlance('Yesterday, Oct 14: "Fox polish" (epi_8c87c42ae316); epi_a042be2d13d7; epi_10ae407be15a; and 3 more.')?.text).toBe('"Fox polish"; and 3 more.')
+  })
+  test('a Coming up date reads as words', () => {
+    const now = new Date('2026-10-15T09:00:00').getTime()
+    expect(leadDate('2026-10-15 · Vote', now)).toBe('Today · Vote')
+    expect(leadDate('2026-10-16 · Vote', now)).toBe('Tomorrow · Vote')
+    expect(leadDate('2026-10-20 · Vote', now)).toBe('Oct 20 · Vote')
+    expect(leadDate('no date here', now)).toBe('no date here')
+  })
+  test('a line of ids only, or nothing at all, is no glance', () => {
+    expect(parseGlance(YESTERDAY)).toBeNull()
+    expect(parseGlance('Who I am:\nnothing here')).toBeNull()
   })
 })
