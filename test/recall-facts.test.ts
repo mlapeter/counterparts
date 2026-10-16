@@ -476,6 +476,49 @@ describe("time in a question (time-ask.ts)", () => {
     const kiriSun = { now: Date.parse("2026-10-03T11:00:00Z"), zone: "Pacific/Kiritimati" };
     expect(readTimeAsk("last Saturday", kiriSun)?.window).toEqual({ from: "2026-10-03", to: "2026-10-03" });
   });
+
+  test("\"in the last month\" and \"the past N months\" roll back from today; plain \"last month\" stays the calendar month", () => {
+    const may30 = { now: Date.parse("2023-05-30T19:00:00Z"), zone: "America/Los_Angeles" };
+    const rolling = { from: "2023-04-30", to: "2023-05-30" };
+    for (const q of [
+      "How many plants did I acquire in the last month?",
+      "what did I buy in the past month",
+      "the past month at the gym",
+      "over the last month what changed",
+      "within the last month did I call her",
+      "during the last month",
+      "past month spending",
+    ]) {
+      const a = readTimeAsk(q, may30);
+      expect({ q, said: a?.said, window: a?.window, stretch: a?.stretch }).toEqual({ q, said: rolling, window: rolling, stretch: 0 });
+    }
+    expect(readTimeAsk("How many plants did I acquire in the last month", may30)?.rest).toBe("How many plants did I acquire");
+    expect(readTimeAsk("within the last month did I call her", may30)?.rest).toBe("did I call her");
+    const calendar = readTimeAsk("what did I buy last month?", may30);
+    expect(calendar?.said).toEqual({ from: "2023-04-01", to: "2023-04-30" });
+    expect(calendar?.stretch).toBe(2);
+    // "the last month of <x>" names a month, not a stretch back from today.
+    expect(readTimeAsk("during the last month of the season", may30)?.stretch).toBe(2);
+    for (const [q, from] of [
+      ["the last two months", "2023-03-30"],
+      ["in the last four months what did I read", "2023-01-30"],
+      ["past 3 months", "2023-02-28"],
+      ["last 6 months of runs", "2022-11-30"],
+      ["over the past twelve months", "2022-05-30"],
+      ["in the last couple of months", "2023-03-30"],
+      ["past couple of months", "2023-03-30"],
+    ] as const) {
+      const a = readTimeAsk(q, may30);
+      expect({ q, said: a?.said, stretch: a?.stretch }).toEqual({ q, said: { from, to: "2023-05-30" }, stretch: 0 });
+    }
+    // Month end: a month back from 03-31 is the last day February has.
+    const mar31 = { now: Date.parse("2023-03-31T19:00:00Z"), zone: "America/Los_Angeles" };
+    expect(readTimeAsk("the past month", mar31)?.said).toEqual({ from: "2023-02-28", to: "2023-03-31" });
+    const leap = { now: Date.parse("2024-03-31T19:00:00Z"), zone: "America/Los_Angeles" };
+    expect(readTimeAsk("the past month", leap)?.said).toEqual({ from: "2024-02-29", to: "2024-03-31" });
+    const jan15 = { now: Date.parse("2024-01-15T19:00:00Z"), zone: "America/Los_Angeles" };
+    expect(readTimeAsk("in the last month", jan15)?.said).toEqual({ from: "2023-12-15", to: "2024-01-15" });
+  });
 });
 
 describe("the pool is every match, and the header counts it", () => {
@@ -545,7 +588,7 @@ describe("each fact's labeled lines", () => {
     });
     c.store.put({ type: "memory", kind: "fact", body: "The zqgym closes on public holidays." });
     const text = renderFacts(ask(c, "zqgym"));
-    expect(text).toContain("you said · done · happened 09-28");
+    expect(text).toContain("you said · done · happened Mon 09-28");
     expect(text).toMatch(/learned 10-03 in \/scope\/one · this session · CURRENT/);
     // Unknown fields say so: most rows predate v12.
     expect(text).toContain("speaker unknown · status unknown · no event date");
@@ -555,7 +598,20 @@ describe("each fact's labeled lines", () => {
     const c = brain();
     seed(c);
     c.store.put({ type: "memory", kind: "fact", body: "The zqdentist visit is booked.", saidBy: "self", status: "planned", occurredOn: "2026-10-20" });
-    expect(renderFacts(ask(c, "zqdentist"))).toContain("I said · planned · for 10-20");
+    expect(renderFacts(ask(c, "zqdentist"))).toContain("I said · planned · for Tue 10-20");
+  });
+
+  test("an event date carries its weekday, a range on both ends; the learned date does not", () => {
+    const c = brain();
+    seed(c);
+    c.store.put({ type: "memory", kind: "fact", body: "The zqtrip to the coast.", status: "done", occurredOn: "2026-09-14..2026-09-16" });
+    c.store.put({ type: "memory", kind: "fact", body: "The zqclinic visit last winter.", status: "done", occurredOn: "2025-12-31" });
+    c.store.put({ type: "memory", kind: "fact", body: "The zqmonth review.", status: "done", occurredOn: "2026-09" });
+    const trip = renderFacts(ask(c, "zqtrip"));
+    expect(trip).toContain("happened Mon 09-14..Wed 09-16");
+    expect(trip).toMatch(/\n {3}learned 10-03 /);
+    expect(renderFacts(ask(c, "zqclinic"))).toContain("happened Wed 2025-12-31");
+    expect(renderFacts(ask(c, "zqmonth"))).toContain("happened 2026-09\n");
   });
 });
 
@@ -1208,8 +1264,8 @@ describe("order within a day (renderAt#sameDayTimes)", () => {
     at("2026-10-03T16:52:00Z"); // 09:52
     c.store.put({ type: "memory", kind: "fact", body: "The zqchannel is close to 1300 followers.", occurredOn: "2026-10-03" });
     const text = renderFacts(ask(c, "zqchannel followers"));
-    expect(text).toContain("happened 10-03\n   learned 10-03 05:27 ·");
-    expect(text).toContain("happened 10-03\n   learned 10-03 09:52 ·");
+    expect(text).toContain("happened Sat 10-03\n   learned 10-03 05:27 ·");
+    expect(text).toContain("happened Sat 10-03\n   learned 10-03 09:52 ·");
   });
 
   test("a lone result, different event days, different learned days and one shared minute show nothing new", () => {

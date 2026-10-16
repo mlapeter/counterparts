@@ -1187,3 +1187,24 @@ call (`ref` the session) and touches nothing else. What the build chose:
   summary only when it was folded into that chapter this session. Frozen full copies are
   credited as before. In the test: a sibling summary with a stray cue weight of 0.15
   against the chapter's 3.0 is not credited; the matching one (3.0) is.
+
+## 2026-10-16 — "in the last month" rolls; "last month" alone stays the calendar month
+
+- Lightly held. A benchmark question asked 2023-05-30 ("How many plants did I acquire in
+  the last month?") was read as April plus the stretch, so facts from 05-06..05-25 fell
+  outside. "The past week" already rolled (today-6..today). Now "in / over / within /
+  during / for the last month", "the past month" and "past month" read today minus one
+  calendar month .. today, no stretch; "the last / past N months" (digits or words, "few"
+  is three) the same back N months. A day the earlier month lacks clamps to its last
+  (03-31 → 02-28). Plain "last month" ("what did I buy last month?") is still the calendar
+  month with the stretch — a guess about how people say it; revisit if questions say
+  otherwise.
+
+## 2026-10-16 — facts lines show the event date's weekday
+
+- Lightly held. Recall's facts mode now prints "happened Mon 05-15" (a range "Mon
+  05-15..Wed 05-17"; "for" on planned things too), so "what time did I reach the clinic on
+  Monday?" can be matched without the reader working weekdays out. The weekday is the
+  calendar date's own, no zone. Only that line: `shortDateWithWeekday` beside
+  `shortDate` in `adapters/mcp/facts.ts`; learned dates, the time line, wake and
+  footnotes are unchanged. Month- or year-only dates carry no weekday.
