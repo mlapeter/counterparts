@@ -2360,8 +2360,10 @@ export function lookupFindings(store: Store): Finding[] {
     const woke = store.eventLog({ name: WAKE_INJECTED_EVENT, sinceDay: since, order: "desc", limit: LOOKUP_ROWS });
     unread = begun.length >= LOOKUP_ROWS || recalls.length >= LOOKUP_ROWS || woke.length >= LOOKUP_ROWS;
     for (const row of woke) {
-      const n = num(payloadOf(row), "lined");
-      if (n === null) continue;
+      const p = payloadOf(row);
+      const n = num(p, "lined");
+      // A resume composes no wake: not a session start that offered nothing.
+      if (n === null || p["resumed"] === true) continue;
       runs.wake += 1;
       offered.wake += n;
     }
