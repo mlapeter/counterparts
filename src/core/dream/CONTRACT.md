@@ -431,6 +431,13 @@ dream having run.
     **It is shown no balance or totals** — no trait appears in what `begin` hands it
     (only the limit): the arithmetic stays on the dashboard. Nudges feed nothing.
   - Every memory it cites comes back: a reflection return (physics §5.11).
+  - **Stale open threads, proposed closed** (2026-10-16, #489 D; a lightly held default):
+    `begin` hands at most `STALE_OPEN` (5) memories still flagged `unresolved` and
+    untouched for `STALE_OPEN_DAYS` (4) lived days (`staleOpen`, rotated like the
+    unmarked offer). `finish`'s `close` may name the ones that look done; the share asks
+    the owner, and the reflect tool's phase `close` clears the flag on the owner's yes.
+    **[M]** a proposal is only an id from that list, and `finish` closes nothing; `close`
+    closes only ids the reflection proposed, with `closeThread`'s checks.
 - Guarantees: **[M]** at most one reflection a calendar day; **[M]** it can cite, feel or
   mark only what it was shown; **[M]** nothing under observer; **[M]** a reflection is
   not undone with its dream (it was lived); **[M]** what a dream or a reflection wrote

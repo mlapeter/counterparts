@@ -1663,3 +1663,10 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   answer to a count.
 - **Fallback.** Variant (a″): a faded match's score × (1 − 0.3 × (1 − strength/REACH)) for
   the ORDER only — if faded matches are ever seen crowding fresh ones on a live store.
+
+## 2026-10-16 — reflect phase `close` (#489 D)
+
+- `reflect` gained `close` (on `finish`: ids from the bundle's `staleOpen` that look done,
+  proposed only; as a phase: the ids the owner said yes to). Shortened the summary and
+  admission to keep `settle`'s claim inside the 2,048-character host cut;
+  `description-cut.test.ts`'s recorded lengths moved with it.

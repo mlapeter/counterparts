@@ -731,3 +731,22 @@ the live ~52):
   written or rewritten between begin and part cannot make the part longer than `pack`
   measured. The reflection's `recent` lane leaves the journal's own memories out, as the
   dream's queue does (the core lanes still take a summary about me).
+
+## 2026-10-16 — the reflection proposes closing stale open threads (#489 D)
+
+- The wake's "Still open" lane drew from ~60–70 unresolved memories, most open only
+  because nobody closed them. Mike's call (lightly held): the nightly reflection proposes,
+  the owner confirms with one word. Built from what was there: the stale list rides in the
+  bundle like the unmarked offer (ids kept on the row's `detail.staleOpen`, rotated the
+  same way); proposals are validated against it, kept on `detail.closeProposed`, and asked
+  in the share as one generated line (the became-core precedent), so the hand-back, the
+  carried line and `told` carry it untouched. The session is told how to act in the
+  hand-back and carried line, not in the share's words.
+- The confirm path is a new reflect phase, `close` (no new tool, no store change): ids ⊆
+  the reflection's proposals, any day, told or not; the write is `closeThread`'s (flag
+  false, reason `thread-closed`) with its checks. Weighed and not taken: the existing
+  road, `remember` with `updates` + `unresolved: false`, mints a revision memory per
+  closure — heavier than a yes deserves.
+- Open: proposals a share already told or carried cannot be added (refused by name); a
+  "no" is not recorded, so a declined thread may be proposed again after the rotation's
+  three nights. Watch whether that nags before adding a memory of the no.

@@ -1636,9 +1636,9 @@ const REFLECT: ToolSpec = {
   name: "reflect",
   annotations: annotate("Reflect", { readOnly: false }),
   summary:
-    "Reflection: a few quiet, awake minutes — usually at the end of the nightly run, after the dream — answering two or three questions about yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the owner, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own, for a background agent), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told).",
+    "Reflection: a few quiet, awake minutes — usually at the end of the nightly run, after the dream — answering two or three questions about yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the owner, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own, for a background agent), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to closing what the share proposed).",
   admission:
-    "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and hand its prompt to a background agent. Call `told` after you told the owner a morning share, in your own words.",
+    "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and hand its prompt to a background agent. Call `told` after you told the owner a morning share, in your own words. Call `close` only on the owner's yes to closing what a share proposed.",
   negativeExamples: [
     "Do NOT make up depth: a night with nothing much to say is a short entry that cites nothing — it rewrites nothing and shares nothing.",
     "Do NOT store a thought about the owner as a fact about them: say it to them tentatively in the share, or not at all — never a list of flaws.",
@@ -1682,6 +1682,11 @@ const REFLECT: ToolSpec = {
     },
     {
       claim:
+        "It may propose closing only open threads it was shown as stale, and closes none itself: `close` closes only ids a reflection proposed, after the owner's yes, with the checks a deposit that answers a thread makes.",
+      mechanizedBy: "src/core/dream/reflect.ts#Reflections.finish (close) + #Reflections.close",
+    },
+    {
+      claim:
         "Every word it writes is scanned for credentials first; its hand-back carries the mark capture refuses, so the share is told in the session's own words rather than filed from the tool's.",
       mechanizedBy: "src/core/dream/reflect.ts#Reflections.words + src/core/dream/mark.ts#DREAM_MARK -> src/core/remember/spans.ts#enters",
     },
@@ -1691,8 +1696,13 @@ const REFLECT: ToolSpec = {
     properties: {
       phase: {
         type: "string",
-        enum: ["launch", "begin", "part", "finish", "settle", "told"],
-        description: "Which step: launch, begin, part, finish, settle, or told.",
+        enum: ["launch", "begin", "part", "finish", "settle", "told", "close"],
+        description: "Which step: launch, begin, part, finish, settle, told, or close.",
+      },
+      close: {
+        type: "array",
+        items: { type: "string" },
+        description: "`finish`, optional: ids from the bundle's staleOpen that look done — proposed, closed only on a yes. `close`: the proposed ids the owner agreed are done.",
       },
       holds: { type: "string", description: "`settle`: the memory that holds now." },
       over: { type: "string", description: "`settle`: the memory it changes, corrects or disagrees with." },
