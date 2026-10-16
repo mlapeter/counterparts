@@ -39,9 +39,11 @@ import type { Elements, EngineInterface, Register } from 'claude-code'
 
 import { canMeet } from './feed'
 import type { FullPane, TitleLink } from './pane'
+import { clip } from './sections'
 import type { Line, Seg } from './sections'
 import { FILL_NOTE_MS, quiet, run } from './state'
 import { P } from './theme'
+import { cells } from './width'
 import { footerLines } from './words'
 
 /** What a click puts in the prompt box, by the key its row posts. */
@@ -109,50 +111,69 @@ function noteLines(note: string, w: number, key: string): Line[] {
   let cur = ''
   for (const word of note.split(/\s+/).filter(Boolean)) {
     if (cur !== '' && [...`${cur} ${word}`].length > w) {
-      out.push({ segs: [{ t: cur, c: P.accent2 }], key })
+      out.push({ segs: [{ t: clip(cur, w), c: P.accent2 }], key })
       cur = word
     } else cur = cur === '' ? word : `${cur} ${word}`
   }
-  if (cur !== '') out.push({ segs: [{ t: [...cur].slice(0, w).join(''), c: P.accent2 }], key })
+  if (cur !== '') out.push({ segs: [{ t: clip(cur, w), c: P.accent2 }], key })
   return out
 }
 
 /** The Meet row, a note under it when the box did not take the command, and a blank row. */
 export function meetLines(w: number, note: string | null): Line[] {
   return [
-    { segs: [{ t: MEET_ROW, c: P.accent, b: true }], key: 'fill:meet' },
+    { segs: [{ t: clip(MEET_ROW, w), c: P.accent, b: true }], key: 'fill:meet' },
     ...(note === null ? [] : noteLines(note, w, 'fill:meet')),
     { segs: [] },
   ]
 }
 
-/** One switch: `view ● sidebar ○ quiet`, the one that is on lit; a click on the row turns it to the other. */
-function switchLine(label: string, opts: readonly [string, string][], on: string, key: string): Line {
-  const segs: Seg[] = [{ t: label, c: P.mid }]
+/** Pieces cut to `w` cells: a row wider than its box would wrap and move every row under it off its click. */
+function fitSegs(segs: readonly Seg[], w: number): Seg[] {
+  const out: Seg[] = []
+  let used = 0
+  for (const s of segs) {
+    if (used >= w) break
+    const t = cells(s.t) <= w - used ? s.t : clip(s.t, w - used)
+    out.push({ ...s, t })
+    used += cells(t)
+  }
+  return out
+}
+
+/**
+ * One switch: `view ● sidebar ○ quiet`, the one that is on lit; a click on the row turns it to the other.
+ * Narrower than that (an inline pane), the label goes first, then the words are cut.
+ */
+function switchLine(label: string, opts: readonly [string, string][], on: string, key: string, w: number): Line {
+  const dots: Seg[] = []
   for (const [value, word] of opts) {
     const lit = value === on
-    segs.push({ t: ' ', c: P.mid })
-    segs.push({ t: lit ? '●' : '○', c: lit ? P.accent : P.dim })
-    segs.push({ t: ` ${word}`, c: lit ? P.hi : P.dim })
+    dots.push({ t: ' ', c: P.mid })
+    dots.push({ t: lit ? '●' : '○', c: lit ? P.accent : P.dim })
+    dots.push({ t: ` ${word}`, c: lit ? P.hi : P.dim })
   }
-  return { segs, key }
+  const whole: Seg[] = [{ t: label, c: P.mid }, ...dots]
+  const width = (ss: readonly Seg[]): number => ss.reduce((n, s) => n + cells(s.t), 0)
+  return { segs: width(whole) <= w ? whole : fitSegs(dots.slice(1), w), key }
 }
 
 /**
  * The full build's footer: the rule (a blank row on the desktop), the instructions as the
- * directory's footer says them less the intro (the Meet row is in the body) and the hide line
- * (the view switch does it), the Dashboard line clickable, then the view and avatar switches.
+ * directory's footer says them less the hide line (the view switch does it), and the intro only
+ * while `intro` (the meeting waits but the Meet row is not drawn: core's state unknown, a folder
+ * paused), the Dashboard line clickable, then the view and avatar switches.
  */
-export function footLines(s: { fit: number; w: number; prose: boolean; paused: boolean; view: string; avatar: string; note: string | null }): Line[] {
+export function footLines(s: { fit: number; w: number; prose: boolean; paused: boolean; view: string; avatar: string; note: string | null; intro: boolean }): Line[] {
   const out: Line[] = [s.prose ? { segs: [] } : { segs: [{ t: '─'.repeat(s.w), c: P.faint }] }]
-  for (const l of footerLines(s.fit, s.paused, { intro: false, fox: false, hide: false })) {
+  for (const l of footerLines(s.fit, s.paused, { intro: s.intro, fox: false, hide: false })) {
     const segs: Seg[] = [...(l.label === '' ? [] : [{ t: l.label, c: P.mid }]), ...(l.how === '' ? [] : [{ t: l.how, c: P.hi }])]
     const key = l.of === FILLS['fill:dash'] ? 'fill:dash' : undefined
     out.push(key === undefined ? { segs } : { segs, key })
   }
   if (s.note !== null) out.push(...noteLines(s.note, s.fit, 'fill:dash'))
-  out.push(switchLine('view', [['sidebar', 'sidebar'], ['quiet', 'quiet']], s.view === 'quiet' ? 'quiet' : 'sidebar', s.view === 'quiet' ? 'set:view:sidebar' : 'set:view:quiet'))
-  out.push(switchLine('avatar', [['fox', 'animal'], ['off', 'off']], s.avatar === 'off' ? 'off' : 'fox', s.avatar === 'off' ? 'set:avatar:fox' : 'set:avatar:off'))
+  out.push(switchLine('view', [['sidebar', 'sidebar'], ['quiet', 'quiet']], s.view === 'quiet' ? 'quiet' : 'sidebar', s.view === 'quiet' ? 'set:view:sidebar' : 'set:view:quiet', s.w))
+  out.push(switchLine('avatar', [['fox', 'animal'], ['off', 'off']], s.avatar === 'off' ? 'off' : 'fox', s.avatar === 'off' ? 'set:avatar:fox' : 'set:avatar:off', s.w))
   return out
 }
 

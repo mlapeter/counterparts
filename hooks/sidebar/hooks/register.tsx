@@ -1437,7 +1437,17 @@ export const register: Register = on => {
     const foot =
       full === null
         ? null
-        : full.footLines({ fit: bodyW, w, prose: SURFACE.prose, paused, view: normView(view), avatar: mode, note: note?.key === 'fill:dash' ? note.text : null })
+        : full.footLines({
+            fit: bodyW,
+            w,
+            prose: SURFACE.prose,
+            paused,
+            view: normView(view),
+            avatar: mode,
+            note: note?.key === 'fill:dash' ? note.text : null,
+            // the intro line only where the meeting waits and the Meet row isn't drawn (no repeats)
+            intro: meet.length === 0 && footShow.intro,
+          })
     const footRows = foot === null ? footerRows(bodyW, paused, footShow) : foot.length
     // The desktop's rows are its font's, a little taller than the cells it reports: two rows of headroom keep its
     // pane from scrolling by a line (2026-10-13).

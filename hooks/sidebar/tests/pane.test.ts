@@ -1703,21 +1703,38 @@ for (const [refusal, says] of [
   })
 }
 
-for (const [name, meet, opts] of [
-  ['the meeting is done', 'done', {}],
-  ['the meeting was skipped', 'skipped', {}],
-  ['core says nothing (an older core)', null, {}],
-  ['the folder is paused', 'later', { scopeMode: 'paused' }],
+// With no Meet row, the footer says the intro as the directory's does, until the meeting is done or skipped.
+for (const [name, meet, opts, footerSays] of [
+  ['the meeting is done', 'done', {}, false],
+  ['the meeting was skipped', 'skipped', {}, false],
+  ['core says nothing (an older core)', null, {}, true],
+  ['the folder is paused', 'later', { scopeMode: 'paused' }, true],
 ] as const) {
-  test(`full build: no Meet row when ${name}`, async ($, on) => {
+  test(`full build: no Meet row when ${name}; the footer ${footerSays ? 'says' : 'no longer says'} /counterparts:meet`, async ($, on) => {
     const w = world(on, opts)
     await start($, w)
     await wake($, w, meet)
     const ui = await mount($, w, 'terminal')
     expect((await bodyLines(ui)).join(' ')).not.toContain('Meet your counterpart')
+    expect((await footOf(ui)).join(' ').includes('/counterparts:meet')).toBe(footerSays)
     await ui.unmount()
   })
 }
+
+test('full build: in a pane narrower than the switches (inline, 16 cells), each row still fits its box', async ($, on) => {
+  const w = world(on, FOX)
+  await start($, w)
+  await wake($, w, 'later')
+  const narrow = { ...PANE_PROPS, bodyColumns: 18, placement: 'inline' } as typeof PANE_PROPS
+  const ui = await mount($, w, 'terminal', narrow)
+  const body = await bodyLines(ui)
+  expect(body[0]).toMatch(/^Meet your .*…$/)
+  // (a command in the footer is never cut, as in the directory's: under 25 cells the longest runs over)
+  const switches = (await footOf(ui)).slice(-2)
+  for (const l of [body[0] ?? '', ...switches]) expect({ l, fits: cells(l) <= 16 }).toEqual({ l, fits: true })
+  expect((await footOf(ui)).some(l => l.startsWith('● sidebar'))).toBe(true)
+  await ui.unmount()
+})
 
 test('full build: no Meet row while this session’s speak-first is the introduction; an earlier session’s that never reached core leaves it', async ($, on) => {
   const w = world(on)

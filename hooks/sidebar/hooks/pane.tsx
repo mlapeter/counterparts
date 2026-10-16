@@ -48,7 +48,7 @@ export type FullPane = {
   /** The Meet row (and a note under it), then a blank row: lines for the top of the body. */
   meetLines: (w: number, note: string | null) => Line[]
   /** The footer, in lines the body's surface module draws (so its rows can be clicked): its rule, the instructions, the switches. */
-  footLines: (s: { fit: number; w: number; prose: boolean; paused: boolean; view: string; avatar: string; note: string | null }) => Line[]
+  footLines: (s: { fit: number; w: number; prose: boolean; paused: boolean; view: string; avatar: string; note: string | null; intro: boolean }) => Line[]
 }
 
 // ── the title, which the header places ──
