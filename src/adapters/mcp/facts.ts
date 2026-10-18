@@ -1106,8 +1106,11 @@ function channelWords(semantic: SemanticSource): string | null {
 
 /** The labeled lines of one result. */
 /**
- * " · may be inside the window" for an event date coarser than the window
- * (a month, a year, a range) that only partly overlaps it. Such a fact is
+ * " · may be inside the time asked" for an event date coarser than the window
+ * (a month, a year, a range) that only partly overlaps it. Checked against the
+ * window as asked (`said`), not the stretched one the filter uses: a
+ * neighbouring month touches "last month" only through the stretch, and is
+ * not inside it. Such a fact is
  * kept by the window, but read beside a day window ("04-30..05-30") a bare
  * "2023-04" looked outside it, and the reader left the snake plant out of
  * "plants I got in the last month" (bench 3a704032, 2026-10-18).
@@ -1122,7 +1125,7 @@ function partlyInWindow(occurredOn: string | null, window: DayWindow | null): st
   if (c === null || c.precision === "day") return "";
   const overlaps = c.first <= window.to && c.last >= window.from;
   const contained = c.first >= window.from && c.last <= window.to;
-  return overlaps && !contained ? " · may be inside the window" : "";
+  return overlaps && !contained ? " · may be inside the time asked" : "";
 }
 
 function itemLines(m: FactItem, i: number, today: string, excerptChars: number, time: string | undefined, window: DayWindow | null): string[] {
@@ -1309,7 +1312,7 @@ function renderAt(r: FactsResult, today: string, excerpt: number): string {
   const times = sameDayTimes(r.memories);
   r.memories.forEach((m, i) => {
     lines.push("");
-    lines.push(...itemLines(m, first + i + 1, today, excerpt, times.get(m.id), r.time?.window ?? null));
+    lines.push(...itemLines(m, first + i + 1, today, excerpt, times.get(m.id), r.time?.said ?? r.time?.window ?? null));
   });
   lines.push("");
   const foot: string[] = [];

@@ -735,12 +735,16 @@ describe("time filters", () => {
     c.store.put({ type: "memory", kind: "fact", body: "Bought the zqplant pot.", status: "done", occurredOn: "2026-09" });
     c.store.put({ type: "memory", kind: "fact", body: "Repotted the zqplant.", status: "done", occurredOn: "2026-09-20" });
     const text = renderFacts(ask(c, "zqplant in the last month"));
-    expect(text).toContain("happened 2026-09 · may be inside the window\n");
+    expect(text).toContain("happened 2026-09 · may be inside the time asked\n");
     expect(text).toContain("happened Sun 09-20\n");
     expect(text).not.toContain("2026-08");
+    // "last month" (09-01..09-30) is stretched 2 days each side for the filter; August touches it only there (review of #516).
+    const stretched = renderFacts(ask(c, "zqplant last month"));
+    expect(stretched).toContain("time: last month → 09-01..09-30, stretched 2 days each side");
+    expect(stretched).not.toContain("may be inside the time asked");
     const wide = renderFacts(ask(c, "zqplant in 2026"));
     expect(wide).toContain("happened 2026-09\n");
-    expect(wide).not.toContain("may be inside the window");
+    expect(wide).not.toContain("may be inside the time asked");
   });
 
   // Review of #323: the count was taken before the folds and the weak tail.
