@@ -204,6 +204,11 @@ describe("every state is reachable from a fixture", () => {
     const primacy = pick(r, "primacy");
     expect(primacy.state).toBe("retired");
     expect(primacy.note).toContain("2026-09-04");
+    // Mood matching, off since 2026-10-10 (both weights 0): stood down, not
+    // "gone quiet" — doctor read it that way on the owner's store, 2026-10-18.
+    const mood = pick(r, "mood-match");
+    expect(mood.state).toBe("disabled");
+    expect(mood.note).toContain("mood weights 0");
   });
 
   /** A stand-down outranks the counts: a retired mechanism with rows in the
