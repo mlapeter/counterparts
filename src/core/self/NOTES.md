@@ -2211,3 +2211,24 @@ Lightly held, Mike's call of 2026-10-16 ("we'll see how it looks tomorrow").
   wake at another add it.
 - **Numbers.** A copy of the owner's store at 9,000: 3 items before, 4 after with the
   5,525-byte page, 9 with a page at 4,600. `test/wake-trims.test.ts` at production scale: 5 → 14.
+
+## 2026-10-18 — "Still open" leads with what is live (the wake-polish builder, lightly held)
+
+random-6c's 10-17 wake led "Still open" with two three-week-old questions and counted 57
+more. The order was person-scoped first, then OLDEST-opened first (behavioral-spec §1 G4:
+long-held relational debts trim last). It is now `identity.ts#byThreadLive`: untouched for
+`STILL_OPEN_STALE_DAYS` (14) lived days after every one touched since — "touched" is
+`max(born, lastUsedDay)`, #489 D's `staleOpen` reading, so the wake and the nightly close
+offer agree; then plain before "Unsettled — may be out of date" (`recall/standing.ts#
+unsettledAmong`, one read of the open candidates' pairs per render); then person-scoped
+first, which keeps G4 among peers; then the most recently touched. The core memories being
+reconsidered still lead (`RECONSIDERING_MAX`, not aged: they wait on a decision), but one
+that is also unsettled takes its turn after the plain ones — its unsettled prefix replaces
+the "keep or retire it" words. The count line says how many of what it counts are old:
+`(57 more still open, 12 untouched for 2+ weeks; recall ids …)` (`STALE_OPEN_WORDS`, read
+back by `countedLanes`). The room is unchanged; only the order and the count's words.
+
+Measured on the 10-18 snapshot copy (observer): shown before `mem_eef7749259b8` (core,
+unsettled) and `mem_108281079c41` (born lived day 10); after, `mem_18628b85d486` (core, the
+plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of the PR
+(nothing is stored differently).

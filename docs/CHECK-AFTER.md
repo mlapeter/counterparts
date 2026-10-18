@@ -116,6 +116,35 @@ Two days after they are installed, on the owner's session-start wakes (read-only
 - **Also look at:** doctor's Credit line's 7-day `drewOn` count. Zero after a week means the field isn't being
   used, which is a prompt problem, not a mechanism result.
 
+## Due ~2026-10-20, two days after it is installed (the wake polish, 2026-10-18, lightly held — docs/decisions.d/feat-wake-polish-1018.md)
+
+On the owner's session-start wakes in ~/counterparts and ~/random (read-only).
+
+### "Still open" shows this week's items
+- **Look at:** the items under "Still open" and the count line under them. The plain items
+  should be ones born or used in the last two weeks; the count line should read
+  `(N more still open, M untouched for 2+ weeks; …)` with M near the number #489 D offers to
+  close each night.
+- **Why:** the old order (oldest-opened first) led every wake with the same three-week-old
+  questions (random-6c, 10-17).
+- **Changes a decision if:** the shown items are recent but noise (the old ones were the
+  live ones) → the stale days are too short, or "touched" should count a wake showing; or M
+  stays large for days while the close offers keep landing → the wake should say more than
+  a count, which is #489 D's to answer.
+
+### The handoff block reads at a glance
+- **Look at:** "Where the work in this directory was left off". A stale handoff says
+  `N days old; since then: …` in one parenthesis; when every listed one is stale, only one is
+  listed and the rest are `+N older here: ids`.
+- **Changes a decision if:** a session works from a stale handoff it should have read past,
+  or misses an older handoff it needed because only one was listed → list two when all are
+  stale.
+
+### Yesterday names folders
+- **Look at:** the Yesterday line in ~/random: `…; and 2 sessions in ~/counterparts`.
+- **Changes a decision if:** a folder Mike keeps apart shows up there → the gate is not the
+  one the "Today, elsewhere" line uses, and it is a bug.
+
 ## Due at the first live catch-up (the nightly run's or `counterparts catch-up`)
 
 ### Catch-up's real per-part cost

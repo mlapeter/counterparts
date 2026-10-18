@@ -527,3 +527,33 @@ real Stop hook on a written transcript:
   only ever read from a turn-end that held a conversation span.
 - An exact repeat of earlier words is not captured twice (layer-2 dedup), so the "last"
   message can be the earlier copy.
+
+## 14. The wake polish: one staleness sentence, one handoff when all are stale, Yesterday by folder (2026-10-18)
+
+From random-6c's 10-17 wake (`~/counterparts-notes/2026-10-17-wake-feedback.md`, items 3
+and 4); the wake-polish builder, lightly held.
+
+- **Staleness as one sentence** (`staleWords`): `2 days old; since then: a newer chapter
+  here; written on 0.3.24, 0.3.25 now`. The release is said as what it was and what it is,
+  not "installed since": a session that installs a release and writes its handoff before
+  restarting is still running the old one (it happened on 10-16), so "before 0.3.25 was
+  installed" was not true of its handoff.
+  Age is calendar days in the store's zone (`daysBetween` of the two local dates), what a
+  person means by "two days old"; lived days would undercount a week away.
+- **The work-since accounting left the line.** `handoffSince` no longer calls `workSince`;
+  `PointerSince.after` and `writtenUpWords` are gone. The reserve shrank with it: the widest
+  single block 503 → 428 bytes, `HANDOFF_RESERVE_MAX_BYTES` 1,963 → 1,946 (the older entries'
+  sentence is longer than their old words, the newest's shorter).
+- **All stale, one shown.** `pointerLadder` starts at one shown when every one it would list
+  in full carries a staleness sentence. The reserve sizing passes `collapseStale: false`:
+  `WIDEST_POINTER_SINCE` is always stale, and a reserve sized to the collapsed block would
+  leave a fresh morning's three without room.
+- **Yesterday by folder** (`last-here.ts#yesterdayLine`'s `places`): the chapters a session
+  start may not name by title are said as `and 2 sessions in ~/random` — only for a folder
+  `elsewhereGate.named` lets the "Today, elsewhere" line name (scope `on`, not this one, not
+  the store's own), and not at all otherwise, as that line does not say them. A chapter
+  whose row recorded no directory is not said either. Three room tests' fixtures had relied
+  on the old bare count to fill the line; they now write their chapters in the session's
+  own directory, so the line has the titles their names promised.
+
+Undo: `git revert` of the PR; nothing is stored differently.

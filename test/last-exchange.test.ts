@@ -571,7 +571,9 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     // reserved (it rides Work here's term, which the page borrows before it
     // steps down a rung).
     // Whole items (#489 C's lines left off): the lanes beside the page need the room.
-    const w = ownerMorning(BUDGET, 6_700, true);
+    // 6.85 KB since 2026-10-18 (6.7 before): the handoffs' reserve is sized to
+    // their shorter staleness sentence, which gives the composition the room.
+    const w = ownerMorning(BUDGET, 6_850, true);
     const text = morningWake(w, B);
     const quiet = morningWake(w, A);
     expect(lineOf(text)).toBeUndefined();

@@ -33,6 +33,7 @@ import {
   askFromStretch,
   ledger,
   recordCoverage,
+  workSince,
 } from "../src/core/coverage/index.js";
 import type { LedgerEntry } from "../src/core/coverage/index.js";
 import { SpanBuffer, planRetention, retentionSources } from "../src/core/remember/index.js";
@@ -569,7 +570,13 @@ describe("the handoff pointer says how current it is", () => {
     return LINE.exec(text)?.[1] ?? "(no pointer)";
   }
 
-  test("three states: written and nothing since; work since not yet written up; work since written up", () => {
+  // Before 2026-10-18 the pointer said the work here since it and how much of
+  // that was written up ("; work here 12:48–15:48 since, not yet written up").
+  // random-6c's 10-17 wake could not parse it; the wake-polish builder moved
+  // that accounting to doctor and `counterparts coverage`, which still count it
+  // (`workSince`, below). The pointer says when, who, and — only when it may be
+  // out of date — why (`staleWords`).
+  test("work since is coverage's to count, not the pointer's: the line is the same in all three states", () => {
     const k = clocked(T0 + 47 * MIN); // 12:47 UTC
     k.c.writeHandoff("The relief valve is seated. The loop test is next, then the gauges.", { scope: PROJ, session: "writer" });
     // 1. Nothing captured here since.
@@ -578,10 +585,13 @@ describe("the handoff pointer says how current it is", () => {
     const t = talker(k, "later");
     for (let i = 0; i <= 6; i++) t.piece(T0 + 47 * MIN + MIN + i * 30 * MIN);
     k.set(T0 + 4 * HOUR);
-    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer; work here 12:48\u201315:48 since, not yet written up");
+    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer");
+    const owed = workSince(k.c.spans, PROJ, T0 + 47 * MIN, { writer: "writer" });
+    expect([owed.overFloor, owed.unwritten > 0]).toEqual([true, true]);
     // 3. The same work, written up.
     k.c.spans.claimCoverage({ scope: PROJ, session: "later", proposalId: "prp_later" });
-    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer; work here 12:48\u201315:48 since, written up since");
+    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer");
+    expect(workSince(k.c.spans, PROJ, T0 + 47 * MIN, { writer: "writer" }).unwritten).toBe(0);
   });
 
   test("the WRITER'S OWN TURN is not work since, and work under the floor is not named (review of #289)", () => {
@@ -591,14 +601,17 @@ describe("the handoff pointer says how current it is", () => {
     // The same turn's Stop captures the prompt that asked for the handoff.
     w.piece(T0 + 48 * MIN);
     k.set(T0 + HOUR);
-    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer");
+    const since = (): ReturnType<typeof workSince> => workSince(k.c.spans, PROJ, T0 + 47 * MIN, { writer: "writer" });
+    expect(since().overFloor).toBe(false);
     // Two more pieces of the writer's after that Stop: under the floor.
     w.piece(T0 + HOUR);
     w.piece(T0 + HOUR + 10 * MIN);
-    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer");
-    // A third, past fifteen minutes: now it is work here since.
+    expect(since().overFloor).toBe(false);
+    // A third, past fifteen minutes: now it is work here since — counted by
+    // coverage, and still not said on the pointer's line (2026-10-18).
     w.piece(T0 + HOUR + 20 * MIN);
-    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer; work here 13:00\u201313:20 since, not yet written up");
+    expect(since().overFloor).toBe(true);
+    expect(wake(k.c)).toBe("written 09-29 12:47 by session writer");
   });
 
   test("the excerpt skips a list marker and will not stop at a short run — \"1.\", \"Step 2.\", \"e.g.\" (review of #289)", () => {

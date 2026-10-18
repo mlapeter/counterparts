@@ -182,6 +182,9 @@ function chapters(a: Adapter, ymd: string): void {
       kind: "self",
       title: `Seating the relief valves on kiln number ${String(i)} before the firing`,
       body: `## chapter 1 — ${readableDate(ymd)} · lived day 2\n\nWe seated the valves and wrote down what held.`,
+      // Written HERE, so a session start here names them by title (since
+      // 2026-10-18 a chapter from no recorded directory is not counted there).
+      origin: { scope: SCOPE },
     });
   }
 }
@@ -543,7 +546,10 @@ describe("a plain reminder due the morning the wake is read, under the widest de
       return { a, row, text };
     };
     for (const zone of ZONES) {
-      for (const pageBytes of [7_300, 7_400, 7_450]) {
+      // 75 bytes more than measured on 62c8c7cd (2026-10-18): the handoff's
+      // reserve is sized to its new, shorter staleness sentence (the work-since
+      // words left the line), so the room is as tight as it was at these sizes.
+      for (const pageBytes of [7_375, 7_475, 7_525]) {
         for (const said of [body(2), body(5)]) {
           const { a, row, text } = await one(zone, pageBytes, said, "plain");
           expect((row["page"] as Record<string, unknown>)["rung"]).toBe("whole");
@@ -1062,7 +1068,8 @@ describe("a plain reminder is never told to a turn no person started", () => {
       return { turn, out };
     };
     const m = await morning(zone, {
-      pageBytes: 6_950,
+      // 7,100 since 2026-10-18 (6,950 before): the handoffs' smaller reserve let a 6,950 page fit whole on the rungs where the newest handoff is the short one, and the room this test is about went with it.
+      pageBytes: 7_100,
       dated: 1,
       plain: true,
       widest: true,

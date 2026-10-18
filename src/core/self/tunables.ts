@@ -80,6 +80,16 @@ export interface SelfTunables {
    * questions out. CAL.
    */
   RECONSIDERING_MAX: number;
+  /**
+   * "STILL OPEN" LEADS WITH WHAT IS LIVE (2026-10-18, the wake-polish
+   * builder, lightly held): an open thread untouched — neither born nor used
+   * — for this many lived days ranks after every one touched since, and the
+   * lane's count line says how many of what it counts are that old ("41
+   * untouched for 2+ weeks"). The same "untouched" #489 D's `staleOpen`
+   * reads, so the wake and the nightly close-offer agree on what is stale.
+   * CAL.
+   */
+  STILL_OPEN_STALE_DAYS: number;
   /** Most warm-shelf hints considered. CAL. */
   HINTS_MAX: number;
   /** Most arriving occasions considered. CAL. */
@@ -266,6 +276,7 @@ export const SELF_TUNABLES: SelfTunables = {
   WORK_HERE_EXCERPT: 60,
   THREADS_MAX: 5,
   RECONSIDERING_MAX: 1,
+  STILL_OPEN_STALE_DAYS: 14,
   HINTS_MAX: 8,
   HORIZON_MAX: 6,
   COMING_UP_TODAY_ONLY: true,

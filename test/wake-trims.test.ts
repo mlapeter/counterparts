@@ -256,7 +256,7 @@ describe("2. today's date is said once, on the Now: line", () => {
   test("Yesterday: dated in the published bundle, undated at a session start", () => {
     const day = [{ id: "epi_000000000001", title: "Beans in", chapters: 1, createdAt: 1 }];
     expect(yesterdayLine(day, "2026-10-15")).toBe('Yesterday, Oct 15: "Beans in" (epi_000000000001).');
-    expect(yesterdayLine(day, "2026-10-15", undefined, 0, false)).toBe('Yesterday: "Beans in" (epi_000000000001).');
+    expect(yesterdayLine(day, "2026-10-15", undefined, [], false)).toBe('Yesterday: "Beans in" (epi_000000000001).');
   });
 
   test("item dates: `Oct 15`, `Oct 15 (due Oct 18)`, no year in the wake's own year — and whole in any other, so a date never reads as the wrong year", () => {

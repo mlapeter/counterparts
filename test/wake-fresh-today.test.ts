@@ -39,7 +39,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { Lifecycle } from "../src/adapters/lifecycle.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import { recordSession } from "../src/adapters/sessions.js";
-import { TODAY_ELSEWHERE_MAX_BYTES, chaptersOn, todayElsewhereLines, yesterdayLine, yesterdayShorter } from "../src/core/handoff/last-here.js";
+import { TODAY_ELSEWHERE_MAX_BYTES, chaptersOn, placeWords, todayElsewhereLines, yesterdayLine, yesterdayShorter } from "../src/core/handoff/last-here.js";
 import { CUE_MODE_META } from "../src/core/prospective/index.js";
 import {
   BRIEFING_KEY,
@@ -314,28 +314,41 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     return text.split("\n").find((l) => l.startsWith("Yesterday: "));
   }
 
-  test("its own directory's title, and another's only when about me with its scope on; the rest counted, never by id", () => {
+  // The rest BY FOLDER since 2026-10-18 (the wake-polish builder; a bare
+  // "and 2 more" / "N sessions in other projects" before): only a folder the
+  // "Today, elsewhere" line may name, and the rest not said at all.
+  test("its own directory's title, and another's only when about me with its scope on; the rest by folder where it may be named, never by id", () => {
     const y = yesterday();
     const text = y.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
     // Assembled at session start: no "composed at the last boundary" (2026-10-16).
     expect(text).not.toContain("composed at the last boundary");
-    expect(lineOf(text)).toBe(`Yesterday: "OWNTITLE chapter" (${y.ids["own"]}); "ABOUTMETITLE chapter" (${y.ids["aboutme"]}); and 2 more.`);
+    // The work chapter's folder is `on`: named. The `off` one is not said.
+    expect(lineOf(text)).toBe(`Yesterday: "OWNTITLE chapter" (${y.ids["own"]}); "ABOUTMETITLE chapter" (${y.ids["aboutme"]}); and a session in ${placeWords(YON)}.`);
+    expect(lineOf(text)).not.toContain(placeWords(FAR));
     for (const never of ["WORKTITLE", "OFFTITLE", "SECRETTITLE", y.ids["work"] ?? "?", y.ids["off"] ?? "?", y.ids["secret"] ?? "?"]) {
       expect(text).not.toContain(never);
     }
     expect(readSentinel(text).intact).toBe(true);
   });
 
-  test("with no way to ask the scope setting only this directory's title is named; from a directory with none, the line is a count", () => {
+  test("with no way to ask the scope setting only this directory's title is named; from a directory with none, there is no line", () => {
     const y = yesterday();
     // The Counterpart alone, with no host to ask: nothing crosses.
     const alone = y.c.wake(BUDGET, { date: D2 }, { scope: HERE, session: B }).text;
-    expect(lineOf(alone)).toBe(`Yesterday: "OWNTITLE chapter" (${y.ids["own"]}); and 3 more.`);
+    expect(lineOf(alone)).toBe(`Yesterday: "OWNTITLE chapter" (${y.ids["own"]}).`);
     // Somewhere that wrote nothing yesterday, with every directory closed.
     const NONE = join(root, "shed");
     const none = y.c.wake(BUDGET, { date: D2 }, { scope: NONE, session: B, exportsFrom: () => false }).text;
-    expect(lineOf(none)).toBe(`Yesterday: 4 sessions in other projects.`);
-    for (const never of ["TITLE chapter", "epi_"]) expect(lineOf(none)).not.toContain(never);
+    expect(lineOf(none)).toBeUndefined();
+    for (const never of ["TITLE chapter", "epi_", "other projects"]) expect(none).not.toContain(never);
+    // With every directory open: the about-me chapters by title, the work
+    // chapters by folder only.
+    const open = y.c.wake(BUDGET, { date: D2 }, { scope: NONE, session: B, exportsFrom: () => true }).text;
+    const folders = lineOf(open) ?? "";
+    expect(folders).toBe(
+      `Yesterday: "ABOUTMETITLE chapter" (${y.ids["aboutme"]}); "OFFTITLE chapter" (${y.ids["off"]}); and 2 sessions in ${placeWords(HERE)}, ${placeWords(YON)}.`,
+    );
+    for (const never of ["OWNTITLE", "WORKTITLE", "SECRETTITLE", y.ids["own"] ?? "?", y.ids["work"] ?? "?"]) expect(folders).not.toContain(never);
   });
 
   test("the published bundle, which no one session reads, keeps the store-wide line; the shorter forms never surface a hidden id", () => {
@@ -348,15 +361,19 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     expect(published).not.toContain("SECRETTITLE");
     // The shorter forms over the named two, with two counted.
     const named = chaptersOn(y.c.store, D1).filter((c) => c.id === y.ids["own"] || c.id === y.ids["aboutme"]);
-    const shorter = yesterdayShorter(named, D1, 2);
+    const shorter = yesterdayShorter(named, D1, [{ scope: YON, sessions: 2 }]);
     expect(shorter.length).toBeGreaterThan(0);
     for (const line of shorter) {
-      expect(line).toEndWith("; and 2 more.");
+      expect(line).toEndWith(`; and 2 sessions in ${placeWords(YON)}.`);
       for (const hidden of [y.ids["work"], y.ids["off"], y.ids["secret"]]) expect(line).not.toContain(hidden ?? "?");
     }
-    expect(yesterdayLine([], D1, undefined, 1)).toBe(`Yesterday, ${stampWords(D1.slice(5))}: 1 session in other projects.`);
+    expect(yesterdayLine([], D1, undefined, [{ scope: YON, sessions: 1 }])).toBe(`Yesterday, ${stampWords(D1.slice(5))}: a session in ${placeWords(YON)}.`);
     // At a session start, without the date (2026-10-16).
-    expect(yesterdayLine([], D1, undefined, 1, false)).toBe("Yesterday: 1 session in other projects.");
+    expect(yesterdayLine([], D1, undefined, [{ scope: YON, sessions: 1 }], false)).toBe(`Yesterday: a session in ${placeWords(YON)}.`);
+    // Several folders: the most sessions first, each folder's count when more than one.
+    expect(yesterdayLine([], D1, undefined, [{ scope: YON, sessions: 1 }, { scope: FAR, sessions: 2 }], false)).toBe(
+      `Yesterday: 3 sessions in ${placeWords(FAR)} (2), ${placeWords(YON)}.`,
+    );
     expect(yesterdayLine([], D1)).toBeNull();
   });
 });

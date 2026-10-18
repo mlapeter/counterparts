@@ -180,6 +180,9 @@ function chapters(a: ReturnType<typeof openAdapter>, ymd: string): void {
       kind: "self",
       title: `Seating the relief valves on kiln number ${String(i)} before the firing`,
       body: `## chapter 1 — ${readableDate(ymd)} · lived day 2\n\nWe seated the valves and wrote down what held.`,
+      // Written HERE, so a session start here names them by title (since
+      // 2026-10-18 a chapter from no recorded directory is not counted there).
+      origin: { scope: SCOPE },
     });
   }
 }
