@@ -283,7 +283,28 @@ one row per original (40 originals so far).
   (a bug lane); or the live originals pile up past a few weeks without reaching the floor → revisit the cut for
   a merge (a smaller `factor`, still `changed`).
 
-## Group 4 (association), due ~5 lived days after it ships
+## Group 4 (association), due ~5 lived days after it ships — checked 2026-10-18
+
+**Checked 2026-10-18** (lived day 27, copy of the 10-18 snapshot plus a bench copy; full write-up
+~/counterparts-notes/2026-10-18-association-diagnosis.md). Two triggers are met; the decisions are Mike's:
+- **Edges per day:** write-time 163, contiguity 1,247, replay 1,486, co-use 36, drewOn 3 over the week.
+  Write-time is 0.13× contiguity, so the 3× trigger is not met.
+- **Write-time links later reinforced:** at most 3 of 161 (≤2%); replay 1.5%, contiguity 0.9%. **The "~0"
+  trigger is met.**
+- **Hand-read of 20 write-time edges:** 5 right, 4 unsure, 11 noise. **The "still mostly noise" trigger is
+  met** (narrowly).
+- **linksReached:** 0 over 7 lived days (0 since the field exists). The Association light is amber. The
+  replay arms were rerun: at 0.0125 there are 71 pointers shown on 54 of 1,375 turns, and 2 of 20 hand-read
+  fit the turn, so the result argues against lowering `LINK_POINTER_MIN_FRACTION`.
+- **The clinic pair (bench):** linked both ways at 0.05 after two nights (the first night left it waiting),
+  too faint to change recall.
+- **Why spread is starved (ranked):** (1) edges are too weak: decayed max 0.159, below the ~0.16 a hop needs
+  to carry past a seed and the 0.4 a lone pointer needs; use rarely reinforces them (58 of 1,986 shows
+  credited). (2) A hop adds a median 2% activation, while a below-bar candidate needs a median +76%.
+  (3) Pointers are gated twice (threshold, then anchor).
+- **Recommendation (not decided):** keep the pointer threshold; consider dropping write-time links; the
+  lever is upstream, in what counts as use; the Association light could read "partly built".
+
 
 The fast-forward on the 10-11 copy (7 lived days replayed with write-time links, replay deposits and
 co-use running, no model calls) is the baseline: write-time 95 new trails (904 before the review of #423

@@ -31,3 +31,13 @@ ids. Each is undone by reverting the PR; nothing is stored differently.
   elsewhere" line may name (its scope setting on, not this folder, not the store's own);
   the rest are not said at all, as that line does not say them. Never a title or an id
   past the About-me gate.
+
+**Left open by the review (2026-10-18), not decided:**
+- A core memory being reconsidered that is also unsettled never takes slot 1 while a plain one exists. That
+  departs from the rotation #430's review asked for. Revisit if a reconsidered core item sits unanswered
+  for more than a week.
+- The Yesterday line's shorter forms keep the whole folder list, so under pressure the line drops whole
+  instead of naming fewer folders.
+- Already on master before this change: when the wake falls back to the bundle published at the last
+  boundary, it can exceed a very small ceiling (1,234 B against 1,200 in a sweep). The default ceiling is
+  9,000, so no real install is affected.
