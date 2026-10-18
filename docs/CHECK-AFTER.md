@@ -123,8 +123,9 @@ On the owner's session-start wakes in ~/counterparts and ~/random (read-only).
 ### "Still open" shows this week's items
 - **Look at:** the items under "Still open" and the count line under them. The plain items
   should be ones born or used in the last two weeks; the count line should read
-  `(N more still open, M untouched for 2+ weeks; …)` with M near the number #489 D offers to
-  close each night.
+  `(N more still open, M untouched for 2+ weeks; …)`. M won't match #489 D's nightly close
+  offer: that one looks from 4 lived days and offers at most 5 a night. Watch M fall as its
+  closes land.
 - **Why:** the old order (oldest-opened first) led every wake with the same three-week-old
   questions (random-6c, 10-17).
 - **Changes a decision if:** the shown items are recent but noise (the old ones were the

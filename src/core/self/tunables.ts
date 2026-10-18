@@ -85,9 +85,10 @@ export interface SelfTunables {
    * builder, lightly held): an open thread untouched — neither born nor used
    * — for this many lived days ranks after every one touched since, and the
    * lane's count line says how many of what it counts are that old ("41
-   * untouched for 2+ weeks"). The same "untouched" #489 D's `staleOpen`
-   * reads, so the wake and the nightly close-offer agree on what is stale.
-   * CAL.
+   * untouched for 2+ weeks"). "Untouched" is read as #489 D's `staleOpen`
+   * reads it (born or used), but the thresholds differ: the nightly
+   * close-offer looks from `REFLECT_TUNABLES.STALE_OPEN_DAYS` (4) and offers
+   * at most 5 a night, so it does not count what this counts. CAL.
    */
   STILL_OPEN_STALE_DAYS: number;
   /** Most warm-shelf hints considered. CAL. */

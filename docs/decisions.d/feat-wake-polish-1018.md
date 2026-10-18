@@ -8,8 +8,8 @@ ids. Each is undone by reverting the PR; nothing is stored differently.
   that would show as "Unsettled — may be out of date" ranks after a plain one; person-scoped
   threads still come first among their peers; then the most recently touched first. Before,
   the order was person-scoped first, then oldest-opened first, so the weeks-old questions
-  nobody closed led every wake. "Untouched" is read as #489 D's nightly close-offer reads it,
-  so the wake and the reflection agree on what is stale. The room is the same; only the
+  nobody closed led every wake. "Untouched" is read as #489 D's nightly close-offer reads it
+  (born or used), at a different threshold: 14 lived days here, 4 there. The room is the same; only the
   order. The core memory being reconsidered still leads (one at a time, rotating); one that
   is also unsettled waits behind the plain ones, because its unsettled label replaces the
   "keep or retire it" words. The count line now says what it counts: `(57 more still open,
@@ -23,7 +23,9 @@ ids. Each is undone by reverting the PR; nothing is stored differently.
   and `counterparts coverage` still count it. A handoff that is fresh reads as before.
 - **When every handoff listed is stale, one is shown.** The newest in full and the rest by
   id ("+3 older here: …"). The reserve is still sized for three, so a fresh morning keeps
-  its room. Smaller in bytes overall: the widest single pointer went from 503 to 428.
+  its room. The widest single pointer the reserve sizes to went from 503 to 428 bytes, but
+  the 10-18 snapshot's wakes grew by 59–72 bytes, because an older stale handoff's sentence
+  is longer than its old words.
 - **Yesterday names folders, not a count.** "Yesterday: … ; and 2 sessions in ~/counterparts"
   in place of "and 2 more" / "3 sessions in other projects". Only a folder the "Today,
   elsewhere" line may name (its scope setting on, not this folder, not the store's own);

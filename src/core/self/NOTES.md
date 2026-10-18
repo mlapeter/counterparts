@@ -2218,8 +2218,8 @@ random-6c's 10-17 wake led "Still open" with two three-week-old questions and co
 more. The order was person-scoped first, then OLDEST-opened first (behavioral-spec §1 G4:
 long-held relational debts trim last). It is now `identity.ts#byThreadLive`: untouched for
 `STILL_OPEN_STALE_DAYS` (14) lived days after every one touched since — "touched" is
-`max(born, lastUsedDay)`, #489 D's `staleOpen` reading, so the wake and the nightly close
-offer agree; then plain before "Unsettled — may be out of date" (`recall/standing.ts#
+`max(born, lastUsedDay)`, as #489 D's `staleOpen` reads it (its threshold is 4 lived days,
+not 14, so the two don't count the same set); then plain before "Unsettled — may be out of date" (`recall/standing.ts#
 unsettledAmong`, one read of the open candidates' pairs per render); then person-scoped
 first, which keeps G4 among peers; then the most recently touched. The core memories being
 reconsidered still lead (`RECONSIDERING_MAX`, not aged: they wait on a decision), but one
