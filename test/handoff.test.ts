@@ -1815,9 +1815,11 @@ describe("several sessions leave handoffs in one directory", () => {
       version: 9,
     });
     const hs = Array.from({ length: 1_000 }, (_, i) => widest(i));
-    // Every entry may say why it may be out of date (2026-10-01).
-    const since = hs.map((_, i) => (i === 0 ? WIDEST_POINTER_SINCE : { written: "12-31 23:59", after: null, stale: WIDEST_POINTER_SINCE.stale ?? null }));
-    const ladder = pointerLadder(hs, 999_999, { since });
+    // Every entry may say why it may be out of date (2026-10-01), in the same
+    // sentence since 2026-10-18 — and the reserve is sized to the whole ladder,
+    // not the one a wake shows when every one is stale (`collapseStale`).
+    const since = hs.map(() => WIDEST_POINTER_SINCE);
+    const ladder = pointerLadder(hs, 999_999, { since, collapseStale: false });
     expect(ladder).toHaveLength(HANDOFF_WAKE_SHOWN + 1);
     for (const rung of ladder) expect(bytesOf(rung.block)).toBeLessThanOrEqual(HANDOFF_RESERVE_MAX_BYTES);
     expect(bytesOf(pointerBlockMany(hs, 999_999, { since }) as string)).toBeLessThanOrEqual(HANDOFF_RESERVE_MAX_BYTES);
@@ -1953,7 +1955,7 @@ describe("what was planned here since the handoff (2026-10-09)", () => {
       version: 9,
     });
     const hs = Array.from({ length: 1_000 }, (_, i) => widest(i));
-    const since = hs.map((_, i) => (i === 0 ? WIDEST_POINTER_SINCE : { written: "12-31 23:59", after: null, stale: WIDEST_POINTER_SINCE.stale ?? null }));
+    const since = hs.map(() => WIDEST_POINTER_SINCE);
     // Three at the title cap, the widest word, a real id's width, and as many
     // more as one read can find.
     const title = excerpt("x".repeat(200), SINCE_TITLE_BYTES);
@@ -1962,7 +1964,7 @@ describe("what was planned here since the handoff (2026-10-09)", () => {
       items: Array.from({ length: SINCE_SHOWN }, (_, i) => ({ id: `mem_${String(i).padStart(12, "f")}`, title, word: "proposed" })),
       more: SINCE_READ - SINCE_SHOWN,
     };
-    const ladder = pointerLadder(hs, 999_999, { since, plans });
+    const ladder = pointerLadder(hs, 999_999, { since, plans, collapseStale: false });
     expect(Math.max(...ladder.map((r) => bytesOf(r.block)))).toBe(HANDOFF_RESERVE_MAX_BYTES);
     // What the line adds to a block, with its newline: at its widest, and in
     // the typical case — one plan with a short title.

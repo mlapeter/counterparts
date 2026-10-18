@@ -152,12 +152,11 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     session" for the reader's own, and the model when the host recorded one), that
     several live handoffs are shown newest first with at most `HANDOFF_WAKE_SHOWN` in full
     and the rest named by id, that a
-    pointer states when it was written (since 2026-09-30 to the minute, and — when work past
-    the owed floor was captured here after that, not counting the writing session's own
-    turn — when that work ran and how far it is written up, computed at delivery from piece
-    times and claims by `coverage/#workSince`: "written up since", "written up to 17:48
-    (chapter), 3 pieces after" (the latest written-up piece's time), "nothing new to write
-    up as of 16:20", or "not yet written up" only when no claim stands on any of it), the
+    pointer states when it was written (since 2026-09-30 to the minute; from 2026-09-30 to
+    2026-10-18 the newest also said when work here ran after it and how far that was written
+    up — "work here 16:01–17:53 since, written up to 17:48 (chapter), 3 pieces after" — which
+    the wake-polish builder took off the line on 2026-10-18 as unparseable; doctor and
+    `counterparts coverage` say it, from `coverage/#workSince`), the
     first sentence of at least
     `EXCERPT_MIN_SENTENCE` characters of its first line of SUBSTANCE (headings and a leading
     list marker are skipped) and its id,
@@ -192,13 +191,19 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     and NEVER a confidential one (the episode or any copy). A confidential chapter is
     "last here" to the owner only (review of #311).
 
-12. **[M] A handoff says when it may be out of date** (2026-10-01). Beside who and when,
-    at delivery: "before 0.3.10 was installed" when the release that wrote it — stamped on
+12. **[M] A handoff says when it may be out of date** (2026-10-01; one sentence since
+    2026-10-18, `staleWords`). Beside who and when, at delivery, each handoff shown: how old
+    it is in calendar days of the store's zone (from one day on), "since then: a newer
+    chapter here" when a session other than its writer wrote a chapter in this directory
+    after it, and "written on 0.3.9, 0.3.10 now" when the release that wrote it — stamped on
     the row (`build`) since 2026-10-01, else the release its session opened with, from the
-    host's registry — is older than the one installed now; "a newer chapter here since"
-    when a session other than its writer wrote a chapter in this directory after it. Both
-    from records that exist; nothing judges whether what it waited on happened. The Stop
-    ask names `retireHandoff` for any handoff here whose work is done, whoever left it.
+    host's registry — is older than the one installed now. Neither, and nothing is said (an
+    old handoff that is not stale says its date). Both from records that exist; nothing
+    judges whether what it waited on happened. **When every handoff the block would list in
+    full is stale** (2026-10-18, lightly held), the block lists the newest in full and the
+    rest by id ("+3 older here: …"); the boundary's reserve is still sized to the whole
+    ladder (`pointerLadder`'s `collapseStale: false`). The Stop ask names `retireHandoff`
+    for any handoff here whose work is done, whoever left it.
 
 12. **[A] The "Yesterday" line is composed here, carried by the wake** (2026-10-01, wake
     build 3). `last-here.ts#chaptersOn` reads, per episode, the chapters WRITTEN on a date

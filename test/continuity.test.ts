@@ -162,7 +162,7 @@ async function mikesAfternoon(k: ReturnType<typeof afternoon>): Promise<{ episod
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the next session here is told who was last here", () => {
-  test("Mike's test, end to end: B's wake names A's chapter, and the pointer says how far it is written up", async () => {
+  test("Mike's test, end to end: B's wake names A's chapter, and the pointer says a newer chapter is here since", async () => {
     const k = afternoon();
     const { episodeId } = await mikesAfternoon(k);
     const text = wake(k.c, B);
@@ -171,13 +171,13 @@ describe("the next session here is told who was last here", () => {
     expect(last).toBe(
       `Last here: session a1b2c3d4 on Opus 5.5, Sep 30 16:01–17:53 — "${TITLE}" (${episodeId}). We read four texts in a row and every one of them ended grief at a table.`,
     );
-    // The handoff C left stands, at the foot, and now says how much of A's
-    // evening is written up instead of "not yet written up".
+    // The handoff C left stands, at the foot, and says in one sentence what
+    // happened since: A's chapter (2026-10-18; before it, the line counted
+    // how much of A's evening was written up — doctor and coverage say that).
     const pointer = lines.find((l) => l.startsWith("Where I left off in this directory"));
-    expect(pointer).toContain("by session c9cacbcc");
-    // "Written up to" is a piece time, like the range: the last turn the
-    // chapter covers (17:48), not the moment it was written.
-    expect(pointer).toContain("work here 16:01–17:53 since, written up to 17:48 (chapter), 3 pieces after");
+    expect(pointer).toContain("by session c9cacbcc — since then: a newer chapter here):");
+    expect(pointer).not.toContain("written up");
+    expect(pointer).not.toContain("work here");
     // Order: Last here above the pointer, both above the sentinel.
     expect(lines.indexOf(last as string)).toBeLessThan(lines.indexOf(pointer as string));
     // The sentinel states the delivered total.
@@ -216,7 +216,7 @@ describe("the next session here is told who was last here", () => {
     expect(wake(k.c, B, THERE)).not.toContain("Last here:");
   });
 
-  test("a session that said there was nothing new: 'nothing new to write up as of', not 'written up to'", async () => {
+  test("a session that said there was nothing new: the pointer says nothing of what is written up (2026-10-18)", async () => {
     const k = afternoon();
     k.set(at(15, 19));
     k.c.writeHandoff("The release is cut; the tarball is in the backups folder. Mike publishes.", { scope: HERE, session: C });
@@ -226,7 +226,12 @@ describe("the next session here is told who was last here", () => {
     const r = await k.server(A).call("session_end", { session: A, memories: [] });
     expect(r.isError).not.toBe(true);
     k.talk(A, at(16, 30));
-    expect(wake(k.c, B)).toContain("work here 16:01–16:30 since, nothing new to write up as of 16:20, 1 piece after)");
+    // Before 2026-10-18: "work here 16:01–16:30 since, nothing new to write up
+    // as of 16:20, 1 piece after". Now no chapter and no newer release: the
+    // handoff is not stale, and its line is its date and author.
+    const pointer = wake(k.c, B).split("\n").find((l) => l.startsWith("Where I left off in this directory"));
+    expect(pointer).toStartWith("Where I left off in this directory (written 09-30 15:19 by session c9cacbcc): ");
+    expect(pointer).not.toContain("write up");
   });
 
   test("a session that wrote no chapter here is not 'last here'", async () => {

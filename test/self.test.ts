@@ -1099,14 +1099,16 @@ describe("identity ordering and enumeration", () => {
     expect(out.kept.identity).toEqual([older, younger]);
   });
 
-  test("threads keep relational debts to the end: person-scoped first, oldest first", () => {
+  test("threads keep relational debts to the end among their peers: person-scoped first, then what is live (2026-10-18)", () => {
     const s = store();
     const newFact = thread(s, "A fact thread opened yesterday.", { born: 8 });
     const oldPerson = thread(s, "A promise to Robin, still unkept.", { person: true, born: 1 });
     const oldFact = thread(s, "A fact thread opened long ago.", { born: 2 });
     const self = new Self({ store: s });
-    const out = self.build({ budgetBytes: 100_000, day: 0 });
-    expect(out.kept.threads).toEqual([oldPerson, oldFact, newFact]);
+    // Day 9: none untouched for two weeks. Person-scoped first, then the most
+    // recently touched (oldest-opened first before 2026-10-18).
+    const out = self.build({ budgetBytes: 100_000, day: 9 });
+    expect(out.kept.threads).toEqual([oldPerson, newFact, oldFact]);
   });
 
   test("a memory lands in exactly ONE lane — budget is never spent twice", () => {
