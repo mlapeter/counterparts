@@ -584,13 +584,18 @@ export function todayElsewhereLines(
         (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0),
     );
   const clock = (at: number): string => localStamp(at, zone).split(" ")[1] ?? "";
+  // A session that started on an earlier day and is still active today
+  // (2026-10-18, random-6c's wake: "open since 09:08" for a start the day
+  // before) says its start with the day. `lastAt` is today's, by the caller.
+  const start = (firstAt: number, lastAt: number | null): string =>
+    lastAt !== null && localDate(firstAt, zone) !== localDate(lastAt, zone) ? localStamp(firstAt, zone) : clock(firstAt);
   const one = (d: TodayElsewhere, chapters: boolean): string => {
     const when =
       d.firstAt === null
         ? ""
         : d.live
-          ? ` open since ${clock(d.firstAt)} (live)`
-          : ` ${clock(d.firstAt)}–${clock(d.lastAt ?? d.firstAt)}`;
+          ? ` open since ${start(d.firstAt, d.lastAt)} (live)`
+          : ` ${start(d.firstAt, d.lastAt)}–${clock(d.lastAt ?? d.firstAt)}`;
     const chapter = !chapters || d.chapter === null ? "" : ` — ${chapterWords(d.chapter)}`;
     const count = d.memories === 0 ? "" : `, ${String(d.memories)} ${d.memories === 1 ? "memory" : "memories"}`;
     return `${placeWords(d.scope)}${when}${chapter}${count}`;

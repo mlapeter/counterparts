@@ -737,6 +737,18 @@ describe("the line has a small room of its own, and the page keeps its own", () 
     expect(text).toContain("garden-b");
   });
 
+  test("a session that started yesterday and is active today says its start with the day", () => {
+    const dirs = [
+      { scope: "/home/someone/overnight", firstAt: at(D1, 9, 8), lastAt: at(D2, 8, 40), live: true, chapter: null, memories: 0 },
+      { scope: "/home/someone/finished", firstAt: at(D1, 22, 15), lastAt: at(D2, 1, 5), live: false, chapter: null, memories: 0 },
+      { scope: "/home/someone/today", firstAt: at(D2, 7, 30), lastAt: at(D2, 8, 0), live: false, chapter: null, memories: 0 },
+    ];
+    const line = todayElsewhereLines(dirs, ZONE)?.line ?? "";
+    expect(line).toContain("~/overnight open since 10-09 09:08 (live)");
+    expect(line).toContain("~/finished 10-09 22:15–01:05");
+    expect(line).toContain("~/today 07:30–08:00");
+  });
+
   test("many folders: the line stays within its cap, the rest as \"+N more\"", () => {
     const dirs = Array.from({ length: 9 }, (_, i) => ({
       scope: `/home/someone/projects/a-rather-long-folder-name-${String(i)}`,
