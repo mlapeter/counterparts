@@ -726,6 +726,23 @@ describe("time filters", () => {
     expect(renderFacts(week)).toContain("(in the window by this date)");
   });
 
+  // Bench 3a704032 (2026-10-18): a month-only date that straddles a day window is kept, and says it may be inside.
+  test("a coarser event date only partly inside the window is labeled; one wholly inside or a day is not", () => {
+    const c = brain();
+    seed(c);
+    // "in the last month" from Saturday 10-03 is the rolling 09-03..10-03.
+    c.store.put({ type: "memory", kind: "fact", body: "Got the zqplant from my sister.", status: "done", occurredOn: "2026-08" });
+    c.store.put({ type: "memory", kind: "fact", body: "Bought the zqplant pot.", status: "done", occurredOn: "2026-09" });
+    c.store.put({ type: "memory", kind: "fact", body: "Repotted the zqplant.", status: "done", occurredOn: "2026-09-20" });
+    const text = renderFacts(ask(c, "zqplant in the last month"));
+    expect(text).toContain("happened 2026-09 · may be inside the window\n");
+    expect(text).toContain("happened Sun 09-20\n");
+    expect(text).not.toContain("2026-08");
+    const wide = renderFacts(ask(c, "zqplant in 2026"));
+    expect(wide).toContain("happened 2026-09\n");
+    expect(wide).not.toContain("may be inside the window");
+  });
+
   // Review of #323: the count was taken before the folds and the weak tail.
   test("the outside count is distinct facts and not weak: a chapter and its copy are one, a passing mention none", () => {
     const c = brain();
