@@ -28,18 +28,18 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
 
-**Overdue: written 10-11/10-12, never checked** (check, or strike as no longer relevant)
+**Two follow-ups from the 10-19 overdue checks** (`~/counterparts-notes/2026-10-19-overdue-checks.md`)
 
-| Experiment | Section |
-|---|---|
-| The first live catch-up's real per-part cost | "Due at the first live catch-up" |
-| Peak context per reflection child on a heavy night | "Due at the first live nights with the reflection in its own child" |
-| Verbatim in the memory's body: first and second look, then decide | "Due 1 lived day / ~4 lived days after the verbatim trial ships" |
-| Group 2 / 2b: "this replaces that", one door for "A over B" | ".18 / Group 2", ".19 / Group 2b" |
-| No settled-over memory outranks its head; the old-claims era's effect on archives | "Ongoing (first two weeks)" |
+| Change | Why | When |
+|---|---|---|
+| Head wins: hold back a settled-over memory whenever its head was brought in for it (gate.ts ~L452) | 36 footnotes since 10-12 showed an earlier memory while its head didn't (21 ids) | after the feedback-loop PRs merge (same file) |
+| Slot detector: a proposal flags only, no provisional fade until the dream confirms | 4 of 7 right by hand-read, under the ~3-in-4 bar; the dream said "not the same" on 3 of 4; raising SLOT_COSINE doesn't separate them | same |
 
 **Checked** (kept below for the record): 10-12 first new-curve pass; 10-14 check-in; 10-18 wake trims, exit at 7
-vs 14 days, Group 4 association.
+vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost (1.75x the estimate, caps fine),
+reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
+exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
+effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
 
 ## Checked 2026-10-12 (lived day 21, the first new-curve pass, on 0.3.18)
 
