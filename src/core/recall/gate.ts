@@ -323,7 +323,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   // whole-sample bar a marginal earlier one cleared its leave-one-out bar and
   // showed while its head failed. Trying the earlier's own bar to see the
   // earlier-shown-without-its-head count go to ~0; check ~10-22; revert by
-  // dropping this lookup (IMPROVEMENTS.md, "the head-wins gap", 2026-10-19).
+  // dropping this lookup (docs/decisions.d/fix-head-wins-gap-1019.md).
   const byId = new Map(input.candidates.map((c) => [c.id, c]));
   const barOf = (c: Candidate, snr: number): number => {
     const basis = (c.standsFor !== undefined ? byId.get(c.standsFor) : undefined) ?? c;

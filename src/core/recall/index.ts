@@ -977,8 +977,8 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
   // it. Its direct candidate is dropped; its own reach stays in the turn's
   // background (`directReach`, review of #526). Trying this to see the
   // earlier-shown-without-its-head count go to ~0; check ~10-22; revert by
-  // keying this map back to a set of ids
-  // (IMPROVEMENTS.md, "the head-wins gap", 2026-10-19).
+  // skipping the head whenever `reached` has it, and dropping `directReach`
+  // (docs/decisions.d/fix-head-wins-gap-1019.md).
   const reached = new Map(candidates.filter((c) => c.linkOnly !== true).map((c) => [c.id, c]));
   const heads = candidates.map((c): string | null => {
     try {

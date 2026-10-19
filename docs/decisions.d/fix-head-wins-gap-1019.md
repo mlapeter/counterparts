@@ -38,5 +38,7 @@ gave that symptom; which one the live 36 came from was not measured.
 - **Check ~10-22:** on the live decision records since the install, count turns where a
   settled-over memory shows without its head (was 36 in ~981 turns); expect ~0, and the
   heads' showing count to rise by about as much. **Revert by** removing the `byId` lookup
-  in `gate.ts#barOf` and keying `headsWin`'s `reached` map back to a set of ids
-  (`ids.has(head)`).
+  in `gate.ts#barOf`, having `headsWin` skip a head whenever the words reached it (as
+  `ids.has(head)` did), and dropping `directReach` (its field and its line in the gate's
+  sample). The strongest-earlier claim can stay: it only picks which earlier the head
+  stands for.
