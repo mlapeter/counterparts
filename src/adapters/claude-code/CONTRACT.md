@@ -872,7 +872,13 @@ whose liveness check refuses a session left open overnight (review of #282, find
 child's own session (`--session-id`, host-minted before 2026-10-09) is QUIET (`HookInput.nightRun`, from
 `COUNTERPARTS_NIGHT_RUN`): its hooks capture nothing (so it owes no write-up) and give no dream
 lines, plain reminders, Stop ask, write-up pointer or first-launch question. It still wakes
-with the ordinary wake.
+with the ordinary wake. *Experiment started 2026-10-19 (feedback-loop build, part F; check on
+~10-22):* trying its prompt with **no ambient recall** either — no "came to mind", no footnotes, no quiet
+pointers, no `recall.decision` row (`hooks.ts#userPromptSubmit`, reason `night-run`); only
+the clock line — to see that night sessions stop showing up with footnotes in the day's
+numbers. Before, only its temporal cues stood down (#453) and each child's launch prompt was
+handed footnotes that landed in its gate state as shown. The run still reads memories on
+purpose through its tools. Revert by deleting the `nightRun` early return.
 
 **[M] The catch-up runs first, and takes everything owed (2026-10-01, wake build 3; unbounded 2026-10-11 — held lightly).** A `night`
 run (never a reflection-alone one) writes up owed stretches, in ANY directory, before it

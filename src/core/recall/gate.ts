@@ -46,6 +46,9 @@ export type Verdict =
   | "confidential-withheld"
   /** Boundary: this session already saw it. */
   | "dedup-suppressed"
+  /** This session WROTE it (since its last compaction), so it is already in
+   *  its context: would have been shown, and was not (2026-10-19, part C). */
+  | "echo-skipped"
   /** Hard gate (a). */
   | "dark-uncued"
   /** Hard gate (b), evaluated before any salience adjustment. */
@@ -128,6 +131,8 @@ export interface GateInput {
   /** The turn stated a feeling (any subject) — the affect flag's turn gate. */
   readonly affectStated: boolean;
   readonly turn: number;
+  /** Memories this session wrote — ambient recall's echo set (`Turn.echo`). */
+  readonly echo?: ReadonlySet<string>;
 }
 
 export interface GateResult {
@@ -339,6 +344,9 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     });
   };
 
+  /** In this session's echo set (`GateInput.echo`). */
+  const echo = (id: string): boolean => input.echo?.has(id) === true;
+
   /** Quiet pointers that passed the boundary gates, in the order activation
    *  ranked them (strongest arrival first). */
   const pointerPool: Candidate[] = [];
@@ -373,6 +381,10 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
         record(c, "dedup-suppressed");
         continue;
       }
+      if (echo(c.id)) {
+        record(c, "echo-skipped");
+        continue;
+      }
       pointerPool.push(c);
       continue;
     }
@@ -397,6 +409,16 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     faced.set(c.id, bars.admit);
     if (c.activation < bars.admit) {
       record(c, "below-bar");
+      continue;
+    }
+    // THE ECHO SKIP (2026-10-19, feedback-loop part C, an experiment): a memory
+    // this session wrote is already in its context, so handing it back is the
+    // conversation hearing itself. Checked HERE, once it has cleared the floor
+    // and its bar, so `echo-skipped` counts only what would have been shown —
+    // the number a review reads to see what a long session lost. It stays in
+    // the background sample, as a dedup-suppressed candidate does.
+    if (echo(c.id)) {
+      record(c, "echo-skipped");
       continue;
     }
     // Loud-tier eligibility. Hard gate (c) first: arrival makes a memory warm,
@@ -448,8 +470,10 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   // settle, 51 of them without their successor; the newer only 43.
   const admittedIds = new Set(admitted.map((a) => a.c.id));
   const kept: { c: Candidate; loud: boolean }[] = [];
+  // A head this session WROTE (the echo set, part C) is in its context too:
+  // the earlier version stays inhibited rather than shown in its place.
   for (const a of admitted) {
-    if (a.c.head !== undefined && (admittedIds.has(a.c.head) || input.state.surfaced[a.c.head] !== undefined)) {
+    if (a.c.head !== undefined && (admittedIds.has(a.c.head) || input.state.surfaced[a.c.head] !== undefined || echo(a.c.head))) {
       record(a.c, "inhibited");
       continue;
     }
@@ -502,7 +526,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       continue;
     }
     // A pointer whose head is shown, or already in the session, is its earlier version (2026-10-11).
-    if (p.head !== undefined && (shownIds.has(p.head) || pointers.some((q) => q.id === p.head) || input.state.surfaced[p.head] !== undefined)) {
+    if (p.head !== undefined && (shownIds.has(p.head) || pointers.some((q) => q.id === p.head) || input.state.surfaced[p.head] !== undefined || echo(p.head))) {
       record(p, "inhibited");
       continue;
     }

@@ -1768,7 +1768,9 @@ describe("the DB is a cache — everything indexed is reconstructible from canon
       { session: "s1", scope: "proj" },
     );
     const memoryId = deposit.memoryId as string;
-    const before = c.recallForTurn({ sessionId: "s1", text: "canonical prose in markdown files" });
+    // Asked from another session: the one that wrote it is not handed it back
+    // (the echo skip, 2026-10-19, part C).
+    const before = c.recallForTurn({ sessionId: "s2", text: "canonical prose in markdown files" });
     expect([...before.decision.surfaced, ...before.decision.footnotes]).toContain(memoryId);
 
     c.store.rebuildCache();

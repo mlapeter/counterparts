@@ -233,6 +233,25 @@ dreamer is the model (a background agent the session launches), outside this pro
   important whole. A bundle longer than one tool result — measured as the MCP server sends
   it — comes in parts (phase `part`). A merge or a gist records the fidelity it was made
   from (`detail.fidelity`: whole, excerpt, line — or whole, looked up since).
+- **The day's replay — an experiment, started 2026-10-19 (feedback-loop build, part E;
+  check on ~10-22, two lived days after install).** Trying this to see whether the day's
+  own use, fed back into the night, changes what the dream replays and links. `day.ts#readDay`
+  reads the stretch since the last dream's start from rows the day already leaves:
+  `recall.credit` (opened, quoted, `drewOn`), `recall.rated`, waking `returns` (every source
+  but `dream`, `reflection`, `legacy`) and `recall.decision` (shown). Each memory gets its
+  strongest mark: `reward` (`drewOn` or rated 3), `used`, `useful` (rated 2), `shown` (never
+  if rated 0 in the stretch). A queued memory's replay priority is multiplied by
+  `1 + DAY_LIFT[mark]`. Up to `TODAY_COUNT` used / useful / reward memories are listed in the
+  bundle as `today`, strongest first; one already dreamed joins in the role `today` (fit
+  priority `TODAY_FIT`, between `new` and `on-mind`; it takes over a neighbour's or a mixing
+  role, and a look-back one keeps its own); a queued one that is not tonight's new
+  is left out (shown, it would leave the queue undreamed). Pairs used together in one
+  session, both shown, are listed as `todayPairs`, at most `TODAY_PAIRS`. The launch prompt
+  says what both mean. Physics and the dream's limits are unchanged: the dream still chooses
+  what it replays and links. A night with nothing new still does not dream (`nothing-new`).
+  The `dream.begun` row counts `today`, `todayReward`, `todayDreamed`, `todayPairs`,
+  `freshMarked`. Revert by setting `DAY_LIFT` to zeros and `TODAY_COUNT` to 0, or by
+  reverting the commit; nothing is stored differently.
 - **A memory leaves the queue once it was delivered** (2026-10-10, Lane 0; working
   default). When the run's transcript shows the host cut a dream part to a preview and the
   part was not fetched again whole, `requeueSpilled` takes that part's new memories back

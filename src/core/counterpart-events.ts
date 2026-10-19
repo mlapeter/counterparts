@@ -888,6 +888,10 @@ export const RECALL_DECISION_FIELDS = [
   "dropped",
   // Group 4 (2026-10-11): shown memories a link put there (pointers + lifted).
   "linksReached",
+  // Feedback loop part C (2026-10-19): memories this session wrote that the
+  // turn would have shown — the echo skip's count. Added to the hashed set the
+  // way `moodMatchedIds` was (2026-10-14); `tools/parallel`'s hash moves with it.
+  "echoSkipped",
 ] as const;
 
 export type SurfaceSetField = (typeof RECALL_DECISION_FIELDS)[number];
@@ -978,6 +982,9 @@ export function recallDecisionRecord(
     // candidates a hop lifted into the cut. Top-level, so the dashboard's
     // proof can sum it.
     linksReached: (d.spread?.pointersShown ?? 0) + (d.spread?.liftedShown ?? 0),
+    // THE ECHO SKIP (2026-10-19, part C): what this session wrote and the turn
+    // would have shown, turned away because it is already in context.
+    echoSkipped: d.echoSkipped,
   } satisfies Record<SurfaceSetField, unknown>;
   return surfaceSet;
 }

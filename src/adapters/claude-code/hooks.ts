@@ -987,6 +987,19 @@ export class ClaudeCodeAdapter extends Lifecycle {
       if (text.trim().length === 0) {
         return { ...out, ok: true, reason: "empty-prompt", injection: `${this.nowLine()}${context.length === 0 ? "" : `\n${context.trimEnd()}`}`, ...told };
       }
+      // THE NIGHTLY RUN'S OWN PROMPT GETS NO AMBIENT RECALL (2026-10-19, part
+      // F of the feedback-loop build): an experiment, to see night sessions
+      // drop out of the day's footnote numbers; check on ~10-22, revert by
+      // deleting this return. Until now only its cues
+      // stood down (`noCues`, #453): the launch prompt still ran the composed
+      // recall, so each child (dream, reflection, catch-up) was handed
+      // footnotes nobody reads, and they sat in its gate state — counted as
+      // shown on its boundary's credit row and rateable as if a day had seen
+      // them. The run reads memories on purpose, through its tools; nothing
+      // comes to mind uninvited. The clock line stays.
+      if (input.nightRun === true) {
+        return { ...out, ok: true, reason: "night-run", injection: `${this.nowLine()}${context.length === 0 ? "" : `\n${context.trimEnd()}`}`, ...told };
+      }
       // The person's lines (reminders, the dream's) are the JSON form's other
       // field, so they take nothing from recall's room (2026-10-10).
       const budgetBytes = this.recallRoom(input, context);
