@@ -484,6 +484,35 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     `Turn.echo`. Known gap: a memory a server wrote before it knew its session
     (`UNBOUND_SESSION`) can still echo. Revert by no longer setting `Turn.echo` in
     `recallForTurn`. Tests: `echo-skip.test.ts`.
+22. **[M]** **Context priming: what the session is doing gives its neighbours a head start**
+    (an experiment started 2026-10-19, `prime.ts`: trying it to see whether primed
+    footnotes are rated more useful than unprimed ones without one cluster winning turn
+    after turn; check on ~10-22; revert by setting `PRIME_LINK_UNITS` and
+    `PRIME_TRAIN_SHARE` to 0, or reverting the PR). SOURCES: what this session used
+    (credited at the referenced, engaged or useful tier, or rated 2–3 on its rating
+    rows), what it wrote (the echo set, item 21), and what is open in its folder (the open
+    threads its wake kept, recorded by the host as a `prime` gate record, and the
+    directory's live handoffs), read once a session. Each passes a head start one hop
+    along links (`Associate#partnersOf`, decayed weight × the source's weight, decayed
+    by turns since it first counted) and joins the TRAIN OF THOUGHT — a running vector of
+    this session's prompts, decayed by turn, kept in gate state (kind `prime`, never read
+    by `loadGateState`) and scored against the turn's candidates, never ranked over the
+    store. THE LIMITS, which are the guarantee: ambient only (only `recallForTurn` sets
+    `Turn.prime`); only a candidate this turn's words or meaning reached (priming never
+    mints one, and quiet pointers are not primed); never a memory in the echo set; at most
+    `PRIME_CEILING` times its own cue + semantic; out of `cueFraction` both halves; out of
+    the turn's background sample (as a stamp is), so a primed cluster does not raise
+    anyone's bar; and out of BOTH absolute floors — hard gate (b) and the loud tier's
+    per-kind floor are judged on the activation without it, so on a turn whose background
+    is too thin for a relative bar priming changes nothing. Inside those, it may lift a
+    memory into the cut and past its relative bar, in either tier. Habituation's raised
+    bar (item on ratings above) applies after it, unchanged. A first prompt with nothing
+    open in its folder primes nothing: the same injection and verdicts as with priming
+    off. The train is the person's words in another form, so it is emptied in a session
+    idle past the retention ceiling (`clearIdleCarries`). The decision row carries a
+    `primed` summary (sources by kind, whether a train existed, primed / lifted / by
+    channel among what was shown) and each shown row its `primed` part; `null` when
+    priming did not run. Tests: `context-priming.test.ts`.
 
 ## 6. Scars honored
 

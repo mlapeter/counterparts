@@ -10,6 +10,7 @@
  *   `activate.ts`  three channels — cue, semantic, arrival — against the cache box
  *   `gate.ts`      the hard gates, this turn's own background bar, the tiers
  *   `session.ts`   per-session gate state, PERSISTED (the ruling this module exists to honor)
+ *   `prime.ts`     context priming, an experiment (2026-10-19): the session's train of thought and sources
  *   `render.ts`    composed budget, explicit trim order, tail sentinel
  *   `tunables.ts`  every knob, in one visible place
  *
