@@ -211,6 +211,46 @@ describe("the review of #526", () => {
     }
   });
 
+  const bgOf = () => {
+    const words = ["alpha", "bravo", "charlie", "delta", "echo"];
+    return [6, 8, 10, 12, 14, 6, 8, 10, 12, 14].map((a, i) => cand(`bg${i}`, `${words[i % 5]} ${i}`, a));
+  };
+  const gateOf = (cs: Candidate[], extra: Partial<Parameters<typeof gate>[0]> = {}) =>
+    gate({ candidates: cs, state: freshGateState("s"), storeSize: 200, owner: true, affectStated: false, turn: 1, ...extra }, TUNABLES);
+
+  test("either bar: a head that showed on its own salience still shows when it stands in", () => {
+    // Reached directly at 14.0 on a high salience it cleared its own bar; the
+    // earlier one at 14.6 on a low salience fails its own.
+    const before = gateOf([...bgOf(), cand("earlier", "e", 14.6, { head: "head", sal: 0.2 }), cand("head", "h", 14, { sal: 0.95 })]);
+    expect(shownIds(before)).toEqual(["head"]);
+    const after = gateOf([
+      ...bgOf(),
+      cand("earlier", "e", 14.6, { head: "head", sal: 0.2 }),
+      cand("head", "h", 14.6, { sal: 0.2, standsFor: "earlier", directReach: 14, directSal: 0.95 }),
+    ]);
+    expect(shownIds(after)).toEqual(["head"]);
+    // Without its own reach to fall back on, the earlier's bar alone fails it.
+    const alone = gateOf([...bgOf(), cand("earlier", "e", 14.6, { head: "head", sal: 0.2 }), cand("head", "h", 14.6, { sal: 0.2, standsFor: "earlier" })]);
+    expect(shownIds(alone)).toEqual([]);
+  });
+
+  test("the earlier one is held back whenever its head stands in: a habituated head that fails leaves neither", () => {
+    const r = gateOf([...bgOf(), cand("earlier", "e", 16, { head: "head" }), cand("head", "h", 16, { standsFor: "earlier" })], {
+      habituated: new Map([["head", 3]]),
+    });
+    expect(verdictOf(r, "head")).toBe("below-bar");
+    expect(verdictOf(r, "earlier")).toBe("inhibited");
+    expect(shownIds(r)).toEqual([]);
+  });
+
+  test("a confidential head withheld from a guest: the earlier one still shows", () => {
+    const r = gateOf([...bgOf(), cand("earlier", "e", 16, { head: "head" }), cand("head", "h", 16, { standsFor: "earlier", confidential: true })], {
+      owner: false,
+    });
+    expect(verdictOf(r, "head")).toBe("confidential-withheld");
+    expect(shownIds(r)).toEqual(["earlier"]);
+  });
+
   test("the weak direct reach stays in the background: no other memory's bar moves", () => {
     const words = ["alpha", "bravo", "charlie", "delta", "echo"];
     const bg = [6, 8, 10, 12, 14, 6, 8, 10, 12, 14].map((a, i) => cand(`bg${i}`, `${words[i % 5]} ${i}`, a));

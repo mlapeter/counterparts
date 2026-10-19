@@ -24,21 +24,29 @@ gave that symptom; which one the live 36 came from was not measured.
   does, and never displaces a head the words reached (its arrival is not in their units).
 - **An echo head keeps both out.** A head this session wrote is `echo-skipped` and the
   earlier one stays inhibited (#523's `echo(a.c.head)`), so neither shows.
-- **Left as is, found in review:** a head the words reached more weakly that passed its own
-  bar on a higher salience than the earlier one's is now shown at the earlier one's
-  numbers and salience, and can fail where it used to show (both then held back). Rare in
-  a synthetic search (~1–3% of such turns, with salience drawn uniformly); count it at the
-  check. Habituation (#525) lifts the bar by id, so a habituated head standing in faces the
-  earlier one's bar raised while the earlier one faces it unraised: the earlier one can
-  still show alone there.
-- **Left as is:** a head reached at least as strongly as the earlier one that still fails
-  its bar while the earlier one passes (possible only through salience moving the bars;
-  the earlier one would show alone). Deliberate recall is untouched (facts mode already
+- **Either bar** (the coordinator's call on the review of #526, lightly held): a stand-in
+  the words also reached on their own passes when it clears the earlier one's bar at the
+  earlier's numbers OR its own bar at its own reach and salience (`directSal`), so a head
+  that showed on its own before this change still shows. (Without it, a head shown on a
+  higher salience than the earlier one's could fail at the earlier's numbers: ~1–3% of such
+  turns in a synthetic search; 0 with it.) `gate.ts#barsFor`.
+- **The earlier one is held back whenever its head was brought in** (the coordinator's
+  call, and what the 10-19 overdue-check row asked for: "hold back a settled-over memory
+  whenever its head was brought in for it"), whether or not the head then shows. The newer
+  state is what counts: a head that fails — habituated (#525), say, which lifts its bar by
+  id — means the footnote was not useful, so neither shows rather than the earlier one
+  alone. One exception, as before: a confidential head withheld from a guest leaves the
+  earlier one showing, labelled. `gate.ts`, `stoodFor`.
+- **Left as is:** a head reached at least as strongly as the earlier one is not brought
+  in, so if it fails its bar while the earlier one passes (possible only through salience
+  moving the bars), the earlier one shows alone. Deliberate recall is untouched (facts mode already
   folds earlier versions under the current one).
 - **Check ~10-22:** on the live decision records since the install, count turns where a
   settled-over memory shows without its head (was 36 in ~981 turns); expect ~0, and the
-  heads' showing count to rise by about as much. **Revert by** removing the `byId` lookup
+  heads' showing count to rise by about as much; also count turns where a brought-in head
+  failed and so neither showed (the cost of holding the earlier one back). **Revert by** removing the `byId` lookup
   in `gate.ts#barOf`, having `headsWin` skip a head whenever the words reached it (as
   `ids.has(head)` did), and dropping `directReach` (its field and its line in the gate's
-  sample). The strongest-earlier claim can stay: it only picks which earlier the head
+  sample), `directSal` and the either-bar `min`, and `stoodFor` (the earlier one is then
+  held back only when its head is admitted, as before). The strongest-earlier claim can stay: it only picks which earlier the head
   stands for.

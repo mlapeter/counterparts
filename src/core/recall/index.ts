@@ -1032,7 +1032,7 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
         confidential: row.confidential === 1,
         standsFor: c.id,
         ...(direct !== undefined && direct.pastCut !== true && direct.cue - (direct.stamp ?? 0) + direct.semantic > 0
-          ? { directReach: direct.activation - (direct.stamp ?? 0) }
+          ? { directReach: direct.activation - (direct.stamp ?? 0), directSal: direct.sal }
           : {}),
       });
       brought.add(head);

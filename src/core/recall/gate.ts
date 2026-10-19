@@ -329,13 +329,25 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     const basis = (c.standsFor !== undefined ? byId.get(c.standsFor) : undefined) ?? c;
     return inSample(basis) ? looBar(own(basis), sum, sumSq, n, snr) : bg.mean + snr * bg.sd;
   };
+  // EITHER BAR (2026-10-19, an experiment; the coordinator's call on the
+  // review of #526): a stand-in the words also reached on their own
+  // (`directReach`) passes when it clears the earlier one's bar at the
+  // earlier's numbers OR its own bar at its own reach and salience, so a head
+  // that showed on its own before still does. Its own bar is carried in the
+  // stand-in's units (shifted by the gap between the two reaches), so one
+  // comparison against `activation` decides, and the bar recorded is the one
+  // that let it through.
+  const directBar = (c: Candidate, snr: number): number | undefined =>
+    c.standsFor !== undefined && c.directReach !== undefined
+      ? modulate(looBar(c.directReach, sum, sumSq, n, snr), c.directSal ?? c.sal, bg.regime, t) + (c.activation - c.directReach)
+      : undefined;
+  const either = (c: Candidate, snr: number): number => {
+    const viaEarlier = modulate(barOf(c, snr), c.sal, bg.regime, t);
+    const viaOwn = directBar(c, snr);
+    return viaOwn === undefined ? viaEarlier : Math.min(viaEarlier, viaOwn);
+  };
   const barsFor = (c: Candidate): { admit: number; loud: number } =>
-    bg.regime === "relative"
-      ? {
-          admit: modulate(barOf(c, t.SNR_GLOBAL), c.sal, bg.regime, t),
-          loud: modulate(barOf(c, t.SNR_STRONG), c.sal, bg.regime, t),
-        }
-      : { admit: bg.bar, loud: bg.strongBar };
+    bg.regime === "relative" ? { admit: either(c, t.SNR_GLOBAL), loud: either(c, t.SNR_STRONG) } : { admit: bg.bar, loud: bg.strongBar };
 
   const verdicts: CandidateVerdict[] = [];
   const admitted: { c: Candidate; loud: boolean }[] = [];
@@ -499,11 +511,21 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   // Measured on 10-10: earlier versions were shown 55 times after their
   // settle, 51 of them without their successor; the newer only 43.
   const admittedIds = new Set(admitted.map((a) => a.c.id));
+  // HELD BACK WHENEVER ITS HEAD WAS BROUGHT IN (2026-10-19, an experiment; the
+  // coordinator's call on the review of #526, and the 10-19 overdue checks'
+  // "hold back the earlier one"): an earlier one a head stands in for is held
+  // back whether or not the head then shows — the newer state is what counts,
+  // and a head that failed (habituated, say) means this footnote was not
+  // useful. Not when the head is a confidential one withheld from a guest:
+  // the earlier one then shows, labelled, as before.
+  const stoodFor = new Set(
+    input.candidates.flatMap((c) => (c.standsFor !== undefined && !(c.confidential && !input.owner) ? [c.standsFor] : [])),
+  );
   const kept: { c: Candidate; loud: boolean }[] = [];
   // A head this session WROTE (the echo set, part C) is in its context too:
   // the earlier version stays inhibited rather than shown in its place.
   for (const a of admitted) {
-    if (a.c.head !== undefined && (admittedIds.has(a.c.head) || input.state.surfaced[a.c.head] !== undefined || echo(a.c.head))) {
+    if (a.c.head !== undefined && (stoodFor.has(a.c.id) || admittedIds.has(a.c.head) || input.state.surfaced[a.c.head] !== undefined || echo(a.c.head))) {
       record(a.c, "inhibited");
       continue;
     }
@@ -556,7 +578,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       continue;
     }
     // A pointer whose head is shown, or already in the session, is its earlier version (2026-10-11).
-    if (p.head !== undefined && (shownIds.has(p.head) || pointers.some((q) => q.id === p.head) || input.state.surfaced[p.head] !== undefined || echo(p.head))) {
+    if (p.head !== undefined && (stoodFor.has(p.id) || shownIds.has(p.head) || pointers.some((q) => q.id === p.head) || input.state.surfaced[p.head] !== undefined || echo(p.head))) {
       record(p, "inhibited");
       continue;
     }
