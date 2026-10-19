@@ -308,6 +308,31 @@ describe("A + B. rateShown credits the stretch and links what was co-used", () =
     expect(row["coUse"]).toEqual(expect.objectContaining({ members: 2, pairs: 1 }));
   });
 
+  test("a retried call on the same turn links each co-used pair once; a new pair in the retry still links", () => {
+    const c = brain();
+    c.store.advanceClock(date(0));
+    const [a, b, d] = ["Kiln shelf posts.", "Kiln wash recipe.", "Kiln cone chart."].map((t) => fact(c, t)) as [string, string, string];
+    c.store.advanceClock(date(1));
+    shown(c, "s1", 1, [a, b, d]);
+    const first = c.rateShown("s1", [
+      { id: a, score: 3 },
+      { id: b, score: 2 },
+    ]);
+    expect(first.used.coUse.pairs).toBe(1);
+    c.applyPendingAssociations({ session: "s1" });
+    const once = weight(c, a, b);
+    // The same ratings again, and d now rated useful too: only d's pairs are new.
+    const retry = c.rateShown("s1", [
+      { id: a, score: 3 },
+      { id: b, score: 2 },
+      { id: d, score: 2 },
+    ]);
+    expect(retry.used.coUse.pairs).toBe(2);
+    c.applyPendingAssociations({ session: "s1" });
+    expect(weight(c, a, b)).toBeCloseTo(once, 9);
+    expect(weight(c, a, d)).toBeGreaterThan(0);
+  });
+
   test("a memory rated 0 is never co-used, and shown-together pairs leave it out", () => {
     const c = brain();
     c.store.advanceClock(date(0));

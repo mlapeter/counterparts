@@ -361,6 +361,14 @@ const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
  * once-per-lived-day gate, or physics' birth-day / stale-day / already-today —
  * still counts as co-activation for links (2026-09-28, associate NOTES §8).
  */
+/** An unordered pair's key (`rateShown`'s once-per-stretch co-use links). */
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+/** How many of a session's newest rating rows are read for the same turn's earlier calls. */
+const RATED_SAME_TURN_ROWS = 8;
+
 function linksDespite(r: CreditResult): boolean {
   if (r.reason === "already-credited-at-or-above") return true;
   if (r.reason !== "physics-refused") return false;
@@ -2681,10 +2689,22 @@ export class Counterpart {
     }
     const { rated, refused, replaced } = readRatings(entries, shown, drewOn);
     let floor = 0;
+    /**
+     * Co-use pairs this session already linked ON THIS TURN (review of #525):
+     * a retried call, or one that re-rates what the turn's earlier call rated,
+     * is the same stretch, and a pair is linked once per stretch.
+     */
+    const linkedThisTurn = new Set<string>();
     try {
-      const prev = this.store.eventLog({ name: RECALL_RATED_EVENT, ref: sessionId, order: "desc", limit: 1 })[0];
-      const p = prev === undefined ? null : (JSON.parse(prev.payload ?? "null") as { turn?: unknown } | null);
+      const prev = this.store.eventLog({ name: RECALL_RATED_EVENT, ref: sessionId, order: "desc", limit: RATED_SAME_TURN_ROWS });
+      const payloads = prev.map((row) => JSON.parse(row.payload ?? "null") as { turn?: unknown; coUse?: { ids?: unknown } } | null);
+      const p = payloads[0] ?? null;
       if (p !== null && typeof p.turn === "number" && Number.isFinite(p.turn)) floor = p.turn;
+      for (const q of payloads) {
+        if (q === null || q.turn !== state.turn) break;
+        const ids = Array.isArray(q.coUse?.ids) ? q.coUse.ids.filter((x): x is string => typeof x === "string") : [];
+        for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) linkedThisTurn.add(pairKey(ids[i] as string, ids[j] as string));
+      }
     } catch {
       // Unreadable: coverage counts from the session's start — more shown, never fewer.
     }
@@ -2700,7 +2720,7 @@ export class Counterpart {
     let used: RatedUseSummary = NO_RATED_USE;
     if (rated.length > 0) {
       try {
-        used = this.useRatings(sessionId, state, shown, rated, floor, drewOn, day);
+        used = this.useRatings(sessionId, state, shown, rated, floor, drewOn, day, linkedThisTurn);
       } catch (err) {
         this.emit("counterpart.rated.use.failed", sessionId, { code: errCode(err) });
       }
@@ -2785,6 +2805,7 @@ export class Counterpart {
     floor: number,
     drewOn: ReadonlySet<string>,
     day: number,
+    linkedThisTurn: ReadonlySet<string> = new Set(),
   ): RatedUseSummary {
     const otherwise: string[] = [];
     for (const [id, c] of Object.entries(state.credited)) {
@@ -2834,7 +2855,12 @@ export class Counterpart {
     const members = plan.coUse.filter((id) => linkable.has(id));
     const coUse: PairDelta[] = [];
     for (let i = 0; i < members.length; i++) {
-      for (let j = i + 1; j < members.length; j++) coUse.push({ a: members[i] as string, b: members[j] as string, delta: t.CO_USE_DEPOSIT });
+      for (let j = i + 1; j < members.length; j++) {
+        const a = members[i] as string;
+        const b = members[j] as string;
+        // Once per pair per stretch: an earlier call on this turn linked it.
+        if (!linkedThisTurn.has(pairKey(a, b))) coUse.push({ a, b, delta: t.CO_USE_DEPOSIT });
+      }
     }
     const together: PairDelta[] = plan.together
       .filter(([a, b]) => linkable.has(a) && linkable.has(b))
@@ -2849,7 +2875,7 @@ export class Counterpart {
     return {
       credited,
       notCredited,
-      coUse: { members: members.length, capped: plan.coUseCapped, pairs: sent[0] ?? 0 },
+      coUse: { members: members.length, capped: plan.coUseCapped, pairs: sent[0] ?? 0, ids: members },
       together: sent[1] ?? 0,
       habituated: null,
     };

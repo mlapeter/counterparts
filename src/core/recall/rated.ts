@@ -117,7 +117,13 @@ export interface RatedUseSummary {
   /** Uses not credited, by reason (once-a-day, birth day, archived, …). */
   readonly notCredited: Readonly<Record<string, number>>;
   /** The stretch's co-used set, and the pairs it sent to be linked at `CO_USE_DEPOSIT`. */
-  readonly coUse: { readonly members: number; readonly capped: number; readonly pairs: number };
+  readonly coUse: {
+    readonly members: number;
+    readonly capped: number;
+    readonly pairs: number;
+    /** The co-used ids (at most `CO_USE_MAX_MEMBERS`), so a later call on the same turn links each pair once. */
+    readonly ids: readonly string[];
+  };
   /** Pairs shown on the same turn sent to be linked at `SHOWN_TOGETHER_DEPOSIT`. */
   readonly together: number;
   /** Memories habituated after this row (`habituation.ts`); null when the note could not be written. */
@@ -128,7 +134,7 @@ export interface RatedUseSummary {
 export const NO_RATED_USE: RatedUseSummary = {
   credited: { shown: 0, ontopic: 0, useful: 0, referenced: 0 },
   notCredited: {},
-  coUse: { members: 0, capped: 0, pairs: 0 },
+  coUse: { members: 0, capped: 0, pairs: 0, ids: [] },
   together: 0,
   habituated: null,
 };

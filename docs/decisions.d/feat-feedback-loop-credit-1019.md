@@ -62,6 +62,14 @@ section of `docs/CHECK-AFTER.md`.
   sat at the outgoing bound (4.0) with ~30 links each, and 72 links were evicted.
   Homeostasis held, but a hub's links are then each too weak to point. Revert: set both
   deposits to 0 (`Associate#deposit` skips a zero delta), or revert the PR.
+  - A co-used pair is linked once per stretch (review of #525): a retried call on the same
+    turn, or one re-rating what that turn's earlier call rated, sends only the pairs not yet
+    linked. The row records the co-used ids for this (`coUse.ids`). Still open: a later
+    boundary that re-rates ids from an EARLIER stretch (not shown again since) links them
+    again, so one real co-use rated at two boundaries reaches the pointer weight. The
+    session may really have used them again; the ratings can't say which. Also open: a pair
+    named in drewOn AND rated 3 gets drewOn's own link (0.1) plus the co-use (0.25) plus
+    shown-together (0.05), 0.40, the pointer weight in one boundary.
 - **D. Trying light habituation.** A memory rated 0 in `HABITUATION_MIN_SESSIONS` (2)
   sessions within `HABITUATION_WINDOW_DAYS` (7) lived days faces a bar raised by
   `HABITUATION_BAR_LIFT` (×1.5) in ambient recall, after the floor, in both tiers. It is a
