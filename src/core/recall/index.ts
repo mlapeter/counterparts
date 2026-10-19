@@ -486,8 +486,9 @@ export class Recall {
     // THE CHAIN HEAD WINS (2026-10-11, Group 2): an earlier version the turn
     // reached is shown as the memory that holds now (`headsWin`).
     const candidates = headsWin(this.store, act.candidates, day);
-    // HABITUATION (2026-10-19, light): who was rated 0 in enough recent sessions.
-    const habituated = habituatedIds(this.store, day, this.tunables);
+    // HABITUATION (an experiment, 2026-10-19, light): who was rated 0 in enough
+    // recent sessions. Ambient turns only: a deliberate feeling ask is untouched.
+    const habituated = turn.feeling === undefined ? habituatedIds(this.store, day, this.tunables) : new Map<string, number>();
 
     const gated = gate(
       {
