@@ -160,11 +160,19 @@ export const FACTS_ANCHOR_DAYS = 2;
 export const FACTS_JOURNAL_GLOSS =
   "[journal] = a chapter: the first-person account memories were made from, not a memory — outside decay, dedup and the prune, and not a claim about the world the way a memory is.";
 
-/** Words that ask nothing of their own in a question (beyond `reference.ts#STOPWORDS`). */
+/**
+ * Words that ask nothing of their own in a question (beyond `reference.ts#STOPWORDS`).
+ *
+ * The last row (2026-10-19) is how a person asks for a count or a habit: "how
+ * many", "how often", "in a typical week". "many" counted as a content word,
+ * so it diluted every real match and lifted rows that merely said "many"
+ * (bench 2788b940: the Zumba schedule 32nd of 76, 26th without it).
+ */
 const ASKS_NOTHING = new Set([
   "remember", "remembered", "recall", "tell", "happened", "happen", "happens", "decide", "decided",
   "anything", "something", "everything", "ever", "else", "did", "does", "do", "talk", "talked",
   "discuss", "discussed", "mention", "mentioned", "about", "whats", "who", "whom", "whose",
+  "many", "much", "often", "typical", "typically", "usually",
 ]);
 
 /** The words only a facts question's own wording carries, never its content. */

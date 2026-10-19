@@ -43,6 +43,7 @@
  */
 import type { GateRecordInput, Store } from "../store/index.js";
 import { parseIdentityTag } from "../store/index.js";
+import { stripBoilerplate } from "./cues.js";
 import type { UseTier } from "../physics/index.js";
 
 export const GATE_STATE_VERSION = 1;
@@ -367,8 +368,10 @@ export function clearIdleCarries(store: Store, maxMs: number): number {
  * the one-turn lag `carriedCues` already runs on.
  *
  * **And resolve it in the worker too.** Measured here, hermetically, at the live
- * store's size: `Store.nearestTo` over 13,862 stored vectors costs 590-1040 ms,
- * because `cache.nearest` reads and `JSON.parse`s every row. Carrying the raw
+ * store's size then: `Store.nearestTo` over 13,862 stored vectors cost 590-1040 ms,
+ * because `cache.nearest` read and `JSON.parse`d every row. (History: box 3 has
+ * stored float32 BLOBs since 2026-09-05, and the scan is now a few ms — see the
+ * 2026-10-19 amendment below.) Carrying the raw
  * 1024-float vector across the lag would have moved the embedding call off the
  * hot path and left the SCAN on it — the same abort, one layer down. So the
  * worker embeds AND ranks, and what crosses the lag is the top-M `{id, score}`
@@ -388,6 +391,18 @@ export function clearIdleCarries(store: Store, maxMs: number): number {
  * this row on every run, including the runs where it could not embed, so "the
  * embedder has no credential" is a word in the decision record rather than an
  * absence indistinguishable from "nothing was near".
+ *
+ * **Amended 2026-10-19: in line when no fresh cue is ready** (`inLineSemantic`
+ * below). The 2026-09-04 ruling's reasons were a network call and a 590-1040 ms
+ * scan; since 2026-09-24 the only embedder is the local table (~0.5 ms, no
+ * socket), and the scan measured ~18 ms cold at the live store's 2,207 vectors
+ * (~/counterparts-notes/2026-10-19-first-prompt-recall-diagnosis.md). So a turn
+ * with NO usable lag row — a session's first prompt (`none`) or a row from an
+ * earlier turn (`stale`, ~21% of live turns) — embeds its own text and ranks it
+ * in line, instead of going dark. A fresh lag row is still used exactly as
+ * before; this only fills the turns it never reached. It partly revises the
+ * owner ruling above, lightly held for Mike's review
+ * (`docs/decisions.d/fix-first-prompt-meaning-1019.md`).
  */
 export const SEMANTIC_STATE_VERSION = 1;
 
@@ -412,8 +427,12 @@ export type SemanticReason =
  *   `none`        nothing was offered and no lag row exists (a core caller, or
  *                 the first turn of a session).
  *   `lagged`      a fresh row from the immediately preceding turn was used.
- *   `in-line`     the caller embedded THIS text now (the deliberate ask, which
- *                 has no latency budget and is allowed to pay for a round trip).
+ *   `in-line`     THIS text was embedded now: by the caller (the deliberate
+ *                 ask, which has no latency budget), or, since 2026-10-19, by
+ *                 the ambient turn itself when no fresh lag row was ready
+ *                 (`inLineSemantic`).
+ *   `in-line-skipped` no fresh lag row, and box 3 holds more vectors than an
+ *                 ambient turn may rank in line (`SEMANTIC_INLINE_MAX_VECTORS`).
  *   `stale`       a row exists but is older than one turn.
  *   `other-model` a row exists for this turn, but it was ranked under ANOTHER
  *                 embedder than the one box 3 records now (the store was reset
@@ -427,6 +446,7 @@ export type SemanticSource =
   | "none"
   | "lagged"
   | "in-line"
+  | "in-line-skipped"
   | "stale"
   | "other-model"
   | "unreadable"
@@ -549,3 +569,40 @@ function rankedUnder(store: Store, model: string, dim: number): boolean {
   if (recorded.model !== model) return false;
   return recorded.dim === null || dim <= 0 || recorded.dim === dim;
 }
+
+/**
+ * THE AMBIENT TURN'S OWN VECTOR, for the turns the lag never reached
+ * (2026-10-19): `none` (a session's first prompt) and `stale`. The text is
+ * stripped of host boilerplate first, as the worker strips it (§9 G3: before
+ * cue extraction AND before embedding), and embedded by the store's own SYNC
+ * embedder (`Store.textVector`: null with no embedder, under observer, or when
+ * nothing ranks against box 3, and never throws). The rank itself is
+ * `activate()`'s, on its in-line path and profile: the vector IS this turn's
+ * question, so the lagged profile's caution about the previous subject does not
+ * apply.
+ *
+ * GUARDED BY COUNT, BEFORE ANYTHING: the rank runs inside `activate()`, ahead of
+ * `build()`'s first time check, so a clock could only notice an overrun after it
+ * had already aborted the turn. Above `maxVectors` it answers `skipped`, and the
+ * turn records `in-line-skipped` by name.
+ */
+export function inLineSemantic(
+  store: Store,
+  text: string,
+  maxVectors: number,
+): { vector: number[] } | { skipped: true; vectors: number } | null {
+  let vectors: number;
+  try {
+    vectors = store.embeddingCount();
+  } catch {
+    return null;
+  }
+  if (vectors === 0) return null;
+  if (vectors > maxVectors) return { skipped: true, vectors };
+  const vector = store.textVector(stripBoilerplate(text).text.trim().slice(0, IN_LINE_TEXT_CHARS));
+  return vector === null || vector.length === 0 ? null : { vector };
+}
+
+/** Head, not tail, as the worker clips (`vectors.ts#LAG_PROMPT_BYTES`, the same
+ *  2000): a prompt states its subject first. */
+const IN_LINE_TEXT_CHARS = 2000;

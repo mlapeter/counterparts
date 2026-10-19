@@ -585,9 +585,11 @@ export function activate(
   // TWO ways in, one scoring rule. `vector` is the caller's own embedding and
   // this pass ranks it (the deliberate ask, which has no latency budget);
   // `hits` is a ranking somebody else already did — the detached worker, one
-  // turn ago (`session.ts`, the lagged semantic cue), because the RANK is what
-  // costs 600-1000 ms on a live-sized index, not the arithmetic below. Supplied
-  // hits win: a caller that has both meant the resolved one.
+  // turn ago (`session.ts`, the lagged semantic cue), because the RANK was what
+  // cost 600-1000 ms on a live-sized index (v1's JSON vectors; ~18 ms cold on
+  // today's live store, `index.ts#Turn.semanticHits`). Since 2026-10-19 an
+  // ambient turn with no fresh lag row passes its own `vector` and is ranked
+  // here too. Supplied hits win: a caller that has both meant the resolved one.
   const semScore = new Map<string, number>();
   let semanticDegraded = false;
   const ranked: readonly Hit[] | null =

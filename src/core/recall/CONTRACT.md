@@ -299,9 +299,10 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     CONTRACT §5 G2/G12, replay INTERFACE-GAPS §7). Nothing is written under observer; an
     abort writes nothing at all, which is guarantee 2 unchanged.
 16. **[M]** The semantic channel has a **stated source on every turn**, from a closed
-    vocabulary (`none`, `lagged`, `in-line`, `stale`, `other-model`, `unreadable`, and the
-    worker's four named failures; `other-model`, 2026-09-23: a lag row ranked under another
-    embedder than box 3 records now). Measured 2026-09-04: both live paths built their turn without a
+    vocabulary (`none`, `lagged`, `in-line`, `in-line-skipped`, `stale`, `other-model`,
+    `unreadable`, and the worker's four named failures; `other-model`, 2026-09-23: a lag row
+    ranked under another embedder than box 3 records now; `in-line-skipped`, 2026-10-19: no
+    fresh lag row, and box 3 past `SEMANTIC_INLINE_MAX_VECTORS`). Measured 2026-09-04: both live paths built their turn without a
     vector, so `semanticUsed: false` was written on every real turn and said nothing about
     why — "did not fire" and "was never asked" are different records (scar §2.4). The
     source is NOT in the durable surface set (`RECALL_DECISION_FIELDS`), because moving
@@ -312,8 +313,12 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     the session's SERVED turn count when written and is usable only while that number is
     still the served count — i.e. on the very next turn, exactly the `carriedCues` rule.
     What it carries is the **top-M `{id, score}` ranking**, not the vector: `Store.nearestTo`
-    measured 590-1040 ms over 13,862 stored vectors, so the scan is as unaffordable on the
-    hot path as the round trip was. A recorded race: a worker slow enough to be overtaken
+    measured 590-1040 ms over 13,862 JSON-stored vectors (2026-09-04), so the scan was as
+    unaffordable on the hot path as the round trip. **Amended 2026-10-19:** on float32 BLOBs
+    the scan measures ~18 ms cold at the live store's 2,207 vectors, so a turn with NO usable
+    row (`none`, `stale`) embeds its own text with the store's sync embedder and ranks it in
+    line (`session.ts#inLineSemantic`), guarded by vector count before the rank, never by
+    clock (the rank runs before `build()`'s first time check). A fresh row is used as before. A recorded race: a worker slow enough to be overtaken
     by the next turn stamps the newer turn number, so a cue can be labelled one turn later
     than the text it was computed from. Cheap to detect (the hits are a turn stale), not
     worth a lock.
