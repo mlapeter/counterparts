@@ -1946,14 +1946,21 @@ export class Counterpart {
       vector = null;
     }
     const sessionId = turn.sessionId;
-    const open = (): { ids: string[]; vectors: number[][] } => {
+    const open = (): { ids: string[]; vectors: { vector: number[]; weight: number }[] } => {
       const ids = wakeOpenIds(this.store, sessionId);
-      const vectors: number[][] = [];
+      const vectors: { vector: number[]; weight: number }[] = [];
       if (scope !== undefined && scope.trim().length > 0) {
         try {
+          // Weighted by age in lived days (review, 2026-10-19): a handoff
+          // lives 14, and last week's should not open every session here
+          // with its train for all of them.
+          const today = this.store.livedDay();
+          const decay = this.recall.tunables.PRIME_HANDOFF_DAY_DECAY;
           for (const h of this.handoffs.readAll(scope)) {
+            const weight = h.writtenDay === null ? 0 : decay ** Math.max(0, today - h.writtenDay);
+            if (!(weight > 0)) continue;
             const v = this.store.textVector(stripBoilerplate(h.body).text.trim().slice(0, PRIME_TEXT_CHARS));
-            if (v !== null && v.length > 0) vectors.push(v);
+            if (v !== null && v.length > 0) vectors.push({ vector: v, weight });
           }
         } catch {
           /* an unread handoff primes nothing */

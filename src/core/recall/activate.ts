@@ -343,6 +343,10 @@ export interface PrimeStats {
   readonly cut: number;
   readonly capped: number;
   readonly trainScored: number;
+  /** The cosine a candidate had to beat to get a train head start: the
+   *  mean over the cut before priming when centring is on and it is above the
+   *  embedder's floor, else the floor. Null when no train was scored. */
+  readonly trainCentre: number | null;
 }
 
 export interface FeelingLane {
@@ -1127,10 +1131,16 @@ export function activate(
   // × decayed edge (a folded copy's links are its chapter's). TRAIN: the train
   // of thought's cosine with the candidate's stored vector, on the in-line
   // semantic floor and weight of this store's embedder, at
-  // `PRIME_TRAIN_SHARE` of what the turn's own meaning would give; only the
-  // first `PRIME_TRAIN_POOL` in the cut's order are read (a vector each). The
-  // sum is capped at `PRIME_CEILING` × the candidate's own cue + semantic.
-  let primeRun: { capped: number; trainScored: number } | null = null;
+  // `PRIME_TRAIN_SHARE` of what the turn's own meaning would give, × how much
+  // the train holds (`trainWeight`); only the first `PRIME_TRAIN_POOL` in the
+  // cut's order are read (a vector each). CENTRED on those candidates (review,
+  // 2026-10-19, an experiment — `PRIME_TRAIN_CENTRE`): the cosine to beat is
+  // their mean when that is above the floor, so on a steady topic, where every
+  // candidate is a little near the train, only the ones nearer than their
+  // peers in the cut get a head start — priming picks winners, it does not
+  // lift everyone. A lone candidate has no peers to beat and gets none. The sum is
+  // capped at `PRIME_CEILING` × the candidate's own cue + semantic.
+  let primeRun: { capped: number; trainScored: number; trainCentre: number | null } | null = null;
   const prePrime = new Set<string>();
   if (input.prime !== undefined && scored.length > 0) {
     const pr = input.prime;
@@ -1139,17 +1149,38 @@ export function activate(
     const trainTuning = semanticTuning(t, identity, "inline");
     const trainScore = new Map<string, number>();
     let trainScored = 0;
-    if (pr.train !== null && t.PRIME_TRAIN_SHARE > 0) {
+    let trainCentre: number | null = null;
+    if (pr.train !== null && t.PRIME_TRAIN_SHARE > 0 && pr.trainWeight > 0) {
+      // Pass 1: each scored candidate's cosine with the train. The mean is
+      // taken over the cut as it stands before priming (the peers a primed
+      // memory must beat to take a place), not the whole pool, whose weak
+      // tail would pull it down until nearly the whole cut cleared it. The
+      // echo set is left out of the mean as it is out of the head start: the
+      // session's own writes sit nearest its train and would raise the bar.
+      const cosines: { id: string; cos: number }[] = [];
+      let peerSum = 0;
+      let peers = 0;
       for (const c of scored.filter(reached).slice(0, t.PRIME_TRAIN_POOL)) {
         if (pr.exclude.has(c.id)) continue;
         const v = store.vectorOf(c.id);
         if (v === null) continue;
-        trainScored += 1;
         const cos = cosine(pr.train, v);
-        const floor = trainTuning.floor;
-        if (!(cos > floor)) continue;
-        const scaled = floor >= 1 ? cos : (cos - floor) / (1 - floor);
-        trainScore.set(c.id, t.PRIME_TRAIN_SHARE * trainTuning.weight * scaled);
+        cosines.push({ id: c.id, cos });
+        if (prePrime.has(c.id)) {
+          peerSum += cos;
+          peers += 1;
+        }
+      }
+      trainScored = cosines.length;
+      // Pass 2: the head start, above the higher of the floor and the mean.
+      const floor = trainTuning.floor;
+      const mean = peers === 0 ? floor : peerSum / peers;
+      const bar = t.PRIME_TRAIN_CENTRE > 0 ? Math.max(floor, mean) : floor;
+      if (cosines.length > 0) trainCentre = bar;
+      for (const { id, cos } of cosines) {
+        if (!(cos > bar)) continue;
+        const scaled = bar >= 1 ? cos : (cos - bar) / (1 - bar);
+        trainScore.set(id, t.PRIME_TRAIN_SHARE * pr.trainWeight * trainTuning.weight * scaled);
       }
     }
     let capped = 0;
@@ -1176,7 +1207,7 @@ export function activate(
       return { ...c, activation, cutKey: salienceRank(activation, c.sal, t), prime };
     });
     rankForCut(scored);
-    primeRun = { capped, trainScored };
+    primeRun = { capped, trainScored, trainCentre };
   }
 
   // THE CUT IS THE WORDS' AND MEANING'S (review of #293, R1). It is taken over
@@ -1363,6 +1394,7 @@ export function activate(
             cut: candidates.filter((c) => c.prime?.cut === true).length,
             capped: primeRun.capped,
             trainScored: primeRun.trainScored,
+            trainCentre: primeRun.trainCentre,
           },
     feeling:
       feelingAsk === null

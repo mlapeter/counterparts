@@ -497,7 +497,14 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     by turns since it first counted) and joins the TRAIN OF THOUGHT — a running vector of
     this session's prompts, decayed by turn, kept in gate state (kind `prime`, never read
     by `loadGateState`) and scored against the turn's candidates, never ranked over the
-    store. THE LIMITS, which are the guarantee: ambient only (only `recallForTurn` sets
+    store. Amended at review (2026-10-19, also experiments, same check): the train's
+    score is CENTRED on the turn's cut before priming (`PRIME_TRAIN_CENTRE`, revert by 0)
+    — only the part of a candidate's cosine above its peers' mean counts, so a steady
+    topic does not lift every candidate; it is scaled by how much the train holds (at
+    most one prompt's worth), so a train of only old turns or a folder's leftovers primes
+    softly; on a lagged turn the newest prompt, which the lag row already carries, is
+    taken out of the train scored against; and a handoff's weight as a source falls by
+    `PRIME_HANDOFF_DAY_DECAY` per lived day of its age. THE LIMITS, which are the guarantee: ambient only (only `recallForTurn` sets
     `Turn.prime`); only a candidate this turn's words or meaning reached (priming never
     mints one, and quiet pointers are not primed); never a memory in the echo set; at most
     `PRIME_CEILING` times its own cue + semantic; out of `cueFraction` both halves; out of
@@ -509,9 +516,10 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     bar (item on ratings above) applies after it, unchanged. A first prompt with nothing
     open in its folder primes nothing: the same injection and verdicts as with priming
     off. The train is the person's words in another form, so it is emptied in a session
-    idle past the retention ceiling (`clearIdleCarries`). The decision row carries a
-    `primed` summary (sources by kind, whether a train existed, primed / lifted / by
-    channel among what was shown) and each shown row its `primed` part; `null` when
+    idle past the retention ceiling (`clearIdleCarries`), its newest prompt with it. The
+    decision row carries a `primed` summary (sources by kind, whether a train existed, the
+    cosine the train's head start had to beat, primed / lifted / by channel among what
+    was shown) and each shown row its `primed` part; `null` when
     priming did not run. Tests: `context-priming.test.ts`.
 
 ## 6. Scars honored

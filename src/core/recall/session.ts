@@ -345,9 +345,12 @@ export function clearIdleCarries(store: Store, maxMs: number): number {
     } catch {
       return null;
     }
-    if (parsed === null || typeof parsed !== "object" || !Array.isArray(parsed.vec) || parsed.vec.length === 0) return null;
+    if (parsed === null || typeof parsed !== "object" || !Array.isArray(parsed.vec)) return null;
+    // `last` is the newest prompt's own vector: cleared with the train.
+    const last = (parsed as { last?: unknown }).last;
+    if (parsed.vec.length === 0 && !(Array.isArray(last) && last.length > 0)) return null;
     if (typeof parsed.at === "number" && parsed.at > cutoff) return null;
-    return JSON.stringify({ ...parsed, vec: [] });
+    return JSON.stringify({ ...parsed, vec: [], last: [], mass: 0 });
   });
   return trains + store.rewriteGateValues("scalar", SCALAR_REF, '"carriedCues":["', (value) => {
     let parsed: Partial<ScalarPayload>;

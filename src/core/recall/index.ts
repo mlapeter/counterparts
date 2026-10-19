@@ -62,6 +62,7 @@ const NO_PRIME: PrimeSummary = {
   candidates: 0,
   cut: 0,
   capped: 0,
+  trainCentre: null,
   shown: 0,
   lifted: 0,
   byLink: 0,
@@ -207,6 +208,10 @@ export interface PrimeSummary {
   readonly cut: number;
   /** How many the ceiling (`PRIME_CEILING`) bound. */
   readonly capped: number;
+  /** The cosine with the train a candidate had to beat for a train head start
+   *  (the candidates' mean under centring, or the floor), rounded; null when
+   *  no candidate was scored against a train. */
+  readonly trainCentre: number | null;
   readonly shown: number;
   readonly lifted: number;
   readonly byLink: number;
@@ -422,7 +427,18 @@ export class Recall {
     let plan: PrimePlan | null = null;
     if (turn.prime !== undefined && (this.tunables.PRIME_LINK_UNITS > 0 || this.tunables.PRIME_TRAIN_SHARE > 0)) {
       try {
-        plan = planPrime({ store: this.store, sessionId: turn.sessionId, state, turnNo, day, echo: turn.echo, prime: turn.prime, t: this.tunables });
+        plan = planPrime({
+          store: this.store,
+          sessionId: turn.sessionId,
+          state,
+          turnNo,
+          day,
+          echo: turn.echo,
+          prime: turn.prime,
+          // The semantic channel is the worker's rank of the previous exchange.
+          lagged: turn.vector === undefined && turn.semanticHits !== undefined,
+          t: this.tunables,
+        });
       } catch {
         plan = null;
       }
@@ -637,6 +653,7 @@ export class Recall {
             candidates: act.prime?.primed ?? 0,
             cut: act.prime?.cut ?? 0,
             capped: act.prime?.capped ?? 0,
+            trainCentre: act.prime?.trainCentre == null ? null : Math.round(act.prime.trainCentre * 10_000) / 10_000,
             shown: shownPrimed.length,
             lifted: shownPrimed.filter((v) => v.primed?.lifted === true).length,
             byLink: shownPrimed.filter((v) => (v.primed?.link ?? 0) > 0).length,

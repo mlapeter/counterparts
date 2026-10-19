@@ -260,6 +260,14 @@ export interface RecallTunables {
    *  weight of the store's embedder, `semanticTuning`). Why 0.5: the last few
    *  turns count half as much as this one. */
   PRIME_TRAIN_SHARE: number;
+  /** CENTRING (review, 2026-10-19, an experiment inside the experiment):
+   *  1 = a candidate gets a train head start only for the part of its cosine
+   *  above the mean of the turn's cut before priming (or the floor, if higher); 0 =
+   *  above the floor alone. Why 1: on a steady topic every candidate is a
+   *  little near the train, and the floor alone gave all of them a head start
+   *  (24 of 24 in the cost run) — priming should make the memories closer to
+   *  the train than their peers win, not lift everyone. Revert by setting 0. */
+  PRIME_TRAIN_CENTRE: number;
   /** The train's decay per turn. Why 0.5: the previous prompt weighs 1, the one
    *  before 0.5, then 0.25 — "the last few turns", so a dropped topic is mostly
    *  gone three turns on. */
@@ -272,6 +280,12 @@ export interface RecallTunables {
    *  act (1); the folder's open threads and handoff are what was left here, a
    *  softer sign of what this session is for (0.5). */
   PRIME_SOURCE_WEIGHT: Readonly<Record<"used" | "wrote" | "open", number>>;
+  /** A handoff's weight as a source falls by this per lived day of its age
+   *  (review, 2026-10-19). Why 0.7: yesterday's handoff is what this folder is
+   *  for now (0.7); last week's is history (0.08 at 7 days, 0.03 at 10), which
+   *  would otherwise open every session there with its train for its whole
+   *  14-day life — the tunnel the brief worried about. */
+  PRIME_HANDOFF_DAY_DECAY: number;
   /** At most this many sources, the newest first. Why 24: a long session's
    *  older acts have decayed to almost nothing anyway; it bounds the edge reads. */
   PRIME_MAX_SOURCES: number;
@@ -545,9 +559,11 @@ export const TUNABLES: RecallTunables = {
 
   PRIME_LINK_UNITS: 1,
   PRIME_TRAIN_SHARE: 0.5,
+  PRIME_TRAIN_CENTRE: 1,
   PRIME_TRAIN_DECAY: 0.5,
   PRIME_SOURCE_DECAY: 0.8,
   PRIME_SOURCE_WEIGHT: { used: 1, wrote: 1, open: 0.5 },
+  PRIME_HANDOFF_DAY_DECAY: 0.7,
   PRIME_MAX_SOURCES: 24,
   PRIME_TRAIN_POOL: 72,
   PRIME_CEILING: 1,
