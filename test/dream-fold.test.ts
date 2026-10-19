@@ -27,7 +27,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { DREAM_TUNABLES } from "../src/core/dream/index.js";
 import { TUNABLES as PHYSICS, strength } from "../src/core/physics/index.js";
 import { headOf, standingOf } from "../src/core/recall/index.js";
-import { CONTRADICTION_TUNABLES, FOLD_SOURCE, FOLD_SOURCE_CORRECTED, proposeSlot, settle, undo } from "../src/core/reconsolidation.js";
+import { FOLD_SOURCE, FOLD_SOURCE_CORRECTED, proposeSlot, settle, undo } from "../src/core/reconsolidation.js";
 import { settledOver } from "../src/core/self/index.js";
 import { coreRecurrence, runCycle, slotOf } from "../src/core/sleep/index.js";
 import type { PutInput } from "../src/core/store/index.js";
