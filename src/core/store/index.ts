@@ -136,9 +136,14 @@ import {
   reconcileEmbedder,
   recordedEmbedder,
   resetCache,
+  restemBatch,
   searchIndex,
   setEmbedding,
+  termIndexReady,
+  TERMS_CURSOR_META_KEY,
+  TERMS_META_KEY,
 } from "./cache.js";
+import { STEMMER_VERSION } from "./stem.js";
 import type { EmbedderIdentity, EmbedderVerdict, Hit, LengthNorm, VectorRefusal } from "./cache.js";
 import {
   occurredOnOf,
@@ -254,6 +259,7 @@ export type {
   MemoryFilter,
 } from "./shapes.js";
 export { EMBED_FAILED_PREFIX, EMBED_SKIP_AFTER, indexTextOf, noVector } from "./index-text.js";
+export { STEMMER_VERSION, stemTerm } from "./stem.js";
 
 export * from "./errors.js";
 export * from "../observer.js";
@@ -339,6 +345,11 @@ export {
 } from "./operational.js";
 export {
   tokenize,
+  indexTerms,
+  lookupTerms,
+  termIndexReady,
+  TERMS_META_KEY,
+  TERMS_CURSOR_META_KEY,
   cosine,
   CACHE_SCHEMA_VERSION,
   DEFAULT_LENGTH_NORM,
@@ -436,6 +447,8 @@ export const WRITE_METHODS = [
   "appendRemovalRecord",
   "rebuildCache",
   "pruneDeadIndex",
+  // v7 cache (2026-10-19, an experiment): the worker's re-stem of the word index.
+  "restemIndex",
   "embedOne",
   // v8 (2026-09-26, dreaming + consolidation).
   "replayReturn",
@@ -556,6 +569,12 @@ export class Store {
   private readonly cache: Db;
   private readonly embed: Embedder | undefined;
   /**
+   * The embedder's word weights (`Embedder.wordNorm`), kept apart from `embed`
+   * because the open may switch the VECTOR channel off (held, ahead) and the
+   * table's word weights are still the table's (2026-10-19, an experiment).
+   */
+  private readonly wordNormFn: ((word: string) => number | null) | undefined;
+  /**
    * The identity this handle writes and ranks under — `opts.embed.identity`,
    * never under observer. Kept past open because the at-open check is not
    * enough for a handle that lives all session (re-review MAJOR A): every
@@ -589,6 +608,7 @@ export class Store {
     this.observer = isObserver(opts);
     this.retentionDays = opts.retentionDays ?? DEFAULT_RETENTION_DAYS;
     this.embed = opts.embed;
+    this.wordNormFn = opts.embed?.wordNorm;
     this.nowFn = opts.now ?? Date.now;
     this.configuredZone = opts.timeZone;
     this.onEvent = opts.onEvent;
@@ -4759,6 +4779,76 @@ export class Store {
    */
   docFrequency(tokens: readonly string[]): Map<string, number> {
     return docFrequency(this.cache, tokens);
+  }
+
+  /**
+   * How much the embedder's table weighs a word in English generally — the row
+   * norm of its whole-word row — or null: no embedder, an embedder that does
+   * not offer it, or a word the table does not hold whole. Recall's
+   * everyday-word discount reads it (`recall/cues.ts#everydayFactor`).
+   * 2026-10-19, an experiment.
+   */
+  wordNorm(word: string): number | null {
+    if (this.wordNormFn === undefined) return null;
+    try {
+      const n = this.wordNormFn(word);
+      return typeof n === "number" && Number.isFinite(n) ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Is the word index fully stemmed (v7), or still mixed from a v6 cache? */
+  termIndex(): { ready: boolean; stemmer: string } {
+    return { ready: termIndexReady(this.cache), stemmer: STEMMER_VERSION };
+  }
+
+  /**
+   * THE WORKER'S RE-STEM (v7 cache, 2026-10-19, an experiment): walk the word
+   * index in bounded batches, re-stemming each document's rows from the rows
+   * themselves (`cache.ts#restemBatch` — no prose, no vectors), until
+   * `budgetMs` is spent or the walk reaches the end, which sets the `terms`
+   * marker. Resumable: the cursor lives in `cache_meta` between runs. Never
+   * run at open — a hook cannot pay for it — and a no-op on a ready index.
+   */
+  restemIndex(opts: { budgetMs?: number; batch?: number } = {}): {
+    ready: boolean;
+    examined: number;
+    changed: number;
+    ms: number;
+  } {
+    this.assertWritable("restemIndex");
+    const started = performance.now();
+    if (termIndexReady(this.cache)) return { ready: true, examined: 0, changed: 0, ms: 0 };
+    const budget = opts.budgetMs ?? 2000;
+    const batch = opts.batch ?? 200;
+    let after =
+      this.cache.get<{ value: string }>("SELECT value FROM cache_meta WHERE key = ?", TERMS_CURSOR_META_KEY)?.value ??
+      undefined;
+    let examined = 0;
+    let changed = 0;
+    let ready = false;
+    for (;;) {
+      const r = restemBatch(this.cache, batch, after);
+      examined += r.examined;
+      changed += r.changed;
+      if (r.done) {
+        this.cache.transaction(() => {
+          this.cache.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?, ?)", TERMS_META_KEY, STEMMER_VERSION);
+          this.cache.run("DELETE FROM cache_meta WHERE key = ?", TERMS_CURSOR_META_KEY);
+        });
+        ready = true;
+        break;
+      }
+      after = r.lastId ?? after;
+      if (after !== undefined) {
+        this.cache.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?, ?)", TERMS_CURSOR_META_KEY, after);
+      }
+      if (performance.now() - started >= budget) break;
+    }
+    const ms = Math.round(performance.now() - started);
+    this.emit("cache.terms.restem", undefined, { ready, examined, changed, ms });
+    return { ready, examined, changed, ms };
   }
 
   nearestTo(vec: readonly number[], limit = 10, opts: { minStrength?: number } = {}): Hit[] {

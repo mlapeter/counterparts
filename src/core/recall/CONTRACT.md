@@ -40,6 +40,22 @@ reply actually used reconsolidates, where in humans every retrieval does.
   true frequencies put them at 2.6 and 2.9. `Store.docFrequency` counts, in one grouped
   query (8-36 ms cold, 2-4 ms warm for 72 tokens) — paid for several times over by asking
   rarity FIRST and probing the index only for the tokens that became cues. [v1 §9 G4]
+  - **Amendment, 2026-10-19 — AN EXPERIMENT (Mike's word; check ~10-22, revert by 11-02):
+    trying rarity scaled by how everyday a word is in English, and stemmed words, to see
+    whether first prompts surface what they are about.** "Informativeness replaces
+    stop-lists" is revised, not deleted. Rarity is still counted in this store; it is now
+    multiplied by `everydayFactor` — the embedder table's own row weight for the word
+    (`Store.wordNorm`; potion-base-8M only, the table it is calibrated on), 0 at or below
+    `EVERYDAY_NORM_LOW`, 1 at or above `EVERYDAY_NORM_HIGH`, a smoothstep between. Why: the
+    store's memories are third-person summaries, so question words ("you", "inviting",
+    "colleagues", "suggest") were as rare in them as the topic word, and a memory sharing two
+    of them beat every memory sharing only "bake" (first-prompt recall diagnosis, Bug 2). No
+    word is named and none is banned outright by a list; a word the table holds only in
+    pieces, or any word with no table (observer, embedder off), keeps its full weight. And
+    words that share a stem are ONE cue (`CueInput.term`, `Cue.forms`): the index is stemmed
+    since cache v7 (store CONTRACT §4). Facts mode reads both the same way. To undo the
+    discount: set `EVERYDAY_NORM_HIGH <= EVERYDAY_NORM_LOW`. To undo stemming: another cache
+    bump whose worker step re-indexes from prose (a revert is not free; store CONTRACT §4).
 - **…and the same rule holds on the DOCUMENT side: a cue's evidence for a memory does not
   scale with how long the memory is.** Informativeness says a token spanning the whole store
   is evidence of nothing; a memory spanning every topic is likewise specific evidence for

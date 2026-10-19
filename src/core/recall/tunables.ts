@@ -69,6 +69,16 @@ export interface RecallTunables {
   /** Cue carry-over: previous turn's cues re-enter at this weight, for one turn.
    *  [v1: 1 turn, decay 0.5] CAL. */
   CARRY_DECAY: number;
+  /**
+   * EVERYDAY WORDS (2026-10-19, an experiment; check ~10-22, revert by 11-02):
+   * a cue's rarity weight is scaled by how much the embedder's table weighs the
+   * word in English generally (`cues.ts#everydayFactor`, `Store.wordNorm`) —
+   * 0 at or below LOW, 1 at or above HIGH, a smoothstep between. In
+   * potion-base-8M's own row-norm units (the only table it is calibrated on,
+   * `embed-client.ts#WORD_NORM_CALIBRATED`). HIGH <= LOW turns it off. CAL.
+   */
+  EVERYDAY_NORM_LOW: number;
+  EVERYDAY_NORM_HIGH: number;
 
   // ── the document side of §9 G4: length normalization + a per-doc ceiling ──
   /** tf saturation for a cue's evidence in ONE document (BM25 k1). At `k1 = 1`
@@ -304,6 +314,10 @@ export const TUNABLES: RecallTunables = {
   CUE_FETCH_MIN_IDF: 0,
   AMBIGUOUS_WEIGHT: 0.5,
   CARRY_DECAY: 0.5,
+  // Below ~20 sit only the true function words (the 1.7, for 5.3, you 7.2, that 9.3): they count nothing.
+  EVERYDAY_NORM_LOW: 20,
+  // Topic words start near here (kitchen 74, guitar 80); the grey zone below keeps part (music 59 → 0.89, any 33 → 0.17).
+  EVERYDAY_NORM_HIGH: 70,
 
   // MEASURED 2026-09-04 on a copy of the live store (15,421 indexed documents,
   // mean 106 indexed tokens, max 3,184 — a 30x spread). Ambient recall returned

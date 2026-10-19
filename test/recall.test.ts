@@ -1335,7 +1335,10 @@ describe("cue length normalization", () => {
       body:
         `${"Digest entry: the zygomorphic orchid, again. ".repeat(3)}${PADDING.repeat(30)}`,
     });
-    const onPoint = put(s, { body: "The zygomorphic orchid bloomed after the second frost." });
+    // "flowered", not "bloomed": since the v7 stemmed index (2026-10-19)
+    // "bloomed" meets the turn's "bloom", and this pins the hub-vs-on-point
+    // arithmetic on the two words both memories share.
+    const onPoint = put(s, { body: "The zygomorphic orchid flowered after the second frost." });
     const turn = "why did the zygomorphic orchid bloom";
 
     const before = new Recall({

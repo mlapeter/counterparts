@@ -599,7 +599,9 @@ describe("search hits carry the row shape", () => {
 
   test("M4 (2026-09-30): a typo finds close matches after the exact ones, with the word that matched", () => {
     withSrc((src) => {
-      const v = searchView(src, "uneditted");
+      // A swapped pair. ("uneditted" was the typo until 2026-10-19; the stemmed
+      // word index reads it as "unedited" now, an exact hit.)
+      const v = searchView(src, "unedtied");
       expect(v.hits).toEqual([]);
       expect(v.absent).toBeNull();
       const close = v.close.find((h) => h.id === ids.dated);

@@ -78,10 +78,10 @@ const BODIES = [
 ];
 
 describe("Lane 0 C1: neighbours at write", () => {
-  test("the cache is v6 and has the table", () => {
+  test("the cache is v6 or later and has the table", () => {
     const c = brain();
-    expect(CACHE_SCHEMA_VERSION).toBe(6);
-    expect(cacheOf(c).get<{ value: string }>("SELECT value FROM cache_meta WHERE key = 'schemaVersion'")?.value).toBe("6");
+    expect(CACHE_SCHEMA_VERSION).toBeGreaterThanOrEqual(6);
+    expect(cacheOf(c).get<{ value: string }>("SELECT value FROM cache_meta WHERE key = 'schemaVersion'")?.value).toBe(String(CACHE_SCHEMA_VERSION));
     expect(cacheOf(c).get<{ n: number }>("SELECT COUNT(*) AS n FROM sqlite_master WHERE name = 'neighbours'")?.n).toBe(1);
   });
 

@@ -56,7 +56,7 @@ import { TUNABLES as PHYSICS, belowReach, curveSal, salArm, softenedFeeling, str
 import type { FeelingRow, Hit, ProseDoc, Store } from "../store/index.js";
 import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, stampCores } from "./feeling-ask.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
-import { confidentialByMeta, feelingValence, feltDay, reachExempt, rowToPhysics, tokenize } from "../store/index.js";
+import { confidentialByMeta, feelingValence, feltDay, reachExempt, rowToPhysics, stemTerm, tokenize } from "../store/index.js";
 import { buildCues, informativeness } from "./cues.js";
 import type { Cue } from "./cues.js";
 import type { RecallTunables, SemanticPath, SemanticTuning } from "./tunables.js";
@@ -447,18 +447,34 @@ export function activate(
   let belowReachCount = 0;
 
   // ── the token channel: one index probe per distinct cue token ────────────
+  // Words are grouped by INDEX TERM (v7 cache, 2026-10-19, an experiment —
+  // `store/stem.ts`): "bake … baking" is one cue, its df counted once over
+  // both forms, so one posting list is never read twice into one score.
   const searchTokens: string[] = [];
+  const formsOf = new Map<string, string[]>();
+  const addForm = (tok: string): boolean => {
+    const key = stemTerm(tok);
+    const forms = formsOf.get(key);
+    if (forms === undefined) {
+      formsOf.set(key, [tok]);
+      return true;
+    }
+    if (!forms.includes(tok)) forms.push(tok);
+    return false;
+  };
   const seenTok = new Set<string>();
   for (const tok of tokenize(input.text)) {
     if (tok.length < t.MIN_CUE_LENGTH || seenTok.has(tok)) continue;
     seenTok.add(tok);
     searchTokens.push(tok);
+    addForm(tok);
     if (searchTokens.length >= t.MAX_CUES * 3) break;
   }
   for (const tok of input.carried ?? []) {
     if (tok.length < t.MIN_CUE_LENGTH || seenTok.has(tok)) continue;
     seenTok.add(tok);
     searchTokens.push(tok);
+    addForm(tok);
   }
 
   // ── rarity FIRST, postings second ───────────────────────────────────────
@@ -479,7 +495,15 @@ export function activate(
   // token (up to `MAX_CUES * 3`). Nothing downstream reads a non-cue's
   // postings, so that is an equivalence and strictly less work — it pays for
   // the df query several times over.
-  const df = store.docFrequency(searchTokens);
+  //
+  // Asked per index term (its forms joined, so a still-mixed index counts
+  // every form), and keyed back by term for `buildCues`.
+  const dfByForms = store.docFrequency([...formsOf.values()].map((f) => f.join(" ")));
+  const df = new Map<string, number>();
+  for (const [key, forms] of formsOf) {
+    const n = dfByForms.get(forms.join(" "));
+    if (n !== undefined) df.set(key, n);
+  }
 
   const cues = buildCues(
     {
@@ -488,6 +512,10 @@ export function activate(
       ...(input.aliases !== undefined ? { aliases: input.aliases } : {}),
       storeSize,
       df,
+      term: stemTerm,
+      // EVERYDAY WORDS (2026-10-19, an experiment): the embedder table's
+      // weight for each word, which scales its rarity (`cues.ts#everydayFactor`).
+      wordNorm: (w: string) => store.wordNorm?.(w) ?? null,
     },
     t,
   );
@@ -511,14 +539,17 @@ export function activate(
   let unfetched = 0;
   for (const cue of cues) {
     if (postings.has(cue.token)) continue;
-    const d = df.get(cue.token);
+    const d = df.get(stemTerm(cue.token));
     if (d !== undefined && informativeness(d, storeSize) < t.CUE_FETCH_MIN_IDF) {
       unfetched += 1;
       postings.set(cue.token, new Map());
       continue;
     }
     const byDoc = new Map<string, number>();
-    for (const h of store.search(cue.token, t.PER_CUE_FETCH, norm, reachFilter)) byDoc.set(h.id, h.score);
+    // Every surface form of the cue (`Cue.forms`): the store stems them, and
+    // asks for the forms too while the index is still mixed (v7).
+    const asked = (cue.forms ?? [cue.token]).join(" ");
+    for (const h of store.search(asked, t.PER_CUE_FETCH, norm, reachFilter)) byDoc.set(h.id, h.score);
     postings.set(cue.token, byDoc);
   }
 
