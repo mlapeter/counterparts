@@ -243,7 +243,8 @@ dreamer is the model (a background agent the session launches), outside this pro
   if rated 0 in the stretch). A queued memory's replay priority is multiplied by
   `1 + DAY_LIFT[mark]`. Up to `TODAY_COUNT` used / useful / reward memories are listed in the
   bundle as `today`, strongest first; one already dreamed joins in the role `today` (fit
-  priority `TODAY_FIT`, between `new` and `on-mind`); a queued one that is not tonight's new
+  priority `TODAY_FIT`, between `new` and `on-mind`; it takes over a neighbour's or a mixing
+  role, and a look-back one keeps its own); a queued one that is not tonight's new
   is left out (shown, it would leave the queue undreamed). Pairs used together in one
   session, both shown, are listed as `todayPairs`, at most `TODAY_PAIRS`. The launch prompt
   says what both mean. Physics and the dream's limits are unchanged: the dream still chooses

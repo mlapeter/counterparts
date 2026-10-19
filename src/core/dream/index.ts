@@ -2991,8 +2991,9 @@ export class Dreams {
     }
     // THE DAY'S REPLAY (2026-10-19, part E): what the day used, rated useful
     // or drew on, strongest mark first. A memory already dreamed is not in
-    // the queue, so it joins as `today` (over a neighbour's role; a mixing or
-    // look-back one keeps its own). One that is new tonight is listed and
+    // the queue, so it joins as `today` (over a neighbour's or a mixing role,
+    // whose low fit priority would drop the day's strongest first; a look-back
+    // one keeps its own). One that is new tonight is listed and
     // stays `new`. A QUEUED one that is not tonight's new is left out: shown
     // here, it would leave the queue as if dreamed — the lift already ranked
     // it, and it waits.
@@ -3006,7 +3007,7 @@ export class Dreams {
       const r = role.get(mid);
       if (queued.has(mid) && r !== "new") continue;
       today.push({ id: mid, mark: m });
-      if (r === undefined || r === "neighbour") role.set(mid, "today");
+      if (r === undefined || r === "neighbour" || r === "mixing") role.set(mid, "today");
     }
     const todayMark = new Map(today.map((t) => [t.id, t.mark]));
     // WHAT'S ON MY MIND: open things, not new. Their memories join the shown
