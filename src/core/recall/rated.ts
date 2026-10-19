@@ -269,6 +269,14 @@ const GLIMPSE_LANES: ReadonlySet<RatedLane> = new Set(["loud", "footnotes", "poi
  */
 export const CO_USE_MIN_SCORE: RatingScore = 2;
 
+/**
+ * How many of a session's newest rating rows `rateShown` reads for the same
+ * turn's earlier calls, whose co-used pairs it does not link again (review of
+ * #525: once per pair per stretch). Why 8: a turn rarely ends more than once or
+ * twice; past this, a pair could be linked twice, never lost.
+ */
+export const RATED_SAME_TURN_ROWS = 8;
+
 /** One graded use to credit. */
 export interface RatedCredit {
   readonly id: string;

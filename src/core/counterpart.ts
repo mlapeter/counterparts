@@ -69,6 +69,7 @@ import {
   planRatedUse,
   refreshHabituation,
   NO_RATED_USE,
+  RATED_SAME_TURN_ROWS,
 } from "./recall/index.js";
 import { DREW_ON_MAX_PER_BOUNDARY, resolveReferences } from "./recall/reference.js";
 import type { ReferenceCandidate } from "./recall/reference.js";
@@ -365,9 +366,6 @@ const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
-
-/** How many of a session's newest rating rows are read for the same turn's earlier calls. */
-const RATED_SAME_TURN_ROWS = 8;
 
 function linksDespite(r: CreditResult): boolean {
   if (r.reason === "already-credited-at-or-above") return true;
