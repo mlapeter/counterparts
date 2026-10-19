@@ -1,13 +1,45 @@
-# Things to check after a few days
+# Experiments to watch
 
-Mike's ask (2026-10-11): a list of what to look at once the new mechanisms have lived a few days on a real
-store. Each entry says what to look at, where, when, and what result would change a decision. Decisions
-themselves live in `docs/IMPROVEMENTS.md` ("Decisions to review"); this file is the follow-through. Strike an
-entry when it's checked, with the date and what was seen.
+Most changes here are **experiments, not rulings**: we try something, lightly held, watch it on a real store for a
+few days, then keep, tune or revert it. This file is where each one is tracked so none is forgotten. (It began as
+"Things to check after a few days", Mike's ask on 2026-10-11; renamed 2026-10-19, his ask, to say what it is.)
+
+Each entry says what we're trying and why, what to look at and where, when, what result would change it, and how
+to revert. When it's checked, write the date and what was seen, and move its row in the index to "Checked". The
+reasons behind each experiment live in `docs/decisions.d/` fragments and `docs/IMPROVEMENTS.md`; this file is the
+follow-through.
 
 Read-only on the owner's store: open it with `sqlite3 "file:$HOME/.counterparts/store/counterparts.sqlite?mode=ro"`
 or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts doctor --config …`,
 `counterparts claims-era --dir …`). Anything heavier runs on a snapshot copy, never the live store.
+
+## Index (updated 2026-10-19)
+
+**Open: being built, or live and waiting for a check**
+
+| Experiment | Started | Check | Section / source |
+|---|---|---|---|
+| Feedback loop, upward: graded use credit, strong co-use links, light habituation | building 10-19 | ~2 lived days after install | its own section, once merged; brief `~/counterparts-notes/2026-10-19-feedback-loop-brief.md` |
+| Feedback loop: no footnotes from this session (echo), the dream replays the day, no footnotes in the nightly run's sessions | building 10-19 | ~2 lived days after install | as above |
+| Context priming (the downward direction): the session's useful memories and the folder's open threads warm their neighbours | planned, after the upward loop merges | — | `~/counterparts-notes/2026-10-19-mechanisms-big-picture.md` |
+| Meaning computed in line whenever no fresh cue is ready (#521) | merged 10-19, unreleased | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
+| Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
+| Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
+| Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
+| Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
+
+**Overdue: written 10-11/10-12, never checked** (check, or strike as no longer relevant)
+
+| Experiment | Section |
+|---|---|
+| The first live catch-up's real per-part cost | "Due at the first live catch-up" |
+| Peak context per reflection child on a heavy night | "Due at the first live nights with the reflection in its own child" |
+| Verbatim in the memory's body: first and second look, then decide | "Due 1 lived day / ~4 lived days after the verbatim trial ships" |
+| Group 2 / 2b: "this replaces that", one door for "A over B" | ".18 / Group 2", ".19 / Group 2b" |
+| No settled-over memory outranks its head; the old-claims era's effect on archives | "Ongoing (first two weeks)" |
+
+**Checked** (kept below for the record): 10-12 first new-curve pass; 10-14 check-in; 10-18 wake trims, exit at 7
+vs 14 days, Group 4 association.
 
 ## Checked 2026-10-12 (lived day 21, the first new-curve pass, on 0.3.18)
 
