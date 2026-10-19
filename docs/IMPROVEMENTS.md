@@ -605,6 +605,7 @@ were refined by b2+f8 at the review of #369, named where they were):
   a dream's or the owner's settle, or a settle that closes it) lifts the provisional cut first,
   recorded so an undo puts it back with the pair unsettled. Why: confirmed lands at `CHANGED_FADE`,
   not 0.4, and every step is exact.
+  Changed 2026-10-19 (experiment): SLOT_FADE 1 — a proposal makes no provisional cut; check ~10-22.
 - Decided by the Group 2 builder, 2026-10-11, lightly held: in ambient recall a settled-over memory
   is inhibited when its head is admitted or already in the session, and one reached alone is shown
   as its head (the earlier's numbers, the head's words and label), out of the turn's background.
@@ -1152,6 +1153,7 @@ were refined by b2+f8 at the review of #369, named where they were):
   meaning-mode answer marks an earlier moment `earlier (now [id])` ("a later version" when the
   asker may not be shown it); a slot proposal's event says `bandDrop` when its provisional cut
   moves the older from semantic to episodic.
+  Changed 2026-10-19 (experiment): SLOT_FADE 1 — a proposal makes no provisional cut; check ~10-22.
 - Decided by the Group 2b builder, 2026-10-11, lightly held (left from #420): a head the turn
   reaches only through a link (a quiet pointer) counts as not reached, so it is brought in to
   stand for the earlier version the words reached and its pointer candidate is dropped. Why:
