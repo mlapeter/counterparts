@@ -4820,6 +4820,9 @@ export class Store {
     this.assertWritable("restemIndex");
     const started = performance.now();
     if (termIndexReady(this.cache)) return { ready: true, examined: 0, changed: 0, ms: 0 };
+    // A cache from a NEWER build is only read here, never rewritten: a later
+    // build may stem by other rules, and these would re-stem its rows wrongly.
+    if (cacheAhead(this.cache) !== null) return { ready: false, examined: 0, changed: 0, ms: 0 };
     const budget = opts.budgetMs ?? 2000;
     const batch = opts.batch ?? 200;
     let after =

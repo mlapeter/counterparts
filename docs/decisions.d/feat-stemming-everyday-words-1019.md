@@ -23,7 +23,12 @@ ambient recall and to facts mode.
   finishes (`cache_meta.terms`), lookups ask for both the surface form and the stem, so a
   mixed index loses no word recall. Measured on the bench copies: 79–126 ms for 300–366
   memories, so about 0.7 s at the live store's 2,207; one run's budget is 5 s and it
-  resumes. To see it landed on a store: `cache_meta` key `terms` = `light-1`.
+  resumes. To see it landed on a store: `cache_meta` key `terms` = `light-1` in box 3,
+  `<data dir>/cache/cache.sqlite` (Mike's to open read-only, never a session's:
+  `sqlite3 "file:$HOME/.counterparts/store/cache/cache.sqlite?mode=ro" "select value from cache_meta where key='terms'"`).
+  A harness that rebuilds a copied store gets the same result from
+  `store.rebuildCache({ keepVectors: true })` (it resets box 3, which marks it stemmed, and
+  re-indexes every row stemmed) or, cheaper, `store.restemIndex({ budgetMs: Infinity })`.
 - **A revert is not free.** Code that looks words up unstemmed misses every stemmed row, so
   undoing stemming means another cache bump whose worker step re-indexes from prose. The
   discount alone is undone by the two tunables.

@@ -202,6 +202,24 @@ describe("a cache migrated from v6", () => {
     s.close();
   });
 
+  test("rebuildCache({ keepVectors }) is the other path to a stemmed index: marked, re-indexed, vectors kept", () => {
+    const vec = (text: string): number[] => [text.length % 7, 1, 0.5];
+    let s = open({ embed: Object.assign(vec, {}) });
+    const baking = s.put({ type: "memory", kind: "fact", body: "Birthday baking plans for the weekend" });
+    s.put({ type: "memory", kind: "fact", body: "The harbor ferry leaves at noon" });
+    s.close();
+    asV6();
+    const vectorsBefore = embeddingRows();
+    s = open();
+    expect(s.termIndex().ready).toBe(false);
+    s.rebuildCache({ keepVectors: true });
+    expect(s.termIndex().ready).toBe(true);
+    expect(s.search("bake", 10).map((h) => h.id)).toEqual([baking]);
+    expect(tokenRows().some((r) => r.token === "baking")).toBe(false);
+    expect(embeddingRows()).toEqual(vectorsBefore);
+    s.close();
+  });
+
   test("the re-stem is a write: an observer cannot run it", () => {
     expect(WRITE_METHODS).toContain("restemIndex");
   });
