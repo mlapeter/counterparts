@@ -435,6 +435,41 @@ export class Associate {
     return { reason: pairs > 0 ? "buffered" : "nothing-to-link", pairs, blocked, frozen, accepted };
   }
 
+  /**
+   * A DEPOSIT AT A WEIGHT THE CALLER CHOSE (2026-10-19, the feedback loop):
+   * the co-use and shown-together pairs of a `rated` stretch
+   * (`Counterpart#rateShown`), at `CO_USE_DEPOSIT` / `SHOWN_TOGETHER_DEPOSIT`.
+   * The same checks and the same buffer as `contiguity` — both endpoints live,
+   * a pinned memory frozen both ways (G9), an observer buffering nothing (G7)
+   * — so the flush's count cap, outgoing bound, decay and sweep apply as for
+   * any co-use. `site` names it on the event.
+   */
+  deposit(deltas: readonly PairDelta[], site: string): { pairs: number; blocked: number; frozen: number } {
+    if (this.observer) {
+      this.emit("associate.observer.skip", undefined, { site, pairs: deltas.length });
+      return { pairs: 0, blocked: 0, frozen: 0 };
+    }
+    const conductor = this.conductor();
+    let pairs = 0;
+    let blocked = 0;
+    let frozen = 0;
+    for (const d of deltas) {
+      if (d.a === d.b || !(d.delta > 0)) continue;
+      if (!conductor(d.a) || !conductor(d.b)) {
+        blocked += 1;
+        continue;
+      }
+      if (this.store.row(d.a)?.protected === 1 || this.store.row(d.b)?.protected === 1) {
+        frozen += 1;
+        continue;
+      }
+      this.buffer.add(d.a, d.b, d.delta, d.back ?? d.delta);
+      pairs += 1;
+    }
+    this.emit("associate.deposit", undefined, { site, pairs, blocked, frozen, buffered: this.buffer.size });
+    return { pairs, blocked, frozen };
+  }
+
   /** What is buffered right now — copies, for telemetry and tests. */
   pendingDeltas(): PairDelta[] {
     return this.buffer.pending();

@@ -80,6 +80,19 @@ for `recall/`; telemetry by reference.
    so each pair gets a co-use's `HEBB_RATE` deposit — the tier comes from the engagement,
    not from the lane that showed it (review 06 C1). (Was: "Footnotes never train. The
    ignorable tier is ignorable in both directions.")
+   *Amended 2026-10-19 — an experiment, not a ruling (the feedback loop; check on ~10-22;
+   revert by setting `CO_USE_DEPOSIT` and `SHOWN_TOGETHER_DEPOSIT` to 0).* Trying strong
+   co-use links, to see whether quiet pointers start to show and get used. At a `rated`
+   boundary (`Counterpart#rateShown`) the memories CO-USED in the stretch since the
+   session's previous rating — rated 2 or 3, or otherwise used there (opened, quoted,
+   `drewOn`), never one rated 0, at most `CO_USE_MAX_MEMBERS` — are linked pairwise at
+   `CO_USE_DEPOSIT` (0.25: two co-uses clear the quiet-pointer weight, 0.4), and memories
+   shown on the same turn of the stretch, none rated 0, at `SHOWN_TOGETHER_DEPOSIT` (0.05).
+   So display alone now leaves a faint trail when the session did not call it noise. Both
+   go through `Associate#deposit` into the same buffer and pending file as a co-use: the
+   count cap, the outgoing bound (G2), decay, the sweep, the frozen endpoint (G9) and the
+   observer stand-down (G7) hold. The hop arithmetic and the pointer threshold are not
+   touched.
 2. **[M] Per node, the edge count is capped and the total outgoing weight is bounded**,
    with proportional renormalization. Since 2026-09-28 this covers every edge a dream
    writes too: a dream's `link` and a gist's ties to its sources go through
