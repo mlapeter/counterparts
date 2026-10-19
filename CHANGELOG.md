@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.26 — 2026-10-18
+
+The wake leads with what is live. "Still open" puts the questions touched in the last two weeks first and counts how many of the rest have gone untouched; a stale handoff says how stale it is in one sentence, and when every handoff listed is stale only the newest shows whole; the Yesterday line names the other folders worked in instead of counting them; and a session still open from an earlier day says its start with the date. Doctor reads mood matching, switched off since 10-10, as disabled rather than amber. No store-format change (store v13, cache v6) and no wiring change: nothing to run after upgrading from 0.3.25, and `counterparts connect` is not needed.
+
+- **"Still open" shows what is live first.** Open questions touched in the last two weeks come
+  before the ones nobody has touched since, a plain one before one that may be out of date,
+  and the count says how many of the rest are weeks old.
+- **A handoff says how stale it is in one sentence.** "2 days old; since then: a newer
+  chapter here; written on 0.3.24, 0.3.25 now". When every handoff in a folder is stale, the
+  wake shows the newest and lists the others by id.
+- **The Yesterday line names the other folders worked in**, rather than counting "sessions in
+  other projects", and only the folders the "Today, elsewhere" line may name.
+- **"Today, elsewhere" dates a session that started on an earlier day.** A session opened
+  the day before and still live read `open since 09:08 (live)`, a clock that looked like a
+  time later today; it now reads `open since 10-16 09:08 (live)`.
+- **Doctor's Fired line reads mood matching as `disabled`** while both mood weights are 0
+  (stood down by decision since 10-10), instead of amber "gone quiet". Turning the weights
+  back up restores the ordinary grading.
+- **Facts: a coarse event date only partly inside the time asked says so.** A month, year
+  or range that straddles the window reads `happened 2023-04 · may be inside the time
+  asked`, where a bare month beside a day window read as outside it. Held lightly.
+
 ## 0.3.25 — 2026-10-16
 
 A chapter of the journal is now stood for by one short summary memory instead of a full copy: the `chapter` tool takes a `summary`, the engine writes a short one from the chapter's opening lines when the session gives none, and summaries fade like any other memory while the chapter itself keeps every word. The nightly reflection can propose closing items that have sat in "Still open" for days, and nothing closes until you say yes. The wake is shorter and lists more: long items as one line each, the tags on one line, today's date said once, "Coming up" only what is due today, and the self page written to about 4,600 bytes. Recall reads "in the last month" and "the past 3 months" as rolling windows, and facts' event dates carry their weekday. The plugin's sidebar says where you left off, can be clicked again in a few small ways, and the build from Anthropic's directory stands down beside the npm install. No store-format change (store v13, cache v6) and no wiring change: nothing to run after upgrading from 0.3.24, and `counterparts connect` is not needed.

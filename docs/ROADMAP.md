@@ -12,7 +12,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 | | |
 |---|---|
-| **On npm** | 0.3.25 (Oct 16) |
+| **On npm** | 0.3.26 (Oct 18) |
 | **On master, not released** | nothing yet |
 | **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11); the plugin with neither, as one downloaded program (0.3.14). Not Windows. |
@@ -81,6 +81,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 ## Recently done
 
+- **10-18**: 0.3.26 on npm: "Still open" leads with what was touched in the last 14 lived days and counts the untouched, a stale handoff says its staleness in one sentence and only the newest shows whole when all are stale, the Yesterday line names folders (#517); "Today, elsewhere" dates a session started on an earlier day (#513); doctor's Fired line reads mood matching as disabled (#515); facts say a coarse date may be inside the time asked (#516); no store-format change, nothing to run after upgrading from 0.3.25
 - **10-16**: 0.3.25 on npm: a chapter is stood for by a summary memory that fades, not a full copy; the `chapter` tool takes `summary`, the engine writes one when none is given (#504); the nightly reflection proposes closing stale open items and the reflect tool's `close` phase closes them on the owner's yes (#507); the wake lists long items as one line (#508) and is trimmed: one tag line, the date once, a shorter header, the page written to 4,600 bytes, craft out, Coming up = due today (#511); recall's rolling "last month"/"past N months" and weekdays in facts dates (#510); the sidebar says where you left off, its fox tries a picture first, its clickable rows are back in the full flavor, and the directory build stands down beside the npm install (#498, #499, #500, #501, #505, #509); no store-format change, nothing to run after upgrading from 0.3.24
 - **10-14**: 0.3.24 on npm: a memory leaves only after 14 lived days under the floor, and a curve change starts that wait fresh, so nothing is archived for 14 lived days after upgrading; old claims the era lowers read at today's default all the way down (#494); Claude rates the memories it was shown 0–3 at the session_end ask, tracking only (#492); routine work left at the default salience by the tool text, "faded: weak, below reach", a reminder's whole moved chain closes together, an untitled revision keeps its title, `recall` takes `query` (#493); the plugin's uninstall leaves a working npm install's memory server and hooks alone (#487, #491); the sidebar counts feelings under Emotion (#488) and its footer fits the docked pane (#486); no store-format change, nothing to run after upgrading from 0.3.23
 - **10-14**: 0.3.23 on npm, the build for Anthropic's plugin directory: the sidebar shows memory and acts on nothing (no buttons, no links, no network: it reads `~/.counterparts/sidebar.json`, written only while the plugin is installed), the brain gone and the fox kept (#480, #483); the directory build never reads `~/.claude.json` (no stand-down beside an npm install there, a known limit) and drops the dashboard's 3D brain (#481, #482); no store-format change, nothing to run after upgrading from 0.3.22
