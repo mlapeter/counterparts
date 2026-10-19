@@ -143,6 +143,7 @@ import type { HostReading, DesktopReading } from "./doctor-host.js";
 import { readOwed, crashWriteUpFindings } from "./doctor-write-ups.js";
 import type { OwedSource, OwedReading } from "./doctor-write-ups.js";
 import { worstFirst } from "./doctor-report.js";
+import { feedbackLoopFindings } from "./doctor-feedback.js";
 
 // What moved to the doctor-*.ts parts, re-exported so every import of this file still resolves.
 export { SEVERITIES } from "./doctor-finding.js";
@@ -3391,6 +3392,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ["claim", () => claimFindings(store, input.host?.plugin ?? null)],
     // Association build 1 (2026-09-28): what spreading did, and the edges.
     ["association", () => associationFindings(store)],
+    // The feedback loop (2026-10-19, an experiment): ratings as use, co-use links, habituation.
+    ["feedback-loop", () => feedbackLoopFindings(store)],
     // LAST, and deliberately: it is the widest read here — the whole event log,
     // plus a pass over the ids for the table probes — so when the console's
     // reading is cut short this is the group that goes, and the `Budget` finding

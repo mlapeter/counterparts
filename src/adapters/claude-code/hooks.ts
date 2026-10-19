@@ -513,7 +513,8 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  * today's `additionalContext`, or the stderr and `reason` shapes older
  * transcripts hold.
  *
- * RATINGS (2026-10-14; Mike's call, tracking only): one clause asks the
+ * RATINGS (2026-10-14; Mike's call; since 2026-10-19 an experiment counts
+ * the scores as use, which `session_end`'s field says): one clause asks the
  * session to score the footnotes shown since it last wrote, and every `drewOn`
  * id — `session_end`'s `rated` field says the anchors and the rest. The ids
  * are not listed here: every Stop's injection is noise someone pays for.
