@@ -66,6 +66,15 @@ each mechanism is working. It should run in whatever AI host people use.
 
 **What connects them:** about 3% of shown memories are credited as used (opened by id, quoted, or named in `drewOn`), while 18% are rated useful. Use is what strengthens a memory and its links, so the gap starves association and leaves consolidation leaning on the nightly passes. "What counts as use" is the first mechanism conversation.
 
+**Big-picture threads (2026-10-19), walked one at a time:**
+1. **The loop between using a memory and keeping it is mostly open.** Recall runs every turn; almost nothing it shows is credited, so the day barely teaches the system.
+2. **The night stands in for the day.** Nearly half the strengthening comes from the dream and reflection rather than lived use.
+3. **Recall quality bounds everything downstream.** Use, links and consolidation all flow through what comes to mind.
+4. **Each mechanism was tuned alone.** One calibration pass against measured rates (one owner, ~10 sessions a day) beats retuning one at a time.
+5. **Almost everything is episodic.** Notes (exact records) and schemas (beliefs that grow) are the missing layers.
+
+Rethinking (owner, 2026-10-19, lightly held): "shown strengthens nothing" was a guard against rich-get-richer for new users. That worry is separate and doesn't outweigh getting the whole system working; feedback between layers, both ways, is the aim.
+
 ---
 
 ## Under discussion
