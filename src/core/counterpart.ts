@@ -66,6 +66,10 @@ import {
   rateableSet,
   ratedCoverage,
   readRatings,
+  planRatedUse,
+  refreshHabituation,
+  NO_RATED_USE,
+  RATED_SAME_TURN_ROWS,
 } from "./recall/index.js";
 import { DREW_ON_MAX_PER_BOUNDARY, resolveReferences } from "./recall/reference.js";
 import type { ReferenceCandidate } from "./recall/reference.js";
@@ -73,6 +77,9 @@ import type {
   CreditResult,
   GateState,
   RatedResult,
+  RatedUseSummary,
+  ShownEntry,
+  StoredRating,
   RecallDecision,
   Turn as RecallTurn,
   RecallResult,
@@ -355,6 +362,11 @@ const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
  * once-per-lived-day gate, or physics' birth-day / stale-day / already-today —
  * still counts as co-activation for links (2026-09-28, associate NOTES §8).
  */
+/** An unordered pair's key (`rateShown`'s once-per-stretch co-use links). */
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
 function linksDespite(r: CreditResult): boolean {
   if (r.reason === "already-credited-at-or-above") return true;
   if (r.reason !== "physics-refused") return false;
@@ -2458,7 +2470,8 @@ export class Counterpart {
    * THE `drewOn` FIELD (2026-10-11): the session SAYS which memories it was
    * shown that shaped what it did or said, on `session_end` or `chapter`, and
    * each is credited at the `engaged` tier — half a use, a half-weight
-   * `engaged` return, no core-lane day. The successor to #371's matcher, which
+   * `engaged` return, no core-lane day (since 2026-10-19, an experiment: a
+   * full use with an awake return — physics `W_ENGAGED`). The successor to #371's matcher, which
    * guessed at it from rare title words (hand-read precision 0.17–0.33, parked
    * 2026-10-10). Built by the drewOn builder, 2026-10-11, from Mike's 10-10
    * direction, lightly held.
@@ -2568,7 +2581,7 @@ export class Counterpart {
         // session drew on together was thought together, so the named
         // memories enter one pair set at the REFERENCED tier — a co-use, one
         // `HEBB_RATE` per pair, homeostasis bounding it at the flush. Strength
-        // stays the engaged tier's half use; only the link is a full deposit.
+        // is the engaged tier's (a full use since 2026-10-19, an experiment).
         // As in `creditReferences`, a memory refused only for its day cadence
         // (opened earlier today, born today) still joins the pair set. The set
         // holds at most DREW_ON_MAX_PER_BOUNDARY (reviewer of #423): a refusal
@@ -2599,20 +2612,28 @@ export class Counterpart {
   }
 
   /**
-   * THE `rated` FIELD (2026-10-14; Mike's call, TRACKING ONLY, lightly held):
-   * the session scores the memories it was shown, 0–3, on `session_end` —
+   * THE `rated` FIELD (2026-10-14; Mike's call, lightly held): the session
+   * scores the memories it was shown, 0–3, on `session_end` —
    * `recall/rated.ts` holds the anchors, the lanes and the validation. One
-   * durable `recall.rated` row per call; NOTHING ELSE. No strength, ranking,
-   * credit, decay, link, judged mark or reminder window moves: this method
-   * never calls `resolveUse`, physics, `publishCoactivation`, `markJudged` or
-   * `Prospective`. How the signal is used is decided later, from the rows.
+   * durable `recall.rated` row per call.
    *
-   * The one guard is the shown set: the gate state's `surfaced` (loud,
-   * footnotes, pointers), the session's `asked` records, and `opened` — what
-   * the adapter's tools handed this session (by-address opens; a `remember`
-   * result's neighbours). Unlike `creditDrewOn` it checks nothing about the
-   * row itself (archived, superseded, faded): a rating credits nothing, so a
-   * memory shown and since replaced can still be scored.
+   * AN EXPERIMENT SINCE 2026-10-19 (the feedback loop; check ~10-22; revert
+   * by reverting the PR): trying the scores as use. Over the stretch since the session's
+   * previous rating row (`useRatings`, `rated.ts#planRatedUse`): each rating
+   * is a use at its tier through `resolveUse` (its once-a-lived-day rule and
+   * lift), each ambient showing left unrated a glimpse; the stretch's co-used
+   * memories are linked at `CO_USE_DEPOSIT` and those shown on one turn at
+   * `SHOWN_TOGETHER_DEPOSIT` (the pending file, as the credit pass's pairs);
+   * and the habituation note is rebuilt (`recall/habituation.ts`). Still no
+   * judged mark, no reminder window, no `Prospective`.
+   *
+   * The guard on what may be RATED is the shown set: the gate state's
+   * `surfaced` (loud, footnotes, pointers), the session's `asked` records, and
+   * `opened` — what the adapter's tools handed this session (by-address
+   * opens; a `remember` result's neighbours). A memory shown and since
+   * replaced can still be scored, and its score is recorded; what is CREDITED
+   * or linked is checked as `creditDrewOn` checks it (unknown, archived, a
+   * handoff, superseded, faded under a newer one: not credited, by name).
    *
    * `drewOn` is what the same call's `drewOn` CREDITED (the adapter passes its
    * credited ids, never what was merely named — review of #492); an id
@@ -2649,6 +2670,7 @@ export class Counterpart {
         coverage: { shown: 0, rated: 0 },
         drewOnUnrated: [],
         recorded: false,
+        used: NO_RATED_USE,
       };
     }
     const state = this.recall.gateState(sessionId);
@@ -2665,10 +2687,22 @@ export class Counterpart {
     }
     const { rated, refused, replaced } = readRatings(entries, shown, drewOn);
     let floor = 0;
+    /**
+     * Co-use pairs this session already linked ON THIS TURN (review of #525):
+     * a retried call, or one that re-rates what the turn's earlier call rated,
+     * is the same stretch, and a pair is linked once per stretch.
+     */
+    const linkedThisTurn = new Set<string>();
     try {
-      const prev = this.store.eventLog({ name: RECALL_RATED_EVENT, ref: sessionId, order: "desc", limit: 1 })[0];
-      const p = prev === undefined ? null : (JSON.parse(prev.payload ?? "null") as { turn?: unknown } | null);
+      const prev = this.store.eventLog({ name: RECALL_RATED_EVENT, ref: sessionId, order: "desc", limit: RATED_SAME_TURN_ROWS });
+      const payloads = prev.map((row) => JSON.parse(row.payload ?? "null") as { turn?: unknown; coUse?: { ids?: unknown } } | null);
+      const p = payloads[0] ?? null;
       if (p !== null && typeof p.turn === "number" && Number.isFinite(p.turn)) floor = p.turn;
+      for (const q of payloads) {
+        if (q === null || q.turn !== state.turn) break;
+        const ids = Array.isArray(q.coUse?.ids) ? q.coUse.ids.filter((x): x is string => typeof x === "string") : [];
+        for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) linkedThisTurn.add(pairKey(ids[i] as string, ids[j] as string));
+      }
     } catch {
       // Unreadable: coverage counts from the session's start — more shown, never fewer.
     }
@@ -2678,6 +2712,17 @@ export class Counterpart {
     const byReason: Record<string, number> = {};
     for (const r of refused) byReason[r.reason] = (byReason[r.reason] ?? 0) + 1;
     let recorded = false;
+    // THE SCORES COUNT (the 2026-10-19 experiment), before the row, so the row can say what
+    // they did. A call with nothing kept credits and links nothing, as it
+    // writes nothing.
+    let used: RatedUseSummary = NO_RATED_USE;
+    if (rated.length > 0) {
+      try {
+        used = this.useRatings(sessionId, state, shown, rated, floor, drewOn, day, linkedThisTurn);
+      } catch (err) {
+        this.emit("counterpart.rated.use.failed", sessionId, { code: errCode(err) });
+      }
+    }
     // NOTHING KEPT, NO ROW (review of #492): a call whose every entry was
     // refused writes nothing, so it cannot move the next call's coverage
     // window. Its refusals ride on the answer and the in-process event.
@@ -2701,12 +2746,20 @@ export class Counterpart {
           coverage: { shown: coverage.shown, rated: coverage.rated },
           drewOnNamed: drewOn.size,
           drewOnUnrated: drewOnUnrated.slice(0, RATED_ROW_IDS_MAX),
+          // What the scores did (2026-10-19): uses by tier, what was not
+          // credited and why, and the pairs sent to be linked.
+          credited: used.credited,
+          notCredited: used.notCredited,
+          coUse: used.coUse,
+          together: used.together,
         },
       });
       recorded = seq > 0;
     } catch (err) {
       this.emit("counterpart.rated.failed", sessionId, { code: errCode(err) });
     }
+    // The habituation note, rebuilt from the rows this one now belongs to.
+    if (recorded) used = { ...used, habituated: refreshHabituation(this.store, day, this.recall.tunables) };
     this.emit("counterpart.rated", sessionId, {
       day,
       sent: entries.length,
@@ -2715,8 +2768,150 @@ export class Counterpart {
       shown: coverage.total.shown,
       covered: coverage.total.rated,
       recorded,
+      credited: used.credited.shown + used.credited.ontopic + used.credited.useful + used.credited.referenced,
+      coUsePairs: used.coUse.pairs,
+      together: used.together,
     });
-    return { day, sent: entries.length, rated, refused, replaced, coverage: coverage.total, drewOnUnrated, recorded };
+    return { day, sent: entries.length, rated, refused, replaced, coverage: coverage.total, drewOnUnrated, recorded, used };
+  }
+
+  /**
+   * WHAT THE SCORES DO (an experiment, 2026-10-19; check ~10-22). Over the
+   * stretch past `floor` (`rated.ts#planRatedUse`):
+   *
+   *   - every graded use goes through `resolveUse` — the gate state's
+   *     refusals (an ambiguous handle trains nothing; never downgrades within
+   *     a lived day), the lift from a lower tier, physics' once a lived day —
+   *     after the row checks `creditDrewOn` makes (unknown, archived, a
+   *     handoff, superseded, faded under a newer one);
+   *   - the co-used set (rated 3, otherwise used in the stretch, rated 2; at
+   *     most `CO_USE_MAX_MEMBERS`) is linked pairwise at `CO_USE_DEPOSIT`,
+   *     and memories shown on one turn of the stretch, none rated 0, at
+   *     `SHOWN_TOGETHER_DEPOSIT` — written to the pending file the worker
+   *     applies, exactly as the credit pass's pairs (`publishDeposits`). A
+   *     memory refused only for its day cadence still links (`linksDespite`).
+   *
+   * "Otherwise used" is what this session credited past `floor` at the
+   * referenced or engaged tier (an open, a quote, `drewOn` at an earlier
+   * boundary) and what this call's `drewOn` credited.
+   */
+  private useRatings(
+    sessionId: string,
+    state: GateState,
+    shown: ReadonlyMap<string, ShownEntry>,
+    rated: readonly StoredRating[],
+    floor: number,
+    drewOn: ReadonlySet<string>,
+    day: number,
+    linkedThisTurn: ReadonlySet<string> = new Set(),
+  ): RatedUseSummary {
+    const otherwise: string[] = [];
+    for (const [id, c] of Object.entries(state.credited)) {
+      if (c.turn > floor && (c.tier === "referenced" || c.tier === "engaged")) otherwise.push(id);
+    }
+    for (const id of drewOn) if (!otherwise.includes(id)) otherwise.push(id);
+    const t = this.associate.tunables;
+    const plan = planRatedUse({ shown, rated, floor, otherwiseUsed: otherwise, maxMembers: t.CO_USE_MAX_MEMBERS });
+    const credited = { shown: 0, ontopic: 0, useful: 0, referenced: 0 };
+    const notCredited: Record<string, number> = {};
+    const refuse = (why: string): void => {
+      notCredited[why] = (notCredited[why] ?? 0) + 1;
+    };
+    /** Ids that may be linked: their row passed, and nothing said they train nothing. */
+    const linkable = new Set<string>();
+    const rowRefusal = (id: string): string | null => {
+      const row = this.store.row(id);
+      if (row === undefined) return "unknown-id";
+      if (row.archived === 1) return "archived";
+      if (isHandoffRow(this.store, id)) return "handoff";
+      if (row.superseded_by !== null) return "superseded";
+      if (fadeOf({ fade: row.fade }) < 1) return "faded-under-newer";
+      return null;
+    };
+    for (const c of plan.credits) {
+      const why = rowRefusal(c.id);
+      if (why !== null) {
+        refuse(why);
+        continue;
+      }
+      try {
+        const r = this.resolveUse(sessionId, c.id, c.tier);
+        if (r.credited || linksDespite(r)) linkable.add(c.id);
+        if (r.credited && (c.tier === "shown" || c.tier === "ontopic" || c.tier === "useful" || c.tier === "referenced")) {
+          credited[c.tier] += 1;
+        } else if (!r.credited) {
+          refuse(r.outcome?.reason ?? r.reason);
+        }
+      } catch (err) {
+        refuse(errCode(err));
+      }
+    }
+    // What the stretch otherwise used was credited when it was used; it links if its row still may.
+    for (const id of plan.coUse) {
+      if (!linkable.has(id) && rowRefusal(id) === null && state.surfaced[id]?.trains !== false) linkable.add(id);
+    }
+    const members = plan.coUse.filter((id) => linkable.has(id));
+    const coUse: PairDelta[] = [];
+    for (let i = 0; i < members.length; i++) {
+      for (let j = i + 1; j < members.length; j++) {
+        const a = members[i] as string;
+        const b = members[j] as string;
+        // Once per pair per stretch: an earlier call on this turn linked it.
+        if (!linkedThisTurn.has(pairKey(a, b))) coUse.push({ a, b, delta: t.CO_USE_DEPOSIT });
+      }
+    }
+    const together: PairDelta[] = plan.together
+      .filter(([a, b]) => linkable.has(a) && linkable.has(b))
+      .map(([a, b]) => ({ a, b, delta: t.SHOWN_TOGETHER_DEPOSIT }));
+    const sent = this.publishDeposits(
+      [
+        { deltas: coUse, site: "rated.co-use" },
+        { deltas: together, site: "rated.shown-together" },
+      ],
+      day,
+    );
+    return {
+      credited,
+      notCredited,
+      coUse: { members: members.length, capped: plan.coUseCapped, pairs: sent[0] ?? 0, ids: members },
+      together: sent[1] ?? 0,
+      habituated: null,
+    };
+  }
+
+  /**
+   * Deposits at weights the caller chose (`Associate#deposit`), drained to the
+   * pending file the worker applies — `publishCoactivation`'s path, one append
+   * for all of them. Returns, per group, how many pairs the buffer took; all
+   * zero when the append failed (the loss is evented, as there).
+   */
+  private publishDeposits(groups: readonly { deltas: readonly PairDelta[]; site: string }[], day: number): number[] {
+    if (this.observer) {
+      this.emit("counterpart.associate.standdown", undefined, { site: "deposit" });
+      return groups.map(() => 0);
+    }
+    const started = this.store.now();
+    const taken: number[] = [];
+    let deltas: PairDelta[] = [];
+    try {
+      for (const g of groups) taken.push(g.deltas.length === 0 ? 0 : this.associate.deposit(g.deltas, g.site).pairs);
+      deltas = this.associate.drain();
+    } catch (err) {
+      this.emit("counterpart.associate.deposit.failed", undefined, { code: errCode(err) });
+      return groups.map(() => 0);
+    }
+    if (deltas.length === 0) return taken;
+    const append = appendPendingDeltas(this.store.dir, deltas, { day, at: started });
+    this.emit("counterpart.associate.pending", undefined, {
+      day,
+      site: "deposit",
+      pairs: deltas.length,
+      written: append.pairs,
+      dropped: append.droppedPairs + (append.ok ? 0 : deltas.length - append.pairs),
+      code: append.code,
+      elapsedMs: this.store.now() - started,
+    });
+    return append.ok ? taken : groups.map(() => 0);
   }
 
   /**

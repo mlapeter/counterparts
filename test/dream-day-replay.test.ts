@@ -18,6 +18,8 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT, RECALL_RATED_EVENT } from "../src/core/counterpart-events.js";
 import { DAY_CREDIT_EVENT, DAY_DECISION_EVENT, DAY_RATED_EVENT, readDay } from "../src/core/dream/day.js";
 import { DREAM_TUNABLES } from "../src/core/dream/tunables.js";
+import { freshGateState, loadGateState, saveGateState } from "../src/core/recall/index.js";
+import type { GateState } from "../src/core/recall/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
 let dir: string;
@@ -199,6 +201,48 @@ describe("part E: the dream replays the day", () => {
       expect(out.bundle.memories[x]).toBeDefined();
       expect(out.bundle.memories[y]).toBeDefined();
     }
+  });
+
+  test("the ratings' partial returns read by meaning: a day of only glimpses marks them shown, not used", () => {
+    const c = brain();
+    c.store.advanceClock("2026-10-17");
+    const [g1, g2, noise, onTopic, useful, changed] = [
+      "The kiln shelf posts are stacked by the back door.",
+      "The glaze bucket lids are labelled with tape.",
+      "The parking meter takes coins only.",
+      "The studio key is on the blue lanyard.",
+      "The wax resist dries in about ten minutes.",
+      "The bisque firing goes to cone 04.",
+    ].map((t) => mem(c, t)) as [string, string, string, string, string, string];
+    c.store.advanceClock("2026-10-18");
+    /** Shown on one turn, as recall's own save records it. */
+    const show = (session: string, ids: readonly string[]): void => {
+      const prior = loadGateState(c.store, session).state;
+      const surfaced: GateState["surfaced"] = { ...prior.surfaced };
+      for (const id of ids) surfaced[id] = { turn: 1, tier: "footnoted", trains: true };
+      saveGateState(c.store, { ...freshGateState(session), ...prior, turn: 1, lastDay: c.store.livedDay(), surfaced }, 200);
+    };
+    // A day of only glimpses: two footnotes left unrated, one called noise.
+    show("s-glimpse", [g1, g2, noise]);
+    const r = c.rateShown("s-glimpse", [{ id: noise, score: 0 }]);
+    expect(r.used.credited.shown).toBe(2);
+    expect(new Set(c.store.livedReturnsSince({}).map((x) => x.source)).has("shown")).toBe(true);
+    let day = readDay(c.store, { sinceDay: 0, sinceAt: 0 });
+    expect(day.marks.get(g1)).toBe("shown");
+    expect(day.marks.get(g2)).toBe("shown");
+    expect(day.marks.has(noise)).toBe(false);
+    expect(day.together).toEqual([]);
+    // Each score as what it says: 1 shown, 2 useful, 3 the reward.
+    show("s-rated", [onTopic, useful, changed]);
+    c.rateShown("s-rated", [
+      { id: onTopic, score: 1 },
+      { id: useful, score: 2 },
+      { id: changed, score: 3 },
+    ]);
+    day = readDay(c.store, { sinceDay: 0, sinceAt: 0 });
+    expect(day.marks.get(onTopic)).toBe("shown");
+    expect(day.marks.get(useful)).toBe("useful");
+    expect(day.marks.get(changed)).toBe("reward");
   });
 
   test("the day's event names are the composition root's", () => {

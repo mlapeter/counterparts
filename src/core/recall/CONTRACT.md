@@ -122,7 +122,8 @@ reply actually used reconsolidates, where in humans every retrieval does.
   builder, 2026-10-11, from Mike's 10-10 direction, lightly held; the successor to #371's
   matcher, parked at hand-read precision 0.17–0.33.* `session_end` and `chapter` take
   optional `drewOn` ids, and each is credited at the `engaged` tier (half a use, half a
-  return, no core-lane day; physics §5.5) by `Counterpart#creditDrewOn`. No matcher guesses:
+  return, no core-lane day; physics §5.5 — since 2026-10-19, an experiment, a full use
+  with an awake return) by `Counterpart#creditDrewOn`. No matcher guesses:
   the 09-14 rule against crediting a name in prose stands. **The one guard: only an id this
   session was SHOWN counts** — its gate state's `surfaced` records (footnotes, loud, quiet
   pointers) and its `asked` records (a deliberate answer's results). Anything else is
@@ -141,6 +142,23 @@ reply actually used reconsolidates, where in humans every retrieval does.
   for an id counts. `Counterpart#rateShown` writes one `recall.rated` row and **moves
   nothing**: no strength, ranking, credit, decay, link or judged mark. Read by
   `probe.ts#probeRatings` (`counterparts probe-oq4`). How the signal is used is decided later.
+  *Amended 2026-10-19 — an experiment, not a ruling (the feedback loop; Mike: "err on too
+  strong, so we can see what it looks like when it's actually happening"; check on ~10-22;
+  revert by reverting the PR).* Trying the ratings as a door, to see whether the day starts
+  teaching the system: over the stretch since the session's previous rating row, each
+  rating is a use at its tier through `resolveUse` (0 none, 1 `ontopic`, 2 `useful`, 3
+  `referenced`; physics §5.5), and each ambient showing in the stretch left unrated a
+  glimpse (`shown`). Only for a memory that may be credited (`creditDrewOn`'s row checks:
+  not unknown, archived, a handoff, superseded or faded under a newer one); a rating of
+  such a memory is still recorded. Co-used memories are linked (associate G1). And a
+  memory rated 0 in `HABITUATION_MIN_SESSIONS` (2) sessions within
+  `HABITUATION_WINDOW_DAYS` (7) lived days is HABITUATED: the gate raises the bar it faces
+  by `HABITUATION_BAR_LIFT` (×1.5), after the floor, in both tiers, until those ratings age
+  out or a later rating of 2 or more clears them (`habituation.ts`). A penalty on its
+  chance to show, never on its strength; never a veto; quiet pointers and deliberate
+  questions untouched. The count is read from a derived note in box 3, rebuilt from the
+  `recall.rated` rows whenever it is behind them. The rating row now also records what its
+  call credited and linked.
 - **Framing is load-bearing and part of the spec** — footnotes are pointers, and the "quietly
   available / ignorable" phrasing is a deliberate probe question, at step 1 since 2026-09-14
   (§7 OQ4). [v1 §9 G17]
@@ -282,7 +300,8 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     and is a no-op under observer. Since 2026-10-11 a lower tier credited earlier the same
     lived day is LIFTED by a higher one (`physics#creditUse`'s `upgradeFrom`) — from this
     session's gate state, or, for an engaged credit, from its return row in any session —
-    never the other way.
+    never the other way. (2026-10-19 experiment: also a glimpse's or a rating of 1's
+    partial credit, read back from its own return row.)
 11. **[M]** Under observer, recall computes and renders normally and strengthens nothing —
     checked first, before any other work (scar E7).
 12. **[M]** Per-session gate state has a defined store and lifetime, and a test asserts the

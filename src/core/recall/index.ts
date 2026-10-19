@@ -37,6 +37,7 @@ import type { Candidate, SpreadFn, SpreadStats } from "./activate.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
 import { detectAffect, stripBoilerplate } from "./cues.js";
 import { floorUnit, gate } from "./gate.js";
+import { habituatedIds } from "./habituation.js";
 import type { Background, CandidateVerdict, Verdict } from "./gate.js";
 import { NO_MOOD, currentMood } from "./mood.js";
 import { loadGateState, saveGateState } from "./session.js";
@@ -56,6 +57,7 @@ export * from "./feeling-ask.js";
 export * from "./gate.js";
 export * from "./mood.js";
 export * from "./rated.js";
+export * from "./habituation.js";
 export * from "./render.js";
 export * from "./session.js";
 export * from "./standing.js";
@@ -484,6 +486,9 @@ export class Recall {
     // THE CHAIN HEAD WINS (2026-10-11, Group 2): an earlier version the turn
     // reached is shown as the memory that holds now (`headsWin`).
     const candidates = headsWin(this.store, act.candidates, day);
+    // HABITUATION (an experiment, 2026-10-19, light): who was rated 0 in enough
+    // recent sessions. Ambient turns only: a deliberate feeling ask is untouched.
+    const habituated = turn.feeling === undefined ? habituatedIds(this.store, day, this.tunables) : new Map<string, number>();
 
     const gated = gate(
       {
@@ -494,6 +499,7 @@ export class Recall {
         affectStated: affect.stated,
         turn: turnNo,
         ...(turn.echo === undefined || turn.echo.size === 0 ? {} : { echo: turn.echo }),
+        ...(habituated.size === 0 ? {} : { habituated }),
       },
       this.tunables,
     );

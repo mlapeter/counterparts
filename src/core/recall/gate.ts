@@ -106,6 +106,9 @@ export interface CandidateVerdict {
    *  this says which lane it came by. Absent for everything the conversation
    *  reached. */
   readonly via?: "link";
+  /** HABITUATED (2026-10-19, `habituation.ts`): rated 0 in enough recent
+   *  sessions that the bar it faced (`bar`) was raised. Absent otherwise. */
+  readonly habituated?: true;
 }
 
 export interface Background {
@@ -133,6 +136,8 @@ export interface GateInput {
   readonly turn: number;
   /** Memories this session wrote — ambient recall's echo set (`Turn.echo`). */
   readonly echo?: ReadonlySet<string>;
+  /** Memories habituated this turn (`habituation.ts#habituatedIds`, 2026-10-19). Absent: none. */
+  readonly habituated?: ReadonlyMap<string, number>;
 }
 
 export interface GateResult {
@@ -321,6 +326,8 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   const admitted: { c: Candidate; loud: boolean }[] = [];
   const loudBlock = new Map<string, Verdict>();
   const faced = new Map<string, number>();
+  /** Candidates whose bar habituation raised (marked on their verdicts). */
+  const habituatedIds = new Set<string>();
   const record = (c: Candidate, verdict: Verdict): void => {
     const blocked = loudBlock.get(c.id);
     verdicts.push({
@@ -341,6 +348,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       trains: c.trains,
       ...(blocked !== undefined ? { loudBlockedBy: blocked } : {}),
       ...(c.linkOnly === true ? { via: "link" as const } : {}),
+      ...(habituatedIds.has(c.id) ? { habituated: true as const } : {}),
     });
   };
 
@@ -405,7 +413,14 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       record(c, "below-floor");
       continue;
     }
-    const bars = barsFor(c);
+    // HABITUATION (an experiment, 2026-10-19, light): a memory rated 0 in enough recent
+    // sessions faces a raised bar, both tiers — after the floor, so the floor
+    // still means what it meant; a lift, never a veto.
+    const habituated = input.habituated?.has(c.id) === true;
+    const lift = habituated ? 1 + t.HABITUATION_BAR_LIFT : 1;
+    const plain = barsFor(c);
+    const bars = { admit: plain.admit * lift, loud: plain.loud * lift };
+    if (habituated) habituatedIds.add(c.id);
     faced.set(c.id, bars.admit);
     if (c.activation < bars.admit) {
       record(c, "below-bar");

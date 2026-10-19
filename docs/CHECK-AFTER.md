@@ -409,3 +409,59 @@ how many new trails use would confirm.
   and read higher (old defaults below today's, e.g. owner/us at 0.25 → 0.40), so it jumps by the read-higher ones.
 - **Changes a decision if:** the era's archives include memories Mike would miss → `counterparts claims-era
   --off` reads claims as stored again (archives already made stay archived, readable by id).
+
+## Due ~2026-10-22, two lived days after install: the feedback loop, Builder 1 (an experiment — docs/decisions.d/feat-feedback-loop-credit-1019.md)
+
+Trying ratings as use (A), strong co-use links (B) and light habituation (D) to see whether the day starts
+teaching the system. Read-only on the owner's store: `counterparts doctor --config …` (the **Feedback loop**
+and **Association** lines), `counterparts probe-oq4 --dir …` (the ratings by date), and the `recall.rated`
+rows' `credited` / `notCredited` / `coUse` / `together` fields. Each entry names its revert.
+
+### A. Credits per day by tier, and the footnote ratings
+- **Look at:** the Feedback loop line's uses credited (glimpses, rated 1, 2, 3) and not credited; per day,
+  the same sums over `recall.rated` rows. Then probe-oq4's score distribution after install against before
+  (47% noise / 35% on topic, not needed / 18% useful).
+- **Why:** the loop is meant to credit far more than the 3% of shown memories credited before.
+- **Changes a decision if:** the useful share does not rise, or the noise share stays near half → the
+  credit may be strengthening noise; lower `W_SHOWN` first. If the distribution jumps toward 2–3 right
+  after install, the new tool words ("a score counts as use") may be steering the ratings → reword.
+
+### A. Standing rulings and the core
+- **Look at:** memories footnoted in 3+ sessions and never rated 2–3 or opened (the ~270 of 10-14): did any
+  cross into the core (`core_events` since install), and how many of them sit at or near their peak strength
+  (`counterparts mechanisms` below-reach count against 10-18's).
+- **Why:** a glimpse re-anchors a memory's curve, so a memory footnoted daily does not fade while it keeps
+  showing (kept as built, Mike 2026-10-19). Toward the core a glimpse-only day is 0.1 of a day, never alone,
+  never the anchor; but daily glimpses plus two full days in 30 (two reflection citations, or one and a
+  rating of 2 or a drewOn) do cross the slow lane (hermetic, 2026-10-19), where before it took about four.
+- **Changes a decision if:** a never-used ruling reached the core → the recurrence fractions are too high;
+  or below reach drops sharply with the noise share flat, or the footnotes look cluttered with the same
+  memories → glimpses keep noise alive; the fallback to try is a glimpse that credits `uses` without moving
+  the decay clock, or `W_SHOWN` 0.
+
+### A. drewOn as a full use
+- **Look at:** drewOn ids per day and their returns (`returns.source = 'awake'` on a drewOn day, not
+  `engaged`), and whether memories named in drewOn start crossing into the core.
+- **Why:** Mike, 2026-10-19: trying drewOn as a full use (it was half), so its return is an awake one.
+- **Changes a decision if:** drewOn lists grow to the cap of 3 at most boundaries, or name memories the turn
+  barely touched → it is being used as a vote; set `W_ENGAGED` back to 0.5.
+
+### B. Links at pointer weight, and pointers used
+- **Look at:** the Feedback loop line's "links at or above the quiet-pointer weight (0.40)" and co-use pairs
+  sent; the Association line's quiet pointers shown and later expanded. Hand-read 10 pointers shown since
+  install against the turn they came on.
+- **Why:** two co-uses at 0.25 now clear 0.4, so pointers should begin to show within a day or two.
+- **Changes a decision if:** pointers show but mostly beside the point (the 10-18 hand-read was 2 right of
+  20 at a lowered threshold) → lower `CO_USE_DEPOSIT` or raise `CO_USE_MIN_SCORE` to 3; or memories hit the
+  outgoing bound (a node's links summing to 4.0; the hermetic heavy month put five "hub" memories there with
+  72 evictions) → cap co-use deposits per pair per day. Revert: both deposits to 0.
+
+### D. Habituated memories
+- **Look at:** the Feedback loop line's "memories habituated now" and "habituated showings got through
+  anyway"; then hand-read the habituated ids (the `note:habituation` row in the cache, or rows rated 0 in two
+  sessions): are they noise?
+- **Why:** a memory rated 0 in two sessions within 7 lived days faces a ×1.5 bar until the ratings age out
+  or a later 2 clears it.
+- **Changes a decision if:** a habituated memory turns out to be one a session later needed (rated 2–3
+  after habituating) more than once → the lift is too strong or two sessions too few; if none ever
+  habituates while noise stays near half → the lift is too light. Revert: `HABITUATION_BAR_LIFT` 0.

@@ -482,13 +482,15 @@ export function returnCounts(store: Store, filter: { sinceAt?: number; sinceDay?
     dream: number;
     /** v9: returns a reflection counted (also lane returns, beside `awake`). */
     reflection: number;
+    /** Memories with any return — not counting a glimpse or a rating of 1
+     *  alone (2026-10-19: shown is not "came back"). */
     memories: number;
   } {
   const r = store["ops"].get<{ awake: number | null; dream: number | null; reflection: number | null; memories: number | null }>(
     `SELECT SUM(CASE WHEN source = 'awake' THEN 1 ELSE 0 END) AS awake,
               SUM(CASE WHEN source = 'dream' THEN 1 ELSE 0 END) AS dream,
               SUM(CASE WHEN source = 'reflection' THEN 1 ELSE 0 END) AS reflection,
-              COUNT(DISTINCT CASE WHEN source != 'legacy' THEN memory_id END) AS memories
+              COUNT(DISTINCT CASE WHEN source NOT IN ('legacy', 'shown', 'ontopic') THEN memory_id END) AS memories
          FROM returns WHERE at >= ? AND day >= ? AND source != 'legacy'`,
     filter.sinceAt ?? 0,
     filter.sinceDay ?? -2_147_483_648,

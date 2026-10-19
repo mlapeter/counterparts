@@ -176,8 +176,9 @@ actually wrote (chapter), the written self page or the version a write to it pro
      engine-set; per-entry redaction and isolation; `eventDate` a field (its own field
      says so); the two reminder rows; observer stand-down; `handoff` never a memory, the
      "Last here" line, an empty `handoff` retiring, `retireHandoff`; the `writeUp` door;
-     `how` settling and the unrelated-update hold; `drewOn`'s credit; `rated` recorded and
-     changing nothing (2026-10-14, Mike's call, tracking only).
+     `how` settling and the unrelated-update hold; `drewOn`'s credit; `rated` recorded
+     (2026-10-14, Mike's call), its scores counted as use, co-use linked and a twice-0
+     memory habituated (an experiment since 2026-10-19; check ~10-22).
    - `recall`: the bookkeeping a call writes; what facts mode considers and how it ranks;
      the count header and paging; the bounded answer; confidential material; every
      memory's provenance; observer stand-down.

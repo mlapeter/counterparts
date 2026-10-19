@@ -128,7 +128,7 @@ export const NO_DESKTOP_SESSION =
   "No Claude Desktop session is live. Call the `wake` tool first: it starts this chat's session and returns its id. (In a Claude Code session — Desktop's Code tab — do not call wake: pass the session id your wake or Stop ask names.)";
 
 /**
- * The ratings clause (2026-10-14; Mike's call, tracking only) — the same words
+ * The ratings clause (2026-10-14; Mike's call) — the same words
  * the Claude Code Stop ask carries (`claude-code/hooks.ts#RATE_CLAUSE`; the
  * adapters do not import each other, so a test holds the two equal).
  */

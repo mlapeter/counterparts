@@ -1,8 +1,8 @@
 /**
- * `rated` (2026-10-14; Mike's call, TRACKING ONLY, lightly held) — the session
- * scores the memories it was shown, 0–3, on `session_end`, so every footnote
- * gets a feedback signal. One `recall.rated` row per call and nothing else:
- * no strength, ranking, credit, decay or link moves.
+ * `rated` (2026-10-14; Mike's call) — the session scores the memories it was
+ * shown, 0–3, on `session_end`, so every footnote gets a feedback signal. One
+ * `recall.rated` row per call. Tracking only until 2026-10-19; what the scores
+ * do since (an experiment) is `feedback-loop-credit.test.ts`.
  *
  * Hermetic: every store is a fresh temp dir, removed after; an unnamed store
  * refuses (`COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1`).
@@ -107,7 +107,7 @@ function snapshot(c: Counterpart, sessionId: string, ids: readonly string[]): st
 
 // ── the core seam ────────────────────────────────────────────────────────────
 
-describe("Counterpart#rateShown — tracking only", () => {
+describe("Counterpart#rateShown", () => {
   test("the anchors are the agreed four", () => {
     expect(RATING_ANCHORS).toEqual({
       0: "noise (unrelated)",
@@ -217,21 +217,22 @@ describe("Counterpart#rateShown — tracking only", () => {
     expect(r.refused).toEqual([{ id: a, index: 3, reason: "score-out-of-range" }]);
   });
 
-  test("a rating changes nothing about the memory: strength, uses, returns, links and credit stay put", () => {
-    const { c, ids } = setup(3);
+  test("since 2026-10-19 (an experiment) a rating counts: a higher score is more use, 0 is none", () => {
+    const { c, ids } = setup(4);
     shown(c, "s1", 1, ids);
     const before = snapshot(c, "s1", ids);
     const r = c.rateShown(
       "s1",
-      ids.map((id) => ({ id, score: 3 })),
-      { drewOn: ids },
+      ids.map((id, i) => ({ id, score: i })),
     );
-    expect(r.rated.length).toBe(3);
-    expect(snapshot(c, "s1", ids)).toBe(before);
-    for (const id of ids) {
-      expect(c.store.row(id)?.uses).toBe(0);
-      expect(c.store.returnsOf(id)).toEqual([]);
-    }
+    expect(r.rated.length).toBe(4);
+    expect(snapshot(c, "s1", ids)).not.toBe(before);
+    const uses = ids.map((id) => c.store.row(id)?.uses ?? 0);
+    expect(uses[0]).toBe(0);
+    expect(uses[1]).toBeGreaterThan(uses[0] as number);
+    expect(uses[2]).toBeGreaterThan(uses[1] as number);
+    expect(uses[3]).toBeGreaterThan(uses[2] as number);
+    expect(r.used.credited).toEqual({ shown: 0, ontopic: 1, useful: 1, referenced: 1 });
   });
 
   test("an id credited as drawn on at this boundary (by `chapter`) is flagged even when this call did not name it", () => {
@@ -357,10 +358,12 @@ describe("the rated field on session_end", () => {
       { id: foot, score: 3, lane: "footnotes", drewOn: true },
       { id: openedId, score: 1, lane: "opened", drewOn: false },
     ]);
-    // drewOn still credited (its own rules); the ratings added nothing on top.
+    // drewOn still credited (its own rules), and since 2026-10-19 (the feedback
+    // loop, an experiment) the ratings count on top: the 3 lifts the drawn-on
+    // memory's day above drewOn's half use, the 1 gives the opened one a little.
     expect((out["drewOn"] as Record<string, unknown>)["credited"]).toEqual([foot]);
-    expect(s.counterpart.store.row(foot)?.uses).toBe(0.5);
-    expect(s.counterpart.store.row(openedId)?.uses).toBe(JSON.parse(before).rows[1].uses);
+    expect(s.counterpart.store.row(foot)?.uses ?? 0).toBeGreaterThan(0.5);
+    expect(s.counterpart.store.row(openedId)?.uses ?? 0).toBeGreaterThan(JSON.parse(before).rows[1].uses as number);
     // The reader's `opened` lane rests on the row the recall tool wrote: tie the two halves.
     const lookups = s.counterpart.store.eventLog({ name: "mcp.recall" }).map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);
     expect(lookups).toEqual([expect.objectContaining({ session: SESSION, path: "handle", ids: [openedId] })]);
@@ -453,7 +456,9 @@ describe("the rated field on session_end", () => {
     const d = props["rated"]?.description ?? "";
     for (const words of Object.values(RATING_ANCHORS)) expect(d).toContain(words);
     expect(d).toContain("the last score counts");
-    expect(d).toContain("Tracking only");
+    // 2026-10-19: the field says plainly that a score counts (no longer "tracking only").
+    expect(d).not.toContain("Tracking only");
+    expect(d).toContain("counts as use");
   });
 });
 
