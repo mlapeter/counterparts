@@ -3394,6 +3394,30 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
     expect(third.decision.semanticUsed).toBe(true);
     expect(third.decision.semanticFromTurn).toBeNull();
     expect(third.decision.verdicts.find((v) => v.id === otter)?.semantic ?? 0).toBeGreaterThan(0);
+    // The in-line turn wrote no lag row of its own: the worker's next row is
+    // the only one, and turn 4 uses it, from turn 3, as if nothing came between.
+    const semanticRows = (): number => c.store.gateRecords("s-stale").filter((r) => r.kind === "semantic").length;
+    expect(semanticRows()).toBe(1);
+    await laggedSemantic({ counterpart: c, sessionId: "s-stale", scope: "proj", embedder: emb });
+    expect(semanticRows()).toBe(1);
+    const fourth = c.recallForTurn({ sessionId: "s-stale", text: MEANING_ONLY });
+    expect(fourth.decision.semanticSource).toBe("lagged");
+    expect(fourth.decision.semanticFromTurn).toBe(3);
+  });
+
+  test("a vector row that will not decode costs that row, not the in-line turn", async () => {
+    const emb = computingEmbedder();
+    const c = brain(emb);
+    const { otter } = seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb });
+    // A v3 JSON-text row that does not parse, and one that parses to no list.
+    // `decodeVector` throws on both; the scan behind the in-line rank must not.
+    const cache = (c.store as unknown as { cache: { run: (sql: string, ...a: unknown[]) => void } }).cache;
+    cache.run("INSERT INTO embeddings (memory_id, dim, vec) VALUES ('bad_json', 3, 'not json{')");
+    cache.run("INSERT INTO embeddings (memory_id, dim, vec) VALUES ('bad_null', 3, 'null')");
+    const first = c.recallForTurn({ sessionId: "s-corrupt", text: MEANING_ONLY });
+    expect(first.decision.semanticSource).toBe("in-line");
+    expect(first.decision.verdicts.find((v) => v.id === otter)?.semantic ?? 0).toBeGreaterThan(0);
   });
 
   test("past the vector-count guard the turn does not rank, and records `in-line-skipped`", async () => {
