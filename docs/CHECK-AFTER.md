@@ -21,11 +21,11 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 |---|---|---|---|
 | Feedback loop, upward (#525): graded use credit, drewOn as a full use, strong co-use links, light habituation; glimpses restart the fade clock | merged 10-19, unreleased | ~2 lived days after install | "Due ~2026-10-22 … Builder 1" below |
 | Feedback loop (#523): no footnotes from this session (echo), the dream replays the day, no footnotes in the nightly run's sessions | merged 10-19, unreleased | ~2 lived days after install | "Due ~2026-10-22 … Builder 2" below |
-| Head wins (#526): the newer memory stands in with the earlier one's bar | in review 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
+| Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | merged 10-19, unreleased | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
 | Stemmed word index (cache v7) + everyday words weigh less in cues, ambient and facts | building 10-19 | ~10-22; revert by 11-02 | "Due ~2026-10-22" below; `docs/decisions.d/feat-stemming-everyday-words-1019.md` |
-| Context priming (the downward direction): what the session used/wrote and the folder's open threads warm neighbours, along links and a train-of-thought vector | building 10-19 | ~2 lived days after install: ratings of primed vs unprimed footnotes, tunnel vision | brief `~/counterparts-notes/2026-10-19-context-priming-brief.md` |
-| Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | in review 10-19 (with the slot detector) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
-| Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | in review 10-19 (with the write-time links) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
+| Context priming (#530, the downward direction): what the session used/wrote and the folder's open threads warm neighbours, along links and a centred train-of-thought vector; handoffs age 0.7/lived day | merged 10-19, unreleased | ~2 lived days after install: ratings of primed vs unprimed footnotes, tunnel vision | "Due ~2026-10-22 (context priming)" below |
+| Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | merged 10-19 (#528), unreleased | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
+| Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | merged 10-19 (#528), unreleased | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Meaning computed in line whenever no fresh cue is ready (#521) | merged 10-19, unreleased | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -36,7 +36,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 
 | Change | Why | When |
 |---|---|---|
-| Head wins: hold back a settled-over memory whenever its head was brought in for it (gate.ts ~L452) | 36 footnotes since 10-12 showed an earlier memory while its head didn't (21 ids) | after the feedback-loop PRs merge (same file) |
+| Head wins: hold back a settled-over memory whenever its head was brought in for it (gate.ts ~L452) | 36 footnotes since 10-12 showed an earlier memory while its head didn't (21 ids) | done: #526 |
 | Slot detector: a proposal flags only, no provisional fade until the dream confirms | 4 of 7 right by hand-read, under the ~3-in-4 bar; the dream said "not the same" on 3 of 4; raising SLOT_COSINE doesn't separate them | in review 10-19 (`SLOT_FADE` 1), with the write-time links row above |
 
 **Checked** (kept below for the record): 10-12 first new-curve pass; 10-14 check-in; 10-18 wake trims, exit at 7
@@ -506,3 +506,19 @@ by the paths in the fragment.
   stemmed rows. If that happens: delete `~/.counterparts/store/cache/cache.sqlite*`, then run
   `counterparts verify --rebuild --keep-vectors` on that build (deleting alone leaves word recall empty).
   `counterparts rollback` does not cover a cache-only change.
+
+## Due ~2026-10-22 (context priming, 2026-10-19, an experiment — docs/decisions.d/feat-context-priming-1019.md)
+
+Trying a downward direction for recall (#530): what the session used and wrote, and the folder's open threads and
+handoffs, give their linked partners and memories near a centred train-of-thought vector a head start; it can lift
+a candidate past the bar but never introduce one. Revert: `PRIME_LINK_UNITS` and `PRIME_TRAIN_SHARE` to 0
+(centring alone: `PRIME_TRAIN_CENTRE` 0).
+
+- **Look at:** `recall.decision` rows' `primed` summary (sources by kind, `train`, `trainCentre`, `shown`,
+  `lifted`, `byLink`, `byTrain`) and each shown row's `primed` part. How many footnotes a day were primed, and how
+  many only because of it.
+- **Ratings:** primed against unprimed footnotes (`recall.rated` joined on ids): are primed ones rated 2–3 more
+  often? The lifted ones especially.
+- **Changes it if** tunnel vision: the same primed cluster turn after turn while the prompts changed subject, or the
+  same `from` source priming several turns running → lower `PRIME_CEILING` or `PRIME_TRAIN_SHARE` first, then
+  `PRIME_SOURCE_DECAY`. On lagged turns the train can still outweigh the lagged cue; watch that too.
