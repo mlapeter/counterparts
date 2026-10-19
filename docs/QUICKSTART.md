@@ -156,6 +156,12 @@ Then go back in this order. The other order breaks every hook, and the older ver
 3. `counterparts connect`.
 4. If you connected Claude Desktop: quit it, then run `counterparts install --host claude-desktop`.
 
+Going from 0.3.27 or later back to 0.3.26 or earlier also needs the search index rebuilt,
+because 0.3.27 changed its format and `rollback` does not cover it. After step 2, delete
+`~/.counterparts/store/cache/cache.sqlite` (and the `cache.sqlite-wal` and
+`cache.sqlite-shm` beside it), then run `counterparts verify --rebuild --keep-vectors
+--dir ~/.counterparts/store`. Recall by meaning comes back over the next few sessions.
+
 ## Start over
 
 To set your memory aside and start with a blank one, close every Claude Code session and
