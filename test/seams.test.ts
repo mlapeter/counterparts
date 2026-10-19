@@ -429,6 +429,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       appendRemovalRecord: [{ memoryId: seedId, stage: "requested", actor: "owner" }],
       rebuildCache: [],
       pruneDeadIndex: [],
+      restemIndex: [],
       embedOne: ["mem_0"],
       replayReturn: [seedId, 1, "drm_x"],
       recordHintDisplay: [1, [{ id: seedId, load: 1 }]],

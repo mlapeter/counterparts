@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { EMBED_BACKFILL_EVENT, SWEEP_GATE_EVENT } from "../src/core/counterpart.js";
 import { RETENTION_EVENT } from "../src/core/remember/index.js";
 import { STATIC_WEIGHTS_ENV, resolveStaticWeights } from "../src/core/embed/static.js";
-import { heldExits, Store, paths } from "../src/core/store/index.js";
+import { CACHE_SCHEMA_VERSION, heldExits, Store, paths } from "../src/core/store/index.js";
 import type { EmbedderIdentity } from "../src/core/store/index.js";
 import { openDb } from "../src/core/store/db.js";
 import { doctorFindings } from "../src/adapters/claude-code/index.js";
@@ -253,11 +253,11 @@ describe("held and cache-ahead, read durably by doctor's observer handle", () =>
     writer().put({ type: "memory", kind: "fact", body: "one memory" });
     opened.splice(0).forEach((s) => s.close());
     const db = openDb(paths.cache(dir));
-    db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', '7')");
+    db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', ?)", String(CACHE_SCHEMA_VERSION + 1));
     db.close();
     const f = by(reading(STATIC), "embedder");
     expect(f.severity).toBe("amber");
-    expect(f.detail).toContain("cache v7");
+    expect(f.detail).toContain(`cache v${String(CACHE_SCHEMA_VERSION + 1)}`);
     expect(f.fix).toContain("/mcp");
     expect(f.fix).toContain("Reconnect");
     // After going back to an older build on purpose, updating is not the only
@@ -270,7 +270,7 @@ describe("held and cache-ahead, read durably by doctor's observer handle", () =>
     writer().put({ type: "memory", kind: "fact", body: "one memory" });
     opened.splice(0).forEach((s) => s.close());
     const db = openDb(paths.cache(dir));
-    db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', '7')");
+    db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES ('schemaVersion', ?)", String(CACHE_SCHEMA_VERSION + 1));
     db.close();
     const plugin = by(reading(STATIC, "plugin"), "embedder");
     expect(plugin.fix).toContain("install the newer build again (in Claude Code, /plugin → Installed → counterparts → Update now)");

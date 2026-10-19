@@ -107,6 +107,26 @@ ended up with canonical state spread across a prose store plus half a dozen side
      identity, so a handle open all session never files or ranks under another model's
      tag. *(2026-09-23: the local static table is the primary embedder; the paid Voyage
      seat is FROZEN — deprecated, kept, and its paid-rows hold kept with it.)*
+     **Cache v7 (2026-10-19) — AN EXPERIMENT, check ~10-22: the word index holds STEMMED
+     terms** (`stem.ts#stemTerm`: Porter's step 1 and 5a plus "-ie", no dependency;
+     tokens with a digit or under four letters untouched, so ids, versions and numbers stay
+     exact). `tokenize` itself is unchanged and its non-index callers never see a stem;
+     `indexDoc` writes `indexTerms`, and `searchIndex` / `docFrequency` stem what they look
+     up, keyed back by what the caller asked. **The bump does not re-stem at open** (a hook
+     cannot pay for it), so a migrated cache is MIXED until `cache_meta.terms` names the
+     stemmer. Every lookup asks for the surface form AND the stem — always, not only while
+     mixed, since an older build still writes surface rows into a cache it reads as ahead —
+     so no word a row matched before stops matching it (on a stemmed index the surface form
+     changes no result). The worker re-stems (`Store#restemIndex`, runner
+     step 0c): bounded per run, resumable through `cache_meta.termsCursor`, derived from
+     `doc_tokens` alone (no prose read, no vector touched, lengths unchanged), idempotent
+     because the stemmer is. An empty cache and a reset are stemmed from the start. **A
+     revert is not free**: a build that looks words up unstemmed misses every stemmed row,
+     so going back means another bump whose worker step re-indexes from prose. An older
+     build reads a v7 cache as ahead (the #187 policy, as for every bump) and its hooks miss
+     every stemmed row; its way back is deleting `cache/cache.sqlite*` and
+     `counterparts verify --rebuild --keep-vectors` (`rollback` restores store migrations
+     only).
 - **The markdown parser is gone, and with it the "refuses ambiguity" guarantee it carried**
   ([v1] §4.2 G7): the frontmatter reader, the authoritative `payload:` line that existed so
   a lossy YAML reading could never become the truth, and the six refusal codes around them

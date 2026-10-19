@@ -22,7 +22,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Feedback loop, upward (#525): graded use credit, drewOn as a full use, strong co-use links, light habituation; glimpses restart the fade clock | merged 10-19, unreleased | ~2 lived days after install | "Due ~2026-10-22 … Builder 1" below |
 | Feedback loop (#523): no footnotes from this session (echo), the dream replays the day, no footnotes in the nightly run's sessions | merged 10-19, unreleased | ~2 lived days after install | "Due ~2026-10-22 … Builder 2" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar | in review 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
-| Stemming + everyday words count less (ambient and facts recall) | building 10-19 | ~2 lived days after install: footnote ratings, exact-match regressions | its decisions fragment, once merged |
+| Stemmed word index (cache v7) + everyday words weigh less in cues, ambient and facts | building 10-19 | ~10-22; revert by 11-02 | "Due ~2026-10-22" below; `docs/decisions.d/feat-stemming-everyday-words-1019.md` |
 | Context priming (the downward direction): what the session used/wrote and the folder's open threads warm neighbours, along links and a train-of-thought vector | building 10-19 | ~2 lived days after install: ratings of primed vs unprimed footnotes, tunnel vision | brief `~/counterparts-notes/2026-10-19-context-priming-brief.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | in review 10-19 (with the slot detector) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | in review 10-19 (with the write-time links) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
@@ -486,3 +486,23 @@ by the paths in the fragment.
   often. **Changes it if** `today` crowds out new memories (`queue.waiting` rising) → lower `TODAY_FIT` or `TODAY_COUNT`.
 - **F, the nightly run:** night children's sessions have no `recall.decision` rows after install, and their
   `recall.credit` rows read `shownFootnotes: 0`.
+
+## Due ~2026-10-22 (stemming + everyday-word weights, 2026-10-19, an experiment — docs/decisions.d/feat-stemming-everyday-words-1019.md)
+
+- **Trying:** the word index stores light stems (bake/bakes/baked/baking are one word), and a cue word's
+  rarity is scaled down when the embedder's table says it is everyday English ("any", "what", "you"), to see
+  whether first prompts surface what they are about. Both ambient recall and facts mode.
+- **Look at:** (1) the re-stem landed: `sqlite3 "file:$HOME/.counterparts/store/cache/cache.sqlite?mode=ro"
+  "select value from cache_meta where key='terms'"` says `light-1` after the first worker run. (2) Footnote
+  ratings and items shown per turn since install, against the week before (`adapter.recall` rows), especially
+  first prompts. (3) A few of Mike's own opening questions: did the memory he meant show?
+- **Changes a decision if:** items shown per turn drop, or ratings fall, or a name/id he searches for stops
+  matching → revert. A stem merging two different words in his real use (known: even/evening, morning/morn,
+  sim/sims) → add an exception.
+- **Revert:** the discount alone: set `EVERYDAY_NORM_HIGH <= EVERYDAY_NORM_LOW` (recall tunables). Stemming is
+  not free to undo: unstemmed lookups miss stemmed rows, so it needs a build that indexes surface words again
+  and keeps asking for both forms, or another cache bump whose worker step re-indexes from prose.
+  **Not by installing 0.3.26 over the v7 cache:** its memory server refuses every tool and its hooks miss
+  stemmed rows. If that happens: delete `~/.counterparts/store/cache/cache.sqlite*`, then run
+  `counterparts verify --rebuild --keep-vectors` on that build (deleting alone leaves word recall empty).
+  `counterparts rollback` does not cover a cache-only change.

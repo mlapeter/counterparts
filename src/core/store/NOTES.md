@@ -89,7 +89,10 @@ hashes, counts, kinds and codes only, never text (§5 G10).
 
 FTS5 is a compile-time option and the two supported runtimes do not guarantee it
 identically, so text search is a small tokenizer plus a `doc_tokens(memory_id,
-token, tf)` table, and vectors are JSON in `embeddings`. Deterministic ordering
+token, tf)` table, and vectors are JSON in `embeddings`. *(2026-10-19, an
+experiment, check ~10-22: since cache v7 the table holds light STEMS —
+`stem.ts`, CONTRACT §4 — so the index has some morphology now; `tokenize`
+itself still has none.)* Deterministic ordering
 (score desc, id asc) is what makes "the same recall for the same cues" testable
 after a rebuild (§5 G8). Contract open question 1 (one cache box or two) is answered
 as **one file, two tables**: the split that matters is rebuild cost, and that is

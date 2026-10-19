@@ -1856,6 +1856,7 @@ describe("observer mode is enforced at the store seam", () => {
     appendRemovalRecord: [{ memoryId: "mem_000000000000", stage: "requested", actor: "owner" }],
     rebuildCache: [],
     pruneDeadIndex: [],
+    restemIndex: [],
     embedOne: ["mem_0"],
     // v8 (2026-09-26, dreaming + consolidation).
     replayReturn: ["mem_000000000000", 1, "drm_x"],
