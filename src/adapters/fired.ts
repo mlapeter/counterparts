@@ -2278,6 +2278,9 @@ function readProbes(store: ReadOnlyStore, w: Window): Probed {
     // doctor's Reflection line splits the week's returns by source.
     for (const r of store.returnsOf(id)) {
       if (r.source === "legacy") continue;
+      // A glimpse or a rating of 1 (2026-10-19, an experiment) is a partial
+      // return, not a memory that came back: not counted as one here.
+      if (r.source === "shown" || r.source === "ontopic") continue;
       bump(r.source === "dream" ? "returns.dream" : "returns.awake", { at: r.at });
     }
     if (row !== undefined && row.archived === 0 && row.source === "dreamed") {

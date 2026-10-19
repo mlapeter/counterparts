@@ -1565,6 +1565,16 @@ export class Store {
                 since: this.spacingSince(id),
               });
         if (ret.counted) this.writeReturn(id, day, ret, null, opts.session ?? null);
+        // A PARTIAL CREDIT ON A DAY THAT ALREADY COUNTED A RETURN (a dream's
+        // or a reflection's at the start of the lived day — review of #525):
+        // its row is still written, at weight 0, so `partialToday` can read the
+        // day's tier and another session's fuller use lifts it. Without it, a
+        // glimpse after the night's dream refused every later use that day.
+        // Weight 0 adds nothing to `returns`; the lane columns read only
+        // `awake` / `reflection`.
+        else if (partial !== null && ret.reason === "already-returned-today") {
+          this.writeReturn(id, day, { ...ret, weight: 0 }, null, opts.session ?? null);
+        }
       }
       return { ...verdict, ret };
     });
