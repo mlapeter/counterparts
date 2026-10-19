@@ -32,6 +32,7 @@
 import { emotionalIntensity } from "../physics/index.js";
 import { tokenize } from "../store/index.js";
 import type { Candidate } from "./activate.js";
+import { primeOf } from "./activate.js";
 import { MIN_RARITY_STORE, informativeness } from "./cues.js";
 import type { GateState } from "./session.js";
 import { strongFloor } from "./tunables.js";
@@ -109,6 +110,15 @@ export interface CandidateVerdict {
   /** HABITUATED (2026-10-19, `habituation.ts`): rated 0 in enough recent
    *  sessions that the bar it faced (`bar`) was raised. Absent otherwise. */
   readonly habituated?: true;
+  /**
+   * PRIMED (context priming, an experiment, 2026-10-19; `prime.ts`): the head
+   * start in `activation` from links (`link`) and the train of thought
+   * (`train`), the kinds of source behind the link part (`from`), and
+   * `lifted` when it was admitted only because of it — the cut without
+   * priming left it out, or its activation without priming was under the bar
+   * it faced. Absent when nothing primed it.
+   */
+  readonly primed?: { readonly link: number; readonly train: number; readonly from: readonly string[]; readonly lifted?: true };
 }
 
 export interface Background {
@@ -301,7 +311,11 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   // tier. A candidate only stamps reached, or one kept only because of a stamp
   // (`pastCut` — the words reached it too weakly to make the cut), is outside
   // the sample; its bar is the whole sample's. Absent on every ambient turn, so there nothing changes.
-  const own = (c: Candidate): number => c.activation - (c.stamp ?? 0);
+  // PRIMING (an experiment, 2026-10-19) is measured against the background
+  // the same way, never part of it: a primed cluster in the sample would raise
+  // every other candidate's bar — the tunnel vision the review watches for,
+  // built into the mechanism.
+  const own = (c: Candidate): number => c.activation - (c.stamp ?? 0) - primeOf(c);
   // A head brought in for an earlier memory (`standsFor`, 2026-10-11) is the
   // same reach counted twice: outside the sample too — but it faces the bar
   // of the one it stands for (`barOf`), not the whole sample's.
@@ -355,6 +369,8 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   const faced = new Map<string, number>();
   /** Candidates whose bar habituation raised (marked on their verdicts). */
   const habituatedIds = new Set<string>();
+  /** Admitted primed candidates priming alone put over their bar or into the cut. */
+  const primeLifted = new Set<string>();
   const record = (c: Candidate, verdict: Verdict): void => {
     const blocked = loudBlock.get(c.id);
     verdicts.push({
@@ -376,6 +392,9 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       ...(blocked !== undefined ? { loudBlockedBy: blocked } : {}),
       ...(c.linkOnly === true ? { via: "link" as const } : {}),
       ...(habituatedIds.has(c.id) ? { habituated: true as const } : {}),
+      ...(c.prime === undefined
+        ? {}
+        : { primed: { link: c.prime.link, train: c.prime.train, from: c.prime.from, ...(primeLifted.has(c.id) ? { lifted: true as const } : {}) } }),
     });
   };
 
@@ -436,7 +455,9 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       continue;
     }
     // Hard gate (b) — the absolute floor, BEFORE any salience adjustment.
-    if (c.activation < bg.floor) {
+    // On the activation WITHOUT priming (2026-10-19): the floor says how weak
+    // the turn's own evidence may be, and a head start is not evidence.
+    if (c.activation - primeOf(c) < bg.floor) {
       record(c, "below-floor");
       continue;
     }
@@ -453,6 +474,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       record(c, "below-bar");
       continue;
     }
+    if (c.prime !== undefined && (c.prime.cut === true || c.activation - primeOf(c) < bars.admit)) primeLifted.add(c.id);
     // THE ECHO SKIP (2026-10-19, feedback-loop part C, an experiment): a memory
     // this session wrote is already in its context, so handing it back is the
     // conversation hearing itself. Checked HERE, once it has cleared the floor
@@ -490,7 +512,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     } else if (c.cueFraction < t.MIN_CUE_FRACTION) {
       loud = false;
       loudBlock.set(c.id, "cue-fraction");
-    } else if (c.activation < strongFloor(t, c.kind, loudUnit)) {
+    } else if (c.activation - primeOf(c) < strongFloor(t, c.kind, loudUnit)) {
       loud = false;
       loudBlock.set(c.id, "below-strong-floor");
     } else if (c.activation < bars.loud) {

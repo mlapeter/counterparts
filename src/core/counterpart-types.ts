@@ -376,6 +376,13 @@ export interface WakeOutcome extends WakeResult {
    * the lookup ledger (`fit.index.wake`).
    */
   readonly lined?: readonly string[];
+  /**
+   * The open threads ("Still open") a wake ASSEMBLED at this delivery kept,
+   * by id (context priming, an experiment, 2026-10-19): the host records them
+   * for the session (`recall/prime.ts#noteWakeOpen`) as part of what is open
+   * here. Empty when it kept none or the published bundle was delivered.
+   */
+  readonly threads?: readonly string[];
 }
 
 /**

@@ -892,6 +892,9 @@ export const RECALL_DECISION_FIELDS = [
   // turn would have shown — the echo skip's count. Added to the hashed set the
   // way `moodMatchedIds` was (2026-10-14); `tools/parallel`'s hash moves with it.
   "echoSkipped",
+  // Context priming (2026-10-19, an experiment): what primed, and what it
+  // changed of what was shown — counts; the ids are `primed` on the tier rows.
+  "primed",
 ] as const;
 
 export type SurfaceSetField = (typeof RECALL_DECISION_FIELDS)[number];
@@ -907,7 +910,14 @@ export function surfaceSetFields(): readonly SurfaceSetField[] {
 function tierRows(
   ids: readonly string[],
   verdicts: readonly CandidateVerdict[],
-): { id: string; sal: number | null; activation: number | null; via?: "link"; habituated?: true }[] {
+): {
+  id: string;
+  sal: number | null;
+  activation: number | null;
+  via?: "link";
+  habituated?: true;
+  primed?: { link: number; train: number; from: readonly string[]; lifted?: true };
+}[] {
   return ids.map((id) => {
     const v = verdicts.find((x) => x.id === id);
     // A quiet pointer says so on the durable row (review of #281, finding 5),
@@ -920,8 +930,26 @@ function tierRows(
       activation: v?.activation ?? null,
       ...(v?.via === undefined ? {} : { via: v.via }),
       ...(v?.habituated === true ? { habituated: true as const } : {}),
+      // And a primed one (2026-10-19): by how much, through which channel, from
+      // which kinds of source, and whether only because of it — the row the
+      // review compares footnote ratings on, primed against unprimed.
+      ...(v?.primed === undefined
+        ? {}
+        : {
+            primed: {
+              link: round4(v.primed.link),
+              train: round4(v.primed.train),
+              from: v.primed.from,
+              ...(v.primed.lifted === true ? { lifted: true as const } : {}),
+            },
+          }),
     };
   });
+}
+
+/** Four decimals: a head start's size, not its float noise. */
+function round4(x: number): number {
+  return Math.round(x * 10_000) / 10_000;
 }
 
 /**
@@ -992,6 +1020,8 @@ export function recallDecisionRecord(
     // THE ECHO SKIP (2026-10-19, part C): what this session wrote and the turn
     // would have shown, turned away because it is already in context.
     echoSkipped: d.echoSkipped,
+    // CONTEXT PRIMING (2026-10-19, an experiment): null on a turn it did not run.
+    primed: d.primed,
   } satisfies Record<SurfaceSetField, unknown>;
   return surfaceSet;
 }

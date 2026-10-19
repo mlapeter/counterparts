@@ -59,6 +59,7 @@ import {
 } from "../core/counterpart.js";
 import type { AdapterDurableEventName, DeliveryWarningName, PlainReminder, WakeHere } from "../core/counterpart.js";
 import { readIndex, writeIndex } from "../core/fit/index.js";
+import { noteWakeOpen } from "../core/recall/prime.js";
 import type {
   BoundaryKind,
   CaptureResult,
@@ -581,7 +582,26 @@ export class Lifecycle implements HostLifecycle {
     );
     this.noteWakeExpectation(input, woke.sentinel);
     this.noteWakeIndex(input, woke.lined ?? []);
+    this.noteWakeThreads(input, woke.threads ?? []);
     return woke;
+  }
+
+  /**
+   * WHAT IS OPEN HERE, FOR CONTEXT PRIMING (an experiment, 2026-10-19;
+   * `recall/prime.ts`): the open threads this session's wake kept, as a gate
+   * record of this session, so its first prompts can count them among what
+   * primes. Not the nightly run's (its prompts recall nothing). Never throws:
+   * a lost record primes nothing.
+   */
+  private noteWakeThreads(input: SessionInput, threads: readonly string[]): void {
+    if (input.nightRun === true || input.sessionId.length === 0 || threads.length === 0) return;
+    const store = this.counterpart.store;
+    if (store.observer) return;
+    try {
+      noteWakeOpen(store, input.sessionId, threads, store.livedDay());
+    } catch {
+      /* priming's input only */
+    }
   }
 
   /**
@@ -1151,6 +1171,9 @@ export class Lifecycle implements HostLifecycle {
         // ambient recall does not hand it back. Without a compaction, the
         // whole session; its start (the registry's) only bounds the read.
         ...this.echoWindow(input),
+        // Context priming (2026-10-19): this directory's handoffs are part of
+        // what is open here.
+        ...(typeof input.scope !== "string" || input.scope.length === 0 ? {} : { scope: input.scope }),
       },
     );
     const decision = result.decision;
