@@ -3405,6 +3405,25 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
     expect(fourth.decision.semanticFromTurn).toBe(3);
   });
 
+  test("a lag row the worker could not use (`embed-failed`) takes the in-line path too", async () => {
+    const emb = computingEmbedder();
+    const c = brain(emb);
+    const { otter } = seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb });
+
+    c.recallForTurn({ sessionId: "s-failed", text: "A first turn about the kite festival." });
+    c.captureSpans({
+      session: "s-failed",
+      scope: "proj",
+      turns: [{ role: "user", text: "Where did the kite festival go?" }],
+    });
+    const lag = await laggedSemantic({ counterpart: c, sessionId: "s-failed", scope: "proj", embedder: deadEmbedder() });
+    expect(lag.reason).toBe("embed-failed");
+    const second = c.recallForTurn({ sessionId: "s-failed", text: MEANING_ONLY });
+    expect(second.decision.semanticSource).toBe("in-line");
+    expect(second.decision.verdicts.find((v) => v.id === otter)?.semantic ?? 0).toBeGreaterThan(0);
+  });
+
   test("a vector row that will not decode costs that row, not the in-line turn", async () => {
     const emb = computingEmbedder();
     const c = brain(emb);

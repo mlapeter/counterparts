@@ -360,7 +360,7 @@ export const TUNABLES: RecallTunables = {
   // against a 1,200 ms budget the live recall build uses ~45 ms of at p50.
   // 100,000 is ~4.5x the largest size measured, still well inside the budget
   // if the scan stays linear (warm, at 10x: ~0.8 ms per 1,000 vectors).
-  SEMANTIC_INLINE_MAX_VECTORS: 100_000,
+  SEMANTIC_INLINE_MAX_VECTORS: 50_000,
   ARRIVAL_WEIGHT: 0.15,
 
   // 1.2 -> 1.6 (CAL, 2026-09-04). Once length normalization stopped nine hubs

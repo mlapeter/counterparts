@@ -397,11 +397,11 @@ export function clearIdleCarries(store: Store, maxMs: number): number {
  * scan; since 2026-09-24 the only embedder is the local table (~0.5 ms, no
  * socket), and the scan measured ~18 ms cold at the live store's 2,207 vectors
  * (~/counterparts-notes/2026-10-19-first-prompt-recall-diagnosis.md). So a turn
- * with NO usable lag row — a session's first prompt (`none`) or a row from an
- * earlier turn (`stale`, ~21% of live turns) — embeds its own text and ranks it
- * in line, instead of going dark. A fresh lag row is still used exactly as
- * before; this only fills the turns it never reached. It partly revises the
- * owner ruling above, lightly held for Mike's review
+ * with NO usable lag row — a session's first prompt (`none`), a row from an
+ * earlier turn (`stale`, ~21% of live turns), or one the worker could not use —
+ * embeds its own text and ranks it in line, instead of going dark. A fresh lag
+ * row is still used exactly as before; this only fills the turns it never
+ * reached. It RETIRES the owner ruling above (Mike, 2026-10-19, lightly held)
  * (`docs/decisions.d/fix-first-prompt-meaning-1019.md`).
  */
 export const SEMANTIC_STATE_VERSION = 1;

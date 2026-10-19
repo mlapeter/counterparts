@@ -2055,16 +2055,17 @@ export class Counterpart {
    * A CALLER-SUPPLIED input always wins — the deliberate ask embeds its own
    * question in line and must not be overridden by a stale conversational cue.
    *
-   * NO FRESH LAG ROW, NO DARK CHANNEL (2026-10-19): a session's first prompt
-   * (`none`) and a turn whose row is from an earlier turn (`stale`) embed their
-   * own text and rank it in line (`session.ts#inLineSemantic`), recorded as
+   * NO FRESH LAG ROW, NO DARK CHANNEL (2026-10-19): any turn without a fresh
+   * lag row — a session's first prompt (`none`), a row from an earlier turn
+   * (`stale`), or one the worker could not use (`other-model`, `unreadable`,
+   * `no-text`, `embed-failed`) — embeds its own text and ranks it in line (`session.ts#inLineSemantic`), recorded as
    * `in-line`, or `in-line-skipped` when box 3 is past the count guard. With no
    * vector to be had (no embedder, an empty box 3) the lag's word stands.
    */
   private withSemantic(turn: RecallTurn): RecallTurn {
     if (turn.vector !== undefined || turn.semanticHits !== undefined) return turn;
     const lag = loadSessionSemantic(this.store, turn.sessionId);
-    if (lag.source === "none" || lag.source === "stale") {
+    if (lag.source !== "lagged") {
       const own = inLineSemantic(this.store, turn.text, this.recall.tunables.SEMANTIC_INLINE_MAX_VECTORS);
       if (own !== null && "vector" in own) return { ...turn, vector: own.vector, semanticSource: "in-line" };
       if (own !== null) return { ...turn, semanticSource: "in-line-skipped" };
