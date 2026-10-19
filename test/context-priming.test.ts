@@ -496,3 +496,126 @@ describe("context priming: the folder, wired through the Claude Code hooks", () 
     expect((JSON.parse(none[0]?.payload ?? "{}") as { primed?: { train: boolean } | null }).primed?.train).toBe(false);
   });
 });
+
+describe("context priming: the review's awkward states (2026-10-19)", () => {
+  // A steady topic: every bread memory is a little near the train.
+  const BREAD_MEMORIES = [
+    "The sourdough starter lives in the pantry and gets fed with rye flour.",
+    "The loaf came out dense because the dough was underproofed.",
+    "A hot oven gives the crust of the bread a better blister.",
+    "Hydration made the dough too slack to shape the loaf.",
+    "Scoring the loaf before baking opens a better ear.",
+    "The levain doubled overnight beside the warm oven.",
+    "Whole wheat flour absorbs more water in the dough.",
+    "Cooling the bread on a rack keeps the crumb from going gummy.",
+    "Rye bread needs a longer bake in the oven.",
+    "Stretch and folds replaced kneading the dough entirely.",
+    "The banneton left flour rings on the proofed loaf.",
+    "The bakery sells sourdough discard crackers on Saturdays, near the garden centre.",
+    "Froze the sliced loaf so weekday toast is quick.",
+    "The bread knife needs sharpening before the next loaf.",
+    "Borrowed a proving basket for the sourdough from a neighbour.",
+    "The flour bin by the window attracts weevils in summer.",
+    "Baking steel arrived; the pizza dough comes out crisp.",
+    "The oven light broke, so checking the loaf means opening the door.",
+    "Cinnamon rolls rose well with the enriched dough.",
+    "The crumb was open after the long cold proof in the fridge.",
+  ];
+  const STEADY = [
+    "I want to bake a sourdough loaf this weekend",
+    "how long should the dough proof before the oven",
+    "my crumb keeps coming out tight in the loaf",
+    "should the whole wheat flour get more water",
+    "what oven temperature gives a good crust on the bread",
+  ];
+
+  function steady(tunables: Record<string, number>, sub: string): { shown: number; byTrain: number; trainPrimed: number } {
+    const c = Counterpart.open({ dir: join(dir, sub), owner: true, embed: topicVector, recallTunables: tunables });
+    findable(c.store);
+    open.push(c);
+    // Bread only: every candidate is on the topic, closer or farther, which is
+    // where a floor-only train lifted them all.
+    for (const body of BREAD_MEMORIES) fact(c, body);
+    let shownN = 0;
+    let byTrain = 0;
+    let trainPrimed = 0;
+    for (const text of STEADY) {
+      const d = turn(c, "s-steady", text);
+      shownN += shown(d).length;
+      byTrain += d.primed?.byTrain ?? 0;
+      trainPrimed += d.verdicts.filter((v) => (v.primed?.train ?? 0) > 0).length;
+    }
+    return { shown: shownN, byTrain, trainPrimed };
+  }
+
+  test("a steady topic: centred on the turn's own cut, the train lifts fewer candidates than the floor alone did, and shows no more", () => {
+    const off = steady({ PRIME_LINK_UNITS: 0, PRIME_TRAIN_SHARE: 0 }, "off");
+    const floorOnly = steady({ PRIME_TRAIN_CENTRE: 0 }, "floor");
+    const centred = steady({ PRIME_TRAIN_CENTRE: 1 }, "centred");
+    if (process.env["DEBUG_PRIME"] === "1") console.log({ off, floorOnly, centred });
+    expect(floorOnly.trainPrimed).toBeGreaterThan(0);
+    expect(centred.trainPrimed).toBeLessThan(floorOnly.trainPrimed * 0.75);
+    expect(centred.shown).toBeLessThanOrEqual(floorOnly.shown);
+    expect(centred.byTrain).toBeLessThanOrEqual(floorOnly.byTrain);
+    expect(off.byTrain).toBe(0);
+  });
+
+  test("a lagged turn: the newest prompt, already the semantic channel's, is taken out of the train it scores against", () => {
+    const c = brain();
+    seed(c);
+    for (const body of BREAD_MEMORIES) fact(c, body);
+    // Turn 1, then turn 2 lagged: the train holds only turn 1's prompt, which
+    // the lag row already carries, so there is no train left to score against.
+    turn(c, "s-lag", STEADY[0] as string);
+    const hits = c.store.nearestTo(topicVector(STEADY[0] as string), 24).map((h) => ({ id: h.id, score: h.score }));
+    const lagged = c.recallForTurn({ sessionId: "s-lag", text: STEADY[1] as string, semanticHits: hits, semanticSource: "lagged", semanticFromTurn: 1 }).decision;
+    expect(lagged.primed?.train).toBe(false);
+    // The same turn in line: turn 1's prompt is the train.
+    turn(c, "s-inline", STEADY[0] as string);
+    const inline = turn(c, "s-inline", STEADY[1] as string);
+    expect(inline.primed?.train).toBe(true);
+    // And the saved train still moves on with every prompt.
+    const tr = loadTrain(c.store, "s-lag");
+    expect(tr?.mass ?? 0).toBeGreaterThan(1);
+    expect((tr?.last ?? []).length).toBeGreaterThan(0);
+  });
+
+  test("a handoff left ten lived days ago barely primes a session's first prompt; one from today does", () => {
+    const c = brain();
+    seed(c);
+    const flour = fact(c, "Bought a sack of strong white flour from the mill.");
+    const basil = fact(c, "The basil on the windowsill needs repotting soon.");
+    for (const body of ["Noted: the tomato seedlings look leggy.", "Noted: the sourdough starter smells sour."]) fact(c, body);
+    const today = c.store.livedDay();
+    const body = "Left off planning the rye bake: the sourdough levain and the loaf need a warmer oven.";
+    c.writeHandoff(body, { scope: "/work/fresh", session: "s-prev-1", day: today });
+    c.writeHandoff(body, { scope: "/work/stale", session: "s-prev-2", day: today - 10 });
+    const ask = "remind me about the flour and the basil";
+    const fresh = c.recallForTurn({ sessionId: "s-fresh", text: ask }, { scope: "/work/fresh" }).decision;
+    const stale = c.recallForTurn({ sessionId: "s-stale", text: ask }, { scope: "/work/stale" }).decision;
+    dbg("fresh", fresh, { [flour]: "FLOUR", [basil]: "BASIL" });
+    dbg("stale", stale, { [flour]: "FLOUR", [basil]: "BASIL" });
+    const freshTrain = verdict(fresh, flour)?.primed?.train ?? 0;
+    const staleTrain = verdict(stale, flour)?.primed?.train ?? 0;
+    expect(freshTrain).toBeGreaterThan(0);
+    expect(staleTrain).toBeLessThan(freshTrain * 0.1);
+    expect(verdict(fresh, basil)?.primed?.train ?? 0).toBe(0);
+  });
+
+  test("the idle clear empties the newest prompt with the train, and the next turn has no train", () => {
+    const c = brain();
+    seed(c);
+    turn(c, "s-idle2", "the sourdough starter and the loaf");
+    expect((loadTrain(c.store, "s-idle2")?.last ?? []).length).toBeGreaterThan(0);
+    expect(clearIdleCarries(c.store, -1)).toBeGreaterThanOrEqual(1);
+    const row = c.store.gateRecords("s-idle2", PRIME_KIND).find((r) => r.ref === TRAIN_REF);
+    const payload = JSON.parse(row?.value ?? "{}") as { vec?: unknown[]; last?: unknown[] };
+    expect(payload.vec).toEqual([]);
+    expect(payload.last).toEqual([]);
+    // Cleared once: a second pass finds nothing to change.
+    expect(clearIdleCarries(c.store, -1)).toBe(0);
+    // The next turn finds no train to score against.
+    const next = turn(c, "s-idle2", "the oven and the crust");
+    expect(next.primed?.train).toBe(false);
+  });
+});
