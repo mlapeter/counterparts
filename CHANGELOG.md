@@ -1,5 +1,75 @@
 # Changelog
 
+## 0.3.27 — 2026-10-19
+
+Recall learns from use, and finds "baking" when you say "bake". The memories a session rates useful, draws on or opens count as used, memories found useful together get linked, and one rated noise twice comes up less for a while; what the conversation has been about, and what is open in its folder, gives related memories a head start. Recall matches word forms and counts everyday words for less, a session's first prompt is matched by meaning too, footnotes skip what this session wrote, and a newer memory stands in for the one it replaced. Most of these are experiments, to be checked in a few days. `counterparts doctor` gains a Feedback loop line. No store migration (store v13) and no wiring change, so `counterparts connect` is not needed; the word index re-indexes itself once in the background (cache v6 to v7, under a second on a typical store). Going back to 0.3.26 is not a plain reinstall: its memory tools refuse the newer cache, and its hooks miss word matches without saying so. To go back, delete `~/.counterparts/store/cache/cache.sqlite*`, then run `counterparts verify --rebuild --keep-vectors` on 0.3.26; `counterparts rollback` does not cover a cache change.
+
+- **Recall by meaning works on a session's first prompt.** Until now the first prompt of a
+  session, and any prompt whose background cue from the turn before wasn't ready, was
+  matched by words only. Those prompts are now matched by meaning too, computed on the spot
+  with the same local table. It adds a few tens of milliseconds on a typical store.
+- **Asking for facts ignores "how many" and "how often" wording.** Words like "many",
+  "much", "often", "typical" and "usually" no longer count as part of what the question is
+  about, so they stop pulling in memories that merely contain them.
+- **Footnotes no longer repeat what this session just wrote (an experiment).** A memory
+  written in the current conversation is already in front of the model, so it no longer
+  comes back as a footnote or a "came to mind" line there. After the conversation is
+  compacted, what it wrote before the compaction can come back again. Asking for a memory on
+  purpose still finds it.
+- **The nightly dream replays what the day used (an experiment).** Memories the day opened,
+  quoted, drew on or rated useful are handed to the night's dream, even ones it already
+  dreamed over, with the ones that changed what was said first, and pairs used together
+  listed for it to link.
+- **The nightly run's own sessions get no footnotes (an experiment).** The background
+  sessions that dream and reflect overnight are no longer handed memories at their first
+  prompt; they read what they need on purpose.
+- **Rating what you were shown now counts, as an experiment.** When a session rates the
+  memories it was shown at the end, a 3 counts as a full use of the memory, a 2 most of one,
+  a 1 a little, and a footnote left unrated a glimpse; a 0 counts nothing. Used memories fade
+  more slowly, as before. This is deliberately strong so its effect can be seen, and will be
+  tuned after a few days.
+- **A memory a session says it drew on counts as a full use, as an experiment.** Naming it
+  in `drewOn` now counts like opening it (it was half a use); still once a day, at most three
+  per boundary.
+- **Memories found useful together get linked strongly.** Two memories rated useful (or
+  opened, quoted or drawn on) since the session last rated are linked strongly enough that
+  the second time it happens, one can bring the other to mind as a quiet pointer. Memories
+  shown on the same turn get a faint link, unless one was rated noise.
+- **A memory rated noise twice comes up less for a while.** Rated 0 in two sessions within
+  a week, it needs a closer match to show as a footnote. It recovers when those ratings are
+  a week old, or at once when a later session rates it useful.
+- **`counterparts doctor` has a Feedback loop line** with what the ratings credited by
+  score, the pairs they linked, the links now strong enough to show as pointers, and how
+  many memories are holding back as noise.
+- **An earlier version of a memory no longer shows without the one that replaced it.** When
+  a turn's words lean towards a memory that a newer one has settled over, the newer one now
+  shows in its place (labelled with the earlier one), where before the earlier one could
+  slip through on its own as a quiet footnote. If the newer one doesn't clear the bar, the
+  earlier one stays out too. If the newer one was written in this same
+  session, neither is shown, since it's already in the conversation. This is a trial, to be
+  checked in a few days.
+- **A new memory is no longer linked to what was shown when it was written, as an
+  experiment.** These faint links were almost never confirmed by use and mostly noise, and
+  memories found useful together are now linked by ratings instead. Links between memories
+  written one after another stay, and the links already made fade on their own.
+- **A memory that looks like an older one's update no longer fades the older one right away,
+  as an experiment.** It is still marked "may be out of date" and the nightly dream is asked
+  to confirm it; only a confirmation fades it. The guess was wrong too often to cost the
+  older memory anything before then.
+- **Recall matches word forms and quiets everyday words (an experiment).** A prompt that
+  says "bake" now finds a memory that says "baking" or "baked", and words like "any",
+  "what" or "you" count for much less when deciding what a prompt is about. This applies to
+  recall as you work and to asking for facts. The first time the background worker runs
+  after the update it re-indexes the words of your memories (under a second on a typical
+  store); until then recall matches both the old and the new word forms.
+- **Recall follows the conversation's train of thought (an experiment).** What a
+  conversation has been about, what it opened, rated useful or wrote, and what was left
+  open in its folder now give related memories a head start, so they win close calls they
+  used to lose. Only memories the current message already touches can get one, a memory
+  the conversation wrote itself is still never handed back, and the head start fades
+  within a few messages once the topic moves on. A conversation's first message, with
+  nothing open in its folder, is recalled exactly as before.
+
 ## 0.3.26 — 2026-10-18
 
 The wake leads with what is live. "Still open" puts the questions touched in the last two weeks first and counts how many of the rest have gone untouched; a stale handoff says how stale it is in one sentence, and when every handoff listed is stale only the newest shows whole; the Yesterday line names the other folders worked in instead of counting them; and a session still open from an earlier day says its start with the date. Doctor reads mood matching, switched off since 10-10, as disabled rather than amber. No store-format change (store v13, cache v6) and no wiring change: nothing to run after upgrading from 0.3.25, and `counterparts connect` is not needed.

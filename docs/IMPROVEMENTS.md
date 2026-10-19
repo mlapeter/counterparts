@@ -2225,6 +2225,468 @@ ids. Each is undone by reverting the PR; nothing is stored differently.
   boundary, it can exceed a very small ceiling (1,234 B against 1,200 in a sweep). The default ceiling is
   9,000, so no real install is affected.
 
+### Decided 2026-10-19, stale turns and the retired rule approved by Mike, lightly held (meaning in line when no fresh cue is ready)
+
+From the first-prompt recall diagnosis (`~/counterparts-notes/2026-10-19-first-prompt-recall-diagnosis.md`,
+open questions 1, 2 and 6). Each is undone by reverting the PR; nothing is stored differently.
+
+- **Stale turns are covered too, not only first prompts.** A turn whose lag row is from an
+  earlier turn (`stale`) now embeds and ranks its own text in line, as a session's first
+  prompt (`none`) does. Why: on the live store's records, stale turns were about 21% of all
+  turns (3.5 times the first prompts) and showed the fewest items, and the code and the cost
+  are the same. The worker's lagged cue is still used whenever it is fresh (approved by
+  Mike, 2026-10-19: "if its that fast i'd say scrap that old rule and do suggestion"). The
+  same holds for a lag row the worker could not use (`other-model`, `unreadable`,
+  `no-text`, `embed-failed`), added after review: for `other-model` an in-line embed with
+  the current table is exactly the right cue. It is one condition in
+  `Counterpart#withSemantic`. Why the lag row is stale that often is not looked at here.
+- **The in-line profile, not the lagged one.** The new in-line cue goes through the existing
+  in-line path (`potion-base-8M@256`: floor 0.15, weight 6), because on these turns the
+  vector is this turn's own question. The evidence is thin either way (5 bench questions).
+- **The 2026-09-04 owner ruling "do not embed on the hot path" is retired, not partly
+  revised (Mike, 2026-10-19).** Its reasons were a network call and a 590-1040 ms scan; the
+  embedder is a local table (~0.5 ms) since 0.3.0, and the scan measured ~18 ms cold at the
+  live store's size (~240 ms at 99,000 vectors in review). The prompt path still opens no
+  socket.
+- **The guard is a vector count (50,000), not a clock** (review measured ~2.4 ms per 1,000
+  vectors cold, linear; 50,000 is a 2x hedge for Node and slower machines over the 100,000
+  the bun timings allow), because the rank runs before the
+  build's first time check, where an overrun would abort the turn. Past it the turn records
+  `in-line-skipped` and the channel stays dark.
+- **Facts mode treats "many", "much", "often", "typical", "typically", "usually" as asking
+  nothing.** "How many" counted "many" as a content word (bench 2788b940: the Zumba schedule
+  32nd of 76, 26th without it). Don't count the bench move as a win before the bench says so.
+
+### Experiments started 2026-10-19 by the feedback-loop builder 2 (the echo skip, the dream's day replay, the night's own prompts)
+
+From the feedback-loop brief (`~/counterparts-notes/2026-10-19-feedback-loop-brief.md`,
+parts C, E and F; parts A, B and D are builder 1's PR). Each is an experiment, set to see an
+effect, to be checked on ~10-22 (two lived days after install). Nothing is stored
+differently; reverting the PR undoes all three, and each has its own smaller revert below.
+
+- **C, the echo skip: trying it to see whether footnotes get less noisy without costing long
+  sessions what compaction took away.** Ambient recall (footnotes, "came to mind", quiet
+  pointers) skips memories whose `origin_session` is this session, since the conversation's
+  last compaction when Claude Code's transcript has a `compact_boundary` line (#453's
+  question: the hooks can tell, from the transcript), else the whole session; a named
+  transcript that will not read skips nothing (fails open, `echoWindow: "unread"`). Checked once a
+  memory has cleared the floor and its bar, so `echoSkipped` on the `recall.decision` row
+  counts what would have been shown. Deliberate recall is untouched (only `recallForTurn` sets
+  the echo set). Known gap: a memory a server wrote before it knew its session
+  (`UNBOUND_SESSION`) can still echo. `echoSkipped` joins the surface set, so `tools/parallel`'s
+  hash moves, as it did for `moodMatchedIds`. Revert by no longer setting `Turn.echo` in
+  `Counterpart#recallForTurn`.
+- **E, the dream replays the day: trying the day's own use as the replay signal, to see
+  whether the night starts reinforcing what the day used rather than only what a model judges
+  important.** `dream/day.ts` reads the stretch since the last dream's start from rows that
+  already exist (`recall.credit`, `recall.rated`, waking `returns` by a denylist so builder
+  1's graded credit is read as it lands, `recall.decision`). Marks: reward (`drewOn` or rated
+  3), used, useful (rated 2), shown (not if rated 0). A queued memory's replay priority is
+  multiplied by `1 + DAY_LIFT` (reward 3, used 2, useful 2, shown 0.5, set strong on purpose);
+  up to `TODAY_COUNT` (20) used / useful / reward memories are listed as the bundle's `today`,
+  and one already dreamed joins in the new role `today` (fit priority `TODAY_FIT` 3.5); pairs
+  used together in one session are listed as `todayPairs` (at most 12) and the launch prompt
+  asks the dream to replay both and link them if they belong. The dream still chooses; no
+  automatic link is laid for a pair, because builder 1's co-use deposit already lands far
+  above the replay's 0.05 and a proposal never adds. A night with nothing new still does not
+  dream, so the day replay rides only on nights that have something new. Revert by setting
+  `DAY_LIFT` to zeros and `TODAY_COUNT` to 0.
+- **F, the night's own prompts: trying no ambient recall in the nightly run's children, to see
+  night sessions drop out of the day's footnote numbers.** Finding: recall did run there. The
+  children carry `COUNTERPARTS_NIGHT_RUN` (measured 10-12 to pass through `claude -p`), so
+  `nightRun` was set, but `userPromptSubmit` only stood the cues down (#453); the launch prompt
+  ran the full recall and its footnotes landed in the child's gate state. That is where the
+  ~14 night sessions with `recall.credit` rows since 10-14 came from: every Stop writes a
+  credit row, and the child's row counted those footnotes as shown. The row credited nothing:
+  a night child captures no turns, so its cursor stays 0 and its own recall calls are never in
+  a judged slice (a test pins this). Now the prompt gets the clock line only, reason
+  `night-run`, and no `recall.decision` row. Since part E reads "shown" from decision rows,
+  this keeps the night out of the day it replays. Revert by deleting the `nightRun` return in
+  `hooks.ts#userPromptSubmit`.
+
+What to look at on ~10-22 (for docs/CHECK-AFTER.md):
+
+- C: `echoSkipped` per day and per session on `recall.decision` rows, and the `adapter.recall`
+  row's `echoWindow` (`compaction` vs `session`, and `unread` when it stood down; one
+  `unread` per session is normal, since Claude Code writes the transcript only after the
+  first prompt): how many showings a long session lost, and
+  whether compacted sessions get their early memories back. Footnote ratings over the same
+  days: does the noise share (47%) drop? A session that complains it was not reminded of
+  something it wrote earlier is the cost to look for.
+- E: the `dream.begun` rows' `today`, `todayReward`, `todayDreamed`, `todayPairs` and
+  `freshMarked`; how many `today` memories the dream then replayed or linked (its
+  `dream.changed` rows); whether used memories now get dream returns more often than before.
+  Watch the night's room: if `today` crowds out new memories (`queue.waiting` rising), lower
+  `TODAY_FIT` or `TODAY_COUNT`.
+- F: night children's sessions should have no `recall.decision` rows after install, and their
+  `recall.credit` rows should read `shownFootnotes: 0`.
+- Not added to `counterparts mechanisms`: a new proof there needs the sidebar's copy changed
+  in step (`sidebar-mechanism-drift.test.ts`), so the counts live on the rows above for now.
+
+### An experiment, 2026-10-19, agreed with Mike: the feedback loop, Builder 1 (graded use credit, strong co-use links, habituation). Check on ~10-22
+
+From the coordinator's brief (`~/counterparts-notes/2026-10-19-feedback-loop-brief.md`). Mike:
+"feedback between layers of the brain, going both ways, is huge… err on too strong, so we can
+see what it looks like when its actually happening." This is an experiment, not a rule. Each
+part says what it tries, what to watch, and how to revert it. Nothing is stored in a new
+format: no DDL, no cache version bump. The one new thing on disk is `returns` rows of source
+`shown` and `ontopic`, which an older build skips. The watch list is the "Feedback loop"
+section of `docs/CHECK-AFTER.md`.
+
+- **A. Trying ratings as use.** At a `rated` boundary, over the stretch since the session's
+  previous rating, each score is a use through `resolveUse`: 3 a full use (`referenced`),
+  2 `useful` (`W_USEFUL` 0.75), 1 `ontopic` (`W_ONTOPIC` 0.25), 0 nothing. Each ambient
+  showing in the stretch left unrated is a glimpse (`shown`, `W_SHOWN` 0.1). The once-a-day
+  rule and the within-day lift hold. Why: 3% of shown memories were credited as used while
+  18% were rated useful, so the day barely taught the system. To see: credits per day by
+  tier, and whether the footnote ratings improve.
+  - Toward the core, a glimpse-only day counts `SHOWN_RECURRENCE_WEIGHT` (0.1) of a
+    recurrence day and a rated-1-only day `ONTOPIC_RECURRENCE_WEIGHT` (0.25). Neither ever
+    counts alone, and neither anchors the row ("m itself used"). Why: the 10-14 check-in
+    found ~270 memories shown in 3+ sessions and never used, mostly standing rulings. At 0.1
+    a month of daily footnotes adds 3 days, short of `CORE_SLOW_DAYS` (4). Measured on a
+    hermetic store: a ruling footnoted in 90 sessions over 30 lived days, never rated, came
+    out with recurrence 3, no full day, not anchored. With one reflection citation it came
+    out 3.9 days, slow lane not met. But with TWO full days in the 30-day window — two
+    reflection citations (allowed once every 7 lived days), or one citation and one rating
+    of 2, or a drewOn — it reaches 4.8 days over 30 sessions and the slow lane IS met
+    (reviewer's hermetic run, 2026-10-19). Before this build two citations gave 2 days from 2
+    sessions. So the glimpses lower the bar for a footnoted-daily ruling about me or us from
+    about four full days a month to two; the core check below is the place to see it.
+  - A rating of 2 is a full awake return (lane day, fast lane). The awake floor is now
+    `AWAKE_RETURN_MIN_WEIGHT` (0.75); it was the literal 1.0. The repeat credit (`surfaced`,
+    0.25) still earns none.
+  - Trying drewOn as a full use (Mike, 2026-10-19): `W_ENGAGED` 1.0, and at that weight its
+    return is an awake one, as an open's is (a lane day, a full recurrence day). The
+    once-a-lived-day rule and the cap of 3 per boundary stay; drewOn ids were already
+    co-used for links. Revert by setting it back to 0.5 (the half return comes back with it).
+  - Known cost: any credited use re-anchors the curve, so a memory glimpsed every day does
+    not fade while it keeps showing (the hermetic ruling sat at strength 0.50 for 30 days).
+    This is the rich-get-richer worry, kept as built on Mike's call (2026-10-19). If the
+    10-22 check shows clutter, the fallback to try: credit a glimpse without moving the decay
+    clock (it adds to `uses`, not `lastUsedDay`), or set `W_SHOWN` to 0.
+  - Also seen in review: a daily glimpse resets the spacing a later real use is measured
+    from, so a memory footnoted every day and then opened earns a small return (0.13 after
+    a week of glimpses, against ~0.7 for one left alone). A glimpse buys freshness and
+    costs durability.
+  - Revert: revert the PR. Part by part: set `W_SHOWN`, `W_ONTOPIC` and `W_USEFUL` to 0
+    (`creditUse` then refuses them as `ignorable-tier`) and `AWAKE_RETURN_MIN_WEIGHT` back
+    to 1.
+- **B. Trying strong co-use links.** The stretch's co-used memories are linked pairwise at
+  `CO_USE_DEPOSIT` (0.25). Co-used means rated 2 or 3, or otherwise used there (opened,
+  quoted, drewOn), never rated 0, and at most `CO_USE_MAX_MEMBERS` (8), the strongest use
+  first. Memories shown on the same turn, none rated 0, are linked at
+  `SHOWN_TOGETHER_DEPOSIT` (0.05). Why: links never reached recall (strongest 0.159 against a
+  0.4 pointer weight). Now two co-uses clear it and the pointer lane lights by itself. The
+  hop arithmetic and the pointer threshold are not touched. Scoped to the stretch, not the
+  session, because a node holds 32 links. To see: links at or above 0.4, pointers shown and
+  later used (hermetic check: one co-use gave 0.30 and no pointer; two gave 0.57 and the
+  partner showed as a quiet pointer on a later turn whose words reached only the other; 9
+  unused lived days later it was 0.42 and still showed). Watch saturation: in a heavy
+  synthetic month (12 boundaries a day, five "hub" memories useful in most of them) the hubs
+  sat at the outgoing bound (4.0) with ~30 links each, and 72 links were evicted.
+  Homeostasis held, but a hub's links are then each too weak to point. Revert: set both
+  deposits to 0 (`Associate#deposit` skips a zero delta), or revert the PR.
+  - A co-used pair is linked once per stretch (review of #525): a retried call on the same
+    turn, or one re-rating what that turn's earlier call rated, sends only the pairs not yet
+    linked. The row records the co-used ids for this (`coUse.ids`). Still open: a later
+    boundary that re-rates ids from an EARLIER stretch (not shown again since) links them
+    again, so one real co-use rated at two boundaries reaches the pointer weight. The
+    session may really have used them again; the ratings can't say which. Also open: a pair
+    named in drewOn AND rated 3 gets drewOn's own link (0.1) plus the co-use (0.25) plus
+    shown-together (0.05), 0.40, the pointer weight in one boundary.
+- **D. Trying light habituation.** A memory rated 0 in `HABITUATION_MIN_SESSIONS` (2)
+  sessions within `HABITUATION_WINDOW_DAYS` (7) lived days faces a bar raised by
+  `HABITUATION_BAR_LIFT` (×1.5) in ambient recall, after the floor, in both tiers. It is a
+  lift, never a veto: strength, credit, links, pointers and deliberate questions are
+  untouched. It recovers as the ratings age out, or at once with a later rating of 2 or more.
+  The count lives in a derived note in box 3 (`cache_meta`, key `note:habituation`), rebuilt
+  from the `recall.rated` rows after each rating and recomputed from the rows whenever it is
+  behind them. Why: 47% of rated footnotes were noise. Hermetic check on a 140-memory store:
+  shown on 6 of 8 test turns before, 5 while habituated, 6 again after a rating of 2, and no
+  longer habituated 7 lived days after a second pair of zeros. On a tiny store (cold
+  regime) it changed nothing, since every showing cleared its bar by 1.7× or more. Revert:
+  set `HABITUATION_BAR_LIFT` to 0.
+- **The tool's words changed with it.** `session_end`'s `rated` field no longer says
+  "tracking only: a rating changes nothing". It says plainly what a score does, and asks the
+  session to rate honestly. Watch whether knowing ratings count shifts the score
+  distribution (47 / 35 / 12 / 6 before).
+
+### Decided by the head-wins-gap builder, 2026-10-19, an experiment (the head-wins gap)
+
+From the 10-19 overdue checks (`~/counterparts-notes/2026-10-19-overdue-checks.md`, head-wins):
+since 10-12 a settled-over memory showed in a turn's footnotes 36 times (21 ids) while its
+live head did not. Reproduced hermetically (`test/head-stands-in-bar.test.ts`). Two paths
+gave that symptom; which one the live 36 came from was not measured.
+
+- **Trying: a head brought in for an earlier memory faces the earlier one's bar, to see the
+  earlier-shown-without-its-head count go to ~0.** The suspected cause was right: the
+  brought-in head (`standsFor`) carries the earlier one's numbers but is outside the
+  sample, so it faced the whole-sample bar (the earlier one's own activation included),
+  while the earlier one faced its lower leave-one-out bar. A marginal earlier one passed and
+  its head failed. Now it passes exactly when the earlier one would, and the earlier one is
+  inhibited as before. One lookup in `gate.ts#barOf`.
+- **Trying: a head the words reached more weakly than the earlier one is brought in to
+  stand for it too** (the second path, found while reproducing). Reached on its own weak
+  words it failed its own bar, so the earlier one was never inhibited. Its direct
+  candidate is dropped, and its own reach stays in the turn's background
+  (`Candidate.directReach`), so no other memory's bar moves. `recall/index.ts#headsWin`.
+- **The strongest earlier claims the head** (review of #526): candidates come in the cut's
+  salience order, so the first earlier met used to claim it — on a chain A→B→C, or two
+  memories one head settled over, the head stood in at the weaker one's numbers and the
+  stronger one showed alone. A link-only earlier claims it only when no word-reached one
+  does, and never displaces a head the words reached (its arrival is not in their units).
+- **An echo head keeps both out.** A head this session wrote is `echo-skipped` and the
+  earlier one stays inhibited (#523's `echo(a.c.head)`), so neither shows.
+- **Either bar** (the coordinator's call on the review of #526, lightly held): a stand-in
+  the words also reached on their own passes when it clears the earlier one's bar at the
+  earlier's numbers OR its own bar at its own reach and salience (`directSal`), so a head
+  that showed on its own before this change still shows. (Without it, a head shown on a
+  higher salience than the earlier one's could fail at the earlier's numbers: ~1–3% of such
+  turns in a synthetic search; 0 with it.) `gate.ts#barsFor`.
+- **The earlier one is held back whenever its head was brought in** (the coordinator's
+  call, and what the 10-19 overdue-check row asked for: "hold back a settled-over memory
+  whenever its head was brought in for it"), whether or not the head then shows. The newer
+  state is what counts: a head that fails — habituated (#525), say, which lifts its bar by
+  id — means the footnote was not useful, so neither shows rather than the earlier one
+  alone. One exception, as before: a confidential head withheld from a guest leaves the
+  earlier one showing, labelled. `gate.ts`, `stoodFor`.
+- **Left as is:** a head reached at least as strongly as the earlier one is not brought
+  in, so if it fails its bar while the earlier one passes (possible only through salience
+  moving the bars), the earlier one shows alone. Deliberate recall is untouched (facts mode already
+  folds earlier versions under the current one).
+- **Check ~10-22:** on the live decision records since the install, count turns where a
+  settled-over memory shows without its head (was 36 in ~981 turns); expect ~0, and the
+  heads' showing count to rise by about as much; also count turns where a brought-in head
+  failed and so neither showed (the cost of holding the earlier one back). **Revert by** removing the `byId` lookup
+  in `gate.ts#barOf`, having `headsWin` skip a head whenever the words reached it (as
+  `ids.has(head)` did), and dropping `directReach` (its field and its line in the gate's
+  sample), `directSal` and the either-bar `min`, and `stoodFor` (the earlier one is then
+  held back only when its head is admitted, as before). The strongest-earlier claim can stay: it only picks which earlier the head
+  stands for.
+
+### An experiment, 2026-10-19, agreed with Mike: no write-time links. Check on ~10-22
+
+- **Trying** no write-time links (`WRITE_LINK_MAX` 0 in `src/core/associate/tunables.ts`;
+  it was 4) **to see** whether co-use links from ratings (#525, `CO_USE_DEPOSIT`) build the
+  graph on their own, without the noise. Why (`~/counterparts-notes/2026-10-18-association-diagnosis.md`):
+  at most 3 of 161 write-time pairs were ever reinforced; a hand-read of 20 found 5 right,
+  4 unsure, 11 noise; and they use up the 32-links-per-node budget (`MAX_EDGES_PER_NODE`).
+- Contiguity links stay (memories written next to each other carry a real order). Edges
+  already laid are kept and fade on their own; no rows are deleted, nothing on disk changes
+  format. The code stays: `linkAtWrite` returns null at once when `WRITE_LINK_MAX` is 0.
+- **Check ~10-22** (~2 lived days after install): the boundary's `associate.flush` rows
+  carry no `atWrite`; links landed per day from co-use and contiguity; whether quiet
+  pointers still show and get rated useful; links per node.
+- **Revert by** setting `WRITE_LINK_MAX` back to 4, if the graph starves (few new links,
+  pointers stop showing) or co-use links turn out as noisy.
+
+### An experiment, 2026-10-19, agreed with Mike: the slot detector flags only. Check on ~10-22
+
+- **Trying** slot proposals with no provisional fade (`SLOT_FADE` 1 in
+  `src/core/reconsolidation.ts`; it was 0.8, and `changedFade` makes no cut at 1) **to see**
+  whether flagging alone, with the fade only on the dream's or the writer's confirmation,
+  costs nothing when the detector is wrong. Why (`~/counterparts-notes/2026-10-19-overdue-checks.md`,
+  "Detector precision"): right on 4 of 7 by hand-read, under the ~3-in-4 bar; the dream said
+  "not the same" on 3 of the 4 it judged; right and wrong overlap in cosine (0.867), so
+  raising `SLOT_COSINE` would not separate them.
+- The proposal is unchanged otherwise: an unsettled `slot` pair, the older labelled "may be
+  out of date", shown to the dream to confirm (`slot {pair, same}`). `same: true` (or the
+  writer's settle `changed`) is a settle at `CHANGED_FADE`, the only fade; `same: false`
+  withdraws it, with nothing to put back. Proposals made before keep their cut on the trail,
+  and a confirmation lifts it or a withdrawal puts it back exactly, as before. No store
+  format change; the write's `slotHint` no longer says the older faded.
+- **Check ~10-22**: `contradiction.proposed` events carry `faded: false`; the dream's
+  same true/false over the new proposals; confirmed ones at the full fade; and whether the
+  "may be out of date" label on a wrong proposal shows up as a problem before the dream
+  answers.
+- **Revert by** setting `SLOT_FADE` back to 0.8.
+
+### Decided 2026-10-19, approved by Mike as an experiment, lightly held (stemmed words and everyday-word weights in recall)
+
+From the first-prompt recall diagnosis (`~/counterparts-notes/2026-10-19-first-prompt-recall-diagnosis.md`,
+Bug 2, options 1 and 2; Mike approved both as an experiment 10-19 11:19). **Check ~10-22; revert
+by 11-02** unless the live record or the bench shows them earning their place. Both apply to
+ambient recall and to facts mode.
+
+- **Trying: a cue word's rarity is scaled by how everyday the word is in English, to see
+  whether question words stop outvoting the topic word.** The measure is the static table's
+  own row norm (`Store.wordNorm`, potion-base-8M only): 0 at or below `EVERYDAY_NORM_LOW` (20),
+  1 at or above `EVERYDAY_NORM_HIGH` (70), a smoothstep between. This revises "rarity replaces
+  stop lists" in `recall/cues.ts` (the old reasoning is kept there as history). Undo: set
+  HIGH <= LOW. What it cannot do, measured: the norm does not separate "tips" (79) or
+  "inviting" (89) from "guitar" (80) or "kitchen" (74), so it only quiets true function words
+  and a grey zone ("any" 33 → 0.17, "music" 59 → 0.89).
+- **Trying: light stemming in the word index, to see whether "bake" reaching "baking" brings
+  the obvious memory.** Porter's step 1 and 5a plus "-ie" → "-i", written in-repo
+  (`store/stem.ts`), never inside `tokenize()`. Known merges, accepted because both sides
+  agree: even/evening, morning/morn, sim/sims, horse → "hor", use/uses but not used/using
+  ("news" stays "news": Porter2's exceptions are kept). Names merge the same way (review of
+  #529): mostly spellings of one name (mary/marie, katie/katy, lucy/lucie, jimmy/jimmie),
+  but also frances/france, reading/read, angeles/angel, united/unit, bing/binge.
+  Tokens with a digit or under four letters are never touched.
+- **Cache v7, not a store bump; the re-stem runs in the worker, not at open.** Until it
+  finishes (`cache_meta.terms`), and after, lookups ask for both the surface form and the
+  stem, so a mixed index loses no word recall (review of #529: kept after the marker too,
+  because an older build still writes surface rows into this cache; on a stemmed index the
+  surface form changes no result). Measured on the bench copies: 79–126 ms for 300–366
+  memories, so about 0.7 s at the live store's 2,207; one run's budget is 5 s and it
+  resumes. To see it landed on a store: `cache_meta` key `terms` = `light-1` in box 3,
+  `<data dir>/cache/cache.sqlite` (Mike's to open read-only, never a session's:
+  `sqlite3 "file:$HOME/.counterparts/store/cache/cache.sqlite?mode=ro" "select value from cache_meta where key='terms'"`).
+  A harness that rebuilds a copied store gets the same result from
+  `store.rebuildCache({ keepVectors: true })` (it resets box 3, which marks it stemmed, and
+  re-indexes every row stemmed) or, cheaper, `store.restemIndex({ budgetMs: Infinity })`.
+- **A revert is not free.** Code that looks words up unstemmed misses every stemmed row, and
+  `doc_tokens` keeps no surface forms (the re-stem replaces them), so undoing stemming in
+  code means either a build that indexes surface words again and keeps asking for both
+  forms (no bump; stemmed rows stay findable by their stems until rewritten), or another
+  cache bump whose worker step re-indexes each memory from its prose in batches (about an
+  `indexDoc` per memory). The discount alone is undone by the two tunables.
+- **Going back by installing an older build** (0.3.26 or before) is NOT a revert and is not
+  silent-safe: that build reads the v7 cache as ahead, so its memory server refuses every
+  tool, and its hooks look words up unstemmed and miss every stemmed row (measured on a
+  bench copy, review of #529: 2,111 of 4,557 words lost some matches, while its `verify`
+  said the cache covered every live row). The way back on that build: delete
+  `<store>/cache/cache.sqlite*`, then `counterparts verify --rebuild --keep-vectors`.
+  Deleting alone leaves the word index EMPTY (vectors come back on their own, words do
+  not). `counterparts rollback` does not cover it: it restores a store migration, and this
+  change has none.
+- **Flags, not fixed:** an observer opens no embedder, so its cues are undiscounted (a live
+  vs. observer divergence). The discount couples word cues to one table; another table gets
+  none until someone measures it (`embed-client.ts#WORD_NORM_CALIBRATED`). Every
+  `store.search` caller is stemmed (sweep, reconsolidation, dream, meaning, removal's scan,
+  dashboard search), because the index is.
+- **Bench, five first prompts + one facts question** (copies of `s500-m1017`; master /
+  this branch before the worker's re-stem / after): the baking memory shows after the
+  re-stem (it never did before); kitchen shows a target in all three; the cocktail question
+  shows a target before the re-stem (in line) and after it (dark only); photography and guitar
+  stay unreachable, as the diagnosis predicted; the Zumba facts rank moves 29 → 27 → 28
+  (inside the bench's 30 throughout). Five questions are thin evidence either way.
+
+### An experiment, 2026-10-19, agreed with Mike: context priming (the downward half of the loop). Check on ~10-22
+
+From the coordinator's brief (`~/counterparts-notes/2026-10-19-context-priming-brief.md`).
+Trying a head start for memories connected to what the session is doing, to see whether
+primed footnotes are rated more useful than unprimed ones, without one cluster winning turn
+after turn. Revert by setting `PRIME_LINK_UNITS` and `PRIME_TRAIN_SHARE` to 0 (recall
+`tunables.ts`), or by reverting the PR. Nothing is stored in a new format: the train and the
+wake's open threads are `gate_session` rows of a new kind, `prime`, which an older build never
+reads. Recall CONTRACT item 22; `src/core/recall/prime.ts`.
+
+- **Sources.** What this session used (credited at the referenced, engaged or useful tier,
+  or rated 2–3 on its own rating rows, which also catches a memory born today that physics
+  credits nothing), what it wrote (#523's echo set: never a target, but its neighbours are
+  warmed), and what is open in its folder (the open threads its wake kept, written by the
+  host as a gate record at session start, plus the directory's live handoffs), read once a
+  session. Not the self page (the brief's tunnel-vision worry).
+- **Two channels.** Along links: one hop (`Associate#partnersOf`), Σ source weight × decayed
+  edge × `PRIME_LINK_UNITS` (1) cue units. Why 1: a fresh source and a link two co-uses made
+  (0.5, #525) give half a maximally-rare cue, about 2.5× the floor; a dream or contiguity
+  link (~0.05) only breaks ties. Along meaning: a running vector of this session's prompts,
+  decayed ×`PRIME_TRAIN_DECAY` (0.5) a turn — the previous prompt 1, the one before 0.5 —
+  with each source's vector folded in once when it first counts (a turn's new sources
+  together weigh at most one prompt). A candidate close to it gets `PRIME_TRAIN_SHARE` (0.5)
+  of what the turn's own meaning gives at that cosine (the in-line floor and weight of the
+  store's embedder). Why 0.5: the last few turns count half as much as this one. A source's
+  link head start decays ×`PRIME_SOURCE_DECAY` (0.8) a turn since it first counted (a third
+  after five turns). Source weights: used 1, wrote 1, open here 0.5 (what was left in a
+  folder is a softer sign of what this session is for). At most `PRIME_MAX_SOURCES` (24),
+  newest first.
+- **How strong.** Added to activation before the cut, like a hop, so it can lift a memory
+  into the cut and past its relative bar, in either tier. Bounded: only candidates this
+  turn's words or meaning reached; at most `PRIME_CEILING` (1) × their own cue + semantic
+  (the dial to turn first if tunnel vision shows); out of `cueFraction`; out of the turn's
+  background sample (a primed cluster must not raise everyone else's bar); out of both
+  absolute floors (so a turn too thin for a relative bar is unchanged). Habituation's ×1.5
+  bar applies after it, unchanged — a test shows a habituated memory's raised bar holding.
+  Session dedup still shows a primed memory once.
+- **Choices I made that the brief left open, lightly held.** (1) The floors exclude priming
+  ("a head start is not evidence"); the brief's "strong" is honoured against the relative
+  bar only. (2) The train is scored against the turn's candidates (the first
+  `PRIME_TRAIN_POOL`, 72, in the cut's order; a box-3 vector read each), never ranked over
+  the store, so its cost does not grow with the store; this turn's own vector is the in-line
+  one, or the stripped prompt embedded once (~0.5 ms). Prompts only, not replies. (3) The
+  train excludes the current prompt (that is the semantic channel's), and since review,
+  on a lagged turn, the newest prior prompt too (below). (4) A first prompt in a folder
+  with open threads or a handoff IS primed by them, at most at half strength (the
+  folder's weight); "identical to before" holds only with nothing open there.
+- **Cost, measured 2026-10-19.** A synthetic store in a temp dir (20,000 topical memories
+  with potion vectors, 9,500 links mostly within a topic; never a live store), 30 prepared
+  sessions per arm, each measured turn in its own fresh process (a cold hook), the real
+  embedder, priming on (sources used 1, wrote 1, open 3, a train, 24 candidates primed)
+  against priming off: the recall build p50 66 / p95 69 ms against 62 / 66 ms; the whole
+  `recallForTurn` p50 72 / p95 76 against 68 / 72 ms. About 4 ms, against the 1,200 ms
+  budget. (The machine was shared with other test runs; the arms were interleaved.)
+- **Amended at review, 2026-10-19 — four more experiments inside this one, same check
+  (~10-22).**
+  - *Trying a CENTRED train score* (the coordinator's call), to see whether priming then
+    picks winners instead of lifting everyone. The static table's in-line floor is low
+    (0.15), so on a steady topic nearly every candidate was a little near the train (24 of
+    24 in the cost run). Now a candidate's train head start counts only the part of its
+    cosine above the mean of the turn's cut before priming (or above the floor, if that
+    is higher): `PRIME_TRAIN_CENTRE` 1. The mean is the cut's, not the 72-candidate
+    pool's, because the pool's weak tail pulled it down until nearly the whole cut
+    cleared it. The echo set is left out of the mean (the session's own writes sit
+    nearest its train). A lone candidate has no peers to beat and gets no train head
+    start. Revert by setting `PRIME_TRAIN_CENTRE` to 0. Measured on a synthetic ~2,000
+    memory store with the real potion table (temp dir; 5 topics, a steady 8-prompt
+    baking session, 3 sessions an arm, identical copies of one store per arm, on master
+    with #529's stemming): shown over 24 turns, priming off 24, floor-only 27 (3 shown
+    only because of priming), centred 24 (0); with lagged cues, 27 / 30 (3) / 30 (3).
+    Train-primed candidates in the cut fell from 21–24 of 24 to 6–20. The cut's mean
+    cosine with the train ran 0.27–0.60, so the bar the train must beat sits well above
+    the 0.15 floor on a steady topic. Small numbers, one synthetic corpus: direction, not
+    a calibration.
+  - *The train's strength follows how much it holds* (`TrainState.mass`: each prompt adds
+    1, a turn's source fold at most 1, all decayed with it; the head start is scaled by
+    `min(1, mass)`). A cosine cannot see a vector's length, so before this a train holding
+    only a folder's leftovers, or only turns from several prompts back, primed exactly as
+    hard as a live one. In a running session the mass sits at its cap and nothing changes.
+  - *On a lagged turn the newest prompt is taken out of the train scored against.* The lag
+    row is the worker's rank of the previous exchange (prompt and reply), and the train
+    held that same prompt at weight 1, its biggest part, at the in-line profile's weight
+    (6 × 0.5 = 3 on the static table) against the lagged profile's cautious 1. So the
+    previous subject counted twice, the second time three times as hard as the channel
+    is calibrated for. The prompt's unit vector is kept beside the train (`last`) and
+    subtracted for scoring only, when the train is the one the last turn saved. A lagged
+    second turn with nothing else open scores no train at all. Watch item that remains:
+    on a lagged turn the train (in-line weights) can still outweigh the lagged semantic
+    cue before the ceiling binds.
+  - *A handoff's weight falls with its age*: × `PRIME_HANDOFF_DAY_DECAY` (0.7) per lived
+    day (yesterday's 0.7, last week's 0.08, ten days 0.03). Handoffs live 14 lived days and
+    are read on every session's first prompt in their folder, so an unaged one opened
+    every session there with its train for a fortnight. The wake's open threads are not
+    aged here: the wake already chose them as open, and they prime through links at the
+    folder's 0.5, decaying 0.8 a turn.
+- **Privacy.** The train is the person's words in another form: it is emptied with the
+  carried cues in a session idle past the retention ceiling (`clearIdleCarries`), and the
+  newest prompt's own vector (`last`) with it. The ids in `seen` stay until the session's
+  gate rows are pruned: they are memory ids, not the person's words.
+
+What to look at on ~10-22 (for docs/CHECK-AFTER.md):
+
+- `recall.decision` rows: the `primed` summary (sources by kind, `train`, `candidates`,
+  `cut`, `capped`, `trainCentre`, `shown`, `lifted`, `byLink`, `byTrain`) and the `primed` part on each
+  shown row (`link`, `train`, `from`, `lifted`). How many shown footnotes a day were
+  primed, and how many only because of it (`lifted`).
+- Footnote ratings (`recall.rated`), primed against unprimed, joined on the decision rows'
+  ids: are primed footnotes rated 2–3 more often? Lifted ones especially — those are the
+  shows priming caused.
+- Tunnel vision: within a session, the same cluster of primed footnotes turn after turn
+  (`byTrain` high while the prompts changed subject; the same `from` source priming several
+  turns running). If so, lower `PRIME_CEILING` or `PRIME_TRAIN_SHARE` first, then
+  `PRIME_SOURCE_DECAY`.
+- Centring: `trainCentre` against `byTrain`. If the centre sits near the floor on most
+  turns, centring is doing little; if `byTrain` is near 0 while topics hold steady and
+  primed footnotes rate well, consider `PRIME_TRAIN_CENTRE` 0 with a lower
+  `PRIME_TRAIN_SHARE` instead.
+- `capped`: how often the ceiling binds. Often means priming wants to carry more than the
+  conversation gave; rarely means the ceiling is not the operative limit.
+- Latency: `elapsedMs` on decision rows before and after install (the cost check below).
+- Not added to `counterparts mechanisms` or doctor: a new proof there needs the sidebar's copy
+  changed in step (`sidebar-mechanism-drift.test.ts`), so the counts live on the rows above.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
