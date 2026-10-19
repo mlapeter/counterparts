@@ -575,8 +575,11 @@ function rankedUnder(store: Store, model: string, dim: number): boolean {
  * (2026-10-19): `none` (a session's first prompt) and `stale`. The text is
  * stripped of host boilerplate first, as the worker strips it (§9 G3: before
  * cue extraction AND before embedding), and embedded by the store's own SYNC
- * embedder (`Store.textVector`: null with no embedder, under observer, or when
- * nothing ranks against box 3, and never throws). The rank itself is
+ * embedder (`Store.textVector`: null with no embedder, or when nothing ranks
+ * against box 3, and never throws). An observer opened through a host's wiring
+ * has no embedder (`embed-client.ts#openEmbedder`), so it stays dark; a core
+ * caller that hands an observer one embeds and ranks here, which reads box 3
+ * and writes nothing (the turn's gate writes stand down as before). The rank itself is
  * `activate()`'s, on its in-line path and profile: the vector IS this turn's
  * question, so the lagged profile's caution about the previous subject does not
  * apply.
