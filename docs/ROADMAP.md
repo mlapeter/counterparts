@@ -1,6 +1,6 @@
 # Roadmap
 
-*Updated 2026-10-09. A plan for now, not a rule. Change it when it stops fitting.*
+*Updated 2026-10-19. A plan for now, not a rule. Change it when it stops fitting.*
 *Earlier rounds: [roadmap-history.md](roadmap-history.md). What shipped when: [CHANGELOG](../CHANGELOG.md).*
 
 **The aim:** memory that follows how human memory works, with a dashboard that shows whether
@@ -18,7 +18,8 @@ each mechanism is working. It should run in whatever AI host people use.
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11); the plugin with neither, as one downloaded program (0.3.14). Not Windows. |
 
 **In flight:**
-- **The association walk**: links form but are starved; diagnose why before building anything.
+- **The association walk**: diagnosed 2026-10-18; decisions next, after "what counts as use" (see Mechanisms).
+- **First-prompt recall**: two bugs found by the benchmark, being diagnosed (see Retrieval).
 
 ---
 
@@ -26,7 +27,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 1. **More hosts**: claude.ai, if it's doable (see Under discussion).
 2. **Emotion, what's left**: watch feelings over weeks and re-feeling awake in real use (both built, 0.3.12). Coverage is no longer a thread: about 11% of memories carry a feeling, and that is expected.
-3. **Mechanisms**, one at a time, each talked through before it's built: association first (above).
+3. **Mechanisms**, one at a time, each talked through before it's built: what counts as use, association, the notes module, dream throughput, then schemas with gist.
 4. **Dashboard**: finish the walk (Health, Flow, mobile).
 5. **Platforms**: Windows (WSL first).
 
@@ -34,19 +35,45 @@ each mechanism is working. It should run in whatever AI host people use.
 
 ## Mechanisms
 
+*Where each stands, read 2026-10-19 on the owner's store (0.3.26, lived day 28) from `counterparts mechanisms`, doctor, CHECK-AFTER and the 10-18 association diagnosis.*
+
 | | |
 |---|---|
-| ✅ **Built** | salience · decay · retrieval · reminders · consolidation · dreaming + reflection · contradictions |
-| 🟡 **Partly** | emotion · interference · association · episodic → semantic |
+| ✅ **Working, watch only** | salience · reminders · contradictions · consolidation · forgetting |
+| 🔧 **Working, needs a pass** | retrieval · dreaming · emotion (tuning) |
+| 🟡 **Partly** | association · interference · episodic → semantic (gist) |
 | ⬜ **Not built** | schemas |
 
-**What's left:**
-- **Emotion**: built: feelings add weight and slow fading; the seven-core wheel; valence-aware softening (negative fastest, positive slowest); a later feeling beside the first, from reflection (0.3.10); feelings over weeks in the reflection, and re-feeling an old memory awake (#317, 0.3.12). Left: see Next #2. Notes: the 2026-09-30 emotion walk.
+**Working, watch only:**
+- **Salience**: every memory scored at write (462 in the last 7 days).
+- **Reminders**: 33 came back in the last 7 days (12 said plainly, 21 as footnotes).
+- **Contradictions**: 111 settled in 7 days, 0 open. Later, if real use asks: find disagreements nobody wrote near each other (a sleep pass).
+- **Consolidation**: returns slow fading; 3 memories became core this week. Returns this week: awake 105, reflection 47, dream 40, so the nightly passes supply nearly half.
+- **Forgetting**: 834 memories below reach, 1 archived. Expected: 0.3.24 restarted the 14-lived-day wait, so archiving resumes around late October. Watch it then.
+
+**Working, needs a pass:**
+- **Retrieval**: works, quality uneven. Footnotes rated 0–3 at the session's end (288 so far): 47% noise, 35% on topic but not needed, 18% useful or changed what was said. A session's first prompt has no meaning channel (it is computed after each prompt for the next), and the word channel doesn't treat bake/bakes/baking as one word; both are being diagnosed (2026-10-19).
+- **Dreaming**: works, but takes about 40–55 new memories a night by priority; the queue holds at 400–590 since about 10-10, the tail fading out on its own. On a busy day about 1 in 10 new memories is ever dreamed. Open: whether that's enough.
+- **Emotion**: built (weight, slower fading, the seven-core wheel, valence-aware softening, later feelings, feelings over weeks, re-feeling awake). Its weight runs about ×11 slower fading at a strong feeling vs the ×2.8 the review designed; kept on purpose, rechecked 2026-11-01. Mood-matched recall stays off.
+
+**Partly:**
+- **Association**: about 9,500 links, and none has ever brought a memory to mind. Every link is far below either threshold, and nothing strengthens them: a link needs about four uses inside a month, and use is rarely credited (below). The hop channel can't change what's shown by construction. Decisions pending (2026-10-18 diagnosis).
+- **Interference**: near-copies merge and a newer state replaces an older one; similar memories competing for recall isn't built.
+- **Episodic → semantic**: dreams write about 8 gists a week; many episodes becoming one understanding happens only by chance.
+
+**Not built:**
 - **Schemas**: beliefs and entities that grow from what's lived.
-- **Episodic → semantic**: gist, where many episodes become one understanding.
-- **Interference**: similar memories competing, not just contradictions.
-- **Association**: links form but are starved. The walk is in flight: diagnose first.
-- **Contradictions, later**: find disagreements nobody wrote near each other (a sleep pass), if real use shows the need.
+
+**What connects them:** about 3% of shown memories are credited as used (opened by id, quoted, or named in `drewOn`), while 18% are rated useful. Use is what strengthens a memory and its links, so the gap starves association and leaves consolidation leaning on the nightly passes. "What counts as use" is the first mechanism conversation.
+
+**Big-picture threads (2026-10-19), walked one at a time:**
+1. **The loop between using a memory and keeping it is mostly open.** Recall runs every turn; almost nothing it shows is credited, so the day barely teaches the system.
+2. **The night stands in for the day.** Nearly half the strengthening comes from the dream and reflection rather than lived use.
+3. **Recall quality bounds everything downstream.** Use, links and consolidation all flow through what comes to mind.
+4. **Each mechanism was tuned alone.** One calibration pass against measured rates (one owner, ~10 sessions a day) beats retuning one at a time.
+5. **Almost everything is episodic.** Notes (exact records) and schemas (beliefs that grow) are the missing layers.
+
+Rethinking (owner, 2026-10-19, lightly held): "shown strengthens nothing" was a guard against rich-get-richer for new users. That worry is separate and doesn't outweigh getting the whole system working; feedback between layers, both ways, is the aim.
 
 ---
 
