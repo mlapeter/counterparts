@@ -50,10 +50,42 @@ export interface DayRead {
   readonly marks: ReadonlyMap<string, DayMark>;
   /**
    * Memories used together — each `useful` or stronger in the same session —
-   * as pairs, the session with the most such memories first, each pair once.
-   * Bounded by `DREAM_TUNABLES.TODAY_PAIRS` before the bundle filters them.
+   * one list per session, the session with the most such memories first.
+   * `pairsAmong` makes the pairs, among what the bundle shows (review of
+   * #523: pairs capped before that filter came out empty on a busy day).
    */
-  readonly pairs: readonly (readonly [string, string])[];
+  readonly together: readonly (readonly string[])[];
+}
+
+/**
+ * The co-used pairs among the memories `keep` admits (the bundle's), each
+ * pair once, the busiest session first, at most `cap` — pairs whose both
+ * memories `prefer` admits (the ones listed as `today`) ahead of the rest.
+ */
+export function pairsAmong(
+  together: readonly (readonly string[])[],
+  keep: (id: string) => boolean,
+  prefer: (id: string) => boolean = () => true,
+  cap: number = DREAM_TUNABLES.TODAY_PAIRS,
+): [string, string][] {
+  const pairs: [string, string][] = [];
+  const seen = new Set<string>();
+  for (const admit of [(id: string) => keep(id) && prefer(id), keep]) {
+    for (const ids of together) {
+      const list = ids.filter(admit);
+      for (let i = 0; i < list.length && pairs.length < cap; i++) {
+        for (let j = i + 1; j < list.length && pairs.length < cap; j++) {
+          const a = list[i] as string;
+          const b = list[j] as string;
+          const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          pairs.push([a, b]);
+        }
+      }
+    }
+  }
+  return pairs;
 }
 
 /** One payload, parsed; an unreadable one is an empty object. */
@@ -135,21 +167,6 @@ export function readDay(store: Pick<Store, "eventLog" | "livedReturnsSince">, wi
   // for having been shown (part D handles noise on the recall side).
   for (const id of shown) if (!zero.has(id) && !marks.has(id)) marks.set(id, "shown");
 
-  const pairs: [string, string][] = [];
-  const seen = new Set<string>();
-  const sessions = [...together.values()].sort((a, b) => b.size - a.size);
-  for (const ids of sessions) {
-    const list = [...ids];
-    for (let i = 0; i < list.length && pairs.length < DREAM_TUNABLES.TODAY_PAIRS; i++) {
-      for (let j = i + 1; j < list.length && pairs.length < DREAM_TUNABLES.TODAY_PAIRS; j++) {
-        const a = list[i] as string;
-        const b = list[j] as string;
-        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        pairs.push([a, b]);
-      }
-    }
-  }
-  return { marks, pairs };
+  const sessions = [...together.values()].filter((s) => s.size > 1).sort((a, b) => b.size - a.size);
+  return { marks, together: sessions.map((s) => [...s]) };
 }

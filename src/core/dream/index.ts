@@ -71,7 +71,7 @@ import { addDays, isDay } from "../time.js";
 import { livedOn } from "../types.js";
 import type { Kind } from "../types.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
-import { readDay, strongerMark } from "./day.js";
+import { pairsAmong, readDay, strongerMark } from "./day.js";
 import type { DayMark, DayRead } from "./day.js";
 import { mindRanked, noteMindShown } from "./mind.js";
 import type { MindItem } from "./mind.js";
@@ -3083,7 +3083,7 @@ export class Dreams {
       mixing: mixing.filter((m) => !left.has(m)),
       lookback: lookback.filter((m) => !left.has(m)),
       today: today.filter((t) => !left.has(t.id)),
-      todayPairs: dayRead.pairs.filter(([x, y]) => role.has(x) && role.has(y) && !left.has(x) && !left.has(y)),
+      todayPairs: pairsAmong(dayRead.together, (x) => role.has(x) && !left.has(x), (x) => todayMark.has(x)),
       onMind: mindKept.filter((item) => item.ids.every((mid) => !left.has(mid))),
       ...(mindRead.more > 0 ? { onMindMore: mindRead.more } : {}),
       ...((mindRead.slotsMore ?? 0) > 0 ? { toConfirmMore: mindRead.slotsMore } : {}),

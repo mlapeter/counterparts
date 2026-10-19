@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { Counterpart } from "../src/core/counterpart.js";
 import { RECALL_CREDIT_EVENT, RECALL_DECISION_EVENT, RECALL_RATED_EVENT } from "../src/core/counterpart-events.js";
 import { DAY_CREDIT_EVENT, DAY_DECISION_EVENT, DAY_RATED_EVENT, readDay } from "../src/core/dream/day.js";
+import { DREAM_TUNABLES } from "../src/core/dream/tunables.js";
 import type { PutInput } from "../src/core/store/index.js";
 
 let dir: string;
@@ -170,6 +171,34 @@ describe("part E: the dream replays the day", () => {
     const later = readDay(c.store, { sinceDay: c.store.livedDay(), sinceAt: Date.now() + 60_000 });
     expect(later.marks.has(kiln)).toBe(false);
     expect(later.marks.has(glaze)).toBe(false);
+  });
+
+  test("a busy day: the co-used pairs are made among what the bundle shows, not cut before it", () => {
+    const c = brain();
+    c.store.advanceClock("2026-10-17");
+    const ids: string[] = [];
+    for (let i = 0; i < 60; i++) ids.push(mem(c, `Pottery note ${String(i)}: glaze batch ${String(i)} fired at cone ${String(i % 12)}.`));
+    let d = c.dreams.begin({ session: SESSION, scope: "/studio", at: "2026-10-17" });
+    for (let guard = 0; guard < 20 && d.ok; guard++) {
+      c.dreams.journal({ dream: d.bundle.dream, session: SESSION, text: "dreamed" });
+      d = c.dreams.begin({ session: SESSION, scope: "/studio", at: "2026-10-17" });
+    }
+    c.store.advanceClock("2026-10-18");
+    mem(c, "The studio door sticks in wet weather.");
+    // One busy session used all sixty; the reward ones are the last ten it met.
+    c.noteAdapterEvent(RECALL_CREDIT_EVENT, { session: "s-busy", ids, how: ids.map(() => "expanded") });
+    c.noteAdapterEvent(RECALL_CREDIT_EVENT, { source: "drewOn", session: "s-busy", ids: ids.slice(50), how: ids.slice(50).map(() => "drewOn") });
+    const out = c.dreams.begin({ session: SESSION, scope: "/studio", at: "2026-10-18" });
+    if (!out.ok) throw new Error(`begin refused: ${out.reason}`);
+    expect(out.bundle.today.length).toBe(DREAM_TUNABLES.TODAY_COUNT);
+    expect(out.bundle.todayPairs.length).toBe(DREAM_TUNABLES.TODAY_PAIRS);
+    // Pairs between memories listed as today come first (here there are enough of them to fill the list).
+    const listed = new Set(out.bundle.today.map((t) => t.id));
+    for (const [x, y] of out.bundle.todayPairs) {
+      expect(listed.has(x) && listed.has(y)).toBe(true);
+      expect(out.bundle.memories[x]).toBeDefined();
+      expect(out.bundle.memories[y]).toBeDefined();
+    }
   });
 
   test("the day's event names are the composition root's", () => {
