@@ -242,6 +242,49 @@ export interface RecallTunables {
    *  about the margin an ordinary footnote clears its bar by. CAL. */
   HABITUATION_BAR_LIFT: number;
 
+  // ── context priming (an experiment, 2026-10-19; check ~10-22) ───────────
+  // Trying a head start for memories connected to what this session is doing,
+  // to see whether primed footnotes are rated more useful than unprimed ones
+  // without one cluster winning turn after turn (`prime.ts`). Ambient only;
+  // only candidates the turn's own words or meaning reached; never the
+  // session's own writes; never past the absolute floors. Revert by setting
+  // `PRIME_LINK_UNITS` and `PRIME_TRAIN_SHARE` to 0.
+  /** Along LINKS: a source passes `weight × decayed edge × this` CUE UNITS
+   *  (`floorUnit`) to each linked partner. Why 1: a fresh source and a link
+   *  two co-uses made (0.5, associate `CO_USE_DEPOSIT`) give half a
+   *  maximally-rare cue — two and a half times the floor, enough to clear an
+   *  ordinary bar; a faint write-time or dream link (~0.05) only breaks ties. */
+  PRIME_LINK_UNITS: number;
+  /** Along MEANING: the train of thought's head start, as a SHARE of what the
+   *  turn's own meaning gives at the same cosine (the in-line semantic floor and
+   *  weight of the store's embedder, `semanticTuning`). Why 0.5: the last few
+   *  turns count half as much as this one. */
+  PRIME_TRAIN_SHARE: number;
+  /** The train's decay per turn. Why 0.5: the previous prompt weighs 1, the one
+   *  before 0.5, then 0.25 — "the last few turns", so a dropped topic is mostly
+   *  gone three turns on. */
+  PRIME_TRAIN_DECAY: number;
+  /** A source's link head start decays by this per turn since it first counted.
+   *  Why 0.8: something opened or written five turns ago still primes at a
+   *  third, ten turns ago at a tenth. */
+  PRIME_SOURCE_DECAY: number;
+  /** Each kind of source's weight. Why: a use or a write is this session's own
+   *  act (1); the folder's open threads and handoff are what was left here, a
+   *  softer sign of what this session is for (0.5). */
+  PRIME_SOURCE_WEIGHT: Readonly<Record<"used" | "wrote" | "open", number>>;
+  /** At most this many sources, the newest first. Why 24: a long session's
+   *  older acts have decayed to almost nothing anyway; it bounds the edge reads. */
+  PRIME_MAX_SOURCES: number;
+  /** How many of the turn's candidates, in the cut's order, are scored against
+   *  the train (one box-3 vector read each). Why 72: three times
+   *  `MAX_CANDIDATES`, so a memory just past the cut can be primed into it. */
+  PRIME_TRAIN_POOL: number;
+  /** "Priming gives a head start, it does not carry", as arithmetic: a
+   *  candidate's priming is capped at this multiple of its own cue + semantic.
+   *  Why 1: like `HOP_CEILING`, at most double what the conversation gave it;
+   *  the dial to turn down first if the review sees tunnel vision. */
+  PRIME_CEILING: number;
+
   // ── affect ───────────────────────────────────────────────────────────────
   /** Emotional salience a candidate needs before it can raise the affect flag. [v1: 0.7] CAL. */
   AFFECT_MIN_EMOTION: number;
@@ -499,6 +542,15 @@ export const TUNABLES: RecallTunables = {
   HABITUATION_MIN_SESSIONS: 2,
   HABITUATION_CLEAR_SCORE: 2,
   HABITUATION_BAR_LIFT: 0.5,
+
+  PRIME_LINK_UNITS: 1,
+  PRIME_TRAIN_SHARE: 0.5,
+  PRIME_TRAIN_DECAY: 0.5,
+  PRIME_SOURCE_DECAY: 0.8,
+  PRIME_SOURCE_WEIGHT: { used: 1, wrote: 1, open: 0.5 },
+  PRIME_MAX_SOURCES: 24,
+  PRIME_TRAIN_POOL: 72,
+  PRIME_CEILING: 1,
 
   AFFECT_MIN_EMOTION: 0.7,
   AFFECT_REFRACTORY_TURNS: 2,

@@ -38,6 +38,8 @@ import type { FeelingAskInput } from "./feeling-ask.js";
 import { detectAffect, stripBoilerplate } from "./cues.js";
 import { floorUnit, gate } from "./gate.js";
 import { habituatedIds } from "./habituation.js";
+import { planPrime, saveTrain } from "./prime.js";
+import type { PrimeInput, PrimePlan, TrainState } from "./prime.js";
 import type { Background, CandidateVerdict, Verdict } from "./gate.js";
 import { NO_MOOD, currentMood } from "./mood.js";
 import { loadGateState, saveGateState } from "./session.js";
@@ -52,20 +54,34 @@ import type { RecallTunables } from "./tunables.js";
  *  same cap the credit row puts on `shownNotUsed` (2026-10-14). */
 export const MOOD_MATCHED_IDS_CAP = 64;
 
+/** A turn priming ran on and touched nothing (a quiet turn's numbers). */
+const NO_PRIME: PrimeSummary = {
+  sources: { used: 0, wrote: 0, open: 0 },
+  train: false,
+  candidates: 0,
+  cut: 0,
+  capped: 0,
+  shown: 0,
+  lifted: 0,
+  byLink: 0,
+  byTrain: 0,
+};
+
 export * from "./cues.js";
 export * from "./feeling-ask.js";
 export * from "./gate.js";
 export * from "./mood.js";
 export * from "./rated.js";
 export * from "./habituation.js";
+export * from "./prime.js";
 export * from "./render.js";
 export * from "./session.js";
 export * from "./standing.js";
 export * from "./recency-ask.js";
 export * from "./time-ask.js";
 export * from "./tunables.js";
-export { activate, isConfidential, isHandoff, isSelfPage, gatedSal, recordedIdentity, salienceRank } from "./activate.js";
-export type { FeelingLane, SpreadFn, SpreadStats } from "./activate.js";
+export { activate, isConfidential, isHandoff, isSelfPage, gatedSal, primeOf, recordedIdentity, salienceRank } from "./activate.js";
+export type { CandidatePrime, FeelingLane, PrimeStats, SpreadFn, SpreadStats } from "./activate.js";
 export type { Candidate, ActivationResult } from "./activate.js";
 import type { ActivationResult } from "./activate.js";
 
@@ -164,6 +180,36 @@ export interface Turn {
    * (`gate.ts`). Absent or empty: nothing is skipped.
    */
   echo?: ReadonlySet<string>;
+  /**
+   * CONTEXT PRIMING (an experiment, 2026-10-19; `prime.ts`): this turn's own
+   * vector for the train of thought, one hop along links, and what is open in
+   * this folder. Ambient only — set by `Counterpart#recallForTurn` and by
+   * nothing on the deliberate path. Absent: priming does not run.
+   */
+  prime?: PrimeInput;
+}
+
+/**
+ * What priming did on one turn (2026-10-19, an experiment), on the durable
+ * decision row: which kinds of source counted (so "on, nothing primed" reads
+ * apart from "off"), whether a train of thought existed, and of the memories
+ * SHOWN, how many were primed, by which channel, and how many only because of
+ * it (`lifted`). Counts only; which ones are on the rows of `surfaced` and
+ * `footnotes` (`primed` there). Null when priming did not run.
+ */
+export interface PrimeSummary {
+  readonly sources: { readonly used: number; readonly wrote: number; readonly open: number };
+  readonly train: boolean;
+  /** Candidates the cut kept that priming reached. */
+  readonly candidates: number;
+  /** Of those, kept only because of it. */
+  readonly cut: number;
+  /** How many the ceiling (`PRIME_CEILING`) bound. */
+  readonly capped: number;
+  readonly shown: number;
+  readonly lifted: number;
+  readonly byLink: number;
+  readonly byTrain: number;
 }
 
 export type DecisionReason =
@@ -240,6 +286,8 @@ export interface RecallDecision {
    * long session lost. 0 when no echo set was given.
    */
   readonly echoSkipped: number;
+  /** What context priming did this turn (2026-10-19, `PrimeSummary`); null when it did not run. */
+  readonly primed: PrimeSummary | null;
   /**
    * What spreading did this turn (association build 1, 2026-09-28): seeds,
    * nodes expanded, where and why it stopped, contributions computed and how
@@ -303,6 +351,8 @@ interface BuildOutput {
   carry: string[];
   render: RenderResult | null;
   gateStatus: "loaded" | "absent" | "unreadable";
+  /** The train of thought to save at the record step (priming, 2026-10-19). Absent: none to save. */
+  train?: TrainState;
 }
 
 export class Recall {
@@ -365,6 +415,17 @@ export class Recall {
       state.carriedFromTurn === turnNo - 1 && state.carriedCues.length > 0
         ? state.carriedCues
         : [];
+    // CONTEXT PRIMING (an experiment, 2026-10-19): planned from reads only —
+    // the session's sources and its train of thought. Ambient only (the
+    // deliberate path never sets `turn.prime`). A failed plan primes nothing.
+    let plan: PrimePlan | null = null;
+    if (turn.prime !== undefined && (this.tunables.PRIME_LINK_UNITS > 0 || this.tunables.PRIME_TRAIN_SHARE > 0)) {
+      try {
+        plan = planPrime({ store: this.store, sessionId: turn.sessionId, state, turnNo, day, echo: turn.echo, prime: turn.prime, t: this.tunables });
+      } catch {
+        plan = null;
+      }
+    }
 
     const quiet = (
       reason: DecisionReason,
@@ -409,6 +470,7 @@ export class Recall {
         moodMatched: 0,
         moodMatchedIds: [],
         echoSkipped: 0,
+        primed: plan === null ? null : { ...NO_PRIME, sources: plan.sources, train: plan.activation.train !== null },
         spread: null,
         dropped: 0,
         bytes: 0,
@@ -423,6 +485,7 @@ export class Recall {
       carry: [],
       render: null,
       gateStatus: loaded.status,
+      ...(plan === null ? {} : { train: plan.next }),
     });
 
     if (text.trim().length === 0) return quiet("empty-turn");
@@ -461,6 +524,7 @@ export class Recall {
         maxCandidates,
         storeSize,
         ...(turn.feeling === undefined ? {} : { feeling: { ...turn.feeling, owner } }),
+        ...(plan === null ? {} : { prime: plan.activation }),
       },
       this.tunables,
     );
@@ -560,6 +624,23 @@ export class Recall {
     const moodLifted = gated.verdicts
       .filter((v) => (v.verdict === "surfaced" || v.verdict === "footnoted") && (v.mood ?? 0) > 0)
       .map((v) => v.id);
+    // What priming did to what was SHOWN (after the render's trim).
+    const shownSet = new Set([...rendered.surfaced, ...rendered.footnotes]);
+    const shownPrimed = gated.verdicts.filter((v) => v.primed !== undefined && shownSet.has(v.id) && (v.verdict === "surfaced" || v.verdict === "footnoted"));
+    const primed: PrimeSummary | null =
+      plan === null
+        ? null
+        : {
+            sources: plan.sources,
+            train: plan.activation.train !== null,
+            candidates: act.prime?.primed ?? 0,
+            cut: act.prime?.cut ?? 0,
+            capped: act.prime?.capped ?? 0,
+            shown: shownPrimed.length,
+            lifted: shownPrimed.filter((v) => v.primed?.lifted === true).length,
+            byLink: shownPrimed.filter((v) => (v.primed?.link ?? 0) > 0).length,
+            byTrain: shownPrimed.filter((v) => (v.primed?.train ?? 0) > 0).length,
+          };
     const decision: RecallDecision = {
       sessionId: turn.sessionId,
       turn: turnNo,
@@ -587,6 +668,7 @@ export class Recall {
       moodMatched: moodLifted.length,
       moodMatchedIds: moodLifted.slice(0, MOOD_MATCHED_IDS_CAP),
       echoSkipped: gated.verdicts.filter((v) => v.verdict === "echo-skipped").length,
+      primed,
       // What the gate SHOWED of the pointers activation handed it, after the
       // render's trim: the pointer lane's last number (2026-09-28).
       spread:
@@ -616,6 +698,7 @@ export class Recall {
       semantic: act.semantic,
       folded: act.folded,
       ...(act.feeling === null ? {} : { feeling: act.feeling }),
+      ...(plan === null ? {} : { train: plan.next }),
     };
   }
 
@@ -670,6 +753,16 @@ export class Recall {
       next.folded = folded;
     }
     this.persist(next, "recall");
+    // The train of thought moves on with this turn (priming, 2026-10-19). An
+    // observer keeps none (an instrument deposits nothing); a lost write costs
+    // the train one turn, never the recall.
+    if (built.train !== undefined && !this.observer) {
+      try {
+        saveTrain(this.store, turn.sessionId, built.train, d.day);
+      } catch (err) {
+        this.emit("recall.prime.save.failed", turn.sessionId, { code: err instanceof Error ? err.name : "unknown" });
+      }
+    }
 
     this.emitTelemetry(d, built.render);
     // WHICH PAIR RAN (review MINOR 2): the identity box 3 recorded at this

@@ -59,6 +59,9 @@ import {
   loadGateState,
   inLineSemantic,
   loadSessionSemantic,
+  stripBoilerplate,
+  wakeOpenIds,
+  PRIME_TEXT_CHARS,
   markJudged,
   saveSessionSemantic,
   RATED_MAX_PER_CALL,
@@ -737,10 +740,14 @@ export class Counterpart {
     // The ids the assembled wake listed as a line (#489 C): the host's
     // adapter writes them to the lookup ledger, since a wake writes nothing.
     let lined: readonly string[] = [];
+    // The open threads it kept (context priming, 2026-10-19): the host records
+    // them for this session, as part of what is open here.
+    let threads: readonly string[] = [];
     this.delivering = delivery !== undefined;
     try {
       const assembled = delivery === undefined ? null : this.assembleWake(delivery, here);
       lined = assembled?.lined ?? [];
+      threads = assembled?.kept.threads ?? [];
       const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
       this.deliveredThreads = assembled === null ? null : new Set(assembled.kept.threads);
       withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
@@ -756,7 +763,7 @@ export class Counterpart {
       preface: withPointer.preface !== null,
       budgetBytes: this.reportedBudget,
     });
-    return { ...withPointer, budgetBytes: this.reportedBudget, lined };
+    return { ...withPointer, budgetBytes: this.reportedBudget, lined, threads };
   }
 
   /**
@@ -1879,6 +1886,9 @@ export class Counterpart {
       /** When the session began, epoch ms, when the host knows: bounds the
        *  echo read to the lived days since, and filters nothing. */
       sessionFrom?: number;
+      /** The directory this session works in (context priming, 2026-10-19):
+       *  its live handoffs are part of what is open here. Absent: none read. */
+      scope?: string;
     } = {},
   ): RecallResult {
     // THE TEMPORAL CUES ARE COMPUTED HERE, not inside `composeTurn`, for one
@@ -1901,7 +1911,7 @@ export class Counterpart {
       arrived === null ? turn : { ...turn, temporal: arrived.map((a) => ({ id: a.memoryId, weight: a.cueWeight })) };
     const echo = turn.echo ?? this.echoOf(turn.sessionId, opts.echoSince, opts.sessionFrom);
     const withCues: RecallTurn = echo.size === 0 ? cued : { ...cued, echo };
-    const result = recallTurn(this.recall, this.withSemantic(withCues), {
+    const result = recallTurn(this.recall, this.withPrime(this.withSemantic(withCues), opts.scope), {
       schemas: this.schemas,
       prospective: this.prospective,
       associate: this.associate,
@@ -1910,6 +1920,48 @@ export class Counterpart {
     this.recordDecision(result.decision, opts.at ?? null);
     if (arrived !== null && opts.at !== undefined) this.spendArrivals(arrived, result.decision, opts.at);
     return result;
+  }
+
+  /**
+   * CONTEXT PRIMING'S INPUT (an experiment, 2026-10-19; `recall/prime.ts`):
+   * this turn's own vector for the train of thought — the in-line one when
+   * the semantic channel embedded the turn, else the turn's stripped text
+   * embedded now (~0.5 ms on the local table; null with no embedder) — and
+   * what is open in this folder, read only on the turn the session has not
+   * read it yet: the open threads this session's wake listed and this
+   * directory's live handoffs (not memories: their text's vector joins the
+   * train). The link channel is bound by the composition root
+   * (`retrieval.ts`). A turn whose session is not a known one, or that
+   * already carries `prime`, is left as it is. Never throws into the turn.
+   */
+  private withPrime(turn: RecallTurn, scope: string | undefined): RecallTurn {
+    if (turn.prime !== undefined || !isKnownSession(turn.sessionId)) return turn;
+    let vector: readonly number[] | null = null;
+    try {
+      vector =
+        turn.vector !== undefined && turn.vector.length > 0
+          ? turn.vector
+          : this.store.textVector(stripBoilerplate(turn.text).text.trim().slice(0, PRIME_TEXT_CHARS));
+    } catch {
+      vector = null;
+    }
+    const sessionId = turn.sessionId;
+    const open = (): { ids: string[]; vectors: number[][] } => {
+      const ids = wakeOpenIds(this.store, sessionId);
+      const vectors: number[][] = [];
+      if (scope !== undefined && scope.trim().length > 0) {
+        try {
+          for (const h of this.handoffs.readAll(scope)) {
+            const v = this.store.textVector(stripBoilerplate(h.body).text.trim().slice(0, PRIME_TEXT_CHARS));
+            if (v !== null && v.length > 0) vectors.push(v);
+          }
+        } catch {
+          /* an unread handoff primes nothing */
+        }
+      }
+      return { ids, vectors };
+    };
+    return { ...turn, prime: { vector, open } };
   }
 
   /**

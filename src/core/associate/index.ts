@@ -748,6 +748,31 @@ export class Associate {
     );
   }
 
+  /**
+   * ONE HOP, for context priming (recall `prime.ts`, an experiment,
+   * 2026-10-19): each id's partners with the edge's DECAYED weight at a lived
+   * day, conducting edges only, from a live source. Not `spreadFrom`: priming
+   * passes a head start one link out from what the session did, and the hop
+   * channel's multi-hop walk already spreads from what the turn reached. A
+   * read — an observer may ask it. Whether a partner may be recalled is the
+   * caller's to judge (only the turn's own candidates are primed).
+   */
+  partnersOf(ids: readonly string[], day?: number): Map<string, { id: string; weight: number }[]> {
+    const d = day ?? this.store.livedDay();
+    const out = new Map<string, { id: string; weight: number }[]>();
+    for (const id of new Set(ids)) {
+      const row = this.store.row(id);
+      if (row === undefined || row.archived !== 0 || row.superseded_by !== null) continue;
+      const partners: { id: string; weight: number }[] = [];
+      for (const e of this.edgeStates(id)) {
+        const w = edgeWeightAt(e, d, this.tunables);
+        if (conducts(w, this.tunables)) partners.push({ id: e.dst, weight: w });
+      }
+      if (partners.length > 0) out.set(id, partners);
+    }
+    return out;
+  }
+
   /** An edge's weight as it stands at a lived day — decay applied, nothing written. */
   weightAt(src: string, dst: string, day?: number): number {
     const d = day ?? this.store.livedDay();

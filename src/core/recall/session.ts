@@ -44,13 +44,20 @@
 import type { GateRecordInput, Store } from "../store/index.js";
 import { parseIdentityTag } from "../store/index.js";
 import { stripBoilerplate } from "./cues.js";
+import { PRIME_KIND, TRAIN_REF } from "./prime.js";
 import type { UseTier } from "../physics/index.js";
 
 export const GATE_STATE_VERSION = 1;
 
 /** The `gate_session.kind` vocabulary this module owns. `window` is
  *  `prospective/`'s (INTERFACE-GAPS.md §3) and is deliberately not read here. */
-export const GATE_KINDS = ["surfaced", "credited", "scalar", "semantic", "asked", "judged", "folded"] as const;
+export const GATE_KINDS = ["surfaced", "credited", "scalar", "semantic", "asked", "judged", "folded", "prime"] as const;
+/**
+ * `prime` (2026-10-19, context priming — an experiment): the session's train
+ * of thought and the open threads its wake listed (`prime.ts`). Its own kind,
+ * never read by `loadGateState`, so a train written before the session's first
+ * scalar row cannot make the gate state read `unreadable`.
+ */
 /**
  * `folded` (2026-10-15): a journal row (a chapter's summary, or a frozen
  * copy) recall folded into a chapter it showed — `ref` the row, `value` the
@@ -188,7 +195,8 @@ export function loadGateState(store: Store, sessionId: string, max = Infinity): 
   // gate's: a session whose only rows are those has no gate state yet, and
   // must read `absent`, not `unreadable`. The credit pass's `judged` mark
   // (2026-10-09) is not the gate's either.
-  const rows = store.gateRecords(sessionId).filter((r) => r.kind !== ASKED_KIND && r.kind !== JUDGED_KIND);
+  // Priming's rows (2026-10-19) are not the gate's either.
+  const rows = store.gateRecords(sessionId).filter((r) => r.kind !== ASKED_KIND && r.kind !== JUDGED_KIND && r.kind !== PRIME_KIND);
   if (rows.length === 0) return { state: freshGateState(sessionId), status: "absent" };
 
   const scalarRow = rows.find((r) => r.kind === "scalar" && r.ref === SCALAR_REF);
@@ -328,7 +336,20 @@ export function saveGateState(store: Store, state: GateState, max: number): void
  */
 export function clearIdleCarries(store: Store, maxMs: number): number {
   const cutoff = store.now() - maxMs;
-  return store.rewriteGateValues("scalar", SCALAR_REF, '"carriedCues":["', (value) => {
+  // The train of thought (context priming, 2026-10-19) is a running vector of
+  // what the person typed, so it leaves a quiet session on the same clock.
+  const trains = store.rewriteGateValues(PRIME_KIND, TRAIN_REF, '"vec":[', (value) => {
+    let parsed: { vec?: unknown; at?: unknown };
+    try {
+      parsed = JSON.parse(value) as { vec?: unknown; at?: unknown };
+    } catch {
+      return null;
+    }
+    if (parsed === null || typeof parsed !== "object" || !Array.isArray(parsed.vec) || parsed.vec.length === 0) return null;
+    if (typeof parsed.at === "number" && parsed.at > cutoff) return null;
+    return JSON.stringify({ ...parsed, vec: [] });
+  });
+  return trains + store.rewriteGateValues("scalar", SCALAR_REF, '"carriedCues":["', (value) => {
     let parsed: Partial<ScalarPayload>;
     try {
       parsed = JSON.parse(value) as Partial<ScalarPayload>;
