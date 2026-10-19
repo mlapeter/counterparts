@@ -3,6 +3,9 @@
   a 1 a little, and a footnote left unrated a glimpse; a 0 counts nothing. Used memories fade
   more slowly, as before. This is deliberately strong so its effect can be seen, and will be
   tuned after a few days.
+- **A memory a session says it drew on counts as a full use, as an experiment.** Naming it
+  in `drewOn` now counts like opening it (it was half a use); still once a day, at most three
+  per boundary.
 - **Memories found useful together get linked strongly.** Two memories rated useful (or
   opened, quoted or drawn on) since the session last rated are linked strongly enough that
   the second time it happens, one can bring the other to mind as a quiet pointer. Memories

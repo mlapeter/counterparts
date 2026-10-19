@@ -961,7 +961,7 @@ const DREW_ON_PROPERTY = {
 /** The claim `session_end` and `chapter` share about `drewOn`. */
 const DREW_ON_PRIVILEGE = {
   claim:
-    "`drewOn` credits only memories this session was shown — its footnotes, loud memories and recall answers — at half a use, at most 3 per boundary and once a day each. An id it was not shown, a handoff, a superseded memory or one faded under a newer one is refused by name, and nothing is credited for it. A dated memory it names stops coming back as a footnote for that date.",
+    "`drewOn` credits only memories this session was shown — its footnotes, loud memories and recall answers — as a full use (an experiment since 2026-10-19), at most 3 per boundary and once a day each. An id it was not shown, a handoff, a superseded memory or one faded under a newer one is refused by name, and nothing is credited for it. A dated memory it names stops coming back as a footnote for that date.",
   mechanizedBy: "src/core/counterpart.ts#creditDrewOn -> src/core/prospective/index.ts#Prospective.actedOn",
 };
 

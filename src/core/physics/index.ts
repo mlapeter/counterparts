@@ -466,8 +466,15 @@ export const TUNABLES = {
    * `session_end` / `chapter`, 2026-10-11): half a use. Display alone still
    * trains nothing — `W_FOOTNOTED` stays 0. Built by the drewOn builder,
    * 2026-10-11, from Mike's 10-10 direction, lightly held. Why: review 05 D1.
+   *
+   * AN EXPERIMENT SINCE 2026-10-19 (Mike, the feedback loop; check ~10-22):
+   * trying drewOn as a FULL use, 1.0 — the session saying a memory shaped what
+   * it did is as good as opening it. At full weight its return is an awake
+   * one (a lane day, a full recurrence day), as an open's is
+   * (`partialSourceOf`); the once-a-lived-day rule and the boundary's cap of 3
+   * stay. Revert by setting it back to 0.5 (the half return comes back with it).
    */
-  W_ENGAGED: 0.5,
+  W_ENGAGED: 1.0,
   W_SURFACED: 0.25,
   W_FOOTNOTED: 0.0,
   /**
@@ -1658,7 +1665,10 @@ export const PARTIAL_RETURN_SOURCES: Readonly<Partial<Record<ReturnSource, UseTi
 
 /** The partial return source a tier earns, or null when its return is awake (or none). */
 export function partialSourceOf(tier: UseTier): ReturnSource | null {
-  return tier === "engaged" || tier === "shown" || tier === "ontopic" ? tier : null;
+  // `engaged` (drewOn) is partial only below a full awake return's weight:
+  // since 2026-10-19 (an experiment) it is a full use and returns as one.
+  if (tier === "engaged") return TUNABLES.W_ENGAGED < TUNABLES.AWAKE_RETURN_MIN_WEIGHT ? "engaged" : null;
+  return tier === "shown" || tier === "ontopic" ? tier : null;
 }
 
 export type ReturnReason =

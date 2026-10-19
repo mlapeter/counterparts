@@ -2464,7 +2464,8 @@ export class Counterpart {
    * THE `drewOn` FIELD (2026-10-11): the session SAYS which memories it was
    * shown that shaped what it did or said, on `session_end` or `chapter`, and
    * each is credited at the `engaged` tier — half a use, a half-weight
-   * `engaged` return, no core-lane day. The successor to #371's matcher, which
+   * `engaged` return, no core-lane day (since 2026-10-19, an experiment: a
+   * full use with an awake return — physics `W_ENGAGED`). The successor to #371's matcher, which
    * guessed at it from rare title words (hand-read precision 0.17–0.33, parked
    * 2026-10-10). Built by the drewOn builder, 2026-10-11, from Mike's 10-10
    * direction, lightly held.
@@ -2574,7 +2575,7 @@ export class Counterpart {
         // session drew on together was thought together, so the named
         // memories enter one pair set at the REFERENCED tier — a co-use, one
         // `HEBB_RATE` per pair, homeostasis bounding it at the flush. Strength
-        // stays the engaged tier's half use; only the link is a full deposit.
+        // is the engaged tier's (a full use since 2026-10-19, an experiment).
         // As in `creditReferences`, a memory refused only for its day cadence
         // (opened earlier today, born today) still joins the pair set. The set
         // holds at most DREW_ON_MAX_PER_BOUNDARY (reviewer of #423): a refusal

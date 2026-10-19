@@ -431,10 +431,20 @@ rows' `credited` / `notCredited` / `coUse` / `together` fields. Each entry names
   cross into the core (`core_events` since install), and how many of them sit at or near their peak strength
   (`counterparts mechanisms` below-reach count against 10-18's).
 - **Why:** a glimpse re-anchors a memory's curve, so a memory footnoted daily does not fade while it keeps
-  showing. Toward the core a glimpse-only day is 0.1 of a day, never alone, never the anchor.
+  showing (kept as built, Mike 2026-10-19). Toward the core a glimpse-only day is 0.1 of a day, never alone,
+  never the anchor; but daily glimpses plus two full days in 30 (two reflection citations, or one and a
+  rating of 2 or a drewOn) do cross the slow lane (hermetic, 2026-10-19), where before it took about four.
 - **Changes a decision if:** a never-used ruling reached the core → the recurrence fractions are too high;
-  or below reach drops sharply with the noise share flat → glimpses keep noise alive; try a glimpse that
-  credits `uses` without moving the clock, or `W_SHOWN` 0.
+  or below reach drops sharply with the noise share flat, or the footnotes look cluttered with the same
+  memories → glimpses keep noise alive; the fallback to try is a glimpse that credits `uses` without moving
+  the decay clock, or `W_SHOWN` 0.
+
+### A. drewOn as a full use
+- **Look at:** drewOn ids per day and their returns (`returns.source = 'awake'` on a drewOn day, not
+  `engaged`), and whether memories named in drewOn start crossing into the core.
+- **Why:** Mike, 2026-10-19: trying drewOn as a full use (it was half), so its return is an awake one.
+- **Changes a decision if:** drewOn lists grow to the cap of 3 at most boundaries, or name memories the turn
+  barely touched → it is being used as a vote; set `W_ENGAGED` back to 0.5.
 
 ### B. Links at pointer weight, and pointers used
 - **Look at:** the Feedback loop line's "links at or above the quiet-pointer weight (0.40)" and co-use pairs

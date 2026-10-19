@@ -370,6 +370,12 @@ day:** a higher tier the same lived day LIFTS an engaged credit (`creditUse`'s
 `upgradeFrom`: `uses` gains the difference, no second reinforced day, the engaged return
 replaced by the awake one), never the other way. `ENGAGED_RECURRENCE_WEIGHT` (0.5) is what
 an engaged return will count for toward Group 3's recurrence lane, which is not built.
+*Amended 2026-10-19 — an experiment, not a ruling (Mike; the feedback loop; check ~10-22;
+revert by setting `W_ENGAGED` back to 0.5):* trying `drewOn` as a FULL use. `W_ENGAGED` is
+1.0, and at a full awake return's weight (`AWAKE_RETURN_MIN_WEIGHT`) its return is an
+`awake` one, as an open's is (`partialSourceOf`) — a lane day and a full recurrence day.
+The once-a-lived-day rule and the boundary's cap of 3 stay. At 0.5 everything above holds
+again unchanged.
 
 *Amended 2026-10-19 — an experiment, not a ruling (the feedback loop; check on ~10-22;
 revert by reverting the PR).* Trying a session's ratings as use, to see whether the day

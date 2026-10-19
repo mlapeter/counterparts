@@ -22,16 +22,28 @@ section of `docs/CHECK-AFTER.md`.
     a month of daily footnotes adds 3 days, short of `CORE_SLOW_DAYS` (4). Measured on a
     hermetic store: a ruling footnoted in 90 sessions over 30 lived days, never rated, came
     out with recurrence 3, no full day, not anchored. With one reflection citation it came
-    out 3.9 days, slow lane not met.
+    out 3.9 days, slow lane not met. But with TWO full days in the 30-day window — two
+    reflection citations (allowed once every 7 lived days), or one citation and one rating
+    of 2, or a drewOn — it reaches 4.8 days over 30 sessions and the slow lane IS met
+    (reviewer's hermetic run, 2026-10-19). Before this build two citations gave 2 days from 2
+    sessions. So the glimpses lower the bar for a footnoted-daily ruling about me or us from
+    about four full days a month to two; the core check below is the place to see it.
   - A rating of 2 is a full awake return (lane day, fast lane). The awake floor is now
     `AWAKE_RETURN_MIN_WEIGHT` (0.75); it was the literal 1.0. The repeat credit (`surfaced`,
     0.25) still earns none.
-  - drewOn stays the engaged tier (half a use). The brief says "a full use (as today)", but
-    today it is half. A drewOn id the session also rates 3 is lifted to a full use the same
-    day.
+  - Trying drewOn as a full use (Mike, 2026-10-19): `W_ENGAGED` 1.0, and at that weight its
+    return is an awake one, as an open's is (a lane day, a full recurrence day). The
+    once-a-lived-day rule and the cap of 3 per boundary stay; drewOn ids were already
+    co-used for links. Revert by setting it back to 0.5 (the half return comes back with it).
   - Known cost: any credited use re-anchors the curve, so a memory glimpsed every day does
     not fade while it keeps showing (the hermetic ruling sat at strength 0.50 for 30 days).
-    This is the rich-get-richer worry, accepted for now.
+    This is the rich-get-richer worry, kept as built on Mike's call (2026-10-19). If the
+    10-22 check shows clutter, the fallback to try: credit a glimpse without moving the decay
+    clock (it adds to `uses`, not `lastUsedDay`), or set `W_SHOWN` to 0.
+  - Also seen in review: a daily glimpse resets the spacing a later real use is measured
+    from, so a memory footnoted every day and then opened earns a small return (0.13 after
+    a week of glimpses, against ~0.7 for one left alone). A glimpse buys freshness and
+    costs durability.
   - Revert: revert the PR. Part by part: set `W_SHOWN`, `W_ONTOPIC` and `W_USEFUL` to 0
     (`creditUse` then refuses them as `ignorable-tier`) and `AWAKE_RETURN_MIN_WEIGHT` back
     to 1.

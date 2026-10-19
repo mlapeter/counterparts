@@ -200,6 +200,35 @@ describe("A. the returns a graded use earns", () => {
     expect(c.store.returnsOf(a).map((r) => r.source)).toEqual(c.store.returnsOf(b).map((r) => r.source));
   });
 
+  test("after the night's reflection return, a glimpse in one session does not block a full use in another that day", () => {
+    const c = brain();
+    c.store.advanceClock(date(0));
+    const a = fact(c, "Reflected at night, glimpsed, then used.");
+    const b = fact(c, "Used only.");
+    c.store.advanceClock(date(3));
+    const day = c.store.livedDay();
+    expect(c.store.reflectReturn(a, day, { session: "night" }).counted).toBe(true);
+    c.store.reflectReturn(b, day, { session: "night" });
+    c.store.reinforce(a, day, "shown", { session: "s1" });
+    c.store.reinforce(a, day, "referenced", { session: "s2" });
+    c.store.reinforce(b, day, "referenced", { session: "s2" });
+    expect(c.store.row(a)?.uses).toBeCloseTo(c.store.row(b)?.uses ?? -1, 9);
+    expect(c.store.row(a)?.returns).toBeCloseTo(c.store.row(b)?.returns ?? -1, 9);
+  });
+
+  test("drewOn is a full use with an awake return, as an open is (the 2026-10-19 experiment)", () => {
+    const c = brain();
+    c.store.advanceClock(date(0));
+    const drawn = fact(c, "Drawn on by name.");
+    const opened = fact(c, "Opened by id.");
+    c.store.advanceClock(date(1));
+    shown(c, "s1", 1, [drawn]);
+    expect(c.creditDrewOn("s1", [drawn]).credited).toEqual([drawn]);
+    c.store.reinforce(opened, c.store.livedDay(), "referenced", { session: "s1" });
+    expect(c.store.row(drawn)?.uses).toBeCloseTo(c.store.row(opened)?.uses ?? -1, 9);
+    expect(c.store.returnsOf(drawn).map((r) => r.source)).toEqual(c.store.returnsOf(opened).map((r) => r.source));
+  });
+
   test("a memory only ever shown never anchors itself and never has a full recurrence day", () => {
     const c = brain();
     c.store.advanceClock(date(0));

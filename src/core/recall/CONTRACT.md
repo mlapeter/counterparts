@@ -122,7 +122,8 @@ reply actually used reconsolidates, where in humans every retrieval does.
   builder, 2026-10-11, from Mike's 10-10 direction, lightly held; the successor to #371's
   matcher, parked at hand-read precision 0.17–0.33.* `session_end` and `chapter` take
   optional `drewOn` ids, and each is credited at the `engaged` tier (half a use, half a
-  return, no core-lane day; physics §5.5) by `Counterpart#creditDrewOn`. No matcher guesses:
+  return, no core-lane day; physics §5.5 — since 2026-10-19, an experiment, a full use
+  with an awake return) by `Counterpart#creditDrewOn`. No matcher guesses:
   the 09-14 rule against crediting a name in prose stands. **The one guard: only an id this
   session was SHOWN counts** — its gate state's `surfaced` records (footnotes, loud, quiet
   pointers) and its `asked` records (a deliberate answer's results). Anything else is
