@@ -33,7 +33,7 @@ import { USE_TIER_WEIGHT, strength } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { isChapterSummary } from "../store/index.js";
-import { activate } from "./activate.js";
+import { activate, primeOf } from "./activate.js";
 import type { Candidate, SpreadFn, SpreadStats } from "./activate.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
 import { detectAffect, stripBoilerplate } from "./cues.js";
@@ -1143,7 +1143,9 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
         confidential: row.confidential === 1,
         standsFor: c.id,
         ...(direct !== undefined && direct.pastCut !== true && direct.cue - (direct.stamp ?? 0) + direct.semantic > 0
-          ? { directReach: direct.activation - (direct.stamp ?? 0), directSal: direct.sal }
+          ? // The words' reach only: a head start priming gave the direct
+            // candidate stays out of the background (review of #530).
+            { directReach: direct.activation - (direct.stamp ?? 0) - primeOf(direct), directSal: direct.sal }
           : {}),
       });
       brought.add(head);
