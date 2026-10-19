@@ -581,7 +581,7 @@ function rankedUnder(store: Store, model: string, dim: number): boolean {
  * question, so the lagged profile's caution about the previous subject does not
  * apply.
  *
- * GUARDED BY COUNT, BEFORE ANYTHING: the rank runs inside `activate()`, ahead of
+ * GUARDED BY COUNT, BEFORE THE RANK: the rank runs inside `activate()`, ahead of
  * `build()`'s first time check, so a clock could only notice an overrun after it
  * had already aborted the turn. Above `maxVectors` it answers `skipped`, and the
  * turn records `in-line-skipped` by name.
@@ -591,6 +591,10 @@ export function inLineSemantic(
   text: string,
   maxVectors: number,
 ): { vector: number[] } | { skipped: true; vectors: number } | null {
+  // The embed first (~0.5 ms on the local table), so a handle with no embedder
+  // keeps the lag's own word rather than claiming a skip it never faced.
+  const vector = store.textVector(stripBoilerplate(text).text.trim().slice(0, IN_LINE_TEXT_CHARS));
+  if (vector === null || vector.length === 0) return null;
   let vectors: number;
   try {
     vectors = store.embeddingCount();
@@ -598,9 +602,7 @@ export function inLineSemantic(
     return null;
   }
   if (vectors === 0) return null;
-  if (vectors > maxVectors) return { skipped: true, vectors };
-  const vector = store.textVector(stripBoilerplate(text).text.trim().slice(0, IN_LINE_TEXT_CHARS));
-  return vector === null || vector.length === 0 ? null : { vector };
+  return vectors > maxVectors ? { skipped: true, vectors } : { vector };
 }
 
 /** Head, not tail, as the worker clips (`vectors.ts#LAG_PROMPT_BYTES`, the same
