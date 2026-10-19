@@ -48,7 +48,9 @@ differently; reverting the PR undoes all three, and each has its own smaller rev
 What to look at on ~10-22 (for docs/CHECK-AFTER.md):
 
 - C: `echoSkipped` per day and per session on `recall.decision` rows, and the `adapter.recall`
-  row's `echoWindow` (`compaction` vs `session`, and `unread` when it stood down): how many showings a long session lost, and
+  row's `echoWindow` (`compaction` vs `session`, and `unread` when it stood down; one
+  `unread` per session is normal, since Claude Code writes the transcript only after the
+  first prompt): how many showings a long session lost, and
   whether compacted sessions get their early memories back. Footnote ratings over the same
   days: does the noise share (47%) drop? A session that complains it was not reminded of
   something it wrote earlier is the cost to look for.
