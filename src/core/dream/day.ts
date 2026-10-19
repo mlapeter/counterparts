@@ -13,7 +13,9 @@
  * Read, never written: `recall.credit` rows (the boundary's and the tools'
  * `drewOn`, `ids` aligned with `how`), `recall.rated` rows (`ratings[]`),
  * `returns` rows of every waking source (`store.livedReturnsSince`, a denylist,
- * so a source a later build adds for waking use is read as it lands), and
+ * so a source a later build adds for waking use is read as it lands — each
+ * mapped by its meaning, `returnMark`: a glimpse or a rating of 1 is shown, not
+ * used), and
  * `recall.decision` rows (`surfaced` / `footnotes`, each `{id, …}`). Since part
  * F the nightly run's own prompts write no decision rows, so "shown" is the
  * day's alone; a night child's boundary credits nothing (its cursor never
@@ -109,6 +111,24 @@ function idsOf(v: unknown): string[] {
 }
 
 /**
+ * WHAT A LIVED RETURN MEANS for the day's mark, by its source (2026-10-19, the
+ * feedback loop's two halves meeting; an experiment, check ~10-22). The
+ * ratings' partial returns are not uses: a glimpse (`shown`, a footnote left
+ * unrated) and a rating of 1 (`ontopic`) mark the memory SHOWN — null here.
+ * An `engaged` return is a `drewOn`: the reward. An `awake` return the same
+ * session's rating of 2 earned is that rating — `useful`; of 3, the reward;
+ * any other awake return (an open, a quote) is `used`, and so is a waking
+ * source a later build adds, until it is mapped here.
+ */
+export function returnMark(source: string, ratedScore?: unknown): DayMark | null {
+  if (source === "shown" || source === "ontopic") return null;
+  if (source === "engaged") return "reward";
+  if (source === "awake" && ratedScore === 3) return "reward";
+  if (source === "awake" && ratedScore === 2) return "useful";
+  return "used";
+}
+
+/**
  * Read the stretch since `sinceAt` (epoch ms), on lived days from `sinceDay`
  * (the index bound; rows are then held to `sinceAt` by their own clock). Never
  * throws: a read that fails is an empty day, and the dream composes as before.
@@ -140,6 +160,8 @@ export function readDay(store: Pick<Store, "eventLog" | "livedReturnsSince">, wi
     const how = Array.isArray(p["how"]) ? (p["how"] as unknown[]) : [];
     ids.forEach((id, i) => mark(id, how[i] === "drewOn" || p["source"] === "drewOn" ? "reward" : "used", p["session"]));
   }
+  /** `session|id` → the score that session gave it, so a return a rating earned is read as the rating. */
+  const ratedBy = new Map<string, unknown>();
   for (const e of rows(DAY_RATED_EVENT)) {
     const p = payloadOf(e);
     for (const r of Array.isArray(p["ratings"]) ? (p["ratings"] as unknown[]) : []) {
@@ -148,6 +170,7 @@ export function readDay(store: Pick<Store, "eventLog" | "livedReturnsSince">, wi
       const id = typeof o["id"] === "string" ? o["id"] : "";
       if (id.length === 0) continue;
       const score = o["score"];
+      if (typeof p["session"] === "string") ratedBy.set(`${p["session"]}|${id}`, score);
       if (score === 3 || o["drewOn"] === true) mark(id, "reward", p["session"]);
       else if (score === 2) mark(id, "useful", p["session"]);
       else if (score === 1) shown.add(id);
@@ -155,7 +178,11 @@ export function readDay(store: Pick<Store, "eventLog" | "livedReturnsSince">, wi
     }
   }
   try {
-    for (const r of store.livedReturnsSince({ sinceAt: window.sinceAt, sinceDay: window.sinceDay })) mark(r.memoryId, "used", r.session);
+    for (const r of store.livedReturnsSince({ sinceAt: window.sinceAt, sinceDay: window.sinceDay })) {
+      const m = returnMark(r.source, r.session === null ? undefined : ratedBy.get(`${r.session}|${r.memoryId}`));
+      if (m === null) shown.add(r.memoryId);
+      else mark(r.memoryId, m, r.session);
+    }
   } catch {
     /* no returns read: the other rows still mark the day */
   }
