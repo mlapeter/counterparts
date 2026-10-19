@@ -166,7 +166,19 @@ export interface AssociateTunables {
    *  counting only questions before the write and no chapters. It was 15
    *  minutes. CAL. */
   WRITE_LINK_ASKED_MS: number;
-  /** At most this many write-time links per new memory, the nearest in mind first. CAL. */
+  /**
+   * At most this many write-time links per new memory, the nearest in mind
+   * first; **0 is off**, and the boundary lays none (`linkAtWrite` returns
+   * null before reading anything). CAL.
+   *
+   * OFF, as an experiment (2026-10-19, agreed with Mike; check ~10-22). It was
+   * 4. Trying no write-time links to see whether co-use links (`CO_USE_DEPOSIT`)
+   * build the graph alone without the noise: at most 3 of 161 write-time pairs
+   * were ever reinforced, a hand-read of 20 found 5 right and 11 noise, and
+   * they spend the `MAX_EDGES_PER_NODE` budget (2026-10-18 association
+   * diagnosis). Contiguity links stay. Edges already laid stay and fade on
+   * their own. Revert by setting this back to 4.
+   */
   WRITE_LINK_MAX: number;
 
   // ── co-use from ratings (an experiment, 2026-10-19; check ~10-22) ────────
@@ -225,7 +237,7 @@ export const TUNABLES: AssociateTunables = {
   WRITE_LINK_WEIGHT: 0.05,
   WRITE_LINK_TURNS: 1,
   WRITE_LINK_ASKED_MS: 0,
-  WRITE_LINK_MAX: 4,
+  WRITE_LINK_MAX: 0, // an experiment, 2026-10-19: off (was 4); check ~10-22
 
   CO_USE_DEPOSIT: 0.25,
   CO_USE_MAX_MEMBERS: 8,

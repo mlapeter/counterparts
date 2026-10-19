@@ -154,7 +154,9 @@ export interface ContiguityPass {
  * to what was in mind when it was written — what a deliberate question showed
  * near the write, and what recall showed its session in the last few turns.
  * Proposed, so room-only: `noRoom` pairs were refused, never forced. Counts
- * only, on the boundary's `associate.flush` row as `atWrite`.
+ * only, on the boundary's `associate.flush` row as `atWrite`. Off by default
+ * since 2026-10-19, as an experiment (`WRITE_LINK_MAX` 0; check ~10-22): the
+ * row then carries no `atWrite`.
  */
 export interface AtWritePass {
   readonly reason: "linked" | "nothing-in-mind" | "failed";

@@ -551,7 +551,8 @@ already waiting as the older of a proposal, the core, the protected, or a pair t
 a pair.
 
 A hit is PROVISIONAL (review 10, D2): an unsettled pair with source `slot`, the trail's
-`propose` row naming which holds, and the older's fade × `SLOT_FADE` (0.8). Recall labels
+`propose` row naming which holds, and the older's fade × `SLOT_FADE` (0.8; 1, no cut, since
+2026-10-19, an experiment: the proposal flags only and the fade waits for a confirmation). Recall labels
 the older "may be out of date"; the write's result carries the slot and the ask; the dream
 sees it to confirm or undo (`slot {pair, same}`, at most four a night, beside the ranked
 items). Whatever answers a proposal LIFTS its cut first, so a confirmed `changed` lands at

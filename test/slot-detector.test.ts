@@ -7,6 +7,12 @@
  * step is exact: confirmed lands at `CHANGED_FADE` in all, undone puts the
  * provisional cut back, withdrawn puts it all back.
  *
+ * Since 2026-10-19 (an experiment; check ~10-22) a proposal makes no cut
+ * (`SLOT_FADE` 1): it flags the older only, and the fade comes with a
+ * confirmation. "flag only" below proves that; the describes before it run at
+ * the old cut (`LEGACY_SLOT_FADE`), which the live store's earlier proposals
+ * still carry and a revert restores.
+ *
  * Most cases run on a small fake embedder (topic buckets) so they run
  * everywhere; the bench's own case runs on the real table where it is
  * installed. Hermetic: a fresh temp data dir per test, removed after it.
@@ -37,6 +43,7 @@ import {
   withdrawSlot,
 } from "../src/core/reconsolidation.js";
 import type { Embedder, Store } from "../src/core/store/index.js";
+import { LEGACY_SLOT_FADE, setSlotFade, useSlotFade } from "./slot-fade-fixture.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 const SESSION = "sess_slot";
@@ -107,6 +114,9 @@ function fade(store: Store, id: string): number {
 }
 
 describe("the detector at the write", () => {
+  // The provisional cut, at the cut a revert restores (flag only since 2026-10-19; see below).
+  useSlotFade(LEGACY_SLOT_FADE);
+
   test("the newer state of the same thing is proposed: an unsettled slot pair, the older faded provisionally and labelled, the writer told", async () => {
     const s = server();
     const store = s.counterpart.store;
@@ -205,6 +215,9 @@ describe("the detector at the write", () => {
 });
 
 describe("the arithmetic of a proposal, exact through every step", () => {
+  // The provisional cut, at the cut a revert restores (flag only since 2026-10-19; see below).
+  useSlotFade(LEGACY_SLOT_FADE);
+
   async function proposed(): Promise<{ s: McpServer; store: Store; older: string; newer: string; pair: string }> {
     const s = server();
     const store = s.counterpart.store;
@@ -272,6 +285,9 @@ describe("the arithmetic of a proposal, exact through every step", () => {
 });
 
 describe("the dream confirms or undoes, on a budget", () => {
+  // The provisional cut, at the cut a revert restores (flag only since 2026-10-19; see below).
+  useSlotFade(LEGACY_SLOT_FADE);
+
   function lived(c: Counterpart): { day: number } {
     c.store.advanceClock("2026-09-10");
     for (let d = 11; d <= 14; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);
@@ -341,6 +357,121 @@ describe("the dream confirms or undoes, on a budget", () => {
     expect(fade(c.store, a1)).toBe(T.SLOT_FADE);
     expect(c.store.contradiction(p2.pair)?.state).toBe("unsettled");
     expect(fade(c.store, a2)).toBe(T.SLOT_FADE);
+  });
+});
+
+describe("flag only (SLOT_FADE 1, an experiment since 2026-10-19): no cut until the dream confirms", () => {
+  useSlotFade(1);
+
+  function lived(c: Counterpart): void {
+    c.store.advanceClock("2026-09-10");
+    for (let d = 11; d <= 14; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);
+  }
+  function mk(c: Counterpart, body: string): string {
+    const day = c.store.livedDay();
+    return c.store.put({ type: "memory", kind: "fact", body, source: "authored", salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 }, physics: { birthDay: day, lastUsedDay: day } });
+  }
+  function brain(): Counterpart {
+    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, embed: fakeEmbed });
+    open.push(c);
+    lived(c);
+    return c;
+  }
+
+  test("at the write: the pair is proposed and the older labelled, but neither fades; the writer is not told it faded", async () => {
+    const s = server();
+    const store = s.counterpart.store;
+    aged(store);
+    const older = String((await remember(s, "Release 0.3.15 published on npm this morning."))["id"]);
+    const r = await remember(s, "Release 0.3.16 published on npm, the self page ladder rides it.");
+    const newer = String(r["id"]);
+    expect(r["slot"]).toMatchObject({ over: older });
+    expect(String(r["slotHint"])).not.toContain("faded");
+    expect(store.contradictionBetween(older, newer)).toMatchObject({ state: "unsettled", source: SLOT_SOURCE });
+    expect(fade(store, older)).toBe(1);
+    expect(fade(store, newer)).toBe(1);
+    expect(standingOf(store, older)?.prefix).toContain("may be out of date");
+    const ev = store.eventLog({ name: CONTRADICTION_PROPOSED_EVENT });
+    expect(ev).toHaveLength(1);
+    expect(JSON.parse(ev[0]?.payload ?? "{}")).toMatchObject({ faded: false, bandDrop: false });
+  });
+
+  test("proposeSlot reports no cut; the dream's same: true is the only fade, same: false has nothing to put back, and the dream's undo leaves both unfaded", () => {
+    const c = brain();
+    const a1 = mk(c, "Follower count 1250 on instagram.");
+    const b1 = mk(c, "Follower count close to 1300 on instagram.");
+    const a2 = mk(c, "Lantern sketch round one.");
+    const b2 = mk(c, "Lantern sketch round two.");
+    const p1 = proposeSlot(c.store, { holds: b1, candidate: { over: a1, cosine: 0.9, rule: "cosine", sameSession: false } });
+    const p2 = proposeSlot(c.store, { holds: b2, candidate: { over: a2, cosine: 0.9, rule: "cosine", sameSession: false } });
+    if (!p1.ok || !p2.ok) throw new Error("not proposed");
+    expect(p1.faded).toBeNull();
+    expect(fade(c.store, a1)).toBe(1);
+    const begun = c.dreams.begin({ session: SESSION, scope: "/proj" });
+    if (!begun.ok) throw new Error(begun.reason);
+    const id = begun.bundle.dream;
+    expect(begun.bundle.onMind.filter((i) => i.kind === "to-confirm").map((i) => i.pair)).toEqual([p1.pair, p2.pair]);
+    const r = c.dreams.propose({
+      dream: id,
+      session: SESSION,
+      changes: [
+        { action: "slot", pair: p1.pair, same: true, why: "the newer count" },
+        { action: "slot", pair: p2.pair, same: false, why: "two rounds, both kept" },
+      ],
+    });
+    if (!r.ok) throw new Error("propose refused");
+    expect(r.results.map((x) => x.reason)).toEqual(["confirmed", "two-things"]);
+    expect(fade(c.store, a1)).toBe(PHYSICS.CHANGED_FADE);
+    expect(c.store.contradiction(p2.pair)?.state).toBe("withdrawn");
+    expect(fade(c.store, a2)).toBe(1);
+    c.dreams.journal({ dream: id, session: SESSION, text: "A dream." });
+    c.dreams.undo(id);
+    expect(c.store.contradiction(p1.pair)?.state).toBe("unsettled");
+    expect(c.store.contradiction(p2.pair)?.state).toBe("unsettled");
+    expect(fade(c.store, a1)).toBe(1);
+    expect(fade(c.store, a2)).toBe(1);
+  });
+
+  test("the writer's own settle confirms it at the full fade; a withdrawal restores nothing", () => {
+    const c = brain();
+    const a = mk(c, "Follower count 1250 on instagram.");
+    const b = mk(c, "Follower count close to 1300 on instagram.");
+    const p = proposeSlot(c.store, { holds: b, candidate: { over: a, cosine: 0.9, rule: "cosine", sameSession: false } });
+    if (!p.ok) throw new Error(p.detail);
+    expect(settle(c.store, { pair: p.pair, holds: b, how: "changed", actor: "session", why: "the newer count" }).ok).toBe(true);
+    expect(fade(c.store, a)).toBe(PHYSICS.CHANGED_FADE);
+    const x = mk(c, "Lantern sketch round one.");
+    const y = mk(c, "Lantern sketch round two.");
+    const q = proposeSlot(c.store, { holds: y, candidate: { over: x, cosine: 0.9, rule: "cosine", sameSession: false } });
+    if (!q.ok) throw new Error(q.detail);
+    const w = withdrawSlot(c.store, { pair: q.pair, actor: "owner", why: "two rounds" });
+    expect(w).toMatchObject({ ok: true, restored: null });
+    expect(fade(c.store, x)).toBe(1);
+  });
+
+  test("a proposal made before, with its cut on the trail: withdrawn, the cut is put back; confirmed, it lands at the full fade, not cut twice", () => {
+    const c = brain();
+    const a = mk(c, "Follower count 1250 on instagram.");
+    const b = mk(c, "Follower count close to 1300 on instagram.");
+    const x = mk(c, "Lantern sketch round one.");
+    const y = mk(c, "Lantern sketch round two.");
+    const prior = setSlotFade(LEGACY_SLOT_FADE);
+    let p: ReturnType<typeof proposeSlot>;
+    let q: ReturnType<typeof proposeSlot>;
+    try {
+      p = proposeSlot(c.store, { holds: b, candidate: { over: a, cosine: 0.9, rule: "cosine", sameSession: false } });
+      q = proposeSlot(c.store, { holds: y, candidate: { over: x, cosine: 0.9, rule: "cosine", sameSession: false } });
+    } finally {
+      setSlotFade(prior);
+    }
+    if (!p.ok || !q.ok) throw new Error("not proposed");
+    expect(fade(c.store, a)).toBeLessThan(1);
+    expect(fade(c.store, x)).toBeLessThan(1);
+    // Now flag only: the old cuts are still lifted or put back exactly.
+    expect(settle(c.store, { pair: p.pair, holds: b, how: "changed", actor: "dream", why: "the newer count" }).ok).toBe(true);
+    expect(fade(c.store, a)).toBe(PHYSICS.CHANGED_FADE);
+    expect(withdrawSlot(c.store, { pair: q.pair, actor: "dream", why: "two rounds" })).toMatchObject({ ok: true, restored: x });
+    expect(fade(c.store, x)).toBe(1);
   });
 });
 

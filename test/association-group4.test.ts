@@ -49,6 +49,8 @@ afterEach(() => {
 });
 
 const T = ASSOCIATE_TUNABLES;
+/** `WRITE_LINK_MAX` before the 2026-10-19 experiment turned it off: the revert value. */
+const WRITE_LINK_MAX_WHEN_ON = 4;
 
 function brainAt(clock: { now: number }, opts: { observer?: boolean } = {}): Counterpart {
   const c = Counterpart.open({ dir, owner: true, now: () => clock.now, ...(opts.observer === true ? { observer: true } : {}) });
@@ -95,6 +97,50 @@ const DAY = 24 * 60 * 60_000;
 // 2. Write-time links: a new memory, faintly linked to what was in mind
 // ═══════════════════════════════════════════════════════════════════════════
 describe("2. write-time links to what was in mind (bench item 5)", () => {
+  // Off by default since 2026-10-19 (an experiment; check ~10-22): these tests
+  // turn them back on, as they were, so the mechanism stays proven for a revert.
+  const ON = { ...T, WRITE_LINK_MAX: WRITE_LINK_MAX_WHEN_ON };
+  function brainOn(clock: { now: number }, opts: { observer?: boolean } = {}): Counterpart {
+    const c = brainAt(clock, opts);
+    tune(c, { WRITE_LINK_MAX: WRITE_LINK_MAX_WHEN_ON });
+    return c;
+  }
+
+  test("off (WRITE_LINK_MAX 0, the 2026-10-19 experiment): a memory written in the moment gets no write-time link, contiguity still lands, existing edges stay", async () => {
+    const clock = { now: Date.UTC(2026, 4, 20, 9) };
+    const c = brainAt(clock);
+    tune(c, { WRITE_LINK_MAX: 0 });
+    c.store.advanceClock("2026-05-20");
+    const left = memoryIn(c, "conv-0520", "I left home at 7 AM on Monday to get to the clinic appointment.");
+    const laid = memoryIn(c, "conv-0520", "An older write-time link's other end.");
+    await c.sessionEnd({ date: "2026-05-20", budgetBytes: 9000, session: "conv-0520" });
+    // An edge laid before the switch, at the write-time weight: kept.
+    const before = c.store.livedDay();
+    c.store.linkMany([
+      { src: left, dst: laid, weight: T.WRITE_LINK_WEIGHT, day: before },
+      { src: laid, dst: left, weight: T.WRITE_LINK_WEIGHT, day: before },
+    ]);
+    clock.now += DAY;
+    c.store.advanceClock("2026-05-21");
+    const out = c.recallForTurn({ sessionId: "conv-0521", text: "how long does the trip to the clinic take" });
+    expect([...out.decision.surfaced, ...out.decision.footnotes]).toContain(left);
+    clock.now += 60_000;
+    const took = await jotIn(c, "conv-0521", "It took two hours to get to the clinic last time.");
+    clock.now += 60_000;
+    const next = await jotIn(c, "conv-0521", "Next time I will take the earlier bus to the clinic.");
+    const report = await c.sessionEnd({ date: "2026-05-21", budgetBytes: 9000, session: "conv-0521" });
+    expect(report.contiguity.atWrite).toBeUndefined();
+    expect(c.associate.linked(took, left)).toBe(false);
+    expect(c.associate.linked(next, left)).toBe(false);
+    // Contiguity is unchanged: the two jots, written next to each other, are linked.
+    expect(c.associate.linked(took, next)).toBe(true);
+    const rows = c.store.eventLog({ name: "associate.flush" });
+    const last = JSON.parse(rows[rows.length - 1]?.payload ?? "{}") as { atWrite?: unknown };
+    expect(last.atWrite).toBeUndefined();
+    // The edge laid before is still there, fading on its own.
+    expect(c.store.edgesFrom(left).some((e) => e.dst === laid)).toBe(true);
+  });
+
   test("the planner: nearest in mind first, at most WRITE_LINK_MAX, never to itself or a memory of the same pass", () => {
     const inMind = ["x1", "new2", "x2", "x1", "new1", "x3", "x4", "x5", "x6"];
     const plan = planAtWrite(
@@ -102,18 +148,20 @@ describe("2. write-time links to what was in mind (bench item 5)", () => {
         { id: "new1", inMind },
         { id: "new2", inMind: ["x1"] },
       ],
-      T,
+      ON,
     );
     const first = plan.pairs.filter((p) => p.a === "new1").map((p) => p.b);
-    expect(first).toEqual(["x1", "x2", "x3", "x4"].slice(0, T.WRITE_LINK_MAX));
+    expect(first).toEqual(["x1", "x2", "x3", "x4"].slice(0, ON.WRITE_LINK_MAX));
     expect(plan.pairs.filter((p) => p.a === "new2").map((p) => p.b)).toEqual(["x1"]);
     expect(plan.memories).toBe(2);
-    expect(planAtWrite([{ id: "solo", inMind: ["solo"] }], T).pairs).toEqual([]);
+    expect(planAtWrite([{ id: "solo", inMind: ["solo"] }], ON).pairs).toEqual([]);
+    // Off (`WRITE_LINK_MAX` 0) plans nothing.
+    expect(planAtWrite([{ id: "new1", inMind }], { ...T, WRITE_LINK_MAX: 0 }).pairs).toEqual([]);
   });
 
   test("the clinic pair (bench 73d42213): a memory written in the moment, after recall showed an older one, is linked to it, faintly", async () => {
     const clock = { now: Date.UTC(2026, 4, 20, 9) };
-    const c = brainAt(clock);
+    const c = brainOn(clock);
     c.store.advanceClock("2026-05-20");
     for (const body of [
       "The bakery on the corner sells out of rye bread by noon on Saturdays.",
@@ -144,7 +192,7 @@ describe("2. write-time links to what was in mind (bench item 5)", () => {
 
   test("the same memory written in the session's write-up is linked to nothing: what the last turns showed was not in mind when it happened", async () => {
     const clock = { now: Date.UTC(2026, 4, 20, 9) };
-    const c = brainAt(clock);
+    const c = brainOn(clock);
     c.store.advanceClock("2026-05-20");
     const left = memoryIn(c, "conv-0520", "I left home at 7 AM on Monday to get to the clinic appointment.");
     await c.sessionEnd({ date: "2026-05-20", budgetBytes: 9000, session: "conv-0520" });
@@ -165,7 +213,7 @@ describe("2. write-time links to what was in mind (bench item 5)", () => {
   test("only the write's own turn is in mind (WRITE_LINK_TURNS); an ambiguous handle and another session's showings are not", async () => {
     expect(T.WRITE_LINK_TURNS).toBe(1);
     const clock = { now: Date.UTC(2026, 8, 1, 9) };
-    const c = brainAt(clock);
+    const c = brainOn(clock);
     c.store.advanceClock("2026-09-01");
     const old = memoryIn(c, "s0", "Shown on the turn before.");
     const recent = memoryIn(c, "s0", "Shown on the write's own turn.");
@@ -189,7 +237,7 @@ describe("2. write-time links to what was in mind (bench item 5)", () => {
     expect(T.WRITE_LINK_ASKED_MS).toBe(0);
     for (const on of [false, true]) {
       const clock = { now: Date.UTC(2026, 8, 1, 9) };
-      const c = brainAt(clock);
+      const c = brainOn(clock);
       if (on) tune(c, { WRITE_LINK_ASKED_MS: 15 * 60_000 });
       c.store.advanceClock("2026-09-01");
       const asked = memoryIn(c, `s0-${String(on)}`, "The answer to a deliberate question.");
@@ -217,7 +265,7 @@ describe("2. write-time links to what was in mind (bench item 5)", () => {
 
   test("room-only: a full node refuses the faint link and loses nothing it learned", async () => {
     const clock = { now: Date.UTC(2026, 8, 1, 9) };
-    const c = brainAt(clock, {});
+    const c = brainOn(clock, {});
     c.store.advanceClock("2026-09-01");
     const hub = memoryIn(c, "s0", "A memory whose links are full.");
     const others = Array.from({ length: T.MAX_EDGES_PER_NODE }, (_, i) => memoryIn(c, "sx", `Neighbour number ${String(i)} of the hub.`));
@@ -237,7 +285,7 @@ describe("2. write-time links to what was in mind (bench item 5)", () => {
 
   test("an observer lays nothing at write time", async () => {
     const clock = { now: Date.UTC(2026, 8, 1, 9) };
-    const owner = brainAt(clock);
+    const owner = brainOn(clock);
     owner.store.advanceClock("2026-09-01");
     const before = memoryIn(owner, "s0", "Shown before the write.");
     await owner.sessionEnd({ date: "2026-09-01", budgetBytes: 9000 });
@@ -245,7 +293,7 @@ describe("2. write-time links to what was in mind (bench item 5)", () => {
     await jotIn(owner, "s1", "Noted while it was in mind.");
     owner.close();
     brains.splice(0);
-    const watcher = brainAt(clock, { observer: true });
+    const watcher = brainOn(clock, { observer: true });
     const report = await watcher.sessionEnd({ date: "2026-09-01", budgetBytes: 9000 });
     expect(report.contiguity.reason).toBe("observer");
     expect(watcher.store.edgesFrom(before)).toEqual([]);

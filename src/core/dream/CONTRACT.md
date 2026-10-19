@@ -304,7 +304,13 @@ dreamer is the model (a background agent the session launches), outside this pro
   memories as one thing's earlier and later state — `same: true` confirms it as a settle
   `changed`, `same: false` withdraws it with its provisional cut put back; at most
   `SLOT_PER_NIGHT`, 4, shown a night, the least shown then the oldest first, beside the ranked items; undone with
-  the dream as a settle, or as the proposal it was),
+  the dream as a settle, or as the proposal it was. *Amended 2026-10-19 — an experiment, not
+  a ruling (agreed with Mike; check on ~10-22; revert by setting `SLOT_FADE` back to 0.8): a
+  proposal makes no provisional cut (`SLOT_FADE` 1), so it only flags the older for the
+  dream; `same: true` is then the only fade, and `same: false` has nothing to put back
+  unless the proposal was made before, with its cut on the trail. Trying it because the
+  detector was right on 4 of 7 by hand-read and the dream said "not the same" on 3 of the
+  4 it judged.*),
   `feeling-now` (the self's feeling today, capped at the memory's peak; the same
   feeling twice in one dream is one record), `nominate-core`
   (the dream's SUGGESTION of what a memory is about — any memory not already core,

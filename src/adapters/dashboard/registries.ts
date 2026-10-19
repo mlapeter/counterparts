@@ -384,7 +384,7 @@ export const DURABLE_EVENTS = {
   // The update guard (2026-10-09). Ids, the reading and its numbers; no text.
   "contradiction.held": "a new memory said it changed or corrected one that looked unrelated to it, so the old one was left as it was and the two were not linked (the writer was shown it and asked to settle it if it meant to)",
   // The slot detector (2026-10-11, Group 2). Ids, the rule and the cosine; no text.
-  "contradiction.proposed": "a new memory read as the newer state of the same thing as an older one (status moved on, or very close in meaning), so the older was marked possibly out of date and faded a little, until the writer or the dream confirms it or says they are two things",
+  "contradiction.proposed": "a new memory read as the newer state of the same thing as an older one (status moved on, or very close in meaning), so the older was marked possibly out of date (faded a little before 2026-10-19; a flag only since, as an experiment), until the writer or the dream confirms it or says they are two things",
   // What is not written up (2026-09-30). Ids and counts only; one row per stretch per state.
   "coverage.owed": "a session left a stretch that is not written up — three pieces or more over a quarter of an hour — and is no longer at work, so it owes a write-up (how many pieces, over how long)",
   "coverage.written": "a stretch of a session was written up (how many pieces, and by whom: the session itself, a \"nothing new\", a chapter, or the next session)",

@@ -146,6 +146,13 @@ for `recall/`; telemetry by reference.
     own turn; a write-up's, a catch-up's or a chapter copy's memories get none (review of
     #423) — through `Associate.propose`: room-only, never evicting. It is the new memory's
     encoding context; the shown memory's strength does not change (G1).*
+    *Amended 2026-10-19 — an experiment, not a ruling (agreed with Mike; check on ~10-22;
+    revert by setting `WRITE_LINK_MAX` back to 4): write-time links are OFF
+    (`WRITE_LINK_MAX` 0), so the pass lays none and the flush row carries no `atWrite`.
+    Trying it to see whether co-use links from ratings build the graph without the noise
+    (at most 3 of 161 write-time pairs were ever reinforced; the 2026-10-18 association
+    diagnosis). Contiguity is unchanged, and edges already laid are kept and fade like any
+    other.*
 
 ## 6. Scars honored
 
