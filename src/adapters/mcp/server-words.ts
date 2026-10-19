@@ -46,6 +46,9 @@ export const STALE_SERVER_REFUSAL = staleServerRefusal(DEFAULT_HOST);
  * the same cache. What is true: a newer build wrote the cache, and it is
  * rebuildable, so either that build comes back or the cache goes. The
  * reconnect after deleting it is real: this process holds the old file open.
+ * The rebuild is real too (review of #529, measured): a deleted cache gets its
+ * vectors back on the next open, but its WORD index stays empty until
+ * `verify --rebuild` re-reads the prose.
  * `cacheFile` is the cache's path; the `*` takes its `-wal` and `-shm` too.
  *
  * BOTH WAYS IT HAPPENS (review of #382): an update whose new build moved the
@@ -56,7 +59,7 @@ export const STALE_SERVER_REFUSAL = staleServerRefusal(DEFAULT_HOST);
 export function cacheAheadRefusal(cacheFile: string, host: string = DEFAULT_HOST): string {
   const w = wordingFor(host);
   const lower = (s: string): string => `${s.charAt(0).toLowerCase()}${s.slice(1)}`;
-  return `The search cache was written by a newer Counterparts build than this server runs, so this tool did nothing. If that newer build is installed, ${lower(w.reconnect)} If you went back to an older build, delete ${cacheFile}* (the search cache alone; no memory is kept there, and it is rebuilt), then ${lower(w.reconnectFirst)}.`;
+  return `The search cache was written by a newer Counterparts build than this server runs, so this tool did nothing. If that newer build is installed, ${lower(w.reconnect)} If you went back to an older build, delete ${cacheFile}* (the search cache alone; no memory is kept there) and run \`counterparts verify --rebuild --keep-vectors\` to rebuild its word index, then ${lower(w.reconnectFirst)}.`;
 }
 
 /** The gate's refusal when the stamps could not be read at all — the same

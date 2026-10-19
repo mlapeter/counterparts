@@ -500,5 +500,9 @@ by the paths in the fragment.
   matching → revert. A stem merging two different words in his real use (known: even/evening, morning/morn,
   sim/sims) → add an exception.
 - **Revert:** the discount alone: set `EVERYDAY_NORM_HIGH <= EVERYDAY_NORM_LOW` (recall tunables). Stemming is
-  not free to undo: unstemmed lookups miss stemmed rows, so it needs another cache bump whose worker step
-  re-indexes from prose.
+  not free to undo: unstemmed lookups miss stemmed rows, so it needs a build that indexes surface words again
+  and keeps asking for both forms, or another cache bump whose worker step re-indexes from prose.
+  **Not by installing 0.3.26 over the v7 cache:** its memory server refuses every tool and its hooks miss
+  stemmed rows. If that happens: delete `~/.counterparts/store/cache/cache.sqlite*`, then run
+  `counterparts verify --rebuild --keep-vectors` on that build (deleting alone leaves word recall empty).
+  `counterparts rollback` does not cover a cache-only change.

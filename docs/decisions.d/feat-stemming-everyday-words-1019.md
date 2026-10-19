@@ -17,11 +17,15 @@ ambient recall and to facts mode.
   the obvious memory.** Porter's step 1 and 5a plus "-ie" → "-i", written in-repo
   (`store/stem.ts`), never inside `tokenize()`. Known merges, accepted because both sides
   agree: even/evening, morning/morn, sim/sims, horse → "hor", use/uses but not used/using
-  ("news" stays "news": Porter2's exceptions are kept).
+  ("news" stays "news": Porter2's exceptions are kept). Names merge the same way (review of
+  #529): mostly spellings of one name (mary/marie, katie/katy, lucy/lucie, jimmy/jimmie),
+  but also frances/france, reading/read, angeles/angel, united/unit, bing/binge.
   Tokens with a digit or under four letters are never touched.
 - **Cache v7, not a store bump; the re-stem runs in the worker, not at open.** Until it
-  finishes (`cache_meta.terms`), lookups ask for both the surface form and the stem, so a
-  mixed index loses no word recall. Measured on the bench copies: 79–126 ms for 300–366
+  finishes (`cache_meta.terms`), and after, lookups ask for both the surface form and the
+  stem, so a mixed index loses no word recall (review of #529: kept after the marker too,
+  because an older build still writes surface rows into this cache; on a stemmed index the
+  surface form changes no result). Measured on the bench copies: 79–126 ms for 300–366
   memories, so about 0.7 s at the live store's 2,207; one run's budget is 5 s and it
   resumes. To see it landed on a store: `cache_meta` key `terms` = `light-1` in box 3,
   `<data dir>/cache/cache.sqlite` (Mike's to open read-only, never a session's:
@@ -29,9 +33,21 @@ ambient recall and to facts mode.
   A harness that rebuilds a copied store gets the same result from
   `store.rebuildCache({ keepVectors: true })` (it resets box 3, which marks it stemmed, and
   re-indexes every row stemmed) or, cheaper, `store.restemIndex({ budgetMs: Infinity })`.
-- **A revert is not free.** Code that looks words up unstemmed misses every stemmed row, so
-  undoing stemming means another cache bump whose worker step re-indexes from prose. The
-  discount alone is undone by the two tunables.
+- **A revert is not free.** Code that looks words up unstemmed misses every stemmed row, and
+  `doc_tokens` keeps no surface forms (the re-stem replaces them), so undoing stemming in
+  code means either a build that indexes surface words again and keeps asking for both
+  forms (no bump; stemmed rows stay findable by their stems until rewritten), or another
+  cache bump whose worker step re-indexes each memory from its prose in batches (about an
+  `indexDoc` per memory). The discount alone is undone by the two tunables.
+- **Going back by installing an older build** (0.3.26 or before) is NOT a revert and is not
+  silent-safe: that build reads the v7 cache as ahead, so its memory server refuses every
+  tool, and its hooks look words up unstemmed and miss every stemmed row (measured on a
+  bench copy, review of #529: 2,111 of 4,557 words lost some matches, while its `verify`
+  said the cache covered every live row). The way back on that build: delete
+  `<store>/cache/cache.sqlite*`, then `counterparts verify --rebuild --keep-vectors`.
+  Deleting alone leaves the word index EMPTY (vectors come back on their own, words do
+  not). `counterparts rollback` does not cover it: it restores a store migration, and this
+  change has none.
 - **Flags, not fixed:** an observer opens no embedder, so its cues are undiscounted (a live
   vs. observer divergence). The discount couples word cues to one table; another table gets
   none until someone measures it (`embed-client.ts#WORD_NORM_CALIBRATED`). Every
