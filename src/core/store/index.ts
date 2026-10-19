@@ -4628,6 +4628,13 @@ export class Store {
     return memoryReads.memoriesOfSession(this, session);
   }
 
+  /** The ids ONE session wrote, born at or after `sinceAt` — ambient recall's
+   *  echo set (2026-10-19, `reads-memories.ts#sessionMemoryIds`). `fromDay`
+   *  bounds the read on the birth index. */
+  sessionMemoryIds(session: string, opts?: { sinceAt?: number; fromDay?: number }): string[] {
+    return memoryReads.sessionMemoryIds(this, session, opts);
+  }
+
   prospectiveFor(id: string): ProspectiveRow[] {
     return this.ops.all<ProspectiveRow>(
       "SELECT * FROM prospective WHERE memory_id = ? ORDER BY window_key",

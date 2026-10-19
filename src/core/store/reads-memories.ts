@@ -263,6 +263,30 @@ export function memoriesOfSession(store: Store, session: string): { id: string; 
     .map((r) => ({ id: r.id, session: r.origin_session, at: r.created_at, bornDay: r.birth_day }));
 }
 
+/**
+ * THE IDS ONE SESSION WROTE, for ambient recall's echo skip (2026-10-19,
+ * feedback-loop part C): live memories with this `origin_session`, born at or
+ * after `sinceAt` (epoch ms) when given — settled-over or not, since either
+ * is in the conversation that wrote it. `fromDay` bounds the read on the
+ * birth index (`memories_birth`) — a caller that knows the window's lived
+ * days passes it, and the prompt never scans the table. The nightly run's
+ * rows are left out (they carry the launching session's id; the session did
+ * not write them). Ids only.
+ */
+export function sessionMemoryIds(store: Store, session: string, opts: { sinceAt?: number; fromDay?: number } = {}): string[] {
+  return store["ops"]
+    .all<{ id: string }>(
+      `SELECT id FROM memories
+          WHERE archived = 0 AND birth_day >= ? AND type = 'memory' AND origin_session = ?
+            AND created_at IS NOT NULL AND created_at >= ?
+            AND NOT ${NIGHTLY_SQL}`,
+      opts.fromDay ?? -2_147_483_648,
+      session,
+      opts.sinceAt ?? 0,
+    )
+    .map((r) => r.id);
+}
+
 export function readVersion(store: Store, id: string, seq: number): ProseDoc {
   // The version row survives a removal as a lineage pointer with its content
   // pointers blanked; reading it is refused by name, never by ENOENT.

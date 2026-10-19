@@ -153,6 +153,15 @@ export interface Turn {
    * ambient affect gates (§9 G10/G11) are untouched.
    */
   feeling?: FeelingAskInput;
+  /**
+   * THE ECHO SET (2026-10-19, feedback-loop part C, lightly held): memories
+   * this session wrote (since its last compaction, when the host knows one),
+   * which are already in its context. Ambient only — set by
+   * `Counterpart#recallForTurn` and by nothing on the deliberate path — and
+   * the gate turns each away as `echo-skipped` where it would have been shown
+   * (`gate.ts`). Absent or empty: nothing is skipped.
+   */
+  echo?: ReadonlySet<string>;
 }
 
 export type DecisionReason =
@@ -222,6 +231,13 @@ export interface RecallDecision {
    * is 0, which is every turn while the mood weights stay 0.
    */
   readonly moodMatchedIds: string[];
+  /**
+   * How many memories this turn would have shown (loud, footnote or quiet
+   * pointer) but did not because this session wrote them — the echo skip
+   * (2026-10-19, part C; `Turn.echo`). A count, so a review can see what a
+   * long session lost. 0 when no echo set was given.
+   */
+  readonly echoSkipped: number;
   /**
    * What spreading did this turn (association build 1, 2026-09-28): seeds,
    * nodes expanded, where and why it stopped, contributions computed and how
@@ -390,6 +406,7 @@ export class Recall {
         affectReason: "no-feeling-in-turn",
         moodMatched: 0,
         moodMatchedIds: [],
+        echoSkipped: 0,
         spread: null,
         dropped: 0,
         bytes: 0,
@@ -476,6 +493,7 @@ export class Recall {
         owner,
         affectStated: affect.stated,
         turn: turnNo,
+        ...(turn.echo === undefined || turn.echo.size === 0 ? {} : { echo: turn.echo }),
       },
       this.tunables,
     );
@@ -562,6 +580,7 @@ export class Recall {
       affectReason: gated.affectReason,
       moodMatched: moodLifted.length,
       moodMatchedIds: moodLifted.slice(0, MOOD_MATCHED_IDS_CAP),
+      echoSkipped: gated.verdicts.filter((v) => v.verdict === "echo-skipped").length,
       // What the gate SHOWED of the pointers activation handed it, after the
       // render's trim: the pointer lane's last number (2026-09-28).
       spread:

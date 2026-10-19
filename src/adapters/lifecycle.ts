@@ -150,6 +150,13 @@ export interface SessionInput {
   readonly prompt?: string;
   /** The model that wrote the transcript's last assistant entry, when known. */
   readonly model?: string;
+  /**
+   * When the host last COMPACTED this conversation, epoch ms, when it says so
+   * (Claude Code: the transcript's newest `compact_boundary` line). Ambient
+   * recall's echo skip then counts only memories born since (2026-10-19,
+   * feedback-loop part C); absent, the whole session's.
+   */
+  readonly compactedAt?: number;
   /** Today's calendar date, for the temporal channel and the horizon lane. */
   readonly at?: string;
   /**
@@ -1134,6 +1141,11 @@ export class Lifecycle implements HostLifecycle {
         // handed to it, so none of the person's fires is spent at 00:19.
         // And a turn the host says no person started (review of #453).
         ...(input.nightRun === true || opts.noCues === true ? { noCues: true } : {}),
+        // THE ECHO SKIP'S WINDOW (2026-10-19, feedback-loop part C): what this
+        // session wrote since its last compaction is still in its context, so
+        // ambient recall does not hand it back. Without a compaction, the
+        // whole session; its start (the registry's) only bounds the read.
+        ...this.echoWindow(input),
       },
     );
     const decision = result.decision;
@@ -1157,8 +1169,33 @@ export class Lifecycle implements HostLifecycle {
       // session's later turns is the lag falling behind, by name.
       semantic: decision.semanticSource,
       semanticFrom: decision.semanticFromTurn,
+      // Which window the echo skip counted from (part C): `compaction` when
+      // the host said this session compacted, else `session`. The count is
+      // on the decision row (`echoSkipped`).
+      echoWindow: input.compactedAt === undefined ? "session" : "compaction",
+      echoSkipped: decision.echoSkipped,
     });
     return result;
+  }
+
+  /**
+   * The echo skip's window for this turn (part C): `echoSince` when the host
+   * reported a compaction, and the session's registry start as a read bound
+   * (`sessionFrom`) — never a filter, because a memory written before the
+   * record existed is still this session's. Never throws: an unread registry
+   * is no bound, the whole session's rows.
+   */
+  private echoWindow(input: SessionInput): { echoSince?: number; sessionFrom?: number } {
+    let sessionFrom: number | undefined;
+    try {
+      if (input.sessionId.length > 0) sessionFrom = readSession(this.counterpart.store.dir, input.sessionId)?.startedAt;
+    } catch {
+      sessionFrom = undefined;
+    }
+    return {
+      ...(input.compactedAt === undefined ? {} : { echoSince: input.compactedAt }),
+      ...(sessionFrom === undefined ? {} : { sessionFrom }),
+    };
   }
 
   // ── the boundary ───────────────────────────────────────────────────────────

@@ -1859,6 +1859,14 @@ export class Counterpart {
        *  read — the headless nightly run's own — must not spend the fires a
        *  person's day is owed. */
       noCues?: boolean;
+      /** THE ECHO SKIP'S WINDOW (2026-10-19, feedback-loop part C), epoch ms:
+       *  the host's last compaction of this conversation. Memories this
+       *  session wrote at or after it are not handed back; absent, every one
+       *  it wrote. */
+      echoSince?: number;
+      /** When the session began, epoch ms, when the host knows: bounds the
+       *  echo read to the lived days since, and filters nothing. */
+      sessionFrom?: number;
     } = {},
   ): RecallResult {
     // THE TEMPORAL CUES ARE COMPUTED HERE, not inside `composeTurn`, for one
@@ -1877,8 +1885,10 @@ export class Counterpart {
             ...(turn.day === undefined ? {} : { day: turn.day }),
             sessionId: turn.sessionId,
           }).arrivals.filter((a) => opts.withhold?.has(a.memoryId) !== true);
-    const withCues: RecallTurn =
+    const cued: RecallTurn =
       arrived === null ? turn : { ...turn, temporal: arrived.map((a) => ({ id: a.memoryId, weight: a.cueWeight })) };
+    const echo = turn.echo ?? this.echoOf(turn.sessionId, opts.echoSince, opts.sessionFrom);
+    const withCues: RecallTurn = echo.size === 0 ? cued : { ...cued, echo };
     const result = recallTurn(this.recall, this.withSemantic(withCues), {
       schemas: this.schemas,
       prospective: this.prospective,
@@ -1888,6 +1898,36 @@ export class Counterpart {
     this.recordDecision(result.decision, opts.at ?? null);
     if (arrived !== null && opts.at !== undefined) this.spendArrivals(arrived, result.decision, opts.at);
     return result;
+  }
+
+  /**
+   * WHAT THIS SESSION WROTE, AS AMBIENT RECALL'S ECHO SET (2026-10-19,
+   * feedback-loop part C, lightly held): live memories whose `origin_session`
+   * is this one, born at or after `since` (the host's last compaction) when
+   * given. They are already in the model's context, so a footnote or a "came
+   * to mind" line naming one hands the conversation back to itself. The
+   * deliberate ask never reads this. Ids only. A memory a server wrote before
+   * it knew its session (`UNBOUND_SESSION`) is not this session's here and
+   * can still echo — under-skipping, the safe direction. Never throws into
+   * the turn: a failed read is no echo set, and the turn recalls as before.
+   */
+  /** One calendar day, ms — the echo read's day bound. */
+  private static readonly ECHO_DAY_MS = 86_400_000;
+
+  private echoOf(sessionId: string, since: number | undefined, sessionFrom: number | undefined): ReadonlySet<string> {
+    if (!isKnownSession(sessionId)) return new Set();
+    try {
+      // The read is bounded to the lived days the window can span: a lived
+      // day moves at most once per calendar day, so `elapsed days + 1` back
+      // from today cannot miss a row born inside the window.
+      const from = since ?? sessionFrom;
+      const fromDay =
+        from === undefined ? undefined : this.store.livedDay() - Math.ceil(Math.max(0, this.store.now() - from) / Counterpart.ECHO_DAY_MS) - 1;
+      return new Set(this.store.sessionMemoryIds(sessionId, { ...(since === undefined ? {} : { sinceAt: since }), ...(fromDay === undefined ? {} : { fromDay }) }));
+    } catch (err) {
+      this.emit("counterpart.recall.echo.failed", sessionId, { code: errCode(err) });
+      return new Set();
+    }
   }
 
   /**
