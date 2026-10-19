@@ -548,15 +548,17 @@ describe("context priming: the review's awkward states (2026-10-19)", () => {
     return { shown: shownN, byTrain, trainPrimed };
   }
 
-  test("a steady topic: centred on the turn's own cut, the train lifts fewer candidates than the floor alone did, and shows no more", () => {
+  test("a steady topic: centred on the turn's own cut, the train reaches fewer candidates than the floor alone did, and fewer shown ones", () => {
     const off = steady({ PRIME_LINK_UNITS: 0, PRIME_TRAIN_SHARE: 0 }, "off");
     const floorOnly = steady({ PRIME_TRAIN_CENTRE: 0 }, "floor");
     const centred = steady({ PRIME_TRAIN_CENTRE: 1 }, "centred");
     if (process.env["DEBUG_PRIME"] === "1") console.log({ off, floorOnly, centred });
     expect(floorOnly.trainPrimed).toBeGreaterThan(0);
     expect(centred.trainPrimed).toBeLessThan(floorOnly.trainPrimed * 0.75);
-    expect(centred.shown).toBeLessThanOrEqual(floorOnly.shown);
-    expect(centred.byTrain).toBeLessThanOrEqual(floorOnly.byTrain);
+    // Shown counts here differ by one between arms on id tie-breaks alone (the
+    // off arm too), so the shown-per-turn comparison is measured on the real
+    // table in the decisions fragment, not pinned here.
+    expect(centred.byTrain).toBeLessThan(floorOnly.byTrain);
     expect(off.byTrain).toBe(0);
   });
 
