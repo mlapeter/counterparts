@@ -988,7 +988,9 @@ export class ClaudeCodeAdapter extends Lifecycle {
         return { ...out, ok: true, reason: "empty-prompt", injection: `${this.nowLine()}${context.length === 0 ? "" : `\n${context.trimEnd()}`}`, ...told };
       }
       // THE NIGHTLY RUN'S OWN PROMPT GETS NO AMBIENT RECALL (2026-10-19, part
-      // F of the feedback-loop build, lightly held). Until now only its cues
+      // F of the feedback-loop build): an experiment, to see night sessions
+      // drop out of the day's footnote numbers; check on ~10-22, revert by
+      // deleting this return. Until now only its cues
       // stood down (`noCues`, #453): the launch prompt still ran the composed
       // recall, so each child (dream, reflection, catch-up) was handed
       // footnotes nobody reads, and they sat in its gate state — counted as

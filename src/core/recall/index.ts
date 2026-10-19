@@ -154,7 +154,7 @@ export interface Turn {
    */
   feeling?: FeelingAskInput;
   /**
-   * THE ECHO SET (2026-10-19, feedback-loop part C, lightly held): memories
+   * THE ECHO SET (2026-10-19, feedback-loop part C, an experiment): memories
    * this session wrote (since its last compaction, when the host knows one),
    * which are already in its context. Ambient only — set by
    * `Counterpart#recallForTurn` and by nothing on the deliberate path — and

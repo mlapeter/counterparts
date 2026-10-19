@@ -411,7 +411,7 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       record(c, "below-bar");
       continue;
     }
-    // THE ECHO SKIP (2026-10-19, feedback-loop part C, lightly held): a memory
+    // THE ECHO SKIP (2026-10-19, feedback-loop part C, an experiment): a memory
     // this session wrote is already in its context, so handing it back is the
     // conversation hearing itself. Checked HERE, once it has cleared the floor
     // and its bar, so `echo-skipped` counts only what would have been shown —

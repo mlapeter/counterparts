@@ -433,8 +433,9 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     Confidential rows are withheld from a non-owner silently, as a list withholds.
     Tests: `continuity.test.ts`.
 21. **[M]** **Ambient recall does not hand a session back what it wrote** (the echo skip;
-    added 2026-10-19, feedback-loop build part C — lightly held, review after 2–3 lived
-    days). `Counterpart#recallForTurn` reads the ids this session wrote
+    an experiment started 2026-10-19, feedback-loop build part C: trying it to see whether
+    footnotes get less noisy without costing long sessions what they compacted away; check
+    on ~10-22). `Counterpart#recallForTurn` reads the ids this session wrote
     (`origin_session`, the nightly run's rows excepted; `store.sessionMemoryIds`) — since
     the host's last compaction of the conversation when the host says one happened
     (Claude Code: the transcript's newest `compact_boundary` line), else the whole
@@ -445,7 +446,7 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     dedup-suppressed candidate does. The decision row counts them (`echoSkipped`, in the
     surface set). **Deliberate recall is unaffected**: nothing on that path sets
     `Turn.echo`. Known gap: a memory a server wrote before it knew its session
-    (`UNBOUND_SESSION`) can still echo. Revert: stop setting `Turn.echo` in
+    (`UNBOUND_SESSION`) can still echo. Revert by no longer setting `Turn.echo` in
     `recallForTurn`. Tests: `echo-skip.test.ts`.
 
 ## 6. Scars honored

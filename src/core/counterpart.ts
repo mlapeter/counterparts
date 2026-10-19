@@ -1902,7 +1902,7 @@ export class Counterpart {
 
   /**
    * WHAT THIS SESSION WROTE, AS AMBIENT RECALL'S ECHO SET (2026-10-19,
-   * feedback-loop part C, lightly held): live memories whose `origin_session`
+   * feedback-loop part C — an experiment, check on ~10-22): live memories whose `origin_session`
    * is this one, born at or after `since` (the host's last compaction) when
    * given. They are already in the model's context, so a footnote or a "came
    * to mind" line naming one hands the conversation back to itself. The
