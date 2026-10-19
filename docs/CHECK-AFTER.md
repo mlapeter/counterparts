@@ -19,9 +19,12 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
-| Feedback loop, upward: graded use credit, strong co-use links, light habituation | building 10-19 | ~2 lived days after install | its own section, once merged; brief `~/counterparts-notes/2026-10-19-feedback-loop-brief.md` |
-| Feedback loop: no footnotes from this session (echo), the dream replays the day, no footnotes in the nightly run's sessions | building 10-19 | ~2 lived days after install | as above |
-| Context priming (the downward direction): the session's useful memories and the folder's open threads warm their neighbours | planned, after the upward loop merges | — | `~/counterparts-notes/2026-10-19-mechanisms-big-picture.md` |
+| Feedback loop, upward (#525): graded use credit, drewOn as a full use, strong co-use links, light habituation; glimpses restart the fade clock | merged 10-19, unreleased | ~2 lived days after install | "Due ~2026-10-22 … Builder 1" below |
+| Feedback loop (#523): no footnotes from this session (echo), the dream replays the day, no footnotes in the nightly run's sessions | merged 10-19, unreleased | ~2 lived days after install | "Due ~2026-10-22 … Builder 2" below |
+| Head wins (#526): the newer memory stands in with the earlier one's bar | in review 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
+| Stemming + everyday words count less (ambient and facts recall) | building 10-19 | ~2 lived days after install: footnote ratings, exact-match regressions | its decisions fragment, once merged |
+| Context priming (the downward direction): what the session used/wrote and the folder's open threads warm neighbours, along links and a train-of-thought vector | building 10-19 | ~2 lived days after install: ratings of primed vs unprimed footnotes, tunnel vision | brief `~/counterparts-notes/2026-10-19-context-priming-brief.md` |
+| Association: drop the links written when a memory is stored; keep contiguity | queued after #525 (with the slot detector) | ~2 lived days after install | `~/counterparts-notes/2026-10-18-association-diagnosis.md` |
 | Meaning computed in line whenever no fresh cue is ready (#521) | merged 10-19, unreleased | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -465,3 +468,20 @@ rows' `credited` / `notCredited` / `coUse` / `together` fields. Each entry names
 - **Changes a decision if:** a habituated memory turns out to be one a session later needed (rated 2–3
   after habituating) more than once → the lift is too strong or two sessions too few; if none ever
   habituates while noise stays near half → the lift is too light. Revert: `HABITUATION_BAR_LIFT` 0.
+
+## Due ~2026-10-22, two lived days after install: the feedback loop, Builder 2 (an experiment — docs/decisions.d/feat-feedback-loop-gate-dream-1019.md)
+
+Trying three things together to see whether the day teaches the system (#523): footnotes skip what this session
+wrote (C), the dream replays what the day used (E), and the nightly run's own sessions get no footnotes (F). Revert
+by the paths in the fragment.
+
+- **C, the echo skip:** `echoSkipped` per day and per session on `recall.decision` rows, and `adapter.recall`'s
+  `echoWindow` (`compaction` / `session` / `unread`; one `unread` per session is normal, since the transcript is
+  written only after the first prompt). How many showings a long session lost; whether compacted sessions get their
+  early memories back. Footnote ratings over the same days: does the 47% noise share drop? **Changes it if** a
+  session misses something it wrote earlier and needed → narrow the window.
+- **E, the day replay:** `dream.begun`'s `today`, `todayReward`, `todayDreamed`, `todayPairs`, `freshMarked`; how many
+  `today` memories the dream replayed or linked (`dream.changed`); whether used memories get dream returns more
+  often. **Changes it if** `today` crowds out new memories (`queue.waiting` rising) → lower `TODAY_FIT` or `TODAY_COUNT`.
+- **F, the nightly run:** night children's sessions have no `recall.decision` rows after install, and their
+  `recall.credit` rows read `shownFootnotes: 0`.
