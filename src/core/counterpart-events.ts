@@ -907,13 +907,20 @@ export function surfaceSetFields(): readonly SurfaceSetField[] {
 function tierRows(
   ids: readonly string[],
   verdicts: readonly CandidateVerdict[],
-): { id: string; sal: number | null; activation: number | null; via?: "link" }[] {
+): { id: string; sal: number | null; activation: number | null; via?: "link"; habituated?: true }[] {
   return ids.map((id) => {
     const v = verdicts.find((x) => x.id === id);
     // A quiet pointer says so on the durable row (review of #281, finding 5),
     // so replay and readers of footnotes can tell it from a cued footnote. Only
     // present when the verdict has it; the row's field list does not move.
-    return { id, sal: v?.sal ?? null, activation: v?.activation ?? null, ...(v?.via === undefined ? {} : { via: v.via }) };
+    // The same for a memory shown although habituated (2026-10-19).
+    return {
+      id,
+      sal: v?.sal ?? null,
+      activation: v?.activation ?? null,
+      ...(v?.via === undefined ? {} : { via: v.via }),
+      ...(v?.habituated === true ? { habituated: true as const } : {}),
+    };
   });
 }
 

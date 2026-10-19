@@ -196,7 +196,9 @@ export interface RecallTunables {
    *  this fraction of the strongest seed's activation. Relative, so it means the
    *  same on a small store as a big one. At 0.05 a direct link from the
    *  strongest seed must weigh about 0.4 (four co-uses: `0.5 · w / 4 ≥ 0.05`);
-   *  a single fresh co-use (0.1) or a legacy gist tie does not reach it. CAL. */
+   *  a single fresh co-use (0.1) or a legacy gist tie does not reach it. CAL.
+   *  Since 2026-10-19 two co-uses in `rated` stretches reach it
+   *  (`associate` `CO_USE_DEPOSIT` 0.25); this threshold is left alone. */
   LINK_POINTER_MIN_FRACTION: number;
   /** How many of the turn's strongest candidates (ranked the way the cut
    *  ranks them, words and meaning both) SEED spreading — 2026-09-28. Not the
@@ -210,6 +212,25 @@ export interface RecallTunables {
    *  semantic. At 1 the graph can at most double what the conversation gave a
    *  memory, however many paths reach it. Counted when it binds. CAL. */
   HOP_CEILING: number;
+
+  // ── habituation (an experiment, 2026-10-19, light; check ~10-22) ─────────
+  // Trying a raised bar for memories rated 0 twice to see whether footnote
+  // noise drops. Revert by setting `HABITUATION_BAR_LIFT` to 0.
+  /** How far back, in lived days (today included), a rating of 0 counts toward
+   *  habituation. Why 7: the brief's week; an old rating ages out by itself. */
+  HABITUATION_WINDOW_DAYS: number;
+  /** Rated 0 in at least this many sessions inside the window: the memory is
+   *  habituated. Why 2: one 0 can be one odd turn; two sessions agreeing is a
+   *  pattern. */
+  HABITUATION_MIN_SESSIONS: number;
+  /** A rating at or above this, later than the zeros, clears them (the brief:
+   *  "a later useful rating clears it"). Why 2: "useful background". */
+  HABITUATION_CLEAR_SCORE: number;
+  /** A habituated memory's bar to be shown is raised by this factor (×1.5 at
+   *  0.5) — a penalty on its chance to show, never on its strength, and never
+   *  a veto: a turn that reaches it strongly still shows it. Why 0.5: light;
+   *  about the margin an ordinary footnote clears its bar by. CAL. */
+  HABITUATION_BAR_LIFT: number;
 
   // ── affect ───────────────────────────────────────────────────────────────
   /** Emotional salience a candidate needs before it can raise the affect flag. [v1: 0.7] CAL. */
@@ -459,6 +480,11 @@ export const TUNABLES: RecallTunables = {
   LINK_POINTER_MIN_FRACTION: 0.05,
   SPREAD_SEEDS: 24,
   HOP_CEILING: 1,
+
+  HABITUATION_WINDOW_DAYS: 7,
+  HABITUATION_MIN_SESSIONS: 2,
+  HABITUATION_CLEAR_SCORE: 2,
+  HABITUATION_BAR_LIFT: 0.5,
 
   AFFECT_MIN_EMOTION: 0.7,
   AFFECT_REFRACTORY_TURNS: 2,
