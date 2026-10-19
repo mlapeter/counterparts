@@ -1132,6 +1132,11 @@ export class Lifecycle implements HostLifecycle {
         sessionId: input.sessionId,
         text,
         ...(opts.budgetBytes === undefined ? {} : { budgetBytes: opts.budgetBytes }),
+        // A NAMED TRANSCRIPT THAT WOULD NOT READ (review of #523): whether the
+        // conversation compacted is unknown, so the echo skip stands down for
+        // the turn (an empty echo set) rather than hiding the whole session's
+        // memories — failing open, toward showing.
+        ...(input.turnsUnread === true ? { echo: new Set<string>() } : {}),
       },
       {
         ...(input.at === undefined ? {} : { at: input.at }),
@@ -1170,9 +1175,10 @@ export class Lifecycle implements HostLifecycle {
       semantic: decision.semanticSource,
       semanticFrom: decision.semanticFromTurn,
       // Which window the echo skip counted from (part C): `compaction` when
-      // the host said this session compacted, else `session`. The count is
-      // on the decision row (`echoSkipped`).
-      echoWindow: input.compactedAt === undefined ? "session" : "compaction",
+      // the host said this session compacted, `unread` when its transcript
+      // would not read (no skip), else `session`. The count is on the
+      // decision row (`echoSkipped`).
+      echoWindow: input.turnsUnread === true ? "unread" : input.compactedAt === undefined ? "session" : "compaction",
       echoSkipped: decision.echoSkipped,
     });
     return result;

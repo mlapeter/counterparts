@@ -439,7 +439,8 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     (`origin_session`, the nightly run's rows excepted; `store.sessionMemoryIds`) — since
     the host's last compaction of the conversation when the host says one happened
     (Claude Code: the transcript's newest `compact_boundary` line), else the whole
-    session — and passes them as `Turn.echo`. The gate turns each away as `echo-skipped`
+    session; when a named transcript will not read, nothing (the skip fails open, toward
+    showing; `echoWindow: "unread"`) — and passes them as `Turn.echo`. The gate turns each away as `echo-skipped`
     once it has cleared the floor and its bar (so the count is what would have been
     shown), and in the quiet-pointer lane behind dedup; an earlier version whose head is
     in the echo set stays inhibited. It stays in the background sample, as a

@@ -9,7 +9,7 @@
  * here can reach a live store.
  */
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -20,7 +20,7 @@ import { parseTranscript } from "../src/adapters/claude-code/transcript.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { RECALL_DECISION_EVENT } from "../src/core/counterpart-events.js";
+import { RECALL_DECISION_EVENT, RECALL_DELIVERED_EVENT } from "../src/core/counterpart-events.js";
 import { findable } from "./store-fixture.js";
 
 const SCOPE = "/work/bakery";
@@ -168,15 +168,28 @@ describe("part C: a session is not handed back what it wrote", () => {
     // A subagent's compaction (a sidechain line) after both is not this conversation's.
     const path = transcript(compactAt, Date.now() + 60_000);
 
+    // Without the transcript the whole session is the window: the earlier one is skipped too.
+    const whole = prompt(a, "s-long", PROMPT);
+    expect(shown(whole)).not.toContain(before);
+
     const early = prompt(a, "s-long", PROMPT, path);
     expect(shown(early)).toContain(before);
     const fresh = prompt(a, "s-long", RYE, path);
     expect(shown(fresh)).not.toContain(since);
     expect(lastDecision(a, "s-long")["echoSkipped"]).toBeGreaterThanOrEqual(1);
+  });
 
-    // Without the transcript the whole session is the window.
-    const whole = prompt(a, "s-other-turn", PROMPT);
-    expect(shown(whole)).toContain(before);
+  test("a named transcript that will not read: the skip stands down (fails open, toward showing)", async () => {
+    const a = adapter();
+    recordSession(dir, { sessionId: "s-unread", scope: SCOPE, phase: "start" });
+    const id = await remember(a, "s-unread", WRITTEN);
+    const unreadable = join(dir, "a-directory.jsonl");
+    mkdirSync(unreadable);
+    const turn = prompt(a, "s-unread", PROMPT, unreadable);
+    expect(shown(turn)).toContain(id);
+    expect(lastDecision(a, "s-unread")["echoSkipped"]).toBe(0);
+    const delivered = a.counterpart.store.eventLog({ name: RECALL_DELIVERED_EVENT, order: "desc", limit: 1 })[0];
+    expect(JSON.parse(delivered?.payload ?? "{}")["echoWindow"]).toBe("unread");
   });
 
   test("the transcript reader keeps the newest compaction mark, and not a sidechain's", () => {

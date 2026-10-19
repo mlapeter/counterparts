@@ -9,7 +9,8 @@ differently; reverting the PR undoes all three, and each has its own smaller rev
   sessions what compaction took away.** Ambient recall (footnotes, "came to mind", quiet
   pointers) skips memories whose `origin_session` is this session, since the conversation's
   last compaction when Claude Code's transcript has a `compact_boundary` line (#453's
-  question: the hooks can tell, from the transcript), else the whole session. Checked once a
+  question: the hooks can tell, from the transcript), else the whole session; a named
+  transcript that will not read skips nothing (fails open, `echoWindow: "unread"`). Checked once a
   memory has cleared the floor and its bar, so `echoSkipped` on the `recall.decision` row
   counts what would have been shown. Deliberate recall is untouched (only `recallForTurn` sets
   the echo set). Known gap: a memory a server wrote before it knew its session
@@ -47,7 +48,7 @@ differently; reverting the PR undoes all three, and each has its own smaller rev
 What to look at on ~10-22 (for docs/CHECK-AFTER.md):
 
 - C: `echoSkipped` per day and per session on `recall.decision` rows, and the `adapter.recall`
-  row's `echoWindow` (`compaction` vs `session`): how many showings a long session lost, and
+  row's `echoWindow` (`compaction` vs `session`, and `unread` when it stood down): how many showings a long session lost, and
   whether compacted sessions get their early memories back. Footnote ratings over the same
   days: does the noise share (47%) drop? A session that complains it was not reminded of
   something it wrote earlier is the cost to look for.
