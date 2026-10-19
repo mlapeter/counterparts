@@ -101,9 +101,14 @@ export interface Turn {
   /**
    * The semantic channel ALREADY RANKED — the lagged cue the detached worker
    * resolved after the previous turn (`session.ts`). It exists because ranking
-   * is the expensive half: `Store.nearestTo` over a live-sized vector index
-   * measured 590-1040 ms, which no 1200 ms budget survives. Supplied hits
-   * replace the scan; an empty array means "nothing was near" and degrades.
+   * WAS the expensive half: `Store.nearestTo` measured 590-1040 ms over v1's
+   * 13,862 JSON-stored vectors (2026-09-04). Since box 3 went to float32 BLOBs
+   * (2026-09-05) the same rank measures ~2 ms warm and ~18 ms cold in a fresh
+   * hook process on the live store's 2,207 vectors, and ~60 ms p50 / ~160 ms
+   * p95 cold at 22,207 (2026-10-19, 25 fresh processes per number, bun on
+   * macOS; ~/counterparts-notes/2026-10-19-first-prompt-recall-diagnosis.md).
+   * Supplied hits replace the scan; an empty array means "nothing was near"
+   * and degrades.
    */
   semanticHits?: readonly { id: string; score: number }[];
   /** Where the semantic input came from, for the decision record. Defaults to
@@ -133,8 +138,10 @@ export interface Turn {
    * deliberate ask, which is "a deeper effort with different thresholds, on
    * purpose" (§9.1) and has no host turn waiting on it. The ambient budget is a
    * promise to a person mid-sentence; a question someone typed and is waiting
-   * for is a different promise, and the semantic channel it may pay for costs
-   * 590-1040 ms of vector scan on a live-sized index all by itself.
+   * for is a different promise. (It was written when the semantic channel's
+   * vector scan cost 590-1040 ms on a live-sized index; that scan is now tens
+   * of ms — see `semanticHits` above — and the deliberate ask's longer budget
+   * stands on its deeper effort, not on the scan.)
    */
   budgetMs?: number;
   /**

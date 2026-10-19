@@ -570,6 +570,24 @@ describe("the pool is every match, and the header counts it", () => {
     expect(r.reason).toBe("nothing-came");
     expect(renderFacts(r)).toContain("Nothing matched.");
   });
+
+  // 2026-10-19 (bench 2788b940): "how many" counted "many" as a content word.
+  test("a count or habit's own words ask nothing: many, much, often, typical(ly), usually", () => {
+    const c = brain();
+    seed(c);
+    const zq = c.store.put({ type: "memory", kind: "fact", body: "Takes zqdance classes on Tuesdays and Thursdays." });
+    const noise = [
+      "Many visitors came to the lighthouse.",
+      "Too much rain fell in the valley.",
+      "The ferry is often late in winter.",
+      "A typical harbour has two breakwaters.",
+      "The baker typically opens at six.",
+      "The tram usually runs on time.",
+    ].map((body) => c.store.put({ type: "memory", kind: "fact", body }));
+    const r = ask(c, "How many zqdance classes do I usually take, how much and how often, in a typical week, typically?");
+    expect(r.memories.map((m) => m.id)).toEqual([zq]);
+    for (const id of noise) expect(r.memories.map((m) => m.id)).not.toContain(id);
+  });
 });
 
 describe("each fact's labeled lines", () => {

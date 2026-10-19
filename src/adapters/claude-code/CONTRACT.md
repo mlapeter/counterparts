@@ -324,6 +324,11 @@ row, saying which source answered, existed until the keys were removed — §1a.
     reappear. **The RANKING travels with the cue, not the vector**: `Store.nearestTo`
     over a live-sized index measured 590-1040 ms, so carrying a vector would have moved
     the network call off the hot path and left the scan on it.
+    **Amended 2026-10-19:** the prompt path still opens no socket, but a turn the lag never
+    reached (a session's first prompt, or a stale row) embeds its own text with the store's
+    local table and ranks it in line (`recall/session.ts#inLineSemantic`, recorded
+    `in-line`): ~18 ms cold on the live store's 2,207 vectors, where the 590-1040 ms above
+    was v1's JSON vectors.
     **It runs on EVERY boundary, outside the sweep gate and regardless of its verdict**,
     and `stop()`/`sessionEnd()` spawn the worker unconditionally. The crash gate (open
     question 3, answered) decides whether a *SWEEP* selects anything — its ordinary

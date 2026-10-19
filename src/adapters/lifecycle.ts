@@ -1151,8 +1151,10 @@ export class Lifecycle implements HostLifecycle {
       observer: decision.observer,
       // WHERE the semantic channel's input came from, on the row a coverage
       // watch can read out of the store tomorrow. `semantic: "none"` on every
-      // real turn is exactly the finding this PR closes; anything but
-      // "lagged" here after a worker ran is the lag failing, by name.
+      // real turn is exactly the finding this PR closes. Since 2026-10-19 a
+      // turn the lag never reached (first prompt, stale row) reads `in-line`
+      // (or `in-line-skipped` past the vector-count guard); `in-line` on a
+      // session's later turns is the lag falling behind, by name.
       semantic: decision.semanticSource,
       semanticFrom: decision.semanticFromTurn,
     });

@@ -57,6 +57,7 @@ import {
   headOf,
   judgedThrough,
   loadGateState,
+  inLineSemantic,
   loadSessionSemantic,
   markJudged,
   saveSessionSemantic,
@@ -543,6 +544,7 @@ export class Counterpart {
       ...(this.reportedBudget === null ? {} : { budgetBytes: this.reportedBudget }),
       onEvent: (e) => this.relay("recall", e),
       now: this.nowFn,
+      ...(opts.recallTunables === undefined ? {} : { tunables: opts.recallTunables }),
     });
     this.prospective = new Prospective({
       store: this.store,
@@ -2052,10 +2054,22 @@ export class Counterpart {
    *
    * A CALLER-SUPPLIED input always wins — the deliberate ask embeds its own
    * question in line and must not be overridden by a stale conversational cue.
+   *
+   * NO FRESH LAG ROW, NO DARK CHANNEL (2026-10-19): any turn without a fresh
+   * lag row — a session's first prompt (`none`), a row from an earlier turn
+   * (`stale`), or one the worker could not use (`other-model`, `unreadable`,
+   * `no-text`, `embed-failed`) — embeds its own text and ranks it in line (`session.ts#inLineSemantic`), recorded as
+   * `in-line`, or `in-line-skipped` when box 3 is past the count guard. With no
+   * vector to be had (no embedder, an empty box 3) the lag's word stands.
    */
   private withSemantic(turn: RecallTurn): RecallTurn {
     if (turn.vector !== undefined || turn.semanticHits !== undefined) return turn;
     const lag = loadSessionSemantic(this.store, turn.sessionId);
+    if (lag.source !== "lagged") {
+      const own = inLineSemantic(this.store, turn.text, this.recall.tunables.SEMANTIC_INLINE_MAX_VECTORS);
+      if (own !== null && "vector" in own) return { ...turn, vector: own.vector, semanticSource: "in-line" };
+      if (own !== null) return { ...turn, semanticSource: "in-line-skipped" };
+    }
     return {
       ...turn,
       ...(lag.hits === null ? {} : { semanticHits: lag.hits }),
@@ -2068,10 +2082,12 @@ export class Counterpart {
    * Record the lagged semantic cue for the NEXT turn: rank the vector the caller
    * embedded, and store the top-M slice as this session's gate state.
    *
-   * The RANK lives here, in the detached caller's process, because it is the
-   * expensive half — `Store.nearestTo` measured 590-1040 ms over a live-sized
-   * vector index — and the whole point of the lag is that the hot path spends
-   * none of that. `SEMANTIC_TOP_M` is `recall/`'s own number, read off the gate
+   * The RANK lives here, in the detached caller's process, because it was the
+   * expensive half — `Store.nearestTo` measured 590-1040 ms over v1's 13,862
+   * JSON vectors in 2026-09 — and the point of the lag was that the hot path
+   * spent none of that. (Float32 BLOBs since 2026-09-05: ~18 ms cold at the
+   * live store's 2,207 vectors, 2026-10-19 — which is why a turn with no fresh
+   * row now ranks in line, `withSemantic`. The lag stays where it works.) `SEMANTIC_TOP_M` is `recall/`'s own number, read off the gate
    * rather than restated by an adapter: a slice size chosen at the caller would
    * be a threshold with no home.
    *

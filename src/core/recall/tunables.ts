@@ -117,6 +117,15 @@ export interface RecallTunables {
    * `tools/bench/embedder-trial.ts`, `docs/research/static-embedder-trial-2026-09-23.md`.
    */
   SEMANTIC_BY_IDENTITY: Readonly<Record<string, SemanticProfile>>;
+  /**
+   * The most vectors box 3 may hold for an AMBIENT turn with no fresh lagged
+   * cue (a session's first prompt, or a stale lag row) to embed its own text
+   * and rank it in line (`session.ts#inLineSemantic`). A COUNT, not a clock:
+   * the rank runs inside `activate()`, before `build()`'s first time check, so
+   * an overrun there would abort the turn rather than degrade the channel.
+   * Above it the channel stays dark and the turn records `in-line-skipped`. CAL.
+   */
+  SEMANTIC_INLINE_MAX_VECTORS: number;
   /** Weight on base-level activation (strength). The recency/arrival channel:
    *  it can make a memory warm, never loud. [v1: 0.15] CAL. */
   ARRIVAL_WEIGHT: number;
@@ -345,6 +354,13 @@ export const TUNABLES: RecallTunables = {
     "potion-base-8M@256": { inline: { floor: 0.15, weight: 6 }, lagged: { floor: 0.05, weight: 1 } },
     "voyage-3-large": { inline: { floor: 0.45, weight: 1.0 }, lagged: { floor: 0.45, weight: 1.0 } },
   },
+  // 100,000 (CAL, 2026-10-19, ~/counterparts-notes/2026-10-19-first-prompt-recall-diagnosis.md):
+  // measured cold, in a fresh process per run, the in-line rank added ~18 ms
+  // at the live store's 2,207 vectors and ~60 ms p50 (~160 ms p95) at 22,207,
+  // against a 1,200 ms budget the live recall build uses ~45 ms of at p50.
+  // 100,000 is ~4.5x the largest size measured, still well inside the budget
+  // if the scan stays linear (warm, at 10x: ~0.8 ms per 1,000 vectors).
+  SEMANTIC_INLINE_MAX_VECTORS: 50_000,
   ARRIVAL_WEIGHT: 0.15,
 
   // 1.2 -> 1.6 (CAL, 2026-09-04). Once length normalization stopped nine hubs

@@ -1273,12 +1273,31 @@ export function nearest(db: Db, vec: readonly number[], limit = 10, minStrength:
       : db.all<{ memory_id: string; vec: SqlValue }>("SELECT memory_id, vec FROM embeddings");
   const hits: Hit[] = [];
   for (const row of rows) {
-    const other = decodeVector(row.vec);
-    if (other.length > 0 && other.length !== vec.length) continue;
+    const other = decodedOrSkip(row.vec);
+    if (other === null || (other.length > 0 && other.length !== vec.length)) continue;
     hits.push({ id: row.memory_id, score: cosine(vec, other) });
   }
   hits.sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return hits.slice(0, limit);
+}
+
+/**
+ * One row's vector for a SCAN, or null when the row will not decode at all — a
+ * JSON-text row (v3) that does not parse, or parses to something that is not a
+ * list. `decodeVector` throws on those, on purpose (`convertVectorBatch` counts
+ * them as `skipped`), but a scan must not: since 2026-10-19 an ambient turn
+ * with no fresh lag row ranks in line (`recall/session.ts#inLineSemantic`), so
+ * one unreadable row would otherwise throw out of `activate()` and cost the
+ * whole turn's recall, where it should cost that row. Skipped, as a row of
+ * another width is; the census (`vectorFormats`) still names it.
+ */
+function decodedOrSkip(raw: SqlValue): Float32Array | number[] | null {
+  try {
+    const v = decodeVector(raw);
+    return Array.isArray(v) || v instanceof Float32Array ? v : null;
+  } catch {
+    return null;
+  }
 }
 
 // ── neighbours (v6) ──────────────────────────────────────────────────────────

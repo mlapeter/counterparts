@@ -3,6 +3,7 @@ import type { FlushReport } from "./associate/index.js";
 import type { MintResult } from "./mint.js";
 import type { Stance } from "./observer.js";
 import type { PlainDue } from "./prospective/index.js";
+import type { RecallTunables } from "./recall/index.js";
 import type { Proposal, MalformedReason, InterpretFn, SweepReport } from "./remember/index.js";
 import type { RevisionApplication } from "./revision.js";
 import type { HeldUpdate, SlotOutcome } from "./reconsolidation.js";
@@ -354,6 +355,12 @@ export interface CounterpartOptions extends Stance {
    * (`CRAFT_AT_DELIVERY`) can be turned off for a whole counterpart.
    */
   selfTunables?: Partial<SelfTunables>;
+  /**
+   * `recall/`'s knobs over its defaults (`recall/tunables.ts`). Absent: the
+   * defaults. Added 2026-10-19 so a test can hold the in-line vector-count
+   * guard (`SEMANTIC_INLINE_MAX_VECTORS`) at a size a fixture reaches.
+   */
+  recallTunables?: Partial<RecallTunables>;
 }
 
 /** What `wake()` returns: the bundle, plus what the host told us about itself. */

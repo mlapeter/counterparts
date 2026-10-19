@@ -30,6 +30,8 @@ import {
   SWEEP_GATE_EVENT,
 } from "../src/core/counterpart.js";
 import { EMBED_SKIP_AFTER, indexTextOf } from "../src/core/store/index.js";
+import { inLineSemantic } from "../src/core/recall/index.js";
+import type { RecallTunables } from "../src/core/recall/index.js";
 import { canonicalScope, isLive, readSession, recordSession } from "../src/adapters/sessions.js";
 import type { SessionRecord } from "../src/adapters/sessions.js";
 import { OK_STOP_REASONS, TUNABLES as REMEMBER, enters, validateWatchdog } from "../src/core/remember/index.js";
@@ -3190,6 +3192,8 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
 
     // Turn 1 — the semantic channel is dark, and the record says so BY NAME
     // rather than with the bare `semanticUsed: false` that told nobody anything.
+    // (Dark because this embedder's sync face cannot embed a new text; one that
+    // can ranks the first prompt in line — the 2026-10-19 tests at the end.)
     const first = c.recallForTurn({ sessionId: "s-lag", text: "What did we settle about the river?" });
     expect(first.decision.semanticUsed).toBe(false);
     expect(first.decision.semanticSource).toBe("none");
@@ -3333,6 +3337,145 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
     expect(lag.stored).toBe(false);
     expect(c.store.gateRecords("s-obs")).toEqual([]);
   });
+
+  // ── 2026-10-19: no fresh lag row, the turn embeds its own text in line ──
+  //
+  // `topicEmbedder`'s sync face answers only texts it was asked before, so the
+  // tests above never reach the in-line path. A live table computes; so does this.
+  function computingEmbedder(): LiveEmbedder {
+    const emb = topicEmbedder();
+    return { ...emb, embed: (t: string) => (t.toLowerCase().includes("otter") ? [1, 0, 0] : t.toLowerCase().includes("kite") ? [0, 1, 0] : [0, 0, 1]) };
+  }
+
+  /** A prompt the embedder sends to the otter memory, sharing no content word
+   *  with it ("hotter" holds "otter"; the memory says neither "warmer" nor "water"). */
+  const MEANING_ONLY = "Hotter or warmer near the water, remind me?";
+
+  test("a session's FIRST prompt ranks its own text in line, and reaches what only meaning reaches", async () => {
+    const emb = computingEmbedder();
+    const c = brain(emb);
+    const { otter } = seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb });
+
+    const first = c.recallForTurn({ sessionId: "s-first", text: MEANING_ONLY });
+    expect(first.decision.turn).toBe(1);
+    expect(first.decision.semanticSource).toBe("in-line");
+    expect(first.decision.semanticUsed).toBe(true);
+    expect(first.decision.semanticFromTurn).toBeNull();
+    expect(first.decision.verdicts.find((v) => v.id === otter)?.semantic ?? 0).toBeGreaterThan(0);
+
+    // The same prompt with the channel dark: the otter memory never had a meaning score.
+    const dark = brainAt(join(dir, "dark"), null);
+    const darkOtter = seed(dark).otter;
+    const unlit = dark.recallForTurn({ sessionId: "s-first", text: MEANING_ONLY });
+    expect(unlit.decision.semanticSource).toBe("none");
+    expect(unlit.decision.verdicts.find((v) => v.id === darkOtter)?.semantic ?? 0).toBe(0);
+  });
+
+  test("a STALE lag row takes the same in-line path; a fresh one is still used as before", async () => {
+    const emb = computingEmbedder();
+    const c = brain(emb);
+    const { otter } = seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb });
+
+    c.recallForTurn({ sessionId: "s-stale", text: "A first turn about the kite festival." });
+    c.captureSpans({
+      session: "s-stale",
+      scope: "proj",
+      turns: [{ role: "user", text: "Where did the kite festival go?" }, { role: "assistant", text: "The headland." }],
+    });
+    await laggedSemantic({ counterpart: c, sessionId: "s-stale", scope: "proj", embedder: emb });
+    // Turn 2 — the worker's fresh row wins over an in-line rank.
+    const second = c.recallForTurn({ sessionId: "s-stale", text: MEANING_ONLY });
+    expect(second.decision.semanticSource).toBe("lagged");
+    // Turn 3 — no worker ran: the row is stale, and the turn ranks its own text.
+    const third = c.recallForTurn({ sessionId: "s-stale", text: MEANING_ONLY });
+    expect(third.decision.semanticSource).toBe("in-line");
+    expect(third.decision.semanticUsed).toBe(true);
+    expect(third.decision.semanticFromTurn).toBeNull();
+    expect(third.decision.verdicts.find((v) => v.id === otter)?.semantic ?? 0).toBeGreaterThan(0);
+    // The in-line turn wrote no lag row of its own: the worker's next row is
+    // the only one, and turn 4 uses it, from turn 3, as if nothing came between.
+    const semanticRows = (): number => c.store.gateRecords("s-stale").filter((r) => r.kind === "semantic").length;
+    expect(semanticRows()).toBe(1);
+    await laggedSemantic({ counterpart: c, sessionId: "s-stale", scope: "proj", embedder: emb });
+    expect(semanticRows()).toBe(1);
+    const fourth = c.recallForTurn({ sessionId: "s-stale", text: MEANING_ONLY });
+    expect(fourth.decision.semanticSource).toBe("lagged");
+    expect(fourth.decision.semanticFromTurn).toBe(3);
+  });
+
+  test("a lag row the worker could not use (`embed-failed`) takes the in-line path too", async () => {
+    const emb = computingEmbedder();
+    const c = brain(emb);
+    const { otter } = seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb });
+
+    c.recallForTurn({ sessionId: "s-failed", text: "A first turn about the kite festival." });
+    c.captureSpans({
+      session: "s-failed",
+      scope: "proj",
+      turns: [{ role: "user", text: "Where did the kite festival go?" }],
+    });
+    const lag = await laggedSemantic({ counterpart: c, sessionId: "s-failed", scope: "proj", embedder: deadEmbedder() });
+    expect(lag.reason).toBe("embed-failed");
+    const second = c.recallForTurn({ sessionId: "s-failed", text: MEANING_ONLY });
+    expect(second.decision.semanticSource).toBe("in-line");
+    expect(second.decision.verdicts.find((v) => v.id === otter)?.semantic ?? 0).toBeGreaterThan(0);
+  });
+
+  test("a vector row that will not decode costs that row, not the in-line turn", async () => {
+    const emb = computingEmbedder();
+    const c = brain(emb);
+    const { otter } = seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb });
+    // A v3 JSON-text row that does not parse, and one that parses to no list.
+    // `decodeVector` throws on both; the scan behind the in-line rank must not.
+    const cache = (c.store as unknown as { cache: { run: (sql: string, ...a: unknown[]) => void } }).cache;
+    cache.run("INSERT INTO embeddings (memory_id, dim, vec) VALUES ('bad_json', 3, 'not json{')");
+    cache.run("INSERT INTO embeddings (memory_id, dim, vec) VALUES ('bad_null', 3, 'null')");
+    const first = c.recallForTurn({ sessionId: "s-corrupt", text: MEANING_ONLY });
+    expect(first.decision.semanticSource).toBe("in-line");
+    expect(first.decision.verdicts.find((v) => v.id === otter)?.semantic ?? 0).toBeGreaterThan(0);
+  });
+
+  test("past the vector-count guard the turn does not rank, and records `in-line-skipped`", async () => {
+    const emb = computingEmbedder();
+    const c = brainAt(dir, emb, { SEMANTIC_INLINE_MAX_VECTORS: 5 });
+    const { otter } = seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb });
+    expect(c.store.embeddingCount()).toBeGreaterThan(5);
+
+    const first = c.recallForTurn({ sessionId: "s-big", text: MEANING_ONLY });
+    expect(first.decision.semanticSource).toBe("in-line-skipped");
+    expect(first.decision.semanticUsed).toBe(false);
+    expect(first.decision.verdicts.find((v) => v.id === otter)?.semantic ?? 0).toBe(0);
+    expect(inLineSemantic(c.store, MEANING_ONLY, 5)).toEqual({ skipped: true, vectors: c.store.embeddingCount() });
+    expect(inLineSemantic(c.store, MEANING_ONLY, 100_000)).toEqual({ vector: [1, 0, 0] });
+  });
+
+  test("the in-line text is stripped of host boilerplate first, as the worker's is (§9 G3)", async () => {
+    const emb = computingEmbedder();
+    const c = brain(emb);
+    seed(c);
+    await backfillVectors({ counterpart: c, embedder: emb });
+    // The only "otter" is inside the boilerplate: stripped, the text embeds as neither topic.
+    expect(inLineSemantic(c.store, "<system-reminder>the otter survey</system-reminder>What now?", 100_000)).toEqual({
+      vector: [0, 0, 1],
+    });
+  });
+
+  function brainAt(at: string, embedder: LiveEmbedder | null, recallTunables?: Partial<RecallTunables>): Counterpart {
+    const c = Counterpart.open({
+      dir: at,
+      owner: true,
+      budgetBytes: BUDGET_BYTES,
+      ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
+      ...(recallTunables === undefined ? {} : { recallTunables }),
+    });
+    open.push(c);
+    return c;
+  }
 });
 
 describe("the embedding backfill — the guaranteed path to a vector", () => {
