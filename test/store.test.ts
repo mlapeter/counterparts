@@ -1895,6 +1895,7 @@ describe("observer mode is enforced at the store seam", () => {
     dropRanking: [["mem_000000000000"]],
     setNextChangeDays: [[{ id: "mem_000000000000", day: 1 }]],
     clearNextChangeDays: [],
+    setCacheNote: ["habituation", "{}"],
   };
 
   function populated(): { id: string; snapshot: string } {

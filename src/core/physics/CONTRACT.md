@@ -218,7 +218,9 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
                 ∧ status(m) ∉ {planned, proposed, asked}                     # 2026-10-11 (08 C2)
   FAST lane   = I(m) ≥ 0.6  and  an awake return ≥ 2 lived days after birth
   SLOW lane   = the RECURRENCE lane (2026-10-11, 08 C1): over m's slot, ≥ 4 recurrence
-                days (engaged-only days ×0.5, never alone) from ≥ 3 sessions spanning
+                days (engaged-only days ×0.5, never alone; glimpse-only ×0.1 and
+                rated-1-only ×0.25, never alone, never m's anchor — the
+                2026-10-19 experiment) from ≥ 3 sessions spanning
                 ≥ 7, inside the trailing 30 lived days; m itself used at least once;
                 m not an earlier state of its slot; strength(m, d) ≥ REACH
   promote     ⇔ about me(m) ∧ (FAST ∨ SLOW) ∧ not demoted
@@ -256,7 +258,9 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
   *(Group 3 part A, 2026-10-11, working defaults; item 14, review 08 C1/C2/C4.)* A
   RECURRENCE DAY is a lived day on which m or a member of its SLOT — the memories a
   standing "A over B" ties it to (a settled `changed`; not a slot proposal still waiting) —
-  was used awake (an engaged use counts half), cited by a reflection, or re-encoded (a
+  was used awake (an engaged use counts half; in the 2026-10-19 experiment a glimpse
+  `SHOWN_RECURRENCE_WEIGHT` and a rating of 1 `ONTOPIC_RECURRENCE_WEIGHT` of a day, neither
+  ever making "m itself used at least once" true), cited by a reflection, or re-encoded (a
   newer member written that day by a session). Dream replays never count. In a slot with
   a dream FOLD (Group 3 part B; decided by random-06, 2026-10-11, lightly held) only what
   came back after the fold counts: a member already there when it was folded gives no
@@ -366,6 +370,22 @@ day:** a higher tier the same lived day LIFTS an engaged credit (`creditUse`'s
 `upgradeFrom`: `uses` gains the difference, no second reinforced day, the engaged return
 replaced by the awake one), never the other way. `ENGAGED_RECURRENCE_WEIGHT` (0.5) is what
 an engaged return will count for toward Group 3's recurrence lane, which is not built.
+
+*Amended 2026-10-19 — an experiment, not a ruling (the feedback loop; check on ~10-22;
+revert by reverting the PR).* Trying a session's ratings as use, to see whether the day
+starts teaching the system. Three tiers join: `shown` (`W_SHOWN` 0.1, an ambient showing
+left unrated at a `rated` boundary), `ontopic` (`W_ONTOPIC` 0.25, rated 1) and `useful`
+(`W_USEFUL` 0.75, rated 2); rated 3 is `referenced`, rated 0 nothing
+(`recall/rated.ts#RATING_TIER`). Everything above holds for them: once a lived day, never
+on the birth day, the tier only goes up within a day. Their returns (§5.11): `useful` is
+an AWAKE return (the awake floor is `AWAKE_RETURN_MIN_WEIGHT`, 0.75, where it was the
+literal 1.0 — `surfaced` at 0.25 still earns none), worth its weight × spacing; `shown`
+and `ontopic` are PARTIAL returns of their own `returns.source`, the engaged shape
+(`PARTIAL_RETURN_SOURCES`: the `returns` sum only, no lane day, no `lastReturnDay`). A
+lift deletes the partial row it lifts, read back exactly from its source in any session.
+No format change: `source` was always free text, and an older build skips sources it does
+not know. Known cost, on the watch list: a credited use re-anchors the curve
+(`decayAnchor`), so a memory glimpsed every day does not fade while it keeps showing.
 
 At most one credited occasion per memory per lived day, and never on its birth day [v1 §10
 G9]. Credit is retrospective, resolved at the boundary when the reply is known [v1 §10 G1].

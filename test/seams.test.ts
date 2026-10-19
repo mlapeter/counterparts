@@ -466,6 +466,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       dropRanking: [[seedId]],
       setNextChangeDays: [[{ id: seedId, day: 1 }]],
       clearNextChangeDays: [],
+      setCacheNote: ["habituation", "{}"],
     };
     for (const method of WRITE_METHODS) {
       const fn = (s as unknown as Record<string, ((...a: unknown[]) => unknown) | undefined>)[
