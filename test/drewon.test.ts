@@ -2,6 +2,9 @@
  * `drewOn` (2026-10-11) — the session SAYS which memories it was shown that
  * shaped what it did or said, on `session_end` or `chapter`, and each earns the
  * engaged tier: half a use, a half-weight `engaged` return, no core-lane day.
+ * Since 2026-10-19 an experiment (Mike, the feedback loop) tries it as a FULL
+ * use (`W_ENGAGED` 1.0, an awake return); these tests read the tier's weight
+ * and hold in either regime, so setting it back to 0.5 passes them too.
  * The successor to #371's matcher (parked 2026-10-10); its tier code is reused
  * here, its matcher is not.
  *
@@ -18,7 +21,7 @@ import { join } from "node:path";
 import { Counterpart, DREW_ON_MAX_PER_BOUNDARY, RECALL_CREDIT_EVENT } from "../src/core/counterpart.js";
 import { freshGateState, loadGateState, saveGateState } from "../src/core/recall/index.js";
 import type { GateState } from "../src/core/recall/index.js";
-import { TUNABLES, USE_TIER_WEIGHT, creditReturn, creditUse, rep } from "../src/core/physics/index.js";
+import { TUNABLES, USE_TIER_WEIGHT, creditReturn, creditUse, partialSourceOf, rep } from "../src/core/physics/index.js";
 import type { MemoryPhysics } from "../src/core/types.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/index.js";
@@ -40,13 +43,18 @@ function physics(over: Partial<MemoryPhysics> = {}): MemoryPhysics {
   } as MemoryPhysics;
 }
 
+/** Whether drewOn is a full use with an awake return (the 2026-10-19 experiment) or the half regime. */
+const FULL = partialSourceOf("engaged") === null;
+const W = USE_TIER_WEIGHT.engaged;
+
 describe("physics — the engaged tier", () => {
-  test("an engaged use is half a use, once a day, never on the birth day", () => {
-    expect(USE_TIER_WEIGHT.engaged).toBe(0.5);
+  test("an engaged use is worth its tier's weight, once a day, never on the birth day", () => {
+    expect(W).toBe(TUNABLES.W_ENGAGED);
+    expect(FULL).toBe(W >= TUNABLES.AWAKE_RETURN_MIN_WEIGHT);
     const m = physics({ birthDay: 1, lastUsedDay: 1 });
     const r = creditUse(m, 3, "engaged");
     expect(r.credited).toBe(true);
-    expect(r.next.uses).toBe(0.5);
+    expect(r.next.uses).toBe(W);
     expect(creditUse({ ...m, ...r.next }, 3, "engaged").reason).toBe("already-credited-today");
     expect(creditUse(physics({ birthDay: 3, lastUsedDay: 3 }), 3, "engaged").reason).toBe("birth-day");
   });
@@ -56,7 +64,8 @@ describe("physics — the engaged tier", () => {
     const m = physics({ birthDay: 1, ...after });
     expect(creditUse(m, 3, "referenced").reason).toBe("already-credited-today");
     const lifted = creditUse(m, 3, "referenced", { upgradeFrom: "engaged" });
-    expect(lifted.credited).toBe(true);
+    // At full weight there is nothing to lift (the 2026-10-19 experiment).
+    expect(lifted.credited).toBe(W < USE_TIER_WEIGHT.referenced);
     expect(lifted.next.uses).toBe(1);
     expect(lifted.next.reinforcedDays).toBe(after.reinforcedDays);
     // Never downward.
@@ -147,7 +156,7 @@ function setup(n = 2): { c: Counterpart; ids: string[] } {
 }
 
 describe("Counterpart#creditDrewOn — the engaged tier, by the session's own word", () => {
-  test("a shown id is credited: half a use, an engaged return, no lane day — once a day", () => {
+  test("a shown id is credited at the tier's weight, with its return (engaged at half, awake at full) — once a day", () => {
     const { c, ids } = setup();
     const [a, b] = ids as [string, string];
     shown(c, "s1", 1, [a, b]);
@@ -155,22 +164,22 @@ describe("Counterpart#creditDrewOn — the engaged tier, by the session's own wo
     expect(r.credited).toEqual([a]);
     expect(r.refused).toEqual([]);
     const row = c.store.row(a);
-    expect(row?.uses).toBe(0.5);
+    expect(row?.uses).toBe(W);
     expect(row?.last_used_day).toBe(c.store.livedDay());
-    expect(c.store.returnsOf(a).map((x) => x.source)).toEqual(["engaged"]);
-    expect(row?.return_days).toBe(0);
+    expect(c.store.returnsOf(a).map((x) => x.source)).toEqual([FULL ? "awake" : "engaged"]);
+    expect(row?.return_days).toBe(FULL ? 1 : 0);
     // Shown and not named: nothing.
     expect(c.store.row(b)?.uses).toBe(0);
     // Named again the same day: refused by name, nothing more.
     const again = c.creditDrewOn("s1", [a]);
     expect(again.credited).toEqual([]);
     expect(again.refused).toEqual([{ id: a, reason: "already-credited-at-or-above" }]);
-    expect(c.store.row(a)?.uses).toBe(0.5);
+    expect(c.store.row(a)?.uses).toBe(W);
     // The next lived day it counts again.
     c.store.advanceClock("2026-08-28");
     shown(c, "s1", 2, []);
     expect(c.creditDrewOn("s1", [a]).credited).toEqual([a]);
-    expect(c.store.row(a)?.uses).toBe(1);
+    expect(c.store.row(a)?.uses).toBe(2 * W);
   });
 
   test("an id this session was never shown is refused by name and nothing is credited", () => {
@@ -243,15 +252,16 @@ describe("Counterpart#creditDrewOn — the engaged tier, by the session's own wo
     expect(c.store.row(d)?.uses).toBe(0);
   });
 
-  test("an open later the same day lifts it to a full use, with one awake return", () => {
+  test("an open later the same day makes it one full use, with one awake return", () => {
     const { c, ids } = setup();
     const [a] = ids as [string];
     shown(c, "s1", 1, [a]);
     c.creditDrewOn("s1", [a]);
-    expect(c.store.row(a)?.uses).toBe(0.5);
+    expect(c.store.row(a)?.uses).toBe(W);
     const s = c.creditReferences("s1", { assistantTurns: [], expansions: [a] });
-    expect(s.credited).toBe(1);
-    expect(s.how).toEqual(["expanded"]);
+    // Half: the open lifts it. Full (2026-10-19): already credited at that weight.
+    expect(s.credited).toBe(FULL ? 0 : 1);
+    if (!FULL) expect(s.how).toEqual(["expanded"]);
     const row = c.store.row(a);
     expect(row?.uses).toBe(1);
     expect(row?.reinforced_days).toBe(1);
@@ -265,7 +275,7 @@ describe("Counterpart#creditDrewOn — the engaged tier, by the session's own wo
     shown(c, "s1", 1, [a]);
     c.creditDrewOn("s1", [a]);
     const s = c.creditReferences("s2", { assistantTurns: [], expansions: [a] });
-    expect(s.credited).toBe(1);
+    expect(s.credited).toBe(FULL ? 0 : 1);
     expect(c.store.row(a)?.uses).toBe(1);
     expect(c.store.returnsOf(a).map((x) => x.source)).toEqual(["awake"]);
   });
@@ -339,7 +349,7 @@ describe("the drewOn field on session_end and chapter", () => {
     );
     expect(out["deposited"]).toBe(1);
     expect(out["drewOn"]).toEqual({ credited: [a], refused: [{ id: "mem_000000000000", reason: "not-shown" }] });
-    expect(s.counterpart.store.row(a)?.uses).toBe(0.5);
+    expect(s.counterpart.store.row(a)?.uses).toBe(USE_TIER_WEIGHT.engaged);
     const rows = drewOnRows(s);
     expect(rows.length).toBe(1);
     expect(rows[0]).toMatchObject({ via: "session_end", reason: "credited", credited: 1, considered: 2, ids: [a], how: ["drewOn"], refused: { "not-shown": 1 } });
@@ -405,7 +415,7 @@ describe("the drewOn field on session_end and chapter", () => {
     // A write-up of a session nobody recorded: the write-up refuses, the field still counts.
     const out = payload(await s.call("session_end", { session: SESSION, writeUp: "sess_nobody_recorded", drewOn: [a] }));
     expect(out["drewOn"]).toEqual({ credited: [a] });
-    expect(s.counterpart.store.row(a)?.uses).toBe(0.5);
+    expect(s.counterpart.store.row(a)?.uses).toBe(USE_TIER_WEIGHT.engaged);
     expect(drewOnRows(s).map((r) => r["via"])).toEqual(["session_end"]);
   });
 

@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { TUNABLES as PHYSICS, promotionEligibility } from "../src/core/physics/index.js";
+import { TUNABLES as PHYSICS, partialSourceOf, promotionEligibility } from "../src/core/physics/index.js";
 import { TUNABLES as SLEEP, coreContextFor, coreRecurrence, identityBlock, runCycle, slotOf, weighCore } from "../src/core/sleep/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
@@ -147,7 +147,7 @@ describe("the recurrence lane counts the slot, the sessions and the window", () 
     expect(c.store.returnsOf(a).map((r) => r.session)).toEqual(["s-write"]);
   });
 
-  test("an engaged day counts half, and engaged days alone never meet the lane", () => {
+  test("an engaged day counts half, and engaged days alone never meet the lane (at a full drewOn, 2026-10-19, a full day)", () => {
     const c = brain();
     nextDay(c);
     const a = mem(c, "I notice when I hedge.");
@@ -155,11 +155,16 @@ describe("the recurrence lane counts the slot, the sessions and the window", () 
     c.resolveUse("s1", a, "engaged");
     const day = c.store.livedDay();
     const rec = coreRecurrence(c.store, a, day);
-    expect(rec.days).toBe(PHYSICS.ENGAGED_RECURRENCE_WEIGHT);
-    expect(rec.fullDays).toBe(0);
+    // The experiment of 2026-10-19 tries drewOn as a full use: its return is
+    // an awake one, so the day is a full day. At the half weight, as before.
+    const full = partialSourceOf("engaged") === null;
+    expect(rec.days).toBe(full ? 1 : PHYSICS.ENGAGED_RECURRENCE_WEIGHT);
+    expect(rec.fullDays).toBe(full ? 1 : 0);
     expect(rec.anchored).toBe(true);
-    const v = promotionEligibility(c.store.physicsOf(a), { aboutMe: true, recurrence: { ...rec, days: 10, sessions: 5, first: 1, last: 20 }, day });
-    expect(v.slow.met).toBe(false);
+    if (!full) {
+      const v = promotionEligibility(c.store.physicsOf(a), { aboutMe: true, recurrence: { ...rec, days: 10, sessions: 5, first: 1, last: 20 }, day });
+      expect(v.slow.met).toBe(false);
+    }
   });
 
   test("a return with no session counts one session per lived day; the window is the trailing 30", () => {
