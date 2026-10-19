@@ -1,0 +1,155 @@
+/**
+ * THE DAY THE DREAM REPLAYS (2026-10-19, feedback-loop build part E). An
+ * experiment: trying the day's own use as the dream's replay signal, to see
+ * whether the night starts reinforcing what the day actually used. Check on
+ * ~10-22; revert by zeroing `DAY_LIFT` and `TODAY_COUNT` (or the commit).
+ *
+ * What the day since the last dream did with its memories, read back from the
+ * rows it already leaves, so the dream can replay it: which were USED (opened
+ * by id, quoted, a lived return), which were RATED useful, which were named in
+ * `drewOn` or rated 3 (the REWARD tag: "replay me"), and which were only SHOWN.
+ * And which were used together in one session (the co-used pairs).
+ *
+ * Read, never written: `recall.credit` rows (the boundary's and the tools'
+ * `drewOn`, `ids` aligned with `how`), `recall.rated` rows (`ratings[]`),
+ * `returns` rows of every waking source (`store.livedReturnsSince`, a denylist,
+ * so a source a later build adds for waking use is read as it lands), and
+ * `recall.decision` rows (`surfaced` / `footnotes`, each `{id, …}`). Since part
+ * F the nightly run's own prompts write no decision rows, so "shown" is the
+ * day's alone; a night child's boundary credits nothing (its cursor never
+ * moves), so "used" is too.
+ *
+ * The event names are the composition root's (`counterpart-events.ts`),
+ * restated here as `recall/probe.ts` does, so `dream/` imports no root; a test
+ * holds them equal.
+ */
+import type { EventRow, Store } from "../store/index.js";
+import { DREAM_TUNABLES } from "./tunables.js";
+
+export const DAY_CREDIT_EVENT = "recall.credit";
+export const DAY_RATED_EVENT = "recall.rated";
+export const DAY_DECISION_EVENT = "recall.decision";
+
+/**
+ * How the day marked a memory, strongest first. `reward`: named in `drewOn`,
+ * or rated 3 ("changed what I did or said"). `used`: opened by id, quoted, or
+ * a lived return. `useful`: rated 2. `shown`: footnoted, came to mind, or
+ * rated 1 — and never rated 0 in the same stretch.
+ */
+export type DayMark = "reward" | "used" | "useful" | "shown";
+
+const RANK: Readonly<Record<DayMark, number>> = { reward: 3, used: 2, useful: 1, shown: 0 };
+
+/** True when `a` is a stronger mark than `b` (absent is weakest). */
+export function strongerMark(a: DayMark, b: DayMark | undefined): boolean {
+  return b === undefined || RANK[a] > RANK[b];
+}
+
+export interface DayRead {
+  /** Every memory the stretch marked, with its strongest mark. */
+  readonly marks: ReadonlyMap<string, DayMark>;
+  /**
+   * Memories used together — each `useful` or stronger in the same session —
+   * as pairs, the session with the most such memories first, each pair once.
+   * Bounded by `DREAM_TUNABLES.TODAY_PAIRS` before the bundle filters them.
+   */
+  readonly pairs: readonly (readonly [string, string])[];
+}
+
+/** One payload, parsed; an unreadable one is an empty object. */
+function payloadOf(e: EventRow): Record<string, unknown> {
+  try {
+    const v: unknown = JSON.parse(e.payload ?? "{}");
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function idsOf(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const x of v) {
+    if (typeof x === "string" && x.length > 0) out.push(x);
+    else if (x !== null && typeof x === "object" && typeof (x as Record<string, unknown>)["id"] === "string") out.push((x as Record<string, string>)["id"] as string);
+  }
+  return out;
+}
+
+/**
+ * Read the stretch since `sinceAt` (epoch ms), on lived days from `sinceDay`
+ * (the index bound; rows are then held to `sinceAt` by their own clock). Never
+ * throws: a read that fails is an empty day, and the dream composes as before.
+ */
+export function readDay(store: Pick<Store, "eventLog" | "livedReturnsSince">, window: { sinceDay: number; sinceAt: number }): DayRead {
+  const marks = new Map<string, DayMark>();
+  const zero = new Set<string>();
+  const shown = new Set<string>();
+  /** session → memories it used (useful or stronger), in the order met. */
+  const together = new Map<string, Set<string>>();
+  const mark = (id: string, m: DayMark, session?: unknown): void => {
+    if (strongerMark(m, marks.get(id))) marks.set(id, m);
+    if (RANK[m] >= RANK.useful && typeof session === "string" && session.length > 0) {
+      const s = together.get(session) ?? new Set<string>();
+      s.add(id);
+      together.set(session, s);
+    }
+  };
+  const rows = (name: string): EventRow[] => {
+    try {
+      return store.eventLog({ name, sinceDay: window.sinceDay, limit: Number.MAX_SAFE_INTEGER }).filter((e) => e.at >= window.sinceAt);
+    } catch {
+      return [];
+    }
+  };
+  for (const e of rows(DAY_CREDIT_EVENT)) {
+    const p = payloadOf(e);
+    const ids = idsOf(p["ids"]);
+    const how = Array.isArray(p["how"]) ? (p["how"] as unknown[]) : [];
+    ids.forEach((id, i) => mark(id, how[i] === "drewOn" || p["source"] === "drewOn" ? "reward" : "used", p["session"]));
+  }
+  for (const e of rows(DAY_RATED_EVENT)) {
+    const p = payloadOf(e);
+    for (const r of Array.isArray(p["ratings"]) ? (p["ratings"] as unknown[]) : []) {
+      if (r === null || typeof r !== "object") continue;
+      const o = r as Record<string, unknown>;
+      const id = typeof o["id"] === "string" ? o["id"] : "";
+      if (id.length === 0) continue;
+      const score = o["score"];
+      if (score === 3 || o["drewOn"] === true) mark(id, "reward", p["session"]);
+      else if (score === 2) mark(id, "useful", p["session"]);
+      else if (score === 1) shown.add(id);
+      else if (score === 0) zero.add(id);
+    }
+  }
+  try {
+    for (const r of store.livedReturnsSince({ sinceAt: window.sinceAt, sinceDay: window.sinceDay })) mark(r.memoryId, "used", r.session);
+  } catch {
+    /* no returns read: the other rows still mark the day */
+  }
+  for (const e of rows(DAY_DECISION_EVENT)) {
+    const p = payloadOf(e);
+    for (const id of [...idsOf(p["surfaced"]), ...idsOf(p["footnotes"])]) shown.add(id);
+  }
+  // SHOWN, AND NOT CALLED NOISE: a memory rated 0 in the stretch is not lifted
+  // for having been shown (part D handles noise on the recall side).
+  for (const id of shown) if (!zero.has(id) && !marks.has(id)) marks.set(id, "shown");
+
+  const pairs: [string, string][] = [];
+  const seen = new Set<string>();
+  const sessions = [...together.values()].sort((a, b) => b.size - a.size);
+  for (const ids of sessions) {
+    const list = [...ids];
+    for (let i = 0; i < list.length && pairs.length < DREAM_TUNABLES.TODAY_PAIRS; i++) {
+      for (let j = i + 1; j < list.length && pairs.length < DREAM_TUNABLES.TODAY_PAIRS; j++) {
+        const a = list[i] as string;
+        const b = list[j] as string;
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        pairs.push([a, b]);
+      }
+    }
+  }
+  return { marks, pairs };
+}

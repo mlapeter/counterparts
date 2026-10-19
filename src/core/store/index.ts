@@ -4628,6 +4628,12 @@ export class Store {
     return memoryReads.memoriesOfSession(this, session);
   }
 
+  /** The day's lived returns — every source but the night's and `legacy` —
+   *  for the dream's day replay (2026-10-19, `reads-memories.ts#livedReturnsSince`). */
+  livedReturnsSince(filter?: { sinceAt?: number; sinceDay?: number }): { memoryId: string; source: string; session: string | null }[] {
+    return memoryReads.livedReturnsSince(this, filter);
+  }
+
   /** The ids ONE session wrote, born at or after `sinceAt` — ambient recall's
    *  echo set (2026-10-19, `reads-memories.ts#sessionMemoryIds`). `fromDay`
    *  bounds the read on the birth index. */

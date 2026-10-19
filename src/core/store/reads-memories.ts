@@ -237,6 +237,26 @@ export function memoriesWrittenSince(store: Store, at: number): { id: string; se
     .map((r) => ({ id: r.id, session: r.origin_session, at: r.created_at, bornDay: r.birth_day, nightly: r.nightly === 1 }));
 }
 
+/**
+ * THE DAY'S LIVED RETURNS, row by row (2026-10-19, feedback-loop part E): one
+ * per memory, day and source, at or after `sinceAt` (epoch ms) on lived days
+ * from `sinceDay` — every source but the night's own (`dream`, `reflection`)
+ * and the imported history (`legacy`). A denylist, so a source a later build
+ * adds for waking use is read without an edit here. Ids, sources and the
+ * session that earned it; nothing else.
+ */
+export function livedReturnsSince(store: Store, filter: { sinceAt?: number; sinceDay?: number } = {}): { memoryId: string; source: string; session: string | null }[] {
+  return store["ops"]
+    .all<{ memory_id: string; source: string; session: string | null }>(
+      `SELECT memory_id, source, session FROM returns
+          WHERE at >= ? AND day >= ? AND source NOT IN ('dream', 'reflection', 'legacy')
+          ORDER BY at, memory_id`,
+      filter.sinceAt ?? 0,
+      filter.sinceDay ?? -2_147_483_648,
+    )
+    .map((r) => ({ memoryId: r.memory_id, source: r.source, session: r.session }));
+}
+
 export function memoryCountsByScopeSince(store: Store, at: number, opts: { confidential?: boolean } = {}): { scope: string; count: number }[] {
   return store["ops"]
     .all<{ origin_scope: string; n: number }>(
