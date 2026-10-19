@@ -46,6 +46,19 @@ reads. Recall CONTRACT item 22; `src/core/recall/prime.ts`.
   previous subject the review should watch for. (4) A first prompt in a folder with open
   threads or a handoff IS primed by them; "identical to before" holds only with nothing
   open there.
+- **Cost, measured 2026-10-19.** A synthetic store in a temp dir (20,000 topical memories
+  with potion vectors, 9,500 links mostly within a topic; never a live store), 30 prepared
+  sessions per arm, each measured turn in its own fresh process (a cold hook), the real
+  embedder, priming on (sources used 1, wrote 1, open 3, a train, 24 candidates primed)
+  against priming off: the recall build p50 66 / p95 69 ms against 62 / 66 ms; the whole
+  `recallForTurn` p50 72 / p95 76 against 68 / 72 ms. About 4 ms, against the 1,200 ms
+  budget. (The machine was shared with other test runs; the arms were interleaved.)
+- **One thing to watch on the static table.** Its in-line floor is low (0.15), so on a
+  steady topic nearly every candidate is a little near the train: in the cost run all 24
+  were primed. Kept out of the bar, a uniform head start can still lift several over it;
+  if `shown` rises with `byTrain` across the board, centre the train's score on the
+  turn's own candidates (only what is nearer the train than the turn's average gets a
+  head start) or lower `PRIME_TRAIN_SHARE`.
 - **Privacy.** The train is the person's words in another form: it is emptied with the
   carried cues in a session idle past the retention ceiling (`clearIdleCarries`).
 
