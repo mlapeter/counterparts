@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 import type { Candidate } from "../src/core/recall/activate.js";
 import { gate } from "../src/core/recall/gate.js";
-import { Recall } from "../src/core/recall/index.js";
+import { headsWin, Recall } from "../src/core/recall/index.js";
 import { freshGateState } from "../src/core/recall/session.js";
 import { TUNABLES } from "../src/core/recall/tunables.js";
 import { settle } from "../src/core/reconsolidation.js";
@@ -135,6 +135,96 @@ describe("path B: a head the words reached more weakly stands in too", () => {
       expect(r.injection).toContain(`(earlier: [${older}])`);
     } finally {
       store.close();
+    }
+  });
+});
+
+describe("the review of #526", () => {
+  function store4() {
+    dir = mkdtempSync(join(tmpdir(), "counterparts-head-stands-in-"));
+    const store = Store.open({ dir });
+    for (const d of ["2026-09-01", "2026-09-02"]) store.advanceClock(d);
+    const put = (body: string): string => {
+      const day = store.livedDay();
+      return store.put({ type: "memory", kind: "fact", body, salience: { relevance: 0.6, emotional: 0.2, predictive: 0.6 }, physics: { birthDay: day, lastUsedDay: day } });
+    };
+    return { store, put };
+  }
+  const brief = (out: readonly Candidate[]) =>
+    out.map((c) => `${c.id}@${c.activation}${c.standsFor !== undefined ? `>${c.standsFor}` : ""}${c.linkOnly === true ? "~" : ""}`);
+
+  test("the strongest earlier claims the head, whatever order the cut gave (two earlier, one head; a chain)", () => {
+    const { store, put } = store4();
+    try {
+      const a1 = put("first earlier");
+      const a2 = put("second earlier");
+      const h = put("the head");
+      expect(settle(store, { holds: h, over: a1, how: "changed", actor: "owner" }).ok).toBe(true);
+      expect(settle(store, { holds: h, over: a2, how: "changed", actor: "owner" }).ok).toBe(true);
+      for (const order of [[a1, a2, h], [a2, a1, h], [h, a2, a1]]) {
+        const act: Record<string, number> = { [a1]: 5, [a2]: 3, [h]: 1 };
+        const out = headsWin(store, order.map((id) => cand(id, "x", act[id]!)), 2);
+        expect(out.filter((c) => c.standsFor !== undefined).map((c) => [c.id, c.standsFor, c.activation])).toEqual([[h, a1, 5]]);
+        expect(out.filter((c) => c.id === h)).toHaveLength(1); // the weak direct one is dropped
+      }
+      // A chain A→B→C: A and B both have head C; C stands in at A's numbers.
+      const b = put("middle");
+      const c = put("newest");
+      expect(settle(store, { holds: b, over: a1, how: "changed", actor: "owner" }).ok).toBe(true);
+      expect(settle(store, { holds: c, over: b, how: "changed", actor: "owner" }).ok).toBe(true);
+      const out = headsWin(store, [cand(b, "x", 3), cand(a1, "x", 5), cand(c, "x", 1)], 2);
+      expect(brief(out.filter((x) => x.standsFor !== undefined))).toEqual([`${c}@5>${a1}`]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a link-only earlier never displaces a head the words reached", () => {
+    const { store, put } = store4();
+    try {
+      const e = put("earlier");
+      const h = put("head");
+      expect(settle(store, { holds: h, over: e, how: "changed", actor: "owner" }).ok).toBe(true);
+      const out = headsWin(store, [cand(e, "x", 4, { cue: 0, linkOnly: true, maxTier: "footnoted" }), cand(h, "x", 3)], 2);
+      expect(brief(out)).toEqual([`${e}@4~`, `${h}@3`]);
+    } finally {
+      store.close();
+    }
+  });
+
+  test("a head reached at least as strongly is left alone; an archived one is no head", () => {
+    const { store, put } = store4();
+    try {
+      const e = put("earlier");
+      const h = put("head");
+      const e2 = put("earlier two");
+      const h2 = put("head two");
+      expect(settle(store, { holds: h, over: e, how: "changed", actor: "owner" }).ok).toBe(true);
+      expect(settle(store, { holds: h2, over: e2, how: "changed", actor: "owner" }).ok).toBe(true);
+      store.archive(h2, "test");
+      const out = headsWin(store, [cand(e, "x", 3), cand(h, "x", 3), cand(e2, "x", 5)], 2);
+      expect(brief(out)).toEqual([`${e}@3`, `${h}@3`, `${e2}@5`]);
+      expect(out[0]!.head).toBe(h);
+      expect(out[2]!.head).toBeUndefined();
+    } finally {
+      store.close();
+    }
+  });
+
+  test("the weak direct reach stays in the background: no other memory's bar moves", () => {
+    const words = ["alpha", "bravo", "charlie", "delta", "echo"];
+    const bg = [6, 8, 10, 12, 14, 6, 8, 10, 12, 14].map((a, i) => cand(`bg${i}`, `${words[i % 5]} ${i}`, a));
+    const earlier = cand("earlier", "e", 15, { head: "head" });
+    const run = (cs: Candidate[]) =>
+      gate({ candidates: cs, state: freshGateState("s"), storeSize: 200, owner: true, affectStated: false, turn: 1 }, TUNABLES);
+    const before = run([...bg, earlier, cand("head", "h", 2)]);
+    const after = run([...bg, earlier, cand("head", "h", 15, { standsFor: "earlier", directReach: 2 })]);
+    expect(after.background.mean).toBeCloseTo(before.background.mean, 9);
+    expect(after.background.sd).toBeCloseTo(before.background.sd, 9);
+    for (const v of before.verdicts.filter((x) => x.id.startsWith("bg"))) {
+      const w = after.verdicts.find((x) => x.id === v.id)!;
+      expect(w.bar).toBeCloseTo(v.bar, 9);
+      expect(w.verdict).toBe(v.verdict);
     }
   });
 });

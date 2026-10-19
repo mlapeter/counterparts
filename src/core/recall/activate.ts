@@ -134,6 +134,11 @@ export interface Candidate {
    * is left out of the turn's background (it was not reached on its own).
    */
   readonly standsFor?: string;
+  /** A head standing in that the words ALSO reached on their own, more weakly
+   *  (2026-10-19, an experiment): that reach, which stays in the turn's
+   *  background where its dropped direct candidate sat (review of #526), so
+   *  the stand-in moves no other memory's bar. Absent otherwise. */
+  readonly directReach?: number;
   /** LIFTED BY A LINK (2026-10-11, Group 4 item 7): in the cut only because a
    *  hop raised it — the cut without hops left it out. Absent otherwise. */
   readonly lifted?: true;

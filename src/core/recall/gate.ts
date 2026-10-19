@@ -306,7 +306,12 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   // same reach counted twice: outside the sample too — but it faces the bar
   // of the one it stands for (`barOf`), not the whole sample's.
   const inSample = (c: Candidate): boolean => c.pastCut !== true && c.standsFor === undefined && c.cue - (c.stamp ?? 0) + c.semantic > 0;
-  const acts = input.candidates.filter(inSample).map(own);
+  // A stand-in the words also reached on their own keeps that reach in the
+  // background (`directReach`, review of #526): what the words found, once.
+  const acts = [
+    ...input.candidates.filter(inSample).map(own),
+    ...input.candidates.flatMap((c) => (c.standsFor !== undefined && c.directReach !== undefined ? [c.directReach] : [])),
+  ];
   const bg = background(acts, input.storeSize, t);
   /** The loud-tier floors are in the same unit as hard gate (b)'s (`floorUnit`). */
   const loudUnit = floorUnit(input.storeSize);
