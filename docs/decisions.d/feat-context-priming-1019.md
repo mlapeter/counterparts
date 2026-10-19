@@ -65,11 +65,13 @@ reads. Recall CONTRACT item 22; `src/core/recall/prime.ts`.
     nearest its train). A lone candidate has no peers to beat and gets no train head
     start. Revert by setting `PRIME_TRAIN_CENTRE` to 0. Measured on a synthetic ~2,000
     memory store with the real potion table (temp dir; 5 topics, a steady 8-prompt
-    baking session, 3 sessions an arm, identical copies of one store per arm): shown
-    over 24 turns, priming off 30, floor-only 36 (6 shown only because of priming),
-    centred 33 (3); with lagged cues, 30 / 36 (6) / 33 (3). The cut's mean cosine with
-    the train ran 0.18–0.57, so the bar the train must beat sits well above the 0.15
-    floor on a steady topic.
+    baking session, 3 sessions an arm, identical copies of one store per arm, on master
+    with #529's stemming): shown over 24 turns, priming off 24, floor-only 27 (3 shown
+    only because of priming), centred 24 (0); with lagged cues, 27 / 30 (3) / 30 (3).
+    Train-primed candidates in the cut fell from 21–24 of 24 to 6–20. The cut's mean
+    cosine with the train ran 0.27–0.60, so the bar the train must beat sits well above
+    the 0.15 floor on a steady topic. Small numbers, one synthetic corpus: direction, not
+    a calibration.
   - *The train's strength follows how much it holds* (`TrainState.mass`: each prompt adds
     1, a turn's source fold at most 1, all decayed with it; the head start is scaled by
     `min(1, mass)`). A cosine cannot see a vector's length, so before this a train holding
