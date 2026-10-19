@@ -527,8 +527,8 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
   const words = (text: string): { scores: Map<string, number>; idfTotal: number; tokens: string[] } => {
     const tokens = contentTokens(text);
     // One word per index term: "bake … baking" is asked once, over both forms
-    // (the store stems them, and asks for the forms too while a v6 index is
-    // still being re-stemmed).
+    // (the store stems them, and asks for the forms as written too, so a row
+    // from before the v7 re-stem still matches).
     const groups = new Map<string, string[]>();
     for (const tok of tokens) {
       const key = stemTerm(tok);

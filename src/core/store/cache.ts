@@ -41,12 +41,19 @@ import { STEMMER_VERSION, stemTerm } from "./stem.js";
  * and `cache_meta.terms` says when every row has been re-stemmed. The bump does
  * NOT re-stem at open — a hook cannot pay that (the diagnosis measured a full
  * rebuild at 3.3 s on a live-sized copy) — so a migrated cache starts MIXED:
- * old rows hold surface words, new writes hold stems, and until the marker
- * lands every lookup asks for both forms (`lookupTerms`), so no word recall is
- * lost. The worker re-stems in bounded batches, from `doc_tokens` alone
- * (`restemBatch`), and sets the marker when it reaches the end. REVERTING is
- * not free: a build that looks words up unstemmed misses every stemmed row, so
- * the way back is another bump whose worker step re-indexes from prose.
+ * old rows hold surface words, new writes hold stems, and every lookup asks
+ * for both forms (`lookupTerms`; always, not only while mixed — an older build
+ * can still write surface rows here), so no word recall is lost. The worker
+ * re-stems in bounded batches, from `doc_tokens` alone (`restemBatch`), and
+ * sets the marker when it reaches the end. REVERTING is not free: a build that
+ * looks words up unstemmed misses every stemmed row, so the way back is
+ * another bump whose worker step re-indexes from prose — or a build that
+ * indexes surface words again and keeps asking for both forms. AN OLDER BUILD
+ * on this cache reads it as "ahead" (its memory server refuses every tool)
+ * and its hooks miss every stemmed row; the way back there is to delete
+ * `cache/cache.sqlite*` and run `counterparts verify --rebuild --keep-vectors`
+ * on that build (deleting alone leaves the word index empty). `rollback` does
+ * not cover it: it restores a STORE migration, and this is none.
  */
 export const CACHE_SCHEMA_VERSION = 7;
 
@@ -296,7 +303,7 @@ export function openCache(path: string): Db {
       backfillLengths(db);
       // v7: an EMPTY index is trivially stemmed — every row it will ever hold
       // is written by this build. A non-empty one is the worker's to re-stem
-      // (`restemBatch`); until it says so, lookups ask for both forms.
+      // (`restemBatch`); lookups ask for both forms meanwhile (and after).
       if (db.get<{ one: number }>("SELECT 1 AS one FROM doc_tokens LIMIT 1") === undefined) {
         db.run("INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?, ?)", TERMS_META_KEY, STEMMER_VERSION);
       }
@@ -1029,7 +1036,8 @@ export function tokenize(text: string): string[] {
 /**
  * `cache_meta` key: the `STEMMER_VERSION` every `doc_tokens` row was written
  * under. Absent means MIXED — a cache migrated from v6 whose old rows still
- * hold surface words — and every lookup then asks for both forms.
+ * hold surface words. The worker's progress, not a switch: every lookup asks
+ * for both forms either way (`lookupTerms`).
  */
 export const TERMS_META_KEY = "terms";
 /** `cache_meta` key: how far the worker's re-stem has got (a memory id), between runs. */
@@ -1050,17 +1058,24 @@ export function termIndexReady(db: Db): boolean {
 }
 
 /**
- * The index terms a lookup asks for. Stemmed always; while the index is MIXED
- * (`termIndexReady` false) the surface form too, so a row written before the
- * migration still matches exactly as it did — word recall is never lost to a
- * rebuild in progress. Once the marker lands, the surface form could only ever
- * match a row whose stem it happens to equal, which the stem already covers.
+ * The index terms a lookup asks for: the stem AND the surface form, always —
+ * so a row holding the word as written still matches exactly as it did before
+ * v7, whoever wrote it. While the index is MIXED that is a row from before the
+ * migration. After the marker it is still possible: an older build (a
+ * downgrade, `npm i counterparts@<older>`) writes surface rows into this cache
+ * — it leaves a newer cache's stamp alone but still indexes what it writes —
+ * and after the upgrade back the marker says "stemmed" over them (measured on
+ * a bench copy, review of #529: a memory saying "baking" written by the older
+ * build was then found by neither "bake" nor "baking"). On a fully stemmed
+ * index the surface form costs one empty index probe and changes no result:
+ * every row there is a `stemTerm` output, a fixed point, so a surface word
+ * that differs from its stem cannot be in it.
  */
-export function lookupTerms(tokens: readonly string[], ready: boolean): string[] {
+export function lookupTerms(tokens: readonly string[]): string[] {
   const out = new Set<string>();
   for (const t of tokens) {
     out.add(stemTerm(t));
-    if (!ready) out.add(t);
+    out.add(t);
   }
   return [...out];
 }
@@ -1292,9 +1307,9 @@ export function searchIndex(
   norm: LengthNorm = DEFAULT_LENGTH_NORM,
   minStrength: number | null = null,
 ): Hit[] {
-  // v7: the cue's words as INDEX TERMS — stemmed, plus the surface form while
-  // the index is still mixed (`lookupTerms`). Every caller of `search` gets this.
-  const tokens = lookupTerms([...new Set(tokenize(cue))], termIndexReady(db));
+  // v7: the cue's words as INDEX TERMS — the stem and the surface form
+  // (`lookupTerms`). Every caller of `search` gets this.
+  const tokens = lookupTerms([...new Set(tokenize(cue))]);
   if (tokens.length === 0) return [];
   const placeholders = tokens.map(() => "?").join(",");
   const avg = avgDocLen(db);
@@ -1350,22 +1365,22 @@ export function docFrequency(db: Db, tokens: readonly string[]): Map<string, num
   // share a stem ("bake baking") — and counted as the documents holding ANY of
   // its index terms (`lookupTerms`). The map stays keyed by what the caller
   // passed, so callers never hold a stem.
-  const ready = termIndexReady(db);
   const termsOf = new Map<string, string[]>();
-  for (const key of new Set(tokens)) termsOf.set(key, lookupTerms([...new Set(tokenize(key))], ready));
+  for (const key of new Set(tokens)) termsOf.set(key, lookupTerms([...new Set(tokenize(key))]));
   const perTerm = termCounts(db, [...new Set([...termsOf.values()].flat())]);
   const out = new Map<string, number>();
   for (const [key, terms] of termsOf) {
-    if (terms.length === 0) continue;
-    // One term (the common case, and every case once the index is stemmed and
-    // the key is one word): its count. Several: the documents holding any of
-    // them, each counted once.
+    // Only the terms the index holds. One (the common case, and every case on
+    // a stemmed index with a one-word key — the surface form is absent there):
+    // its count. Several: the documents holding any of them, each counted once.
+    const held = terms.filter((t) => (perTerm.get(t) ?? 0) > 0);
+    if (held.length === 0) continue;
     const n =
-      terms.length === 1
-        ? (perTerm.get(terms[0] as string) ?? 0)
+      held.length === 1
+        ? (perTerm.get(held[0] as string) ?? 0)
         : (db.get<{ n: number }>(
-            `SELECT COUNT(DISTINCT memory_id) AS n FROM doc_tokens WHERE token IN (${terms.map(() => "?").join(",")})`,
-            ...terms,
+            `SELECT COUNT(DISTINCT memory_id) AS n FROM doc_tokens WHERE token IN (${held.map(() => "?").join(",")})`,
+            ...held,
           )?.n ?? 0);
     if (n > 0) out.set(key, n);
   }

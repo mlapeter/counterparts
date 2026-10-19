@@ -547,7 +547,7 @@ export function activate(
     }
     const byDoc = new Map<string, number>();
     // Every surface form of the cue (`Cue.forms`): the store stems them, and
-    // asks for the forms too while the index is still mixed (v7).
+    // asks for the forms as written too, so an unstemmed row still matches (v7).
     const asked = (cue.forms ?? [cue.token]).join(" ");
     for (const h of store.search(asked, t.PER_CUE_FETCH, norm, reachFilter)) byDoc.set(h.id, h.score);
     postings.set(cue.token, byDoc);

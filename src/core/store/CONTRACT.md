@@ -114,14 +114,19 @@ ended up with canonical state spread across a prose store plus half a dozen side
      `indexDoc` writes `indexTerms`, and `searchIndex` / `docFrequency` stem what they look
      up, keyed back by what the caller asked. **The bump does not re-stem at open** (a hook
      cannot pay for it), so a migrated cache is MIXED until `cache_meta.terms` names the
-     stemmer: until then every lookup asks for the surface form AND the stem, so no word a
-     row matched before stops matching it. The worker re-stems (`Store#restemIndex`, runner
+     stemmer. Every lookup asks for the surface form AND the stem — always, not only while
+     mixed, since an older build still writes surface rows into a cache it reads as ahead —
+     so no word a row matched before stops matching it (on a stemmed index the surface form
+     changes no result). The worker re-stems (`Store#restemIndex`, runner
      step 0c): bounded per run, resumable through `cache_meta.termsCursor`, derived from
      `doc_tokens` alone (no prose read, no vector touched, lengths unchanged), idempotent
      because the stemmer is. An empty cache and a reset are stemmed from the start. **A
      revert is not free**: a build that looks words up unstemmed misses every stemmed row,
      so going back means another bump whose worker step re-indexes from prose. An older
-     build reads a v7 cache as ahead (the #187 policy, as for every bump).
+     build reads a v7 cache as ahead (the #187 policy, as for every bump) and its hooks miss
+     every stemmed row; its way back is deleting `cache/cache.sqlite*` and
+     `counterparts verify --rebuild --keep-vectors` (`rollback` restores store migrations
+     only).
 - **The markdown parser is gone, and with it the "refuses ambiguity" guarantee it carried**
   ([v1] §4.2 G7): the frontmatter reader, the authoritative `payload:` line that existed so
   a lossy YAML reading could never become the truth, and the six refusal codes around them

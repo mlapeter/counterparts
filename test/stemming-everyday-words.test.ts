@@ -220,6 +220,51 @@ describe("a cache migrated from v6", () => {
     s.close();
   });
 
+  test("a surface row an OLDER build writes after the marker still matches its own word (a downgrade and back)", () => {
+    // An older build reads this cache as ahead, leaves its stamp and marker
+    // alone, and still indexes what it writes — as written. Measured on a bench
+    // copy (review of #529): before lookups always asked for both forms, that
+    // memory was found by neither "bake" nor "baking" after the upgrade back.
+    let s = open();
+    s.put({ type: "memory", kind: "fact", body: "Wants to bake sourdough with rye" });
+    expect(s.termIndex().ready).toBe(true);
+    const old = s.put({ type: "memory", kind: "fact", body: "Was baking loaves for the neighbours" });
+    s.close();
+    {
+      const db = openDb(paths.cache(dir), { wal: true });
+      db.transaction(() => {
+        db.run("DELETE FROM doc_tokens WHERE memory_id = ?", old);
+        const counts = new Map<string, number>();
+        for (const t of tokenize("Was baking loaves for the neighbours")) counts.set(t, (counts.get(t) ?? 0) + 1);
+        for (const [t, tf] of counts) db.run("INSERT INTO doc_tokens (memory_id, token, tf) VALUES (?, ?, ?)", old, t, tf);
+      });
+      db.close();
+    }
+    s = open();
+    expect(s.termIndex().ready).toBe(true);
+    expect(s.search("baking", 10).map((h) => h.id)).toContain(old);
+    expect(s.search("neighbours", 10).map((h) => h.id)).toEqual([old]);
+    expect(s.docFrequency(["neighbours"]).get("neighbours")).toBe(1);
+    // "bake" + "baking" as one key: the stemmed row and the surface row, each once.
+    expect(s.docFrequency(["bake baking"]).get("bake baking")).toBe(2);
+    s.close();
+  });
+
+  test("on a stemmed index, asking for the surface form too changes no result", () => {
+    const s = open();
+    for (const body of ["Birthday baking plans", "Baked cookies for the parties", "The cookie jar", "Bakes on weekends"]) {
+      s.put({ type: "memory", kind: "fact", body });
+    }
+    const db = openDb(paths.cache(dir), { wal: true });
+    const held = new Set(db.all<{ token: string }>("SELECT DISTINCT token FROM doc_tokens").map((r) => r.token));
+    db.close();
+    // Every indexed term is a fixed point of the stemmer, so a surface word
+    // that differs from its stem is never in the index.
+    for (const t of held) expect(stemTerm(t)).toBe(t);
+    for (const w of ["baking", "baked", "cookies", "parties", "bakes"]) expect(held.has(w)).toBe(false);
+    s.close();
+  });
+
   test("the re-stem is a write: an observer cannot run it", () => {
     expect(WRITE_METHODS).toContain("restemIndex");
   });
@@ -266,6 +311,28 @@ describe("cues", () => {
     expect(weightOf(scaled, "what")).toBe(0);
     // No table at all: exactly the old weights.
     expect(buildCues({ ...input, wordNorm: () => null }, TUNABLES)).toEqual(plain);
+  });
+
+  test("Store.wordNorm is null with no embedder, an embedder that offers none, or one that throws", () => {
+    const vec = (text: string): number[] => [text.length % 7, 1, 0.5];
+    let s = open();
+    expect(s.wordNorm("the")).toBeNull();
+    s.close();
+    s = open({ embed: Object.assign(vec, {}) });
+    expect(s.wordNorm("the")).toBeNull();
+    s.close();
+    s = open({
+      embed: Object.assign(vec, {
+        wordNorm: (): number => {
+          throw new Error("table gone");
+        },
+      }),
+    });
+    expect(s.wordNorm("the")).toBeNull();
+    s.close();
+    s = open({ observer: true });
+    expect(s.wordNorm("the")).toBeNull();
+    s.close();
   });
 });
 
