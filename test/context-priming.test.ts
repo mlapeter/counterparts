@@ -305,7 +305,7 @@ describe("context priming: what the session wrote", () => {
       body: "The rye levain doubled overnight once it moved beside the warm oven.",
       origin: { session: "s-wrote" },
     });
-    // The faint link a write-time trail lays (associate `WRITE_LINK_WEIGHT`'s order).
+    // A faint link, of the order a dream proposes (write-time links are off since #528), so both channels are seen.
     link(c, w, older, 0.06);
     const names = { [older]: "OLDER", [w]: "W" };
     const ask = "how is the levain doing beside the oven?";

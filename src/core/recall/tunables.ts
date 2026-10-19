@@ -253,7 +253,7 @@ export interface RecallTunables {
    *  (`floorUnit`) to each linked partner. Why 1: a fresh source and a link
    *  two co-uses made (0.5, associate `CO_USE_DEPOSIT`) give half a
    *  maximally-rare cue — two and a half times the floor, enough to clear an
-   *  ordinary bar; a faint write-time or dream link (~0.05) only breaks ties. */
+   *  ordinary bar; a faint dream or contiguity link (~0.05) only breaks ties. */
   PRIME_LINK_UNITS: number;
   /** Along MEANING: the train of thought's head start, as a SHARE of what the
    *  turn's own meaning gives at the same cosine (the in-line semantic floor and

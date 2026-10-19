@@ -16,7 +16,7 @@ reads. Recall CONTRACT item 22; `src/core/recall/prime.ts`.
   session. Not the self page (the brief's tunnel-vision worry).
 - **Two channels.** Along links: one hop (`Associate#partnersOf`), Σ source weight × decayed
   edge × `PRIME_LINK_UNITS` (1) cue units. Why 1: a fresh source and a link two co-uses made
-  (0.5, #525) give half a maximally-rare cue, about 2.5× the floor; a write-time or dream
+  (0.5, #525) give half a maximally-rare cue, about 2.5× the floor; a dream or contiguity
   link (~0.05) only breaks ties. Along meaning: a running vector of this session's prompts,
   decayed ×`PRIME_TRAIN_DECAY` (0.5) a turn — the previous prompt 1, the one before 0.5 —
   with each source's vector folded in once when it first counts (a turn's new sources
