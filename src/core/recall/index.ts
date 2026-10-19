@@ -956,7 +956,8 @@ function upgradeOf(prior: { tier: UseTier; day: number } | undefined, today: num
  * THE CHAIN HEAD WINS AMBIENT RECALL (2026-10-11, Group 2; review 04 change
  * 1, MOD #3). A candidate a later memory settled over (`headOf`) carries its
  * head, and the gate inhibits it when the head is admitted or already in the
- * session. When the turn did not reach the head itself, the head is brought
+ * session. When the turn did not reach the head itself (or reached it more
+ * weakly than the earlier one, 2026-10-19), the head is brought
  * in to stand for it — the earlier's numbers (what came to mind), the head's
  * words, and its standing label naming the earlier one (`(earlier: [id])`) —
  * left out of the turn's background. Not a confidential head for a guest:
@@ -969,7 +970,16 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
   // apart from what the words found, so the earlier version the words found
   // was never inhibited and both showed. It is brought in to stand for the
   // earlier one instead, and its link-only candidate is dropped.
-  const ids = new Set(candidates.filter((c) => c.linkOnly !== true).map((c) => c.id));
+  //
+  // A HEAD THE WORDS REACHED MORE WEAKLY than the earlier one (2026-10-19, an
+  // experiment) stands in for it too, with the earlier's numbers: on its own
+  // weak reach it failed its bar while the earlier passed and showed without
+  // it. Its direct candidate is dropped, so its own reach leaves the turn's
+  // background (one below-mean value). Trying this to see the
+  // earlier-shown-without-its-head count go to ~0; check ~10-22; revert by
+  // keying this map back to a set of ids
+  // (IMPROVEMENTS.md, "the head-wins gap", 2026-10-19).
+  const reached = new Map(candidates.filter((c) => c.linkOnly !== true).map((c) => [c.id, c.activation]));
   const out: Candidate[] = [];
   const brought = new Set<string>();
   for (const c of candidates) {
@@ -984,7 +994,8 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
       continue;
     }
     out.push({ ...c, head });
-    if (ids.has(head) || brought.has(head)) continue;
+    const direct = reached.get(head);
+    if ((direct !== undefined && direct >= c.activation) || brought.has(head)) continue;
     try {
       const row = store.row(head);
       if (row === undefined) continue;
@@ -1004,7 +1015,7 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
       /* an unreadable head: the earlier one shows, labelled */
     }
   }
-  return brought.size === 0 ? out : out.filter((c) => !(c.linkOnly === true && brought.has(c.id) && c.standsFor === undefined));
+  return brought.size === 0 ? out : out.filter((c) => !(brought.has(c.id) && c.standsFor === undefined));
 }
 
 function trainsOf(verdicts: readonly CandidateVerdict[], id: string): boolean {

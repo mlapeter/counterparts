@@ -303,7 +303,8 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   // the sample; its bar is the whole sample's. Absent on every ambient turn, so there nothing changes.
   const own = (c: Candidate): number => c.activation - (c.stamp ?? 0);
   // A head brought in for an earlier memory (`standsFor`, 2026-10-11) is the
-  // same reach counted twice: outside the sample too.
+  // same reach counted twice: outside the sample too — but it faces the bar
+  // of the one it stands for (`barOf`), not the whole sample's.
   const inSample = (c: Candidate): boolean => c.pastCut !== true && c.standsFor === undefined && c.cue - (c.stamp ?? 0) + c.semantic > 0;
   const acts = input.candidates.filter(inSample).map(own);
   const bg = background(acts, input.storeSize, t);
@@ -312,8 +313,17 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
   const sum = acts.reduce((a, b) => a + b, 0);
   const sumSq = acts.reduce((a, b) => a + b * b, 0);
   const n = acts.length;
-  const barOf = (c: Candidate, snr: number): number =>
-    inSample(c) ? looBar(own(c), sum, sumSq, n, snr) : bg.mean + snr * bg.sd;
+  // A HEAD STANDING IN FACES THE BAR OF WHAT IT STANDS FOR (2026-10-19, an
+  // experiment): it carries the earlier one's numbers, so with the
+  // whole-sample bar a marginal earlier one cleared its leave-one-out bar and
+  // showed while its head failed. Trying the earlier's own bar to see the
+  // earlier-shown-without-its-head count go to ~0; check ~10-22; revert by
+  // dropping this lookup (IMPROVEMENTS.md, "the head-wins gap", 2026-10-19).
+  const byId = new Map(input.candidates.map((c) => [c.id, c]));
+  const barOf = (c: Candidate, snr: number): number => {
+    const basis = (c.standsFor !== undefined ? byId.get(c.standsFor) : undefined) ?? c;
+    return inSample(basis) ? looBar(own(basis), sum, sumSq, n, snr) : bg.mean + snr * bg.sd;
+  };
   const barsFor = (c: Candidate): { admit: number; loud: number } =>
     bg.regime === "relative"
       ? {
