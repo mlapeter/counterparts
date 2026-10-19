@@ -17,6 +17,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { openAdapter } from "../src/adapters/claude-code/index.js";
+import type { LiveEmbedder } from "../src/adapters/claude-code/index.js";
+import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
+import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { RECALL_DECISION_EVENT } from "../src/core/counterpart-events.js";
 import { PRIME_KIND, TRAIN_REF, clearIdleCarries, loadGateState, loadTrain, noteWakeOpen, wakeOpenIds } from "../src/core/recall/index.js";
@@ -434,5 +438,61 @@ describe("context priming: what is open here, and its state", () => {
     // Past the retention ceiling, by the row's own clock.
     expect(clearIdleCarries(c.store, -1)).toBeGreaterThanOrEqual(1);
     expect(loadTrain(c.store, "s-idle")?.vec ?? null).toBeNull();
+  });
+});
+
+describe("context priming: the folder, wired through the Claude Code hooks", () => {
+  test("the wake's open threads are recorded at session start and this directory's handoff joins the train: the first prompt counts them", async () => {
+    const SCOPE = "/work/bakery";
+    const ZONE = "America/Denver";
+    const data = join(dir, "hooks");
+    const embedder: LiveEmbedder = {
+      model: "test-topics-1",
+      embed: (t: string) => topicVector(t),
+      vector: async (t: string) => topicVector(t),
+      warm: async (texts: readonly string[]) => texts.length,
+      stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0, lastFailures: [] }),
+    };
+    const a = openAdapter(
+      { dataDir: data, injectionBudgetBytes: 9_000, owner: true, timeZone: ZONE },
+      { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder },
+    );
+    open.push(a.counterpart);
+    findable(a.counterpart.store);
+    for (const body of FILLER) a.counterpart.store.put({ type: "memory", kind: "fact", body });
+    const server = new McpServer({ counterpart: a.counterpart, session: "s-prev", scope: SCOPE, owner: true, registryDir: data });
+    const asked = await server.call("remember", { session: "s-prev", text: "Is the proving basket still at Mrs Okafor's, or did it come back?", unresolved: true });
+    expect(asked.isError).not.toBe(true);
+    const thread = (asked.structuredContent as Record<string, unknown>)["id"] as string;
+    a.counterpart.writeHandoff("Left off planning the rye bake: the levain needs a warmer spot by the oven.", { scope: SCOPE, session: "s-prev" });
+    await a.counterpart.sessionEnd({ date: "2026-10-19", budgetBytes: 9_000 });
+
+    const hook = (raw: Record<string, unknown>) =>
+      toHookInput(raw, { scope: SCOPE, timeZone: ZONE, env: { CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CODE_SESSION_ATTENDED: "1" }, dataDir: data });
+    a.sessionStart(hook({ session_id: "s-new", hook_event_name: "SessionStart", cwd: SCOPE, source: "startup" }));
+    expect(wakeOpenIds(a.counterpart.store, "s-new")).toContain(thread);
+
+    a.userPromptSubmit(hook({ session_id: "s-new", hook_event_name: "UserPromptSubmit", cwd: SCOPE, prompt: "where is the basket for the rye loaf?" }));
+    const rows = a.counterpart.store.eventLog({ name: RECALL_DECISION_EVENT, ref: "s-new", order: "desc", limit: 1 });
+    const row = JSON.parse(rows[0]?.payload ?? "{}") as { primed?: { sources: { open: number }; train: boolean } | null };
+    expect(row.primed?.sources.open ?? 0).toBeGreaterThanOrEqual(1);
+    // Nothing used or written yet: the train is the folder's (the thread's and the handoff's meaning).
+    expect(row.primed?.train).toBe(true);
+    expect(loadTrain(a.counterpart.store, "s-new")?.open).toBe(true);
+
+    // The handoff alone (a session whose wake recorded no threads): its meaning is the train.
+    a.userPromptSubmit(hook({ session_id: "s-hand", hook_event_name: "UserPromptSubmit", cwd: SCOPE, prompt: "where is the basket for the rye loaf?" }));
+    const hand = a.counterpart.store.eventLog({ name: RECALL_DECISION_EVENT, ref: "s-hand", order: "desc", limit: 1 });
+    const handRow = JSON.parse(hand[0]?.payload ?? "{}") as { primed?: { sources: { open: number }; train: boolean } | null };
+    expect(handRow.primed?.sources.open).toBe(0);
+    expect(handRow.primed?.train).toBe(true);
+    // And in a directory with no handoff and no wake, nothing to prime from.
+    const elsewhere = toHookInput(
+      { session_id: "s-else", hook_event_name: "UserPromptSubmit", cwd: "/work/elsewhere", prompt: "where is the basket for the rye loaf?" },
+      { scope: "/work/elsewhere", timeZone: ZONE, env: { CLAUDE_CODE_ENTRYPOINT: "cli", CLAUDE_CODE_SESSION_ATTENDED: "1" }, dataDir: data },
+    );
+    a.userPromptSubmit(elsewhere);
+    const none = a.counterpart.store.eventLog({ name: RECALL_DECISION_EVENT, ref: "s-else", order: "desc", limit: 1 });
+    expect((JSON.parse(none[0]?.payload ?? "{}") as { primed?: { train: boolean } | null }).primed?.train).toBe(false);
   });
 });
