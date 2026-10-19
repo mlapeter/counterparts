@@ -25,6 +25,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Stemming + everyday words count less (ambient and facts recall) | building 10-19 | ~2 lived days after install: footnote ratings, exact-match regressions | its decisions fragment, once merged |
 | Context priming (the downward direction): what the session used/wrote and the folder's open threads warm neighbours, along links and a train-of-thought vector | building 10-19 | ~2 lived days after install: ratings of primed vs unprimed footnotes, tunnel vision | brief `~/counterparts-notes/2026-10-19-context-priming-brief.md` |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | in review 10-19 (with the slot detector) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
+| Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | in review 10-19 (with the write-time links) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Meaning computed in line whenever no fresh cue is ready (#521) | merged 10-19, unreleased | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -36,7 +37,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Change | Why | When |
 |---|---|---|
 | Head wins: hold back a settled-over memory whenever its head was brought in for it (gate.ts ~L452) | 36 footnotes since 10-12 showed an earlier memory while its head didn't (21 ids) | after the feedback-loop PRs merge (same file) |
-| Slot detector: a proposal flags only, no provisional fade until the dream confirms | 4 of 7 right by hand-read, under the ~3-in-4 bar; the dream said "not the same" on 3 of 4; raising SLOT_COSINE doesn't separate them | same |
+| Slot detector: a proposal flags only, no provisional fade until the dream confirms | 4 of 7 right by hand-read, under the ~3-in-4 bar; the dream said "not the same" on 3 of 4; raising SLOT_COSINE doesn't separate them | in review 10-19 (`SLOT_FADE` 1), with the write-time links row above |
 
 **Checked** (kept below for the record): 10-12 first new-curve pass; 10-14 check-in; 10-18 wake trims, exit at 7
 vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost (1.75x the estimate, caps fine),

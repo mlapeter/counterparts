@@ -2312,6 +2312,8 @@ export class Dreams {
         // the dream, a reader, says whether they are. Both must have been
         // shown. Confirmed is a settle `changed` (its provisional cut lifted,
         // the full one made); "two things" withdraws it, its cut put back.
+        // Since 2026-10-19 (an experiment, `SLOT_FADE` 1) a proposal makes no
+        // cut, so confirming is the only fade and withdrawing restores nothing.
         const pair = typeof change.pair === "string" ? this.store.contradiction(change.pair.trim()) : undefined;
         const p = pair === undefined || pair.state !== "unsettled" ? null : provisionalOf(this.store, pair);
         if (pair === undefined || p === null) return { action, ok: false, reason: "not-a-proposal", detail: `${String(change.pair ?? "")} is not a proposal waiting to be confirmed.` };

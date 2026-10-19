@@ -48,7 +48,11 @@ import { applyRevision } from "../src/core/revision.js";
 import { Schemas } from "../src/core/schemas/index.js";
 import { Store } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
+import { LEGACY_SLOT_FADE, useSlotFade } from "./slot-fade-fixture.js";
 import { findable } from "./store-fixture.js";
+
+// The provisional cut's arithmetic, at the cut a revert restores (flag only since 2026-10-19).
+useSlotFade(LEGACY_SLOT_FADE);
 
 const SESSION = "sess_door";
 let dir: string;

@@ -26,9 +26,12 @@ import { Recall, headOf } from "../src/core/recall/index.js";
 import { CONTRADICTION_TUNABLES, SLOT_SOURCE, releaseOrphanSlots, slotsToConfirm } from "../src/core/reconsolidation.js";
 import { Store } from "../src/core/store/index.js";
 import type { Embedder } from "../src/core/store/index.js";
+import { LEGACY_SLOT_FADE, useSlotFade } from "./slot-fade-fixture.js";
 
 const SESSION = "sess_review_420";
 const T = CONTRADICTION_TUNABLES;
+// The provisional cut's arithmetic, at the cut a revert restores (flag only since 2026-10-19).
+useSlotFade(LEGACY_SLOT_FADE);
 
 let dir: string;
 const open: { close(): void }[] = [];
