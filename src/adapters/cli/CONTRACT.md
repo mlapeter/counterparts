@@ -618,6 +618,8 @@ The standalone verb does not ask either: typing it is the yes.*
     it), `last-reflection`, or one by id (`show <id>` means the same). It always opens the
     store as an observer, so a session can run it to review the night with the owner — a
     host's safety check refuses `dream`, which also undoes. `--undo` stays on `dream`.
+    A reflection's entry whose memory is marked confidential prints as `[confidential]`,
+    like any confidential row (review of #538), here and under `dream --show`.
 
 ## 6. Scars honored
 

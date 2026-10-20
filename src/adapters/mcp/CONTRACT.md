@@ -642,7 +642,8 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   read-only summary in `nights`, beside `memories` and never in it (`nights.ts#readNight`,
   2026-10-20). A dream: date, state, title, its journal (cut), the counts of what still
   stands (`dreams.counts`), the memory ids each kind of change touched (12 per kind, the
-  rest counted), its gists' words when short, and the reflections after it. A reflection:
+  rest counted), its gists' words when short (12 gists, the rest counted), and the
+  reflections after it. A reflection:
   date, title, the entry, the share and whether it was told, what it cited, the closes
   proposed and done, and the page version it wrote. **Opening a night credits nothing** —
   no memory is delivered, so the credit pass, the seen set and the handle log have nothing
@@ -650,8 +651,10 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   export's and the morning share's: a night shown, changing, citing or become a
   confidential memory is withheld whole from a session not the owner's, stated
   (`handle-confidential-withheld`); and no summary carries a confidential body, the
-  owner's included. An unknown night id is `handle-unknown`. Under observer recall stands
-  down, as for a memory.
+  owner's included — a gist's, or an entry whose memory is marked (`entryConfidential`).
+  Nights share the by-id answer's room (`RECALL_ID_RESULT_CHARS`, weighed as `boundById`
+  weighs): one past it waits by id in `waiting`, as a memory does. An unknown night id is
+  `handle-unknown`. Under observer recall stands down, as for a memory.
 - **Deleted promises (Mike, 10-03):** "effort lowers the bar but never removes the hard
   gates: a memory the conversation did not reach stays dark"; "the lower-confidence tier is
   labeled"; "a question about time is answered with the session it means first, marked

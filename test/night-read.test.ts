@@ -7,15 +7,19 @@
  * Hermetic: a fresh temp store per test, removed after. No model is called.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { McpServer, openServer } from "../src/adapters/mcp/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
-import { nightKindOf } from "../src/adapters/mcp/nights.js";
+import { NIGHT_IDS_PER_KIND, nightKindOf } from "../src/adapters/mcp/nights.js";
 import type { DreamSummary, ReflectionSummary } from "../src/adapters/mcp/nights.js";
 import { run } from "../src/adapters/cli/index.js";
+import { RECALL_ID_RESULT_CHARS } from "../src/adapters/mcp/deliberate.js";
+import { setScope, writeScopes } from "../src/adapters/scopes.js";
+import { wireChars } from "../src/core/fit/index.js";
+import { narrate } from "../src/adapters/dashboard/web/narrate.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
@@ -325,5 +329,250 @@ describe("counterparts night — read-only", () => {
     expect(out.code).toBe(0);
     expect(out.out.join("\n")).toContain(`Dream ${n.dream}`);
     expect(out.out.join("\n")).not.toContain("NOTHING CAME BACK");
+  });
+});
+
+// ── Review of #538: the awkward nights, built on purpose ─────────────────────
+
+/** A dream begun and journaled with no changes, in the owner's store; returns its id. */
+function bareDream(c: Counterpart, title = "Quiet", at = "2026-09-22"): string {
+  const begun = c.dreams.begin({ session: SESSION, at });
+  if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+  const j = c.dreams.journal({ dream: begun.bundle.dream, session: SESSION, title, text: `I dreamed something ${title.toLowerCase()}.` });
+  if (!j.ok) throw new Error("journal refused");
+  return begun.bundle.dream;
+}
+
+/** Every file under the temp root, by size and mtime — the SQLite shared-memory index aside. */
+function files(): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (d: string): void => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      // `-shm` is SQLite's WAL index: any reader of a WAL database marks it,
+      // `dream --observer` included. It holds no rows; `-wal` and the
+      // database itself are what a write would move.
+      else if (!p.endsWith("-shm")) {
+        const st = statSync(p);
+        out[p] = `${String(st.size)}:${String(st.mtimeMs)}`;
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+
+describe("review of #538 — awkward nights", () => {
+  test("a dream of hundreds of changes names 12 ids per kind and 12 gists, counts the rest, and stays small", async () => {
+    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    let dream: string;
+    try {
+      c.store.advanceClock("2026-09-20");
+      const many = Array.from({ length: 40 }, (_, i) => mem(c, `Bulk memory number ${String(i)}, with enough words to be a gist of its own when quoted. `.repeat(3)));
+      c.store.advanceClock("2026-09-21");
+      dream = bareDream(c, "Busy");
+      // Past what one dream's limits allow through `propose`: written straight
+      // to the record, the way a long history of nights could add up.
+      for (let i = 0; i < 300; i++) c.store.recordDreamChange(dream, { action: "link", ref: many[i % 40] as string, ref2: many[(i + 1) % 40] as string });
+      for (let i = 0; i < 200; i++) c.store.recordDreamChange(dream, { action: "gist", ref: many[i % 40] as string, detail: { sources: [many[(i + 2) % 40]] } });
+    } finally {
+      c.close();
+    }
+    const res = await server(true).call("recall", { handle: dream });
+    const d = (payload(res)["nights"] as DreamSummary[])[0] as DreamSummary;
+    expect(d.touched["link"]?.ids.length).toBe(NIGHT_IDS_PER_KIND);
+    expect(d.touched["link"]?.more).toBe(40 - NIGHT_IDS_PER_KIND);
+    expect(d.touched["gist"]?.ids.length).toBe(NIGHT_IDS_PER_KIND);
+    expect(d.gists.length).toBe(NIGHT_IDS_PER_KIND);
+    expect(d.gistsMore).toBe(200 - NIGHT_IDS_PER_KIND);
+    expect(d.counts).toMatchObject({ link: 300, gist: 200 });
+    expect(wireChars(JSON.stringify(res.structuredContent))).toBeLessThan(10_000);
+  });
+
+  test("ten long reflections by id share the answer's room: the ones past it wait by id", async () => {
+    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const made: string[] = [];
+    try {
+      c.store.advanceClock("2026-09-20");
+      const cited = mem(c, "The thing every reflection kept coming back to.");
+      for (let i = 0; i < 10; i++) {
+        c.store.advanceClock(`2026-09-${String(21 + i)}`);
+        const r = c.reflections.begin({ session: SESSION, at: `2026-09-${String(21 + i)}` });
+        if (!r.ok) throw new Error(`begin refused: ${r.reason}`);
+        const done = c.reflections.finish({
+          reflection: r.bundle.reflection,
+          session: SESSION,
+          title: `night ${String(i)}`,
+          entry: `Night ${String(i)}: ${"I kept turning the same thought over, slowly and from every side. ".repeat(60)}`,
+          cites: [cited],
+          share: { text: "Last night I kept turning one thought over.", cites: [cited] },
+        });
+        if (!done.ok) throw new Error(`finish refused: ${done.reason}`);
+        made.push(r.bundle.reflection);
+      }
+    } finally {
+      c.close();
+    }
+    const res = await server(true).call("recall", { ids: made });
+    const p = payload(res);
+    const shipped = (p["nights"] as { id: string }[]).map((n) => n.id);
+    const waiting = p["waiting"] as string[];
+    expect(shipped.length).toBeGreaterThan(0);
+    expect(waiting.length).toBeGreaterThan(0);
+    expect([...shipped, ...waiting]).toEqual(made);
+    expect(String(p["more"])).toContain(waiting[0] as string);
+    // Under the room the memories' path keeps, weighed the same way.
+    expect(2 * wireChars(JSON.stringify(p["nights"], null, 2))).toBeLessThanOrEqual(RECALL_ID_RESULT_CHARS);
+    // Asked again for the ones that waited, they come.
+    const next = payload(await server(true).call("recall", { ids: waiting.slice(0, 3) }));
+    expect((next["nights"] as { id: string }[]).map((n) => n.id)).toEqual(waiting.slice(0, 3));
+  });
+
+  test("a dream whose merge folded a memory marked confidential later is withheld from a stranger", async () => {
+    const n = night();
+    markConfidential(n.b);
+    const p = payload(await server(false).call("recall", { handle: n.dream }));
+    expect(p["reason"]).toBe("handle-confidential-withheld");
+    expect(JSON.stringify(p)).not.toContain("Boot order");
+  });
+
+  test("a reflection whose share cites a confidential memory is withheld from a stranger; the owner reads it", async () => {
+    const n = night();
+    markConfidential(n.third);
+    expect(payload(await server(false).call("recall", { handle: n.reflection }))["reason"]).toBe("handle-confidential-withheld");
+    expect(payload(await server(true).call("recall", { handle: n.reflection }))["reason"]).toBe("expanded");
+  });
+
+  test("an entry that became a confidential memory is not quoted, the owner's session and the console included", async () => {
+    const n = night();
+    const entryId = Store.open({ dir, observer: true }).reflection(n.reflection)?.entry_id as string;
+    expect(entryId).toMatch(/^mem_/);
+    markConfidential(entryId);
+    const res = await server(true).call("recall", { handle: n.reflection });
+    const r = (payload(res)["nights"] as ReflectionSummary[])[0] as ReflectionSummary;
+    expect(r.entry).toBeNull();
+    expect(r.entryConfidential).toBe(true);
+    expect(JSON.stringify(res)).not.toContain("Order matters");
+    const shown = (await cli(["night", n.reflection])).out.join("\n");
+    expect(shown).toContain("[confidential]");
+    expect(shown).not.toContain("Order matters");
+  });
+
+  test("mixed ids for a stranger: the withheld night leaks nothing past its own id; the rest answer", async () => {
+    // A night before any of the others' memories existed, so it was shown none of them.
+    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    let other: string;
+    try {
+      c.store.advanceClock("2026-09-19");
+      mem(c, "An older thing, nothing to do with the rest.");
+      other = bareDream(c, "Unrelated", "2026-09-19");
+    } finally {
+      c.close();
+    }
+    const n = night();
+    markConfidential(n.gist, SECRET);
+    const res = await server(false).call("recall", { ids: [n.dream, other, n.third] });
+    const p = payload(res);
+    expect(p["reason"]).toBe("expanded");
+    expect((p["perId"] as { id: string; reason: string }[]).map((x) => x.reason)).toEqual(["handle-confidential-withheld", "expanded", "expanded"]);
+    expect((p["nights"] as { id: string }[]).map((x) => x.id)).toEqual([other]);
+    const wire = JSON.stringify(res);
+    for (const leak of ["Boot order", "booting empty", "ZQSECRET", "being understood", n.gist, n.merged, n.reflection]) expect(wire).not.toContain(leak);
+  });
+
+  test("an undone dream: its state, what was undone counted, nothing undone listed or quoted", async () => {
+    const n = night();
+    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    try {
+      expect(c.dreams.undo(n.dream).ok).toBe(true);
+    } finally {
+      c.close();
+    }
+    const d = (payload(await server(true).call("recall", { handle: n.dream }))["nights"] as DreamSummary[])[0] as DreamSummary;
+    expect(d.state).toBe("undone");
+    expect(d.undone).toBe(3);
+    expect(d.touched).toEqual({});
+    expect(d.gists).toEqual([]);
+    expect(Object.values(d.counts).every((x) => x === 0)).toBe(true);
+    // The reflection after it is lived and stays.
+    expect(d.reflections).toEqual([n.reflection]);
+  });
+
+  test("an interrupted night: a dream begun and never journaled, a reflection begun and never finished, one with no dream", async () => {
+    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    let dream: string;
+    let reflection: string;
+    try {
+      c.store.advanceClock("2026-09-20");
+      mem(c, "Something to be shown.");
+      const begun = c.dreams.begin({ session: SESSION });
+      if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
+      dream = begun.bundle.dream;
+      const r = c.reflections.begin({ session: SESSION });
+      if (!r.ok) throw new Error(`reflect begin refused: ${r.reason}`);
+      reflection = r.bundle.reflection;
+    } finally {
+      c.close();
+    }
+    const s = server(true);
+    const d = (payload(await s.call("recall", { handle: dream }))["nights"] as DreamSummary[])[0] as DreamSummary;
+    expect(d.state).toBe("begun");
+    expect(d.title).toBeNull();
+    expect(d.journal).toBeUndefined();
+    expect(d.reflections).toEqual([]);
+    const r = (payload(await s.call("recall", { handle: reflection }))["nights"] as ReflectionSummary[])[0] as ReflectionSummary;
+    expect(r.state).toBe("begun");
+    expect(r.dream).toBeNull();
+    expect(r.entry).toBeNull();
+    expect(r.shareState).toBe("none");
+    // The console reads both.
+    expect((await cli(["night", "last"])).out[0]).toContain(`Dream ${dream}`);
+    expect((await cli(["night", "last-reflection"])).out[0]).toContain(`Reflection ${reflection}`);
+  });
+
+  test("counterparts night and ask --id write nothing: the database, its WAL and every file beside it stand still", async () => {
+    const n = night();
+    const eventsWere = (): number => {
+      const st = Store.open({ dir, observer: true });
+      try {
+        return st.eventLog({ limit: 100_000 }).length;
+      } finally {
+        st.close();
+      }
+    };
+    const events = eventsWere();
+    const was = files();
+    for (const argv of [["night"], ["night", "list", "--all"], ["night", "last"], ["night", "last-reflection"], ["night", n.dream], ["night", "show", n.reflection], ["night", "drm_000000000000"], ["ask", "--id", n.dream], ["ask", "--id", n.reflection]]) {
+      await cli(argv);
+    }
+    expect(files()).toEqual(was);
+    expect(eventsWere()).toBe(events);
+  });
+
+  test("in a folder switched off, a night's id is refused like every read there", async () => {
+    const n = night();
+    const file = join(root, "scopes.json");
+    writeScopes(file, setScope(null, "/scope/night", "off", { at: "2026-09-21" }));
+    const s = openServer({ dir, session: SESSION, scope: "/scope/night", owner: true, scopesFile: file });
+    open.push(s.counterpart);
+    const p = payload(await s.call("recall", { handle: n.dream }));
+    expect(p["reason"]).toBe("scope-off");
+    expect(JSON.stringify(p)).not.toContain("Boot order");
+  });
+
+  test("the recall row counts a night apart from the memories it opened", async () => {
+    const n = night();
+    const s = server(true);
+    await s.call("recall", { ids: [n.dream, n.reflection] });
+    const row = s.counterpart.store.eventLog({ name: "mcp.recall", order: "desc", limit: 1 })[0];
+    const p = JSON.parse(String(row?.payload)) as Record<string, unknown>;
+    expect(p["expanded"]).toBe(0);
+    expect(p["nights"]).toBe(2);
+    expect(p["chars"]).toBe(0);
+    // The dashboard says a night was read, not that the address held nothing.
+    const said = narrate(s.counterpart.store, row as NonNullable<typeof row>).text;
+    expect(said).toContain("read back by id");
+    expect(said).not.toContain("nothing at that address");
   });
 });

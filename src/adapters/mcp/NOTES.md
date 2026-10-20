@@ -1688,3 +1688,14 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   confidential, in any session; the owner opens the id to read it.
 - **The console.** `counterparts night` is a separate command with no write (`dream`
   keeps `--undo`); `ask --id drm_…` prints the night's lines rather than "nothing came".
+- **Review of #538.** A dream of hundreds of changes named 12 ids per kind but every gist,
+  so a night of 200 gists ran past the ceiling: gists are capped at 12 too, the rest counted
+  (`gistsMore`). Ten long reflections by id rode outside the by-id budget; nights now take
+  what the memories left and wait by id past it. A reflection's entry is the body of the
+  memory it became, so a confidential one is not quoted, the owner's session included (the
+  console's lines say `[confidential]`). The boundary also reads a gist's sources and a
+  reflection's closes. The `mcp.recall` row counts `nights` apart from `expanded`, so the
+  dashboard's narration of a night opened is not "nothing at that address"; `chars` stays the
+  memories' excerpt characters (0 for a nights-only answer — no reader keys on it). An open
+  under `counterparts night` moves no row, no WAL and no file but SQLite's `-shm` read
+  index, which any reader of a WAL database touches.
