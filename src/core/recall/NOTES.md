@@ -1208,3 +1208,56 @@ call (`ref` the session) and touches nothing else. What the build chose:
   calendar date's own, no zone. Only that line: `shortDateWithWeekday` beside
   `shortDate` in `adapters/mcp/facts.ts`; learned dates, the time line, wake and
   footnotes are unchanged. Month- or year-only dates carry no weekday.
+
+## 2026-10-20 — the title tail, and soft time words (an experiment)
+
+- Done to help on benchmarks and product, lightly held, revisit: from the benchmark loss
+  read (`~/counterparts-bench/research/loss-read-1020.md`, "RECALL" and fix-list #2, #7),
+  with Mike's go via BENCHMARK. Nothing benchmark-only: a real session's Claude does not
+  page either, and "lately" is how a person talks. Lands while 0.3.27's recall experiments
+  are read (~10-22); it changes only deliberate facts answers, never ambient footnotes or
+  meaning mode, so it does not muddy that read.
+- **Why.** The biggest single cause of benchmark misses was a memory that existed and never
+  reached the answerer: buried among 50–100 facts matches and lacking the question's
+  category word ("What pet does Caroline have?": the guinea pig not on page 1 of 51). The
+  same shape as F3 in `docs/WORKLIST.md` (the owner's 10-20 backup: the decisive memory
+  stayed quiet), though F3 is the ambient path and this is the deliberate one.
+- **Step 0, the rank probe** (zero model cost; the answerer's 134 logged facts queries for
+  the 50 RECALL-tagged losses, replayed on scratch copies of the bench stores with the
+  static embedder, at the question's clock). On today's master (with 10-19's stemming), not
+  the harness heads the runs used, so single ranks differ a little from what the answerer
+  saw, and the match is by id and folded earlier ids (approximate):
+  - first call: 8 of 50 needed memories ranked 1–10, **17 ranked 11–30**, 7 at 31–60, 18
+    not in the top 60;
+  - over every logged call, a 20-line tail after the asked page would have put the memory
+    in sight on **21 of 50** where its body never showed (10 showed with a body on some
+    call, 19 neither).
+  - With the soft words as well: 14 shown with a body, 20 more tail-only, 16 neither. Soft
+    words alone brought 5 needed memories into a facts answer that had filtered them out
+    (lme-gpt4_ec93e27f, loc-conv-49-138, -50-89, -48-158 into the bodies; -49-127 into the
+    tail). The report's own example, loc-conv-49-122 (gastritis, "lately"), is NOT fixed:
+    without the window the memory still isn't among the 19 matches — its words are
+    "stomachache" and "gastritis", the question's "digestive", and meaning ranks it under
+    the weak cut.
+- **The tail** (`facts.ts#FACTS_TAIL_SIZE` 20, `FACTS_TAIL_TITLE_CHARS` 48): the next
+  matches after the page as `11. title · id · date [· faded]`, under `next 20, titles only
+  (open any by id):`. The walk for near-duplicates goes 20 deeper, so `matched` has checked
+  those too; order and pages are unchanged. Measured on bench answers: 1.7 KB for 20 lines
+  (LoCoMo's long titles). Listed is not shown: not in `ids`, the seen set or the quotable
+  record, so nothing is credited for being listed; the `mcp.recall` row keeps `tail` and
+  `tailIds` apart for the ~10-27 check. Dropped first when room runs out, before any
+  excerpt is cut (review of #544; it went after excerpts reached 60 before). Size and wording are for Mike's review.
+- **Soft words** (`time-ask.ts#SOFT_WORDS`: lately, recently, these days, nowadays; "of
+  late" left out for "because of late fees"; "most recent" left out — it names a session
+  or orders a kind). Chosen design: a preference, not a fallback. The fallback ("past the
+  window when nothing on topic is inside") would not have fired on loc-conv-49-122, which
+  had 11 matches inside the week. In-week matches gain `FACTS_SOFT_RECENT_BONUS` (0.25) of
+  the best score, after the weak cut, order only. A question that is only the soft word
+  keeps the week as its filter.
+- **Not built: same-session neighbours** (fix-list #3: with a hit, list its session's
+  matching siblings as title lines — Overcooked 2 beside Zelda, Avalanche beside Sapiens).
+  It overlaps the tail; build it only after the tail is measured (~10-27 live, and an
+  answer-only bench pass).
+- **Revert:** `FACTS_TAIL_SIZE = 0` turns the tail off; dropping `{ soft: true }` from
+  `time-ask.ts`'s soft branch makes the four words filter the past week again (as
+  "recently" and "lately" did). No store change.

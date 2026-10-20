@@ -33,6 +33,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Wake without repeats (fix/wake-dedupe-1020): each episode once, no bare ids in Yesterday, ONE tag at the top, about-me line says its folder first, a plain reminder due tomorrow counted at a session start, every Coming up item with its own id, one snapshot a day | in review 10-20, unreleased | the first two mornings after install | "Due ~2 mornings after install (the wake without repeats)" below; `docs/decisions.d/fix-wake-dedupe-1020.md` |
 | A weekly reminder done for this week (`status: "done"` at its id closes this occurrence only; F6b: drewOn credits a memory this session replaced) | not released, 10-20 | ~10-27, the next Tuesday | "Due ~2026-10-27" below; `docs/decisions.d/feat-reminder-done-this-week.md` |
 | The elsewhere lines name what was written: "Today, elsewhere" and "Since you started" carry up to two memory titles a folder (work in progress first), gated like the chapters, and "Here, also open:" the other live sessions in this folder with theirs, within the same 300 bytes | in review 10-20, unreleased | ~10-23 | "Due ~2026-10-23 (the elsewhere lines' titles)" below; `docs/decisions.d/feat-elsewhere-titles-1020.md` |
+| Facts title tail (the next 20 matches as title · id · date lines after the 10 bodies; credits nothing) + soft time words ("lately" ranks recent first, doesn't filter); from the benchmark loss read | in review 10-20, unreleased | ~10-27 on the live store: how often a tail title gets opened, whether the tail is noise | "Due ~2026-10-27 (the facts title tail …)" below; `docs/decisions.d/feat-facts-title-tail-1020.md` |
 | Core questions that waited a week: the reflection is offered up to 3 core memories waiting 7+ lived days on keep-or-retire (with their unsettled pair) and decides where it can, said in the share with the way back; the wake leads with one, both labels shown | not released, 10-20 | ~10-27 | "Due ~2026-10-27 (core questions)" below; `docs/decisions.d/feat-core-questions-waited-1020.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
@@ -288,6 +289,37 @@ sessions open at once (read-only; ask the sessions themselves too).
   week (a done said Saturday, with that Tuesday's still open, closes the coming Tuesday's), or
   the reminder fades or leaves the core after a done.
 - **Revert:** revert the PR; a done at a repeat then ends the repeat again.
+
+## Due ~2026-10-27 (the facts title tail and soft time words, 2026-10-20, from the benchmark loss read, lightly held, an experiment — docs/decisions.d/feat-facts-title-tail-1020.md)
+
+Lands while 0.3.27's recall experiments are read (~10-22). It changes only deliberate facts
+answers (`recall` with `mode: "facts"`), never ambient footnotes, the wake or meaning mode, so
+it does not move that read.
+
+### Is a tail title opened, or is the tail noise?
+- **Trying:** after a facts answer's 10 bodies, the next 20 matches as one line each (title ·
+  id · date), so a memory ranked 11th–30th is in sight and can be opened by id. Listed is not
+  shown: no credit for being listed.
+- **Look at:** the `mcp.recall` rows with `mode: "facts"` since install: how many carry `tail`
+  (and its size), then, for each, whether a later `mcp.recall` row in the same `session` opened
+  (`path: "handle"`, its `ids`) one of that row's `tailIds`. Share of facts answers whose tail
+  led to an open; share of opens that came from a tail rather than a body. Read a few answers
+  live: does the answer quote or use a tail title without opening it (a guess from a title),
+  does page 2 still get asked as often, are the 48-character titles readable.
+- **Changes a decision if:** tail opens are ~0 over a week of facts calls (noise: cut to 10 or
+  off), answers lean on tail titles without opening them (wrong guesses: reword the header or
+  drop it), or answers run out of room more often (the ceiling's shrink ladder now drops the
+  tail before excerpts go below 60).
+- **Revert:** `FACTS_TAIL_SIZE = 0` in `src/adapters/mcp/facts.ts`.
+
+### Soft time words rank, they don't filter
+- **Trying:** "lately", "recently", "these days", "nowadays" no longer keep only the past week
+  in a facts answer that asks something else; the past week's matches rank first.
+- **Look at:** `mcp.recall` rows with `time: "soft"`: how many, and in a few live answers
+  whether the right one led, or an older match crowded a recent one the question meant.
+- **Changes a decision if:** "recently" questions start answering with old matches first
+  (raise `FACTS_SOFT_RECENT_BONUS` from 0.25, or filter again with a fallback past the window).
+- **Revert:** drop `{ soft: true }` from the soft branch in `src/core/recall/time-ask.ts`.
 
 ## Due at the first live catch-up (the nightly run's or `counterparts catch-up`)
 
