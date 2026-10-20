@@ -519,26 +519,31 @@ describe("what gives way for Still open's first item, in order — never the pag
     expect(seen.yesterday).toBeGreaterThan(0);
   });
 
-  test("the Yesterday line's shorter forms give a title at a time to its id — pointers instead of titles — widest first, every chapter still named and the rest counted", () => {
+  test("the Yesterday line's shorter forms give a title at a time to the count — never a bare id (2026-10-20) — widest first, down to one title", () => {
     const day = [0, 1, 2, 3, 4].map((i) => ({ id: `epi_${String(i)}`, title: `Seating the valves on kiln ${String(i)}`, chapters: i === 0 ? 2 : 1, createdAt: i }));
     expect(yesterdayLine(day, "2026-10-07")).toEndWith('"Seating the valves on kiln 3" (epi_3); and 1 more.');
     const forms = yesterdayShorter(day, "2026-10-07");
-    expect(forms.length).toBe(4);
+    expect(forms.length).toBe(3);
     forms.forEach((line, i) => {
       const titles = 3 - i;
-      expect(line).toStartWith(
-        titles > 0 ? 'Yesterday, Oct 7: "Seating the valves on kiln 0" (epi_0)' : "Yesterday, Oct 7: epi_0; epi_1; ",
-      );
-      // Every chapter the whole line names is still named, by its id, and the one past them counted.
-      for (const id of ["epi_0", "epi_1", "epi_2", "epi_3"]) expect(line).toContain(id);
-      expect(line).toEndWith("; and 1 more.");
+      expect(line).toStartWith('Yesterday, Oct 7: "Seating the valves on kiln 0" (epi_0)');
+      // The chapters named are named with their titles; every other one is counted.
+      expect(line.match(/epi_\d/g)?.length).toBe(titles);
       expect(line.split('"').length - 1).toBe(2 * titles);
+      expect(line).toEndWith(`; and ${String(5 - titles)} more.`);
     });
-    expect(forms[forms.length - 1]).toBe("Yesterday, Oct 7: epi_0; epi_1; epi_2; epi_3; and 1 more.");
+    expect(forms[forms.length - 1]).toBe('Yesterday, Oct 7: "Seating the valves on kiln 0" (epi_0); and 4 more.');
     const sizes = forms.map((l) => Buffer.byteLength(l));
     expect(sizes).toEqual([...sizes].sort((a, b) => b - a));
     expect(new Set(sizes).size).toBe(sizes.length);
-    expect(yesterdayShorter(day.slice(0, 1), "2026-10-07")).toEqual(["Yesterday, Oct 7: epi_0."]);
+    // One title is the narrowest form: nothing shorter to give.
+    expect(yesterdayShorter(day.slice(0, 1), "2026-10-07")).toEqual([]);
+    // Untitled chapters are counted, never printed as ids; with no title at all, a count.
+    const untitled = day.map((c) => ({ ...c, title: null }));
+    expect(yesterdayLine(untitled, "2026-10-07")).toBe("Yesterday, Oct 7: 5 sessions.");
+    expect(yesterdayLine(untitled.slice(0, 1), "2026-10-07", undefined, [{ scope: "/Users/x/random", sessions: 2 }], false)).toBe(
+      "Yesterday: 1 session; 2 sessions in ~/random.",
+    );
   });
 
   test("the room held for 'Work here' is lent first: Arriving and Yesterday stay whole, and only Still open's first item and its count ride on it", () => {
@@ -586,7 +591,8 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
       const stored = lane(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "", FRAMING.horizon);
       // The one due the 10th is a later date: counted, by id ("Coming up" =
       // today, 2026-10-16).
-      expect(stored?.[0]).toBe("- Oct 1 (due Oct 8) · The dentist appointment is at nine and the forms are in the blue folder.");
+      // Its own id since 2026-10-20 (`HORIZON_OWN_ID`).
+      expect(stored?.[0]).toMatch(/^- Oct 1 \(due Oct 8\) · The dentist appointment is at nine and the forms are in the blue folder\. \[mem_[0-9a-f]{12}\]$/);
       expect(stored?.[1]).toStartWith("(1 more coming up; recall ids: mem_");
       expect(stored?.length).toBe(2);
       // The same evening it is still today's.
@@ -634,7 +640,7 @@ describe("an Arriving line past its date says it WAS due (2026-10-09)", () => {
     const a = adapter("America/Denver");
     a.counterpart.store.put({ type: "memory", kind: "person", body: "Call the plumber back about the boiler.", learnedOn: "2026-10-08", eventDate: "2026-10-08", salience: SALIENT });
     await worker("America/Denver");
-    expect(lane(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "", FRAMING.horizon)).toEqual(["- due Oct 8 · Call the plumber back about the boiler."]);
+    expect(lane(a.counterpart.store.getMeta(BRIEFING_KEY) ?? "", FRAMING.horizon)).toEqual([expect.stringMatching(/^- due Oct 8 · Call the plumber back about the boiler\. \[mem_[0-9a-f]{12}\]$/)]);
     // The morning after it is overdue: counted and said so (review of #511).
     clock("America/Denver", "2026-10-09", 8);
     expect(sessionStart(a, "America/Denver", "s1").text).toContain(`${FRAMING.horizon} 1 — ${NONE_TODAY_WORDS}, 1 overdue; recall ids: mem_`);

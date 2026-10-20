@@ -362,7 +362,7 @@ describe("the chapter tool takes an `about` mark, carried to the chapter's memor
     const epi = out["episodeId"] as string;
     c.ingestEpisode({ sessionId: S });
     expect(copyOf(c, epi)).toMatchObject({ about: "work", by: "writer" });
-    expect(wake(c, LIBRARY)).not.toContain("About me, from another project");
+    expect(wake(c, LIBRARY)).not.toContain("A chapter about me from");
 
     const second = await mcp.call("chapter", { session: S, text: "Then I noticed I had been enjoying the quiet of the work.", about: "me" });
     expect((second.structuredContent as Record<string, unknown>)["about"]).toBe("me");
@@ -371,7 +371,7 @@ describe("the chapter tool takes an `about` mark, carried to the chapter's memor
     // Regrown with the second chapter's words, the copy keeps the mark.
     c.ingestEpisode({ sessionId: S });
     expect(copyOf(c, epi)).toMatchObject({ about: "me", by: "writer" });
-    expect(wake(c, LIBRARY)).toContain("About me, from another project");
+    expect(wake(c, LIBRARY)).toContain("A chapter about me from");
   });
 
   test("a reflection's mark on the copy survives the copy regrowing", async () => {

@@ -2232,3 +2232,22 @@ Measured on the 10-18 snapshot copy (observer): shown before `mem_eef7749259b8` 
 unsettled) and `mem_108281079c41` (born lived day 10); after, `mem_18628b85d486` (core, the
 plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of the PR
 (nothing is stored differently).
+
+## 2026-10-20 — one tag in the head, and every "Coming up" item's own id (Mike's go, lightly held)
+
+- **`withHeadFields`** (`briefing-delivery.ts`): the host's `meet=` / `store=` fields go into
+  the opening comment after `counterparts:wake ` and both byte counts are re-solved, the
+  mechanism `spliceBeforeSentinel` uses. `Counterpart#wake` applies it (`WakeHere.headFields`)
+  after the furniture splice, and only when the result still fits the ceiling (applied
+  unconditionally there, it pushed full wakes 4–29 bytes past 9,000 in the room tests). The
+  builder first put it BEFORE the splice so the pointer's room check counted the ~43 bytes;
+  the review of #536 measured that taking "Last here" on 8 of 61 ceilings from 8,700 to 9,300
+  in a full fixture — and since the Yesterday line leaves that line's episode to it, the
+  episode was then in no line. The fields are cosmetic, the line is not, so they go last.
+  When there is no room for them, the head is left as it was (`tagged` false) and the host
+  carries the fields in a tag of its own. Every head reader matches the prefix and `elements=… bytes=…`, so the
+  fields read like the `day=` that sat there until 10-16.
+- **`HORIZON_OWN_ID`** (`briefing.ts#elementLine`): a "Coming up" item printed whole also
+  ends with `[its id]`, before the standing's suffix ("(earlier: [mem_…])"). A line-form
+  item already carried it (`lineText`). Counted by `elementBytes`, so the lane's room is
+  honest; no other lane changes.

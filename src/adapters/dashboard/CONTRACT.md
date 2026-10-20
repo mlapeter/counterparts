@@ -72,8 +72,11 @@ it; `version` is `package.json#version`, or null when unreadable. `/api/onboardi
 the same `store` field. The dashboard only reads the salt (E7): `store` is null until a
 session-start wake has minted it. The id is stable across opens, differs between stores,
 and never carries the path; a store moved to another path reads as another store.
-**[M]** The session-start wake of a Claude Code hook carries the same id on the line under
-the onboarding marker: `<!-- counterparts:store id=st_… -->`. The sidebar mod compares the
+**[M]** The session-start wake of a Claude Code hook carries the same id: since 2026-10-20 as
+the `store=st_…` field of the wake's head tag (`<!-- counterparts:wake meet=… store=st_…
+elements=… bytes=… -->`, or `<!-- counterparts:session … -->` before a wake with no head tag;
+`adapters/store-id.ts#ONE_TAG`), before that as `<!-- counterparts:store id=st_… -->` beside
+the onboarding marker. The sidebar mod reads every form, compares the
 two and trusts a dashboard only when they match. Nothing about which port is chosen changed.
 
 ## 6. Scars honored

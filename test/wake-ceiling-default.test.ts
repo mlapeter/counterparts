@@ -142,7 +142,8 @@ async function dayOneThenNextWake(hook: Hook): Promise<string> {
 
 function expectComposed(wake: string): void {
   expect(wake).not.toContain(BOOTSTRAP);
-  expect(wake).toContain("<!-- counterparts:wake elements=");
+  // The head tag, with the hook's fields in it since 2026-10-20 (ONE TAG).
+  expect(wake).toMatch(/<!-- counterparts:wake (?:[a-z]+=\S+ )*elements=/);
   // Day one's content, in the next session's wake.
   expect(wake).toContain("Pratt");
 }

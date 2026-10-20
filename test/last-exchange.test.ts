@@ -553,7 +553,14 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     expect(pageBytes(text)).toBe(pageBytes(quiet));
     expect(lane(text, FRAMING.horizon).some((l) => l.includes("the seed order closes at noon"))).toBe(true);
     expect(lane(text, FRAMING.threads)[0]).toStartWith("- ");
-    expect(lane(text, FRAMING.threads)).toEqual(lane(quiet, FRAMING.threads));
+    // The same items, in the same order. Since 2026-10-20 B's Yesterday line
+    // leaves the ladder chapter to "Last here" (A's own wake has no Last here,
+    // so its Yesterday names it): B's composition then fits without borrowing
+    // the furniture's room, and the leftover-room upgrade (#489 C) that A's
+    // borrowed room paid for prints its first item as a line instead. Which
+    // items are listed is what the exchange line must not change.
+    const which = (ls: readonly string[]): string[] => ls.map((l) => /Open question \d+:/.exec(l)?.[0] ?? l);
+    expect(which(lane(text, FRAMING.threads))).toEqual(which(lane(quiet, FRAMING.threads)));
     expect(lane(text, FRAMING.horizon)).toEqual(lane(quiet, FRAMING.horizon));
     // Last here and the handoffs still point the way, the line between them.
     const ls = text.split("\n");

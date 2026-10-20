@@ -438,7 +438,7 @@ describe("the Arriving line says when it is due (2026-10-01)", () => {
     const lines = text.split("\n");
     const at = lines.indexOf("Coming up:");
     expect(at).toBeGreaterThan(-1);
-    expect(lines[at + 1]).toBe("- Aug 25 (due Oct 3) · The Portland move lands on the fourth and the truck is booked.");
+    expect(lines[at + 1]).toMatch(/^- Aug 25 \(due Oct 3\) · The Portland move lands on the fourth and the truck is booked\. \[mem_[0-9a-f]{12}\]$/);
     // Two days before, it is counted, not listed: not due yet.
     c.rebrief({ budgetBytes: 20_000, at: "2026-10-01" });
     const before = c.wake(20_000, { date: "2026-10-01" }).text;
@@ -457,7 +457,7 @@ describe("the Arriving line says when it is due (2026-10-01)", () => {
     const lines = c.wake(20_000, { date: "2026-08-25" }).text.split("\n");
     const at = lines.indexOf("Coming up:");
     expect(at).toBeGreaterThan(-1);
-    expect(lines[at + 1]).toBe("- due Aug 25 · The Portland move lands on the fourth and the truck is booked.");
+    expect(lines[at + 1]).toMatch(/^- due Aug 25 · The Portland move lands on the fourth and the truck is booked\. \[mem_[0-9a-f]{12}\]$/);
   });
 });
 
@@ -656,8 +656,8 @@ describe("plain reminders reach the person AND the model, through the hooks", ()
     const id = dated(a.counterpart.store, "2026-10-15", { title: "pay your taxes", meta: { [CUE_MODE_META]: "plain" } });
     const result = a.sessionStart(input());
     expect(result.notices).toEqual(["Today: pay your taxes"]);
-    // Right under the clock; the tag line (2026-10-16) sits under it, on the wake's head.
-    expect(result.injection).toMatch(/^Now: .*\nPlain reminder \(they asked to be told\) — Today: pay your taxes \[[^\n]*\n<!-- counterparts:onboarding meet=done --> <!-- counterparts:store id=st_[0-9a-f]{16} -->/);
+    // Right under the clock; the one tag (2026-10-20) sits under it: the wake's head, or the session tag.
+    expect(result.injection).toMatch(/^Now: .*\nPlain reminder \(they asked to be told\) — Today: pay your taxes \[[^\n]*\n<!-- counterparts:(?:wake|session) meet=done store=st_[0-9a-f]{16} /);
     expect(result.injection).toContain(`[${id}]`);
     // Nothing is claimed until the delivery knows the envelope carries it.
     expect(a.counterpart.store.eventLog({ name: PROSPECTIVE_PLAIN_EVENT })).toEqual([]);

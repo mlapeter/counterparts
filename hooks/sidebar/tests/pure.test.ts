@@ -772,6 +772,21 @@ describe('the first meeting', () => {
     expect(parseOnboardingMarker(old)).toBe('later')
     expect(parseStoreMarker(old)).toBe('st_fedcba9876543210')
   })
+  test('one tag (2026-10-20): meet= and store= inside the wake’s head tag, or the session tag in front of a wake with none', () => {
+    const head = 'Now: Tue 20 Oct 2026, 7:40 am MDT\n<!-- counterparts:wake meet=done store=st_0123456789abcdef elements=4 bytes=9030 -->\nCounterparts memory, day 29 · 2,138 memories.'
+    expect(parseOnboardingMarker(head)).toBe('done')
+    expect(parseStoreMarker(head)).toBe('st_0123456789abcdef')
+    const session = '<!-- counterparts:session meet=not_started store=st_fedcba9876543210 -->\nCounterparts: this session was resumed; the wake it was handed when it started (above) still holds.'
+    expect(parseOnboardingMarker(session)).toBe('not_started')
+    expect(parseStoreMarker(session)).toBe('st_fedcba9876543210')
+    // Claude Desktop's wake carries no store field.
+    expect(parseOnboardingMarker('<!-- counterparts:wake meet=later elements=1 bytes=99 -->')).toBe('later')
+    expect(parseStoreMarker('<!-- counterparts:wake meet=later elements=1 bytes=99 -->')).toBeNull()
+    for (const bad of ['<!-- counterparts:wake elements=4 bytes=9030 -->', '<!-- counterparts:wake meet=maybe elements=1 bytes=2 -->', '<!-- counterparts:recall meet=done -->', 'counterparts:wake meet=done']) {
+      expect(parseOnboardingMarker(bad)).toBeNull()
+    }
+    expect(parseStoreMarker('<!-- counterparts:wake store=st_xyz elements=1 bytes=2 -->')).toBeNull()
+  })
 })
 
 describe('the themes', () => {

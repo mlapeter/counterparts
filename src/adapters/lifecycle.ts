@@ -66,7 +66,7 @@ import type {
   Turn as CapturedTurn,
 } from "../core/remember/index.js";
 import { calendarDate } from "../core/self/index.js";
-import { storeMarker } from "./store-id.js";
+import { ONE_TAG, markerFields, storeMarker } from "./store-id.js";
 import { ahaDue, ahaLine, markAha, meetPending, meetState, noteOffered, offerDue, offerLine, onboardingMarker, settleOffer } from "../core/onboarding.js";
 import { localClock, localDate, readableDate } from "../core/time.js";
 
@@ -391,8 +391,13 @@ export interface HostLifecycle {
   /** The live-session registry, at one of a session's three moments. */
   noteSession(phase: SessionPhase, input: SessionInput): void;
   /** The wake, composed to `budget` for this session and place, and the
-   *  registry's note of the sentinel it was printed with. */
-  composeWake(input: SessionInput, budget: number | undefined): ReturnType<Counterpart["wake"]>;
+   *  registry's note of the sentinel it was printed with; with `tags`, the
+   *  host's markers in its head tag (2026-10-20, ONE TAG). */
+  composeWake(
+    input: SessionInput,
+    budget: number | undefined,
+    tags?: () => readonly string[],
+  ): ReturnType<Counterpart["wake"]> & { readonly tags?: readonly string[]; readonly tagged?: boolean };
   /** `Now: Fri 25 Sep 2026, 1:40 pm MDT` — the lifecycle's clock, in the store's zone. */
   nowLine(): string;
   /** Plain reminders due today — a READ; nothing is claimed. */
@@ -566,10 +571,25 @@ export class Lifecycle implements HostLifecycle {
    * it works: every hook is its own process, so the hook that tests it always
    * met an empty map. `adapter.wake.delivered` wrote no row in two weeks of
    * running (mechanism inventory 2026-09-17, S2).
+   *
+   * `tags` (2026-10-20, ONE TAG): the host's markers for this start. With
+   * `ONE_TAG` on their fields go into the head tag (`WakeHere.headFields`:
+   * the core puts them in after it splices the furniture, when the whole
+   * still fits the ceiling), BEFORE the expectation is written, so the tail the next prompt
+   * looks for is the one delivered. `tags` on the result: the markers asked
+   * for; `tagged`: whether the head carries them (else the host puts
+   * `sessionTag` in front). Asked for before the compose: the onboarding
+   * marker settles the meeting's state, which the compose does not read.
    */
-  composeWake(input: SessionInput, budget: number | undefined): ReturnType<Counterpart["wake"]> {
+  composeWake(
+    input: SessionInput,
+    budget: number | undefined,
+    tags?: () => readonly string[],
+  ): ReturnType<Counterpart["wake"]> & { readonly tags?: readonly string[]; readonly tagged?: boolean } {
     const dir = this.counterpart.store.dir;
-    const woke = this.counterpart.wake(
+    const asked = tags?.();
+    const fields = asked === undefined || !ONE_TAG ? [] : markerFields(asked);
+    const composed = this.counterpart.wake(
       budget,
       { ...(input.at === undefined ? {} : { date: input.at }) },
       {
@@ -578,8 +598,10 @@ export class Lifecycle implements HostLifecycle {
         // on disk NOW, which a long-running server's own may not be.
         installed: manifestVersionOnDisk(),
         openedWith: (session) => readSession(dir, session)?.opened?.build.version ?? null,
+        ...(fields.length === 0 ? {} : { headFields: fields }),
       },
     );
+    const woke = asked === undefined ? composed : { ...composed, tags: asked, tagged: composed.tagged === true };
     this.noteWakeExpectation(input, woke.sentinel);
     this.noteWakeIndex(input, woke.lined ?? []);
     this.noteWakeThreads(input, woke.threads ?? []);
