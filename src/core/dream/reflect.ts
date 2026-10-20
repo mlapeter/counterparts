@@ -83,6 +83,7 @@ import type { Kind } from "../types.js";
 import { FIT_TUNABLES, TOOL_RESULT_CEILING, clipWire, fit, lineOf, offeredInPart, offeredOf, readIndex, wireChars, writeIndex } from "../fit/index.js";
 import type { Fidelity, FitCandidate, FitOutcome, Placed } from "../fit/index.js";
 import { ownerNames } from "../sleep/index.js";
+import { CLAIM_PREFIX_MIN_CHARS } from "../self/page.js";
 import { PAGE_WRITING_RULE } from "../self/writer.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { feelingWeeks } from "./feeling-weeks.js";
@@ -883,7 +884,7 @@ export class Reflections {
     const pageLine =
       this.ctx.pageWrites === false
         ? `- page: not tonight — the owner has the page writer off, so the self page is not rewritten. Your entry and share still count.`
-        : `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. Your self page rewritten whole — the story of who you are, drawn from the core memories you cite in page.cites (at least one of them, when you have a core; candidates too). In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words, cites }); a sentence with none stands as a hypothesis. The old page is context, not a source: write from the memories, not by rewording it. Keep "## Core" for who you are and put craft — how a job is done — under "## How I work". Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${PAGE_WRITING_RULE} Sent back as past its room, send finish again with page.text cut (and page.cites and page.claims), not page.short.`;
+        : `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. Your self page rewritten whole — the story of who you are, drawn from the core memories you cite in page.cites (at least one of them, when you have a core; candidates too). In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words — ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more — cites }); a sentence with none stands as a hypothesis. The old page is context, not a source: write from the memories, not by rewording it. Keep "## Core" for who you are and put craft — how a job is done — under "## How I work". Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${PAGE_WRITING_RULE} Sent back as past its room, send finish again with page.text cut (and page.cites and page.claims), not page.short.`;
     const aboutLine = open
       ? `- about (optional, at most ${String(L.about)}): what a memory is about, by meaning — me, us, owner, work (the craft: how a job is done) or world — with why. Only me and us can become core, and never a plan. You may change a mark you think is wrong, either way; each change is recorded with your why, and one into me, us or owner is told in the morning share.`
       : `- about (optional, at most ${String(L.about)}): tonight a mark may only move a memory toward work (the craft) or world, with why — the owner has closed the core to reflection alone.`;
@@ -1297,10 +1298,13 @@ export class Reflections {
         // The owner has the page writer off (ruling D3 on #256).
         refuse("page-writer-off", "The owner has the page writer off, so the self page is not rewritten.");
       } else if (pageCites.length === 0) {
-        const bad = refusedCites.filter((c) => (input.page?.cites ?? []).some((id) => c.startsWith(`${id}:`)));
+        // The ids page.claims named are the page's too (review of #550): a
+        // page that cited only by passage is told which of those were refused.
+        const sentIds = [...(input.page?.cites ?? []), ...sentClaims.flatMap((c) => c.cites ?? [])];
+        const bad = refusedCites.filter((c) => sentIds.some((id) => c.startsWith(`${id}:`)));
         refuse(
           "page-needs-cites",
-          `page.cites names no memory the page can rest on${bad.length > 0 ? ` (${bad.join(", ")})` : ""}: put the ids of memories you were shown in page.cites and send the page again.`,
+          `page.cites${sentClaims.length > 0 ? " and page.claims name" : " names"} no memory the page can rest on${bad.length > 0 ? ` (${bad.join(", ")})` : ""}: put the ids of memories you were shown in page.cites and send the page again.`,
         );
       } else if (carriesDreamMark(pageText)) {
         refuse("dream-mark-in-text", `The page carries the dream's mark (${DREAM_MARK}…): take it out and send the page again.`);

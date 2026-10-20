@@ -2291,13 +2291,15 @@ export class Self {
     if (page === null) return { ...none, written: false, reason: "empty" };
     // `revise` archives what was there FIRST, so the page that was cleared is a
     // version on this same row and `--restore <seq>` reaches it — with its
-    // short version, which goes with it (2026-10-10).
+    // short version, which goes with it (2026-10-10), and its trace (review
+    // of #550: the same words written after a clear start untraced).
     const version = this.store.revise(page.id, {
       body: PAGE_CLEARED_BODY,
       meta: {
         [PAGE_META_REASON]: opts.reason,
         [PAGE_META_CLEARED]: { on: this.store.today(), reason: opts.reason },
         [PAGE_META_SHORT]: null,
+        [PAGE_META_TRACE]: null,
       },
       reason: opts.reason,
     });

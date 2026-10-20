@@ -2381,3 +2381,8 @@ of date" prefix replaced the "keep or retire it" words.
   word for word. It shows how far back the kept versions reach and how many retention let go.
   It is only a view; keeping layers longer would be a retention choice. The page's hypotheses
   (sentences with no memory named) are listed under it there.
+- **Review of #550.** A passage is read by the page's own rules (`pageClaims`), so one quoted
+  with its list mark, quote mark or heading names its sentence; the ask and the tool say the
+  24-character floor for an opening. A page cited only by passage, with every id refused, is
+  sent back naming them. A clear lets the trace go, as it does the short version. In layers, a
+  section that came or went has its own line and is not counted as "the same in every version".

@@ -66,6 +66,7 @@ import { RECALL_MAX_IDS } from "./deliberate.js";
 import { FACTS_MEANING_CAP, FACTS_PAGE_SIZE, FACTS_TAIL_SIZE } from "./facts.js";
 import { RECURRENCES } from "../../core/time.js";
 import { PAGE_ROOM_BYTES } from "../../core/self/briefing.js";
+import { CLAIM_PREFIX_MIN_CHARS } from "../../core/self/page.js";
 import { MEET_STEPS } from "../../core/onboarding.js";
 
 /**
@@ -1745,7 +1746,7 @@ const REFLECT: ToolSpec = {
       cites: { type: "array", items: { type: "string" }, description: "`finish`: the memory ids the entry rests on." },
       page: {
         type: "object",
-        description: `\`finish\`, optional: the self page rewritten whole, within its ${String(PAGE_ROOM_BYTES)}-byte room, and the memory ids it rests on (the core first). A page past the room is sent back once to be cut; \`short\` (under ${String(PAGE_ROOM_BYTES)} bytes, the whole of it condensed) is for a page kept past it — beside it, or alone on a second \`finish\`. \`claims\`: each sentence (as written, or its first several words) and the ids it rests on; a sentence with none stands as a hypothesis.`,
+        description: `\`finish\`, optional: the self page rewritten whole, within its ${String(PAGE_ROOM_BYTES)}-byte room, and the memory ids it rests on (the core first). A page past the room is sent back once to be cut; \`short\` (under ${String(PAGE_ROOM_BYTES)} bytes, the whole of it condensed) is for a page kept past it — beside it, or alone on a second \`finish\`. \`claims\`: each sentence (as written, or its first several words: ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more) and the ids it rests on; a sentence with none stands as a hypothesis.`,
         properties: {
           text: { type: "string" },
           cites: { type: "array", items: { type: "string" } },

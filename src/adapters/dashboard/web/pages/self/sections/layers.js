@@ -62,8 +62,9 @@ export function pageLayers(steps) {
       const key = sec.heading.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      if (!byKey.has(key)) { byKey.set(key, { heading: sec.heading, layers: [] }); order.push(key); }
+      if (!byKey.has(key)) { byKey.set(key, { heading: sec.heading, layers: [], versions: 0 }); order.push(key); }
       const entry = byKey.get(key);
+      entry.versions += 1;
       const last = entry.layers[entry.layers.length - 1];
       if (last && last.untilSeq === prevSeq(kept, s) && fold(last.text) === fold(sec.body)) { last.untilSeq = s.seq; continue; }
       entry.layers.push({ seq: s.seq, untilSeq: s.seq, date: s.date, day: s.day, text: sec.body });
@@ -73,7 +74,9 @@ export function pageLayers(steps) {
   const now = new Set(sectionsOf(standing.body).map((x) => x.heading.toLowerCase()));
   const sections = order.map((key) => {
     const e = byKey.get(key);
-    return { heading: e.heading, standing: now.has(key), layers: e.layers };
+    // `inAll` (review of #550): in every kept version, so one layer means it
+    // read the same throughout — not a section that came or went.
+    return { heading: e.heading, standing: now.has(key), inAll: e.versions === kept.length, layers: e.layers };
   });
   sections.sort((a, b) => Number(b.standing) - Number(a.standing));
   const first = kept[0];
@@ -115,7 +118,10 @@ export function reachWords(l) {
 /** One section's story across its layers, as a sentence a person says. Pure. */
 export function storyWords(sec) {
   const ls = sec.layers;
-  if (ls.length === 1) return (sec.standing ? "Unchanged since " : "Read so on ") + whenWords(ls[0]) + ".";
+  if (ls.length === 1) {
+    if (!sec.standing) return "Read so on " + whenWords(ls[0]) + ", and no longer on the page.";
+    return (sec.inAll === false ? "On the page since " : "Unchanged since ") + whenWords(ls[0]) + (sec.inAll === false ? ", unchanged." : ".");
+  }
   return "Changed " + (ls.length - 1) + (ls.length === 2 ? " time" : " times") + (sec.standing ? "" : ", and no longer on the page") + ".";
 }
 
@@ -126,7 +132,9 @@ export function paint(d) {
   const hyp = t && t.hypotheses && t.hypotheses.length > 0 ? t.hypotheses : null;
   if (d.pageAbsent || (l.versions < 2 && !hyp)) { el.hidden = true; el.innerHTML = ""; return; }
   el.hidden = false;
-  const changed = l.sections.filter((s) => s.layers.length > 1);
+  // A section that changed, or came or went, has a story; one in every kept
+  // version that read the same throughout is only counted (review of #550).
+  const changed = l.sections.filter((s) => s.layers.length > 1 || !s.inAll);
   const still = l.sections.length - changed.length;
   const parts = [];
   if (l.versions >= 2) {

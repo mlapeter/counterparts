@@ -154,6 +154,23 @@ describe("1. the page's claims, and a trace naming them", () => {
     expect(traceFor(PAGE, { cites: ["mem_a"], claims: [{ text: "The release went out on the", cites: ["mem_d"] }] }).cited).toBe(1);
   });
 
+  test("a passage quoted with its list mark, its heading or a quote mark names the same sentence; an initial does not end one (review of #550)", () => {
+    const body = "## Core\n\nY. I keep the notes plain and short.\n\n- Small steps, checked twice over.\n\n> We build it together, slowly.";
+    expect(pageClaims(body)).toEqual(["Y. I keep the notes plain and short.", "Small steps, checked twice over.", "We build it together, slowly."]);
+    const t = traceFor(body, {
+      cites: [],
+      claims: [
+        { text: "## Core\n\nY. I keep the notes plain and short.", cites: ["mem_a"] },
+        { text: "- Small steps, checked twice over.", cites: ["mem_b"] },
+        { text: "> We build it together, slowly.", cites: ["mem_c"] },
+        // The initial read as a sentence's end: the rest names nothing.
+        { text: "I keep the notes plain and short.", cites: ["mem_d"] },
+      ],
+    });
+    expect(t.unmatched).toBe(1);
+    expect(t.trace.claims?.map((c) => c.cites)).toEqual([["mem_a"], ["mem_b"], ["mem_c"]]);
+  });
+
   test("with no passages sent, the trace is the whole page's list and claims are not recorded", () => {
     const t = traceFor(PAGE, { cites: ["mem_a", "mem_a"] });
     expect(t.trace).toMatchObject({ cites: ["mem_a"], claims: null });
@@ -189,6 +206,18 @@ describe("2. the page's door keeps the trace beside the text", () => {
     expect(readSelfPage(s)?.trace).toMatchObject({ cites: ["mem_a"] });
     me.revisePage(`${PAGE}\n\nOne more line.`, { by: "session", reason: "new words" });
     expect(readSelfPage(s)?.trace).toBeNull();
+  });
+
+  test("a clear lets the trace go: the same words written after it start untraced (review of #550)", () => {
+    const s = store();
+    const me = selfOn(s);
+    me.revisePage(PAGE, { by: "reflection", reason: "a", trace: { cites: ["mem_a"], claims: [{ text: "I say what I do not know.", cites: ["mem_a"] }] } });
+    me.clearPage({ reason: "cleared" });
+    me.revisePage(PAGE, { by: "owner", reason: "the same words again" });
+    expect(readSelfPage(s)?.trace).toBeNull();
+    // The version cleared keeps its own, for a restore.
+    me.restorePage(1);
+    expect(readSelfPage(s)?.trace?.cites).toEqual(["mem_a"]);
   });
 
   test("a restore brings back the version's own trace; a version from before traces comes back untraced", () => {
@@ -284,6 +313,55 @@ describe("3. the reflection sends cites per passage", () => {
     });
     expect(done.ok ? "" : done.reason).toBe("");
     expect(readSelfPage(c.store)?.trace).toEqual({ cites: [cite], claims: null });
+  });
+
+  test("a page cited only by passage, every id refused (not shown, confidential): sent back naming them (review of #550)", () => {
+    const { c, cite } = reflecting();
+    const secret = mem(c.store, "A confidential thing about Mike's health.", { about: "owner", meta: { confidential: true } });
+    const begun = c.reflections.begin({ session: `${SESSION}-2` });
+    if (!begun.ok) throw new Error(begun.reason);
+    const text = "## Core\n\nI finished the release with Mike. I like plain words.";
+    const done = c.reflections.finish({
+      reflection: begun.bundle.reflection,
+      session: `${SESSION}-2`,
+      entry: "The release mattered.",
+      cites: [cite],
+      page: { text, cites: [], claims: [{ text: "I finished the release with Mike.", cites: ["mem_notshown0", secret] }] },
+    });
+    expect(done.ok ? "" : done.reason).toBe("");
+    if (!done.ok) return;
+    expect(done.outcome.page).toMatchObject({ written: false, reason: "page-needs-cites" });
+    const detail = String(done.outcome.page.detail ?? "");
+    expect(detail).toContain("page.cites and page.claims name no memory");
+    expect(detail).toContain("mem_notshown0:not-shown");
+    expect(detail).toContain(`${secret}:confidential-is-not-a-page-source`);
+  });
+
+  test("a sentence the gate redacted reads as uncited, and nothing of it is kept but its key (review of #550)", () => {
+    const { c, cite, reflection } = reflecting();
+    const key = "AKIAIOSFODNN7EXAMPLE";
+    const done = c.reflections.finish({
+      reflection,
+      session: SESSION,
+      entry: "The release mattered.",
+      cites: [cite],
+      page: {
+        text: `## Core\n\nI once saw the key ${key} in a log. I finished the release with Mike.`,
+        cites: [cite],
+        claims: [
+          { text: `I once saw the key ${key} in a log.`, cites: [cite] },
+          { text: "I finished the release with Mike.", cites: [cite] },
+        ],
+      },
+    });
+    expect(done.ok ? "" : done.reason).toBe("");
+    if (!done.ok) return;
+    expect(String(done.outcome.page.note ?? "")).toContain("1 of page.claims matched no sentence");
+    const page = readSelfPage(c.store);
+    expect(page?.body).not.toContain(key);
+    expect(page?.trace?.claims?.map((x) => x.cites.length)).toEqual([0, 1]);
+    const row = page === null ? null : c.store.readProse(page.id);
+    expect(JSON.stringify(row?.meta ?? {})).not.toContain(key);
   });
 
   test("the instructions ask for it in one clause", () => {
@@ -407,6 +485,19 @@ describe("5. the dashboard's layers", () => {
     expect(l.sections[1].layers.length).toBe(1);
     expect(storyWords(l.sections[2])).toMatch(/^Read so on Sep 22nd/);
     expect(reachWords(l)).toContain("(3 versions; 3 older ones have gone under the ordinary retention)");
+  });
+
+  test("a section that came or went is not counted as reading the same in every version (review of #550)", () => {
+    const l = pageLayers([
+      step(1, "2026-10-01", "## Core\n\nI keep it plain."),
+      step(2, "2026-10-02", "## Core\n\nI keep it plain.\n\n## Lately\n\nThe release went out."),
+      step(3, "2026-10-03", "## Core\n\nI keep it plain.\n\n## How I work\n\nSmall steps.", true),
+    ]);
+    const by = (h: string): { inAll: boolean; layers: unknown[] } => l.sections.find((s: { heading: string }) => s.heading === h);
+    expect(by("Core").inAll).toBe(true);
+    expect(by("Lately").inAll).toBe(false);
+    expect(storyWords(by("How I work"))).toBe("On the page since Oct 3rd, unchanged.");
+    expect(storyWords(by("Lately"))).toBe("Read so on Oct 2nd, and no longer on the page.");
   });
 
   test("one version only, or none readable: nothing to layer", () => {

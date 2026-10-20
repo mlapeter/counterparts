@@ -730,7 +730,9 @@ export const CLAIM_PREFIX_MIN_CHARS = 24;
  * WHICH SENTENCES OF `body` EACH SENT PASSAGE NAMES, and the trace to store
  * (2026-10-20). A passage names a sentence when, folded (`claimNorm`), it is
  * that sentence or an opening of it at least `CLAIM_PREFIX_MIN_CHARS` long; a
- * passage of several sentences names each. One that names none is counted in
+ * passage of several sentences names each, split as the page is (`pageClaims`:
+ * a list mark, a quote mark or a heading quoted with it is not part of it). One
+ * that names none is counted in
  * `unmatched`, and its ids stay with the whole page's. A sentence two passages
  * name rests on both's ids. Only reads the page's words, never changes them.
  * `body` is the text as stored. Pure.
@@ -755,7 +757,9 @@ export function traceFor(
         if (k === c.of) hit.push(i);
       });
     } else if (typeof c.text === "string") {
-      for (const part of sentencesOf(c.text.replace(/\s+/g, " ").trim()).map(claimNorm)) {
+      // Read by the page's own rules (review of #550): a passage quoted with
+      // its list mark, its quote mark or its heading names the same sentences.
+      for (const part of pageClaims(c.text).map(claimNorm)) {
         if (part.length === 0) continue;
         const free = (i: number): boolean => !hit.includes(i);
         const exact = norms.findIndex((n, i) => n === part && free(i));
