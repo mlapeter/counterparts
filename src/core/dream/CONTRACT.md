@@ -470,7 +470,9 @@ dream having run.
     why, keeps `closeThread`'s checks, and lands only with the share that says it (none
     once the share was told or carried); `close` closes only ids the reflection proposed,
     and `reopen` reopens only ids it closed itself, both with `closeThread`'s checks; a
-    thread the owner reopened is never closed by a reflection again, only asked about.
+    thread the owner reopened is never closed by a reflection again, only asked about,
+    and one this session may not close (confidential, or another directory, from a
+    session not the owner's, as the nightly run is) is asked about instead.
 - Guarantees: **[M]** at most one reflection a calendar day; **[M]** it can cite, feel or
   mark only what it was shown; **[M]** nothing under observer; **[M]** a reflection is
   not undone with its dream (it was lived); **[M]** what a dream or a reflection wrote

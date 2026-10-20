@@ -15,6 +15,12 @@
   (protected, archived, and for a session not the owner's, confidential or another
   directory), at most `STALE_OPEN` (5) asked and closed together a night, nothing once the
   share was told or carried.
+- **Asked instead**: the nightly run's server is not the owner's and is scoped to the
+  launching session's folder (`night-run.ts#nightMcpConfig`, decided 2026-10-02), so it
+  closes on its own only threads written in that folder. One from another folder (or one
+  the owner reopened) is asked about instead, as before this change, and a yes from his
+  session closes it. If the experiment should reach every folder, that stance is Mike's to
+  change; it is not changed here.
 - **Undo**: the reflect tool's phase `reopen` (reflection id + the ids it closed). After a
   reopen the memory carries `threadReopenedBy`, and no reflection closes it on its own
   again; it may only ask.

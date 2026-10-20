@@ -1456,6 +1456,7 @@ export class Reflections {
     const toClose: SelfClose[] = [];
     const closeRefused: { id: string; reason: string }[] = [];
     const closeNotes: string[] = [];
+    let askedInstead = 0;
     const isClosed = (cid: string): boolean => priorSelfClosed.some((x) => x.id === cid) || toClose.some((x) => x.id === cid);
     const full = (): boolean => proposed.length + priorSelfClosed.length + toClose.length >= T.STALE_OPEN;
     // Still open and showable here: the prose read, as the wake reads it.
@@ -1498,12 +1499,19 @@ export class Reflections {
         closeRefused.push({ id: cid, reason: "no-longer-open" });
         continue;
       }
-      // The owner said it was not done: ask again some night, never close it.
-      if (typeof open.meta[THREAD_REOPENED_BY_META_KEY] === "string") {
-        closeRefused.push({ id: cid, reason: "reopened-by-owner" });
+      // ASKED INSTEAD (2026-10-20): one this session may not close — the owner
+      // reopened it, or, from a session not the owner's (the nightly run's
+      // stance), it is confidential or was written in another directory — is
+      // asked about, as a proposal; the owner's yes, from a session that may,
+      // closes it. The doubt is about permission, not about whether it is done.
+      const guard =
+        typeof open.meta[THREAD_REOPENED_BY_META_KEY] === "string" ? "reopened-by-owner" : threadGuard(open.row, this.ctx.owner, input.scope);
+      if (guard === "reopened-by-owner" || guard === "other-directory" || guard === "confidential") {
+        proposed.push(cid);
+        askedInstead += 1;
+        closeNotes.push(`${cid}: asked instead of closed (${guard}).`);
         continue;
       }
-      const guard = threadGuard(open.row, this.ctx.owner, input.scope);
       if (guard !== null) {
         closeRefused.push({ id: cid, reason: guard });
         continue;
@@ -1622,6 +1630,8 @@ export class Reflections {
       // Open threads (2026-10-20): asked about, and closed by the reflection itself.
       closeAsked: (shareStands ? proposed : priorProposed).length,
       selfClosed: selfClosed.length,
+      // ...and the ones it would have closed that this session may not, asked instead.
+      closeAskedInstead: used("closeAskedInstead") + (shareStands ? askedInstead : 0),
     };
     detail["counts"] = counts;
     const allRefused = [...(Array.isArray(prior["refusedCites"]) ? (prior["refusedCites"] as string[]) : []), ...refusedCites];

@@ -775,7 +775,16 @@ the live ~52):
   `threadReopenedBy` on the memory, and a later `closeNow` of it is refused
   (`reopened-by-owner`; the bundle marks it `reopened`): `revise` leaves its untouched
   days alone, so without the stamp the next nights would close it again.
+- **The nightly run's stance limits it.** The night child's server is not the owner's
+  (`night-run.ts#nightMcpConfig`, `OWNER_ENV` "0", 2026-10-02: "its write-ups close no
+  thread opened elsewhere — until that is decided on its own") and is scoped to the
+  launching session's directory. So from the nightly run a self-close lands only for a
+  thread written in that directory; any other (`other-directory`; `confidential` never
+  reaches the bundle) is ASKED instead — a proposal, with a note and
+  `counts.closeAskedInstead` — and the owner's yes from his own session closes it. The
+  guards are unchanged; widening what the night may close is Mike's call, not taken here.
 - Nothing in doctor or the dashboard counted proposals, so no line changed; the
-  `reflection.finished` record now carries `closeAsked` and `selfClosed`, and
+  `reflection.finished` record now carries `closeAsked`, `selfClosed` and
+  `closeAskedInstead`, and
   `reflection.reopened` is emitted on an undo. Watch (CHECK-AFTER, ~10-24): how many it
   closed itself, how many were reopened, and how the Still open count moves.

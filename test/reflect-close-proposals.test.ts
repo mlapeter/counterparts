@@ -412,17 +412,18 @@ describe("stale open threads, closed when plainly done", () => {
     expect(next.instructions).toContain("ask, never close");
     const done = c.reflections.finish({ reflection: next.bundle.reflection, session: "s-night-2", entry: "Again.", closeNow: [{ id: w.stale, why: "Signed." }] });
     if (!done.ok) throw new Error(done.reason);
-    expect(done.outcome.close.refused).toEqual([{ id: w.stale, reason: "reopened-by-owner" }]);
+    expect(done.outcome.close.closed).toEqual([]);
+    expect(done.outcome.close.proposed).toEqual([w.stale]);
+    expect(done.outcome.close.notes ?? []).toEqual([`${w.stale}: asked instead of closed (reopened-by-owner).`]);
     expect(openFlag(c, w.stale)).toBe(true);
-    const asked = c.reflections.finish({ reflection: next.bundle.reflection, session: "s-night-2", close: [w.stale] });
-    if (!asked.ok) throw new Error(asked.reason);
-    expect(asked.outcome.close.proposed).toEqual([w.stale]);
+    expect(c.store.reflection(next.bundle.reflection)?.share ?? "").toContain("Shall I close it?");
   });
 
-  test("from a session that is not the owner's, a self-close keeps to its own directory", () => {
+  test("from a session that is not the owner's, a self-close keeps to its own directory: another's is asked instead", () => {
     let c = brain();
     nextDay(c);
     const there = mem(c, "Open: is the other project's deploy done?", { meta: { unresolved: true }, origin: { scope: "/a" } });
+    const here = mem(c, "Open: is this project's deploy done?", { meta: { unresolved: true }, origin: { scope: "/b" } });
     for (let i = 0; i < REFLECT_TUNABLES.STALE_OPEN_DAYS + 1; i += 1) nextDay(c);
     c.close();
     open.splice(0);
@@ -430,10 +431,25 @@ describe("stale open threads, closed when plainly done", () => {
     open.push(c);
     const begun = c.reflections.begin({ session: SESSION });
     if (!begun.ok) throw new Error(begun.reason);
-    const done = c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "A look back.", closeNow: [{ id: there, why: "Deployed." }], scope: "/b" });
+    const id = begun.bundle.reflection;
+    const done = c.reflections.finish({
+      reflection: id,
+      session: SESSION,
+      entry: "A look back.",
+      closeNow: [
+        { id: there, why: "Deployed." },
+        { id: here, why: "Deployed too." },
+      ],
+      scope: "/b",
+    });
     if (!done.ok) throw new Error(done.reason);
-    expect(done.outcome.close.refused).toEqual([{ id: there, reason: "other-directory" }]);
+    expect(done.outcome.close.closed.map((x) => x.id)).toEqual([here]);
+    expect(done.outcome.close.proposed).toEqual([there]);
+    expect(done.outcome.close.refused).toEqual([]);
+    expect(done.outcome.close.notes ?? []).toEqual([`${there}: asked instead of closed (other-directory).`]);
     expect(openFlag(c, there)).toBe(true);
+    expect(openFlag(c, here)).toBe(false);
+    expect(JSON.parse(c.store.reflection(id)?.detail ?? "{}")["counts"]["closeAskedInstead"]).toBe(1);
   });
 });
 
