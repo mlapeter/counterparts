@@ -113,6 +113,19 @@ function setUp(): { c: Counterpart; open: string; reflection: string } {
   return { c, open: plain, reflection: begun.bundle.reflection };
 }
 
+/** The night's first page past the room is held (2026-10-20): the entry stands, the page is sent back. */
+function heldFirst(c: Counterpart, reflection: string, cite: string): void {
+  const held = c.reflections.finish({
+    reflection,
+    session: SESSION,
+    entry: "Looking back over the last few days, a few things stand out.",
+    cites: [cite],
+    page: { text: longPage(), cites: [cite] },
+  });
+  if (!held.ok) throw new Error(String(held.reason));
+  expect(held.outcome.page).toMatchObject({ written: false, reason: "past-room" });
+}
+
 describe("1. a reflection's short version crosses the reflection's own gates", () => {
   for (const [what, short] of [
     ["a confidential memory's words", `## Core\n\n${SECRET}`],
@@ -120,11 +133,10 @@ describe("1. a reflection's short version crosses the reflection's own gates", (
   ] as const) {
     test(`beside the page: a short version carrying ${what} is not kept — the page is, and the note says why`, () => {
       const { c, open: cite, reflection } = setUp();
+      heldFirst(c, reflection, cite);
       const done = c.reflections.finish({
         reflection,
         session: SESSION,
-        entry: "Looking back over the last few days, a few things stand out.",
-        cites: [cite],
         page: { text: longPage(), cites: [cite], short },
       });
       if (!done.ok) throw new Error(String(done.reason));
@@ -143,11 +155,10 @@ describe("1. a reflection's short version crosses the reflection's own gates", (
 
     test(`alone, on a second finish: a short version carrying ${what} is refused, and the page written earlier stands`, () => {
       const { c, open: cite, reflection } = setUp();
+      heldFirst(c, reflection, cite);
       const first = c.reflections.finish({
         reflection,
         session: SESSION,
-        entry: "Looking back over the last few days, a few things stand out.",
-        cites: [cite],
         page: { text: longPage(), cites: [cite] },
       });
       if (!first.ok) throw new Error(String(first.reason));

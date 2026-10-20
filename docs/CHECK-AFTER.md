@@ -27,6 +27,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | 0.3.27, 10-19 (#528) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | The reflection closes open threads that are plainly done (`closeNow`, a why each, said in the share; `reopen` undoes), and still asks about the unsure ones | merged 10-20, unreleased | ~10-24: how many it closed itself (`reflections.detail.selfClosed`, `reflection.finished`'s `selfClosed`) (any folder, by Mike's 10-20 exception) and how many it asked instead, confidential or reopened (`closeAskedInstead`), whether any was wrong (`detail.reopened`, `reflection.reopened`), how the wake's Still open count moves from 58; revert by putting back the 10-16 `close` line in the prompt | `docs/decisions.d/feat-reflection-closes-done-threads-1020.md` |
+| The nightly writers held to the page's 4,600-byte room: the night's first page past it is sent back to be cut; a second try is kept; one never sent again is kept at the run's end. A page past the room with a short version shows it in the wake | built 10-20, unreleased | ~10-23 (three mornings after install): the page's bytes each morning, `past-room` holds and how each night ended, the wake's `elements=` and the page's rung | "Due ~2026-10-23 (the nightly writers held…)" below; `docs/decisions.d/feat-page-held-to-room-1020.md` |
 | Meaning computed in line whenever no fresh cue is ready (#521) | 0.3.27, 10-19 | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
 | Wake without repeats (fix/wake-dedupe-1020): each episode once, no bare ids in Yesterday, ONE tag at the top, about-me line says its folder first, a plain reminder due tomorrow counted at a session start, every Coming up item with its own id, one snapshot a day | in review 10-20, unreleased | the first two mornings after install | "Due ~2 mornings after install (the wake without repeats)" below; `docs/decisions.d/fix-wake-dedupe-1020.md` |
@@ -578,3 +579,24 @@ a candidate past the bar but never introduce one. Revert: `PRIME_LINK_UNITS` and
 - **Changes it if** tunnel vision: the same primed cluster turn after turn while the prompts changed subject, or the
   same `from` source priming several turns running → lower `PRIME_CEILING` or `PRIME_TRAIN_SHARE` first, then
   `PRIME_SOURCE_DECAY`. On lagged turns the train can still outweigh the lagged cue; watch that too.
+
+## Due ~2026-10-23 (the nightly writers held to the page's room, 2026-10-20, an experiment — docs/decisions.d/feat-page-held-to-room-1020.md)
+
+Trying: the page writer and the reflection are refused the night's first page past the 4,600-byte room ("cut,
+don't add a short version"); a second try is kept, and a held page never sent again is kept at the run's end. A
+page past the room with a short version shows that in the wake. Revert: `PAGE_HELD_TO_ROOM` and
+`PAGE_SHORT_PAST_ROOM` false (`src/core/self/tunables.ts`), and the 2026-10-10 sentence back in place of
+`PAGE_ROOM_RULE` (`src/core/self/writer.ts`).
+
+- **Look at, three mornings:** the page's bytes after each night (`self.page.revised` rows: `bytes`, `by`; the
+  last one before the morning's first session), and whether it is within 4,600. The holds: `self.page.refused`
+  rows with `reason: "past-room"` (`bytes`, `over`, `by`), and whether the same night then has a revised row by
+  the same door within the room (cut), past it (kept on the second try), or one whose reason ends "kept at the
+  run's end" or "kept at a later boundary" (never sent again; the second is a night with no run end).
+- **The wake:** the session-start wake's `elements=` count in its head tag (or `self.briefing` rows'
+  `elements`) and the page's rung (`page.rung` on the same row: `whole`, or `short` past the room), against the
+  10-20 morning: 4 sections down to 3 with a 4,956-byte page.
+- **Changes it if:** the pages come in thin but lose things that mattered (read one beside the 10-20 page), or
+  a night's held page was kept at the run's end most nights (the resend isn't happening: look at the words the
+  writer is sent back with), or the hold keeps firing every night by a few bytes (the room may be too tight for
+  this page).
