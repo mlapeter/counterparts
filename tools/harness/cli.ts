@@ -101,6 +101,10 @@ export function renderNight(r: NightReplayRecord): string {
   if (r.reflection !== null) {
     out.push(`reflection: state ${v(r.reflection.state)}; page version ${v(r.reflection.pageVersion)}; returns ${v(r.reflection.returns)}; cites ${v(r.reflection.cites)}`);
   }
+  for (const [act, init] of Object.entries(r.childInits ?? {})) {
+    if (init === null) out.push(`${act} child: said no init line (its output was not read)`);
+    else out.push(`${act} child: plugins ${String(init.plugins.length)}${init.plugins.length === 0 ? "" : ` (${init.plugins.join(", ")})`} · servers ${init.servers.map((x) => `${x.name}:${x.status}`).join(", ") || "none"}`);
+  }
   if (r.keptAt !== null) out.push(`kept: ${r.keptAt}`);
   return out.join("\n");
 }
@@ -123,8 +127,12 @@ async function main(argv: readonly string[]): Promise<number> {
       ...(flag(args, "--time-zone") === undefined ? {} : { timeZone: flag(args, "--time-zone")! }),
       ...(flag(args, "--budget") === undefined ? {} : { budgetBytes: Number(flag(args, "--budget")) }),
       ...(args.includes("--no-embed") ? { embed: false } : {}),
-      ...(args.includes("--model") || flag(args, "--model-name") !== undefined ? { seat: "model" as const } : {}),
-      ...(flag(args, "--model-name") === undefined ? {} : { model: flag(args, "--model-name")! }),
+      ...(args.includes("--model") ? { seat: "model" as const } : {}),
+      // `--model <name>`: the name when one follows (`--model opus`), else Claude Code's default.
+      ...((): { model?: string } => {
+        const v = flag(args, "--model");
+        return v === undefined || v.startsWith("--") ? {} : { model: v };
+      })(),
     });
     process.stdout.write(renderNight(record) + "\n");
     const json = flag(args, "--json");
@@ -134,7 +142,7 @@ async function main(argv: readonly string[]): Promise<number> {
   if (cmd !== "replay") {
     process.stderr.write(
       "usage: bun tools/harness/cli.ts replay [--source <copy>] [--returns derived|recorded] [--through-day N] [--early-days N] [--keep] [--json <out>]\n" +
-        "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--model [--model-name M]] [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
+        "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--model [<name>]] [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
     );
     return 2;
   }

@@ -29,15 +29,47 @@ import { SERVE_AT_ENV } from "./serve-at.js";
 /** The server entry the child's `--mcp-config` names. */
 export const SERVE_AT_SCRIPT = fileURLToPath(new URL("./serve-at.ts", import.meta.url));
 
-/** Variables of the parent never handed to the child: the host's session markers and every Counterparts setting. */
+/**
+ * Variables of the parent never handed to the child: the host's session
+ * markers, every Counterparts setting, and any API key (the harness runs on
+ * the owner's subscription, never a key a shell happened to export). The
+ * session guard is set back on, so nothing in the child opens a store nobody
+ * named.
+ */
 function childBaseEnv(env: NodeJS.ProcessEnv): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) {
     if (v === undefined) continue;
-    if (k.startsWith("COUNTERPARTS_") || k.startsWith("CLAUDE_") || k === "CLAUDECODE" || k === "HARNESS_NOW") continue;
+    if (k.startsWith("COUNTERPARTS_") || k.startsWith("CLAUDE_") || k.startsWith("ANTHROPIC_") || k === "CLAUDECODE" || k.startsWith("HARNESS_")) continue;
     out[k] = v;
   }
+  out["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"] = "1";
   return out;
+}
+
+/** What the child said about itself at start (its stream-json `system/init` line): the plugins it loaded and its MCP servers' state. */
+export interface ChildInit {
+  readonly plugins: readonly string[];
+  readonly servers: readonly { readonly name: string; readonly status: string }[];
+}
+
+/** The child's init line, read from its own output; null when it said none. */
+export function childInit(output: string | undefined): ChildInit | null {
+  for (const line of (output ?? "").split("\n")) {
+    if (!line.includes('"init"')) continue;
+    try {
+      const o = JSON.parse(line) as Record<string, unknown>;
+      if (o["type"] !== "system" || o["subtype"] !== "init") continue;
+      const plugins = Array.isArray(o["plugins"]) ? (o["plugins"] as unknown[]).map((p) => (typeof p === "string" ? p : String((p as { name?: unknown }).name ?? "?"))) : [];
+      const servers = Array.isArray(o["mcp_servers"])
+        ? (o["mcp_servers"] as { name?: unknown; status?: unknown }[]).map((x) => ({ name: String(x.name ?? "?"), status: String(x.status ?? "?") }))
+        : [];
+      return { plugins, servers };
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 export interface ModelSeatInput {
@@ -83,13 +115,15 @@ export function planModelChild(input: ModelSeatInput, ask: SeatAsk, hostSession:
     readOutput: true,
     ...(input.command === undefined ? {} : { command: input.command }),
   });
+  const parent = input.env ?? process.env;
   const server = {
     type: "stdio",
     command: process.execPath,
     args: [SERVE_AT_SCRIPT],
     env: {
-      ...(process.env["PATH"] === undefined ? {} : { PATH: process.env["PATH"] }),
-      ...(process.env["HOME"] === undefined ? {} : { HOME: process.env["HOME"] }),
+      ...(parent["PATH"] === undefined ? {} : { PATH: parent["PATH"] }),
+      ...(parent["HOME"] === undefined ? {} : { HOME: parent["HOME"] }),
+      COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
       [SERVE_AT_ENV.dir]: input.dir,
       [SERVE_AT_ENV.now]: String(input.now()),
       [SERVE_AT_ENV.budget]: String(input.budgetBytes ?? 9_000),
@@ -110,10 +144,12 @@ export function planModelChild(input: ModelSeatInput, ask: SeatAsk, hostSession:
 }
 
 /** Headless Claude Code in the harness's seat. A write-up owed is not the harness's to make: refused, by name. */
-export function modelSeat(input: ModelSeatInput): Seat<NightAnswer> {
+export function modelSeat(input: ModelSeatInput): Seat<NightAnswer> & { readonly inits: Readonly<Record<string, ChildInit | null>> } {
   if (underLiveRoot(input.dir, input.env)) throw new Error("refused: the harness's seat never runs on the owner's live store");
+  const inits: Record<string, ChildInit | null> = {};
   return {
     name: `harness:model${input.model === undefined ? "" : `:${input.model}`}`,
+    inits,
     async answer(ask: SeatAsk): Promise<NightAnswer> {
       if (ask.act === "catch-up") return { refused: "not-in-harness", started: false, code: null, timedOut: false, error: null, ms: 0 };
       const plan = planModelChild(input, ask, randomUUID());
@@ -121,6 +157,7 @@ export function modelSeat(input: ModelSeatInput): Seat<NightAnswer> {
       const at = Date.now();
       const result: ChildResult = await (input.start ?? ((p: ChildPlan) => startChild(p)))(plan);
       const neverStarted = result.spawnCode !== undefined || (result.code === null && !result.timedOut && result.error !== null);
+      if (!neverStarted) inits[ask.act] = childInit(result.output);
       return {
         refused: null,
         started: !neverStarted,

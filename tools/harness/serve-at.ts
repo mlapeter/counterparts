@@ -40,7 +40,8 @@ async function main(): Promise<void> {
   if (dir.trim().length === 0) throw new Error(`${SERVE_AT_ENV.dir} is required`);
   if (underLiveRoot(dir)) throw new Error("refused: the harness's server never opens the owner's live store");
   const base = Number(env[SERVE_AT_ENV.now] ?? "");
-  if (!Number.isFinite(base) || base <= 0) throw new Error(`${SERVE_AT_ENV.now} must be an instant in ms`);
+  // In MILLISECONDS: an instant in seconds (under 1e12) would date the store in 1970.
+  if (!Number.isFinite(base) || base < 1e12) throw new Error(`${SERVE_AT_ENV.now} must be an instant in ms`);
   const startedAt = Date.now();
   const now = (): number => base + (Date.now() - startedAt);
   const timeZone = env[SERVE_AT_ENV.timeZone];

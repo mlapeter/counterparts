@@ -125,7 +125,7 @@ On 0.3.27 and master, 10 of the 18 links land on memories the new bundle doesn't
 ## A model in the seat (`night --model`)
 
 ```sh
-bun tools/harness/cli.ts night --dir <night folder> --model [--model-name M]
+bun tools/harness/cli.ts night --dir <night folder> --model [<name>]
 ```
 
 The same night, with headless Claude Code in the seat (`model-seat.ts`) instead of the
@@ -137,10 +137,17 @@ watchdog). Three things change so it can't reach the owner's live store:
   from the temp copy, on a clock that starts at the night's instant and runs on in real time.
   The product's server has no clock knob.
 - **`--setting-sources project`, in an empty temp folder:** no user settings, so none of the
-  owner's hooks or plugins load. Measured 2026-10-20: no session file, no event, no backup in
-  the live store.
-- **Backups:** `COUNTERPARTS_CONFIG` names a temp config on the temp store, and the night's
-  quiet flag is set as on every night child.
+  owner's hooks load. Measured 2026-10-20: no session file, no event, no backup in the live
+  store. Whether plugins load is not left to a guess: each child's own init line (its first
+  stream-json line) is read, and the record shows the plugins it loaded and its MCP servers.
+- **Backups:**
+  - `COUNTERPARTS_CONFIG` names a temp config on the temp store.
+  - The night's quiet flag is set, as on every night child.
+  - `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` is set on the child and its server.
+  - No `COUNTERPARTS_*`, `CLAUDE_*` or `ANTHROPIC_*` variable of the parent reaches them; a
+    key in the shell would bill the API, and the harness runs on the subscription.
+- **Transcripts:** a child's transcript (holding the copy's words) lands under
+  `~/.claude/projects/<its folder>`. That folder is removed with the run, unless `--keep`.
 
 On 2026-10-20 the 10-19 night with a model in the seat took about 4 minutes:
 - the page writer ran;
