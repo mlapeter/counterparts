@@ -1471,6 +1471,18 @@ describe("the title tail (2026-10-20)", () => {
     expect(renderFacts(r)).not.toContain("titles only");
   });
 
+  test("a confidential memory is never in a non-owner's tail; the owner's tail may list it", () => {
+    const c = brain();
+    seed(c);
+    forty(c);
+    const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqcrate order for the clinic, kept private.", meta: { confidential: true } });
+    const stranger = ask(c, "the zqcrate orders", { owner: false });
+    expect(stranger.matched).toBe(40);
+    expect([...stranger.memories.map((m) => m.id), ...stranger.tail.map((t) => t.id)]).not.toContain(secret);
+    expect(renderFacts(stranger)).not.toContain(secret);
+    expect(ask(c, "the zqcrate orders").matched).toBe(41);
+  });
+
   test("when the answer runs out of room the tail goes first, before the excerpts go to nothing", () => {
     const c = brain();
     seed(c);
