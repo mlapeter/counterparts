@@ -1,6 +1,6 @@
 # Worklist
 
-*The details behind the roadmap's "To do" list. Started 2026-10-20. One entry per thing still to do: what it is,
+*The details behind the roadmap's "To do" list. Started 2026-10-20, updated 13:20. One entry per thing still to do: what it is,
 why, where it stands. Close an entry by moving it to "Done" with the date and the PR; drop it after a release.
 Experiments with a date to check live in [CHECK-AFTER](CHECK-AFTER.md); this file points there rather than
 repeating them.*
@@ -9,36 +9,24 @@ repeating them.*
 
 ## Being built
 
-- **F1. The reflection closes what is plainly done** (PR #535, in review). Open threads only closed when the
-  finishing session knew of them, or on the owner's yes to the morning share, so threads opened in one session and
-  finished in another piled up (59 open, 12 untouched 2+ weeks on 10-20). Now the reflection closes the clear ones
-  itself (`closeNow`, with a reason), says so in the share with how to undo (reflect `reopen`), and still asks about
-  the unsure ones. Across folders, on Mike's word 10-20 ("i think its ok for nightly run to close threads from
-  other folders"); confidential threads stay asked-only; night write-ups keep the 10-02 rule. Check ~10-24.
-- **F2. Wake fixes** (Mike, 10-16: "remove duplication"). Each session named once (on 10-20 each 10-19 session
-  showed twice, in ~/random up to three times); no bare `epi_` ids in the Yesterday line; the three top tags as one;
-  the cross-project line readable from another folder; each Coming up item shows its own id. Looked into in the
-  same lane: "Last here" naming an older session than "Last said here" (~/random); overdue items counted while a
-  not-yet-due one is listed; the daily snapshot taken twice ~50 ms apart (10-14, 10-16, 10-17, 10-18).
-- **F6. A weekly reminder can be marked done for this week.** The backup ran at 08:40 on 10-20 and a new session at
-  ~09:15 still reminded him. Cause (~/random, from the code): an occurrence closes only when a session names the
-  reminder's own id in `drewOn` (`creditDrewOn` → `prospective.actedOn`); saying it's done, or writing a "done"
-  memory, doesn't touch it, and `eventDate: null` ends the whole repeat. Building: an `updates` with
-  `status: done` closes this occurrence only; maybe a "done" memory beside an open reminder offers to close it.
-- **F6b. drewOn credit for a memory superseded minutes earlier** (same lane as F6). It's refused as
-  "faded-under-newer" even when that stale memory is what made the session catch and fix the record.
-- **F7. A read-only way to see a dream's or reflection's record.** recall answers `drm_` / `rfl_` ids with
-  "handle-unknown", and `counterparts dream` (it can also undo) is refused by auto mode as a change. Building: recall
-  reads both ids, plus a read-only `show` on the CLI.
+- **F4. Sessions see each other's work** (PR #543, reviewed, merging). "Today, elsewhere" and "Since you started"
+  name up to two gated work titles per other folder, and "Here, also open" names other live sessions in this folder
+  with theirs. Review found and fixed three leaks (status-marked personal items, open threads in the per-prompt
+  line, the night's write-ups). Watch at ~10-23: with four sessions in one folder only about one title fits.
 
-## Queued (waiting on a build above, same files)
+## Follow-ups found today (not started)
 
-- **F4. Sessions see each other's work** (after F2). "Today, elsewhere" says which sessions are open and how many
-  memories they wrote, not what; two sessions did the same wake check on 10-20. Proposed: the newest one or two
-  titles per live session, e.g. "~/counterparts, 08:33: wake check (mem_5701…)".
-- **F5. The self page held to its room** (after F1). 4,928 B on 10-17, 4,756 then 4,956 B on 10-20, against 4,600:
-  the reflection rewrites the page after the page writer and isn't held to the room, so the wake shows it whole by
-  borrowing from other sections (4 → 3 this morning).
+- **Folders kept out of Counterparts: set their scope `off` explicitly.** They stay out today only because no hooks run there;
+  an unset scope reads as `on`, so a memory filed from one could be named elsewhere by F4. Mike runs
+  `counterparts scope off <path>`.
+- **For the plugin split release (MOD's #547, after the directory approval):** a one-time core message telling
+  plugin users to add counterparts-sidebar after updating; `onboarding.ts#finishText` says "/counterparts shows the
+  memory sidebar" to every plugin install, wrong for a core-only one. (MOD folds keepOne and doctor's `twiceFix`
+  into #547.)
+- **Recall: same-session neighbours** (BENCHMARK's fix #2), after its measurement of #544's title tail.
+- **"Read last night" lists the reflection's core decisions** (`adapters/mcp/nights.ts` shows closes, not
+  `coreDecided`).
+- **F4 room** if the ~10-23 check shows the four-sessions line too thin.
 
 ## Needs a talk first
 
@@ -60,26 +48,10 @@ repeating them.*
   memory that did was the stale one saying backups copy spans, so a non-problem got flagged. Same root as the 10-19
   big-picture thread 1 (memory and use barely touch). Take this test case, and footnote noise (~2 of 7 useful in
   ~/random on 10-20; 47% noise / 18% useful measured 10-19), into the ~10-22 check before designing anything.
-- **From the retired 10-10 decisions list** ([IMPROVEMENTS](IMPROVEMENTS.md), "Decisions to review"; retired as a
-  walk 10-20 with Mike's agreement, now a record). Promised a look that never came, or sent for Mike's review with
-  no sign he saw it:
-  - *Skill and place salience weigh 1.0* (Mike 10-10, "revisit after ~5 lived days"); no check since. His call
-    to keep: skill notes could now crowd reach if they're over-written. Heading: "Decided by the Group 1a builder,
-    2026-10-10".
-  - *The symmetry tripwire flags only up-ratchets* (Mike 10-10, same promise, same heading); no check since. His
-    call to keep: it no longer sees a memory falling too fast.
-  - *Tool descriptions trimmed to what changes a call* (#415, "needs the bench A/B before merge"): merged 10-11
-    with no A/B on record (the probe fixtures are still in `test/fixtures/description-probe/`). It changes what the
-    model reads at every write-up. Heading: "Decided by the context-trims builder, 2026-10-11".
-  - *A note claims only its own turn of the backlog* (coordinator 10-11, "for random-06's and Mike's review"). It
-    decides what counts as written up. Heading: "Decided by the coordinator, 2026-10-11 (a note claims its own turn)".
-  - *Routine work left at the default salience by the tool text* (Mike 10-14): "option B (scale work claims in
-    code) only if the median doesn't move"; the median hasn't been read again, and option B is his to choose. Heading: "Decided by Mike,
-    2026-10-14 (the Group 1 check-in)".
-  - *A core memory being reconsidered that is also unsettled never takes the first "Still open" place*, against
-    #430's rotation; "revisit if one sits unanswered more than a week", with nothing watching it. Keeping or
-    retiring a core memory is partly his decision, so a flag he never sees matters. Heading:
-    "Decided by the wake-polish builder, 2026-10-18", "Left open by the review".
+- **From the retired 10-10 decisions list**: checked 10-20 on snapshot copies
+  (`~/counterparts-notes/2026-10-20-six-decisions-check.md`). Five retired as fine (skill salience, the symmetry
+  tripwire, the #415 trim, whose A/B was run and recorded in the bench log, a note's own turn, routine-work median
+  0.60 → 0.20); the sixth (core questions waiting) became #542, merged.
 - **Benchmark-motivated changes from 10-18** (Mike: lightly held, review in about a week): #516's "may be inside the
   window" label and the rest of that day's list. Due ~10-25.
 - **The synthetic bench's drift**: re-tune check (BENCHMARK session's).
@@ -98,6 +70,16 @@ first); the nightly run's timing (a real night run needs a scheduler); dates wri
 as a public roadmap. Ideas and Parked: see the [roadmap](ROADMAP.md).
 
 ## Done
+
+- **10-20, merged (unreleased):** F1 the reflection closes plainly done threads, across folders (#535); F2 wake
+  without repeats, one tag, Coming up ids, one daily snapshot (#536); F7 read last night's dream and reflection,
+  `counterparts night` (#538); F6/F6b a weekly reminder done for this week, credit for a just-replaced memory (#540);
+  F5 the self page held to its room (#541); the reflection answers week-old core questions, Mike's retire sticky
+  (#542); facts title tail and soft time words, from the benchmark loss read (#544); the fox follows activity (#545,
+  MOD); docs #534, #539.
+- **10-20, by hand:** three core questions answered on Mike's agreement (kept Katie's plain answer; retired the Han
+  promise and the strong four-way telling, both pairs settled as changed); the self page's four-way line corrected
+  (v45); the notes-and-schemas design brief written (`~/counterparts-notes/2026-10-20-notes-and-schemas-brief.md`).
 
 - **10-20**: two stale threads closed on Mike's yes (the Han page line, the 10-09 bench plan); the 10-16 rebuild
   reminder closed (it ran as full-1017, 10-17→10-18); spans out of backups confirmed as the 10-13 design (f771a6b2);
