@@ -1765,6 +1765,65 @@ test('a turn whose start was not heard (a reload mid-turn): its first main-loop 
   await ui.unmount()
 })
 
+/** One model request of the main loop's turn (or an agent's), read to its end. */
+const modelStep = async ($: Engine, index: number, agentId?: string): Promise<void> => {
+  const s = $.turn.step({ turnId: 'turn-1', index, model: 'm', messageCount: 1, ...(agentId === undefined ? {} : { agentId }) })
+  for await (const c of s) void c
+}
+
+test('review of #549: a slash command does not put the fox to work; a turn writing 25 min without a tool call stays at work while its requests go on (a subagent’s do not count)', async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(20000)
+  await settle(w)
+  await $.prompt.submit({ text: '/counterparts quiet', origin: { kind: 'composer' }, command: { name: 'counterparts', args: 'quiet' }, wait: false } as never)
+  await settle(w)
+  await w.clock.advance(1000)
+  await settle(w)
+  expect((await onStage(w, ui)) === PERK).toBe(false)
+  // a turn of model requests only, one every 4 minutes
+  await startTurn($)
+  const from = stageBlits(w).length
+  for (let k = 0; k < 6; k++) {
+    await modelStep($, k)
+    await w.clock.advance(4 * 60000)
+    await settle(w)
+  }
+  const during = stageBlits(w).slice(from).map(b => ('cells' in b ? b.cells : ''))
+  expect(during.some(c => NOT_AT_WORK.includes(c) || c === IDLE)).toBe(false)
+  expect(during.filter(c => c === PERK).length).toBeGreaterThan(10)
+  // a subagent's requests are not the turn's: quiet for 10 min, he rests (and later lies down)
+  const quiet = stageBlits(w).length
+  for (let k = 0; k < 6; k++) {
+    await modelStep($, k, 'agent-1')
+    await w.clock.advance(2 * 60000)
+    await settle(w)
+  }
+  expect(stageBlits(w).slice(quiet).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true)
+  await ui.unmount()
+})
+
+test('review of #549: a main-loop call that lands after the turn ended (an Esc during its dispatch) leaves him resting', async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  on('tool.call', () => ({ result: 'ok', text: 'done' }))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await startTurn($)
+  await w.clock.advance(30000)
+  await settle(w)
+  await endTurn($, 'aborted')
+  await $.tool.call({ tool: 'Bash', command: 'make' } as never)
+  await settle(w)
+  const ended = stageBlits(w).length
+  await w.clock.advance(50000)
+  await settle(w)
+  const after = stageBlits(w).slice(ended).map(b => ('cells' in b ? b.cells : ''))
+  expect(after.includes(PERK)).toBe(false)
+  expect(after.some(c => LYING.includes(c))).toBe(true)
+  await ui.unmount()
+})
+
 // ── which store wrote the status file ──────────────────────────────────────
 
 async function wakeWithStore($: Engine, w: World, id: string): Promise<void> {

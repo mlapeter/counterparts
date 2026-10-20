@@ -1226,7 +1226,7 @@ export const register: Register = on => {
       // Any call (any tool, a subagent's too) is the session working: the fox stays up while it runs.
       await foxEvent($, 'busy').catch(() => undefined)
       // A main-loop call means a turn is running, whether or not its start was heard here (a reload mid-turn).
-      if (e.agentId === undefined) await foxEvent($, 'turn').catch(() => undefined)
+      if (e.agentId === undefined) await foxEvent($, 'turnCall').catch(() => undefined)
       // The fox dreams while this session's dream runs.
       if (ours?.tool === 'dream') await foxEvent($, 'dream').catch(() => undefined)
       let ran: Awaited<ReturnType<typeof next>>
@@ -1255,10 +1255,11 @@ export const register: Register = on => {
     }
   }).catch(($, e, next) => next(e))
 
-  // A prompt the person sent: the fox looks up, and goes to work.
+  // A prompt the person sent: the fox looks up, and goes to work. Not a slash command (`e.command`): one
+  // that runs locally starts no turn, and one that asks the model reaches work by its turn's start.
   on('prompt.submit', async ($, e, next) => {
     const kind = e.origin.kind
-    if (kind === 'composer' || kind === 'bridge') await foxEvent($, 'prompt')
+    if ((kind === 'composer' || kind === 'bridge') && e.command === undefined) await foxEvent($, 'prompt')
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -1269,6 +1270,16 @@ export const register: Register = on => {
     await foxEvent($, 'turn').catch(() => undefined)
     return next(e)
   }).catch(($, e, next) => next(e))
+
+  // Each model request of the main loop's turn, as it begins and ends: a sign of life, so a turn that writes
+  // a long while without calling a tool stays at work. Passed through whole; nothing on screen changes for it.
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId !== undefined) return yield* next(e)
+    await foxEvent($, 'step').catch(() => undefined)
+    const r = yield* next(e)
+    await foxEvent($, 'step').catch(() => undefined)
+    return r
+  })
 
   // Its end, for any reason (an answer, an interrupt, a refusal, an error), whether or not its start was heard here.
   on('turn.complete', async ($, e, next) => {

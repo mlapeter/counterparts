@@ -1013,7 +1013,9 @@ describe('the fox', () => {
       up.push(a.step.frame)
       t = a.next
     }
-    expect(up).toEqual(['lieBlink', 'blink', 'idle'])
+    expect(up).toEqual(['lieBlink', 'blink', 'perk']) // up behind a blink, straight to the alert face
+    // the turn answered at once: he rests
+    trigger(d, 'turnEnd', t)
     // left alone again: lying from 45 s, the nap at 2 min, asleep from lying behind the lying blink
     const start = t
     const later: string[] = []
@@ -1432,13 +1434,87 @@ describe('the fox', () => {
     expect(b.next).toBe(due)
   })
 
+  test('review of #549: a turn writing for 25 min without a tool call stays at work while its model requests go on; one gone quiet stops at 10 min, and then he sits, lies down at 45 s and naps at 2 min, never straight to a nap', () => {
+    const rand = seeded(6)
+    const d = newDirector(0)
+    trigger(d, 'turn', 0)
+    let t = 0
+    for (let k = 1; k <= 5; k++) {
+      t = run(d, t, k * 5 * 60000, rand).t
+      expect(trigger(d, 'step', t)).toBe(false) // nothing on screen changes for it
+    }
+    expect(d.mode).toBe('work')
+    // quiet from here: at work till 10 min after the last request, then resting
+    const last = t
+    t = run(d, t, last + WORK.quietMs - 5000, rand).t
+    expect(d.mode).toBe('work')
+    const r = run(d, t, last + WORK.quietMs + 200000, rand)
+    const after = r.shown.filter(s => s.at >= last + WORK.quietMs - 5000)
+    const firstIdle = after.find(s => s.frame === 'idle')?.at ?? Infinity
+    const firstLie = after.find(s => s.frame === 'lieBlink')?.at ?? Infinity
+    const firstNap = after.find(s => s.frame === 'nap0')?.at ?? Infinity
+    expect(firstIdle).toBeLessThan(firstLie)
+    expect(firstLie - firstIdle).toBeGreaterThanOrEqual(FOX_FINAL.schedule.lieAfterMs - 5000)
+    expect(firstLie).toBeLessThan(firstNap)
+    expect(d.mode).toBe('nap')
+  })
+
+  test('review of #549: a main-loop call landing after the turn’s end (an Esc during its dispatch) does not reopen work; before any end was heard (a reload mid-turn), or after a prompt, a call opens the turn', () => {
+    const rand = seeded(8)
+    const d = newDirector(0)
+    trigger(d, 'turn', 0)
+    let t = run(d, 0, 20000, rand).t
+    trigger(d, 'turnEnd', t)
+    trigger(d, 'busy', t + 50)
+    expect(trigger(d, 'turnCall', t + 50)).toBe(false)
+    trigger(d, 'busyEnd', t + 300)
+    expect(d.mode).toBe('idle')
+    expect(d.turn).toBe('none')
+    // even long after: a call's turn is opened by its start, which is heard
+    expect(trigger(d, 'turnCall', t + 600000)).toBe(false)
+    expect(d.mode).toBe('idle')
+    // a prompt, then a call before the start: at work, and the turn is open
+    trigger(d, 'prompt', t + 700000)
+    trigger(d, 'turnCall', t + 700100)
+    expect(d.turn).toBe('open')
+    // a fresh module (a reload mid-turn): its first main-loop call opens the turn
+    const e = newDirector(0)
+    expect(trigger(e, 'turnCall', 1000)).toBe(true)
+    expect(e.mode).toBe('work')
+  })
+
+  test('review of #549: from the sitting face to the alert one there is always a blink: a moment ending on it during work, work starting from a still hold, the stretch after a dream', () => {
+    const rand = seeded(12)
+    const pairs = (frames: string[]) => frames.slice(1).filter((f, i) => frames[i] === 'idle' && f === 'perk').length
+    const d = newDirector(0)
+    let t = run(d, 0, 6000, rand).t
+    trigger(d, 'prompt', t)
+    trigger(d, 'turn', t)
+    const frames: string[] = []
+    frames.push(...run(d, t, t + 10000, rand).shown.map(s => s.frame))
+    t += 10000
+    for (const ev of ['came', 'hello', 'came'] as const) {
+      trigger(d, ev, t)
+      frames.push(...run(d, t, t + 8000, rand).shown.map(s => s.frame))
+      t += 8000
+    }
+    trigger(d, 'dream', t)
+    t = run(d, t, t + 20000, rand).t
+    trigger(d, 'dreamEnd', t)
+    frames.push(...run(d, t, t + 6000, rand).shown.map(s => s.frame))
+    expect(frames).toContain('perk')
+    expect(frames).toContain('hello0')
+    expect(frames).toContain('stretch')
+    expect(pairs(frames)).toBe(0)
+  })
+
   test('lying or asleep, a turn gets him up and to work; a turn whose end is never heard, and a prompt that starts none, end by themselves; a call still running (a permission prompt) holds him at work', () => {
     const rand = seeded(5)
     const d = newDirector(0)
     let t = 0
     while (d.mode !== 'lie' || advance(d, t, rand).step.frame !== 'lie0') t = advance(d, t, rand).next
     expect(trigger(d, 'turn', t)).toBe(true)
-    expect(run(d, t, t + 2500, rand).shown.map(s => s.frame).slice(0, 4)).toEqual(['lieBlink', 'blink', 'idle', 'perk'])
+    expect(run(d, t, t + 2500, rand).shown.map(s => s.frame).slice(0, 3)).toEqual(['lieBlink', 'blink', 'perk'])
     // the turn's end is never heard (no calls, nothing): at work for WORK.quietMs, then he rests
     t += 2500
     let r = run(d, t, t + WORK.quietMs - 10000, rand)
@@ -1451,7 +1527,7 @@ describe('the fox', () => {
     trigger(e, 'busy', 1000)
     r = run(e, 0, 20 * 60000, rand)
     expect(e.mode).toBe('work')
-    expect(r.shown.every(s => s.frame === 'perk' || WORK_FRAMES.has(s.frame))).toBe(true)
+    expect(r.shown.every((s, i) => (i === 0 && s.frame === 'blink') || WORK_FRAMES.has(s.frame))).toBe(true)
     trigger(e, 'busyEnd', r.t)
     r = run(e, r.t, r.t + WORK.quietMs + 30000, rand)
     expect(e.mode).not.toBe('work')

@@ -370,6 +370,9 @@ export function world(on: On, opts: WorldOptions = {}): World {
   // A turn's start and end, as core echoes them (the fox works through a turn, 2026-10-20)
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  on('turn.step', async function* (_$, e) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
+  })
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   // The plugin's own markdown commands, run as if typed: recorded.
   for (const command of ['counterparts:meet', 'counterparts:dashboard']) {
