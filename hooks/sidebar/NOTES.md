@@ -13,6 +13,50 @@ record of v0.2 and v0.1 (the brain, the switches, the intro button): where a
 later version changed something they say so, or v1's section does. Everything
 here is a working default.
 
+## The fox follows what is happening (2026-10-20, an experiment)
+
+Mike, 10-20: the fox often slept while the session was working, and almost
+never took up the notepad. Lightly held; the timers are his call after he
+tries it in the rig.
+
+- **Any tool call is activity.** The `tool.call` hook (already there; no new
+  hook, nothing in `hooks.json`) sends the fox `busy` as a call begins and
+  `busyEnd` as it ends, for every tool, ours or not, a subagent's too. Both
+  start the idle clock over and call off a lie-down or nap on its way, as a
+  prompt does; neither plays anything, and while he sits nothing on screen
+  changes (`trigger` now says whether it changed anything, and `foxEvent`
+  leaves the waiting timer alone when not). While a call runs he never lies
+  down (`Director.busy`, a count), so a five-minute command or an agent keeps
+  him up; a count left up past 30 min (`BUSY_MAX_MS`, an end never heard) is
+  not believed.
+- **Lie and nap time from the last activity**, which is now any of the above.
+  The numbers are unchanged: lie at 45 s, nap at 2 min (`lieAfterMs`,
+  `napAfterMs` in `fox-art.ts` SCHEDULE). Mike picks new ones after trying it
+  (2 / 5 min was floated). Not a setting.
+- **A save the status file shows writes on the notepad.** The poll plays
+  `note` for a new `gate.deposit` naming this session with `accepted` > 0,
+  written after the last notepad began and under 2 min old
+  (`feed.ts#savedSince`). The first look after the pane loads (or a reload)
+  takes every row as known, so nothing old replays.
+- **One save, one notepad.** Measured on the live status file (10-20, read
+  only): all 40 `gate.deposit` rows were `source: session-end`, in bursts of 4
+  to 8 within a second, one burst per `session_end` call, every 10 to 20 min a
+  session. Core deposits only through the memory tools (`session_end`,
+  `remember`; keyless, there is no per-turn interpreter), and the `tool.call`
+  hook already wrote on the notepad for those. So the poll's `note` is a
+  safety net (a reload mid-call, an answer the hook could not read), and the
+  memory tool's own note stays the one that plays, at once. They do not both
+  fire: the hook's note starts after the call returns, so the call's rows are
+  older than it and the poll passes them over. A burst inside one notepad's
+  run (`NOTE_SPAN_MS`, two of the moment) writes once, from either side.
+- So "almost never writes" was mostly that saves are rare (one write-up at a
+  turn's end every 10 to 20 min), with the fox often asleep, or just woken
+  from a nap by the stretch, when it came. The idle-clock fix helps that more
+  than the poll does.
+- Open: the engine has `turn.start` / `turn.complete` (main loop when
+  `agentId` is absent), so a distinct "working" pose during a turn is
+  possible. Not built; Mike's call.
+
 ## Some of it back, in the full build only (2026-10-16)
 
 Why: the trim was in shared code, so npm/plugin users lost the intro, the

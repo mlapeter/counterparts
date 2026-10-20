@@ -88,6 +88,7 @@ import {
   parseOnboardingMarker,
   parseStoreMarker,
   savedItems,
+  savedSince,
   surfacedIds,
   titled,
 } from './feed'
@@ -365,6 +366,8 @@ async function poll($: EngineInterface): Promise<boolean> {
     const dreams = events.filter(e => e.name === 'dream.begun' || e.name === 'dream.journaled' || e.name === 'dream.changed' || e.name === 'dream.undone')
     const lastDream = dreams.sort((a, b) => a.seq - b.seq).at(-1)
     if (lastDream !== undefined) await foxEvent($, lastDream.name === 'dream.begun' ? 'dream' : 'dreamEnd')
+    // A save for this session the memory tools' own hook did not already write down (see `savedSince`).
+    if (savedSince(events, run.session, stage.director?.noteAt ?? -Infinity, await $.clock.now())) await foxEvent($, 'note')
     return first || events.length > 0
   } catch {
     return false
@@ -892,7 +895,7 @@ function stopStage(): void {
 async function foxEvent($: EngineInterface, ev: FoxEvent): Promise<void> {
   const now = await $.clock.now()
   stage.director ??= newDirector(now)
-  trigger(stage.director, ev, now)
+  if (!trigger(stage.director, ev, now)) return
   if (stage.live) {
     stage.gen += 1
     const gen = stage.gen
@@ -1215,6 +1218,8 @@ export const register: Register = on => {
   on('tool.call', async ($, e, next) => {
     const name = String(e.tool)
     const ours = ourTool(name)
+    // Any call (any tool, a subagent's too) is the session working: the fox stays up while it runs.
+    await foxEvent($, 'busy').catch(() => undefined)
     // The fox dreams while this session's dream runs.
     if (ours?.tool === 'dream') await foxEvent($, 'dream')
     let ran: Awaited<ReturnType<typeof next>>
@@ -1222,6 +1227,7 @@ export const register: Register = on => {
       ran = await next(e)
     } finally {
       if (ours?.tool === 'dream') await foxEvent($, 'dreamEnd')
+      await foxEvent($, 'busyEnd').catch(() => undefined)
     }
     if (ran.deny !== undefined || ran.isError === true) return ran
     if (ours === null) return ran

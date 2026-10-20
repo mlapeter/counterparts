@@ -22,6 +22,7 @@ import {
   parseOnboardingMarker,
   parseRecallBlock,
   savedItems,
+  savedSince,
   shortDir,
   surfacedIds,
   wrap,
@@ -35,6 +36,8 @@ import { parseGlance } from '../hooks/feed'
 import { leadDate } from '../hooks/sections'
 import { FOOTER_ITEMS, footerLines, normAvatar, resumeWords, statusFor } from '../hooks/words'
 import {
+  BUSY_MAX_MS,
+  NOTE_SPAN_MS,
   STAGE_COLS,
   TEXT_256,
   advance,
@@ -1099,6 +1102,87 @@ describe('the fox', () => {
     expect(d.mode).toBe('dream')
     trigger(d, 'dreamEnd', t)
     expect(d.mode).toBe('idle')
+  })
+
+  test('a tool call is activity (2026-10-20): the idle clock starts over and nothing plays; lying, it gets him up; while a call runs he never lies down', () => {
+    // calls every 40 s: two and a half minutes on, still sitting, never a lie-down or a nap
+    const d = newDirector(0)
+    const rand = seeded(5)
+    let t = 0
+    const frames: string[] = []
+    for (let call = 40000; call <= 160000; call += 40000) {
+      while (t < call) {
+        const a = advance(d, t, rand)
+        frames.push(a.step.frame)
+        t = a.next
+      }
+      // sitting, nothing plays (a lie-down already planned ahead is called off)
+      trigger(d, 'busy', t)
+      expect(trigger(d, 'busyEnd', t)).toBe(false) // the waiting timer stands
+    }
+    expect(d.mode).toBe('idle')
+    expect(frames.some(f => f.startsWith('lie') || f.startsWith('nap'))).toBe(false)
+    // lying, a call gets him up, as a prompt does
+    while (d.mode !== 'lie' || advance(d, t, rand).step.frame !== 'lie0') t = advance(d, t, rand).next
+    expect(trigger(d, 'busy', t)).toBe(true)
+    expect(d.mode).toBe('idle')
+    const up: string[] = []
+    for (let k = 0; k < 3; k++) {
+      const a = advance(d, t, rand)
+      up.push(a.step.frame)
+      t = a.next
+    }
+    expect(up).toEqual(['lieBlink', 'blink', 'idle'])
+    // that call runs five minutes (a long command): awake all through it; after it ends, lying 45 s on
+    const start = t
+    const during: string[] = []
+    while (t < start + 300000) {
+      const a = advance(d, t, rand)
+      during.push(a.step.frame)
+      t = a.next
+    }
+    expect(during.some(f => f.startsWith('lie') || f.startsWith('nap'))).toBe(false)
+    trigger(d, 'busyEnd', t)
+    expect(d.busy).toBe(0)
+    const ended = t
+    while ((d.mode as string) === 'idle') t = advance(d, t, rand).next
+    expect(d.mode).toBe('lie')
+    expect(t - ended).toBeGreaterThanOrEqual(FOX_FINAL.schedule.lieAfterMs - 10000)
+    // a count left up past BUSY_MAX_MS (an end never heard) stops holding him
+    const e = newDirector(0)
+    trigger(e, 'busy', 0)
+    let u = 0
+    while (u < BUSY_MAX_MS + 60000) u = advance(e, u, rand).next
+    expect(e.mode).not.toBe('idle')
+  })
+
+  test('a burst of saves writes on the notepad once (2026-10-20): a second save inside NOTE_SPAN_MS plays nothing more; one after it writes again', () => {
+    const d = newDirector(0)
+    const rand = seeded()
+    expect(trigger(d, 'note', 1000)).toBe(true)
+    expect(trigger(d, 'note', 1200)).toBe(false)
+    const notes: string[] = []
+    let t = 1000
+    while (t < 1000 + NOTE_SPAN_MS + 500) {
+      const a = advance(d, t, rand)
+      notes.push(a.step.frame)
+      t = a.next
+    }
+    expect(notes.filter(f => f === 'note0').length).toBe(2) // one save's two writes, not four
+    expect(trigger(d, 'note', 1000 + NOTE_SPAN_MS + 1)).toBe(true)
+  })
+
+  test('savedSince: a new deposit for this session, accepted, newer than the last notepad and fresh; not another session’s, a refused one, an old one, or one already written', () => {
+    const now = T0
+    const mine = (at: number, accepted = '1', session = SESSION) => ({ ...ev(9001, 'gate.deposit', 'I wrote something down.', 0, { accepted, session }), at })
+    expect(savedSince([mine(now - 5000)], SESSION, -Infinity, now)).toBe(true)
+    expect(savedSince([mine(now - 5000, '1', 'sess-other')], SESSION, -Infinity, now)).toBe(false)
+    expect(savedSince([mine(now - 5000, '0')], SESSION, -Infinity, now)).toBe(false)
+    expect(savedSince([mine(now - 5 * 60000)], SESSION, -Infinity, now)).toBe(false)
+    // the memory tool's own hook wrote on the notepad as its call returned, after the rows: written already
+    expect(savedSince([mine(now - 5000)], SESSION, now - 4000, now)).toBe(false)
+    expect(savedSince([mine(now - 5000)], '', -Infinity, now)).toBe(false)
+    expect(savedSince([{ ...mine(now - 5000), name: 'gate.chunk' }], SESSION, -Infinity, now)).toBe(false)
   })
 
   test('which store: the wake’s marker and a dashboard’s answer; another store only when both are known and differ', () => {
