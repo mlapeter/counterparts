@@ -13,6 +13,95 @@ record of v0.2 and v0.1 (the brain, the switches, the intro button): where a
 later version changed something they say so, or v1's section does. Everything
 here is a working default.
 
+## The fox at work (2026-10-20, later; an experiment)
+
+Mike, after trying #545: "nap timers are fine, he can stay sitting while
+waiting for an answer from me. working pose would be cool and worth doing".
+So while Claude works on a turn the fox looks on it, and when the turn ends
+he goes back to his ordinary life. The timers (45 s / 2 min) and the
+busy/busyEnd count are unchanged. Mike tries it in the rig; all of it is
+lightly held.
+
+- **What it looks like, existing frames only.** A `work` mode in
+  `fox.ts#Director`: the still is `perk` (eyes wide, mouth open, the right
+  ear up a pixel) held 1.5–3.5 s (`WORK.holdMs`; idle holds 4–9 s), each hold
+  ending in one moment by weight: a wag of the whole tail (`workWag`:
+  tail1/tail2 twice, about 1.3 s; weight 4), the tail tip (2), an ear (2), a
+  glance left and right (1.5). Never a yawn, a drowsy blink, a lie-down or a
+  nap. Measured in review: 1.17 changes a second at work against idle's 0.44
+  (about 2.7–3 times): the motion carries it more than the face, which is a few pixels in the
+  half-block tier (perk is 16 half-block pixels off idle, 21 sextant cells).
+  The work moments live in `fox.ts` (`WORK_MOMENTS`), not in the art's data
+  module.
+- **When.** `turn.start` and `turn.complete` hooks in `register.tsx` (engine
+  `on(...)` only; nothing in `hooks.json`), the main loop only: a hook with
+  an `agentId` passes straight to `next`. A subagent runs inside an Agent
+  call, which already holds the busy count up; and the hooks a spawn is
+  nested in never hear its start, so following agents' turns could never be
+  made to balance. Any main-loop end ends work, whatever its reason
+  (answer, aborted, refusal, error) and whatever its id: after a reload the
+  module hears ends it never saw start. A prompt (composer or bridge) puts
+  him to work at once, ahead of `turn.start` (the UserPromptSubmit hooks run
+  in between); a prompt that starts no turn stops counting after 30 s
+  (`WORK.askMs`). Not a slash command (review of #549): `prompt.submit` fires
+  for those too, with `e.command` set; one that runs locally starts no turn,
+  and one that asks the model reaches work by its `turn.start`. A command
+  still gets him up (`look`): someone is there, so from lying or a nap he
+  sits up and the idle clock starts over, but it is not work.
+- **A turn that writes a long while** (review of #549): a `turn.step` hook,
+  main loop only, passes each model request through whole and marks the
+  turn alive as it begins and ends (`step`, nothing drawn), so a turn that
+  writes for more than 10 min without a tool call stays at work.
+- **Reload mid-turn.** `session.start` makes a fresh fox (idle). A main-loop
+  `tool.call` (no `agentId`) means a turn is running, so it puts him back to
+  work (`turnCall`), and the turn's end relaxes him as usual. Only while no
+  turn's end has been heard in this module's life (review of #549): once one
+  has, every new turn's start is heard, so a call landing after an end (an
+  Esc during its dispatch) is that turn's straggler and leaves him resting.
+  After a prompt (`asked`) a call opens the turn too.
+- **An end never heard** (a reload as the turn ended): an open turn stops
+  counting after 10 min with nothing happening and no call running
+  (`WORK.quietMs`); calls beginning and ending are signs of life. A call
+  waiting on a permission prompt is a call running (the dialog is inside
+  `next(e)` of `tool.call`), so he stays at work while Mike decides, up to
+  `BUSY_MAX_MS` (30 min) as before. Then the idle clock starts at the expiry
+  (review of #549: counted from the last sign of life it went straight to a
+  nap), so he sits, lies down 45 s later and naps at 2 min.
+- **Interactions.** `came`, `note` and `hello` play over work as they do over
+  idle (a blink first from a non-sitting face) and come back to work, behind a
+  blink when the moment ends on any face but the alert one (the sitting face,
+  the notepad, hello; review of #549: no cut from another face to the alert
+  one); a get-up into work (`lieOut`, `napOut`)
+  leaves out its last sitting frame and goes from its blink to the alert face. A dream
+  holds the stage: the turn's state is kept beside it, and the dream's end
+  goes back to work if the turn still runs. Moving between work and rest, a
+  real moment already playing (a notepad, a get-up) plays out; the
+  schedule's own moments are cut behind a blink. So the write-up at a turn's
+  end (`session_end`, then `turn.complete` right after) still writes both
+  notepad lines before he relaxes. The turn ends: a blink back to the
+  sitting face, and the idle clock starts there (lie at 45 s, nap at 2 min).
+- **What it costs.** On the picture and half-block tiers a change is a blit;
+  on sextants (iTerm2, VS Code, WezTerm) and the desktop Svg every change
+  redraws the pane, so a turn runs about 2.7–3 times idle's redraw rate
+  (1.17 against 0.44 changes a second, measured in review) for as long as it
+  lasts, beside the streaming transcript. If it is too much in the
+  rig, the knobs: `WORK.holdMs`, `workWag` (one tail1/tail2 pass instead of
+  two) and its weight.
+- A turn's end heard after work already ended by itself (10 min with no
+  request and no call, he has lain down meanwhile) still gets him up: the
+  turn ended, he looks up. Kept on purpose; a guard is two lines if not.
+- Background agents' calls after the main turn ended keep him up (busy) but
+  not at work. Untested in the rig: whether `turn.complete` reaches the
+  module on the turn that hot-reloads it (if not, the 10 min expiry, or the
+  next turn's end, cleans up).
+- **New art, not made (report only).** One frame would make it clearly
+  better: an "attentive sit", perk's open eyes with the ears both forward and
+  up and the tail raised (tail1's pose) on the same body. Now the wag and
+  the ear moments are drawn from the idle face, so the face flicks between
+  alert and idle a few times a minute; two frames (attentive with the tail
+  at tail1 and at tail2) would let the whole tail wag without the face
+  changing, and a closed mouth would read as focused rather than surprised.
+
 ## The fox follows what is happening (2026-10-20, an experiment)
 
 Mike, 10-20: the fox often slept while the session was working, and almost
@@ -59,9 +148,8 @@ tries it in the rig.
   turn's end every 10 to 20 min), with the fox often asleep, or just woken
   from a nap by the stretch, when it came. The idle-clock fix helps that more
   than the poll does.
-- Open: the engine has `turn.start` / `turn.complete` (main loop when
-  `agentId` is absent), so a distinct "working" pose during a turn is
-  possible. Not built; Mike's call.
+- Open, then built: a distinct "working" pose during a turn. Mike said yes
+  after trying #545 (keep the timers); see "The fox at work" above.
 
 ## Some of it back, in the full build only (2026-10-16)
 

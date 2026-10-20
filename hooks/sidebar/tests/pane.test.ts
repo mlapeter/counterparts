@@ -1551,6 +1551,9 @@ const notepads = (w: World): number => {
   return n
 }
 const LYING = ['lie0', 'lieBlink', 'nap0', 'nap1'].map(frame => halfCells({ frame, fx: [] }))
+/** The main loop's turn ends (`turn.complete` without an agentId), for a reason. */
+const endTurn = ($: Engine, reason: 'answer' | 'aborted' | 'error' = 'answer', agentId?: string) =>
+  $.turn.complete({ answer: '', durationMs: 1000, isAborted: reason === 'aborted', turnId: 'turn-1', reason, ...(agentId === undefined ? {} : { agentId }) })
 const deposit = (seq: number, at: number, session = SESSION) => ({ ...ev(seq, 'gate.deposit', 'I wrote something down and every gate was clear.', 0, { accepted: '1', session }), at })
 
 test('Claude working keeps the fox up: a tool call (any tool) every 40 s, and three minutes on he has not lain down or napped; left alone after, he lies down', async ($, on) => {
@@ -1564,6 +1567,8 @@ test('Claude working keeps the fox up: a tool call (any tool) every 40 s, and th
     await settle(w)
   }
   expect(stageBlits(w).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(false)
+  // the turn those calls ran in ends (2026-10-20: a main-loop call holds him at work till then)
+  await endTurn($)
   await w.clock.advance(150000)
   await settle(w)
   expect(stageBlits(w).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true)
@@ -1636,6 +1641,7 @@ test('a call that throws or is denied still ends, so he lies down 45 s after; a 
   await $.tool.call({ tool: 'Bash', command: 'false' } as never).catch(() => undefined)
   mode = 'deny'
   await $.tool.call({ tool: 'Bash', command: 'rm -rf /' } as never).catch(() => undefined)
+  await endTurn($)
   await settle(w)
   const from = stageBlits(w).length
   await w.clock.advance(70000)
@@ -1651,6 +1657,189 @@ test('a call that throws or is denied still ends, so he lies down 45 s after; a 
   await w.clock.advance(40000)
   await settle(w)
   expect(notepads(w) - before).toBe(1)
+  await ui.unmount()
+})
+
+// The working pose (2026-10-20, an experiment): while Claude's turn runs the fox sits alert with the tail going.
+// (The tests that run long turns get 20 s: at work he changes about once a second, a blit each on the mocked clock.)
+const PERK = halfCells({ frame: 'perk', fx: [] })
+const IDLE = halfCells({ frame: 'idle', fx: [] })
+const WAG = ['tail1', 'tail2'].map(frame => halfCells({ frame, fx: [] }))
+const NOT_AT_WORK = ['yawn', 'stretch', 'drowsy', 'lie0', 'lieBlink', 'nap0', 'nap1'].map(frame => halfCells({ frame, fx: [] }))
+/** The picture on the stage now: the last blit, else the drawing's Raster. */
+const onStage = async (w: World, ui: Awaited<ReturnType<typeof mount>>): Promise<string> => {
+  const b = stageBlits(w).at(-1)
+  if (b !== undefined && 'cells' in b) return b.cells
+  return String((await ui.find({ type: 'Raster', key: 'stage' }))?.props['cells'])
+}
+const startTurn = ($: Engine, agentId?: string) => $.turn.start({ text: 'go', turnId: 'turn-1', ...(agentId === undefined ? {} : { agentId }) })
+
+test('Claude’s turn: a prompt puts the fox to work at once (the alert face, the tail going); a subagent’s turn changes nothing; the end, an answer, an interrupt or an error, relaxes him and he lies down 45 s later', { timeoutMs: 20000 }, async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(20000)
+  await settle(w)
+  for (const reason of ['answer', 'aborted', 'error'] as const) {
+    await $.prompt.submit({ text: 'hello', origin: { kind: 'composer' }, wait: false })
+    await settle(w)
+    await w.clock.advance(1000) // a blink first from mid-moment, from lying the get-up (under a second)
+    await settle(w)
+    expect((await onStage(w, ui)) === PERK).toBe(true)
+    await startTurn($)
+    const from = stageBlits(w).length
+    await w.clock.advance(60000)
+    await settle(w)
+    // a subagent's turn starting and ending inside it: still at work
+    await startTurn($, 'agent-1')
+    await endTurn($, 'answer', 'agent-1')
+    await w.clock.advance(60000)
+    await settle(w)
+    const during = stageBlits(w).slice(from).map(b => ('cells' in b ? b.cells : ''))
+    expect(during.filter(c => c === PERK).length).toBeGreaterThan(10)
+    expect(during.filter(c => WAG.includes(c)).length).toBeGreaterThan(6)
+    expect(during.some(c => NOT_AT_WORK.includes(c) || c === IDLE)).toBe(false)
+    expect(during.length).toBeLessThan(240) // a few changes a second at most
+    await endTurn($, reason)
+    await settle(w)
+    await w.clock.advance(1500)
+    await settle(w)
+    const ended = stageBlits(w).length
+    const back = stageBlits(w).slice(from).map(b => ('cells' in b ? b.cells : ''))
+    expect(back.includes(IDLE)).toBe(true) // (a boolean: a failing message of whole drawings is megabytes)
+    await w.clock.advance(40000)
+    await settle(w)
+    expect(stageBlits(w).slice(ended).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(false)
+    await w.clock.advance(10000)
+    await settle(w)
+    expect(stageBlits(w).slice(ended).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true)
+  }
+  await ui.unmount()
+})
+
+test('a turn whose start was not heard (a reload mid-turn): its first main-loop call puts him to work, its end relaxes him; one whose end is never heard ends by itself; a call waiting on the person keeps him at work', { timeoutMs: 20000 }, async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  let wait = 0
+  on('tool.call', async () => {
+    if (wait > 0) await w.clock.sleep(wait)
+    return { result: 'ok', text: 'done' }
+  })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(10000)
+  await settle(w)
+  // a subagent's call is activity, not a turn
+  await $.tool.call({ tool: 'Read', file_path: '/work/project/x.ts', agentId: 'agent-1' } as never)
+  await settle(w)
+  await w.clock.advance(1000)
+  await settle(w)
+  expect((await onStage(w, ui)) === PERK).toBe(false)
+  // the main loop's call
+  await $.tool.call({ tool: 'Read', file_path: '/work/project/x.ts' } as never)
+  await settle(w)
+  await w.clock.advance(200)
+  await settle(w)
+  expect((await onStage(w, ui)) === PERK).toBe(true)
+  await endTurn($, 'answer')
+  await settle(w)
+  await w.clock.advance(1500)
+  await settle(w)
+  expect((await onStage(w, ui)) === PERK).toBe(false)
+  // a permission prompt: the call waits 15 minutes on the person, inside its turn; at work all through
+  await startTurn($)
+  wait = 15 * 60000
+  const from = stageBlits(w).length
+  const call = $.tool.call({ tool: 'Bash', command: 'make deploy' } as never)
+  await w.clock.advance(15 * 60000)
+  await call
+  await settle(w)
+  wait = 0
+  expect(stageBlits(w).slice(from).some(b => 'cells' in b && (LYING.includes(b.cells) || b.cells === IDLE))).toBe(false)
+  // the end is never heard (the module reloaded as the turn ended): after ten quiet minutes he rests, and lies down
+  const quiet = stageBlits(w).length
+  await w.clock.advance(9 * 60000)
+  await settle(w)
+  expect(stageBlits(w).slice(quiet).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(false)
+  await w.clock.advance(2 * 60000)
+  await settle(w)
+  expect(stageBlits(w).slice(quiet).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true)
+  await ui.unmount()
+})
+
+/** One model request of the main loop's turn (or an agent's), read to its end. */
+const modelStep = async ($: Engine, index: number, agentId?: string): Promise<void> => {
+  const s = $.turn.step({ turnId: 'turn-1', index, model: 'm', messageCount: 1, ...(agentId === undefined ? {} : { agentId }) })
+  for await (const c of s) void c
+}
+
+test('review of #549: a slash command does not put the fox to work; a turn writing 25 min without a tool call stays at work while its requests go on (a subagent’s do not count)', { timeoutMs: 20000 }, async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(20000)
+  await settle(w)
+  await $.prompt.submit({ text: '/counterparts quiet', origin: { kind: 'composer' }, command: { name: 'counterparts', args: 'quiet' }, wait: false } as never)
+  await settle(w)
+  await w.clock.advance(1000)
+  await settle(w)
+  expect((await onStage(w, ui)) === PERK).toBe(false)
+  // a turn of model requests only, one every 4 minutes
+  await startTurn($)
+  const from = stageBlits(w).length
+  for (let k = 0; k < 6; k++) {
+    await modelStep($, k)
+    await w.clock.advance(4 * 60000)
+    await settle(w)
+  }
+  const during = stageBlits(w).slice(from).map(b => ('cells' in b ? b.cells : ''))
+  expect(during.some(c => NOT_AT_WORK.includes(c) || c === IDLE)).toBe(false)
+  expect(during.filter(c => c === PERK).length).toBeGreaterThan(10)
+  // a subagent's requests are not the turn's: quiet for 10 min, he rests (and later lies down)
+  const quiet = stageBlits(w).length
+  for (let k = 0; k < 6; k++) {
+    await modelStep($, k, 'agent-1')
+    await w.clock.advance(2 * 60000)
+    await settle(w)
+  }
+  expect(stageBlits(w).slice(quiet).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true)
+  await ui.unmount()
+})
+
+test('review of #549: a main-loop call that lands after the turn ended (an Esc during its dispatch) leaves him resting', async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  on('tool.call', () => ({ result: 'ok', text: 'done' }))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await startTurn($)
+  await w.clock.advance(30000)
+  await settle(w)
+  await endTurn($, 'aborted')
+  await $.tool.call({ tool: 'Bash', command: 'make' } as never)
+  await settle(w)
+  const ended = stageBlits(w).length
+  await w.clock.advance(50000)
+  await settle(w)
+  const after = stageBlits(w).slice(ended).map(b => ('cells' in b ? b.cells : ''))
+  expect(after.includes(PERK)).toBe(false)
+  expect(after.some(c => LYING.includes(c))).toBe(true)
+  await ui.unmount()
+})
+
+test('review of #549: a slash command typed while he naps (/model: no turn) wakes him, to sitting, not to work', async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(200000)
+  await settle(w)
+  expect(stageBlits(w).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true) // lying, then asleep
+  await $.prompt.submit({ text: '/model', origin: { kind: 'composer' }, command: { name: 'model', args: '' }, wait: false } as never)
+  await settle(w)
+  const from = stageBlits(w).length
+  await w.clock.advance(5000)
+  await settle(w)
+  const after = stageBlits(w).slice(from).map(b => ('cells' in b ? b.cells : ''))
+  expect(after.includes(IDLE)).toBe(true)
+  expect(after.includes(PERK)).toBe(false)
   await ui.unmount()
 })
 
