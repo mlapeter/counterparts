@@ -339,7 +339,8 @@ Homebrew, `/usr/local`). Last run: 27/27 on 2.1.296 (2026-10-11).
 ## Two plugins (2026-10-20, our own marketplace; lightly held)
 
 Our marketplace lists two plugins from the split release on (`FIRST_SPLIT_RELEASE` in
-`tools/plugin-bundle/build.ts`, 0.3.28 if it ships then):
+`tools/plugin-bundle/build.ts`, 0.3.29 for now; it moves if the split slips, and the
+release commit adds the sidebar's entry, [RELEASING.md](RELEASING.md)):
 
 - `counterparts`: memory alone (the five hooks, the MCP server, the commands), built with
   `--flavor core`. Same name as before, so every install keeps working.
@@ -371,12 +372,21 @@ starts with the default view, theme and avatar again.
 one-plugin `counterparts` who installs the sidebar gets two panes, since the old one meets
 the dependency. With the range the install stops: `Dependency "counterparts@counterparts"
 is installed at 0.3.27, which does not satisfy: >=0.3.28. To look for a version in range,
-run claude plugin update counterparts@counterparts`; after that update, one pane. The cost:
-a range resolves against `counterparts--v<version>` tags on core's repository, so each
-release tags core's commit that way too, beside `v<version>`. Without that tag the
-sidebar does not install ("has no git tag satisfying >=0.3.28"). For someone with the
-sidebar, core then follows the highest such tag rather than the marketplace's pin. A bare
-dependency is a one-line change back (`SIDEBAR_DEPENDENCIES`).
+run claude plugin update counterparts@counterparts`; after that update, one pane (measured
+with the floor at 0.3.28, before it moved). The cost: a range resolves against
+`counterparts--v<version>` tags on core's repository, so each release tags core's commit
+that way too, beside `v<version>`. Without that tag the sidebar does not install ("has no
+git tag satisfying"). For someone with the sidebar, core then follows the highest such tag
+(no upper limit) rather than the marketplace's pin, so that tag only ever goes on a
+core-flavor commit. A bare dependency is a one-line change back (`SIDEBAR_DEPENDENCIES`).
+
+**Uninstalling.** The sidebar plugin needs this one: uninstalling `counterparts` with the
+sidebar installed leaves the sidebar unable to load. So the "installed twice" line
+(`plugin.ts#keepOne`) tells someone with the sidebar plugin to leave `counterparts`
+installed beside the npm install (it stands down), and `/counterparts:uninstall` says to
+remove the sidebar first. Uninstalling the sidebar may bring Claude Code's offer to prune
+dependencies, which would take memory with it; the sidebar's README says not to, and points
+at `/counterparts quiet` for hiding the pane.
 
 **What someone already on counterparts@counterparts gets.** `claude plugin marketplace
 update counterparts` alone changes nothing installed. `claude plugin update

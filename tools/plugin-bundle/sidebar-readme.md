@@ -87,8 +87,12 @@ every event it hooks and every call it makes.
 
 ## Remove it
 
+To hide the pane, `/counterparts quiet` is enough (`/counterparts` brings it back).
+
 `/plugin uninstall counterparts-sidebar@counterparts` removes the pane and leaves memory as
-it is. To remove the memory too, see the `counterparts` plugin's README.
+it is. Claude Code may then offer `claude plugin prune` to remove plugins that were installed
+only as dependencies: that includes `counterparts`, the memory itself, so don't run it unless
+you want memory gone too. To remove the memory, see the `counterparts` plugin's README.
 
 ## License
 

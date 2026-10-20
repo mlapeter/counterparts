@@ -20,9 +20,12 @@ import {
   SIDEBAR_PLUGIN,
   bundlePaths,
   bundleReadme,
+  checkoutBranch,
   planBundle,
   sidebarLeftover,
   sidebarText,
+  splitTripwire,
+  versionAtLeast,
   writeBundle,
   type Plan,
 } from "../tools/plugin-bundle/build.js";
@@ -30,15 +33,40 @@ import {
 const repoJson = (rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(REPO, rel), "utf8")) as Record<string, unknown>;
 const json = (p: Plan, f: string): Record<string, unknown> => JSON.parse(p.generated[f]!) as Record<string, unknown>;
 
-const fullPaths = bundlePaths(planBundle(REPO, "full"));
-const core = planBundle(REPO, "core");
-const corePaths = bundlePaths(core);
-const sidebar = planBundle(REPO, "sidebar");
-const sidebarPaths = bundlePaths(sidebar);
+// Planned when a test first asks, not at load: a plan that throws (a version
+// out of step after a bump, say) fails the tests that need it, not the file.
+const once = <T>(make: () => T): (() => T) => {
+  let made: { value: T } | null = null;
+  return () => (made ??= { value: make() }).value;
+};
+const plans = {
+  core: once(() => planBundle(REPO, "core")),
+  sidebar: once(() => planBundle(REPO, "sidebar")),
+  fullPaths: once(() => bundlePaths(planBundle(REPO, "full"))),
+};
+let core: Plan;
+let corePaths: string[] = [];
+let sidebar: Plan;
+let sidebarPaths: string[] = [];
+beforeEach(() => {
+  // Each test names what it uses; these are the shorthands.
+  try {
+    core = plans.core();
+    corePaths = bundlePaths(core);
+  } catch {
+    /* the tests that use core fail on their own */
+  }
+  try {
+    sidebar = plans.sidebar();
+    sidebarPaths = bundlePaths(sidebar);
+  } catch {
+    /* likewise */
+  }
+});
 
 describe("core", () => {
   test("is the full flavor less the sidebar: same name, no module, no contract, nothing of hooks/sidebar/", () => {
-    expect(corePaths).toEqual(fullPaths.filter((p) => !p.startsWith(`${SIDEBAR_DIR}/`)));
+    expect(corePaths).toEqual(plans.fullPaths().filter((p) => !p.startsWith(`${SIDEBAR_DIR}/`)));
     const m = json(core, ".claude-plugin/plugin.json");
     expect(m["name"]).toBe(CORE_PLUGIN);
     expect(m["types"]).toBeUndefined();
@@ -173,6 +201,50 @@ describe("written", () => {
     expect(existsSync(join(coreOut, "hooks/sidebar"))).toBe(false);
   });
 
+  test("a checkout on the directory branch takes the directory flavor alone, and that flavor goes nowhere else", () => {
+    const checkout = (name: string, branch: string, worktree = false): string => {
+      const dir = join(work, name);
+      mkdirSync(dir, { recursive: true });
+      if (worktree) {
+        // A linked worktree: `.git` is a file naming the real git dir.
+        const gitDir = join(work, `${name}-gitdir`);
+        mkdirSync(gitDir, { recursive: true });
+        writeFileSync(join(gitDir, "HEAD"), `ref: refs/heads/${branch}\n`);
+        writeFileSync(join(dir, ".git"), `gitdir: ${gitDir}\n`);
+      } else {
+        mkdirSync(join(dir, ".git"));
+        writeFileSync(join(dir, ".git", "HEAD"), `ref: refs/heads/${branch}\n`);
+      }
+      return dir;
+    };
+    const dirBranch = checkout("bundle-directory", "directory");
+    expect(checkoutBranch(dirBranch)).toBe("directory");
+    for (const p of [core, sidebar]) expect(() => writeBundle(p, dirBranch)).toThrow(/on the directory branch/);
+    expect(() => writeBundle(planBundle(REPO, "full"), dirBranch)).toThrow(/on the directory branch/);
+    expect(() => writeBundle(core, checkout("linked", "directory", true))).toThrow(/on the directory branch/);
+    expect(readdirSync(dirBranch)).toEqual([".git"]);
+    const main = checkout("bundle-main", "main");
+    expect(() => writeBundle(planBundle(REPO, "directory"), main)).toThrow(/on main, not the directory branch/);
+    writeBundle(core, main);
+    expect(existsSync(join(main, ".claude-plugin/plugin.json"))).toBe(true);
+    expect(checkoutBranch(join(work, "nowhere"))).toBeNull();
+  }, 60_000);
+
+  test("the full flavor's tripwire: refused from FIRST_SPLIT_RELEASE on, and only the full flavor", () => {
+    expect(versionAtLeast("0.3.29", "0.3.29")).toBe(true);
+    expect(versionAtLeast("0.4.0", "0.3.29")).toBe(true);
+    expect(versionAtLeast("0.3.28", "0.3.29")).toBe(false);
+    expect(versionAtLeast("0.3.29-27ea8989eea9", "0.3.29")).toBe(true);
+    expect(splitTripwire(FIRST_SPLIT_RELEASE, "full")).toContain("Raise FIRST_SPLIT_RELEASE first");
+    expect(splitTripwire("0.3.27", "full")).toBeNull();
+    for (const f of ["core", "sidebar", "directory"] as const) expect(splitTripwire(FIRST_SPLIT_RELEASE, f)).toBeNull();
+    // Today: the version is before the split, so the full flavor still builds.
+    const version = String(repoJson("package.json")["version"]);
+    const listed = (repoJson(".claude-plugin/marketplace.json")["plugins"] as { name: string }[]).some((p) => p.name === SIDEBAR_PLUGIN);
+    // Tied together: the sidebar's entry exactly from the split on (test/plugin.test.ts holds the same).
+    expect(listed).toBe(versionAtLeast(version, FIRST_SPLIT_RELEASE));
+  });
+
   // What ships is what is tested: the sidebar's sources AND its tests, renamed
   // by the same function, as Claude Code checks and runs a mod. Needs `claude`
   // on PATH; HOME is the test's own. The dependency is left out of this copy's
@@ -196,7 +268,9 @@ describe("written", () => {
     writeFileSync(join(dir, ".claude-plugin/plugin.json"), JSON.stringify(manifest, null, 2));
     const home = join(work, "home");
     mkdirSync(home);
-    const env = { ...process.env, HOME: home, USERPROFILE: home };
+    // Nothing of a real Claude Code configuration reaches the child.
+    const env: Record<string, string | undefined> = { ...process.env, HOME: home, USERPROFILE: home };
+    for (const k of ["CLAUDE_CONFIG_DIR", "CLAUDE_CODE_PLUGIN_DIRS", "CLAUDE_CODE_PLUGIN_CACHE_DIR"]) delete env[k];
     const validate = spawnSync(claudeBin!, ["plugin", "validate", dir], { encoding: "utf8", timeout: 120_000, env });
     expect(`${validate.stdout}${validate.stderr}`).toContain("Validation passed");
     const run = spawnSync(claudeBin!, ["plugin", "test", dir], { encoding: "utf8", timeout: 300_000, env });

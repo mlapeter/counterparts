@@ -182,6 +182,16 @@ market() { # market old|new|bare|plain
       "counterparts-sidebar": kind === "bare" ? bareUrl : sidebarUrl,
     };
     if (kind === "old") m.plugins = m.plugins.filter((p) => p.name === "counterparts");
+    // Before the split release the repository lists core alone; the release
+    // commit adds the sidebar entry the way this does (docs/RELEASING.md).
+    else if (!m.plugins.some((p) => p.name === "counterparts-sidebar")) {
+      m.plugins.push({
+        name: "counterparts-sidebar",
+        source: { source: "url", url: "https://github.com/counterparts-ai/counterparts-sidebar.git", ref: "" },
+        description: "A pane beside the chat that shows what your counterpart'"'"'s memory is doing, with a fox. Installs counterparts with it.",
+        category: "memory",
+      });
+    }
     for (const p of m.plugins) {
       p.source = { ...p.source, url: urls[p.name], ref: `v${kind === "old" ? oldV : newV}` };
     }

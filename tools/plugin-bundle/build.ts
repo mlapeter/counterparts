@@ -108,9 +108,28 @@ export const SIDEBAR_DIR = "hooks/sidebar";
  * or later: beside an older `counterparts` the install is refused, with
  * Claude Code's own "run `claude plugin update counterparts@counterparts`",
  * instead of drawing two panes (measured, tools/plugin-loop/split.sh 4b). If
- * the split misses this release, raise it to the one it ships in.
+ * the split misses this release, raise it to the one it ships in: `build.ts
+ * --flavor full` refuses at this version or later (a tripwire, so a release
+ * cut without the split raises it first), and test/plugin.test.ts wants the
+ * marketplace's sidebar entry exactly from this version on.
  */
-export const FIRST_SPLIT_RELEASE = "0.3.28";
+export const FIRST_SPLIT_RELEASE = "0.3.29";
+
+/** The `full` flavor at the split's release or later: the refusal, else null. Pure. */
+export function splitTripwire(version: string, flavor: Flavor): string | null {
+  if (flavor !== "full" || !versionAtLeast(version, FIRST_SPLIT_RELEASE)) return null;
+  return (
+    `${version} is the split release or later (FIRST_SPLIT_RELEASE ${FIRST_SPLIT_RELEASE}): our marketplace takes --flavor core and --flavor sidebar now. ` +
+    "Cutting this release without the split? Raise FIRST_SPLIT_RELEASE first (docs/RELEASING.md)."
+  );
+}
+
+/** a >= b, for x.y.z versions. Pure. */
+export function versionAtLeast(a: string, b: string): boolean {
+  const [x, y] = [a, b].map((v) => v.split(/[.-]/).slice(0, 3).map(Number)) as [number[], number[]];
+  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0);
+  return true;
+}
 /**
  * The sidebar plugin's `dependencies`: core, from the same marketplace, at
  * the split or later. A range resolves against `counterparts--v<version>` tags
@@ -959,6 +978,25 @@ export function bundlePaths(plan: Plan): string[] {
 
 // ── writing ────────────────────────────────────────────────────────────────
 
+/** The branch a git checkout at `dir` is on (its HEAD; a worktree's `.git`
+ *  file followed), or null: not a checkout, or a detached HEAD. Reads only. */
+export function checkoutBranch(dir: string): string | null {
+  try {
+    const dotGit = join(dir, ".git");
+    if (!existsSync(dotGit)) return null;
+    let gitDir = dotGit;
+    if (statSync(dotGit).isFile()) {
+      const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf8"));
+      if (m === null) return null;
+      gitDir = resolve(dir, m[1]!.trim());
+    }
+    const head = /^ref: refs\/heads\/(.+)$/m.exec(readFileSync(join(gitDir, "HEAD"), "utf8"));
+    return head === null ? null : head[1]!.trim();
+  } catch {
+    return null;
+  }
+}
+
 /** Write the bundle into `out`. A folder that already holds a bundle (or a
  *  clone of the bundle repository) is emptied first, `.git` kept; any other
  *  non-empty folder is refused. */
@@ -967,6 +1005,16 @@ export function writeBundle(plan: Plan, out: string, repo: string = REPO): void 
   const rel = relative(repo, target);
   if (rel === "" || !rel.startsWith("..") || relative(target, repo) === "" || !relative(target, repo).startsWith("..")) {
     throw new Error(`refusing to write the bundle at ${target}: inside this repository, or one of its parents`);
+  }
+  // The bundle repository's `directory` branch (under review) takes the
+  // directory flavor and nothing else, and that flavor goes nowhere else: a
+  // cheap backstop for never pushing the wrong tree there.
+  const branch = checkoutBranch(target);
+  if (branch === "directory" && plan.flavor !== "directory") {
+    throw new Error(`refusing to write the ${plan.flavor} bundle at ${target}: that checkout is on the directory branch`);
+  }
+  if (branch !== null && branch !== "directory" && plan.flavor === "directory") {
+    throw new Error(`refusing to write the directory bundle at ${target}: that checkout is on ${branch}, not the directory branch`);
   }
   if (existsSync(target)) {
     const entries = readdirSync(target).filter((n) => n !== ".git");
@@ -1067,6 +1115,13 @@ if (import.meta.main) {
     console.error("usage: bun tools/plugin-bundle/build.ts [--flavor full|directory|core|sidebar] <out-dir> | --list | --check <dir>");
     process.exit(2);
   };
+  // The tripwire is the command's, not planBundle's: the tests keep checking
+  // the full flavor's file set (core is built from it) at any version.
+  const tripped = splitTripwire(readJson<{ version: string }>(REPO, "package.json").version, flavor);
+  if (tripped !== null) {
+    console.error(`plugin bundle refused: ${tripped}`);
+    process.exit(1);
+  }
   const plan = planBundle(REPO, flavor);
   const paths = bundlePaths(plan);
   for (const w of plan.warnings) console.error(`warning: ${w}`);

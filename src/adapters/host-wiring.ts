@@ -405,6 +405,21 @@ export function pluginInstall(input: {
 }
 
 /**
+ * Does Claude Code record a `counterparts-sidebar@…` install? The sidebar
+ * plugin (2026-10-20, docs/plugin.md "Two plugins") depends on the
+ * `counterparts` plugin, so advice to uninstall that one has to know.
+ * READ-ONLY; false when the record can't be read.
+ */
+export function sidebarPluginRecorded(input: { readonly home: string; readonly env: Record<string, string | undefined> }): boolean {
+  const moved = (input.env["CLAUDE_CONFIG_DIR"] ?? "").trim();
+  const configDir = moved.length > 0 ? moved : join(input.home, ".claude");
+  const cacheRoot = (input.env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] ?? "").trim();
+  const pluginsRoot = cacheRoot.length > 0 ? cacheRoot : join(configDir, "plugins");
+  const plugins = readObject(join(pluginsRoot, "installed_plugins.json"))?.["plugins"];
+  return isRecord(plugins) && Object.keys(plugins).some((k) => k.startsWith("counterparts-sidebar@"));
+}
+
+/**
  * The npm install's wiring as Claude Code will see it for a session in `cwd`:
  * our hook entries in the user, project and local settings files, and a
  * server registered as `counterparts` in the user scope (`~/.claude.json`) or

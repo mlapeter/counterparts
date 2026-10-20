@@ -48,6 +48,7 @@ import {
   firstRunLockPath,
   firstRunNoticePath,
   hookGate,
+  keepOne,
   installRoute,
   mcpGate,
   npmDoctorCommand,
@@ -72,6 +73,7 @@ import {
   removeNpmLive,
 } from "../src/adapters/npm-live.js";
 import { runOnce, runnerConfig } from "../src/adapters/claude-code/bin/runner.js";
+import { FIRST_SPLIT_RELEASE, versionAtLeast } from "../tools/plugin-bundle/build.js";
 
 const ROOT = resolve(import.meta.dir, "..");
 const LAUNCHER = join(ROOT, "src", "adapters", "plugin-run.sh");
@@ -209,9 +211,12 @@ describe("the plugin's files", () => {
     const market = readJson(join(ROOT, ".claude-plugin", "marketplace.json"));
     expect(market["name"]).toBe("counterparts");
     const plugins = market["plugins"] as { name: string; source: unknown; version?: unknown }[];
-    // Two plugins since the split (2026-10-20, docs/plugin.md "Two plugins"):
-    // memory, under the name every install already has, and the sidebar.
-    expect(plugins.map((p) => p.name)).toEqual(["counterparts", "counterparts-sidebar"]);
+    // Two plugins from the split's release on (docs/plugin.md "Two plugins"):
+    // memory, under the name every install already has, and the sidebar. The
+    // release commit that reaches FIRST_SPLIT_RELEASE adds the sidebar's entry;
+    // before it, an entry would list a plugin nobody can install yet.
+    const split = versionAtLeast(String(pkg["version"]), FIRST_SPLIT_RELEASE);
+    expect(plugins.map((p) => p.name)).toEqual(split ? ["counterparts", "counterparts-sidebar"] : ["counterparts"]);
     // Where each may come from: this repository, or the generated bundle's
     // own repository (tools/plugin-bundle/build.ts; docs/plugin.md, "The
     // bundle"), tagged with the same release.
@@ -480,6 +485,34 @@ describe("npmWiring and the two gates", () => {
     // Too short a path under it to name a marketplace and a plugin: an install, with no id.
     expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: join(moved, "cache", "x") })).toEqual({ installed: true, root: join(moved, "cache", "x") });
     expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: cached }).installed).toBe(false);
+  });
+
+  test("keepOne: npm-only, today's words exactly; beside the counterparts-sidebar plugin, it says to leave this plugin installed", () => {
+    const cached = join(home, ".claude", "plugins", "cache", "counterparts", "counterparts", "0.3.29");
+    mkdirSync(cached, { recursive: true });
+    const record = (plugins: Record<string, unknown>): void =>
+      writeFileSync(join(home, ".claude", "plugins", "installed_plugins.json"), JSON.stringify({ version: 2, plugins }));
+    const today =
+      "Keeping one install is simpler, and nothing is lost either way: to keep only the plugin, run `counterparts disconnect` " +
+      "in a terminal and restart Claude Code; to keep only the npm install, run `/plugin uninstall counterparts@counterparts`.";
+    // No record, and a record of counterparts alone: the advice as it was.
+    expect(pluginOrigin({ home, env: {}, root: cached })).toEqual({ installed: true, root: cached, id: "counterparts@counterparts" });
+    expect(keepOne(pluginOrigin({ home, env: {}, root: cached }))).toBe(today);
+    record({ "counterparts@counterparts": [{ scope: "user", installPath: cached, version: "0.3.29" }] });
+    expect(keepOne(pluginOrigin({ home, env: {}, root: cached }))).toBe(today);
+    // The sidebar plugin installed too: uninstalling this one would turn it off.
+    record({
+      "counterparts@counterparts": [{ scope: "user", installPath: cached, version: "0.3.29" }],
+      "counterparts-sidebar@counterparts": [{ scope: "user", installPath: join(work, "sb"), version: "0.3.29" }],
+    });
+    const origin = pluginOrigin({ home, env: {}, root: cached });
+    expect(origin.sidebar).toBe(true);
+    const line = keepOne(origin);
+    expect(line).toContain("to keep only the plugin, run `counterparts disconnect`");
+    expect(line).toContain("leave this plugin installed, since it stands down here and the counterparts-sidebar plugin needs it");
+    expect(line).not.toContain("to keep only the npm install, run");
+    // A folder copy is no install: no sidebar question, nothing suggested.
+    expect(pluginOrigin({ home, env: {}, root: join(work, "checkout") }).sidebar).toBeUndefined();
   });
 
   test("a dead npm entry runs nothing, so the plugin carries on and names it", () => {

@@ -21,6 +21,21 @@ sets the version in four places, and moves one example:
 The example of that entry in [plugin.md](plugin.md#releases-only-the-marketplace-pins-a-tag)
 (`"ref": "v<version>"`) moves with it.
 
+**The split (two plugins, [plugin.md, "Two
+plugins"](plugin.md#two-plugins-2026-10-20-our-own-marketplace-lightly-held)).** First
+check whether this release is `FIRST_SPLIT_RELEASE` (`tools/plugin-bundle/build.ts`) or
+later:
+
+- **Not the split release, but the version reaches it?** Raise `FIRST_SPLIT_RELEASE` to the
+  release the split will ship in, first. On purpose, `build.ts --flavor full` refuses at
+  `FIRST_SPLIT_RELEASE` or later (a tripwire), and `test/plugin.test.ts` then wants the
+  sidebar's entry in the marketplace.
+- **The split release:** the release commit also adds the second marketplace entry,
+  `counterparts-sidebar`, a `url` source at
+  `https://github.com/counterparts-ai/counterparts-sidebar.git`, `"ref": "v<version>"`.
+  `test/plugin.test.ts` requires that entry exactly from `FIRST_SPLIT_RELEASE` on, with
+  both pins at `v<version>`.
+
 `test/mcp.test.ts` fails until `SERVER_VERSION` agrees with `package.json`, and
 `test/plugin.test.ts` until the plugin's version and the pin do
 ([plugin.md, "Releasing: move the pin"](plugin.md#releasing-move-the-pin)).
@@ -107,7 +122,16 @@ bun tools/plugin-bundle/build.ts --flavor core <clone of counterparts-plugin, ma
 bun tools/plugin-bundle/build.ts --flavor sidebar <clone of counterparts-sidebar, main>
 ```
 
-The directory branch stays as it is until the directory steps say otherwise.
+- Create `counterparts-ai/counterparts-sidebar` **empty** (no README, no licence): the
+  build refuses a folder that holds anything but a previous bundle and `.git`.
+- The build refuses any flavor but `directory` in a checkout on the `directory` branch,
+  and the directory flavor anywhere else. The directory branch stays as it is until the
+  directory steps say otherwise.
+- `claude plugin validate <sidebar clone>` is required, every split release:
+  `test/plugin-split.test.ts`'s check that runs Claude Code is skipped where `claude` isn't
+  installed (CI).
+- `tools/plugin-loop/run.sh --bundle` builds the full flavor, so from the split release on
+  `tools/plugin-loop/split.sh` is the install check.
 
 Each empties its clone (keeping `.git`) and writes the bundle. Check each with
 `claude plugin validate <clone>`, `tools/plugin-loop/run.sh --bundle` (and
@@ -141,9 +165,14 @@ same hash. Then open the release PR.
    there, then merge the release PR. Once it's on master, master's marketplace entry names
    the bundle repository's new tag, so `/plugin install` fails at the clone until that tag
    is pushed: tag first, merge after, close together. From the split release on, also
-   tag the same commit `counterparts--v<version>` (the sidebar's dependency range resolves
-   against it), and push the sidebar bundle to `counterparts-ai/counterparts-sidebar`
-   tagged `v<version>`: both entries' pins move in the release commit.
+   tag the same commit `counterparts--v<version>`, and push the sidebar bundle to
+   `counterparts-ai/counterparts-sidebar` tagged `v<version>`: both entries' pins move in
+   the release commit. The sidebar's dependency range (`>=FIRST_SPLIT_RELEASE`, no upper
+   limit) resolves against those `counterparts--v*` tags, not the marketplace's pin: core
+   installed through the dependency lands at `<version>-<sha>` and follows the highest such
+   tag. So that tag only ever goes on a core-flavor commit (never a full or directory one,
+   never a pre-release), and pushing it releases core to sidebar users on their next
+   update, before the release PR merges.
 4. Create the GitHub release with the binaries from section 3 (`<folder>` is the release
    folder):
 
