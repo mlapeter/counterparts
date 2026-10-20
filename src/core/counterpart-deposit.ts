@@ -442,9 +442,21 @@ export function closesOrRedates(cp: Counterpart, p: Proposal, target: string, ro
   const intent = p.dateIntent;
   if (intent !== undefined && (intent.eventDate !== "absent" || intent.remind !== null) && cp["reminderHolder"](target) !== null) return true;
   const now = sent?.status ?? null;
-  // A `done` at a memory holding a date (2026-10-20): "backup ran" closes
-  // "back up every Tuesday" while sharing few words with it.
-  if (now === "done" && cp["reminderHolder"](target) !== null) return true;
+  // A `done` at a memory holding a REPEATING date (2026-10-20): "backup ran"
+  // closes "back up every Tuesday" while sharing few words with it, and costs
+  // the reminder one occurrence at most. A one-off keeps the relatedness read
+  // (review of #540): there a done drops the date and settles the memory, so a
+  // careless one must not spend an unrelated appointment.
+  if (now === "done") {
+    const holder = cp["reminderHolder"](target);
+    let priorRule = null;
+    try {
+      priorRule = holder === null ? null : recurrenceOf(cp.store.readProse(holder));
+    } catch {
+      priorRule = null;
+    }
+    if (priorRule !== null) return true;
+  }
   const was = statusOf(row.status ?? null);
   return now !== null && was !== null && now !== was;
 }

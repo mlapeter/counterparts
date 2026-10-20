@@ -631,8 +631,9 @@ repeat. Any weekly reminder hits this.
   week marked done before it was said keeps the reminder as alive as a week that was said
   (§16).
 - **The update guard lets it through** (`closesOrRedates`): a `done` at a memory holding a
-  date is a close, and "backup ran" needs few words in common with "back up every Tuesday".
-  This applies to a one-off date too.
+  repeating date is a close, and "backup ran" needs few words in common with "back up every
+  Tuesday". A one-off date keeps the relatedness read (review of #540): there a `done` drops
+  the date and settles the memory, so a careless one must not spend an unrelated appointment.
 - **Unchanged:** a one-off dated memory with `status: done` is spent as before (date
   dropped, chain closed, settled `changed` under the done memory) — for a one-off, this
   time IS the whole obligation. `eventDate: null` ends a repeat; so does `status: done`

@@ -18,9 +18,12 @@
 - Decided by the builder, lightly held: a one-off dated memory with `status: "done"` behaves as
   before (its date is spent, its chain closed, it settles under the done memory). Why: for a
   one-off, this time is the whole obligation.
-- Decided by the builder, lightly held: a `done` at a memory holding a date passes the update
-  guard without the relatedness read. Why: "backup ran" closes "back up every Tuesday" and
-  shares few words with it; this applies to one-off dates too.
+- Decided by the builder, narrowed in review of #540, lightly held: a `done` at a memory holding
+  a REPEATING date passes the update guard without the relatedness read. A one-off date keeps
+  master's read. Why: "backup ran" closes "back up every Tuesday" and shares few words with it,
+  and on a repeat a wrong `done` costs one occurrence at most; on a one-off a `done` drops the
+  date and settles the memory, so a careless one ("Ran the store backup" at a dentist
+  appointment) would spend an unrelated date.
 - Decided in review of #540, lightly held: a `done` closes the occurrence open that day, except
   in the next occurrence's lead days when the one before it is still unclosed (and inside its
   grace, and was owed): then it closes that late one. A weekly backup done on Saturday with

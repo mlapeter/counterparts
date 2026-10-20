@@ -317,6 +317,26 @@ describe("what still ends the repeat, and a one-off done as before", () => {
   });
 });
 
+describe("the update guard: a done skips the relatedness read for a repeat only (review of #540)", () => {
+  test("a careless done at an unrelated ONE-OFF date is held: the date stays, nothing fades", async () => {
+    const s = server();
+    const c = s.counterpart;
+    dayOf(s, "2026-10-13");
+    const dentist = (await remember(s, { title: "Dentist", text: "Dentist appointment with Dr. Kahn at 3pm.", eventDate: "2026-11-03", remind: "plain" }))["id"] as string;
+    const id = await weekly(s);
+    dayOf(s, "2026-10-20");
+    const wrong = await remember(s, { text: "Ran the store backup this morning.", updates: dentist, status: "done" });
+    expect((wrong["settled"] as Record<string, unknown> | undefined)?.["held"]).toBe(true);
+    expect(wrong["reminder"]).toBeUndefined();
+    expect(c.store.row(dentist)?.event_date).toBe("2026-11-03");
+    expect(fadeOf({ fade: c.store.row(dentist)?.fade ?? 1 })).toBe(1);
+    // The same words at the right weekly reminder still close this week's occurrence.
+    const right = await remember(s, { text: "Ran the store backup this morning, the archive is in the backups folder.", updates: id, status: "done" });
+    expect(right["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-10-20", next: "2026-10-27" });
+    expect(c.store.row(id)?.event_date).toBe("2026-10-06");
+  });
+});
+
 describe("a write that looks like it answers a reminder due now", () => {
   test("a done memory written WITHOUT updates, close to the reminder: named with the way to close it", async () => {
     const s = server();
