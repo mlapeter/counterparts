@@ -544,6 +544,9 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     const w = ownerMorning();
     const text = morningWake(w, B);
     // The control: A's own session reopening, which no exchange line names.
+    // B is closed first, so A's wake does not name it as another session open
+    // here (2026-10-20) and the two wakes differ by the exchange line alone.
+    recordSession(storeDir, { sessionId: B, scope: HERE, phase: "end", at: at(9, 5) });
     const quiet = morningWake(w, A);
     expect(lineOf(quiet)).toBeUndefined();
     expect(readSentinel(text.slice(text.indexOf("<!-- counterparts:wake "))).intact).toBe(true);

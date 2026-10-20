@@ -556,6 +556,21 @@ and 4); the wake-polish builder, lightly held.
   on the old bare count to fill the line; they now write their chapters in the session's
   own directory, so the line has the titles their names promised.
 
+- **Review of #543** (the awkward states, `test/elsewhere-titles-states.test.ts`). Three
+  leaks found and closed: a status mark let a personal memory through (tier 0 skipped
+  `isWorkMemory`: an unmarked person or self memory marked `asked`, Desktop chat's unmarked
+  fact marked `planned`); the per-prompt line named open threads (the wake's skip was the
+  only guard; the read now leaves out `unresolved` rows, as `workHere` does); the night's
+  catch-up wrote write-ups (`secondHand`) under the subject's folder at 03:00, named in the
+  morning as that folder's work, and its runner's registry record (`writeup-<run>`, in the
+  folder that launched the run) printed as "Here, also open: session writeup-". Checked and
+  left: a title with a credential is refused at the battery (a title is a handle); a body
+  with one is redacted before it is stored, so the untitled fallback names redacted words;
+  a re-mark (owner, confidential) is read from the columns at every read; a session idle
+  3h59m is open here, 4h01m not, an ended one never; four live sessions here take the whole
+  line, the other folders counted ("3 other projects"), and "Last here" and the dated items
+  are where they were in a full 9,000-byte wake with the head fields (8,700–9,300).
+
 Undo: `git revert` of the PR; nothing is stored differently.
 
 ## 15. Each episode once, no bare ids (2026-10-20)
@@ -581,3 +596,50 @@ experiment. Decision record: `docs/decisions.d/fix-wake-dedupe-1020.md`.
   leftover-room upgrade (#489 C, `briefing.ts`) then had less room than in the control, so
   "Still open"'s first item printed as a line, not whole. The same items are listed. The
   upgrade spending borrowed room is the room system's behaviour, not changed here.
+
+## 16. The elsewhere lines name what was written (2026-10-20)
+
+Mike's go, lightly held, an experiment. Decision record:
+`docs/decisions.d/feat-elsewhere-titles-1020.md`.
+
+- **The read.** `Store#memoryTitlesByScopeSince` is one SQL read over the window's rows:
+  a tier per row (a status mark 0, work 1, the rest dropped), `ROW_NUMBER()` per
+  `origin_scope`, at most `perScope × 4` a folder so the caller can still drop this
+  session's own and the open threads and keep two. The columns only (`title`, or the
+  body's first 240 characters), the same exclusions as the counts plus confidential for
+  everyone, the personal marks, identity, a chapter's copy (`source`, `origin_ref`, a
+  summary's `meta.episodeId`). The caller confirms every row on `isWorkMemory` (tier 0
+  too, since the review), so an unmarked fact in a name scope (`claude-desktop:`) stays
+  personal, as in the wake's lanes.
+- **The ladder.** `elsewhereForms` used to try, per count of folders, the form with
+  chapters and the one without. It now tries every non-increasing allotment of titles
+  across the named folders (0–2 each), most titles first and spread before stacked, each
+  with and without the chapters, then the folder count steps down. The monotone filter is
+  unchanged: each kept form is narrower than the one before. With no titles every
+  allotment prints the same string, so the old chain falls out unchanged (pinned in
+  `test/elsewhere-titles.test.ts`). At most 21 allotments × 2 for five folders.
+- **Tests that pinned the old rule.** `wake-fresh-today`, `since-you-started`,
+  `wake-on-resume` and `wake-lanes` asserted "never a work memory's title" anywhere in the
+  wake; they now expect the title in the elsewhere line (and the body nowhere), and the
+  lane tests check their lanes with that line set aside. On the long temp paths of the
+  since tests, two folders with a title each leave no room for the chapter: the chapter
+  gives way first, by design.
+- **The same folder** (added the same day, the coordinator's ask). `elsewhereForms` takes a
+  second list, this folder's other live sessions (`HereSession`), put FIRST in the entries
+  the ladder counts down, so other folders give way before them; they print as a clause of
+  their own after the folders ("… . Here, also open: …"), or alone ("Here, also open: …";
+  for the per-prompt line, "Since …: here, also open: …"), and the last form counts both. The
+  read is the same SQL partitioned by `origin_session` (`sessions` option), filtered to rows
+  filed in this folder. The folder's scope is not asked: `named()` still refuses this
+  folder, and nothing from here is new to a session here. A session that ran out its
+  registry TTL (4 h since its last boundary) is not live and is not named. One fixture had
+  to change because of it: `last-exchange`'s control wake (A's) now sees B open here, so B
+  is closed before it; `wake-fresh-today`'s first test closes its HERE session so the line's
+  room stays the other folders' as it pins.
+- **Work here.** `addHandoffPointer`'s work lines skip a `mem_` id the printed elsewhere
+  line holds (`elsewhereNamedIn`, read off the body text as the 10-20 episode dedupe reads
+  it), so another session's work shows once, in the line that says who is doing it.
+- **Not done:** the per-prompt line still says nothing within its hour, so titles written
+  in that hour wait for the next line rather than being lost.
+
+Undo: `git revert` of the PR; nothing is stored differently.

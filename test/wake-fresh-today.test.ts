@@ -9,18 +9,20 @@
  *    date, and composed by the published rules (`ROOM_ORDER`, the page's
  *    ladder) around what the bundle showed of the stateful lanes. Reads only.
  * B. "Today, elsewhere": the other directories worked in today — when, live or
- *    ended, the chapter there (the "About me" line's gate), and how many
- *    memories, as counts. Never a span's words, a work memory's title, or a
- *    handoff from there; never this session's own directory.
+ *    ended, the chapter there (the "About me" line's gate), how many memories,
+ *    and since 2026-10-20 (Mike's go, an experiment) the newest work title or
+ *    two there. Never a span's words or a handoff from there; never this
+ *    session's own directory.
  *
  * Pinned here:
  *   - a session started before any turn-end today gets today's Yesterday,
  *     Arriving, Still open and page, while the published bundle has none of
  *     them — and the delivery writes no state;
  *   - "Today, elsewhere" names another directory's live session, its gated
- *     chapter title and its memory count, and never a work memory's title,
- *     span text or a handoff body from it; its own directory, a directory
- *     whose scope is off, and the nightly run's directory are skipped;
+ *     chapter title, its memory count and a work memory's title (not its
+ *     body), and never a work chapter, span text or a handoff body from it;
+ *     its own directory, a directory whose scope is off, and the nightly
+ *     run's directory are skipped;
  *   - the wake stays within its byte budget with the page's top and end
  *     lines intact;
  *   - the line gives way after "Nearby" and before anything else, and dated
@@ -419,7 +421,7 @@ describe("Today, elsewhere", () => {
     k.set(at(D2, 9));
     const work = episode(c, { session: G, scope: THERE, title: "Oven seven calibration log", date: D2, text: "We calibrated oven seven." });
     copy(c, work, G, THERE, "work", "Oven seven runs eleven degrees hot; the offset is on the dial plate.");
-    c.store.put({
+    const worktitle = c.store.put({
       type: "memory",
       kind: "fact",
       title: "WORKTITLE-oven-seven-offset",
@@ -459,7 +461,7 @@ describe("Today, elsewhere", () => {
         now = t;
         k.set(t);
       },
-      ids: { named, work, newest },
+      ids: { named, work, newest, worktitle },
     };
   }
 
@@ -467,19 +469,23 @@ describe("Today, elsewhere", () => {
     return text.split("\n").find((l) => l.startsWith("Today, elsewhere: "));
   }
 
-  test("another directory's live session, its gated chapter title and its memory count — never a work title, a span's words or a handoff", () => {
+  test("another directory's live session, its gated chapter title, its memory count and its work title — never a work chapter, a body, a span's words or a handoff", () => {
     const m = morning();
+    // This folder's other session closed, so the line's room is the other
+    // folders' (a live one here is named too since 2026-10-20: elsewhere-titles.test.ts).
+    recordSession(storeDir, { sessionId: E, scope: HERE, phase: "end", at: at(D2, 9, 55) });
     const text = m.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
     const line = lineOf(text);
     expect(line).toBe(
-      `Today, elsewhere: ${tilde(THERE)} open since 08:02 (live) — "Why I bake before dawn" (${m.ids["named"]}), 3 memories; ` +
+      `Today, elsewhere: ${tilde(THERE)} open since 08:02 (live) — "Why I bake before dawn" (${m.ids["named"]}), 3 memories: "WORKTITLE-oven-seven-offset" (${m.ids["worktitle"]}); ` +
         `${tilde(YON)} 08:05–09:40, 1 memory.`,
     );
     // The newest chapter about me is the "About me" line's, and not named twice.
     expect(text).toContain(`A chapter about me from ${tilde(YON)}: session c9cacbcc, Oct 10 — "Pruning the old pear"`);
     expect(text.split("\n").filter((l) => l.includes("Pruning the old pear"))).toHaveLength(1);
     // What stays where it was made, anywhere in the wake.
-    for (const never of ["WORKTITLE", "Oven seven calibration log", "SPANWORDS", "HANDOFFBODY", "LEDGERWORDS", "proofing cabinet"]) {
+    expect(text.split("\n").filter((l) => l.includes("WORKTITLE"))).toEqual([line as string]);
+    for (const never of ["Oven seven calibration log", "SPANWORDS", "HANDOFFBODY", "LEDGERWORDS", "proofing cabinet"]) {
       expect(text).not.toContain(never);
     }
     expect(readSentinel(text).intact).toBe(true);
@@ -534,6 +540,7 @@ describe("Today, elsewhere", () => {
       [THERE, "a7a7a7a4"],
     ];
     k.set(at(D2, 8, 30));
+    let thereMemory = "";
     for (const [scope, head] of places) {
       const session = `${head}-0000-4000-8000-000000000001`;
       recordSession(storeDir, { sessionId: session, scope, phase: "start", at: at(D2, 8) });
@@ -548,7 +555,8 @@ describe("Today, elsewhere", () => {
         origin: { session, scope },
       });
       copy(c, epi, session, scope, "me", "A placeholder copy about me.");
-      c.store.put({ type: "memory", kind: "fact", body: "A placeholder memory.", origin: { session, scope } });
+      const id = c.store.put({ type: "memory", kind: "fact", body: "A placeholder memory.", origin: { session, scope } });
+      if (scope === THERE) thereMemory = id;
     }
     k.set(at(D2, 10));
     const lc = new Lifecycle({ counterpart: c, config: { dataDir: storeDir }, configPath: join(root, "claude-code.json"), now: () => at(D2, 10) });
@@ -556,7 +564,7 @@ describe("Today, elsewhere", () => {
     const line = lineOf(text) ?? "";
     for (const kept of [WATCH, REST, FAR]) expect(line).not.toContain(tilde(kept));
     expect(text).not.toContain("KEPTHOME");
-    expect(line).toBe(`Today, elsewhere: ${tilde(THERE)} open since 08:00 (live), 2 memories.`);
+    expect(line).toBe(`Today, elsewhere: ${tilde(THERE)} open since 08:00 (live), 2 memories: "A placeholder memory." (${thereMemory}).`);
   });
 
   test("with no way to ask the scope setting, or every directory closed, nothing crosses", () => {
@@ -753,12 +761,12 @@ describe("the line has a small room of its own, and the page keeps its own", () 
     expect(quiet.text).toBe(alone.text);
     // Another folder at work this morning.
     recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 8, 2) });
-    m.c.store.put({ type: "memory", kind: "fact", body: "The bakery's flour arrived.", origin: { session: A, scope: THERE } });
+    const flour = m.c.store.put({ type: "memory", kind: "fact", body: "The bakery's flour arrived.", origin: { session: A, scope: THERE } });
     const text = m.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
     expect(readSentinel(text).intact).toBe(true);
     expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
     const line = text.split("\n").find((l) => l.startsWith("Today, elsewhere: "));
-    expect(line).toBe(`Today, elsewhere: ${tilde(THERE)} open since 08:02 (live), 1 memory.`);
+    expect(line).toBe(`Today, elsewhere: ${tilde(THERE)} open since 08:02 (live), 1 memory: "The bakery's flour arrived." (${flour}).`);
     expect(bytes(line ?? "")).toBeLessThanOrEqual(TODAY_ELSEWHERE_MAX_BYTES);
     // The page keeps its top and end lines and gives none of its room: it
     // and its borrowing outrank the line (review of #380).

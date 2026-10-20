@@ -724,8 +724,9 @@ export interface BriefingRequest {
    * THE "TODAY, ELSEWHERE" LINE (2026-10-10): one line, composed by the caller
    * at session start from the host's session registry and the store — which
    * other directories were worked in today, when, the chapter written there
-   * (scope and confidential gates), and how many memories, as counts. Never
-   * a word of a span, a work memory's title or a handoff from there.
+   * (scope and confidential gates), and how many memories, with up to two
+   * work titles a folder since 2026-10-20 (an experiment, the same gates).
+   * Never a word of a span or a handoff from there.
    * Furniture, printed above "Nearby", at most `TODAY_ELSEWHERE_MAX_BYTES`
    * (a longer form is not printed). It takes room from the lanes below it in
    * `ROOM_ORDER` and gives way to those above it — "Arriving:", "Still

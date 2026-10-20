@@ -413,7 +413,9 @@ row, saying which source answered, existed until the keys were removed — §1a.
     **AND, AT A PROMPT, WHAT CHANGED SINCE (2026-10-11).** A session already open
     never reads a wake again, so `userPromptSubmit` may add one "Since you started"
     line for the model (`Lifecycle#sinceLine` → `Counterpart#sinceElsewhere`): another
-    directory's session started or ended, a chapter, new memories, since this session
+    directory's session started or ended, a chapter, new memories (since 2026-10-20 up
+    to two by title, only ones written since the line last told; and another session
+    open in this same folder that started or wrote something), since this session
     last heard. The same gate as "Today, elsewhere" (`elsewhereGate`, one code path)
     and the same registry hand-over (`elsewhereHere`). At most once an hour, never at
     the first prompt after a wake; the state is the session record's `sinceSeen`

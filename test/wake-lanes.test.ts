@@ -167,10 +167,14 @@ describe("Nearby is personal; work waits for its directory", () => {
     expect(nearby).toContain("The ferry stops running at nine");
     expect(nearby).toContain("sister is moving to the coast");
     expect(nearby).toContain("Lunch by the window");
-    for (const id of [work, unmarked, skill]) expect(text).not.toContain(id);
-    expect(text).not.toContain("trailing comma");
-    expect(text).not.toContain("build cache");
+    // Not in any lane. The "Today, elsewhere" line may name the workshop's
+    // work as what was done there (2026-10-20, an experiment) — never its body.
+    const lanes = text.split("\n").filter((l) => !l.startsWith("Today, elsewhere: ")).join("\n");
+    for (const id of [work, unmarked, skill]) expect(lanes).not.toContain(id);
+    expect(lanes).not.toContain("trailing comma");
+    expect(lanes).not.toContain("build cache");
     expect(text).not.toContain("narrow test file");
+    expect(text).not.toContain(skill);
     // The stored bundle has no craft lane any more: it is composed per directory.
     expect(text).not.toContain(FRAMING.craft);
     expect(readSentinel(text).intact).toBe(true);
@@ -199,12 +203,14 @@ describe("the craft lane, composed at delivery for the session's directory", () 
     expect(lines.length).toBe(2);
     expect(lines.join("\n")).toContain(w1);
     expect(lines.join("\n")).toContain(w2);
-    expect(here).not.toContain(lib);
+    // Not as work here; "Today, elsewhere" may name it as the library's (2026-10-20).
+    const elsewhere = (t: string): string => t.split("\n").filter((l) => !l.startsWith("Today, elsewhere: ")).join("\n");
+    expect(elsewhere(here)).not.toContain(lib);
     // Title, an excerpt, and the id the recall tool expands.
     expect(lines.find((l) => l.includes(w1))).toMatch(/^- (?:20\d\d-\d\d-\d\d|[A-Z][a-z]{2} \d{1,2}) · Trailing commas — The parser rejects .*\(mem_[0-9a-f]+\)$/);
     const there = wake(c, LIBRARY);
     expect(under(there, WORK_HERE_HEADING)).toEqual([expect.stringContaining(lib)]);
-    expect(there).not.toContain(w1);
+    expect(elsewhere(there)).not.toContain(w1);
   });
 
   test("newest first, then strength; at most WORK_HERE_MAX lines", () => {

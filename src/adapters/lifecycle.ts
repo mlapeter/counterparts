@@ -99,6 +99,7 @@ import {
   pruneWriteUpProgress,
   manifestVersionOnDisk,
   markSinceSeen,
+  NIGHT_RUNNER_PREFIX,
   readSession,
   readWriteUpProgress,
   recordSession,
@@ -667,13 +668,17 @@ export class Lifecycle implements HostLifecycle {
       exportsFrom: this.chapterExports(),
       sessions: () => {
         const now = this.nowFn();
-        return listSessions(dir).map((r) => ({
+        // The nightly run's write-up runner (`writeup-<run>`) is recorded in
+        // the folder that launched it; it is the night's, never a session
+        // at work there (review of #543).
+        return listSessions(dir).filter((r) => !r.sessionId.startsWith(NIGHT_RUNNER_PREFIX)).map((r) => ({
           session: r.sessionId,
           scope: r.scope,
           startedAt: r.startedAt,
           lastAt: Math.max(r.lastBoundaryAt, r.endedAt ?? 0),
           live: isLive(r, now),
           endedAt: r.endedAt,
+          model: r.model ?? null,
         }));
       },
     };
@@ -713,7 +718,7 @@ export class Lifecycle implements HostLifecycle {
    * the hour is not spent. The state moves only when it arms or a line goes
    * out, so a quiet prompt writes nothing more than it did.
    *
-   * Reads only from the store (the counts and the chapter walk), the registry
+   * Reads only from the store (the counts, the titles and the chapter walk), the registry
    * and the scope setting: no model, no embedding, no store write. Nothing
    * under observer or for the nightly run; a folder that is off or paused
    * never reaches here (`guard`). Never throws.
