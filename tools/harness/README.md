@@ -162,6 +162,45 @@ The comparison block reads the same as for the recorded night, but a model's nig
 own: the counts are for setting side by side, not for matching. A run spends subscription
 usage.
 
+## A scripted owner's first week (`week`)
+
+```sh
+bun tools/harness/cli.ts week [--days N] [--no-nights] [--model <name>] --out <week.sqlite>
+bun tools/harness/cli.ts replay --source <week.sqlite>      # then, under rule patches, compare
+```
+
+A fresh store, begun as a new install begins (the meeting offered, dreaming on), and a fixed
+week of sessions by a fictional new owner (`owner-week.ts`: Dana, a ceramics teacher; 7 days,
+11 short sessions). The same week every run, so a difference between runs belongs to the
+memory, not the script.
+
+The harness is the host. It builds Claude Code's own adapter (`ClaudeCodeAdapter`) in-process
+on the harness's clock, with a spawner that starts nothing, and calls its handlers in Claude
+Code's order:
+- `sessionStart`;
+- per scripted line, `userPromptSubmit`, then `stop` after the model's reply (an ask it returns
+  is put to the model as the next message);
+- `sessionEnd`, and the boundary the worker would run.
+
+Each turn is one `claude -p` (`--session-id`, then `--resume`) with the session's memory tools
+from the harness's server, as the owner, under the same safety as the model seat. Each
+morning after the first, the night runs with the model seat. That includes the catch-up, which
+writes up short sessions, as it does live.
+
+One shape differs from a live session: a hook's words arrive in the prompt as a system
+reminder, not as the host's attachment.
+
+The week's store comes out as one file. The rule variants are physics, so the model runs the
+week once, and the record is replayed under each patch: identical acts, seconds each.
+
+On 2026-10-20, as an install with the meeting, the week took about 12 minutes:
+- memories: 18 after day 1, 47 by day 7;
+- 5 marked `us`; 2 dream nominations;
+- **core 0 every day under today's rules, the door closed, and spread.**
+
+The `us` memories each came back once, through the next night's reflection: a gap of 1, where
+the fast lane needs 2 or more.
+
 ## Safety
 
 - The source is opened read-only, and the harness refuses any path under `~/.counterparts`.
