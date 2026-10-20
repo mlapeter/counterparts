@@ -657,8 +657,8 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   set or the `asked` records, so neither listing nor quoting its title credits anything;
   opening it by id credits as any open. The durable `mcp.recall` row carries it apart, as
   `tail` (count) and `tailIds` (bounded), so a later open can be joined to it. About
-  1.5–1.7 KB; when the answer runs out of room it goes before the excerpts are cut below
-  60 characters. Only deliberate facts answers change — ambient footnotes and meaning mode
+  1.5–1.7 KB; when the answer runs out of room it goes first, before any excerpt is cut
+  (then excerpts 300 → 150 → 60 → 0; review of #544 — it went after the cut to 60 before). Only deliberate facts answers change — ambient footnotes and meaning mode
   do not. Size and wording are for Mike's review.
 - **[M]** `ids` / `handle` read a chapter address `epi_…#N` as that chapter
   (`self/chapter-address.ts#resolveChapter`): its words, `address`, and its `moments`.

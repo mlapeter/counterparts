@@ -1245,8 +1245,8 @@ call (`ref` the session) and touches nothing else. What the build chose:
   those too; order and pages are unchanged. Measured on bench answers: 1.7 KB for 20 lines
   (LoCoMo's long titles). Listed is not shown: not in `ids`, the seen set or the quotable
   record, so nothing is credited for being listed; the `mcp.recall` row keeps `tail` and
-  `tailIds` apart for the ~10-27 check. Dropped first when room runs out (after excerpts
-  reach 60). Size and wording are for Mike's review.
+  `tailIds` apart for the ~10-27 check. Dropped first when room runs out, before any
+  excerpt is cut (review of #544; it went after excerpts reached 60 before). Size and wording are for Mike's review.
 - **Soft words** (`time-ask.ts#SOFT_WORDS`: lately, recently, these days, nowadays; "of
   late" left out for "because of late fees"; "most recent" left out — it names a session
   or orders a kind). Chosen design: a preference, not a fallback. The fallback ("past the

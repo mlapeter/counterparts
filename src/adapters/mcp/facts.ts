@@ -98,7 +98,7 @@
  *   2026-10-20, from the benchmark loss read; helps real recall too; lightly
  *   held, revisit): shown, never credited, gated as the bodies are (a
  *   settled-over one shown on its own carries `earlier (now …)`); the first
- *   to go when the answer runs out of room, after the excerpts are cut to 60
+ *   to go when the answer runs out of room, before any excerpt is cut
  *
  * A SOFT time word ("lately", "recently", "these days", "nowadays"; since
  * 2026-10-20, from the benchmark loss read; helps real recall too; lightly
@@ -1396,16 +1396,18 @@ function sameDayTimes(memories: readonly FactItem[]): ReadonlyMap<string, string
 
 /**
  * The answer a facts question returns, as labeled lines. Bounded by
- * `RECALL_RESULT_CHARS`: past it, excerpts are cut shorter until it fits.
+ * `RECALL_RESULT_CHARS`: past it, the title tail goes first, then excerpts
+ * are cut shorter until it fits.
  */
 export function renderFacts(r: FactsResult): string {
-  // The title tail goes before the bodies' last words do (2026-10-20, from
-  // the benchmark loss read; helps real recall too; lightly held, revisit):
-  // the page's own results outrank a sight of the next ones.
+  // The title tail goes before any excerpt is cut (2026-10-20, from the
+  // benchmark loss read; helps real recall too; lightly held, revisit; first
+  // after the excerpts reached 60, changed on the review of #544): the page's
+  // own results outrank a sight of the next ones.
   const steps: readonly (readonly [number, boolean])[] = [
     [RECALL_EXCERPT_CHARS, true],
-    [150, true],
-    [60, true],
+    [RECALL_EXCERPT_CHARS, false],
+    [150, false],
     [60, false],
     [0, false],
   ];

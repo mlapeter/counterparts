@@ -20,9 +20,10 @@ ambient footnotes, the wake or meaning mode. Check ~10-27 (`docs/CHECK-AFTER.md`
   nothing is credited for being listed; opening it by id credits as any open does. The
   `mcp.recall` row keeps `tail` and `tailIds` apart so the check can join later opens to it.
   Paging, the header count and the 12,000-character room are unchanged; the tail is the
-  first thing given up when room runs out (after excerpts reach 60). About 1.7 KB measured on
-  bench answers (the brief said ~1.5 KB). **Size (20 lines, 48-character titles) and the
-  wording are for Mike's review.** Revert: `FACTS_TAIL_SIZE = 0`.
+  first thing given up when room runs out, before any excerpt is cut (then excerpts
+  300 → 150 → 60 → 0; review of #544). About 1.7 KB measured on bench answers (the brief
+  said ~1.5 KB). **Size (20 lines, 48-character titles) and the wording are for Mike's
+  review.** Revert: `FACTS_TAIL_SIZE = 0`.
 - **Soft time words rank, they don't filter.** "lately", "recently", "these days",
   "nowadays" (`recall/time-ask.ts#SOFT_WORDS`) keep every match in a facts answer that asks
   something besides time; matches inside the past week gain a quarter of the best score, for
@@ -35,5 +36,7 @@ ambient footnotes, the wake or meaning mode. Check ~10-27 (`docs/CHECK-AFTER.md`
   the question's — but on the probe the change brought 5 other RECALL losses' memories into
   the answer. "of late" and "most recent" left out on purpose. Revert: drop `{ soft: true }`
   from the soft branch in `time-ask.ts`.
+- **Marked for Mike's review:** wording and the soft-word trade ('what have I been working on
+  lately' now searches all, recent nudged up).
 - **Not built: same-session neighbours** (fix list #3). It overlaps the tail; it waits on the
   tail's measurement.

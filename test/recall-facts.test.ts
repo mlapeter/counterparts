@@ -1483,7 +1483,7 @@ describe("the title tail (2026-10-20)", () => {
     expect(ask(c, "the zqcrate orders").matched).toBe(41);
   });
 
-  test("when the answer runs out of room the tail goes first, before the excerpts go to nothing", () => {
+  test("when the answer runs out of room the tail goes first, before the excerpts go to nothing (any lines)", () => {
     const c = brain();
     seed(c);
     forty(c);
@@ -1497,6 +1497,33 @@ describe("the title tail (2026-10-20)", () => {
     expect(text).toContain("A zqcrate order went to");
     // Room enough: the tail is back.
     expect(renderFacts(r)).toContain("next 20, titles only");
+  });
+
+  // Review of #544: the tail goes before any excerpt is cut, not after the cut to 60.
+  test("long bodies at the 12,000-character room: the tail goes and every body keeps its whole 300-character excerpt", () => {
+    const c = brain();
+    seed(c);
+    const words = (i: number): string =>
+      Array.from({ length: 60 }, (_, k) => `zqlong${String(i)}w${String(k)}`).join(" ");
+    for (let i = 0; i < 40; i++) {
+      c.store.put({ type: "memory", kind: "fact", title: `The zqvault ledger ${String(i)}`, body: `The zqvault ledger ${String(i)} reads: ${words(i)}.` });
+    }
+    const r = ask(c, "the zqvault ledger");
+    expect(r.memories.length).toBe(FACTS_PAGE_SIZE);
+    expect(r.tail.length).toBe(FACTS_TAIL_SIZE);
+    for (const m of r.memories) expect(m.body.length).toBeGreaterThan(250);
+    // Pad the page's lines so it fits with whole excerpts only when the tail is gone.
+    const bare = renderFacts({ ...r, tail: [] }).length;
+    const tailChars = renderFacts(r).length - bare;
+    expect(tailChars).toBeGreaterThan(1_000);
+    const pad = Math.floor((RECALL_RESULT_CHARS - bare - 200) / FACTS_PAGE_SIZE);
+    const long = { ...r, memories: r.memories.map((m) => ({ ...m, line: `${m.line} ${"x".repeat(pad)}` })) };
+    const text = renderFacts(long);
+    expect(text.length).toBeLessThanOrEqual(RECALL_RESULT_CHARS);
+    expect(text).not.toContain("titles only");
+    // Every body at its full excerpt: nothing was cut to 150 to keep the tail.
+    for (const m of r.memories) expect(text).toContain(m.body.length <= 300 ? m.body : m.body.slice(0, 250));
+    expect(text).toBe(renderFacts({ ...long, tail: [] }));
   });
 
   test("a listed title credits nothing: not in the answer's ids, not seen, not quotable; the row keeps it apart", async () => {
