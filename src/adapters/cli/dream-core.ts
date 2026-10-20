@@ -183,7 +183,11 @@ export function reflectionShowLines(counterpart: Counterpart, id: string): strin
     "",
     r.entry === null ? "Entry: (not written)" : "Entry:",
   ];
-  if (r.entry !== null) for (const line of r.entry.split("\n")) out.push(`  ${line}`);
+  // The entry is the body of the memory it became: marked confidential since,
+  // it prints as that row does (review of #538 — `night` is run by sessions).
+  const entryHidden = r.entry_id !== null && counterpart.store.row(r.entry_id)?.confidential === 1;
+  if (r.entry !== null && entryHidden) out.push("  [confidential]");
+  else if (r.entry !== null) for (const line of r.entry.split("\n")) out.push(`  ${line}`);
   if (r.entry_id !== null) out.push(`  (kept as memory ${r.entry_id})`);
   const cites = parseIdList(r.cites);
   if (cites.length > 0) {

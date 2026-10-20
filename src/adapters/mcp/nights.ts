@@ -74,6 +74,8 @@ export interface DreamSummary {
   readonly touched: Readonly<Record<string, IdsCapped>>;
   /** Its gists: the text when short and not confidential, else the id alone. */
   readonly gists: readonly { id: string; text?: string; chars?: number; confidential?: true }[];
+  /** Gists past `NIGHT_IDS_PER_KIND`, counted rather than listed (a night of hundreds stays small). */
+  readonly gistsMore?: number;
   /** The reflections after it, newest first. */
   readonly reflections: readonly string[];
 }
@@ -90,6 +92,8 @@ export interface ReflectionSummary {
   readonly dream: string | null;
   readonly entry: string | null;
   readonly entryChars?: number;
+  /** Set when the memory the entry became is confidential now: `entry` is then null, the owner's session included. */
+  readonly entryConfidential?: true;
   /** The memory its entry became. */
   readonly entryId: string | null;
   readonly share: string | null;
@@ -164,6 +168,11 @@ function changeIds(c: DreamChangeRow): string[] {
   return out;
 }
 
+/** What one change rests on, for the boundary: its ids, and a gist's or a fold's sources. */
+function changeRests(c: DreamChangeRow): string[] {
+  return c.action === "gist" ? [...changeIds(c), ...stringList(detailOf(c.detail)["sources"])] : changeIds(c);
+}
+
 /** The key `dreams.counts` files a change under: a fold is its own kind. */
 function kindOf(c: DreamChangeRow): string {
   return c.action === "gist" && detailOf(c.detail)["fold"] === true ? "fold" : c.action;
@@ -180,11 +189,16 @@ function dreamSummary(counterpart: Counterpart, dream: DreamRow, changes: readon
   const touched: Record<string, IdsCapped> = {};
   for (const [k, list] of byKind) touched[k] = capped(list);
   const gists: { id: string; text?: string; chars?: number; confidential?: true }[] = [];
+  let gistsMore = 0;
   for (const c of standing) {
     if ((c.action !== "gist" && c.action !== "fold") || c.ref === null) continue;
+    if (gists.length >= NIGHT_IDS_PER_KIND) {
+      gistsMore += 1;
+      continue;
+    }
     const row = store.row(c.ref);
     if (row === undefined || rowTombstoned(row)) continue;
-    if (row.confidential === 1) {
+    if (restsOnConfidential(store, [c.ref])) {
       gists.push({ id: c.ref, confidential: true });
       continue;
     }
@@ -205,15 +219,19 @@ function dreamSummary(counterpart: Counterpart, dream: DreamRow, changes: readon
     ...(undone > 0 ? { undone } : {}),
     touched,
     gists,
+    ...(gistsMore > 0 ? { gistsMore } : {}),
     reflections: store.reflections({ dreamId: dream.id, limit: 5 }).map((r) => r.id),
   };
 }
 
-function reflectionSummary(r: ReflectionRow): ReflectionSummary {
+function reflectionSummary(store: Store, r: ReflectionRow): ReflectionSummary {
   const d = detailOf(r.detail);
   const list = stringList;
   const title = typeof d["title"] === "string" ? d["title"] : null;
-  const entry = r.entry === null ? null : cut(r.entry, NIGHT_ENTRY_CHARS);
+  // The entry IS a memory's body (`entry_id`): marked confidential since, it is
+  // not quoted here in any session, as a confidential gist is not.
+  const entryConfidential = r.entry_id !== null && restsOnConfidential(store, [r.entry_id]);
+  const entry = r.entry === null || entryConfidential ? null : cut(r.entry, NIGHT_ENTRY_CHARS);
   return {
     kind: "reflection",
     id: r.id,
@@ -224,6 +242,7 @@ function reflectionSummary(r: ReflectionRow): ReflectionSummary {
     dream: r.dream_id,
     entry: entry === null ? null : entry.text,
     ...(entry?.chars === undefined ? {} : { entryChars: entry.chars }),
+    ...(entryConfidential ? { entryConfidential: true as const } : {}),
     entryId: r.entry_id,
     share: r.share,
     shareState: r.share_state,
@@ -245,16 +264,17 @@ export function readNight(counterpart: Counterpart, id: string, opts: { readonly
     if (kind === "dream") {
       const shown = counterpart.dreams.show(id.trim());
       if (shown === null) return { ok: false, reason: "handle-unknown" };
-      const rests = [...ids(shown.dream.shown), ...shown.changes.flatMap(changeIds)];
+      const rests = [...ids(shown.dream.shown), ...shown.changes.flatMap(changeRests)];
       if (!opts.owner && restsOnConfidential(store, rests)) return { ok: false, reason: "handle-confidential-withheld" };
       return { ok: true, night: dreamSummary(counterpart, shown.dream, shown.changes) };
     }
     if (kind === "reflection") {
       const r = counterpart.reflections.show(id.trim());
       if (r === null) return { ok: false, reason: "handle-unknown" };
-      const rests = [...ids(r.shown), ...ids(r.cites), ...ids(r.share_cites), r.entry_id];
+      const d = detailOf(r.detail);
+      const rests = [...ids(r.shown), ...ids(r.cites), ...ids(r.share_cites), r.entry_id, ...stringList(d["closeProposed"]), ...stringList(d["closed"])];
       if (!opts.owner && restsOnConfidential(store, rests)) return { ok: false, reason: "handle-confidential-withheld" };
-      return { ok: true, night: reflectionSummary(r) };
+      return { ok: true, night: reflectionSummary(store, r) };
     }
   } catch {
     // A read that fails answers as not found; recall never throws at a tool.
