@@ -1,6 +1,6 @@
 # Roadmap
 
-*Updated 2026-10-20. A plan for now, not a rule. Change it when it stops fitting.*
+*Updated 2026-10-20. A plan for now, not a rule. Change it when it stops fitting. Details: [WORKLIST](WORKLIST.md).*
 *Earlier rounds: [roadmap-history.md](roadmap-history.md). What shipped when: [CHANGELOG](../CHANGELOG.md).*
 
 **The aim:** memory that follows how human memory works, with a dashboard that shows whether
@@ -17,60 +17,37 @@ each mechanism is working. It should run in whatever AI host people use.
 | **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11); the plugin with neither, as one downloaded program (0.3.14). Not Windows. |
 
-**In flight:**
-- **0.3.27's experiments**: the feedback loop, priming, stemming, head wins, first-prompt meaning; check ~10-22 ([CHECK-AFTER](CHECK-AFTER.md)).
-- **Two builds from the 10-20 morning wakes** (F1, F2 below): the reflection closes plainly-done threads itself; the wake fixes.
-
 ---
 
-## Fixes and improvements from use (2026-10-20)
+## To do
 
-*Found on the 10-20 morning wakes by this folder's session and ~/random's. Proposed order; we take them one at a
-time, talk through any that need it, and start a builder as each is agreed.*
+*One line each; the details, and where each stands, are in [WORKLIST](WORKLIST.md). Experiments waiting on a
+check are in [CHECK-AFTER](CHECK-AFTER.md).*
 
 **Being built:**
-- **F1. The reflection closes what is plainly done.** Open threads only closed when the finishing session knew of
-  them, or on the owner's yes to the morning share; threads opened in one session and finished in another piled up
-  (59 open, 12 untouched 2+ weeks). Now the reflection closes the clear ones itself, says so in the share with how to
-  undo, and asks only when unsure. Mike's go 10-20, an experiment.
-- **F2. Wake fixes** (Mike, 10-16: "remove duplication"): each session named once (today each 10-19 session shows
-  twice, in ~/random up to three times); no bare `epi_` ids in the Yesterday line; the three top tags as one; the
-  cross-project line readable from another folder. Investigated in the same lane: "Last here" naming an older session
-  than "Last said here" (~/random); overdue items counted while a not-yet-due one is listed; the daily snapshot taken
-  twice ~50 ms apart (10-14, 10-16, 10-17, 10-18).
+- The reflection closes threads that are plainly done, across folders, and says so (F1, #535)
+- Wake fixes: each session named once, one top tag, no bare ids, Coming up shows ids (F2)
+- A weekly reminder marked done for this week only; drewOn credit for a just-superseded memory (F6, F6b)
+- Reading a dream's or reflection's record from a session (F7)
 
-**Not started, proposed order:**
-- **F3. The decisive memory stays quiet at the moment of action.** When Mike ran the backup, ~/random was offered
-  unrelated footnotes; the 10-13 decision that backups hold no conversation text never came up, and the memory that
-  did was the stale one saying backups copy spans, so a non-problem got flagged. Same root as the 10-19 big-picture
-  thread 1 (memory and use barely touch). Take this test case into the 10-22 check of 0.3.27's recall experiments
-  before designing anything new.
-- **F4. Sessions don't see each other's work.** "Today, elsewhere" says which sessions are open and how many memories
-  they wrote, not what. Two sessions did the same wake check this morning. Proposed: name the newest one or two titles
-  per live session, e.g. "~/counterparts, 08:33: wake check (mem_5701…)".
-- **F5. The self page keeps overshooting its room.** 4,928 B on 10-17, then 4,756 and 4,956 on 10-20, against 4,600:
-  the reflection rewrites the page after the page writer and isn't held to the room. The wake shows it whole by
-  borrowing from other sections (elements 4 → 3 this morning).
-- **F6. A weekly reminder can't be marked done for this week.** The backup ran at 08:40; a new session at ~09:15
-  still reminded him. Cause (~/random, from the code): an occurrence closes only when a session names the reminder's
-  own id in `drewOn` (`creditDrewOn` → `prospective.actedOn`); saying it's done, or writing a "done" memory, doesn't
-  touch it, and closing by `eventDate: null` ends the whole repeat. And the wake showed the reminder with only its
-  earlier id, so there was no handle to name (that part rides F2). Proposed: an `updates` with `status: done` on a
-  recurring reminder closes this occurrence only; maybe, an owner-said "done" memory landing beside an open reminder
-  offers to close it, the way neighbours offer a settle.
-- **F6b. drewOn refuses credit to a memory superseded minutes earlier** ("faded-under-newer"), even when that stale
-  memory is what made the session catch and fix the record. The refusal runs backwards there.
-- **F7. A session can't read a dream's or reflection's record.** recall doesn't take `drm_` / `rfl_` ids, and
-  `counterparts dream` (it also undoes) is refused by auto mode as a change. A read-only way in.
-- **F8. Small:** the self page's "Spending pauses until a product change could move a score" needs checking against
-  the bench record; the backup reminder says "about 7 MB" (now 6.5 MB, since snapshots dropped `spans/` on 10-13).
+**Next, after those:**
+- Sessions see what other open sessions wrote (F4, after F2)
+- The self page held to its room (F5, after F1)
 
-**Watched, not a lane yet:** footnote noise (~2 of 7 useful in ~/random this morning, in line with 47% noise / 18%
-useful measured 10-19) is what 0.3.27 is trying to move; read it at the ~10-22 check.
+**Checks coming up:** 0.3.27's seven experiments ~10-22 · lists vs attachments 10-22 · F1 ~10-24 ·
+10-18's benchmark-motivated changes ~10-25 · F6 10-27 · emotion's weight 11-01 · forgetting resumes late October
+
+**Needs a talk:**
+- Lists vs attachments, and the notes module (recommended next: it leaves the running experiments alone)
+- Dream throughput (after ~10-22) · schemas with gist
+- The decisive memory staying quiet at the moment of action, with footnote noise (F3, at the ~10-22 check)
+- Retiring the 10-10 "Decisions to review" walk in IMPROVEMENTS
+
+**Elsewhere:** the plugin directory approval and whether to post without it (10-21) · the site's SEO push
 
 ---
 
-## Next
+## Later
 
 1. **More hosts**: claude.ai, if it's doable (see Under discussion).
 2. **Emotion, what's left**: watch feelings over weeks and re-feeling awake in real use (both built, 0.3.12). Coverage is no longer a thread: about 11% of memories carry a feeling, and that is expected.
@@ -158,26 +135,4 @@ Rethinking (owner, 2026-10-19, lightly held): "shown strengthens nothing" was a 
 - **10-19**: 0.3.27 on npm, recall that learns from use, most of it experiments to check ~10-22: a session's first prompt matched by meaning, facts ignore quantity words (#521); footnotes skip what this session wrote, the dream replays what the day used, the nightly run's sessions get no footnotes (#523); footnote ratings count as use, memories used together linked strongly, a memory rated 0 twice surfaces less, doctor's Feedback loop line (#525); a newer memory stands in for the one it replaced (#526); no links written at store time, the slot detector flags only (#528); light stemming and everyday words count less (#529); context priming along links and a train-of-thought vector (#530); no store migration (store v13), cache v6 to v7 re-indexes words once in the background; going back to 0.3.26 needs the cache deleted and rebuilt
 - **10-18**: 0.3.26 on npm: "Still open" leads with what was touched in the last 14 lived days and counts the untouched, a stale handoff says its staleness in one sentence and only the newest shows whole when all are stale, the Yesterday line names folders (#517); "Today, elsewhere" dates a session started on an earlier day (#513); doctor's Fired line reads mood matching as disabled (#515); facts say a coarse date may be inside the time asked (#516); no store-format change, nothing to run after upgrading from 0.3.25
 - **10-16**: 0.3.25 on npm: a chapter is stood for by a summary memory that fades, not a full copy; the `chapter` tool takes `summary`, the engine writes one when none is given (#504); the nightly reflection proposes closing stale open items and the reflect tool's `close` phase closes them on the owner's yes (#507); the wake lists long items as one line (#508) and is trimmed: one tag line, the date once, a shorter header, the page written to 4,600 bytes, craft out, Coming up = due today (#511); recall's rolling "last month"/"past N months" and weekdays in facts dates (#510); the sidebar says where you left off, its fox tries a picture first, its clickable rows are back in the full flavor, and the directory build stands down beside the npm install (#498, #499, #500, #501, #505, #509); no store-format change, nothing to run after upgrading from 0.3.24
-- **10-14**: 0.3.24 on npm: a memory leaves only after 14 lived days under the floor, and a curve change starts that wait fresh, so nothing is archived for 14 lived days after upgrading; old claims the era lowers read at today's default all the way down (#494); Claude rates the memories it was shown 0–3 at the session_end ask, tracking only (#492); routine work left at the default salience by the tool text, "faded: weak, below reach", a reminder's whole moved chain closes together, an untitled revision keeps its title, `recall` takes `query` (#493); the plugin's uninstall leaves a working npm install's memory server and hooks alone (#487, #491); the sidebar counts feelings under Emotion (#488) and its footer fits the docked pane (#486); no store-format change, nothing to run after upgrading from 0.3.23
-- **10-14**: 0.3.23 on npm, the build for Anthropic's plugin directory: the sidebar shows memory and acts on nothing (no buttons, no links, no network: it reads `~/.counterparts/sidebar.json`, written only while the plugin is installed), the brain gone and the fox kept (#480, #483); the directory build never reads `~/.claude.json` (no stand-down beside an npm install there, a known limit) and drops the dashboard's 3D brain (#481, #482); no store-format change, nothing to run after upgrading from 0.3.22
-- **10-14**: 0.3.22 on npm: the plugin installs from its own generated repository, counterparts-ai/counterparts-plugin, which also carries the directory flavor (#475); the sidebar ready for Anthropic's directory: links in a terminal, buttons on the desktop, no search, the fox from image files, `counterparts dashboard` opens the one already running (#477, #478); MCP tool annotations (#474); session context offers rather than orders (#476); no store-format change, nothing to run after upgrading from 0.3.21
-- **10-13**: 0.3.21 on npm: conversation text kept 3 days after write-up and never more than 14 days, never in a backup, `counterparts delete conversation-text|backups|activity-log` and "Delete data…" on the dashboard (#468); recall's carried words cleared past the same ceiling (#471); the plugin installs over HTTPS (#467); "installed twice" said once (#469); the fox polished and the sidebar's Desktop layout (#470, #472); no store-format change, nothing to run after upgrading from 0.3.20
-- **10-12**: 0.3.20 on npm: plugin installs now remember from the second day, the wake gets a default 9,000-byte ceiling (#466); the first meeting is a short conversation that is never interrupted (no dream, write-up in the session, one question at a time, ends with what to do next), plain words in the wake and dashboard, a fresh install's doctor with no ambers, a one-line first-run notice and a store id for the sidebar, honest wording about recall by meaning (#450, #451, #452, #456, #458, #459); compaction starts unwatched, the wake never drops a section silently (#453, #454); the sidebar: onboarding, the split, the fox, no Claude Code memory switch (#447, #455, #460, #462); bundle README disclosures (#457, #461); the dead A/B file read removed (#463); no store-format change, nothing to run after upgrading from 0.3.19
-- **10-12**: 0.3.19 on npm: reminders arrive: one due today stays under "Arriving:" all day, near ones first, never "told" to a turn nobody typed, a warning for a reminder-like memory with no date (#442, #445, #443); far fewer reads of Claude Code's own files (#444); the core can change, the night folds what belongs together, catch-up over written parts, cards born, one door for writes (#430, #432, #436, #429, #435, #427); the big-file split that fits the directory's 256 KiB limit (#439); no store-format change, nothing to run after upgrading from 0.3.18
-- **10-11**: 0.3.18 on npm: the first meeting on every new install, started by the sidebar or `/counterparts:meet`, and dreaming on for new installs (#419, #416, #424); the plugin ready for Anthropic's directory: the bundle, no Bun auto-install, `/counterparts:dashboard`, install-aware doctor (#396, #394, #399); `uninstall` offers to delete, at a terminal, with a typed phrase, and `/counterparts:uninstall` (#414, #421, #425); older memories read at today's defaults (#395), merges and revisions keep what they were about (#398, #400, #403); the night writes up everything owed, `counterparts catch-up`, the reflection in its own session (#401, #407, #413, #426); what replaces what (#420, #408, #422); reminders (#393, #411); association (#423); last exchange, day order, chapter wording, the verbatim trial, context trims (#392, #405, #404, #409, #415); decisions fragments (#418); no store-format change
-- **10-11**: 0.3.17 on npm: the sidebar mod v0.2, what memory is doing in 35 columns (#375); forgetting changes what comes to mind: each memory on its own curve, below reach, archived (never deleted) after 14 lived days under the floor, the dated hold, feeling counted once, old claims read at their defaults (#372, #377, #386); faded matches inline in facts recall (#379); `note` is `remember`, salience by attention, mood off (#369); `drewOn` (#385); about-marks (#383); the wake put together at session start, "Today, elsewhere" and "Since you started" (#376, #380, #387); a `remember` reaches the next wake the same day (#374); `counterparts rollback` (#384); scale fixes (#368, #373); follow-ups (#378, #382); changelog fragments (#381); store v12 to v13 and cache v5 to v6, nothing to run after upgrading from 0.3.16
-- **10-10**: 0.3.16 on npm: the self page is kept up to 16 KB and the wake steps down a ladder of whole texts (page, short version, outline, headings, one line), its room 5,681 bytes (#363); dated items before the wake's furniture, and doctor's Wake line amber when one goes unlisted (#367); a paused folder says so at session start (#362); each hook output field bounded on its own, the claims file mends itself, late twins stand down, scope commands name the folder (#366); the plugin's first-run line again (#365); the sidebar lights every mechanism an event proves (#360); tools/term-loop (#364); no store-format change, nothing to run after upgrading from 0.3.15
-- **10-10**: 0.3.15 on npm: the self page is never cut in the wake (#358); one delivery per event when the plugin and the npm install are both wired, the claims in a file of their own (#355, #359); `connect` and `install` rewrite Claude Desktop's entry and doctor reads it, so Desktop users run `counterparts connect` once (#354, #356); a yearless "by 1/5" in late December is the coming January (#356); the sidebar mod in the plugin (#342); CI runs the whole suite (#357); RELEASING.md (#356); no store-format change
-- **10-09**: 0.3.14 on npm: the plugin runs with no Bun or Node, as one prebuilt program per platform (#351); a project's `.env` and `bunfig.toml` stay out of the hooks and the server, so npm users run `counterparts connect` once (#349); the wake keeps "Still open" beside a long page and says when a reminder was due (#350); facts names corrected versions, reads amounts and "by 12/20" right, meaning says when a name has no card (#345, #347, #348, #352); dashboard and doctor follow-ups (#343, #346, #347); no store-format change
-- **10-09**: 0.3.13 on npm: dates that repeat, and corrections held when they look unrelated (#339–#341); facts reads "last Saturday" and "before 7/22", meaning answers about the person asked about, the dashboard's Ask in both modes (#333, #334, #338); doctor without false alarms on Fired and Wake, and the night checks its own transcript (#325, #330, #337); the Claude Code plugin (#328); no store-format change
-- **10-08**: 0.3.12 on npm: recall's two modes, facts and meaning, and what a memory records (#321–#323, store v12); with 10-02's work below
-- **10-02**: on master: one measured ceiling for tool results (#315); feelings round 3 (#317); follow-ups after 0.3.11 (#318); the Desktop app's Code tab verified live
-- **10-01**: 0.3.11 on npm: the morning catch-up and "Yesterday" line; "Work here" vs Nearby; Node 22.15+ and Linux; the Code tab files under its own session; recall by feeling, round 2; dashboard Health fixes (#306)
-- **10-01**: 0.3.10 on npm: the feelings wheel v2 (seven cores, store v11); handoffs per session; the "Last here" line; recall by time (a question about time leads with this directory's last session)
-- **09-30**: Claude Desktop chat; recall by feeling (0.3.9); handoffs per session; the feelings wheel redesigned with the owner; event log; coverage ("answered" isn't "written up"); the wake keeps up; dashboard feedback; Desktop's Code tab verified
-- **09-29**: contradictions (changed / corrected / open, with undo); headless nightly run (0.3.7)
-- **09-28**: nightly run (0.3.6); association links; fitting more into a night; looser guards
-- **09-27**: reflection and the self page; traits (0.3.5)
-- **09-26**: dreaming; reminders; feelings recorded (0.3.3, 0.3.4)
-- **09-25**: dashboard, first version; time handling and store v7 (0.3.1, 0.3.2)
-- **09-24**: keyless by default; quieter Stop ask (0.3.0)
+- Earlier: [roadmap-history.md](roadmap-history.md) under "Recently done, before 10-16".
