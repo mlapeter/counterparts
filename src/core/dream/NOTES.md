@@ -801,3 +801,19 @@ the live ~52):
   `closeAskedInstead`, and
   `reflection.reopened` is emitted on an undo. Watch (CHECK-AFTER, ~10-24): how many it
   closed itself, how many were reopened, and how the Still open count moves.
+
+## 2026-10-20 — the reflection held to the page's room (Mike's go, lightly held, an experiment)
+
+On 10-20 the page writer made 4,756 bytes and the reflection rewrote it to 4,956, past the
+4,600-byte room; the wake went from 4 sections to 3. The reflection is now told the room in
+bytes, the page's bytes now (`pageInfo().bytes`, "It is N bytes now."), and that the page
+stays thin (`self/writer.ts#PAGE_ROOM_RULE`, inside `PAGE_WRITING_RULE`). A page past the room
+on the night's first send comes back `past-room` (`Counterpart` maps `Self#revisePage`'s
+refusal to the words `pastRoomWords` gives), as a refused part: `retry` names it, the MCP
+`say` asks for the cut before anything else, and a second `finish` with just the page is
+written whether or not it was cut. The hold counts once per door per session per night,
+so the reflection is held on its own first page past the room even after the writer was held
+(10-20's pattern: the writer overshot first, the reflection wrote the longest page after it). If
+the reflection never sends again, the nightly process keeps the held page at the child's return
+(`night-run.ts` → `Self#keepHeldPage`). Tests: `test/page-held-to-room.test.ts` §2–3, and the
+6,200-byte reflection in `test/nightly-run.test.ts` (held once, then kept).

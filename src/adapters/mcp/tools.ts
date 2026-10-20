@@ -1431,7 +1431,7 @@ const SELF_PAGE: ToolSpec = {
       mechanizedBy: "src/core/self/index.ts#revisePage (SELF_PAGE_REVISED_EVENT / SELF_PAGE_REFUSED_EVENT -> store.appendEvent)",
     },
     {
-      claim: `The wake never cuts the page. It prints it WHOLE when the day's room holds it — a page within ${String(PAGE_ROOM_BYTES)} bytes (UTF-8) always fits at the default ceiling — and otherwise, in this order, the short version written with this exact text, each \`##\` section's heading and first sentence, the headings alone, or one line; each says what it is, how big the page is, and that this tool reads it whole. A short version is kept only beside a page past that room, only within it, and only until the page is rewritten without one. A page past 16,384 bytes is refused, never trimmed.`,
+      claim: `The wake never cuts the page. It prints it WHOLE when the day's room holds it — a page within ${String(PAGE_ROOM_BYTES)} bytes (UTF-8) always fits at the default ceiling; a page past that with a short version shows the short version — and otherwise, in this order, the short version written with this exact text, each \`##\` section's heading and first sentence, the headings alone, or one line; each says what it is, how big the page is, and that this tool reads it whole. A short version is kept only beside a page past that room, only within it, and only until the page is rewritten without one. A page past 16,384 bytes is refused, never trimmed.`,
       mechanizedBy:
         "src/core/self/index.ts#revisePage (PAGE_MAX_BYTES -> too-large; short -> PAGE_META_SHORT) + #pageBlock (the ladder, briefing.ts#PageRung) + src/core/self/briefing.ts#PAGE_ROOM_BYTES",
     },
@@ -1745,7 +1745,7 @@ const REFLECT: ToolSpec = {
       cites: { type: "array", items: { type: "string" }, description: "`finish`: the memory ids the entry rests on." },
       page: {
         type: "object",
-        description: `\`finish\`, optional: the self page rewritten whole, and the memory ids it rests on (the core first). With a page past ${String(PAGE_ROOM_BYTES)} bytes, its \`short\` version too (under ${String(PAGE_ROOM_BYTES)} bytes, the whole of it condensed) — or \`short\` alone on a second \`finish\`, to add one to the page this reflection wrote.`,
+        description: `\`finish\`, optional: the self page rewritten whole, within its ${String(PAGE_ROOM_BYTES)}-byte room, and the memory ids it rests on (the core first). A page past the room is sent back once to be cut; \`short\` (under ${String(PAGE_ROOM_BYTES)} bytes, the whole of it condensed) is for a page kept past it — beside it, or alone on a second \`finish\`.`,
         properties: { text: { type: "string" }, cites: { type: "array", items: { type: "string" } }, short: { type: "string" } },
       },
       share: {

@@ -203,7 +203,10 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // ingestion one; the `about` claim still ends inside the cut, at 1,980.
       chapter: { total: 1980, beforeList: 761 },
       scope: { total: 1514, beforeList: 755 },
-      self_page: { total: 4846, beforeList: 1772 },
+      // +63 on 2026-10-20 (the nightly writers held to the room): the wake
+      // claim says a page past the room with a short version shows it. Past
+      // the list's start; the head is untouched.
+      self_page: { total: 4909, beforeList: 1772 },
       // +18 on 2026-10-12 (onboarding round 1): the `undo` phase, said ("undo that dream").
       dream: { total: 3787, beforeList: 1782 },
       reflect: { total: 3333, beforeList: 1486 },
