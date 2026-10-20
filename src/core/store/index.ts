@@ -4683,7 +4683,11 @@ export class Store {
    * "Coming up" names it, as `workCandidates` leaves it out), a confidential row (whoever asks), an identity-band row,
    * one marked about me, us or the owner (`CORE_ABOUT_MARKS`: those are not
    * work, and cross only as the about-me chapter line's), a chapter's copy,
-   * or the nightly run's. The title, or the body's first 240 characters when
+   * the nightly run's, an open thread (`unresolved`: "Still open"'s, never a
+   * work line), or a write-up of an ended session (`secondHand`: the night's
+   * catch-up files them under the subject's folder; review of #543). The
+   * caller confirms EVERY row on `isWorkMemory`, the status-marked too. The
+   * title, or the body's first 240 characters when
    * there is none; the columns only, no prose read. Which DIRECTORY may be
    * named is the caller's gate (`Counterpart#elsewhereGate`). With `sessions`
    * (2026-10-20, the other sessions open in this folder), only those sessions'

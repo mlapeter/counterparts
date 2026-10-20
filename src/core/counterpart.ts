@@ -954,7 +954,8 @@ export class Counterpart {
       for (const { scope, count } of this.store.memoryCountsByScopeSince(since, { confidential: this.owner })) {
         if (named(scope)) dirOf(scope).memories = count;
       }
-      // What "Still open" may list in this wake is that lane's to name.
+      // What "Still open" may list in this wake is that lane's to name (the
+      // store's read leaves every open thread out too, review of #543).
       for (const [scope, titles] of this.elsewhereTitles(gate, since, until, new Set(this.store.openThreadIds()))) {
         if (dirs.has(scope)) dirOf(scope).titles = titles;
       }
@@ -1039,10 +1040,11 @@ export class Counterpart {
    * THE MEMORIES AN ELSEWHERE LINE NAMES BY TITLE (2026-10-20, Mike's go,
    * lightly held, an experiment): for each directory `gate` lets through, the
    * one or two (`ELSEWHERE_TITLES_MAX`) written in `[since, until)` that say
-   * most about the work there — a `status` mark first (planned, proposed,
-   * asked or done: work in progress, or finished today), then a work memory
-   * (`self/work.ts#isWorkMemory`, the wake's own rule), newest first within
-   * each, and nothing else — no chit-chat, nothing personal
+   * most about the work there — work only (`self/work.ts#isWorkMemory`, the
+   * wake's own rule), one with a `status` mark first (planned, proposed,
+   * asked or done: work in progress, or finished today), newest first within
+   * each, and nothing else — no chit-chat, nothing personal, a status mark
+   * or not
    * (`Store#memoryTitlesByScopeSince`, which also leaves out what may never
    * cross). Not this session's own, and not one in `skip`. Keyed by the gate's normalized directory. Reads the
    * columns only; throws only what the store throws.
@@ -1056,8 +1058,10 @@ export class Counterpart {
     const out = new Map<string, (MemoryHere & { tier: number })[]>();
     for (const m of this.store.memoryTitlesByScopeSince(since, { until, perScope: ELSEWHERE_TITLES_MAX })) {
       if (skip.has(m.id) || (gate.reader !== null && m.session === gate.reader) || !gate.named(m.scope)) continue;
-      // Work in progress or work, by the wake's own rule of what work is.
-      if (m.tier !== 0 && !isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
+      // Work, by the wake's own rule of what work is; a status mark puts it
+      // first, never makes a personal memory work (review of #543: an
+      // unmarked person or self memory, or Desktop chat's unmarked fact).
+      if (!isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
       const key = gate.norm(m.scope);
       const held = out.get(key) ?? [];
       held.push({ id: m.id, title: m.title, at: m.at, tier: m.tier });
@@ -1101,7 +1105,7 @@ export class Counterpart {
     const titles = new Map<string, (MemoryHere & { tier: number })[]>();
     for (const m of this.store.memoryTitlesByScopeSince(since, { until, perScope: ELSEWHERE_TITLES_MAX, sessions: ids })) {
       if (m.session === null || opts.skip?.has(m.id) === true || gate.norm(m.scope) !== own) continue;
-      if (m.tier !== 0 && !isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
+      if (!isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
       const held = titles.get(m.session) ?? [];
       held.push({ id: m.id, title: m.title, at: m.at, tier: m.tier });
       titles.set(m.session, held);

@@ -303,6 +303,7 @@ export function memoryTitlesByScopeSince(
               AND band != 'identity' AND event_date IS NULL AND COALESCE(about, '') NOT IN (${personal})
               AND COALESCE(source, '') != 'episode' AND COALESCE(origin_ref, '') NOT LIKE 'epi\\_%' ESCAPE '\\'
               AND meta NOT LIKE '%"episodeId"%' AND NOT ${NIGHTLY_SQL}
+              AND meta NOT LIKE '%"unresolved":true%' AND meta NOT LIKE '%"secondHand":true%'
          ) WHERE tier < 2
        ) WHERE rank <= ?
        ORDER BY origin_scope, rank`,
