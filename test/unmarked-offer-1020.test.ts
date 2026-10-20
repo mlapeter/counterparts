@@ -211,6 +211,8 @@ describe("the offer: 24 a night, the most likely personal first", () => {
     // Whole words only: "visitors" counts, "revisit" does not; the build's own words never count.
     expect(rank(c("g", "We revisit the dream and sleep phases and the feelings wheel on the Health page."))).toBe(0);
     expect(PERSONAL_WORDS).not.toContain("feeling");
+    expect(PERSONAL_WORDS).not.toContain("doctor");
+    expect(rank(c("h", "Ran counterparts doctor after the install: all green."))).toBe(0);
     const list = [c("x", "plain", { uses: 1 }), c("y", "plain", { uses: 3 }), c("z", "dinner with Sam"), c("w", "plain", { uses: 3, createdAt: -5 })];
     expect(orderUnmarked(list, names, new Set(), 10)).toEqual(["z", "w", "y", "x"]);
     expect(orderUnmarked(list, names, new Set(["z"]), 10)).toEqual(["w", "y", "x", "z"]);

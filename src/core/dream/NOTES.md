@@ -899,7 +899,8 @@ reflection was offered five a night.
   2, another person named 2 (names from live person memories — `name`, `entity`,
   `aliases`, a title of up to three words — and the store's person cards), a word of life
   outside the work 1 (`PERSONAL_WORDS`, whole words, none of the build's own: no feeling,
-  dream, sleep, home, health, rest, walk), an entity 1, the owner's name 1 (it is in half the
+  dream, sleep, home, health, rest, walk, doctor — the last taken out at review, being
+  the `counterparts doctor` of 458 paragraphs of the repo's notes), an entity 1, the owner's name 1 (it is in half the
   work notes too). Then the most used, the oldest, the id. Unmarked person and self
   memories are personal wherever written (`self/work.ts`), so they are never in this pool.
 - **Rest nights kept** (3): a mark takes a memory out of the pool, so what rotates is only

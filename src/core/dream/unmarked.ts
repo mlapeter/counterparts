@@ -18,8 +18,9 @@
 /**
  * Words of life outside the work (CAL, lightly held). Whole words, lower case.
  * Not this project's own vocabulary — no "feeling", "dream", "sleep", "home",
- * "health", "rest" or "walk", which name parts of the build — so a work note
- * about the feelings wheel does not read as personal.
+ * "health", "rest" or "walk", which name parts of the build, and no "doctor"
+ * (`counterparts doctor`: 458 paragraphs of the repo's notes and docs, review
+ * of #558) — so a work note about the feelings wheel does not read as personal.
  */
 export const PERSONAL_WORDS: readonly string[] = [
   "visit", "visited", "visiting", "visitor", "visitors",
@@ -29,7 +30,7 @@ export const PERSONAL_WORDS: readonly string[] = [
   "birthday", "wedding", "funeral", "anniversary",
   "weekend", "vacation", "holiday", "trip", "travel", "travelling", "traveling",
   "dinner", "lunch", "breakfast", "cooking", "cooked",
-  "sick", "ill", "illness", "pneumonia", "flu", "fever", "doctor", "hospital", "surgery",
+  "sick", "ill", "illness", "pneumonia", "flu", "fever", "hospital", "surgery",
   "tired", "exhausted", "worn", "burned", "burnt", "stressed", "anxious", "lonely", "grief", "grieving",
   "garden", "dog", "cat", "pet", "hike", "hiking", "beach", "movie", "concert", "music",
   "taxes", "rent", "apartment", "moving", "church",
