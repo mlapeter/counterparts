@@ -1,5 +1,93 @@
 # Changelog
 
+## 0.3.28 — 2026-10-20
+
+The morning share now closes the open threads that are plainly done, and says which and why; say one isn't done and it is reopened. The session-start wake repeats nothing: each session is named once, and "Today, elsewhere" and a new "Here, also open" say by title what the other open sessions are working on. Saying "done" to a weekly reminder closes just this week; it comes back on its next date. Last night's dream and reflection open by their ids, and `counterparts night` reads them without changing anything. The nightly run keeps the self page within its 4,600-byte room, the reflection answers core memories that have waited a week for keep or retire, and facts list the next twenty matches by title. Most of these are experiments, to be checked in a few days. If you use the plugin, update it with this release: the wake's head is now one tag, and a plugin of 0.3.27 or earlier reads the meeting and the store as unknown until it is updated, so its sidebar footer offers the 5-minute intro again and it skips its store check. No store-format change (store v13, cache v7) and no wiring change: nothing to run after upgrading from 0.3.27, and `counterparts connect` is not needed.
+
+- **The nightly reflection closes open threads that are plainly done, and tells you, as an
+  experiment.** When a memory shows a thing finished, it closes the thread itself and the
+  morning share names it with why; say it isn't done and it is reopened, and then only
+  ever asked about. Threads it is unsure of, and private ones, are still asked about, as
+  before.
+- **Last night opens by its id.** Recall now reads a dream's id (`drm_…`) or a
+  reflection's (`rfl_…`) — the ids the morning wake and the share name — as a short,
+  read-only summary: what the dream did, the memories it touched and its gists; the
+  reflection's entry, its share and whether it was told, what it cited, and any closes.
+  Opening one changes nothing. A night that rests on a confidential memory is withheld from
+  a session that isn't yours, and says so.
+- **`counterparts night` reads the nights and changes nothing.** The recent dreams and
+  reflections, `last`, `last-reflection`, or one by id — the same lines as `dream --show`,
+  from a command with no undo, so a session can run it with you. Undo stays on
+  `counterparts dream`.
+- **A weekly reminder can be marked done for this week.** Saying a repeating reminder was done
+  (a memory that updates it with `status: "done"`) closes just this time: it stops coming up
+  today, the reminder keeps its date and repeat, and it comes back on its next date. The answer
+  says which day was closed and when it returns. Dropping the date (`eventDate: null`) still
+  ends the repeat.
+- **A "done" note written on its own points at the reminder it answers.** When a memory saying
+  something was done (or that you said it) lands next to a reminder due now, the answer names
+  the reminder and how to close it.
+- **A memory a session just replaced still counts as drawn on.** Naming in `drewOn` a memory the
+  same session had just updated with a newer one (or one replaced that day) no longer refuses it.
+  One put away by a correction is still refused.
+- **The session-start wake names each session once.** The Yesterday line leaves the newest
+  chapter written in this folder to "Last here", and "Last here"'s "Before it" and "+N more
+  here" lines, and the chapter-about-me line, leave out what Yesterday already names. A
+  Yesterday chapter with no room for its title is counted ("and 3 more"), never printed as a
+  bare id.
+- **One tag at the top of the wake.** The meeting's state and the store's id are now fields of
+  the wake's own opening comment (`<!-- counterparts:wake meet=done store=st_… elements=…
+  bytes=… -->`), or of one `<!-- counterparts:session … -->` tag when there is no wake to
+  carry them. The sidebar reads both forms. An older sidebar (plugin 0.3.27 or before) reads
+  them as unknown until the plugin is updated: it skips its store check and keeps the
+  "5-minute intro" line in its footer.
+- **The chapter-about-me line says where it is from first**: "A chapter about me from
+  ~/site: session …, Oct 19 — "…" (epi_…)."
+- **"Coming up" at a session start lists what is due today.** A plain reminder due tomorrow is
+  counted with the other dates, as the evening's bundle still lists it for the next morning.
+  Every "Coming up" item now carries its own id, beside any "(earlier: …)" pointer.
+- **One backup a day, even when two background runs start at once.** The daily snapshot
+  claims the day before it copies, so two runs at one boundary no longer leave two copies.
+- **The nightly page writer and reflection keep your self page within its 4,600-byte room,
+  as an experiment.** The night's first page past the room is sent back to be cut, with how
+  many bytes over, rather than kept with a short version. A second try is kept, and a page
+  that was never sent again is kept when the night ends, so a night's rewrite is never lost.
+  A page past the room that has a short version now shows the short version in the wake, so
+  the lists beside it keep their room. Pages you or a session write are not held.
+- **A core memory that has waited a week for "keep or retire" gets answered, as an
+  experiment.** The nightly reflection is offered up to three that have waited 7 lived
+  days, decides the ones it can with a reason, and the morning share says which, in one
+  line. Say one was wrong and it is undone: a memory a reflection retired comes back into
+  the core with a keep (`counterparts core --reaffirm <id> --reason "..."`, or just say
+  so in a session). Agree with one instead (`counterparts core --demote <id>`) and it
+  is recorded as your retire, which no session can undo; your own `--reaffirm` still
+  can. The wake's "Still open" leads with a week-old one, and still says
+  "keep or retire it" when the memory is also unsettled. Doctor's Reflection line counts
+  the ones waiting.
+- **Asking for facts also lists the next matches by title.** After the ten results, the next
+  twenty are listed one line each (title, id and date), so a memory ranked a little lower is in
+  sight and can be opened by its id without asking for page 2. Being listed doesn't strengthen
+  a memory; opening it does.
+- **"Lately" and "recently" no longer hide older facts.** A facts question with "lately",
+  "recently", "these days" or "nowadays" ranks the past week's matches first instead of keeping
+  only those, and says so. "What happened lately?" on its own still means the past week, and
+  "last week" or "in September" still keep only that time.
+- **The sidebar's fox stays up while Claude is working, as an experiment.** Any tool call,
+  including one waiting on a permission prompt, starts his idle clock over, so he no longer
+  lies down or naps in the middle of a long call; he lies down at 45 seconds and naps at 2
+  minutes after the last activity, as before. A memory saved from a session shows his
+  notepad once.
+- **"Today, elsewhere" and "Since you started" say what the other sessions are working on.**
+  Beside each folder's memory count they name up to two of its memories by title and id,
+  work in progress first ("planned" or "done" marks, then work memories), newest first:
+  `~/random open since 08:33 (live), 8 memories: "Wake check 10-20" (mem_…), "Spans out of
+  backups" (mem_…)`. Other sessions open in the same folder get a clause of their own:
+  `Here, also open: session 25e12e7d on Fable 5 since 10:05: "…" (mem_…)`. Never from a
+  folder that is off, paused or observed, never a confidential memory, a dated one, one about
+  you, about the two of you or about your counterpart itself, or small talk. "Since you
+  started" names only what was written since it last told you. Both lines stay within their
+  old size.
+
 ## 0.3.27 — 2026-10-19
 
 Recall learns from use, and finds "baking" when you say "bake". The memories a session rates useful, draws on or opens count as used, memories found useful together get linked, and one rated noise twice comes up less for a while; what the conversation has been about, and what is open in its folder, gives related memories a head start. Recall matches word forms and counts everyday words for less, a session's first prompt is matched by meaning too, footnotes skip what this session wrote, and a newer memory stands in for the one it replaced. Most of these are experiments, to be checked in a few days. `counterparts doctor` gains a Feedback loop line. No store migration (store v13) and no wiring change, so `counterparts connect` is not needed; the word index re-indexes itself once in the background (cache v6 to v7, under a second on a typical store). Going back to 0.3.26 is not a plain reinstall: its memory tools refuse the newer cache, and its hooks miss word matches without saying so. To go back, delete `~/.counterparts/store/cache/cache.sqlite*`, then run `counterparts verify --rebuild --keep-vectors --dir ~/.counterparts/store` on 0.3.26 (recall by meaning comes back over the next few sessions, as the background worker re-reads the memories); `counterparts rollback` does not cover a cache change.
