@@ -8,4 +8,6 @@
   core".
 - **The exact-copy merge is worded for what reaches it**: "exact copy merged into the one
   already held". A repeat in the same folder is turned away when it is written, which leaves no
-  row to count. A copy written from a second folder is merged at sleep.
+  row to count. A copy written from a second folder is merged at sleep, and a new test proves
+  that happens. Near-copies are still merged only in a dream; merging them at sleep too is
+  open.

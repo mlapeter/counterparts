@@ -306,6 +306,29 @@ describe("firedToday (2026-10-10, the sidebar's times fired today)", () => {
     }
   });
 
+  test("the exact-copy merge is reachable in production (rules audit 2026-10-20, row 27): a copy from a second folder merges at the next cycle", async () => {
+    // TAU_DUP (the cosine arm) is unreachable: `sessionEnd` hands the cycle no
+    // similarity source. The identical-body arm is not: `contentHashCandidates`
+    // runs on every cycle, and the door refuses a repeat only in its own scope.
+    const dir = tempDir("counterparts-evidence-copy-");
+    const c = Counterpart.open({ dir, owner: true });
+    try {
+      const content = "Backups cover canonical prose and the operational database, and deliberately skip the cache.";
+      expect((await c.submitSessionEnd({ content, kind: "fact" }, { session: "s1", scope: "proj" })).deposited).toBe(true);
+      expect((await c.submitSessionEnd({ content, kind: "fact" }, { session: "s1", scope: "proj" })).reason).toBe("duplicate-content");
+      expect((await c.submitSessionEnd({ content, kind: "fact" }, { session: "s2", scope: "other" })).deposited).toBe(true);
+      await c.sessionEnd({ date: "2026-12-01", budgetBytes: 9000 });
+      const merged = c.store.eventLog({ name: "memory.merged" });
+      expect(merged.length).toBe(1);
+      expect((JSON.parse(merged[0]?.payload ?? "{}") as Record<string, unknown>)["reason"]).toBe("identical-content-hash");
+      const day = c.store.livedDay();
+      const consolidation = mechanismEvidence(c.store, { sinceDay: day - 6, today: day }).verdicts.find((v) => v.id === "consolidation");
+      expect(consolidation?.parts.find((p) => p.key === "merged")?.count).toBe(1);
+    } finally {
+      c.close();
+    }
+  });
+
   test("firingKey: a dream's rows share one key; every other row is its own", () => {
     const row = (seq: number, name: string, ref: string | null) => ({ seq, at: 0, day: 1, name, ref, dedup_key: null, payload: null });
     expect(firingKey(row(1, "dream.journaled", "drm_x"))).toBe(firingKey(row(2, "dream.changed", "drm_x")));

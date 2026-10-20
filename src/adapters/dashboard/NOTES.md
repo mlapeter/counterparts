@@ -695,5 +695,13 @@ Part of it was a quiet day, but three proofs in `mechanism-evidence.ts` missed r
   written because the battery never ran. A copy from a second project still merges at sleep
   (`cli/NOTES.md`), so the proof stays, worded "exact copy merged into the one already
   held". Counting the refusals would take a new store write, which was not added.
+  The rules audit (2026-10-20, row 27) found `TAU_DUP` unreachable, and it is:
+  `sessionEnd` hands `runCycle` no similarity source (`counterpart-boundary.ts`), so
+  the cosine arm of `dedupVerdict` never runs. The identical-body arm does not need
+  one (`contentHashCandidates` runs every cycle), and `test/mechanism-evidence.test.ts`
+  proves it through `sessionEnd`: a copy from a second folder merges at the next
+  cycle and counts here. So the proof stays. **Open, for the calibration pass:**
+  wiring a cosine source so `TAU_DUP` can merge near-copies at sleep. Until then
+  near-copies are a dream's to merge.
 The leads (`views/mechanisms.ts`), the console's lines and the feed's dream sentence say
 folds too.
