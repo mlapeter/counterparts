@@ -273,6 +273,19 @@ describe("3. the reflection sends cites per passage", () => {
     ]);
   });
 
+  test("an empty page.claims is cites for the whole page only, never every sentence uncited", () => {
+    const { c, cite, reflection } = reflecting();
+    const done = c.reflections.finish({
+      reflection,
+      session: SESSION,
+      entry: "The release mattered.",
+      cites: [cite],
+      page: { text: "## Core\n\nI finished the release with Mike.", cites: [cite], claims: [] },
+    });
+    expect(done.ok ? "" : done.reason).toBe("");
+    expect(readSelfPage(c.store)?.trace).toEqual({ cites: [cite], claims: null });
+  });
+
   test("the instructions ask for it in one clause", () => {
     const { c } = reflecting();
     const begun = c.reflections.begin({ session: SESSION });
