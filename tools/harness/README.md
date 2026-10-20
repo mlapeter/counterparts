@@ -87,24 +87,40 @@ bun tools/harness/cli.ts night --dir ~/counterparts-backups/<date>-corpus/night-
 
 This is the harness's own seat (`night.ts#recordedSeat`). It answers the night's asks with the
 calls the recorded night made, through the memory's own server, opened in-process as the
-night's child opens it: not the owner's, told which act it serves, with the local embedder.
-It runs on a copy of the store from before that night, on that night's clock. No model is
-involved. The night itself runs through the real `runNight`. The record compares the composed
-prompts (lengths only), each call's answer (refused, or the same once ids are mapped), and what
-the store holds afterwards: the dream's state, title, changes by kind and returns; the
-reflection's state, page version, returns and cites.
+night's child opens it: not the owner's, told which act it serves, with the local static
+embedder. It runs on a copy of the store from before that night, on that night's clock. No
+model is involved. The night itself runs through the real `runNight`.
+
+What it does and doesn't replay:
+- Only ids both nights minted are paired (the dream's, the reflection's, a merge's). An id that
+  existed before the night is the same memory in both runs.
+- Calls the host refused, and calls to tools the ask didn't grant or withheld, are skipped and
+  counted.
+- A write-up owed (`catch-up`) isn't in the record. It's refused, and counted.
+- The source must be a single file (a snapshot). A store in WAL mode is refused.
+
+The record compares:
+- the composed prompts: whether the words are the same once ids are mapped (by hash), and their
+  lengths;
+- each call's answer: refused, or the same once ids are mapped;
+- what the store holds afterwards: the dream's state, title, standing changes by kind, and
+  returns; the night's own reflection's state, page version, returns and cites.
+
+Not reproduced: the owner's identity names, `pageWriter.mode`, and an embedder other than the
+static table. Flags: `--time-zone`, `--budget`, `--no-embed`.
 
 Replay on the code that ran the night. A recorded dream's proposals are tied to the bundle it
-was shown, so on code that composes bundles differently, its proposals land on memories this
-bundle never showed (`not-shown-or-gone`). That is a finding about the code, not a fault in
-the replay. On 2026-10-20 the 10-19 night replayed on 0.3.26, the build that ran it:
-- the prompts were identical, and the reflection matched exactly;
-- the dream matched except for 2 of 18 links and 1 of 8 replays;
-- part 1 of the bundle overlapped the night's by about 86%. The cause of the gap isn't known yet:
-  the composition has no randomness, and nothing was written between the snapshot and the
-  dream's start.
+was shown, so on code that composes bundles differently, they land on memories this bundle never
+showed (`not-shown-or-gone`). That is a finding about the code, not a fault in the replay.
 
-On 0.3.27 and later, 10 of the 18 links land on memories the new bundle doesn't show.
+On 2026-10-20 the 10-19 night replayed on 0.3.26, the build that ran it:
+- both composed prompts were the same words as the night's;
+- the reflection matched exactly;
+- the dream matched except for 2 of 18 links and 1 of 8 replays. Its bundle's first part
+  overlapped the night's by about 86%. The cause of that gap isn't known yet: composition has
+  no randomness, and nothing was written between the snapshot and the dream's start.
+
+On 0.3.27 and master, 10 of the 18 links land on memories the new bundle doesn't show.
 
 ## Safety
 

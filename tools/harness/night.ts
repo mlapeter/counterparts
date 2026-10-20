@@ -20,7 +20,8 @@
  * a journal or a feeling's words: the transcripts and both stores hold the
  * owner's memory, and they stay where they are.
  */
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, closeSync, copyFileSync, openSync, readSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -48,6 +49,8 @@ export interface RecordedCall {
   readonly result: unknown;
   /** When the call was made (ms), or null when the transcript line carried no time. */
   readonly at: number | null;
+  /** The host answered it with an error of its own (a tool it would not run): never replayed. */
+  readonly hostRefused?: true;
 }
 
 /** A child's transcript as Claude Code writes it: its launch prompt and its calls to the memory's tools. */
@@ -69,6 +72,7 @@ function textOf(content: unknown): string {
 export function readChild(path: string): RecordedChild {
   const uses = new Map<string, { tool: SeatTool; input: Record<string, unknown>; at: number | null }>();
   const results = new Map<string, unknown>();
+  const hostRefused = new Set<string>();
   let prompt = "";
   let startedAt: number | null = null;
   let lastAt: number | null = null;
@@ -85,6 +89,9 @@ export function readChild(path: string): RecordedChild {
       lastAt = stamp;
       startedAt ??= stamp;
     }
+    // MESSAGE LINES ONLY: Claude Code also writes lines (an API request's
+    // blob) that repeat earlier blocks with no time of their own.
+    if (o["type"] !== "user" && o["type"] !== "assistant") continue;
     const message = o["message"] as Row | undefined;
     const content = message?.["content"];
     if (o["type"] === "user" && prompt.length === 0 && message !== undefined) {
@@ -95,10 +102,11 @@ export function readChild(path: string): RecordedChild {
     for (const b of content as Row[]) {
       if (b["type"] === "tool_use" && typeof b["name"] === "string" && b["name"].startsWith(TOOL_PREFIX)) {
         const tool = b["name"].slice(TOOL_PREFIX.length) as SeatTool;
-        if (!SEAT_TOOLS.includes(tool)) continue;
+        if (!SEAT_TOOLS.includes(tool) || uses.has(String(b["id"]))) continue;
         uses.set(String(b["id"]), { tool, input: (b["input"] as Record<string, unknown>) ?? {}, at: lastAt });
       }
-      if (b["type"] === "tool_result") {
+      if (b["type"] === "tool_result" && !results.has(String(b["tool_use_id"]))) {
+        if (b["is_error"] === true) hostRefused.add(String(b["tool_use_id"]));
         const text = textOf(b["content"]);
         let parsed: unknown = text;
         try {
@@ -110,22 +118,32 @@ export function readChild(path: string): RecordedChild {
       }
     }
   }
-  const calls = [...uses.entries()].map(([id, u]) => ({ ...u, result: results.get(id) ?? null }));
+  const calls = [...uses.entries()].map(([id, u]) => ({ ...u, result: results.get(id) ?? null, ...(hostRefused.has(id) ? { hostRefused: true as const } : {}) }));
   return { prompt, calls, startedAt };
 }
 
-/** Learn recorded → replayed id pairs by walking two answers side by side. */
-export function learnIds(recorded: unknown, replayed: unknown, map: Map<string, string>): void {
+/**
+ * Learn recorded → replayed id pairs by walking two answers side by side.
+ * ONLY IDS BOTH NIGHTS MINTED are paired: the recorded one absent from the
+ * store the night started from, the replayed one new to it too, and each
+ * replayed id the target of one pair. Without `existed`, every pair is
+ * learned (a test's own walk). An id that already existed is the same memory
+ * in both runs: pairing it by position would send later calls to another one.
+ */
+export function learnIds(recorded: unknown, replayed: unknown, map: Map<string, string>, existed?: ReadonlySet<string>): void {
   if (typeof recorded === "string" && typeof replayed === "string") {
-    if (WHOLE_ID.test(recorded) && WHOLE_ID.test(replayed) && recorded !== replayed && !map.has(recorded)) map.set(recorded, replayed);
+    if (!WHOLE_ID.test(recorded) || !WHOLE_ID.test(replayed) || recorded === replayed || map.has(recorded)) return;
+    if (existed !== undefined && (existed.has(recorded) || existed.has(replayed))) return;
+    if ([...map.values()].includes(replayed)) return;
+    map.set(recorded, replayed);
     return;
   }
   if (Array.isArray(recorded) && Array.isArray(replayed)) {
-    for (let i = 0; i < Math.min(recorded.length, replayed.length); i++) learnIds(recorded[i], replayed[i], map);
+    for (let i = 0; i < Math.min(recorded.length, replayed.length); i++) learnIds(recorded[i], replayed[i], map, existed);
     return;
   }
   if (recorded !== null && replayed !== null && typeof recorded === "object" && typeof replayed === "object" && !Array.isArray(recorded) && !Array.isArray(replayed)) {
-    for (const k of Object.keys(recorded)) if (k in replayed) learnIds((recorded as Row)[k], (replayed as Row)[k], map);
+    for (const k of Object.keys(recorded)) if (k in replayed) learnIds((recorded as Row)[k], (replayed as Row)[k], map, existed);
   }
 }
 
@@ -150,6 +168,8 @@ export interface CallTally {
   readonly refused: number;
   /** Answers identical to the recorded ones once ids are mapped. */
   readonly same: number;
+  /** Calls not replayed: the host refused them then, or the ask did not grant the tool (or withheld it). */
+  readonly skipped: number;
   /** By tool and phase: how many, refused, same. */
   readonly byPhase: Readonly<Record<string, { calls: number; refused: number; same: number }>>;
 }
@@ -164,6 +184,8 @@ export interface RecordedSeatInput {
   /** Moves the replay's clock to a recorded call's instant. */
   readonly setClock: (at: number) => void;
   readonly now: () => number;
+  /** Every id the store held before the night: only ids minted that night are paired. */
+  readonly existed?: ReadonlySet<string>;
   /** Each call as it is replayed, beside its recorded answer: for a diagnosis, never for the record. */
   readonly onCall?: (call: RecordedCall, replayed: Record<string, unknown>, ids: ReadonlyMap<string, string>) => void;
 }
@@ -183,7 +205,11 @@ export function recordedSeat(input: RecordedSeatInput): Seat<NightAnswer> & { re
     ids,
     async answer(ask: SeatAsk): Promise<NightAnswer> {
       const started = input.now();
-      if (ask.act === "catch-up") return { refused: "not-recorded", started: false, code: null, timedOut: false, error: null, ms: 0 };
+      if (ask.act === "catch-up") {
+        const was = tallies["catch-up"];
+        tallies["catch-up"] = { calls: (was?.calls ?? 0) + 1, refused: (was?.refused ?? 0) + 1, same: 0, skipped: 0, byPhase: {} };
+        return { refused: "not-recorded", started: false, code: null, timedOut: false, error: null, ms: 0 };
+      }
       const child = ask.act === "dream" ? input.dream : input.reflection;
       const counterpart = input.open();
       const server = new McpServer({
@@ -199,12 +225,17 @@ export function recordedSeat(input: RecordedSeatInput): Seat<NightAnswer> & { re
       const byPhase: Record<string, { calls: number; refused: number; same: number }> = {};
       let refused = 0;
       let same = 0;
+      let skipped = 0;
       try {
         for (const call of child.calls) {
+          if (call.hostRefused === true || !ask.tools.includes(call.tool) || ask.withhold.includes(call.tool)) {
+            skipped += 1;
+            continue;
+          }
           if (call.at !== null) input.setClock(call.at);
           const out = await server.call(call.tool, withIds(call.input, ids) as Record<string, unknown>);
           const replayed = out.structuredContent;
-          learnIds(call.result, replayed, ids);
+          learnIds(call.result, replayed, ids, input.existed);
           input.onCall?.(call, replayed, ids);
           const phase = `${call.tool}${typeof call.input["phase"] === "string" ? `:${call.input["phase"]}` : ""}`;
           const p = (byPhase[phase] ??= { calls: 0, refused: 0, same: 0 });
@@ -221,7 +252,7 @@ export function recordedSeat(input: RecordedSeatInput): Seat<NightAnswer> & { re
       } finally {
         counterpart.close();
       }
-      tallies[ask.act] = { calls: child.calls.length, refused, same, byPhase };
+      tallies[ask.act] = { calls: child.calls.length, refused, same, skipped, byPhase };
       return { refused: null, started: true, code: 0, timedOut: false, error: null, ms: input.now() - started };
     },
   };
@@ -258,7 +289,8 @@ export interface NightReplayRecord {
   readonly ranAt: string;
   readonly elapsedMs: number;
   readonly night: { readonly state: string; readonly reason: string | null; readonly detail: string | null; readonly parts: readonly string[]; readonly children: readonly string[] };
-  readonly prompts: { readonly dream: Compared<number>; readonly reflection: Compared<number> };
+  /** The composed launch prompts beside the recorded ones: lengths, and whether the words are the same once minted ids are mapped (by hash). */
+  readonly prompts: { readonly dream: Compared<number> & { readonly wordsSame: boolean }; readonly reflection: Compared<number> & { readonly wordsSame: boolean } };
   readonly calls: Readonly<Record<string, CallTally>>;
   readonly idsMapped: number;
   readonly dream: {
@@ -289,10 +321,39 @@ function one<T>(db: Database, sql: string, ...args: (string | number)[]): T | nu
   return (db.query(sql).get(...args) as T | null) ?? null;
 }
 
+/** A dream's changes that stand, by kind (an undo since is not the night's). */
 function changesOf(db: Database, dream: string): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const r of db.query("SELECT action, COUNT(*) AS n FROM dream_changes WHERE dream_id = ? GROUP BY action ORDER BY action").all(dream) as { action: string; n: number }[]) out[r.action] = r.n;
+  for (const r of db.query("SELECT action, COUNT(*) AS n FROM dream_changes WHERE dream_id = ? AND undone = 0 GROUP BY action ORDER BY action").all(dream) as { action: string; n: number }[]) out[r.action] = r.n;
   return out;
+}
+
+const hash = (text: string): string => createHash("sha256").update(text).digest("hex");
+
+/** SQLite's header says WAL at bytes 18-19 (2, 2): a lone copy of the main file would lose what the log holds. */
+function inWalMode(path: string): boolean {
+  const fd = openSync(path, "r");
+  try {
+    const b = Buffer.alloc(20);
+    readSync(fd, b, 0, 20, 0);
+    return b[18] === 2 || b[19] === 2;
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Every id the store holds, in the tables a night mints into. */
+function idsIn(path: string): Set<string> {
+  const db = new Database(path, { readonly: true });
+  try {
+    const out = new Set<string>();
+    for (const t of ["memories", "dreams", "reflections", "contradictions", "feelings"]) {
+      for (const r of db.query(`SELECT id FROM ${t}`).all() as { id: string }[]) out.add(r.id);
+    }
+    return out;
+  } finally {
+    db.close();
+  }
 }
 
 function compared<T>(recorded: T, replayed: T): Compared<T> {
@@ -309,6 +370,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
     if (!existsSync(p)) throw new NightReplayError("MISSING", `${name}: ${p}`);
     if (underLiveRoot(p, env)) throw new NightReplayError("SOURCE_IS_LIVE", `${name}: copy it out of ~/.counterparts first`);
   }
+  if (inWalMode(opts.source)) throw new NightReplayError("SOURCE_IN_WAL", "the source's log would be left behind: take a snapshot (it is a single file) or checkpoint first");
   const dream = readChild(opts.dreamTranscript);
   const reflection = readChild(opts.reflectionTranscript);
   const recordedDream = dream.calls.map((c) => (c.result as Row | null)?.["dream"]).find((d): d is string => typeof d === "string" && WHOLE_ID.test(d)) ?? null;
@@ -344,6 +406,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
     const seat = recordedSeat({
       dream,
       reflection,
+      existed: idsIn(opts.source),
       open: () => store(false, true),
       embedder,
       setClock: (at) => {
@@ -361,6 +424,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
         return seat.answer(ask);
       },
     };
+    const replayStart = clock;
     const run = await runNight({
       open: () => store(true, false),
       config: { dataDir: dir, owner: true, injectionBudgetBytes: opts.budgetBytes ?? 9_000, ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }) },
@@ -380,10 +444,18 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
       const recD = dreamRow(rec, recordedDream);
       const repD = dreamRow(rep, replayedDream);
       const returns = (db: Database, id: string, source: string): number => one<{ n: number }>(db, "SELECT COUNT(*) AS n FROM returns WHERE dream_id = ? AND source = ?", id, source)?.n ?? 0;
-      const reflectionRow = (db: Database, id: string) =>
-        one<{ id: string; state: string; page_version: number | null; cites: string; day: number }>(db, "SELECT id, state, page_version, cites, day FROM reflections WHERE dream_id = ? ORDER BY started_at DESC LIMIT 1", id);
-      const recR = reflectionRow(rec, recordedDream);
-      const repR = reflectionRow(rep, replayedDream);
+      // THE NIGHT'S OWN reflection: the first on this dream started within the night's window.
+      const reflectionRow = (db: Database, id: string, from: number, to: number) =>
+        one<{ id: string; state: string; page_version: number | null; cites: string; day: number }>(
+          db,
+          "SELECT id, state, page_version, cites, day FROM reflections WHERE dream_id = ? AND started_at BETWEEN ? AND ? ORDER BY started_at ASC LIMIT 1",
+          id,
+          from,
+          to,
+        );
+      const lastCall = Math.max(...[...dream.calls, ...reflection.calls].map((c) => c.at ?? 0), dream.startedAt ?? 0);
+      const recR = reflectionRow(rec, recordedDream, (dream.startedAt ?? 0) - 60_000, lastCall + 60_000);
+      const repR = reflectionRow(rep, replayedDream, replayStart - 60_000, clock + 60_000);
       // A reflection's returns carry its id as their session (`Store#reflectReturn`).
       const reflectionReturns = (db: Database, r: { id: string; day: number } | null): number =>
         r === null ? 0 : (one<{ n: number }>(db, "SELECT COUNT(*) AS n FROM returns WHERE source = 'reflection' AND day = ? AND session = ?", r.day, r.id)?.n ?? 0);
@@ -407,8 +479,8 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
           children: (run.children ?? []).map((c) => `${c.child}:${c.skipped ?? (c.code === null ? "no-code" : String(c.code))}`),
         },
         prompts: {
-          dream: compared(dream.prompt.length, (asked["dream"] ?? "").length),
-          reflection: compared(reflection.prompt.length, (asked["reflection"] ?? "").length),
+          dream: { ...compared(dream.prompt.length, (asked["dream"] ?? "").length), wordsSame: hash(withIds(dream.prompt, seat.ids) as string) === hash(asked["dream"] ?? "") },
+          reflection: { ...compared(reflection.prompt.length, (asked["reflection"] ?? "").length), wordsSame: hash(withIds(reflection.prompt, seat.ids) as string) === hash(asked["reflection"] ?? "") },
         },
         calls: seat.tallies,
         idsMapped: seat.ids.size,

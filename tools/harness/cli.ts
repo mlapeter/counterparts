@@ -87,9 +87,10 @@ export function renderNight(r: NightReplayRecord): string {
   const out: string[] = [];
   const v = (c: { recorded: unknown; replayed: unknown; same: boolean }): string => (c.same ? `same (${JSON.stringify(c.replayed)})` : `recorded ${JSON.stringify(c.recorded)}, replayed ${JSON.stringify(c.replayed)}`);
   out.push(`recorded night, replayed · ${(r.elapsedMs / 1000).toFixed(1)}s · night ${r.night.state}${r.night.reason === null ? "" : ` (${r.night.reason}${r.night.detail === null ? "" : `: ${r.night.detail}`})`} · parts ${r.night.parts.join(",") || "none"} · children ${r.night.children.join(", ")}`);
-  out.push(`prompt length: dream ${v(r.prompts.dream)}; reflection ${v(r.prompts.reflection)}`);
+  const words = (p: { wordsSame: boolean }): string => (p.wordsSame ? "same words" : "different words");
+  out.push(`prompts: dream ${words(r.prompts.dream)}, length ${v(r.prompts.dream)}; reflection ${words(r.prompts.reflection)}, length ${v(r.prompts.reflection)}`);
   for (const [act, t] of Object.entries(r.calls)) {
-    out.push(`${act}: ${String(t.calls)} calls, ${String(t.refused)} refused, ${String(t.same)} answered the same`);
+    out.push(`${act}: ${String(t.calls)} calls, ${String(t.skipped)} skipped, ${String(t.refused)} refused, ${String(t.same)} answered the same`);
     for (const [phase, p] of Object.entries(t.byPhase)) out.push(`  ${phase}: ${String(p.calls)} · refused ${String(p.refused)} · same ${String(p.same)}`);
   }
   out.push(`ids mapped recorded→replayed: ${String(r.idsMapped)}`);
@@ -119,6 +120,9 @@ async function main(argv: readonly string[]): Promise<number> {
       dreamTranscript: pick("--dream", "dream-child.jsonl"),
       reflectionTranscript: pick("--reflection", "reflection-child.jsonl"),
       keep: args.includes("--keep"),
+      ...(flag(args, "--time-zone") === undefined ? {} : { timeZone: flag(args, "--time-zone")! }),
+      ...(flag(args, "--budget") === undefined ? {} : { budgetBytes: Number(flag(args, "--budget")) }),
+      ...(args.includes("--no-embed") ? { embed: false } : {}),
     });
     process.stdout.write(renderNight(record) + "\n");
     const json = flag(args, "--json");
@@ -128,7 +132,7 @@ async function main(argv: readonly string[]): Promise<number> {
   if (cmd !== "replay") {
     process.stderr.write(
       "usage: bun tools/harness/cli.ts replay [--source <copy>] [--returns derived|recorded] [--through-day N] [--early-days N] [--keep] [--json <out>]\n" +
-        "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--keep] [--json <out>]\n",
+        "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
     );
     return 2;
   }
