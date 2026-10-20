@@ -27,7 +27,7 @@ import { join } from "node:path";
 import type { AdapterConfig } from "../src/adapters/config.js";
 import type { ChildPlan, ChildResult } from "../src/adapters/claude-code/child.js";
 import { catchUpOf, catchUpWords, grantCatchUp, planCatchUp, releaseCatchUp, runCatchUp } from "../src/adapters/claude-code/night-catch-up.js";
-import { openNightCounterpart } from "../src/adapters/claude-code/night-run.js";
+import { claudeCodeSeat, openNightCounterpart } from "../src/adapters/claude-code/night-run.js";
 import { applyReowe, reowePlan } from "../src/adapters/claude-code/reowe.js";
 import { EXIT, run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
@@ -214,8 +214,7 @@ function runIt(runId: string, start: (plan: ChildPlan) => Promise<ChildResult>):
     config: config(),
     run: runId,
     scope: dir,
-    plan: ({ prompt, runner }) => ({ ok: true, reason: "", command: "claude", args: [], env: { [SESSION_ENV]: runner, [SCOPE_ENV]: dir }, stdin: prompt, cwd: dir, timeoutMs: 60_000 }) as never,
-    start,
+    seat: claudeCodeSeat({ config: config(), open: () => openNightCounterpart(config()), startCatchUp: start }),
     now: () => Date.now(),
   });
 }

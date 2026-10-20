@@ -39,7 +39,7 @@ import {
   runCatchUp,
 } from "../src/adapters/claude-code/night-catch-up.js";
 import type { CatchUpReport } from "../src/adapters/claude-code/night-catch-up.js";
-import { NIGHT_KIND_ENV, NIGHT_RUN_ENV, nightRowTimeoutMs, openNightCounterpart, planNightChild, readKind, runNight } from "../src/adapters/claude-code/night-run.js";
+import { NIGHT_KIND_ENV, NIGHT_RUN_ENV, claudeCodeSeat, nightRowTimeoutMs, openNightCounterpart, readKind, runNight } from "../src/adapters/claude-code/night-run.js";
 import { ClaudeCodeAdapter } from "../src/adapters/claude-code/hooks.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { dreamingSettingWords, nightRunLine } from "../src/adapters/cli/dream-core.js";
@@ -106,6 +106,10 @@ afterEach(() => {
 });
 
 const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, owner: true, injectionBudgetBytes: BUDGET, ...over });
+
+/** Claude Code's seat with a test's starter for the catch-up's children. */
+const seatFor = (start: (plan: ChildPlan) => Promise<ChildResult>): ReturnType<typeof claudeCodeSeat> =>
+  claudeCodeSeat({ config: config(), open: () => openNightCounterpart(config()), startCatchUp: start });
 
 /** Local midnight today, in the process's zone (the store's, with no `timeZone`). */
 function midnight(): number {
@@ -806,8 +810,7 @@ describe("everything owed (2026-10-11): no session bound, a sanity ceiling and a
       config: config(),
       run,
       scope: launch,
-      plan: ({ prompt, runner }) => planNightChild({ config: config(), run, prompt, scope: launch, session: runner, tools: CATCH_UP_TOOLS, maxTurns: TUNABLES.NIGHT_WRITE_UP_MAX_TURNS, timeoutMs: TUNABLES.NIGHT_WRITE_UP_MS }),
-      start: drivingChild(seen),
+      seat: seatFor(drivingChild(seen)),
       now: over.now ?? ((): number => Date.now()),
       ...(over.parts === undefined ? {} : { parts: over.parts }),
       ...(over.totalMs === undefined ? {} : { totalMs: over.totalMs }),
@@ -862,12 +865,11 @@ describe("everything owed (2026-10-11): no session bound, a sanity ceiling and a
         config: config(),
         run: "nrn_hour",
         scope: launch,
-        plan: ({ prompt, runner }) => planNightChild({ config: config(), run: "nrn_hour", prompt, scope: launch, session: runner, tools: CATCH_UP_TOOLS }),
-        start: async (p) => {
+        seat: seatFor(async (p) => {
           const r = await drivingChild(seen)(p);
           clock += 55 * MIN;
           return r;
-        },
+        }),
         now: () => clock,
       });
       expect(seen.length).toBe(1);
@@ -886,12 +888,11 @@ describe("everything owed (2026-10-11): no session bound, a sanity ceiling and a
       config: config(),
       run: "nrn_none",
       scope: launch,
-      plan: ({ prompt, runner }) => planNightChild({ config: config(), run: "nrn_none", prompt, scope: launch, session: runner, tools: CATCH_UP_TOOLS }),
       // A child that exits 0 having called nothing (a usage limit at once).
-      start: async (p) => {
+      seat: seatFor(async (p) => {
         seen.push(p);
         return { code: 0, timedOut: false, error: null };
-      },
+      }),
       now: () => Date.now(),
     });
     expect(seen.length).toBe(1);
@@ -922,11 +923,10 @@ describe("everything owed (2026-10-11): no session bound, a sanity ceiling and a
       config: config(),
       run: "nrn_stuck",
       scope: launch,
-      plan: ({ prompt, runner }) => planNightChild({ config: config(), run: "nrn_stuck", prompt, scope: launch, session: runner, tools: CATCH_UP_TOOLS }),
-      start: async (p) => {
+      seat: seatFor(async (p) => {
         seen.push(p);
         return { code: 0, timedOut: false, error: null };
-      },
+      }),
       now: () => Date.now(),
       parts: 20,
     });
