@@ -25,7 +25,8 @@
 - **Asked instead**: a confidential thread is never closed by the reflection, from any
   session, and neither is one the owner reopened. It is asked about instead, and a yes
   from his session closes it (`counts.closeAskedInstead`).
-- **Undo**: the reflect tool's phase `reopen` (reflection id + the ids it closed). After a
+- **Undo**: the reflect tool's phase `reopen` with the thread's id alone (the reflection
+  that closed it is the one the memory names), in any later session. After a
   reopen the memory carries `threadReopenedBy`, and no reflection closes it on its own
   again; it may only ask.
 - **Check ~10-24**: how many it closed itself, whether any was wrong (reopened), and how

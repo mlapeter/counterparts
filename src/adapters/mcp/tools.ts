@@ -1723,7 +1723,7 @@ const REFLECT: ToolSpec = {
       reopen: {
         type: "array",
         items: { type: "string" },
-        description: "`reopen`: ids a reflection closed itself that the owner says are not done.",
+        description: "`reopen`: ids of threads a reflection closed itself that the owner says are not done — the id alone is enough.",
       },
       holds: { type: "string", description: "`settle`: the memory that holds now." },
       over: { type: "string", description: "`settle`: the memory it changes, corrects or disagrees with." },
@@ -1738,7 +1738,7 @@ const REFLECT: ToolSpec = {
       reflection: {
         type: "string",
         description:
-          "`part`, `finish` and `told`: the reflection id `begin` returned (`close` and `reopen`: the one the share named). `finish` may be called again the same day with the same id to send the parts a first call did not write (page, share, feelings, about, traits); the entry stands, and a share not yet told may be replaced.",
+          "`part`, `finish` and `told`: the reflection id `begin` returned (`close`: the one the share named; `reopen`: optional). `finish` may be called again the same day with the same id to send the parts a first call did not write (page, share, feelings, about, traits); the entry stands, and a share not yet told may be replaced.",
       },
       title: { type: "string", description: "`finish`: a short title for the entry." },
       entry: { type: "string", description: "`finish`: your reflection, first person. Required the first time; may be left out on a second finish." },

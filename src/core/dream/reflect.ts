@@ -1885,66 +1885,82 @@ export class Reflections {
   /**
    * THE WAY BACK FROM A SELF-CLOSE (2026-10-20, an experiment agreed with
    * Mike): the owner said a thread the reflection closed is not done. Reopens
-   * only ids this reflection closed itself (`detail.selfClosed`) — the flag set
-   * true again, reason `thread-reopened` — with `close`'s checks, any day, told
-   * or not. The memory keeps `threadReopenedBy`, so no later reflection closes
-   * it again on its own: it may only ask. One already open is said so.
+   * only threads a reflection closed itself — the flag set true again, reason
+   * `thread-reopened` — with `close`'s checks, any day, told or not. FROM THE
+   * THREAD ID ALONE (review of #535): the session the owner says it to may
+   * never have seen the share, so the reflection is the one the memory names
+   * (`threadClosedBy.reflection`), confirmed on that reflection's
+   * `detail.selfClosed`; a `reflection` given narrows it to that one. The
+   * memory keeps `threadReopenedBy`, so no later reflection closes it again on
+   * its own: it may only ask. One already open is said so.
    */
-  reopen(input: { reflection: string; session: string; ids: readonly string[]; scope?: string | null }):
+  reopen(input: { reflection?: string | null; session: string; ids: readonly string[]; scope?: string | null }):
     | { ok: true; reopened: string[]; already: string[]; refused: { id: string; reason: string }[] }
     | { ok: false; reason: string } {
     if (this.ctx.observer) return { ok: false, reason: "observer" };
-    const row = this.store.reflection(input.reflection);
-    if (row === undefined) return { ok: false, reason: "unknown-reflection" };
-    const mine = new Set(selfClosedOf(parseDetail(row.detail)["selfClosed"]).map((x) => x.id));
-    if (mine.size === 0) return { ok: false, reason: "nothing-closed" };
+    let only: ReflectionRow | null = null;
+    if (typeof input.reflection === "string" && input.reflection.length > 0) {
+      only = this.store.reflection(input.reflection) ?? null;
+      if (only === null) return { ok: false, reason: "unknown-reflection" };
+      if (selfClosedOf(parseDetail(only.detail)["selfClosed"]).length === 0) return { ok: false, reason: "nothing-closed" };
+    }
     const ids = [...new Set(input.ids)].filter((x) => typeof x === "string" && x.length > 0);
     if (ids.length === 0) return { ok: false, reason: "ids-required" };
     const reopened: string[] = [];
     const already: string[] = [];
     const refused: { id: string; reason: string }[] = [];
+    const byReflection = new Map<string, string[]>();
+    const notMine = only === null ? "not-closed-by-a-reflection" : "not-closed-by-this-reflection";
     for (const id of ids) {
-      if (!mine.has(id)) {
-        refused.push({ id, reason: "not-closed-by-this-reflection" });
-        continue;
-      }
       const r = this.store.row(id);
-      if (r === undefined) {
-        refused.push({ id, reason: "gone" });
-        continue;
-      }
-      let open = false;
+      let meta: Record<string, unknown>;
       try {
-        open = this.store.readProse(id).meta[UNRESOLVED_META_KEY] === true;
+        meta = r === undefined ? {} : this.store.readProse(id).meta;
       } catch {
         refused.push({ id, reason: "unreadable" });
         continue;
       }
-      if (open) {
+      // Which reflection closed it: the one given, else the one it names.
+      const named = isRecord(meta[THREAD_CLOSED_BY_META_KEY]) ? meta[THREAD_CLOSED_BY_META_KEY]["reflection"] : null;
+      const closer = only ?? (typeof named === "string" ? (this.store.reflection(named) ?? null) : null);
+      if (closer === null || !selfClosedOf(parseDetail(closer.detail)["selfClosed"]).some((x) => x.id === id)) {
+        refused.push({ id, reason: notMine });
+        continue;
+      }
+      if (r === undefined) {
+        refused.push({ id, reason: "gone" });
+        continue;
+      }
+      if (meta[UNRESOLVED_META_KEY] === true) {
         already.push(id);
         continue;
       }
       // The way back reaches as far as the self-close did (Mike, 2026-10-20):
-      // any folder.
+      // any folder; a confidential one stays refused from a session not the owner's.
       const why = threadGuard(r, this.ctx.owner, input.scope, { anyDirectory: true });
       if (why !== null) {
         refused.push({ id, reason: why });
         continue;
       }
       try {
-        this.store.revise(id, { meta: { [UNRESOLVED_META_KEY]: true, [THREAD_REOPENED_BY_META_KEY]: row.id }, reason: "thread-reopened" });
+        this.store.revise(id, { meta: { [UNRESOLVED_META_KEY]: true, [THREAD_REOPENED_BY_META_KEY]: closer.id }, reason: "thread-reopened" });
         reopened.push(id);
+        byReflection.set(closer.id, [...(byReflection.get(closer.id) ?? []), id]);
       } catch (err) {
         refused.push({ id, reason: `failed: ${String((err as Error).message ?? err).slice(0, 120)}` });
       }
     }
-    if (reopened.length > 0) {
-      const fresh = this.store.reflection(row.id);
-      const detail = parseDetail(fresh?.detail ?? row.detail);
-      detail["reopened"] = [...new Set([...stringIds(detail["reopened"]), ...reopened])];
-      this.store.updateReflection(row.id, { detail });
+    for (const [rid, back] of byReflection) {
+      const fresh = this.store.reflection(rid);
+      if (fresh === undefined) continue;
+      const detail = parseDetail(fresh.detail);
+      detail["reopened"] = [...new Set([...stringIds(detail["reopened"]), ...back])];
+      this.store.updateReflection(rid, { detail });
+      this.record("reflection.reopened", rid, { reopened: back.length, session: input.session });
     }
-    this.record("reflection.reopened", row.id, { reopened: reopened.length, already: already.length, refused: refused.length, session: input.session });
+    if (byReflection.size === 0) {
+      this.record("reflection.reopened", only?.id ?? ids[0] ?? "", { reopened: 0, already: already.length, refused: refused.length, session: input.session });
+    }
     return { ok: true, reopened, already, refused };
   }
 
@@ -2551,7 +2567,7 @@ export class Reflections {
     if (closed.length > 0) {
       out.push(
         `The share tells ${who} that I closed ${closed.length === 1 ? "an open thread that looked done" : "some open threads that looked done"} (${closed.join(", ")}): tell it. ` +
-          `If ${who} says one is not done ("undo", "that one isn't"), the counterparts reflect tool's phase "reopen", reflection: ${reflection}, reopen: [that id], reopens it.`,
+          `If ${who} says one is not done ("undo", "that one isn't"), now or in any later session, the counterparts reflect tool's phase "reopen", reopen: [that id], reopens it — the thread's id is enough.`,
       );
     }
     if (ids.length > 0) {

@@ -1676,5 +1676,10 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
 - `reflect` gained `closeNow` on `finish` (ids from `staleOpen`, each `{id, why, shows?}`:
   closed now, said in the share) and a phase `reopen` (ids that reflection closed itself,
   on the owner's no). Both pass `server.scope`, as `close` does; since Mike's 10-20
-  exception neither makes the directory check (a confidential thread is asked instead). The summary and admission were worded short again to keep `settle`'s
-  claim inside the 2,048-character cut; `description-cut.test.ts`'s lengths moved with it.
+  exception neither makes the directory check. A confidential thread is never
+  self-closed (`closeNow` asks about it instead); a `reopen` of one from a session that is
+  not the owner's is refused `confidential`. Since review, `reopen` needs only the
+  thread's id (`reflection` is optional): the reflection is the one the memory's
+  `threadClosedBy` names. The summary and admission were worded short again to keep
+  `settle`'s claim inside the 2,048-character cut; `description-cut.test.ts`'s lengths
+  moved with it.

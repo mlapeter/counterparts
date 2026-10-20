@@ -465,7 +465,8 @@ dream having run.
     ones a memory plainly shows finished, each with a why (and ideally the memory that
     shows it), kept on the memory (`threadClosedBy`) and the row (`detail.selfClosed`);
     the share names them and says how to undo, and the reflect tool's phase `reopen` puts
-    one back on the owner's no. Asked and closed together keep to `STALE_OPEN` a night.
+    one back on the owner's no, from the thread's id alone (the reflection is the one
+    `threadClosedBy` names), in any session. Asked and closed together keep to `STALE_OPEN` a night.
     **[M]** a proposal or a self-close is only an id from that list; a self-close needs a
     why, keeps `closeThread`'s checks, and lands only with the share that says it (none
     once the share was told or carried); `close` closes only ids the reflection proposed,

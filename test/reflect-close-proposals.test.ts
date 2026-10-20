@@ -626,4 +626,96 @@ describe("the reflect tool's closeNow and reopen", () => {
       s.counterpart.close();
     }
   });
+
+  test("reopen through the tool takes the thread's id alone", async () => {
+    const c = brain();
+    const w = world(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "A look back.", closeNow: [{ id: w.stale, why: "Signed." }] });
+    c.close();
+    open.splice(0);
+    recordSession(dir, { sessionId: "s-later", scope: "/proj", phase: "start" });
+    const s = openServer({ dir, session: "s-later", scope: "/proj", owner: true, now: () => BASE + dateN * 86_400_000 });
+    try {
+      const none = await s.call("reflect", { phase: "reopen", session: "s-later" });
+      expect(none.isError).toBe(true);
+      const back = await s.call("reflect", { phase: "reopen", session: "s-later", reopen: [w.stale] });
+      expect(back.isError ?? false).toBe(false);
+      expect(back.structuredContent["reopened"]).toEqual([w.stale]);
+      expect(s.counterpart.store.readProse(w.stale).meta["unresolved"]).toBe(true);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+});
+
+/**
+ * THE WAY BACK FROM THE THREAD'S ID ALONE (review of #535): the share is told
+ * in the morning, and "that one wasn't done" may come in a later session that
+ * never saw the reflection's id. The memory names the reflection that closed it.
+ */
+describe("reopen from the thread's id alone", () => {
+  test("a later session reopens a self-closed thread with no reflection id; the hand-back says the id is enough", () => {
+    const c = brain();
+    const w = world(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    const id = begun.bundle.reflection;
+    const done = c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", closeNow: [{ id: w.stale, why: "Signed." }] });
+    if (!done.ok) throw new Error(done.reason);
+    expect(done.outcome.handBack).toContain(`reopen: [that id]`);
+    expect(done.outcome.handBack).not.toContain(`reflection: ${id}, reopen`);
+    expect(done.outcome.handBack).toContain("the thread's id is enough");
+
+    nextDay(c);
+    nextDay(c);
+    const out = c.reflections.reopen({ session: "s-much-later", ids: [w.stale] });
+    if (!out.ok) throw new Error(out.reason);
+    expect(out.reopened).toEqual([w.stale]);
+    expect(openFlag(c, w.stale)).toBe(true);
+    expect(c.store.readProse(w.stale).meta["threadReopenedBy"]).toBe(id);
+    expect(JSON.parse(c.store.reflection(id)?.detail ?? "{}")["reopened"]).toEqual([w.stale]);
+    const twice = c.reflections.reopen({ session: "s-much-later", ids: [w.stale] });
+    if (!twice.ok) throw new Error(twice.reason);
+    expect(twice.already).toEqual([w.stale]);
+  });
+
+  test("only a thread a reflection closed itself: one only asked about, or closed by a write-up, is refused", async () => {
+    const c = brain();
+    const w = world(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "A look back.", close: [w.staleToo] });
+    const closedByWriteUp = mem(c, "Open: does the glance need a second line?", { meta: { unresolved: true } });
+    const jot = await c.submitJot({ content: "The glance got its second line.", updates: closedByWriteUp, unresolved: false }, { session: "s-next", scope: "" });
+    expect(jot.thread).toEqual({ from: closedByWriteUp, closed: true });
+    const out = c.reflections.reopen({ session: "s-next", ids: [w.staleToo, closedByWriteUp] });
+    if (!out.ok) throw new Error(out.reason);
+    expect(out.reopened).toEqual([]);
+    expect(out.refused).toEqual([
+      { id: w.staleToo, reason: "not-closed-by-a-reflection" },
+      { id: closedByWriteUp, reason: "not-closed-by-a-reflection" },
+    ]);
+    expect(openFlag(c, closedByWriteUp)).toBe(false);
+  });
+
+  test("from a session that is not the owner's, a confidential thread is refused `confidential`", () => {
+    let c = brain();
+    const w = world(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "A look back.", closeNow: [{ id: w.stale, why: "Signed." }] });
+    // Made private after it was closed.
+    c.store.revise(w.stale, { meta: { confidential: true } });
+    expect(c.store.row(w.stale)?.confidential).toBe(1);
+    c.close();
+    open.splice(0);
+    c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+    open.push(c);
+    const out = c.reflections.reopen({ session: "s-guest", ids: [w.stale] });
+    if (!out.ok) throw new Error(out.reason);
+    expect(out.refused).toEqual([{ id: w.stale, reason: "confidential" }]);
+    expect(openFlag(c, w.stale)).toBe(false);
+  });
 });

@@ -775,11 +775,14 @@ the live ~52):
   `no-longer-open`. Now the worst a crash between leaves is a share naming a thread still
   open (`reopen` answers it as already open). A flag that fails to flip is taken out of the
   share, the row and the counts. An id sent in both `close` and `closeNow` is asked.
-- Undo is a new reflect phase, `reopen` (ids ⊆ that reflection's `selfClosed`, same
-  guards, flag back to true, reason `thread-reopened`). Weighed and not taken: `remember`
+- Undo is a new reflect phase, `reopen` (ids a reflection closed itself, confirmed on its
+  `selfClosed`, same guards, flag back to true, reason `thread-reopened`). The thread's id
+  is enough (review of #535): the share is told in the morning and the owner may say "that
+  one wasn't done" in a later session that never saw the reflection's id, so the
+  reflection is looked up from the memory's `threadClosedBy.reflection`. Weighed and not taken: `remember`
   with `updates` + `unresolved: true` moves the thread onto a NEW memory (`closeThread`
   carries it only from a row still open), which is not putting it back. `reopen` stamps
-  `threadReopenedBy` on the memory, and a later `closeNow` of it is refused
+  `threadReopenedBy` on the memory, and a later `closeNow` of it is asked instead
   (`reopened-by-owner`; the bundle marks it `reopened`): `revise` leaves its untouched
   days alone, so without the stamp the next nights would close it again.
 - **The nightly run's stance, and the exception Mike made.** The night child's server is

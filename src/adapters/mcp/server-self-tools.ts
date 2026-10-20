@@ -484,18 +484,19 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
       }
       case "reopen": {
         // THE WAY BACK (2026-10-20, an experiment): the owner said a thread the
-        // reflection closed itself is not done.
-        const reflection = args["reflection"];
+        // reflection closed itself is not done. The thread's id is enough (review
+        // of #535): the reflection is the one the memory names.
+        const reflection = typeof args["reflection"] === "string" && args["reflection"].length > 0 ? args["reflection"] : null;
         const reopen = ids(args["reopen"]);
-        if (typeof reflection !== "string" || reopen.length === 0) {
-          return refused("reflection-and-reopen-required", "Pass `reflection` (the id the share named) and `reopen`: the ids the owner says are not done.");
+        if (reopen.length === 0) {
+          return refused("reopen-required", "Pass `reopen`: the ids of the threads the owner says are not done.");
         }
         const out = reflections.reopen({ reflection, session, ids: reopen, scope: server.scope });
         if (!out.ok) {
           return refused(out.reason, out.reason === "nothing-closed" ? "That reflection closed nothing itself." : "Nothing was reopened.");
         }
-        server["emit"]("mcp.reflect", reflection, { phase: "reopen", reopened: out.reopened.length, refused: out.refused.length });
-        return server["result"]({ phase, reflection, reopened: out.reopened, ...(out.already.length > 0 ? { alreadyOpen: out.already } : {}), ...(out.refused.length > 0 ? { refused: out.refused } : {}) }, out.reopened.length === 0 && out.already.length === 0);
+        server["emit"]("mcp.reflect", reflection ?? undefined, { phase: "reopen", reopened: out.reopened.length, refused: out.refused.length });
+        return server["result"]({ phase, ...(reflection === null ? {} : { reflection }), reopened: out.reopened, ...(out.already.length > 0 ? { alreadyOpen: out.already } : {}), ...(out.refused.length > 0 ? { refused: out.refused } : {}) }, out.reopened.length === 0 && out.already.length === 0);
       }
       default:
         return refused("phase-unknown", "phase is one of launch, begin, part, finish, settle, told, close, reopen.");
