@@ -361,6 +361,11 @@ export { DREW_ON_MAX_PER_BOUNDARY };
 // (`types.ts#boundedIds`); re-exported for the adapters that write such rows.
 export { ROW_IDS_MAX, boundedIds } from "./types.js";
 
+// The seat (2026-10-20): the interface whoever answers the memory's own asks
+// implements (`seat.ts`), here so a host reaches it through the package entry.
+export { SEAT_TOOLS, seatAsk } from "./seat.js";
+export type { Seat, SeatAct, SeatAnswer, SeatAsk, SeatTool } from "./seat.js";
+
 const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
 
 /**
