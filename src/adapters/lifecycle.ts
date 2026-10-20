@@ -99,6 +99,7 @@ import {
   pruneWriteUpProgress,
   manifestVersionOnDisk,
   markSinceSeen,
+  NIGHT_RUNNER_PREFIX,
   readSession,
   readWriteUpProgress,
   recordSession,
@@ -667,7 +668,10 @@ export class Lifecycle implements HostLifecycle {
       exportsFrom: this.chapterExports(),
       sessions: () => {
         const now = this.nowFn();
-        return listSessions(dir).map((r) => ({
+        // The nightly run's write-up runner (`writeup-<run>`) is recorded in
+        // the folder that launched it; it is the night's, never a session
+        // at work there (review of #543).
+        return listSessions(dir).filter((r) => !r.sessionId.startsWith(NIGHT_RUNNER_PREFIX)).map((r) => ({
           session: r.sessionId,
           scope: r.scope,
           startedAt: r.startedAt,
