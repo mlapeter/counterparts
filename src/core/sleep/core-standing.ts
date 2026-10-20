@@ -108,13 +108,38 @@ export function weighCore(store: ReadsCoreStanding, row: Pick<MemoryRow, "id" | 
 
 export type CoreDecisionActor = "owner" | "self" | "reflection";
 
-export type CoreDecision = { ok: true; reason: "kept" | "demoted" } | { ok: false; reason: "observer" | "reason-required" | "unknown-id" | "not-core" };
+export type CoreDecision = { ok: true; reason: "kept" | "demoted" | "restored" } | { ok: false; reason: "observer" | "reason-required" | "unknown-id" | "not-core" };
+
+/**
+ * Did a REFLECTION retire this memory, as its latest word on the core (a
+ * `demoted` row by actor `reflection`, with no promotion since)? The one
+ * retire an awake keep may undo (2026-10-20).
+ */
+export function retiredByReflection(store: Pick<Store, "coreEvents">, id: string): boolean {
+  try {
+    for (const e of store.coreEvents({ memoryId: id, limit: 200 })) {
+      if (e.action === "promoted") return false;
+      if (e.action === "demoted") return e.actor === "reflection";
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
 
 /**
  * KEEP A CORE MEMORY (2026-10-11): a decision — the owner's, mine awake, or a
  * reflection's — that it stays. Written `reaffirmed` with the why; a flag on
  * it is lifted, and it is not flagged again for what it is. Refuses under
  * observer, without a why, or for a memory not in the core.
+ *
+ * THE WAY BACK FROM A REFLECTION'S RETIRE (2026-10-20, with the nightly
+ * reflection deciding core memories that waited a week; lightly held): an
+ * AWAKE keep — the owner's or mine — of a memory whose latest word on the
+ * core is a reflection's retire puts it back (`restored`): promoted again (a
+ * `promoted` row by that actor, no lane), then the keep itself, so it is not
+ * flagged again for what it is. The morning share names this as the undo. A
+ * retire by the owner or by me awake stays sticky, as before.
  */
 export function keepCore(store: Store, input: { id: string; why: string; actor: CoreDecisionActor; day?: number; dreamId?: string | null }): CoreDecision {
   if (store.observer) return { ok: false, reason: "observer" };
@@ -122,8 +147,16 @@ export function keepCore(store: Store, input: { id: string; why: string; actor: 
   if (why.length === 0) return { ok: false, reason: "reason-required" };
   const row = store.row(input.id);
   if (row === undefined) return { ok: false, reason: "unknown-id" };
-  if (row.promoted_identity !== 1) return { ok: false, reason: "not-core" };
   const day = input.day ?? store.livedDay();
+  if (row.promoted_identity !== 1) {
+    if (input.actor === "reflection" || row.archived !== 0 || !retiredByReflection(store, input.id)) return { ok: false, reason: "not-core" };
+    store.appendCoreEvent({ memoryId: input.id, action: "promoted", day, reason: `restored: ${why}`, actor: input.actor });
+    store.updatePhysics(input.id, { promotedIdentity: true });
+    store.setBand(input.id, band(store.physicsOf(input.id), day), day);
+    store.appendCoreEvent({ memoryId: input.id, action: "reaffirmed", day, reason: why, actor: input.actor });
+    store.appendEvent({ name: "band.core.restored", day, ref: input.id, payload: { day, actor: input.actor } });
+    return { ok: true, reason: "restored" };
+  }
   store.appendCoreEvent({ memoryId: input.id, action: "reaffirmed", day, reason: why, actor: input.actor, dreamId: input.dreamId ?? null });
   store.appendEvent({ name: "band.core.kept", day, ref: input.id, payload: { day, actor: input.actor } });
   return { ok: true, reason: "kept" };

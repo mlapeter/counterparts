@@ -31,6 +31,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
 | Wake without repeats (fix/wake-dedupe-1020): each episode once, no bare ids in Yesterday, ONE tag at the top, about-me line says its folder first, a plain reminder due tomorrow counted at a session start, every Coming up item with its own id, one snapshot a day | in review 10-20, unreleased | the first two mornings after install | "Due ~2 mornings after install (the wake without repeats)" below; `docs/decisions.d/fix-wake-dedupe-1020.md` |
 | A weekly reminder done for this week (`status: "done"` at its id closes this occurrence only; F6b: drewOn credits a memory this session replaced) | not released, 10-20 | ~10-27, the next Tuesday | "Due ~2026-10-27" below; `docs/decisions.d/feat-reminder-done-this-week.md` |
+| Core questions that waited a week: the reflection is offered up to 3 core memories waiting 7+ lived days on keep-or-retire (with their unsettled pair) and decides where it can, said in the share with the way back; the wake leads with one, both labels shown | not released, 10-20 | ~10-27 | "Due ~2026-10-27 (core questions)" below; `docs/decisions.d/feat-core-questions-waited-1020.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -218,6 +219,30 @@ snapshots folder.
   assembly. Or a session reads the Yesterday line as all of
   yesterday and misses the one under Last here → say "(and the one under Last here)". Or the
   sidebar loses the store check on Mike's machine → the plugin sidebar is older than this core.
+
+## Due ~2026-10-27 (core questions that waited a week, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-core-questions-waited-1020.md)
+
+- **Trying:** a core memory flagged "being reconsidered" 7+ lived days ago with no decision
+  is offered to the nightly reflection (at most 3 a night, with its unsettled pair); it
+  decides keep or retire with a why where it can, and the share says it in one line with
+  the way back. The wake's "Still open" leads with one, and keeps "keep or retire it"
+  beside an unsettled label.
+- **Look at:** how many core questions waited past 7 lived days on 10-20 (three) and now
+  (doctor's Reflection line, `coreWaited`; `counterparts core --list`'s "since lived day").
+  What the reflection decided: `reflections.detail` → `coreOffered`, `coreDecided` (with
+  why), `counts.coreKept`/`coreRetired`, and the `reflection.finished` events. Whether a
+  pair was settled after a retire (`contradiction_settles` with actor `reflection`).
+  Whether Mike reversed any: `band.core.restored` events, or a retire of one a reflection
+  kept (`core_events` `demoted` after a `reaffirmed` by `reflection`). And a wake or two:
+  does a week-old one lead "Still open", with both labels?
+- **Changes it:** a decision Mike reverses, or a why that reads like a guess, → narrow the
+  prompt toward "keep unless plainly not who I am" or offer only the ones with a plain
+  category (a plan, not about me or us). Nothing waits past 7 and nothing was decided →
+  the wake did the work; the reflection's half may be unneeded.
+- **Revert:** filter the reflection's offer back to every flagged memory without the push
+  (`dream/reflect.ts`, the `core` instruction line) and pass no `waiting` to `rankLanes`;
+  the restore door (`keepCore`'s `restored`) can stay.
+
 ## Due ~2026-10-27, the next Tuesday (a weekly reminder done for this week, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-reminder-done-this-week.md)
 
 ### The backup reminder closes for the week, and comes back

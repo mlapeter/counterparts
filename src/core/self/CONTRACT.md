@@ -261,7 +261,15 @@ proposals and their archive; render and delivery telemetry.
    on a copy of the live store at 9,000 bytes: 3 → 14 lane elements, page still whole; the
    ids offered as lines are the lookup ledger's `fit.index.wake` (written by the adapter at
    session start, since a wake writes nothing), and doctor's Lookups line counts how many a
-   session expanded. **A lane that lost elements says so** (2026-09-29,
+   session expanded. **A core memory being reconsidered leads "Still open"** (2026-10-11;
+   `RECONSIDERING_MAX`, 1, at a time, the rest counted), and they take turns by lived day
+   in ONE rotation, unsettled or not (2026-10-20, an experiment, Mike's go: until then the
+   unsettled ones went after the plain and never led). One flagged
+   `sleep/tunables.ts#CORE_WAITING_DAYS` (7) lived days ago or more takes the first slot
+   ahead of the rest (`rankLanes`' `waiting`). Its line says `Core, being reconsidered —
+   keep or retire it (remember core) [id]` and, when it also has a standing, that label
+   after it (`…; Unsettled — may be out of date, see [b]: `) — both, never one for the
+   other. **A lane that lost elements says so** (2026-09-29,
    a working default): what its cap (`rankLanes`' `overflow`), the identity share or the
    trim left out gets one furniture line under the lane — how many more, and up to
    `MORE_LINE_IDS` ids the recall tool reads whole (`briefing.ts#moreLine`). **Nothing is

@@ -2251,3 +2251,26 @@ plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of t
   ends with `[its id]`, before the standing's suffix ("(earlier: [mem_…])"). A line-form
   item already carried it (`lineText`). Counted by `elementBytes`, so the lane's room is
   honest; no other lane changes.
+
+## 2026-10-20 — a core question that waited a week leads "Still open" (an experiment)
+
+Mike's go 2026-10-20, lightly held, with the reflection's half (`dream/NOTES.md`, same
+date). On his store three core memories flagged on 10-13 still waited on 10-20; two were
+also unsettled, and since 10-18 an unsettled one took its turn only after every plain one,
+so with `RECONSIDERING_MAX` 1 they never led — and when one did, its "Unsettled — may be out
+of date" prefix replaced the "keep or retire it" words.
+
+- `rankLanes` takes `waiting` (`identity.ts#waitingIds`: flagged
+  `sleep/tunables.ts#CORE_WAITING_DAYS`, 7, lived days ago or more, read off
+  `coreReconsidering`'s flag day, which consolidation does not rewrite while the cause
+  stands). The waiting ones rotate first, then the rest, each ONE rotation over plain and
+  unsettled alike (#430's ask). Passed at both `rankLanes` sites (the turn-end render and
+  the assembled wake). `wake-polish.test.ts`'s "unsettled after the plain" test is
+  rewritten to the new rule, not dropped.
+- `resolveStatement`: a reconsidered core memory's prefix is
+  `Core, being reconsidered — keep or retire it (remember core) [id]` and, when it has a
+  standing, `; ` and that standing's prefix after it (its suffix kept). The id stays inside
+  the prefix so `briefing.ts#asLine` still prints it once.
+- Nothing changes on a store with no waiting ones except the one rotation: a fresh
+  unsettled one can now lead on its day. Undo: `git revert` (nothing is stored differently
+  by the wake).

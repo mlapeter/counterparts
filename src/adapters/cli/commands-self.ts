@@ -414,7 +414,7 @@ export function coreCommand(dir: string, io: Io, parsed: Parsed, observer: boole
         io.err(`refused: ${why[out.reason] ?? out.reason}. Nothing was changed.`);
         return EXIT.refused;
       }
-      io.out(`Kept ${keep} in the core.`);
+      io.out(out.reason === "restored" ? `Put ${keep} back in the core: a reflection had retired it.` : `Kept ${keep} in the core.`);
       io.out(`  Why, as recorded: ${reason.trim()}`);
       io.out("  It is no longer being reconsidered, and it is not flagged again for what it is — only if it stops coming back.");
       return EXIT.ok;

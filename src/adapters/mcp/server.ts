@@ -1866,7 +1866,7 @@ export class McpServer {
       };
       this.emit("mcp.remember.core", id, { ok: out.ok, reason: out.reason, decision });
       return out.ok
-        ? { ok: true, reason: out.reason, id, note: decision === "keep" ? "Kept in the core; it is no longer being reconsidered for what it is." : "Retired: it fades like any other memory from today, and the core's lanes will not promote it again." }
+        ? { ok: true, reason: out.reason, id, note: out.reason === "restored" ? "Back in the core: a reflection had retired it, and this keep undoes that. It is not reconsidered again for what it is." : decision === "keep" ? "Kept in the core; it is no longer being reconsidered for what it is." :"Retired: it fades like any other memory from today, and the core's lanes will not promote it again." }
         : { ok: false, reason: out.reason, detail: detail[out.reason] ?? out.reason };
     } catch (err) {
       return { ok: false, reason: "threw", detail: String((err as Error).message ?? err) };
