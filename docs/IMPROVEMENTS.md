@@ -2725,6 +2725,380 @@ What to look at on ~10-22 (for docs/CHECK-AFTER.md):
 - Not added to `counterparts mechanisms` or doctor: a new proof there needs the sidebar's copy
   changed in step (`sidebar-mechanism-drift.test.ts`), so the counts live on the rows above.
 
+### An experiment, decided with Mike 2026-10-20, lightly held: the reflection closes open threads that are plainly done. Check on ~10-24
+
+- **Trying**: the nightly reflection closes a stale open thread itself when a memory it
+  read plainly shows the thing finished (`finish`'s `closeNow`, each with a why and,
+  ideally, the memory that shows it), and says so in the morning share ("I closed two open
+  threads that looked done: … If one isn't, say so and I'll reopen it."). It still asks
+  about the ones it is unsure of (`close`, as since #489 D). The prompt says: close what is
+  plainly done and say why, ask about the rest, when in doubt ask, never close one just
+  because it is old.
+- **Why**: threads opened in one session and finished in another orphan, so they pile up
+  (58 open on Mike's store on 10-20, 12 untouched for 2+ weeks), and asking every time
+  means a yes/no most mornings. On 10-20 Mike said yes to two obvious ones. Mike: "ok lets
+  go ahead and do that".
+- **Kept the same**: ids only from the night's `staleOpen` list (shown through recall's
+  gates), `closeThread`'s protected and archived checks, at most `STALE_OPEN` (5) asked and
+  closed together a night, nothing once the share was told or carried.
+- **A lightly held exception to the 2026-10-02 night-run ruling, Mike, 2026-10-20 09:38:
+  "i think its ok for nightly run to close threads from other folders".** The nightly
+  run's server is not the owner's and is scoped to the launching session's folder
+  (`night-run.ts#nightMcpConfig`, 10-02: "its write-ups close no thread opened elsewhere").
+  For `closeNow` and its undo `reopen` alone, the folder check is not made: a stale thread
+  the reflection was shown may be closed, and reopened, whatever folder wrote it. Night
+  write-ups keep the 10-02 rule and still close no thread opened elsewhere; the `close`
+  phase (the owner's yes) keeps its checks too.
+- **Asked instead**: a confidential thread is never closed by the reflection, from any
+  session, and neither is one the owner reopened. It is asked about instead, and a yes
+  from his session closes it (`counts.closeAskedInstead`).
+- **Undo**: the reflect tool's phase `reopen` with the thread's id alone (the reflection
+  that closed it is the one the memory names), in any later session. After a
+  reopen the memory carries `threadReopenedBy`, and no reflection closes it on its own
+  again; it may only ask.
+- **Check ~10-24**: how many it closed itself, whether any was wrong (reopened), and how
+  the Still open count moves (`docs/CHECK-AFTER.md`).
+- **Revert by** putting back the 10-16 `close` line in the reflection's instructions in
+  `src/core/dream/reflect.ts` (the `closeNow` field can stay; nothing asks for it), if it closes
+  things that weren't done or the count does not move.
+
+### Mike's go 2026-10-20, lightly held, an experiment (a weekly reminder done for this week; F6 and F6b)
+
+- Mike's go 2026-10-20, lightly held, an experiment: `updates` at a REPEATING reminder with
+  `status: "done"` and no `eventDate` closes only the occurrence open today — no footnote, no
+  "Arriving:" line, and no plain line even if it had not been said yet — and the reminder keeps
+  its date, its repeat and its standing; the next occurrence comes back as normal, and the
+  answer says which date was closed and when it returns. Why: Mike's Tuesday backup reminder
+  came back at 09:15 after he ran the backup at 08:40 and the session wrote a "backup ran"
+  memory; the only close for one week was naming the id in `drewOn`, and the documented close
+  (`eventDate: null`) ended the whole repeat. Ending the repeat is still `eventDate: null`, or
+  `status: "done"` with `recurring: null`.
+- Decided by the builder, lightly held: the declared revision does not run for that write (the
+  link is the whole effect), so the reminder is not settled or faded under the "done" memory,
+  and a core reminder takes no pressure. When nothing had delivered the occurrence yet, the
+  close counts as its delivery (one use, as a footnote or a plain line would), so marking a week
+  done early doesn't cost the reminder a use. Why: one week done must not cost a reminder its
+  standing.
+- Decided by the builder, lightly held: a one-off dated memory with `status: "done"` behaves as
+  before (its date is spent, its chain closed, it settles under the done memory). Why: for a
+  one-off, this time is the whole obligation.
+- Decided by the builder, narrowed in review of #540, lightly held: a `done` at a memory holding
+  a REPEATING date passes the update guard without the relatedness read. A one-off date keeps
+  master's read. Why: "backup ran" closes "back up every Tuesday" and shares few words with it,
+  and on a repeat a wrong `done` costs one occurrence at most; on a one-off a `done` drops the
+  date and settles the memory, so a careless one ("Ran the store backup" at a dentist
+  appointment) would spend an unrelated date.
+- Decided in review of #540, lightly held: a `done` closes the occurrence open that day, except
+  in the next occurrence's lead days when the one before it is still unclosed (and inside its
+  grace, and was owed): then it closes that late one. A weekly backup done on Saturday with
+  Tuesday's never closed closes Tuesday's, and next Tuesday's comes back; with Tuesday's closed,
+  it closes next Tuesday's. The answer names the date it closed. Why: a "done" said while one
+  is overdue most likely means the overdue one, and closing the coming one would silence a
+  backup nobody ran. "That day" is the writer's (the server's clock, or a write-up's own day).
+- Decided by the builder, lightly held: a write with no `updates` that says `status: "done"` or
+  `saidBy: "owner"`, landing beside a dated memory whose occurrence is due now (on or after its
+  day, inside its window, not closed), gets `answers` with the way to close it; in the next
+  occurrence's lead days, the overdue one before it, the same occurrence a `done` would close
+  (review of #540). Offered, never closed. Why: the 08:40 memory was written fresh, without `updates`.
+- Decided by the builder, lightly held (F6b): `drewOn` credits a memory superseded or faded under
+  a newer one when that newer one was written by this session or born the same lived day — the
+  stale memory itself, not the head, since the head was born today and is never credited on its
+  birth day. The settle the session made still stands. Why: the stale memory is what made the
+  session catch and fix the record. An archived one (a `corrected` settle archives) is still
+  refused, and `rated` keeps the old rule.
+
+### Decided with Mike's go 2026-10-20, lightly held, an experiment (the wake without repeats: each episode once, no bare ids, one tag)
+
+From Mike's 10-16 ask ("remove duplication") and two sessions' reads of the 10-20 morning
+wakes in ~/counterparts and ~/random. Each is undone by its switch or by reverting the PR;
+nothing is stored differently.
+
+- **Each episode is named once, by the line that says most about it.** At a session start
+  the Yesterday line leaves out the episode "Last here" names first (that line says when the
+  session was here and how it began; `Counterpart#lastHereNewest`); it is neither listed nor
+  counted there. Every other one of yesterday's episodes is the Yesterday line's, and the
+  furniture spliced below the body leaves out what the body already names: "Before it", "+N
+  more here on …" (which named them by bare id) and the about-me line (`named` in
+  `handoff/last-here.ts#lastHereBlock`, the body's text in `Counterpart#addHandoffPointer`).
+  The 10-20 ~/counterparts wake would read: Yesterday with the two other Oct 19 titles here and
+  the SEO chapter from ~/counterparts-site; Last here with the newest; no "+2 more here", no
+  about-me line. Why this split and not "Last here absorbs Yesterday": Last here's "+N more"
+  names ids only, and Yesterday's titles are the better words for those; Last here's newest
+  line is the richer one for its own episode. Handoffs are left as they are: a handoff is
+  where work was left, named by session and its own id, never by the chapter's title or id.
+  Yesterday is composed inside the body before the furniture is spliced, so when "Last here"
+  itself gets no room (`handoff.lasthere.noroom`), its episode was in no line that morning —
+  not rare on a full wake with no handoff here (the review of #536: 10 of 61 ceilings from
+  8,700 to 9,300 in a full fixture; 0 of 61 with a handoff, whose reserve keeps the line).
+  Fixed in the same PR: the delivery asks first, without writing, whether the splice will
+  carry "Last here" (`Counterpart#carriesLastHere`, the same choice `addHandoffPointer`
+  makes, shared through `pointerPlan`); when it will not, the wake is assembled again with
+  the Yesterday line keeping that episode (by title, or in its count), and "Last here" is not
+  tried again, so the room the second assembly frees cannot repeat it. The no-room row is
+  written as before. The second assembly is reads only; it costs time on those mornings. Seen on a test fixture: a wake that no longer has a Yesterday line
+  can fit without borrowing the furniture's room, and then the leftover-room upgrade (#489 C)
+  prints "Still open"'s first item as a line rather than whole; which items are listed does
+  not change.
+- **No bare ids as items in the Yesterday line.** A chapter with no title, or no room for
+  its title, joins the count ("and 3 more"); the shorter forms give one title at a time to
+  the count, down to one title, and the line drops whole below that. This reverses the
+  2026-10-10 "pointers instead of titles" (a title given up left its id in its place).
+  Revert: `yesterdayLine`/`yesterdayShorter` in `handoff/last-here.ts`.
+- **One tag at the top, not three** (supersedes the 10-16 tag line). The onboarding and
+  store markers are now fields of the wake's own head tag: `<!-- counterparts:wake meet=done
+  store=st_… elements=… bytes=… -->`, where `day=` sat until 10-16, so every reader of the
+  head (`OPEN_RE`, the transcript's head sighting, the forged-marker guards) reads it as
+  before. The core puts them in last, after the furniture is spliced, only when the whole
+  still fits the ceiling, and re-solves both byte counts (`self/briefing.ts#withHeadFields`),
+  so the delivered block states its own length, the delivery check's expected tail is the one
+  delivered, and the fields never take the room "Last here" needs (review of #536: put in
+  before the splice, they cost that line, and with it its episode, on 8 of 61 ceilings from
+  8,700 to 9,300 in a full fixture). A wake with no head tag (a resume's short line, a
+  bootstrap line), or one with no room left for ~43 bytes, carries one tag of its own in
+  front: `<!-- counterparts:session meet=… store=… -->`. The sidebar in this build reads
+  `meet=`/`store=` from all three forms. A sidebar from before this change (the plugin's
+  0.3.23–0.3.27, until it updates; Mike's is 0.3.25) finds neither and reads both as
+  unknown: no store check, and the meeting's state stays unknown, so the footer keeps its
+  "5-minute intro" line even after the meeting (and a new install gets no speak-first). It
+  has no other read of the state: `/api/onboarding` is not fetched. Ship the plugin with the
+  core. Revert: `ONE_TAG` (`adapters/store-id.ts`).
+- **The about-me line says what it is and where first**: "A chapter about me from
+  ~/counterparts-site: session 088bce9d on Opus 5.5, Oct 19 — "…" (epi_…)." in place of
+  "About me, from another project: session …, Oct 19 in ~/counterparts-site — …". Dropped when
+  the body already names the episode (above). Revert: `ELSEWHERE_HEAD` and `elsewhereLine`.
+- **A plain reminder due tomorrow is not "due today" at a session start.** `plainDueOn` counts
+  the day after because the evening boundary's bundle is read the next morning; the session
+  start's own assembly is read the day it is made, and used the same rule, so on 10-20 an
+  Oct 21 plain reminder was listed under "Coming up" (and took the lane's first room) while
+  the overdue items were counted. Now at a session start it is counted with the rest of the
+  dates. The deliberate 10-16 rule (overdue counted, not listed) is unchanged. Revert:
+  `READ_TODAY_AT_START` (`core/briefing.ts`).
+- **Every "Coming up" item carries its own id** (Mike's ask via ~/random): a recurring
+  reminder printed whole showed only "(earlier: [mem_…])", its earlier occurrence's id, so a
+  session had no handle for the one due. The id goes before the standing's pointer, which
+  stays; the bytes are counted where the line is. How occurrences close is not changed here.
+  Revert: `HORIZON_OWN_ID` (`self/briefing.ts`).
+- **One copy a day when two runs start together.** The daily snapshot was taken twice ~50 ms
+  apart on 10-14, 10-16, 10-17 and 10-18: two workers spawned at one boundary both passed
+  "today's copy already made" before either renamed its copy in. A run now claims the day
+  first (`<snapshots>/.taking-<date>`, a file created exclusively), looks again under the
+  claim, and lets it go once its copy is in place or has failed; the run that finds it held
+  writes nothing (`already-today`). A killed run's claim is stale after 30 minutes
+  (`PARTIAL_STALE_MS`) and taken over or swept. A claim that cannot be made at all copies
+  without one, as before.
+
+**Investigated, not changed:**
+- ~/random's "Last here" named 8afbccf7 (ended 10:11) while "Last said here" named c6329163
+  at 11:06. "Last here" is built from chapters (`chaptersBySession` → `chaptersHere`): a
+  session that has not written a chapter yet — still open, or ended without `session_end`
+  and not yet written up by the night — is not in it, by design; "Last said here" reads the
+  span buffer, which every turn-end fills. A resume keeps its session id in Claude Code (the
+  hooks' `resumesToday` relies on it), so a resume is not the cause. Not read on the live
+  store. If it should change: name the newer session with no chapter yet on the Last here
+  line ("a newer session here, 10:15–11:06, no chapter yet"); left for Mike.
+- "Coming up"'s order: listed are the items due on the wake's day, a plain reminder due the
+  day it is read, and an undated one; every other date is counted, overdue first in the count
+  line (`Self#comingUp`, the 10-16 trims, review of #511). Overdue plain reminders are said
+  outright at the top (`plainDueToday`). With the tomorrow fix above, a not-yet-due item no
+  longer lists ahead of an overdue one; recommendation: keep overdue counted.
+
+### An experiment, Mike's go 2026-10-20, lightly held: the nightly writers are held to the page's room, and a page past it shows its short version. Check on ~10-23
+
+- **Trying**: the page's 4,600-byte room (the wake trims, 2026-10-16) binds the two nightly
+  writers, the page writer and the reflection. Each door's first page of a night past it is
+  refused, `past-room`, with the bytes, how far over and "cut, don't add a short version"; a
+  cut page sent again is written. That door's second send still past the room (the same
+  session, the same night) is kept, as before. Per door: on 10-20 the writer overshot first
+  and the reflection wrote the longest page after it, so a hold the writer used up would
+  not have reached it. A held page never sent again is kept when the run ends
+  (`Self#keepHeldPage`, called by `runNight` before the wake catches up), so a night never
+  ends with no page change because of the hold. Both writers are told the room in bytes, and
+  that the page should stay thin ("most of a core is still unearned", the owner's page's own
+  line) (`writer.ts#PAGE_ROOM_RULE`, inside `PAGE_WRITING_RULE`); the reflection is also told
+  the page's bytes now.
+- **And the wake**: a page past the room that has a short version shows the short version,
+  even where the whole page would fit (`PAGE_SHORT_PAST_ROOM`). With no short version it
+  prints whole when it fits, as before; the ladder is unchanged.
+- **Why**: the page overshot on 3 of the last 4 nights (4,928 on 10-17; on 10-20 the writer
+  made 4,756 and the reflection rewrote it to 4,956). The room was only a target, and a page
+  past it printed whole whenever it fit at all. The wake can print about 5,750 whole at 9,000,
+  so the short version kept beside a 4,756 or 4,956 page was never read at the default
+  ceiling. The extra bytes came out of the lanes: on 10-20 the wake went from 4 sections to 3.
+- **Why refuse, and not only ask for a short version**: a short version lets the stored page
+  keep growing, and what Mike asked for is a page that stays thin. The cost of a refusal is
+  the one #358 showed on 10-09: a refused writer moved on without sending again and the night
+  lost its rewrite. Here that can't happen: a refusal is sent once a night per door, the resend always
+  lands, and the run's end keeps the held page if nothing was written after it.
+- **Kept the same**: a session's page and the owner's are not held (the room stays their
+  target, and the 1,150 bytes between 4,600 and 5,750 are still theirs to use; the asymmetry
+  is the experiment). The 16,384-byte ceiling still refuses first, as `too-large`. Version
+  checks and the gates run before the hold. The short-version machinery, the `self_page`
+  tool's `short`, and the ladder are unchanged.
+- **Tests that changed with it**: `test/nightly-run.test.ts` (the 6,200-byte writer and
+  reflection: held once, then kept), `test/page-ladder-review.test.ts` (a held finish before
+  the short-version gates), `test/page-ladder.test.ts` (the ladder's edges and borrowing,
+  whole first, with `PAGE_SHORT_PAST_ROOM` off), `test/wake-dated-first.test.ts` (the
+  page's borrowing and give-back to a due-day reminder, with it off; the morning with a
+  6,472–7,100-byte page and a short version now shows the short version),
+  `test/wake-trims.test.ts` and `test/page-never-cut.test.ts` (the rule's words), and
+  `test/description-cut.test.ts` (`self_page`'s description, +63). New: `test/page-held-to-room.test.ts`.
+- **Review of #541**: the night is the last 12 hours by the wall clock, not the date (a run
+  can cross midnight); with no run end (a night launched from a session under the default
+  `ask`, or a run killed after the hold) the worker keeps a held page at its next boundary
+  once the hold is 30 minutes old; the held short version is stored only after its gates.
+- **Check ~10-23**: the page's bytes on three mornings, and the wake's `elements=` count
+  (`docs/CHECK-AFTER.md`).
+- **Revert by** `PAGE_HELD_TO_ROOM: false` and `PAGE_SHORT_PAST_ROOM: false`
+  (`src/core/self/tunables.ts`), and putting the 2026-10-10 sentence ("Aim to keep the whole
+  page under N bytes … also write a short version of it in the same call") back in place of
+  `PAGE_ROOM_RULE` (`src/core/self/writer.ts`), with the writer phase's `how`
+  (`src/adapters/mcp/server-self-tools.ts`) and the launch prompt's line
+  (`src/core/dream/index.ts`).
+
+### An experiment, Mike's go 2026-10-20, lightly held: core questions that waited a week get answered. Check on ~10-27
+
+- **Trying**: a core memory flagged "being reconsidered" (keep, or retire to ordinary
+  fading) that has waited `CORE_WAITING_DAYS` (7) lived days with no decision is offered
+  to the nightly reflection, at most `CORE_ASK_MAX` (3) a night, with its unsettled pair
+  when it is in one (both sides shown). The reflection decides keep or retire with a why
+  where it can and leaves the rest; a plain pair it may settle after the retire. The
+  morning share says what it decided in one line, with the way back. Fresh flags are not
+  offered: the waking session has the first week.
+- **And the wake**: "Still open" leads with a week-old one, ahead of the rest; the
+  reconsidered ones take turns in one rotation, unsettled or not (#430's ask; 10-18 had put
+  the unsettled ones after the plain); and a line keeps "keep or retire it" beside its
+  "Unsettled — may be out of date" label instead of losing it.
+- **Why**: measured 2026-10-20 on Mike's store, five core memories flagged on 10-13 had two
+  answers by 10-20; three had waited 7+ lived days, two of them also in unsettled pairs for
+  11–13 lived days. The wake asks one at a time, the unsettled ones never led, and the
+  reflection's `core` field had no push to use. That day Mike's session answered all three
+  by hand. Mike: "i agree with your recs, lightly held, lets try it and see how it goes".
+- **The way back**: an awake keep (`remember`'s core keep, or `counterparts core
+  --reaffirm <id> --reason "..."`) now puts back a memory a reflection retired
+  (`keepCore`'s `restored`). A retire by Mike or by a waking session stays sticky, as
+  before. A kept one can be retired the usual way.
+- **Order of a pair**: a core memory cannot be settled over (`core-takes-pressure`), so the
+  reflection retires it in `finish` first and then settles the pair, the order Mike's
+  session used on 10-20.
+- **Check ~10-27**: how many core questions waited past 7 lived days (doctor's Reflection
+  line), what the reflection decided (`reflections.detail.coreDecided`,
+  `reflection.finished`'s `coreKept`/`coreRetired`), and whether Mike reversed any
+  (`band.core.restored` events, or a retire after a reflection's keep).
+- **Revert by** filtering the reflection's offer back to every flagged memory without the
+  prompt's push (`dream/reflect.ts`, the `core` instruction line), and `rankLanes`' `waiting`
+  to an empty set; the restore door can stay.
+
+### Decided with Mike's go 2026-10-20 via BENCHMARK, lightly held, an experiment (facts answers: the title tail, and soft time words)
+
+Done to help on benchmarks and product, lightly held, revisit. From the benchmark session's
+10-20 loss read (`~/counterparts-bench/research/loss-read-1020.md`, "RECALL" and the ranked fix
+list #2 and #7). Nothing benchmark-only at the real system's expense (Mike, 10-11): a real
+session's Claude does not page either, and "lately" is how a person talks. Lands while
+0.3.27's recall experiments are read (~10-22); it changes only deliberate facts answers, never
+ambient footnotes, the wake or meaning mode. Check ~10-27 (`docs/CHECK-AFTER.md`).
+
+- **The title tail.** After a facts answer's 10 bodies, the next 20 matches in rank order,
+  one line each, under `next 20, titles only (open any by id):` — `11. <title, cut at 48> ·
+  <id> · <event date, else learned> [· faded]` (`adapters/mcp/facts.ts#FACTS_TAIL_SIZE`,
+  `FACTS_TAIL_TITLE_CHARS`). Why: the biggest single cause of benchmark misses was a memory
+  that existed and never reached the answerer, buried among 50–100 matches and lacking the
+  question's category word ("What pet does Caroline have?": the guinea pig 29th of 51). The
+  zero-cost rank probe on the bench stores (the answerer's logged queries replayed): on the
+  first call 17 of the 50 RECALL losses had the needed memory at ranks 11–30, and over all
+  logged calls 21 of 50 would have had it in a 20-line tail where its body never showed.
+  Listed is not shown: a tail id is not in `ids`, the seen set or the quotable record, so
+  nothing is credited for being listed; opening it by id credits as any open does. The
+  `mcp.recall` row keeps `tail` and `tailIds` apart so the check can join later opens to it.
+  Paging, the header count and the 12,000-character room are unchanged; the tail is the
+  first thing given up when room runs out, before any excerpt is cut (then excerpts
+  300 → 150 → 60 → 0; review of #544). About 1.7 KB measured on bench answers (the brief
+  said ~1.5 KB). **Size (20 lines, 48-character titles) and the wording are for Mike's
+  review.** Revert: `FACTS_TAIL_SIZE = 0`.
+- **Soft time words rank, they don't filter.** "lately", "recently", "these days",
+  "nowadays" (`recall/time-ask.ts#SOFT_WORDS`) keep every match in a facts answer that asks
+  something besides time; matches inside the past week gain a quarter of the best score, for
+  the order only (`FACTS_SOFT_RECENT_BONUS`). A question that is only the soft word ("what
+  happened lately?") keeps the past week as its filter; explicit windows ("last week", "in
+  September", "since 10-12") are unchanged. Chosen over the fallback ("past the window when
+  nothing on topic is inside it") because the report's own example had 11 matches inside the
+  window, so the fallback would not have fired. Honest result: that example
+  (loc-conv-49-122, gastritis) is still missed — unwindowed, the memory's words don't share
+  the question's — but on the probe the change brought 5 other RECALL losses' memories into
+  the answer. "of late" and "most recent" left out on purpose. Revert: drop `{ soft: true }`
+  from the soft branch in `time-ask.ts`.
+- **Marked for Mike's review:** wording and the soft-word trade ('what have I been working on
+  lately' now searches all, recent nudged up).
+- **Not built: same-session neighbours** (fix list #3). It overlaps the tail; it waits on the
+  tail's measurement.
+
+### Decided with Mike's go 2026-10-20, lightly held, an experiment (the elsewhere lines name what was written, not only how much)
+
+From the 10-20 morning: Mike runs several sessions at once, and two of them did the same
+wake check because neither knew what the other had done. "Today, elsewhere" (session start)
+said `~/random open since 08:33 (live), 3 memories`, and "Since you started" (per prompt)
+said `Since 08:41: ~/random open, 8 memories`: counts, not what was written. The ~/random
+session asked for a line that names the work. Undone by reverting the PR; nothing is stored
+differently.
+
+- **What the lines say now.** Each folder they name carries up to two of its memories by
+  title and id after the count, e.g. `~/random open since 08:33 (live), 8 memories: "Wake
+  check 10-20 from ~/random" (mem_…), "Spans out of backups" (mem_…)`. A title is cut to 48
+  bytes (`ELSEWHERE_TITLE_BYTES`); the id is whole, so recall can expand it. A memory with no
+  title is named by its first words.
+- **Which ones, and why.** Work only, by the wake's own rule (`self/work.ts#isWorkMemory`:
+  marked `work`, or unmarked and a skill, or a fact, entity or place written in a
+  directory), work in progress first: one with a status mark (planned, proposed, asked, or
+  done, which within today's window means done today), then the rest, newest first within
+  each. Nothing else: no chit-chat (`world`, unmarked person or self, an unmarked fact from
+  Desktop chat), with a status mark or without (review of #543: the mark alone let them
+  through). Newest, not highest
+  salience: what stops two sessions doing the same thing is what the other one is doing
+  now, and a status mark is the writer's own word that something is work in progress.
+  Salience would need the physics read, which neither line makes (both are reads only, no
+  scan), and it ranks what lasts, not what is current.
+- **The gate is the one both lines already use** (`Counterpart#elsewhereGate`): a folder is
+  named only when its scope setting is `on` (not off, paused or observer), never this
+  folder or the store's own (the nightly run). On top of it, for titles: never a
+  confidential memory (not even to the owner, who still sees it counted), never one marked
+  about me, us or the owner (personal: those cross only as the about-me chapter line's, and
+  are not work), never this session's own, the nightly run's, a chapter's copy, or an
+  identity-band row, nor a dated one (a reminder: "Coming up" names it), nor an open thread
+  ("Still open"'s, and never a work line either), nor a write-up of an ended session
+  (`meta.secondHand`: the night's catch-up writes them under the subject's folder, and they
+  say what was done then, not what a session there is doing now). The night's write-up
+  runner (`writeup-<run>`, recorded in the folder that launched the run) is never named as
+  a session, there or here (review of #543). The
+  folder rule is the same one that decides whether a chapter from that folder may be named
+  here, so a folder Mike keeps apart leaks neither.
+- **Room.** The line keeps its 300-byte cap (`TODAY_ELSEWHERE_MAX_BYTES`) in the wake and in
+  the prompt, because in the wake it takes its room from the lanes above it in `ROOM_ORDER`
+  before it steps down. Its ladder now gives up titles before folders, and a chapter's title
+  before a memory's: per count of folders, the most titles first (spread across folders
+  before two go to one; the first-named folders keep theirs longest), each with the chapter
+  and then without. With no titles to name, the forms are exactly the 10-10 ones.
+- **No repeats.** "Since you started" names only memories written since this session was
+  last told: its window already starts at the wake or at the last line it showed
+  (`sinceSeen`), so a title one line named the next does not name again, and a title the
+  wake named is not named at the first line. Nothing new, no line, as before.
+- **Other sessions open in this same folder** (added the same day, the coordinator's ask:
+  the commoner case, several sessions in ~/counterparts at once). A clause of their own,
+  after the other folders: `Here, also open: session 25e12e7d on Fable 5 since 10:05:
+  "…" (mem_…), "…" (mem_…)` — the session named as "Last here" names one (short id, the
+  model the host last saw), each live session here but this one, with up to two of its own
+  memories by the same title rules (work, status-marked first; not confidential, not me/us/
+  owner, not dated, not an open thread, not the nightly run's or a write-up). The folder's scope needs no
+  asking: a session here reads this folder's work anyway. The clause shares the 300 bytes
+  and is kept longest: other folders give way before it, and last both are counted ("4 other
+  projects. Here, also open: 1 other session."). With no other folder the line is the clause
+  alone. "Since you started" names a session here only when it opened inside the window or
+  wrote something that may be named ("here, also open: session 25e12e7d: "…" (mem_…)"). In
+  the wake, "Work here" leaves a memory the clause printed to it (the line that says who is
+  at work on it); one the clause gave up for room is still a work line. The folder itself is
+  still not named by path, and an ended session here is still "Last here"'s.
+
+Check ~10-23 (`docs/CHECK-AFTER.md`): do parallel sessions avoid duplicate work, and are the
+titles useful or noise?
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
