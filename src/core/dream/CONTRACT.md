@@ -377,11 +377,14 @@ dream having run.
   recorded looking back (per core), and the ids it rests on — handed like the rest, so the entry and
   the page can cite them. Counted from stored feelings (written at the time or recorded
   later), never text; not a dream's feeling-now, nor one on what a dream or a reflection
-  wrote; null on a month with none. And **unmarked** — at most `UNMARKED` (5) memories
+  wrote; null on a month with none. And **unmarked** — at most `UNMARKED` (24 since
+  2026-10-20, Mike's go, lightly held, an experiment; was 5) memories
   nobody has marked that the work lane counts as a project's work only for want of a
   mark (`self/work.ts#isWorkMemory`: a fact, entity or place written in a directory, or a
-  skill — since 2026-10-11; not a journal copy), those with a feeling, an entity or the
-  owner's name first, then the most used, then the oldest, rotated so the last three
+  skill — since 2026-10-11; not a journal copy), the most likely personal first
+  (`dream/unmarked.ts`: a feeling recorded 2, another person named — from the store's
+  person memories and person cards — 2, a word of life outside the work 1, an entity 1,
+  the owner's name 1), then the most used, then the oldest, rotated so the last three
   nights' offers wait behind the rest — offered to be marked by meaning. They keep a room
   of their own (2026-10-11): on a night the plain fit leaves one waiting or a bare id, what
   they cost as lines is held back from the shared room (never past the room there is), so
@@ -450,15 +453,24 @@ dream having run.
     reflected-feeling door, as a reflection's (`store/feelings.ts#LATER_FEELING_SOURCES`);
     a memory it carries to the core is not named by a share as the reflection's
     (`PromotionRecord.feelingRecordedLaterBy`, review of #317).
-  - **About marks** (at most 8): `me`, `us`, `owner`, `work`, `world`, each with a why
+  - **About marks** (at most 32 since 2026-10-20, the unmarked offer and eight more; was
+    8): `me`, `us`, `owner`, `work`, `world`, each with a why
     (one not given is recorded as "no why given"); a core mark on a dream's gist or a
     reflection's own entry is refused (`work`/`world` stay open on those); one on a
     `skill` is written with a note — a skill never becomes core. With the door open it may re-label either way
     (owner ruling D2 on #256: "it's me reflecting; it may catch labeling bugs"): every
     re-label is recorded in `core_events` with what it was and the reflection's why,
     doctor counts them (and apart, the moves into me/us/owner), and a move into me, us or
-    the owner is said in that morning's share. With the door closed only moves toward
-    `work`/`world` are allowed (D1).
+    the owner is said in that morning's share — one sentence each up to three, past that
+    two by name and the rest in one sentence with their count (2026-10-20). With the door
+    closed only moves toward `work`/`world` are allowed (D1). **The door is the owner's
+    switch, not the night's stance** (checked 2026-10-20): it is closed only by
+    `counterparts core --reflected-feeling off` (`acceptsReflectedFeeling`; open by
+    default). The nightly run's not-the-owner stance (`night-run.ts`, `OWNER_ENV` "0",
+    10-02) gates confidential memories out of its bundles and threads opened elsewhere
+    out of its write-ups, and never gated a mark: a night as not-the-owner with the switch
+    at its default marks owner or us like any open-door night. A confidential memory is
+    never in a guest bundle, so it is never offered and never re-marked.
   - **Trait nudges** (folded into v9, 2026-09-27; at most 5): where a memory it was shown
     really shows how I acted, on one of the seven axes (`store/traits.ts`), source
     `reflection` — "where did you act unlike your self page?" is their natural question.

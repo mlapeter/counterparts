@@ -89,6 +89,8 @@ import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { feelingWeeks } from "./feeling-weeks.js";
 import type { FeelingWeeks } from "./feeling-weeks.js";
 import { isWorkMemory } from "../self/work.js";
+import { orderUnmarked, personNames } from "./unmarked.js";
+import type { UnmarkedCandidate } from "./unmarked.js";
 import { chapterEntries, entryKey, entryLine, fitEpisodes, shownEntry, summarized, withSummaries } from "./slices.js";
 import { chapterSummaries } from "../self/summaries.js";
 import type { ChapterEntry, EpisodeInView, EpisodesFit, ShownChapter } from "./slices.js";
@@ -162,16 +164,22 @@ export const REFLECT_TUNABLES = {
    * UNMARKED, OFFERED TO BE MARKED (2026-10-02, lane B, owner pick 4): at most
    * this many memories nobody has marked that the work lane counts as a
    * project's work only because they are unmarked (a fact, entity or place
-   * written in a directory) — the ones with a feeling, an entity, or the
-   * owner's name first, then the most used, then the oldest. They count
-   * toward `LIMITS.about`. CAL.
+   * written in a directory, or a skill) — the most likely personal first
+   * (`unmarked.ts`: a feeling, another person named, a word of life outside
+   * the work, an entity, the owner's name), then the most used, then the
+   * oldest. They count toward `LIMITS.about`. Was 5; 24 since 2026-10-20
+   * (Mike's go, lightly held, an experiment): sessions often leave `about`
+   * unset, five a night never kept up, and a personal memory left unmarked
+   * is shown only in the folder it was written in. CAL.
    */
-  UNMARKED: 5,
+  UNMARKED: 24,
   /**
    * ROTATED (review of #316): one offered by any of the last this-many
    * reflections waits behind the ones not offered lately, so a pool the
-   * reflection leaves unmarked (a personal one on a closed-door night) is not
-   * the same five every night. It comes back when the rest run out. CAL.
+   * reflection leaves unmarked (one it could not tell, or any personal one
+   * while the owner has `--reflected-feeling off`) is not the same ones every
+   * night. It comes back when the rest run out. Kept at 2026-10-20: a mark
+   * takes a memory out of the pool, so what rotates is only what was left. CAL.
    */
   UNMARKED_REST_NIGHTS: 3,
   /**
@@ -197,7 +205,8 @@ export const REFLECT_TUNABLES = {
   FEELINGS_SHOWN: 3,
   FEELING_CARRIED_CHARS: 160,
   /** What one reflection may do, across every `finish` of it. CAL. */
-  LIMITS: { returns: 12, feelings: 5, about: 8, traits: 5, core: 5 },
+  /** `about`: was 8; 32 since 2026-10-20, the unmarked offer (`UNMARKED`) and eight more. */
+  LIMITS: { returns: 12, feelings: 5, about: 32, traits: 5, core: 5 },
   /** Feelings recorded looking back in one awake call (`feelAgain`, 2026-10-02). CAL. */
   AWAKE_FEELINGS: 5,
   /**
@@ -542,6 +551,8 @@ export interface ReflectOutcome {
 }
 
 const KINDS_FELT: readonly Kind[] = ["self", "person"];
+/** Re-labels into me, us or the owner said one by one in the share; past it, the rest in one sentence (2026-10-20). */
+const RELABEL_SAID = 3;
 
 /**
  * Why a reflection may not feel, or mark about me, a memory a dream or a
@@ -923,7 +934,7 @@ export class Reflections {
         : []),
       ...(bundle.unmarked.length > 0
         ? [
-            `  unmarked: ${String(bundle.unmarked.length)} ${bundle.unmarked.length === 1 ? "memory nobody has" : "memories nobody has"} marked. Unmarked, a fact written in a project, or a skill, counts as that project's work and is shown only there — so a personal one (a person, a feeling, life outside the work) sits among the work lines. ${open ? "Mark each by meaning in about, with why: owner or us when it is personal, work when it really is the craft, world otherwise." : "Tonight a mark may only be work or world: mark the ones that are, and leave a personal one unmarked."} They count toward the ${String(L.about)}.`,
+            `  unmarked: ${String(bundle.unmarked.length)} ${bundle.unmarked.length === 1 ? "memory nobody has" : "memories nobody has"} marked. Unmarked, a fact written in a project, or a skill, counts as that project's work and is shown only there — so a personal one (a person, a feeling, life outside the work) sits among the work lines, and no other folder hears it. The likeliest personal come first. ${open ? "Mark each by meaning in about, with why: owner or us when it is personal (then it reaches every folder), work when it really is the craft, world otherwise." : "Tonight a mark may only be work or world: mark the ones that are, and leave a personal one unmarked."} They count toward the ${String(L.about)}.`,
           ]
         : []),
       ...(bundle.staleOpen.length > 0
@@ -1494,11 +1505,7 @@ export class Reflections {
     // moves are kept in its detail, so a replaced share still says them.
     const priorMoved = Array.isArray(prior["movedIn"]) ? (prior["movedIn"] as { id: string; mark: AboutMark }[]) : [];
     const movedAll = [...priorMoved, ...movedIn.filter((m) => !priorMoved.some((p) => p.id === m.id))];
-    const relabelLines = shareLocked
-      ? []
-      : movedAll
-          .filter((m) => !finalShareCites.includes(m.id))
-          .map((m) => `I've come to think "${this.handle(m.id)}" is ${m.mark === "me" ? "about who I am" : m.mark === "us" ? "about the two of us" : "about you"}.`);
+    const relabelLines = shareLocked ? [] : this.relabelSentences(movedAll.filter((m) => !finalShareCites.includes(m.id)));
     if (relabelLines.length > 0) {
       shareText = [shareText, ...relabelLines].filter((x) => x.length > 0).join(" ");
       for (const m of movedAll) if (!finalShareCites.includes(m.id)) finalShareCites.push(m.id);
@@ -1507,11 +1514,7 @@ export class Reflections {
     // A share already told or carried is not replaced — but a mark this finish
     // moved into me, us or the owner is still said in the hand-back (review
     // of #268), in the self's voice, for the session to tell.
-    const tellAlso = shareLocked
-      ? movedIn
-          .filter((m) => !priorMoved.some((p) => p.id === m.id))
-          .map((m) => `I've come to think "${this.handle(m.id)}" is ${m.mark === "me" ? "about who I am" : m.mark === "us" ? "about the two of us" : "about you"}.`)
-      : [];
+    const tellAlso = shareLocked ? this.relabelSentences(movedIn.filter((m) => !priorMoved.some((p) => p.id === m.id))) : [];
 
     // ── (d) open threads: asked, or closed when plainly done ───────────────
     // Only ids from the stale open list this reflection was shown. A proposal
@@ -2187,7 +2190,8 @@ export class Reflections {
     const candidates: { id: string; felt: number; at: number }[] = [];
     const felt: { id: string; felt: number }[] = [];
     const recent: { id: string; felt: number; at: number }[] = [];
-    const unmarked: { id: string; rank: number; uses: number; at: number }[] = [];
+    const unmarked: UnmarkedCandidate[] = [];
+    const people: { title: string | null; meta: string }[] = [];
     const withFeelings = new Set(this.store.feelingsLive().map((x) => x.memory_id));
     const owners = ownerNames(this.store);
     // The candidates are consolidation's: about me by its mark, or — unmarked —
@@ -2212,9 +2216,11 @@ export class Reflections {
       // too since 2026-10-11 (the about-marks review: 5 of 34 unmarked skills
       // read as personal, and nothing else ever offered them).
       if ((row.about ?? null) === null && isWorkMemory({ about: null, kind: row.kind, originScope: row.origin_scope, journal: isJournalCopy(row) })) {
-        const rank = (withFeelings.has(mid) ? 2 : 0) + (row.kind === "entity" ? 1 : 0) + (namesAny(`${row.title ?? ""} ${row.body}`, owners) ? 1 : 0);
-        unmarked.push({ id: mid, rank, uses: row.uses, at: row.created_at ?? 0 });
+        unmarked.push({ id: mid, kind: row.kind, title: row.title, body: row.body, uses: row.uses, createdAt: row.created_at ?? 0, felt: withFeelings.has(mid) });
       }
+      // The names of the people in the store, for the offer's order — read
+      // only from memories this bundle may show.
+      if (row.kind === "person") people.push({ title: row.title, meta: row.meta });
       if (row.promoted_identity === 1) {
         core.push({ id: mid, felt: f });
         continue;
@@ -2267,9 +2273,11 @@ export class Reflections {
     // they can be read, cited and put on the page.
     const weeks = feelingWeeks(this.store, at, (r) => !denied.has(r.id) && this.showable(r));
     const weeksRest = weeks === null ? [] : weeks.restsOn.filter(take(3));
-    // UNMARKED: the most likely personal first, then the most used, the oldest
-    // — and ROTATED: what the last few reflections were offered waits behind
-    // the rest (review of #316), and comes back when the rest run out.
+    // UNMARKED: the most likely personal first (2026-10-20: a feeling, another
+    // person named, a word of life outside the work, an entity, the owner
+    // named — `unmarked.ts`), then the most used, the oldest — and ROTATED:
+    // what the last few reflections were offered waits behind the rest
+    // (review of #316), and comes back when the rest run out.
     const lately = new Set(
       this.store
         .reflections({ limit: T.UNMARKED_REST_NIGHTS + 1 })
@@ -2280,12 +2288,12 @@ export class Reflections {
           return Array.isArray(u) ? u.filter((x): x is string => typeof x === "string") : [];
         }),
     );
-    const ranked = unmarked
-      .sort((a, b) => b.rank - a.rank || b.uses - a.uses || a.at - b.at || (a.id < b.id ? -1 : 1))
-      .map((u) => u.id);
-    const unmarkedIds = [...ranked.filter((x) => !lately.has(x)), ...ranked.filter((x) => lately.has(x))]
-      .slice(0, T.UNMARKED)
-      .filter(take(2));
+    // And the store's person cards (`schemas/`), a name and its aliases each.
+    for (const cid of this.store.list({ type: "schema", kind: "person", archived: false })) {
+      const card = this.store.row(cid);
+      if (card !== undefined && card.confidential !== 1) people.push({ title: card.title, meta: card.meta });
+    }
+    const unmarkedIds = orderUnmarked(unmarked, { owner: owners, people: personNames(people, owners) }, lately, T.UNMARKED).filter(take(2));
     // STALE OPEN (2026-10-16, #489 D): open threads untouched for
     // `STALE_OPEN_DAYS` lived days, the longest untouched first, rotated like
     // the unmarked offer — a line each, offered to be proposed closed.
@@ -2716,6 +2724,25 @@ export class Reflections {
     return lines.length === 0 ? null : lines.join(" ");
   }
 
+  /**
+   * A RE-LABEL INTO ME, US OR THE OWNER, IN THE SHARE (owner ruling D2 on
+   * #256): a sentence each, up to `RELABEL_SAID`; past that (2026-10-20, the
+   * unmarked offer grew to 24 a night) the rest in one sentence with how many
+   * — every one still cited, so none goes unsaid.
+   */
+  private relabelSentences(moves: readonly { id: string; mark: AboutMark }[]): string[] {
+    const one = (m: { id: string; mark: AboutMark }): string =>
+      `I've come to think "${this.handle(m.id)}" is ${m.mark === "me" ? "about who I am" : m.mark === "us" ? "about the two of us" : "about you"}.`;
+    if (moves.length <= RELABEL_SAID) return moves.map(one);
+    const said = moves.slice(0, RELABEL_SAID - 1).map(one);
+    const rest = moves.length - said.length;
+    const by = (["owner", "us", "me"] as const)
+      .map((k) => ({ k, n: moves.slice(said.length).filter((m) => m.mark === k).length }))
+      .filter((x) => x.n > 0)
+      .map((x) => `${String(x.n)} ${x.k === "owner" ? "about you" : x.k === "us" ? "about the two of us" : "about who I am"}`);
+    return [...said, `And ${String(rest)} more I've come to think are personal, not work (${by.join(", ")}), so every folder hears them now.`];
+  }
+
   private handle(id: string): string {
     const row = this.store.row(id);
     if (row === undefined) return id;
@@ -3140,13 +3167,6 @@ function isJournalCopy(row: MemoryRow): boolean {
   } catch {
     return false;
   }
-}
-
-/** Does `text` name any of `names` (lowercase) as a whole word? */
-function namesAny(text: string, names: readonly string[]): boolean {
-  if (names.length === 0) return false;
-  const lower = text.toLowerCase();
-  return names.some((n) => new RegExp(`(^|[^\\p{L}\\p{N}])${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^\\p{L}\\p{N}])`, "u").test(lower));
 }
 
 function round(x: number): number {

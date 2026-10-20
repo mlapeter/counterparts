@@ -356,8 +356,10 @@ proposals and their archive; render and delivery telemetry.
    `work`, or unmarked and a skill, or an unmarked fact, entity or place written in a
    directory — an absolute path, never a name scope like `claude-desktop:`; an unmarked
    person or self memory is personal wherever it was written) is in no lane of the stored
-   bundle — the writer is asked to mark anything personal `owner` or `us`, and the nightly
-   reflection's marks correct the rest; the delivery splices that directory's
+   bundle — the writer is asked to mark anything personal `owner` or `us` (the field says
+   why since 2026-10-20: those reach every folder, work stays with its own though its title
+   may be seen elsewhere), and the nightly reflection's marks correct the rest (offered 24
+   unmarked a night since 2026-10-20, the most likely personal first: `dream/unmarked.ts`); the delivery splices that directory's
    newest few as "Work here, if it helps:" above the handoff block, in the room the
    handoff and "Last here" leave, with a reserve of its own under the handoff's share
    rule. Furniture: no counts move. **An identity lane with no elements renders ONE line

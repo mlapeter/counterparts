@@ -869,3 +869,41 @@ so the reflection is held on its own first page past the room even after the wri
 the reflection never sends again, the nightly process keeps the held page at the child's return
 (`night-run.ts` → `Self#keepHeldPage`). Tests: `test/page-held-to-room.test.ts` §2–3, and the
 6,200-byte reflection in `test/nightly-run.test.ts` (held once, then kept).
+
+## 2026-10-20 — the unmarked offer keeps up, the personal ones first (Mike's go, lightly held, an experiment)
+
+Mike, 2026-10-20: non-work memories ("a friend is visiting this weekend") should flow across
+folders, and work should mostly stay in its folder. An unmarked fact written in a project is
+that project's work and is shown only there, sessions often leave `about` unset, and the
+reflection was offered five a night.
+
+- **What made a night "closed-door".** Only the owner's switch: `counterparts core
+  --reflected-feeling off` (`sleep/consolidate.ts#acceptsReflectedFeeling`, the meta row
+  `core.fast.acceptsReflectedFeeling`, open by default; owner ruling D1 on #256, "closed is
+  fully closed"). It is the owner closing the core to reflection alone, and its help text
+  promises him that a reflection then moves marks only toward work or world. The nightly
+  run's not-the-owner stance (`night-run.ts`, `OWNER_ENV` "0", 10-02) is a different thing:
+  it keeps confidential memories out of the bundles (`BUNDLE_OWNER`) and keeps write-ups from
+  closing threads opened elsewhere; neither `finish`'s about loop nor `markAbout` reads it.
+  So on a default store the reflection could already mark owner or us — nothing in the
+  10-02 stance stood in the way, and no exception to it was needed. The exception the brief
+  allowed (lifting a not-the-owner rule) had nothing to lift; the switch is the owner's own
+  word and was left as it is. If it is off on his store, `counterparts core` says
+  "Closed to reflection alone", and turning it on is his call.
+- **The offer: 24 a night (was 5)**, and `LIMITS.about` 32 (was 8): the offer counts toward
+  it, and eight stay for re-labels elsewhere. Not measured on the owner's store from this
+  session (the read of a snapshot copy was refused by the session's permissions);
+  `tools/audit/unmarked-offer.ts <copy>` prints the counts: the pool, how many a lived day
+  adds, how many read as personal. 24 is the brief's 20–30, held lightly until that is run.
+- **Personal first** (`dream/unmarked.ts`, pure, shared with the probe): a feeling recorded
+  2, another person named 2 (names from live person memories — `name`, `entity`,
+  `aliases`, a title of up to three words — and the store's person cards), a word of life
+  outside the work 1 (`PERSONAL_WORDS`, whole words, none of the build's own: no feeling,
+  dream, sleep, home, health, rest, walk), an entity 1, the owner's name 1 (it is in half the
+  work notes too). Then the most used, the oldest, the id. Unmarked person and self
+  memories are personal wherever written (`self/work.ts`), so they are never in this pool.
+- **Rest nights kept** (3): a mark takes a memory out of the pool, so what rotates is only
+  what the reflection left, and with 24 a night the pool turns over faster.
+- **The share stays short**: past three re-labels into me, us or the owner, two are said by
+  name and the rest in one sentence with their count — every one still cited.
+- Tests: `test/unmarked-offer-1020.test.ts`.
