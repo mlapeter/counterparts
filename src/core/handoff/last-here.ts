@@ -771,11 +771,26 @@ function elsewhereForms<D>(
     ...sessions.map((h) => ({ here: true as const, h })),
     ...named.map((d) => ({ here: false as const, d })),
   ];
+  // Each entry's words, once per (chapters, titles): the ladder asks for the
+  // same few many times over (up to 21 allotments a count), and a clock time
+  // is a time-zone format, so the per-prompt line pays for each one.
+  const words = new Map<string, string>();
+  const wordsOf = (i: number, chapters: boolean, t: number): string => {
+    const e = all[i];
+    if (e === undefined) return "";
+    const key = `${String(i)}|${e.here || !chapters ? "" : "c"}|${String(t)}`;
+    let w = words.get(key);
+    if (w === undefined) {
+      w = e.here ? here.one(e.h, t) : one(e.d, chapters, t);
+      words.set(key, w);
+    }
+    return w;
+  };
   const line = (k: number, chapters: boolean, titles: readonly number[]): string => {
     const shown = all.slice(0, k);
     const hereWords: string[] = [];
     const dirWords: string[] = [];
-    shown.forEach((e, i) => (e.here ? hereWords.push(here.one(e.h, titles[i] ?? 0)) : dirWords.push(one(e.d, chapters, titles[i] ?? 0))));
+    shown.forEach((e, i) => (e.here ? hereWords : dirWords).push(wordsOf(i, chapters, titles[i] ?? 0)));
     const restDirs = named.length - dirWords.length;
     const restHere = sessions.length - hereWords.length;
     const dirs =
@@ -809,13 +824,13 @@ function elsewhereForms<D>(
     for (const titles of allots) candidates.push(line(k, true, titles), line(k, false, titles));
   }
   candidates.push(line(0, false, []));
-  const size = (s: string): number => new TextEncoder().encode(s).length;
   const forms: string[] = [];
+  let lastSize = Infinity;
   for (const form of candidates) {
-    if (size(form) > TODAY_ELSEWHERE_MAX_BYTES) continue;
-    const last = forms[forms.length - 1];
-    if (last !== undefined && size(form) >= size(last)) continue;
+    const size = Buffer.byteLength(form, "utf8");
+    if (size > TODAY_ELSEWHERE_MAX_BYTES || size >= lastSize) continue;
     forms.push(form);
+    lastSize = size;
   }
   const [widest, ...shorter] = forms;
   return widest === undefined ? null : { line: widest, shorter };
