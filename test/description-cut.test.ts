@@ -206,7 +206,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       self_page: { total: 4846, beforeList: 1772 },
       // +18 on 2026-10-12 (onboarding round 1): the `undo` phase, said ("undo that dream").
       dream: { total: 3787, beforeList: 1782 },
-      reflect: { total: 3146, beforeList: 1454 },
+      reflect: { total: 3322, beforeList: 1486 },
       // `meet` (2026-10-11): kept short on purpose — its script is its result.
       meet: { total: 459, beforeList: 210 },
       wake: { total: 1958, beforeList: 1229 },

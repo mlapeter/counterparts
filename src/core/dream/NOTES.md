@@ -750,3 +750,32 @@ the live ~52):
 - Open: proposals a share already told or carried cannot be added (refused by name); a
   "no" is not recorded, so a declined thread may be proposed again after the rotation's
   three nights. Watch whether that nags before adding a memory of the no.
+
+## 2026-10-20 — the reflection closes the plainly done ones itself (an experiment)
+
+- Decided with Mike 2026-10-20, an experiment, lightly held ("ok lets go ahead and do
+  that"): open threads still pile up (58 open on his store, 12 untouched for 2+ weeks), and
+  a yes/no most mornings is a chore. The reflection now closes the clear cases itself and
+  says so in the share; it still asks about the unsure ones.
+- Shape: a second field beside `close`, `closeNow: [{id, why, shows?}]`. Same checks as a
+  proposal (ids from `staleOpen` only, still open, share not told or carried), then
+  `closeThread`'s guards (so `finish` takes the session's `scope`), and a why through the
+  credential scan (`CLOSE_WHY_CHARS`). Asked and closed together keep to `STALE_OPEN` (5),
+  which the offered list already bounds. The write is `closeThread`'s, plus
+  `threadClosedBy: {reflection, why, shows}` on the memory and `detail.selfClosed` on the
+  reflection row.
+- The flags flip only once the share that says them stands: on a second finish whose
+  share another session took mid-call, nothing closes (`share-already-carried`), like the
+  proposals before it. The share's open-thread lines (closed, then asked) are one generated
+  `closeLine`, rebuilt on a later finish.
+- Undo is a new reflect phase, `reopen` (ids ⊆ that reflection's `selfClosed`, same
+  guards, flag back to true, reason `thread-reopened`). Weighed and not taken: `remember`
+  with `updates` + `unresolved: true` moves the thread onto a NEW memory (`closeThread`
+  carries it only from a row still open), which is not putting it back. `reopen` stamps
+  `threadReopenedBy` on the memory, and a later `closeNow` of it is refused
+  (`reopened-by-owner`; the bundle marks it `reopened`): `revise` leaves its untouched
+  days alone, so without the stamp the next nights would close it again.
+- Nothing in doctor or the dashboard counted proposals, so no line changed; the
+  `reflection.finished` record now carries `closeAsked` and `selfClosed`, and
+  `reflection.reopened` is emitted on an undo. Watch (CHECK-AFTER, ~10-24): how many it
+  closed itself, how many were reopened, and how the Still open count moves.

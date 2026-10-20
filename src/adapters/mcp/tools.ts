@@ -1639,9 +1639,9 @@ const REFLECT: ToolSpec = {
   name: "reflect",
   annotations: annotate("Reflect", { readOnly: false }),
   summary:
-    "Reflection: a few quiet, awake minutes — usually at the end of the nightly run, after the dream — answering two or three questions about yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the owner, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own, for a background agent), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to closing what the share proposed).",
+    "Reflection: a few quiet, awake minutes — usually at the end of the nightly run, after the dream — answering two or three questions about yourself, the owner and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the owner, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own, for a background agent), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
   admission:
-    "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and hand its prompt to a background agent. Call `told` after you told the owner a morning share, in your own words. Call `close` only on the owner's yes to closing what a share proposed.",
+    "The nightly run calls `begin` and `finish` after the dream, as its prompt says. Call `launch` only when the owner asks you to reflect, and hand its prompt to a background agent. Call `told` after you told the owner a morning share, in your own words. Call `close` or `reopen` only on the owner's word about a share's open threads.",
   negativeExamples: [
     "Do NOT make up depth: a night with nothing much to say is a short entry that cites nothing — it rewrites nothing and shares nothing.",
     "Do NOT store a thought about the owner as a fact about them: say it to them tentatively in the share, or not at all — never a list of flaws.",
@@ -1685,8 +1685,8 @@ const REFLECT: ToolSpec = {
     },
     {
       claim:
-        "It may propose closing only open threads it was shown as stale, and closes none itself: `close` closes only ids a reflection proposed, after the owner's yes, with the checks a deposit that answers a thread makes.",
-      mechanizedBy: "src/core/dream/reflect.ts#Reflections.finish (close) + #Reflections.close",
+        "It may close or propose closing only open threads it was shown as stale: one it closes itself carries its why, keeps the checks a deposit that answers a thread makes, is said in the morning share, and `reopen` puts it back (after which it may only be asked about); `close` closes only ids a reflection proposed, after the owner's yes, with the same checks.",
+      mechanizedBy: "src/core/dream/reflect.ts#Reflections.finish (closeNow, close) + #Reflections.close + #Reflections.reopen",
     },
     {
       claim:
@@ -1699,13 +1699,31 @@ const REFLECT: ToolSpec = {
     properties: {
       phase: {
         type: "string",
-        enum: ["launch", "begin", "part", "finish", "settle", "told", "close"],
-        description: "Which step: launch, begin, part, finish, settle, told, or close.",
+        enum: ["launch", "begin", "part", "finish", "settle", "told", "close", "reopen"],
+        description: "Which step: launch, begin, part, finish, settle, told, close, or reopen.",
       },
       close: {
         type: "array",
         items: { type: "string" },
-        description: "`finish`, optional: ids from the bundle's staleOpen that look done — proposed, closed only on a yes. `close`: the proposed ids the owner agreed are done.",
+        description: "`finish`, optional: ids from the bundle's staleOpen that look done but you are not sure of — asked in the share, closed only on a yes. `close`: the proposed ids the owner agreed are done.",
+      },
+      closeNow: {
+        type: "array",
+        description: "`finish`, optional: ids from the bundle's staleOpen that a memory you read plainly shows finished — closed now, and said in the share. When in doubt, use `close` instead.",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            why: { type: "string", description: "What shows it done, in a line." },
+            shows: { type: "string", description: "The id of the memory that shows it done." },
+          },
+          required: ["id", "why"],
+        },
+      },
+      reopen: {
+        type: "array",
+        items: { type: "string" },
+        description: "`reopen`: ids a reflection closed itself that the owner says are not done.",
       },
       holds: { type: "string", description: "`settle`: the memory that holds now." },
       over: { type: "string", description: "`settle`: the memory it changes, corrects or disagrees with." },
@@ -1720,7 +1738,7 @@ const REFLECT: ToolSpec = {
       reflection: {
         type: "string",
         description:
-          "`part`, `finish` and `told`: the reflection id `begin` returned. `finish` may be called again the same day with the same id to send the parts a first call did not write (page, share, feelings, about, traits); the entry stands, and a share not yet told may be replaced.",
+          "`part`, `finish` and `told`: the reflection id `begin` returned (`close` and `reopen`: the one the share named). `finish` may be called again the same day with the same id to send the parts a first call did not write (page, share, feelings, about, traits); the entry stands, and a share not yet told may be replaced.",
       },
       title: { type: "string", description: "`finish`: a short title for the entry." },
       entry: { type: "string", description: "`finish`: your reflection, first person. Required the first time; may be left out on a second finish." },

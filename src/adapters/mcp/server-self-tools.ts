@@ -398,6 +398,8 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
           core: Array.isArray(args["core"]) ? (args["core"] as never) : [],
           traits: Array.isArray(args["traits"]) ? (args["traits"] as never) : [],
           close: ids(args["close"]),
+          closeNow: Array.isArray(args["closeNow"]) ? (args["closeNow"] as never) : [],
+          scope: server.scope,
           model: model ?? null,
         });
         if (!out.ok) {
@@ -426,7 +428,7 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
             about: o.about,
             ...(o.traits.length > 0 ? { traits: o.traits } : {}),
             ...(o.refusedCites.length > 0 ? { refusedCites: o.refusedCites } : {}),
-            ...(o.close.proposed.length > 0 || o.close.refused.length > 0 ? { close: o.close } : {}),
+            ...(o.close.proposed.length > 0 || o.close.closed.length > 0 || o.close.refused.length > 0 ? { close: o.close } : {}),
             // WHAT WAS NOT WRITTEN, and that it can be sent again (2026-09-28).
             ...(o.retry === null ? {} : { again: o.retry }),
             say:
@@ -480,8 +482,23 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
         server["emit"]("mcp.reflect", reflection, { phase: "close", closed: out.closed.length, refused: out.refused.length });
         return server["result"]({ phase, reflection, closed: out.closed, ...(out.already.length > 0 ? { alreadyClosed: out.already } : {}), ...(out.refused.length > 0 ? { refused: out.refused } : {}) }, out.closed.length === 0 && out.already.length === 0);
       }
+      case "reopen": {
+        // THE WAY BACK (2026-10-20, an experiment): the owner said a thread the
+        // reflection closed itself is not done.
+        const reflection = args["reflection"];
+        const reopen = ids(args["reopen"]);
+        if (typeof reflection !== "string" || reopen.length === 0) {
+          return refused("reflection-and-reopen-required", "Pass `reflection` (the id the share named) and `reopen`: the ids the owner says are not done.");
+        }
+        const out = reflections.reopen({ reflection, session, ids: reopen, scope: server.scope });
+        if (!out.ok) {
+          return refused(out.reason, out.reason === "nothing-closed" ? "That reflection closed nothing itself." : "Nothing was reopened.");
+        }
+        server["emit"]("mcp.reflect", reflection, { phase: "reopen", reopened: out.reopened.length, refused: out.refused.length });
+        return server["result"]({ phase, reflection, reopened: out.reopened, ...(out.already.length > 0 ? { alreadyOpen: out.already } : {}), ...(out.refused.length > 0 ? { refused: out.refused } : {}) }, out.reopened.length === 0 && out.already.length === 0);
+      }
       default:
-        return refused("phase-unknown", "phase is one of launch, begin, part, finish, settle, told, close.");
+        return refused("phase-unknown", "phase is one of launch, begin, part, finish, settle, told, close, reopen.");
     }
   } catch (err) {
     return refused("threw", String((err as Error).message ?? err));
