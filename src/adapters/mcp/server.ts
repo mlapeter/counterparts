@@ -2332,6 +2332,10 @@ export class McpServer {
     if (mode === "facts") {
       const r = factsRecall(ctx, question, { page });
       answer = renderFacts(r);
+      // The page's results only: the title tail (`r.tail`) is listed, not
+      // shown with its words, so it is not seen, not quotable and not in
+      // `ids` (2026-10-20, from the benchmark loss read; helps real recall
+      // too; lightly held, revisit).
       ids = r.memories.map((m) => m.id);
       body = {
         matched: r.matched,
@@ -2352,7 +2356,8 @@ export class McpServer {
         shown: r.memories.length,
         faded: r.faded,
         page: r.page,
-        ...(r.time === null ? {} : { time: r.time.anchor?.kind ?? "window" }),
+        ...(r.time === null ? {} : { time: r.time.soft === true ? "soft" : (r.time.anchor?.kind ?? "window") }),
+        ...(r.tail.length === 0 ? {} : { tail: r.tail.map((t) => t.id) }),
       };
     } else {
       const r = meaningRecall(ctx, question, { page });
@@ -2466,6 +2471,7 @@ export class McpServer {
   ): void {
     const byAddress = row.path === "handle";
     const shown = row.shown ?? 0;
+    const listed = row.tail === undefined ? null : boundedIds(row.tail);
     this.telemetry(() => {
       this.counterpart.noteAdapterEvent(MCP_RECALL_EVENT, {
         ...(session === UNBOUND_SESSION ? {} : { session }),
@@ -2503,6 +2509,11 @@ export class McpServer {
         // What it DELIVERED, by id, bounded (2026-10-11): the memories a
         // look-up opened or a question's answer showed.
         ...boundedIds(delivered),
+        // What a facts answer LISTED by title only (2026-10-20, from the
+        // benchmark loss read; helps real recall too; lightly held, revisit
+        // ~10-27): not delivered,
+        // so apart from `ids`; joined later against opens by id.
+        ...(listed === null || listed.idCount === 0 ? {} : { tail: listed.idCount, tailIds: listed.ids }),
       });
       // The ring emit above already carries this call; a telemetry write that
       // failed must not become the answer the model receives (`telemetry`).

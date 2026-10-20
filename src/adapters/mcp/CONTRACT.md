@@ -612,6 +612,15 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   (review of #345). "Around the X"
   resolves X to the date of its best word match, shown in the header; "the last session"
   is the session "Last here" names (else the newest here), whose rows lead.
+- **[M]** **Soft time words do not filter** (2026-10-20, from the benchmark loss read;
+  helps real recall too; lightly held, revisit — an experiment, Mike's go via BENCHMARK).
+  "lately", "recently", "these days", "nowadays" (`time-ask.ts#SOFT_WORDS`, read after
+  every explicit window, so "recently, in September" is September) leave every match in;
+  those inside the past week gain a quarter of the best match's score, for the order only
+  (`FACTS_SOFT_RECENT_BONUS`, after the weak tail is cut). The header says `time: lately →
+  09-27..10-03 first, nothing filtered by date`; the durable row's `time` is `soft`. A
+  question that is only the soft word ("what happened lately?") keeps the past week as its
+  filter. Explicit windows ("last week", "in September", "since 10-12") are unchanged.
 - **[M]** Rebuilt here, not inherited from ambient: a chapter and its copy are one result
   (the chapter, labeled journal); near-duplicates (token overlap ≥ 0.85) are left out and
   counted; the self page and handoffs are never results; confidential rows are absent for
@@ -636,6 +645,21 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   the benchmark lost 15 counting answers to the faded lines (bench R2-2). Being shown
   credits nothing; an open or a quote credits as for any result. The whole answer stays
   under 12,000 characters.
+- **[M]** **The title tail** (2026-10-20, from the benchmark loss read; helps real recall
+  too; lightly held, revisit ~10-27 — an experiment, Mike's go via BENCHMARK). After the
+  page's results, up to `FACTS_TAIL_SIZE` (20) of the next matches in rank order, one line
+  each: `next 20, titles only (open any by id):` then `11. <title, cut at 48> · <id> ·
+  <event date, else learned> [· faded]` (a chapter `[journal]`; one settled over and shown
+  on its own, its current version hidden from this asker, leads with `earlier (now …):` as
+  its body would say `earlier — now …`; review of #544). They are the next pages'
+  results, in the same order; the header and paging are unchanged ("N more → page 2"
+  still counts from the page). A listed line is NOT a result: it is not in `ids`, the seen
+  set or the `asked` records, so neither listing nor quoting its title credits anything;
+  opening it by id credits as any open. The durable `mcp.recall` row carries it apart, as
+  `tail` (count) and `tailIds` (bounded), so a later open can be joined to it. About
+  1.5–1.7 KB; when the answer runs out of room it goes first, before any excerpt is cut
+  (then excerpts 300 → 150 → 60 → 0; review of #544 — it went after the cut to 60 before). Only deliberate facts answers change — ambient footnotes and meaning mode
+  do not. Size and wording are for Mike's review.
 - **[M]** `ids` / `handle` read a chapter address `epi_…#N` as that chapter
   (`self/chapter-address.ts#resolveChapter`): its words, `address`, and its `moments`.
 - **[M]** `ids` / `handle` read a dream's id `drm_…` or a reflection's `rfl_…` as a
