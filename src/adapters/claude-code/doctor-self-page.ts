@@ -306,8 +306,8 @@ export function selfPageTraceFindings(store: Store): Finding[] {
 /**
  * WHAT STANDS BEHIND THE CORE (2026-10-20, an experiment; `self/measures.ts`).
  * A reading, always green: nothing promotes or demotes on it. "One episode
- * behind it" is an element whose returns, derivations and links all sit on one
- * lived day. Reads every live row and every edge, so it stays out of the
+ * behind it" is an element whose returns and derivations all sit on one lived
+ * day; links are counted beside them and widen no span (review of #550). Reads every live row and every edge, so it stays out of the
  * session-start reading.
  */
 export function coreSupportFindings(store: Store): Finding[] {
@@ -326,7 +326,7 @@ export function coreSupportFindings(store: Store): Finding[] {
       "green",
       "Core",
       `${String(els.length)} ${els.length === 1 ? "element" : "elements"}; ${String(s.oneEpisode)} with one episode behind ${s.oneEpisode === 1 ? "it" : "them"}; ` +
-        `span ${range((e) => e.days)} days, ${range((e) => e.contexts)} contexts; returns ${range((e) => e.returns)}, derivations ${range((e) => e.derivations)}, links ${range((e) => e.links)}`,
+        `span ${range((e) => e.days)} ${range((e) => e.days) === "1" ? "day" : "days"}, ${range((e) => e.contexts)} ${range((e) => e.contexts) === "1" ? "context" : "contexts"}; returns ${range((e) => e.returns)}, derivations ${range((e) => e.derivations)}, links ${range((e) => e.links)}`,
       "",
       {
         elements: els.length,

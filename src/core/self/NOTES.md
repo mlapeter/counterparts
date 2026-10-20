@@ -2370,12 +2370,21 @@ of date" prefix replaced the "keep or retire it" words.
   green. A page from before traces reads "cites were not kept per claim", falling back to its
   reflection's record (entry and page ids together, so it overcounts), never "all hypotheses".
   Core support reads every live row and edge, so it stays out of the session-start reading.
-- **Support columns.** Derivations are what an element was MADE FROM, read from its meta
-  (`fit#derivedFrom`), because the v13 `derivations` table is still written by nothing. Links
-  are edges either way. Days and contexts (`origin_scope`) span the element, its returns, its
-  parents and its linked rows. Returns carry a session, not a scope, so they add days only.
-  "One episode behind it" means all of it sits on one lived day. Links are the weak column
-  (the 10-22 co-use check says whether to keep them).
+- **Support columns.** Derivations are what an element was MADE FROM: the ids its meta names
+  (`fit#derivedFrom`), because the v13 `derivations` table is still written by nothing, and
+  the episode it was born from (`origin_ref`), each once. An episode is keyed by its own id,
+  with a chapter's `#n` set aside. A ref like `dream:…`, `reflection:…` or a migration's is
+  not a lived episode and is left out. Links are edges either way, as their own column. Days
+  and contexts (`origin_scope`) span the element, its returns and what it was made from.
+  Returns carry a session, not a scope, so they add days only. "One episode behind it" means
+  all of that sits on one lived day.
+- **Review of #550: links widen nothing.** The first build let linked memories' days and
+  contexts into the span. With ~9,500 links on Mike's store, almost no element would have
+  read "one episode behind it", which hides exactly the early-core problem (Katie's first
+  5–10 memories made core) that this reading is meant to show. Before that fix the
+  derivations column also read mostly 0, because a memory born from an episode records it in
+  `origin_ref`, not in its meta. Links are still the weak column (the 10-22 co-use check says
+  whether to keep them).
 - **Layers** (dashboard, `pages/self/sections/layers.js`): a passage is a SECTION, followed
   by heading. The page is rewritten whole from memories, so a sentence seldom survives a night
   word for word. It shows how far back the kept versions reach and how many retention let go.

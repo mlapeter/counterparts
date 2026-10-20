@@ -449,6 +449,26 @@ describe("4. doctor: the page's claims, and the core's support", () => {
     expect(line?.detail).toContain("returns 0, derivations 0–1, links 0–1");
   });
 
+  test("links widen neither span; the episode a memory was born from counts once, beside its meta", () => {
+    const s = store();
+    const old = mem(s, "A memory from long ago, elsewhere.", { origin: { scope: "/work/old" } });
+    for (let i = 0; i < 5; i++) nextDay(s);
+    // Born from an episode (origin_ref), and its meta names the same episode: one derivation.
+    const born = mem(s, "We ship together.", { origin: { scope: "/work/b", ref: "epi_00aa11" }, meta: { episodeId: "epi_00aa11" } });
+    s.updatePhysics(born, { promotedIdentity: true });
+    // Linked to a memory from another day and project: a link, not a wider span.
+    s.link({ src: old, dst: born, weight: 0.5, day: s.livedDay() });
+    // A dream's ref is not a lived episode.
+    const dreamt = mem(s, "A pattern I noticed.", { origin: { ref: "dream:drm_00bb22" } });
+    s.updatePhysics(dreamt, { promotedIdentity: true });
+    const sup = coreSupport(s);
+    expect(sup.elements.find((x) => x.id === born)).toMatchObject({ derivations: 1, links: 1, days: 1, contexts: 1 });
+    expect(sup.elements.find((x) => x.id === dreamt)).toMatchObject({ derivations: 0, links: 0, days: 1 });
+    expect(sup.oneEpisode).toBe(2);
+    const [line] = coreSupportFindings(s);
+    expect(line?.detail).toBe("2 elements; 2 with one episode behind them; span 1 day, 0–1 contexts; returns 0, derivations 0–1, links 0–1");
+  });
+
   test("core --list shows the three columns under each element", () => {
     const c = brain();
     const id = mem(c.store, "We ship together.", { kind: "self", about: "us" });

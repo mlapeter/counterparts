@@ -106,19 +106,23 @@ export interface CoreSupportRow {
   readonly id: string;
   /** Counted returns (`returns` rows: awake, dream, reflection). */
   readonly returns: number;
-  /** The rows it was made from, by its meta (`fit#derivedFrom`): a merge's originals, a gist's sources, its episode. */
+  /**
+   * What it was made from: the ids its meta names (`fit#derivedFrom`: a merge's
+   * originals, a gist's sources, its episode) and the episode it was born from
+   * (`origin_ref`), each once.
+   */
   readonly derivations: number;
-  /** Distinct memories an association edge joins it to, either way. */
+  /** Distinct memories an association edge joins it to, either way. Its own column: it widens neither span. */
   readonly links: number;
-  /** Distinct lived days across its birth, its returns, and what its derivations and links were born on. */
+  /** Distinct lived days across its birth, its returns, and what it was made from (never its links). */
   readonly days: number;
-  /** Distinct contexts (`origin_scope`: a project, a directory) across it, its derivations and its links. */
+  /** Distinct contexts (`origin_scope`: a project, a directory) across it and what it was made from (never its links). */
   readonly contexts: number;
 }
 
 export interface CoreSupport {
   readonly elements: readonly CoreSupportRow[];
-  /** Elements whose support is all one lived day: one episode behind them. */
+  /** Elements whose returns and derivations all sit on one lived day: one episode behind them. */
   readonly oneEpisode: number;
 }
 
@@ -128,9 +132,16 @@ export interface CoreSupport {
  * derivations column reads the element's own meta, what it was MADE FROM,
  * because the `derivations` table is pre-provisioned and nothing writes it
  * yet (store/operational.ts, v13); when something does, this is the place to
- * read it. Links are the weakest column today (~9,500 exist on Mike's store
- * and none had brought a memory to mind as of 10-20); kept, with the 10-22
- * check of co-use links to say whether they carry signal. Never throws.
+ * read it. A memory born from an episode records it in `origin_ref`, not in
+ * its meta, so that counts too: a ref naming an episode (`epi_…`, its chapter
+ * after `#` set aside) or a memory row. A dream's or reflection's ref
+ * (`dream:…`, `reflection:…`) and a migration's are not lived episodes and
+ * are left out. LINKS ARE THEIR OWN COLUMN and widen neither span (review of
+ * #550): ~9,500 exist on Mike's store, so counting what they join would make
+ * nearly every element read as spanning many days, which is the early-core
+ * problem this reading is meant to show. Links are also the weakest column
+ * (none had brought a memory to mind as of 10-20); the 10-22 check of co-use
+ * links says whether to keep them. Never throws.
  */
 export function coreSupport(store: Pick<ReadOnlyStore, "row" | "list" | "allEdges" | "returnsOf">): CoreSupport {
   const elements: CoreSupportRow[] = [];
@@ -171,11 +182,24 @@ export function coreSupport(store: Pick<ReadOnlyStore, "row" | "list" | "allEdge
       } catch {
         returns = 0;
       }
-      const parents = [...new Set(derivedFrom(row).map((d) => d.id))].filter((p) => p !== id);
-      for (const p of parents) place(store.row(p));
-      const links = [...(linked.get(id) ?? [])];
-      for (const l of links) place(store.row(l));
-      elements.push({ id, returns, derivations: parents.length, links: links.length, days: days.size, contexts: contexts.size });
+      // WHAT IT WAS MADE FROM, each once: an episode by its own id (a
+      // chapter's `#n` set aside), anything else by its row id.
+      const made = new Set<string>();
+      for (const d of derivedFrom(row)) {
+        const key = d.id.split("#")[0] ?? d.id;
+        if (key.length > 0 && key !== id && !made.has(key)) {
+          made.add(key);
+          place(store.row(key));
+        }
+      }
+      const ref = row.origin_ref ?? "";
+      const refKey = ref.split("#")[0] ?? "";
+      if (refKey.length > 0 && refKey !== id && !made.has(refKey) && (refKey.startsWith("epi_") || store.row(refKey) !== undefined)) {
+        made.add(refKey);
+        place(store.row(refKey));
+      }
+      const links = linked.get(id)?.size ?? 0;
+      elements.push({ id, returns, derivations: made.size, links, days: days.size, contexts: contexts.size });
     }
   } catch {
     /* what was read stands */
