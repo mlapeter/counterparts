@@ -214,7 +214,7 @@ describe("1. the nightly reflection is offered the core questions that waited a 
     }
     expect(new Set(nights.flat())).toEqual(new Set(ids));
     // The third night: the one never offered, then the longest ago offered.
-    expect(nights[2]).toEqual([ids[6], ids[0], ids[1]]);
+    expect(nights[2]).toEqual([ids[6] as string, ids[0] as string, ids[1] as string]);
   });
 
   test("an unsettled pair is shown both sides, and settles only after the retire", () => {
