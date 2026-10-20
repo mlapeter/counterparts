@@ -93,12 +93,16 @@
  *
  *   next 20, titles only (open any by id):
  *   11. Gym bag left at the office · mem_… · 09-14
+ *   12. earlier (now a later version): Gym at 7 · mem_… · 08-02
  *   …one line each for the next matches, by rank (`FACTS_TAIL_SIZE`,
- *   2026-10-20, lightly held): shown, never credited; the first to go when
- *   the answer runs out of room, after the excerpts are cut to 60
+ *   2026-10-20, from the benchmark loss read; helps real recall too; lightly
+ *   held, revisit): shown, never credited, gated as the bodies are (a
+ *   settled-over one shown on its own carries `earlier (now …)`); the first
+ *   to go when the answer runs out of room, after the excerpts are cut to 60
  *
  * A SOFT time word ("lately", "recently", "these days", "nowadays"; since
- * 2026-10-20, lightly held) filters nothing when the question asks anything
+ * 2026-10-20, from the benchmark loss read; helps real recall too; lightly
+ * held, revisit) filters nothing when the question asks anything
  * else: the past week's matches rank first (`FACTS_SOFT_RECENT_BONUS`) and
  * the header says "nothing filtered by date". Only time ("what happened
  * lately?") keeps the past week as a filter.
@@ -119,6 +123,7 @@ import { chaptersOf } from "../../core/handoff/last-here.js";
 import {
   OPEN_END,
   OPEN_START,
+  earlierMark,
   everydayFactor,
   headOf,
   informativeness,
@@ -185,7 +190,7 @@ export const FACTS_ANCHOR_DAYS = 2;
  * review.
  */
 export const FACTS_TAIL_SIZE = 20;
-/** A tail line's title, cut here: 20 lines stay near 1.5 KB with an id and a date (Mike's review). */
+/** A tail line's title, cut here: 20 lines stay near 1.5 KB with an id and a date (2026-10-20, from the benchmark loss read; helps real recall too; lightly held, revisit; Mike's review). */
 export const FACTS_TAIL_TITLE_CHARS = 48;
 
 /**
@@ -369,6 +374,14 @@ export interface FactTailItem {
   readonly date: string | null;
   readonly journal: boolean;
   readonly faded: boolean;
+  /**
+   * Settled over and shown on its own (its current version is one this asker
+   * may not see, so it did not fold): the end of its chain, as a body's
+   * `now` names it, or "a later version". The one mark a settled-over memory
+   * carries wherever its title is shown (`recall/standing.ts#earlierMark`;
+   * review of #544).
+   */
+  readonly now?: string;
 }
 
 export interface FactsResult {
@@ -943,12 +956,16 @@ export function factsRecall(ctx: FactsContext, question: string, opts: { page?: 
     const title = r.title ?? doc.title;
     const journal = r.type === "episode";
     const event = journal ? null : (r.occurred_on ?? null);
+    // As `factItem` reads it: changed over, and a head after it, named when it may be.
+    const over = pairs.some((p) => p.state === "settled" && p.how === "changed" && p.over === c.id && p.holds !== null);
+    const head = over ? headOf(store, c.id) : null;
     return {
       id: c.id,
       line: plainLine(title !== null && title.trim().length > 0 ? title : doc.body, FACTS_TAIL_TITLE_CHARS),
       date: event !== null && event.length > 0 ? event : learnedOf(r, zone),
       journal,
       faded: fadedIds.has(c.id),
+      ...(head === null ? {} : { now: canName(head) ? head : "a later version" }),
     };
   });
 
@@ -1382,8 +1399,9 @@ function sameDayTimes(memories: readonly FactItem[]): ReadonlyMap<string, string
  * `RECALL_RESULT_CHARS`: past it, excerpts are cut shorter until it fits.
  */
 export function renderFacts(r: FactsResult): string {
-  // The title tail goes before the bodies' last words do (2026-10-20, lightly
-  // held): the page's own results outrank a sight of the next ones.
+  // The title tail goes before the bodies' last words do (2026-10-20, from
+  // the benchmark loss read; helps real recall too; lightly held, revisit):
+  // the page's own results outrank a sight of the next ones.
   const steps: readonly (readonly [number, boolean])[] = [
     [RECALL_EXCERPT_CHARS, true],
     [150, true],
@@ -1413,7 +1431,8 @@ function tailLines(r: FactsResult, today: string): string[] {
   const out = [`next ${String(r.tail.length)}, titles only (open any by id):`];
   r.tail.forEach((t, i) => {
     const date = t.date === null ? "" : ` · ${shortDate(t.date, today)}`;
-    out.push(`${String(first + i + 1)}. ${t.journal ? "[journal] " : ""}${t.line} · ${t.id}${date}${t.faded ? " · faded" : ""}`);
+    const earlier = t.now === undefined ? "" : `${earlierMark(t.now)}: `;
+    out.push(`${String(first + i + 1)}. ${t.journal ? "[journal] " : ""}${earlier}${t.line} · ${t.id}${date}${t.faded ? " · faded" : ""}`);
   });
   return out;
 }
@@ -1454,7 +1473,7 @@ function renderAt(r: FactsResult, today: string, excerpt: number, withTail = tru
       const stretch = t.anchor.kind === "event" ? `, window ${span(t.window)}` : "";
       lines.push(`time: ${what}${stretch}${out}`);
     } else if (t.soft === true) {
-      // A soft word (2026-10-20, lightly held): read as a preference, said so.
+      // A soft word (2026-10-20, from the benchmark loss read; helps real recall too; lightly held, revisit): read as a preference, said so.
       lines.push(`time: ${t.cue} → ${span(t.said)} first, nothing filtered by date`);
     } else {
       const stretch = t.stretch > 0 ? `, stretched ${String(t.stretch)} day${t.stretch === 1 ? "" : "s"} each side` : "";

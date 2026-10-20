@@ -14,7 +14,8 @@
  *     (`recency-ask.ts`'s reading, reused), "N days ago" (and "3-4 days ago",
  *     "3 or 4 days ago": both ends; review of #345), "a few days ago",
  *     "the other day", "past N days", "recently" / "lately" / "these days" /
- *     "nowadays" (the past week, SOFT since 2026-10-20: `SOFT_WORDS`), "last Saturday" (and "this
+ *     "nowadays" (the past week, SOFT since 2026-10-20, from the benchmark loss read;
+ *     helps real recall too; lightly held, revisit: `SOFT_WORDS`), "last Saturday" (and "this
  *     past Saturday": the most recent Saturday BEFORE today, so asked on a
  *     Saturday it is a week ago; 2026-10-09). "This Saturday" and "on
  *     Saturday" are not read: either can be the coming one;
@@ -112,6 +113,7 @@ export interface TimeAsk {
  * session") or orders a kind ("my most recent trip"), not a stretch of days.
  */
 export const SOFT_WORDS = /\b(?:recently|lately|these days|nowadays)\b/i;
+const SOFT_WORDS_ALL = new RegExp(SOFT_WORDS.source, "gi");
 
 const MONTH_NAMES = [
   ["january", "jan"],
@@ -447,7 +449,9 @@ function ask(
     stretch,
     clock: extra.clock ?? null,
     anchor: extra.anchor ?? null,
-    rest,
+    // A soft word left beside another time ("recently, in September") asks
+    // nothing of its own: it is not a word to search for (review of #544).
+    rest: rest.replace(SOFT_WORDS_ALL, " ").replace(/\s+/g, " ").trim(),
     ...(extra.soft === true ? { soft: true as const } : {}),
   };
 }

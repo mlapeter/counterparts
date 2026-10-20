@@ -1536,6 +1536,35 @@ describe("the title tail (2026-10-20)", () => {
     expect(opened.ids).toContain(first);
     expect(c.store.physicsOf(first).uses).toBeGreaterThan(before);
   });
+
+  // Review of #544: a settled-over memory whose current version this asker may
+  // not see does not fold, and its title in the tail read as current.
+  test("a settled-over memory listed on its own carries the earlier mark, as its body would", () => {
+    // A clock that moves, so equal matches rank newest first and the old one lands in the tail.
+    let t = NOW - 3_600_000;
+    const c = Counterpart.open({ dir: join(dir, "store"), owner: true, now: () => (t += 1000), timeZone: ZONE });
+    findable(c.store);
+    open.push(c);
+    seed(c);
+    const crate = (i: number): string =>
+      c.store.put({ type: "memory", kind: "fact", title: `zqcrate order ${String(i)} for town${String(i)}`, body: `A zqcrate order went to town${String(i)} by van.` });
+    for (let i = 0; i < 20; i++) crate(i);
+    const old = crate(77);
+    for (let i = 100; i < 115; i++) crate(i);
+    const secretNow = c.store.put({ type: "memory", kind: "fact", body: "The depot moved to the clinic.", meta: { confidential: true } });
+    expect(settle(c.store, { holds: secretNow, over: old, how: "changed", why: "moved", actor: "session" }).ok).toBe(true);
+    const guest = ask(c, "zqcrate", { owner: false });
+    const at = guest.tail.findIndex((x) => x.id === old);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(guest.tail[at]?.now).toBe("a later version");
+    const text = renderFacts(guest);
+    expect(text).toContain(`. earlier (now a later version): zqcrate order 77 for town77 · ${old} · `);
+    expect(text).not.toContain(secretNow);
+    // The owner sees the current version, which the old one folded into: no mark on any line.
+    const owner = ask(c, "zqcrate");
+    expect([...owner.memories.map((m) => m.id), ...owner.tail.map((x) => x.id)]).not.toContain(old);
+    expect(owner.tail.every((x) => x.now === undefined)).toBe(true);
+  });
 });
 
 // 2026-10-20, from the benchmark loss read; helps real recall too; lightly
@@ -1611,5 +1640,29 @@ describe("soft time words (2026-10-20)", () => {
     const oct = ask(c, "the zqdesk in October");
     expect(oct.memories.map((m) => m.id)).toEqual([recent]);
     expect(oct.time?.outside).toBe(1);
+  });
+
+  // Review of #544.
+  test("a soft word beside an explicit window is not searched for; inside another word, or another language, it is nothing", () => {
+    // "recently, in September": September, and "recently" is not left as a word to match.
+    const sept = readTimeAsk("the zqgym recently, in September", clock);
+    expect(sept?.cue).toBe("in September");
+    expect(sept?.rest).not.toMatch(/recently/i);
+    expect(readTimeAsk("lately, since 9/12 the zqgym", clock)?.rest).not.toMatch(/lately/i);
+    expect(readTimeAsk("the zqgym recentlyish", clock)).toBeNull();
+    expect(readTimeAsk("the latelyness of the zqgym", clock)).toBeNull();
+    for (const q of ["¿qué pasó recientemente?", "最近どう？", "что нового в последнее время"]) expect(readTimeAsk(q, clock)).toBeNull();
+    const c = brain();
+    seed(c);
+    const plain = c.store.put({ type: "memory", kind: "fact", body: "Joined the zqgym on the corner, with a long note about the lockers.", occurredOn: "2026-09-10" });
+    // Says "recently": the word must not lift it over the other.
+    const says = c.store.put({ type: "memory", kind: "fact", body: "Recently paused the zqgym plan.", occurredOn: "2026-09-12" });
+    const r = ask(c, "the zqgym recently, in September");
+    expect(r.time?.soft).toBeUndefined();
+    expect(r.time?.cue).toBe("in September");
+    const without = ask(c, "the zqgym in September");
+    expect(r.memories.map((m) => m.id)).toEqual(without.memories.map((m) => m.id));
+    expect(r.memories.map((m) => m.id).sort()).toEqual([plain, says].sort());
+    expect(r.memories.map((m) => m.ways)).toEqual(without.memories.map((m) => m.ways));
   });
 });

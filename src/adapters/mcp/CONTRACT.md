@@ -649,7 +649,9 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   too; lightly held, revisit ~10-27 — an experiment, Mike's go via BENCHMARK). After the
   page's results, up to `FACTS_TAIL_SIZE` (20) of the next matches in rank order, one line
   each: `next 20, titles only (open any by id):` then `11. <title, cut at 48> · <id> ·
-  <event date, else learned> [· faded]` (a chapter `[journal]`). They are the next pages'
+  <event date, else learned> [· faded]` (a chapter `[journal]`; one settled over and shown
+  on its own, its current version hidden from this asker, leads with `earlier (now …):` as
+  its body would say `earlier — now …`; review of #544). They are the next pages'
   results, in the same order; the header and paging are unchanged ("N more → page 2"
   still counts from the page). A listed line is NOT a result: it is not in `ids`, the seen
   set or the `asked` records, so neither listing nor quoting its title credits anything;
