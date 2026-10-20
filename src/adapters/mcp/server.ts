@@ -151,6 +151,8 @@ import {
   embedQuestion,
 } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
+import { NIGHTS_GLOSS } from "./nights.js";
+import type { NightSummary } from "./nights.js";
 import { factsRecall, renderFacts } from "./facts.js";
 import { meaningRecall, renderMeaning } from "./meaning.js";
 import {
@@ -187,6 +189,7 @@ import {
   RECALL_MODE_WORDS,
   DESKTOP_DREAM_NOTE,
   STILL_DATED_HINT,
+  ANSWERS_HINT,
   STILL_DATED_SHOWN,
   TITLE_ASKED_NOTE,
 } from "./server-words.js";
@@ -1666,6 +1669,8 @@ export class McpServer {
     const deposit = await this.counterpart.submitJot(draft, {
       session,
       scope: this.scope,
+      // The day this server reads, for a done that closes one occurrence (2026-10-20).
+      at: this.today(),
       ownSpanHash,
       facts: facts.sent,
       // What it is about sets an unclaimed memory's default floor (2026-10-10).
@@ -1697,6 +1702,7 @@ export class McpServer {
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
       ...this.slotOf(deposit),
       ...this.stillDatedNear(deposit, dated, facts.sent.status, [], session),
+      ...this.answersReminder(deposit, facts.sent, neighbours),
       ...(settle === null ? {} : { settle }),
       ...(feltNow === null ? {} : { feelingsNow: feltNow }),
       // AN ERROR ONLY WHEN NOTHING LANDED (review of #316): a refused note
@@ -1999,6 +2005,33 @@ export class McpServer {
   }
 
   /**
+   * A WRITE THAT LOOKS LIKE IT ANSWERS A REMINDER DUE NOW (2026-10-20, an
+   * experiment, lightly held). "The backup ran" written as a fresh memory —
+   * no `updates` — leaves the weekly reminder open, and it comes back the
+   * same day. So when a write says something was `done`, or that the owner
+   * said it, and one of its listed neighbours (already shown, close by the
+   * neighbours' own bars) is a dated memory whose occurrence is due today or
+   * overdue inside its window (or, in the next one's lead days, the one
+   * before it still unclosed: what a done would close) and not yet closed,
+   * it is named with the way to close it. Never closed here: a close neighbour can be another thing.
+   */
+  private answersReminder(deposit: DepositResult, sent: { readonly status?: unknown; readonly saidBy?: unknown }, neighbours: readonly Neighbour[]): Record<string, unknown> {
+    if (!deposit.deposited || deposit.memoryId === null || neighbours.length === 0) return {};
+    if ((deposit.proposal?.updates?.declared ?? null) !== null) return {};
+    if (sent.status !== "done" && sent.saidBy !== "owner") return {};
+    const today = this.today();
+    const out: { id: string; title: string | null; due: string; recurring?: string }[] = [];
+    for (const n of neighbours) {
+      // The occurrence a done would close (`doneOccurrence`, review of #540):
+      // in the next one's lead days, an overdue one still unclosed.
+      const open = this.counterpart.prospective.doneOccurrence(n.id, today);
+      if (open === null || open.closed || today < open.firstDay) continue;
+      out.push({ id: n.id, title: n.title, due: open.occurrence, ...(open.recurring === null ? {} : { recurring: open.recurring }) });
+    }
+    return out.length === 0 ? {} : { answers: out, answersHint: ANSWERS_HINT };
+  }
+
+  /**
    * OTHER OPEN DATED MEMORIES NEAR A CLOSE (2026-10-14, Group 1 check-in,
    * lightly held). One obligation was found on several memories — a plain
    * reminder, a moved chain, a list — and a "done" that `updates` one left the
@@ -2006,10 +2039,12 @@ export class McpServer {
    * with `eventDate: null` or `status: done`), the nearest memories of the
    * new one and of the one it closed that still hold a date are LISTED, by id
    * and title, so the writer can close them in the same step. Never closed
-   * here: a nearby date can be another obligation. Empty when none.
+   * here: a nearby date can be another obligation. Empty when none. Not
+   * beside a `done` that closed one occurrence of a repeat (2026-10-20): the
+   * reminder stays, so there is no obligation ended to look for copies of.
    */
   private stillDatedNear(deposit: DepositResult, dated: ReminderRead, sentStatus: unknown, siblings: readonly string[], session: string | null): Record<string, unknown> {
-    if (!deposit.deposited || deposit.memoryId === null) return {};
+    if (!deposit.deposited || deposit.memoryId === null || deposit.occurrence !== undefined) return {};
     const closed = deposit.reminder !== undefined && deposit.reminder.eventDate === null;
     const declared = (deposit.proposal?.updates?.declared ?? null) !== null;
     const meant = declared && (("fields" in dated && dated.fields.eventDate === null) || sentStatus === "done");
@@ -2183,6 +2218,7 @@ export class McpServer {
         storeSize: result.storeSize,
         expanded: result.path === "handle" ? result.memories.length : 0,
         blockedBy: addressBlocked(result),
+        ...(Array.isArray(payload["nights"]) && payload["nights"].length > 0 ? { nights: payload["nights"].length } : {}),
       },
       askedIds.length,
       question,
@@ -2445,6 +2481,9 @@ export class McpServer {
         // expansion answered an address, a question's answer showed results.
         surfaced: byAddress ? 0 : shown,
         expanded: byAddress ? row.expanded : 0,
+        // A night opened by its id (review of #538): counted apart, so a row
+        // that opened a dream does not read as an address that held nothing.
+        ...(row.nights === undefined ? {} : { nights: row.nights }),
         ...(row.matched === undefined ? {} : { matched: row.matched }),
         ...(row.faded === undefined ? {} : { faded: row.faded }),
         ...(row.page === undefined ? {} : { page: row.page }),
@@ -2560,6 +2599,24 @@ export class McpServer {
     // past the total waiting by name.
     const bounded = boundById(result.memories, part);
     const lastPart = Math.max(1, ...bounded.memories.map((m) => m.parts ?? 1));
+    // NIGHTS SHARE THE SAME ROOM (review of #538): a summary is bounded on its
+    // own (`nights.ts`'s caps), but ten of them beside the memories could
+    // still pass the ceiling. They take what the memories left, weighed the
+    // way `boundById` weighs, and a night past it WAITS by id like a memory.
+    let wire = bounded.memories.reduce((n, m) => n + 2 * wireChars(JSON.stringify(m, null, 2)), 0);
+    const nights: NightSummary[] = [];
+    const nightsWaiting: string[] = [];
+    for (const n of result.nights ?? []) {
+      const cost = 2 * wireChars(JSON.stringify(n, null, 2));
+      const shipped = bounded.memories.length + nights.length > 0;
+      if (nightsWaiting.length > 0 || (shipped && wire + cost > RECALL_ID_RESULT_CHARS)) {
+        nightsWaiting.push(n.id);
+        continue;
+      }
+      wire += cost;
+      nights.push(n);
+    }
+    const waiting = [...(bounded.waiting ?? []), ...nightsWaiting];
     return {
       path: result.path,
       reason: result.reason,
@@ -2574,10 +2631,10 @@ export class McpServer {
             budget: `By id, a body comes in parts of ${RECALL_BODY_CHARS} characters ("part" of "parts" on each; bodyChars is the whole length).${part < lastPart ? ` Ask again with the same ids and part: ${String(part + 1)} for the next.` : " That was the last part."}`,
           }
         : {}),
-      ...(bounded.waiting !== undefined
+      ...(waiting.length > 0
         ? {
-            waiting: [...bounded.waiting],
-            more: `No room for ${String(bounded.waiting.length)} of the ids in one result: ask again with ids: [${bounded.waiting.join(", ")}].`,
+            waiting,
+            more: `No room for ${String(waiting.length)} of the ids in one result: ask again with ids: [${waiting.join(", ")}].`,
           }
         : {}),
       ...(result.ambiguous.length > 0 ? { ambiguous: [...result.ambiguous] } : {}),
@@ -2588,9 +2645,17 @@ export class McpServer {
       ...(result.reason === "handle-confidential-withheld"
         ? {
             withheld:
-              "That memory is marked confidential and this is not the owner's own session. It exists; it is not being shown.",
+              result.nightAsked !== undefined
+                ? `That ${result.nightAsked} rests on a memory marked confidential, and this is not the owner's own session. It exists; it is not being shown.`
+                : "That memory is marked confidential and this is not the owner's own session. It exists; it is not being shown.",
           }
         : {}),
+      ...(result.reason === "handle-unknown" && result.nightAsked !== undefined
+        ? { notFound: `No ${result.nightAsked} by that id in this memory. The console's read-only \`counterparts night\` lists the recent ones.` }
+        : {}),
+      // A NIGHT asked for by its id (2026-10-20, `nights.ts`): a read-only
+      // summary beside the memories. Opening one credits nothing.
+      ...(nights.length > 0 ? { nights: nights.map((n) => ({ ...n })), nightsGloss: NIGHTS_GLOSS } : {}),
       ...(result.reason === "both-arguments"
         ? { refused: "One kind of ask per call: a question (with a mode), ids, or a handle." }
         : {}),
