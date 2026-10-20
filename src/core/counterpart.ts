@@ -133,8 +133,8 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere } from "./coverage/index.js";
-import { LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
-import type { ChapterHere, LastHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
+import { ELSEWHERE_TITLES_MAX, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
+import type { ChapterHere, LastHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
 import { LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, lastExchangeLine, withExchange } from "./handoff/last-exchange.js";
 import type { LastExchange } from "./handoff/last-exchange.js";
 import { addDays, daysBetween, isDay, localDate, localStamp, localStampAfter, startOfLocalDay, yearOf } from "./time.js";
@@ -163,6 +163,7 @@ import {
   workHereBytes,
   writerInstruction,
   fitNightWriter,
+  isWorkMemory,
 } from "./self/index.js";
 import type {
   BriefingResult,
@@ -904,8 +905,11 @@ export class Counterpart {
    *   - a chapter's title only on the "About me, from another directory"
    *     line's gate: not confidential, and a copy marked about me, us or the
    *     owner — never one the line already names;
-   *   - memories as COUNTS only (confidential ones to the owner only); never
-   *     a work memory's title, a word of a span, or a handoff's body.
+   *   - memories as counts (confidential ones to the owner only), and since
+   *     2026-10-20 (Mike's go, an experiment) one or two of today's by title
+   *     a directory (`elsewhereTitles`): never a confidential one, one marked
+   *     about me, us or the owner, this session's own, or one this wake
+   *     lists under "Still open"; never a word of a span or a handoff's body.
    *
    * Empty when there is nothing to say; never throws.
    */
@@ -917,13 +921,13 @@ export class Counterpart {
       const zone = this.store.zone();
       const since = startOfLocalDay(at, zone);
       const until = startOfLocalDay(addDays(at, 1), zone);
-      type Dir = { scope: string; firstAt: number | null; lastAt: number | null; live: boolean; chapter: ChapterHere | null; memories: number };
+      type Dir = { scope: string; firstAt: number | null; lastAt: number | null; live: boolean; chapter: ChapterHere | null; memories: number; titles: MemoryHere[] };
       const dirs = new Map<string, Dir>();
       const dirOf = (scope: string): Dir => {
         const key = gate.norm(scope);
         let d = dirs.get(key);
         if (d === undefined) {
-          d = { scope: key, firstAt: null, lastAt: null, live: false, chapter: null, memories: 0 };
+          d = { scope: key, firstAt: null, lastAt: null, live: false, chapter: null, memories: 0, titles: [] };
           dirs.set(key, d);
         }
         return d;
@@ -937,6 +941,10 @@ export class Counterpart {
       }
       for (const { scope, count } of this.store.memoryCountsByScopeSince(since, { confidential: this.owner })) {
         if (named(scope)) dirOf(scope).memories = count;
+      }
+      // What "Still open" may list in this wake is that lane's to name.
+      for (const [scope, titles] of this.elsewhereTitles(gate, since, until, new Set(this.store.openThreadIds()))) {
+        if (dirs.has(scope)) dirOf(scope).titles = titles;
       }
       const chapters = this.chaptersInWindow(this.store.livedDay());
       // The chapter the "About me, from another directory" line names — with
@@ -970,8 +978,12 @@ export class Counterpart {
    *     directory" line's gate — not confidential, a copy marked about me, us
    *     or the owner, not the reader's own, from a directory `named` lets
    *     through.
-   * Memories cross as COUNTS only (confidential ones to the owner only); the
-   * callers read no work memory's title, no word of a span and no handoff.
+   * Memories cross as counts (confidential ones to the owner only), and since
+   * 2026-10-20 one or two by title a directory (`elsewhereTitles`): a
+   * directory `named` lets through, not this session's own, and not a row the
+   * store's read leaves out — confidential (whoever reads), marked about me,
+   * us or the owner, identity, a chapter's copy, the nightly run's. The
+   * callers read no word of a span and no handoff.
    */
   private elsewhereGate(here?: WakeHere): {
     named(scope: string): boolean;
@@ -1008,12 +1020,50 @@ export class Counterpart {
   }
 
   /**
+   * THE MEMORIES AN ELSEWHERE LINE NAMES BY TITLE (2026-10-20, Mike's go,
+   * lightly held, an experiment): for each directory `gate` lets through, the
+   * one or two (`ELSEWHERE_TITLES_MAX`) written in `[since, until)` that say
+   * most about the work there — a `status` mark first (planned, proposed,
+   * asked or done: work in progress, or finished today), then a work memory
+   * (`self/work.ts#isWorkMemory`, the wake's own rule), newest first within
+   * each, and nothing else — no chit-chat, nothing personal
+   * (`Store#memoryTitlesByScopeSince`, which also leaves out what may never
+   * cross). Not this session's own, and not one in `skip`. Keyed by the gate's normalized directory. Reads the
+   * columns only; throws only what the store throws.
+   */
+  private elsewhereTitles(
+    gate: { named(scope: string): boolean; norm(scope: string): string; reader: string | null },
+    since: number,
+    until: number,
+    skip: ReadonlySet<string> = new Set(),
+  ): Map<string, MemoryHere[]> {
+    const out = new Map<string, (MemoryHere & { tier: number })[]>();
+    for (const m of this.store.memoryTitlesByScopeSince(since, { until, perScope: ELSEWHERE_TITLES_MAX })) {
+      if (skip.has(m.id) || (gate.reader !== null && m.session === gate.reader) || !gate.named(m.scope)) continue;
+      // Work in progress or work, by the wake's own rule of what work is.
+      if (m.tier !== 0 && !isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
+      const key = gate.norm(m.scope);
+      const held = out.get(key) ?? [];
+      held.push({ id: m.id, title: m.title, at: m.at, tier: m.tier });
+      out.set(key, held);
+    }
+    const chosen = new Map<string, MemoryHere[]>();
+    for (const [key, held] of out) {
+      held.sort((a, b) => a.tier - b.tier || b.at - a.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      chosen.set(key, held.slice(0, ELSEWHERE_TITLES_MAX).map(({ id, title, at }) => ({ id, title, at })));
+    }
+    return chosen;
+  }
+
+  /**
    * THE "SINCE YOU STARTED" LINE (2026-10-11; option C of the fresh-wake
    * brief, which Mike approved 2026-10-10): for a session already open in
    * `here.scope`, what changed in the other directories inside `window` —
    * from when it last heard (its wake, or the last such line) until now: a
    * session there that started and is still open, one that ended, a chapter,
-   * and how many memories. A directory where only time passed is not named.
+   * and how many memories — and since 2026-10-20 one or two of them by title
+   * (`elsewhereTitles`), written inside `window`, so a title one line named
+   * the next does not name again. A directory where only time passed is not named.
    *
    * The same gate as "Today, elsewhere" (`elsewhereGate`), and the same reads:
    * the host's registry, the store's counts, the fortnight's chapter walk.
@@ -1031,13 +1081,13 @@ export class Counterpart {
     try {
       const { named, reader } = gate;
       const { since, until } = window;
-      type Dir = { scope: string; startedAt: number | null; live: boolean; endedAt: number | null; chapter: ChapterHere | null; memories: number };
+      type Dir = { scope: string; startedAt: number | null; live: boolean; endedAt: number | null; chapter: ChapterHere | null; memories: number; titles: MemoryHere[] };
       const dirs = new Map<string, Dir>();
       const dirOf = (scope: string): Dir => {
         const key = gate.norm(scope);
         let d = dirs.get(key);
         if (d === undefined) {
-          d = { scope: key, startedAt: null, live: false, endedAt: null, chapter: null, memories: 0 };
+          d = { scope: key, startedAt: null, live: false, endedAt: null, chapter: null, memories: 0, titles: [] };
           dirs.set(key, d);
         }
         return d;
@@ -1055,6 +1105,9 @@ export class Counterpart {
       }
       for (const { scope, count } of this.store.memoryCountsByScopeSince(since, { confidential: this.owner })) {
         if (named(scope)) dirOf(scope).memories = count;
+      }
+      for (const [scope, titles] of this.elsewhereTitles(gate, since, until)) {
+        if (dirs.has(scope)) dirOf(scope).titles = titles;
       }
       for (const c of this.chaptersInWindow(this.store.livedDay()).values()) {
         if (c.scope === null || c.writtenAt < since || c.writtenAt >= until || !gate.crosses(c)) continue;

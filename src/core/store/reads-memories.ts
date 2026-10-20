@@ -23,7 +23,7 @@ import type {
   Tombstone,
   RemovalNote,
 } from "./shapes.js";
-import { aboutMarkOf, STATUSES } from "./marks.js";
+import { aboutMarkOf, CORE_ABOUT_MARKS, STATUSES } from "./marks.js";
 import type { MemoryStatus } from "./marks.js";
 import type { Store } from "./index.js";
 
@@ -269,6 +269,42 @@ export function memoryCountsByScopeSince(store: Store, at: number, opts: { confi
       at,
     )
     .map((r) => ({ scope: r.origin_scope, count: r.n }));
+}
+
+export function memoryTitlesByScopeSince(
+  store: Store,
+  at: number,
+  opts: { readonly until?: number; readonly perScope?: number } = {},
+): { id: string; scope: string; session: string | null; title: string; at: number; tier: number; about: string | null; kind: string }[] {
+  const per = Math.max(0, Math.floor(opts.perScope ?? 2));
+  if (per === 0) return [];
+  const status = store.hasColumn("memories", "status") ? "status" : "NULL";
+  const personal = CORE_ABOUT_MARKS.map((m) => `'${m}'`).join(", ");
+  const marked = STATUSES.map((m) => `'${m}'`).join(", ");
+  return store["ops"]
+    .all<{ id: string; origin_scope: string; origin_session: string | null; head: string; created_at: number; tier: number; about: string | null; kind: string }>(
+      `SELECT id, origin_scope, origin_session, head, created_at, tier, about, kind FROM (
+         SELECT *, ROW_NUMBER() OVER (PARTITION BY origin_scope ORDER BY tier, created_at DESC, id) AS rank FROM (
+           SELECT id, origin_scope, origin_session, created_at, about, kind,
+                  COALESCE(NULLIF(TRIM(title), ''), SUBSTR(body, 1, 240)) AS head,
+                  CASE WHEN ${status} IN (${marked}) THEN 0
+                       WHEN about = 'work' OR (about IS NULL AND kind IN ('skill', 'fact', 'entity', 'place')) THEN 1
+                       ELSE 2 END AS tier
+             FROM memories
+            WHERE type = 'memory' AND created_at IS NOT NULL AND created_at >= ? AND created_at < ?
+              AND origin_scope IS NOT NULL AND origin_scope != ''
+              AND archived = 0 AND superseded_by IS NULL AND body != '' AND confidential = 0
+              AND band != 'identity' AND COALESCE(about, '') NOT IN (${personal})
+              AND COALESCE(source, '') != 'episode' AND COALESCE(origin_ref, '') NOT LIKE 'epi\\_%' ESCAPE '\\'
+              AND meta NOT LIKE '%"episodeId"%' AND NOT ${NIGHTLY_SQL}
+         ) WHERE tier < 2
+       ) WHERE rank <= ?
+       ORDER BY origin_scope, rank`,
+      at,
+      opts.until ?? Number.MAX_SAFE_INTEGER,
+      per * 4,
+    )
+    .map((r) => ({ id: r.id, scope: r.origin_scope, session: r.origin_session, title: r.head, at: r.created_at, tier: r.tier, about: r.about, kind: r.kind }));
 }
 
 export function memoriesOfSession(store: Store, session: string): { id: string; session: string; at: number; bornDay: number }[] {

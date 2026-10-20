@@ -612,8 +612,35 @@ export interface TodayElsewhere {
   /** Today's newest chapter there that may be named in another directory —
    *  gated by the caller — or null. */
   readonly chapter: ChapterHere | null;
-  /** How many memories were written there today. A count, never a title. */
+  /** How many memories were written there today. */
   readonly memories: number;
+  /** The one or two of them named by title (2026-10-20, Mike's go, an
+   *  experiment): gated and chosen by the caller, the first named first. */
+  readonly titles?: readonly MemoryHere[];
+}
+
+/**
+ * HOW MANY OF A DIRECTORY'S MEMORIES AN ELSEWHERE LINE NAMES BY TITLE, at most
+ * (2026-10-20, Mike's go, lightly held, an experiment): the newest piece or
+ * two of work there, so a session starting here knows what the one there is
+ * doing, not only that it wrote something. The line's ladder gives them up
+ * one at a time before it gives up a chapter or a directory.
+ */
+export const ELSEWHERE_TITLES_MAX = 2;
+
+/**
+ * HOW LONG A MEMORY'S TITLE MAY RUN IN AN ELSEWHERE LINE, IN BYTES (2026-10-20,
+ * lightly held): enough to say what the work is, short enough that two
+ * directories with a title each fit `TODAY_ELSEWHERE_MAX_BYTES`. The id
+ * beside it is whole, so recall can expand it.
+ */
+export const ELSEWHERE_TITLE_BYTES = 48;
+
+/** A memory an elsewhere line names: its id, its title (or first words), when it was written. */
+export interface MemoryHere {
+  readonly id: string;
+  readonly title: string;
+  readonly at: number;
 }
 
 /**
@@ -623,16 +650,19 @@ export interface TodayElsewhere {
  * directories is not several sessions each unaware of the others.
  *
  *   Today, elsewhere: ~/counterparts open since 08:02 (live) — "Reading the
- *   overnight benchmark" (epi_…), 6 memories; ~/deadfront 08:05–09:40, 2
- *   memories.
+ *   overnight benchmark" (epi_…), 6 memories: "Wake check 10-20" (mem_…),
+ *   "Spans out of backups" (mem_…); ~/deadfront 08:05–09:40, 2 memories.
  *
- * Times and counts, and a chapter's title only when the caller's gate let it
+ * Times and counts, a chapter's title only when the caller's gate let it
  * through — the "About me, from another directory" line's: the scope setting,
- * the confidential mark, and a copy marked about me, us or the owner. Never a
- * word of a span, a work memory's title, or a handoff: those stay where they
- * were made. Returns the line and its shorter forms — fewer chapters, fewer
- * directories, the rest counted — every one within
- * `TODAY_ELSEWHERE_MAX_BYTES`, or null when there is nothing to say. Pure.
+ * the confidential mark, and a copy marked about me, us or the owner — and
+ * since 2026-10-20 (Mike's go, an experiment) one or two memory titles a
+ * directory, by the same gate's folder rule and the confidential mark
+ * (`TodayElsewhere.titles`, chosen by the caller). Never a word of a span or
+ * a handoff: those stay where they were made. Returns the line and its
+ * shorter forms — fewer titles, fewer chapters, fewer directories, the rest
+ * counted — every one within `TODAY_ELSEWHERE_MAX_BYTES`, or null when there
+ * is nothing to say. Pure.
  */
 export function todayElsewhereLines(
   dirs: readonly TodayElsewhere[],
@@ -653,7 +683,7 @@ export function todayElsewhereLines(
   // before) says its start with the day. `lastAt` is today's, by the caller.
   const start = (firstAt: number, lastAt: number | null): string =>
     lastAt !== null && localDate(firstAt, zone) !== localDate(lastAt, zone) ? localStamp(firstAt, zone) : clock(firstAt);
-  const one = (d: TodayElsewhere, chapters: boolean): string => {
+  const one = (d: TodayElsewhere, chapters: boolean, titles: number): string => {
     const when =
       d.firstAt === null
         ? ""
@@ -661,8 +691,7 @@ export function todayElsewhereLines(
           ? ` open since ${start(d.firstAt, d.lastAt)} (live)`
           : ` ${start(d.firstAt, d.lastAt)}–${clock(d.lastAt ?? d.firstAt)}`;
     const chapter = !chapters || d.chapter === null ? "" : ` — ${chapterWords(d.chapter)}`;
-    const count = d.memories === 0 ? "" : `, ${String(d.memories)} ${d.memories === 1 ? "memory" : "memories"}`;
-    return `${placeWords(d.scope)}${when}${chapter}${count}`;
+    return `${placeWords(d.scope)}${when}${chapter}${countWords(d.memories, d.titles, titles)}`;
   };
   return elsewhereForms("Today, elsewhere:", named, one);
 }
@@ -678,16 +707,28 @@ export function todayElsewhereLines(
 function elsewhereForms<D>(
   head: string,
   named: readonly D[],
-  one: (d: D, chapters: boolean) => string,
+  one: (d: D, chapters: boolean, titles: number) => string,
 ): { line: string; shorter: string[] } | null {
   if (named.length === 0) return null;
-  const line = (k: number, chapters: boolean): string => {
+  const line = (k: number, chapters: boolean, titles: readonly number[]): string => {
     const rest = named.length - k;
     const tail = rest === 0 ? "" : `; +${String(rest)} more`;
-    return flatten(`${head} ${named.slice(0, k).map((d) => one(d, chapters)).join("; ")}${tail}.`);
+    return flatten(`${head} ${named.slice(0, k).map((d, i) => one(d, chapters, titles[i] ?? 0)).join("; ")}${tail}.`);
   };
+  // For each count of directories, widest first — and within it (2026-10-20)
+  // the most memory titles first, spread across the directories before two
+  // go to one, the first-named directories keeping theirs longest — each
+  // with the chapters and then without. So titles give way before a
+  // directory does, and a chapter's title before a memory's: what a session
+  // is working on now is what the line is for. With no titles to name, the
+  // forms are exactly the 2026-10-10 ones.
   const candidates: string[] = [];
-  for (let k = Math.min(named.length, TODAY_ELSEWHERE_MAX_DIRS); k >= 1; k--) candidates.push(line(k, true), line(k, false));
+  for (let k = Math.min(named.length, TODAY_ELSEWHERE_MAX_DIRS); k >= 1; k--) {
+    const allots = allotments(k, ELSEWHERE_TITLES_MAX).sort(
+      (a, b) => sum(b) - sum(a) || Math.max(0, ...a) - Math.max(0, ...b),
+    );
+    for (const titles of allots) candidates.push(line(k, true, titles), line(k, false, titles));
+  }
   candidates.push(`${head} ${String(named.length)} other ${named.length === 1 ? "project" : "projects"}.`);
   const size = (s: string): number => new TextEncoder().encode(s).length;
   const forms: string[] = [];
@@ -701,9 +742,35 @@ function elsewhereForms<D>(
   return widest === undefined ? null : { line: widest, shorter };
 }
 
+/** Every way to give `k` directories up to `max` titles each, never more to a later one than an earlier. */
+function allotments(k: number, max: number): number[][] {
+  if (k === 0) return [[]];
+  const out: number[][] = [];
+  for (let first = max; first >= 0; first--) for (const rest of allotments(k - 1, first)) out.push([first, ...rest]);
+  return out;
+}
+
+function sum(xs: readonly number[]): number {
+  return xs.reduce((n, x) => n + x, 0);
+}
+
 /** A gated chapter as an elsewhere line names it: its title and id, or the id alone. */
 function chapterWords(c: ChapterHere): string {
   return c.title === null ? c.id : `"${excerpt(c.title, LAST_HERE_TITLE_BYTES)}" (${c.id})`;
+}
+
+/**
+ * A directory's memories as an elsewhere line says them (2026-10-20): the
+ * count, and then up to `shown` of the titles the caller chose — `, 8
+ * memories: "Wake check 10-20" (mem_…), "Spans out of backups" (mem_…)`.
+ * Each title one line (`excerpt`), at most `ELSEWHERE_TITLE_BYTES`.
+ */
+function countWords(memories: number, titles: readonly MemoryHere[] | undefined, shown: number): string {
+  const listed = (titles ?? []).slice(0, Math.max(0, shown)).map((m) => `"${excerpt(m.title, ELSEWHERE_TITLE_BYTES)}" (${m.id})`);
+  const n = Math.max(memories, listed.length);
+  if (n === 0) return "";
+  const count = `, ${String(n)} ${n === 1 ? "memory" : "memories"}`;
+  return listed.length === 0 ? count : `${count}: ${listed.join(", ")}`;
 }
 
 /** One other directory, as the "Since you started" line names it: what CHANGED there since `since`. */
@@ -717,8 +784,11 @@ export interface SinceElsewhere {
   readonly endedAt: number | null;
   /** The newest chapter written there since then that may be named here — gated by the caller — or null. */
   readonly chapter: ChapterHere | null;
-  /** How many memories were written there since then. A count, never a title. */
+  /** How many memories were written there since then. */
   readonly memories: number;
+  /** The one or two of them named by title (2026-10-20), as `TodayElsewhere.titles`:
+   *  only ones written since then, so a title is named once. */
+  readonly titles?: readonly MemoryHere[];
 }
 
 /**
@@ -728,14 +798,17 @@ export interface SinceElsewhere {
  * a session there started or ended, a chapter, new memories (counts).
  *
  *   Since you started (10:40): ~/deadfront ended 11:05, chapter "Fixing the
- *   gate" (epi_…), 3 memories; ~/random open since 10:52, 2 memories.
+ *   gate" (epi_…), 3 memories: "Gate test passes" (mem_…); ~/random open
+ *   since 10:52, 2 memories.
  *
  * `since` is when the session last heard (its wake, or the last such line):
  * the first line says "Since you started (10:40)", a later one "Since 11:40".
  * The same gates as "Today, elsewhere" — the caller applies them, the one
  * gate for both — and the same ladder of forms within
  * `TODAY_ELSEWHERE_MAX_BYTES`. A directory where nothing changed is not
- * named. Null when there is nothing to say. Pure.
+ * named. The titles (2026-10-20) are of memories written since `since`, so
+ * what one line named the next does not name again. Null when there is
+ * nothing to say. Pure.
  */
 export function sinceElsewhereLines(
   dirs: readonly SinceElsewhere[],
@@ -746,8 +819,8 @@ export function sinceElsewhereLines(
     .filter((d) => d.startedAt !== null || d.endedAt !== null || d.memories > 0 || d.chapter !== null)
     .sort(
       (a, b) =>
-        Math.max(b.startedAt ?? 0, b.endedAt ?? 0, b.chapter?.writtenAt ?? 0) -
-          Math.max(a.startedAt ?? 0, a.endedAt ?? 0, a.chapter?.writtenAt ?? 0) ||
+        Math.max(b.startedAt ?? 0, b.endedAt ?? 0, b.chapter?.writtenAt ?? 0, ...(b.titles ?? []).map((m) => m.at)) -
+          Math.max(a.startedAt ?? 0, a.endedAt ?? 0, a.chapter?.writtenAt ?? 0, ...(a.titles ?? []).map((m) => m.at)) ||
         b.memories - a.memories ||
         (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0),
     );
@@ -755,7 +828,7 @@ export function sinceElsewhereLines(
   // A clock time alone while it is the same day; the day as well when not.
   const when = (at: number): string =>
     localDate(at, zone) === localDate(since.now, zone) ? clock(at) : localStamp(at, zone);
-  const one = (d: SinceElsewhere, chapters: boolean): string => {
+  const one = (d: SinceElsewhere, chapters: boolean, titles: number): string => {
     const state =
       d.startedAt !== null
         ? ` open since ${when(d.startedAt)}`
@@ -765,8 +838,7 @@ export function sinceElsewhereLines(
             ? ` ended ${when(d.endedAt)}`
             : "";
     const chapter = !chapters || d.chapter === null ? "" : `, chapter ${chapterWords(d.chapter)}`;
-    const count = d.memories === 0 ? "" : `, ${String(d.memories)} ${d.memories === 1 ? "memory" : "memories"}`;
-    return `${placeWords(d.scope)}${state}${chapter}${count}`;
+    return `${placeWords(d.scope)}${state}${chapter}${countWords(d.memories, d.titles, titles)}`;
   };
   const head = since.started ? `Since you started (${when(since.at)}):` : `Since ${when(since.at)}:`;
   return elsewhereForms(head, named, one);
