@@ -204,6 +204,9 @@ describe("what the words may carry", () => {
       { session: A, scope: THERE },
     );
     expect(kept.deposited).toBe(true);
+    // Marked work, as the remember tool records a writer's mark after the
+    // deposit: only explicitly marked work is named elsewhere by title.
+    w.c.store.setAbout(kept.memoryId as string, "work", { by: "writer" });
     w.set(at(D2, 9));
     const line = elsewhereOf(wakeText(w));
     expect(line).toContain(kept.memoryId as string);
@@ -362,5 +365,66 @@ describe("the room", () => {
     const work = text.split("\n").filter((l) => l.startsWith("- ") && ids.some((id) => l.includes(id)));
     expect(work.length).toBeGreaterThan(0);
     for (const l of work) expect(dropped.some((id) => l.includes(id))).toBe(true);
+  });
+});
+
+describe("only explicitly marked work crosses by title (2026-10-20, the 0.3.28 release check)", () => {
+  test("an unmarked note is not named in another folder or in Here, also open, at the wake or at a prompt; one marked work is, and the count keeps both", () => {
+    const w = world(at(D2, 8));
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 8) });
+    recordSession(storeDir, { sessionId: P, scope: HERE, phase: "start", at: at(D2, 8, 2) });
+    // Written in a project with no `about`: "Work here" counts these as the
+    // project's work, but the write tools promise they are shown only there.
+    memory(w, at(D2, 8, 10), { session: A, scope: THERE, title: "UNMARKEDTHERE Mike was worn out after the visit", body: "Mike was worn out after the visit." });
+    memory(w, at(D2, 8, 11), { session: A, scope: THERE, body: "UNTITLEDTHERE the visit ran long and he was tired." });
+    memory(w, at(D2, 8, 12), { session: P, scope: HERE, title: "UNMARKEDHERE a long day at the clinic", body: "A long day at the clinic." });
+    const there = memory(w, at(D2, 8, 20), { session: A, scope: THERE, title: "Oven seven offset", body: "Eleven degrees hot.", about: "work" });
+    const here = memory(w, at(D2, 8, 21), { session: P, scope: HERE, title: "Roadmap: the notes module", body: "Notes.", about: "work" });
+    w.set(at(D2, 9));
+    const woke = elsewhereOf(wakeText(w));
+    expect(woke).toContain(`"Oven seven offset" (${there})`);
+    expect(woke).toContain(`"Roadmap: the notes module" (${here})`);
+    expect(woke).toContain(", 3 memories:");
+    for (const never of ["UNMARKEDTHERE", "UNTITLEDTHERE", "UNMARKEDHERE", "worn out", "clinic"]) expect(woke).not.toContain(never);
+
+    // At a prompt: the same, for what was written since the session last heard.
+    hooks(w).sessionStart({ sessionId: S, scope: HERE, at: D2 } as HookInput);
+    expect(prompt(w, at(D2, 9, 1))).toBeUndefined(); // arms
+    memory(w, at(D2, 9, 10), { session: A, scope: THERE, title: "UNMARKEDLATER the visit again", body: "The visit again." });
+    memory(w, at(D2, 9, 11), { session: P, scope: HERE, body: "UNTITLEDHERE tired after the clinic." });
+    const later = memory(w, at(D2, 9, 20), { session: A, scope: THERE, title: "Scored the loaves", body: "Scored.", about: "work" });
+    const laterHere = memory(w, at(D2, 9, 21), { session: P, scope: HERE, title: "Dream throughput numbers", body: "Numbers.", about: "work" });
+    const line = prompt(w, at(D2, 10, 30)) ?? "";
+    expect(line).toContain(`"Scored the loaves" (${later})`);
+    expect(line).toContain(`"Dream throughput numbers" (${laterHere})`);
+    for (const never of ["UNMARKEDLATER", "UNTITLEDHERE", "visit", "clinic"]) expect(line).not.toContain(never);
+  });
+
+  test("with no work marked, an unmarked note leaves the folder counted and the session here unnamed by title", () => {
+    const w = world(at(D2, 8));
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 8) });
+    recordSession(storeDir, { sessionId: P, scope: HERE, phase: "start", at: at(D2, 8, 2) });
+    memory(w, at(D2, 8, 10), { session: A, scope: THERE, title: "UNMARKEDTHERE Mike was worn out after the visit", body: "Mike was worn out after the visit." });
+    memory(w, at(D2, 8, 12), { session: P, scope: HERE, title: "UNMARKEDHERE a long day at the clinic", body: "A long day at the clinic." });
+    w.set(at(D2, 9));
+    const woke = elsewhereOf(wakeText(w));
+    expect(woke).toContain(", 1 memory.");
+    expect(woke).toContain("Here, also open: session 25e12e7d");
+    expect(woke).not.toContain('"');
+    expect(woke).not.toContain("mem_");
+  });
+
+  test("an unmarked memory with a status mark is not named, there or here", () => {
+    const w = world(at(D2, 8));
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 8) });
+    recordSession(storeDir, { sessionId: P, scope: HERE, phase: "start", at: at(D2, 8, 2) });
+    memory(w, at(D2, 8, 10), { session: A, scope: THERE, title: "STATUSTHERE planned to visit Mike's mother", body: "Planned to visit.", status: "planned" });
+    memory(w, at(D2, 8, 11), { session: P, scope: HERE, title: "STATUSHERE done with the clinic forms", body: "Done with the forms.", status: "done" });
+    const ok = memory(w, at(D2, 8, 20), { session: A, scope: THERE, title: "Oven seven offset", body: "Eleven degrees hot.", about: "work" });
+    w.set(at(D2, 9));
+    const woke = elsewhereOf(wakeText(w));
+    // Named though the status-marked rows would rank before it, were they work.
+    expect(woke).toContain(`"Oven seven offset" (${ok})`);
+    for (const never of ["STATUSTHERE", "STATUSHERE"]) expect(woke).not.toContain(never);
   });
 });

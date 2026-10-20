@@ -63,5 +63,14 @@ differently.
   at work on it); one the clause gave up for room is still a work line. The folder itself is
   still not named by path, and an ended session here is still "Last here"'s.
 
+- **2026-10-20, the 0.3.28 release check: explicitly marked work only.** A title crosses
+  (another folder's lines, or "Here, also open") only when the memory is marked `about:
+  "work"` — by its writer, a reflection or a session. An unmarked memory never does, with
+  a status mark or without, though `isWorkMemory` counts an unmarked fact written in a
+  project as that project's work: the write tools promise such a fact is shown only there,
+  and an unmarked personal note ("Mike was worn out after the visit") was named in another
+  folder. The untitled fallback names only a work-marked row's first words. Counts are
+  unchanged. This supersedes "by the wake's own rule" above.
+
 Check ~10-23 (`docs/CHECK-AFTER.md`): do parallel sessions avoid duplicate work, and are the
 titles useful or noise?

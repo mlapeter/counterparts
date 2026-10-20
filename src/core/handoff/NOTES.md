@@ -602,15 +602,33 @@ experiment. Decision record: `docs/decisions.d/fix-wake-dedupe-1020.md`.
 Mike's go, lightly held, an experiment. Decision record:
 `docs/decisions.d/feat-elsewhere-titles-1020.md`.
 
-- **The read.** `Store#memoryTitlesByScopeSince` is one SQL read over the window's rows:
-  a tier per row (a status mark 0, work 1, the rest dropped), `ROW_NUMBER()` per
+- **The read.** `Store#memoryTitlesByScopeSince` is one SQL read over the window's rows
+  marked `about = 'work'` (the column the writer's, a reflection's or a session's mark is
+  recorded in): a tier per row (a status mark 0, the rest 1), `ROW_NUMBER()` per
   `origin_scope`, at most `perScope × 4` a folder so the caller can still drop this
   session's own and the open threads and keep two. The columns only (`title`, or the
   body's first 240 characters), the same exclusions as the counts plus confidential for
   everyone, the personal marks, identity, a chapter's copy (`source`, `origin_ref`, a
-  summary's `meta.episodeId`). The caller confirms every row on `isWorkMemory` (tier 0
-  too, since the review), so an unmarked fact in a name scope (`claude-desktop:`) stays
-  personal, as in the wake's lanes.
+  summary's `meta.episodeId`). The caller confirms every row is marked work (tier 0 too).
+- **Explicitly marked work only** (2026-10-20, the 0.3.28 release check). The first cut
+  took work by `isWorkMemory`, the wake's rule, which counts an UNMARKED fact, entity or
+  place written in a directory (and any unmarked skill) as that directory's work. So a
+  test note written in a project with no `about` ("Mike was worn out after the visit")
+  was named by title in another folder's wake, against the remember and session_end
+  tools' own words: "left unmarked, a fact written in a project counts as that project's
+  work and is shown only there". Sessions often leave `about` unset. Now a title crosses
+  into another folder's lines, or into "Here, also open", only when the row is marked
+  `work`; an unmarked row never does, with a status mark or without. The untitled
+  fallback (the body's first words) therefore applies only to a work-marked row. Counts
+  are as they were (an unmarked row is still counted), and "Work here" in its own folder
+  still takes unmarked work by `isWorkMemory`. Pinned in
+  `test/elsewhere-titles-states.test.ts` ("only explicitly marked work crosses"). The
+  fixtures that relied on unmarked rows crossing, or that prove another gate (window,
+  child folder, an off folder) with an unmarked row, are marked work, so each still
+  tests its own gate: `test/since-you-started.test.ts`, `test/wake-fresh-today.test.ts`,
+  `test/last-exchange.test.ts`, `test/elsewhere-titles-states.test.ts`. Every `work` mark
+  is explicit (a writer's, a reflection's, a session's or the owner's): the store
+  upgrade marks only `me` and `owner` (`operational.ts`).
 - **The ladder.** `elsewhereForms` used to try, per count of folders, the form with
   chapters and the one without. It now tries every non-increasing allotment of titles
   across the named folders (0–2 each), most titles first and spread before stacked, each

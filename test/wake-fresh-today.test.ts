@@ -446,10 +446,10 @@ describe("Today, elsewhere", () => {
     copy(c, newest, C, YON, "me", "Pruning the old pear tree calms me.");
     // HERE: another session, live, and a memory — this session's own directory.
     recordSession(storeDir, { sessionId: E, scope: HERE, phase: "start", at: at(D2, 7, 30) });
-    c.store.put({ type: "memory", kind: "fact", body: "The garden hose has a slow leak at the tap.", origin: { session: E, scope: HERE } });
+    c.store.put({ type: "memory", kind: "fact", body: "The garden hose has a slow leak at the tap.", about: "work", origin: { session: E, scope: HERE } });
     // FAR: scope off. The store's own directory: the nightly run.
     recordSession(storeDir, { sessionId: F, scope: FAR, phase: "start", at: at(D2, 8) });
-    c.store.put({ type: "memory", kind: "fact", body: "LEDGERWORDS the quarter's receipts are filed.", origin: { session: F, scope: FAR } });
+    c.store.put({ type: "memory", kind: "fact", body: "LEDGERWORDS the quarter's receipts are filed.", about: "work", origin: { session: F, scope: FAR } });
     recordSession(storeDir, { sessionId: "night-run-0000-4000-8000-000000000000", scope: storeDir, phase: "start", at: at(D2, 3) });
     // Yesterday's session elsewhere is not today's.
     recordSession(storeDir, { sessionId: "d0d0d0d0-0000-4000-8000-00000000000d", scope: YON, phase: "start", at: at(D1, 15) });
@@ -555,7 +555,7 @@ describe("Today, elsewhere", () => {
         origin: { session, scope },
       });
       copy(c, epi, session, scope, "me", "A placeholder copy about me.");
-      const id = c.store.put({ type: "memory", kind: "fact", body: "A placeholder memory.", origin: { session, scope } });
+      const id = c.store.put({ type: "memory", kind: "fact", body: "A placeholder memory.", about: "work", origin: { session, scope } });
       if (scope === THERE) thereMemory = id;
     }
     k.set(at(D2, 10));
@@ -598,7 +598,7 @@ describe("the assembled wake keeps its budget and its order", () => {
     for (let i = 0; i < 6; i += 1) {
       const scope = join(root, `plot-${String(i)}`);
       recordSession(storeDir, { sessionId: `a1b2c3d${String(i)}-0000-4000-8000-00000000000a`, scope, phase: "start", at: at(D2, 7, i) });
-      c.store.put({ type: "memory", kind: "fact", body: `Plot ${String(i)} was weeded this morning.`, origin: { session: A, scope } });
+      c.store.put({ type: "memory", kind: "fact", body: `Plot ${String(i)} was weeded this morning.`, about: "work", origin: { session: A, scope } });
     }
     now = at(D2, 9, 5);
     const text = lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
@@ -761,7 +761,7 @@ describe("the line has a small room of its own, and the page keeps its own", () 
     expect(quiet.text).toBe(alone.text);
     // Another folder at work this morning.
     recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 8, 2) });
-    const flour = m.c.store.put({ type: "memory", kind: "fact", body: "The bakery's flour arrived.", origin: { session: A, scope: THERE } });
+    const flour = m.c.store.put({ type: "memory", kind: "fact", body: "The bakery's flour arrived.", about: "work", origin: { session: A, scope: THERE } });
     const text = m.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
     expect(readSentinel(text).intact).toBe(true);
     expect(bytes(text)).toBeLessThanOrEqual(BUDGET);

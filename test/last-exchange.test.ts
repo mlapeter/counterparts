@@ -529,7 +529,7 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     // Another folder at work this morning (the "Today, elsewhere" line).
     recordSession(storeDir, { sessionId: C, scope: THERE, phase: "start", at: at(8, 2) });
     w.set(at(8, 3));
-    c.store.put({ type: "memory", kind: "fact", body: "The bakery's flour arrived.", origin: { session: C, scope: THERE } });
+    c.store.put({ type: "memory", kind: "fact", body: "The bakery's flour arrived.", about: "work", origin: { session: C, scope: THERE } });
     w.set(at(19, 0, "2026-10-10"));
     c.rebrief({ budgetBytes: budget, at: "2026-10-10" });
     return w;

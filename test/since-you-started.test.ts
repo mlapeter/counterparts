@@ -175,7 +175,7 @@ describe("Since you started", () => {
     expect(readSession(storeDir, S)?.sinceSeen).toEqual({ at: at(10, 40), state: "woke" });
     // Something changes at once — but the first prompt after a wake says nothing.
     w.set(at(10, 45));
-    const rye = w.c.store.put({ type: "memory", kind: "fact", body: "The rye starter was fed twice.", origin: { session: A, scope: THERE } });
+    const rye = w.c.store.put({ type: "memory", kind: "fact", body: "The rye starter was fed twice.", about: "work", origin: { session: A, scope: THERE } });
     expect(prompt(w, at(10, 46))).toBeUndefined();
     expect(readSession(storeDir, S)?.sinceSeen?.state).toBe("armed");
     // THERE ends; a chapter there; YON opens.
@@ -184,7 +184,7 @@ describe("Since you started", () => {
     recordSession(storeDir, { sessionId: A, scope: THERE, phase: "end", at: at(11, 5) });
     recordSession(storeDir, { sessionId: C, scope: YON, phase: "start", at: at(10, 52) });
     w.set(at(10, 53));
-    const pear = w.c.store.put({ type: "memory", kind: "fact", body: "The pear wants pruning in February.", origin: { session: C, scope: YON } });
+    const pear = w.c.store.put({ type: "memory", kind: "fact", body: "The pear wants pruning in February.", about: "work", origin: { session: C, scope: YON } });
     const first = prompt(w, at(11, 10));
     // Both folders with their newest memory by title, and the chapter given
     // up first when they do not all fit (the temp paths are long).
@@ -197,7 +197,7 @@ describe("Since you started", () => {
     expect(readSession(storeDir, S)?.sinceSeen).toEqual({ at: at(11, 10), state: "shown" });
     // Within the hour: nothing, whatever changes.
     w.set(at(11, 20));
-    const gate = w.c.store.put({ type: "memory", kind: "fact", body: "The orchard gate sticks in the rain.", origin: { session: C, scope: YON } });
+    const gate = w.c.store.put({ type: "memory", kind: "fact", body: "The orchard gate sticks in the rain.", about: "work", origin: { session: C, scope: YON } });
     expect(prompt(w, at(11, 30))).toBeUndefined();
     expect(prompt(w, at(12, 9))).toBeUndefined();
     // An hour after the line: what changed since IT, not since the start.
@@ -208,7 +208,7 @@ describe("Since you started", () => {
   test("no change, no line — and an open session elsewhere that only kept working is not a change", () => {
     const w = world(at(9));
     recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(9) });
-    w.c.store.put({ type: "memory", kind: "fact", body: "A memory from before this session.", origin: { session: A, scope: THERE } });
+    w.c.store.put({ type: "memory", kind: "fact", body: "A memory from before this session.", about: "work", origin: { session: A, scope: THERE } });
     wake(w, at(10));
     expect(prompt(w, at(10, 5))).toBeUndefined();
     recordSession(storeDir, { sessionId: A, scope: THERE, phase: "boundary", at: at(10, 30) });
@@ -261,7 +261,7 @@ describe("Since you started", () => {
     expect(prompt(w, at(10, 1))).toBeUndefined();
     w.set(at(10, 10));
     recordSession(storeDir, { sessionId: C, scope: YON, phase: "start", at: at(10, 10) });
-    const pear = w.c.store.put({ type: "memory", kind: "fact", body: "The pear wants pruning in February.", origin: { session: C, scope: YON } });
+    const pear = w.c.store.put({ type: "memory", kind: "fact", body: "The pear wants pruning in February.", about: "work", origin: { session: C, scope: YON } });
     // A budget smaller than any form of the line.
     w.set(at(10, 20));
     const tight = w.hooks({ budget: 24 });
@@ -332,7 +332,7 @@ describe("Since you started", () => {
     expect(prompt(w, at(10, 1))).toBeUndefined();
     w.set(at(10, 10));
     recordSession(storeDir, { sessionId: C, scope: YON, phase: "start", at: at(10, 10) });
-    const pear = w.c.store.put({ type: "memory", kind: "fact", body: "The pear wants pruning in February.", origin: { session: C, scope: YON } });
+    const pear = w.c.store.put({ type: "memory", kind: "fact", body: "The pear wants pruning in February.", about: "work", origin: { session: C, scope: YON } });
     /** Every durable thing the line must not move. */
     const state = (): string => {
       const s = w.c.store;
@@ -390,7 +390,7 @@ describe("Since you started — review of #387", () => {
     w.set(at(10, 10));
     chapter(w.c, { session: IN, scope: CHILD, title: "INNERCHAPTER about me", about: "me" });
     chapter(w.c, { session: RS, scope: REST, title: "RESTCHAPTER about me", about: "me" });
-    w.c.store.put({ type: "memory", kind: "fact", body: "INNERMEMORY", origin: { session: IN, scope: CHILD } });
+    w.c.store.put({ type: "memory", kind: "fact", body: "INNERMEMORY", about: "work", origin: { session: IN, scope: CHILD } });
     recordSession(storeDir, { sessionId: IN, scope: CHILD, phase: "end", at: at(10, 12) });
     recordSession(storeDir, { sessionId: RS, scope: REST, phase: "end", at: at(10, 13) });
     // Nothing that may be named changed: no line at all.

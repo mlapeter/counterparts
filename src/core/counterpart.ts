@@ -164,7 +164,6 @@ import {
   workHereBytes,
   writerInstruction,
   fitNightWriter,
-  isWorkMemory,
 } from "./self/index.js";
 import type {
   BriefingResult,
@@ -204,7 +203,6 @@ import type {
 } from "./store/index.js";
 import { TUNABLES as PHYSICS, band as bandOf, fadeOf } from "./physics/index.js";
 import type { UseTier } from "./physics/index.js";
-import type { Kind } from "./types.js";
 import { isKnownSession } from "./types.js";
 import {
   SELF_BRIEFING_EVENT,
@@ -919,8 +917,8 @@ export class Counterpart {
    *     owner — never one the line already names;
    *   - memories as counts (confidential ones to the owner only), and since
    *     2026-10-20 (Mike's go, an experiment) one or two of today's by title
-   *     a directory (`elsewhereTitles`): never a confidential one, one marked
-   *     about me, us or the owner, this session's own, or one this wake
+   *     a directory (`elsewhereTitles`): only one explicitly marked work
+   *     (never an unmarked one), never a confidential one, this session's own, or one this wake
    *     lists under "Still open"; never a word of a span or a handoff's body.
    *
    * Empty when there is nothing to say; never throws.
@@ -995,8 +993,8 @@ export class Counterpart {
    *     through.
    * Memories cross as counts (confidential ones to the owner only), and since
    * 2026-10-20 one or two by title a directory (`elsewhereTitles`): a
-   * directory `named` lets through, not this session's own, and not a row the
-   * store's read leaves out — confidential (whoever reads), marked about me,
+   * directory `named` lets through, explicitly marked work, not this
+   * session's own, and not a row the store's read leaves out — unmarked, confidential (whoever reads), marked about me,
    * us or the owner, identity, a chapter's copy, the nightly run's. The
    * callers read no word of a span and no handoff.
    */
@@ -1040,8 +1038,10 @@ export class Counterpart {
    * THE MEMORIES AN ELSEWHERE LINE NAMES BY TITLE (2026-10-20, Mike's go,
    * lightly held, an experiment): for each directory `gate` lets through, the
    * one or two (`ELSEWHERE_TITLES_MAX`) written in `[since, until)` that say
-   * most about the work there — work only (`self/work.ts#isWorkMemory`, the
-   * wake's own rule), one with a `status` mark first (planned, proposed,
+   * most about the work there — only memories EXPLICITLY marked `about:
+   * "work"` (2026-10-20: never an unmarked one, though the wake's
+   * `self/work.ts#isWorkMemory` counts an unmarked fact written in a directory
+   * as work there), one with a `status` mark first (planned, proposed,
    * asked or done: work in progress, or finished today), newest first within
    * each, and nothing else — no chit-chat, nothing personal, a status mark
    * or not
@@ -1058,10 +1058,12 @@ export class Counterpart {
     const out = new Map<string, (MemoryHere & { tier: number })[]>();
     for (const m of this.store.memoryTitlesByScopeSince(since, { until, perScope: ELSEWHERE_TITLES_MAX })) {
       if (skip.has(m.id) || (gate.reader !== null && m.session === gate.reader) || !gate.named(m.scope)) continue;
-      // Work, by the wake's own rule of what work is; a status mark puts it
-      // first, never makes a personal memory work (review of #543: an
-      // unmarked person or self memory, or Desktop chat's unmarked fact).
-      if (!isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
+      // Work EXPLICITLY marked so (2026-10-20, the 0.3.28 release check): an
+      // unmarked memory never crosses, though "Work here" counts an unmarked
+      // fact written in a directory as that directory's work — the write
+      // tools promise it is shown only there. A status mark puts a work
+      // memory first, never makes another one work.
+      if (m.about !== "work") continue;
       const key = gate.norm(m.scope);
       const held = out.get(key) ?? [];
       held.push({ id: m.id, title: m.title, at: m.at, tier: m.tier });
@@ -1082,8 +1084,8 @@ export class Counterpart {
    * design. Each live session in `gate.own` — not this one, not the nightly
    * run's (the store's own folder) — with up to two of its memories written
    * in `[since, until)` by the same title rules as another folder's
-   * (`Store#memoryTitlesByScopeSince` by session, `isWorkMemory`, not in
-   * `skip`), filed in this folder. The folder's own scope needs no asking:
+   * (`Store#memoryTitlesByScopeSince` by session, explicitly marked work,
+   * not in `skip`), filed in this folder. The folder's own scope needs no asking:
    * a session here reads this folder's work anyway. `startedSince`: the
    * start is said only when it falls inside the window ("Since you started").
    * Throws only what the store throws.
@@ -1105,7 +1107,7 @@ export class Counterpart {
     const titles = new Map<string, (MemoryHere & { tier: number })[]>();
     for (const m of this.store.memoryTitlesByScopeSince(since, { until, perScope: ELSEWHERE_TITLES_MAX, sessions: ids })) {
       if (m.session === null || opts.skip?.has(m.id) === true || gate.norm(m.scope) !== own) continue;
-      if (!isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
+      if (m.about !== "work") continue;
       const held = titles.get(m.session) ?? [];
       held.push({ id: m.id, title: m.title, at: m.at, tier: m.tier });
       titles.set(m.session, held);

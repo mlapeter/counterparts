@@ -200,8 +200,12 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     experiment; `docs/decisions.d/feat-elsewhere-titles-1020.md`): "Today, elsewhere" and
     "Since you started" (`todayElsewhereLines`, `sinceElsewhereLines`) carry, beside a
     folder's memory count, up to `ELSEWHERE_TITLES_MAX` (2) of its memories by title (cut
-    to `ELSEWHERE_TITLE_BYTES`, 48) and whole id: a status mark first, then work
-    (`self/work.ts#isWorkMemory`), newest first, chosen by `Counterpart#elsewhereTitles`
+    to `ELSEWHERE_TITLE_BYTES`, 48) and whole id: only memories EXPLICITLY marked `about:
+    "work"` (by the writer, a reflection or a session; since 2026-10-20's release check an
+    unmarked memory never crosses by title, though `self/work.ts#isWorkMemory` counts an
+    unmarked fact written in a directory as that directory's work — the write tools
+    promise it is shown only there; counts are unchanged), a status mark first, newest
+    first, chosen by `Counterpart#elsewhereTitles`
     under the one elsewhere gate (`elsewhereGate.named`: scope `on`, not this folder or the
     store's). Never confidential (to anyone), never marked me, us or owner, never chit-chat
     (a status mark does not make a memory work), this session's own, the nightly run's (nor
@@ -214,7 +218,8 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     (the same day, the coordinator's ask): a clause of their own, `HERE_ALSO_OPEN` ("Here,
     also open: session 25e12e7d on Fable 5 since 10:05: "…" (mem_…)"), from
     `Counterpart#hereSessions` — each live registry session in this folder but the reader,
-    with up to two of its own memories by the same title rules — kept longest in the shared
+    with up to two of its own memories by the same title rules (explicitly marked work
+    only) — kept longest in the shared
     300 bytes. The folder is still never named by path; an ended session is "Last here"'s.
     "Work here" leaves a memory the printed clause names to it (`elsewhereNamedIn`).
 

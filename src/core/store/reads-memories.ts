@@ -293,18 +293,16 @@ export function memoryTitlesByScopeSince(
          SELECT *, ROW_NUMBER() OVER (PARTITION BY ${by} ORDER BY tier, created_at DESC, id) AS rank FROM (
            SELECT id, origin_scope, origin_session, created_at, about, kind,
                   COALESCE(NULLIF(TRIM(title), ''), SUBSTR(body, 1, 240)) AS head,
-                  CASE WHEN ${status} IN (${marked}) THEN 0
-                       WHEN about = 'work' OR (about IS NULL AND kind IN ('skill', 'fact', 'entity', 'place')) THEN 1
-                       ELSE 2 END AS tier
+                  CASE WHEN ${status} IN (${marked}) THEN 0 ELSE 1 END AS tier
              FROM memories
-            WHERE type = 'memory' AND created_at IS NOT NULL AND created_at >= ? AND created_at < ?
+            WHERE type = 'memory' AND about = 'work' AND created_at IS NOT NULL AND created_at >= ? AND created_at < ?
               AND origin_scope IS NOT NULL AND origin_scope != '' ${only}
               AND archived = 0 AND superseded_by IS NULL AND body != '' AND confidential = 0
               AND band != 'identity' AND event_date IS NULL AND COALESCE(about, '') NOT IN (${personal})
               AND COALESCE(source, '') != 'episode' AND COALESCE(origin_ref, '') NOT LIKE 'epi\\_%' ESCAPE '\\'
               AND meta NOT LIKE '%"episodeId"%' AND NOT ${NIGHTLY_SQL}
               AND meta NOT LIKE '%"unresolved":true%' AND meta NOT LIKE '%"secondHand":true%'
-         ) WHERE tier < 2
+         )
        ) WHERE rank <= ?
        ORDER BY origin_scope, rank`,
       at,

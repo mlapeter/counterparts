@@ -4676,19 +4676,21 @@ export class Store {
    * `perScope × 4` per directory (the caller drops this session's own and
    * what the wake already lists, then keeps `perScope`), work in progress
    * first — a `status` mark (`STATUSES`: planned, proposed, asked, done) is
-   * tier 0, a work memory (`about = 'work'`, or unmarked and a skill, fact,
-   * entity or place, as `workCandidates`) tier 1 — then newest; nothing
-   * else (no chit-chat: the caller confirms tier 1 on `self/work.ts#isWorkMemory`,
-   * hence `about` and `kind` beside it). Never a dated row (a reminder:
+   * tier 0, the rest tier 1 — then newest. ONLY a row EXPLICITLY marked
+   * `about = 'work'` (by its writer, a reflection or a session; 2026-10-20,
+   * the 0.3.28 release check): an unmarked row never crosses, though
+   * `isWorkMemory` counts an unmarked fact written in a directory as that
+   * directory's work, because the write tools promise an unmarked fact is
+   * shown only where it was written. Counts are not gated so. Never a dated row (a reminder:
    * "Coming up" names it, as `workCandidates` leaves it out), a confidential row (whoever asks), an identity-band row,
    * one marked about me, us or the owner (`CORE_ABOUT_MARKS`: those are not
    * work, and cross only as the about-me chapter line's), a chapter's copy,
    * the nightly run's, an open thread (`unresolved`: "Still open"'s, never a
    * work line), or a write-up of an ended session (`secondHand`: the night's
    * catch-up files them under the subject's folder; review of #543). The
-   * caller confirms EVERY row on `isWorkMemory`, the status-marked too. The
+   * caller confirms EVERY row is marked work, the status-marked too. The
    * title, or the body's first 240 characters when
-   * there is none; the columns only, no prose read. Which DIRECTORY may be
+   * there is none (so only a work-marked row is named by its first words); the columns only, no prose read. Which DIRECTORY may be
    * named is the caller's gate (`Counterpart#elsewhereGate`). With `sessions`
    * (2026-10-20, the other sessions open in this folder), only those sessions'
    * rows, and the limit is per session instead of per directory.
