@@ -768,6 +768,13 @@ the live ~52):
   share another session took mid-call, nothing closes (`share-already-carried`), like the
   proposals before it. The share's open-thread lines (closed, then asked) are one generated
   `closeLine`, rebuilt on a later finish.
+- Order of writes (review of #535): the reflection row — the share naming the closes and
+  `detail.selfClosed` — is written first, and the flags flip after it. As first built the
+  flags flipped before the row, so a row write that threw (a locked database) left threads
+  closed that no share said and no `reopen` could find, and a retry refused them
+  `no-longer-open`. Now the worst a crash between leaves is a share naming a thread still
+  open (`reopen` answers it as already open). A flag that fails to flip is taken out of the
+  share, the row and the counts. An id sent in both `close` and `closeNow` is asked.
 - Undo is a new reflect phase, `reopen` (ids ⊆ that reflection's `selfClosed`, same
   guards, flag back to true, reason `thread-reopened`). Weighed and not taken: `remember`
   with `updates` + `unresolved: true` moves the thread onto a NEW memory (`closeThread`

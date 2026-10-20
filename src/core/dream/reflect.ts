@@ -1470,9 +1470,16 @@ export class Reflections {
         return null;
       }
     };
+    // One sent in both lists is doubt, and doubt is asked (review of #535):
+    // the close loop below proposes it.
+    const askedToo = new Set((input.close ?? []).filter((x): x is string => typeof x === "string"));
     for (const c of (input.closeNow ?? []).slice(0, 50)) {
       const cid = isRecord(c) && typeof c["id"] === "string" ? c["id"] : null;
       if (cid === null || isClosed(cid)) continue;
+      if (askedToo.has(cid)) {
+        closeNotes.push(`${cid}: sent in both close and closeNow, so asked, not closed.`);
+        continue;
+      }
       if (proposed.includes(cid)) {
         closeRefused.push({ id: cid, reason: "already-asked" });
         continue;
@@ -1585,38 +1592,20 @@ export class Reflections {
     if (shareStands && share.offered) for (const id of becameCore) this.store.setMeta(`${CORE_MENTIONED_PREFIX}${id}`, row.id);
 
     // THE SELF-CLOSES LAND WITH THE SHARE THAT SAYS THEM (2026-10-20): checked
-    // above, written only once that share stands — when another session took
-    // the share mid-finish, it says none of them, so none closes. The write is
-    // `closeThread`'s (the flag false, reason `thread-closed`), with who closed
-    // it and why beside the flag.
-    const selfClosed = [...priorSelfClosed];
+    // above; when another session took the share mid-finish, it says none of
+    // them, so none closes. The rest are written AFTER the row — the share
+    // that names them and `detail.selfClosed` — below (review of #535: a
+    // final write that threw, a locked database, had left threads closed that
+    // no share said and no `reopen` could find). The worst a crash between
+    // leaves now is a share naming one still open, which `reopen` answers as
+    // already open. The write is `closeThread`'s (the flag false, reason
+    // `thread-closed`), with who closed it and why beside the flag.
+    const planned: SelfClose[] = [];
     for (const x of toClose) {
-      if (!shareStands) {
-        closeRefused.push({ id: x.id, reason: "share-already-carried" });
-        continue;
-      }
-      try {
-        this.store.revise(x.id, {
-          meta: { [UNRESOLVED_META_KEY]: false, [THREAD_CLOSED_BY_META_KEY]: { reflection: row.id, why: x.why, ...(x.shows === undefined ? {} : { shows: x.shows }) } },
-          reason: "thread-closed",
-        });
-        selfClosed.push(x);
-      } catch (err) {
-        closeRefused.push({ id: x.id, reason: `failed: ${String((err as Error).message ?? err).slice(0, 120)}` });
-      }
+      if (shareStands) planned.push(x);
+      else closeRefused.push({ id: x.id, reason: "share-already-carried" });
     }
-    // One that failed to close is not said: the line is said again without it.
-    const said = selfClosed.filter((x) => !reopenedSince.has(x.id));
-    if (shareStands && closeLine !== null && said.length < closedAll.length) {
-      const fixed = this.closeSentences(said, proposed);
-      shareText = [withoutLine(shareText, closeLine), fixed ?? ""].filter((x) => x.length > 0).join(" ");
-      closeLine = fixed;
-      if (shareWritten) {
-        if (shareText.length === 0) share = { offered: false, reason: "no-share" };
-      } else if (shareText.length > 0) {
-        this.store.updateReflection(row.id, { share: shareText, ifShareState: "offered" });
-      }
-    }
+    let selfClosed = [...priorSelfClosed, ...planned];
 
     // A page a first finish wrote STANDS when a second one's is refused
     // (review of #268): the hand-back and the counts say so.
@@ -1689,6 +1678,44 @@ export class Reflections {
       pageVersion: page.written ? page.version : earlierPage,
       detail,
     });
+    // The flags flip now that the row says them (see above).
+    const failed = new Set<string>();
+    for (const x of planned) {
+      try {
+        this.store.revise(x.id, {
+          meta: { [UNRESOLVED_META_KEY]: false, [THREAD_CLOSED_BY_META_KEY]: { reflection: row.id, why: x.why, ...(x.shows === undefined ? {} : { shows: x.shows }) } },
+          reason: "thread-closed",
+        });
+      } catch (err) {
+        failed.add(x.id);
+        closeRefused.push({ id: x.id, reason: `failed: ${String((err as Error).message ?? err).slice(0, 120)}` });
+      }
+    }
+    // One that failed to close is not said: the line, the row and the counts
+    // are written again without it.
+    if (failed.size > 0) {
+      selfClosed = selfClosed.filter((x) => !failed.has(x.id));
+      const fixed = this.closeSentences(
+        selfClosed.filter((x) => !reopenedSince.has(x.id)),
+        proposed,
+      );
+      if (closeLine !== null) shareText = [withoutLine(shareText, closeLine), fixed ?? ""].filter((x) => x.length > 0).join(" ");
+      closeLine = fixed;
+      if (shareText.length === 0) share = { offered: false, reason: "no-share" };
+      counts.selfClosed = selfClosed.length;
+      counts.share = share.offered;
+      if (selfClosed.length > 0) detail["selfClosed"] = selfClosed;
+      else delete detail["selfClosed"];
+      if (closeLine !== null) detail["closeLine"] = closeLine;
+      else delete detail["closeLine"];
+      this.store.updateReflection(row.id, { detail });
+      this.store.updateReflection(row.id, {
+        share: share.offered ? shareText : null,
+        ...(share.offered ? {} : { shareCites: [], shareState: "none" as const }),
+        ifShareState: "offered",
+      });
+    }
+    const said = selfClosed.filter((x) => !reopenedSince.has(x.id));
     this.record("reflection.finished", row.id, {
       dream: row.dream_id,
       nothingMuch,

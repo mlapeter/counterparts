@@ -490,6 +490,107 @@ describe("stale open threads, closed when plainly done", () => {
   });
 });
 
+/**
+ * The awkward states (review of #535): an id in both lists, and the order of
+ * writes — the row that says a self-close lands before the flag flips.
+ */
+describe("self-closes, the awkward states", () => {
+  test("an id sent in both close and closeNow is asked, not closed", () => {
+    const c = brain();
+    const w = world(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    const done = c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "A look back.", closeNow: [{ id: w.stale, why: "Signed." }], close: [w.stale] });
+    if (!done.ok) throw new Error(done.reason);
+    expect(done.outcome.close.closed).toEqual([]);
+    expect(done.outcome.close.proposed).toEqual([w.stale]);
+    expect(done.outcome.close.notes ?? []).toEqual([`${w.stale}: sent in both close and closeNow, so asked, not closed.`]);
+    expect(openFlag(c, w.stale)).toBe(true);
+  });
+
+  test("when the row's write throws (a locked database), nothing closed: the thread stays open and a retry closes and says it", () => {
+    const c = brain();
+    const w = world(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    const id = begun.bundle.reflection;
+    const store = c.store as unknown as { updateReflection: (rid: string, patch: Record<string, unknown>) => boolean };
+    const real = store.updateReflection.bind(c.store);
+    store.updateReflection = (rid, patch) => {
+      if (patch["state"] === "reflected") throw new Error("database is locked");
+      return real(rid, patch);
+    };
+    expect(() => c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", closeNow: [{ id: w.stale, why: "Signed." }] })).toThrow("database is locked");
+    store.updateReflection = real;
+    expect(openFlag(c, w.stale)).toBe(true);
+    expect(c.store.reflection(id)?.share ?? null).toBeNull();
+    const retry = c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", closeNow: [{ id: w.stale, why: "Signed." }] });
+    if (!retry.ok) throw new Error(retry.reason);
+    expect(retry.outcome.close.closed.map((x) => x.id)).toEqual([w.stale]);
+    expect(openFlag(c, w.stale)).toBe(false);
+    expect(c.store.reflection(id)?.share ?? "").toContain(w.stale);
+  });
+
+  test("one whose flag fails to flip is not said: the share, the row and the counts leave it out", () => {
+    const c = brain();
+    const w = world(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    const id = begun.bundle.reflection;
+    const store = c.store as unknown as { revise: (mid: string, patch: Record<string, unknown>) => number };
+    const real = store.revise.bind(c.store);
+    store.revise = (mid, patch) => {
+      if (mid === w.staleToo) throw new Error("database is locked");
+      return real(mid, patch);
+    };
+    const done = c.reflections.finish({
+      reflection: id,
+      session: SESSION,
+      entry: "A look back.",
+      closeNow: [
+        { id: w.stale, why: "Signed." },
+        { id: w.staleToo, why: "Moved." },
+      ],
+    });
+    store.revise = real;
+    if (!done.ok) throw new Error(done.reason);
+    expect(done.outcome.close.closed.map((x) => x.id)).toEqual([w.stale]);
+    expect(done.outcome.close.refused).toEqual([{ id: w.staleToo, reason: "failed: database is locked" }]);
+    expect(openFlag(c, w.stale)).toBe(false);
+    expect(openFlag(c, w.staleToo)).toBe(true);
+    const row = c.store.reflection(id);
+    const share = row?.share ?? "";
+    expect(share).toContain("I closed one open thread");
+    expect(share).not.toContain(w.staleToo);
+    const detail = JSON.parse(row?.detail ?? "{}");
+    expect(detail["selfClosed"].map((x: { id: string }) => x.id)).toEqual([w.stale]);
+    expect(detail["counts"]["selfClosed"]).toBe(1);
+    expect(done.outcome.handBack).not.toContain(w.staleToo);
+  });
+
+  test("when the only thing the share said failed to close, there is no share", () => {
+    const c = brain();
+    const w = world(c);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    const id = begun.bundle.reflection;
+    const store = c.store as unknown as { revise: (mid: string, patch: Record<string, unknown>) => number };
+    const real = store.revise.bind(c.store);
+    store.revise = () => {
+      throw new Error("database is locked");
+    };
+    const done = c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", closeNow: [{ id: w.stale, why: "Signed." }] });
+    store.revise = real;
+    if (!done.ok) throw new Error(done.reason);
+    expect(done.outcome.share.offered).toBe(false);
+    expect(openFlag(c, w.stale)).toBe(true);
+    const row = c.store.reflection(id);
+    expect(row?.share ?? null).toBeNull();
+    expect(row?.share_state).toBe("none");
+    expect(JSON.parse(row?.detail ?? "{}")["selfClosed"]).toBeUndefined();
+  });
+});
+
 describe("the reflect tool's closeNow and reopen", () => {
   test("finish closes through the tool; reopen on the owner's word puts it back", async () => {
     const c = brain();
