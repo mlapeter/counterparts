@@ -486,9 +486,10 @@ export interface NightRunInput {
   /**
    * Who answers the night's asks (`core/seat.ts`, 2026-10-20). Absent, Claude
    * Code's own (`claudeCodeSeat`), built from the fields above — what every
-   * user has.
+   * user has. Given, those fields (`start`, `startCatchUp`, `command`,
+   * `baseEnv`, `configPath`) are not read: the seat brings its own.
    */
-  readonly seat?: Seat<ClaudeCodeAnswer>;
+  readonly seat?: Seat<NightAnswer>;
   readonly now?: () => number;
   /** The process log's (`adapters/log/`), for what the store does not write. */
   readonly onEvent?: (e: CounterpartEvent) => void;
@@ -603,10 +604,13 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   } catch (err) {
     return ended({ state: "could-not-start", reason: "refused", detail: err instanceof Error ? err.name : "UNKNOWN", code: null });
   }
-  const askFor = (act: NightChild, text: string): SeatAsk => seatAsk(act, { prompt: text, run: input.run, session: input.session, scope: input.scope });
+  // The night's own turn ceiling and watchdog on every ask: the row's watchdog
+  // is computed from the same two (`nightChildrenTimeoutMs`), whoever answers.
+  const limits = { turns: nightMaxTurns(input.config), ms: nightTimeoutMs(input.config) };
+  const askFor = (act: NightChild, text: string): SeatAsk => seatAsk(act, { prompt: text, run: input.run, session: input.session, scope: input.scope, limits });
   const firstAct: NightChild = input.kind.kind === "night" ? "dream" : "reflection";
-  const ran: ClaudeCodeAnswer[] = [];
-  let one: ClaudeCodeAnswer;
+  const ran: NightAnswer[] = [];
+  let one: NightAnswer;
   try {
     one = await seat.answer(askFor(firstAct, prompt));
   } catch (err) {
@@ -615,9 +619,9 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   if (one.refused !== null) return ended({ state: "could-not-start", reason: "refused", detail: one.refused, code: null });
   ran.push(one);
   children.push(childRunOf(firstAct, one));
-  if (one.neverStarted) {
-    const missing = one.result.spawnCode === "ENOENT";
-    return ended({ state: "could-not-start", reason: missing ? "no-claude" : "spawn-failed", detail: one.result.spawnCode ?? one.result.error, code: null });
+  if (!one.started) {
+    const missing = one.spawnCode === "ENOENT";
+    return ended({ state: "could-not-start", reason: missing ? "no-claude" : "spawn-failed", detail: one.spawnCode ?? one.error, code: null });
   }
 
   // THE REFLECTION, A CHILD OF ITS OWN (2026-10-11): after the dream's child
@@ -634,7 +638,7 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
         // One that never started (no `claude` now, a spawn that failed, a
         // seat that would not take it) is said as not started: the run's exit
         // stays the dream child's.
-        if (two.neverStarted) children.push({ child: "reflection", code: null, ms: 0, skipped: two.result.spawnCode === "ENOENT" ? "no-claude" : "spawn-failed" });
+        if (two.refused !== null || !two.started) children.push({ child: "reflection", code: null, ms: 0, skipped: two.spawnCode === "ENOENT" ? "no-claude" : "spawn-failed" });
         else {
           ran.push(two);
           children.push(childRunOf("reflection", two));
@@ -648,12 +652,12 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   // THE RUN'S EXIT, from its children: stopped if any was stopped; the first
   // non-zero exit, else the last child's. Its code is that child's own (a
   // stopped child has none), never another child's.
-  const lastRun = ran[ran.length - 1] as ClaudeCodeAnswer;
-  const stopped = ran.find((r) => r.result.timedOut);
-  const failing = ran.find((r) => r.result.code !== 0 && !r.neverStarted);
-  const result: ChildResult = stopped?.result ?? failing?.result ?? lastRun.result;
+  const lastRun = ran[ran.length - 1] as NightAnswer;
+  const stopped = ran.find((r) => r.timedOut);
+  const failing = ran.find((r) => r.code !== 0 && r.started);
+  const result: NightAnswer = stopped ?? failing ?? lastRun;
   const exitCode = result.code;
-  const spill = mergeSpills(ran.map((r) => r.spill));
+  const spill = mergeSpills(ran.map((r) => r.spill ?? null));
 
   // WHAT THE RUN DID, from the store.
   let dream: string | null = null;
@@ -799,13 +803,24 @@ function catchUpOnlyEnd(
 }
 
 /**
- * WHAT CLAUDE CODE'S SEAT SAW OF ONE ASK (2026-10-20): the seat's answer, and
- * the child's own exit, whether it never started, and what the host cut of
- * our tool results (read from its `stream-json` output; none for a catch-up).
+ * WHAT THE NIGHT READS OF AN ANSWER (2026-10-20): the seat's own fields
+ * decide; two more are read where a seat has them — the OS's code when it
+ * could not start at all (`ENOENT` is said as "no claude"), and what the host
+ * cut of our tool results. A seat without either answers with a plain
+ * `SeatAnswer`.
  */
-export interface ClaudeCodeAnswer extends SeatAnswer {
+export interface NightAnswer extends SeatAnswer {
+  readonly spawnCode?: string;
+  readonly spill?: ToolSpills | null;
+}
+
+/**
+ * WHAT CLAUDE CODE'S SEAT SAW OF ONE ASK: the child's own exit as the starter
+ * returned it, and what the host cut (read from its `stream-json` output;
+ * none for a catch-up).
+ */
+export interface ClaudeCodeAnswer extends NightAnswer {
   readonly result: ChildResult;
-  readonly neverStarted: boolean;
   readonly spill: ToolSpills | null;
 }
 
@@ -861,13 +876,23 @@ export function claudeCodeSeat(input: ClaudeCodeSeatInput): Seat<ClaudeCodeAnswe
       };
       const check = planNightChild(childInput);
       if (!check.ok) {
-        return { refused: check.reason, started: false, code: null, timedOut: false, error: null, ms: 0, result: { code: null, timedOut: false, error: null }, neverStarted: true, spill: null };
+        return { refused: check.reason, started: false, code: null, timedOut: false, error: null, ms: 0, result: { code: null, timedOut: false, error: null }, spill: null };
       }
       if (ask.act === "catch-up") {
         const at = now();
         const result = await (input.startCatchUp ?? ((p: ChildPlan) => startChild(p)))(check);
         const neverStarted = neverStartedOf(result);
-        return { refused: null, started: !neverStarted, code: result.code, timedOut: result.timedOut, error: result.error, ms: now() - at, result, neverStarted, spill: null };
+        return {
+          refused: null,
+          started: !neverStarted,
+          code: result.code,
+          timedOut: result.timedOut,
+          error: result.error,
+          ms: now() - at,
+          ...(result.spawnCode === undefined ? {} : { spawnCode: result.spawnCode }),
+          result,
+          spill: null,
+        };
       }
       const out = await runNightChild(
         { open: input.open, run: ask.run, session: ask.session, ...(input.onEvent === undefined ? {} : { onEvent: input.onEvent }) },
@@ -875,7 +900,17 @@ export function claudeCodeSeat(input: ClaudeCodeSeatInput): Seat<ClaudeCodeAnswe
         input.start ?? ((p: ChildPlan) => startChild(p)),
         now,
       );
-      return { refused: null, started: !out.neverStarted, code: out.result.code, timedOut: out.result.timedOut, error: out.result.error, ...out };
+      return {
+        refused: null,
+        started: !out.neverStarted,
+        code: out.result.code,
+        timedOut: out.result.timedOut,
+        error: out.result.error,
+        ms: out.ms,
+        ...(out.result.spawnCode === undefined ? {} : { spawnCode: out.result.spawnCode }),
+        result: out.result,
+        spill: out.spill,
+      };
     },
   };
 }
@@ -894,8 +929,8 @@ interface NightChildOutcome {
 }
 
 /** The row's line for a child that ran. */
-function childRunOf(child: NightChild, out: NightChildOutcome): NightChildRun {
-  return { child, code: out.result.code, ms: out.ms, ...(out.result.timedOut ? { timedOut: true as const } : {}) };
+function childRunOf(child: NightChild, out: NightAnswer): NightChildRun {
+  return { child, code: out.code, ms: out.ms, ...(out.timedOut ? { timedOut: true as const } : {}) };
 }
 
 /**
@@ -963,14 +998,13 @@ async function runNightChild(
  * a second `claude` would stop the same way), when a reflection already
  * finished today, or when the store will not open. Never throws.
  */
-function reflectionAfter(open: () => Counterpart, first: ClaudeCodeAnswer, session: string, since: number): { prompt: string; dream: string | null } | { skipped: string } {
+function reflectionAfter(open: () => Counterpart, first: NightAnswer, session: string, since: number): { prompt: string; dream: string | null } | { skipped: string } {
   try {
     const c = open();
     try {
       const dreams = c.store.dreams({ sinceAt: since, limit: 5 });
       const began = dreams.length > 0 || c.pageWriterRuns({ limit: 20 }).some((r) => r.at >= since && r.session === session);
-      const r = first.result;
-      if (!began && r.code !== 0 && !r.timedOut && first.ms < TUNABLES.NIGHT_QUICK_EXIT_MS) return { skipped: "quick-exit" };
+      if (!began && first.code !== 0 && !first.timedOut && first.ms < TUNABLES.NIGHT_QUICK_EXIT_MS) return { skipped: "quick-exit" };
       const today = c.store.today();
       if (c.store.reflections({ limit: 5 }).some((x) => x.state === "reflected" && x.date === today)) return { skipped: "reflected-today" };
       const dream = dreams.find((d) => d.state === "journaled")?.id ?? null;

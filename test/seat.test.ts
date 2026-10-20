@@ -15,8 +15,8 @@ import { join } from "node:path";
 
 import type { AdapterConfig } from "../src/adapters/config.js";
 import { CATCH_UP_TOOLS } from "../src/adapters/claude-code/night-catch-up.js";
-import { DREAM_CHILD_DENIED, DREAM_CHILD_TOOLS, NIGHT_TOOLS, hostToolName, runNight } from "../src/adapters/claude-code/night-run.js";
-import type { ClaudeCodeAnswer } from "../src/adapters/claude-code/night-run.js";
+import { DREAM_CHILD_DENIED, DREAM_CHILD_TOOLS, NIGHT_TOOLS, hostToolName, nightMaxTurns, nightTimeoutMs, runNight } from "../src/adapters/claude-code/night-run.js";
+import type { NightAnswer } from "../src/adapters/claude-code/night-run.js";
 import { Counterpart, SEAT_TOOLS, seatAsk } from "../src/core/counterpart.js";
 import type { Seat, SeatAsk } from "../src/core/counterpart.js";
 
@@ -35,21 +35,19 @@ afterEach(() => {
 
 const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, owner: true, injectionBudgetBytes: 9_000, ...over });
 
-const clean = (over: Partial<ClaudeCodeAnswer> = {}): ClaudeCodeAnswer => ({
+/** A plain answer: the seat's own fields only, as a seat that isn't Claude Code gives. */
+const clean = (over: Partial<NightAnswer> = {}): NightAnswer => ({
   refused: null,
   started: true,
   code: 0,
   timedOut: false,
   error: null,
   ms: 1,
-  result: { code: 0, timedOut: false, error: null },
-  neverStarted: false,
-  spill: null,
   ...over,
 });
 
 /** A seat that records each ask and answers from a script. */
-function scripted(asks: SeatAsk[], script: ((ask: SeatAsk) => ClaudeCodeAnswer)[] = []): Seat<ClaudeCodeAnswer> {
+function scripted(asks: SeatAsk[], script: ((ask: SeatAsk) => NightAnswer)[] = []): Seat<NightAnswer> {
   return {
     name: "test",
     answer(ask) {
@@ -60,7 +58,7 @@ function scripted(asks: SeatAsk[], script: ((ask: SeatAsk) => ClaudeCodeAnswer)[
   };
 }
 
-function night(seat: Seat<ClaudeCodeAnswer>, kind: Parameters<typeof runNight>[0]["kind"] = { kind: "night" }): ReturnType<typeof runNight> {
+function night(seat: Seat<NightAnswer>, kind: Parameters<typeof runNight>[0]["kind"] = { kind: "night" }): ReturnType<typeof runNight> {
   return runNight({
     open: () => Counterpart.open({ dir, owner: true, budgetBytes: 9_000 }),
     config: config(),
@@ -91,14 +89,22 @@ test("a night asks the seat for the dream, then the reflection, under the launch
     expect(a.session).toBe("ses-launch");
     expect(a.scope).toBe(root);
     expect(a.prompt.length).toBeGreaterThan(0);
-    expect(a.limits).toBeUndefined();
+    expect(a.limits).toEqual({ turns: nightMaxTurns(config()), ms: nightTimeoutMs(config()) });
   }
   expect(out.children?.map((c) => c.child)).toEqual(["dream", "reflection"]);
 });
 
+test("a seat that refuses the reflection: said as not started, the run's exit stays the dream's", async () => {
+  const out = await night(scripted([], [() => clean(), () => clean({ refused: "NO_COMMAND", started: false, code: null })]));
+  expect(out.children).toEqual([
+    { child: "dream", code: 0, ms: 1 },
+    { child: "reflection", code: null, ms: 0, skipped: "spawn-failed" },
+  ]);
+});
+
 test("a seat that refuses ends the run before anything starts, with its reason", async () => {
   const asks: SeatAsk[] = [];
-  const out = await night(scripted(asks, [() => clean({ refused: "NO_COMMAND", started: false, code: null, neverStarted: true })]));
+  const out = await night(scripted(asks, [() => clean({ refused: "NO_COMMAND", started: false, code: null })]));
   expect(out.state).toBe("could-not-start");
   expect(out.reason).toBe("refused");
   expect(out.detail).toBe("NO_COMMAND");
@@ -107,7 +113,7 @@ test("a seat that refuses ends the run before anything starts, with its reason",
 });
 
 test("a seat that throws on the first ask is a spawn that failed; on the second, a reflection skipped", async () => {
-  const boom = (): ClaudeCodeAnswer => {
+  const boom = (): NightAnswer => {
     throw new TypeError("seat fell over");
   };
   const first = await night(scripted([], [boom]));
@@ -123,8 +129,8 @@ test("a seat that throws on the first ask is a spawn that failed; on the second,
 });
 
 test("a reflection the seat never started is said as not started; no claude is said as such", async () => {
-  const never = (spawnCode: string) => (): ClaudeCodeAnswer =>
-    clean({ started: false, code: null, neverStarted: true, error: `spawn ${spawnCode}`, result: { code: null, timedOut: false, error: `spawn ${spawnCode}`, spawnCode } });
+  const never = (spawnCode: string) => (): NightAnswer =>
+    clean({ started: false, code: null, error: `spawn ${spawnCode}`, spawnCode });
   const out = await night(scripted([], [() => clean(), never("ENOENT")]));
   expect(out.children?.[1]).toEqual({ child: "reflection", code: null, ms: 0, skipped: "no-claude" });
   const first = await night(scripted([], [never("ENOENT")]));

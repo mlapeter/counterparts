@@ -15,10 +15,11 @@
  *
  * The acts and their shapes, in one page: `docs/seat.md`.
  *
- * Two implementations: Claude Code's (`adapters/claude-code/night-run.ts#
- * claudeCodeSeat`, a `claude -p` child with the counterparts MCP server, what
- * every user has), and the harness's (`tools/harness/`, dev-only). No version
- * field and no compatibility apparatus until a third implementer exists.
+ * Claude Code's is the one implementation today (`adapters/claude-code/
+ * night-run.ts#claudeCodeSeat`, a `claude -p` child with the counterparts MCP
+ * server, what every user has); the harness's (`tools/harness/`, dev-only) is
+ * the next. No version field and no compatibility apparatus until a third
+ * implementer exists.
  */
 
 /** What is asked: a write-up owed from a session that ended unwritten, the night's dream (with the page writer's phase), or the reflection. */
@@ -39,6 +40,14 @@ export const SEAT_TOOLS: Readonly<Record<SeatAct, { readonly tools: readonly Sea
   reflection: { tools: ["dream", "reflect", "self_page", "recall"], withhold: [] },
 };
 
+/**
+ * One ask. `withhold` is declared here and enforced by the host: Claude Code
+ * denies those tools to the child, and tells the memory's server which act it
+ * serves (`COUNTERPARTS_NIGHT_CHILD` on the server's environment), so the
+ * dream tool's last step stops at the journal instead of pointing on to the
+ * reflection. A seat that answers through the server another way must tell it
+ * the same.
+ */
 export interface SeatAsk {
   readonly act: SeatAct;
   /** The words the memory composed for this act: the launch prompt. */
@@ -70,7 +79,7 @@ export interface SeatAnswer {
 }
 
 export interface Seat<A extends SeatAnswer = SeatAnswer> {
-  /** Who sits in it, for the record (`claude-code`, `harness:recorded`, …). */
+  /** Who sits in it (`claude-code`, `harness:recorded`, …): for logs and measurements, not yet written on the night's row. */
   readonly name: string;
   answer(ask: SeatAsk): Promise<A>;
 }

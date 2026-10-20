@@ -31,6 +31,13 @@ The dream must not reflect because the reflection is its own ask, with a fresh c
 reads tonight's dream from the store, never the dream's conversation. One shared context
 peaked past a 200k-token model (2026-10-11).
 
+The ask declares what must not be reached; the host enforces it. Claude Code does this two ways:
+- it denies the withheld tools to the child;
+- it tells the memory's server which act it serves (`COUNTERPARTS_NIGHT_CHILD`), so the dream
+  tool's last step stops at the journal instead of pointing on to the reflection.
+
+A seat that answers through the server another way must tell the server the same.
+
 A night's order (`adapters/claude-code/night-run.ts#runNight`):
 1. the catch-up, batch by batch;
 2. the dream;
@@ -58,8 +65,8 @@ its write-up and ratings through the server's own paths.
 
 - **Claude Code** (`night-run.ts#claudeCodeSeat`): each night ask is a locked-down
   `claude -p` with only the counterparts MCP server. This is what every user has.
-- **The harness** (`tools/harness/`, dev-only): first headless Claude Code against a temp
-  store; then a local open model; then the API, only if speed or cost forces it.
+- **The harness** (`tools/harness/`, dev-only), next: first headless Claude Code against a
+  temp store; then a local open model; then the API, only if speed or cost forces it.
 
 The starting rule (2026-10-20): self-facing acts, the reflection above all, run on the model
 that lives in the store. When one doesn't, the harness measures the drift: the same store,

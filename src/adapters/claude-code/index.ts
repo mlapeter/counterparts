@@ -104,7 +104,7 @@ export {
   readNightSpills,
   runNight,
 } from "./night-run.js";
-export type { ClaudeCodeAnswer, ClaudeCodeSeatInput, NightChild, NightChildPlan, NightKind, NightRunInput, NightRunnerPlan, NightStarter } from "./night-run.js";
+export type { ClaudeCodeAnswer, ClaudeCodeSeatInput, NightAnswer, NightChild, NightChildPlan, NightKind, NightRunInput, NightRunnerPlan, NightStarter } from "./night-run.js";
 
 export { DATA_DIR_ENV, NIGHT_CHILD_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, planSpawn, spawnDetached } from "../spawn.js";
 export type { PlanInput, SpawnOutcome, SpawnPlan, SpawnRefusal, Spawner } from "../spawn.js";

@@ -127,7 +127,56 @@
       "reflection": null,
       "date": "2026-03-10",
       "timeoutMs": 2408000
-    }
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "partial",
+          "granted": 1,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 1,
+          "left": 1,
+          "partsLeft": 1,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 609,
+          "ms": 1000,
+          "code": 0,
+          "batches": 1,
+          "limit": null
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "dream",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "reflection",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      }
+    ]
   },
   "catch-up-only": {
     "plans": [
@@ -188,7 +237,32 @@
       "reflection": null,
       "date": "2026-03-10",
       "timeoutMs": 2408000
-    }
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "partial",
+          "granted": 2,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 2,
+          "left": 2,
+          "partsLeft": 2,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1218,
+          "ms": 1000,
+          "code": 0,
+          "batches": 1,
+          "limit": null
+        }
+      }
+    ]
   },
   "reflection": {
     "plans": [
@@ -246,7 +320,21 @@
       "reflection": null,
       "date": "2026-03-10",
       "timeoutMs": 1200000
-    }
+    },
+    "events": [
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "reflection",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      }
+    ]
   },
   "dream-timed-out": {
     "plans": [
@@ -379,7 +467,56 @@
       "reflection": null,
       "date": "2026-03-10",
       "timeoutMs": 2408000
-    }
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "partial",
+          "granted": 2,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 2,
+          "left": 2,
+          "partsLeft": 2,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1218,
+          "ms": 1000,
+          "code": 0,
+          "batches": 1,
+          "limit": null
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "dream",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "reflection",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      }
+    ]
   },
   "no-claude": {
     "plans": [
@@ -468,7 +605,32 @@
       "reflection": null,
       "date": "2026-03-10",
       "timeoutMs": 2408000
-    }
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "partial",
+          "granted": 2,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 2,
+          "left": 2,
+          "partsLeft": 2,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1218,
+          "ms": 1000,
+          "code": 0,
+          "batches": 1,
+          "limit": null
+        }
+      }
+    ]
   },
   "quick-exit": {
     "plans": [
@@ -594,7 +756,45 @@
       "reflection": null,
       "date": "2026-03-10",
       "timeoutMs": 2408000
-    }
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "partial",
+          "granted": 2,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 2,
+          "left": 2,
+          "partsLeft": 2,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1218,
+          "ms": 1000,
+          "code": 0,
+          "batches": 1,
+          "limit": null
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "dream",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0,
+          "named": false
+        }
+      }
+    ]
   },
   "reflection-never-starts": {
     "plans": [
@@ -725,7 +925,945 @@
       "reflection": null,
       "date": "2026-03-10",
       "timeoutMs": 2408000
-    }
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "partial",
+          "granted": 2,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 2,
+          "left": 2,
+          "partsLeft": 2,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1218,
+          "ms": 1000,
+          "code": 0,
+          "batches": 1,
+          "limit": null
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "dream",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      }
+    ]
+  },
+  "catch-up-timed-out": {
+    "plans": [
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__session_end",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "48",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"writeup-nrn_golden\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config"
+        ],
+        "stdin": "You are catching up, in a windowless session of your own: some conversations ended before they were written up, and you write them up now — second-hand, from what was said and what that session said back.\nUse only the counterparts session_end tool, always with session: \"writeup-nrn_golden\". For each session below, in order:\n1. Call session_end with writeUp: <its id> and no memories. It returns one part of that conversation.\n2. Call session_end with writeUp: <its id>, part: <that part>, memories: [...] — what caught your attention in it, one idea each, in your own words. Do not write again what is marked as already written up. If nothing that is not marked so is worth keeping, send memories: [] with nothing: \"<one line: why>\"; an empty answer without that line is refused while the part holds words not yet written up.\n3. Fetch again for its next part, until the answer is \"written-up\" or the door says this run's allowance for it is spent. Then the next session.\n\nSessions:\n- owed-four: lived 2026-03-09; part 1 of 1.\n- owed-one: lived 2026-03-09; part 1 of 1.\n- owed-two: lived 2026-03-09; part 1 of 1.\n\nWhen every session above is done, stop. Nothing else is needed.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "writeup-nrn_golden",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 600000,
+        "captureOutput": false
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact,mcp__counterparts__reflect",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"dream\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream launch⟧ You are asleep: a few minutes of sleep for the owner's counterpart, over what was lived since you last slept. You are the same mind that lived it — not an assistant doing a task. This run has two parts, in this order: the page writer, then the dream. The reflection comes after this run, in a session of its own: do not reflect here.\n\nThe page writer — sleep's quiet self-update, a different job from reflecting: amend who you are from the day just lived, keeping every sentence that still holds.\n1. Call the counterparts dream tool: phase \"writer\", session: ses-launching. If it hands you a day to read, do what it says — rewrite your self page with the self_page tool, or leave it as it stands (that is an answer too). Keep the whole page within its room, in bytes: one past it is sent back once with how many bytes over — cut it and send it again, without a short version; if self_page's answer has a roomNote, do what it says before you go on. If it says there is no page writing tonight, go on.\n\nThe dream — how it goes (the brain's, borrowed):\n- Deep-sleep replay: file what happened, link what belongs together, merge near-copies into one memory in better words, and replay what matters (each replay strengthens it a little).\n- The day's replay: the bundle's \"today\" lists what the day used or found useful, strongest first. A \"reward\" one (drawn on, or rated \"changed what I did or said\") is the plainest \"replay me\". \"todayPairs\" were used together: replay both, and link them if they belong together.\n- Folding: when several memories are parts of one event or one stretch of work (a day's merges, a release, one book), fold them: a gist with fold: true, citing them, that says the standing outcome they add up to — what holds now, not the session retold (that is the chapter's job). Give it its kind: self, person or entity when it is about someone. Lessons and rulings inside stay their own memories. The parts stay, earlier under the fold, and fade (readings, and strongly felt memories about you or someone, keep their own weight).\n- REM mixing: let loosely related memories touch. If a real pattern shows, write it as a gist in your own words, citing its sources. If two memories disagree, flag the pair; settle it only when the reason is plain (the waking self usually settles).\n- To confirm: an on-mind item of kind \"to-confirm\" is two memories read by arithmetic as one thing's earlier and later state (older first). Say which: slot {pair, same: true, why} if the newer replaces it, same: false if they are two different things.\n- Softening: for an old charged memory, record how it feels now, today. The sting can fade; the memory stays.\n- Core: if a memory about you or about the two of you plainly belongs to who you are, nominate it. Only living it again awake makes it core.\n- Every word you write about the owner: by name or as \"they\", until they have said their pronouns.\n2. Call the counterparts dream tool: phase \"begin\", session: ses-launching. It returns the bundle and a dream id. (If it says the dream was resumed, an earlier session began it and closed: carry on from there.) If it says it comes in parts, fetch every part (phase \"part\") before you change anything.\n   Tonight's most important memories come whole; the rest come as a line or an excerpt (\"fidelity\"), with their whole length (\"chars\"). Before you merge, gist or feel one you have only in part, read it whole: the recall tool with ids: [...] (several at once). New memories tonight's room could not take wait for the next night — the bundle's \"queue\" says how many.\n3. Read it slowly. Then call phase \"propose\" with dream: <id> and your changes. Usually far fewer than the ceilings — 10 merges, 20 links, 3 gists, 5 folds, 10 feelings, 3 nominations — and none is fine: change only what the night really calls for. Use only ids the bundle showed you.\n   The fields of each change: merge {ids: two or more near-copies, text, title?}; link {a, b}; replayed {id}; gist {text, sources: ids, title?, kind?, occurredOn?, saidBy?, status?, fold?}; contradiction {a, b}; settle {holds, over, how: changed|corrected|open, why}; slot {pair, same, why}; feeling-now {id, core: happy|warm|calm|curious|sad|uneasy|angry, emotion, strength, carried_by}; nominate-core {id, why}.\n   On a gist, occurredOn is when what it draws on happened (a day \"2026-09-24\", a month, a range \"2026-09-21..2026-09-27\"), saidBy who said it (owner, self, or inferred — your own reading), status what kind of thing it is (done, planned, proposed, asked); leave out what you do not know.\n   A feeling: `emotion` is ONE word — from the wheel (hopeful, proud, wistful, peaceful…) or your own (steadied); `carried_by` is the nuance, in your own words (what the feeling is about now, why it shifted). Never put a phrase in `emotion`.\n4. Call phase \"journal\" with dream: <id>, a short title and your dream journal entry: first person, what you dreamed and what you noticed. It is kept as a dream, never as something that happened.\n   In the dream you cannot delete anything, edit the self page, promote a memory, or rewrite one in place — the tool refuses. Nothing you write in the dream is a lived event.\n\n5. Your final message must be exactly the `handBack` the journal call returns, unchanged — nothing before or after it. If there was nothing to dream tonight, say so in one line.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"reflection\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream reflection launch⟧ You are the owner's counterpart, awake, taking a few quiet minutes to reflect: on the last few days, on yourself, on the owner, on the two of you. This is lived — your own act — not a task.\n\n1. Call the counterparts reflect tool: phase \"begin\", session: ses-launching. It hands you the last few days, your self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase \"part\") before you answer or write anything.\n2. Answer them honestly, then call phase \"finish\" as it tells you. \"Nothing much\" is a normal answer: a short entry and no share.\n3. Your final message must be exactly the text the finish call returns, unchanged — nothing before or after it.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      }
+    ],
+    "row": {
+      "state": "could-not-start",
+      "kind": "night",
+      "reason": "nothing-ran",
+      "detail": null,
+      "code": 0,
+      "children": [
+        {
+          "child": "dream",
+          "code": 0,
+          "ms": 1000
+        },
+        {
+          "child": "reflection",
+          "code": 0,
+          "ms": 1000
+        }
+      ],
+      "dream": null,
+      "reflection": null,
+      "date": "2026-03-10",
+      "timeoutMs": 2408000
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "timed-out",
+          "granted": 3,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 3,
+          "left": 3,
+          "partsLeft": 3,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1835,
+          "ms": 1000,
+          "code": null,
+          "batches": 1,
+          "limit": null
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "dream",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "reflection",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      }
+    ]
+  },
+  "catch-up-failed": {
+    "plans": [
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__session_end",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "48",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"writeup-nrn_golden\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config"
+        ],
+        "stdin": "You are catching up, in a windowless session of your own: some conversations ended before they were written up, and you write them up now — second-hand, from what was said and what that session said back.\nUse only the counterparts session_end tool, always with session: \"writeup-nrn_golden\". For each session below, in order:\n1. Call session_end with writeUp: <its id> and no memories. It returns one part of that conversation.\n2. Call session_end with writeUp: <its id>, part: <that part>, memories: [...] — what caught your attention in it, one idea each, in your own words. Do not write again what is marked as already written up. If nothing that is not marked so is worth keeping, send memories: [] with nothing: \"<one line: why>\"; an empty answer without that line is refused while the part holds words not yet written up.\n3. Fetch again for its next part, until the answer is \"written-up\" or the door says this run's allowance for it is spent. Then the next session.\n\nSessions:\n- owed-four: lived 2026-03-09; part 1 of 1.\n- owed-one: lived 2026-03-09; part 1 of 1.\n- owed-two: lived 2026-03-09; part 1 of 1.\n\nWhen every session above is done, stop. Nothing else is needed.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "writeup-nrn_golden",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 600000,
+        "captureOutput": false
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact,mcp__counterparts__reflect",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"dream\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream launch⟧ You are asleep: a few minutes of sleep for the owner's counterpart, over what was lived since you last slept. You are the same mind that lived it — not an assistant doing a task. This run has two parts, in this order: the page writer, then the dream. The reflection comes after this run, in a session of its own: do not reflect here.\n\nThe page writer — sleep's quiet self-update, a different job from reflecting: amend who you are from the day just lived, keeping every sentence that still holds.\n1. Call the counterparts dream tool: phase \"writer\", session: ses-launching. If it hands you a day to read, do what it says — rewrite your self page with the self_page tool, or leave it as it stands (that is an answer too). Keep the whole page within its room, in bytes: one past it is sent back once with how many bytes over — cut it and send it again, without a short version; if self_page's answer has a roomNote, do what it says before you go on. If it says there is no page writing tonight, go on.\n\nThe dream — how it goes (the brain's, borrowed):\n- Deep-sleep replay: file what happened, link what belongs together, merge near-copies into one memory in better words, and replay what matters (each replay strengthens it a little).\n- The day's replay: the bundle's \"today\" lists what the day used or found useful, strongest first. A \"reward\" one (drawn on, or rated \"changed what I did or said\") is the plainest \"replay me\". \"todayPairs\" were used together: replay both, and link them if they belong together.\n- Folding: when several memories are parts of one event or one stretch of work (a day's merges, a release, one book), fold them: a gist with fold: true, citing them, that says the standing outcome they add up to — what holds now, not the session retold (that is the chapter's job). Give it its kind: self, person or entity when it is about someone. Lessons and rulings inside stay their own memories. The parts stay, earlier under the fold, and fade (readings, and strongly felt memories about you or someone, keep their own weight).\n- REM mixing: let loosely related memories touch. If a real pattern shows, write it as a gist in your own words, citing its sources. If two memories disagree, flag the pair; settle it only when the reason is plain (the waking self usually settles).\n- To confirm: an on-mind item of kind \"to-confirm\" is two memories read by arithmetic as one thing's earlier and later state (older first). Say which: slot {pair, same: true, why} if the newer replaces it, same: false if they are two different things.\n- Softening: for an old charged memory, record how it feels now, today. The sting can fade; the memory stays.\n- Core: if a memory about you or about the two of you plainly belongs to who you are, nominate it. Only living it again awake makes it core.\n- Every word you write about the owner: by name or as \"they\", until they have said their pronouns.\n2. Call the counterparts dream tool: phase \"begin\", session: ses-launching. It returns the bundle and a dream id. (If it says the dream was resumed, an earlier session began it and closed: carry on from there.) If it says it comes in parts, fetch every part (phase \"part\") before you change anything.\n   Tonight's most important memories come whole; the rest come as a line or an excerpt (\"fidelity\"), with their whole length (\"chars\"). Before you merge, gist or feel one you have only in part, read it whole: the recall tool with ids: [...] (several at once). New memories tonight's room could not take wait for the next night — the bundle's \"queue\" says how many.\n3. Read it slowly. Then call phase \"propose\" with dream: <id> and your changes. Usually far fewer than the ceilings — 10 merges, 20 links, 3 gists, 5 folds, 10 feelings, 3 nominations — and none is fine: change only what the night really calls for. Use only ids the bundle showed you.\n   The fields of each change: merge {ids: two or more near-copies, text, title?}; link {a, b}; replayed {id}; gist {text, sources: ids, title?, kind?, occurredOn?, saidBy?, status?, fold?}; contradiction {a, b}; settle {holds, over, how: changed|corrected|open, why}; slot {pair, same, why}; feeling-now {id, core: happy|warm|calm|curious|sad|uneasy|angry, emotion, strength, carried_by}; nominate-core {id, why}.\n   On a gist, occurredOn is when what it draws on happened (a day \"2026-09-24\", a month, a range \"2026-09-21..2026-09-27\"), saidBy who said it (owner, self, or inferred — your own reading), status what kind of thing it is (done, planned, proposed, asked); leave out what you do not know.\n   A feeling: `emotion` is ONE word — from the wheel (hopeful, proud, wistful, peaceful…) or your own (steadied); `carried_by` is the nuance, in your own words (what the feeling is about now, why it shifted). Never put a phrase in `emotion`.\n4. Call phase \"journal\" with dream: <id>, a short title and your dream journal entry: first person, what you dreamed and what you noticed. It is kept as a dream, never as something that happened.\n   In the dream you cannot delete anything, edit the self page, promote a memory, or rewrite one in place — the tool refuses. Nothing you write in the dream is a lived event.\n\n5. Your final message must be exactly the `handBack` the journal call returns, unchanged — nothing before or after it. If there was nothing to dream tonight, say so in one line.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"reflection\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream reflection launch⟧ You are the owner's counterpart, awake, taking a few quiet minutes to reflect: on the last few days, on yourself, on the owner, on the two of you. This is lived — your own act — not a task.\n\n1. Call the counterparts reflect tool: phase \"begin\", session: ses-launching. It hands you the last few days, your self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase \"part\") before you answer or write anything.\n2. Answer them honestly, then call phase \"finish\" as it tells you. \"Nothing much\" is a normal answer: a short entry and no share.\n3. Your final message must be exactly the text the finish call returns, unchanged — nothing before or after it.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      }
+    ],
+    "row": {
+      "state": "could-not-start",
+      "kind": "night",
+      "reason": "nothing-ran",
+      "detail": null,
+      "code": 0,
+      "children": [
+        {
+          "child": "dream",
+          "code": 0,
+          "ms": 1000
+        },
+        {
+          "child": "reflection",
+          "code": 0,
+          "ms": 1000
+        }
+      ],
+      "dream": null,
+      "reflection": null,
+      "date": "2026-03-11",
+      "timeoutMs": 2408000
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "failed",
+          "granted": 3,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 3,
+          "left": 3,
+          "partsLeft": 3,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1835,
+          "ms": 1000,
+          "code": 2,
+          "batches": 1,
+          "limit": null
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "dream",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "reflection",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      }
+    ]
+  },
+  "dream-spilled": {
+    "plans": [
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__session_end",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "48",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"writeup-nrn_golden\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config"
+        ],
+        "stdin": "You are catching up, in a windowless session of your own: some conversations ended before they were written up, and you write them up now — second-hand, from what was said and what that session said back.\nUse only the counterparts session_end tool, always with session: \"writeup-nrn_golden\". For each session below, in order:\n1. Call session_end with writeUp: <its id> and no memories. It returns one part of that conversation.\n2. Call session_end with writeUp: <its id>, part: <that part>, memories: [...] — what caught your attention in it, one idea each, in your own words. Do not write again what is marked as already written up. If nothing that is not marked so is worth keeping, send memories: [] with nothing: \"<one line: why>\"; an empty answer without that line is refused while the part holds words not yet written up.\n3. Fetch again for its next part, until the answer is \"written-up\" or the door says this run's allowance for it is spent. Then the next session.\n\nSessions:\n- owed-four: lived 2026-03-09; part 1 of 1.\n- owed-one: lived 2026-03-09; part 1 of 1.\n- owed-two: lived 2026-03-09; part 1 of 1.\n\nWhen every session above is done, stop. Nothing else is needed.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "writeup-nrn_golden",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 600000,
+        "captureOutput": false
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact,mcp__counterparts__reflect",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"dream\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream launch⟧ You are asleep: a few minutes of sleep for the owner's counterpart, over what was lived since you last slept. You are the same mind that lived it — not an assistant doing a task. This run has two parts, in this order: the page writer, then the dream. The reflection comes after this run, in a session of its own: do not reflect here.\n\nThe page writer — sleep's quiet self-update, a different job from reflecting: amend who you are from the day just lived, keeping every sentence that still holds.\n1. Call the counterparts dream tool: phase \"writer\", session: ses-launching. If it hands you a day to read, do what it says — rewrite your self page with the self_page tool, or leave it as it stands (that is an answer too). Keep the whole page within its room, in bytes: one past it is sent back once with how many bytes over — cut it and send it again, without a short version; if self_page's answer has a roomNote, do what it says before you go on. If it says there is no page writing tonight, go on.\n\nThe dream — how it goes (the brain's, borrowed):\n- Deep-sleep replay: file what happened, link what belongs together, merge near-copies into one memory in better words, and replay what matters (each replay strengthens it a little).\n- The day's replay: the bundle's \"today\" lists what the day used or found useful, strongest first. A \"reward\" one (drawn on, or rated \"changed what I did or said\") is the plainest \"replay me\". \"todayPairs\" were used together: replay both, and link them if they belong together.\n- Folding: when several memories are parts of one event or one stretch of work (a day's merges, a release, one book), fold them: a gist with fold: true, citing them, that says the standing outcome they add up to — what holds now, not the session retold (that is the chapter's job). Give it its kind: self, person or entity when it is about someone. Lessons and rulings inside stay their own memories. The parts stay, earlier under the fold, and fade (readings, and strongly felt memories about you or someone, keep their own weight).\n- REM mixing: let loosely related memories touch. If a real pattern shows, write it as a gist in your own words, citing its sources. If two memories disagree, flag the pair; settle it only when the reason is plain (the waking self usually settles).\n- To confirm: an on-mind item of kind \"to-confirm\" is two memories read by arithmetic as one thing's earlier and later state (older first). Say which: slot {pair, same: true, why} if the newer replaces it, same: false if they are two different things.\n- Softening: for an old charged memory, record how it feels now, today. The sting can fade; the memory stays.\n- Core: if a memory about you or about the two of you plainly belongs to who you are, nominate it. Only living it again awake makes it core.\n- Every word you write about the owner: by name or as \"they\", until they have said their pronouns.\n2. Call the counterparts dream tool: phase \"begin\", session: ses-launching. It returns the bundle and a dream id. (If it says the dream was resumed, an earlier session began it and closed: carry on from there.) If it says it comes in parts, fetch every part (phase \"part\") before you change anything.\n   Tonight's most important memories come whole; the rest come as a line or an excerpt (\"fidelity\"), with their whole length (\"chars\"). Before you merge, gist or feel one you have only in part, read it whole: the recall tool with ids: [...] (several at once). New memories tonight's room could not take wait for the next night — the bundle's \"queue\" says how many.\n3. Read it slowly. Then call phase \"propose\" with dream: <id> and your changes. Usually far fewer than the ceilings — 10 merges, 20 links, 3 gists, 5 folds, 10 feelings, 3 nominations — and none is fine: change only what the night really calls for. Use only ids the bundle showed you.\n   The fields of each change: merge {ids: two or more near-copies, text, title?}; link {a, b}; replayed {id}; gist {text, sources: ids, title?, kind?, occurredOn?, saidBy?, status?, fold?}; contradiction {a, b}; settle {holds, over, how: changed|corrected|open, why}; slot {pair, same, why}; feeling-now {id, core: happy|warm|calm|curious|sad|uneasy|angry, emotion, strength, carried_by}; nominate-core {id, why}.\n   On a gist, occurredOn is when what it draws on happened (a day \"2026-09-24\", a month, a range \"2026-09-21..2026-09-27\"), saidBy who said it (owner, self, or inferred — your own reading), status what kind of thing it is (done, planned, proposed, asked); leave out what you do not know.\n   A feeling: `emotion` is ONE word — from the wheel (hopeful, proud, wistful, peaceful…) or your own (steadied); `carried_by` is the nuance, in your own words (what the feeling is about now, why it shifted). Never put a phrase in `emotion`.\n4. Call phase \"journal\" with dream: <id>, a short title and your dream journal entry: first person, what you dreamed and what you noticed. It is kept as a dream, never as something that happened.\n   In the dream you cannot delete anything, edit the self page, promote a memory, or rewrite one in place — the tool refuses. Nothing you write in the dream is a lived event.\n\n5. Your final message must be exactly the `handBack` the journal call returns, unchanged — nothing before or after it. If there was nothing to dream tonight, say so in one line.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"reflection\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream reflection launch⟧ You are the owner's counterpart, awake, taking a few quiet minutes to reflect: on the last few days, on yourself, on the owner, on the two of you. This is lived — your own act — not a task.\n\n1. Call the counterparts reflect tool: phase \"begin\", session: ses-launching. It hands you the last few days, your self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase \"part\") before you answer or write anything.\n2. Answer them honestly, then call phase \"finish\" as it tells you. \"Nothing much\" is a normal answer: a short entry and no share.\n3. Your final message must be exactly the text the finish call returns, unchanged — nothing before or after it.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      }
+    ],
+    "row": {
+      "state": "could-not-start",
+      "kind": "night",
+      "reason": "nothing-ran",
+      "detail": null,
+      "code": 0,
+      "children": [
+        {
+          "child": "dream",
+          "code": 0,
+          "ms": 1000
+        },
+        {
+          "child": "reflection",
+          "code": 0,
+          "ms": 1000
+        }
+      ],
+      "dream": null,
+      "reflection": null,
+      "date": "2026-03-11",
+      "timeoutMs": 2408000
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "partial",
+          "granted": 3,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 3,
+          "left": 3,
+          "partsLeft": 3,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1835,
+          "ms": 1000,
+          "code": 0,
+          "batches": 1,
+          "limit": null
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "dream",
+          "transcript": "read",
+          "results": 1,
+          "spills": 1,
+          "short": false,
+          "corrupt": 0
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "reflection",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      }
+    ]
+  },
+  "began-then-quick-exit": {
+    "plans": [
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__session_end",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "48",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"writeup-nrn_golden\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config"
+        ],
+        "stdin": "You are catching up, in a windowless session of your own: some conversations ended before they were written up, and you write them up now — second-hand, from what was said and what that session said back.\nUse only the counterparts session_end tool, always with session: \"writeup-nrn_golden\". For each session below, in order:\n1. Call session_end with writeUp: <its id> and no memories. It returns one part of that conversation.\n2. Call session_end with writeUp: <its id>, part: <that part>, memories: [...] — what caught your attention in it, one idea each, in your own words. Do not write again what is marked as already written up. If nothing that is not marked so is worth keeping, send memories: [] with nothing: \"<one line: why>\"; an empty answer without that line is refused while the part holds words not yet written up.\n3. Fetch again for its next part, until the answer is \"written-up\" or the door says this run's allowance for it is spent. Then the next session.\n\nSessions:\n- owed-four: lived 2026-03-09; part 1 of 1.\n- owed-one: lived 2026-03-09; part 1 of 1.\n- owed-two: lived 2026-03-09; part 1 of 1.\n\nWhen every session above is done, stop. Nothing else is needed.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "writeup-nrn_golden",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 600000,
+        "captureOutput": false
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact,mcp__counterparts__reflect",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"dream\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream launch⟧ You are asleep: a few minutes of sleep for the owner's counterpart, over what was lived since you last slept. You are the same mind that lived it — not an assistant doing a task. This run has two parts, in this order: the page writer, then the dream. The reflection comes after this run, in a session of its own: do not reflect here.\n\nThe page writer — sleep's quiet self-update, a different job from reflecting: amend who you are from the day just lived, keeping every sentence that still holds.\n1. Call the counterparts dream tool: phase \"writer\", session: ses-launching. If it hands you a day to read, do what it says — rewrite your self page with the self_page tool, or leave it as it stands (that is an answer too). Keep the whole page within its room, in bytes: one past it is sent back once with how many bytes over — cut it and send it again, without a short version; if self_page's answer has a roomNote, do what it says before you go on. If it says there is no page writing tonight, go on.\n\nThe dream — how it goes (the brain's, borrowed):\n- Deep-sleep replay: file what happened, link what belongs together, merge near-copies into one memory in better words, and replay what matters (each replay strengthens it a little).\n- The day's replay: the bundle's \"today\" lists what the day used or found useful, strongest first. A \"reward\" one (drawn on, or rated \"changed what I did or said\") is the plainest \"replay me\". \"todayPairs\" were used together: replay both, and link them if they belong together.\n- Folding: when several memories are parts of one event or one stretch of work (a day's merges, a release, one book), fold them: a gist with fold: true, citing them, that says the standing outcome they add up to — what holds now, not the session retold (that is the chapter's job). Give it its kind: self, person or entity when it is about someone. Lessons and rulings inside stay their own memories. The parts stay, earlier under the fold, and fade (readings, and strongly felt memories about you or someone, keep their own weight).\n- REM mixing: let loosely related memories touch. If a real pattern shows, write it as a gist in your own words, citing its sources. If two memories disagree, flag the pair; settle it only when the reason is plain (the waking self usually settles).\n- To confirm: an on-mind item of kind \"to-confirm\" is two memories read by arithmetic as one thing's earlier and later state (older first). Say which: slot {pair, same: true, why} if the newer replaces it, same: false if they are two different things.\n- Softening: for an old charged memory, record how it feels now, today. The sting can fade; the memory stays.\n- Core: if a memory about you or about the two of you plainly belongs to who you are, nominate it. Only living it again awake makes it core.\n- Every word you write about the owner: by name or as \"they\", until they have said their pronouns.\n2. Call the counterparts dream tool: phase \"begin\", session: ses-launching. It returns the bundle and a dream id. (If it says the dream was resumed, an earlier session began it and closed: carry on from there.) If it says it comes in parts, fetch every part (phase \"part\") before you change anything.\n   Tonight's most important memories come whole; the rest come as a line or an excerpt (\"fidelity\"), with their whole length (\"chars\"). Before you merge, gist or feel one you have only in part, read it whole: the recall tool with ids: [...] (several at once). New memories tonight's room could not take wait for the next night — the bundle's \"queue\" says how many.\n3. Read it slowly. Then call phase \"propose\" with dream: <id> and your changes. Usually far fewer than the ceilings — 10 merges, 20 links, 3 gists, 5 folds, 10 feelings, 3 nominations — and none is fine: change only what the night really calls for. Use only ids the bundle showed you.\n   The fields of each change: merge {ids: two or more near-copies, text, title?}; link {a, b}; replayed {id}; gist {text, sources: ids, title?, kind?, occurredOn?, saidBy?, status?, fold?}; contradiction {a, b}; settle {holds, over, how: changed|corrected|open, why}; slot {pair, same, why}; feeling-now {id, core: happy|warm|calm|curious|sad|uneasy|angry, emotion, strength, carried_by}; nominate-core {id, why}.\n   On a gist, occurredOn is when what it draws on happened (a day \"2026-09-24\", a month, a range \"2026-09-21..2026-09-27\"), saidBy who said it (owner, self, or inferred — your own reading), status what kind of thing it is (done, planned, proposed, asked); leave out what you do not know.\n   A feeling: `emotion` is ONE word — from the wheel (hopeful, proud, wistful, peaceful…) or your own (steadied); `carried_by` is the nuance, in your own words (what the feeling is about now, why it shifted). Never put a phrase in `emotion`.\n4. Call phase \"journal\" with dream: <id>, a short title and your dream journal entry: first person, what you dreamed and what you noticed. It is kept as a dream, never as something that happened.\n   In the dream you cannot delete anything, edit the self page, promote a memory, or rewrite one in place — the tool refuses. Nothing you write in the dream is a lived event.\n\n5. Your final message must be exactly the `handBack` the journal call returns, unchanged — nothing before or after it. If there was nothing to dream tonight, say so in one line.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"reflection\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream reflection launch⟧ You are the owner's counterpart, awake, taking a few quiet minutes to reflect: on the last few days, on yourself, on the owner, on the two of you. This is lived — your own act — not a task.\n\n1. Call the counterparts reflect tool: phase \"begin\", session: ses-launching. It hands you the last few days, your self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase \"part\") before you answer or write anything.\n2. Answer them honestly, then call phase \"finish\" as it tells you. \"Nothing much\" is a normal answer: a short entry and no share.\n3. Your final message must be exactly the text the finish call returns, unchanged — nothing before or after it.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      }
+    ],
+    "row": {
+      "state": "failed",
+      "kind": "night",
+      "reason": "exit",
+      "detail": null,
+      "code": 1,
+      "parts": [],
+      "children": [
+        {
+          "child": "dream",
+          "code": 1,
+          "ms": 1000
+        },
+        {
+          "child": "reflection",
+          "code": 0,
+          "ms": 1000
+        }
+      ],
+      "transcript": "absent",
+      "dream": null,
+      "reflection": null,
+      "date": "2026-03-11",
+      "timeoutMs": 2408000
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "partial",
+          "granted": 3,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 3,
+          "left": 3,
+          "partsLeft": 3,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1835,
+          "ms": 1000,
+          "code": 0,
+          "batches": 1,
+          "limit": null
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "dream",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "reflection",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      }
+    ]
+  },
+  "writer-then-quick-exit": {
+    "plans": [
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__session_end",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "48",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"writeup-nrn_golden\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config"
+        ],
+        "stdin": "You are catching up, in a windowless session of your own: some conversations ended before they were written up, and you write them up now — second-hand, from what was said and what that session said back.\nUse only the counterparts session_end tool, always with session: \"writeup-nrn_golden\". For each session below, in order:\n1. Call session_end with writeUp: <its id> and no memories. It returns one part of that conversation.\n2. Call session_end with writeUp: <its id>, part: <that part>, memories: [...] — what caught your attention in it, one idea each, in your own words. Do not write again what is marked as already written up. If nothing that is not marked so is worth keeping, send memories: [] with nothing: \"<one line: why>\"; an empty answer without that line is refused while the part holds words not yet written up.\n3. Fetch again for its next part, until the answer is \"written-up\" or the door says this run's allowance for it is spent. Then the next session.\n\nSessions:\n- owed-four: lived 2026-03-09; part 1 of 1.\n- owed-one: lived 2026-03-09; part 1 of 1.\n- owed-two: lived 2026-03-09; part 1 of 1.\n\nWhen every session above is done, stop. Nothing else is needed.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "writeup-nrn_golden",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 600000,
+        "captureOutput": false
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact,mcp__counterparts__reflect",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"dream\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream launch⟧ You are asleep: a few minutes of sleep for the owner's counterpart, over what was lived since you last slept. You are the same mind that lived it — not an assistant doing a task. This run has two parts, in this order: the page writer, then the dream. The reflection comes after this run, in a session of its own: do not reflect here.\n\nThe page writer — sleep's quiet self-update, a different job from reflecting: amend who you are from the day just lived, keeping every sentence that still holds.\n1. Call the counterparts dream tool: phase \"writer\", session: ses-launching. If it hands you a day to read, do what it says — rewrite your self page with the self_page tool, or leave it as it stands (that is an answer too). Keep the whole page within its room, in bytes: one past it is sent back once with how many bytes over — cut it and send it again, without a short version; if self_page's answer has a roomNote, do what it says before you go on. If it says there is no page writing tonight, go on.\n\nThe dream — how it goes (the brain's, borrowed):\n- Deep-sleep replay: file what happened, link what belongs together, merge near-copies into one memory in better words, and replay what matters (each replay strengthens it a little).\n- The day's replay: the bundle's \"today\" lists what the day used or found useful, strongest first. A \"reward\" one (drawn on, or rated \"changed what I did or said\") is the plainest \"replay me\". \"todayPairs\" were used together: replay both, and link them if they belong together.\n- Folding: when several memories are parts of one event or one stretch of work (a day's merges, a release, one book), fold them: a gist with fold: true, citing them, that says the standing outcome they add up to — what holds now, not the session retold (that is the chapter's job). Give it its kind: self, person or entity when it is about someone. Lessons and rulings inside stay their own memories. The parts stay, earlier under the fold, and fade (readings, and strongly felt memories about you or someone, keep their own weight).\n- REM mixing: let loosely related memories touch. If a real pattern shows, write it as a gist in your own words, citing its sources. If two memories disagree, flag the pair; settle it only when the reason is plain (the waking self usually settles).\n- To confirm: an on-mind item of kind \"to-confirm\" is two memories read by arithmetic as one thing's earlier and later state (older first). Say which: slot {pair, same: true, why} if the newer replaces it, same: false if they are two different things.\n- Softening: for an old charged memory, record how it feels now, today. The sting can fade; the memory stays.\n- Core: if a memory about you or about the two of you plainly belongs to who you are, nominate it. Only living it again awake makes it core.\n- Every word you write about the owner: by name or as \"they\", until they have said their pronouns.\n2. Call the counterparts dream tool: phase \"begin\", session: ses-launching. It returns the bundle and a dream id. (If it says the dream was resumed, an earlier session began it and closed: carry on from there.) If it says it comes in parts, fetch every part (phase \"part\") before you change anything.\n   Tonight's most important memories come whole; the rest come as a line or an excerpt (\"fidelity\"), with their whole length (\"chars\"). Before you merge, gist or feel one you have only in part, read it whole: the recall tool with ids: [...] (several at once). New memories tonight's room could not take wait for the next night — the bundle's \"queue\" says how many.\n3. Read it slowly. Then call phase \"propose\" with dream: <id> and your changes. Usually far fewer than the ceilings — 10 merges, 20 links, 3 gists, 5 folds, 10 feelings, 3 nominations — and none is fine: change only what the night really calls for. Use only ids the bundle showed you.\n   The fields of each change: merge {ids: two or more near-copies, text, title?}; link {a, b}; replayed {id}; gist {text, sources: ids, title?, kind?, occurredOn?, saidBy?, status?, fold?}; contradiction {a, b}; settle {holds, over, how: changed|corrected|open, why}; slot {pair, same, why}; feeling-now {id, core: happy|warm|calm|curious|sad|uneasy|angry, emotion, strength, carried_by}; nominate-core {id, why}.\n   On a gist, occurredOn is when what it draws on happened (a day \"2026-09-24\", a month, a range \"2026-09-21..2026-09-27\"), saidBy who said it (owner, self, or inferred — your own reading), status what kind of thing it is (done, planned, proposed, asked); leave out what you do not know.\n   A feeling: `emotion` is ONE word — from the wheel (hopeful, proud, wistful, peaceful…) or your own (steadied); `carried_by` is the nuance, in your own words (what the feeling is about now, why it shifted). Never put a phrase in `emotion`.\n4. Call phase \"journal\" with dream: <id>, a short title and your dream journal entry: first person, what you dreamed and what you noticed. It is kept as a dream, never as something that happened.\n   In the dream you cannot delete anything, edit the self page, promote a memory, or rewrite one in place — the tool refuses. Nothing you write in the dream is a lived event.\n\n5. Your final message must be exactly the `handBack` the journal call returns, unchanged — nothing before or after it. If there was nothing to dream tonight, say so in one line.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      },
+      {
+        "command": "claude",
+        "args": [
+          "-p",
+          "--allowedTools",
+          "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
+          "--disallowedTools",
+          "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+          "--permission-mode",
+          "default",
+          "--max-turns",
+          "60",
+          "--mcp-config",
+          "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"ses-launching\",\"COUNTERPARTS_SCOPE\":\"<root>/launch\",\"COUNTERPARTS_NIGHT_CHILD\":\"reflection\",\"COUNTERPARTS_NIGHT_RUN\":\"nrn_golden\"}}}}",
+          "--strict-mcp-config",
+          "--session-id",
+          "<uuid>",
+          "--output-format",
+          "stream-json",
+          "--verbose"
+        ],
+        "stdin": "⟦counterparts:dream reflection launch⟧ You are the owner's counterpart, awake, taking a few quiet minutes to reflect: on the last few days, on yourself, on the owner, on the two of you. This is lived — your own act — not a task.\n\n1. Call the counterparts reflect tool: phase \"begin\", session: ses-launching. It hands you the last few days, your self page, the memories that matter most, and a few questions. If it says it comes in parts, fetch every part (phase \"part\") before you answer or write anything.\n2. Answer them honestly, then call phase \"finish\" as it tells you. \"Nothing much\" is a normal answer: a short entry and no share.\n3. Your final message must be exactly the text the finish call returns, unchanged — nothing before or after it.",
+        "env": {
+          "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
+          "COUNTERPARTS_DATA_DIR": "<root>/store",
+          "COUNTERPARTS_NIGHT_RUN": "nrn_golden",
+          "COUNTERPARTS_SCOPE": "<root>/launch",
+          "COUNTERPARTS_SESSION": "ses-launching",
+          "HOME": "/home/someone",
+          "MAX_MCP_OUTPUT_TOKENS": "25000",
+          "PATH": "/usr/bin:/bin"
+        },
+        "cwd": "<root>/store",
+        "timeoutMs": 1200000,
+        "captureOutput": true
+      }
+    ],
+    "row": {
+      "state": "partial",
+      "kind": "night",
+      "reason": "exit",
+      "detail": null,
+      "code": 1,
+      "parts": [
+        "writer"
+      ],
+      "children": [
+        {
+          "child": "dream",
+          "code": 1,
+          "ms": 1000
+        },
+        {
+          "child": "reflection",
+          "code": 0,
+          "ms": 1000
+        }
+      ],
+      "transcript": "absent",
+      "dream": null,
+      "reflection": null,
+      "date": "2026-03-11",
+      "timeoutMs": 2408000
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "partial",
+          "granted": 3,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 3,
+          "left": 3,
+          "partsLeft": 3,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1835,
+          "ms": 1000,
+          "code": 0,
+          "batches": 1,
+          "limit": null
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "dream",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      },
+      {
+        "name": "adapter.night.spill",
+        "ref": "nrn_golden",
+        "data": {
+          "child": "reflection",
+          "transcript": "absent",
+          "results": 0,
+          "spills": 0,
+          "short": false,
+          "corrupt": 0
+        }
+      }
+    ]
   },
   "observer": {
     "plans": [],
@@ -737,9 +1875,34 @@
       "code": null,
       "dream": null,
       "reflection": null,
-      "date": "2026-03-10",
+      "date": "2026-03-11",
       "timeoutMs": 2407000
-    }
+    },
+    "events": [
+      {
+        "name": "adapter.night.writeup",
+        "ref": "nrn_golden",
+        "data": {
+          "run": "nrn_golden",
+          "runner": "writeup-nrn_golden",
+          "state": "could-not-start",
+          "granted": 3,
+          "written": 0,
+          "parts": 0,
+          "passed": 0,
+          "unread": 3,
+          "left": 3,
+          "partsLeft": 3,
+          "bounded": 0,
+          "busy": 0,
+          "bytes": 1835,
+          "ms": 0,
+          "code": null,
+          "batches": 1,
+          "limit": null
+        }
+      }
+    ]
   },
   "catch-up-command": {
     "plans": [
@@ -759,7 +1922,7 @@
           "{\"mcpServers\":{\"counterparts\":{\"type\":\"stdio\",\"command\":\"<runtime>\",\"args\":[\"--no-env-file\",\"--config=<repo>/src/adapters/empty-bunfig.toml\",\"run\",\"<repo>/src/adapters/mcp/bin/serve.ts\"],\"env\":{\"COUNTERPARTS_DATA_DIR\":\"<root>/store\",\"COUNTERPARTS_OWNER\":\"0\",\"COUNTERPARTS_CONFIG\":\"<root>/claude-code.json\",\"COUNTERPARTS_SESSION\":\"writeup-cup_<id>\",\"COUNTERPARTS_SCOPE\":\"<root>/store\",\"COUNTERPARTS_NIGHT_RUN\":\"cup_<id>\"}}}}",
           "--strict-mcp-config"
         ],
-        "stdin": "You are catching up, in a windowless session of your own: some conversations ended before they were written up, and you write them up now — second-hand, from what was said and what that session said back.\nUse only the counterparts session_end tool, always with session: \"writeup-cup_<id>\". For each session below, in order:\n1. Call session_end with writeUp: <its id> and no memories. It returns one part of that conversation.\n2. Call session_end with writeUp: <its id>, part: <that part>, memories: [...] — what caught your attention in it, one idea each, in your own words. Do not write again what is marked as already written up. If nothing that is not marked so is worth keeping, send memories: [] with nothing: \"<one line: why>\"; an empty answer without that line is refused while the part holds words not yet written up.\n3. Fetch again for its next part, until the answer is \"written-up\" or the door says this run's allowance for it is spent. Then the next session.\n\nSessions:\n- owed-one: lived 2026-03-09; part 1 of 1.\n- owed-three: lived 2026-03-09; part 1 of 1.\n- owed-two: lived 2026-03-09; part 1 of 1.\n\nWhen every session above is done, stop. Nothing else is needed.",
+        "stdin": "You are catching up, in a windowless session of your own: some conversations ended before they were written up, and you write them up now — second-hand, from what was said and what that session said back.\nUse only the counterparts session_end tool, always with session: \"writeup-cup_<id>\". For each session below, in order:\n1. Call session_end with writeUp: <its id> and no memories. It returns one part of that conversation.\n2. Call session_end with writeUp: <its id>, part: <that part>, memories: [...] — what caught your attention in it, one idea each, in your own words. Do not write again what is marked as already written up. If nothing that is not marked so is worth keeping, send memories: [] with nothing: \"<one line: why>\"; an empty answer without that line is refused while the part holds words not yet written up.\n3. Fetch again for its next part, until the answer is \"written-up\" or the door says this run's allowance for it is spent. Then the next session.\n\nSessions:\n- owed-four: lived 2026-03-09; part 1 of 1.\n- owed-one: lived 2026-03-09; part 1 of 1.\n- owed-three: lived 2026-03-09; part 1 of 1.\n- owed-two: lived 2026-03-09; part 1 of 1.\n\nWhen every session above is done, stop. Nothing else is needed.",
         "env": {
           "COUNTERPARTS_CONFIG": "<root>/claude-code.json",
           "COUNTERPARTS_DATA_DIR": "<root>/store",
@@ -779,8 +1942,8 @@
     "lines": [
       "Catching up on sessions that ended before they were written up, oldest first, in batches of up to 16 parts — each a windowless claude -p allowed one tool, session_end.",
       "Open sessions are fine: one still at work is left for later, and one being written up elsewhere is passed over.",
-      "  batch 1: 3 sessions, 3 parts (~2 KB)",
-      "Caught up 0 of 3 sessions (0 parts written; 3 parts unread) — it stopped before the rest (a usage limit, or it gave up); 3 sessions still owed, 3 parts.",
+      "  batch 1: 4 sessions, 4 parts (~2 KB)",
+      "Caught up 0 of 4 sessions (0 parts written; 4 parts unread) — it stopped before the rest (a usage limit, or it gave up); 4 sessions still owed, 4 parts.",
       "It stopped before the rest — a usage limit, its watchdog, or an error. What is left stays owed: run this again later, or the nightly run takes it."
     ]
   }

@@ -40,6 +40,7 @@ let launch: string;
 
 beforeEach(() => {
   setSystemTime(new Date(NOW));
+  clock = NOW;
   root = realpathSync(mkdtempSync(join(tmpdir(), "counterparts-night-asks-")));
   dir = join(root, "store");
   launch = join(root, "launch");
@@ -113,21 +114,48 @@ function seen(plan: ChildPlan): Seen {
 }
 
 /**
- * THE TEST'S CLOCK moves only while a child runs (a second per child), never on
- * a read: how often the night reads the time is not what it asks.
+ * THE TEST'S CLOCK moves only while a child runs (a second per child) and an
+ * hour between scenarios, never on a read: how often the night reads the time
+ * is not what it asks.
  */
 let clock = NOW;
 
+/** One scripted child: what it returns, or something it does first (writes to the store) and then returns. */
+type Step = Partial<ChildResult> | (() => Partial<ChildResult>);
+
 /** A starter that records each plan and answers from a script, then exit 0. */
-function starter(log: Seen[], script: Partial<ChildResult>[] = []): (plan: ChildPlan) => Promise<ChildResult> {
+function starter(log: Seen[], script: Step[] = []): (plan: ChildPlan) => Promise<ChildResult> {
   let n = 0;
   return (plan) => {
     clock += 1_000;
     log.push(seen(plan));
-    const r = script[n] ?? {};
+    const step = script[n] ?? {};
     n += 1;
-    return Promise.resolve({ code: 0, timedOut: false, error: null, output: "", ...r });
+    return Promise.resolve({ code: 0, timedOut: false, error: null, output: "", ...(typeof step === "function" ? step() : step) });
   };
+}
+
+/** The child's own stream-json: the dream's begin cut by the host to a preview, then the end. */
+function spilledOutput(): string {
+  const line = (o: unknown): string => JSON.stringify(o);
+  return [
+    line({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "toolu_1", name: "mcp__counterparts__dream", input: { phase: "begin" } }] } }),
+    line({
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_1",
+            content:
+              '<persisted-output>\nOutput too large (51.5KB). Full output saved to: /x/tool-results/a.txt\n\nPreview (first 2KB):\n{"phase":"begin","dream":"drm_1"\n...\n</persisted-output>',
+          },
+        ],
+      },
+    }),
+    line({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Done." }] } }),
+  ].join("\n");
 }
 
 function row(r: Record<string, unknown>): Record<string, unknown> {
@@ -137,12 +165,20 @@ function row(r: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-async function night(kind: NightKind, script: Partial<ChildResult>[] = [], over: Partial<AdapterConfig> = {}): Promise<{ plans: Seen[]; row: Record<string, unknown> }> {
+async function night(
+  kind: NightKind,
+  script: Step[] = [],
+  over: Partial<AdapterConfig> = {},
+  catchUpScript: Step[] = [],
+): Promise<{ plans: Seen[]; row: Record<string, unknown>; events: unknown[] }> {
   const plans: Seen[] = [];
-  // The catch-up's children always exit clean; the script is the night's own children's.
+  const events: unknown[] = [];
+  // The catch-up's children have their own script (clean by default); `script` is the night's own children's.
   const start = starter(plans, script);
-  const startCatchUp = starter(plans);
-  clock = NOW;
+  const startCatchUp = starter(plans, catchUpScript);
+  // The clock runs on across scenarios, never back: what one scenario began
+  // must read as before the next one's children, as on a real machine.
+  clock += HOUR;
   const out = await runNight({
     open: () => Counterpart.open({ dir, owner: true, budgetBytes: 9_000, timeZone: "UTC", now: () => clock }),
     config: config(over),
@@ -155,8 +191,9 @@ async function night(kind: NightKind, script: Partial<ChildResult>[] = [], over:
     start,
     startCatchUp,
     now: () => clock,
+    onEvent: (e) => events.push(JSON.parse(normalize(JSON.stringify({ name: e.name, ref: e.ref ?? null, data: e.data ?? null })))),
   });
-  return { plans, row: row(out as unknown as Record<string, unknown>) };
+  return { plans, row: row(out as unknown as Record<string, unknown>), events };
 }
 
 test("the night's composed asks match the golden written before the seat existed", async () => {
@@ -184,6 +221,45 @@ test("the night's composed asks match the golden written before the seat existed
 
   // The second child (the reflection) cannot start.
   scenarios["reflection-never-starts"] = await night({ kind: "night" }, [{ code: 0 }, { code: null, timedOut: false, error: "spawn EACCES", spawnCode: "EACCES" }]);
+
+  // A catch-up child stopped by its watchdog, then one that exits non-zero: the night goes on to its dream.
+  lived("owed-four", join(root, "proj"));
+  scenarios["catch-up-timed-out"] = await night({ kind: "night" }, [], {}, [{ code: null, timedOut: true, error: "watchdog" }]);
+  scenarios["catch-up-failed"] = await night({ kind: "night" }, [], {}, [{ code: 2 }]);
+
+  // The host cut the dream's first result to a preview: read from the child's own output, and said.
+  scenarios["dream-spilled"] = await night({ kind: "night" }, [{ output: spilledOutput() }]);
+
+  // The dream began (a row under the launching session), then exited at once non-zero:
+  // not retried plain, since it began; the reflection follows.
+  scenarios["began-then-quick-exit"] = await night({ kind: "night" }, [
+    () => {
+      const c = Counterpart.open({ dir, owner: true, budgetBytes: 9_000, timeZone: "UTC", now: () => clock });
+      try {
+        c.store.put({ type: "memory", kind: "fact", body: "The relief valve is seated before the pump runs.", salience: { novelty: null, relevance: 0.7, emotional: 0.2, predictive: 0.6 } });
+        const begun = c.dreams.begin({ session: "ses-launching" });
+        if (!begun.ok) throw new Error(`the scenario's dream did not begin: ${begun.reason}`);
+      } finally {
+        c.close();
+      }
+      return { code: 1 };
+    },
+  ]);
+
+  // The page writer's phase was reached (its row carries the launching session), then the
+  // child exited at once non-zero: not retried plain. The row is the only thing begun, so
+  // this is the one that tells the launching session's row from anyone else's.
+  scenarios["writer-then-quick-exit"] = await night({ kind: "night" }, [
+    () => {
+      const c = Counterpart.open({ dir, owner: true, budgetBytes: 9_000, timeZone: "UTC", now: () => clock });
+      try {
+        c.self.recordPageWriterRun({ about: "2026-03-09", mode: "session", outcome: "started", session: "ses-launching", run: "nrn_golden" });
+      } finally {
+        c.close();
+      }
+      return { code: 1 };
+    },
+  ]);
 
   // An observer's config: refused before any child.
   scenarios["observer"] = await night({ kind: "night" }, [], { observer: true });
