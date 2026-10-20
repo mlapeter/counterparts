@@ -484,6 +484,27 @@ dream having run.
     `reopen` reach a stale thread from any folder (Mike, 2026-10-20, a lightly held
     exception to the night run's 10-02 stance); night write-ups and `close` keep the
     folder check.
+  - **Core questions that waited a week** (2026-10-20, an experiment, Mike's go: "i agree
+    with your recs, lightly held, lets try it and see how it goes"; `core-ask.ts`): `begin`'s
+    `reconsidering` holds only the core memories flagged "being reconsidered"
+    `CORE_WAITING_DAYS` (7) lived days ago or more with no decision since — the waking
+    session has the first week — at most `CORE_ASK_MAX` (3), the least recently offered
+    first (`detail.coreOffered`, the last 10 reflections), then the longest waiting; each with
+    `waited` and, when it is in an unsettled pair, `pair` (the other memory, shown too).
+    They are placed first in the room. The prompt asks for a keep or retire with a why
+    where it is plain and to leave the rest; a pair that is plain may be settled with the
+    phase `settle` AFTER the retire, since a core memory is not settled over
+    (`core-takes-pressure`). `finish`'s `core` decisions (at most `LIMITS.core`, 5, any core
+    memory it was shown, as before) are kept on the row (`detail.coreDecided`, with why;
+    `counts.coreKept`/`coreRetired`) and said in ONE generated share line (`coreLine`) with
+    the way back; the hand-back and the carried line tell the session how. **The way back
+    from a retire** is an awake keep (`remember`'s core keep, or `counterparts core
+    --reaffirm`): `sleep/core-standing.ts#keepCore` restores a memory whose latest word on
+    the core is a reflection's retire (`restored`); a retire by the owner or by me awake
+    stays sticky for me, and one made on top of a reflection's (`confirmed`) counts as
+    theirs; the owner's keep restores any retire (review of #542). **[M]** a reflection may
+    not restore. Doctor's Reflection line counts the
+    core memories that have waited.
 - Guarantees: **[M]** at most one reflection a calendar day; **[M]** it can cite, feel or
   mark only what it was shown; **[M]** nothing under observer; **[M]** a reflection is
   not undone with its dream (it was lived); **[M]** what a dream or a reflection wrote

@@ -69,6 +69,7 @@ import {
   scanActive,
   scanOne,
   reconsideringIds,
+  waitingIds,
   schemaBytes,
 } from "./identity.js";
 import { coveredByPage } from "./covered.js";
@@ -1028,6 +1029,7 @@ export class Self {
         // "Still open"'s unsettled ones rank after the rest (2026-10-18): one
         // read of the pairs, for the open candidates only.
         unsettled: unsettledAmong(this.store, scanned.filter((s) => s.unresolved || s.reconsidering === true).map((s) => s.id)),
+        waiting: waitingIds(this.store, req.day),
         coveredByPage: this.pageCovers(scanned),
         workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
         ...(coming.more.length === 0 || req.omit !== undefined ? {} : { horizonMore: coming.more }),
@@ -1116,6 +1118,7 @@ export class Self {
     const fresh = rankLanes(open, horizon, this.tunables, {
       settledOver: settled,
       unsettled: unsettledAmong(this.store, open.map((s) => s.id)),
+      waiting: waitingIds(this.store, day),
       workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
       ...(coming.more.length === 0 ? {} : { horizonMore: coming.more }),
       ...(coming.later.length === 0 ? {} : { later: coming.later }),
@@ -3559,10 +3562,12 @@ export class Self {
       /* no standing */
     }
     // A CORE MEMORY BEING RECONSIDERED (2026-10-11, Group 3 part A) says so,
-    // and how to answer: `remember` with `core`.
+    // and how to answer: `remember` with `core`. Beside a standing label, not
+    // instead of it (2026-10-20): an unsettled one still says keep or retire.
     try {
-      if (out.standing === undefined && this.store.coreStanding(id)?.action === "reconsidering" && this.store.row(id)?.promoted_identity === 1) {
-        out.standing = { prefix: `Core, being reconsidered — keep or retire it (remember core) [${id}]: `, suffix: "" };
+      if (this.store.coreStanding(id)?.action === "reconsidering" && this.store.row(id)?.promoted_identity === 1) {
+        const core = `Core, being reconsidered — keep or retire it (remember core) [${id}]`;
+        out.standing = out.standing === undefined || out.standing.prefix === "" ? { prefix: `${core}: `, suffix: out.standing?.suffix ?? "" } : { prefix: `${core}; ${out.standing.prefix}`, suffix: out.standing.suffix };
       }
     } catch {
       /* no flag read: shown as it is */

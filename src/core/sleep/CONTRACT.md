@@ -150,7 +150,13 @@ slot (`coreRecurrence`, physics §5.3); and the core WEIGHS ITSELF
 `CORE_QUIET_DAYS` (60), is FLAGGED "being reconsidered" — a `core_events` row — and never
 demoted here. Only a decision moves it: mine (`remember`'s `core`, a reflection's `core`
 part) or the owner's (`counterparts core --demote` / `--reaffirm`); a flag whose cause is gone
-is lifted by the next consolidation. The legacy
+is lifted by the next consolidation. *(2026-10-20, an experiment.)* A REFLECTION's retire can
+be undone: an awake keep (the owner's or mine) of a memory whose latest word on the core is a
+reflection's `demoted` restores it (`keepCore` → `restored`: a `promoted` row, lane `restored`, by that actor,
+then the keep). An owner's or a session's retire on top of a reflection's is recorded as
+theirs (`retireCore` → `confirmed`, nothing else moves), and a session's keep cannot undo it.
+The owner's keep restores any retired memory, his own retires included (review of #542).
+Every other retire stays sticky. The legacy
 consolidation marking runs first, for legacy rows only; a post-upgrade row is counted
 `not-legacy`. The first decay pass after the v8 upgrade runs a one-time census
 (`upgrade.ts`): every live row's band and projected prune day, old arithmetic vs new, into
