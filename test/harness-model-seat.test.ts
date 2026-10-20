@@ -77,7 +77,7 @@ test("the dream's child: Claude Code's own lockdown, the harness's server on the
   expect(JSON.stringify(plan.env)).not.toContain(".counterparts");
 });
 
-test("the seat starts that child, reads its answer, and refuses a write-up owed", async () => {
+test("the seat starts that child, reads its answer, and answers a write-up owed too", async () => {
   const seen: ChildPlan[] = [];
   const seat = modelSeat({
     dir,
@@ -93,8 +93,12 @@ test("the seat starts that child, reads its answer, and refuses a write-up owed"
   expect(answer).toMatchObject({ refused: null, started: true, code: 0, timedOut: false });
   expect(answer.spill?.reason).toBe("absent");
   expect(seen.length).toBe(1);
-  expect(await seat.answer(seatAsk("catch-up", { prompt: "C", run: "nrn_h", session: "w", scope: "/proj" }))).toMatchObject({ refused: "not-in-harness", started: false });
-  expect(seen.length).toBe(1);
+  expect(await seat.answer(seatAsk("catch-up", { prompt: "C", run: "nrn_h", session: "w", scope: "/proj" }))).toMatchObject({ refused: null, started: true });
+  expect(seen.length).toBe(2);
+  // A write-up's child names no night act to its server, and gets only session_end.
+  const config = JSON.parse(seen[1]!.args[seen[1]!.args.indexOf("--mcp-config") + 1]!) as { mcpServers: { counterparts: { env: Record<string, string> } } };
+  expect(config.mcpServers.counterparts.env["COUNTERPARTS_NIGHT_CHILD"]).toBeUndefined();
+  expect(seen[1]!.args[seen[1]!.args.indexOf("--allowedTools") + 1]).toBe("mcp__counterparts__session_end");
 });
 
 test("the seat never runs on the owner's live root", () => {
