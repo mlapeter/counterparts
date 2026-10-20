@@ -461,7 +461,7 @@ describe("the writer is told the room as a target, and never refused under the c
     const description = spec?.description ?? "";
     expect(description.indexOf("send `short` too")).toBeGreaterThan(0);
     expect(description.indexOf("send `short` too")).toBeLessThan(2_048);
-    const page = { id: "sch_x", body: "## Core\n\nShort.", bytes: 15, revisedOn: "2026-10-08", revisedDay: 3, by: "session" as const, reason: null, version: 4, short: null };
+    const page = { id: "sch_x", body: "## Core\n\nShort.", bytes: 15, revisedOn: "2026-10-08", revisedDay: 3, by: "session" as const, reason: null, version: 4, short: null, trace: null };
     const block = writerInstruction(
       { about: "2026-10-08", today: "2026-10-09", page, memories: [], dropped: 0, omitted: 0, bytes: 0 },
       { tool: "self_page", pageInline: true },

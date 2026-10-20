@@ -294,7 +294,7 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
   const reflections = server.counterpart.reflections;
   const refused = (reason: string, detail: string): ToolResult => server["refuse"]("reflect", reason, { phase, detail });
   const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
-  const part = (v: unknown): { text?: string; cites?: string[]; short?: string } | null => {
+  const part = (v: unknown): { text?: string; cites?: string[]; short?: string; claims?: { text: string; cites: string[] }[] } | null => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
     const r = v as Record<string, unknown>;
     return {
@@ -302,6 +302,16 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
       cites: ids(r["cites"]),
       // The page's short version (2026-10-10); the share has none.
       ...(typeof r["short"] === "string" ? { short: r["short"] } : {}),
+      // The page's cites per passage (2026-10-20); the share has none.
+      ...(Array.isArray(r["claims"])
+        ? {
+            claims: (r["claims"] as unknown[]).flatMap((c) => {
+              if (c === null || typeof c !== "object" || Array.isArray(c)) return [];
+              const x = c as Record<string, unknown>;
+              return typeof x["text"] === "string" ? [{ text: x["text"], cites: ids(x["cites"]) }] : [];
+            }),
+          }
+        : {}),
     };
   };
   try {
