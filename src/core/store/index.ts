@@ -4679,7 +4679,8 @@ export class Store {
    * tier 0, a work memory (`about = 'work'`, or unmarked and a skill, fact,
    * entity or place, as `workCandidates`) tier 1 — then newest; nothing
    * else (no chit-chat: the caller confirms tier 1 on `self/work.ts#isWorkMemory`,
-   * hence `about` and `kind` beside it). Never a confidential row (whoever asks), an identity-band row,
+   * hence `about` and `kind` beside it). Never a dated row (a reminder:
+   * "Coming up" names it, as `workCandidates` leaves it out), a confidential row (whoever asks), an identity-band row,
    * one marked about me, us or the owner (`CORE_ABOUT_MARKS`: those are not
    * work, and cross only as the about-me chapter line's), a chapter's copy,
    * or the nightly run's. The title, or the body's first 240 characters when

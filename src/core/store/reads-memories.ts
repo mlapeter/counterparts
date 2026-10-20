@@ -294,7 +294,7 @@ export function memoryTitlesByScopeSince(
             WHERE type = 'memory' AND created_at IS NOT NULL AND created_at >= ? AND created_at < ?
               AND origin_scope IS NOT NULL AND origin_scope != ''
               AND archived = 0 AND superseded_by IS NULL AND body != '' AND confidential = 0
-              AND band != 'identity' AND COALESCE(about, '') NOT IN (${personal})
+              AND band != 'identity' AND event_date IS NULL AND COALESCE(about, '') NOT IN (${personal})
               AND COALESCE(source, '') != 'episode' AND COALESCE(origin_ref, '') NOT LIKE 'epi\\_%' ESCAPE '\\'
               AND meta NOT LIKE '%"episodeId"%' AND NOT ${NIGHTLY_SQL}
          ) WHERE tier < 2

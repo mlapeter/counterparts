@@ -179,6 +179,8 @@ describe("Today, elsewhere names titles", () => {
     memory(w, at(D2, 8, 14), { session: A, scope: THERE, title: "NIGHTLY a dream's gist", body: "Gist.", about: "work", source: "dreamed" });
     memory(w, at(D2, 8, 15), { session: A, scope: THERE, title: "COPY a chapter's copy", body: "Copy.", about: "work", source: "episode" });
     memory(w, at(D2, 8, 17), { session: A, scope: THERE, title: "CHITCHAT the weather turned", body: "It rained.", about: "world" });
+    // A reminder: "Coming up" names it, not this line.
+    w.c.store.put({ type: "memory", kind: "fact", title: "DATED order flour by Friday", body: "Order flour.", about: "work", status: "planned", eventDate: "2026-10-23", origin: { session: A, scope: THERE } });
     memory(w, at(D2, 8, 18), { session: A, scope: THERE, title: "JOURNALCOPY a summary's copy", body: "Copy.", about: "work", meta: { episodeId: "epi_000000000000" } });
     // This session's own memory, filed under another folder (it walked there).
     memory(w, at(D2, 8, 16), { session: S, scope: THERE, title: "OWNSESSION my own note", body: "Mine.", about: "work", status: "planned" });
@@ -186,7 +188,7 @@ describe("Today, elsewhere names titles", () => {
     w.set(at(D2, 9));
     const line = wakeLine(w) ?? "";
     expect(line).toContain(`"The one that may cross" (${ok})`);
-    for (const never of ["OFFFOLDER", "PAUSEDFOLDER", "CONFIDENTIAL", "OWNERMARK", "USMARK", "MEMARK", "NIGHTLY", "COPY", "CHITCHAT", "OWNSESSION", tilde(FAR), tilde(REST)]) {
+    for (const never of ["OFFFOLDER", "PAUSEDFOLDER", "CONFIDENTIAL", "OWNERMARK", "USMARK", "MEMARK", "NIGHTLY", "COPY", "CHITCHAT", "DATED", "OWNSESSION", tilde(FAR), tilde(REST)]) {
       expect(line).not.toContain(never);
     }
     // The owner's count still includes the confidential one; its title stays home.

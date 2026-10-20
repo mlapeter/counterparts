@@ -27,7 +27,8 @@ differently.
   confidential memory (not even to the owner, who still sees it counted), never one marked
   about me, us or the owner (personal: those cross only as the about-me chapter line's, and
   are not work), never this session's own, the nightly run's, a chapter's copy, or an
-  identity-band row. In the wake, a memory "Still open" may list is left to that lane. The
+  identity-band row, nor a dated one (a reminder: "Coming up" names it). In the wake, a
+  memory "Still open" may list is left to that lane. The
   folder rule is the same one that decides whether a chapter from that folder may be named
   here, so a folder Mike keeps apart leaks neither.
 - **Room.** The line keeps its 300-byte cap (`TODAY_ELSEWHERE_MAX_BYTES`) in the wake and in
