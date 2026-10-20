@@ -17,7 +17,9 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import type { ChildPlan, ChildResult } from "../src/adapters/claude-code/child.js";
-import { planTurn, replyOf, runWeek } from "../tools/harness/week.js";
+import { beginNewInstall } from "../src/core/onboarding.js";
+import { Store } from "../src/core/store/index.js";
+import { NEW_INSTALL_META, planTurn, replyOf, runWeek } from "../tools/harness/week.js";
 import type { ScriptedDay } from "../tools/harness/owner-week.js";
 
 let root: string;
@@ -99,4 +101,11 @@ test("a turn's plan keeps the night's lockdown and drops what would reach the li
   expect(plan.env["CLAUDE_PROJECT_DIR"]).toBeUndefined();
   expect(plan.env["ANTHROPIC_API_KEY"]).toBeUndefined();
   expect(plan.env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"]).toBe("1");
+});
+
+test("the week begins as a new install does: the same meta keys and values as beginNewInstall", () => {
+  const s = Store.open({ dir: join(root, "install") });
+  beginNewInstall(s);
+  for (const [key, value] of NEW_INSTALL_META) expect(s.getMeta(key)).toBe(value);
+  s.close();
 });

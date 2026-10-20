@@ -48,6 +48,18 @@ export const SESSION_TOOLS: readonly string[] = ["recall", "remember", "session_
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
+/**
+ * WHAT A NEW INSTALL WRITES before the first session (`core/onboarding.ts#
+ * beginNewInstall`, run by `counterparts install`): the meeting not yet
+ * started, dreaming on. Not in the package's public seams, so mirrored here;
+ * `test/harness-week.test.ts` holds the two to the same keys and values.
+ */
+export const NEW_INSTALL_META: readonly (readonly [string, string])[] = [
+  ["onboarding.meet", "not_started"],
+  ["dream.setting", "auto"],
+  ["dream.setting.headless-reset", "chosen"],
+];
+
 export interface WeekOptions {
   readonly script?: readonly ScriptedDay[];
   /** How many of the script's days to run (default all). */
@@ -59,6 +71,8 @@ export interface WeekOptions {
   readonly model?: string;
   /** Run the nights (default true). */
   readonly nights?: boolean;
+  /** Begin as a new install does, so the first session offers the meeting (default true). */
+  readonly install?: boolean;
   readonly workRoot?: string;
   /** Where to write the week's store as one file, for `cli.ts replay`. */
   readonly out?: string;
@@ -206,6 +220,8 @@ export async function runWeek(opts: WeekOptions = {}): Promise<WeekRecord> {
   const embedder = openEmbedder({ embedder: { enabled: true } });
   const open = (): Counterpart => Counterpart.open({ dir, owner: true, budgetBytes: budget, now, timeZone, ...(embedder === null ? {} : { embed: embedder.embed }) });
   const counterpart = open();
+  // AS A NEW INSTALL BEGINS: the meeting waits for the first session, dreaming is on.
+  if (opts.install !== false) counterpart.store.setMetaMany(NEW_INSTALL_META);
   const adapter = new ClaudeCodeAdapter({ counterpart, config, now, command: "/bin/true", args: ["harness-no-worker"], spawner: () => ({ pid: 0 }) });
 
   const sessions: SessionLine[] = [];

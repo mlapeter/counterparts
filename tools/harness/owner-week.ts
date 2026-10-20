@@ -30,7 +30,11 @@ export const OWNER_WEEK: readonly ScriptedDay[] = [
       {
         scope: "shop",
         turns: [
-          "hi! first time trying this memory thing. I'm Dana, I teach ceramics and I'm finally putting my pottery shop online. can you help me set up a product page layout?",
+          // THE MEETING: a new install's first session offers it; these answer the kind of thing it asks.
+          "hi! first time trying this memory thing. sure, let's do the intro first",
+          "I'm Dana. I teach ceramics and I'm finally putting my pottery shop online. I'd like you to remember what we're building and how I like to work: short answers, friendly, no jargon",
+          "I'd like you to be a steady helper, someone I can think out loud with. you can pick a name for yourself if you want, I'd like that",
+          "ok, can you help me set up a product page layout for the shop?",
           "mostly mugs and small bowls. I want each product to show the glaze name, since people ask about glazes constantly",
           "honestly I'm a bit distracted today, my dog Biscuit has knee surgery tomorrow morning and I'm really worried about her",
           "thanks. ok back to the page: can we make the glaze name a little badge under the photo?",
