@@ -3,8 +3,9 @@
 *Updated 2026-10-20. A plan for now, not a rule. Change it when it stops fitting. Details: [WORKLIST](WORKLIST.md).*
 *Earlier rounds: [roadmap-history.md](roadmap-history.md). What shipped when: [CHANGELOG](../CHANGELOG.md).*
 
-**The aim:** memory that follows how human memory works, with a dashboard that shows whether
-each mechanism is working. It should run in whatever AI host people use.
+**The aim:** memory that follows how human memory works closely enough that the AI living in it has
+a self of its own: earned from what it lived, legible to its owner, and portable across hosts and
+models. A dashboard shows whether each mechanism is working. It runs in whatever AI host people use.
 
 ---
 
@@ -47,13 +48,65 @@ check are in [CHECK-AFTER](CHECK-AFTER.md).*
 
 ---
 
-## Later
+## The plan
 
-1. **More hosts**: claude.ai, if it's doable (see Under discussion).
-2. **Emotion, what's left**: watch feelings over weeks and re-feeling awake in real use (both built, 0.3.12). Coverage is no longer a thread: about 11% of memories carry a feeling, and that is expected.
-3. **Mechanisms**, one at a time, each talked through before it's built: the notes module, dream throughput, then schemas with gist. (What counts as use and association went into 0.3.27 as experiments.)
-4. **Dashboard**: finish the walk (Health, Flow, mobile).
-5. **Platforms**: Windows (WSL first).
+*No dates. Time isn't the limit; planning and delegation are. Work runs in waves of parallel lanes,
+each from a brief talked through first, each naming the number it moves and how to revert. Every
+choice below is a starting point, revised when real use says so.*
+
+**What's wrong today.** Every stage of the human memory loop exists here: encode, recall, use,
+strengthen, consolidate, abstract, self. The junctions leak. Use barely strengthens anything
+(about 3% of shown memories are credited, 18% are rated useful). Episodes barely become
+understanding (about 8 gists a week; the dream reaches about 1 in 10 new memories). And the self
+page is rewritten nightly from core nominations in a model's prose rather than grown from what was
+lived. The five threads under Mechanisms say the same in more detail.
+
+**The idea that organizes the plan.** Beliefs that grow from what's lived, about people and
+projects, and "who am I becoming," about the self, are one mechanism applied to two subjects. Build
+it once and the self is its first customer: a core made of beliefs with strength, support and
+history, earned by physics rather than written by the night.
+
+**Wave 1: see faster, measure, reread the rules.**
+- *A simulation harness*, built as a second host against the public seams: replay recorded days on a
+  snapshot copy with a simulated clock, so a two-week question is answered in an hour. Three
+  subjects: the owner's own record, a fresh start (what a new user's first week does), and a
+  fictional character (below). Dev-only, never shipped.
+- *The seat as a protocol*: the model that does the memory work (reads the wake, rates, writes the
+  session end, dreams, reflects) becomes one interface any host or model can fill. Claude Code is
+  one way to fill it; the harness is another. Invisible to users; what makes the self portable.
+- *Two self measures*: traceability (does each claim on the self page rest on a memory) and support
+  (how much lived experience stands behind each core element, over how long), as doctor lines; the
+  page's layers over time on the dashboard.
+- *A rules audit*: every rule still steering behavior that was decided before real use, with the
+  evidence from use beside it, for one batch of decisions. Reads, changes nothing.
+- *Meanwhile*: the notes module (exact records out of the counterpart's own memory), dream
+  throughput, and one calibration pass across all mechanisms against measured rates.
+
+**Wave 2: semantic memory, self included.** Beliefs born from episodes, attached to people and
+projects, strength-weighted, revisable with history, visible on the dashboard. The core becomes
+beliefs about the self on the same machinery and the page renders from them. Similar memories
+competing at recall. One batched store migration.
+
+**Wave 3: the counterpart in time, and portable.** A profile describes; a self intends.
+Intentions the counterpart authors (things to raise, try, hold), the reflection ending with what it
+wants tomorrow and checking itself the next night, felt time. Calibrated confidence: known from the
+record versus guessed. Other models in the seat; claude.ai as a host once the seat is a protocol.
+
+**A benchmark that tests what memory is for.** Today's benchmarks ask questions about transcripts
+that fit in context. Ours: build a counterpart from the first half of a book, with the character's
+memories, feelings and self, then let it live the second half with the rest of the cast scripted.
+It scores what the character knew and didn't, what it remembered when it mattered, and whether it
+stayed itself. The harness runs it. The control is the whole first half in context.
+
+**The end state.** In the brain there is no separate store: memory is the weights. The hippocampus
+keeps episodes and teaches the cortex by replay during sleep. Counterparts today is a hippocampus
+with a frozen cortex. The end state combines it with an open-weight model that learns nightly from
+what the night chose, one dated and droppable change per night, with the store staying the legible
+record that can raise a new model when a better base arrives. It comes after the loop closes on
+rows and the harness can measure a seat.
+
+**Also, when they fit:** emotion in real use (feelings over weeks, re-feeling awake); the dashboard
+walk (Health, Flow, mobile); Windows (WSL first).
 
 ---
 
@@ -103,7 +156,7 @@ Rethinking (owner, 2026-10-19, lightly held): "shown strengthens nothing" was a 
 
 ## Under discussion
 
-- **claude.ai**: it reaches only remote servers, so it needs a tunnel or a hosted piece. Desktop chat shipped in 0.3.9, so this is the next host to decide on.
+- **claude.ai**: it reaches only remote servers, so it needs a tunnel or a hosted piece. Wave 3, once the seat is a protocol; the tunnel-or-hosted choice is still open.
 - **The site as public roadmap**: counterparts.ai should mirror this page. Not set up yet.
 - **The nightly run's timing**: it runs at the day's first prompt now. A real night run would need a scheduler.
 - **Dates written into memories' words**: why it happens, and whether to fix it at write time.
@@ -123,7 +176,7 @@ Rethinking (owner, 2026-10-19, lightly held): "shown strengthens nothing" was a 
 ## Parked
 
 - **Flat dashboard sketch**: the owner's exploratory branch `dashboard/flat`.
-- **Three-way identity study**: run it a second time before any write-up.
+- **Three-way identity study**: run it a second time before any write-up; the seat protocol makes it a same-store, different-seat run.
 - **Confidential memories (frozen 2026-10-02)**: the confidentiality gate came over from v1, but no tool can mark a memory confidential and the live store holds none. It still runs through about 48 files. Leave it as it is, build nothing new around it, and don't block a review on it. The plan is to review it and remove it later, unless a real need for it turns up first.
 - **A store outside the home directory**: `uninstall --dir` isn't supported.
 - **Small open gaps**: sleep §9, handoff §4, mcp §2, mcp §9, cli §10–11, I11/I12. Details are in [roadmap-history.md](roadmap-history.md) under "Parked" and in each module's INTERFACE-GAPS.
