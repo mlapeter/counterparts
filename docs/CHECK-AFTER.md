@@ -30,6 +30,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | The nightly writers held to the page's 4,600-byte room: the night's first page past it is sent back to be cut; a second try is kept; one never sent again is kept at the run's end. A page past the room with a short version shows it in the wake | built 10-20, unreleased | ~10-23 (three mornings after install): the page's bytes each morning, `past-room` holds and how each night ended, the wake's `elements=` and the page's rung | "Due ~2026-10-23 (the nightly writers held…)" below; `docs/decisions.d/feat-page-held-to-room-1020.md` |
 | Meaning computed in line whenever no fresh cue is ready (#521) | 0.3.27, 10-19 | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
+| Wake without repeats (fix/wake-dedupe-1020): each episode once, no bare ids in Yesterday, ONE tag at the top, about-me line says its folder first, a plain reminder due tomorrow counted at a session start, every Coming up item with its own id, one snapshot a day | in review 10-20, unreleased | the first two mornings after install | "Due ~2 mornings after install (the wake without repeats)" below; `docs/decisions.d/fix-wake-dedupe-1020.md` |
 | A weekly reminder done for this week (`status: "done"` at its id closes this occurrence only; F6b: drewOn credits a memory this session replaced) | not released, 10-20 | ~10-27, the next Tuesday | "Due ~2026-10-27" below; `docs/decisions.d/feat-reminder-done-this-week.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
@@ -185,6 +186,39 @@ On the owner's session-start wakes in ~/counterparts and ~/random (read-only).
 - **Changes a decision if:** a folder Mike keeps apart shows up there → the gate is not the
   one the "Today, elsewhere" line uses, and it is a bug.
 
+### Went in after this check (2026-10-20, fix/wake-dedupe-1020)
+The 10-20 reads of this section's wakes found repeats, bare ids and three tags; those went
+into the change below, which has its own section.
+
+## Due ~2 mornings after install (the wake without repeats, 2026-10-20, lightly held — docs/decisions.d/fix-wake-dedupe-1020.md)
+
+On the owner's session-start wakes in ~/counterparts and ~/random (read-only), and the
+snapshots folder.
+
+- **Look at:** every `epi_…` id in the wake. Each should appear once: "Last here" names the
+  newest chapter written in the folder; the Yesterday line names the rest of yesterday's by
+  title; no "+N more here on …" or about-me line repeats one of them. A handoff still names
+  its session (that is where work was left, not the chapter).
+- **Look at:** the Yesterday line: titles and a count ("; and 2 more"), never a lone `epi_…`.
+- **Look at:** the top of the wake: one comment, `<!-- counterparts:wake meet=… store=st_…
+  elements=… bytes=… -->`, and the sidebar still shows the meeting state and the store check
+  (Mike's plugin sidebar; an older plugin, his is 0.3.25, reads both as unknown until it
+  updates: no store check, and the footer keeps its "5-minute intro" line).
+- **Look at:** an about-me line from another folder reads "A chapter about me from ~/x:
+  session …, Oct 19 — "…" (epi_…)." and appears only when Yesterday does not already name it.
+- **Look at:** "Coming up": nothing listed that is due tomorrow; each listed item ends with its
+  own `[mem_…]`, then any "(earlier: …)".
+- **Look at:** `~/.counterparts/snapshots/`: one folder per date from the install day on, and
+  no `.taking-…` file left over an hour later.
+- **Look at:** a morning with a `handoff.lasthere.noroom` row (not rare on a full wake with no
+  handoff here: 10 of 61 ceilings in the review of #536's fixture). There should be no "Last
+  here" line, and the Yesterday line names that episode (or counts it). The wake is assembled
+  twice on those mornings: the `counterpart.wake.assembled` ring event fires twice.
+- **Changes a decision if:** the episode is in no line on such a morning → the second
+  assembly's check is wrong; or the session start is noticeably slower → measure the second
+  assembly. Or a session reads the Yesterday line as all of
+  yesterday and misses the one under Last here → say "(and the one under Last here)". Or the
+  sidebar loses the store check on Mike's machine → the plugin sidebar is older than this core.
 ## Due ~2026-10-27, the next Tuesday (a weekly reminder done for this week, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-reminder-done-this-week.md)
 
 ### The backup reminder closes for the week, and comes back

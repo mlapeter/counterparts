@@ -713,7 +713,11 @@ meet=<state> -->` on a line of its own (right under the `Now:` clock line,
 outside the wake block; nothing in the mod reads the wake by line
 position; since 2026-10-16 it opens the wake's one tag line, beside the
 store marker and the wake's head tag, its text unchanged — core's
-`store-id.ts#wakeTagLead`), written on every wake, compactions included, and on a same-day
+`store-id.ts#wakeTagLead`; since 2026-10-20 the `meet=` field of the head tag itself,
+`<!-- counterparts:wake meet=… store=… elements=… bytes=… -->`, or of
+`<!-- counterparts:session meet=… store=… -->` before a wake with no head tag, core's
+`store-id.ts#ONE_TAG`; `ONBOARDING_MARKER` and `STORE_MARKER` read all three forms, and a
+sidebar from before reads the new one as no marker), written on every wake, compactions included, and on a same-day
 resume's short wake (core #415: one line pointing at the wake above). The
 marker is the only thing the mod reads from the wake (day and count are the
 dashboard's), so the short form changes nothing; a resumed session has

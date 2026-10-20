@@ -99,10 +99,13 @@ import { findable } from "./store-fixture.js";
  */
 const NOW_LINE = /^Now: [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} \d{4}, \d{1,2}:\d{2} [ap]m \S+\n/;
 /** The first meeting's marker, on its own line under the clock at a session start (2026-10-11). */
-// The wake's tag line (2026-10-16, `wakeTagLead`): the first meeting's and
-// the store's markers, then the wake's own head tag on the same line — or,
-// before a bootstrap line, on a line of their own.
-const MEET_MARKER = /^<!-- counterparts:onboarding meet=[a-z_]+ -->(?: <!-- counterparts:store id=st_[0-9a-f]{16} -->)?(?:\n| (?=<!-- counterparts:wake ))/;
+// The wake's one tag (2026-10-20, `store-id.ts#ONE_TAG`): the first meeting's
+// and the store's fields inside the wake's own head tag — or, before a wake with
+// no head tag (a bootstrap line), the session tag on a line of its own; the
+// fields in the head are the block's own, counted in its bytes. The 10-16
+// line of three tags is still taken off, for a test that turns it back on.
+const MEET_MARKER =
+  /^(?:<!-- counterparts:session meet=[a-z_]+(?: store=st_[0-9a-f]{16})? -->\n|<!-- counterparts:onboarding meet=[a-z_]+ -->(?: <!-- counterparts:store id=st_[0-9a-f]{16} -->)?(?:\n| (?=<!-- counterparts:wake )))/;
 function withoutNow(text: string): string {
   expect(text).toMatch(NOW_LINE);
   return text.replace(NOW_LINE, "").replace(MEET_MARKER, "");

@@ -628,7 +628,12 @@ row, saying which source answered, existed until the keys were removed — §1a.
     as "delete them all"); and **a half-copy is never a snapshot** — the copy is
     written under a `.partial-…` name and renamed into place, so a worker killed
     mid-copy leaves something that is not counted toward `keep`, does not satisfy
-    "today's exists", and is swept once it is too old to be a live run's.
+    "today's exists", and is swept once it is too old to be a live run's. **One copy
+    a day when two runs start together** (2026-10-20): a run claims the day first
+    (`.taking-<date>`, a file created exclusively), looks again under the claim, and
+    lets it go once its copy is in place or has failed; the run that finds the claim
+    held writes nothing (`already-today`). A killed run's claim is stale, and taken
+    over or swept, by the partials' bound.
 
     *For now:* the default directory applies only inside the layout this package
     creates (the store is the `store/` subdirectory of a base directory). A store

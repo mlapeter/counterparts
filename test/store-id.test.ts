@@ -109,11 +109,11 @@ describe("the store id", () => {
       adapter.counterpart.close();
     }
     const lines = injection.split("\n");
-    const at = lines.findIndex((l) => l.startsWith("<!-- counterparts:onboarding"));
+    const at = lines.findIndex((l) => /^<!-- counterparts:(?:wake|session) meet=/.test(l));
     expect(at).toBeGreaterThanOrEqual(0);
-    // Beside it on the wake's one tag line (2026-10-16), its text whole.
-    expect(lines[at]).toStartWith(`<!-- counterparts:onboarding meet=`);
-    expect(lines[at]).toContain(` <!-- counterparts:store id=${String(whoami(a).body["store"])} -->`);
+    // Beside it in the wake's one tag (2026-10-20), as its `store=` field.
+    expect(lines[at]).toContain(` store=${String(whoami(a).body["store"])} `);
+    expect(lines[at]?.match(/<!--/g)?.length).toBe(1);
     expect(injection).not.toContain(storeId(b));
   });
 });

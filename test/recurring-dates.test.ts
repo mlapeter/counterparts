@@ -561,7 +561,7 @@ describe("the wake and recall show how often, beside the date", () => {
     const lines = c.wake(20_000, { date: "2026-10-12" }).text.split("\n");
     const at = lines.indexOf("Coming up:");
     expect(at).toBeGreaterThan(-1);
-    expect(lines[at + 1]).toBe("- Aug 25 (due Oct 12, every Monday) · The recycling goes out to the curb on Monday mornings.");
+    expect(lines[at + 1]).toMatch(/^- Aug 25 \(due Oct 12, every Monday\) · The recycling goes out to the curb on Monday mornings\. \[mem_[0-9a-f]{12}\]$/);
   });
 
   test("a DAILY repeat takes no Arriving line: rendered one evening, read the next morning, it would say yesterday (review of #339)", () => {
@@ -585,7 +585,7 @@ describe("the wake and recall show how often, beside the date", () => {
     expect(at).toBeGreaterThan(-1);
     const lane: string[] = [];
     for (let i = at + 1; i < lines.length && (lines[i] ?? "").startsWith("- "); i++) lane.push(lines[i] as string);
-    expect(lane).toEqual(["- Aug 25 (due Oct 12, every Monday) · The recycling goes out to the curb on Monday mornings."]);
+    expect(lane).toEqual([`- Aug 25 (due Oct 12, every Monday) · The recycling goes out to the curb on Monday mornings. [${weekly}]`]);
     expect(lines.join("\n")).not.toContain("every day");
   });
 

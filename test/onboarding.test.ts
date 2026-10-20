@@ -601,7 +601,7 @@ describe("the wake's machine marker", () => {
   }
 
   test("an upgraded store's wake says done (not absent)", () => {
-    expect(injection("s0", DAY1)).toMatch(/^<!-- counterparts:onboarding meet=done -->(?: |$)/m);
+    expect(injection("s0", DAY1)).toMatch(/^<!-- counterparts:(?:wake|session) meet=done /m);
   });
 
   for (const state of ["not_started", "offered", "later", "done", "skipped"] as const) {
@@ -615,12 +615,13 @@ describe("the wake's machine marker", () => {
       for (const x of open.splice(0)) x.counterpart.close();
       withStore((st) => st.setMeta(ONBOARDING_MEET_KEY, state));
       const lines = injection(`s-${state}`, DAY1).split("\n");
-      const markers = lines.filter((l) => l.startsWith("<!-- counterparts:onboarding"));
-      // On the wake's one tag line since 2026-10-16 (`wakeTagLead`): first,
-      // whole, and once.
+      const markers = lines.filter((l) => /^<!-- counterparts:(?:wake|session) /.test(l) && l.includes("meet="));
+      // In the wake's one tag since 2026-10-20 (`store-id.ts#ONE_TAG`): the
+      // first field, whole, and once.
       expect(markers.length).toBe(1);
-      expect(markers[0]).toStartWith(`<!-- counterparts:onboarding meet=${state} -->`);
-      expect(markers[0]?.match(/counterparts:onboarding/g)?.length).toBe(1);
+      expect(markers[0]).toMatch(new RegExp(`^<!-- counterparts:(?:wake|session) meet=${state} `));
+      expect(markers[0]?.match(/meet=/g)?.length).toBe(1);
+      expect(markers[0]?.match(/<!--/g)?.length).toBe(1);
       expect(markers[0]).not.toMatch(/tide|straight|every/);
     });
   }
@@ -632,7 +633,7 @@ describe("the wake's machine marker", () => {
     const a = adapter();
     try {
       const out = a.sessionStart({ sessionId: "s2", scope: proj, at: DAY2 });
-      expect(out.injection ?? "").toMatch(/^<!-- counterparts:onboarding meet=later -->(?: |$)/m);
+      expect(out.injection ?? "").toMatch(/^<!-- counterparts:(?:wake|session) meet=later /m);
       expect(out.ask ?? "").toContain("(last time they said later)");
     } finally {
       a.counterpart.close();
@@ -643,14 +644,14 @@ describe("the wake's machine marker", () => {
     await server({ session: "s1" }).call("meet", {});
     const day2 = localNoon(DAY2);
     const text = String((await server({ host: "claude-desktop", scope: "claude-desktop:", now: () => day2 }).call("wake", {})).structuredContent["wake"]);
-    expect(text).toMatch(/^<!-- counterparts:onboarding meet=later -->(?: |$)/m);
+    expect(text).toMatch(/^<!-- counterparts:(?:wake|session) meet=later /m);
   });
 
   test("Claude Desktop's wake carries it too, and the offer", async () => {
     newInstallStore();
     const s = server({ host: "claude-desktop", scope: "claude-desktop:" });
     const text = String((await s.call("wake", {})).structuredContent["wake"]);
-    expect(text).toMatch(/^<!-- counterparts:onboarding meet=not_started -->(?: |$)/m);
+    expect(text).toMatch(/^<!-- counterparts:(?:wake|session) meet=not_started /m);
     expect(text).toContain(MEET_LINE_OPEN);
   });
 });

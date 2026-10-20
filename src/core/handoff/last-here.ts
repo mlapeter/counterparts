@@ -299,15 +299,28 @@ function named(c: ChapterHere): string {
  * THE LINES, for the newest `shown` sessions here (1 or 2): the newest with the
  * first sentence of its first chapter, the one before it by title, and the rest written THAT DAY by
  * id. `more` false leaves the "+N more" line off — the narrowest rung.
+ *
+ * `named` (2026-10-20, Mike's go, lightly held: each episode once in the
+ * wake): an episode the wake's body already names — the Yesterday line, by
+ * title — is left out of "Before it" and "+N more", which would only repeat
+ * it (the second by bare id). The newest is never left out: "Last here" is
+ * the line that says when, and the session-start Yesterday line leaves it to
+ * this one (`Counterpart#yesterdayFor`).
  */
 export function lastHereBlock(
   entries: readonly LastHere[],
-  opts: { readonly shown?: number; readonly more?: boolean; readonly reader?: string | null } = {},
+  opts: {
+    readonly shown?: number;
+    readonly more?: boolean;
+    readonly reader?: string | null;
+    readonly named?: (id: string) => boolean;
+  } = {},
 ): string | null {
   const first = entries[0];
   if (first === undefined) return null;
   const reader = opts.reader ?? null;
-  const sameDay = entries.filter((e) => e.date === first.date);
+  const said = opts.named;
+  const sameDay = entries.filter((e, i) => e.date === first.date && (i === 0 || said === undefined || !said(e.chapter.id)));
   const shown = Math.max(1, Math.min(opts.shown ?? LAST_HERE_SHOWN, sameDay.length));
   const who = (e: LastHere): string => sessionWords(e.chapter.session, e.chapter.model, reader);
   const lines = [
@@ -467,16 +480,20 @@ export function yesterdayLine(
     if (where === null) return null;
     return flatten(`${head} ${where}.`);
   }
-  // The first `YESTERDAY_SHOWN` are named, the first `titles` of them by
-  // title and id and the rest by id alone — pointers instead of titles
-  // (2026-10-10, `yesterdayShorter`); past them, a count.
-  const named = Math.min(day.length, YESTERDAY_SHOWN);
-  const shown = day.slice(0, named).map((c, i) => {
-    return c.title === null || i >= titles ? c.id : `"${excerpt(c.title, YESTERDAY_TITLE_BYTES)}" (${c.id})`;
-  });
+  // NO BARE IDS AS ITEMS (2026-10-20, Mike's go, lightly held): the first
+  // `titles` chapters that HAVE a title are named, by title and id (at most
+  // `YESTERDAY_SHOWN`); every other one — untitled, or with no room for its
+  // title — joins the count. Until then a title given up left its id in its
+  // place ("pointers instead of titles", 2026-10-10), and a lone `epi_…` read
+  // as noise in the 10-20 wakes.
+  const shown = day
+    .filter((c) => c.title !== null)
+    .slice(0, Math.max(0, Math.min(titles, YESTERDAY_SHOWN)))
+    .map((c) => `"${excerpt(c.title ?? "", YESTERDAY_TITLE_BYTES)}" (${c.id})`);
   const rest = day.length - shown.length;
+  const elsewhere = where === null ? "" : rest > 0 || shown.length === 0 ? `; ${where}` : `; and ${where}`;
+  if (shown.length === 0) return flatten(`${head} ${String(rest)} ${rest === 1 ? "session" : "sessions"}${elsewhere}.`);
   const more = rest > 0 ? `; and ${String(rest)} more` : "";
-  const elsewhere = where === null ? "" : rest > 0 ? `; ${where}` : `; and ${where}`;
   return flatten(`${head} ${shown.join("; ")}${more}${elsewhere}.`);
 }
 
@@ -493,19 +510,22 @@ export const YESTERDAY_UNDATED_AT_START = true;
 
 /**
  * THE SAME LINE, SHORTER (review of #350, 2026-10-09): one title fewer at a
- * time, down to none — widest first, each strictly narrower than the one
- * before, and none when the line names no title. Since 2026-10-10 a title
- * given up leaves its id in its place — POINTERS INSTEAD OF TITLES — so every
- * chapter the whole line names is still named, by the id `recall` opens, and
- * the count past them is the whole line's. The wake steps down these to make
- * room for what ranks above the line (`self/briefing.ts#ROOM_ORDER`): the
- * Arriving lane and "Still open"'s first item; the count is honest because it
- * is counted here, where the chapters are. `places` as `yesterdayLine`'s.
+ * time, down to ONE — widest first, each strictly narrower than the one
+ * before, and none when the line names one title or none. A title given up
+ * joins the count (2026-10-20: no bare ids as items; from 2026-10-10 until
+ * then it left its id in its place), and the count is the whole line's, so
+ * it stays honest: it is counted here, where the chapters are. The narrowest
+ * form keeps one title, because "Yesterday: 4 sessions" alone names nothing a
+ * reader can open; under more pressure the line drops whole. The wake steps
+ * down these to make room for what ranks above the line
+ * (`self/briefing.ts#ROOM_ORDER`): the Arriving lane and "Still open"'s first
+ * item. `places` as `yesterdayLine`'s.
  */
 export function yesterdayShorter(day: readonly ChaptersOnDate[], date: string, places: readonly YesterdayPlace[] = [], dated = true): string[] {
   const out: string[] = [];
   let last = yesterdayLine(day, date, YESTERDAY_SHOWN, places, dated);
-  for (let n = Math.min(YESTERDAY_SHOWN, day.length) - 1; n >= 0; n--) {
+  const titled = day.filter((c) => c.title !== null).length;
+  for (let n = Math.min(YESTERDAY_SHOWN, titled) - 1; n >= 1; n--) {
     const line = yesterdayLine(day, date, n, places, dated);
     if (line === null || last === null || line.length >= last.length) continue;
     out.push(line);
@@ -531,23 +551,33 @@ export function placeWords(scope: string): string {
  * about the code — did not reach a wake in another directory. Work stays where it was done: an unmarked chapter, or one marked
  * work or world, is "last here" in its own directory only. One line, the
  * newest such chapter, by title and id; the id is the door.
+ *
+ * THE FOLDER LEADS (2026-10-20, Mike's go, lightly held): "About me, from
+ * another project: session …, Oct 19 in ~/x — "…"" read as a teaser in a
+ * folder that cannot follow it. Now it says what it is and where first: "A
+ * chapter about me from ~/x: session …, Oct 19 — "…" (epi_…)." Left out when
+ * the wake's body already names that episode (`Counterpart#lastHereLadder`).
  */
 export function elsewhereLine(chapter: ChapterHere, date: string, reader: string | null = null): string {
-  const where = chapter.scope === null ? "" : ` in ${placeWords(chapter.scope)}`;
-  return flatten(`About me, from another project: ${sessionWords(chapter.session, chapter.model, reader)}, ${date}${where} ${named(chapter)}.`);
+  const where = chapter.scope === null ? "another project" : placeWords(chapter.scope);
+  return flatten(`${ELSEWHERE_HEAD} ${where}: ${sessionWords(chapter.session, chapter.model, reader)}, ${date} ${named(chapter)}.`);
 }
+
+/** How the "about me, from another folder" line opens (`elsewhereLine`). */
+export const ELSEWHERE_HEAD = "A chapter about me from";
 
 /**
  * THE BLOCKS A DELIVERY MAY TRY, widest first — `pointerLadder`'s shape: every
  * session of that day shown, then the newest with the count of the rest, then
  * the newest alone. Duplicates dropped.
  */
-export function lastHereLadder(entries: readonly LastHere[], reader: string | null = null): string[] {
+export function lastHereLadder(entries: readonly LastHere[], reader: string | null = null, named?: (id: string) => boolean): string[] {
   const out: string[] = [];
+  const also = named === undefined ? {} : { named };
   for (const block of [
-    lastHereBlock(entries, { reader }),
-    lastHereBlock(entries, { reader, shown: 1 }),
-    lastHereBlock(entries, { reader, shown: 1, more: false }),
+    lastHereBlock(entries, { reader, ...also }),
+    lastHereBlock(entries, { reader, shown: 1, ...also }),
+    lastHereBlock(entries, { reader, shown: 1, more: false, ...also }),
   ]) {
     if (block !== null && !out.includes(block)) out.push(block);
   }

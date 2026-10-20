@@ -189,7 +189,13 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     was done. Only from a directory the host's scope setting has `on` (`WakeHere.exportsFrom`;
     no way to ask means nothing crosses), only a chapter whose row records its directory,
     and NEVER a confidential one (the episode or any copy). A confidential chapter is
-    "last here" to the owner only (review of #311).
+    "last here" to the owner only (review of #311). Since 2026-10-20 it reads "A chapter
+    about me from <folder>: session …, <date> — "…" (epi_…)." (`ELSEWHERE_HEAD`).
+    **Each episode once** (2026-10-20, lightly held): at a session start the Yesterday line
+    leaves out the episode "Last here" names first, and "Before it", "+N more here" and the
+    about-me line leave out any episode the wake's body already names (`lastHereBlock`'s
+    `named`); the newest is never left out of "Last here". The Yesterday line names a
+    chapter by title or counts it, never by a bare id.
 
 12. **[M] A handoff says when it may be out of date** (2026-10-01; one sentence since
     2026-10-18, `staleWords`). Beside who and when, at delivery, each handoff shown: how old
