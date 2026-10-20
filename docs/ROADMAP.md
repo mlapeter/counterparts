@@ -51,8 +51,15 @@ time, talk through any that need it, and start a builder as each is agreed.*
 - **F5. The self page keeps overshooting its room.** 4,928 B on 10-17, then 4,756 and 4,956 on 10-20, against 4,600:
   the reflection rewrites the page after the page writer and isn't held to the room. The wake shows it whole by
   borrowing from other sections (elements 4 → 3 this morning).
-- **F6. A weekly reminder can't be marked done for this week.** The backup ran at 08:40; the reminder still showed.
-  Closing it closes the whole chain.
+- **F6. A weekly reminder can't be marked done for this week.** The backup ran at 08:40; a new session at ~09:15
+  still reminded him. Cause (~/random, from the code): an occurrence closes only when a session names the reminder's
+  own id in `drewOn` (`creditDrewOn` → `prospective.actedOn`); saying it's done, or writing a "done" memory, doesn't
+  touch it, and closing by `eventDate: null` ends the whole repeat. And the wake showed the reminder with only its
+  earlier id, so there was no handle to name (that part rides F2). Proposed: an `updates` with `status: done` on a
+  recurring reminder closes this occurrence only; maybe, an owner-said "done" memory landing beside an open reminder
+  offers to close it, the way neighbours offer a settle.
+- **F6b. drewOn refuses credit to a memory superseded minutes earlier** ("faded-under-newer"), even when that stale
+  memory is what made the session catch and fix the record. The refusal runs backwards there.
 - **F7. A session can't read a dream's or reflection's record.** recall doesn't take `drm_` / `rfl_` ids, and
   `counterparts dream` (it also undoes) is refused by auto mode as a change. A read-only way in.
 - **F8. Small:** the self page's "Spending pauses until a product change could move a score" needs checking against
