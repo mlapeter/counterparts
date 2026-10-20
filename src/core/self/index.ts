@@ -645,7 +645,11 @@ export type PageRefusal =
   // A short version added on its own (`addPageShort`, 2026-10-10): not
   // needed — the page is within its room — or not kept by its gates.
   | "short-not-needed"
-  | "short-refused";
+  | "short-refused"
+  // A page past its room from a nightly door (the page writer, the
+  // reflection), the first time in a night (2026-10-20, `PAGE_HELD_TO_ROOM`):
+  // cut and sent again, it is written; sent again still past it, it is kept.
+  | "past-room";
 
 /**
  * The `ifVersion` a caller passes to mean "I read NO PAGE". A version is a
@@ -779,6 +783,63 @@ export interface PageWriteOptions {
    * day the page does not fit whole, and only while this exact text stands.
    */
   readonly short?: string;
+  /**
+   * THE RUN'S END KEEPING A HELD PAGE (2026-10-20, `Self#keepHeldPage`): the
+   * one write a nightly door makes past the room without being held. Core
+   * only; no door passes it.
+   */
+  readonly keepPastRoom?: boolean;
+}
+
+/** The nightly doors the room holds (2026-10-20, `PAGE_HELD_TO_ROOM`). */
+export const PAGE_HELD_DOORS: readonly SelfPageAuthor[] = ["writer", "reflection"];
+
+/**
+ * WHAT A NIGHTLY WRITER IS TOLD WHEN ITS PAGE IS HELD (2026-10-20), the same at
+ * both nightly doors. Pure.
+ */
+export function pastRoomWords(bytes: number, room: number): string {
+  const over = String(bytes - room);
+  return `The page is ${String(bytes)} bytes, ${over} over its ${String(room)}-byte room, so it was not written. Cut ${over} bytes or more and send the whole page again — cut, don't add a short version. Keep it thin: say less, merge, drop what no longer holds. Sent again still past the room, it is kept.`;
+}
+
+/** The held page a `past-room` refusal carries, read back off its row. */
+interface HeldDraft {
+  readonly by: SelfPageAuthor;
+  readonly session: string | null;
+  readonly date: string;
+  readonly bytes: number;
+  readonly room: number;
+  readonly at: number;
+  readonly body: string;
+  readonly reason: string;
+  readonly short?: string;
+  readonly model?: string;
+}
+
+function heldDraftOf(payload: string | null): HeldDraft | null {
+  let p: Record<string, unknown>;
+  try {
+    p = JSON.parse(payload ?? "{}") as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const held = p["held"] as Record<string, unknown> | undefined;
+  if (p["reason"] !== "past-room" || held === undefined || held === null || typeof held["body"] !== "string") return null;
+  const by = p["by"];
+  if (by !== "writer" && by !== "reflection") return null;
+  return {
+    by,
+    session: typeof p["session"] === "string" ? p["session"] : null,
+    date: typeof p["date"] === "string" ? p["date"] : "",
+    bytes: Number(p["bytes"] ?? 0),
+    room: Number(p["room"] ?? 0),
+    at: typeof p["at"] === "number" ? p["at"] : NO_PAGE_VERSION,
+    body: held["body"],
+    reason: typeof held["reason"] === "string" ? held["reason"] : "",
+    ...(typeof held["short"] === "string" ? { short: held["short"] } : {}),
+    ...(typeof held["model"] === "string" ? { model: held["model"] } : {}),
+  };
 }
 
 export interface PageVersion {
@@ -1513,6 +1574,85 @@ export class Self {
   }
 
   /**
+   * WAS A NIGHTLY DOOR HELD TO THE ROOM ALREADY TONIGHT, in this session
+   * (2026-10-20)? Then the next send past it is kept: the hold asks once a
+   * night. Read off the durable refusal rows; never throws.
+   */
+  private heldTonight(session: string | null): boolean {
+    const today = this.calendarToday();
+    try {
+      return this.store
+        .eventLog({ name: SELF_PAGE_REFUSED_EVENT, order: "desc", limit: 50 })
+        .some((r) => {
+          const held = heldDraftOf(r.payload);
+          return held !== null && held.date === today && held.session === session;
+        });
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * A HELD PAGE NOT SENT AGAIN IS KEPT AT THE RUN'S END (2026-10-20). The
+   * nightly process calls this when its child returns, before the wake
+   * catches up: the newest `past-room` refusal of the run (since `sinceAt`,
+   * else today's) is written as it was sent — by its own door, its short
+   * version beside it — when the page still stands at the version it was
+   * held against. Anything written since (the cut resend, the other door's
+   * page) moved the version, and then nothing is done. The wake's ladder
+   * shows it as it shows any page past its room. A writer's night is
+   * recorded `revised`, so the night reads as written. Null when there is
+   * nothing to keep; never throws.
+   */
+  keepHeldPage(opts: { sinceAt?: number } = {}): PageRevision | null {
+    if (this.observer || !this.tunables.PAGE_HELD_TO_ROOM) return null;
+    try {
+      const today = this.calendarToday();
+      let held: HeldDraft | null = null;
+      for (const r of this.store.eventLog({ name: SELF_PAGE_REFUSED_EVENT, order: "desc", limit: 50 })) {
+        const h = heldDraftOf(r.payload);
+        if (h !== null && (opts.sinceAt === undefined ? h.date === today : r.at >= opts.sinceAt)) {
+          held = h;
+          break;
+        }
+      }
+      if (held === null) return null;
+      const before = readSelfPage(this.store);
+      if ((before?.version ?? NO_PAGE_VERSION) !== held.at) return null;
+      const over = held.bytes - held.room;
+      const written = this.revisePage(held.body, {
+        by: held.by,
+        reason: `${held.reason.length === 0 ? "the night's page" : held.reason}; kept at the run's end, ${String(over)} bytes past its ${String(held.room)}-byte room (not sent again shorter)`,
+        session: held.session,
+        ifVersion: held.at,
+        keepPastRoom: true,
+        ...(held.short === undefined ? {} : { short: held.short }),
+        ...(held.model === undefined ? {} : { model: held.model }),
+      });
+      if (written.written && held.by === "writer" && held.session !== null) {
+        // THE NIGHT READS AS WRITTEN: its claim closed `failed` when the run
+        // moved on without the resend; a later `revised` settles it.
+        const claim = this.pageWriterRuns().find((r) => r.session === held.session);
+        if (claim !== undefined) {
+          this.recordPageWriterRun({
+            about: claim.about,
+            mode: claim.mode,
+            outcome: "revised",
+            detail: `past-room: kept at the run's end, ${String(over)} over the ${String(held.room)}-byte room`,
+            bytesBefore: before === null ? 0 : before.bytes,
+            bytesAfter: written.bytes,
+            session: held.session,
+            ...(claim.run.length === 0 ? {} : { run: claim.run }),
+          });
+        }
+      }
+      return written;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * THE SHORT VERSION'S GATES (2026-10-10): the page's own, in its order —
    * its datelines left out, no wake markers, the credential battery (whose
    * redaction it takes), and the room, measured after the redaction. Kept
@@ -1693,6 +1833,54 @@ export class Self {
     // ...and measured AGAIN after it (2026-10-09): `[REDACTED:family]` can be
     // longer than what it replaced, so a page at the ceiling could land over it.
     if (bytes > limit) return refuse("too-large", { bytes, limit, redacted: true });
+
+    // THE NIGHTLY WRITERS ARE HELD TO THE ROOM (2026-10-20, Mike's go, lightly
+    // held, an experiment; `PAGE_HELD_TO_ROOM`). The page writer and the
+    // reflection both write every night, and the room they were told was only
+    // a target: on 10-17 the page was 4,928 bytes, on 10-20 the writer made
+    // 4,756 and the reflection 4,956, and the wake paid for every byte. Past
+    // the room, a night's first send is refused with how far over — "cut,
+    // don't add a short version" — inside the retry each door already has. A
+    // second send past it (either door, the same session, the same night) is
+    // kept as before the hold, so a resend always lands; and the refusal row
+    // carries the page it held (the gate's text), which the run's end keeps
+    // when it was never sent again (`keepHeldPage`). No night loses its
+    // rewrite to this. A session's page and the owner's are not held.
+    if (
+      this.tunables.PAGE_HELD_TO_ROOM &&
+      opts.keepPastRoom !== true &&
+      PAGE_HELD_DOORS.includes(opts.by) &&
+      bytes > room &&
+      !this.heldTonight(session)
+    ) {
+      const over = bytes - room;
+      this.emit("self.page.refused", undefined, { reason: "past-room", by: opts.by, bytes, room, over });
+      try {
+        this.store.appendEvent({
+          name: SELF_PAGE_REFUSED_EVENT,
+          day,
+          payload: {
+            reason: "past-room",
+            by: opts.by,
+            session,
+            bytes,
+            room,
+            over,
+            date: this.calendarToday(),
+            at: before?.version ?? NO_PAGE_VERSION,
+            held: {
+              body: text,
+              reason: opts.reason,
+              ...(opts.short === undefined || opts.short.trim().length === 0 ? {} : { short: opts.short }),
+              ...(opts.model === undefined ? {} : { model: opts.model }),
+            },
+          },
+        });
+      } catch {
+        /* a refusal that cannot be recorded is still a refusal (§5 G7) */
+      }
+      return { ...none, written: false, reason: "past-room", bytes, overRoom: room };
+    }
 
     // THE SHORT VERSION, through the page's own gates (2026-10-10), and kept
     // only when this page is past its room — after the redaction, as the wake
@@ -2104,8 +2292,18 @@ export class Self {
             truncated: r !== "whole",
             wholeBytes,
           };
+    // PAST ITS ROOM, THE SHORT VERSION FIRST (2026-10-20, `PAGE_SHORT_PAST_ROOM`,
+    // with the nightly writers held to the room). The room is the page's
+    // target, a thousand bytes under what the wake can print whole, so that
+    // the lanes beside it have room (the wake trims, 2026-10-16). Until now a
+    // page past it printed whole whenever it fit at all, and the short version
+    // its writer was asked for was never read at the default ceiling: a 4,956-
+    // byte page took its extra 356 bytes out of the lanes. With a short version
+    // written with this text, that is what the wake shows; with none, the page
+    // whole when it fits, as before. The ladder below is unchanged.
+    const shortFirst = this.tunables.PAGE_SHORT_PAST_ROOM && page.short !== null && wholeBytes > this.tunables.PAGE_ROOM_BYTES;
     const ladder = [
-      rung("whole", body),
+      shortFirst ? null : rung("whole", body),
       rung("short", page.short?.body ?? null),
       rung("outline", outlineText(outline)),
       rung("headings", headingsText(outline)),

@@ -322,7 +322,8 @@ describe("4. the page writer aims under 4,600", () => {
     expect(PAGE_ROOM_BYTES).toBe(4_600);
     expect(SELF_TUNABLES.PAGE_ROOM_BYTES).toBe(4_600);
     expect(pageRoomBytes(PAGE_HOST_BUDGET_BYTES)).toBeGreaterThan(PAGE_ROOM_BYTES);
-    expect(PAGE_WRITING_RULE).toContain("under 4600 bytes");
+    // Said plainly since 2026-10-20: the room, in bytes (`PAGE_ROOM_RULE`).
+    expect(PAGE_WRITING_RULE).toContain("The whole page has 4600 bytes of room");
   });
 
   test("the writer is told: How I work is a few short, general lessons, without dated examples or anecdotes", () => {

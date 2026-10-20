@@ -421,7 +421,14 @@ dream having run.
     the host's `pageWriter.mode: off` the page is not written at all (owner ruling D3); the
     entry and the share still are. It records no page-writer run (that row made the
     retired session-start writer stand down; the writer runs in the same nightly run
-    now, first, and keeps its own row).
+    now, first, and keeps its own row). **Held to the page's room** (2026-10-20, Mike's
+    go, lightly held, an experiment; self CONTRACT §16, `PAGE_HELD_TO_ROOM`): told the room
+    in bytes, the page's bytes now, and that the page stays thin, a reflection whose page
+    is past the room (the night's first such send, writer's included) gets it back
+    `past-room` with how far over and "cut, don't add a short version", inside the
+    finish's own retry — the entry and every other part stand — and a second finish with
+    the page is written, cut or not. A held page it never sends again is kept when the
+    nightly process's child returns (`Self#keepHeldPage`).
   - **The share** — two or three sentences, citing what it rests on — is offered in the
     hand-back; `told` records `told` on the memories it cites; a later session carries
     an untold one once. A memory promoted on reflection alone is named in the next share.

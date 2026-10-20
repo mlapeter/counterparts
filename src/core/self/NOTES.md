@@ -2232,3 +2232,36 @@ Measured on the 10-18 snapshot copy (observer): shown before `mem_eef7749259b8` 
 unsettled) and `mem_108281079c41` (born lived day 10); after, `mem_18628b85d486` (core, the
 plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of the PR
 (nothing is stored differently).
+
+## 2026-10-20 — the nightly writers held to the room; past it, the short version first (Mike's go, lightly held, an experiment)
+
+- **What was happening.** The room (4,600, the wake trims) was a target, and a page past it
+  was kept and printed whole whenever it fit. At 9,000 the whole page fits up to ~5,750, so
+  the short version kept beside a 4,756 or 4,956 page was never read; the extra bytes came
+  out of the lanes (10-20: 4 sections down to 3). Three of four nights overshot (4,928 on
+  10-17; 4,756 then 4,956 on 10-20, the reflection rewriting after the writer).
+- **Chosen: refuse once, keep the resend, keep a held page at the run's end.** In
+  `Self#revisePage`, after the ceiling, the version check and the gate: from `writer` or
+  `reflection` (`PAGE_HELD_DOORS`), a page past the room is refused `past-room` the first
+  time in a night for that session (`heldTonight` reads the refusal rows by `date` and
+  `session`). The refusal row carries the gate's text, its short version, reason and model
+  (`held`), and `at`, the version it was held against. A second send past the room is kept
+  as before (with the short version asked for). `keepHeldPage` writes the newest held page
+  when the page still stands at `at` — called by `runNight` at the child's return, before
+  the wake catches up — and records a writer's night `revised` after the `failed` its close
+  wrote. Why not "keep the long page and require a short version": that lets the stored page
+  keep growing, which is the thing Mike asked to stop. Why not a plain refusal: #358's
+  (10-09) was exactly that, and a writer that moved on lost the night; here the resend always
+  lands and the run's end is the backstop.
+- **The wake** (`pageBlock`, `PAGE_SHORT_PAST_ROOM`): a page past the room with a short
+  version skips the whole rung. That makes the short version mean "what the wake shows past
+  the target", not only "on a day it has no room". No short version: whole when it fits, as
+  before, so no store's wake drops to the outline overnight. Borrowing ("Work here"'s lend)
+  is unchanged; with the writers held, the normal case is a page within its room that prints
+  whole and borrows nothing (`test/page-held-to-room.test.ts` §4).
+- **Not held**: a session's `self_page` and the owner's console. The 1,150 bytes between the
+  target and the room stay theirs; that asymmetry is part of the experiment.
+- **Unsure**: `heldTonight` keys on the session and the calendar date, so a run that crosses
+  midnight is held once on each side; and a held page kept at the run's end is past the
+  room by construction, so on that night the wake shows its short version if it had one,
+  else the page whole as before.
