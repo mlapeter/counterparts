@@ -196,6 +196,27 @@ describe("1. the nightly reflection is offered the core questions that waited a 
     expect(next[2]).toBe(ids[0]);
   });
 
+  test("seven waiting: every one is offered within three nights, least recently offered first (review of #542)", () => {
+    const c = brain();
+    nextDay(c);
+    const ids = Array.from({ length: 2 * SLEEP.CORE_ASK_MAX + 1 }, (_, i) => mem(c, `Mike's habit number ${String(i)}.`, { kind: "person", about: "owner" }));
+    ids.forEach((id, i) => {
+      makeCore(c, id);
+      flag(c, id, SLEEP.CORE_WAITING_DAYS + 20 - i);
+    });
+    const nights: string[][] = [];
+    for (let n = 0; n < 3; n += 1) {
+      const b = begin(c, `s-${String(n)}`);
+      nights.push(b.bundle.reconsidering.map((r) => r.id));
+      const d = c.reflections.finish({ reflection: b.bundle.reflection, session: `s-${String(n)}`, entry: "Nothing much.", cites: [] });
+      if (!d.ok) throw new Error(d.reason);
+      nextDay(c);
+    }
+    expect(new Set(nights.flat())).toEqual(new Set(ids));
+    // The third night: the one never offered, then the longest ago offered.
+    expect(nights[2]).toEqual([ids[6], ids[0], ids[1]]);
+  });
+
   test("an unsettled pair is shown both sides, and settles only after the retire", () => {
     const c = brain();
     nextDay(c);

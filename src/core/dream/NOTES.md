@@ -812,8 +812,9 @@ the live ~52):
   one for another night" — and it left them. His session answered all three by hand.
 - Shape (`core-ask.ts`): the offer is now only the ones that waited `CORE_WAITING_DAYS` (7,
   `sleep/tunables.ts`, shared with the wake and doctor), at most `CORE_ASK_MAX` (3), the
-  ones not offered to the last reflection first (`detail.coreOffered`, the unmarked
-  offer's rotation with a one-night memory), then the longest waiting; each with `waited`
+  least recently offered first (`detail.coreOffered` on the last `CORE_ASK_LOOKBACK`, 10,
+  reflections — review of #542: a one-night memory starved the seventh of seven), then the
+  longest waiting; each with `waited`
   and its unsettled `pair` (read off `contradictionsOf`, either side — `unsettledAmong`
   labels only the older side), the other memory taken into the room too. Priority 6, above
   the dream's own: these are the night's questions. The prompt says decide where you can,

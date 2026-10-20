@@ -480,8 +480,8 @@ dream having run.
     with your recs, lightly held, lets try it and see how it goes"; `core-ask.ts`): `begin`'s
     `reconsidering` holds only the core memories flagged "being reconsidered"
     `CORE_WAITING_DAYS` (7) lived days ago or more with no decision since — the waking
-    session has the first week — at most `CORE_ASK_MAX` (3), the ones not offered to the
-    last reflection first (`detail.coreOffered`), then the longest waiting; each with
+    session has the first week — at most `CORE_ASK_MAX` (3), the least recently offered
+    first (`detail.coreOffered`, the last 10 reflections), then the longest waiting; each with
     `waited` and, when it is in an unsettled pair, `pair` (the other memory, shown too).
     They are placed first in the room. The prompt asks for a keep or retire with a why
     where it is plain and to leave the rest; a pair that is plain may be settled with the

@@ -7,7 +7,7 @@
  * at a time, and nothing made the rest get answered. So a core memory flagged
  * `CORE_WAITING_DAYS` (7) lived days ago or more, with no decision since, is
  * offered to the nightly reflection — at most `CORE_ASK_MAX` (3) a night, the
- * ones not offered last night first, then the longest waiting — with its
+ * least recently offered first, then the longest waiting — with its
  * unsettled pair, if it is in one, both sides shown. The reflection decides
  * keep or retire with a why where it can (`finish`'s `core`), and leaves the
  * rest. The share says what it decided in one line, with the way back
@@ -80,14 +80,30 @@ export function coreWaiting(store: Pick<Store, "coreReconsidering">, day: number
   }
 }
 
+/** How many earlier reflections' offers the rotation reads (`coreAsks`' `lately`). */
+export const CORE_ASK_LOOKBACK = 10;
+
 /**
  * What one reflection is offered: the waiting ones `showable` lets through,
- * those `lately` (offered to the last reflection) behind the rest, at most
- * `CORE_ASK_MAX`, each with its unsettled pair when the other side is showable too.
+ * LEAST RECENTLY OFFERED first — `lately` is the earlier reflections' offers,
+ * newest first (`CORE_ASK_LOOKBACK` of them); never offered leads, then the
+ * longest ago — and among equals the longest waiting; at most `CORE_ASK_MAX`,
+ * each with its unsettled pair when the other side is showable too. (Review
+ * of #542: with only last night's offer to go by, seven waiting alternated
+ * between the same two threes and the seventh was never offered.)
  */
-export function coreAsks(store: AskStore, day: number, showable: (id: string) => boolean, lately: ReadonlySet<string>): CoreAsk[] {
+export function coreAsks(store: AskStore, day: number, showable: (id: string) => boolean, lately: readonly ReadonlySet<string>[]): CoreAsk[] {
+  const ago = (id: string): number => {
+    const i = lately.findIndex((s) => s.has(id));
+    return i < 0 ? Infinity : i;
+  };
   const waiting = coreWaiting(store, day).filter((r) => showable(r.id));
-  const ordered = [...waiting.filter((r) => !lately.has(r.id)), ...waiting.filter((r) => lately.has(r.id))];
+  // A stable sort: `coreWaiting`'s order (longest waiting first) breaks ties.
+  const ordered = [...waiting].sort((a, b) => {
+    const x = ago(a.id);
+    const y = ago(b.id);
+    return x === y ? 0 : x < y ? 1 : -1;
+  });
   return ordered.slice(0, SLEEP.CORE_ASK_MAX).map((r) => {
     const pair = unsettledPairOf(store, r.id);
     return pair !== null && showable(pair.other) ? { ...r, pair } : r;

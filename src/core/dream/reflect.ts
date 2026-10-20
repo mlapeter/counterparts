@@ -95,7 +95,7 @@ import { BUNDLE_OWNER, DREAM_TUNABLES } from "./tunables.js";
 import { mindRanked, noteMindShown } from "./mind.js";
 import type { MindItem } from "./mind.js";
 import { settle as settleContradiction } from "../reconsolidation.js";
-import { coreAsks, coreHow, coreSentence } from "./core-ask.js";
+import { CORE_ASK_LOOKBACK, coreAsks, coreHow, coreSentence } from "./core-ask.js";
 import type { CoreAsk, CoreDecided } from "./core-ask.js";
 import { THREAD_CLOSED_BY_META_KEY, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_META_KEY } from "../mint.js";
 import type { SettleOutcome } from "../reconsolidation.js";
@@ -2198,9 +2198,13 @@ export class Reflections {
     // BEING RECONSIDERED (2026-10-11): handed whole-ish, so a decision can be
     // made on what it says. Since 2026-10-20 only the ones that have waited a
     // week, with the other side of an unsettled pair, first in the room
-    // (`core-ask.ts`); the ones offered last night wait behind the rest.
-    const lastOffered = new Set(stringIds(parseDetail(this.store.reflections({ limit: 2 }).find((r) => r.id !== id)?.detail ?? "{}")["coreOffered"]));
-    const reconsidering = coreAsks(this.store, day, (mid) => see(mid) !== null, lastOffered)
+    // (`core-ask.ts`); the least recently offered first.
+    const offeredLately = this.store
+      .reflections({ limit: CORE_ASK_LOOKBACK + 1 })
+      .filter((r) => r.id !== id)
+      .slice(0, CORE_ASK_LOOKBACK)
+      .map((r) => new Set(stringIds(parseDetail(r.detail)["coreOffered"])));
+    const reconsidering = coreAsks(this.store, day, (mid) => see(mid) !== null, offeredLately)
       .filter((r) => take(6)(r.id))
       .map((r): CoreAsk => (r.pair === undefined || take(6)(r.pair.other) ? r : { id: r.id, reason: r.reason, waited: r.waited }));
 
