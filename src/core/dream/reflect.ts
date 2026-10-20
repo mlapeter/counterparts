@@ -414,10 +414,12 @@ export interface ReflectContext {
       short?: string;
       /** With `body: null`: the version the short version was written for. */
       ifVersion?: number;
+      /** What the page rests on, whole and per passage (2026-10-20, `self/page.ts#PAGE_META_TRACE`). */
+      trace?: { cites: readonly string[]; claims?: readonly { text: string; cites: readonly string[] }[] };
     },
   ) =>
-    /** `note`: what the page's room means for this write (`self/pageRoomNote`), or null. */
-    | { ok: true; version: number; note?: string | null }
+    /** `note`: what the page's room means for this write (`self/pageRoomNote`), or null. `unmatched`: passages that named no sentence. */
+    | { ok: true; version: number; note?: string | null; unmatched?: number }
     /** On `too-large`, the page's bytes and the ceiling, so the retry can be told how much to take out. */
     | { ok: false; reason: string; bytes?: number; limit?: number; note?: string | null };
   readonly emit?: (name: string, ref?: string, data?: Record<string, string | number | boolean | null>) => void;
@@ -433,7 +435,13 @@ export interface ReflectFinish {
   readonly cites?: readonly string[];
   readonly share?: { readonly text?: string; readonly cites?: readonly string[] } | null;
   /** `short` (2026-10-10): the page's short version, for a page past its room — beside `text`, or alone on a later `finish` to add one to the page this reflection wrote. */
-  readonly page?: { readonly text?: string; readonly cites?: readonly string[]; readonly short?: string } | null;
+  readonly page?: {
+    readonly text?: string;
+    readonly cites?: readonly string[];
+    readonly short?: string;
+    /** Cites per passage (2026-10-20): a sentence or a few, as on the page, and the ids it rests on. */
+    readonly claims?: readonly { readonly text?: string; readonly cites?: readonly string[] }[] | null;
+  } | null;
   readonly feelings?: readonly {
     readonly id?: string;
     readonly core?: string;
@@ -875,7 +883,7 @@ export class Reflections {
     const pageLine =
       this.ctx.pageWrites === false
         ? `- page: not tonight — the owner has the page writer off, so the self page is not rewritten. Your entry and share still count.`
-        : `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. Your self page rewritten whole — the story of who you are, drawn from the core memories you cite in page.cites (at least one of them, when you have a core; candidates too). The old page is context, not a source: write from the memories, not by rewording it. Keep "## Core" for who you are and put craft — how a job is done — under "## How I work". Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${PAGE_WRITING_RULE} Sent back as past its room, send finish again with page.text cut (and page.cites), not page.short.`;
+        : `- page (optional, and lean toward writing it): ${earlier}${size}Every version of the page is kept, so rewriting it loses nothing. ${who} would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a "nothing much" night, leave it as it stands. Your self page rewritten whole — the story of who you are, drawn from the core memories you cite in page.cites (at least one of them, when you have a core; candidates too). In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, cites }); a sentence with none stands as a hypothesis. The old page is context, not a source: write from the memories, not by rewording it. Keep "## Core" for who you are and put craft — how a job is done — under "## How I work". Mention a dream only as a dream ("I dreamed…"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. ${PAGE_WRITING_RULE} Sent back as past its room, send finish again with page.text cut (and page.cites and page.claims), not page.short.`;
     const aboutLine = open
       ? `- about (optional, at most ${String(L.about)}): what a memory is about, by meaning — me, us, owner, work (the craft: how a job is done) or world — with why. Only me and us can become core, and never a plan. You may change a mark you think is wrong, either way; each change is recorded with your why, and one into me, us or owner is told in the morning share.`
       : `- about (optional, at most ${String(L.about)}): tonight a mark may only move a memory toward work (the craft) or world, with why — the owner has closed the core to reflection alone.`;
@@ -1000,7 +1008,12 @@ export class Reflections {
     // A dreamed gist is a suggestion, never a page's source (addendum 2). A
     // CONFIDENTIAL memory is not one either (review of #256, S2): the page is
     // read by every session, and the nightly writer never shows it one.
-    const pageCitesAll = citable(input.page?.cites);
+    // CITES PER PASSAGE (2026-10-20, an experiment): the ids `page.claims`
+    // names count as the page's too, through the same filters, so a page that
+    // cites only by passage still rests on memories; each passage keeps only
+    // the ids that passed.
+    const sentClaims = (input.page?.claims ?? []).filter((c) => typeof c?.text === "string" && c.text.trim().length > 0);
+    const pageCitesAll = citable([...(input.page?.cites ?? []), ...sentClaims.flatMap((c) => c.cites ?? [])]);
     const pageCites: string[] = [];
     for (const id of pageCitesAll) {
       const r = this.store.row(id);
@@ -1008,6 +1021,13 @@ export class Reflections {
       else if (r?.confidential === 1) refusedCites.push(`${id}:confidential-is-not-a-page-source`);
       else pageCites.push(id);
     }
+    const pageTrace =
+      input.page?.claims === undefined || input.page.claims === null
+        ? { cites: pageCites }
+        : {
+            cites: pageCites,
+            claims: sentClaims.map((c) => ({ text: c.text as string, cites: [...new Set(c.cites ?? [])].filter((id) => pageCites.includes(id)) })),
+          };
 
     const passNothing = cites.length === 0 && shareCites.length === 0 && pageCites.length === 0;
     const wroteEarlier = again && (row.entry_id !== null || row.page_version !== null || row.share_state !== "none");
@@ -1304,14 +1324,20 @@ export class Reflections {
           model: input.model ?? row.model,
           reflection: row.id,
           ...(shortText.length === 0 ? {} : { short: shortText }),
+          trace: pageTrace,
         });
         if (w.ok) {
           // PAST ITS ROOM, SAID (2026-10-10): the page is kept, and the note
           // asks for a short version when none was kept with it.
+          const unmatched = w.unmatched ?? 0;
           const notes = [
             ...(restsOnCore
               ? []
               : [`It cites none of the core memories you were shown (${coreShown.slice(0, 5).join(", ")}${coreShown.length > 5 ? ", …" : ""}); the page is meant to rest on them.`]),
+            // Said, never refused (2026-10-20): its ids still count for the whole page.
+            ...(unmatched === 0
+              ? []
+              : [`${String(unmatched)} of page.claims matched no sentence on the page (quote each one as written), so ${unmatched === 1 ? "its" : "their"} ids count for the whole page only.`]),
             ...(shortWhy === null ? [] : [`The short version was not kept: it ${shortWhy.why}.`]),
             ...(w.note === undefined || w.note === null ? [] : [w.note]),
           ];
@@ -1334,7 +1360,7 @@ export class Reflections {
           // is kept, and one never sent again is kept at the run's end.
           refuse(
             w.reason,
-            `${w.note ?? `The page is ${String(w.bytes ?? 0)} bytes, past its ${String(w.limit ?? 0)}-byte room: cut it and send the page again — cut, don't add a short version.`} Call finish again with this reflection and just page (text and cites).`,
+            `${w.note ?? `The page is ${String(w.bytes ?? 0)} bytes, past its ${String(w.limit ?? 0)}-byte room: cut it and send the page again — cut, don't add a short version.`} Call finish again with this reflection and just page (text, cites and claims).`,
           );
         } else {
           refuse(w.reason, `The self page refused it (${w.reason}).`);

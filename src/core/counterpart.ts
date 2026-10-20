@@ -673,14 +673,18 @@ export class Counterpart {
         const written =
           body === null
             ? this.self.addPageShort(o.short ?? "", { ...common, ...(o.ifVersion === undefined ? {} : { ifVersion: o.ifVersion }) })
-            : this.self.revisePage(body, { ...common, ...(o.short === undefined ? {} : { short: o.short }) });
+            : this.self.revisePage(body, {
+                ...common,
+                ...(o.short === undefined ? {} : { short: o.short }),
+                ...(o.trace === undefined ? {} : { trace: o.trace }),
+              });
         const note = pageRoomNote(
           written,
           this.self.tunables.PAGE_ROOM_BYTES,
           "call finish again with page.short alone (the entry and the page stand)",
         );
         return written.written && written.version !== null
-          ? { ok: true, version: written.version, note }
+          ? { ok: true, version: written.version, note, ...(written.traced === undefined ? {} : { unmatched: written.traced.unmatched }) }
           : written.reason === "past-room"
             ? // HELD TO THE ROOM (2026-10-20): the numbers and the words to cut by.
               {

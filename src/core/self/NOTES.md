@@ -2330,3 +2330,39 @@ of date" prefix replaced the "keep or retire it" words.
     days. The database export copies the row, as it copies every page version. The dashboard
     narrates the refusal without its body. A short version that is stale against its page is
     null (`shortOf` checks the hash), so it is never shown first.
+
+## 2026-10-20 — two cheap self measures, and the page in layers (wave 1 lane 2, an experiment)
+
+- **Why.** Nothing measured the self, so wave 2 (beliefs) could only be compared with
+  today's page by taste. These are readings only: nothing promotes, demotes or rewrites on them.
+- **Cites per claim.** The reflection's page rewrite carried one `page.cites` list. It now
+  also takes `page.claims: [{ text, cites }]`, each passage quoted from the page, and its ids go
+  through the same filters as the whole list (not shown, gone, dreamed, confidential). A claim
+  is a sentence (`page.ts#pageClaims`; headings and fenced code are not claims). The trace is
+  stored on the page row's meta (`PAGE_META_TRACE`: `{ of, cites, claims: [{ of, cites }] }`),
+  with sentence keys, not words, and tied to the text by hash like the short version. So no
+  schema change was needed, and every archived version keeps its own trace. Matching runs
+  against the text as stored, after the datelines and the gate. A passage names a sentence by
+  its words (emphasis, quotes and spacing aside) or by an opening of 24+ characters. One that
+  names nothing is counted and said in the finish note, never refused. The words the page
+  says are never changed by any of this.
+- **Carried, or not.** The same text written again (a short version added, a restore of
+  identical words) keeps the trace; a restore brings back that version's own; a held page
+  stores its trace as keys on the refusal row, and `keepHeldPage` writes it. Any other write
+  without one sets it to null. A session's or the owner's page is untraced: there is no door
+  for them to send one yet.
+- **Doctor**: "Self page claims" (`self-page-trace`) and "Core" (`core-support`), both always
+  green. A page from before traces reads "cites were not kept per claim", falling back to its
+  reflection's record (entry and page ids together, so it overcounts), never "all hypotheses".
+  Core support reads every live row and edge, so it stays out of the session-start reading.
+- **Support columns.** Derivations are what an element was MADE FROM, read from its meta
+  (`fit#derivedFrom`), because the v13 `derivations` table is still written by nothing. Links
+  are edges either way. Days and contexts (`origin_scope`) span the element, its returns, its
+  parents and its linked rows. Returns carry a session, not a scope, so they add days only.
+  "One episode behind it" means all of it sits on one lived day. Links are the weak column
+  (the 10-22 co-use check says whether to keep them).
+- **Layers** (dashboard, `pages/self/sections/layers.js`): a passage is a SECTION, followed
+  by heading. The page is rewritten whole from memories, so a sentence seldom survives a night
+  word for word. It shows how far back the kept versions reach and how many retention let go.
+  It is only a view; keeping layers longer would be a retention choice. The page's hypotheses
+  (sentences with no memory named) are listed under it there.
