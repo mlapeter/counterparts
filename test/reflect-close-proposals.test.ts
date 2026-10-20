@@ -419,7 +419,9 @@ describe("stale open threads, closed when plainly done", () => {
     expect(c.store.reflection(next.bundle.reflection)?.share ?? "").toContain("Shall I close it?");
   });
 
-  test("from a session that is not the owner's, a self-close keeps to its own directory: another's is asked instead", () => {
+  // Mike, 2026-10-20 09:38: "i think its ok for nightly run to close threads
+  // from other folders" — for the reflection's self-close and its undo only.
+  test("from a session that is not the owner's, as the nightly run is, a stale thread from another folder self-closes, and reopen reaches it", () => {
     let c = brain();
     nextDay(c);
     const there = mem(c, "Open: is the other project's deploy done?", { meta: { unresolved: true }, origin: { scope: "/a" } });
@@ -443,13 +445,48 @@ describe("stale open threads, closed when plainly done", () => {
       scope: "/b",
     });
     if (!done.ok) throw new Error(done.reason);
-    expect(done.outcome.close.closed.map((x) => x.id)).toEqual([here]);
-    expect(done.outcome.close.proposed).toEqual([there]);
+    expect(done.outcome.close.closed.map((x) => x.id)).toEqual([there, here]);
+    expect(done.outcome.close.proposed).toEqual([]);
     expect(done.outcome.close.refused).toEqual([]);
-    expect(done.outcome.close.notes ?? []).toEqual([`${there}: asked instead of closed (other-directory).`]);
-    expect(openFlag(c, there)).toBe(true);
+    expect(openFlag(c, there)).toBe(false);
     expect(openFlag(c, here)).toBe(false);
+    const back = c.reflections.reopen({ reflection: id, session: "s-guest", ids: [there], scope: "/b" });
+    if (!back.ok) throw new Error(back.reason);
+    expect(back.reopened).toEqual([there]);
+    expect(openFlag(c, there)).toBe(true);
+  });
+
+  test("a confidential thread is never self-closed, even in the owner's session: it is asked instead", () => {
+    const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+    open.push(c);
+    nextDay(c);
+    const secret = mem(c, "Open: did the private terms with the supplier renew?", { meta: { unresolved: true, confidential: true } });
+    for (let i = 0; i < REFLECT_TUNABLES.STALE_OPEN_DAYS + 1; i += 1) nextDay(c);
+    expect(c.store.row(secret)?.confidential).toBe(1);
+    const begun = c.reflections.begin({ session: SESSION });
+    if (!begun.ok) throw new Error(begun.reason);
+    expect(begun.bundle.staleOpen.map((x) => x.id)).toContain(secret);
+    const id = begun.bundle.reflection;
+    const done = c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", closeNow: [{ id: secret, why: "Renewed." }] });
+    if (!done.ok) throw new Error(done.reason);
+    expect(done.outcome.close.closed).toEqual([]);
+    expect(done.outcome.close.proposed).toEqual([secret]);
+    expect(done.outcome.close.notes ?? []).toEqual([`${secret}: asked instead of closed (confidential).`]);
+    expect(openFlag(c, secret)).toBe(true);
     expect(JSON.parse(c.store.reflection(id)?.detail ?? "{}")["counts"]["closeAskedInstead"]).toBe(1);
+  });
+
+  test("a write-up from a session that is not the owner's still closes no thread opened in another folder (the 10-02 rule)", async () => {
+    let c = brain();
+    nextDay(c);
+    const there = mem(c, "Open: is the other project's deploy done?", { meta: { unresolved: true }, origin: { scope: "/a" } });
+    c.close();
+    open.splice(0);
+    c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+    open.push(c);
+    const out = await c.submitJot({ content: "The other project's deploy went out on Tuesday.", updates: there, unresolved: false }, { session: "s-night", scope: "/b" });
+    expect(out.thread).toEqual({ from: there, closed: false, refused: "other-directory" });
+    expect(openFlag(c, there)).toBe(true);
   });
 });
 

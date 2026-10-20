@@ -1499,14 +1499,21 @@ export class Reflections {
         closeRefused.push({ id: cid, reason: "no-longer-open" });
         continue;
       }
-      // ASKED INSTEAD (2026-10-20): one this session may not close — the owner
-      // reopened it, or, from a session not the owner's (the nightly run's
-      // stance), it is confidential or was written in another directory — is
-      // asked about, as a proposal; the owner's yes, from a session that may,
-      // closes it. The doubt is about permission, not about whether it is done.
+      // ANY FOLDER, NEVER CONFIDENTIAL (Mike, 2026-10-20 09:38: "i think its
+      // ok for nightly run to close threads from other folders" — a lightly
+      // held exception to the 10-02 night stance, for this door alone; a
+      // write-up still closes no thread opened elsewhere). A thread it was
+      // shown as stale may be closed whatever folder wrote it, so the
+      // directory check is not made here. ASKED INSTEAD: one the owner
+      // reopened, and a confidential one, from any session, are asked about,
+      // as a proposal; the owner's yes, from a session that may, closes it.
       const guard =
-        typeof open.meta[THREAD_REOPENED_BY_META_KEY] === "string" ? "reopened-by-owner" : threadGuard(open.row, this.ctx.owner, input.scope);
-      if (guard === "reopened-by-owner" || guard === "other-directory" || guard === "confidential") {
+        typeof open.meta[THREAD_REOPENED_BY_META_KEY] === "string"
+          ? "reopened-by-owner"
+          : open.row.confidential === 1
+            ? "confidential"
+            : threadGuard(open.row, this.ctx.owner, input.scope, { anyDirectory: true });
+      if (guard === "reopened-by-owner" || guard === "confidential") {
         proposed.push(cid);
         askedInstead += 1;
         closeNotes.push(`${cid}: asked instead of closed (${guard}).`);
@@ -1890,7 +1897,9 @@ export class Reflections {
         already.push(id);
         continue;
       }
-      const why = threadGuard(r, this.ctx.owner, input.scope);
+      // The way back reaches as far as the self-close did (Mike, 2026-10-20):
+      // any folder.
+      const why = threadGuard(r, this.ctx.owner, input.scope, { anyDirectory: true });
       if (why !== null) {
         refused.push({ id, reason: why });
         continue;
@@ -2908,13 +2917,15 @@ function selfClosedOf(v: unknown): SelfClose[] {
  * `closeThread`'s checks (`counterpart-deposit.ts`), for a thread closed or
  * reopened from here: the owner's protection, an archived row, and — from a
  * session that is not the owner's — nothing confidential and nothing written
- * in another directory. Null when it may be written.
+ * in another directory. Null when it may be written. `anyDirectory`: the
+ * reflection's own self-close and its `reopen` (Mike, 2026-10-20), which reach
+ * a thread from any folder it was shown as stale; `close` keeps the check.
  */
-function threadGuard(r: MemoryRow, owner: boolean, scope: string | null | undefined): string | null {
+function threadGuard(r: MemoryRow, owner: boolean, scope: string | null | undefined, opts: { anyDirectory?: boolean } = {}): string | null {
   if (r.protected === 1) return "protected-refuses-revision";
   if (r.archived === 1) return "target-archived";
   if (!owner && r.confidential === 1) return "confidential";
-  if (!owner && (r.origin_scope ?? "") !== (scope ?? "")) return "other-directory";
+  if (!owner && opts.anyDirectory !== true && (r.origin_scope ?? "") !== (scope ?? "")) return "other-directory";
   return null;
 }
 
