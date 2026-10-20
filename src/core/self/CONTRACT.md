@@ -530,7 +530,10 @@ proposals and their archive; render and delivery telemetry.
     one never shows a stale one); **each `##` section's heading and its first whole
     sentence** (`page.ts#pageOutline`, mechanical); **the headings alone**; **one line**
     naming its bytes and both doors (`pageTooLargeLine`); where there is no room for that
-    line either, nothing. **Each rung borrows before it steps down** (review of #358): the
+    line either, nothing. **Past the room, with a short version, the short version first**
+    (2026-10-20, `PAGE_SHORT_PAST_ROOM`, lightly held, an experiment): a page past
+    `PAGE_ROOM_BYTES` that has one skips the whole rung, so the lanes beside it keep their
+    room; with none, the page whole when it fits, as before. **Each rung borrows before it steps down** (review of #358): the
     room the delivery holds for "Work here" (`lendBytes`, the owner's wake only) is lent to
     it — only what it needs, the rest still "Still open"'s — and the composition's
     `budgetBytes` states it. **Every rung but the last carries a top line and an end line**
@@ -551,7 +554,20 @@ proposals and their archive; render and delivery telemetry.
     refused only past the 16,384-byte ceiling (`PAGE_MAX_BYTES`) — and its writer is asked
     for a short version within the same number, in the same call (the nightly writer, the
     reflection, the `self_page` tool's `short`, the console's `--short`). Measured in BYTES
-    at both ends. It replaces the rotating identity list by
+    at both ends. **The nightly writers are held to it** (2026-10-20, Mike's go,
+    `PAGE_HELD_TO_ROOM`, lightly held, an experiment): from the page writer or the
+    reflection (`PAGE_HELD_DOORS`), each door's first page of a night past the room is
+    refused, `past-room`, with its bytes and how far over, the gate's text kept on the
+    refusal row (`held`); that door's second send past it in the same session that night is
+    kept as above; and a held page never sent again is kept when the nightly process's child
+    returns (`Self#keepHeldPage`, `night-run.ts`), or — with no run end (a night launched
+    from a session, a run killed after the hold) — at the worker's next boundary once the
+    hold is 30 minutes old (`PAGE_HELD_SETTLE_MS`, `bin/runner.ts`; looking back 48 hours,
+    `PAGE_HELD_KEEP_MS`), unless the page moved since. "A night" is the last 12 hours by the wall clock (`PAGE_HELD_NIGHT_MS`), so a
+    run crossing midnight is one night. The held short version is stored only as its gates
+    keep it (review of #541). So a night
+    never ends with no page change because of the hold. A session's page and the owner's
+    are not held. It replaces the rotating identity list by
     emptying the lane before the share, the trim order or the counts see it, so
     `counts.identity` and `elements=` state what the bundle actually carries and no
     `TrimEvent` is written for elements nothing dropped. It is furniture, like the day-0
@@ -699,6 +715,8 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `BUDGET_PRESSURE` | 0.9 | Fraction of the budget that fires the pressure event (scar §2.4). |
 | `PAGE_MAX_BYTES` | 16,384 | The WRITE CEILING, in bytes: a sanity bound. Past it a revision is refused rather than cut — what gets cut at write time is the only copy — and the refusal names it. #358 lowered it to the room (6,078) for one day, 2026-10-09, as a stopgap; the page's history kept missing that by a few hundred bytes. |
 | `PAGE_ROOM_BYTES` | 4,600 (`briefing.ts#PAGE_ROOM_BYTES`) | The page's TARGET, in bytes, the one its writer is told (2026-10-16, the wake trims, lightly held; until then the whole room, 5,681), under the most a page — or its short version — may be for the wake to print it whole at 9,000 under the widest reserves, top and end lines counted (`pageRoomBytes(9_000)`, 5,750; §16). Past it the page is kept, and a short version is kept with it only then and only within this. A value above `pageRoomBytes(9_000)` gives up the every-day guarantee. |
+| `PAGE_HELD_TO_ROOM` | true | The nightly page writer and the reflection are refused the night's first page past `PAGE_ROOM_BYTES` (`past-room`, "cut, don't add a short version"); a second send that night is kept, and a held page never sent again is kept at the run's end (2026-10-20, Mike's go, lightly held, an experiment; §16). Off: the room is every writer's target, as from 2026-10-10. |
+| `PAGE_SHORT_PAST_ROOM` | true | A page past `PAGE_ROOM_BYTES` with a short version shows the short version, even where the whole page fits (2026-10-20, with the hold; §16). Off: the whole page whenever it fits. |
 | `CRAFT_IN_WAKE` | false | Whether the store-wide "How I work:" list (skill-kind above the warm floor, not this directory's work) is a lane of the wake (2026-10-16, the wake trims, lightly held). Off: in no lane, listed or counted; the page's "## How I work" says the lessons, and a craft memory still comes up per turn as a footnote. |
 | `COMING_UP_TODAY_ONLY` | true | "Coming up" lists what is due the day the wake is for or past its date, and a plain reminder due the day it is read; the later dates are counted in the lane's one line with their recall ids, and are in no other lane (2026-10-16, the wake trims, lightly held). Off: the lane by date, as before. |
 | `PAGE_STALE_DAYS` | 14 | Calendar days after which the wake says the page has not been revised. Calendar, not lived: the lived clock has run 7 days across 15 calendar ones here. |

@@ -445,10 +445,13 @@ describe("the writer is told the room as a target, and never refused under the c
     expect(over.structuredContent["limit"]).toBe(16_384);
   });
 
-  test("the room is said BEFORE the page is written, as a target with the short version beside it: the writing rule, the tool's fields and the writer's block", () => {
-    expect(PAGE_WRITING_RULE).toContain(`Aim to keep the whole page under ${String(PAGE_ROOM_BYTES)} bytes`);
-    expect(PAGE_WRITING_RULE).toContain("also write a short version");
-    expect(PAGE_WRITING_RULE).not.toContain("refused");
+  test("the room is said BEFORE the page is written: the writing rule (held to it since 2026-10-20), the tool's fields and the writer's block", () => {
+    // The nightly writers' rule says the room plainly and that a page past it
+    // is sent back to be cut (`PAGE_ROOM_RULE`, 2026-10-20); a session's
+    // tool still reads it as a target with the short version beside it.
+    expect(PAGE_WRITING_RULE).toContain(`The whole page has ${String(PAGE_ROOM_BYTES)} bytes of room`);
+    expect(PAGE_WRITING_RULE).toContain("cut, don't add a short version");
+    expect(PAGE_WRITING_RULE).toContain("stay thin");
     const spec = toolDefinitions().find((t) => t["name"] === "self_page") as
       | { description: string; inputSchema: { properties: Record<string, { description: string }> } }
       | undefined;
@@ -463,7 +466,7 @@ describe("the writer is told the room as a target, and never refused under the c
       { about: "2026-10-08", today: "2026-10-09", page, memories: [], dropped: 0, omitted: 0, bytes: 0 },
       { tool: "self_page", pageInline: true },
     );
-    expect(block).toContain(`15 bytes (aim under ${String(PAGE_ROOM_BYTES)})`);
+    expect(block).toContain(`15 bytes (its room is ${String(PAGE_ROOM_BYTES)})`);
     expect(block).toContain(PAGE_WRITING_RULE);
   });
 });

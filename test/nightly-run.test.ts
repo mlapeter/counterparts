@@ -737,20 +737,34 @@ describe("a page writer that writes 6,200 bytes, past its room, through the real
     const s = server(c, SESSION);
     const w = await s.call("dream", { phase: "writer", session: SESSION });
     expect(w.structuredContent["writer"]).toBe(true);
-    // Told before it writes: the room as a target, and the short version beside it.
-    expect(String(w.structuredContent["read"])).toContain(`(aim under ${String(ROOM)})`);
-    expect(String(w.structuredContent["read"])).toContain("also write a short version");
-    expect(String(w.structuredContent["how"])).toContain(`Aim the page under ${String(ROOM)} bytes`);
-    expect(String(w.structuredContent["how"])).toContain("send `short` with it in the same call");
+    // Told before it writes: the room in bytes, said plainly, and that a page
+    // past it is sent back to be cut, not given a short version (2026-10-20).
+    expect(String(w.structuredContent["read"])).toContain(`(its room is ${String(ROOM)})`);
+    expect(String(w.structuredContent["read"])).toContain(`The whole page has ${String(ROOM)} bytes of room`);
+    expect(String(w.structuredContent["read"])).toContain("cut, don't add a short version");
+    expect(String(w.structuredContent["how"])).toContain(`The whole page has ${String(ROOM)} bytes of room`);
+    expect(String(w.structuredContent["how"])).toContain("cut, don't add a short version");
     expect(String(w.structuredContent["how"])).not.toContain("too-large");
     return { c, s, about, version: page.version };
   }
 
-  test("kept whole, by the writer — and told, in the same answer, to add a short version; the same run adds one and the night reads `revised`", async () => {
+  /** The night's first send past the room: refused with the numbers, nothing written (2026-10-20). */
+  async function heldOnce(c: Counterpart, s: McpServer, args: Record<string, unknown>, standing: string): Promise<void> {
+    const held = await s.call("self_page", args);
+    expect(held.isError ?? false).toBe(true);
+    expect(held.structuredContent).toMatchObject({ stored: false, reason: "past-room", room: ROOM });
+    expect(held.structuredContent["over"]).toBe(Buffer.byteLength(String(args["body"])) - ROOM);
+    expect(String(held.structuredContent["detail"])).toContain("cut, don't add a short version");
+    expect(c.selfPage()?.body).toBe(standing);
+  }
+
+  test("held once, then kept whole by the writer — and told, in the same answer, to add a short version; the same run adds one and the night reads `revised`", async () => {
     const { c, s, about, version } = await writerNight();
     const long = pageOfBytes(6_200);
+    // HELD TO THE ROOM (2026-10-20): the night's first send past it.
+    await heldOnce(c, s, { body: long, reason: "the night", session: SESSION, ifVersion: version }, STANDING);
     const res = await s.call("self_page", { body: long, reason: "the night", session: SESSION, ifVersion: version });
-    // KEPT, never refused under the ceiling, never half-written.
+    // SENT AGAIN STILL PAST IT: KEPT, never half-written.
     expect(res.isError ?? false).toBe(false);
     expect(res.structuredContent).toMatchObject({ stored: true, bytes: 6_200, room: ROOM, overRoom: true });
     expect(String(res.structuredContent["roomNote"])).toContain("sessions read only each section's heading and first sentence");
@@ -769,9 +783,10 @@ describe("a page writer that writes 6,200 bytes, past its room, through the real
     expect(c.pageWriterStatus(about).outcome).toBe("revised");
   });
 
-  test("the page and its short version in ONE call are both kept, and a tight wake shows the short version, marked", async () => {
+  test("the page and its short version in ONE call are both kept (on the night's second send), and a tight wake shows the short version, marked", async () => {
     const { c, s, version } = await writerNight();
     const long = pageOfBytes(6_200);
+    await heldOnce(c, s, { body: long, short: SHORT, reason: "the night", session: SESSION, ifVersion: version }, STANDING);
     const res = await s.call("self_page", { body: long, short: SHORT, reason: "the night", session: SESSION, ifVersion: version });
     expect(res.structuredContent).toMatchObject({ stored: true, overRoom: true });
     expect((res.structuredContent["short"] as Record<string, unknown>)["kept"]).toBe(true);
@@ -802,20 +817,28 @@ describe("a page writer that writes 6,200 bytes, past its room, through the real
     expect(words.next).toBe("Tonight's run tries again.");
   });
 
-  test("the reflection: a page past its room is written, the note asks for page.short, and a second finish with page.short alone adds it", () => {
+  test("the reflection: a page past its room is held once, then written; the note asks for page.short, and a third finish with page.short alone adds it", () => {
     const c = brain();
     const ids = lived(c);
     const r = c.reflections.begin({ session: SESSION });
     if (!r.ok) throw new Error(r.reason);
     const cite = ids[3] as string;
     const long = pageOfBytes(6_200);
-    const first = c.reflections.finish({
+    // HELD TO THE ROOM (2026-10-20): the entry stands, the page is sent back with the numbers.
+    const held = c.reflections.finish({
       reflection: r.bundle.reflection,
       session: SESSION,
       entry: "Looking back, I say what I don't know.",
       cites: [cite],
       page: { text: long, cites: [cite] },
     });
+    if (!held.ok) throw new Error(String(held.reason));
+    expect(held.outcome.page).toMatchObject({ written: false, reason: "past-room" });
+    expect(held.outcome.page.detail ?? "").toContain(`${String(6_200 - ROOM)} over its ${String(ROOM)}-byte room`);
+    expect(held.outcome.page.detail ?? "").toContain("cut, don't add a short version");
+    expect(held.outcome.retry ?? "").toContain("page — past-room");
+    expect(c.selfPage()).toBeNull();
+    const first = c.reflections.finish({ reflection: r.bundle.reflection, session: SESSION, page: { text: long, cites: [cite] } });
     if (!first.ok) throw new Error(String(first.reason));
     expect(first.outcome.page).toMatchObject({ written: true, reason: "rewritten" });
     const note = (first.outcome.page as { note?: string }).note ?? "";
@@ -849,6 +872,9 @@ describe("a page writer that writes 6,200 bytes, past its room, through the real
     expect(lone.outcome.page).toMatchObject({ written: false, reason: "short-needs-page" });
     expect(c.selfPage()).toBeNull();
     const long = pageOfBytes(6_200);
+    const held = c.reflections.finish({ reflection: r.bundle.reflection, session: SESSION, page: { text: long, cites: [cite], short: SHORT } });
+    if (!held.ok) throw new Error(String(held.reason));
+    expect(held.outcome.page).toMatchObject({ written: false, reason: "past-room" });
     const both = c.reflections.finish({ reflection: r.bundle.reflection, session: SESSION, page: { text: long, cites: [cite], short: SHORT } });
     if (!both.ok) throw new Error(String(both.reason));
     expect(both.outcome.page).toMatchObject({ written: true, reason: "rewritten" });
