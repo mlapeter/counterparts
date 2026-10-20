@@ -352,10 +352,26 @@ describe("a write that looks like it answers a reminder due now", () => {
     expect(c.prospective.plainDue({ at: "2026-10-20" }).map((d) => d.memoryId)).toEqual([id]);
   });
 
-  test("not when the write is neither done nor owner-said, nor once the occurrence is closed, nor in its lead days", async () => {
+  test("in the next one's lead days, the overdue one is offered: the same occurrence a done would close", async () => {
     const s = server();
     const id = await weekly(s);
+    // Tuesday 13 Oct was never closed; Sunday 18 Oct is 20 Oct's lead.
     dayOf(s, "2026-10-18");
+    const late = await remember(s, { text: "Ran the weekly Counterparts store backup late, with counterparts backup.", status: "done" });
+    const answers = late["answers"] as Record<string, unknown>[] | undefined;
+    expect(answers?.map((a) => a["id"])).toEqual([id]);
+    expect(answers?.[0]).toMatchObject({ due: "2026-10-13", recurring: "weekly" });
+    // Following the hint closes that one, and 20 Oct comes as ever.
+    const closed = await remember(s, { text: "The store backup ran late this week, on Sunday.", updates: id, status: "done" });
+    expect(closed["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-10-13", next: "2026-10-20" });
+    expect(s.counterpart.prospective.plainDue({ at: "2026-10-20" }).map((d) => d.windowKey)).toEqual(["d:2026-10-20"]);
+  });
+
+  test("not when the write is neither done nor owner-said, nor once the occurrence is closed, nor in lead days with nothing overdue", async () => {
+    const s = server();
+    // Written on Sunday 18 Oct: 13 Oct was before it, never owed, so nothing is overdue.
+    dayOf(s, "2026-10-18");
+    const id = (await remember(s, { title: "Weekly backup", text: BACKUP, eventDate: "2026-10-06", recurring: "weekly", remind: "plain" }))["id"] as string;
     const lead = await remember(s, { text: "Ran the weekly Counterparts store backup early, with counterparts backup.", status: "done" });
     expect(lead["answers"]).toBeUndefined();
     dayOf(s, "2026-10-20");

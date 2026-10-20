@@ -2009,8 +2009,9 @@ export class McpServer {
    * same day. So when a write says something was `done`, or that the owner
    * said it, and one of its listed neighbours (already shown, close by the
    * neighbours' own bars) is a dated memory whose occurrence is due today or
-   * overdue inside its window and not yet closed, it is named with the way to
-   * close it. Never closed here: a close neighbour can be another thing.
+   * overdue inside its window (or, in the next one's lead days, the one
+   * before it still unclosed: what a done would close) and not yet closed,
+   * it is named with the way to close it. Never closed here: a close neighbour can be another thing.
    */
   private answersReminder(deposit: DepositResult, sent: { readonly status?: unknown; readonly saidBy?: unknown }, neighbours: readonly Neighbour[]): Record<string, unknown> {
     if (!deposit.deposited || deposit.memoryId === null || neighbours.length === 0) return {};
@@ -2019,7 +2020,9 @@ export class McpServer {
     const today = this.today();
     const out: { id: string; title: string | null; due: string; recurring?: string }[] = [];
     for (const n of neighbours) {
-      const open = this.counterpart.prospective.openOccurrence(n.id, today);
+      // The occurrence a done would close (`doneOccurrence`, review of #540):
+      // in the next one's lead days, an overdue one still unclosed.
+      const open = this.counterpart.prospective.doneOccurrence(n.id, today);
       if (open === null || open.closed || today < open.firstDay) continue;
       out.push({ id: n.id, title: n.title, due: open.occurrence, ...(open.recurring === null ? {} : { recurring: open.recurring }) });
     }

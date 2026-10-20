@@ -646,7 +646,9 @@ repeat. Any weekly reminder hits this.
   (`McpServer#answersReminder`, `answers` + `answersHint`, on `remember` and each
   `session_end` entry): a write with no `updates`, `status: done` or `saidBy: owner`, whose
   listed neighbours include a dated memory with an occurrence open, due (on or past its
-  first day — not in its lead days) and not closed. Offered, never closed.
+  first day — not in its lead days) and not closed; in the next one's lead days, the one
+  before it when it is still unclosed — the occurrence a `done` would close
+  (`doneOccurrence`, review of #540). Offered, never closed.
 - **F6b, beside it in `creditDrewOn`:** a named memory superseded or faded under a newer
   one is credited, not refused, when the memory now standing for it (`headOf`) was written by
   this session or born this lived day (`replacedHere` in the result). The old one, not the

@@ -33,8 +33,9 @@
   backup nobody ran. "That day" is the writer's (the server's clock, or a write-up's own day).
 - Decided by the builder, lightly held: a write with no `updates` that says `status: "done"` or
   `saidBy: "owner"`, landing beside a dated memory whose occurrence is due now (on or after its
-  day, inside its window, not closed), gets `answers` with the way to close it. Offered, never
-  closed. Why: the 08:40 memory was written fresh, without `updates`.
+  day, inside its window, not closed), gets `answers` with the way to close it; in the next
+  occurrence's lead days, the overdue one before it, the same occurrence a `done` would close
+  (review of #540). Offered, never closed. Why: the 08:40 memory was written fresh, without `updates`.
 - Decided by the builder, lightly held (F6b): `drewOn` credits a memory superseded or faded under
   a newer one when that newer one was written by this session or born the same lived day — the
   stale memory itself, not the head, since the head was born today and is never credited on its
