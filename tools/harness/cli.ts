@@ -86,7 +86,7 @@ export function render(r: RunRecord): string {
 export function renderNight(r: NightReplayRecord): string {
   const out: string[] = [];
   const v = (c: { recorded: unknown; replayed: unknown; same: boolean }): string => (c.same ? `same (${JSON.stringify(c.replayed)})` : `recorded ${JSON.stringify(c.recorded)}, replayed ${JSON.stringify(c.replayed)}`);
-  out.push(`recorded night, replayed · ${(r.elapsedMs / 1000).toFixed(1)}s · night ${r.night.state}${r.night.reason === null ? "" : ` (${r.night.reason}${r.night.detail === null ? "" : `: ${r.night.detail}`})`} · parts ${r.night.parts.join(",") || "none"} · children ${r.night.children.join(", ")}`);
+  out.push(`${r.seat === "harness:recorded" ? "recorded night, replayed" : `the night, with ${r.seat} in the seat`} · ${(r.elapsedMs / 1000).toFixed(1)}s · night ${r.night.state}${r.night.reason === null ? "" : ` (${r.night.reason}${r.night.detail === null ? "" : `: ${r.night.detail}`})`} · parts ${r.night.parts.join(",") || "none"} · children ${r.night.children.join(", ")}`);
   const words = (p: { wordsSame: boolean }): string => (p.wordsSame ? "same words" : "different words");
   out.push(`prompts: dream ${words(r.prompts.dream)}, length ${v(r.prompts.dream)}; reflection ${words(r.prompts.reflection)}, length ${v(r.prompts.reflection)}`);
   for (const [act, t] of Object.entries(r.calls)) {
@@ -123,6 +123,8 @@ async function main(argv: readonly string[]): Promise<number> {
       ...(flag(args, "--time-zone") === undefined ? {} : { timeZone: flag(args, "--time-zone")! }),
       ...(flag(args, "--budget") === undefined ? {} : { budgetBytes: Number(flag(args, "--budget")) }),
       ...(args.includes("--no-embed") ? { embed: false } : {}),
+      ...(args.includes("--model") || flag(args, "--model-name") !== undefined ? { seat: "model" as const } : {}),
+      ...(flag(args, "--model-name") === undefined ? {} : { model: flag(args, "--model-name")! }),
     });
     process.stdout.write(renderNight(record) + "\n");
     const json = flag(args, "--json");
@@ -132,7 +134,7 @@ async function main(argv: readonly string[]): Promise<number> {
   if (cmd !== "replay") {
     process.stderr.write(
       "usage: bun tools/harness/cli.ts replay [--source <copy>] [--returns derived|recorded] [--through-day N] [--early-days N] [--keep] [--json <out>]\n" +
-        "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
+        "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--model [--model-name M]] [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
     );
     return 2;
   }
