@@ -95,7 +95,7 @@ import { BUNDLE_OWNER, DREAM_TUNABLES } from "./tunables.js";
 import { mindRanked, noteMindShown } from "./mind.js";
 import type { MindItem } from "./mind.js";
 import { settle as settleContradiction } from "../reconsolidation.js";
-import { CORE_ASK_LOOKBACK, coreAsks, coreHow, coreSentence } from "./core-ask.js";
+import { CORE_ASK_LOOKBACK, coreAsks, coreHow, coreSentence, unsettledPairOf } from "./core-ask.js";
 import type { CoreAsk, CoreDecided } from "./core-ask.js";
 import { THREAD_CLOSED_BY_META_KEY, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_META_KEY } from "../mint.js";
 import type { SettleOutcome } from "../reconsolidation.js";
@@ -1132,7 +1132,21 @@ export class Reflections {
       }
       const reason = `${why.text} (reflection ${row.id})`;
       const out = c.decision === "keep" ? keepCore(this.store, { id: r.id, why: reason, actor: "reflection", day, dreamId: row.dream_id }) : retireCore(this.store, { id: r.id, reason, actor: "reflection", day, dreamId: row.dream_id });
-      coreDecisions.push(out.ok ? { id, ok: true, reason: out.reason } : { id, ok: false, reason: out.reason, detail: out.reason === "not-core" ? `${r.id} is not in the core.` : "Nothing was decided for this one." });
+      // A RETIRE IN AN UNSETTLED PAIR (review of #542): the settle is the
+      // next step, after this finish — say so on the part, so the pair is not
+      // left unsettled unsaid (a refused settle says why in its own reply).
+      const pair = out.ok && c.decision === "retire" ? unsettledPairOf(this.store, r.id) : null;
+      const pairNote =
+        pair === null
+          ? undefined
+          : shown.has(pair.other)
+            ? `${r.id} is still in an unsettled pair with ${pair.other} (${pair.id}). If which holds is plain, settle it now: the reflect tool's phase "settle", reflection: ${row.id}, holds, over, how and why. If it is not plain, leave it: the pair stays unsettled.`
+            : `${r.id} is still in an unsettled pair with ${pair.other} (${pair.id}), which this reflection was not shown: the pair stays unsettled.`;
+      coreDecisions.push(
+        out.ok
+          ? { id, ok: true, reason: out.reason, ...(pairNote === undefined ? {} : { note: pairNote }) }
+          : { id, ok: false, reason: out.reason, detail: out.reason === "not-core" ? `${r.id} is not in the core.` : "Nothing was decided for this one." },
+      );
       if (out.ok) decidedNow.push({ id: r.id, decision: c.decision, why: why.text });
     }
 

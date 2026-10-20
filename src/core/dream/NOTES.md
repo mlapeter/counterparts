@@ -825,7 +825,10 @@ the live ~52):
 - A pair: `memoryRefusal` refuses settling over a core memory (`core-takes-pressure`), and
   `retireCore` clears `promoted_identity` and re-bands it at once, so the prompt orders it:
   retire in `finish`, then phase `settle` (open the same calendar day after a finish).
-  Tested both ways.
+  Tested both ways. A retire whose memory is still in an unsettled pair says so on its
+  `core` part's `note` (review of #542), with the settle to make or that the pair stays;
+  a settle that then fails leaves the memory retired and the pair unsettled, and its own
+  reply says why.
 - The share's core line is generated like `closeLine` (`coreSentence`): one line naming
   each decision with its why and "If one is wrong, say so and I'll undo it", rebuilt on a
   second finish (`detail.coreLine`), cited (`told` records on them like any share cite). A

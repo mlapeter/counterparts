@@ -238,6 +238,14 @@ describe("1. the nightly reflection is offered the core questions that waited a 
     expect(early).toMatchObject({ ok: false, reason: "core-takes-pressure" });
     const done = c.reflections.finish({ reflection, session: "s-r", entry: "His studio moved.", cites: [newer], core: [{ id: core, decision: "retire", why: "It is about where he works, and that changed." }] });
     if (!done.ok) throw new Error(done.reason);
+    // The finish says the pair is next (review of #542).
+    expect(done.outcome.core[0]?.note).toContain(`still in an unsettled pair with ${newer} (ctr_corewait001)`);
+    expect(done.outcome.core[0]?.note).toContain('phase "settle"');
+    // A settle that fails leaves it retired and the pair unsettled, and says why.
+    const bad = c.reflections.settle({ reflection, session: "s-r", holds: newer, over: core, how: "moved", why: "He moved the studio." });
+    expect(bad).toMatchObject({ ok: false, reason: "how-unknown" });
+    expect(c.store.physicsOf(core).promotedIdentity).toBe(false);
+    expect(c.store.contradiction("ctr_corewait001")?.state).toBe("unsettled");
     const after = c.reflections.settle({ reflection, session: "s-r", holds: newer, over: core, how: "changed", why: "He moved the studio." });
     expect(after.ok).toBe(true);
     expect(c.store.contradiction("ctr_corewait001")).toMatchObject({ state: "settled", holds: newer, over: core });
