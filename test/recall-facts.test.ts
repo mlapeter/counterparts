@@ -1537,6 +1537,22 @@ describe("the title tail (2026-10-20)", () => {
     expect(c.store.physicsOf(first).uses).toBeGreaterThan(before);
   });
 
+  // Review of #544: the tail reads the same faded set the bodies do.
+  test("a faded match in the tail keeps its rank and is labeled faded", () => {
+    const c = brain();
+    seed(c);
+    forty(c);
+    const before = ask(c, "the zqcrate orders");
+    const target = before.tail[4]?.id as string;
+    c.store.updatePhysics(target, { fade: 0.1 });
+    expect(hasFaded(c.store.physicsOf(target), c.store.livedDay())).toBe(true);
+    const after = ask(c, "the zqcrate orders");
+    expect(after.tail.map((t) => t.id)).toEqual(before.tail.map((t) => t.id));
+    expect(after.tail[4]?.faded).toBe(true);
+    const line = renderFacts(after).split("\n").find((l) => l.includes(target));
+    expect(line).toMatch(/^15\. .* · faded$/);
+  });
+
   // Review of #544: a settled-over memory whose current version this asker may
   // not see does not fold, and its title in the tail read as current.
   test("a settled-over memory listed on its own carries the earlier mark, as its body would", () => {
