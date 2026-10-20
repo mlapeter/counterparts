@@ -21,10 +21,13 @@
 - Decided by the builder, lightly held: a `done` at a memory holding a date passes the update
   guard without the relatedness read. Why: "backup ran" closes "back up every Tuesday" and
   shares few words with it; this applies to one-off dates too.
-- Decided by the builder, lightly held: on a weekly date, "today's" occurrence is the one window
-  open, so a `done` said in the three days before the next Tuesday closes next Tuesday's (the
-  coming lead wins over the last grace, as the windows already work). The answer names the date
-  it closed. Why: one open window keeps it unambiguous; revisit if it closes the wrong week in use.
+- Decided in review of #540, lightly held: a `done` closes the occurrence open that day, except
+  in the next occurrence's lead days when the one before it is still unclosed (and inside its
+  grace, and was owed): then it closes that late one. A weekly backup done on Saturday with
+  Tuesday's never closed closes Tuesday's, and next Tuesday's comes back; with Tuesday's closed,
+  it closes next Tuesday's. The answer names the date it closed. Why: a "done" said while one
+  is overdue most likely means the overdue one, and closing the coming one would silence a
+  backup nobody ran. "That day" is the writer's (the server's clock, or a write-up's own day).
 - Decided by the builder, lightly held: a write with no `updates` that says `status: "done"` or
   `saidBy: "owner"`, landing beside a dated memory whose occurrence is due now (on or after its
   day, inside its window, not closed), gets `answers` with the way to close it. Offered, never

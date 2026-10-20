@@ -199,8 +199,8 @@ On the owner's session-start wakes in ~/counterparts and ~/random (read-only).
   corrected comes back credited with `replacedHere` instead of `faded-under-newer`.
 - **Changes a decision if:** the reminder still comes back the same day after a done (a path that
   doesn't read the window state), it does NOT come back the next Tuesday, it closes the wrong
-  week (a done said Saturday closes the coming Tuesday's), or the reminder fades or leaves the
-  core after a done.
+  week (a done said Saturday, with that Tuesday's still open, closes the coming Tuesday's), or
+  the reminder fades or leaves the core after a done.
 - **Revert:** revert the PR; a done at a repeat then ends the repeat again.
 
 ## Due at the first live catch-up (the nightly run's or `counterparts catch-up`)
