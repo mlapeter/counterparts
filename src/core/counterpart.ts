@@ -151,6 +151,7 @@ import {
   markWakeBehind,
   nearDue,
   pageRoomNote,
+  pastRoomWords,
   readSentinel,
   settledOver,
   threadsShown,
@@ -655,7 +656,7 @@ export class Counterpart {
       page: () => this.self.page()?.body ?? null,
       pageInfo: () => {
         const p = this.self.page();
-        return p === null ? null : { version: p.version, by: p.by, revisedOn: p.revisedOn };
+        return p === null ? null : { version: p.version, by: p.by, revisedOn: p.revisedOn, bytes: p.bytes };
       },
       pageWrites: opts.pageWriterMode !== "off",
       today: () => this.store.today(),
@@ -681,7 +682,16 @@ export class Counterpart {
         );
         return written.written && written.version !== null
           ? { ok: true, version: written.version, note }
-          : written.reason === "too-large"
+          : written.reason === "past-room"
+            ? // HELD TO THE ROOM (2026-10-20): the numbers and the words to cut by.
+              {
+                ok: false,
+                reason: written.reason,
+                bytes: written.bytes,
+                limit: this.self.tunables.PAGE_ROOM_BYTES,
+                note: pastRoomWords(written.bytes, this.self.tunables.PAGE_ROOM_BYTES),
+              }
+            : written.reason === "too-large"
             ? { ok: false, reason: written.reason, bytes: written.bytes, limit: this.self.tunables.PAGE_MAX_BYTES, note }
             : { ok: false, reason: written.reason, note };
       },

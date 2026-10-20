@@ -78,6 +78,11 @@ function self(s: Store): Self {
   return new Self({ store: s, gate: episodeGate() });
 }
 
+/** The 2026-10-10 ladder, whole first even past the room (`PAGE_SHORT_PAST_ROOM` off, 2026-10-20). */
+function wholeFirst(s: Store): Self {
+  return new Self({ store: s, gate: episodeGate(), tunables: { PAGE_SHORT_PAST_ROOM: false } });
+}
+
 /** A page of about `n` bytes in three headed sections, each opening with a sentence of its own. */
 function headedPage(n: number): string {
   const sections = [
@@ -125,7 +130,10 @@ function edge(me: Self, rung: PageRung): number {
 
 describe("each rung, chosen at its exact edge — whole text every time", () => {
   test("whole → short; and with no short version, whole → outline → headings → line → nothing — one byte apart at each edge", () => {
-    const withShort = self(store());
+    // The ladder's own edges, whole first (`PAGE_SHORT_PAST_ROOM` off); with
+    // it on, a page past its room with a short version starts at the short
+    // version (`test/page-held-to-room.test.ts`).
+    const withShort = wholeFirst(store());
     const w = withShort.revisePage(headedPage(7_000), { reason: "past its room", by: "owner", short: SHORT });
     expect(w.written).toBe(true);
     expect(w.overRoom).toBe(PAGE_ROOM_BYTES);
@@ -134,7 +142,7 @@ describe("each rung, chosen at its exact edge — whole text every time", () => 
     try {
       const s2 = Store.open({ dir: other });
       open.push(s2);
-      const without = self(s2);
+      const without = wholeFirst(s2);
       expect(without.revisePage(headedPage(7_000), { reason: "past its room", by: "owner" }).short).toBeNull();
       climb(withShort, ["whole", "short"]);
       climb(without, ["whole", "outline", "headings", "line"]);
@@ -193,7 +201,7 @@ describe("each rung, chosen at its exact edge — whole text every time", () => 
 
   test("it borrows the room held for \"Work here\" before it steps down a rung, and takes only what it needs", () => {
     const s = store();
-    const me = self(s);
+    const me = wholeFirst(s);
     me.revisePage(headedPage(7_000), { reason: "past its room", by: "owner", short: SHORT });
     for (const rung of ["whole", "short"] as const) {
       const budget = edge(me, rung) - 10;
