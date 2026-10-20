@@ -34,6 +34,7 @@
 import { describe, expect, test } from "bun:test";
 import { MECHANISM_EVIDENCE, amount } from "../src/adapters/mechanism-evidence.js";
 import type { Payload, Proof } from "../src/adapters/mechanism-evidence.js";
+import { DETAIL_KEYS } from "../src/adapters/sidebar-status.js";
 
 type DashEvent = { seq: number; at: number; name: string; text: string; detail: { key: string; value: string }[] };
 type Feed = {
@@ -115,9 +116,15 @@ function coreProves(event: string, payload: Payload): string[] {
   ].sort();
 }
 
-/** What the sidebar lights for the same row, as `/api/activity` narrates it (detail values as strings). */
+/**
+ * What the sidebar lights for the same row, as `/api/activity` narrates it (detail values as
+ * strings) and as sidebar.json carries it: only the detail keys `DETAIL_KEYS` passes
+ * (2026-10-20, review of #555: a rule reading a key the status file drops never fires live).
+ */
 function sidebarLights(event: string, payload: Payload): string[] {
-  const detail = Object.entries(payload).map(([key, v]) => ({ key, value: typeof v === "string" ? v : JSON.stringify(v) }));
+  const detail = Object.entries(payload)
+    .filter(([key]) => DETAIL_KEYS.has(key))
+    .map(([key, v]) => ({ key, value: typeof v === "string" ? v : JSON.stringify(v) }));
   const row = feed.classify({ seq: 1, at: 0, name: event, text: "", detail });
   return row === null ? [] : [...new Set(row.mechs)].sort();
 }
@@ -156,6 +163,14 @@ describe("the sidebar's copy of MECHANISM_EVIDENCE", () => {
       .map(({ event, payload }) => ({ event, payload, core: coreProves(event, payload), sidebar: sidebarLights(event, payload) }))
       .filter((c) => c.core.join() !== c.sidebar.join());
     expect(disagree).toEqual([]);
+  });
+
+  test("sidebar.json carries the detail keys the fold and rise rules read (review of #555)", () => {
+    for (const key of ["fold", "to", "cause"]) expect(`${key}: ${String(DETAIL_KEYS.has(key))}`).toBe(`${key}: true`);
+    // Through the status file's filter: a fold-only dream lights both; a crossing into identity and a recurve light nothing.
+    expect(sidebarLights("dream.changed", { applied: 2, fold: 2, gist: 0 })).toEqual(["consolidation", "dreaming", "interference"]);
+    expect(sidebarLights("band.transition", { from: "semantic", to: "identity", site: "decay", direction: "up", cause: "promoted" })).toEqual([]);
+    expect(sidebarLights("band.transition", { from: "episodic", to: "semantic", site: "decay", direction: "up", cause: "recurve" })).toEqual([]);
   });
 
   test("the twelve mechanisms in core's order and ids, with the one not built drawn hollow", () => {
