@@ -1,5 +1,7 @@
 # `recall/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 Let the right past arrive on its own, ignorably: cues → activation → a surfacing gate →
@@ -204,7 +206,7 @@ reply actually used reconsolidates, where in humans every retrieval does.
 ## 4. Drops / simplifies
 
 - **Per-session gate state is persisted, first-class, in the operational database.**
-  **PROPOSED** — owner call at check-in. This is the harvest's most consequential single
+  **Decided, for now** (owner, 2026-10-20; settled by module-map Rulings 3 of 2026-08-25). This is the harvest's most consequential single
   finding and demands an explicit answer: in v1 the object holding "what surfaced this
   session", the refractory countdown, and carried cues was constructed fresh every turn and
   discarded, because the turn path is a new process per turn and nothing serialized it. So

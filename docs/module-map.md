@@ -19,7 +19,7 @@ code and the `NOTES.md` / `INTERFACE-GAPS.md` next to it.*
 | `embed/` | — (a gist, not a reading) | Text in, vector out, on this machine, for nothing: the static embedding table (`static.ts`, potion-base-8M) that gives recall's semantic channel a source with no key. Zero code dependencies; its weights ship as the data-only package `counterparts-model-potion`, the one runtime dependency. The only embedder since 2026-09-24, when the paid Voyage seat was removed. **Added 2026-09-23 (roadmap C1).** |
 | `associate/` | Hebbian linking | Co-activation strengthens links; spreading activation at recall. **RESOLVED (owner, 2026-08-25): stays a module** — edge-level arithmetic keeps `physics/` one page; Hebbian plasticity/contiguity is its own mechanism in the field guide. |
 | `schemas/` | semantic memory | Entities and beliefs; birth by mention, death by decay; strength-weighted revision with row history. |
-| `self/` | autobiographical self | Identity documents, episodes, the wake briefing (v0's briefing, grown up). Governed: frozen self-reinforcement rules. |
+| `self/` | autobiographical self | Identity documents, episodes, the wake briefing (v0's briefing, grown up). Governed: for now, the freeze guards only the crash-fallback sweep; the night is guarded by spacing, citations and visibility (self/CONTRACT §2(d)). |
 | `prospective/` | prospective memory | Future intentions, cued by time or context; fire / suppress / reference telemetry. |
 | `handoff/` | working context for a place | The per-directory handoff: where the work here stands, written as a field on the end-of-session ask, shown as a two-line pointer at the next wake in that directory, expiring in lived days. **Never a memory** — out of recall, out of credit, out of consolidation, out of identity. **Added 2026-09-20 (E1, spec §6.4 / §15 item 6).** |
 | `coverage/` | rehearsal debt | What is not written up yet, read in one place: per session, the unwritten stretch since its last claim in `coverage.jsonl`. The pacer's third ask (pieces and time), the one rule for what a session owes (retention, the next-session write-up), lapse after fourteen days of use (two until 2026-10-10), the handoff pointer's "how current", and one row per stretch per state. Changes nothing about how pieces are claimed. **Added 2026-09-30.** |
@@ -97,7 +97,8 @@ item, this section is the newer law.
    stays separate; `dashboard/` added as an adapter (constitution line 16, ratified).
 2. Physics: pressure-accumulator revision (§5.6 rewritten — field on target, one credited
    challenge/day, force = strength × sal, novelty at encoding only); nothing born into
-   identity, N = 3 promotion at consolidation (§5.3 rewritten); bands 4→3 and one strength
+   identity, promotion through the core lanes (physics/CONTRACT.md §5.3, rewritten
+   2026-09-26); bands 4→3 and one strength
    number both settled; decay is a three-way (flat/exponential/power-law) decided by
    replay; H = 90 is a TUNABLE default, not an owner ruling.
 3. Settled drops: identity-promotion surface, `protected.add` queue, model-seat pins,
@@ -112,7 +113,8 @@ item, this section is the newer law.
 
 Owner-decided (2026-08-25, bansai `docs/DECISIONS.md`): experiencer authorship with
 crash fallback; librarian-as-physics with zero standing model calls; strength-weighted
-revision (no ledger subsystem); only physics forgets; the three storage boxes;
+revision (no ledger subsystem); only physics forgets (no model deletes; for now, a model
+may archive, with a record and an undo); the three storage boxes;
 birth-by-mention entities; Amendment 15. Anything a CONTRACT drops beyond that list is
 marked **PROPOSED** and waits for the owner's check-in.
 
@@ -121,3 +123,7 @@ prose box is gone and the memory IS the row. That is the same owner, revising hi
 default — "going forward by 'readable' we mean if someone can view them" (2026-09-16),
 and `docs/storage-spec-2026-09-16.md` §15 item 9, "everything lives in the database for
 now; markdown is an export". The other seven entries above are untouched.*
+
+*Everything here guides the work; it doesn't limit it. Anything here, RESOLVED items
+included, can be raised for discussion at any time and revised when there's a better way
+(constitution line 13).*

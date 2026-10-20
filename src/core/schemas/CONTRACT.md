@@ -1,5 +1,7 @@
 # `schemas/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 Semantic memory: the entities experience organizes itself around — people, places, skills,
@@ -12,7 +14,10 @@ Schema formation and semantic memory: repeated episodes abstract into a structur
 experience is compared against, which is what makes prediction error possible. **Named
 deviation** (constitution line 12): beliefs never blend into each other. Generalization is
 only ever an explicit, provenance-carrying revision — biology's interference and source
-confusion are the bugs, not the architecture (owner ratification 2026-08-08).
+confusion are the bugs, not the architecture (owner ratification 2026-08-08). For now,
+beliefs aren't built yet: the live schema rows are entity, person and place cards. Today
+the one many-into-one path is the dream's fold (it names its sources). Wave 2 may add
+others.
 
 ## 3. Keeps
 
@@ -51,7 +56,8 @@ confusion are the bugs, not the architecture (owner ratification 2026-08-08).
 
 ## 4. Drops / simplifies
 
-- **Entities are born by mention and die by decay; there is no approval gate** (owner
+- **Entities are born by mention (for now, at night, once a name has come up in at least 3
+  memories on 2 different days; `BIRTH_TALLY`) and die by decay; there is no approval gate** (owner
   decision 2026-08-25, settled). v1's autonomous-birth gate is not ported: zero births
   *and* zero refusals across 89 interpreter runs recorded the gate as unexercised, not
   proven — "a gate with no knocks is unmeasured." What survives from it are the *mechanical*
@@ -68,7 +74,7 @@ confusion are the bugs, not the architecture (owner ratification 2026-08-08).
   no model-facing operation edits a belief at all; models write memories, and revision is
   arithmetic.**
 - **`protected.add`'s second-signature queue is dropped; protection itself is kept.**
-  **PROPOSED** — owner call at check-in. The evidence: zero `protected.queued` events ever,
+  **Decided, for now** (owner, 2026-10-20; settled by module-map Rulings 3 of 2026-08-25). The evidence: zero `protected.queued` events ever,
   and the 2026-08-24 identity review replaced the corrective with **legibility** — every
   standing protected element enumerable on demand, a list rather than a cadence — which is
   the half that shipped and works. The risk if this is wrong is scar §2.19's exactly:
@@ -76,7 +82,7 @@ confusion are the bugs, not the architecture (owner ratification 2026-08-08).
   protection is now proposed only by the experiencer at session end, which is the highest-
   context author the system has, not a sweep model reading a transcript.
 - **Belief confidence as a separate stored number is dropped in favour of strength.**
-  **PROPOSED** — owner call at check-in. v1 held both, and the ledger's evidence weight
+  Open, for wave 2. v1 held both, and the ledger's evidence weight
   multiplied by `(1 − confidence)`; `physics/` §5.6 gets the same "weakly-held beliefs fall
   easier" behaviour out of `strength(old)` alone. Simpler, one number, and it cannot go
   inert unnoticed.

@@ -1,5 +1,7 @@
 # `prospective/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 Know that the remembered future has arrived, and be *inclined* rather than *reminded*.

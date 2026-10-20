@@ -1,5 +1,7 @@
 # `adapters/mcp/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 The deliberate tools — remember, recall, status — plus the two return channels the Stop ask
@@ -91,7 +93,7 @@ load-bearing, and this adapter is designed on the assumption that it will be use
   Nor can it UNWRITE the page: clearing and restoring are the owner's console alone, because
   a session that could erase the self between two turns would be a different kind of tool.*
 - **`protected.add` as a callable operation is dropped** with the second-signature queue.
-  **PROPOSED** — owner call at check-in; see `schemas/CONTRACT.md` §4 for the evidence and
+  **Decided, for now** (owner, 2026-10-20; settled by module-map Rulings 3 of 2026-08-25); see `schemas/CONTRACT.md` §4 for the evidence and
   counter-argument.
 - **No tool writes an entity, a belief, or a revision.** Entities are born by mention and
   die by decay; revision is `updates:` plus arithmetic (owner decisions, settled). The
