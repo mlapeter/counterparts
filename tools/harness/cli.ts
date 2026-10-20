@@ -8,6 +8,8 @@
  */
 import { writeFileSync } from "node:fs";
 
+import { replayNight } from "./night.js";
+import type { NightReplayRecord } from "./night.js";
 import { runPhysicsReplay } from "./replay.js";
 import type { RunRecord } from "./replay.js";
 import { DEFAULT_CORPUS } from "./source.js";
@@ -80,10 +82,54 @@ export function render(r: RunRecord): string {
   return out.join("\n");
 }
 
+/** The recorded night's record, as lines. Counts, states and verdicts only. */
+export function renderNight(r: NightReplayRecord): string {
+  const out: string[] = [];
+  const v = (c: { recorded: unknown; replayed: unknown; same: boolean }): string => (c.same ? `same (${JSON.stringify(c.replayed)})` : `recorded ${JSON.stringify(c.recorded)}, replayed ${JSON.stringify(c.replayed)}`);
+  out.push(`recorded night, replayed · ${(r.elapsedMs / 1000).toFixed(1)}s · night ${r.night.state}${r.night.reason === null ? "" : ` (${r.night.reason}${r.night.detail === null ? "" : `: ${r.night.detail}`})`} · parts ${r.night.parts.join(",") || "none"} · children ${r.night.children.join(", ")}`);
+  out.push(`prompt length: dream ${v(r.prompts.dream)}; reflection ${v(r.prompts.reflection)}`);
+  for (const [act, t] of Object.entries(r.calls)) {
+    out.push(`${act}: ${String(t.calls)} calls, ${String(t.refused)} refused, ${String(t.same)} answered the same`);
+    for (const [phase, p] of Object.entries(t.byPhase)) out.push(`  ${phase}: ${String(p.calls)} · refused ${String(p.refused)} · same ${String(p.same)}`);
+  }
+  out.push(`ids mapped recorded→replayed: ${String(r.idsMapped)}`);
+  if (r.dream !== null) {
+    out.push(`dream: state ${v(r.dream.state)}; title ${r.dream.titleSame ? "same" : "differs"}; returns ${v(r.dream.returns)}`);
+    out.push(`  changes ${v(r.dream.changes)}`);
+  }
+  if (r.reflection !== null) {
+    out.push(`reflection: state ${v(r.reflection.state)}; page version ${v(r.reflection.pageVersion)}; returns ${v(r.reflection.returns)}; cites ${v(r.reflection.cites)}`);
+  }
+  if (r.keptAt !== null) out.push(`kept: ${r.keptAt}`);
+  return out.join("\n");
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const [cmd, ...args] = argv;
+  if (cmd === "night") {
+    const dir = flag(args, "--dir");
+    const pick = (name: string, file: string): string => {
+      const v = flag(args, name) ?? (dir === undefined ? undefined : `${dir}/${file}`);
+      if (v === undefined) throw new Error(`${name} or --dir is needed`);
+      return v;
+    };
+    const record = await replayNight({
+      source: pick("--source", "pre-night.sqlite"),
+      outcome: flag(args, "--outcome") ?? (dir === undefined ? pick("--outcome", "") : `${dir}/../counterparts.sqlite`),
+      dreamTranscript: pick("--dream", "dream-child.jsonl"),
+      reflectionTranscript: pick("--reflection", "reflection-child.jsonl"),
+      keep: args.includes("--keep"),
+    });
+    process.stdout.write(renderNight(record) + "\n");
+    const json = flag(args, "--json");
+    if (json !== undefined) writeFileSync(json, JSON.stringify(record, null, 2));
+    return 0;
+  }
   if (cmd !== "replay") {
-    process.stderr.write("usage: bun tools/harness/cli.ts replay [--source <copy>] [--returns derived|recorded] [--through-day N] [--early-days N] [--keep] [--json <out>]\n");
+    process.stderr.write(
+      "usage: bun tools/harness/cli.ts replay [--source <copy>] [--returns derived|recorded] [--through-day N] [--early-days N] [--keep] [--json <out>]\n" +
+        "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--keep] [--json <out>]\n",
+    );
     return 2;
   }
   const returns = flag(args, "--returns") ?? "derived";

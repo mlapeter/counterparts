@@ -76,6 +76,36 @@ and the band census.
   the days dated this way. If the replay's clock ever differs from the record's lived day,
   the run stops.
 
+## A recorded night (`night`)
+
+```sh
+bun tools/harness/cli.ts night --dir ~/counterparts-backups/<date>-corpus/night-<date>
+#   the folder holds pre-night.sqlite (a snapshot from the night's start), dream-child.jsonl and
+#   reflection-child.jsonl (the night's children's transcripts, copied from
+#   ~/.claude/projects/-<store dir>/), and ../counterparts.sqlite (a copy from after the night)
+```
+
+This is the harness's own seat (`night.ts#recordedSeat`). It answers the night's asks with the
+calls the recorded night made, through the memory's own server, opened in-process as the
+night's child opens it: not the owner's, told which act it serves, with the local embedder.
+It runs on a copy of the store from before that night, on that night's clock. No model is
+involved. The night itself runs through the real `runNight`. The record compares the composed
+prompts (lengths only), each call's answer (refused, or the same once ids are mapped), and what
+the store holds afterwards: the dream's state, title, changes by kind and returns; the
+reflection's state, page version, returns and cites.
+
+Replay on the code that ran the night. A recorded dream's proposals are tied to the bundle it
+was shown, so on code that composes bundles differently, its proposals land on memories this
+bundle never showed (`not-shown-or-gone`). That is a finding about the code, not a fault in
+the replay. On 2026-10-20 the 10-19 night replayed on 0.3.26, the build that ran it:
+- the prompts were identical, and the reflection matched exactly;
+- the dream matched except for 2 of 18 links and 1 of 8 replays;
+- part 1 of the bundle overlapped the night's by about 86%. The cause of the gap isn't known yet:
+  the composition has no randomness, and nothing was written between the snapshot and the
+  dream's start.
+
+On 0.3.27 and later, 10 of the 18 links land on memories the new bundle doesn't show.
+
 ## Safety
 
 - The source is opened read-only, and the harness refuses any path under `~/.counterparts`.
