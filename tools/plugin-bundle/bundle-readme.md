@@ -32,10 +32,23 @@ In Claude Code:
 /plugin install counterparts@counterparts
 ```
 
+<!-- flavor:core -->
+That is the memory on its own. For the sidebar, a pane beside the chat that shows what
+memory is doing, install it too (it is a plugin of its own, and it brings this one with it):
+
+```
+/plugin install counterparts-sidebar@counterparts
+```
+
+<!-- /flavor:core -->
 Then restart Claude Code. The first session creates your memory in `~/.counterparts`, and
 Claude offers a short first meeting: a few skippable questions to get to know you (where
 memory should be on, what you're working on, something you've loved, how you like to be
 talked to). Your answers become ordinary memories; a question you skip stores nothing.
+<!-- flavor:core -->
+Claude offers it at the end of its first reply (with the sidebar installed, the sidebar
+starts it instead, before you type).
+<!-- /flavor:core -->
 <!-- flavor:full -->
 In that first session the sidebar starts it: it sends one message, shown as from the
 plugin, and Claude introduces itself (once per install, never in a `claude -p` run, a
@@ -50,10 +63,10 @@ Say "later" and it is offered again another day, on three days at most;
 A memory that already existed is never offered it. Check its health any time with
 `/counterparts:doctor`.
 
-<!-- flavor:full -->
+<!-- flavor:full core -->
 If you already use the npm install (`counterparts install`), the plugin notices and stands
 down, so the memory is never wired twice.
-<!-- /flavor:full -->
+<!-- /flavor:full core -->
 <!-- flavor:directory -->
 If you also use the npm install (`counterparts install`), keeping one is simpler. Both use
 the same memory, so nothing is lost either way: to keep only the plugin, run `counterparts
@@ -76,10 +89,19 @@ those both run and Claude is offered the memory tools twice.
   close paraphrases work ("my doctor" finds a note about a physician), but a description
   that never names the thing ("a pet that purrs" for a note about your cat) usually doesn't.
   Exact words are strongest.
+<!-- flavor:full directory -->
 - **A sidebar** in the terminal showing what came to mind and what was saved.
+<!-- /flavor:full directory -->
 - **Commands:** `/counterparts:doctor` (a health check), `/counterparts:dashboard` (opens the
   dashboard), `/counterparts:meet` (the first meeting) and `/counterparts:uninstall`.
+<!-- flavor:core -->
 
+The sidebar, a pane showing what came to mind and what was saved, is the
+`counterparts-sidebar` plugin (Install, above). This plugin carries no mod: no hooks module,
+nothing drawn in Claude Code's interface.
+<!-- /flavor:core -->
+
+<!-- flavor:full directory -->
 ## What the sidebar does
 
 <!-- flavor:directory -->
@@ -215,6 +237,7 @@ The sidebar's lines from `claude plugin validate`, Claude Code 2.1.306:
 
 `$.state` is the pane's own memory for the session; `$.store` is the per-plugin storage
 above. Run `claude plugin validate .` in the plugin's folder to see the same.
+<!-- /flavor:full directory -->
 
 ## What it runs, sends and fetches
 
@@ -237,7 +260,12 @@ You can delete any one kind of data at any time without touching the rest, from 
 dashboard or with `counterparts delete conversation-text`, `delete backups` or
 `delete activity-log`. It never leaves your computer except as above.
 
+<!-- flavor:full directory -->
 **The sidebar's status file.** While this plugin (and so the sidebar) is installed,
+<!-- /flavor:full directory -->
+<!-- flavor:core -->
+**The sidebar's status file.** While this plugin is installed (the sidebar plugin needs it),
+<!-- /flavor:core -->
 Counterparts writes `~/.counterparts/sidebar.json`, readable only by you (mode 0600): the
 day and the count, today's counts per mechanism, the last dream, the recent activity log
 and the memories it names, each with its title, kind, date and the first 800 characters of
@@ -255,6 +283,15 @@ configuration the hooks use. It doesn't read Claude Code's memory files, CLAUDE.
 prompt history. Apart from `~/.counterparts`, it writes only to the plugin's own data
 folder (the downloaded program, if any), Claude Code's per-plugin storage (sidebar
 <!-- /flavor:full -->
+<!-- flavor:core -->
+**What else it reads and writes.** Besides the session transcript, it reads
+`~/.claude/settings.json`, your project's `.claude/settings.json` and `settings.local.json`,
+`~/.claude.json` and Claude Code's `plugins/installed_plugins.json`, only to tell whether
+the npm install is also set up and whether the plugin is on. It doesn't read Claude Code's
+memory files, CLAUDE.md files or prompt history. Apart from `~/.counterparts`, it writes
+only to the plugin's own data folder (the downloaded program, if any) and small first-run
+files in your temp folder. The hooks start
+<!-- /flavor:core -->
 <!-- flavor:directory -->
 **What else it reads and writes.** Besides the session transcript, it reads
 `~/.claude/settings.json` and `settings.local.json`, your project's `.claude/settings.json`
@@ -268,14 +305,23 @@ files, for Counterparts' own hook line ("What it can reach" above). It doesn't r
 Claude Code's memory files, CLAUDE.md files or prompt history. Apart from `~/.counterparts`,
 it writes only to Claude Code's per-plugin storage (sidebar
 <!-- /flavor:directory -->
+<!-- flavor:full directory -->
 preferences) and small first-run files in your temp folder. The hooks start
+<!-- /flavor:full directory -->
 short-lived background processes on your computer for the slower work.
 `/counterparts:uninstall` lists running processes (`ps`) to find Counterparts' own before
 it changes anything.
 
+<!-- flavor:full directory -->
 **Settings and tool calls.** The plugin never changes Claude Code's settings or
 permissions, and its hooks never block, change or approve a tool call (what the sidebar
 watches: "What it can reach" above). It leaves Claude Code's own
+<!-- /flavor:full directory -->
+<!-- flavor:core -->
+**Settings and tool calls.** The plugin never changes Claude Code's settings or
+permissions, and its hooks never block, change or approve a tool call. It leaves Claude
+Code's own
+<!-- /flavor:core -->
 memory (MEMORY.md and its prompt section) as it is. At the end of a
 reply the hooks may ask Claude, in a line you can see, to take one more short turn to
 write the session up as memories. The one exception for settings is
@@ -293,9 +339,9 @@ first session there asks whether it should. Telling Claude "not here" (or "just 
 "pause this") sets that folder; in a folder set off, the hooks keep nothing. To delete
 everything, remove `~/.counterparts`.
 
-<!-- flavor:full -->
+<!-- flavor:full core -->
 It fetches two things, both at install time or once:
-<!-- /flavor:full -->
+<!-- /flavor:full core -->
 <!-- flavor:directory -->
 It fetches one thing, at install time:
 <!-- /flavor:directory -->
@@ -306,7 +352,7 @@ It fetches one thing, at install time:
   (`package-lock.json`, so when npm is on your PATH), at the exact version pinned there,
   with install scripts off. Without it, recall works by words rather than by meaning, and
   `/counterparts:doctor` says so.
-<!-- flavor:full -->
+<!-- flavor:full core -->
 - **A program, only when your computer has no runtime.** Counterparts runs on Bun or
   Node.js when either is installed. On a Mac or Linux computer with neither, it downloads
   one prebuilt Counterparts program for that computer (55–75 MB, from the
@@ -319,7 +365,7 @@ It fetches one thing, at install time:
 The hooks and the memory server start through one small shell script,
 `src/adapters/plugin-run.sh`, whose only job is to find that runtime (Bun, then Node.js,
 then the downloaded program) and start the same entry points the npm package runs.
-<!-- /flavor:full -->
+<!-- /flavor:full core -->
 <!-- flavor:directory -->
 
 Nothing else is downloaded, and your memories never leave your computer.
@@ -349,6 +395,7 @@ roughly 20k generated tokens and 155k of fresh input, plus about 1M tokens read 
 cache, on your default model. Turning dreaming off removes that part. Your numbers will
 differ with how much you use it.
 
+<!-- flavor:full directory -->
 The sidebar's fox is drawn from small PNG files in the plugin's own folder
 (`hooks/sidebar/art/fox/`): a terminal that shows pictures (kitty, Ghostty) reads them
 itself, and the desktop app's sidebar reads each one once. The script that builds them
@@ -358,10 +405,13 @@ The sidebar runs no programs, fetches nothing and holds no links: COUNTERPARTS a
 `more` after a long memory are plain words. `/counterparts:dashboard` starts the
 dashboard, or opens your browser on it when it is already running for your memory (it
 asks the page on 127.0.0.1 which memory it serves).
+<!-- /flavor:full directory -->
 
 The dashboard, when you open it, is a page served on 127.0.0.1 only (port 4747 unless
 you set `COUNTERPARTS_DASHBOARD_PORT`), and runs until the session that started it ends.
+<!-- flavor:full directory -->
 The sidebar doesn't need it running.
+<!-- /flavor:full directory -->
 
 ## Remove it
 
@@ -372,10 +422,10 @@ the plugin first, quit Claude Code, and type the confirmation yourself in a term
 
 ## License
 
-<!-- flavor:full -->
+<!-- flavor:full core -->
 MIT. See [LICENSE](LICENSE). Bundled fonts (Outfit, Courier Prime) are under the SIL Open
 Font License and three.js under MIT; their licence texts sit beside them.
-<!-- /flavor:full -->
+<!-- /flavor:full core -->
 <!-- flavor:directory -->
 MIT. See [LICENSE](LICENSE). Bundled fonts (Outfit, Courier Prime) are under the SIL Open
 Font License; their licence texts sit beside them.

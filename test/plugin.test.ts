@@ -209,31 +209,16 @@ describe("the plugin's files", () => {
     const market = readJson(join(ROOT, ".claude-plugin", "marketplace.json"));
     expect(market["name"]).toBe("counterparts");
     const plugins = market["plugins"] as { name: string; source: unknown; version?: unknown }[];
-    expect(plugins.map((p) => p.name)).toEqual(["counterparts"]);
-    const entry = plugins[0]!;
-    // plugin.json's version is the one Claude Code uses; one in the entry too
-    // would only be a second number to keep in step.
-    expect(entry.version).toBeUndefined();
-    const source = entry.source as Record<string, unknown>;
-    expect(typeof source).toBe("object");
-    // A git URL over HTTPS, not a `github` source: Claude Code clones a
-    // `github` source over SSH, which fails for anyone without a GitHub SSH key
-    // ("Permission denied (publickey)", 2026-10-13). Anthropic's own marketplace
-    // uses `url` sources too.
-    expect(source["source"]).toBe("url");
-    // This repository, or the generated bundle's own repository
-    // (tools/plugin-bundle/build.ts; docs/plugin.md, "The bundle"), tagged
-    // with the same release.
-    expect([
-      "https://github.com/mlapeter/counterparts.git",
-      "https://github.com/counterparts-ai/counterparts-plugin.git",
-    ]).toContain(String(source["url"]));
-    const ref = String(source["ref"] ?? "");
-    // A tag shaped like a release: not main, master, HEAD, refs/…, or a sha.
-    expect(ref).toMatch(/^v\d+\.\d+\.\d+$/);
-    if (source["sha"] !== undefined) expect(String(source["sha"])).toMatch(/^[0-9a-f]{40}$/);
-    expect(Object.keys(source).sort()).toEqual(source["sha"] === undefined ? ["ref", "source", "url"] : ["ref", "sha", "source", "url"]);
-
+    // Two plugins since the split (2026-10-20, docs/plugin.md "Two plugins"):
+    // memory, under the name every install already has, and the sidebar.
+    expect(plugins.map((p) => p.name)).toEqual(["counterparts", "counterparts-sidebar"]);
+    // Where each may come from: this repository, or the generated bundle's
+    // own repository (tools/plugin-bundle/build.ts; docs/plugin.md, "The
+    // bundle"), tagged with the same release.
+    const homes: Record<string, string[]> = {
+      counterparts: ["https://github.com/mlapeter/counterparts.git", "https://github.com/counterparts-ai/counterparts-plugin.git"],
+      "counterparts-sidebar": ["https://github.com/counterparts-ai/counterparts-sidebar.git"],
+    };
     const semver = (v: string): number[] => v.replace(/^v/, "").split(".").map(Number);
     const below = (a: string, b: string): boolean => {
       const [x, y] = [semver(a), semver(b)];
@@ -242,11 +227,31 @@ describe("the plugin's files", () => {
     };
     const version = String(pkg["version"]);
     const expected = below(version, FIRST_PLUGIN_RELEASE) ? `v${FIRST_PLUGIN_RELEASE}` : `v${version}`;
-    if (ref !== expected) {
-      throw new Error(
-        `package.json is ${version} and marketplace.json pins ${ref}; the pin must be ${expected}. ` +
-          `Move the pin in the release commit: docs/plugin.md, "Releasing".`,
-      );
+    for (const entry of plugins) {
+      // plugin.json's version is the one Claude Code uses; one in the entry too
+      // would only be a second number to keep in step.
+      expect(entry.version).toBeUndefined();
+      const source = entry.source as Record<string, unknown>;
+      expect(typeof source).toBe("object");
+      // A git URL over HTTPS, not a `github` source: Claude Code clones a
+      // `github` source over SSH, which fails for anyone without a GitHub SSH key
+      // ("Permission denied (publickey)", 2026-10-13). Anthropic's own marketplace
+      // uses `url` sources too.
+      expect(source["source"]).toBe("url");
+      expect(homes[entry.name]).toContain(String(source["url"]));
+      const ref = String(source["ref"] ?? "");
+      // A tag shaped like a release: not main, master, HEAD, refs/…, or a sha.
+      expect(ref).toMatch(/^v\d+\.\d+\.\d+$/);
+      if (source["sha"] !== undefined) expect(String(source["sha"])).toMatch(/^[0-9a-f]{40}$/);
+      expect(Object.keys(source).sort()).toEqual(source["sha"] === undefined ? ["ref", "source", "url"] : ["ref", "sha", "source", "url"]);
+      // Both pins move together, in the release commit: memory and the
+      // sidebar are one release (the sidebar reads core's status file).
+      if (ref !== expected) {
+        throw new Error(
+          `package.json is ${version} and marketplace.json pins ${entry.name} at ${ref}; the pin must be ${expected}. ` +
+            `Move the pins in the release commit: docs/plugin.md, "Releasing".`,
+        );
+      }
     }
   });
 

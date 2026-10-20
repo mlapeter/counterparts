@@ -3,9 +3,9 @@
  * a repository whose root is the plugin (planned: counterparts-ai/counterparts-plugin)
  * and for Anthropic's plugin directory.
  *
- *   ~/.bun/bin/bun tools/plugin-bundle/build.ts [--flavor full|directory] <out-dir>     write the bundle
- *   ~/.bun/bin/bun tools/plugin-bundle/build.ts [--flavor full|directory] --list        print the file set, write nothing
- *   ~/.bun/bin/bun tools/plugin-bundle/build.ts [--flavor full|directory] --check <dir> rebuild and compare with <dir>
+ *   ~/.bun/bin/bun tools/plugin-bundle/build.ts [--flavor full|directory|core|sidebar] <out-dir>     write the bundle
+ *   ~/.bun/bin/bun tools/plugin-bundle/build.ts [--flavor full|directory|core|sidebar] --list        print the file set, write nothing
+ *   ~/.bun/bin/bun tools/plugin-bundle/build.ts [--flavor full|directory|core|sidebar] --check <dir> rebuild and compare with <dir>
  *
  * Why a bundle: the directory reads the plugin folder, and today that folder is
  * this whole repository (tests, docs, dev tools: 800+ files against a limit of
@@ -28,6 +28,29 @@
  *     that names the entry file. Requires Bun 1.3+ on the PATH Claude Code
  *     starts with. The code knows which tree it runs in from its own URL
  *     (`src/adapters/runtime.ts#entryScript`).
+ *
+ * TWO PLUGINS, for our own marketplace (2026-10-20, the split; lightly held):
+ *
+ *   - `core`: the `full` flavor less the sidebar — memory alone (hooks, MCP
+ *     server, commands), still named `counterparts`, so every install of it
+ *     keeps its name. hooks.json is generated without `modules`, plugin.json
+ *     without `types`, and nothing under `hooks/sidebar/` ships.
+ *   - `sidebar`: the mod as a plugin of its own, `counterparts-sidebar`
+ *     (`SIDEBAR_PLUGIN`), rooted at `hooks/sidebar/` (its `art/fox` and
+ *     `types/` sit where the dev folder already has them), with plugin.json
+ *     `dependencies` naming `counterparts`, so installing it installs memory
+ *     too. No MCP server, no command hooks, no commands, nothing to install:
+ *     it can never offer a memory tool, so beside an npm install only core's
+ *     stand-down matters. The engine lets only a value's owner write it, so
+ *     every `$.state` key the sources write as `{ plugin: 'counterparts' }`
+ *     is written out under `counterparts-sidebar` (`sidebarText`); the
+ *     sources keep `counterparts`, so the repository root as a plugin (the
+ *     dev rig, `claude --plugin-dir`) and the `full`/`directory` flavors run
+ *     the sidebar as before.
+ *
+ * Each writes one plugin at the root of its folder, like the two flavors
+ * above: core for `counterparts-ai/counterparts-plugin`, the sidebar for a
+ * repository of its own (docs/plugin.md, "Two plugins").
  *
  * THE FILE SET IS TRACED, NOT LISTED. The roots are what Claude Code reads:
  * `.claude-plugin/plugin.json` (the MCP server's command, the mod's `types`),
@@ -68,9 +91,41 @@ import ts from "typescript";
 export const REPO = resolve(import.meta.dir, "../..");
 const HERE = import.meta.dir;
 
-/** The two bundles one file set makes (header). */
-export const FLAVORS = ["full", "directory"] as const;
+/** The bundles one file set makes (header): the one plugin in two flavors,
+ *  and the two plugins of the split. */
+export const FLAVORS = ["full", "directory", "core", "sidebar"] as const;
 export type Flavor = (typeof FLAVORS)[number];
+
+/** The sidebar as a plugin of its own (header, "TWO PLUGINS"). Never rename
+ *  `counterparts` itself: every install of it would break. */
+export const CORE_PLUGIN = "counterparts";
+export const SIDEBAR_PLUGIN = "counterparts-sidebar";
+/** Where the sidebar's sources are, and so its plugin's root. */
+export const SIDEBAR_DIR = "hooks/sidebar";
+/**
+ * The first release whose `counterparts` is memory alone. Every earlier one
+ * draws the sidebar itself, so the sidebar plugin's dependency asks for this
+ * or later: beside an older `counterparts` the install is refused, with
+ * Claude Code's own "run `claude plugin update counterparts@counterparts`",
+ * instead of drawing two panes (measured, tools/plugin-loop/split.sh 4b). If
+ * the split misses this release, raise it to the one it ships in.
+ */
+export const FIRST_SPLIT_RELEASE = "0.3.28";
+/**
+ * The sidebar plugin's `dependencies`: core, from the same marketplace, at
+ * the split or later. A range resolves against `counterparts--v<version>` tags
+ * on core's repository (code.claude.com/docs/en/plugins/dependencies), so each
+ * release tags core's commit that way too, beside `v<version>`: without one
+ * the sidebar does not install ("has no git tag satisfying"). Lightly held:
+ * a bare `"counterparts"` needs no such tag, and then an older counterparts
+ * meets it and both draw a pane (docs/plugin.md, "Two plugins").
+ */
+export const SIDEBAR_DEPENDENCIES: readonly (string | { name: string; version: string })[] = [
+  { name: CORE_PLUGIN, version: `>=${FIRST_SPLIT_RELEASE}` },
+];
+/** hooks.json's description for core, which carries no module. */
+export const CORE_HOOKS_DESCRIPTION =
+  "Counterparts: memory hooks on five Claude Code events (session start, each prompt, each reply, session end, before compaction), started from the plugin folder. The sidebar is the counterparts-sidebar plugin.";
 
 /** The plugin directory's limits (claude.com/docs/plugins/pre-submission-checklist). */
 export const MAX_FILES = 512;
@@ -269,6 +324,22 @@ export function directoryRoots(repo: string, problems: string[] = []): Roots {
   return roots;
 }
 
+/** Core's roots, from this repository's: plugin.json without the sidebar's
+ *  `types`, hooks.json without its `modules`, the commands as they are. */
+export function coreRoots(repo: string): Roots {
+  const r = repoRoots(repo);
+  const manifest = JSON.parse(r.manifest) as Record<string, unknown>;
+  delete manifest["types"];
+  const hooks = JSON.parse(r.hooks) as Record<string, unknown>;
+  delete hooks["modules"];
+  hooks["description"] = CORE_HOOKS_DESCRIPTION;
+  return {
+    manifest: `${JSON.stringify(manifest, null, 2)}\n`,
+    hooks: `${JSON.stringify(hooks, null, 2)}\n`,
+    commands: r.commands,
+  };
+}
+
 // ── tracing ────────────────────────────────────────────────────────────────
 
 function isFile(repo: string, rel: string): boolean {
@@ -322,17 +393,19 @@ export function traceFiles(repo: string = REPO, flavor: Flavor = "full", roots?:
       queue.push(r);
     }
   };
-  const root = roots ?? (flavor === "directory" ? directoryRoots(repo, problems) : repoRoots(repo));
-  // In the full flavor the roots are this repository's files, carried as they are.
+  if (flavor === "sidebar") throw new Error("the sidebar plugin is traced by planSidebar, from its own root");
+  const root = roots ?? (flavor === "directory" ? directoryRoots(repo, problems) : flavor === "core" ? coreRoots(repo) : repoRoots(repo));
+  // In the full flavor the roots are this repository's files, carried as they
+  // are; core carries the commands as they are and generates hooks.json.
   const carry = (rel: string, why: string): void => {
-    if (flavor === "full") add(rel, why);
+    if (flavor === "full" || (flavor === "core" && rel !== "hooks/hooks.json")) add(rel, why);
   };
 
   // The roots Claude Code reads.
   for (const p of pluginRootPaths(root.manifest)) add(p, "plugin.json");
   const types = (JSON.parse(root.manifest) as { types?: string }).types;
   if (typeof types === "string") add(types, "plugin.json `types`");
-  if (flavor === "full") add(".claude-plugin/binaries.json", "plugin-run.sh (the single binary's checksums)");
+  if (flavor === "full" || flavor === "core") add(".claude-plugin/binaries.json", "plugin-run.sh (the single binary's checksums)");
 
   carry("hooks/hooks.json", "Claude Code (hooks/hooks.json)");
   for (const p of pluginRootPaths(root.hooks)) add(p, "hooks/hooks.json");
@@ -382,7 +455,7 @@ export function traceFiles(repo: string = REPO, flavor: Flavor = "full", roots?:
     for (const w of traceWeb(repo, web, problems)) add(w, "the dashboard's page");
   }
 
-  const out = [...files].filter((f) => flavor === "full" || !DIRECTORY_DROPPED.includes(f));
+  const out = [...files].filter((f) => flavor !== "directory" || !DIRECTORY_DROPPED.includes(f));
   return { files: out.sort(), problems };
 }
 
@@ -545,9 +618,14 @@ export function lockedPackage(repo: string, name: string): { version: string; in
 
 /** The bundle's manifest: `manifestText` (this repository's, or the directory
  *  flavor's rewrite of it) with the version set and the listing fields added. */
-export function bundleManifest(repo: string, version: string, manifestText: string = readFileSync(join(repo, ".claude-plugin/plugin.json"), "utf8")): string {
+export function bundleManifest(
+  repo: string,
+  version: string,
+  manifestText: string = readFileSync(join(repo, ".claude-plugin/plugin.json"), "utf8"),
+  extraKeywords: readonly string[] = EXTRA_KEYWORDS,
+): string {
   const m = JSON.parse(manifestText) as Record<string, unknown>;
-  const keywords = [...new Set([...((m["keywords"] as string[] | undefined) ?? []), ...EXTRA_KEYWORDS])];
+  const keywords = [...new Set([...((m["keywords"] as string[] | undefined) ?? []), ...extraKeywords])];
   const out: Record<string, unknown> = {};
   // The repository's fields in their order, with the version set and the
   // listing fields after the links they sit beside.
@@ -607,13 +685,20 @@ export function bundleLock(version: string, model: { version: string; integrity:
   return `${JSON.stringify(lock, null, 2)}\n`;
 }
 
-/** The README for one flavor, from tools/plugin-bundle/bundle-readme.md:
- *  `<!-- flavor:<name> -->` … `<!-- /flavor:<name> -->` blocks are kept for
- *  their flavor and dropped for the other, and every line that is only an
- *  HTML comment (those markers, and notes for whoever edits the template) is
- *  removed. */
+/** The README for one flavor, from tools/plugin-bundle/bundle-readme.md (the
+ *  sidebar plugin's from sidebar-readme.md): `<!-- flavor:<names> -->` …
+ *  `<!-- /flavor:<names> -->` blocks, `<names>` one flavor or several split by
+ *  spaces, are kept for those flavors and dropped for the others (a block may
+ *  hold blocks of other names), and every line that is only an HTML comment
+ *  (those markers, and notes for whoever edits the template) is removed. */
 export function bundleReadme(template: string, flavor: Flavor): string {
-  const kept = template.replace(/^<!-- flavor:(\w+) -->\n([\s\S]*?)^<!-- \/flavor:\1 -->\n/gm, (_m, f: string, body: string) => (f === flavor ? body : ""));
+  let kept = template;
+  for (let prev = ""; prev !== kept; ) {
+    prev = kept;
+    kept = kept.replace(/^<!-- flavor:([\w ]+) -->\n([\s\S]*?)^<!-- \/flavor:\1 -->\n/gm, (_m, f: string, body: string) =>
+      f.split(" ").includes(flavor) ? body : "",
+    );
+  }
   return kept.replace(/^<!--[^\n]*-->\n/gm, "").replace(/\n{3,}/g, "\n\n");
 }
 
@@ -622,26 +707,27 @@ export function bundleReadme(template: string, flavor: Flavor): string {
 const IMAGE_OR_FONT = /\.(png|jpe?g|gif|webp|svg|woff2?|ttf|otf)$/i;
 
 export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
+  if (flavor === "sidebar") return planSidebar(repo);
   const problems: string[] = [];
   const warnings: string[] = [];
   const version = readJson<{ version: string }>(repo, "package.json").version;
   const pluginVersion = readJson<{ version?: string }>(repo, ".claude-plugin/plugin.json").version;
   if (pluginVersion !== version) problems.push(`.claude-plugin/plugin.json is ${pluginVersion}, package.json ${version}`);
-  if (flavor === "full") {
+  if (flavor === "full" || flavor === "core") {
     // plugin-run.sh will not download a binary whose checksums name another version.
     const binVersion = readJson<{ version?: string }>(repo, ".claude-plugin/binaries.json").version;
     if (binVersion !== version) problems.push(`.claude-plugin/binaries.json is ${binVersion}, package.json ${version} (run tools/single-binary/build.ts --release first)`);
   }
   if (!isFile(repo, ICON_SOURCE)) problems.push(`${ICON_SOURCE} (the listing icon) is missing`);
 
-  const roots = flavor === "directory" ? directoryRoots(repo, problems) : repoRoots(repo);
+  const roots = flavor === "directory" ? directoryRoots(repo, problems) : flavor === "core" ? coreRoots(repo) : repoRoots(repo);
   const traced = traceFiles(repo, flavor, roots);
   problems.push(...traced.problems);
 
   const model = lockedPackage(repo, MODEL_PACKAGE);
   const template = readFileSync(join(HERE, "bundle-readme.md"), "utf8");
   const generated: Record<string, string> = {
-    ".claude-plugin/plugin.json": bundleManifest(repo, version, roots.manifest),
+    ".claude-plugin/plugin.json": bundleManifest(repo, version, roots.manifest, flavor === "core" ? EXTRA_KEYWORDS.filter((k) => k !== "sidebar") : EXTRA_KEYWORDS),
     "package.json": bundlePackageJson(version, model),
     [BUNDLE_LOCKFILE]: bundleLock(version, model),
     "README.md": bundleReadme(template, flavor),
@@ -649,6 +735,12 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
   const placed: Record<string, string> = { [ICON_PATH]: ICON_SOURCE };
   const executable: string[] = [];
   let copied = [...traced.files.filter((f) => f !== ".claude-plugin/plugin.json"), "LICENSE"].sort();
+
+  if (flavor === "core") {
+    generated["hooks/hooks.json"] = roots.hooks;
+    // Memory alone: nothing of the sidebar, whatever names it.
+    for (const f of copied) if (f.startsWith(`${SIDEBAR_DIR}/`)) problems.push(`${f} is the sidebar's, which core does not carry`);
+  }
 
   if (flavor === "directory") {
     generated["hooks/hooks.json"] = roots.hooks;
@@ -677,6 +769,13 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
     }
   }
 
+  return finishPlan(repo, { flavor, copied, placed, generated, executable: executable.sort(), warnings, version }, problems);
+}
+
+/** The checks every flavor's plan passes (header: what it refuses), then the plan. */
+function finishPlan(repo: string, plan: Plan, problems: string[]): Plan {
+  const { flavor, copied, placed, generated } = plan;
+  const warnings = [...plan.warnings];
   const all = [...copied, ...Object.keys(placed), ...Object.keys(generated)];
   for (const f of all) {
     for (const [re, what] of FORBIDDEN) if (re.test(f)) problems.push(`${f} is ${what}`);
@@ -698,7 +797,138 @@ export function planBundle(repo: string = REPO, flavor: Flavor = "full"): Plan {
   else if (flavor === "directory" && count >= WARN_FILES) warnings.push(`${count} files, near the directory's ${MAX_FILES}`);
 
   if (problems.length > 0) throw new Error(`plugin bundle refused:\n  ${problems.join("\n  ")}`);
-  return { flavor, copied, placed, generated, executable: executable.sort(), warnings, version };
+  return { ...plan, warnings };
+}
+
+// ── the sidebar as a plugin of its own (header, "TWO PLUGINS") ─────────────
+
+/**
+ * What `sidebarText` writes out under the sidebar plugin's name: the owner of
+ * every `$.state` key (`{ plugin: 'counterparts', key }`), the speak-first's
+ * check that a prompt is its own (`e.origin.name === 'counterparts'`) and the
+ * contract's `PluginState` key. The last two are for a copy of the sidebar's
+ * tests (`test/plugin-bundle.test.ts` runs them against the renamed sources);
+ * no test ships. Commands (`/counterparts`, `/counterparts:meet`), the pane's
+ * id and the MCP server's spellings are core's or the pane's, not the
+ * plugin's name, and stay.
+ */
+export const SIDEBAR_RENAMES: readonly (readonly [RegExp, string])[] = [
+  [/(\bplugin:\s*)(['"])counterparts\2/g, `$1$2${SIDEBAR_PLUGIN}$2`],
+  [/(\.origin\.name\s*===\s*)(['"])counterparts\2/g, `$1$2${SIDEBAR_PLUGIN}$2`],
+  [/(\binterface PluginState \{\s*\n\s*)counterparts:/g, `$1'${SIDEBAR_PLUGIN}':`],
+  [/(\bexport const PLUGIN\s*=\s*)(['"])counterparts\2/g, `$1$2${SIDEBAR_PLUGIN}$2`],
+  [/(\bkind:\s*'plugin',\s*name:\s*)(['"])counterparts\2/g, `$1$2${SIDEBAR_PLUGIN}$2`],
+];
+
+/** What must not be left in a renamed file: any of the patterns above still naming `counterparts`. */
+const SIDEBAR_LEFT = [
+  /\bplugin:\s*['"]counterparts['"]/,
+  /\.origin\.name\s*===\s*['"]counterparts['"]/,
+  /\binterface PluginState \{\s*\n\s*counterparts:/,
+  /\bkind:\s*'plugin',\s*name:\s*['"]counterparts['"]/,
+];
+
+/** One sidebar source as the sidebar plugin carries it, and how many names it rewrote. Pure. */
+export function sidebarText(text: string): { text: string; renamed: number } {
+  let out = text;
+  let renamed = 0;
+  for (const [re, to] of SIDEBAR_RENAMES) {
+    renamed += (out.match(re) ?? []).length;
+    out = out.replace(re, to);
+  }
+  return { text: out, renamed };
+}
+
+/** A renamed file still naming `counterparts` where only the sidebar plugin's name may stand: the first such line, or null. */
+export function sidebarLeftover(text: string): string | null {
+  for (const re of SIDEBAR_LEFT) {
+    const m = re.exec(text);
+    if (m !== null) return text.slice(0, m.index).split("\n").length.toString();
+  }
+  return null;
+}
+
+/** The sidebar plugin's manifest: its own name, the same version as core, and core as its dependency. */
+export function sidebarManifest(repo: string, version: string): string {
+  const core = readJson<Record<string, unknown>>(repo, ".claude-plugin/plugin.json");
+  const out: Record<string, unknown> = {
+    name: SIDEBAR_PLUGIN,
+    displayName: "Counterparts Sidebar",
+    version,
+    description:
+      "The Counterparts sidebar: a pane beside the chat that shows what your counterpart's memory is doing (what came to mind, what was saved, the day's mechanisms, the last dream), with a fox. Installs Counterparts, the memory, with it.",
+    author: core["author"],
+    homepage: core["homepage"],
+    repository: core["repository"],
+    ...LISTING,
+    license: core["license"],
+    keywords: ["memory", "sidebar", "counterparts", "pane", "mod"],
+    types: "./types/index.d.ts",
+    dependencies: SIDEBAR_DEPENDENCIES,
+  };
+  return `${JSON.stringify(out, null, 2)}\n`;
+}
+
+/**
+ * The sidebar plugin: `hooks/sidebar/` as the plugin's root. Traced from its
+ * own hooks.json (`modules`) through every import, plus its contract and the
+ * fox's PNG frames; every source written out by `sidebarText`. Nothing
+ * outside `hooks/sidebar/` may be reached but the licence and the icon.
+ */
+export function planSidebar(repo: string = REPO): Plan {
+  const problems: string[] = [];
+  const version = readJson<{ version: string }>(repo, "package.json").version;
+  const hooksFile = `${SIDEBAR_DIR}/hooks/hooks.json`;
+  const modules = readJson<{ modules?: string[] }>(repo, hooksFile).modules ?? [];
+  if (modules.length === 0) problems.push(`${hooksFile} names no hooks module`);
+  const types = readJson<{ types?: string }>(repo, `${SIDEBAR_DIR}/.claude-plugin/plugin.json`).types ?? "./types/index.d.ts";
+
+  const files = new Set<string>();
+  const queue: string[] = [];
+  const add = (rel: string, why: string): void => {
+    const r = toPosix(normalize(rel));
+    if (!r.startsWith(`${SIDEBAR_DIR}/`)) {
+      problems.push(`${why} names ${rel}, outside ${SIDEBAR_DIR}/ (the sidebar plugin's root)`);
+      return;
+    }
+    if (!isFile(repo, r)) {
+      problems.push(`${why} names ${rel}, which is not a file`);
+      return;
+    }
+    if (!files.has(r)) {
+      files.add(r);
+      queue.push(r);
+    }
+  };
+  for (const m of modules) add(join(SIDEBAR_DIR, "hooks", m), `${hooksFile} \`modules\``);
+  add(join(SIDEBAR_DIR, types), "the sidebar's plugin.json `types`");
+  while (queue.length > 0) {
+    const f = queue.shift()!;
+    followModule(repo, f, readFileSync(join(repo, f), "utf8"), add, problems);
+  }
+
+  const inRoot = (rel: string): string => rel.slice(SIDEBAR_DIR.length + 1);
+  const generated: Record<string, string> = {
+    ".claude-plugin/plugin.json": sidebarManifest(repo, version),
+    "README.md": bundleReadme(readFileSync(join(HERE, "sidebar-readme.md"), "utf8"), "sidebar"),
+  };
+  let renamed = 0;
+  for (const f of [...files].sort()) {
+    const out = sidebarText(readFileSync(join(repo, f), "utf8"));
+    renamed += out.renamed;
+    const left = sidebarLeftover(out.text);
+    if (left !== null) problems.push(`${f} still names counterparts as a $.state owner or a prompt's plugin, at line ${left}`);
+    generated[inRoot(f)] = out.text;
+  }
+  if (renamed === 0) problems.push("no $.state owner was renamed: the sidebar's sources no longer look the way sidebarText expects");
+
+  const placed: Record<string, string> = { [ICON_PATH]: ICON_SOURCE, "hooks/hooks.json": hooksFile };
+  for (const d of SIDEBAR_ASSET_DIRS) {
+    if (!existsSync(join(repo, d))) continue;
+    for (const name of readdirSync(join(repo, d)).sort()) if (name.endsWith(".png")) placed[inRoot(`${d}/${name}`)] = `${d}/${name}`;
+  }
+  if (!isFile(repo, ICON_SOURCE)) problems.push(`${ICON_SOURCE} (the listing icon) is missing`);
+  return finishPlan(repo, { flavor: "sidebar", copied: ["LICENSE"], placed, generated, executable: [], warnings: [], version }, problems);
 }
 
 /** The directory flavor's tree must mirror the sources one for one: every
@@ -742,7 +972,8 @@ export function writeBundle(plan: Plan, out: string, repo: string = REPO): void 
     const entries = readdirSync(target).filter((n) => n !== ".git");
     if (entries.length > 0) {
       const mf = join(target, ".claude-plugin/plugin.json");
-      const ours = existsSync(mf) && (JSON.parse(readFileSync(mf, "utf8")) as { name?: string }).name === "counterparts";
+      const name = existsSync(mf) ? (JSON.parse(readFileSync(mf, "utf8")) as { name?: string }).name : undefined;
+      const ours = name === CORE_PLUGIN || name === SIDEBAR_PLUGIN;
       if (!ours) throw new Error(`refusing to write the bundle at ${target}: not empty and not a previous bundle`);
       for (const n of entries) rmSync(join(target, n), { recursive: true, force: true });
     }
@@ -830,7 +1061,7 @@ if (import.meta.main) {
     flavor = value as Flavor;
   }
   const usage = (): never => {
-    console.error("usage: bun tools/plugin-bundle/build.ts [--flavor full|directory] <out-dir> | --list | --check <dir>");
+    console.error("usage: bun tools/plugin-bundle/build.ts [--flavor full|directory|core|sidebar] <out-dir> | --list | --check <dir>");
     process.exit(2);
   };
   const plan = planBundle(REPO, flavor);

@@ -97,6 +97,18 @@ bun tools/plugin-bundle/build.ts <clone of the bundle repository>               
 bun tools/plugin-bundle/build.ts --flavor directory <clone, directory branch>         # directory branch
 ```
 
+From the split release on (`FIRST_SPLIT_RELEASE`, [plugin.md, "Two
+plugins"](plugin.md#two-plugins-2026-10-20-our-own-marketplace-lightly-held)), `main` of
+the bundle repository takes `--flavor core` instead of the full flavor, and the sidebar
+gets a repository of its own (`counterparts-ai/counterparts-sidebar`):
+
+```sh
+bun tools/plugin-bundle/build.ts --flavor core <clone of counterparts-plugin, main>
+bun tools/plugin-bundle/build.ts --flavor sidebar <clone of counterparts-sidebar, main>
+```
+
+The directory branch stays as it is until the directory steps say otherwise.
+
 Each empties its clone (keeping `.git`) and writes the bundle. Check each with
 `claude plugin validate <clone>`, `tools/plugin-loop/run.sh --bundle` (and
 `--bundle=directory`), and `build.ts [--flavor directory] --check <clone>` against a
@@ -128,7 +140,10 @@ same hash. Then open the release PR.
 3. Push the bundle (3b) to `counterparts-ai/counterparts-plugin`, tag it `v<version>`
    there, then merge the release PR. Once it's on master, master's marketplace entry names
    the bundle repository's new tag, so `/plugin install` fails at the clone until that tag
-   is pushed: tag first, merge after, close together.
+   is pushed: tag first, merge after, close together. From the split release on, also
+   tag the same commit `counterparts--v<version>` (the sidebar's dependency range resolves
+   against it), and push the sidebar bundle to `counterparts-ai/counterparts-sidebar`
+   tagged `v<version>`: both entries' pins move in the release commit.
 4. Create the GitHub release with the binaries from section 3 (`<folder>` is the release
    folder):
 

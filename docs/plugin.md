@@ -336,6 +336,66 @@ or module docs, that Bun finds the table npm installed, and what happens when th
 dependency install didn't run (below). It needs a Node 22.15+ somewhere it looks (nvm,
 Homebrew, `/usr/local`). Last run: 27/27 on 2.1.296 (2026-10-11).
 
+## Two plugins (2026-10-20, our own marketplace; lightly held)
+
+Our marketplace lists two plugins from the split release on (`FIRST_SPLIT_RELEASE` in
+`tools/plugin-bundle/build.ts`, 0.3.28 if it ships then):
+
+- `counterparts`: memory alone (the five hooks, the MCP server, the commands), built with
+  `--flavor core`. Same name as before, so every install keeps working.
+- `counterparts-sidebar`: the mod, built with `--flavor sidebar` from `hooks/sidebar/`
+  as its root. Its plugin.json lists `counterparts` under `dependencies`, so installing
+  it installs memory too. It has no MCP server, no command hooks and no commands, so
+  beside an npm install it can never offer a tool twice; core's stand-down (#500) is the
+  only one that matters, unchanged.
+
+**Two repositories, each plugin at its root.** Core stays in
+`counterparts-ai/counterparts-plugin`; the sidebar gets `counterparts-ai/counterparts-sidebar`.
+A `url` plugin source has no `path`, and `git-subdir` (`url`, `path`, `ref`) would work
+for one repository with two folders, but it would change the existing entry's source type
+for nothing, and the directory reads a plugin at a repository's root. Bare-name
+dependencies resolve in the same marketplace whatever the source.
+
+**The sidebar's `$.state` keys.** The engine lets only a value's owner write it, and the
+sources key every value `{ plugin: 'counterparts' }`. Renamed by hand, validate refuses
+every write ("which counterparts owns: only a value's owner writes it"). So the build
+writes the sidebar out with each owner as `counterparts-sidebar` (`sidebarText`), and the
+sources keep `counterparts`: the repository root as a plugin (`claude --plugin-dir`, the
+dev rig) and the `full`/`directory` flavors run the sidebar unchanged.
+`test/plugin-split.test.ts` runs the sidebar's own tests against the renamed sources with
+`claude plugin test`. `$.store` is per plugin, so someone who moves to the sidebar plugin
+starts with the default view, theme and avatar again.
+
+**The dependency has a range, `>=FIRST_SPLIT_RELEASE`.** Measured
+(`tools/plugin-loop/split.sh`): with a bare `"counterparts"`, someone still on the
+one-plugin `counterparts` who installs the sidebar gets two panes, since the old one meets
+the dependency. With the range the install stops: `Dependency "counterparts@counterparts"
+is installed at 0.3.27, which does not satisfy: >=0.3.28. To look for a version in range,
+run claude plugin update counterparts@counterparts`; after that update, one pane. The cost:
+a range resolves against `counterparts--v<version>` tags on core's repository, so each
+release tags core's commit that way too, beside `v<version>`. Without that tag the
+sidebar does not install ("has no git tag satisfying >=0.3.28"). For someone with the
+sidebar, core then follows the highest such tag rather than the marketplace's pin. A bare
+dependency is a one-line change back (`SIDEBAR_DEPENDENCIES`).
+
+**What someone already on counterparts@counterparts gets.** `claude plugin marketplace
+update counterparts` alone changes nothing installed. `claude plugin update
+counterparts@counterparts` moves them to memory alone, and the sidebar is gone until they
+run `/plugin install counterparts-sidebar@counterparts`, which brings the pane back once.
+Nothing in a marketplace can install a sibling for them: dependencies point the other way.
+So the release notes, and whatever we say to existing users, need that one line.
+
+**sidebar.json** is still written whenever a `counterparts@…` plugin is installed and on
+(`sidebar-status.ts#sidebarInstalled`). With the sidebar plugin that is always so (its
+dependency), npm beside it or not (measured: the npm server wrote it). With core alone
+nobody reads it; harmless, and left as it is.
+
+**Developing.** `claude --plugin-dir <checkout>` still loads the one plugin, sidebar
+included. To try the split as built: `bun tools/plugin-bundle/build.ts --flavor core
+<dir>` and `--flavor sidebar <dir2>`, then `claude --plugin-dir <dir> --plugin-dir <dir2>`
+(a local copy meets the dependency; its range is not checked). `tools/plugin-loop/split.sh`
+installs both from local repositories in throwaway homes.
+
 ## The bundle (for Anthropic's directory)
 
 The directory reads the plugin folder, and here that folder is the whole repository: 800+
