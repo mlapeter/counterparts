@@ -1825,6 +1825,24 @@ test('review of #549: a main-loop call that lands after the turn ended (an Esc d
   await ui.unmount()
 })
 
+test('review of #549: a slash command typed while he naps (/model: no turn) wakes him, to sitting, not to work', async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(200000)
+  await settle(w)
+  expect(stageBlits(w).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true) // lying, then asleep
+  await $.prompt.submit({ text: '/model', origin: { kind: 'composer' }, command: { name: 'model', args: '' }, wait: false } as never)
+  await settle(w)
+  const from = stageBlits(w).length
+  await w.clock.advance(5000)
+  await settle(w)
+  const after = stageBlits(w).slice(from).map(b => ('cells' in b ? b.cells : ''))
+  expect(after.includes(IDLE)).toBe(true)
+  expect(after.includes(PERK)).toBe(false)
+  await ui.unmount()
+})
+
 // ── which store wrote the status file ──────────────────────────────────────
 
 async function wakeWithStore($: Engine, w: World, id: string): Promise<void> {

@@ -209,6 +209,8 @@ export type Director = {
 const STILL: Step = { frame: 'idle', ms: 0, fx: [], moment: 'rest' }
 const STILL_LIE: Step = { frame: 'lie0', ms: 0, fx: [], moment: 'lieRest' }
 const STILL_WORK: Step = { frame: 'perk', ms: 0, fx: [], moment: 'work' }
+/** What the work schedule plans: the hold and the moments it draws from. */
+const WORK_PLANNED = new Set(['work', ...Object.keys(WORK.weights)])
 
 /**
  * Moments of what really happened, and the get-ups before them: a change between working and resting
@@ -329,8 +331,9 @@ function plan(d: Director, now: number, rand: () => number): void {
       d.queue.push(...momentSteps('bridge'))
       return
     }
-    // From the sitting face (a moment ended on it, or work began from a still hold), a blink first, never a cut.
-    if (d.cur.frame === 'idle') d.queue.push(...momentSteps('bridge'))
+    // From any face but the alert one or a blink (a moment ended on the sitting face, the notepad or hello, or
+    // work began from a still hold), a blink first, never a cut. The work schedule's own moments go on as they are.
+    if (!WORK_PLANNED.has(d.cur.moment) && d.cur.frame !== 'blink' && d.cur.frame !== 'perk') d.queue.push(...momentSteps('bridge'))
     holdThen(d, STILL_WORK, pick(rand, WORK.weights, 'workWag'), now, Infinity, WORK.holdMs, rand)
     return
   }
@@ -411,8 +414,10 @@ export function advance(d: Director, now: number, rand: () => number = Math.rand
  * (an Esc during its dispatch) is that turn's straggler, not a new turn.
  * `step`: a main-loop model request began or ended; a sign of life only, so a
  * turn that writes for a long while without calling a tool stays at work.
+ * `look`: the person ran a slash command: someone is there, so he gets up
+ * and the idle clock starts over, as for a prompt, but it is not work.
  */
-export type FoxEvent = 'came' | 'note' | 'hello' | 'dream' | 'dreamEnd' | 'prompt' | 'busy' | 'busyEnd' | 'turn' | 'turnEnd' | 'turnCall' | 'step'
+export type FoxEvent = 'came' | 'note' | 'hello' | 'dream' | 'dreamEnd' | 'prompt' | 'busy' | 'busyEnd' | 'turn' | 'turnEnd' | 'turnCall' | 'step' | 'look'
 
 /**
  * What gets him up from the pose on screen, so an event's first frame never
@@ -474,7 +479,7 @@ export function trigger(d: Director, ev: FoxEvent, now: number): boolean {
   d.idleSince = now
   // A save while the last one's notepad still runs: it is the same burst, written once.
   if (ev === 'note' && now - d.noteAt < NOTE_SPAN_MS) return false
-  if (ev === 'prompt' || ev === 'busy' || ev === 'busyEnd' || ev === 'turn' || ev === 'turnEnd' || ev === 'turnCall') {
+  if (ev === 'prompt' || ev === 'busy' || ev === 'busyEnd' || ev === 'turn' || ev === 'turnEnd' || ev === 'turnCall' || ev === 'look') {
     // Awake and where he should be (sitting, or at work), it stands: only the clock starts over.
     const to = restMode(d)
     if (d.mode === to) return false

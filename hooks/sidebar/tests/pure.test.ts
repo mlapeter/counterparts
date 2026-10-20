@@ -1362,7 +1362,10 @@ describe('the fox', () => {
     expect(r.shown.filter(s => s.frame === 'note0').length).toBe(2)
     const afterNote = r.shown.slice(r.shown.findLastIndex(s => s.frame.startsWith('note')) + 1).map(s => s.frame)
     expect(afterNote.length).toBeGreaterThan(0)
-    expect(afterNote.every(f => WORK_FRAMES.has(f))).toBe(true) // back to work, not to idle
+    // back to work, not to idle: from the notepad face a blink first (review of #549), then the alert face
+    expect(afterNote[0]).toBe('blink')
+    expect(afterNote[1]).toBe('perk')
+    expect(afterNote.slice(1).every(f => WORK_FRAMES.has(f))).toBe(true)
     t = r.t
     trigger(d, 'hello', t)
     r = run(d, t, t + 8000, rand)
@@ -1485,7 +1488,8 @@ describe('the fox', () => {
 
   test('review of #549: from the sitting face to the alert one there is always a blink: a moment ending on it during work, work starting from a still hold, the stretch after a dream', () => {
     const rand = seeded(12)
-    const pairs = (frames: string[]) => frames.slice(1).filter((f, i) => frames[i] === 'idle' && f === 'perk').length
+    const NOT_ALERT = new Set(['idle', 'note0', 'note1', 'note2', 'hello0', 'hello1'])
+    const pairs = (frames: string[]) => frames.slice(1).filter((f, i) => NOT_ALERT.has(frames[i] ?? '') && f === 'perk').length
     const d = newDirector(0)
     let t = run(d, 0, 6000, rand).t
     trigger(d, 'prompt', t)
@@ -1493,7 +1497,7 @@ describe('the fox', () => {
     const frames: string[] = []
     frames.push(...run(d, t, t + 10000, rand).shown.map(s => s.frame))
     t += 10000
-    for (const ev of ['came', 'hello', 'came'] as const) {
+    for (const ev of ['came', 'hello', 'note', 'came'] as const) {
       trigger(d, ev, t)
       frames.push(...run(d, t, t + 8000, rand).shown.map(s => s.frame))
       t += 8000
@@ -1504,8 +1508,34 @@ describe('the fox', () => {
     frames.push(...run(d, t, t + 6000, rand).shown.map(s => s.frame))
     expect(frames).toContain('perk')
     expect(frames).toContain('hello0')
+    expect(frames).toContain('note1')
     expect(frames).toContain('stretch')
     expect(pairs(frames)).toBe(0)
+  })
+
+  test('review of #549: a slash command (look) gets him up from lying or a nap and starts the idle clock over, but it is not work', () => {
+    const rand = seeded(5)
+    const d = newDirector(0)
+    let t = 0
+    while (d.mode !== 'lie' || advance(d, t, rand).step.frame !== 'lie0') t = advance(d, t, rand).next
+    expect(trigger(d, 'look', t)).toBe(true)
+    expect(d.mode).toBe('idle')
+    expect(d.turn).toBe('none')
+    expect(run(d, t, t + 800, rand).shown.map(s => s.frame).slice(0, 3)).toEqual(['lieBlink', 'blink', 'idle'])
+    // left alone after it: lying 45 s on, never at work
+    const looked = t
+    const r = run(d, t, t + 60000, rand)
+    expect(r.shown.some(s => s.frame === 'perk')).toBe(false)
+    const lieAt = r.shown.find(s => s.frame === 'lieBlink' && s.at > looked + 1000)?.at ?? 0
+    expect(lieAt - looked).toBeGreaterThanOrEqual(FOX_FINAL.schedule.lieAfterMs - 1000)
+    // asleep: a stretch up; sitting, nothing changes
+    const e = newDirector(0)
+    let u = 0
+    while (u < 140000) u = advance(e, u, rand).next
+    expect(e.mode).toBe('nap')
+    trigger(e, 'look', u)
+    expect(run(e, u, u + 3000, rand).shown.map(s => s.frame)).toContain('stretch')
+    expect(trigger(e, 'look', u + 3000)).toBe(false)
   })
 
   test('lying or asleep, a turn gets him up and to work; a turn whose end is never heard, and a prompt that starts none, end by themselves; a call still running (a permission prompt) holds him at work', () => {

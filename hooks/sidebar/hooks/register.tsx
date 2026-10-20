@@ -1256,11 +1256,12 @@ export const register: Register = on => {
     }
   }).catch(($, e, next) => next(e))
 
-  // A prompt the person sent: the fox looks up, and goes to work. Not a slash command (`e.command`): one
-  // that runs locally starts no turn, and one that asks the model reaches work by its turn's start.
+  // A prompt the person sent: the fox looks up, and goes to work. A slash command (`e.command`) only gets him
+  // up (someone is there): one that runs locally starts no turn, and one that asks the model reaches work by
+  // its turn's start.
   on('prompt.submit', async ($, e, next) => {
     const kind = e.origin.kind
-    if ((kind === 'composer' || kind === 'bridge') && e.command === undefined) await foxEvent($, 'prompt')
+    if (kind === 'composer' || kind === 'bridge') await foxEvent($, e.command === undefined ? 'prompt' : 'look')
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -1280,6 +1281,8 @@ export const register: Register = on => {
     const r = yield* next(e)
     await foxEvent($, 'step').catch(() => undefined)
     return r
+  }).catch(async function* ($, e, next) {
+    return yield* next(e)
   })
 
   // Its end, for any reason (an answer, an interrupt, a refusal, an error), whether or not its start was heard here.

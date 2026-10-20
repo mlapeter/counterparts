@@ -45,7 +45,9 @@ lightly held.
   in between); a prompt that starts no turn stops counting after 30 s
   (`WORK.askMs`). Not a slash command (review of #549): `prompt.submit` fires
   for those too, with `e.command` set; one that runs locally starts no turn,
-  and one that asks the model reaches work by its `turn.start`.
+  and one that asks the model reaches work by its `turn.start`. A command
+  still gets him up (`look`): someone is there, so from lying or a nap he
+  sits up and the idle clock starts over, but it is not work.
 - **A turn that writes a long while** (review of #549): a `turn.step` hook,
   main loop only, passes each model request through whole and marks the
   turn alive as it begins and ends (`step`, nothing drawn), so a turn that
@@ -67,8 +69,9 @@ lightly held.
   nap), so he sits, lies down 45 s later and naps at 2 min.
 - **Interactions.** `came`, `note` and `hello` play over work as they do over
   idle (a blink first from a non-sitting face) and come back to work, behind a
-  blink when the moment ends on the sitting face (review of #549: no cut from
-  the idle face to the alert one); a get-up into work (`lieOut`, `napOut`)
+  blink when the moment ends on any face but the alert one (the sitting face,
+  the notepad, hello; review of #549: no cut from another face to the alert
+  one); a get-up into work (`lieOut`, `napOut`)
   leaves out its last sitting frame and goes from its blink to the alert face. A dream
   holds the stage: the turn's state is kept beside it, and the dream's end
   goes back to work if the turn still runs. Moving between work and rest, a
