@@ -83,6 +83,9 @@ export interface HostReading {
   /** The Counterparts Claude Code plugin, when Claude Code records it
    *  installed (`host-wiring.ts#pluginInstall`); absent or null when not. */
   readonly plugin?: PluginInstallRead | null;
+  /** Claude Code records a `counterparts-sidebar@…` install, which needs the
+   *  plugin (`host-wiring.ts#sidebarPluginRecorded`); absent when not read. */
+  readonly sidebarPlugin?: boolean;
   /** The npm install's marker (`npm-live.ts`) as a directory-flavor plugin
    *  would read it: which halves it would stand down for. Null when there is
    *  none it would believe; absent when not read. */
@@ -340,9 +343,14 @@ export function hostFindings(reading: HostReading): Finding[] {
         : `ALSO installed as the Claude Code plugin (${plugin.id}), which stands down while this wiring is live`;
   // KEEP ONE (2026-10-15, as the plugin's own session-start line says it,
   // `plugin.ts#keepOne`): both ways out, the same memory either way.
+  // Beside the counterparts-sidebar plugin (2026-10-20), which needs this one,
+  // the npm way out is to leave the plugin installed: uninstalling it would
+  // turn the sidebar off.
   const twiceFix =
     plugin === null
       ? ""
+      : reading.sidebarPlugin === true
+      ? `Installed twice; keeping one is simpler, and nothing is lost either way: to keep only the plugin, run \`counterparts disconnect\` and restart Claude Code; to keep this install, leave the plugin (${plugin.id}) installed, since the counterparts-sidebar plugin needs it (uninstalling it would turn the sidebar off too).`
       : `Installed twice; keeping one is simpler, and nothing is lost either way: to keep only the plugin, run \`counterparts disconnect\` and restart Claude Code; to keep only this install, run \`claude plugin uninstall ${plugin.id}\` (or \`/plugin uninstall ${plugin.id}\` inside Claude Code).`;
   const mcpClause = reading.mcpRead === false
     ? ""
