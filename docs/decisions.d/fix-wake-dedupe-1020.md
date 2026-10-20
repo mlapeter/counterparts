@@ -18,8 +18,10 @@ nothing is stored differently.
   line is the richer one for its own episode. Handoffs are left as they are: a handoff is
   where work was left, named by session and its own id, never by the chapter's title or id.
   The cost: Yesterday is composed inside the body before the furniture is spliced, so when
-  "Last here" itself gets no room (`handoff.lasthere.noroom`, rare at 9,000), its episode is
-  in no line that morning. Seen on a test fixture: a wake that no longer has a Yesterday line
+  "Last here" itself gets no room (`handoff.lasthere.noroom`), its episode is in no line that
+  morning. Not rare on a full wake with no handoff here (the review of #536: 10 of 61 ceilings
+  from 8,700 to 9,300 in a full fixture; 0 of 61 with a handoff, whose reserve keeps the
+  line). Seen on a test fixture: a wake that no longer has a Yesterday line
   can fit without borrowing the furniture's room, and then the leftover-room upgrade (#489 C)
   prints "Still open"'s first item as a line rather than whole; which items are listed does
   not change.
@@ -32,15 +34,20 @@ nothing is stored differently.
   store markers are now fields of the wake's own head tag: `<!-- counterparts:wake meet=done
   store=st_… elements=… bytes=… -->`, where `day=` sat until 10-16, so every reader of the
   head (`OPEN_RE`, the transcript's head sighting, the forged-marker guards) reads it as
-  before. The core puts them in before the furniture is spliced and re-solves both byte
-  counts (`self/briefing.ts#withHeadFields`), so the delivered block states its own length,
-  the delivery check's expected tail is the one delivered, and the ceiling holds. A wake with
-  no head tag (a resume's short line, a bootstrap line), or one with no room left for ~45
-  bytes, carries one tag of its own in front: `<!-- counterparts:session meet=… store=… -->`.
-  The sidebar in this build reads `meet=`/`store=` from all three forms. A sidebar from before
-  this change (the plugin's 0.3.23 and later, until it updates) finds neither and reads both
-  as unknown, which it already handles: no store check, and the meeting's state from the
-  dashboard's onboarding read. Revert: `ONE_TAG` (`adapters/store-id.ts`).
+  before. The core puts them in last, after the furniture is spliced, only when the whole
+  still fits the ceiling, and re-solves both byte counts (`self/briefing.ts#withHeadFields`),
+  so the delivered block states its own length, the delivery check's expected tail is the one
+  delivered, and the fields never take the room "Last here" needs (review of #536: put in
+  before the splice, they cost that line, and with it its episode, on 8 of 61 ceilings from
+  8,700 to 9,300 in a full fixture). A wake with no head tag (a resume's short line, a
+  bootstrap line), or one with no room left for ~43 bytes, carries one tag of its own in
+  front: `<!-- counterparts:session meet=… store=… -->`. The sidebar in this build reads
+  `meet=`/`store=` from all three forms. A sidebar from before this change (the plugin's
+  0.3.23–0.3.27, until it updates; Mike's is 0.3.25) finds neither and reads both as
+  unknown: no store check, and the meeting's state stays unknown, so the footer keeps its
+  "5-minute intro" line even after the meeting (and a new install gets no speak-first). It
+  has no other read of the state: `/api/onboarding` is not fetched. Ship the plugin with the
+  core. Revert: `ONE_TAG` (`adapters/store-id.ts`).
 - **The about-me line says what it is and where first**: "A chapter about me from
   ~/counterparts-site: session 088bce9d on Opus 5.5, Oct 19 — "…" (epi_…)." in place of
   "About me, from another project: session …, Oct 19 in ~/counterparts-site — …". Dropped when

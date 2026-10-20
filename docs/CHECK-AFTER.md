@@ -199,7 +199,8 @@ snapshots folder.
 - **Look at:** the Yesterday line: titles and a count ("; and 2 more"), never a lone `epi_…`.
 - **Look at:** the top of the wake: one comment, `<!-- counterparts:wake meet=… store=st_…
   elements=… bytes=… -->`, and the sidebar still shows the meeting state and the store check
-  (Mike's plugin sidebar; an older plugin reads both as unknown until it updates).
+  (Mike's plugin sidebar; an older plugin, his is 0.3.25, reads both as unknown until it
+  updates: no store check, and the footer keeps its "5-minute intro" line).
 - **Look at:** an about-me line from another folder reads "A chapter about me from ~/x:
   session …, Oct 19 — "…" (epi_…)." and appears only when Yesterday does not already name it.
 - **Look at:** "Coming up": nothing listed that is due tomorrow; each listed item ends with its
@@ -208,7 +209,9 @@ snapshots folder.
   no `.taking-…` file left over an hour later.
 - **Changes a decision if:** "Last here" is dropped for room (`handoff.lasthere.noroom` rows)
   on a morning its newest chapter was yesterday's → that episode was in no line; give the
-  Yesterday line its id back on that path. Or a session reads the Yesterday line as all of
+  Yesterday line its id back on that path. Not rare on a full wake with no handoff here: the
+  review of #536 measured it on 10 of 61 ceilings from 8,700 to 9,300 in a full fixture (0 of
+  61 with a handoff, whose reserve keeps the line), with or without the head's fields. Or a session reads the Yesterday line as all of
   yesterday and misses the one under Last here → say "(and the one under Last here)". Or the
   sidebar loses the store check on Mike's machine → the plugin sidebar is older than this core.
 
