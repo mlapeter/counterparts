@@ -525,7 +525,11 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
       // Day 1 may share day 0's date (the first boundary always moves the clock).
       const fits = (x: string): boolean => (d === 1 ? x >= prev : x > prev) && (next === undefined || x < next);
       const learned = str((learnedOn.get(d) as Row | null)?.["d"]);
-      date = learned !== null && fits(learned) ? learned : nextDate(prev === "" ? created : prev);
+      // A learned date is taken only when it leaves a free date for each
+      // undated day still to come before the next dated one.
+      let room = learned;
+      for (let k = d + 1; k < n && room !== null; k++) room = nextDate(room);
+      date = learned !== null && fits(learned) && (next === undefined || room! < next) ? learned : nextDate(prev === "" ? created : prev);
       if (!fits(date)) throw new SourceError("SOURCE_DAYS_UNDATABLE", `lived day ${String(d)} has no sleep cycle and no free date between ${prev} and ${String(next)}`);
     }
     if (d >= 2 ? date <= prev : date < prev) {
