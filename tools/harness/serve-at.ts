@@ -35,6 +35,8 @@ export const SERVE_AT_ENV = {
   embed: "HARNESS_EMBED",
   /** `1`: the owner's own session (a scripted owner's); absent, not the owner's (a night child's). */
   owner: "HARNESS_OWNER",
+  /** The folder registry a session's server reads, when the harness keeps one. */
+  scopes: "HARNESS_SCOPES_FILE",
 } as const;
 
 async function main(): Promise<void> {
@@ -64,6 +66,7 @@ async function main(): Promise<void> {
     ...(env[SERVE_AT_ENV.scope] === undefined ? {} : { scope: env[SERVE_AT_ENV.scope] }),
     owner,
     ...(embedder === null ? {} : { embedder }),
+    ...(env[SERVE_AT_ENV.scopes] === undefined || env[SERVE_AT_ENV.scopes] === "" ? {} : { scopesFile: env[SERVE_AT_ENV.scopes] }),
     env: {
       ...(env[SERVE_AT_ENV.child] === undefined ? {} : { [SERVE_AT_ENV.child]: env[SERVE_AT_ENV.child] }),
       ...(env[SERVE_AT_ENV.run] === undefined ? {} : { [SERVE_AT_ENV.run]: env[SERVE_AT_ENV.run] }),

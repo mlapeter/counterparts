@@ -129,7 +129,8 @@ async function main(argv: readonly string[]): Promise<number> {
     for (const x of record.sessions) {
       out.push(`  day ${String(x.day)} ${x.scope}: ${String(x.turns)} turns · footnotes ${String(x.footnotes)} · asks ${String(x.asks)} · failed ${String(x.failedTurns)} · memories after ${String(x.memoriesAfter)}${x.init === null ? "" : ` · plugins ${String(x.init.plugins.length)}, servers ${x.init.servers.map((v) => `${v.name}:${v.status}`).join(",")}`}`);
     }
-    for (const n of record.nights) out.push(`  night before day ${String(n.day)}: ${n.state} (${n.parts.join(",") || "none"})`);
+    for (const n of record.nights) out.push(`  night on the morning of day ${String(n.day)} (${n.kind}): ${n.state} (${n.parts.join(",") || "none"})`);
+    out.push(`  worker boundaries the product asked for: ${String(record.boundaries)}`);
     for (const d of record.daily) out.push(`  end of day ${String(d.day)} ${d.date}: ${String(d.alive)} memories, core ${String(d.core)}`);
     if (record.out !== null) out.push(`store: ${record.out} (replay it: bun tools/harness/cli.ts replay --source ${record.out})`);
     if (record.keptAt !== null) out.push(`kept: ${record.keptAt}`);
