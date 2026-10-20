@@ -474,6 +474,13 @@ export interface DepositFacts {
 export interface DepositContext {
   session: string;
   scope: string;
+  /**
+   * The writer's calendar day (2026-10-20), when the door knows it from its
+   * own clock: what a `done` at a repeating reminder closes the occurrence
+   * open on (`counterpart-deposit.ts#closeOccurrenceFor`). Absent: the
+   * store's today. A write-up's `happenedOn` wins over it.
+   */
+  at?: string;
   /** v12: the writer's three fields, as sent (`SentFacts`). Absent: none sent. */
   facts?: SentFacts;
   /**

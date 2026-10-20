@@ -611,11 +611,18 @@ repeat. Any weekly reminder hits this.
   so the cue path and the wake's lane drop it as they drop a `drewOn` stop, and `plainDue`
   skips a referenced window — the one change here to the plain lane, and it changes nothing
   else, since `actedOn` references a plain window only after its last beat is told. The
-  next occurrence is its own key, untouched. One open window at a time
-  (`recurringWindowAt`) means "today's" is unambiguous; for a weekly date said done in the
-  last three days before the next one, that is the NEXT occurrence's (its lead wins over the
-  last one's grace) — the answer names the date it closed. No window open (a monthly date
-  mid-month): nothing closed, said so, the reminder unchanged.
+  next occurrence is its own key, untouched. Which occurrence (`Prospective#doneOccurrence`,
+  review of #540): the one window open that day (`recurringWindowAt`) — unless the day is in
+  the NEXT occurrence's lead days and the one before it is unclosed, inside its own grace,
+  and was owed (the reminder written by its day). Then the late one is meant: the weekly
+  backup done on Saturday when Tuesday's was never closed closes Tuesday's, and next
+  Tuesday's comes back as ever; with Tuesday's already closed, Saturday's done closes next
+  Tuesday's. With the shipped tunables only a weekly date meets this (a daily one has no
+  lead; a monthly or yearly one's grace ends long before the next lead). The answer names
+  the date it closed. No window open (a monthly date mid-month): nothing closed, said so,
+  the reminder unchanged. "That day" is the door's own clock (`DepositContext.at`), or a
+  write-up's `happenedOn`: a daily one written up the next morning closes the day it was
+  about, not the morning it was written.
 - **The reminder keeps its standing.** The declared revision does not run for this write:
   the link `mint` wrote is the whole effect. A `changed` settle would fade the reminder ×0.5
   under a memory that says one week was done, and a core reminder would take pressure or

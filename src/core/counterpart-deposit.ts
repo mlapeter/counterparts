@@ -260,7 +260,9 @@ export async function deposit(
   // that only says one week was done, and a core reminder would take
   // pressure or leave the core (`revision.ts#fulfil`); one week done must
   // not cost it its standing.
-  const occurrence = carry.occurrence === undefined ? null : closeOccurrenceFor(cp, carry.occurrence, mint.id);
+  // The day the write is about: a write-up's own day, else the door's clock (review of #540).
+  const doneOn = ctx.writeUp?.happenedOn ?? ctx.at;
+  const occurrence = carry.occurrence === undefined ? null : closeOccurrenceFor(cp, carry.occurrence, mint.id, doneOn);
   const revision = occurrence !== null ? null : cp["applyDeclaredRevision"](keepOpen ? withoutHow(proposal) : proposal, mint, source, ctx.session);
   // THE MEMORY THE REMINDER LEFT STEPS BACK (2026-10-11, Group 2b; review 07
   // §4.3): after the declared revision, so the writer's own settle (its
@@ -703,14 +705,17 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
  * before it was said keeps the reminder alive as a week that was said does.
  * Never throws: a lost close costs one more mention, never the write.
  */
-export function closeOccurrenceFor(cp: Counterpart, occ: { holder: string; recurring: Recurrence }, by: string): DepositOccurrence {
-  const at = cp.store.today();
+export function closeOccurrenceFor(cp: Counterpart, occ: { holder: string; recurring: Recurrence }, by: string, on?: string | null): DepositOccurrence {
+  // The day it was done on: the caller's (a write-up's own day, or the door's
+  // clock — review of #540: the store's own clock is not the server's), else
+  // the store's today.
+  const at = on !== undefined && on !== null && isDay(on) ? on : cp.store.today();
   const day = cp.store.livedDay();
   let closed: string | null = null;
   let already = false;
   let next: string | null = null;
   try {
-    const open = cp.prospective.openOccurrence(occ.holder, at);
+    const open = cp.prospective.doneOccurrence(occ.holder, at);
     const undelivered = open !== null && !open.closed && cp.prospective.occurrenceUndelivered(occ.holder, open.windowKey);
     const out = cp.prospective.closeOccurrence(occ.holder, at, { by, day });
     if (out !== null) {

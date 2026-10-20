@@ -1667,6 +1667,8 @@ export class McpServer {
     const deposit = await this.counterpart.submitJot(draft, {
       session,
       scope: this.scope,
+      // The day this server reads, for a done that closes one occurrence (2026-10-20).
+      at: this.today(),
       ownSpanHash,
       facts: facts.sent,
       // What it is about sets an unclaimed memory's default floor (2026-10-10).

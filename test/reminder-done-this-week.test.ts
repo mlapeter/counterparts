@@ -28,8 +28,7 @@ import { freshGateState, loadGateState, saveGateState } from "../src/core/recall
 import type { GateState } from "../src/core/recall/index.js";
 import { RECURRING_META } from "../src/core/prospective/index.js";
 import { fadeOf } from "../src/core/physics/index.js";
-import { openServer } from "../src/adapters/mcp/index.js";
-import type { McpServer } from "../src/adapters/mcp/index.js";
+import { McpServer } from "../src/adapters/mcp/index.js";
 
 let dir: string;
 const open: { close(): void }[] = [];
@@ -52,10 +51,12 @@ afterEach(() => {
 const SESSION = "sess_done_this_week";
 let clock = Date.parse("2026-10-13T09:00:00Z");
 
+/** The brain and the server on ONE clock (review of #540): `openServer`'s `now`
+ *  reaches the server only, and the store would read the wall clock. */
 function server(): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true, now: () => clock, timeZone: "UTC" });
-  open.push(s.counterpart);
-  return s;
+  const counterpart = Counterpart.open({ dir, owner: true, now: () => clock, timeZone: "UTC" });
+  open.push(counterpart);
+  return new McpServer({ counterpart, session: SESSION, scope: "/scope/one", owner: true, now: () => clock });
 }
 
 /** Move the clock and the store's lived day to `date`, 09:00 UTC. */
@@ -208,6 +209,70 @@ describe("a done at a repeating reminder closes this occurrence only", () => {
     expect(outcome["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-10-20", next: "2026-10-27" });
     expect(c.prospective.plainDue({ at: "2026-10-20" })).toEqual([]);
     expect(c.prospective.plainDue({ at: "2026-10-27" }).map((d) => d.memoryId)).toEqual([id]);
+  });
+});
+
+describe("which occurrence a done closes (review of #540)", () => {
+  test("a done in next week's lead days, with this week's never closed, closes this week's: the late one is meant", async () => {
+    const s = server();
+    const c = s.counterpart;
+    const id = await weekly(s);
+    // Tuesday 20 Oct comes and goes with nothing said; Saturday 24 Oct is next week's lead.
+    dayOf(s, "2026-10-24");
+    expect(c.prospective.openOccurrence(id, "2026-10-24")?.occurrence).toBe("2026-10-27");
+    const body = await remember(s, { text: "Ran the store backup this afternoon, four days late.", updates: id, status: "done" });
+    expect(body["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-10-20", next: "2026-10-27" });
+    // Next Tuesday's is untouched: told and cued on its day.
+    expect(c.prospective.plainDue({ at: "2026-10-27" }).map((d) => d.windowKey)).toEqual(["d:2026-10-27"]);
+    expect(arriving(s, "2026-10-27")).toEqual([id]);
+  });
+
+  test("a done in next week's lead days, with this week's already closed, closes next week's", async () => {
+    const s = server();
+    const c = s.counterpart;
+    const id = await weekly(s);
+    dayOf(s, "2026-10-20");
+    await remember(s, { text: "Ran the store backup this morning; it went fine.", updates: id, status: "done" });
+    dayOf(s, "2026-10-24");
+    const body = await remember(s, { text: "Ran next week's store backup early, before the trip.", updates: id, status: "done" });
+    expect(body["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-10-27", next: "2026-11-03" });
+    expect(c.prospective.plainDue({ at: "2026-10-27" })).toEqual([]);
+    expect(c.prospective.plainDue({ at: "2026-11-03" }).map((d) => d.windowKey)).toEqual(["d:2026-11-03"]);
+  });
+
+  test("an earlier occurrence from before the reminder was written was never owed: the coming one closes", async () => {
+    const s = server();
+    dayOf(s, "2026-10-24");
+    const id = (await remember(s, { title: "Weekly backup", text: BACKUP, eventDate: "2026-10-06", recurring: "weekly", remind: "plain" }))["id"] as string;
+    const body = await remember(s, { text: "Ran the store backup early for next week.", updates: id, status: "done" });
+    expect(body["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-10-27" });
+  });
+
+  test("a daily one: a done closes today's, never yesterday's", async () => {
+    const s = server();
+    const c = s.counterpart;
+    dayOf(s, "2026-10-13");
+    const id = (await remember(s, { title: "Morning pills", text: "Every morning, take the blood pressure pills with breakfast.", eventDate: "2026-10-13", recurring: "daily", remind: "plain" }))["id"] as string;
+    dayOf(s, "2026-10-20");
+    const body = await remember(s, { text: "Took the blood pressure pills with breakfast.", updates: id, status: "done" });
+    expect(body["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-10-20", next: "2026-10-21" });
+    expect(c.prospective.plainDue({ at: "2026-10-21" }).map((d) => d.windowKey)).toEqual(["d:2026-10-21"]);
+  });
+
+  test("a write-up the next morning closes the day it is about, not the day it is written", async () => {
+    clock = Date.parse("2026-10-13T09:00:00Z");
+    const c = Counterpart.open({ dir, owner: true, now: () => clock, timeZone: "UTC" });
+    open.push(c);
+    c.store.advanceClock("2026-10-13");
+    const id = (await c.submitJot({ kind: "fact", title: "Morning pills", content: "Every morning, take the blood pressure pills with breakfast.", eventDate: "2026-10-13", recurring: "daily", remind: "plain" }, { session: "s0", scope: "proj", at: "2026-10-13" })).memoryId as string;
+    clock = Date.parse("2026-10-21T08:00:00Z");
+    c.store.advanceClock("2026-10-21");
+    const out = await c.submitSessionEnd(
+      { kind: "fact", content: "Mike took the blood pressure pills with breakfast.", updates: id },
+      { session: "s2", scope: "proj", at: "2026-10-21", facts: { status: "done" }, writeUp: { session: "s1", happenedOn: "2026-10-20" } },
+    );
+    expect(out.occurrence).toMatchObject({ reminder: id, closed: "2026-10-20", next: "2026-10-21" });
+    expect(c.prospective.plainDue({ at: "2026-10-21" }).map((d) => d.windowKey)).toEqual(["d:2026-10-21"]);
   });
 });
 

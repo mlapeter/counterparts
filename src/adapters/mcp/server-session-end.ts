@@ -306,6 +306,8 @@ export async function depositEntries(
       result = await server.counterpart.submitSessionEnd(draft, {
         session,
         scope: scope ?? server.scope,
+        // The day this server reads, for a done that closes one occurrence (2026-10-20).
+        at: server["today"](),
         owner: server.owner,
         facts: facts.sent,
         // What it is about sets an unclaimed entry's default floor (2026-10-10).

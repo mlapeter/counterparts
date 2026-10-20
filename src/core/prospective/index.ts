@@ -1369,10 +1369,52 @@ export class Prospective {
   }
 
   /**
+   * THE OCCURRENCE A `done` SAID ON `at` IS ABOUT (review of #540,
+   * 2026-10-20, lightly held): the one open on `at` (`openOccurrence`) —
+   * unless `at` is still in the NEXT occurrence's lead days and the one
+   * before it is unclosed, inside its own grace, and was owed (the reminder
+   * was written by its day). Then the late one is meant: a weekly backup
+   * done on Saturday, when Tuesday's was never closed, is Tuesday's done
+   * late, and closing next Tuesday's would silence the next one instead.
+   * Only a weekly date meets this with the shipped tunables (a daily one has
+   * no lead; a monthly or yearly one's grace ends long before the next
+   * lead). A read.
+   */
+  doneOccurrence(memoryId: string, at: string): OpenOccurrence | null {
+    const open = this.openOccurrence(memoryId, at);
+    if (open === null || open.recurring === null || at >= open.firstDay) return open;
+    try {
+      const doc = this.store.read(memoryId).doc;
+      const anchor = doc.eventDate;
+      if (anchor === undefined) return open;
+      const w = recurringWindowAt(anchor, open.recurring, at, this.tunables, memoryId);
+      if (w === null) return open;
+      const prev = recurringWindowAt(anchor, open.recurring, addDays(w.opensOn, -1), this.tunables, memoryId);
+      if (prev === null || prev.eventDate >= open.occurrence) return open;
+      if (at > addDays(prev.eventDate, this.tunables.GRACE_DAYS)) return open;
+      const written = doc.learnedOn.slice(0, 10);
+      if (!isDay(written) || written > prev.eventDate) return open;
+      if (this.firingRowsFor(memoryId).get(prev.key)?.state === "suppressed") return open;
+      return {
+        memoryId,
+        windowKey: prev.key,
+        occurrence: prev.eventDate,
+        firstDay: prev.firstDay,
+        recurring: open.recurring,
+        next: open.occurrence,
+        closed: false,
+      };
+    } catch {
+      return open;
+    }
+  }
+
+  /**
    * DONE FOR THIS TIME (2026-10-20, Mike's go, an experiment, lightly held):
    * a write that says a REPEATING reminder was done (`status: done` at its id,
    * no date sent — `counterpart-deposit.ts#carryReminder`) closes the one
-   * occurrence open on `at`, and nothing else: the date, the repeat and the
+   * occurrence it is about on `at` (`doneOccurrence`: the one open, or an
+   * overdue one in the next one's lead days), and nothing else: the date, the repeat and the
    * memory stay as they are, and the next occurrence is its own window, armed
    * as ever. The window is referenced (`reference`, `why: done`), so the cue
    * path and the wake's lane drop it as they drop one `drewOn` stopped — and,
@@ -1384,7 +1426,7 @@ export class Prospective {
    */
   closeOccurrence(memoryId: string, at: string, opts: { by?: string; day?: number } = {}): ClosedOccurrence | null {
     if (this.observer) return null;
-    const open = this.openOccurrence(memoryId, at);
+    const open = this.doneOccurrence(memoryId, at);
     if (open === null || open.recurring === null) return null;
     if (open.closed) return { ...open, closedNow: false };
     const d = opts.day ?? this.store.livedDay();
