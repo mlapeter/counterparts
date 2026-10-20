@@ -95,6 +95,8 @@ import { BUNDLE_OWNER, DREAM_TUNABLES } from "./tunables.js";
 import { mindRanked, noteMindShown } from "./mind.js";
 import type { MindItem } from "./mind.js";
 import { settle as settleContradiction } from "../reconsolidation.js";
+import { CORE_ASK_LOOKBACK, coreAsks, coreHow, coreSentence, unsettledPairOf } from "./core-ask.js";
+import type { CoreAsk, CoreDecided } from "./core-ask.js";
 import { THREAD_CLOSED_BY_META_KEY, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_META_KEY } from "../mint.js";
 import type { SettleOutcome } from "../reconsolidation.js";
 
@@ -312,8 +314,12 @@ export interface ReflectBundle {
    * BEING RECONSIDERED (2026-10-11, Group 3 part A): core memories flagged
    * for a decision, with the reason category — still core until I or the
    * owner decide (`finish`'s `core`). Empty when none is flagged.
+   * Since 2026-10-20 (`core-ask.ts`, an experiment): only those that have
+   * waited `CORE_WAITING_DAYS` lived days (`waited`), at most `CORE_ASK_MAX`,
+   * each with its unsettled pair (`pair`) when it is in one — the waking
+   * session has the first week.
    */
-  readonly reconsidering: readonly { readonly id: string; readonly reason: string | null }[];
+  readonly reconsidering: readonly CoreAsk[];
   /**
    * FEELINGS OVER WEEKS (2026-10-02): counts by core per week, mine and the
    * owner's, what changed, and the ids it rests on — from stored feelings,
@@ -683,7 +689,7 @@ export class Reflections {
     const s = composed.shownAs;
     const fitRecord = { whole: s.whole, excerpt: s.excerpt, lined: s.line, ids: s.ids, notShown: s.notShown, offered: offeredInPart(fitted), parts: packed.later.length + 1 };
     this.store.updateReflection(id, {
-      detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, ...(composed.unmarked.length > 0 ? { unmarked: composed.unmarked } : {}), ...(composed.staleOpen.length > 0 ? { staleOpen: composed.staleOpen.map((x) => x.id) } : {}) },
+      detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, ...(composed.unmarked.length > 0 ? { unmarked: composed.unmarked } : {}), ...(composed.staleOpen.length > 0 ? { staleOpen: composed.staleOpen.map((x) => x.id) } : {}), ...(composed.reconsidering.length > 0 ? { coreOffered: composed.reconsidering.map((x) => x.id) } : {}) },
     });
     writeIndex(this.store, "reflection", { ref: id, at: this.store.now(), offered: fitted.offered, looked: [], lineCap: fitted.lineCap });
     this.record("reflection.begun", id, { dream: dreamId, shown: shown.length, ...fitRecord });
@@ -895,7 +901,15 @@ export class Reflections {
       aboutLine,
       ...(bundle.reconsidering.length > 0
         ? [
-            `- core (optional, at most ${String(L.core)}): ${bundle.reconsidering.length === 1 ? "this core memory is" : "these core memories are"} being reconsidered — ${bundle.reconsidering.map((r) => `${r.id} (${reconsiderWords(r.reason)})`).join("; ")}. For each, decide {id, decision: "keep" or "retire", why}: keep what is still who you are (an about mark that is wrong is fixed in about instead, and the flag lifts itself); retire what is not, and it goes back to ordinary fading. Nothing leaves the core without a decision, so you may leave one for another night.`,
+            // THE ONES THAT WAITED A WEEK (2026-10-20, an experiment agreed
+            // with Mike): decide where it is plain, leave the rest; a pair is
+            // settled after the retire, since the core is not settled over.
+            `- core (optional, at most ${String(L.core)}): ${bundle.reconsidering.length === 1 ? "this core memory has" : "these core memories have"} been waiting on a keep-or-retire for a week or more — ${bundle.reconsidering.map((r) => `${r.id} (${reconsiderWords(r.reason)}; waited ${String(r.waited)} lived days${r.pair === undefined ? "" : `; unsettled with ${r.pair.other}`})`).join("; ")}. Read each one, and decide where you can: {id, decision: "keep" or "retire", why}. Keep what is still who you are (an about mark that is wrong is fixed in about instead, and the flag lifts itself); retire what is not, and it goes back to ordinary fading. Leave out one you are not sure of: the waking session is still asked. Your share says what you decided, and ${who} can have it undone.`,
+            ...(bundle.reconsidering.some((r) => r.pair !== undefined)
+              ? [
+                  `  A pair (unsettled with): if which holds is plain — both were true at their time (changed), or the newer corrects the older (corrected) — you may settle it after finish, with the reflect tool's phase "settle", reflection: ${id}, holds, over, how and why. A core memory cannot be settled over, so retire it in this finish first; then settle. One that holds over the other may be settled as it is. If it is not plain, leave the pair.`,
+                ]
+              : []),
           ]
         : []),
       ...(bundle.unmarked.length > 0
@@ -1096,6 +1110,8 @@ export class Reflections {
     // either of us may retire a core memory). Retiring is toward less core,
     // so the owner's closed door does not stop it.
     const coreDecisions: PartResult[] = [];
+    // What it decided, with why (2026-10-20): the share's core line and the row's `coreDecided`.
+    const decidedNow: CoreDecided[] = [];
     for (const c of (input.core ?? []).slice(0, 50)) {
       const id = typeof c.id === "string" ? c.id : null;
       if (used("core") + coreDecisions.filter((x) => x.ok).length >= T.LIMITS.core) {
@@ -1118,7 +1134,22 @@ export class Reflections {
       }
       const reason = `${why.text} (reflection ${row.id})`;
       const out = c.decision === "keep" ? keepCore(this.store, { id: r.id, why: reason, actor: "reflection", day, dreamId: row.dream_id }) : retireCore(this.store, { id: r.id, reason, actor: "reflection", day, dreamId: row.dream_id });
-      coreDecisions.push(out.ok ? { id, ok: true, reason: out.reason } : { id, ok: false, reason: out.reason, detail: out.reason === "not-core" ? `${r.id} is not in the core.` : "Nothing was decided for this one." });
+      // A RETIRE IN AN UNSETTLED PAIR (review of #542): the settle is the
+      // next step, after this finish — say so on the part, so the pair is not
+      // left unsettled unsaid (a refused settle says why in its own reply).
+      const pair = out.ok && c.decision === "retire" ? unsettledPairOf(this.store, r.id) : null;
+      const pairNote =
+        pair === null
+          ? undefined
+          : shown.has(pair.other)
+            ? `${r.id} is still in an unsettled pair with ${pair.other} (${pair.id}). If which holds is plain, settle it now: the reflect tool's phase "settle", reflection: ${row.id}, holds, over, how and why. If it is not plain, leave it: the pair stays unsettled.`
+            : `${r.id} is still in an unsettled pair with ${pair.other} (${pair.id}), which this reflection was not shown: the pair stays unsettled.`;
+      coreDecisions.push(
+        out.ok
+          ? { id, ok: true, reason: out.reason, ...(pairNote === undefined ? {} : { note: pairNote }) }
+          : { id, ok: false, reason: out.reason, detail: out.reason === "not-core" ? `${r.id} is not in the core.` : "Nothing was decided for this one." },
+      );
+      if (out.ok) decidedNow.push({ id: r.id, decision: c.decision, why: why.text });
     }
 
     // ── (f) trait nudges — each on its own, like its feelings ───────────────
@@ -1580,6 +1611,22 @@ export class Reflections {
       shareText = [shareText, closeLine ?? ""].filter((x) => x.length > 0).join(" ");
       share = { ...share, offered: true, reason: share.offered ? share.reason : proposed.length > 0 ? "close-proposed" : "closed-said" };
     }
+    // THE CORE LINE (2026-10-20, an experiment): what this reflection decided
+    // on the core — keep or retire, with why — in one generated line with the
+    // way back, rebuilt on a later finish like the open-thread line. A share
+    // already told or carried takes none: the hand-back says it instead.
+    const priorDecided = coreDecidedOf(prior["coreDecided"]);
+    const decidedAll = [...priorDecided.filter((p) => !decidedNow.some((d) => d.id === p.id)), ...decidedNow];
+    const priorCoreLine = typeof prior["coreLine"] === "string" ? prior["coreLine"] : null;
+    let coreLine: string | null = null;
+    if (!shareLocked && decidedAll.length > 0) {
+      if (priorCoreLine !== null) shareText = withoutLine(shareText, priorCoreLine);
+      coreLine = coreSentence(decidedAll, (x) => this.handle(x));
+      shareText = [shareText, coreLine ?? ""].filter((x) => x.length > 0).join(" ");
+      for (const d of decidedAll) if (!finalShareCites.includes(d.id)) finalShareCites.push(d.id);
+      share = { ...share, offered: true, reason: share.offered ? share.reason : "core-decided" };
+    }
+    const coreTell = shareLocked ? [coreSentence(decidedNow, (x) => this.handle(x))].filter((x): x is string => x !== null) : [];
 
     // REPLACING AN OFFERED SHARE IS A CLAIM (review of #268): a later session
     // may carry it between the read above and this write; only the write that
@@ -1638,6 +1685,10 @@ export class Reflections {
       selfClosed: selfClosed.length,
       // ...and the ones it would have closed that this session may not, asked instead.
       closeAskedInstead: used("closeAskedInstead") + (shareStands ? askedInstead : 0),
+      // The core (2026-10-20): the waiting ones offered, and what it decided.
+      coreOffered: stringIds(parseDetail(row.detail)["coreOffered"]).length,
+      coreKept: decidedAll.filter((d) => d.decision === "keep").length,
+      coreRetired: decidedAll.filter((d) => d.decision === "retire").length,
     };
     detail["counts"] = counts;
     const allRefused = [...(Array.isArray(prior["refusedCites"]) ? (prior["refusedCites"] as string[]) : []), ...refusedCites];
@@ -1672,6 +1723,13 @@ export class Reflections {
     if (selfClosed.length > 0) detail["selfClosed"] = selfClosed;
     const reopenedEarlier = parseDetail(row.detail)["reopened"];
     if (Array.isArray(reopenedEarlier)) detail["reopened"] = reopenedEarlier;
+    // The waiting core memories it was offered, and what it decided on the
+    // core with why (2026-10-20): the next night's rotation and CHECK-AFTER read them.
+    const offeredCore = parseDetail(row.detail)["coreOffered"];
+    if (Array.isArray(offeredCore)) detail["coreOffered"] = offeredCore;
+    if (decidedAll.length > 0) detail["coreDecided"] = decidedAll;
+    const keptCoreLine = shareStands ? coreLine : priorCoreLine;
+    if (keptCoreLine !== null) detail["coreLine"] = keptCoreLine;
     if (again) detail["finishes"] = (typeof prior["finishes"] === "number" ? prior["finishes"] : 1) + 1;
     this.store.updateReflection(row.id, {
       ...(again ? {} : { state: "reflected" as const }),
@@ -1748,7 +1806,8 @@ export class Reflections {
         ? null
         : `Not written: ${missed.join("; ")}. You can fix these and call finish again with reflection ${row.id} and just those parts — the entry and everything already written stand.`;
 
-    const handBack = this.handBack(row, !shareLocked && share.offered ? shareText : null, nothingMuch, pageStands, tellAlso, shareStands ? this.closeHow(row.id, proposed, said.map((x) => x.id)) : null);
+    const how = shareStands ? [this.closeHow(row.id, proposed, said.map((x) => x.id)), coreLine === null ? null : coreHow(decidedAll, this.ctx.ownerName() ?? "the owner")].filter((x): x is string => x !== null) : [];
+    const handBack = this.handBack(row, !shareLocked && share.offered ? shareText : null, nothingMuch, pageStands, [...tellAlso, ...coreTell], how.length > 0 ? how.join(" ") : null);
     return {
       ok: true,
       outcome: {
@@ -2012,9 +2071,10 @@ export class Reflections {
       stringIds(d["closeProposed"]),
       selfClosedOf(d["selfClosed"]).map((x) => x.id).filter((x) => !reopened.has(x)),
     );
+    const core = typeof d["coreLine"] === "string" ? coreHow(coreDecidedOf(d["coreDecided"]), who) : null;
     return (
       `Counterparts: after reflecting on ${when}, you left a morning share for ${who} that was never told. At a natural moment — not mid-task — tell it in your own words, as a telling ("When I last reflected…"), tentatively where it is about ${who}. ` +
-      `Once you have told it, the counterparts reflect tool's phase "told", reflection: ${row.id}, marks it told.${close === null ? "" : ` ${close}`} The share: ${row.share}`
+      `Once you have told it, the counterparts reflect tool's phase "told", reflection: ${row.id}, marks it told.${close === null ? "" : ` ${close}`}${core === null ? "" : ` ${core}`} The share: ${row.share}`
     );
   }
 
@@ -2159,8 +2219,18 @@ export class Reflections {
     const onMind = mindRead.items.filter((item) => item.ids.every(take(3)));
 
     const becameCore = this.becameCoreUnsaid().filter(take(5));
-    // BEING RECONSIDERED (2026-10-11): handed whole-ish, so a decision can be made on what it says.
-    const reconsidering = this.store.coreReconsidering().slice(0, T.LIMITS.core).filter((r) => take(4)(r.id));
+    // BEING RECONSIDERED (2026-10-11): handed whole-ish, so a decision can be
+    // made on what it says. Since 2026-10-20 only the ones that have waited a
+    // week, with the other side of an unsettled pair, first in the room
+    // (`core-ask.ts`); the least recently offered first.
+    const offeredLately = this.store
+      .reflections({ limit: CORE_ASK_LOOKBACK + 1 })
+      .filter((r) => r.id !== id)
+      .slice(0, CORE_ASK_LOOKBACK)
+      .map((r) => new Set(stringIds(parseDetail(r.detail)["coreOffered"])));
+    const reconsidering = coreAsks(this.store, day, (mid) => see(mid) !== null, offeredLately)
+      .filter((r) => take(6)(r.id))
+      .map((r): CoreAsk => (r.pair === undefined || take(6)(r.pair.other) ? r : { id: r.id, reason: r.reason, waited: r.waited }));
 
     // FEELINGS OVER WEEKS: the ids it rests on are handed like the rest, so
     // they can be read, cited and put on the page.
@@ -2289,7 +2359,7 @@ export class Reflections {
       felt: feltIds.filter(kept),
       recent: recentIds.filter(kept),
       becameCore: becameCore.filter(kept),
-      reconsidering: reconsidering.filter((r) => kept(r.id)).map((r) => ({ id: r.id, reason: r.reason })),
+      reconsidering: reconsidering.filter((r) => kept(r.id)).map((r): CoreAsk => (r.pair === undefined || kept(r.pair.other) ? r : { id: r.id, reason: r.reason, waited: r.waited })),
       feelingWeeks: weeks === null ? null : { ...weeks, restsOn: weeksRest.filter(kept) },
       unmarked: unmarkedIds.filter(kept),
       staleOpen,
@@ -2953,6 +3023,16 @@ function onDay(row: { date: string | null; day: number }, at: string, day: numbe
 /** The strings of a detail's list, or none. */
 function stringIds(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+
+/** The core decisions a detail keeps (2026-10-20), or none. */
+function coreDecidedOf(v: unknown): CoreDecided[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((x): CoreDecided[] =>
+    isRecord(x) && typeof x["id"] === "string" && (x["decision"] === "keep" || x["decision"] === "retire") && typeof x["why"] === "string"
+      ? [{ id: x["id"], decision: x["decision"], why: x["why"] }]
+      : [],
+  );
 }
 
 /** The self-closes a detail keeps (2026-10-20), or none. */

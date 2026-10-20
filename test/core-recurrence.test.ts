@@ -355,12 +355,13 @@ describe("my doors: remember's core, and the reflection's core part", () => {
     const flagged = mem(c, "The plan for tomorrow's share.", { kind: "fact", about: "us" });
     const cited = mem(c, "I like quiet mornings.");
     makeCore(c, flagged);
-    c.store.appendCoreEvent({ memoryId: flagged, action: "reconsidering", day: c.store.livedDay(), reason: "not-a-core-kind", actor: "sleep" });
+    // Flagged a week before (since 2026-10-20 the reflection is offered only the ones that waited).
+    c.store.appendCoreEvent({ memoryId: flagged, action: "reconsidering", day: c.store.livedDay() - SLEEP.CORE_WAITING_DAYS, reason: "not-a-core-kind", actor: "sleep" });
     nextDay(c);
     nextDay(c);
     const begun = c.reflections.begin({ session: "s-r" });
     if (!begun.ok) throw new Error(begun.reason);
-    expect(begun.bundle.reconsidering).toEqual([{ id: flagged, reason: "not-a-core-kind" }]);
+    expect(begun.bundle.reconsidering).toEqual([{ id: flagged, reason: "not-a-core-kind", waited: SLEEP.CORE_WAITING_DAYS + 2 }]);
     const done = c.reflections.finish({
       reflection: begun.bundle.reflection,
       session: "s-r",

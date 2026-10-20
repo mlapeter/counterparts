@@ -802,6 +802,58 @@ the live ~52):
   `reflection.reopened` is emitted on an undo. Watch (CHECK-AFTER, ~10-24): how many it
   closed itself, how many were reopened, and how the Still open count moves.
 
+## 2026-10-20 — the core questions that waited a week (an experiment)
+
+- Mike's go 2026-10-20, lightly held ("i agree with your recs, lightly held, lets try it and
+  see how it goes"). Measured that day on his store: five core memories flagged "being
+  reconsidered" on 10-13, two answered by 10-20, three waiting 7+ lived days (two of them
+  also in unsettled pairs for 11–13 lived days). The reflection WAS handed the flagged ones
+  (`reconsidering`, since 10-11), at priority 4 beside the whole core, with "you may leave
+  one for another night" — and it left them. His session answered all three by hand.
+- Shape (`core-ask.ts`): the offer is now only the ones that waited `CORE_WAITING_DAYS` (7,
+  `sleep/tunables.ts`, shared with the wake and doctor), at most `CORE_ASK_MAX` (3), the
+  least recently offered first (`detail.coreOffered` on the last `CORE_ASK_LOOKBACK`, 10,
+  reflections — review of #542: a one-night memory starved the seventh of seven), then the
+  longest waiting; each with `waited`
+  and its unsettled `pair` (read off `contradictionsOf`, either side — `unsettledAmong`
+  labels only the older side), the other memory taken into the room too. Priority 6, above
+  the dream's own: these are the night's questions. The prompt says decide where you can,
+  leave the rest, and that the waking session is still asked.
+- Fresh flags are no longer in the offer: the waking session has the first week. `finish`'s
+  `core` still takes any core memory the reflection was shown (the whole core rides in
+  `core`), so nothing it could do before is refused now.
+- A pair: `memoryRefusal` refuses settling over a core memory (`core-takes-pressure`), and
+  `retireCore` clears `promoted_identity` and re-bands it at once, so the prompt orders it:
+  retire in `finish`, then phase `settle` (open the same calendar day after a finish).
+  Tested both ways. A retire whose memory is still in an unsettled pair says so on its
+  `core` part's `note` (review of #542), with the settle to make or that the pair stays;
+  a settle that then fails leaves the memory retired and the pair unsettled, and its own
+  reply says why.
+- The share's core line is generated like `closeLine` (`coreSentence`): one line naming
+  each decision with its why and "If one is wrong, say so and I'll undo it", rebuilt on a
+  second finish (`detail.coreLine`), cited (`told` records on them like any share cite). A
+  share already told or carried takes none; the hand-back's `tellAlso` says it. The
+  hand-back and the carried line add `coreHow`: the undo for a retire is remember's core
+  keep (or `core --reaffirm`), for a keep a retire.
+- THE UNDO DID NOT EXIST. A retire was sticky for everyone (`coreDemoted`, and `keepCore`
+  refused `not-core`). Now `keepCore` by the owner or me awake, on a memory whose latest
+  word on the core is a REFLECTION's retire, restores it: a `promoted` core event by that
+  actor (lane `restored`, reason `restored: …`), physics and band back to identity, then the
+  `reaffirmed` keep so it is not flagged again for what it is; `band.core.restored` is the
+  event (not `band.promoted`, so doctor's "became core on reflection alone" does not count
+  it). A reflection may not restore; a retire by the owner or by me awake stays sticky.
+  Review of #542 (the coordinator's ruling, protecting Mike's word): the owner's or a
+  session's retire on top of a reflection's is recorded as theirs (`retireCore` →
+  `confirmed`, a `demoted` row, physics untouched), so a session's keep can no longer
+  restore it; the owner's keep restores any retired memory. `core --list` lists each
+  retired memory once, by its latest retire, and not one restored since.
+- Recorded on the row: `detail.coreOffered`, `detail.coreDecided` ({id, decision, why}),
+  `counts.coreOffered`/`coreKept`/`coreRetired` (also on `reflection.finished`). Doctor's
+  Reflection line says how many have waited 7+ lived days (`coreWaited`).
+- Watch (CHECK-AFTER, ~10-27): how many waited past 7, what it decided, whether Mike
+  reversed any. If it retires what he would keep, tighten the prompt toward "keep unless
+  plainly not who I am" before anything else.
+
 ## 2026-10-20 — the reflection held to the page's room (Mike's go, lightly held, an experiment)
 
 On 10-20 the page writer made 4,756 bytes and the reflection rewrote it to 4,956, past the
