@@ -28,8 +28,8 @@ lightly held.
   ending in one moment by weight: a wag of the whole tail (`workWag`:
   tail1/tail2 twice, about 1.3 s; weight 4), the tail tip (2), an ear (2), a
   glance left and right (1.5). Never a yawn, a drowsy blink, a lie-down or a
-  nap. About one change a second on average against idle's one per 5–10 s:
-  the motion carries it more than the face, which is a few pixels in the
+  nap. Measured in review: 1.17 changes a second at work against idle's 0.44
+  (about 2.7–3 times): the motion carries it more than the face, which is a few pixels in the
   half-block tier (perk is 16 half-block pixels off idle, 21 sextant cells).
   The work moments live in `fox.ts` (`WORK_MOMENTS`), not in the art's data
   module.
@@ -43,19 +43,33 @@ lightly held.
   module hears ends it never saw start. A prompt (composer or bridge) puts
   him to work at once, ahead of `turn.start` (the UserPromptSubmit hooks run
   in between); a prompt that starts no turn stops counting after 30 s
-  (`WORK.askMs`).
+  (`WORK.askMs`). Not a slash command (review of #549): `prompt.submit` fires
+  for those too, with `e.command` set; one that runs locally starts no turn,
+  and one that asks the model reaches work by its `turn.start`.
+- **A turn that writes a long while** (review of #549): a `turn.step` hook,
+  main loop only, passes each model request through whole and marks the
+  turn alive as it begins and ends (`step`, nothing drawn), so a turn that
+  writes for more than 10 min without a tool call stays at work.
 - **Reload mid-turn.** `session.start` makes a fresh fox (idle). A main-loop
   `tool.call` (no `agentId`) means a turn is running, so it puts him back to
-  work (`turn`), and the turn's end relaxes him as usual.
+  work (`turnCall`), and the turn's end relaxes him as usual. Only while no
+  turn's end has been heard in this module's life (review of #549): once one
+  has, every new turn's start is heard, so a call landing after an end (an
+  Esc during its dispatch) is that turn's straggler and leaves him resting.
+  After a prompt (`asked`) a call opens the turn too.
 - **An end never heard** (a reload as the turn ended): an open turn stops
   counting after 10 min with nothing happening and no call running
   (`WORK.quietMs`); calls beginning and ending are signs of life. A call
   waiting on a permission prompt is a call running (the dialog is inside
   `next(e)` of `tool.call`), so he stays at work while Mike decides, up to
-  `BUSY_MAX_MS` (30 min) as before. Then the idle clock runs from the turn's
-  last sign of life.
+  `BUSY_MAX_MS` (30 min) as before. Then the idle clock starts at the expiry
+  (review of #549: counted from the last sign of life it went straight to a
+  nap), so he sits, lies down 45 s later and naps at 2 min.
 - **Interactions.** `came`, `note` and `hello` play over work as they do over
-  idle (a blink first from a non-sitting face) and come back to work. A dream
+  idle (a blink first from a non-sitting face) and come back to work, behind a
+  blink when the moment ends on the sitting face (review of #549: no cut from
+  the idle face to the alert one); a get-up into work (`lieOut`, `napOut`)
+  leaves out its last sitting frame and goes from its blink to the alert face. A dream
   holds the stage: the turn's state is kept beside it, and the dream's end
   goes back to work if the turn still runs. Moving between work and rest, a
   real moment already playing (a notepad, a get-up) plays out; the
@@ -65,16 +79,14 @@ lightly held.
   sitting face, and the idle clock starts there (lie at 45 s, nap at 2 min).
 - **What it costs.** On the picture and half-block tiers a change is a blit;
   on sextants (iTerm2, VS Code, WezTerm) and the desktop Svg every change
-  redraws the pane, so a turn runs about six times idle's redraw rate for as
-  long as it lasts, beside the streaming transcript. If it is too much in the
+  redraws the pane, so a turn runs about 2.7–3 times idle's redraw rate
+  (1.17 against 0.44 changes a second, measured in review) for as long as it
+  lasts, beside the streaming transcript. If it is too much in the
   rig, the knobs: `WORK.holdMs`, `workWag` (one tail1/tail2 pass instead of
   two) and its weight.
-- A turn's end heard after work already ended by itself (a model-only turn
-  over 10 min, he has lain down or napped meanwhile) still gets him up: the
+- A turn's end heard after work already ended by itself (10 min with no
+  request and no call, he has lain down meanwhile) still gets him up: the
   turn ended, he looks up. Kept on purpose; a guard is two lines if not.
-- Watch in the rig: a composer-typed command that starts no turn, if
-  `prompt.submit` fires for it, would put him to work for 30 s (validate
-  shows commands arrive on `command.run`, so probably not).
 - Background agents' calls after the main turn ended keep him up (busy) but
   not at work. Untested in the rig: whether `turn.complete` reaches the
   module on the turn that hot-reloads it (if not, the 10 min expiry, or the

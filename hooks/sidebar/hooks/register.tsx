@@ -1225,7 +1225,8 @@ export const register: Register = on => {
     try {
       // Any call (any tool, a subagent's too) is the session working: the fox stays up while it runs.
       await foxEvent($, 'busy').catch(() => undefined)
-      // A main-loop call means a turn is running, whether or not its start was heard here (a reload mid-turn).
+      // A main-loop call means a turn is running, whether or not its start was heard here (a reload mid-turn);
+      // the fox takes it so only until a turn's end was heard (`turnCall` in fox.ts).
       if (e.agentId === undefined) await foxEvent($, 'turnCall').catch(() => undefined)
       // The fox dreams while this session's dream runs.
       if (ours?.tool === 'dream') await foxEvent($, 'dream').catch(() => undefined)
