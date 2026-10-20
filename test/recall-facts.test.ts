@@ -21,7 +21,7 @@ import { join } from "node:path";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { RECALL_RESULT_CHARS, hasFaded } from "../src/adapters/mcp/deliberate.js";
-import { FACTS_PAGE_SIZE, factsRecall, renderFacts } from "../src/adapters/mcp/facts.js";
+import { FACTS_PAGE_SIZE, FACTS_TAIL_SIZE, factsRecall, renderFacts } from "../src/adapters/mcp/facts.js";
 import { meaningRecall, renderMeaning } from "../src/adapters/mcp/meaning.js";
 import type { FactsResult } from "../src/adapters/mcp/facts.js";
 import { settle } from "../src/core/reconsolidation.js";
@@ -1383,5 +1383,221 @@ describe("order within a day (renderAt#sameDayTimes)", () => {
     const without = renderFacts({ ...r, memories: r.memories.map(({ learnedAt: _, ...m }) => m) });
     expect(text.length - without.length).toBe(60);
     expect(text.length).toBeLessThanOrEqual(RECALL_RESULT_CHARS);
+  });
+});
+
+// 2026-10-20, from the benchmark loss read; helps real recall too; lightly
+// held, revisit ~10-27. The needed memory was often ranked 11th–30th and never
+// reached the answerer, who seldom pages; the tail lists it by title.
+describe("the title tail (2026-10-20)", () => {
+  const TOWNS = ["Leeds", "Hull", "York", "Bath", "Ely", "Wells", "Ripon", "Derby", "Truro", "Exeter"];
+  const HOW = ["by van", "by rail", "by courier", "by barge"];
+  /** Forty different facts one word reaches, each with a long title and a date from another year. */
+  function forty(c: Counterpart): string[] {
+    const ids: string[] = [];
+    for (const town of TOWNS) {
+      for (const how of HOW) {
+        // Words of its own in each long title, so no two read as near-duplicates.
+        const own = Array.from({ length: 10 }, (_, k) => `${town.toLowerCase()}${how.slice(3)}${String(k)}`).join(" ");
+        ids.push(
+          c.store.put({
+            type: "memory",
+            kind: "fact",
+            title: `The zqcrate order for ${town} ${how}, ${own}`,
+            body: `A zqcrate order went to ${town} ${how}, packed in ${String(town.length * how.length)} boxes.`,
+            occurredOn: "2024-05-01",
+          }),
+        );
+      }
+    }
+    return ids;
+  }
+  const tailOf = (text: string): string[] => {
+    const lines = text.split("\n");
+    const at = lines.findIndex((l) => l.startsWith("next ") && l.includes("titles only"));
+    if (at < 0) return [];
+    const end = lines.findIndex((l, i) => i > at && l === "");
+    return lines.slice(at, end < 0 ? undefined : end);
+  };
+
+  test("after the page's bodies, ranks 11–30 as one title line each, inside the budget; the header still counts the pages", () => {
+    const c = brain();
+    seed(c);
+    forty(c);
+    const p1 = ask(c, "the zqcrate orders");
+    expect(p1.matched).toBe(40);
+    expect(p1.pages).toBe(4);
+    expect(p1.memories.length).toBe(FACTS_PAGE_SIZE);
+    expect(p1.tail.length).toBe(FACTS_TAIL_SIZE);
+    // The tail is the next pages' results, in order: ranks 11–30.
+    const p2 = ask(c, "the zqcrate orders", { page: 2 });
+    const p3 = ask(c, "the zqcrate orders", { page: 3 });
+    expect(p1.tail.map((t) => t.id)).toEqual([...p2.memories, ...p3.memories].map((m) => m.id));
+    // No page shown twice in one answer: the tail is not the page.
+    for (const t of p1.tail) expect(p1.memories.map((m) => m.id)).not.toContain(t.id);
+    const text = renderFacts(p1);
+    expect(text.split("\n")[0]).toBe("40 match · showing 10 · 30 more → page 2");
+    const tail = tailOf(text);
+    expect(tail[0]).toBe("next 20, titles only (open any by id):");
+    expect(tail.length).toBe(21);
+    expect(tail[1]).toMatch(/^11\. The zqcrate order for .+… · mem_[0-9a-f]+ · 2024-05-01$/);
+    expect(tail[20]?.startsWith("30. ")).toBe(true);
+    // Title lines only: a tail entry's body is not in the answer.
+    const t11 = c.store.readProse(p1.tail[0]?.id as string).body;
+    expect(text).not.toContain(t11);
+    // The budget: long titles and other-year dates stay near 1.5 KB.
+    expect(tail.join("\n").length).toBeLessThanOrEqual(1_800);
+    expect(text.length).toBeLessThanOrEqual(RECALL_RESULT_CHARS);
+    expect(text).toContain("read any whole with ids: [...] (up to 10) · page: 2 for the next.");
+  });
+
+  test("page 2's tail is ranks 21–40; the last page and a short answer list what is left, or nothing", () => {
+    const c = brain();
+    seed(c);
+    forty(c);
+    const p2 = ask(c, "the zqcrate orders", { page: 2 });
+    expect(renderFacts(p2).split("\n")[0]).toBe("40 match · page 2 · showing 11–20 · 20 more → page 3");
+    expect(p2.tail.length).toBe(20);
+    expect(tailOf(renderFacts(p2))[1]?.startsWith("21. ")).toBe(true);
+    const p3 = ask(c, "the zqcrate orders", { page: 3 });
+    expect(p3.tail.length).toBe(10);
+    expect(tailOf(renderFacts(p3))[0]).toBe("next 10, titles only (open any by id):");
+    expect(ask(c, "the zqcrate orders", { page: 4 }).tail).toEqual([]);
+    // Ten or fewer matches: no tail at all, and the answer reads as before.
+    const few = c.store.put({ type: "memory", kind: "fact", body: "The zqfew note." });
+    const r = ask(c, "zqfew");
+    expect(r.memories.map((m) => m.id)).toEqual([few]);
+    expect(r.tail).toEqual([]);
+    expect(renderFacts(r)).not.toContain("titles only");
+  });
+
+  test("when the answer runs out of room the tail goes first, before the excerpts go to nothing", () => {
+    const c = brain();
+    seed(c);
+    forty(c);
+    const r = ask(c, "the zqcrate orders");
+    // Lines so long that the page fits only without the tail (about 11.2k of 12k without it).
+    const long = { ...r, memories: r.memories.map((m) => ({ ...m, line: `${m.line} ${"x".repeat(800)}` })) };
+    const text = renderFacts(long);
+    expect(text.length).toBeLessThanOrEqual(RECALL_RESULT_CHARS);
+    expect(text).not.toContain("titles only");
+    // The bodies kept their (shortest) excerpts.
+    expect(text).toContain("A zqcrate order went to");
+    // Room enough: the tail is back.
+    expect(renderFacts(r)).toContain("next 20, titles only");
+  });
+
+  test("a listed title credits nothing: not in the answer's ids, not seen, not quotable; the row keeps it apart", async () => {
+    const c = brain();
+    seed(c);
+    forty(c);
+    const s = new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", owner: true, registryDir: join(dir, "store"), now: () => NOW });
+    const out = (await s.call("recall", { question: "the zqcrate orders", mode: "facts" })).structuredContent;
+    const ids = out["ids"] as string[];
+    expect(ids.length).toBe(FACTS_PAGE_SIZE);
+    const answer = String(out["answer"]);
+    expect(answer).toContain("next 20, titles only");
+    const listed = tailOf(answer)
+      .slice(1)
+      .map((l) => /· (mem_[0-9a-f]+) ·/.exec(l)?.[1] as string);
+    expect(listed.length).toBe(20);
+    for (const id of listed) expect(ids).not.toContain(id);
+    // Not in the quotable record.
+    const asked = c.store.gateRecords(SESSION, "asked").map((g) => g.ref);
+    for (const id of listed) expect(asked).not.toContain(id);
+    for (const id of ids) expect(asked).toContain(id);
+    // The durable row: delivered ids as before, the tail apart (for the ~10-27 check).
+    const row = JSON.parse(c.store.eventLog({ name: "mcp.recall", order: "desc", limit: 1 })[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(new Set(row["ids"] as string[])).toEqual(new Set(ids));
+    expect(row["tail"]).toBe(20);
+    expect(row["tailIds"]).toEqual(listed);
+    // A reply that repeats a listed title's words, a day later, credits nothing.
+    c.store.advanceClock("2026-10-04");
+    const first = listed[0] as string;
+    const before = c.store.physicsOf(first).uses;
+    const title = c.store.readProse(first).title as string;
+    const quoted = c.creditReferences(SESSION, { assistantTurns: [`You told me: ${title}`], expansions: [] });
+    expect(quoted.ids).not.toContain(first);
+    expect(c.store.physicsOf(first).uses).toBe(before);
+    // Opened by id: credited, as any open is.
+    const opened = c.creditReferences(SESSION, { assistantTurns: ["Read it."], expansions: [first] });
+    expect(opened.ids).toContain(first);
+    expect(c.store.physicsOf(first).uses).toBeGreaterThan(before);
+  });
+});
+
+// 2026-10-20, from the benchmark loss read; helps real recall too; lightly
+// held, revisit. "Lately" hard-windowed a facts question to the past week and
+// hid the answer three months back (loc-conv-49-122).
+describe("soft time words (2026-10-20)", () => {
+  const clock = { now: NOW, zone: ZONE };
+
+  test("lately, recently, these days, nowadays: the past week, marked soft, taken out of the question", () => {
+    for (const word of ["lately", "recently", "these days", "nowadays"]) {
+      const t = readTimeAsk(`what has Han been cooking ${word}?`, clock);
+      expect(t?.soft).toBe(true);
+      expect(t?.cue).toBe(word);
+      expect(t?.said).toEqual({ from: "2026-09-27", to: "2026-10-03" });
+      expect(t?.rest.replace(/\s+\?$/, "?")).toBe("what has Han been cooking?");
+    }
+    // An explicit window is read first and is not soft.
+    const sept = readTimeAsk("what did Han cook recently, in September?", clock);
+    expect(sept?.said).toEqual({ from: "2026-09-01", to: "2026-09-30" });
+    expect(sept?.soft).toBeUndefined();
+    for (const q of ["the gym last week", "what changed in September", "since 9/12 the gym", "the gym 3 days ago", "the gym yesterday"]) {
+      expect(readTimeAsk(q, clock)?.soft).toBeUndefined();
+    }
+    // "of late" is not read: "because of late fees".
+    expect(readTimeAsk("charges because of late fees", clock)).toBeNull();
+  });
+
+  test("a soft word filters nothing: an old match still comes back, and the header says so", () => {
+    const c = brain();
+    seed(c);
+    const old = c.store.put({ type: "memory", kind: "fact", body: "Sam was diagnosed with zqgastritis after an ER visit.", occurredOn: "2026-07-10" });
+    const r = ask(c, "What zqgastritis did Sam have lately?");
+    expect(r.memories.map((m) => m.id)).toContain(old);
+    expect(r.time?.soft).toBe(true);
+    expect(r.time?.window).toBeNull();
+    expect(r.time?.outside).toBe(0);
+    const text = renderFacts(r);
+    expect(text).toContain("time: lately → 09-27..10-03 first, nothing filtered by date");
+    expect(text).not.toContain("outside it");
+  });
+
+  test("near-equal matches rank the recent one first; a strong old match still beats a weak recent one", () => {
+    const c = brain();
+    seed(c);
+    // Near-equal: one word each; the old one's shorter words match a shade more strongly.
+    const oldNear = c.store.put({ type: "memory", kind: "fact", body: "Baked zqrye bread.", occurredOn: "2026-08-01" });
+    const newNear = c.store.put({ type: "memory", kind: "fact", body: "Baked a zqrye loaf for the neighbours on Thursday.", occurredOn: "2026-10-01" });
+    expect(ask(c, "the zqrye baking").memories[0]?.id).toBe(oldNear);
+    const soft = ask(c, "the zqrye baking lately");
+    expect(soft.memories.map((m) => m.id)).toEqual([newNear, oldNear]);
+    expect(soft.memories[0]?.ways).toContain("time");
+    // Strong old (both words) over weak recent (one word).
+    const oldStrong = c.store.put({ type: "memory", kind: "fact", body: "Fixed the zqkiln zqvent in the shed.", occurredOn: "2026-06-01" });
+    const newWeak = c.store.put({ type: "memory", kind: "fact", body: "Cleaned the zqkiln shelves.", occurredOn: "2026-10-02" });
+    expect(ask(c, "the zqkiln zqvent recently").memories.map((m) => m.id)).toEqual([oldStrong, newWeak]);
+  });
+
+  test("a question that is only a soft word keeps the past week as its filter; explicit windows are unchanged", () => {
+    const c = brain();
+    seed(c);
+    const recent = c.store.put({ type: "memory", kind: "fact", body: "Moved the zqdesk to the window.", occurredOn: "2026-10-01" });
+    c.store.put({ type: "memory", kind: "fact", body: "Bought the zqdesk.", occurredOn: "2026-05-01" });
+    const thin = ask(c, "what happened lately?");
+    expect(thin.time?.soft).toBeUndefined();
+    expect(thin.time?.window).toEqual({ from: "2026-09-27", to: "2026-10-03" });
+    expect(thin.memories.map((m) => m.id)).toContain(recent);
+    expect(renderFacts(thin)).toContain("time: lately → 09-27..10-03");
+    // "last week" still filters, as before.
+    const week = ask(c, "the zqdesk last week");
+    expect(week.time?.soft).toBeUndefined();
+    expect(week.memories).toEqual([]);
+    expect(week.time?.outside).toBe(2);
+    const oct = ask(c, "the zqdesk in October");
+    expect(oct.memories.map((m) => m.id)).toEqual([recent]);
+    expect(oct.time?.outside).toBe(1);
   });
 });

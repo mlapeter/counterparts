@@ -441,7 +441,14 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     (`recall/time-ask.ts`, `mcp/facts.ts`; mcp CONTRACT §6f): a window the question names
     keeps only what is inside it, and "the last session" is resolved to the session the
     wake's "Last here" names, whose rows lead. `recency-ask.ts` stays, read by
-    `time-ask.ts` for days and clock times. What this guarantee said, for the record:
+    `time-ask.ts` for days and clock times. **Soft words are the exception**
+    (2026-10-20, from the benchmark loss read; helps real recall too; lightly held,
+    revisit — an experiment, Mike's go via BENCHMARK): "lately", "recently", "these
+    days", "nowadays" (`time-ask.ts#SOFT_WORDS`) come back marked `soft`, and facts mode
+    ranks the past week first instead of filtering, unless the question is only time;
+    explicit windows are unchanged (mcp CONTRACT §6f). Facts answers also list the next
+    20 matches as title lines after the page (the title tail, §6f there): listed is not
+    shown, and credits nothing. What this guarantee said, for the record:
     **A deliberate question about time leads with the session it means**
     (2026-09-30, the continuity test; revised after the review of #302 — working default;
     `recency-ask.ts`, `mcp/deliberate.ts#recentRows`). Only on the deliberate path, only
