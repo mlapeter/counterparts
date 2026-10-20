@@ -15,7 +15,9 @@ has it; every other page is a working default or a record of what happened.
 
 ## Where the work is going
 
-- [`ROADMAP.md`](ROADMAP.md) — the plan for the current round.
+- [`ROADMAP.md`](ROADMAP.md) — the plan for the current round, one line per thing to do.
+- [`WORKLIST.md`](WORKLIST.md) — the details behind the roadmap's to-do list.
+- [`CHECK-AFTER.md`](CHECK-AFTER.md) — experiments in use, each with a date to check.
 - `HANDOFF.md` — the note one session leaves for the next. It is written locally and is not in
   the repository (ignored since 2026-10-02).
 - [`IMPROVEMENTS.md`](IMPROVEMENTS.md) — things noticed while living on it, as opposed to
