@@ -367,7 +367,7 @@ async function poll($: EngineInterface): Promise<boolean> {
     const lastDream = dreams.sort((a, b) => a.seq - b.seq).at(-1)
     if (lastDream !== undefined) await foxEvent($, lastDream.name === 'dream.begun' ? 'dream' : 'dreamEnd')
     // A save for this session the memory tools' own hook did not already write down (see `savedSince`).
-    if (savedSince(events, run.session, stage.director?.noteAt ?? -Infinity, await $.clock.now())) await foxEvent($, 'note')
+    if (savedSince(events, run.session, stage.director?.saveAt ?? -Infinity, await $.clock.now())) await foxEvent($, 'note')
     return first || events.length > 0
   } catch {
     return false

@@ -160,13 +160,15 @@ export type Director = {
   busyAt: number
   /** When the last save's notepad began: another save inside NOTE_SPAN_MS writes no second time. */
   noteAt: number
+  /** When the last save was heard, written on the notepad or folded into one already running: its rows are older. */
+  saveAt: number
 }
 
 const STILL: Step = { frame: 'idle', ms: 0, fx: [], moment: 'rest' }
 const STILL_LIE: Step = { frame: 'lie0', ms: 0, fx: [], moment: 'lieRest' }
 
 export function newDirector(now: number): Director {
-  return { mode: 'idle', queue: [], cur: STILL, until: now, idleSince: now, napSince: 0, dreamSince: 0, fresh: true, busy: 0, busyAt: 0, noteAt: -Infinity }
+  return { mode: 'idle', queue: [], cur: STILL, until: now, idleSince: now, napSince: 0, dreamSince: 0, fresh: true, busy: 0, busyAt: 0, noteAt: -Infinity, saveAt: -Infinity }
 }
 
 /** A tool call that never said it ended stops holding him awake after this long. */
@@ -330,6 +332,7 @@ export function trigger(d: Director, ev: FoxEvent, now: number): boolean {
     d.busy += 1
     d.busyAt = now
   } else if (ev === 'busyEnd') d.busy = Math.max(0, d.busy - 1)
+  else if (ev === 'note') d.saveAt = now
   if (ev === 'dream') {
     if (d.mode === 'dream') return false
     d.queue = pose === 'asleep' ? [] : momentSteps(pose === 'lie' ? 'lieNapIn' : 'napIn')

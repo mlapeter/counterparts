@@ -564,13 +564,14 @@ export const SAVE_FRESH_MS = 2 * 60000;
 /**
  * Whether the status file's new rows hold a save for this session that the
  * fox has not written down yet (2026-10-20): a `gate.deposit` naming the
- * session, with `accepted` > 0, written after the last notepad began
- * (`after`) and within SAVE_FRESH_MS of `now`.
+ * session, with `accepted` > 0, written after the last save the fox heard
+ * (`after`, `Director.saveAt`) and within SAVE_FRESH_MS of `now`.
  *
  * Every deposit comes through the memory tools (`session_end`, `remember`),
- * and the `tool.call` hook writes on the notepad as the call returns, after
- * the call's rows were written: so those rows are older than `after`, and the
- * same save does not write twice. What is left is a save that hook did not
+ * and the `tool.call` hook hears the save as the call returns, after the
+ * call's rows were written: so those rows are older than `after`, and the
+ * same save does not write twice (a second call inside one notepad's run
+ * plays nothing more, and still moves `after`). What is left is a save that hook did not
  * see (a reload mid-call, an answer it could not read). A burst read in two
  * looks writes once: the first look's notepad is newer than the rest.
  */

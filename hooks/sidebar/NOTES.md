@@ -35,7 +35,7 @@ tries it in the rig.
   (2 / 5 min was floated). Not a setting.
 - **A save the status file shows writes on the notepad.** The poll plays
   `note` for a new `gate.deposit` naming this session with `accepted` > 0,
-  written after the last notepad began and under 2 min old
+  written after the last save the fox heard and under 2 min old
   (`feed.ts#savedSince`). The first look after the pane loads (or a reload)
   takes every row as known, so nothing old replays.
 - **One save, one notepad.** Measured on the live status file (10-20, read
@@ -46,9 +46,11 @@ tries it in the rig.
   hook already wrote on the notepad for those. So the poll's `note` is a
   safety net (a reload mid-call, an answer the hook could not read), and the
   memory tool's own note stays the one that plays, at once. They do not both
-  fire: the hook's note starts after the call returns, so the call's rows are
-  older than it and the poll passes them over. A burst inside one notepad's
-  run (`NOTE_SPAN_MS`, two of the moment) writes once, from either side.
+  fire: the hook hears the save after the call returns, so the call's rows
+  are older than it (`Director.saveAt`, moved by every save heard, even one
+  folded into a notepad already running) and the poll passes them over. A
+  burst inside one notepad's run (`NOTE_SPAN_MS`, two of the moment) writes
+  once, from either side.
 - So "almost never writes" was mostly that saves are rare (one write-up at a
   turn's end every 10 to 20 min), with the fox often asleep, or just woken
   from a nap by the stretch, when it came. The idle-clock fix helps that more

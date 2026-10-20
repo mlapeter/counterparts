@@ -1606,6 +1606,17 @@ test('a save the status file shows for this session writes on the notepad at the
   await w.clock.advance(30000)
   await settle(w)
   expect(notes()).toBe(2) // its rows, at the next look: no second notepad
+  // two memory calls a second apart (one message's batch): one notepad, and neither call's rows write another
+  await w.clock.advance(60000)
+  w.events.push(deposit(630, w.clock.now()))
+  await $.tool.call({ tool: 'mcp__counterparts__remember', title: 'First of a batch', text: 'x' } as never)
+  await w.clock.advance(1000)
+  w.events.push(deposit(631, w.clock.now()))
+  await $.tool.call({ tool: 'mcp__counterparts__remember', title: 'Second of a batch', text: 'y' } as never)
+  await settle(w)
+  await w.clock.advance(45000)
+  await settle(w)
+  expect(notes()).toBe(3)
   await ui.unmount()
 })
 
