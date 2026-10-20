@@ -13,20 +13,21 @@ Read-only on the owner's store: open it with `sqlite3 "file:$HOME/.counterparts/
 or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts doctor --config …`,
 `counterparts claims-era --dir …`). Anything heavier runs on a snapshot copy, never the live store.
 
-## Index (updated 2026-10-19)
+## Index (updated 2026-10-20)
 
 **Open: being built, or live and waiting for a check**
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
-| Feedback loop, upward (#525): graded use credit, drewOn as a full use, strong co-use links, light habituation; glimpses restart the fade clock | merged 10-19, unreleased | ~2 lived days after install | "Due ~2026-10-22 … Builder 1" below |
-| Feedback loop (#523): no footnotes from this session (echo), the dream replays the day, no footnotes in the nightly run's sessions | merged 10-19, unreleased | ~2 lived days after install | "Due ~2026-10-22 … Builder 2" below |
-| Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | merged 10-19, unreleased | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
-| Stemmed word index (cache v7) + everyday words weigh less in cues, ambient and facts | building 10-19 | ~10-22; revert by 11-02 | "Due ~2026-10-22" below; `docs/decisions.d/feat-stemming-everyday-words-1019.md` |
-| Context priming (#530, the downward direction): what the session used/wrote and the folder's open threads warm neighbours, along links and a centred train-of-thought vector; handoffs age 0.7/lived day | merged 10-19, unreleased | ~2 lived days after install: ratings of primed vs unprimed footnotes, tunnel vision | "Due ~2026-10-22 (context priming)" below |
-| Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | merged 10-19 (#528), unreleased | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
-| Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | merged 10-19 (#528), unreleased | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
-| Meaning computed in line whenever no fresh cue is ready (#521) | merged 10-19, unreleased | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
+| Feedback loop, upward (#525): graded use credit, drewOn as a full use, strong co-use links, light habituation; glimpses restart the fade clock | 0.3.27, 10-19 | ~2 lived days after install | "Due ~2026-10-22 … Builder 1" below |
+| Feedback loop (#523): no footnotes from this session (echo), the dream replays the day, no footnotes in the nightly run's sessions | 0.3.27, 10-19 | ~2 lived days after install | "Due ~2026-10-22 … Builder 2" below |
+| Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
+| Stemmed word index (cache v7) + everyday words weigh less in cues, ambient and facts | 0.3.27, 10-19 (#529) | ~10-22; revert by 11-02 | "Due ~2026-10-22" below; `docs/decisions.d/feat-stemming-everyday-words-1019.md` |
+| Context priming (#530, the downward direction): what the session used/wrote and the folder's open threads warm neighbours, along links and a centred train-of-thought vector; handoffs age 0.7/lived day | 0.3.27, 10-19 | ~2 lived days after install: ratings of primed vs unprimed footnotes, tunnel vision | "Due ~2026-10-22 (context priming)" below |
+| Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
+| Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | 0.3.27, 10-19 (#528) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
+| The reflection closes open threads that are plainly done (`closeNow`, a why each, said in the share; `reopen` undoes), and still asks about the unsure ones | merged 10-20, unreleased | ~10-24: how many it closed itself (`reflections.detail.selfClosed`, `reflection.finished`'s `selfClosed`) (any folder, by Mike's 10-20 exception) and how many it asked instead, confidential or reopened (`closeAskedInstead`), whether any was wrong (`detail.reopened`, `reflection.reopened`), how the wake's Still open count moves from 58; revert by putting back the 10-16 `close` line in the prompt | `docs/decisions.d/feat-reflection-closes-done-threads-1020.md` |
+| Meaning computed in line whenever no fresh cue is ready (#521) | 0.3.27, 10-19 | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
 | Wake without repeats (fix/wake-dedupe-1020): each episode once, no bare ids in Yesterday, ONE tag at the top, about-me line says its folder first, a plain reminder due tomorrow counted at a session start, every Coming up item with its own id, one snapshot a day | in review 10-20, unreleased | the first two mornings after install | "Due ~2 mornings after install (the wake without repeats)" below; `docs/decisions.d/fix-wake-dedupe-1020.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -38,7 +39,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Change | Why | When |
 |---|---|---|
 | Head wins: hold back a settled-over memory whenever its head was brought in for it (gate.ts ~L452) | 36 footnotes since 10-12 showed an earlier memory while its head didn't (21 ids) | done: #526 |
-| Slot detector: a proposal flags only, no provisional fade until the dream confirms | 4 of 7 right by hand-read, under the ~3-in-4 bar; the dream said "not the same" on 3 of 4; raising SLOT_COSINE doesn't separate them | in review 10-19 (`SLOT_FADE` 1), with the write-time links row above |
+| Slot detector: a proposal flags only, no provisional fade until the dream confirms | 4 of 7 right by hand-read, under the ~3-in-4 bar; the dream said "not the same" on 3 of 4; raising SLOT_COSINE doesn't separate them | done: #528 (`SLOT_FADE` 1), in 0.3.27 |
 
 **Checked** (kept below for the record): 10-12 first new-curve pass; 10-14 check-in; 10-18 wake trims, exit at 7
 vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost (1.75x the estimate, caps fine),

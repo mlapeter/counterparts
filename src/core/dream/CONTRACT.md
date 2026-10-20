@@ -461,8 +461,21 @@ dream having run.
     untouched for `STALE_OPEN_DAYS` (4) lived days (`staleOpen`, rotated like the
     unmarked offer). `finish`'s `close` may name the ones that look done; the share asks
     the owner, and the reflect tool's phase `close` clears the flag on the owner's yes.
-    **[M]** a proposal is only an id from that list, and `finish` closes nothing; `close`
-    closes only ids the reflection proposed, with `closeThread`'s checks.
+    Since 2026-10-20 (an experiment, decided with Mike): `finish`'s `closeNow` closes the
+    ones a memory plainly shows finished, each with a why (and ideally the memory that
+    shows it), kept on the memory (`threadClosedBy`) and the row (`detail.selfClosed`);
+    the share names them and says how to undo, and the reflect tool's phase `reopen` puts
+    one back on the owner's no, from the thread's id alone (the reflection is the one
+    `threadClosedBy` names), in any session. Asked and closed together keep to `STALE_OPEN` a night.
+    **[M]** a proposal or a self-close is only an id from that list; a self-close needs a
+    why, keeps `closeThread`'s checks, and lands only with the share that says it (none
+    once the share was told or carried); `close` closes only ids the reflection proposed,
+    and `reopen` reopens only ids it closed itself, both with `closeThread`'s checks; a
+    thread the owner reopened is never closed by a reflection again, only asked about,
+    and a confidential one is never self-closed, only asked about. A self-close and its
+    `reopen` reach a stale thread from any folder (Mike, 2026-10-20, a lightly held
+    exception to the night run's 10-02 stance); night write-ups and `close` keep the
+    folder check.
 - Guarantees: **[M]** at most one reflection a calendar day; **[M]** it can cite, feel or
   mark only what it was shown; **[M]** nothing under observer; **[M]** a reflection is
   not undone with its dream (it was lived); **[M]** what a dream or a reflection wrote

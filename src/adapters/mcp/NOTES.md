@@ -1670,3 +1670,45 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   proposed only; as a phase: the ids the owner said yes to). Shortened the summary and
   admission to keep `settle`'s claim inside the 2,048-character host cut;
   `description-cut.test.ts`'s recorded lengths moved with it.
+
+## 2026-10-20 — recall opens a dream's id and a reflection's
+
+- **Why.** The wake says "I dreamed … (drm_…)" and the morning share names its reflection,
+  but `recall` answered both ids `handle-unknown`, and the console's `dream` — the only
+  reader — also undoes, so a host's auto-mode check refused to run it for the session. The
+  owner and the session could not review last night together without him typing a command.
+- **Shape.** `deliberate.ts#expandHandle` branches on `nightKindOf` right after the chapter
+  address, so `ids` gets it through `expandIds` for free. The summary rides in
+  `DeliberateResult.nights`, not `memories`: `Recalled` is memory-shaped, and everything
+  that credits, marks seen or logs a title's resolution reads `memories`. `reason` stays
+  `expanded`; `resolvedIdOf` then finds no single memory and logs no resolution.
+- **Confidentiality.** The rule `cli/export.ts#restsOnConfidential` and the share's
+  `touchesConfidential` already drew: withheld whole from a stranger when anything it was
+  shown, changed or cited is confidential now. A gist is quoted only when short and not
+  confidential, in any session; the owner opens the id to read it.
+- **The console.** `counterparts night` is a separate command with no write (`dream`
+  keeps `--undo`); `ask --id drm_…` prints the night's lines rather than "nothing came".
+- **Review of #538.** A dream of hundreds of changes named 12 ids per kind but every gist,
+  so a night of 200 gists ran past the ceiling: gists are capped at 12 too, the rest counted
+  (`gistsMore`). Ten long reflections by id rode outside the by-id budget; nights now take
+  what the memories left and wait by id past it. A reflection's entry is the body of the
+  memory it became, so a confidential one is not quoted, the owner's session included (the
+  console's lines say `[confidential]`). The boundary also reads a gist's sources and a
+  reflection's closes. The `mcp.recall` row counts `nights` apart from `expanded`, so the
+  dashboard's narration of a night opened is not "nothing at that address"; `chars` stays the
+  memories' excerpt characters (0 for a nights-only answer — no reader keys on it). An open
+  under `counterparts night` moves no row, no WAL and no file but SQLite's `-shm` read
+  index, which any reader of a WAL database touches.
+
+## 2026-10-20 — reflect's `closeNow` and phase `reopen` (an experiment)
+
+- `reflect` gained `closeNow` on `finish` (ids from `staleOpen`, each `{id, why, shows?}`:
+  closed now, said in the share) and a phase `reopen` (ids that reflection closed itself,
+  on the owner's no). Both pass `server.scope`, as `close` does; since Mike's 10-20
+  exception neither makes the directory check. A confidential thread is never
+  self-closed (`closeNow` asks about it instead); a `reopen` of one from a session that is
+  not the owner's is refused `confidential`. Since review, `reopen` needs only the
+  thread's id (`reflection` is optional): the reflection is the one the memory's
+  `threadClosedBy` names. The summary and admission were worded short again to keep
+  `settle`'s claim inside the 2,048-character cut; `description-cut.test.ts`'s lengths
+  moved with it.

@@ -151,6 +151,8 @@ import {
   embedQuestion,
 } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
+import { NIGHTS_GLOSS } from "./nights.js";
+import type { NightSummary } from "./nights.js";
 import { factsRecall, renderFacts } from "./facts.js";
 import { meaningRecall, renderMeaning } from "./meaning.js";
 import {
@@ -2183,6 +2185,7 @@ export class McpServer {
         storeSize: result.storeSize,
         expanded: result.path === "handle" ? result.memories.length : 0,
         blockedBy: addressBlocked(result),
+        ...(Array.isArray(payload["nights"]) && payload["nights"].length > 0 ? { nights: payload["nights"].length } : {}),
       },
       askedIds.length,
       question,
@@ -2445,6 +2448,9 @@ export class McpServer {
         // expansion answered an address, a question's answer showed results.
         surfaced: byAddress ? 0 : shown,
         expanded: byAddress ? row.expanded : 0,
+        // A night opened by its id (review of #538): counted apart, so a row
+        // that opened a dream does not read as an address that held nothing.
+        ...(row.nights === undefined ? {} : { nights: row.nights }),
         ...(row.matched === undefined ? {} : { matched: row.matched }),
         ...(row.faded === undefined ? {} : { faded: row.faded }),
         ...(row.page === undefined ? {} : { page: row.page }),
@@ -2560,6 +2566,24 @@ export class McpServer {
     // past the total waiting by name.
     const bounded = boundById(result.memories, part);
     const lastPart = Math.max(1, ...bounded.memories.map((m) => m.parts ?? 1));
+    // NIGHTS SHARE THE SAME ROOM (review of #538): a summary is bounded on its
+    // own (`nights.ts`'s caps), but ten of them beside the memories could
+    // still pass the ceiling. They take what the memories left, weighed the
+    // way `boundById` weighs, and a night past it WAITS by id like a memory.
+    let wire = bounded.memories.reduce((n, m) => n + 2 * wireChars(JSON.stringify(m, null, 2)), 0);
+    const nights: NightSummary[] = [];
+    const nightsWaiting: string[] = [];
+    for (const n of result.nights ?? []) {
+      const cost = 2 * wireChars(JSON.stringify(n, null, 2));
+      const shipped = bounded.memories.length + nights.length > 0;
+      if (nightsWaiting.length > 0 || (shipped && wire + cost > RECALL_ID_RESULT_CHARS)) {
+        nightsWaiting.push(n.id);
+        continue;
+      }
+      wire += cost;
+      nights.push(n);
+    }
+    const waiting = [...(bounded.waiting ?? []), ...nightsWaiting];
     return {
       path: result.path,
       reason: result.reason,
@@ -2574,10 +2598,10 @@ export class McpServer {
             budget: `By id, a body comes in parts of ${RECALL_BODY_CHARS} characters ("part" of "parts" on each; bodyChars is the whole length).${part < lastPart ? ` Ask again with the same ids and part: ${String(part + 1)} for the next.` : " That was the last part."}`,
           }
         : {}),
-      ...(bounded.waiting !== undefined
+      ...(waiting.length > 0
         ? {
-            waiting: [...bounded.waiting],
-            more: `No room for ${String(bounded.waiting.length)} of the ids in one result: ask again with ids: [${bounded.waiting.join(", ")}].`,
+            waiting,
+            more: `No room for ${String(waiting.length)} of the ids in one result: ask again with ids: [${waiting.join(", ")}].`,
           }
         : {}),
       ...(result.ambiguous.length > 0 ? { ambiguous: [...result.ambiguous] } : {}),
@@ -2588,9 +2612,17 @@ export class McpServer {
       ...(result.reason === "handle-confidential-withheld"
         ? {
             withheld:
-              "That memory is marked confidential and this is not the owner's own session. It exists; it is not being shown.",
+              result.nightAsked !== undefined
+                ? `That ${result.nightAsked} rests on a memory marked confidential, and this is not the owner's own session. It exists; it is not being shown.`
+                : "That memory is marked confidential and this is not the owner's own session. It exists; it is not being shown.",
           }
         : {}),
+      ...(result.reason === "handle-unknown" && result.nightAsked !== undefined
+        ? { notFound: `No ${result.nightAsked} by that id in this memory. The console's read-only \`counterparts night\` lists the recent ones.` }
+        : {}),
+      // A NIGHT asked for by its id (2026-10-20, `nights.ts`): a read-only
+      // summary beside the memories. Opening one credits nothing.
+      ...(nights.length > 0 ? { nights: nights.map((n) => ({ ...n })), nightsGloss: NIGHTS_GLOSS } : {}),
       ...(result.reason === "both-arguments"
         ? { refused: "One kind of ask per call: a question (with a mode), ids, or a handle." }
         : {}),
