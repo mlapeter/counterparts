@@ -108,7 +108,7 @@ export function weighCore(store: ReadsCoreStanding, row: Pick<MemoryRow, "id" | 
 
 export type CoreDecisionActor = "owner" | "self" | "reflection";
 
-export type CoreDecision = { ok: true; reason: "kept" | "demoted" | "restored" } | { ok: false; reason: "observer" | "reason-required" | "unknown-id" | "not-core" };
+export type CoreDecision = { ok: true; reason: "kept" | "demoted" | "restored" | "confirmed" } | { ok: false; reason: "observer" | "reason-required" | "unknown-id" | "not-core" };
 
 /**
  * Did a REFLECTION retire this memory, as its latest word on the core (a
@@ -139,7 +139,9 @@ export function retiredByReflection(store: Pick<Store, "coreEvents">, id: string
  * core is a reflection's retire puts it back (`restored`): promoted again (a
  * `promoted` row by that actor, no lane), then the keep itself, so it is not
  * flagged again for what it is. The morning share names this as the undo. A
- * retire by the owner or by me awake stays sticky, as before.
+ * retire by the owner or by me awake stays sticky for me (a session), as
+ * before; THE OWNER may restore any retired memory (review of #542, the
+ * coordinator's ruling: his word outranks every retire, his own included).
  */
 export function keepCore(store: Store, input: { id: string; why: string; actor: CoreDecisionActor; day?: number; dreamId?: string | null }): CoreDecision {
   if (store.observer) return { ok: false, reason: "observer" };
@@ -149,7 +151,8 @@ export function keepCore(store: Store, input: { id: string; why: string; actor: 
   if (row === undefined) return { ok: false, reason: "unknown-id" };
   const day = input.day ?? store.livedDay();
   if (row.promoted_identity !== 1) {
-    if (input.actor === "reflection" || row.archived !== 0 || !retiredByReflection(store, input.id)) return { ok: false, reason: "not-core" };
+    const restorable = input.actor === "owner" ? store.coreDemoted(input.id) : input.actor === "self" && retiredByReflection(store, input.id);
+    if (!restorable || row.archived !== 0) return { ok: false, reason: "not-core" };
     store.appendCoreEvent({ memoryId: input.id, action: "promoted", day, lane: "restored", reason: `restored: ${why}`, actor: input.actor });
     store.updatePhysics(input.id, { promotedIdentity: true });
     store.setBand(input.id, band(store.physicsOf(input.id), day), day);
@@ -170,6 +173,12 @@ export function keepCore(store: Store, input: { id: string; why: string; actor: 
  * demotion is sticky: the core lanes do not promote it again (`coreDemoted`).
  * The row says who and why; a `band.demoted` event is the durable crossing
  * record, the mirror of `band.promoted`.
+ *
+ * CONFIRMING A REFLECTION'S RETIRE (review of #542): the owner's or a
+ * session's retire of a memory a reflection already retired is recorded as
+ * that actor's own (`confirmed`: a `demoted` row, nothing else moves — it
+ * already fades). Then it is no longer a reflection's retire, so a session's
+ * keep cannot restore it; only the owner's can.
  */
 export function retireCore(store: Store, input: { id: string; reason: string; actor: CoreDecisionActor; day?: number; dreamId?: string | null }): CoreDecision {
   if (store.observer) return { ok: false, reason: "observer" };
@@ -177,8 +186,13 @@ export function retireCore(store: Store, input: { id: string; reason: string; ac
   if (reason.length === 0) return { ok: false, reason: "reason-required" };
   const row = store.row(input.id);
   if (row === undefined) return { ok: false, reason: "unknown-id" };
-  if (row.promoted_identity !== 1) return { ok: false, reason: "not-core" };
   const day = input.day ?? store.livedDay();
+  if (row.promoted_identity !== 1) {
+    if (input.actor === "reflection" || !retiredByReflection(store, input.id)) return { ok: false, reason: "not-core" };
+    store.appendCoreEvent({ memoryId: input.id, action: "demoted", day, reason, actor: input.actor, dreamId: input.dreamId ?? null });
+    store.appendEvent({ name: "band.core.confirmed", day, ref: input.id, payload: { day, actor: input.actor } });
+    return { ok: true, reason: "confirmed" };
+  }
   store.appendCoreEvent({ memoryId: input.id, action: "demoted", day, reason, actor: input.actor, dreamId: input.dreamId ?? null });
   store.updatePhysics(input.id, { promotedIdentity: false, lastUsedDay: Math.max(row.last_used_day, day) });
   const after = store.physicsOf(input.id);

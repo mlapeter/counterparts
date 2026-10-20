@@ -501,7 +501,9 @@ dream having run.
     from a retire** is an awake keep (`remember`'s core keep, or `counterparts core
     --reaffirm`): `sleep/core-standing.ts#keepCore` restores a memory whose latest word on
     the core is a reflection's retire (`restored`); a retire by the owner or by me awake
-    stays sticky. **[M]** a reflection may not restore. Doctor's Reflection line counts the
+    stays sticky for me, and one made on top of a reflection's (`confirmed`) counts as
+    theirs; the owner's keep restores any retire (review of #542). **[M]** a reflection may
+    not restore. Doctor's Reflection line counts the
     core memories that have waited.
 - Guarantees: **[M]** at most one reflection a calendar day; **[M]** it can cite, feel or
   mark only what it was shown; **[M]** nothing under observer; **[M]** a reflection is

@@ -842,6 +842,11 @@ the live ~52):
   `reaffirmed` keep so it is not flagged again for what it is; `band.core.restored` is the
   event (not `band.promoted`, so doctor's "became core on reflection alone" does not count
   it). A reflection may not restore; a retire by the owner or by me awake stays sticky.
+  Review of #542 (the coordinator's ruling, protecting Mike's word): the owner's or a
+  session's retire on top of a reflection's is recorded as theirs (`retireCore` →
+  `confirmed`, a `demoted` row, physics untouched), so a session's keep can no longer
+  restore it; the owner's keep restores any retired memory. `core --list` lists each
+  retired memory once, by its latest retire, and not one restored since.
 - Recorded on the row: `detail.coreOffered`, `detail.coreDecided` ({id, decision, why}),
   `counts.coreOffered`/`coreKept`/`coreRetired` (also on `reflection.finished`). Doctor's
   Reflection line says how many have waited 7+ lived days (`coreWaited`).

@@ -272,10 +272,60 @@ describe("2. the way back from a reflection's retire", () => {
     expect(c.store.row(a)?.band).toBe("identity");
     expect(c.store.coreDemoted(a)).toBe(false);
     expect(c.store.coreStanding(a)).toMatchObject({ action: "reaffirmed", actor: "owner" });
-    expect(coreListLines(c).find((l) => l.includes(a))).toContain("restored after a reflection retired it");
-    // The owner's own retire is not undone by a keep.
+    expect(coreListLines(c).find((l) => l.includes(a))).toContain("restored after it was retired");
+    // Listed once, in the core — not also under "Sent back" (review of #542).
+    expect(coreListLines(c).filter((l) => l.includes(a)).length).toBe(1);
+    // The owner's own retire is not undone by a session's keep.
     expect(c.demoteCore(b, { reason: "Not who I am.", actor: "owner" }).ok).toBe(true);
     expect(c.keepCore(b, { why: "changed my mind", actor: "self" })).toEqual({ ok: false, reason: "not-core" });
+  });
+
+  test("the owner confirms a reflection's retire: a session's keep is refused, the owner's still restores (review of #542)", () => {
+    const c = brain();
+    nextDay(c);
+    const a = mem(c, "Mike hums while he solders.", { kind: "person", about: "owner" });
+    makeCore(c, a);
+    flag(c, a, SLEEP.CORE_WAITING_DAYS);
+    const begun = begin(c);
+    const done = c.reflections.finish({ reflection: begun.bundle.reflection, session: "s-r", entry: "One waited.", cites: [], core: [{ id: a, decision: "retire", why: "A habit of his, not of us." }] });
+    if (!done.ok) throw new Error(done.reason);
+    const before = c.store.physicsOf(a);
+    // Mike agrees: his retire on top of the reflection's is recorded as his.
+    expect(c.demoteCore(a, { reason: "Right, it is not us.", actor: "owner" })).toEqual({ ok: true, reason: "confirmed" });
+    expect(c.store.coreEvents({ memoryId: a, action: "demoted", limit: 1 })[0]).toMatchObject({ actor: "owner", reason: "Right, it is not us." });
+    // Nothing else moves: it was already fading.
+    expect(c.store.physicsOf(a)).toEqual(before);
+    // No session can put it back now...
+    expect(c.keepCore(a, { why: "I think it is us.", actor: "self" })).toEqual({ ok: false, reason: "not-core" });
+    expect(c.store.physicsOf(a).promotedIdentity).toBe(false);
+    // Listed once under "Sent back", with his reason.
+    const lines = coreListLines(c).filter((l) => l.includes(a));
+    expect(lines.length).toBe(1);
+    expect(lines[0]).toContain("Right, it is not us.");
+    // The owner still can.
+    expect(c.keepCore(a, { why: "Changed my mind.", actor: "owner" })).toEqual({ ok: true, reason: "restored" });
+    expect(c.store.physicsOf(a).promotedIdentity).toBe(true);
+  });
+
+  test("a session's retire on top of a reflection's is the session's: sticky for sessions, the owner may restore", () => {
+    const c = brain();
+    nextDay(c);
+    const a = mem(c, "Mike's old car.", { kind: "person", about: "owner" });
+    const b = mem(c, "Mike's old bike.", { kind: "person", about: "owner" });
+    makeCore(c, a);
+    makeCore(c, b);
+    flag(c, a, SLEEP.CORE_WAITING_DAYS);
+    const begun = begin(c);
+    const done = c.reflections.finish({ reflection: begun.bundle.reflection, session: "s-r", entry: "One waited.", cites: [], core: [{ id: a, decision: "retire", why: "Not who I am." }] });
+    if (!done.ok) throw new Error(done.reason);
+    expect(c.demoteCore(a, { reason: "Agreed, not me.", actor: "self" })).toEqual({ ok: true, reason: "confirmed" });
+    expect(c.keepCore(a, { why: "Back.", actor: "self" })).toEqual({ ok: false, reason: "not-core" });
+    expect(c.keepCore(a, { why: "Mine, back.", actor: "owner" })).toEqual({ ok: true, reason: "restored" });
+    // A retire on a memory that is not core and no reflection retired is still refused.
+    expect(c.demoteCore(b, { reason: "Not me.", actor: "owner" }).ok).toBe(true);
+    expect(c.demoteCore(b, { reason: "Again.", actor: "owner" })).toEqual({ ok: false, reason: "not-core" });
+    // The owner's keep restores the owner's own retire too.
+    expect(c.keepCore(b, { why: "It is me after all.", actor: "owner" })).toEqual({ ok: true, reason: "restored" });
   });
 });
 

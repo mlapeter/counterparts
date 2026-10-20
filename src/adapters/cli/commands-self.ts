@@ -414,7 +414,7 @@ export function coreCommand(dir: string, io: Io, parsed: Parsed, observer: boole
         io.err(`refused: ${why[out.reason] ?? out.reason}. Nothing was changed.`);
         return EXIT.refused;
       }
-      io.out(out.reason === "restored" ? `Put ${keep} back in the core: a reflection had retired it.` : `Kept ${keep} in the core.`);
+      io.out(out.reason === "restored" ? `Put ${keep} back in the core: it had been retired.` : `Kept ${keep} in the core.`);
       io.out(`  Why, as recorded: ${reason.trim()}`);
       io.out("  It is no longer being reconsidered, and it is not flagged again for what it is — only if it stops coming back.");
       return EXIT.ok;
@@ -439,6 +439,12 @@ export function coreCommand(dir: string, io: Io, parsed: Parsed, observer: boole
         };
         io.err(`refused: ${why[out.reason] ?? out.reason}. Nothing was changed.`);
         return EXIT.refused;
+      }
+      if (out.reason === "confirmed") {
+        io.out(`A reflection had already retired ${demote}; it is now recorded as your retire.`);
+        io.out(`  Why, as recorded: ${reason.trim()}`);
+        io.out("  It keeps fading, and no session can put it back in the core — only you can (counterparts core --reaffirm).");
+        return EXIT.ok;
       }
       io.out(`Sent ${demote} back to ordinary fading, from today.`);
       io.out(`  Why, as recorded: ${reason.trim()}`);
