@@ -41,7 +41,7 @@
  */
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 // bun:sqlite only: the harness is a dev tool run with bun (`tools/harness/README.md`).
 import { Database } from "bun:sqlite";
@@ -115,6 +115,8 @@ export interface SettleAct {
 export interface MergeAct {
   readonly kind: "merge";
   readonly id: string;
+  /** The memory it was merged into, when that one is replayed too: the merge carries returns into it, as live's does. */
+  readonly into: string | null;
 }
 
 export type Act = BirthAct | AboutAct | FeelingAct | UseAct | NightReturnAct | SettleAct | MergeAct;
@@ -135,7 +137,7 @@ export interface RecordedOutcome {
   /** Promotions into the core: id, lived day, lane. */
   readonly promotions: readonly { id: string; day: number; lane: string | null }[];
   /** Awake-class returns (source, day) per id. */
-  readonly awakeReturns: readonly { id: string; day: number; source: string }[];
+  readonly awakeReturns: readonly { id: string; day: number; source: string; weight: number }[];
   readonly archived: ReadonlySet<string>;
 }
 
@@ -150,6 +152,8 @@ export interface SourceGaps {
   readonly bodiesFromCurrentRow: number;
   /** Merges with no version day to date them (left alive). */
   readonly mergesUndated: number;
+  /** Lived days with no sleep-cycle row to date them, dated by what was learned on them or as the day after. */
+  readonly daysDatedByFallback: number;
 }
 
 export interface Extracted {
@@ -180,10 +184,27 @@ export function liveRoot(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export function underLiveRoot(path: string, env: NodeJS.ProcessEnv = process.env): boolean {
-  const root = liveRoot(env);
-  const real = existsSync(path) ? realpathSync(path) : resolve(path);
-  const realRoot = existsSync(root) ? realpathSync(root) : root;
+  const real = realish(path);
+  const realRoot = realish(liveRoot(env));
   return real === realRoot || real.startsWith(realRoot + "/");
+}
+
+/**
+ * A path with its symlinks resolved, including one that does not exist yet:
+ * the nearest existing ancestor is resolved and the rest appended, so a
+ * folder about to be made is compared where it would land (macOS's `/var` is
+ * `/private/var`).
+ */
+function realish(path: string): string {
+  let head = resolve(path);
+  const tail: string[] = [];
+  while (!existsSync(head)) {
+    const up = dirname(head);
+    if (up === head) break;
+    tail.unshift(basename(head));
+    head = up;
+  }
+  return join(existsSync(head) ? realpathSync(head) : head, ...tail);
 }
 
 /** The awake-class return sources: the ones a session's own use earns. */
@@ -207,6 +228,10 @@ const RETURN_TIER: Record<string, UseTier> = {
 };
 
 type Row = Record<string, unknown>;
+
+function nextDate(date: string): string {
+  return new Date(Date.parse(`${date}T12:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+}
 
 function num(v: unknown): number {
   return typeof v === "number" ? v : Number(v);
@@ -277,10 +302,13 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
   }
   const eventsFrom = num((db.query("SELECT MIN(day) AS d FROM events").get() as Row)["d"] ?? 0);
 
-  const acts = new Map<number, Act[]>();
-  const push = (day: number, act: Act): void => {
+  // Each act carries the instant the record gave it, so a day's acts replay in
+  // the order live had them (a dream's returns land between that day's uses,
+  // and which of two same-day returns counts depends on which came first).
+  const acts = new Map<number, { act: Act; at: number }[]>();
+  const push = (day: number, act: Act, at: unknown): void => {
     const list = acts.get(day) ?? [];
-    list.push(act);
+    list.push({ act, at: typeof at === "number" ? at : Number(at ?? 0) || 0 });
     acts.set(day, list);
   };
 
@@ -289,11 +317,13 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
   let usesBeforeBirth = 0;
   let mergesUndated = 0;
   let creditIdsCut = 0;
+  let daysDatedByFallback = 0;
 
   // BIRTHS. Memories only (`REPLAYED`): episodes, places and the episodes'
   // chapter copies are the night's and the adapter's, with their own regrow /
   // clear lifecycle (run 2, if the promotion diff asks for them).
   const born = new Map<string, number>();
+  const bornAt = new Map<string, number>();
   const firstVersion = db.query("SELECT title, body FROM versions WHERE memory_id = ? ORDER BY seq ASC LIMIT 1");
   const firstAbout = db.query("SELECT reason FROM core_events WHERE memory_id = ? AND action = 'about' ORDER BY seq ASC LIMIT 1");
   const memRows = db
@@ -307,12 +337,15 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
     const id = String(r["id"]);
     const day = num(r["birth_day"]);
     born.set(id, day);
+    if (r["created_at"] !== null) bornAt.set(id, num(r["created_at"]));
     const v = firstVersion.get(id) as Row | null;
     if (v === null && num(r["revision"]) > 0) bodiesFromCurrentRow += 1;
     const fa = firstAbout.get(id) as Row | null;
     const parsed = fa === null ? null : parseAboutReason(String(fa["reason"]));
     const about = parsed === null ? str(r["about"]) : parsed.was === "unmarked" ? null : parsed.was;
-    push(day, {
+    push(
+      day,
+      {
       kind: "birth",
       id,
       memKind: String(r["kind"]),
@@ -330,7 +363,9 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
       session: str(r["origin_session"]),
       learnedOn: String(r["learned_on"]),
       createdAt: r["created_at"] === null ? null : num(r["created_at"]),
-    });
+      },
+      r["created_at"],
+    );
   }
 
   const known = (id: string): boolean => born.has(id);
@@ -348,7 +383,7 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
   };
 
   // ABOUT-MARKS, after birth on their day.
-  for (const r of db.query("SELECT memory_id, day, reason, actor FROM core_events WHERE action = 'about' ORDER BY seq").all() as Row[]) {
+  for (const r of db.query("SELECT memory_id, day, at, reason, actor FROM core_events WHERE action = 'about' ORDER BY seq").all() as Row[]) {
     const id = String(r["memory_id"]);
     const parsed = parseAboutReason(String(r["reason"] ?? ""));
     if (parsed === null) continue;
@@ -356,7 +391,7 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
       actsOnUnknownIds += 1;
       continue;
     }
-    push(Math.max(num(r["day"]), born.get(id)!), { kind: "about", id, mark: parsed.mark, by: str(r["actor"]) ?? "session" });
+    push(Math.max(num(r["day"]), born.get(id)!), { kind: "about", id, mark: parsed.mark, by: str(r["actor"]) ?? "writer" }, r["at"]);
   }
 
   // FEELINGS, on the day they were recorded.
@@ -384,21 +419,21 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
       source: str(r["source"]),
       recordedLater: str(r["recorded_later"]),
       createdAt: num(r["created_at"]),
-    });
+    }, r["created_at"]);
   }
 
   // USES. Pinned awake returns first on their day when asked, so a derived
   // credit the same day lands as the same day's (physics refuses a second).
   if (returnsMode === "recorded") {
     const marks = AWAKE_RETURN_SOURCES.map(() => "?").join(",");
-    for (const r of db.query(`SELECT memory_id, day, source, session FROM returns WHERE source IN (${marks}) ORDER BY at`).all(...AWAKE_RETURN_SOURCES) as Row[]) {
+    for (const r of db.query(`SELECT memory_id, day, source, session, at FROM returns WHERE source IN (${marks}) ORDER BY at`).all(...AWAKE_RETURN_SOURCES) as Row[]) {
       const id = String(r["memory_id"]);
       const day = num(r["day"]);
       if (!usable(id, day)) continue;
-      push(day, { kind: "use", id, tier: RETURN_TIER[String(r["source"])] ?? "referenced", cued: true, session: str(r["session"]), from: "return" });
+      push(day, { kind: "use", id, tier: RETURN_TIER[String(r["source"])] ?? "referenced", cued: true, session: str(r["session"]), from: "return" }, r["at"]);
     }
   }
-  for (const r of db.query("SELECT day, payload FROM events WHERE name IN ('recall.credit', 'recall.rated') ORDER BY seq").all() as Row[]) {
+  for (const r of db.query("SELECT day, at, payload FROM events WHERE name IN ('recall.credit', 'recall.rated') ORDER BY seq").all() as Row[]) {
     const p = parse(r["payload"]);
     const day = num(p["day"] ?? r["day"]);
     const session = str(p["session"]);
@@ -407,7 +442,7 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
         const id = str(x["id"]);
         const tier = RATED_TIER[num(x["score"])];
         if (id === null || tier === undefined || !usable(id, day)) continue;
-        push(day, { kind: "use", id, tier, cued: false, session, from: "rated" });
+        push(day, { kind: "use", id, tier, cued: false, session, from: "rated" }, r["at"]);
       }
       continue;
     }
@@ -415,27 +450,27 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
     const list = ids(p["ids"]);
     creditIdsCut += Math.max(0, num(p["idsTotal"] ?? list.length) - list.length);
     if (p["source"] === "drewOn") {
-      for (const id of list) if (usable(id, day)) push(day, { kind: "use", id, tier: "engaged", cued: false, session, from: "drewOn" });
+      for (const id of list) if (usable(id, day)) push(day, { kind: "use", id, tier: "engaged", cued: false, session, from: "drewOn" }, r["at"]);
       continue;
     }
     const expanded = new Set(ids(p["expandedIds"]));
     for (const id of list) {
       if (!usable(id, day)) continue;
       // Quoted is cued, as live (`counterpart.ts#creditReferences`); expanded lets the display decide.
-      push(day, { kind: "use", id, tier: "referenced", cued: !expanded.has(id), session, from: "credit" });
+      push(day, { kind: "use", id, tier: "referenced", cued: !expanded.has(id), session, from: "credit" }, r["at"]);
     }
   }
 
   // NIGHT RETURNS: the dream's replays and the reflection's citations.
-  for (const r of db.query("SELECT memory_id, day, source, dream_id, session FROM returns WHERE source IN ('dream', 'reflection') ORDER BY at").all() as Row[]) {
+  for (const r of db.query("SELECT memory_id, day, source, dream_id, session, at FROM returns WHERE source IN ('dream', 'reflection') ORDER BY at").all() as Row[]) {
     const id = String(r["memory_id"]);
     const day = num(r["day"]);
     if (!usable(id, day)) continue;
-    push(day, { kind: "night-return", id, source: r["source"] === "dream" ? "dream" : "reflection", dreamId: str(r["dream_id"]), session: str(r["session"]) });
+    push(day, { kind: "night-return", id, source: r["source"] === "dream" ? "dream" : "reflection", dreamId: str(r["dream_id"]), session: str(r["session"]) }, r["at"]);
   }
 
   // SETTLES, on their day, with the actor that settled them.
-  const actorOf = db.query("SELECT actor, actor_id FROM contradiction_settles WHERE pair_id = ? AND action = 'settled' ORDER BY seq DESC LIMIT 1");
+  const actorOf = db.query("SELECT actor, actor_id, at FROM contradiction_settles WHERE pair_id = ? AND action = 'settled' ORDER BY seq DESC LIMIT 1");
   for (const r of db.query("SELECT id, how, holds, over, settled_day FROM contradictions WHERE state = 'settled' ORDER BY settled_day, created_at").all() as Row[]) {
     const holds = str(r["holds"]);
     const over = str(r["over"]);
@@ -447,19 +482,22 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
     }
     const a = actorOf.get(String(r["id"])) as Row | null;
     const day = Math.max(num(r["settled_day"]), born.get(holds)!, born.get(over)!);
-    push(day, { kind: "settle", pair: String(r["id"]), how, holds, over, actor: str(a?.["actor"]) ?? "session", actorId: str(a?.["actor_id"]) });
+    push(day, { kind: "settle", pair: String(r["id"]), how, holds, over, actor: str(a?.["actor"]) ?? "session", actorId: str(a?.["actor_id"]) }, a?.["at"]);
   }
 
   // MERGES: what a dream folded into a new memory leaves on the merge's day.
-  const mergeDay = db.query("SELECT MIN(version_day) AS d FROM versions WHERE memory_id = ? AND reason = 'dream-merge'");
+  const mergeDay = db.query(
+    "SELECT version_day AS d, archived_at AS at, successor_id AS succ FROM versions WHERE memory_id = ? AND reason = 'dream-merge' ORDER BY seq LIMIT 1",
+  );
   for (const r of db.query(`SELECT id FROM memories WHERE ${REPLAYED} AND archived = 1 AND archived_reason = 'dream-merge'`).all() as Row[]) {
     const id = String(r["id"]);
-    const d = (mergeDay.get(id) as Row | null)?.["d"];
-    if (d === null || d === undefined) {
+    const v = mergeDay.get(id) as Row | null;
+    if (v === null || v["d"] === null) {
       mergesUndated += 1;
       continue;
     }
-    push(Math.max(num(d), born.get(id)!), { kind: "merge", id });
+    const into = str(v["succ"]);
+    push(Math.max(num(v["d"]), born.get(id)!), { kind: "merge", id, into: into !== null && known(into) ? into : null }, v["at"]);
   }
 
   // FEED ORDER inside a day: births, marks, feelings, uses, night returns,
@@ -467,18 +505,37 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
   const order: Record<Act["kind"], number> = { birth: 0, about: 1, feeling: 2, use: 3, "night-return": 4, settle: 5, merge: 6 };
   const lastDay = Math.max(livedDay, ...acts.keys());
   const days: RecordedDay[] = [];
+  const learnedOn = db.query("SELECT MIN(learned_on) AS d FROM memories WHERE birth_day = ? AND learned_on <> ''");
+  let prevDate = "";
   for (let d = 0; d <= lastDay; d++) {
-    const date = dateOf.get(d);
-    if (date === undefined) throw new SourceError("SOURCE_DAY_UNDATED", `lived day ${String(d)} has no sleep cycle to date it`);
-    const list = (acts.get(d) ?? []).map((a, i) => ({ a, i }));
-    list.sort((x, y) => order[x.a.kind] - order[y.a.kind] || x.i - y.i);
+    // A day whose sleep cycle row is gone (pruned past retention, or an
+    // append that failed) is dated by what was learned on it, else as the day
+    // after the one before: lived days only need to be in order.
+    let date = dateOf.get(d);
+    if (date === undefined) {
+      daysDatedByFallback += 1;
+      const learned = str((learnedOn.get(d) as Row | null)?.["d"]);
+      date = learned !== null && learned > prevDate ? learned : nextDate(prevDate === "" ? created : prevDate);
+    }
+    if (prevDate !== "" && date < prevDate) throw new SourceError("SOURCE_DAYS_OUT_OF_ORDER", `lived day ${String(d)} is dated ${date}, before ${prevDate}`);
+    prevDate = date;
+    // By recorded instant; an act never before its memory's birth (a clamped
+    // instant ties, and the kind order puts the birth first); the kind order
+    // also settles acts the record gave no instant.
+    const list = (acts.get(d) ?? []).map((x, i) => {
+      const ids = x.act.kind === "birth" ? [] : x.act.kind === "settle" ? [x.act.holds, x.act.over] : [x.act.id];
+      if (x.act.kind === "merge" && x.act.into !== null) ids.push(x.act.into);
+      const at = Math.max(x.at, ...ids.map((id) => bornAt.get(id) ?? 0));
+      return { a: x.act, at, i };
+    });
+    list.sort((x, y) => x.at - y.at || order[x.a.kind] - order[y.a.kind] || x.i - y.i);
     days.push({ day: d, date, acts: list.map((x) => x.a) });
   }
 
   return {
     days,
     outcome: readOutcome(db),
-    gaps: { creditIdsCut, actsOnUnknownIds, usesBeforeBirth, bodiesFromCurrentRow, mergesUndated },
+    gaps: { creditIdsCut, actsOnUnknownIds, usesBeforeBirth, bodiesFromCurrentRow, mergesUndated, daysDatedByFallback },
     schemaVersion,
     livedDay,
     eventsFrom,
@@ -513,10 +570,11 @@ function readOutcome(db: Database): RecordedOutcome {
     lane: str(r["lane"]),
   }));
   const marks = AWAKE_RETURN_SOURCES.map(() => "?").join(",");
-  const awakeReturns = (db.query(`SELECT memory_id, day, source FROM returns WHERE source IN (${marks}) ORDER BY at`).all(...AWAKE_RETURN_SOURCES) as Row[]).map((r) => ({
+  const awakeReturns = (db.query(`SELECT memory_id, day, source, weight FROM returns WHERE source IN (${marks}) ORDER BY at`).all(...AWAKE_RETURN_SOURCES) as Row[]).map((r) => ({
     id: String(r["memory_id"]),
     day: num(r["day"]),
     source: String(r["source"]),
+    weight: num(r["weight"]),
   }));
   return { uses, bands, promotions, awakeReturns, archived };
 }

@@ -2,8 +2,10 @@
 
 A second host for Counterparts: it feeds a stream of lived days into a fresh temp store and
 measures what the memory physics makes of them. It's never shipped: `package.json#files`
-publishes `src/` and `tools/install-loop/` only. It imports only the package's public seams
-(`test/harness-imports.test.ts`), so it also checks that those seams are enough to build a host on.
+publishes `src/` and `tools/install-loop/` only. It drives the store only through the
+package's public seams (`test/harness-imports.test.ts`), so it also checks that those seams
+are enough to build a host on. It *reads* stores (the source, and afterwards its own replay)
+with plain SQL, as a measuring instrument.
 
 Step 1 of the 2026-10-20 plan (lane 1) is **physics-only replay**. Steps 2–4 (the seat
 interface, a model in the seat, a scripted new owner) build on it.
@@ -28,9 +30,11 @@ On a 29-day, 2,000-memory record a run takes about 15 seconds.
 ## What it does
 
 The harness starts from day 0 with an empty store. For each lived day, in the order live had
-it, it first runs the boundary: `sessionEnd({date})` with the sweep skipped by name, as the night
-worker does. If a phase reports its budget spent, it runs the boundary again on the same date,
-as live's many daily boundaries did. Then it lands that day's recorded acts.
+it, it first runs one boundary: `sessionEnd({date})` with the sweep skipped by name, as the night
+worker does. Live ran many boundaries a day, but a once-a-day phase marks its day done even when
+its budget runs out, and its cursor resumes the next day, so the rest ran only the clock. The run
+record names any phase whose budget ran out. Then the day's recorded acts land, in the order of
+their recorded instants, and never before the birth of a memory they touch.
 
 | Act | Read from | Applied with |
 |---|---|---|
@@ -56,9 +60,18 @@ and the band census.
 - What was shown per turn and how many candidates it was shown against. The record doesn't
   keep it, so a "return weighted by the pool" test needs the model-in-seat mode, or a store
   change batched with wave 2.
-- Rules that changed mid-record. The replay applies *today's* rules to the recorded acts.
-  Where the record's outputs differ, that difference is partly the rule change itself (for
-  example, ratings counting as use since 0.3.27).
+- Rules that changed mid-record. The replay applies *today's* rules to the recorded acts, so
+  some divergence is the rule change itself. The fidelity block splits returns by source to
+  show it: ratings count as use since 0.3.27 (ontopic returns), drewOn is a full use, and
+  promotions made under the pre-10-11 lanes aren't reproduced.
+- Two more uses the record can't pin down exactly. Every quoted use counts as cued, but live
+  cued only a memory recall surfaced loud on that same turn, so the replay's count is an upper
+  bound. Shown-tier credits from unrated showings write no per-memory row, so they aren't in
+  the replay.
+- Merges as they were before 10-11: the original's returns and mark go to the merged memory,
+  and the original is archived. A merge since then is a settle, and it replays as one.
+- A lived day whose sleep-cycle row is gone gets a date from what was learned on it, or else
+  the day after the previous day. The record counts these days.
 
 ## Safety
 

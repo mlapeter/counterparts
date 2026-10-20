@@ -7,7 +7,8 @@
  * `tools/install-loop/`.)
  */
 import { expect, test } from "bun:test";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
 const REPO = resolve(import.meta.dir, "..");
@@ -18,28 +19,69 @@ function exportTargets(): Set<string> {
   return new Set(Object.values(pkg.exports).map((p) => resolve(REPO, p)));
 }
 
+/**
+ * Every module specifier in a file: `from "x"` (import, import type, export …
+ * from, over any number of lines), a bare `import "x"`, `import("x")` and
+ * `require("x")`. Wide on purpose: a string that merely looks like one is
+ * checked too, and a false alarm costs a rename, a miss costs the pin.
+ */
 function importsOf(file: string): string[] {
   const src = readFileSync(file, "utf8");
   const out: string[] = [];
-  for (const m of src.matchAll(/(?:^|\n)\s*(?:import|export)\s[^;]*?from\s+["']([^"']+)["']/g)) out.push(m[1]!);
-  for (const m of src.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)) out.push(m[1]!);
+  for (const m of src.matchAll(/(?:\bfrom|\bimport|\brequire\s*\(|\bimport\s*\()\s*["']([^"']+)["']/g)) out.push(m[1]!);
   return out;
+}
+
+/** A computed specifier cannot be pinned: refused outright. */
+function computedImports(file: string): number {
+  const src = readFileSync(file, "utf8");
+  return [...src.matchAll(/\b(?:import|require)\s*\(\s*(?!["'][^"']*["']\s*\))[^)]/g)].length;
+}
+
+function sources(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? sources(join(dir, e.name)) : /\.(ts|mts|js|mjs|cjs)$/.test(e.name) ? [join(dir, e.name)] : [],
+  );
 }
 
 test("the harness imports only the package's public seams from src/", () => {
   const allowed = exportTargets();
-  const files = readdirSync(HARNESS).filter((f) => f.endsWith(".ts"));
+  const files = sources(HARNESS);
   expect(files.length).toBeGreaterThan(0);
   const offending: string[] = [];
   for (const f of files) {
-    for (const spec of importsOf(join(HARNESS, f))) {
+    if (computedImports(f) > 0) offending.push(`${relative(REPO, f)}: a computed import`);
+    for (const spec of importsOf(f)) {
       if (!spec.startsWith(".")) continue;
-      const target = resolve(dirname(join(HARNESS, f)), spec).replace(/\.js$/, ".ts");
+      const target = resolve(dirname(f), spec).replace(/\.js$/, ".ts");
       if (!relative(REPO, target).startsWith("src/")) continue;
-      if (!allowed.has(target)) offending.push(`${f} → ${relative(REPO, target)}`);
+      if (!allowed.has(target)) offending.push(`${relative(REPO, f)} → ${relative(REPO, target)}`);
     }
   }
   expect(offending).toEqual([]);
+});
+
+test("the specifier scan catches the forms it claims to", () => {
+  const dir = mkdtempSync(join(tmpdir(), "counterparts-imports-probe-"));
+  const probe = join(dir, "probe.ts");
+  const text = [
+    'import { a } from "./one.js";',
+    "import type {",
+    "  B,",
+    '} from "./two.js";',
+    'export * from "./three.js";',
+    'import "./four.js";',
+    'const x = 1; import("./five.js");',
+    'require("./six.js");',
+    "import(`./${name}.js`);",
+  ].join("\n");
+  writeFileSync(probe, text);
+  try {
+    expect(importsOf(probe)).toEqual(["./one.js", "./two.js", "./three.js", "./four.js", "./five.js", "./six.js"]);
+    expect(computedImports(probe)).toBe(1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("the harness is not in the published package", () => {

@@ -58,7 +58,7 @@ export interface DayLine {
   readonly nightReturns: { readonly fed: number; readonly counted: number };
   readonly settles: { readonly fed: number; readonly ok: number };
   readonly promoted: number;
-  /** Phases still out of budget after the day's last allowed cycle. */
+  /** Phases that ran out of budget in the day's boundary (their cursors resume the next day, as live's). */
   readonly budgetExhausted: readonly string[];
 }
 
@@ -69,10 +69,12 @@ export interface EarlyPromotion {
   readonly birthDay: number;
   /** Its place in birth order: 1 = the first memory the store ever made. */
   readonly birthRank: number;
-  /** Awake-class returns behind it at promotion: count, distinct days, distinct sessions. */
+  /** Returns that count toward the core behind it at promotion (weight > 0, not a dream's): count, distinct days, distinct sessions. */
   readonly returns: number;
   readonly returnDays: number;
   readonly returnSessions: number;
+  /** Those returns as `source@day`, oldest first. */
+  readonly sources: string;
   /** Live memories on its promotion day. */
   readonly pool: number;
   /** Was it promoted in the recorded run too, and on which day. */
@@ -81,7 +83,8 @@ export interface EarlyPromotion {
 
 export interface Fidelity {
   readonly uses: { readonly recorded: number; readonly replayed: number; readonly exact: number; readonly short: number; readonly over: number; readonly memories: number };
-  readonly awakeReturns: { readonly recorded: number; readonly replayed: number; readonly matched: number };
+  /** Returns by id@day, per source: rule changes show here (ratings and drewOn credit differently than they did). */
+  readonly awakeReturns: Readonly<Record<string, { readonly recorded: number; readonly replayed: number; readonly matched: number }>>;
   readonly promotions: { readonly recorded: number; readonly replayed: number; readonly matched: number; readonly sameDay: number };
   /** Live rows, recorded band → replayed band. */
   readonly bands: Readonly<Record<string, Readonly<Record<string, number>>>>;
@@ -124,8 +127,6 @@ export function middayUtc(date: string): number {
 
 const DATABASE_FILE = "counterparts.sqlite";
 
-/** Boundaries a day may run while a phase still reports its budget spent. */
-const MAX_CYCLES_PER_DAY = 40;
 
 export async function runPhysicsReplay(opts: ReplayOptions): Promise<RunRecord> {
   const started = Date.now();
@@ -133,21 +134,44 @@ export async function runPhysicsReplay(opts: ReplayOptions): Promise<RunRecord> 
   const preset = env["COUNTERPARTS_DATA_DIR"];
   if (preset !== undefined && preset.trim().length > 0) throw new ReplayError("DATA_DIR_PRESET", "the harness makes its own store; unset COUNTERPARTS_DATA_DIR");
 
+  for (const [name, v] of [["throughDay", opts.throughDay], ["earlyDays", opts.earlyDays]] as const) {
+    if (v !== undefined && (!Number.isInteger(v) || v < 0)) throw new ReplayError("BAD_OPTION", `${name} must be a whole number of days, not ${String(v)}`);
+  }
   const src = extract(opts.source, { returns: opts.returns ?? "derived", env });
   const last = src.days.length - 1;
   const through = Math.min(opts.throughDay ?? last, last);
   if (through < 0) throw new ReplayError("NOTHING_TO_REPLAY");
   const budgetBytes = opts.budgetBytes ?? 9_000;
 
-  const root = opts.workRoot ?? tmpdir();
+  // Checked before anything is made: a work root under the live root must not
+  // so much as create a folder there.
+  const root = resolve(opts.workRoot ?? tmpdir());
+  if (underLiveRoot(root, env)) throw new ReplayError("TARGET_IS_LIVE", root);
   if (!existsSync(root)) mkdirSync(root, { recursive: true });
   const dir = mkdtempSync(join(realpathSync(root), "counterparts-harness-"));
   if (underLiveRoot(dir, env)) {
     rmSync(dir, { recursive: true, force: true });
     throw new ReplayError("TARGET_IS_LIVE", dir);
   }
-  if (resolve(dir) === resolve(opts.source)) throw new ReplayError("TARGET_IS_SOURCE");
 
+  // The replayed store holds the record's words: it is removed on every way
+  // out, a throw included, unless `keep` asked for it.
+  try {
+    return await replayInto(dir, src, opts, through, budgetBytes, started);
+  } finally {
+    if (opts.keep !== true) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function replayInto(
+  dir: string,
+  src: Extracted,
+  opts: ReplayOptions,
+  through: number,
+  budgetBytes: number,
+  started: number,
+): Promise<RunRecord> {
+  const last = src.days.length - 1;
   let clock = middayUtc(src.days[0]!.date);
   const c = Counterpart.open({
     dir,
@@ -178,15 +202,12 @@ export async function runPhysicsReplay(opts: ReplayOptions): Promise<RunRecord> 
       let promoted = 0;
       const budgetExhausted: string[] = [];
       if (rec.day > 0) {
-        // Live ran a cycle at every boundary, many a day; a phase that ran out
-        // of budget finished on the next one. Same date, so the day holds.
-        for (let n = 0; n < MAX_CYCLES_PER_DAY; n++) {
-          const report = await c.sessionEnd({ date: rec.date, sweep: { skipped: "not-opted-in" } });
-          promoted += report.cycle.promoted.length;
-          const short = report.cycle.phases.filter((p) => p.budgetExhausted).map((p) => p.phase);
-          if (short.length === 0) break;
-          if (n === MAX_CYCLES_PER_DAY - 1) budgetExhausted.push(...short);
-        }
+        // One boundary a day. Live ran many, but a once-a-day phase marks its
+        // day done even when its budget ran out (its cursor resumes the next
+        // day), so the later boundaries of a day ran the clock alone.
+        const report = await c.sessionEnd({ date: rec.date, sweep: { skipped: "not-opted-in" } });
+        promoted = report.cycle.promoted.length;
+        for (const p of report.cycle.phases) if (p.budgetExhausted) budgetExhausted.push(p.phase);
       }
       if (c.store.livedDay() !== rec.day) clockMismatches += 1;
       const tally = { births: 0, usesFed: 0, credited: 0, returns: 0, nightFed: 0, nightCounted: 0, settlesFed: 0, settlesOk: 0 };
@@ -218,7 +239,6 @@ export async function runPhysicsReplay(opts: ReplayOptions): Promise<RunRecord> 
   const replayed = readOutcomeAt(join(dir, DATABASE_FILE));
   const early = earlyTable(join(dir, DATABASE_FILE), days, birthRank, birthDay, src.outcome, opts.earlyDays ?? 10);
   const fidelity = through === last ? compare(src.outcome, replayed) : null;
-  if (opts.keep !== true) rmSync(dir, { recursive: true, force: true });
 
   return {
     harness: "physics-only",
@@ -343,6 +363,9 @@ function apply(
         return;
       }
       case "merge":
+        // A merge as the record kept it before 2026-10-11: the original's
+        // returns and mark carried into the merged memory, the original archived.
+        if (act.into !== null) c.store.carryInto(act.id, act.into);
         c.store.archive(act.id, "dream-merge");
         return;
     }
@@ -372,9 +395,9 @@ function earlyTable(
     const rows = db
       .query("SELECT memory_id, day, lane FROM core_events WHERE action = 'promoted' AND day <= ? ORDER BY seq")
       .all(first + span) as { memory_id: string; day: number; lane: string | null }[];
-    const returns = db.query(
-      "SELECT COUNT(*) AS n, COUNT(DISTINCT day) AS d, COUNT(DISTINCT session) AS s FROM returns WHERE memory_id = ? AND day <= ? AND source NOT IN ('dream')",
-    );
+    const evidence = "memory_id = ? AND day <= ? AND source <> 'dream' AND weight > 0";
+    const returns = db.query(`SELECT COUNT(*) AS n, COUNT(DISTINCT day) AS d, COUNT(DISTINCT session) AS s FROM returns WHERE ${evidence}`);
+    const sources = db.query(`SELECT group_concat(source || '@' || day, ',') AS s FROM (SELECT source, day FROM returns WHERE ${evidence} ORDER BY day, at)`);
     return rows.map((r) => {
       const ret = returns.get(r.memory_id, r.day) as { n: number; d: number; s: number };
       return {
@@ -386,6 +409,7 @@ function earlyTable(
         returns: ret.n,
         returnDays: ret.d,
         returnSessions: ret.s,
+        sources: String((sources.get(r.memory_id, r.day) as { s: string | null } | null)?.s ?? ""),
         // A promotion on day d is consolidated at d's boundary, before d's acts:
         // the pool it won against is the previous day's.
         pool: poolOn.get(r.day - 1) ?? poolOn.get(r.day) ?? 0,
@@ -412,8 +436,12 @@ function compare(rec: RecordedOutcome, rep: RecordedOutcome): Fidelity {
     else over += 1;
   }
   const key = (x: { id: string; day: number }): string => `${x.id}@${String(x.day)}`;
-  const recRet = new Set(rec.awakeReturns.map(key));
-  const repRet = new Set(rep.awakeReturns.map(key));
+  const awakeReturns: Record<string, { recorded: number; replayed: number; matched: number }> = {};
+  for (const source of new Set([...rec.awakeReturns, ...rep.awakeReturns].map((x) => x.source))) {
+    const recRet = new Set(rec.awakeReturns.filter((x) => x.source === source).map(key));
+    const repRet = new Set(rep.awakeReturns.filter((x) => x.source === source).map(key));
+    awakeReturns[source] = { recorded: recRet.size, replayed: repRet.size, matched: [...recRet].filter((k) => repRet.has(k)).length };
+  }
   const recProm = new Map<string, number>();
   for (const p of rec.promotions) if (!recProm.has(p.id)) recProm.set(p.id, p.day);
   const repProm = new Map<string, number>();
@@ -426,7 +454,7 @@ function compare(rec: RecordedOutcome, rep: RecordedOutcome): Fidelity {
   }
   return {
     uses: { recorded: round(recordedUses), replayed: round(replayedUses), exact, short, over, memories: rec.uses.size },
-    awakeReturns: { recorded: recRet.size, replayed: repRet.size, matched: [...recRet].filter((k) => repRet.has(k)).length },
+    awakeReturns,
     promotions: {
       recorded: recProm.size,
       replayed: repProm.size,

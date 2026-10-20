@@ -55,7 +55,7 @@ async function makeSource(dir: string): Promise<void> {
     await c.sessionEnd({ date: DATES[d]!, sweep: { skipped: "not-opted-in" } });
     if (d === 1) {
       put("mem_aaaaaaaaaaa3", "fact", "A later fact that corrects the first.", 1);
-      c.store.setAbout("mem_aaaaaaaaaaa2", "me", { by: "session", day: 1 });
+      c.store.setAbout("mem_aaaaaaaaaaa2", "me", { by: "writer", day: 1 });
       c.store.addFeelings("mem_aaaaaaaaaaa2", [{ whose: "self", core: "happy", emotion: "proud", strength: 0.9, carriedBy: "it worked" }]);
     }
     if (d === 2) {
@@ -166,7 +166,52 @@ test("refuses a source under the owner's live root, and a preset data dir", asyn
   copyFileSync(source, join(live, "counterparts.sqlite"));
   expect(() => extract(join(live, "counterparts.sqlite"), { env })).toThrow(/SOURCE_IS_LIVE/);
   await expect(runPhysicsReplay({ source, workRoot: work, env: { ...env, COUNTERPARTS_DATA_DIR: join(root, "x") } })).rejects.toThrow(/DATA_DIR_PRESET/);
-  await expect(runPhysicsReplay({ source, workRoot: join(env["HOME"]!, ".counterparts"), env })).rejects.toThrow(/TARGET_IS_LIVE/);
+  // Refused before anything is made: no folder appears under the live root.
+  const under = join(env["HOME"]!, ".counterparts", "not-yet");
+  await expect(runPhysicsReplay({ source, workRoot: under, env })).rejects.toThrow(/TARGET_IS_LIVE/);
+  expect(existsSync(under)).toBe(false);
+});
+
+test("a run that throws still removes its store (it holds the record's words)", async () => {
+  await expect(
+    runPhysicsReplay({
+      source,
+      workRoot: work,
+      env,
+      onDay: (d) => {
+        if (d === 2) throw new Error("boom");
+      },
+    }),
+  ).rejects.toThrow(/boom/);
+  expect(readdirSync(work)).toEqual([]);
+  await expect(runPhysicsReplay({ source, workRoot: work, env, throughDay: Number.NaN })).rejects.toThrow(/BAD_OPTION/);
+  expect(readdirSync(work)).toEqual([]);
+});
+
+test("a day whose sleep-cycle row was pruned is dated from its neighbours, and counted", () => {
+  const copy = join(root, "pruned.sqlite");
+  copyFileSync(source, copy);
+  const db = new Database(copy);
+  db.run("DELETE FROM events WHERE name = 'sleep.cycle' AND day IN (1, 2)");
+  db.close();
+  const x = extract(copy, { env });
+  expect(x.gaps.daysDatedByFallback).toBe(2);
+  const dates = x.days.map((d) => d.date);
+  expect([...dates].sort()).toEqual(dates);
+  expect(new Set(dates).size).toBe(dates.length);
+});
+
+test("a day's acts replay in the order the record gave them", () => {
+  const copy = join(root, "ordered.sqlite");
+  copyFileSync(source, copy);
+  const db = new Database(copy);
+  const at3 = midday(DATES[3]!);
+  // A reflection return between two uses of the same day, by recorded instant.
+  db.run("INSERT INTO returns (memory_id, day, source, weight, gap, dream_id, at, session) VALUES ('mem_aaaaaaaaaaa1', 3, 'reflection', 1, 3, NULL, ?, 'rfl-1')", [at3 + 1_000]);
+  db.run("UPDATE events SET at = ? WHERE name = 'recall.rated'", [at3 + 2_000]);
+  db.close();
+  const day3 = extract(copy, { env }).days[3]!.acts.map((a) => a.kind);
+  expect(day3.indexOf("night-return")).toBeLessThan(day3.indexOf("use"));
 });
 
 test("an about reason reads back to its mark and what it was", () => {

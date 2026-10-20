@@ -23,7 +23,7 @@ export function render(r: RunRecord): string {
   out.push(`physics-only replay · source v${String(s.schemaVersion)}, day ${String(s.livedDay)}, ${String(s.memories)} memories (${String(s.chapterCopiesSkipped)} chapter copies left out) · returns ${r.mode.returns} · through day ${String(r.mode.throughDay)} · ${(r.elapsedMs / 1000).toFixed(1)}s`);
   if (s.eventsFrom > 0) out.push(`  ! the source's event log starts at day ${String(s.eventsFrom)}: uses before it are not in the record`);
   const g = r.gaps;
-  out.push(`gaps: credit ids cut ${String(g.creditIdsCut)} · acts on unknown ids ${String(g.actsOnUnknownIds)} · uses before birth ${String(g.usesBeforeBirth)} · bodies from current row ${String(g.bodiesFromCurrentRow)} · merges undated ${String(g.mergesUndated)} · clock mismatches ${String(g.clockMismatches)}`);
+  out.push(`gaps: credit ids cut ${String(g.creditIdsCut)} · acts on unknown ids ${String(g.actsOnUnknownIds)} · uses before birth ${String(g.usesBeforeBirth)} · bodies from current row ${String(g.bodiesFromCurrentRow)} · merges undated ${String(g.mergesUndated)} · days dated by fallback ${String(g.daysDatedByFallback)} · clock mismatches ${String(g.clockMismatches)}`);
   const refused = Object.entries(g.refused);
   if (refused.length > 0) out.push(`refused: ${refused.map(([k, n]) => `${k} ${String(n)}`).join(" · ")}`);
   out.push("");
@@ -44,8 +44,8 @@ export function render(r: RunRecord): string {
     );
   }
   out.push("");
-  out.push(`early core (promotions through day ${String((r.days[0]?.day ?? 0) + 10)}):`);
-  out.push("id                 day  lane  born  rank  returns/days/sessions  pool  recorded");
+  out.push(`early core (the first ${String(r.early.length)} promotions in the window):`);
+  out.push("id                 day  lane  born  rank  returns/days/sessions  pool  recorded  behind it");
   for (const e of r.early) {
     out.push(
       [
@@ -57,6 +57,7 @@ export function render(r: RunRecord): string {
         `${String(e.returns)}/${String(e.returnDays)}/${String(e.returnSessions)}`.padStart(22),
         String(e.pool).padStart(5),
         (e.recordedDay === null ? "no" : `day ${String(e.recordedDay)}`).padStart(9),
+        e.sources,
       ].join("  "),
     );
   }
@@ -66,7 +67,9 @@ export function render(r: RunRecord): string {
     out.push("");
     out.push("fidelity against the record:");
     out.push(`  uses: recorded ${String(f.uses.recorded)}, replayed ${String(f.uses.replayed)}; per memory exact ${String(f.uses.exact)}, short ${String(f.uses.short)}, over ${String(f.uses.over)} of ${String(f.uses.memories)}`);
-    out.push(`  awake returns (id@day): recorded ${String(f.awakeReturns.recorded)}, replayed ${String(f.awakeReturns.replayed)}, matched ${String(f.awakeReturns.matched)}`);
+    for (const [source, n] of Object.entries(f.awakeReturns)) {
+      out.push(`  ${source} returns (id@day): recorded ${String(n.recorded)}, replayed ${String(n.replayed)}, matched ${String(n.matched)}`);
+    }
     out.push(`  promotions: recorded ${String(f.promotions.recorded)}, replayed ${String(f.promotions.replayed)}, matched ${String(f.promotions.matched)} (same day ${String(f.promotions.sameDay)})`);
     out.push(`  archived: recorded ${String(f.archived.recorded)}, replayed ${String(f.archived.replayed)}, both ${String(f.archived.both)}`);
     for (const [from, to] of Object.entries(f.bands)) {
@@ -85,13 +88,19 @@ async function main(argv: readonly string[]): Promise<number> {
   }
   const returns = flag(args, "--returns") ?? "derived";
   if (returns !== "derived" && returns !== "recorded") throw new Error(`--returns must be derived or recorded, not ${returns}`);
-  const through = flag(args, "--through-day");
-  const early = flag(args, "--early-days");
+  const whole = (name: string): number | undefined => {
+    const v = flag(args, name);
+    if (v === undefined) return undefined;
+    if (!/^\d+$/.test(v)) throw new Error(`${name} takes a whole number of days, not ${v}`);
+    return Number(v);
+  };
+  const through = whole("--through-day");
+  const early = whole("--early-days");
   const record = await runPhysicsReplay({
     source: flag(args, "--source") ?? DEFAULT_CORPUS,
     returns,
-    ...(through === undefined ? {} : { throughDay: Number(through) }),
-    ...(early === undefined ? {} : { earlyDays: Number(early) }),
+    ...(through === undefined ? {} : { throughDay: through }),
+    ...(early === undefined ? {} : { earlyDays: early }),
     keep: args.includes("--keep"),
     onDay: (d, total) => process.stderr.write(`\rday ${String(d)}/${String(total)}`),
   });
