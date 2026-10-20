@@ -317,8 +317,9 @@ were refined by b2+f8 at the review of #369, named where they were):
 - **What a session said and nobody wrote up stays owed for 14 days of use (was 3)**, and its
   text is kept that long. Why: on the 10-10 snapshot 18 owed stretches lapsed unwritten; the
   night takes four sessions, oldest first, and did not reach them in time.
-  **Overtaken (2026-10-13): conversation text is never kept more than 14 days after the session's
-  last activity, owed or not, and goes 3 days after its write-up** (#468, 0.3.21).
+  **Overtaken (2026-10-13), the text half only: a debt still lapses after 14 days of use, but the
+  text is never kept more than 14 days after the session's last activity, owed or not, and goes 3
+  days after its write-up** (#468, 0.3.21).
 - **The per-session ask limit yields to a stretch that is due.** At the limit a session is
   still asked when it holds unwritten pieces that are due (three of them, half an hour on).
   Why: the limit refused 84 asks in 4 sessions, 35 of them while something was owed; review
