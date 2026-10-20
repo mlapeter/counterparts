@@ -31,6 +31,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
 | Wake without repeats (fix/wake-dedupe-1020): each episode once, no bare ids in Yesterday, ONE tag at the top, about-me line says its folder first, a plain reminder due tomorrow counted at a session start, every Coming up item with its own id, one snapshot a day | in review 10-20, unreleased | the first two mornings after install | "Due ~2 mornings after install (the wake without repeats)" below; `docs/decisions.d/fix-wake-dedupe-1020.md` |
 | A weekly reminder done for this week (`status: "done"` at its id closes this occurrence only; F6b: drewOn credits a memory this session replaced) | not released, 10-20 | ~10-27, the next Tuesday | "Due ~2026-10-27" below; `docs/decisions.d/feat-reminder-done-this-week.md` |
+| The elsewhere lines name what was written: "Today, elsewhere" and "Since you started" carry up to two memory titles a folder (work in progress first), gated like the chapters, within the same 300 bytes | in review 10-20, unreleased | ~10-23 | "Due ~2026-10-23 (the elsewhere lines' titles)" below; `docs/decisions.d/feat-elsewhere-titles-1020.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -218,6 +219,28 @@ snapshots folder.
   assembly. Or a session reads the Yesterday line as all of
   yesterday and misses the one under Last here → say "(and the one under Last here)". Or the
   sidebar loses the store check on Mike's machine → the plugin sidebar is older than this core.
+
+## Due ~2026-10-23 (the elsewhere lines' titles, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-elsewhere-titles-1020.md)
+
+On the owner's session-start wakes and per-prompt lines on a morning with two or three
+sessions open at once (read-only; ask the sessions themselves too).
+
+- **Look at:** did a session starting while another was open see what that one was doing
+  ("Today, elsewhere: ~/x open since … (live), N memories: "…" (mem_…)") and not redo it?
+  The 10-20 case was two sessions doing the same wake check.
+- **Look at:** are the titles the useful ones (work in progress, things done today), or
+  noise (small findings, half-sentences from untitled memories)? Ask the sessions, and see
+  whether any expanded a title's `mem_` id with recall.
+- **Look at:** "Since you started" never names a title twice in one session, and still says
+  nothing when nothing new was written.
+- **Look at:** nothing from a folder that is off, paused or observed, nothing confidential,
+  nothing marked about me, us or the owner, in either line.
+- **Look at:** the wake's lanes did not lose room to the line (doctor's Wake line, the
+  `counterpart.wake.assembled` bytes; the line is still at most 300 bytes).
+- **Changes a decision if:** sessions still duplicate work → name a live session in this
+  same folder too, or give the line more room; titles read as noise → keep only status-marked
+  memories, or one title a folder; a gate leak → revert at once (`git revert` of the PR).
+
 ## Due ~2026-10-27, the next Tuesday (a weekly reminder done for this week, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-reminder-done-this-week.md)
 
 ### The backup reminder closes for the week, and comes back

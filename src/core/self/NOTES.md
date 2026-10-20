@@ -2251,3 +2251,14 @@ plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of t
   ends with `[its id]`, before the standing's suffix ("(earlier: [mem_…])"). A line-form
   item already carried it (`lineText`). Counted by `elementBytes`, so the lane's room is
   honest; no other lane changes.
+
+## 2026-10-20 — "Today, elsewhere" names a folder's work by title (Mike's go, lightly held, an experiment)
+
+- No change in `self/`: the line arrives as before (`BriefingRequest.elsewhere` and its
+  shorter forms) and steps down by the same `ROOM_ORDER` rank. What changed is what the
+  forms hold (`handoff/last-here.ts`, handoff NOTES §16): up to two memory titles a folder,
+  given up first, inside the same 300 bytes, so the room the line can take from the lanes
+  above it is what it was. `self/work.ts#isWorkMemory` is now also read by
+  `Counterpart#elsewhereTitles`, so "work" means one thing in "Work here" and in the
+  elsewhere line. A memory "Still open" may list is left to that lane (the store's
+  `openThreadIds`, read once at assembly). Decision: `docs/decisions.d/feat-elsewhere-titles-1020.md`.

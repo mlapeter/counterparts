@@ -581,3 +581,35 @@ experiment. Decision record: `docs/decisions.d/fix-wake-dedupe-1020.md`.
   leftover-room upgrade (#489 C, `briefing.ts`) then had less room than in the control, so
   "Still open"'s first item printed as a line, not whole. The same items are listed. The
   upgrade spending borrowed room is the room system's behaviour, not changed here.
+
+## 16. The elsewhere lines name what was written (2026-10-20)
+
+Mike's go, lightly held, an experiment. Decision record:
+`docs/decisions.d/feat-elsewhere-titles-1020.md`.
+
+- **The read.** `Store#memoryTitlesByScopeSince` is one SQL read over the window's rows:
+  a tier per row (a status mark 0, work 1, the rest dropped), `ROW_NUMBER()` per
+  `origin_scope`, at most `perScope × 4` a folder so the caller can still drop this
+  session's own and the open threads and keep two. The columns only (`title`, or the
+  body's first 240 characters), the same exclusions as the counts plus confidential for
+  everyone, the personal marks, identity, a chapter's copy (`source`, `origin_ref`, a
+  summary's `meta.episodeId`). The caller confirms tier 1 on `isWorkMemory`, so an
+  unmarked fact in a name scope (`claude-desktop:`) stays personal, as in the wake's lanes.
+- **The ladder.** `elsewhereForms` used to try, per count of folders, the form with
+  chapters and the one without. It now tries every non-increasing allotment of titles
+  across the named folders (0–2 each), most titles first and spread before stacked, each
+  with and without the chapters, then the folder count steps down. The monotone filter is
+  unchanged: each kept form is narrower than the one before. With no titles every
+  allotment prints the same string, so the old chain falls out unchanged (pinned in
+  `test/elsewhere-titles.test.ts`). At most 21 allotments × 2 for five folders.
+- **Tests that pinned the old rule.** `wake-fresh-today`, `since-you-started`,
+  `wake-on-resume` and `wake-lanes` asserted "never a work memory's title" anywhere in the
+  wake; they now expect the title in the elsewhere line (and the body nowhere), and the
+  lane tests check their lanes with that line set aside. On the long temp paths of the
+  since tests, two folders with a title each leave no room for the chapter: the chapter
+  gives way first, by design.
+- **Not done:** a parallel session in this same folder is still not named (both lines skip
+  this folder); the per-prompt line still says nothing within its hour, so titles written
+  in that hour wait for the next line rather than being lost.
+
+Undo: `git revert` of the PR; nothing is stored differently.

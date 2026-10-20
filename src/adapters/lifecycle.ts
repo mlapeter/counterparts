@@ -713,7 +713,7 @@ export class Lifecycle implements HostLifecycle {
    * the hour is not spent. The state moves only when it arms or a line goes
    * out, so a quiet prompt writes nothing more than it did.
    *
-   * Reads only from the store (the counts and the chapter walk), the registry
+   * Reads only from the store (the counts, the titles and the chapter walk), the registry
    * and the scope setting: no model, no embedding, no store write. Nothing
    * under observer or for the nightly run; a folder that is off or paused
    * never reaches here (`guard`). Never throws.

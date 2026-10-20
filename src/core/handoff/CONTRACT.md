@@ -196,6 +196,19 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     about-me line leave out any episode the wake's body already names (`lastHereBlock`'s
     `named`); the newest is never left out of "Last here". The Yesterday line names a
     chapter by title or counts it, never by a bare id.
+    **The elsewhere lines name what was written** (2026-10-20, Mike's go, lightly held, an
+    experiment; `docs/decisions.d/feat-elsewhere-titles-1020.md`): "Today, elsewhere" and
+    "Since you started" (`todayElsewhereLines`, `sinceElsewhereLines`) carry, beside a
+    folder's memory count, up to `ELSEWHERE_TITLES_MAX` (2) of its memories by title (cut
+    to `ELSEWHERE_TITLE_BYTES`, 48) and whole id: a status mark first, then work
+    (`self/work.ts#isWorkMemory`), newest first, chosen by `Counterpart#elsewhereTitles`
+    under the one elsewhere gate (`elsewhereGate.named`: scope `on`, not this folder or the
+    store's). Never confidential (to anyone), never marked me, us or owner, never chit-chat,
+    this session's own, the nightly run's, a chapter's copy, or — in the wake — what "Still
+    open" may list. Every form stays within `TODAY_ELSEWHERE_MAX_BYTES` (300); titles give
+    way before folders, a chapter's title before a memory's. "Since you started" names only
+    memories written since the session was last told (its window), so no title repeats.
+    Still never a word of a span or a handoff's body.
 
 12. **[M] A handoff says when it may be out of date** (2026-10-01; one sentence since
     2026-10-18, `staleWords`). Beside who and when, at delivery, each handoff shown: how old
