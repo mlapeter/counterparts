@@ -34,6 +34,7 @@
 import { describe, expect, test } from "bun:test";
 import { MECHANISM_EVIDENCE, amount } from "../src/adapters/mechanism-evidence.js";
 import type { Payload, Proof } from "../src/adapters/mechanism-evidence.js";
+import { DETAIL_KEYS } from "../src/adapters/sidebar-status.js";
 
 type DashEvent = { seq: number; at: number; name: string; text: string; detail: { key: string; value: string }[] };
 type Feed = {
@@ -60,7 +61,8 @@ const SAMPLES: Readonly<Record<string, Payload>> = {
   "interference.faded": { how: "changed", source: "slot" },
   "reconsolidation.settled": { how: "changed", source: "write" },
   "retrieval.turns": { surfacedCount: 1, footnoteCount: 0 },
-  "consolidation.rose": { site: "consolidate", direction: "up" },
+  // Every crossing is written at the decay site (2026-10-20): a rise is a move up there.
+  "consolidation.rose": { from: "episodic", to: "semantic", site: "decay", direction: "up", cause: "input" },
   "emotional.felt": { accepted: 1, memoryId: "mem_a", felt: [{ id: "mem_a", words: ["curious"] }] },
   "emotional.feltRecalled": { surfacedCount: 1, footnoteCount: 0, surfaced: [{ id: "mem_a" }], felt: [{ id: "mem_a", words: ["proud"] }] },
 };
@@ -79,7 +81,14 @@ const MORE: readonly { event: string; payload: Payload }[] = [
   { event: "dream.changed", payload: { "nominate-core": 1 } },
   { event: "recall.decision", payload: { surfacedCount: 2, footnoteCount: 1, moodMatched: 1 } },
   { event: "recall.decision", payload: { surfacedCount: 0, footnoteCount: 0, moodMatched: 0 } },
-  { event: "band.transition", payload: { site: "decay", direction: "up" } }, // the crossing into identity, not a fade
+  { event: "band.transition", payload: { site: "decay", direction: "up" } }, // a rise, not a fade
+  // The crossing into identity (counted as `band.promoted`) and a recurve: neither a fade nor a rise.
+  { event: "band.transition", payload: { from: "semantic", to: "identity", site: "decay", direction: "up", cause: "promoted" } },
+  { event: "band.transition", payload: { from: "episodic", to: "semantic", site: "decay", direction: "up", cause: "recurve" } },
+  // A dream that only folded, and the settles its fold writes (2026-10-20).
+  { event: "dream.changed", payload: { applied: 2, fold: 2 } },
+  { event: "dream.changed", payload: { applied: 3, merge: 1, fold: 1, gist: 1 } },
+  { event: "contradiction.settled", payload: { how: "changed", source: "fold" } }, // counted as the fold, not as a settle
   { event: "contradiction.settled", payload: { how: "open" } },
   { event: "contradiction.settled", payload: { how: "corrected" } }, // live beside "changed" (2 of 50 on 2026-10-10)
   { event: "contradiction.settled", payload: { how: "changed" } }, // from before rows said their source: declared
@@ -107,9 +116,15 @@ function coreProves(event: string, payload: Payload): string[] {
   ].sort();
 }
 
-/** What the sidebar lights for the same row, as `/api/activity` narrates it (detail values as strings). */
+/**
+ * What the sidebar lights for the same row, as `/api/activity` narrates it (detail values as
+ * strings) and as sidebar.json carries it: only the detail keys `DETAIL_KEYS` passes
+ * (2026-10-20, review of #555: a rule reading a key the status file drops never fires live).
+ */
 function sidebarLights(event: string, payload: Payload): string[] {
-  const detail = Object.entries(payload).map(([key, v]) => ({ key, value: typeof v === "string" ? v : JSON.stringify(v) }));
+  const detail = Object.entries(payload)
+    .filter(([key]) => DETAIL_KEYS.has(key))
+    .map(([key, v]) => ({ key, value: typeof v === "string" ? v : JSON.stringify(v) }));
   const row = feed.classify({ seq: 1, at: 0, name: event, text: "", detail });
   return row === null ? [] : [...new Set(row.mechs)].sort();
 }
@@ -148,6 +163,14 @@ describe("the sidebar's copy of MECHANISM_EVIDENCE", () => {
       .map(({ event, payload }) => ({ event, payload, core: coreProves(event, payload), sidebar: sidebarLights(event, payload) }))
       .filter((c) => c.core.join() !== c.sidebar.join());
     expect(disagree).toEqual([]);
+  });
+
+  test("sidebar.json carries the detail keys the fold and rise rules read (review of #555)", () => {
+    for (const key of ["fold", "to", "cause"]) expect(`${key}: ${String(DETAIL_KEYS.has(key))}`).toBe(`${key}: true`);
+    // Through the status file's filter: a fold-only dream lights both; a crossing into identity and a recurve light nothing.
+    expect(sidebarLights("dream.changed", { applied: 2, fold: 2, gist: 0 })).toEqual(["consolidation", "dreaming", "interference"]);
+    expect(sidebarLights("band.transition", { from: "semantic", to: "identity", site: "decay", direction: "up", cause: "promoted" })).toEqual([]);
+    expect(sidebarLights("band.transition", { from: "episodic", to: "semantic", site: "decay", direction: "up", cause: "recurve" })).toEqual([]);
   });
 
   test("the twelve mechanisms in core's order and ids, with the one not built drawn hollow", () => {

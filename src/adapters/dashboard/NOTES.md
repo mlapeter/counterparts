@@ -674,3 +674,34 @@ Untouched: ids, JSON keys, CSS classes (`jd-lived`, `wk-*`), and the readers of 
 text — `memory-words.ts` and `search.js` still read a chapter heading's "lived day N",
 and the Lookups line reads doctor's "last N lived days" (it says "days of use").
 The web view's own dates stay "Sep 4th" (`dates.js#dateWords`): they were never MM-DD.
+
+## 2026-10-20 — Consolidation and Interference read 0 on a day with work
+
+Mike asked why the sidebar's "Mechanisms today" showed Interference 0 and Consolidation 0.
+Part of it was a quiet day, but three proofs in `mechanism-evidence.ts` missed real work:
+- **A dream's folds counted nowhere.** `dream.changed` keeps a fold under `fold`, not `gist`
+  (`dream/index.ts#foldKey`). A `folded` proof now sums it under Consolidation and
+  Interference, as `dreamMerged` does. The settles a fold writes over its parts (source
+  `fold`) leave Reconsolidation's `settled`, as a dream merge's did already: one fold of five
+  parts read as one fold and five contradictions settled.
+- **"Rose a band" could not fire.** It read `band.transition` at site `consolidate`, which no
+  code writes: every crossing is recorded by the decay pass (`sleep/decay.ts`'s header).
+  The writer is right and the reader was wrong. A rise is now any move up, except the
+  crossing into identity (cause `promoted`, a lived day after the `band.promoted` row that is
+  already counted) and a `recurve` (the build's constants moved it).
+- **"Exact duplicate merged" is rare by design, not dead.** A repeat in the same project is
+  refused at the door (`DUPLICATE_CONTENT`), and that refusal leaves no durable row: the
+  `counterpart.deposit.refused` event stays in the process, and no `gate.deposit` row is
+  written because the battery never ran. A copy from a second project still merges at sleep
+  (`cli/NOTES.md`), so the proof stays, worded "exact copy merged into the one already
+  held". Counting the refusals would take a new store write, which was not added.
+  The rules audit (2026-10-20, row 27) found `TAU_DUP` unreachable, and it is:
+  `sessionEnd` hands `runCycle` no similarity source (`counterpart-boundary.ts`), so
+  the cosine arm of `dedupVerdict` never runs. The identical-body arm does not need
+  one (`contentHashCandidates` runs every cycle), and `test/mechanism-evidence.test.ts`
+  proves it through `sessionEnd`: a copy from a second folder merges at the next
+  cycle and counts here. So the proof stays. **Open, for the calibration pass:**
+  wiring a cosine source so `TAU_DUP` can merge near-copies at sleep. Until then
+  near-copies are a dream's to merge.
+The leads (`views/mechanisms.ts`), the console's lines and the feed's dream sentence say
+folds too.
