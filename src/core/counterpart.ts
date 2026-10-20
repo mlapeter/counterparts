@@ -2544,7 +2544,9 @@ export class Counterpart {
    *
    * Then, each by name: an id that names nothing, an archived row, a handoff
    * (E1), and — never revived by engagement — a superseded memory or one faded
-   * under a newer one (synthesis collision G). At most
+   * under a newer one (synthesis collision G) — unless this session replaced
+   * it, or the memory that did was born this lived day (F6b, 2026-10-20:
+   * `replacedHere`, credited as drawn on). At most
    * `DREW_ON_MAX_PER_BOUNDARY` land per boundary, the first in the order
    * given; the rest come back `capped`. Once per lived day per memory is
    * recall's and physics' own rule (`already-credited-at-or-above`,

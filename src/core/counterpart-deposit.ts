@@ -441,7 +441,7 @@ export function closesOrRedates(cp: Counterpart, p: Proposal, target: string, ro
   if (intent !== undefined && (intent.eventDate !== "absent" || intent.remind !== null) && cp["reminderHolder"](target) !== null) return true;
   const now = sent?.status ?? null;
   // A `done` at a memory holding a date (2026-10-20): "backup ran" closes
-  // "back up every Tuesday", and need share few words with it to.
+  // "back up every Tuesday" while sharing few words with it.
   if (now === "done" && cp["reminderHolder"](target) !== null) return true;
   const was = statusOf(row.status ?? null);
   return now !== null && was !== null && now !== was;

@@ -105,6 +105,9 @@ describe("a done at a repeating reminder closes this occurrence only", () => {
     // Not held by the update guard, and no list of other dated memories to close.
     expect(body["held"]).toBeUndefined();
     expect(body["stillDated"]).toBeUndefined();
+    // No title sent: one is asked for, in words that fit a close of one time, and none settled.
+    expect(String(body["titleAsked"])).toContain("one time was done");
+    expect(body["settled"]).toBeUndefined();
 
     // The reminder is untouched: its date, its repeat, its standing.
     const after = c.store.row(id);
@@ -151,6 +154,19 @@ describe("a done at a repeating reminder closes this occurrence only", () => {
     const next = c.prospective.arrivals({ at: "2026-10-24" }).arrivals.find((a) => a.memoryId === id);
     expect(next?.windowKey).toBe("d:2026-10-27");
     expect(next?.fires).toBe(0);
+  });
+
+  test("a done sent WITH how: changed still settles nothing: the reminder does not fade", async () => {
+    const s = server();
+    const c = s.counterpart;
+    const id = await weekly(s);
+    dayOf(s, "2026-10-20");
+    const fade = c.store.row(id)?.fade ?? 1;
+    const body = await remember(s, { title: "Backup ran, Oct 20", text: "Ran the store backup this morning; all tables copied.", updates: id, how: "changed", status: "done" });
+    expect(body["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-10-20" });
+    expect(c.store.row(id)?.fade ?? 1).toBe(fade);
+    expect(c.store.contradictionsOf([id]).get(id) ?? []).toEqual([]);
+    expect(c.prospective.plainDue({ at: "2026-10-27" }).map((d) => d.memoryId)).toEqual([id]);
   });
 
   test("done twice the same week: the second says it was closed already", async () => {

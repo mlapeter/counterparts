@@ -6,5 +6,6 @@
 - **A "done" note written on its own points at the reminder it answers.** When a memory saying
   something was done (or that you said it) lands next to a reminder due now, the answer names
   the reminder and how to close it.
-- **A memory a session corrected still counts as drawn on.** Naming in `drewOn` a memory the same
-  session had just replaced no longer refuses it.
+- **A memory a session just replaced still counts as drawn on.** Naming in `drewOn` a memory the
+  same session had just updated with a newer one (or one replaced that day) no longer refuses it.
+  One put away by a correction is still refused.

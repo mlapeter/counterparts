@@ -206,10 +206,15 @@ function dateNote(eventDate: string, today: string, recurring: Recurrence | null
 /** The reminder half of a deposit's answer: what was RECORDED — after a
  *  revision's carry-over, not merely what was sent — or why `remind` had
  *  nothing to shape. Nothing when neither field was sent or nothing minted. */
+/** Beside a done at a repeating reminder that sent no title (2026-10-20). */
+const OCCURRENCE_TITLE_NOTE =
+  "No title was given, and the reminder's was not carried over: this memory says one time was done, and the reminder's title would read as the reminder itself. Give it a short one of its own (\"Backup ran, Oct 20\").";
+
 /** What a revision did with its title (2026-10-14, `counterpart-deposit.ts#carryTitle`). */
 export function titleEcho(deposit: DepositResult, askedNote: string): Record<string, unknown> {
   if (!deposit.deposited) return {};
-  if (deposit.titleAsked === true) return { titleAsked: askedNote };
+  // A done at a repeat closes one time, not the reminder (2026-10-20).
+  if (deposit.titleAsked === true) return { titleAsked: deposit.occurrence === undefined ? askedNote : OCCURRENCE_TITLE_NOTE };
   return deposit.titleCarried === undefined ? {} : { titleCarried: { title: deposit.titleCarried.title, from: deposit.titleCarried.from } };
 }
 
