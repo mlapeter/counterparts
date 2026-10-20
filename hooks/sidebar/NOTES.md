@@ -1795,6 +1795,18 @@ Mike's first real run is the real measurement.
     and is out of its scope. It loads `feed.ts` by a dynamic import tsc can't
     follow: a static one would pull the mod's sources (extensionless imports,
     the engine's types) into the repository's `tsc`, which fails on them.
+- **2026-10-20: three counting gaps, closed in core's table and in this copy.**
+  Mike asked why "Mechanisms today" read Interference 0 and Consolidation 0.
+  A dream's FOLDS (`dream.changed`'s `fold`) now light both, as its merges do,
+  and a fold's settles (`contradiction.settled`, source `fold`) are the fold's,
+  not Reconsolidation's. A RISE is any `band.transition` up whatever its site
+  (every crossing is written at `decay`; `consolidate` was never written),
+  except the crossing into identity (the promotion's echo, already "became
+  core") and a `recurve`. The exact-copy merge (`memory.merged`) stays, rare by
+  design. Not changed: `DREAM_ACTION` names a dream's merges and gists only, so
+  a fold lights Consolidation and Interference but its firing names nothing
+  there (the status file's dream changes say a fold is a `gist`, told apart
+  only by its `said` words), and Gist's firings still name a fold's memory.
 - **Esc doesn't clear the search.** By the reference, Esc hands the keyboard
   back to the prompt and never reaches a mod's Input (**assumed**: not pressed
   in the live run). Clearing is the `✕` beside the field, or an empty Enter.
