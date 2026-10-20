@@ -164,6 +164,13 @@ describe("written", () => {
     writeBundle(core, coreOut);
     expect(existsSync(join(coreOut, "hooks/sidebar"))).toBe(false);
     expect(existsSync(join(coreOut, "src/adapters/plugin-run.sh"))).toBe(true);
+    // Never one plugin's bundle into the other's clone; core over a full bundle (the same name) is fine.
+    expect(() => writeBundle(sidebar, coreOut)).toThrow(/holds the counterparts plugin/);
+    expect(() => writeBundle(core, out)).toThrow(/holds the counterparts-sidebar plugin/);
+    expect(existsSync(join(coreOut, "src/adapters/plugin-run.sh"))).toBe(true);
+    writeBundle(planBundle(REPO, "full"), coreOut);
+    writeBundle(core, coreOut);
+    expect(existsSync(join(coreOut, "hooks/sidebar"))).toBe(false);
   });
 
   // What ships is what is tested: the sidebar's sources AND its tests, renamed

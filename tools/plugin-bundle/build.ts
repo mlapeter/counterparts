@@ -975,6 +975,9 @@ export function writeBundle(plan: Plan, out: string, repo: string = REPO): void 
       const name = existsSync(mf) ? (JSON.parse(readFileSync(mf, "utf8")) as { name?: string }).name : undefined;
       const ours = name === CORE_PLUGIN || name === SIDEBAR_PLUGIN;
       if (!ours) throw new Error(`refusing to write the bundle at ${target}: not empty and not a previous bundle`);
+      // One plugin's clone never takes the other's bundle (core's main is not the sidebar's).
+      const writing = (JSON.parse(plan.generated[".claude-plugin/plugin.json"] ?? "{}") as { name?: string }).name;
+      if (writing !== name) throw new Error(`refusing to write the ${writing} bundle at ${target}: it holds the ${name} plugin`);
       for (const n of entries) rmSync(join(target, n), { recursive: true, force: true });
     }
   }
