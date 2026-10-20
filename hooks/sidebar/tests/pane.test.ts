@@ -1661,6 +1661,7 @@ test('a call that throws or is denied still ends, so he lies down 45 s after; a 
 })
 
 // The working pose (2026-10-20, an experiment): while Claude's turn runs the fox sits alert with the tail going.
+// (The tests that run long turns get 20 s: at work he changes about once a second, a blit each on the mocked clock.)
 const PERK = halfCells({ frame: 'perk', fx: [] })
 const IDLE = halfCells({ frame: 'idle', fx: [] })
 const WAG = ['tail1', 'tail2'].map(frame => halfCells({ frame, fx: [] }))
@@ -1673,7 +1674,7 @@ const onStage = async (w: World, ui: Awaited<ReturnType<typeof mount>>): Promise
 }
 const startTurn = ($: Engine, agentId?: string) => $.turn.start({ text: 'go', turnId: 'turn-1', ...(agentId === undefined ? {} : { agentId }) })
 
-test('Claude’s turn: a prompt puts the fox to work at once (the alert face, the tail going); a subagent’s turn changes nothing; the end, an answer, an interrupt or an error, relaxes him and he lies down 45 s later', async ($, on) => {
+test('Claude’s turn: a prompt puts the fox to work at once (the alert face, the tail going); a subagent’s turn changes nothing; the end, an answer, an interrupt or an error, relaxes him and he lies down 45 s later', { timeoutMs: 20000 }, async ($, on) => {
   const w = world(on, foxDetail('basic'))
   await start($, w)
   const ui = await mount($, w, 'terminal')
@@ -1716,7 +1717,7 @@ test('Claude’s turn: a prompt puts the fox to work at once (the alert face, th
   await ui.unmount()
 })
 
-test('a turn whose start was not heard (a reload mid-turn): its first main-loop call puts him to work, its end relaxes him; one whose end is never heard ends by itself; a call waiting on the person keeps him at work', async ($, on) => {
+test('a turn whose start was not heard (a reload mid-turn): its first main-loop call puts him to work, its end relaxes him; one whose end is never heard ends by itself; a call waiting on the person keeps him at work', { timeoutMs: 20000 }, async ($, on) => {
   const w = world(on, foxDetail('basic'))
   let wait = 0
   on('tool.call', async () => {
@@ -1771,7 +1772,7 @@ const modelStep = async ($: Engine, index: number, agentId?: string): Promise<vo
   for await (const c of s) void c
 }
 
-test('review of #549: a slash command does not put the fox to work; a turn writing 25 min without a tool call stays at work while its requests go on (a subagent’s do not count)', async ($, on) => {
+test('review of #549: a slash command does not put the fox to work; a turn writing 25 min without a tool call stays at work while its requests go on (a subagent’s do not count)', { timeoutMs: 20000 }, async ($, on) => {
   const w = world(on, foxDetail('basic'))
   await start($, w)
   const ui = await mount($, w, 'terminal')
