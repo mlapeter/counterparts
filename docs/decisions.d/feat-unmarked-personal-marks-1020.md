@@ -22,6 +22,11 @@
   reflection then only moves marks toward work or world. That is his word, not the night's
   stance, so it stands unchanged; on a default store the reflection already marks owner or
   us. Confidential memories are never in the night's bundle, so never offered or re-marked.
+- A folder set off or paused keeps its work (review of #558): an unmarked memory written
+  in one is not offered, and the reflection may mark it only `work` — owner, us or world
+  would carry it into every folder's Nearby, which reads no folder setting. The MCP server
+  reads the setting as the elsewhere lines do (`lifecycle.ts#chapterExports`); one that
+  will not read offers none from a folder.
 - Kept: `UNMARKED_REST_NIGHTS` 3 (what the last three nights were offered waits behind the
   rest). A mark takes a memory out of the pool, so only what the reflection left rotates.
 - The share: past three re-labels into me, us or the owner, two by name and the rest in one

@@ -271,6 +271,11 @@ and reach every folder; and the `about` field on `remember`/`session_end` says w
 - **Does personal news reach other folders:** a wake in a folder other than ~/counterparts (or Desktop chat):
   are recent personal things (a visit, how a week left Mike) in Nearby that were "Work here" only before?
 - **The morning share:** past three re-labels it says two by name and the rest as a count. Is that enough for him?
+- **The child's context** (review of #558): the bundle does not grow — the offer's lines (≤ 24 × ~320 chars) come
+  out of the same 80,000-character room, so on a full night they displace other memories (measured on a test
+  full night: 62 memories shown instead of 78, the first part +0.5k chars). What can grow is the reflection
+  reading offered ids whole before it marks them, and the finish's 24 whys. Check the reflection child's peak
+  against the 10-19 watch (127.5k of ~150k); past ~140k, lower `UNMARKED` before anything else.
 
 ## Due ~2026-10-27 (core questions that waited a week, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-core-questions-waited-1020.md)
 
