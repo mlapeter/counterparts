@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -229,6 +229,30 @@ describe("written", () => {
     expect(existsSync(join(main, ".claude-plugin/plugin.json"))).toBe(true);
     expect(checkoutBranch(join(work, "nowhere"))).toBeNull();
   }, 60_000);
+
+  test("the tripwire fires from the command: build.ts --flavor full, in a tree at FIRST_SPLIT_RELEASE, refuses before planning", () => {
+    // A tree of its own: this build.ts, a package.json at the split's version,
+    // and the repository's node_modules (for `typescript`). The command reads
+    // the version and refuses before it reads anything else.
+    const tree = join(work, "tree");
+    mkdirSync(join(tree, "tools", "plugin-bundle"), { recursive: true });
+    writeFileSync(join(tree, "tools", "plugin-bundle", "build.ts"), readFileSync(join(REPO, "tools", "plugin-bundle", "build.ts")));
+    writeFileSync(join(tree, "package.json"), JSON.stringify({ name: "counterparts", version: FIRST_SPLIT_RELEASE }));
+    // Wherever this checkout finds `typescript` (a worktree finds its parent's).
+    symlinkSync(dirname(dirname(Bun.resolveSync("typescript/package.json", REPO))), join(tree, "node_modules"));
+    const run = (args: string[]): { status: number | null; said: string } => {
+      const r = spawnSync(process.execPath, ["--no-install", join(tree, "tools", "plugin-bundle", "build.ts"), ...args], { encoding: "utf8", timeout: 60_000, cwd: work });
+      return { status: r.status, said: `${r.stdout}${r.stderr}` };
+    };
+    const full = run(["--flavor", "full", "--list"]);
+    expect(full.status).toBe(1);
+    expect(full.said).toContain("plugin bundle refused:");
+    expect(full.said).toContain("Raise FIRST_SPLIT_RELEASE first");
+    // The other flavors pass the tripwire (and then fail here on the missing
+    // tree, which is not the tripwire's line).
+    const coreRun = run(["--flavor", "core", "--list"]);
+    expect(coreRun.said).not.toContain("Raise FIRST_SPLIT_RELEASE first");
+  }, 120_000);
 
   test("the full flavor's tripwire: refused from FIRST_SPLIT_RELEASE on, and only the full flavor", () => {
     expect(versionAtLeast("0.3.29", "0.3.29")).toBe(true);

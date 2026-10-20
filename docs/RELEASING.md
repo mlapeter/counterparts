@@ -125,8 +125,17 @@ bun tools/plugin-bundle/build.ts --flavor sidebar <clone of counterparts-sidebar
 - Create `counterparts-ai/counterparts-sidebar` **empty** (no README, no licence): the
   build refuses a folder that holds anything but a previous bundle and `.git`.
 - The build refuses any flavor but `directory` in a checkout on the `directory` branch,
-  and the directory flavor anywhere else. The directory branch stays as it is until the
-  directory steps say otherwise.
+  and the directory flavor anywhere else. The guard reads the branch the checkout is on,
+  so check out the `directory` branch itself (`git switch directory`), never a detached
+  commit: a detached HEAD names no branch and skips it. The directory flavor is only ever
+  built on a branch named exactly `directory`. The directory branch stays as it is until
+  the directory steps say otherwise.
+- The directory flavor master builds already differs from the held directory submission
+  (v0.3.23, under review), and #547 adds to that: `commands/uninstall.md`,
+  `src/adapters/host-wiring.js`, `src/adapters/plugin.js`, `src/adapters/cli/install.js`
+  and `src/adapters/claude-code/doctor-host.js` (the keep-one advice beside the sidebar
+  plugin). Nobody pushes the `directory` branch while that submission is under review.
+  Whoever next touches it rebuilds it on purpose, from the master of that day.
 - `claude plugin validate <sidebar clone>` is required, every split release:
   `test/plugin-split.test.ts`'s check that runs Claude Code is skipped where `claude` isn't
   installed (CI).
