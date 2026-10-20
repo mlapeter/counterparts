@@ -26,6 +26,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { TUNABLES as SLEEP } from "../src/core/sleep/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 import { coreSentence } from "../src/core/dream/core-ask.js";
+import { coreListLines } from "../src/adapters/cli/dream-core.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -242,6 +243,7 @@ describe("2. the way back from a reflection's retire", () => {
     expect(c.store.row(a)?.band).toBe("identity");
     expect(c.store.coreDemoted(a)).toBe(false);
     expect(c.store.coreStanding(a)).toMatchObject({ action: "reaffirmed", actor: "owner" });
+    expect(coreListLines(c).find((l) => l.includes(a))).toContain("restored after a reflection retired it");
     // The owner's own retire is not undone by a keep.
     expect(c.demoteCore(b, { reason: "Not who I am.", actor: "owner" }).ok).toBe(true);
     expect(c.keepCore(b, { why: "changed my mind", actor: "self" })).toEqual({ ok: false, reason: "not-core" });

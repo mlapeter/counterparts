@@ -150,7 +150,7 @@ export function keepCore(store: Store, input: { id: string; why: string; actor: 
   const day = input.day ?? store.livedDay();
   if (row.promoted_identity !== 1) {
     if (input.actor === "reflection" || row.archived !== 0 || !retiredByReflection(store, input.id)) return { ok: false, reason: "not-core" };
-    store.appendCoreEvent({ memoryId: input.id, action: "promoted", day, reason: `restored: ${why}`, actor: input.actor });
+    store.appendCoreEvent({ memoryId: input.id, action: "promoted", day, lane: "restored", reason: `restored: ${why}`, actor: input.actor });
     store.updatePhysics(input.id, { promotedIdentity: true });
     store.setBand(input.id, band(store.physicsOf(input.id), day), day);
     store.appendCoreEvent({ memoryId: input.id, action: "reaffirmed", day, reason: why, actor: input.actor });

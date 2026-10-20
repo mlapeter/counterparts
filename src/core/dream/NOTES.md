@@ -834,7 +834,7 @@ the live ~52):
 - THE UNDO DID NOT EXIST. A retire was sticky for everyone (`coreDemoted`, and `keepCore`
   refused `not-core`). Now `keepCore` by the owner or me awake, on a memory whose latest
   word on the core is a REFLECTION's retire, restores it: a `promoted` core event by that
-  actor (reason `restored: …`, no lane), physics and band back to identity, then the
+  actor (lane `restored`, reason `restored: …`), physics and band back to identity, then the
   `reaffirmed` keep so it is not flagged again for what it is; `band.core.restored` is the
   event (not `band.promoted`, so doctor's "became core on reflection alone" does not count
   it). A reflection may not restore; a retire by the owner or by me awake stays sticky.

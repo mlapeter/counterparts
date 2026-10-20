@@ -152,7 +152,7 @@ demoted here. Only a decision moves it: mine (`remember`'s `core`, a reflection'
 part) or the owner's (`counterparts core --demote` / `--reaffirm`); a flag whose cause is gone
 is lifted by the next consolidation. *(2026-10-20, an experiment.)* A REFLECTION's retire can
 be undone: an awake keep (the owner's or mine) of a memory whose latest word on the core is a
-reflection's `demoted` restores it (`keepCore` → `restored`: a `promoted` row by that actor,
+reflection's `demoted` restores it (`keepCore` → `restored`: a `promoted` row, lane `restored`, by that actor,
 then the keep). Every other retire stays sticky. The legacy
 consolidation marking runs first, for legacy rows only; a post-upgrade row is counted
 `not-legacy`. The first decay pass after the v8 upgrade runs a one-time census
