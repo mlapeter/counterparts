@@ -48,7 +48,8 @@ export function storeId(dir: string, opts: { readonly mint?: boolean } = {}): st
  * THE WAKE'S STORE MARKER: `<!-- counterparts:store id=st_… -->`, beside the
  * first meeting's marker (`core/onboarding.ts#onboardingMarker`) on a Claude
  * Code session-start wake — on the wake's one tag line since 2026-10-16
- * (`wakeTagLead`) — so the mod learns
+ * (`wakeTagLead`), and since 2026-10-20 as the `store=` field of the wake's
+ * head tag (`ONE_TAG`, `markerField`) — so the mod learns
  * from the hook's own context which store this session opened, before any
  * dashboard is up. The wake is a writer, so it mints the salt if the store has
  * none yet; empty when even that fails (no marker beats a wrong one).
