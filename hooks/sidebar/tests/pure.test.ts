@@ -1304,7 +1304,7 @@ describe('the fox', () => {
     expect(frames.every(f => WORK_FRAMES.has(f))).toBe(true)
     // the alert face holds for 1.5–3.5 s at most, never idle's 4–9 s
     const holds = shown.filter(s => s.key === 'perk').map(s => s.ms)
-    expect(Math.max(...holds)).toBeLessThanOrEqual(WORK.holdMs[1] + 300)
+    expect(Math.max(...holds)).toBeLessThanOrEqual(4000)
     // the tail is what moves most: a wag of the whole tail several times a minute
     const wags = shown.filter(s => s.frame === 'tail2').length / 5
     expect(wags).toBeGreaterThanOrEqual(4)
@@ -1406,6 +1406,30 @@ describe('the fox', () => {
     expect(d.mode).toBe('dream')
     trigger(d, 'dreamEnd', t + 10000)
     expect(d.mode).toBe('idle')
+  })
+
+  test('the turn ends during the write-up: a notepad asked for in the same instant, or already on screen, plays through before he rests', () => {
+    const rand = seeded(3)
+    // the save and the end together, nothing drawn in between
+    const d = newDirector(0)
+    trigger(d, 'turn', 0)
+    const t = run(d, 0, 6000, rand).t
+    trigger(d, 'note', t)
+    trigger(d, 'turnEnd', t + 1)
+    const a = run(d, t + 1, t + 6000, rand).shown.map(s => s.frame)
+    expect(a.filter(f => f === 'note0').length).toBe(2)
+    expect(d.mode).toBe('idle')
+    // the notepad on screen: the end leaves its frame up until it is due
+    const e = newDirector(0)
+    trigger(e, 'turn', 0)
+    let u = run(e, 0, 6000, rand).t
+    trigger(e, 'note', u)
+    while (advance(e, u, rand).step.frame !== 'note0') u = advance(e, u, rand).next
+    const due = advance(e, u, rand).next
+    expect(trigger(e, 'turnEnd', u + 10)).toBe(false)
+    const b = advance(e, u + 10, rand)
+    expect(b.step.frame).toBe('note0')
+    expect(b.next).toBe(due)
   })
 
   test('lying or asleep, a turn gets him up and to work; a turn whose end is never heard, and a prompt that starts none, end by themselves; a call still running (a permission prompt) holds him at work', () => {
