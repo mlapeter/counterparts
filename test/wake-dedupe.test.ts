@@ -175,6 +175,42 @@ describe("one tag", () => {
     expect(readSentinel(delivered.text).intact).toBe(true);
   });
 
+  test("at a full wake the fields never cost 'Last here' — the only line naming its episode (review of #536)", () => {
+    // Put in before the furniture was spliced, the ~43 bytes took the room
+    // "Last here" fitted into on some ceilings (8,700, 8,760 and 8,850 among
+    // these), and the newest episode, left out of Yesterday for that line,
+    // was in no line at all.
+    for (let budget = 8_700; budget <= 8_850; budget += 30) {
+      for (const c of open.splice(0)) c.close();
+      rmSync(storeDir, { recursive: true, force: true });
+      let now = at(D1, 8);
+      const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: budget, now: () => now, timeZone: "UTC" });
+      open.push(c);
+      const k = { c, set: (t: number): void => void (now = t) };
+      c.revisePage(`## Core\n\n${"I keep the garden's ledger and say what I do not know, and I say it plainly when asked. ".repeat(60)}\n\n## Lately\n\n${"The beans are in and the frost is coming. ".repeat(20)}`, { by: "owner", reason: "seed" });
+      for (let i = 0; i < 80; i++) {
+        c.store.put({ type: "memory", kind: "fact", body: `Open question ${String(i)}: whether bed ${String(i)} wants lime this autumn, given the pH reading and the rain we had in the last weeks of summer.`, meta: { unresolved: true }, salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 } });
+      }
+      for (let i = 0; i < 40; i++) {
+        c.store.put({ type: "memory", kind: "self", body: `Who I am ${String(i)}: I keep careful notes and say when I am unsure about bed ${String(i)}.`, salience: { relevance: 1, emotional: 1, predictive: 1 } });
+      }
+      for (let i = 0; i < 6; i++) {
+        c.store.put({ type: "memory", kind: "person", body: `Seed order ${String(i)} closes at noon; the list is in the green folder number ${String(i)}.`, learnedOn: "2026-10-11", eventDate: i < 2 ? D2 : `2026-10-2${String(i + 1)}`, salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 } });
+      }
+      episode(k, { session: S1, scope: HERE, title: "The visit went great", date: D1, hour: 9 });
+      episode(k, { session: S2, scope: HERE, title: "The overnight averages", date: D1, hour: 12 });
+      const newest = episode(k, { session: S3, scope: HERE, title: "The bench run that ran out", date: D1, hour: 15 });
+      k.set(at(D2, 7));
+      expect(c.rebrief({ budgetBytes: budget, at: D2 }).published).toBe(true);
+      const bare = c.wake(budget, { date: D2 }, { scope: HERE, session: READER });
+      const tagged = c.wake(budget, { date: D2 }, { scope: HERE, session: READER, headFields: ["meet=not_started", "store=st_0123456789abcdef"] });
+      expect(tagged.bytes).toBeLessThanOrEqual(budget);
+      expect(readSentinel(tagged.text).intact).toBe(true);
+      if (bare.text.includes(newest)) expect(tagged.text).toContain(newest);
+      expect(tagged.text.includes("Last here: ")).toBe(bare.text.includes("Last here: "));
+    }
+  });
+
   test("the markers' fields, and the session tag for a wake with no head", () => {
     expect(ONE_TAG).toBe(true);
     expect(markerField("<!-- counterparts:onboarding meet=not_started -->")).toBe("meet=not_started");

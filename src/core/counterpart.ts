@@ -750,23 +750,27 @@ export class Counterpart {
       const assembled = delivery === undefined ? null : this.assembleWake(delivery, here);
       lined = assembled?.lined ?? [];
       threads = assembled?.kept.threads ?? [];
-      let result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
+      const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
       this.deliveredThreads = assembled === null ? null : new Set(assembled.kept.threads);
-      // ONE TAG (2026-10-20): the host's fields go into the head tag BEFORE
-      // the furniture is spliced, so the pointer's room check counts them and
-      // the whole stays inside the ceiling; when even the bare wake has no
-      // room for them, the head is left as it was and the host carries them
-      // in a tag of its own (`tagged` false).
+      withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
+      // ONE TAG (2026-10-20): the host's fields go into the head tag AFTER
+      // the furniture is spliced, and only when the whole still fits the
+      // ceiling; otherwise the head is left as it was and the host carries
+      // them in a tag of its own (`tagged` false). After, not before (review
+      // of #536): put in first, they took the room "Last here" was spliced
+      // into, and since the Yesterday line leaves that line's episode to it,
+      // the episode was then in no line at all — on 8 of 61 ceilings from
+      // 8,700 to 9,300 in a full fixture. The fields are cosmetic; the line
+      // is not.
       const fields = here?.headFields ?? [];
-      if (delivery !== undefined && result.ok && fields.length > 0) {
-        const head = withHeadFields(result.text, fields);
+      if (delivery !== undefined && withPointer.ok && fields.length > 0) {
+        const head = withHeadFields(withPointer.text, fields);
         const budget = this.reportedBudget;
         if (head.applied && (budget === null || head.bytes <= budget)) {
-          result = { ...result, text: head.text, bytes: head.bytes, sentinel: head.sentinel };
+          withPointer = { ...withPointer, text: head.text, bytes: head.bytes, sentinel: head.sentinel };
           tagged = true;
         }
       }
-      withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
     } finally {
       this.deliveredThreads = null;
       this.delivering = false;

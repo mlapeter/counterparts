@@ -398,11 +398,12 @@ export interface WakeHere {
   readonly scope?: string;
   /**
    * THE HOST'S FIELDS FOR THE HEAD TAG (2026-10-20, ONE TAG): `meet=…`,
-   * `store=…`, put into the wake's opening comment before the furniture is
-   * spliced (`self/briefing.ts#withHeadFields`), so the pointer's room check
-   * counts them and the whole stays inside the ceiling. When they would not
-   * fit, the head is left as it was and `Counterpart#wake`'s outcome says so
-   * (`tagged` false): the host then carries them in a tag of its own.
+   * `store=…`, put into the wake's opening comment after the furniture is
+   * spliced (`self/briefing.ts#withHeadFields`), and only when the whole still
+   * fits the ceiling, so they never take the room "Last here" needs (review
+   * of #536). When they would not fit, the head is left as it was and
+   * `Counterpart#wake`'s outcome says so (`tagged` false): the host then
+   * carries them in a tag of its own.
    */
   readonly headFields?: readonly string[];
   /** The session id, for the `handoff.shown` row. Never guessed. */

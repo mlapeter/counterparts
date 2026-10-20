@@ -102,7 +102,8 @@ export function wakeTagLead(tags: readonly string[], wakeText: string): string {
  * forged-marker guards — reads it as before: they match the prefix and
  * `elements=… bytes=…` and allow any field between. The fields go in where
  * the wake is composed (`Lifecycle#composeWake`, by
- * `self/briefing-delivery.ts#withHeadFields`), BEFORE the delivery's
+ * `self/briefing-delivery.ts#withHeadFields`, last, when the whole still
+ * fits the ceiling — never in the furniture's room), BEFORE the delivery's
  * expectation is written, and both `bytes=` are re-solved to count them, so
  * the delivered block still states its own length and the next prompt's
  * check still finds the tail it was told to expect.
@@ -112,9 +113,10 @@ export function wakeTagLead(tags: readonly string[], wakeText: string): string {
  * front of it: `<!-- counterparts:session meet=… store=… -->` (`sessionTag`).
  * The sidebar reads `meet=` and `store=` from either, and from the older
  * separate markers (`hooks/sidebar/hooks/feed.ts`). A sidebar from before
- * this change finds neither field in the new tag and reads both as unknown,
- * which it already handles (no store check; the meeting's state from the
- * dashboard's onboarding read). Off (`ONE_TAG`): the 10-16 line, each marker
+ * this change finds neither field in the new tag and reads both as unknown:
+ * no store check, and the meeting's state stays unknown (it has no other read
+ * of it), so its footer keeps the "5-minute intro" line until the plugin
+ * updates. Off (`ONE_TAG`): the 10-16 line, each marker
  * whole in front of the head tag (`wakeTagLead`).
  */
 export const ONE_TAG = true;

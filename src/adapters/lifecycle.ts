@@ -574,8 +574,8 @@ export class Lifecycle implements HostLifecycle {
    *
    * `tags` (2026-10-20, ONE TAG): the host's markers for this start. With
    * `ONE_TAG` on their fields go into the head tag (`WakeHere.headFields`:
-   * the core puts them in before it splices the furniture, so the ceiling
-   * holds), BEFORE the expectation is written, so the tail the next prompt
+   * the core puts them in after it splices the furniture, when the whole
+   * still fits the ceiling), BEFORE the expectation is written, so the tail the next prompt
    * looks for is the one delivered. `tags` on the result: the markers asked
    * for; `tagged`: whether the head carries them (else the host puts
    * `sessionTag` in front). Asked for before the compose: the onboarding

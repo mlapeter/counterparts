@@ -2238,11 +2238,14 @@ plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of t
 - **`withHeadFields`** (`briefing-delivery.ts`): the host's `meet=` / `store=` fields go into
   the opening comment after `counterparts:wake ` and both byte counts are re-solved, the
   mechanism `spliceBeforeSentinel` uses. `Counterpart#wake` applies it (`WakeHere.headFields`)
-  after the preface and BEFORE the furniture splice, so the pointer's room check counts the
-  ~45 bytes and the delivered wake stays inside the ceiling; first tried after the splice, it
-  pushed full wakes 4–29 bytes past 9,000 in the room tests. When even the bare wake has no
-  room, the head is left as it was (`tagged` false) and the host carries the fields in a
-  tag of its own. Every head reader matches the prefix and `elements=… bytes=…`, so the
+  after the furniture splice, and only when the result still fits the ceiling (applied
+  unconditionally there, it pushed full wakes 4–29 bytes past 9,000 in the room tests). The
+  builder first put it BEFORE the splice so the pointer's room check counted the ~43 bytes;
+  the review of #536 measured that taking "Last here" on 8 of 61 ceilings from 8,700 to 9,300
+  in a full fixture — and since the Yesterday line leaves that line's episode to it, the
+  episode was then in no line. The fields are cosmetic, the line is not, so they go last.
+  When there is no room for them, the head is left as it was (`tagged` false) and the host
+  carries the fields in a tag of its own. Every head reader matches the prefix and `elements=… bytes=…`, so the
   fields read like the `day=` that sat there until 10-16.
 - **`HORIZON_OWN_ID`** (`briefing.ts#elementLine`): a "Coming up" item printed whole also
   ends with `[its id]`, before the standing's suffix ("(earlier: [mem_…])"). A line-form
