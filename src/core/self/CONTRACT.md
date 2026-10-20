@@ -554,8 +554,8 @@ proposals and their archive; render and delivery telemetry.
     kept as above; and a held page never sent again is kept when the nightly process's child
     returns (`Self#keepHeldPage`, `night-run.ts`), or — with no run end (a night launched
     from a session, a run killed after the hold) — at the worker's next boundary once the
-    hold is 30 minutes old (`PAGE_HELD_SETTLE_MS`, `bin/runner.ts`), unless the page moved
-    since. "A night" is the last 12 hours by the wall clock (`PAGE_HELD_NIGHT_MS`), so a
+    hold is 30 minutes old (`PAGE_HELD_SETTLE_MS`, `bin/runner.ts`; looking back 48 hours,
+    `PAGE_HELD_KEEP_MS`), unless the page moved since. "A night" is the last 12 hours by the wall clock (`PAGE_HELD_NIGHT_MS`), so a
     run crossing midnight is one night. The held short version is stored only as its gates
     keep it (review of #541). So a night
     never ends with no page change because of the hold. A session's page and the owner's

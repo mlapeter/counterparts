@@ -2294,7 +2294,7 @@ plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of t
     (the dream tool's `launch`, under the default `ask`) or a run killed after the hold never
     reaches it, so #358's lost night came back there. The worker now keeps a held page at a
     boundary once the hold is 30 minutes old (`PAGE_HELD_SETTLE_MS`), with the same version
-    guard, and only within the 12 hours. A writer still cutting is left alone; one cutting
+    guard, looking back 48 hours (`PAGE_HELD_KEEP_MS`: the next boundary after an evening launch may be the next morning). A writer still cutting is left alone; one cutting
     past 30 minutes gets `version-moved` and the kept page handed back.
   - The short version sent with a held page was stored raw on the refusal row. The page body
     was the gate's text, but the short version was not, so a credential in it sat in the event

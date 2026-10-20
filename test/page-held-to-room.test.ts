@@ -479,6 +479,18 @@ describe("5. the awkward states: midnight, a credential, a crowded log, no run e
     expect(me.keepHeldPage({ settledMs: 30 * MIN })).toBeNull();
   });
 
+  test("an evening hold whose session closed before it settled: the next morning's first boundary keeps it", () => {
+    const t0 = Date.UTC(2026, 9, 20, 21, 0);
+    const { me, at } = clocked(t0);
+    me.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    expect(me.revisePage(pageOf(4_956), { by: "reflection", reason: "the reflection", session: SESSION }).reason).toBe("past-room");
+    at(t0 + 5 * MIN);
+    expect(me.keepHeldPage({ settledMs: 30 * MIN })).toBeNull();
+    at(t0 + 20 * 60 * MIN);
+    expect(me.keepHeldPage({ settledMs: 30 * MIN })?.written).toBe(true);
+    expect(me.page()?.bytes).toBe(4_956);
+  });
+
   test("a held page from a night long gone is not kept by a later boundary", () => {
     const t0 = Date.UTC(2026, 9, 20, 3, 0);
     const { me, at } = clocked(t0);

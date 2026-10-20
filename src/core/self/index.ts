@@ -798,9 +798,16 @@ export const PAGE_HELD_DOORS: readonly SelfPageAuthor[] = ["writer", "reflection
  * WHAT "TONIGHT" MEANS TO THE HOLD (review of #541): the last twelve hours by
  * the wall clock, not the calendar date. Keyed on the date, a run that crossed
  * midnight held a door twice and the run's end missed a hold made before it.
- * Also the furthest back a later boundary looks for a held page to keep.
  */
 export const PAGE_HELD_NIGHT_MS = 12 * 60 * 60_000;
+
+/**
+ * HOW FAR BACK A BOUNDARY LOOKS FOR A HELD PAGE TO KEEP (review of #541):
+ * longer than a night, because with no run end the next boundary may be the
+ * next morning's — an evening launch whose session closed minutes after the
+ * hold. The version guard keeps a late keep safe: nothing written since.
+ */
+export const PAGE_HELD_KEEP_MS = 48 * 60 * 60_000;
 
 /**
  * HOW LONG A HELD PAGE IS LEFT TO ITS WRITER before a boundary with no run end
@@ -1610,9 +1617,9 @@ export class Self {
   private heldSince(since: number): HeldDraft[] {
     const out: HeldDraft[] = [];
     try {
-      // Bounded in SQL by lived day too (two back covers any twelve hours), so a
+      // Bounded in SQL by lived day too (four back covers any 48 hours), so a
       // boundary does not read months of refusal rows to find none.
-      const sinceDay = Math.max(0, this.store.livedDay() - 2);
+      const sinceDay = Math.max(0, this.store.livedDay() - 4);
       for (const r of this.store.eventLog({ name: SELF_PAGE_REFUSED_EVENT, sinceDay, order: "desc", limit: PAGE_HELD_SCAN })) {
         if (r.at < since) break;
         const h = heldDraftOf(r.payload);
@@ -1640,10 +1647,10 @@ export class Self {
     if (this.observer || !this.tunables.PAGE_HELD_TO_ROOM) return null;
     try {
       // THE RUN'S OWN START when the run's end calls (`sinceAt`), else the last
-      // night (`PAGE_HELD_NIGHT_MS`) — never the calendar date, which a run
+      // two days (`PAGE_HELD_KEEP_MS`) — never the calendar date, which a run
       // crossing midnight changed under it (review of #541).
       const now = this.store.now();
-      const held = this.heldSince(opts.sinceAt ?? now - PAGE_HELD_NIGHT_MS)[0];
+      const held = this.heldSince(opts.sinceAt ?? now - PAGE_HELD_KEEP_MS)[0];
       if (held === undefined) return null;
       // A BOUNDARY WITH NO RUN END (`settledMs`, review of #541) leaves a fresh
       // hold to its writer, who may still be cutting.
