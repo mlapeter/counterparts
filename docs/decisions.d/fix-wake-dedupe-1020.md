@@ -17,11 +17,16 @@ nothing is stored differently.
   names ids only, and Yesterday's titles are the better words for those; Last here's newest
   line is the richer one for its own episode. Handoffs are left as they are: a handoff is
   where work was left, named by session and its own id, never by the chapter's title or id.
-  The cost: Yesterday is composed inside the body before the furniture is spliced, so when
-  "Last here" itself gets no room (`handoff.lasthere.noroom`), its episode is in no line that
-  morning. Not rare on a full wake with no handoff here (the review of #536: 10 of 61 ceilings
-  from 8,700 to 9,300 in a full fixture; 0 of 61 with a handoff, whose reserve keeps the
-  line). Seen on a test fixture: a wake that no longer has a Yesterday line
+  Yesterday is composed inside the body before the furniture is spliced, so when "Last here"
+  itself gets no room (`handoff.lasthere.noroom`), its episode was in no line that morning —
+  not rare on a full wake with no handoff here (the review of #536: 10 of 61 ceilings from
+  8,700 to 9,300 in a full fixture; 0 of 61 with a handoff, whose reserve keeps the line).
+  Fixed in the same PR: the delivery asks first, without writing, whether the splice will
+  carry "Last here" (`Counterpart#carriesLastHere`, the same choice `addHandoffPointer`
+  makes, shared through `pointerPlan`); when it will not, the wake is assembled again with
+  the Yesterday line keeping that episode (by title, or in its count), and "Last here" is not
+  tried again, so the room the second assembly frees cannot repeat it. The no-room row is
+  written as before. The second assembly is reads only; it costs time on those mornings. Seen on a test fixture: a wake that no longer has a Yesterday line
   can fit without borrowing the furniture's room, and then the leftover-room upgrade (#489 C)
   prints "Still open"'s first item as a line rather than whole; which items are listed does
   not change.

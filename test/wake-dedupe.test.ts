@@ -253,3 +253,54 @@ describe("Coming up", () => {
     expect(elementLine(open, resolve)).toBe("- Back up the store to the drive. (earlier: [mem_00000000000b])");
   });
 });
+
+describe("at least once (review of #536)", () => {
+  test("a full wake with no handoff here, swept across ceilings: when 'Last here' has no room, Yesterday names its episode, and every episode appears once", () => {
+    let dropped = 0;
+    let carried = 0;
+    for (let budget = 8_700; budget <= 9_300; budget += 10) {
+      for (const c of open.splice(0)) c.close();
+      rmSync(storeDir, { recursive: true, force: true });
+      let now = at(D1, 8);
+      const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: budget, now: () => now, timeZone: "UTC" });
+      open.push(c);
+      const k = { c, set: (t: number): void => void (now = t) };
+      c.revisePage(`## Core\n\n${"I keep the garden's ledger and say what I do not know, and I say it plainly when asked. ".repeat(60)}\n\n## Lately\n\n${"The beans are in and the frost is coming. ".repeat(20)}`, { by: "owner", reason: "seed" });
+      for (let i = 0; i < 80; i++) {
+        c.store.put({ type: "memory", kind: "fact", body: `Open question ${String(i)}: whether bed ${String(i)} wants lime this autumn, given the pH reading and the rain we had in the last weeks of summer.`, meta: { unresolved: true }, salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 } });
+      }
+      for (let i = 0; i < 40; i++) {
+        c.store.put({ type: "memory", kind: "self", body: `Who I am ${String(i)}: I keep careful notes and say when I am unsure about bed ${String(i)}.`, salience: { relevance: 1, emotional: 1, predictive: 1 } });
+      }
+      for (let i = 0; i < 6; i++) {
+        c.store.put({ type: "memory", kind: "person", body: `Seed order ${String(i)} closes at noon; the list is in the green folder number ${String(i)}.`, learnedOn: "2026-10-11", eventDate: i < 2 ? D2 : `2026-10-2${String(i + 1)}`, salience: { relevance: 0.9, emotional: 0.8, predictive: 0.8 } });
+      }
+      const first = episode(k, { session: S1, scope: HERE, title: "The visit went great", date: D1, hour: 9 });
+      const second = episode(k, { session: S2, scope: HERE, title: "The overnight averages", date: D1, hour: 12 });
+      const newest = episode(k, { session: S3, scope: HERE, title: "The bench run that ran out", date: D1, hour: 15 });
+      k.set(at(D2, 7));
+      expect(c.rebrief({ budgetBytes: budget, at: D2 }).published).toBe(true);
+      const woke = c.wake(budget, { date: D2 }, { scope: HERE, session: READER, headFields: ["meet=done", "store=st_0123456789abcdef"] });
+      expect(woke.bytes).toBeLessThanOrEqual(budget);
+      expect(readSentinel(woke.text).intact).toBe(true);
+      const yesterday = lineStarting(woke.text, "Yesterday: ") ?? "";
+      if (woke.text.includes("Last here: ")) {
+        carried += 1;
+        expect(count(woke.text, newest)).toBe(1);
+        expect(yesterday).not.toContain(newest);
+      } else {
+        dropped += 1;
+        // Yesterday's: by title, or in its count when the title had no room —
+        // never in no line, never a bare id.
+        const named = count(woke.text, newest) === 1 && yesterday.includes(newest);
+        const counted = count(woke.text, newest) === 0 && /; and \d+ more/.test(yesterday);
+        expect(named || counted).toBe(true);
+      }
+      for (const id of [first, second]) expect(count(woke.text, id)).toBeLessThanOrEqual(1);
+      expect(yesterday).not.toMatch(/(?:: |; )epi_[0-9a-f]+/);
+    }
+    // The sweep crosses the room where the line gives way.
+    expect(dropped).toBeGreaterThan(0);
+    expect(carried).toBeGreaterThan(0);
+  }, 120_000);
+});

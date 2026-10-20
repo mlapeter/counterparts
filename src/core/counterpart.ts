@@ -434,6 +434,14 @@ export class Counterpart {
   /** True for the length of one delivery; the chapter walk it made, kept
    *  for the rest of it (`chaptersInWindow`). */
   private delivering = false;
+  /**
+   * EACH EPISODE ONCE, AND AT LEAST ONCE (2026-10-20, review of #536): the
+   * episode a delivery's Yesterday line left to "Last here" (`yesterdayFor`),
+   * and whether the line is to keep it after all — set by `wake` when the
+   * splice would carry no "Last here" (`carriesLastHere`). Delivery-scoped.
+   */
+  private yesterdayLeftOut: string | null = null;
+  private yesterdayKeepsNewest = false;
   private deliveryWalk: { day: number; chapters: Map<string, ChapterHere> } | null = null;
 
   private constructor(opts: CounterpartOptions) {
@@ -747,11 +755,30 @@ export class Counterpart {
     let tagged = false;
     this.delivering = delivery !== undefined;
     try {
-      const assembled = delivery === undefined ? null : this.assembleWake(delivery, here);
+      this.yesterdayLeftOut = null;
+      this.yesterdayKeepsNewest = false;
+      let assembled = delivery === undefined ? null : this.assembleWake(delivery, here);
+      let result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
+      this.deliveredThreads = assembled === null ? null : new Set(assembled.kept.threads);
+      // AT LEAST ONCE (review of #536): the Yesterday line left its newest
+      // episode to "Last here", but when the splice will carry no "Last here"
+      // (no room this time, measured on 10 of 61 full-wake ceilings with no
+      // handoff here) the episode would be in no line. The wake is then
+      // assembled again with the line keeping it — reads only, so the second
+      // assembly costs time and writes nothing.
+      if (delivery !== undefined && assembled !== null && this.yesterdayLeftOut !== null && !this.carriesLastHere(result, here)) {
+        // The line's own no-room row, as the splice would have left it.
+        this.noteLastHereNoRoom(this.yesterdayLeftOut, { budget: this.reportedBudget, was: result.bytes, besideHandoff: false });
+        this.yesterdayKeepsNewest = true;
+        const again = this.assembleWake(delivery, here);
+        if (again !== null) {
+          assembled = again;
+          result = this.self.wake(delivery, again.text);
+          this.deliveredThreads = new Set(again.kept.threads);
+        }
+      }
       lined = assembled?.lined ?? [];
       threads = assembled?.kept.threads ?? [];
-      const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
-      this.deliveredThreads = assembled === null ? null : new Set(assembled.kept.threads);
       withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
       // ONE TAG (2026-10-20): the host's fields go into the head tag AFTER
       // the furniture is spliced, and only when the whole still fits the
@@ -775,6 +802,8 @@ export class Counterpart {
       this.deliveredThreads = null;
       this.delivering = false;
       this.deliveryWalk = null;
+      this.yesterdayLeftOut = null;
+      this.yesterdayKeepsNewest = false;
     }
     this.emit("counterpart.wake", undefined, {
       ok: withPointer.ok,
@@ -1073,8 +1102,106 @@ export class Counterpart {
    * and the newest the rest (the header and the door).
    */
   private addHandoffPointer(result: WakeResult, here?: WakeHere): WakeResult {
+    const plan = this.pointerPlan(result, here);
+    if (plan.kind === "as-found") return result;
+    if (plan.kind === "work-only") return this.withWorkHere(result, null, plan.work, plan.budget, plan.scope);
+    const { scope, lastHere, exchange, lastHereId, newest, budget, work, tries, smallest, fits } = plan;
+    for (const { rung, above } of tries) {
+      const block = [above, rung?.block ?? null].filter((b): b is string => b !== null).join("\n");
+      const spliced = fits(block);
+      if (spliced === null) continue;
+      const total = spliced.bytes - result.bytes;
+      const aboveBytes = above === null ? 0 : (rung === null ? total : new TextEncoder().encode(above).length + 1);
+      if (rung !== null) {
+        const cost = total - aboveBytes;
+        const lines = rung.block.split("\n");
+        const own = (i: number): number =>
+          rung.shown.length === 1 ? cost : new TextEncoder().encode(lines[i + 1] ?? "").length + 1;
+        const others = rung.shown.slice(1).reduce((n, _, i) => n + own(i + 1), 0);
+        rung.shown.forEach((h, i) => {
+          this.handoffs.noteShown(h, {
+            bytes: i === 0 ? cost - others : own(i),
+            session: here?.session ?? null,
+            among: rung.live,
+            ...(i === 0 ? { plans: rung.plans.length } : {}),
+          });
+        });
+      } else if (newest !== undefined) {
+        this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
+      }
+      // The exchange line rides at the foot of `above` when it was carried.
+      const saidShown = exchange !== null && above !== null && (above === exchange || above.endsWith(`\n${exchange}`));
+      const hereShown = above !== null && above !== exchange;
+      if (hereShown) {
+        // Its own bytes and lines, without the exchange line at its foot.
+        const said = saidShown ? byteLength(exchange) + 1 : 0;
+        this.emit("counterpart.lasthere.shown", undefined, { bytes: aboveBytes - said, lines: above.split("\n").length - (saidShown ? 1 : 0) });
+      } else if (lastHere.length > 0) {
+        // The handoff was carried and the line above it was not.
+        this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
+      }
+      if (exchange !== null) this.emit(saidShown ? "counterpart.lastexchange.shown" : "counterpart.lastexchange.noroom", undefined, { bytes: byteLength(exchange) });
+      // A memory the "since" line names is not named again in the work lines
+      // above it (2026-10-09).
+      const named = rung?.plans ?? [];
+      const lines = work.lines.filter((l) => !named.some((id) => l.endsWith(`(${id})`)));
+      return this.withWorkHere(result, block, { lines, found: work.found - (work.lines.length - lines.length) }, budget, scope);
+    }
+    if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
+    if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
+    if (exchange !== null) this.emit("counterpart.lastexchange.noroom", undefined, { bytes: byteLength(exchange) });
+    return this.withWorkHere(result, null, work, budget, scope);
+  }
+
+  /**
+   * WOULD THIS DELIVERY CARRY "LAST HERE"? (2026-10-20, review of #536.) The
+   * same choice `addHandoffPointer` makes (`pointerPlan`, the first block
+   * that fits), asked without writing anything — so the wake can tell, before
+   * it splices, whether the Yesterday line may leave the line's newest
+   * episode to it. True when there is no such line to carry.
+   */
+  private carriesLastHere(result: WakeResult, here?: WakeHere): boolean {
+    try {
+      const plan = this.pointerPlan(result, here);
+      if (plan.kind !== "full") return plan.kind === "as-found" || !plan.lastHere.some((b) => b.startsWith("Last here:"));
+      for (const { rung, above } of plan.tries) {
+        const block = [above, rung?.block ?? null].filter((b): b is string => b !== null).join("\n");
+        if (plan.fits(block) === null) continue;
+        return above !== null && above.split("\n").some((l) => l.startsWith("Last here:"));
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * WHAT THE POINTER'S SPLICE WILL TRY, widest first, and how it fits — reads
+   * only (the ring aside), shared by `addHandoffPointer`, which then records
+   * what it carried, and `carriesLastHere`, which only asks.
+   */
+  private pointerPlan(
+    result: WakeResult,
+    here?: WakeHere,
+  ):
+    | { kind: "as-found" }
+    | { kind: "work-only"; scope: string; budget: number | null; work: { lines: string[]; found: number }; lastHere: string[] }
+    | {
+        kind: "full";
+        scope: string;
+        ladder: ReturnType<Handoffs["pointerChoices"]>;
+        lastHere: string[];
+        exchange: string | null;
+        lastHereId: string | null;
+        newest: ReturnType<Handoffs["pointerChoices"]>[number] | undefined;
+        budget: number | null;
+        work: { lines: string[]; found: number };
+        tries: { rung: ReturnType<Handoffs["pointerChoices"]>[number] | null; above: string | null }[];
+        smallest: ReturnType<typeof spliceBeforeSentinel> | null;
+        fits: (block: string) => ReturnType<typeof spliceBeforeSentinel> | null;
+      } {
     const scope = here?.scope?.trim() ?? "";
-    if (scope.length === 0 || !result.ok) return result;
+    if (scope.length === 0 || !result.ok) return { kind: "as-found" };
     // ONE chapter walk for the whole delivery (the line, its no-room row, and
     // each handoff's "since then: a newer chapter here"): a session start waits on it.
     let chapters: Map<string, ChapterHere> = new Map();
@@ -1122,7 +1249,7 @@ export class Counterpart {
     // handoff block is chosen, in the room that block leaves — the handoff and
     // "Last here" are chosen first and never give way to it (`withWorkHere`).
     const work = this.workHereLines(scope);
-    if (newest === undefined && aboveLadder.length === 0) return this.withWorkHere(result, null, work, budget, scope);
+    if (newest === undefined && aboveLadder.length === 0) return { kind: "work-only", scope, budget, work, lastHere };
     const fits = (block: string): ReturnType<typeof spliceBeforeSentinel> | null => {
       const spliced = spliceBeforeSentinel(result.text, block);
       return spliced.applied && (budget === null || spliced.bytes <= budget) ? spliced : null;
@@ -1133,7 +1260,7 @@ export class Counterpart {
     // alone as the fallback. The line alone only when no handoff rung fits.
     // With no chapter here this is the handoff ladder as it was, rung for rung.
     // A bundle that is not a clean render is delivered as found.
-    if (!spliceBeforeSentinel(result.text, ladder[0]?.block ?? aboveLadder[0] ?? "").applied) return result;
+    if (!spliceBeforeSentinel(result.text, ladder[0]?.block ?? aboveLadder[0] ?? "").applied) return { kind: "as-found" };
     const best = ladder.find((rung) => fits(rung.block) !== null) ?? null;
     const tries: { rung: (typeof ladder)[number] | null; above: string | null }[] =
       best !== null
@@ -1143,51 +1270,7 @@ export class Counterpart {
     // decided there was no room for it (review of #295, NIT-3).
     const last = ladder[ladder.length - 1];
     const smallest = last === undefined ? null : spliceBeforeSentinel(result.text, last.block);
-    for (const { rung, above } of tries) {
-      const block = [above, rung?.block ?? null].filter((b): b is string => b !== null).join("\n");
-      const spliced = fits(block);
-      if (spliced === null) continue;
-      const total = spliced.bytes - result.bytes;
-      const aboveBytes = above === null ? 0 : (rung === null ? total : new TextEncoder().encode(above).length + 1);
-      if (rung !== null) {
-        const cost = total - aboveBytes;
-        const lines = rung.block.split("\n");
-        const own = (i: number): number =>
-          rung.shown.length === 1 ? cost : new TextEncoder().encode(lines[i + 1] ?? "").length + 1;
-        const others = rung.shown.slice(1).reduce((n, _, i) => n + own(i + 1), 0);
-        rung.shown.forEach((h, i) => {
-          this.handoffs.noteShown(h, {
-            bytes: i === 0 ? cost - others : own(i),
-            session: here?.session ?? null,
-            among: rung.live,
-            ...(i === 0 ? { plans: rung.plans.length } : {}),
-          });
-        });
-      } else if (newest !== undefined) {
-        this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
-      }
-      // The exchange line rides at the foot of `above` when it was carried.
-      const saidShown = exchange !== null && above !== null && (above === exchange || above.endsWith(`\n${exchange}`));
-      const hereShown = above !== null && above !== exchange;
-      if (hereShown) {
-        // Its own bytes and lines, without the exchange line at its foot.
-        const said = saidShown ? byteLength(exchange) + 1 : 0;
-        this.emit("counterpart.lasthere.shown", undefined, { bytes: aboveBytes - said, lines: above.split("\n").length - (saidShown ? 1 : 0) });
-      } else if (lastHere.length > 0) {
-        // The handoff was carried and the line above it was not.
-        this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: true });
-      }
-      if (exchange !== null) this.emit(saidShown ? "counterpart.lastexchange.shown" : "counterpart.lastexchange.noroom", undefined, { bytes: byteLength(exchange) });
-      // A memory the "since" line names is not named again in the work lines
-      // above it (2026-10-09).
-      const named = rung?.plans ?? [];
-      const lines = work.lines.filter((l) => !named.some((id) => l.endsWith(`(${id})`)));
-      return this.withWorkHere(result, block, { lines, found: work.found - (work.lines.length - lines.length) }, budget, scope);
-    }
-    if (newest !== undefined) this.noteHandoffNoRoom(newest.handoff, smallest?.bytes ?? result.bytes, budget, result.bytes);
-    if (lastHere.length > 0) this.noteLastHereNoRoom(lastHereId, { budget, was: result.bytes, besideHandoff: false });
-    if (exchange !== null) this.emit("counterpart.lastexchange.noroom", undefined, { bytes: byteLength(exchange) });
-    return this.withWorkHere(result, null, work, budget, scope);
+    return { kind: "full", scope, ladder, lastHere, exchange, lastHereId, newest, budget, work, tries, smallest, fits };
   }
 
   /**
@@ -1378,7 +1461,10 @@ export class Counterpart {
       // EACH EPISODE ONCE (2026-10-20): what the wake's body already names
       // (the Yesterday line) is not named again in "Before it", "+N more" or
       // the about-me line below.
-      const base = entries.length === 0 ? [] : lastHereLadder(entries, reader, named);
+      // When this delivery found no room for the line and its Yesterday line
+      // took the newest episode back (`yesterdayKeepsNewest`), the line is
+      // not tried again: room the re-assembly freed would only repeat it.
+      const base = entries.length === 0 || this.yesterdayKeepsNewest ? [] : lastHereLadder(entries, reader, named);
       // ABOUT ME, FROM ANOTHER DIRECTORY (2026-10-01): one more line on the
       // widest rungs, given up first; alone when nothing was written here.
       const away = this.selfChapterElsewhere(all, new Set(found.map((f) => f.chapter.id)), reader, exportsFrom);
@@ -1477,8 +1563,12 @@ export class Counterpart {
       // which says when and how it began (`lastHereNewest`); it is neither
       // listed nor counted here. Every other one of yesterday's is this
       // line's, and the furniture below leaves out what this line names.
-      const newest = reader === undefined ? null : this.lastHereNewest(reader.here);
-      const all = chaptersOn(this.store, date, { fromDay }).filter((c) => c.id !== newest);
+      // Unless the delivery found "Last here" has no room this time
+      // (`yesterdayKeepsNewest`, review of #536): then it is this line's.
+      const newest = reader === undefined || this.yesterdayKeepsNewest ? null : this.lastHereNewest(reader.here);
+      const listed = chaptersOn(this.store, date, { fromDay });
+      const all = listed.filter((c) => c.id !== newest);
+      if (all.length < listed.length) this.yesterdayLeftOut = newest;
       const day = reader === undefined ? all : all.filter((c) => this.nameableHere(c.scope ?? null, c.aboutMe === true, reader.here));
       // The ones left out, BY FOLDER (2026-10-18, the wake-polish builder):
       // only a folder the "Today, elsewhere" line may name (`elsewhereGate`)

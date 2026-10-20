@@ -207,11 +207,13 @@ snapshots folder.
   own `[mem_…]`, then any "(earlier: …)".
 - **Look at:** `~/.counterparts/snapshots/`: one folder per date from the install day on, and
   no `.taking-…` file left over an hour later.
-- **Changes a decision if:** "Last here" is dropped for room (`handoff.lasthere.noroom` rows)
-  on a morning its newest chapter was yesterday's → that episode was in no line; give the
-  Yesterday line its id back on that path. Not rare on a full wake with no handoff here: the
-  review of #536 measured it on 10 of 61 ceilings from 8,700 to 9,300 in a full fixture (0 of
-  61 with a handoff, whose reserve keeps the line), with or without the head's fields. Or a session reads the Yesterday line as all of
+- **Look at:** a morning with a `handoff.lasthere.noroom` row (not rare on a full wake with no
+  handoff here: 10 of 61 ceilings in the review of #536's fixture). There should be no "Last
+  here" line, and the Yesterday line names that episode (or counts it). The wake is assembled
+  twice on those mornings: the `counterpart.wake.assembled` ring event fires twice.
+- **Changes a decision if:** the episode is in no line on such a morning → the second
+  assembly's check is wrong; or the session start is noticeably slower → measure the second
+  assembly. Or a session reads the Yesterday line as all of
   yesterday and misses the one under Last here → say "(and the one under Last here)". Or the
   sidebar loses the store check on Mike's machine → the plugin sidebar is older than this core.
 
