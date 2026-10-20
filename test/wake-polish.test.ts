@@ -109,20 +109,21 @@ describe("1. Still open leads with what is live", () => {
     expect(out.text).toContain("Unsettled — may be out of date");
   });
 
-  test("a core memory being reconsidered that is also unsettled takes its turn only after the plain ones", () => {
+  test("the core memories being reconsidered take turns in one rotation, unsettled or not; one that waited a week leads (2026-10-20)", () => {
     const s = store();
     const a = s.put({ type: "memory", kind: "person", body: "Robin prefers mornings.", band: "identity", physics: { birthDay: 1, promotedIdentity: true } });
     const b = s.put({ type: "memory", kind: "person", body: "Robin keeps the ledger.", band: "identity", physics: { birthDay: 2, promotedIdentity: true } });
     const flagged = (day: number): Scanned[] => scan(s, [a, b], day).map((x) => ({ ...x, reconsidering: true }));
+    // Until 2026-10-20 the unsettled one (a) never led while a plain one waited;
+    // now both pools are one rotation (review of #430), so a leads some days.
+    const led = new Set([3, 4].map((day) => rankLanes(flagged(day), [], SELF_TUNABLES, { unsettled: new Set([a]) }).threads[0]?.id));
+    expect(led).toEqual(new Set([a, b]));
+    // One that has waited a week takes the first slot every day, unsettled or not.
     for (const day of [3, 4, 5, 6]) {
-      const lanes = rankLanes(flagged(day), [], SELF_TUNABLES, { unsettled: new Set([a]) });
-      // RECONSIDERING_MAX (1) leads; never the unsettled one while a plain one waits.
-      expect(lanes.threads[0]?.id).toBe(b);
-      expect(lanes.overflow?.threads).toContain(a);
+      const lanes = rankLanes(flagged(day), [], SELF_TUNABLES, { unsettled: new Set([a]), waiting: new Set([a]) });
+      expect(lanes.threads[0]?.id).toBe(a);
+      expect(lanes.overflow?.threads).toContain(b);
     }
-    // With no unsettled one they take turns, as before (review of #430).
-    const led = new Set([3, 4].map((day) => rankLanes(flagged(day), [], SELF_TUNABLES).threads[0]?.id));
-    expect(led.size).toBe(2);
   });
 
   test("the count line says how many of what it counts are weeks old, and the wake's reader still reads its number", () => {

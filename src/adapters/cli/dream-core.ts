@@ -246,7 +246,7 @@ export function coreListLines(counterpart: Counterpart): string[] {
       : `The core — ${String(core.length)} ${core.length === 1 ? "memory" : "memories"} that do not fade`,
   ];
   for (const m of core) {
-    const how = m.lane === null ? "(before lanes, or by revision)" : `${m.lane} lane${m.day === null ? "" : `, lived day ${String(m.day)}`}`;
+    const how = m.lane === null ? "(before lanes, or by revision)" : m.lane === "restored" ? `restored after it was retired${m.day === null ? "" : `, lived day ${String(m.day)}`}` : `${m.lane} lane${m.day === null ? "" : `, lived day ${String(m.day)}`}`;
     const said = m.confidential ? "[confidential]" : (m.body ?? "(unreadable)");
     out.push(`  ${m.id}  ${m.kind.padEnd(6)} ${how} — ${said}`);
   }

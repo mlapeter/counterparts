@@ -33,6 +33,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Wake without repeats (fix/wake-dedupe-1020): each episode once, no bare ids in Yesterday, ONE tag at the top, about-me line says its folder first, a plain reminder due tomorrow counted at a session start, every Coming up item with its own id, one snapshot a day | in review 10-20, unreleased | the first two mornings after install | "Due ~2 mornings after install (the wake without repeats)" below; `docs/decisions.d/fix-wake-dedupe-1020.md` |
 | A weekly reminder done for this week (`status: "done"` at its id closes this occurrence only; F6b: drewOn credits a memory this session replaced) | not released, 10-20 | ~10-27, the next Tuesday | "Due ~2026-10-27" below; `docs/decisions.d/feat-reminder-done-this-week.md` |
 | The elsewhere lines name what was written: "Today, elsewhere" and "Since you started" carry up to two memory titles a folder (work in progress first), gated like the chapters, and "Here, also open:" the other live sessions in this folder with theirs, within the same 300 bytes | in review 10-20, unreleased | ~10-23 | "Due ~2026-10-23 (the elsewhere lines' titles)" below; `docs/decisions.d/feat-elsewhere-titles-1020.md` |
+| Core questions that waited a week: the reflection is offered up to 3 core memories waiting 7+ lived days on keep-or-retire (with their unsettled pair) and decides where it can, said in the share with the way back; the wake leads with one, both labels shown | not released, 10-20 | ~10-27 | "Due ~2026-10-27 (core questions)" below; `docs/decisions.d/feat-core-questions-waited-1020.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -244,6 +245,29 @@ sessions open at once (read-only; ask the sessions themselves too).
 - **Changes a decision if:** sessions still duplicate work → give the line more room, or the
   clause here more titles; titles read as noise → keep only status-marked
   memories, or one title a folder; a gate leak → revert at once (`git revert` of the PR).
+
+## Due ~2026-10-27 (core questions that waited a week, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-core-questions-waited-1020.md)
+
+- **Trying:** a core memory flagged "being reconsidered" 7+ lived days ago with no decision
+  is offered to the nightly reflection (at most 3 a night, with its unsettled pair); it
+  decides keep or retire with a why where it can, and the share says it in one line with
+  the way back. The wake's "Still open" leads with one, and keeps "keep or retire it"
+  beside an unsettled label.
+- **Look at:** how many core questions waited past 7 lived days on 10-20 (three) and now
+  (doctor's Reflection line, `coreWaited`; `counterparts core --list`'s "since lived day").
+  What the reflection decided: `reflections.detail` → `coreOffered`, `coreDecided` (with
+  why), `counts.coreKept`/`coreRetired`, and the `reflection.finished` events. Whether a
+  pair was settled after a retire (`contradiction_settles` with actor `reflection`).
+  Whether Mike reversed any: `band.core.restored` events, or a retire of one a reflection
+  kept (`core_events` `demoted` after a `reaffirmed` by `reflection`). And a wake or two:
+  does a week-old one lead "Still open", with both labels?
+- **Changes it:** a decision Mike reverses, or a why that reads like a guess, → narrow the
+  prompt toward "keep unless plainly not who I am" or offer only the ones with a plain
+  category (a plan, not about me or us). Nothing waits past 7 and nothing was decided →
+  the wake did the work; the reflection's half may be unneeded.
+- **Revert:** filter the reflection's offer back to every flagged memory without the push
+  (`dream/reflect.ts`, the `core` instruction line) and pass no `waiting` to `rankLanes`;
+  the restore door (`keepCore`'s `restored`) can stay.
 
 ## Due ~2026-10-27, the next Tuesday (a weekly reminder done for this week, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-reminder-done-this-week.md)
 

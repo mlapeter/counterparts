@@ -3898,8 +3898,17 @@ export class Counterpart {
     const nominated = this.store
       .coreEvents({ action: "nominated" })
       .map((e) => ({ id: e.memory_id, day: e.day, reason: e.reason, dream: e.dream_id }));
+    // Each retired memory once, by its latest retire, and not one put back
+    // in the core since (review of #542: a restored memory, or a confirmed
+    // retire, was listed twice).
+    const seenDemoted = new Set<string>();
     const demoted = this.store
       .coreEvents({ action: "demoted" })
+      .filter((e) => {
+        if (seenDemoted.has(e.memory_id)) return false;
+        seenDemoted.add(e.memory_id);
+        return this.store.coreDemoted(e.memory_id);
+      })
       .map((e) => ({ id: e.memory_id, day: e.day, reason: e.reason }));
     const reconsidering = this.store.coreReconsidering().map((r) => ({ id: r.id, day: r.day, reason: r.reason }));
     return { core, nominated, demoted, reconsidering };
