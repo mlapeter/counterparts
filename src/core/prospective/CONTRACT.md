@@ -79,6 +79,14 @@ clothes. **Hold debts, lose deadlines.**
   of #341, the one carve-out from G10 below): a quiet yearly at the default salience has
   faded by its second date, and "so they stay alive" means each occurrence is delivered by
   its own remind rules (NOTES §16).
+  **One occurrence can be done** (Mike's go 2026-10-20, an experiment, lightly held): a
+  write that `updates` a repeating reminder with `status: done` and no date closes the
+  occurrence open that day (`Prospective#closeOccurrence`, the window referenced with
+  `why: done`) — no quiet cue, no "Arriving:" line, and no plain line even before it was
+  told (`plainDue` skips a referenced window) — while the memory keeps its date, its repeat
+  and its standing (no settle; the close counts as the occurrence's delivery when nothing
+  had delivered it). The next occurrence comes back as ever. Ending the repeat is still
+  `eventDate: null` or `recurring: null` (NOTES §21).
   Two calendar rules, counted from the anchor every time so nothing drifts: **monthly on
   the 29th, 30th or 31st falls on the last day of a month too short to have it** (Jan 31
   → Feb 28, or 29 → Mar 31 → Apr 30), and **yearly on Feb 29 falls on Feb 28 in a common
@@ -194,8 +202,9 @@ physics.
 3. **[M] A missing or year-only encode date fails closed.**
 4. **[M] A temporal cue alone cannot reach the loud tier.**
 5. **[M] All four once-ness brakes are independently enforced**, and referenced-stop is the
-   decisive one; its live caller is `drewOn` (`Counterpart#creditDrewOn` →
-   `Prospective#actedOn`, 2026-10-11).
+   decisive one; its live callers are `drewOn` (`Counterpart#creditDrewOn` →
+   `Prospective#actedOn`, 2026-10-11) and a `done` at a repeat
+   (`counterpart-deposit.ts#closeOccurrenceFor` → `Prospective#closeOccurrence`, 2026-10-20).
 6. **[M] Arrival cues are suppressed during refractory, and the horizon beat is suppressed
    wholesale after a high-affect previous session.**
 7. **[M] Rescheduling is a compare-and-swap that names the current value**, so a stale
