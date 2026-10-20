@@ -1,6 +1,6 @@
 # Roadmap
 
-*Updated 2026-10-19. A plan for now, not a rule. Change it when it stops fitting.*
+*Updated 2026-10-20. A plan for now, not a rule. Change it when it stops fitting.*
 *Earlier rounds: [roadmap-history.md](roadmap-history.md). What shipped when: [CHANGELOG](../CHANGELOG.md).*
 
 **The aim:** memory that follows how human memory works, with a dashboard that shows whether
@@ -18,8 +18,48 @@ each mechanism is working. It should run in whatever AI host people use.
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11); the plugin with neither, as one downloaded program (0.3.14). Not Windows. |
 
 **In flight:**
-- **The association walk**: diagnosed 2026-10-18; decisions next, after "what counts as use" (see Mechanisms).
-- **First-prompt recall**: two bugs found by the benchmark, being diagnosed (see Retrieval).
+- **0.3.27's experiments**: the feedback loop, priming, stemming, head wins, first-prompt meaning; check ~10-22 ([CHECK-AFTER](CHECK-AFTER.md)).
+- **Two builds from the 10-20 morning wakes** (F1, F2 below): the reflection closes plainly-done threads itself; the wake fixes.
+
+---
+
+## Fixes and improvements from use (2026-10-20)
+
+*Found on the 10-20 morning wakes by this folder's session and ~/random's. Proposed order; we take them one at a
+time, talk through any that need it, and start a builder as each is agreed.*
+
+**Being built:**
+- **F1. The reflection closes what is plainly done.** Open threads only closed when the finishing session knew of
+  them, or on the owner's yes to the morning share; threads opened in one session and finished in another piled up
+  (59 open, 12 untouched 2+ weeks). Now the reflection closes the clear ones itself, says so in the share with how to
+  undo, and asks only when unsure. Mike's go 10-20, an experiment.
+- **F2. Wake fixes** (Mike, 10-16: "remove duplication"): each session named once (today each 10-19 session shows
+  twice, in ~/random up to three times); no bare `epi_` ids in the Yesterday line; the three top tags as one; the
+  cross-project line readable from another folder. Investigated in the same lane: "Last here" naming an older session
+  than "Last said here" (~/random); overdue items counted while a not-yet-due one is listed; the daily snapshot taken
+  twice ~50 ms apart (10-14, 10-16, 10-17, 10-18).
+
+**Not started, proposed order:**
+- **F3. The decisive memory stays quiet at the moment of action.** When Mike ran the backup, ~/random was offered
+  unrelated footnotes; the 10-13 decision that backups hold no conversation text never came up, and the memory that
+  did was the stale one saying backups copy spans, so a non-problem got flagged. Same root as the 10-19 big-picture
+  thread 1 (memory and use barely touch). Take this test case into the 10-22 check of 0.3.27's recall experiments
+  before designing anything new.
+- **F4. Sessions don't see each other's work.** "Today, elsewhere" says which sessions are open and how many memories
+  they wrote, not what. Two sessions did the same wake check this morning. Proposed: name the newest one or two titles
+  per live session, e.g. "~/counterparts, 08:33: wake check (mem_5701…)".
+- **F5. The self page keeps overshooting its room.** 4,928 B on 10-17, then 4,756 and 4,956 on 10-20, against 4,600:
+  the reflection rewrites the page after the page writer and isn't held to the room. The wake shows it whole by
+  borrowing from other sections (elements 4 → 3 this morning).
+- **F6. A weekly reminder can't be marked done for this week.** The backup ran at 08:40; the reminder still showed.
+  Closing it closes the whole chain.
+- **F7. A session can't read a dream's or reflection's record.** recall doesn't take `drm_` / `rfl_` ids, and
+  `counterparts dream` (it also undoes) is refused by auto mode as a change. A read-only way in.
+- **F8. Small:** the self page's "Spending pauses until a product change could move a score" needs checking against
+  the bench record; the backup reminder says "about 7 MB" (now 6.5 MB, since snapshots dropped `spans/` on 10-13).
+
+**Watched, not a lane yet:** footnote noise (~2 of 7 useful in ~/random this morning, in line with 47% noise / 18%
+useful measured 10-19) is what 0.3.27 is trying to move; read it at the ~10-22 check.
 
 ---
 
@@ -27,7 +67,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 1. **More hosts**: claude.ai, if it's doable (see Under discussion).
 2. **Emotion, what's left**: watch feelings over weeks and re-feeling awake in real use (both built, 0.3.12). Coverage is no longer a thread: about 11% of memories carry a feeling, and that is expected.
-3. **Mechanisms**, one at a time, each talked through before it's built: what counts as use, association, the notes module, dream throughput, then schemas with gist.
+3. **Mechanisms**, one at a time, each talked through before it's built: the notes module, dream throughput, then schemas with gist. (What counts as use and association went into 0.3.27 as experiments.)
 4. **Dashboard**: finish the walk (Health, Flow, mobile).
 5. **Platforms**: Windows (WSL first).
 
@@ -52,12 +92,12 @@ each mechanism is working. It should run in whatever AI host people use.
 - **Forgetting**: 834 memories below reach, 1 archived. Expected: 0.3.24 restarted the 14-lived-day wait, so archiving resumes around late October. Watch it then.
 
 **Working, needs a pass:**
-- **Retrieval**: works, quality uneven. Footnotes rated 0–3 at the session's end (288 so far): 47% noise, 35% on topic but not needed, 18% useful or changed what was said. A session's first prompt has no meaning channel (it is computed after each prompt for the next), and the word channel doesn't treat bake/bakes/baking as one word; both are being diagnosed (2026-10-19).
+- **Retrieval**: works, quality uneven. Footnotes rated 0–3 at the session's end (288 so far): 47% noise, 35% on topic but not needed, 18% useful or changed what was said. The two benchmark-found gaps, no meaning channel on a session's first prompt and bake/bakes/baking read as different words, are fixed in 0.3.27 (#521, #529); check ~10-22.
 - **Dreaming**: works, but takes about 40–55 new memories a night by priority; the queue holds at 400–590 since about 10-10, the tail fading out on its own. On a busy day about 1 in 10 new memories is ever dreamed. Open: whether that's enough.
 - **Emotion**: built (weight, slower fading, the seven-core wheel, valence-aware softening, later feelings, feelings over weeks, re-feeling awake). Its weight runs about ×11 slower fading at a strong feeling vs the ×2.8 the review designed; kept on purpose, rechecked 2026-11-01. Mood-matched recall stays off.
 
 **Partly:**
-- **Association**: about 9,500 links, and none has ever brought a memory to mind. Every link is far below either threshold, and nothing strengthens them: a link needs about four uses inside a month, and use is rarely credited (below). The hop channel can't change what's shown by construction. Decisions pending (2026-10-18 diagnosis).
+- **Association**: about 9,500 links, and none has ever brought a memory to mind. Every link is far below either threshold, and nothing strengthens them: a link needs about four uses inside a month, and use is rarely credited (below). The hop channel can't change what's shown by construction. Decided 10-19 and in 0.3.27 as experiments: co-use links, no links at store time, priming along links (#525, #528, #530); check ~10-22.
 - **Interference**: near-copies merge and a newer state replaces an older one; similar memories competing for recall isn't built.
 - **Episodic → semantic**: dreams write about 8 gists a week; many episodes becoming one understanding happens only by chance.
 
