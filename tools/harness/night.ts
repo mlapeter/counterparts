@@ -21,18 +21,20 @@
  * owner's memory, and they stay where they are.
  */
 import { createHash } from "node:crypto";
-import { chmodSync, closeSync, copyFileSync, openSync, readSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { chmodSync, closeSync, copyFileSync, openSync, readSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
 
 import { openEmbedder, runNight } from "../../src/adapters/claude-code/index.js";
-import type { LiveEmbedder, NightAnswer } from "../../src/adapters/claude-code/index.js";
+import type { LiveEmbedder, NightAnswer, NightStarter } from "../../src/adapters/claude-code/index.js";
 import { McpServer } from "../../src/adapters/mcp/index.js";
 import { Counterpart } from "../../src/core/counterpart.js";
 import type { Seat, SeatAsk, SeatTool } from "../../src/core/counterpart.js";
 
+import { modelSeat } from "./model-seat.js";
+import type { ChildInit } from "./model-seat.js";
 import { underLiveRoot } from "./source.js";
 
 const SEAT_TOOLS: readonly SeatTool[] = ["session_end", "dream", "reflect", "self_page", "recall"];
@@ -278,6 +280,12 @@ export interface NightReplayOptions {
   readonly onCall?: RecordedSeatInput["onCall"];
   /** Open the local embedder for the child's server, as live does (default true): what a dream is shown leans on similarity. */
   readonly embed?: boolean;
+  /** Who answers: the recorded night's own calls (default), or a model (headless Claude Code, `model-seat.ts`). */
+  readonly seat?: "recorded" | "model";
+  /** With `seat: "model"`, the model the child runs; absent, Claude Code's default. */
+  readonly model?: string;
+  /** TESTS ONLY, with `seat: "model"`: the child's starter in place of a real `claude -p`. */
+  readonly start?: NightStarter;
 }
 
 /** One side's verdict. */
@@ -294,6 +302,10 @@ export interface NightReplayRecord {
   readonly night: { readonly state: string; readonly reason: string | null; readonly detail: string | null; readonly parts: readonly string[]; readonly children: readonly string[] };
   /** The composed launch prompts beside the recorded ones: lengths, and whether the words are the same once minted ids are mapped (by hash). */
   readonly prompts: { readonly dream: Compared<number> & { readonly wordsSame: boolean }; readonly reflection: Compared<number> & { readonly wordsSame: boolean } };
+  /** Who sat in the seat: `harness:recorded`, or `harness:model[:<model>]`. */
+  readonly seat: string;
+  /** A model's children, as each said at start: the plugins it loaded (none expected) and its MCP servers (only `counterparts`). */
+  readonly childInits?: Readonly<Record<string, ChildInit | null>>;
   readonly calls: Readonly<Record<string, CallTally>>;
   readonly idsMapped: number;
   readonly dream: {
@@ -389,13 +401,22 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
   const root = resolve(opts.workRoot ?? tmpdir());
   if (underLiveRoot(root, env)) throw new NightReplayError("TARGET_IS_LIVE", root);
   if (!existsSync(root)) mkdirSync(root, { recursive: true });
-  const dir = mkdtempSync(join(realpathSync(root), "counterparts-night-"));
+  // THE WORK FOLDER holds the store (in `store/`, which refuses any file it
+  // does not know) and, beside it, the child's temp config.
+  const work = mkdtempSync(join(realpathSync(root), "counterparts-night-"));
+  const dir = join(work, "store");
+  mkdirSync(dir);
   try {
     copyFileSync(opts.source, join(dir, DATABASE_FILE));
     // The copy is the replay's own to write, whatever mode the kept-aside source has.
     chmodSync(join(dir, DATABASE_FILE), 0o600);
     let clock = (dream.startedAt ?? dream.calls[0]?.at ?? Date.now()) - 1_000;
-    const now = (): number => clock;
+    // A MODEL IN THE SEAT takes real time: the clock runs on from the night's
+    // start as the child's own server's does (`serve-at.ts`). The recorded
+    // seat moves it to each call's recorded instant instead.
+    const realStart = Date.now();
+    const base = clock;
+    const now = opts.seat === "model" ? (): number => base + (Date.now() - realStart) : (): number => clock;
     // THE CHILD'S SERVER EMBEDS, the night's own process does not: as live
     // (`mcp/bin/serve.ts` opens the static table; `openNightCounterpart` none).
     const embedder = opts.embed === false ? null : openEmbedder({ embedder: { enabled: true } });
@@ -408,18 +429,42 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
         ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }),
         ...(withEmbedder && embedder !== null && embedder.embed !== undefined ? { embed: embedder.embed } : {}),
       });
-    const seat = recordedSeat({
-      dream,
-      reflection,
-      existed: idsIn(opts.source),
-      open: () => store(false, true),
-      embedder,
-      setClock: (at) => {
-        clock = Math.max(clock, at);
-      },
-      now,
-      ...(opts.onCall === undefined ? {} : { onCall: opts.onCall }),
-    });
+    const configPath = join(work, "harness-config.json");
+    writeFileSync(configPath, JSON.stringify({ dataDir: dir, owner: false, injectionBudgetBytes: opts.budgetBytes ?? 9_000 }));
+    const model =
+      opts.seat === "model"
+        ? modelSeat({
+            dir,
+            configPath,
+            now,
+            ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }),
+            ...(opts.budgetBytes === undefined ? {} : { budgetBytes: opts.budgetBytes }),
+            ...(opts.embed === false ? { embed: false } : {}),
+            ...(opts.model === undefined ? {} : { model: opts.model }),
+            ...(opts.start === undefined ? {} : { start: opts.start }),
+            env,
+          })
+        : null;
+    const seat: Seat<NightAnswer> & { readonly tallies: Readonly<Record<string, CallTally>>; readonly ids: ReadonlyMap<string, string> } =
+      model !== null
+        ? {
+            name: model.name,
+            answer: (ask) => model.answer(ask),
+            tallies: {},
+            ids: new Map(),
+          }
+        : recordedSeat({
+            dream,
+            reflection,
+            existed: idsIn(opts.source),
+            open: () => store(false, true),
+            embedder,
+            setClock: (at) => {
+              clock = Math.max(clock, at);
+            },
+            now,
+            ...(opts.onCall === undefined ? {} : { onCall: opts.onCall }),
+          });
     // The night's own prompts, captured as the seat is asked (compared by length and sameness only).
     const asked: Record<string, string> = {};
     const watching: Seat<NightAnswer> = {
@@ -429,7 +474,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
         return seat.answer(ask);
       },
     };
-    const replayStart = clock;
+    const replayStart = now();
     const run = await runNight({
       open: () => store(true, false),
       config: { dataDir: dir, owner: true, injectionBudgetBytes: opts.budgetBytes ?? 9_000, ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }) },
@@ -444,8 +489,16 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
     const rec = new Database(opts.outcome, { readonly: true });
     const rep = new Database(join(dir, DATABASE_FILE), { readonly: true });
     try {
-      const replayedDream = seat.ids.get(recordedDream) ?? recordedDream;
+      // The replay's dream: the recorded one under its replayed id, or (a model in
+      // the seat mints its own) the first begun since the replay started.
+      const replayedDream =
+        model !== null
+          ? (one<{ id: string }>(rep, "SELECT id FROM dreams WHERE started_at >= ? ORDER BY started_at ASC LIMIT 1", replayStart - 1_000)?.id ?? "none")
+          : (seat.ids.get(recordedDream) ?? recordedDream);
       const dreamRow = (db: Database, id: string) => one<{ state: string; title: string | null }>(db, "SELECT state, title FROM dreams WHERE id = ?", id);
+      // The prompts name the night's dream: under the replay's id, whoever minted it.
+      const promptIds = new Map(seat.ids);
+      if (replayedDream !== recordedDream && replayedDream !== "none") promptIds.set(recordedDream, replayedDream);
       const recD = dreamRow(rec, recordedDream);
       const repD = dreamRow(rep, replayedDream);
       const returns = (db: Database, id: string, source: string): number => one<{ n: number }>(db, "SELECT COUNT(*) AS n FROM returns WHERE dream_id = ? AND source = ?", id, source)?.n ?? 0;
@@ -460,7 +513,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
         );
       const lastCall = Math.max(...[...dream.calls, ...reflection.calls].map((c) => c.at ?? 0), dream.startedAt ?? 0);
       const recR = reflectionRow(rec, recordedDream, (dream.startedAt ?? 0) - 60_000, lastCall + 60_000);
-      const repR = reflectionRow(rep, replayedDream, replayStart - 60_000, clock + 60_000);
+      const repR = reflectionRow(rep, replayedDream, replayStart - 60_000, now() + 60_000);
       // A reflection's returns carry its id as their session (`Store#reflectReturn`).
       const reflectionReturns = (db: Database, r: { id: string; day: number } | null): number =>
         r === null ? 0 : (one<{ n: number }>(db, "SELECT COUNT(*) AS n FROM returns WHERE source = 'reflection' AND day = ? AND session = ?", r.day, r.id)?.n ?? 0);
@@ -484,9 +537,11 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
           children: (run.children ?? []).map((c) => `${c.child}:${c.skipped ?? (c.code === null ? "no-code" : String(c.code))}`),
         },
         prompts: {
-          dream: { ...compared(dream.prompt.length, (asked["dream"] ?? "").length), wordsSame: hash(withIds(dream.prompt, seat.ids) as string) === hash(asked["dream"] ?? "") },
-          reflection: { ...compared(reflection.prompt.length, (asked["reflection"] ?? "").length), wordsSame: hash(withIds(reflection.prompt, seat.ids) as string) === hash(asked["reflection"] ?? "") },
+          dream: { ...compared(dream.prompt.length, (asked["dream"] ?? "").length), wordsSame: hash(withIds(dream.prompt, promptIds) as string) === hash(asked["dream"] ?? "") },
+          reflection: { ...compared(reflection.prompt.length, (asked["reflection"] ?? "").length), wordsSame: hash(withIds(reflection.prompt, promptIds) as string) === hash(asked["reflection"] ?? "") },
         },
+        seat: seat.name,
+        ...(model === null ? {} : { childInits: model.inits }),
         calls: seat.tallies,
         idsMapped: seat.ids.size,
         dream:
@@ -507,13 +562,24 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
                 returns: compared(reflectionReturns(rec, recR), reflectionReturns(rep, repR)),
                 cites: compared(count(recR.cites), count(repR?.cites)),
               },
-        keptAt: opts.keep === true ? dir : null,
+        keptAt: opts.keep === true ? work : null,
       };
     } finally {
       rec.close();
       rep.close();
     }
   } finally {
-    if (opts.keep !== true) rmSync(dir, { recursive: true, force: true });
+    if (opts.keep !== true) {
+      rmSync(work, { recursive: true, force: true });
+      // A model's children leave their transcripts (the copy's words in them)
+      // under ~/.claude/projects, named after their working folder: the store
+      // copy just removed. Only that folder, only when the name says it is ours.
+      if (opts.seat === "model") {
+        // `work` was made under a realpath, so `dir` is the path the child saw.
+        const slug = dir.replace(/[^A-Za-z0-9-]/g, "-");
+        const projects = join(env["HOME"] ?? homedir(), ".claude", "projects", slug);
+        if (slug.includes("counterparts-night-") && existsSync(projects)) rmSync(projects, { recursive: true, force: true });
+      }
+    }
   }
 }

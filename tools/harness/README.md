@@ -122,6 +122,46 @@ On 2026-10-20 the 10-19 night replayed on 0.3.26, the build that ran it:
 
 On 0.3.27 and master, 10 of the 18 links land on memories the new bundle doesn't show.
 
+## A model in the seat (`night --model`)
+
+```sh
+bun tools/harness/cli.ts night --dir <night folder> --model [<name>]
+```
+
+The same night, with headless Claude Code in the seat (`model-seat.ts`) instead of the
+recorded calls: a real dream and reflection on a copy of the store from before that night,
+on the owner's subscription (no key). The child is planned exactly as Claude Code's own night
+child is (`planNightChild`: the same tools granted and denied, permission mode, turn ceiling,
+watchdog). Three things change so it can't reach the owner's live store:
+- **Its memory server is the harness's** (`serve-at.ts`): the same tools, served the same way,
+  from the temp copy, on a clock that starts at the night's instant and runs on in real time.
+  The product's server has no clock knob.
+- **`--setting-sources project`, in an empty temp folder:** no user settings, so none of the
+  owner's hooks load. Measured 2026-10-20: no session file, no event, no backup in the live
+  store. Whether plugins load is not left to a guess: each child's own init line (its first
+  stream-json line) is read, and the record shows the plugins it loaded and its MCP servers.
+  Measured 2026-10-20: only Claude Code's own (`cc-plugin-agents-md`, `cc-plugin-telemetry`,
+  `cc-plugin-plugin-authoring`), none of the owner's; one MCP server, the harness's
+  `counterparts`.
+- **Backups:**
+  - `COUNTERPARTS_CONFIG` names a temp config on the temp store.
+  - The night's quiet flag is set, as on every night child.
+  - `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` is set on the child and its server.
+  - No `COUNTERPARTS_*`, `CLAUDE_*` or `ANTHROPIC_*` variable of the parent reaches them; a
+    key in the shell would bill the API, and the harness runs on the subscription.
+- **Transcripts:** a child's transcript (holding the copy's words) lands under
+  `~/.claude/projects/<its folder>`. That folder is removed with the run, unless `--keep`.
+
+On 2026-10-20 the 10-19 night with a model in the seat took about 4 minutes:
+- the page writer ran;
+- the dream journaled 13 links, 13 replays, 3 merges, 2 gists and 1 core nomination;
+- the reflection cited 9 memories and revised the page;
+- in the live store before and after: the same session count, and no event naming the run.
+
+The comparison block reads the same as for the recorded night, but a model's night is its
+own: the counts are for setting side by side, not for matching. A run spends subscription
+usage.
+
 ## Safety
 
 - The source is opened read-only, and the harness refuses any path under `~/.counterparts`.
