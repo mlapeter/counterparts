@@ -86,10 +86,15 @@ test("only message lines are read, each call at its first sighting; a call the h
     ].join("\n"),
   );
   const lines = readFileSync(path, "utf8").split("\n");
-  lines[2] = line({ type: "user", timestamp: at, message: { role: "user", content: [{ ...(result("b", "denied") as object), is_error: true }, result("a", '{"reason":"expanded"}')] } });
+  lines[2] = line({
+    type: "user",
+    timestamp: at,
+    message: { role: "user", content: [{ ...(result("b", "denied") as object), is_error: true }, { ...(result("a", '{"reason":"expanded"}') as object), is_error: true }] },
+  });
   writeFileSync(path, lines.join("\n"));
   const child = readChild(path);
   expect(child.calls.map((c) => [c.tool, c.at, c.result, c.hostRefused ?? false])).toEqual([
+    // The server's own refusal (JSON) is replayed; the host's prose refusal is not.
     ["recall", Date.parse(at), { reason: "expanded" }, false],
     ["reflect", Date.parse(at), "denied", true],
   ]);

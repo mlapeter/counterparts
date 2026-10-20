@@ -49,7 +49,7 @@ export interface RecordedCall {
   readonly result: unknown;
   /** When the call was made (ms), or null when the transcript line carried no time. */
   readonly at: number | null;
-  /** The host answered it with an error of its own (a tool it would not run): never replayed. */
+  /** The host answered it with an error of its own, in prose (a tool it would not run): never replayed. A refusal the server answered, as its JSON, is replayed. */
   readonly hostRefused?: true;
 }
 
@@ -106,7 +106,6 @@ export function readChild(path: string): RecordedChild {
         uses.set(String(b["id"]), { tool, input: (b["input"] as Record<string, unknown>) ?? {}, at: lastAt });
       }
       if (b["type"] === "tool_result" && !results.has(String(b["tool_use_id"]))) {
-        if (b["is_error"] === true) hostRefused.add(String(b["tool_use_id"]));
         const text = textOf(b["content"]);
         let parsed: unknown = text;
         try {
@@ -114,6 +113,10 @@ export function readChild(path: string): RecordedChild {
         } catch {
           /* kept as text */
         }
+        // THE HOST'S OWN REFUSAL, not the server's: an error the server
+        // answered is its JSON (and changed what it changes, so it is
+        // replayed); one the host said in prose never reached the server.
+        if (b["is_error"] === true && (parsed === null || typeof parsed !== "object")) hostRefused.add(String(b["tool_use_id"]));
         results.set(String(b["tool_use_id"]), parsed);
       }
     }
@@ -370,7 +373,9 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
     if (!existsSync(p)) throw new NightReplayError("MISSING", `${name}: ${p}`);
     if (underLiveRoot(p, env)) throw new NightReplayError("SOURCE_IS_LIVE", `${name}: copy it out of ~/.counterparts first`);
   }
-  if (inWalMode(opts.source)) throw new NightReplayError("SOURCE_IN_WAL", "the source's log would be left behind: take a snapshot (it is a single file) or checkpoint first");
+  for (const [name, p] of [["source", opts.source], ["outcome", opts.outcome]] as const) {
+    if (inWalMode(p)) throw new NightReplayError("SOURCE_IN_WAL", `${name}: its log would be left behind; take a snapshot (a single file) or checkpoint first`);
+  }
   const dream = readChild(opts.dreamTranscript);
   const reflection = readChild(opts.reflectionTranscript);
   const recordedDream = dream.calls.map((c) => (c.result as Row | null)?.["dream"]).find((d): d is string => typeof d === "string" && WHOLE_ID.test(d)) ?? null;
