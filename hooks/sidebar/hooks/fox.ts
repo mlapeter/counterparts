@@ -156,8 +156,8 @@ export type Director = {
   fresh: boolean
   /** Tool calls running now (`busy` in, `busyEnd` out): while any runs, he never lies down. */
   busy: number
-  /** When the last tool call began: a count left up longer than BUSY_MAX_MS is not believed. */
-  busyAt: number
+  /** When the count last went up from none: a count left up BUSY_MAX_MS from there is dropped (an end never heard). */
+  busySince: number
   /** When the last save's notepad began: another save inside NOTE_SPAN_MS writes no second time. */
   noteAt: number
   /** When the last save was heard, written on the notepad or folded into one already running: its rows are older. */
@@ -168,7 +168,7 @@ const STILL: Step = { frame: 'idle', ms: 0, fx: [], moment: 'rest' }
 const STILL_LIE: Step = { frame: 'lie0', ms: 0, fx: [], moment: 'lieRest' }
 
 export function newDirector(now: number): Director {
-  return { mode: 'idle', queue: [], cur: STILL, until: now, idleSince: now, napSince: 0, dreamSince: 0, fresh: true, busy: 0, busyAt: 0, noteAt: -Infinity, saveAt: -Infinity }
+  return { mode: 'idle', queue: [], cur: STILL, until: now, idleSince: now, napSince: 0, dreamSince: 0, fresh: true, busy: 0, busySince: 0, noteAt: -Infinity, saveAt: -Infinity }
 }
 
 /** A tool call that never said it ended stops holding him awake after this long. */
@@ -182,7 +182,16 @@ export const NOTE_SPAN_MS = 2 * momentSteps('note').reduce((a, s) => a + s.ms, 0
  * call runs (a long command or an agent is work, not nobody being there).
  */
 function idleFrom(d: Director, now: number): number {
-  return d.busy > 0 && now - d.busyAt < BUSY_MAX_MS ? Math.max(d.idleSince, now) : d.idleSince
+  return d.busy > 0 && now - d.busySince < BUSY_MAX_MS ? Math.max(d.idleSince, now) : d.idleSince
+}
+
+/**
+ * A count up for BUSY_MAX_MS since it last rose from none is dropped: one
+ * call whose end was never heard would otherwise, with any call at all every
+ * half hour, keep him up for good. Calls running then end into a count of none.
+ */
+function expireBusy(d: Director, now: number): void {
+  if (d.busy > 0 && now - d.busySince >= BUSY_MAX_MS) d.busy = 0
 }
 
 /** A dream that never said it ended stops after this long. */
@@ -328,9 +337,10 @@ function getUp(d: Director): Step[] {
  */
 export function trigger(d: Director, ev: FoxEvent, now: number): boolean {
   const pose = poseOf(d.cur.frame)
+  if (ev === 'busy' || ev === 'busyEnd') expireBusy(d, now)
   if (ev === 'busy') {
+    if (d.busy === 0) d.busySince = now
     d.busy += 1
-    d.busyAt = now
   } else if (ev === 'busyEnd') d.busy = Math.max(0, d.busy - 1)
   else if (ev === 'note') d.saveAt = now
   if (ev === 'dream') {
@@ -355,8 +365,9 @@ export function trigger(d: Director, ev: FoxEvent, now: number): boolean {
   // A save while the last one's notepad still runs: it is the same burst, written once.
   if (ev === 'note' && now - d.noteAt < NOTE_SPAN_MS) return false
   if (ev === 'prompt' || ev === 'busy' || ev === 'busyEnd') {
-    // Awake and sitting, nothing on screen changes; a lie-down or nap on its way is called off.
-    if (d.mode === 'idle' && pose === 'sit') return false
+    // Awake (sitting, or a get-up or a moment already playing), it stands: only the clock starts over.
+    // A lie-down or nap, or one on its way, is called off.
+    if (d.mode === 'idle') return false
     d.mode = 'idle'
     d.queue = pose === 'sit' ? [] : getUp(d)
     d.until = now

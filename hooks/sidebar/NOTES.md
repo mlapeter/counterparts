@@ -27,8 +27,10 @@ tries it in the rig.
   changes (`trigger` now says whether it changed anything, and `foxEvent`
   leaves the waiting timer alone when not). While a call runs he never lies
   down (`Director.busy`, a count), so a five-minute command or an agent keeps
-  him up; a count left up past 30 min (`BUSY_MAX_MS`, an end never heard) is
-  not believed.
+  him up; a count up 30 min since it last rose from none (`BUSY_MAX_MS`, an
+  end never heard) is dropped. Once he is up (a get-up or a moment already
+  playing), a call only restarts the clock: it never cuts the notepad or the
+  stretch short (review of #545).
 - **Lie and nap time from the last activity**, which is now any of the above.
   The numbers are unchanged: lie at 45 s, nap at 2 min (`lieAfterMs`,
   `napAfterMs` in `fox-art.ts` SCHEDULE). Mike picks new ones after trying it
@@ -50,7 +52,9 @@ tries it in the rig.
   are older than it (`Director.saveAt`, moved by every save heard, even one
   folded into a notepad already running) and the poll passes them over. A
   burst inside one notepad's run (`NOTE_SPAN_MS`, two of the moment) writes
-  once, from either side.
+  once, from either side. While one of our saving tools (`remember`,
+  `session_end`) is still running, the poll leaves the rows it has written so
+  far be: the call's return writes the notepad.
 - So "almost never writes" was mostly that saves are rare (one write-up at a
   turn's end every 10 to 20 min), with the fox often asleep, or just woken
   from a nap by the stretch, when it came. The idle-clock fix helps that more

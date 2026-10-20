@@ -1620,6 +1620,40 @@ test('a save the status file shows for this session writes on the notepad at the
   await ui.unmount()
 })
 
+test('a call that throws or is denied still ends, so he lies down 45 s after; a saving call still running when the poll reads its rows writes the notepad once, as it returns (review of #545)', async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  let mode: 'throw' | 'deny' | 'slow' = 'throw'
+  on('tool.call', async () => {
+    if (mode === 'throw') throw new Error('broken')
+    if (mode === 'deny') return { deny: 'not now' }
+    w.events.push(deposit(700, w.clock.now()))
+    await w.clock.sleep(40000)
+    return { result: 'ok', text: '{"deposited":1}' }
+  })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(30000)
+  await $.tool.call({ tool: 'Bash', command: 'false' } as never).catch(() => undefined)
+  mode = 'deny'
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf /' } as never).catch(() => undefined)
+  await settle(w)
+  const from = stageBlits(w).length
+  await w.clock.advance(70000)
+  await settle(w)
+  expect(stageBlits(w).slice(from).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true)
+  // the write-up: its rows land at once, the call answers 40 s later, two looks in between
+  mode = 'slow'
+  const before = notepads(w)
+  const call = $.tool.call({ tool: 'mcp__counterparts__session_end', memories: [{ title: 'Slow write-up', text: 'x' }] } as never)
+  await w.clock.advance(40000)
+  await call
+  await settle(w)
+  await w.clock.advance(40000)
+  await settle(w)
+  expect(notepads(w) - before).toBe(1)
+  await ui.unmount()
+})
+
 // ── which store wrote the status file ──────────────────────────────────────
 
 async function wakeWithStore($: Engine, w: World, id: string): Promise<void> {

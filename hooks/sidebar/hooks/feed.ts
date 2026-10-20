@@ -558,6 +558,11 @@ export function savedItems(tool: string, args: Record<string, unknown>, resultTe
   return [];
 }
 
+/** A memory tool that saves (`remember`, the old `note`, `session_end`); a chapter is a journal entry. */
+export function savesMemory(tool: string): boolean {
+  return REMEMBER.has(tool) || tool === 'session_end';
+}
+
 /** A save older than this when the status file is next read (a pane hidden a while) is not played as new. */
 export const SAVE_FRESH_MS = 2 * 60000;
 

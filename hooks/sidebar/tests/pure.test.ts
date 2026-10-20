@@ -1156,6 +1156,94 @@ describe('the fox', () => {
     expect(e.mode).not.toBe('idle')
   })
 
+  test('once he is up, calls only restart the clock (review of #545): a burst of calls lets the stretch and the notepad play out', () => {
+    const rand = seeded(3)
+    // napping, then a call every 150 ms: the stretch plays through to sitting, not nap0 over and over
+    const d = newDirector(0)
+    let t = 0
+    while (d.mode !== 'nap' || !advance(d, t, rand).step.frame.startsWith('nap')) t = advance(d, t, rand).next
+    const seen: string[] = []
+    for (let k = 0; k < 20; k++, t += 150) {
+      trigger(d, k % 2 === 0 ? 'busy' : 'busyEnd', t)
+      seen.push(advance(d, t, rand).step.frame)
+    }
+    expect(seen).toContain('stretch')
+    expect(seen.at(-1)).toBe('idle')
+    // lying, a save, then a call ending 100 ms later: the notepad still plays
+    const e = newDirector(0)
+    let u = 0
+    while (e.mode !== 'lie' || advance(e, u, rand).step.frame !== 'lie0') u = advance(e, u, rand).next
+    trigger(e, 'note', u)
+    expect(trigger(e, 'busyEnd', u + 100)).toBe(false)
+    const after: string[] = []
+    for (let k = 0; k < 10; k++) {
+      const a = advance(e, u, rand)
+      after.push(a.step.frame)
+      u = a.next
+    }
+    expect(after).toContain('note0')
+    // lying, something comes to mind, then a call begins: he still perks up where he lies
+    const f = newDirector(0)
+    let v = 0
+    while (f.mode !== 'lie' || advance(f, v, rand).step.frame !== 'lie0') v = advance(f, v, rand).next
+    trigger(f, 'came', v)
+    trigger(f, 'busy', v + 100)
+    expect(advance(f, v + 100, rand).step.frame).toBe('liePerk')
+  })
+
+  test('tool calls counted (review of #545): parallel calls, an extra end never below none, a leaked count dropped 30 min after it rose', () => {
+    const rand = seeded(5)
+    const d = newDirector(0)
+    trigger(d, 'busy', 0)
+    trigger(d, 'busy', 10)
+    trigger(d, 'busyEnd', 20)
+    expect(d.busy).toBe(1)
+    let t = 20
+    while (t < 120000) t = advance(d, t, rand).next
+    expect(d.mode).toBe('idle') // one call still runs: up all through
+    trigger(d, 'busyEnd', t)
+    trigger(d, 'busyEnd', t)
+    expect(d.busy).toBe(0)
+    // one call whose end is never heard, then a call every 20 min: from 30 min on the leak is gone, and he lies down after the last
+    const e = newDirector(0)
+    trigger(e, 'busy', 0)
+    let u = 0
+    for (let k = 1; k <= 4; k++) {
+      while (u < k * 20 * 60000) u = advance(e, u, rand).next
+      trigger(e, 'busy', u)
+      trigger(e, 'busyEnd', u + 1000)
+    }
+    expect(e.busy).toBe(0)
+    const last = u
+    while (u < last + 60000) u = advance(e, u, rand).next
+    expect(e.mode).toBe('lie')
+  })
+
+  test('a dream and the calls around it (review of #545): calls do not cut the dream; its end stretches once, not again at the call’s end', () => {
+    const rand = seeded()
+    const d = newDirector(0)
+    trigger(d, 'busy', 0)
+    trigger(d, 'dream', 0)
+    let t = 0
+    for (let k = 0; k < 20; k++) {
+      t = advance(d, t, rand).next
+      trigger(d, 'busy', t)
+      trigger(d, 'busyEnd', t + 50)
+    }
+    expect(d.mode).toBe('dream')
+    trigger(d, 'dreamEnd', t)
+    expect(trigger(d, 'busyEnd', t + 10)).toBe(false)
+    const frames: string[] = []
+    for (let k = 0; k < 8; k++) {
+      const a = advance(d, t, rand)
+      frames.push(a.step.frame)
+      t = a.next
+    }
+    expect(frames.filter(f => f === 'stretch').length).toBe(1)
+    expect(frames.slice(0, 4)).toEqual(['nap0', 'stretch', 'blink', 'idle'])
+    expect(d.busy).toBe(0)
+  })
+
   test('a burst of saves writes on the notepad once (2026-10-20): a second save inside NOTE_SPAN_MS plays nothing more; one after it writes again', () => {
     const d = newDirector(0)
     const rand = seeded()
