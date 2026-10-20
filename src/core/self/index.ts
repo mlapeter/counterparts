@@ -795,6 +795,25 @@ export interface PageWriteOptions {
 export const PAGE_HELD_DOORS: readonly SelfPageAuthor[] = ["writer", "reflection"];
 
 /**
+ * WHAT "TONIGHT" MEANS TO THE HOLD (review of #541): the last twelve hours by
+ * the wall clock, not the calendar date. Keyed on the date, a run that crossed
+ * midnight held a door twice and the run's end missed a hold made before it.
+ * Also the furthest back a later boundary looks for a held page to keep.
+ */
+export const PAGE_HELD_NIGHT_MS = 12 * 60 * 60_000;
+
+/**
+ * HOW LONG A HELD PAGE IS LEFT TO ITS WRITER before a boundary with no run end
+ * keeps it (review of #541): a night launched from a session, or a run killed
+ * after the hold, never reaches `runNight`'s keep. A writer sends again within
+ * a minute or two; thirty is well past that.
+ */
+export const PAGE_HELD_SETTLE_MS = 30 * 60_000;
+
+/** The refusal rows a hold is looked for among — far past one night's count. */
+const PAGE_HELD_SCAN = 1_000;
+
+/**
  * WHAT A NIGHTLY WRITER IS TOLD WHEN ITS PAGE IS HELD (2026-10-20), the same at
  * both nightly doors. Pure.
  */
@@ -815,6 +834,8 @@ interface HeldDraft {
   readonly reason: string;
   readonly short?: string;
   readonly model?: string;
+  /** The refusal row's wall clock, when read off one. */
+  readonly heldAt?: number;
 }
 
 function heldDraftOf(payload: string | null): HeldDraft | null {
@@ -1582,17 +1603,25 @@ export class Self {
    * durable refusal rows; never throws.
    */
   private heldTonight(by: SelfPageAuthor, session: string | null): boolean {
-    const today = this.calendarToday();
+    return this.heldSince(this.store.now() - PAGE_HELD_NIGHT_MS).some((h) => h.by === by && h.session === session);
+  }
+
+  /** The held pages on refusal rows written at or after `since`, newest first. Never throws. */
+  private heldSince(since: number): HeldDraft[] {
+    const out: HeldDraft[] = [];
     try {
-      return this.store
-        .eventLog({ name: SELF_PAGE_REFUSED_EVENT, order: "desc", limit: 50 })
-        .some((r) => {
-          const held = heldDraftOf(r.payload);
-          return held !== null && held.date === today && held.by === by && held.session === session;
-        });
+      // Bounded in SQL by lived day too (two back covers any twelve hours), so a
+      // boundary does not read months of refusal rows to find none.
+      const sinceDay = Math.max(0, this.store.livedDay() - 2);
+      for (const r of this.store.eventLog({ name: SELF_PAGE_REFUSED_EVENT, sinceDay, order: "desc", limit: PAGE_HELD_SCAN })) {
+        if (r.at < since) break;
+        const h = heldDraftOf(r.payload);
+        if (h !== null) out.push({ ...h, heldAt: r.at });
+      }
     } catch {
-      return false;
+      /* none read is none held */
     }
+    return out;
   }
 
   /**
@@ -1607,25 +1636,25 @@ export class Self {
    * recorded `revised`, so the night reads as written. Null when there is
    * nothing to keep; never throws.
    */
-  keepHeldPage(opts: { sinceAt?: number } = {}): PageRevision | null {
+  keepHeldPage(opts: { sinceAt?: number; settledMs?: number } = {}): PageRevision | null {
     if (this.observer || !this.tunables.PAGE_HELD_TO_ROOM) return null;
     try {
-      const today = this.calendarToday();
-      let held: HeldDraft | null = null;
-      for (const r of this.store.eventLog({ name: SELF_PAGE_REFUSED_EVENT, order: "desc", limit: 50 })) {
-        const h = heldDraftOf(r.payload);
-        if (h !== null && (opts.sinceAt === undefined ? h.date === today : r.at >= opts.sinceAt)) {
-          held = h;
-          break;
-        }
-      }
-      if (held === null) return null;
+      // THE RUN'S OWN START when the run's end calls (`sinceAt`), else the last
+      // night (`PAGE_HELD_NIGHT_MS`) — never the calendar date, which a run
+      // crossing midnight changed under it (review of #541).
+      const now = this.store.now();
+      const held = this.heldSince(opts.sinceAt ?? now - PAGE_HELD_NIGHT_MS)[0];
+      if (held === undefined) return null;
+      // A BOUNDARY WITH NO RUN END (`settledMs`, review of #541) leaves a fresh
+      // hold to its writer, who may still be cutting.
+      if (opts.settledMs !== undefined && now - (held.heldAt ?? now) < opts.settledMs) return null;
       const before = readSelfPage(this.store);
       if ((before?.version ?? NO_PAGE_VERSION) !== held.at) return null;
       const over = held.bytes - held.room;
+      const where = opts.settledMs === undefined ? "the run's end" : "a later boundary";
       const written = this.revisePage(held.body, {
         by: held.by,
-        reason: `${held.reason.length === 0 ? "the night's page" : held.reason}; kept at the run's end, ${String(over)} bytes past its ${String(held.room)}-byte room (not sent again shorter)`,
+        reason: `${held.reason.length === 0 ? "the night's page" : held.reason}; kept at ${where}, ${String(over)} bytes past its ${String(held.room)}-byte room (not sent again shorter)`,
         session: held.session,
         ifVersion: held.at,
         keepPastRoom: true,
@@ -1641,7 +1670,7 @@ export class Self {
             about: claim.about,
             mode: claim.mode,
             outcome: "revised",
-            detail: `past-room: kept at the run's end, ${String(over)} over the ${String(held.room)}-byte room`,
+            detail: `past-room: kept at ${where}, ${String(over)} over the ${String(held.room)}-byte room`,
             bytesBefore: before === null ? 0 : before.bytes,
             bytesAfter: written.bytes,
             session: held.session,
@@ -1857,6 +1886,11 @@ export class Self {
       !this.heldTonight(opts.by, session)
     ) {
       const over = bytes - room;
+      // THE SHORT VERSION THROUGH ITS GATES BEFORE IT IS STORED (review of
+      // #541): the row is durable for the log's retention, so a credential in
+      // a raw short version would outlive the refusal by months. Only what the
+      // gates keep is carried; the body above is the gate's text already.
+      const heldShort = opts.short === undefined || opts.short.trim().length === 0 ? null : this.shortVerdict(opts.short, bytes, opts.by).text;
       this.emit("self.page.refused", undefined, { reason: "past-room", by: opts.by, bytes, room, over });
       try {
         this.store.appendEvent({
@@ -1874,7 +1908,7 @@ export class Self {
             held: {
               body: text,
               reason: opts.reason,
-              ...(opts.short === undefined || opts.short.trim().length === 0 ? {} : { short: opts.short }),
+              ...(heldShort === null ? {} : { short: heldShort }),
               ...(opts.model === undefined ? {} : { model: opts.model }),
             },
           },

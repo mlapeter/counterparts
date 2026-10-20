@@ -29,6 +29,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openNightCounterpart, runNight } from "../src/adapters/claude-code/index.js";
+import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import type { AdapterConfig } from "../src/adapters/claude-code/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { episodeGate } from "../src/core/bridge.js";
@@ -388,5 +389,159 @@ describe("4. the wake shows a fitting page whole without borrowing, and a short 
     const me = selfOn(store());
     me.revisePage(pageOf(4_956), { by: "owner", reason: "long" });
     expect(me.build({ budgetBytes: COMPOSE, day: 1, lendBytes: LEND }).page?.rung).toBe("whole");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5. The awkward states (review of #541)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("5. the awkward states: midnight, a credential, a crowded log, no run end", () => {
+  const MIN = 60_000;
+  /** A store on a clock the test moves, in UTC so midnight is where it says. */
+  function clocked(start: number): { s: Store; me: Self; at: (t: number) => void } {
+    let t = start;
+    const s = Store.open({ dir, now: () => t, timeZone: "UTC" });
+    open.push(s);
+    return { s, me: selfOn(s), at: (n) => (t = n) };
+  }
+
+  test("a run that crosses midnight: the writer's resend after midnight is its second send, and the run's end still finds the reflection's hold", () => {
+    const { me, at } = clocked(Date.UTC(2026, 9, 20, 23, 50));
+    const startedAt = Date.UTC(2026, 9, 20, 23, 50);
+    me.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    at(Date.UTC(2026, 9, 20, 23, 55));
+    expect(me.revisePage(pageOf(4_756), { by: "writer", reason: "the writer", session: SESSION }).reason).toBe("past-room");
+    at(Date.UTC(2026, 9, 21, 0, 5));
+    // The same writer, the same night, five minutes after midnight: kept, not held again.
+    expect(me.revisePage(pageOf(4_756), { by: "writer", reason: "the writer again", session: SESSION, ifVersion: 0 })).toMatchObject({ written: true });
+    at(Date.UTC(2026, 9, 21, 0, 20));
+    expect(me.revisePage(pageOf(4_956), { by: "reflection", reason: "the reflection", session: SESSION }).reason).toBe("past-room");
+    // A second reflection hold the same night, after midnight? No: one was used tonight.
+    at(Date.UTC(2026, 9, 21, 0, 30));
+    expect(me.keepHeldPage({ sinceAt: startedAt })?.written).toBe(true);
+    expect(me.page()?.bytes).toBe(4_956);
+  });
+
+  test("held before midnight, the run's end after it: kept (the run's own start bounds it, not the calendar date)", () => {
+    const { me, at } = clocked(Date.UTC(2026, 9, 20, 23, 40));
+    const startedAt = Date.UTC(2026, 9, 20, 23, 40);
+    me.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    at(Date.UTC(2026, 9, 20, 23, 58));
+    expect(me.revisePage(pageOf(4_956), { by: "reflection", reason: "the reflection", session: SESSION }).reason).toBe("past-room");
+    at(Date.UTC(2026, 9, 21, 0, 10));
+    expect(me.keepHeldPage({ sinceAt: startedAt })?.written).toBe(true);
+    expect(me.page()?.bytes).toBe(4_956);
+  });
+
+  test("a credential in a held page or its short version never lands on the refusal row, and the kept page is scanned", () => {
+    const key = "sk-ant-api03-" + "A".repeat(90) + "AA";
+    const s = store();
+    const me = selfOn(s);
+    me.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    const body = pageOf(4_900).replace("The kilns ran all week", `The key is ${key} and the kilns ran`);
+    const held = me.revisePage(body, { by: "writer", reason: "the night", session: SESSION, short: `${SHORT} The key is ${key}.` });
+    expect(held.reason).toBe("past-room");
+    const raw = s.eventLog({ name: SELF_PAGE_REFUSED_EVENT, order: "desc", limit: 1 })[0]?.payload ?? "";
+    expect(raw).not.toContain(key);
+    expect(me.keepHeldPage()?.written).toBe(true);
+    expect(me.page()?.body).not.toContain(key);
+    expect(me.page()?.short?.body ?? "").not.toContain(key);
+  });
+
+  test("a crowded refusal log (60 other refusals after the hold): the resend is still the second send, and the hold is still found", () => {
+    const s = store();
+    const me = selfOn(s);
+    me.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    expect(me.revisePage(pageOf(4_956), { by: "writer", reason: "the writer", session: SESSION }).reason).toBe("past-room");
+    for (let i = 0; i < 60; i++) expect(me.revisePage(pageOf(1_000), { by: "session", reason: "stale", ifVersion: 9 }).reason).toBe("version-moved");
+    expect(me.keepHeldPage()?.written).toBe(true);
+    expect(me.page()?.bytes).toBe(4_956);
+    // And the other door: held, crowded out, sent again — kept, not held twice.
+    expect(me.revisePage(pageOf(4_800), { by: "reflection", reason: "r", session: SESSION }).reason).toBe("past-room");
+    for (let i = 0; i < 60; i++) me.revisePage(pageOf(1_000), { by: "session", reason: "stale", ifVersion: 99 });
+    expect(me.revisePage(pageOf(4_800), { by: "reflection", reason: "r again", session: SESSION }).written).toBe(true);
+  });
+
+  test("no run end (the session-launched night, or a run killed after the hold): a later boundary keeps the held page once it has settled", () => {
+    const t0 = Date.UTC(2026, 9, 20, 9, 0);
+    const { me, at } = clocked(t0);
+    me.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    expect(me.revisePage(pageOf(4_956), { by: "writer", reason: "the writer", session: SESSION }).reason).toBe("past-room");
+    // A boundary minutes later: the writer may still be cutting — nothing yet.
+    at(t0 + 5 * MIN);
+    expect(me.keepHeldPage({ settledMs: 30 * MIN })).toBeNull();
+    expect(me.page()?.bytes).toBe(3_000);
+    // Settled: kept, once.
+    at(t0 + 31 * MIN);
+    expect(me.keepHeldPage({ settledMs: 30 * MIN })?.written).toBe(true);
+    expect(me.page()?.bytes).toBe(4_956);
+    expect(me.keepHeldPage({ settledMs: 30 * MIN })).toBeNull();
+  });
+
+  test("a held page from a night long gone is not kept by a later boundary", () => {
+    const t0 = Date.UTC(2026, 9, 20, 3, 0);
+    const { me, at } = clocked(t0);
+    me.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    expect(me.revisePage(pageOf(4_956), { by: "writer", reason: "the writer", session: SESSION }).reason).toBe("past-room");
+    at(t0 + 3 * 24 * 60 * MIN);
+    expect(me.keepHeldPage({ settledMs: 30 * MIN })).toBeNull();
+    expect(me.page()?.bytes).toBe(3_000);
+  });
+
+  test("through the real worker: a boundary after a night with no run end keeps the settled held page and the wake shows it", async () => {
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: PAGE_HOST_BUDGET_BYTES, owner: true };
+    const seed = Counterpart.open({ dir, budgetBytes: PAGE_HOST_BUDGET_BYTES });
+    seed.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    seed.close();
+    // Held forty minutes ago by a session-launched night's reflection, never sent again.
+    const then = Store.open({ dir, now: () => Date.now() - 40 * MIN });
+    expect(selfOn(then).revisePage(pageOf(4_956), { by: "reflection", reason: "reflection r1", session: SESSION, short: SHORT }).reason).toBe("past-room");
+    then.close();
+    const report = await runOnce({ config, embedder: null });
+    expect(report.ran).toBe(true);
+    const after = Counterpart.open({ dir, budgetBytes: PAGE_HOST_BUDGET_BYTES });
+    open.push(after);
+    expect(after.selfPage()?.bytes).toBe(4_956);
+    expect(after.selfPage()?.by).toBe("reflection");
+    expect(after.self.wake().text).toContain(SHORT);
+  });
+
+  test("through the real nightly process, across midnight: held at 23:58, the run ending at 00:10 still keeps it", async () => {
+    let t = Date.UTC(2026, 9, 20, 23, 50);
+    const clock = (): number => t;
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: PAGE_HOST_BUDGET_BYTES, owner: true, timeZone: "UTC" };
+    const openAt = (): Counterpart => Counterpart.open({ dir, budgetBytes: PAGE_HOST_BUDGET_BYTES, now: clock, timeZone: "UTC" });
+    const seed = openAt();
+    seed.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    seed.close();
+    await runNight({
+      open: openAt,
+      config,
+      run: "nrn_midnight",
+      session: SESSION,
+      scope: dir,
+      kind: { kind: "night" },
+      date: "2026-10-20",
+      now: clock,
+      baseEnv: { PATH: "/usr/bin:/bin" },
+      start: async (plan) => {
+        if (plan.stdin.includes("reflection launch⟧")) {
+          t = Date.UTC(2026, 9, 21, 0, 10);
+          return { code: 0, timedOut: false, error: null };
+        }
+        t = Date.UTC(2026, 9, 20, 23, 58);
+        const child = openAt();
+        try {
+          expect(child.revisePage(pageOf(4_956), { by: "reflection", reason: "reflection r1", session: SESSION }).reason).toBe("past-room");
+        } finally {
+          child.close();
+        }
+        return { code: 0, timedOut: false, error: null };
+      },
+    });
+    const after = openAt();
+    open.push(after);
+    expect(after.selfPage()?.bytes).toBe(4_956);
   });
 });
