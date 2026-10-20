@@ -25,7 +25,8 @@
 - Kept: `UNMARKED_REST_NIGHTS` 3 (what the last three nights were offered waits behind the
   rest). A mark takes a memory out of the pool, so only what the reflection left rotates.
 - The share: past three re-labels into me, us or the owner, two by name and the rest in one
-  sentence with their count, all cited (D2's "every move in is told" kept, in less room).
+  sentence with their count, all cited (D2's "every move in is told" kept, in less room),
+  and the way back said after them ("say so and I'll mark it back", review of #558).
 - The `about` field on `remember` and `session_end` says what the mark does: owner or us
   reaches every folder; work belongs to its folder, though sessions elsewhere may see its
   title; unmarked counts as this folder's work, so mark the personal ones. No change to F4's

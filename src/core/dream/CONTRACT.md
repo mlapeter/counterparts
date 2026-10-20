@@ -464,7 +464,8 @@ dream having run.
     re-label is recorded in `core_events` with what it was and the reflection's why,
     doctor counts them (and apart, the moves into me/us/owner), and a move into me, us or
     the owner is said in that morning's share — one sentence each up to three, past that
-    two by name and the rest in one sentence with their count (2026-10-20). With the door
+    two by name and the rest in one sentence with their count (2026-10-20), then the way
+    back: "say so and I'll mark it back" (review of #558). With the door
     closed only moves toward `work`/`world` are allowed (D1). **The door is the owner's
     switch, not the night's stance** (checked 2026-10-20): it is closed only by
     `counterparts core --reflected-feeling off` (`acceptsReflectedFeeling`; open by

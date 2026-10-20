@@ -2761,9 +2761,17 @@ export class Reflections {
    * A RE-LABEL INTO ME, US OR THE OWNER, IN THE SHARE (owner ruling D2 on
    * #256): a sentence each, up to `RELABEL_SAID`; past that (2026-10-20, the
    * unmarked offer grew to 24 a night) the rest in one sentence with how many
-   * — every one still cited, so none goes unsaid.
+   * — every one still cited, so none goes unsaid. And the way back, as a
+   * self-close says its own (review of #558): a mark into the owner or us
+   * carries a memory into every folder, so a wrong one is worth undoing.
    */
   private relabelSentences(moves: readonly { id: string; mark: AboutMark }[]): string[] {
+    if (moves.length === 0) return [];
+    const back = moves.length === 1 ? "If it isn't, say so and I'll mark it back." : "If one isn't, say so and I'll mark it back.";
+    return [...this.relabelSaid(moves), back];
+  }
+
+  private relabelSaid(moves: readonly { id: string; mark: AboutMark }[]): string[] {
     const one = (m: { id: string; mark: AboutMark }): string =>
       `I've come to think "${this.handle(m.id)}" is ${m.mark === "me" ? "about who I am" : m.mark === "us" ? "about the two of us" : "about you"}.`;
     if (moves.length <= RELABEL_SAID) return moves.map(one);

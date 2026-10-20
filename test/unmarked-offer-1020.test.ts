@@ -234,7 +234,8 @@ describe("the offer: 24 a night, the most likely personal first", () => {
     expect(done.outcome.about.every((a) => a.reason === "marked")).toBe(true);
     const share = c.store.reflection(b.bundle.reflection)?.share ?? "";
     expect(share.match(/I've come to think "/g)?.length).toBe(2);
-    expect(share).toContain("And 3 more I've come to think are personal, not work (3 about you), so every folder hears them now.");
+    expect(share).toContain("And 3 more I've come to think are personal, not work (3 about you), so every folder hears them now. If one isn't, say so and I'll mark it back.");
+    expect(c.store.reflection(b.bundle.reflection)?.share_cites).toBe(JSON.stringify(ids));
   });
 });
 
