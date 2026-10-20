@@ -147,12 +147,14 @@ describe("the wake on resume", () => {
     markSinceSeen(storeDir, S, { at: at(10), state: "shown" });
     recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(10, 10) });
     w.set(at(10, 12));
-    w.c.store.put({ type: "memory", kind: "fact", body: "The starter wants feeding twice a day in the warm months.", about: "work", origin: { session: A, scope: THERE } });
+    const starter = w.c.store.put({ type: "memory", kind: "fact", body: "The starter wants feeding twice a day in the warm months.", about: "work", origin: { session: A, scope: THERE } });
     const { result } = start(w, at(10, 30), "resume");
     const lines = result.injection.split("\n");
     const line = lines.indexOf(RESUME_WAKE_LINE);
     expect(line).toBeGreaterThan(0);
-    expect(lines[line + 1]).toMatch(/^Since 10:00: .*bakery open since 10:10, 1 memory\.$/);
+    // With what was written there, by title (2026-10-20).
+    expect(lines[line + 1]).toMatch(/^Since 10:00: .*bakery open since 10:10, 1 memory: "The starter wants feeding twice a day in the…" \(mem_[0-9a-f]+\)\.$/);
+    expect(lines[line + 1]).toContain(starter);
     // And the line's own state moved, so the next prompt counts from here.
     expect(readSession(storeDir, S)?.sinceSeen).toEqual({ at: at(10, 30), state: "shown" });
   });

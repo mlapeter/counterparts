@@ -305,7 +305,8 @@ proposals and their archive; render and delivery telemetry.
    Yesterday line's titles (a title at a time given way to its id), "Last here" and the
    handoffs (the delivery's room past the newest handoff's own block, `handoffLendBytes`),
    the "Today, elsewhere" line (session start only, at most 300 bytes; b2+f8, 2026-10-10,
-   lightly held; placed here by the review of #380 — the trim loop asks the rooms below it
+   lightly held; since 2026-10-20 with up to two memory titles a folder inside those
+   bytes, given up before a folder, handoff CONTRACT §11; placed here by the review of #380 — the trim loop asks the rooms below it
    on its behalf before it steps down), Arriving past its first line, "Still open"'s first
    item and count, Arriving's first line, at session start only Arriving's lines due from
    that day through 3 days on, not the grace days' "was due" (`Ranked.near`,

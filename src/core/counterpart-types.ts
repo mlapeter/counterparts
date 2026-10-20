@@ -454,6 +454,9 @@ export interface WakeSession {
   /** When the host closed it, epoch ms; null or absent while it has not
    *  (the "Since you started" line's "ended", 2026-10-11). */
   readonly endedAt?: number | null;
+  /** The model the host last saw in it, or null/absent (2026-10-20: the
+   *  "Here, also open" clause names a session as "Last here" does). */
+  readonly model?: string | null;
 }
 
 /**
