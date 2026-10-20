@@ -2051,7 +2051,7 @@ export class Counterpart {
    * never credited here. Physics keeps its own refusals (birth day, already
    * credited today). Never throws into the turn.
    */
-  private creditOccurrence(memoryId: string, windowKey: string, day: number, via: "quiet" | "plain"): void {
+  private creditOccurrence(memoryId: string, windowKey: string, day: number, via: "quiet" | "plain" | "done"): void {
     try {
       const out = this.store.reinforce(memoryId, day, "surfaced");
       this.emit("counterpart.prospective.occurrence.credited", memoryId, {
@@ -2544,7 +2544,9 @@ export class Counterpart {
    *
    * Then, each by name: an id that names nothing, an archived row, a handoff
    * (E1), and — never revived by engagement — a superseded memory or one faded
-   * under a newer one (synthesis collision G). At most
+   * under a newer one (synthesis collision G) — unless this session replaced
+   * it, or the memory that did was born this lived day (F6b, 2026-10-20:
+   * `replacedHere`, credited as drawn on). At most
    * `DREW_ON_MAX_PER_BOUNDARY` land per boundary, the first in the order
    * given; the rest come back `capped`. Once per lived day per memory is
    * recall's and physics' own rule (`already-credited-at-or-above`,
@@ -2564,6 +2566,24 @@ export class Counterpart {
    * Under observer stance nothing is read or written: every id comes back
    * refused `observer`.
    */
+  /**
+   * The memory that now stands for `id` (`recall/standing.ts#headOf`: its
+   * successor, or the memory settled over it), when this session wrote it or
+   * it was born on lived day `day` — the session replaced it itself (F6b,
+   * 2026-10-20). Null otherwise, or when no head can be read.
+   */
+  private replacedHere(id: string, sessionId: string, day: number): string | null {
+    try {
+      const head = headOf(this.store, id);
+      if (head === null) return null;
+      const row = this.store.row(head);
+      if (row === undefined) return null;
+      return row.origin_session === sessionId || row.birth_day === day ? head : null;
+    } catch {
+      return null;
+    }
+  }
+
   creditDrewOn(sessionId: string, named: readonly string[], opts: { at?: string } = {}): DrewOnResult {
     const day = this.store.livedDay();
     const ids = [...new Set(named.map((id) => id.trim()).filter((id) => id.length > 0))];
@@ -2571,8 +2591,9 @@ export class Counterpart {
     const refused: { id: string; reason: string }[] = [];
     const capped: string[] = [];
     const actedOn: string[] = [];
+    const replacedHere: { id: string; by: string }[] = [];
     let linked = 0;
-    const done = (): DrewOnResult => ({ day, named: ids.length, credited, refused, capped, actedOn, linked });
+    const done = (): DrewOnResult => ({ day, named: ids.length, credited, refused, capped, actedOn, linked, ...(replacedHere.length === 0 ? {} : { replacedHere }) });
     if (this.observer) {
       for (const id of ids) refused.push({ id, reason: "observer" });
       return done();
@@ -2614,13 +2635,23 @@ export class Counterpart {
       // ENGAGEMENT NEVER REVIVES WHAT A NEWER MEMORY REPLACED (ported from
       // #371; synthesis collision G). Opening an old memory on purpose still
       // credits it, as before.
-      if (row.superseded_by !== null) {
-        refuse("superseded");
-        continue;
-      }
-      if (fadeOf({ fade: row.fade }) < 1) {
-        refuse("faded-under-newer");
-        continue;
+      //
+      // UNLESS THIS SESSION REPLACED IT (F6b, 2026-10-20, lightly held): the
+      // memory that replaced it was written by this session, or on this lived
+      // day. Then the stale memory is what made the session catch and fix the
+      // record — it was drawn on, and nothing here revives it: the settle or
+      // supersession that this session itself made still stands, and still
+      // ranks the new one first. The OLD one is credited, not the head: the
+      // head was born today, and physics never credits a memory on its birth
+      // day (`creditUse`'s `birth-day`), so redirecting would credit nothing.
+      const replacedAs = row.superseded_by !== null ? "superseded" : fadeOf({ fade: row.fade }) < 1 ? "faded-under-newer" : null;
+      if (replacedAs !== null) {
+        const by = this.replacedHere(id, sessionId, day);
+        if (by === null) {
+          refuse(replacedAs);
+          continue;
+        }
+        replacedHere.push({ id, by });
       }
       if (opts.at !== undefined && row.event_date !== null) {
         try {
