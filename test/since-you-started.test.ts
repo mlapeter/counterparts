@@ -52,7 +52,10 @@ const S = "5e550000-0000-4000-8000-000000000001";
 const A = "a1b2c3d4-0000-4000-8000-00000000000a";
 const C = "c9cacbcc-0000-4000-8000-00000000000c";
 
+/** Every platform's temp root padded to this many bytes (macOS's is 28). */
+const ROOT_LENGTH = 32;
 let root: string;
+let cleanup: string;
 let storeDir: string;
 let config: string;
 let HERE: string;
@@ -61,8 +64,14 @@ let YON: string;
 const open: { close(): void }[] = [];
 
 beforeEach(() => {
-  // A short root: the line names directories by path, within its bytes.
-  root = realpathSync(mkdtempSync(join(existsSync("/tmp") ? "/tmp" : tmpdir(), "cp-since-")));
+  // A short root: the line names directories by path, within its bytes. And
+  // one of the same length on every platform (review of #543): macOS's /tmp
+  // is /private/tmp, 8 bytes longer than Linux's, and which form of the line
+  // fits its 300 bytes turns on those bytes (a chapter fitted on Linux only).
+  const base = realpathSync(mkdtempSync(join(existsSync("/tmp") ? "/tmp" : tmpdir(), "cp-since-")));
+  root = base.length < ROOT_LENGTH - 1 ? join(base, "p".repeat(ROOT_LENGTH - base.length - 1)) : base;
+  mkdirSync(root, { recursive: true });
+  cleanup = base;
   storeDir = join(root, "store");
   config = join(root, "claude-code.json");
   HERE = join(root, "garden");
@@ -79,7 +88,7 @@ afterEach(() => {
       /* already closed */
     }
   }
-  rmSync(root, { recursive: true, force: true });
+  rmSync(cleanup, { recursive: true, force: true });
 });
 
 interface World {
