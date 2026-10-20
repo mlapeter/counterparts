@@ -112,10 +112,17 @@ function seen(plan: ChildPlan): Seen {
   };
 }
 
+/**
+ * THE TEST'S CLOCK moves only while a child runs (a second per child), never on
+ * a read: how often the night reads the time is not what it asks.
+ */
+let clock = NOW;
+
 /** A starter that records each plan and answers from a script, then exit 0. */
 function starter(log: Seen[], script: Partial<ChildResult>[] = []): (plan: ChildPlan) => Promise<ChildResult> {
   let n = 0;
   return (plan) => {
+    clock += 1_000;
     log.push(seen(plan));
     const r = script[n] ?? {};
     n += 1;
@@ -135,7 +142,7 @@ async function night(kind: NightKind, script: Partial<ChildResult>[] = [], over:
   // The catch-up's children always exit clean; the script is the night's own children's.
   const start = starter(plans, script);
   const startCatchUp = starter(plans);
-  let clock = NOW;
+  clock = NOW;
   const out = await runNight({
     open: () => Counterpart.open({ dir, owner: true, budgetBytes: 9_000, timeZone: "UTC", now: () => clock }),
     config: config(over),
@@ -147,7 +154,7 @@ async function night(kind: NightKind, script: Partial<ChildResult>[] = [], over:
     baseEnv: BASE_ENV,
     start,
     startCatchUp,
-    now: () => (clock += 1_000),
+    now: () => clock,
   });
   return { plans, row: row(out as unknown as Record<string, unknown>) };
 }

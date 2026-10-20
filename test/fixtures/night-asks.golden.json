@@ -126,7 +126,7 @@
       "dream": null,
       "reflection": null,
       "date": "2026-03-10",
-      "timeoutMs": 2411000
+      "timeoutMs": 2408000
     }
   },
   "catch-up-only": {
@@ -187,7 +187,7 @@
       "dream": null,
       "reflection": null,
       "date": "2026-03-10",
-      "timeoutMs": 2411000
+      "timeoutMs": 2408000
     }
   },
   "reflection": {
@@ -378,7 +378,7 @@
       "dream": null,
       "reflection": null,
       "date": "2026-03-10",
-      "timeoutMs": 2411000
+      "timeoutMs": 2408000
     }
   },
   "no-claude": {
@@ -467,7 +467,7 @@
       "dream": null,
       "reflection": null,
       "date": "2026-03-10",
-      "timeoutMs": 2411000
+      "timeoutMs": 2408000
     }
   },
   "quick-exit": {
@@ -593,7 +593,7 @@
       "dream": null,
       "reflection": null,
       "date": "2026-03-10",
-      "timeoutMs": 2411000
+      "timeoutMs": 2408000
     }
   },
   "reflection-never-starts": {
@@ -724,7 +724,7 @@
       "dream": null,
       "reflection": null,
       "date": "2026-03-10",
-      "timeoutMs": 2411000
+      "timeoutMs": 2408000
     }
   },
   "observer": {
@@ -738,7 +738,7 @@
       "dream": null,
       "reflection": null,
       "date": "2026-03-10",
-      "timeoutMs": 2411000
+      "timeoutMs": 2407000
     }
   },
   "catch-up-command": {
