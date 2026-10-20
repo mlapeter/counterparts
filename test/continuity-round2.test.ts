@@ -361,11 +361,11 @@ describe("a chapter about me reaches a wake in another directory, and only what 
   test("marked about me, from a directory that is on: one line, by title, id and where it was written", () => {
     const k = afternoon();
     const { epi, THERE } = bakery(k, "me");
-    const line = wake(k.c, B, 9_000, HERE, () => true).split("\n").find((l) => l.startsWith("About me, from another project:"));
-    expect(line).toBe(`About me, from another project: session a1b2c3d4, Sep 30 in ${tilde(THERE)} — "Naming the garden beds" (${epi}).`);
+    const line = wake(k.c, B, 9_000, HERE, () => true).split("\n").find((l) => l.startsWith("A chapter about me from "));
+    expect(line).toBe(`A chapter about me from ${tilde(THERE)}: session a1b2c3d4, Sep 30 — "Naming the garden beds" (${epi}).`);
     const there = wake(k.c, B, 9_000, THERE, () => true);
     expect(there).toContain("Last here: session a1b2c3d4");
-    expect(there).not.toContain("About me, from another project");
+    expect(there).not.toContain("A chapter about me from");
   });
 
   test("nothing crosses without a way to ask, from a directory that is not on, or marked work or unmarked", () => {
@@ -377,7 +377,7 @@ describe("a chapter about me reaches a wake in another directory, and only what 
     ] as const) {
       const k = afternoon();
       bakery(k, about);
-      expect(wake(k.c, B, 9_000, HERE, exportsFrom)).not.toContain("About me, from another project");
+      expect(wake(k.c, B, 9_000, HERE, exportsFrom)).not.toContain("A chapter about me from");
       k.c.close();
       rmSync(storeDir, { recursive: true, force: true });
     }
@@ -406,13 +406,13 @@ describe("a chapter about me reaches a wake in another directory, and only what 
     const lc = new Lifecycle({ counterpart: k.c, config: { dataDir: storeDir }, configPath: config });
     const said = (): string => lc.composeWake({ sessionId: B, scope: HERE, at: "2026-09-30" }, 9_000).text;
     // No setting written: unset reads as on.
-    expect(said()).toContain("About me, from another project");
+    expect(said()).toContain("A chapter about me from");
     for (const mode of ["off", "observer"] as const) {
       writeScopes(join(root, "scopes.json"), setScope(null, THERE, mode, { at: "2026-09-30" }));
-      expect(said()).not.toContain("About me, from another project");
+      expect(said()).not.toContain("A chapter about me from");
     }
     writeScopes(join(root, "scopes.json"), setScope(null, THERE, "on", { at: "2026-09-30" }));
-    expect(said()).toContain("About me, from another project");
+    expect(said()).toContain("A chapter about me from");
   });
 });
 

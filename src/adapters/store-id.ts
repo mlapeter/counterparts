@@ -88,3 +88,67 @@ export function wakeTagLead(tags: readonly string[], wakeText: string): string {
   if (!ONE_TAG_LINE) return `${shown.join("\n")}\n`;
   return wakeText.startsWith(WAKE_HEAD) ? `${shown.join(" ")} ` : `${shown.join(" ")}\n`;
 }
+
+/**
+ * ONE TAG, NOT THREE (2026-10-20, Mike's go, lightly held: "remove
+ * duplication"; supersedes the 10-16 tag line's three tags). The markers'
+ * fields ride INSIDE the wake's own head tag:
+ *
+ *   <!-- counterparts:wake meet=done store=st_… elements=4 bytes=8991 -->
+ *
+ * where `day=` sat before 2026-10-16, so every reader of the head — the
+ * preface's and the pointer's `OPEN_RE`, the transcript's head sighting, the
+ * forged-marker guards — reads it as before: they match the prefix and
+ * `elements=… bytes=…` and allow any field between. The fields go in where
+ * the wake is composed (`Lifecycle#composeWake`, by
+ * `self/briefing-delivery.ts#withHeadFields`), BEFORE the delivery's
+ * expectation is written, and both `bytes=` are re-solved to count them, so
+ * the delivered block still states its own length and the next prompt's
+ * check still finds the tail it was told to expect.
+ *
+ * A wake with no head tag (a resume's short line, a bootstrap line, a bundle
+ * that is not a clean render) carries one tag of its own, on its own line in
+ * front of it: `<!-- counterparts:session meet=… store=… -->` (`sessionTag`).
+ * The sidebar reads `meet=` and `store=` from either, and from the older
+ * separate markers (`hooks/sidebar/hooks/feed.ts`). A sidebar from before
+ * this change finds neither field in the new tag and reads both as unknown,
+ * which it already handles (no store check; the meeting's state from the
+ * dashboard's onboarding read). Off (`ONE_TAG`): the 10-16 line, each marker
+ * whole in front of the head tag (`wakeTagLead`).
+ */
+export const ONE_TAG = true;
+
+/** The tag a wake with no head tag carries the fields in (`sessionTag`). */
+export const SESSION_TAG_HEAD = "<!-- counterparts:session ";
+
+/** `meet=…` / `store=…` from one of the hook's markers, or null for anything else. */
+export function markerField(tag: string): string | null {
+  const meet = /^<!--\s*counterparts:onboarding\s+meet=([a-z_]+)\s*-->$/.exec(tag)?.[1];
+  if (meet !== undefined) return `meet=${meet}`;
+  const store = /^<!--\s*counterparts:store\s+id=(st_[0-9a-f]{16})\s*-->$/.exec(tag)?.[1];
+  return store === undefined ? null : `store=${store}`;
+}
+
+/** The fields of the hook's markers, in their order, for the one tag. */
+export function markerFields(tags: readonly string[]): string[] {
+  return tags.map(markerField).filter((f): f is string => f !== null);
+}
+
+/** The one tag for a wake with no head tag of its own, or "" with no field. */
+export function sessionTag(tags: readonly string[]): string {
+  const fields = markerFields(tags);
+  return fields.length === 0 ? "" : `${SESSION_TAG_HEAD}${fields.join(" ")} -->`;
+}
+
+/**
+ * WHAT GOES IN FRONT OF THE WAKE'S TEXT for the markers, under either rule:
+ * nothing when the head tag already carries them (`tagged`), the session tag
+ * and a newline when it does not, or — `ONE_TAG` off — the 10-16 line's
+ * markers (`wakeTagLead`).
+ */
+export function tagLead(tags: readonly string[], wakeText: string, tagged: boolean): string {
+  if (!ONE_TAG) return wakeTagLead(tags, wakeText);
+  if (tagged) return "";
+  const tag = sessionTag(tags);
+  return tag.length === 0 ? "" : `${tag}\n`;
+}

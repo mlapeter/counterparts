@@ -522,12 +522,12 @@ describe("the day lived: the page writer reads a write-up on the day it happened
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the Yesterday line", () => {
-  test("titles and ids, oldest first, the date in the line, chapters counted; the rest by count; none without a chapter that day", () => {
+  test("titles and ids, oldest first, the date in the line; an untitled chapter and the rest by count (no bare ids, 2026-10-20); none without a chapter that day", () => {
     const mk = (id: string, title: string | null, n: number, at: number) => ({ id, title, chapters: n, createdAt: at });
     const d = Date.UTC(2026, 8, 30, 9);
     const day = [mk("epi_a", "First thing", 1, d), mk("epi_b", "Second thing", 2, d + HOUR), mk("epi_c", null, 1, d + 2 * HOUR), mk("epi_d", "Fourth", 1, d + 3 * HOUR), mk("epi_e", "Fifth", 1, d + 4 * HOUR)];
     expect(yesterdayLine(day, "2026-09-30")).toBe(
-      'Yesterday, Sep 30: "First thing" (epi_a); "Second thing" (epi_b); epi_c; "Fourth" (epi_d); and 1 more.',
+      'Yesterday, Sep 30: "First thing" (epi_a); "Second thing" (epi_b); "Fourth" (epi_d); "Fifth" (epi_e); and 1 more.',
     );
     expect(yesterdayLine([], "2026-09-27")).toBeNull();
   });

@@ -39,7 +39,7 @@ import { randomUUID } from "node:crypto";
 
 import { Associate, appendPendingDeltas, claimPending, releasePending } from "./associate/index.js";
 import type { CoactivateResult, Credited, FlushReport, PairDelta, PendingClaim } from "./associate/index.js";
-import { horizonFor } from "./briefing.js";
+import { READ_TODAY_AT_START, horizonFor } from "./briefing.js";
 import { episodeGate } from "./bridge.js";
 import { Dreams, Reflections } from "./dream/index.js";
 import { meetingDay } from "./onboarding.js";
@@ -155,6 +155,7 @@ import {
   settledOver,
   threadsShown,
   spliceBeforeSentinel,
+  withHeadFields,
   WORK_OVERFLOW_EVENT,
   rotateWork,
   workHere,
@@ -743,13 +744,28 @@ export class Counterpart {
     // The open threads it kept (context priming, 2026-10-19): the host records
     // them for this session, as part of what is open here.
     let threads: readonly string[] = [];
+    let tagged = false;
     this.delivering = delivery !== undefined;
     try {
       const assembled = delivery === undefined ? null : this.assembleWake(delivery, here);
       lined = assembled?.lined ?? [];
       threads = assembled?.kept.threads ?? [];
-      const result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
+      let result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
       this.deliveredThreads = assembled === null ? null : new Set(assembled.kept.threads);
+      // ONE TAG (2026-10-20): the host's fields go into the head tag BEFORE
+      // the furniture is spliced, so the pointer's room check counts them and
+      // the whole stays inside the ceiling; when even the bare wake has no
+      // room for them, the head is left as it was and the host carries them
+      // in a tag of its own (`tagged` false).
+      const fields = here?.headFields ?? [];
+      if (delivery !== undefined && result.ok && fields.length > 0) {
+        const head = withHeadFields(result.text, fields);
+        const budget = this.reportedBudget;
+        if (head.applied && (budget === null || head.bytes <= budget)) {
+          result = { ...result, text: head.text, bytes: head.bytes, sentinel: head.sentinel };
+          tagged = true;
+        }
+      }
       withPointer = delivery === undefined ? result : this.addHandoffPointer(result, here);
     } finally {
       this.deliveredThreads = null;
@@ -763,7 +779,7 @@ export class Counterpart {
       preface: withPointer.preface !== null,
       budgetBytes: this.reportedBudget,
     });
-    return { ...withPointer, budgetBytes: this.reportedBudget, lined, threads };
+    return { ...withPointer, budgetBytes: this.reportedBudget, lined, threads, ...(tagged ? { tagged } : {}) };
   }
 
   /**
@@ -796,7 +812,9 @@ export class Counterpart {
       const stored = this.store.getMeta(BRIEFING_KEY);
       if (stored === undefined || stored.length === 0 || !readSentinel(stored).intact) return null;
       const day = this.store.livedDay();
-      const asked = horizonFor(this.prospective, at, day);
+      // Read today, so a plain reminder is due today only on its own date
+      // (2026-10-20, `horizonFor`'s `readToday`), not the day before it too.
+      const asked = horizonFor(this.prospective, at, day, { readToday: READ_TODAY_AT_START });
       // FIRST CLAIM ON THE SESSION-START ROOM (2026-10-12, RANDOM's ruling,
       // lightly held): a dated item due today or within the next few days
       // takes room before "Last here", "Last said here", "Today, elsewhere"
@@ -1079,7 +1097,9 @@ export class Counterpart {
     // LAST HERE (2026-09-30): the session that last wrote a chapter in this
     // directory, finished or not — above the handoff, and the first thing
     // given up when there is not room for both (`handoff/last-here.ts`).
-    const lastHere = this.lastHereLadder(scope, here?.session ?? null, chapters, here?.exportsFrom);
+    // An episode the body above already names (the Yesterday line) is not
+    // named again below it (2026-10-20, each episode once).
+    const lastHere = this.lastHereLadder(scope, here?.session ?? null, chapters, here?.exportsFrom, (id) => result.text.includes(id));
     // LAST SAID HERE (2026-10-11): the last exchange in this directory, one
     // line at the foot of the blocks above the handoff — the first thing they
     // give up, at each of their widths (`withExchange`).
@@ -1339,6 +1359,7 @@ export class Counterpart {
     reader: string | null,
     chapters?: ReadonlyMap<string, ChapterHere>,
     exportsFrom?: (scope: string) => boolean,
+    named?: (id: string) => boolean,
   ): string[] {
     try {
       const all = chapters ?? this.chaptersInWindow(this.store.livedDay());
@@ -1350,11 +1371,14 @@ export class Counterpart {
         // `09-30 17:50` → `Sep 30`.
         date: stampWords(localStamp(f.chapter.writtenAt, zone).split(" ")[0] ?? ""),
       }));
-      const base = entries.length === 0 ? [] : lastHereLadder(entries, reader);
+      // EACH EPISODE ONCE (2026-10-20): what the wake's body already names
+      // (the Yesterday line) is not named again in "Before it", "+N more" or
+      // the about-me line below.
+      const base = entries.length === 0 ? [] : lastHereLadder(entries, reader, named);
       // ABOUT ME, FROM ANOTHER DIRECTORY (2026-10-01): one more line on the
       // widest rungs, given up first; alone when nothing was written here.
       const away = this.selfChapterElsewhere(all, new Set(found.map((f) => f.chapter.id)), reader, exportsFrom);
-      if (away === null) return base;
+      if (away === null || named?.(away.id) === true) return base;
       const line = elsewhereLine(away, stampWords(localStamp(away.writtenAt, zone).split(" ")[0] ?? ""), reader);
       return base.length === 0 ? [line] : [...base.map((b) => `${b}\n${line}`), ...base];
     } catch {
@@ -1444,7 +1468,13 @@ export class Counterpart {
     try {
       const date = addDays(at, -1);
       const fromDay = Math.max(0, this.store.livedDay() - LAST_HERE_LIFE_DAYS + 1);
-      const all = chaptersOn(this.store, date, { fromDay });
+      // EACH EPISODE ONCE (2026-10-20, Mike's go, lightly held): at a session
+      // start, the episode "Last here" names first is left to that line,
+      // which says when and how it began (`lastHereNewest`); it is neither
+      // listed nor counted here. Every other one of yesterday's is this
+      // line's, and the furniture below leaves out what this line names.
+      const newest = reader === undefined ? null : this.lastHereNewest(reader.here);
+      const all = chaptersOn(this.store, date, { fromDay }).filter((c) => c.id !== newest);
       const day = reader === undefined ? all : all.filter((c) => this.nameableHere(c.scope ?? null, c.aboutMe === true, reader.here));
       // The ones left out, BY FOLDER (2026-10-18, the wake-polish builder):
       // only a folder the "Today, elsewhere" line may name (`elsewhereGate`)
@@ -1469,6 +1499,22 @@ export class Counterpart {
       return shorter.length === 0 ? { yesterday: line } : { yesterday: line, yesterdayShorter: shorter };
     } catch {
       return {};
+    }
+  }
+
+  /**
+   * THE EPISODE "LAST HERE" NAMES FIRST in a wake for `here` — the newest
+   * chapter written in its directory by another session, as
+   * `lastHereLadder` reads it — or null: no directory, none here, or a store
+   * that will not answer. Every rung of that line names it. Never throws.
+   */
+  private lastHereNewest(here: WakeHere | undefined): string | null {
+    const scope = here?.scope?.trim() ?? "";
+    if (scope.length === 0) return null;
+    try {
+      return this.chaptersHereFor(scope, here?.session ?? null, this.chaptersInWindow(this.store.livedDay()))[0]?.chapter.id ?? null;
+    } catch {
+      return null;
     }
   }
 

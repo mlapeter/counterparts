@@ -150,7 +150,14 @@ function lane(text: string, heading: string): string[] | null {
   if (at < 0) return null;
   const out: string[] = [];
   for (let i = at + 1; i < lines.length && lines[i] !== ""; i++) out.push(lines[i] ?? "");
-  return out;
+  // "Coming up"'s items name their own id since 2026-10-20 (`HORIZON_OWN_ID`):
+  // checked here, once, and taken off so the words are compared as before.
+  if (heading !== FRAMING.horizon) return out;
+  return out.map((l) => {
+    if (!l.startsWith("- ")) return l;
+    expect(l).toMatch(/ \[mem_[0-9a-f]{12}\]$/);
+    return l.replace(/ \[mem_[0-9a-f]{12}\]$/, "");
+  });
 }
 
 function bytes(s: string): number {
@@ -452,9 +459,13 @@ describe("at 9,000, an over-room page, four handoffs, yesterday's titles — eve
           // the newest handoff's own block (review of #367).
           expect(now.handoffs).toBeGreaterThan(0);
           expect(m.text).toMatch(/\+\d+ older here: sch_[0-9a-f]+/);
-          // The Yesterday line, if it gave titles, still names every chapter it named, by id.
+          // The Yesterday line, if it gave titles, still accounts for every
+          // chapter: the ones it no longer names by title are counted, never
+          // left as bare ids (2026-10-20).
           expect(was.yesterday).not.toBeNull();
-          expect((now.yesterday ?? "").match(/epi_[0-9a-f]+/g)?.length).toBe((was.yesterday ?? "").match(/epi_[0-9a-f]+/g)?.length);
+          const total = (l: string | null): number => (l?.match(/epi_[0-9a-f]+/g)?.length ?? 0) + Number(/and (\d+) more/.exec(l ?? "")?.[1] ?? 0);
+          expect(total(now.yesterday)).toBe(total(was.yesterday));
+          expect(now.yesterday ?? "").not.toMatch(/(?:: |; )epi_[0-9a-f]+/);
           // Doctor has nothing to say about dated items.
           expect(wakeArrivalFindings(m.a.counterpart.store).map((f) => f.detail).join(" ")).not.toContain("Coming up:");
         }

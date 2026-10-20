@@ -28,6 +28,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | merged 10-19 (#528), unreleased | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Meaning computed in line whenever no fresh cue is ready (#521) | merged 10-19, unreleased | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
+| Wake without repeats (fix/wake-dedupe-1020): each episode once, no bare ids in Yesterday, ONE tag at the top, about-me line says its folder first, a plain reminder due tomorrow counted at a session start, every Coming up item with its own id, one snapshot a day | in review 10-20, unreleased | the first two mornings after install | "Due ~2 mornings after install (the wake without repeats)" below; `docs/decisions.d/fix-wake-dedupe-1020.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -181,6 +182,35 @@ On the owner's session-start wakes in ~/counterparts and ~/random (read-only).
 - **Look at:** the Yesterday line in ~/random: `…; and 2 sessions in ~/counterparts`.
 - **Changes a decision if:** a folder Mike keeps apart shows up there → the gate is not the
   one the "Today, elsewhere" line uses, and it is a bug.
+
+### Went in after this check (2026-10-20, fix/wake-dedupe-1020)
+The 10-20 reads of this section's wakes found repeats, bare ids and three tags; those went
+into the change below, which has its own section.
+
+## Due ~2 mornings after install (the wake without repeats, 2026-10-20, lightly held — docs/decisions.d/fix-wake-dedupe-1020.md)
+
+On the owner's session-start wakes in ~/counterparts and ~/random (read-only), and the
+snapshots folder.
+
+- **Look at:** every `epi_…` id in the wake. Each should appear once: "Last here" names the
+  newest chapter written in the folder; the Yesterday line names the rest of yesterday's by
+  title; no "+N more here on …" or about-me line repeats one of them. A handoff still names
+  its session (that is where work was left, not the chapter).
+- **Look at:** the Yesterday line: titles and a count ("; and 2 more"), never a lone `epi_…`.
+- **Look at:** the top of the wake: one comment, `<!-- counterparts:wake meet=… store=st_…
+  elements=… bytes=… -->`, and the sidebar still shows the meeting state and the store check
+  (Mike's plugin sidebar; an older plugin reads both as unknown until it updates).
+- **Look at:** an about-me line from another folder reads "A chapter about me from ~/x:
+  session …, Oct 19 — "…" (epi_…)." and appears only when Yesterday does not already name it.
+- **Look at:** "Coming up": nothing listed that is due tomorrow; each listed item ends with its
+  own `[mem_…]`, then any "(earlier: …)".
+- **Look at:** `~/.counterparts/snapshots/`: one folder per date from the install day on, and
+  no `.taking-…` file left over an hour later.
+- **Changes a decision if:** "Last here" is dropped for room (`handoff.lasthere.noroom` rows)
+  on a morning its newest chapter was yesterday's → that episode was in no line; give the
+  Yesterday line its id back on that path. Or a session reads the Yesterday line as all of
+  yesterday and misses the one under Last here → say "(and the one under Last here)". Or the
+  sidebar loses the store check on Mike's machine → the plugin sidebar is older than this core.
 
 ## Due at the first live catch-up (the nightly run's or `counterparts catch-up`)
 

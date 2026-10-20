@@ -557,3 +557,27 @@ and 4); the wake-polish builder, lightly held.
   own directory, so the line has the titles their names promised.
 
 Undo: `git revert` of the PR; nothing is stored differently.
+
+## 15. Each episode once, no bare ids (2026-10-20)
+
+From the 10-20 morning wakes (Mike's 10-16 "remove duplication"); lightly held, an
+experiment. Decision record: `docs/decisions.d/fix-wake-dedupe-1020.md`.
+
+- **Who owns an episode.** The Yesterday line is composed inside the body, before the
+  furniture is spliced, so the split is decided on both sides of that seam: at assembly the
+  Yesterday line drops the one episode every "Last here" rung names (its newest,
+  `Counterpart#lastHereNewest`); at the splice, "Before it", "+N more here" and the about-me
+  line drop any episode whose id the body's text already holds (`lastHereBlock`'s `named`,
+  `result.text.includes(id)`). Reading the body's text rather than the Yesterday line's
+  inputs keeps the splice true of whatever form the room left: a title Yesterday gave up to
+  its count is named again below, by id. The published bundle (no reader) keeps the
+  store-wide Yesterday line; when a session start falls back to it, "Last here"'s newest can
+  appear twice, as before.
+- **Bare ids.** `yesterdayLine` lists only titled chapters (at most `YESTERDAY_SHOWN`) and
+  counts the rest; `yesterdayShorter` stops at one title. A line of untitled chapters only is
+  a count ("Yesterday: 2 sessions").
+- **Measured on a fixture** (`test/last-exchange.test.ts`): a wake whose Yesterday line went
+  away composed without borrowing the furniture's room (`takeRoom`'s lend), and the
+  leftover-room upgrade (#489 C, `briefing.ts`) then had less room than in the control, so
+  "Still open"'s first item printed as a line, not whole. The same items are listed. The
+  upgrade spending borrowed room is the room system's behaviour, not changed here.

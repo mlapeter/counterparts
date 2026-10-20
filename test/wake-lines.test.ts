@@ -249,7 +249,7 @@ describe("the id once, and the top items whole on leftover room", () => {
     });
     const out = render(lanes, { budgetBytes: 40_000, day: 0 }, resolve, SELF_TUNABLES);
     expect(laneLines(out.text, FRAMING.threads)).toEqual([`- 2026-10-01 · ${WHOLE("t1")}`, "- 2026-10-01 · Title of t2 [t2]"]);
-    expect(laneLines(out.text, FRAMING.horizon)).toEqual([`- 2026-10-01 · ${WHOLE("h1")}`, "- 2026-10-01 · Title of h2 [h2]"]);
+    expect(laneLines(out.text, FRAMING.horizon)).toEqual([`- 2026-10-01 · ${WHOLE("h1")} [h1]`, "- 2026-10-01 · Title of h2 [h2]"]);
     expect(laneLines(out.text, FRAMING.craft)).toEqual(["- 2026-10-01 · Title of c1 [c1]"]);
     expect(laneLines(out.text, FRAMING.hints)).toEqual(["- 2026-10-01 · Title of n1 [n1]"]);
     expect(out.lined).toEqual(["c1", "t2", "n1", "h2"]);

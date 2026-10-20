@@ -17,7 +17,7 @@ import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import { wakeArrivalFindings } from "../src/adapters/claude-code/doctor.js";
 import { readWakeArrival } from "../src/adapters/claude-code/transcript.js";
 import type { ScopeVerdict } from "../src/adapters/scopes.js";
-import { ONE_TAG_LINE, wakeTagLead } from "../src/adapters/store-id.js";
+import { ONE_TAG, ONE_TAG_LINE, wakeTagLead } from "../src/adapters/store-id.js";
 import { episodeGate } from "../src/core/bridge.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { WAKE_MARKER as HANDOFF_WAKE_MARKER } from "../src/core/handoff/index.js";
@@ -154,8 +154,9 @@ function lane(text: string, heading: string): string[] {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("1. the three top tags are one line", () => {
-  test("the switch is on; the markers go before the wake's head on its line, or on their own before any other text", () => {
+  test("the 10-16 switch is on (one tag, 2026-10-20, rides on it); its markers go before the wake's head on its line, or on their own before any other text", () => {
     expect(ONE_TAG_LINE).toBe(true);
+    expect(ONE_TAG).toBe(true);
     expect(HEAD_STATES_DAY).toBe(false);
     const meet = "<!-- counterparts:onboarding meet=done -->";
     const store = "<!-- counterparts:store id=st_0123456789abcdef -->";
@@ -164,24 +165,29 @@ describe("1. the three top tags are one line", () => {
     expect(wakeTagLead(["", ""], "anything")).toBe("");
   });
 
-  test("a real session start: one tag line, every consumer reads it — the sidebar's markers, the transcript's head sighting, the sentinel, the forged-marker guard", () => {
+  test("a real session start: ONE tag (2026-10-20, superseding the 10-16 line of three), every consumer reads it — the sidebar's markers, the transcript's head sighting, the sentinel, the forged-marker guard", () => {
     const w = world();
     expect(w.c.rebrief({ budgetBytes: BUDGET, at: TODAY }).published).toBe(true);
     const injection = sessionStart(w);
     const lines = injection.split("\n");
     expect(lines[0]).toMatch(/^Now: /);
     const tags = lines.filter((l) => l.includes("<!-- counterparts:"));
-    // The tag line and the end tag: no other comment line.
+    // The head tag and the end tag: no other comment line.
     expect(tags.length).toBe(2);
     const head = tags[0] ?? "";
-    expect(head).toMatch(/^<!-- counterparts:onboarding meet=[a-z_]+ --> <!-- counterparts:store id=st_[0-9a-f]{16} --> <!-- counterparts:wake elements=\d+ bytes=\d+ -->$/);
+    expect(head).toMatch(/^<!-- counterparts:wake meet=[a-z_]+ store=st_[0-9a-f]{16} elements=\d+ bytes=\d+ -->$/);
+    expect(head.match(/<!--/g)?.length).toBe(1);
     expect(head).not.toContain("day=");
     expect(tags[1]).toMatch(/^<!-- counterparts:wake\/end day=\d+ .*elements=\d+ bytes=\d+ -->$/);
-    // The sidebar (in this build and, by the same patterns, the one 0.3.23 shipped).
+    // The sidebar in this build reads both fields.
     expect(parseOnboardingMarker(injection)).toBe(/meet=([a-z_]+)/.exec(head)?.[1] ?? "?");
-    expect(parseStoreMarker(injection)).toMatch(/^st_[0-9a-f]{16}$/);
-    expect(ONBOARDING_MARKER.source).toBe("<!--\\s*counterparts:onboarding\\s+meet=([a-z_]+)\\s*-->");
-    expect(STORE_MARKER.source).toBe("<!--\\s*counterparts:store\\s+id=(st_[0-9a-f]{16})\\s*-->");
+    expect(parseStoreMarker(injection)).toBe(/store=(st_[0-9a-f]{16})/.exec(head)?.[1] ?? "?");
+    // The sidebar 0.3.23 shipped finds neither (its own patterns, kept here as
+    // the record of what it reads): it says "unknown" for both, which it handles.
+    expect(/<!--\s*counterparts:onboarding\s+meet=([a-z_]+)\s*-->/.test(injection)).toBe(false);
+    expect(/<!--\s*counterparts:store\s+id=(st_[0-9a-f]{16})\s*-->/.test(injection)).toBe(false);
+    expect(ONBOARDING_MARKER.test(head)).toBe(true);
+    expect(STORE_MARKER.test(head)).toBe(true);
     // The block from its head tag down is the sentinel's, byte for byte.
     const block = injection.slice(injection.indexOf("<!-- counterparts:wake "));
     expect(readSentinel(block).intact).toBe(true);
@@ -392,7 +398,7 @@ describe("6. Coming up lists what is due today, and counts the rest — overdue 
     const coming = lane(wake, FRAMING.horizon);
     const listed = coming.filter((l) => l.startsWith("- "));
     expect(listed.length).toBe(1);
-    expect(listed.some((l) => l.endsWith("The seed order closes at noon; the list is in the green folder."))).toBe(true);
+    expect(listed.some((l) => l.includes("The seed order closes at noon; the list is in the green folder. [mem_"))).toBe(true);
     expect(coming[coming.length - 1]).toBe(`(1 overdue, 1 more coming up; recall ids: ${w.ids["past"] ?? ""}, ${w.ids["later"] ?? ""})`);
     expect(wake).not.toContain("compost heap");
     expect(wake).not.toContain("borrowed tiller");

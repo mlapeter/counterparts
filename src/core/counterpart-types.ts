@@ -383,6 +383,8 @@ export interface WakeOutcome extends WakeResult {
    * here. Empty when it kept none or the published bundle was delivered.
    */
   readonly threads?: readonly string[];
+  /** The head tag carries `WakeHere.headFields` (2026-10-20, ONE TAG). */
+  readonly tagged?: boolean;
 }
 
 /**
@@ -394,6 +396,15 @@ export interface WakeOutcome extends WakeResult {
 export interface WakeHere {
   /** The canonical directory this session opened in. */
   readonly scope?: string;
+  /**
+   * THE HOST'S FIELDS FOR THE HEAD TAG (2026-10-20, ONE TAG): `meet=…`,
+   * `store=…`, put into the wake's opening comment before the furniture is
+   * spliced (`self/briefing.ts#withHeadFields`), so the pointer's room check
+   * counts them and the whole stays inside the ceiling. When they would not
+   * fit, the head is left as it was and `Counterpart#wake`'s outcome says so
+   * (`tagged` false): the host then carries them in a tag of its own.
+   */
+  readonly headFields?: readonly string[];
   /** The session id, for the `handoff.shown` row. Never guessed. */
   readonly session?: string | null;
   /**

@@ -113,7 +113,7 @@ import { TUNABLES as ADAPTER_TUNABLES } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { Lifecycle, plainContextLine } from "../lifecycle.js";
 import type { SessionInput } from "../lifecycle.js";
-import { ONE_TAG_LINE, wakeTagLead } from "../store-id.js";
+import { ONE_TAG_LINE, tagLead } from "../store-id.js";
 import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV, WORKER_RUNNER_PATH } from "../spawn.js";
 import type { Spawner } from "../spawn.js";
 import {
@@ -2660,16 +2660,17 @@ export class McpServer {
       at: localDate(now, store.zone()),
     };
     lc.noteSession("start", input);
-    const woke = lc.composeWake(input, this.lifecycleOpts.config?.injectionBudgetBytes);
+    // The first meeting's marker rides in the wake's head tag (2026-10-20,
+    // ONE TAG), as a Claude Code session start carries it.
+    const woke = lc.composeWake(input, this.lifecycleOpts.config?.injectionBudgetBytes, () => [lc.onboardingMarker(input)]);
     const plain = lc.plainFor(input);
     const told = lc.claimPlain(input, plain.due);
     const spawn = lc.spawnWorker(input);
     const dream = this.wakeDreamLine(input);
     const notices = [this.wakeUpdateLine(), this.wakeDoctorLine()].filter((l): l is string => l !== null);
     const head = `Counterparts session for this chat: ${input.sessionId}. Pass session: ${input.sessionId} on session_end, chapter, dream and reflect in this chat.`;
-    // The first meeting's marker on the wake's head line (`wakeTagLead`,
-    // 2026-10-16, lightly held), as a Claude Code session start carries it.
-    const tags = wakeTagLead([lc.onboardingMarker(input)], woke.text);
+    // Or, when the wake has no head tag, as one tag in front of it (`tagLead`).
+    const tags = tagLead(woke.tags ?? [lc.onboardingMarker(input)], woke.text, woke.tagged === true);
     const lead = [lc.nowLine(), ...(ONE_TAG_LINE ? [] : [tags.trimEnd()]), ...told.map((r) => plainContextLine(r))].join("\n");
     // THE FIRST MEETING'S LINE (2026-10-11): the same offer, or the second
     // session's memory, a Claude Code session start carries. A tool result is

@@ -52,15 +52,18 @@ import { loadConfig } from "../src/adapters/config.js";
 import { RESTORE_STEPS } from "../src/adapters/claude-code/doctor.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import {
+  CLAIM_PREFIX,
   DEFAULT_KEEP,
   PARTIAL_PREFIX,
   PARTIAL_STALE_MS,
   SNAPSHOT_NAME_RE,
   assertRotatableDir,
+  claimDay,
   cleanPartials,
   futureNamesIn,
   keepOf,
   readSnapshotsDir,
+  releaseClaim,
   resolveSnapshotsDir,
   rotate,
   runSnapshot,
@@ -1365,5 +1368,86 @@ describe("the worker's fourth step", () => {
     expect(report.snapshot).toBe(null);
     // The instrument does not mutate what it measures — not even to back it up.
     expect(existsSync(snapsDir)).toBe(false);
+  });
+});
+
+// ── two runs at one boundary (2026-10-20) ───────────────────────────────────
+
+describe("one copy a day when two runs start together (the day's claim)", () => {
+  const claimPath = (date = TODAY): string => join(snapsDir, `${CLAIM_PREFIX}${date}`);
+
+  test("a run that finds today's claim held by another takes no copy and writes nothing", () => {
+    const c = seeded();
+    mkdirSync(snapsDir, { recursive: true });
+    // Another run claimed the day a moment ago (its clock is this run's).
+    writeFileSync(claimPath(), "4242\n");
+    const fresh = new Date(NOW - 1_000);
+    utimesSync(claimPath(), fresh, fresh);
+    const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
+    expect(report.reason).toBe("already-today");
+    expect(report.name).toBe(null);
+    expect(snapshotNamesIn(snapsDir)).toEqual([]);
+    expect(readdirSync(snapsDir).filter((n) => n.startsWith(PARTIAL_PREFIX))).toEqual([]);
+    expect(rowsOf(c, SNAPSHOT_TAKEN_EVENT).length).toBe(0);
+    expect(rowsOf(c, SNAPSHOT_FAILED_EVENT).length).toBe(0);
+    // Its claim is the other run's to let go.
+    expect(existsSync(claimPath())).toBe(true);
+  });
+
+  test("a killed run's claim is stale after the partials' bound: taken over, the copy taken, the claim let go", () => {
+    const c = seeded();
+    mkdirSync(snapsDir, { recursive: true });
+    writeFileSync(claimPath(), "4242\n");
+    const old = new Date(NOW - PARTIAL_STALE_MS - 1_000);
+    utimesSync(claimPath(), old, old);
+    const report = runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY });
+    expect(report.reason).toBe("taken");
+    expect(snapshotNamesIn(snapsDir).length).toBe(1);
+    expect(existsSync(claimPath())).toBe(false);
+  });
+
+  test("the claim is let go after a copy that landed and after one that failed, and every reader of the folder ignores it", () => {
+    const c = seeded();
+    expect(runSnapshot({ counterpart: c, dataDir: dir, now: NOW, date: TODAY }).reason).toBe("taken");
+    expect(existsSync(claimPath())).toBe(false);
+    // A claim file is not a copy: not counted, not rotated, not today's.
+    writeFileSync(claimPath("2026-09-19"), "1\n");
+    expect(readSnapshotsDir(snapsDir).unrecognised).toEqual([]);
+    expect(todaysSnapshot(snapsDir, "2026-09-19")).toBe(null);
+    rmSync(claimPath("2026-09-19"));
+    // A folder that takes no new file: no claim can be made either, so the copy
+    // goes ahead without one and fails as it always did, by its own step.
+    makeCopiesFail();
+    const failed = runSnapshot({ counterpart: c, dataDir: dir, now: at("2026-09-19"), date: "2026-09-19" });
+    expect(failed.reason).toBe("failed");
+    expect(existsSync(claimPath("2026-09-19"))).toBe(false);
+  });
+
+  test("two runs racing: exactly one holds the claim; the other reads it as held", () => {
+    mkdirSync(snapsDir, { recursive: true });
+    const first = claimDay(snapsDir, TODAY, Date.now());
+    const second = claimDay(snapsDir, TODAY, Date.now());
+    expect(typeof first).toBe("string");
+    expect(second).toBe("held");
+    releaseClaim(first, []);
+    expect(existsSync(claimPath())).toBe(false);
+    // Released, the day can be claimed again (the look under the claim then
+    // finds the copy the first run landed).
+    const third = claimDay(snapsDir, TODAY, Date.now());
+    expect(typeof third).toBe("string");
+    releaseClaim(third, []);
+  });
+
+  test("the sweep removes a stale claim from an earlier day, and leaves a fresh one", () => {
+    mkdirSync(snapsDir, { recursive: true });
+    writeFileSync(claimPath("2026-09-10"), "1\n");
+    const old = new Date(NOW - PARTIAL_STALE_MS - 1_000);
+    utimesSync(claimPath("2026-09-10"), old, old);
+    writeFileSync(claimPath(), "2\n");
+    const fresh = new Date(NOW);
+    utimesSync(claimPath(), fresh, fresh);
+    expect(cleanPartials(snapsDir, NOW, [])).toBe(0);
+    expect(existsSync(claimPath("2026-09-10"))).toBe(false);
+    expect(existsSync(claimPath())).toBe(true);
   });
 });
