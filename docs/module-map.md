@@ -91,7 +91,8 @@ importers are pinned (`split-parts.test.ts`).
 ## Rulings — 2026-08-25 (check-in + adversarial review, all owner-ratified)
 
 Contracts are read subject to these; where a contract still says PROPOSED on a listed
-item, this section is the newer law.
+item, this section is newer than the contracts, and like them open to discussion
+(constitution line 13).
 
 1. `associate/` stays a module; observer is a mode (`docs/observer-mode.md`); `encode/`
    stays separate; `dashboard/` added as an adapter (constitution line 16, ratified).
@@ -122,7 +123,7 @@ marked **PROPOSED** and waits for the owner's check-in.
 prose box is gone and the memory IS the row. That is the same owner, revising his own
 default — "going forward by 'readable' we mean if someone can view them" (2026-09-16),
 and `docs/storage-spec-2026-09-16.md` §15 item 9, "everything lives in the database for
-now; markdown is an export". The other seven entries above are untouched.*
+now; markdown is an export". The other seven entries above were untouched by that change.*
 
 *Everything here guides the work; it doesn't limit it. Anything here, RESOLVED items
 included, can be raised for discussion at any time and revised when there's a better way

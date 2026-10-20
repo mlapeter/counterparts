@@ -224,7 +224,7 @@ model-addressed) · **§2.8** (the near-collision similarity bar is measured, no
 declarable field carries an admission test and a named negative example) · **§2.17** (write
 paths ship, curation paths starve — every entity kind names its exit) · **§2.19**
 (permanence and write bar scale together — the live question behind the protected-queue
-PROPOSED drop).
+drop, **decided, for now** (owner, 2026-10-20; settled by module-map Rulings 3 of 2026-08-25)).
 
 ## 7. Open questions
 
