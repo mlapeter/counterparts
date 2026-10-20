@@ -16,7 +16,7 @@ import {
   REMINDER_SPENT_BY_META,
 } from "./reconsolidation.js";
 import type { SlotOutcome, HeldUpdate } from "./reconsolidation.js";
-import { isDay } from "./time.js";
+import { isDay, occurrenceOnOrAfter } from "./time.js";
 import type { Recurrence } from "./time.js";
 import { markWakeBehind } from "./self/index.js";
 import { ownerNames } from "./sleep/index.js";
@@ -33,6 +33,7 @@ import type {
   ThreadRefusal,
   ReminderCarryPlan,
   DepositReminder,
+  DepositOccurrence,
 } from "./counterpart-types.js";
 import { GATE_DEPOSIT_EVENT, gateDepositRecord } from "./counterpart-events.js";
 import type { Counterpart } from "./counterpart.js";
@@ -253,7 +254,14 @@ export async function deposit(
   // "Still open", which is what the refusal says. It used to be refused and
   // settled at once, and the wake dropped what the deposit said was open.
   const keepOpen = thread?.refused === "confidential" || thread?.refused === "other-directory";
-  const revision = cp["applyDeclaredRevision"](keepOpen ? withoutHow(proposal) : proposal, mint, source, ctx.session);
+  // DONE FOR THIS TIME (2026-10-20): the occurrence open today is closed, and
+  // the declared revision does NOT run — the link `mint` wrote is the whole
+  // effect. A `changed` settle would fade the reminder ×0.5 under a memory
+  // that only says one week was done, and a core reminder would take
+  // pressure or leave the core (`revision.ts#fulfil`); one week done must
+  // not cost it its standing.
+  const occurrence = carry.occurrence === undefined ? null : closeOccurrenceFor(cp, carry.occurrence, mint.id);
+  const revision = occurrence !== null ? null : cp["applyDeclaredRevision"](keepOpen ? withoutHow(proposal) : proposal, mint, source, ctx.session);
   // THE MEMORY THE REMINDER LEFT STEPS BACK (2026-10-11, Group 2b; review 07
   // §4.3): after the declared revision, so the writer's own settle (its
   // `how`, its words) comes first; a row of its own only when the two are not
@@ -287,6 +295,7 @@ export async function deposit(
     gate: null,
     covers: proposal.covers,
     ...(reminder === null ? {} : { reminder }),
+    ...(occurrence === null ? {} : { occurrence }),
     ...(revision === null ? {} : { revision }),
     ...(held === null ? {} : { held }),
     ...(thread === null ? {} : { thread }),
@@ -431,6 +440,9 @@ export function closesOrRedates(cp: Counterpart, p: Proposal, target: string, ro
   const intent = p.dateIntent;
   if (intent !== undefined && (intent.eventDate !== "absent" || intent.remind !== null) && cp["reminderHolder"](target) !== null) return true;
   const now = sent?.status ?? null;
+  // A `done` at a memory holding a date (2026-10-20): "backup ran" closes
+  // "back up every Tuesday", and need share few words with it to.
+  if (now === "done" && cp["reminderHolder"](target) !== null) return true;
   const was = statusOf(row.status ?? null);
   return now !== null && was !== null && now !== was;
 }
@@ -643,6 +655,21 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
   // dated thing is done, and sends no date, does not inherit one to fire on
   // a plan already carried out — the rule the one door keeps for a settle.
   const spent = intent.eventDate === "absent" && sentStatus === "done";
+  // DONE FOR THIS TIME (2026-10-20, Mike's go, an experiment, lightly held):
+  // a `done` at a REPEATING reminder, with no date and no `recurring: null`
+  // sent, is this occurrence done — the backup ran this Tuesday — not the
+  // repeat ended. Nothing is carried or moved: the new memory is undated, the
+  // reminder keeps its date, its repeat and its standing, and the deposit
+  // closes the occurrence open today (`Prospective#closeOccurrence`). Ending
+  // the repeat is still `eventDate: null` (or `recurring: null`).
+  if (spent && priorRule !== null && intent.recurring !== "cleared") {
+    return {
+      proposal: { ...p, eventDate: null, remind: null, recurring: null },
+      from: null,
+      inherited: [],
+      occurrence: { holder: from, recurring: priorRule },
+    };
+  }
   const eventDate =
     intent.eventDate === "set" ? p.eventDate : intent.eventDate === "cleared" || spent ? null : priorDate;
   const remind = eventDate === null ? null : intent.remind ?? priorMode;
@@ -663,6 +690,43 @@ export function carryReminder(cp: Counterpart, p: Proposal, sentStatus: MemorySt
     inherited,
     ...(wanted !== null && recurring === null ? { recurringDropped: true } : {}),
   };
+}
+
+/**
+ * DONE FOR THIS TIME (2026-10-20, Mike's go, an experiment, lightly held):
+ * close the occurrence of a repeating reminder open today
+ * (`Prospective#closeOccurrence`), marked as done by `by`, the memory that
+ * says so. The reminder memory is not touched: its date, its repeat, its
+ * strength and its place stay. When the occurrence had reached nobody yet —
+ * no quiet fire, no plain line — the close counts as its delivery, one
+ * `surfaced` use (`Counterpart#creditOccurrence`), so a week marked done
+ * before it was said keeps the reminder alive as a week that was said does.
+ * Never throws: a lost close costs one more mention, never the write.
+ */
+export function closeOccurrenceFor(cp: Counterpart, occ: { holder: string; recurring: Recurrence }, by: string): DepositOccurrence {
+  const at = cp.store.today();
+  const day = cp.store.livedDay();
+  let closed: string | null = null;
+  let already = false;
+  let next: string | null = null;
+  try {
+    const open = cp.prospective.openOccurrence(occ.holder, at);
+    const undelivered = open !== null && !open.closed && cp.prospective.occurrenceUndelivered(occ.holder, open.windowKey);
+    const out = cp.prospective.closeOccurrence(occ.holder, at, { by, day });
+    if (out !== null) {
+      closed = out.occurrence;
+      already = !out.closedNow;
+      next = out.next;
+      if (out.closedNow && undelivered) cp["creditOccurrence"](occ.holder, out.windowKey, day, "done");
+    } else {
+      const anchor = cp.store.row(occ.holder)?.event_date ?? null;
+      next = anchor === null ? null : (occurrenceOnOrAfter(anchor, occ.recurring, at)?.date ?? null);
+    }
+  } catch (err) {
+    cp["emit"]("counterpart.reminder.occurrence.failed", occ.holder, { by, error: errCode(err) });
+  }
+  cp["emit"]("counterpart.reminder.occurrence", occ.holder, { by, closed, already, next });
+  return { reminder: occ.holder, recurring: occ.recurring, closed, ...(already ? { already: true } : {}), next };
 }
 
 /**

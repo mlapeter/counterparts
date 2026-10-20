@@ -187,6 +187,7 @@ import {
   RECALL_MODE_WORDS,
   DESKTOP_DREAM_NOTE,
   STILL_DATED_HINT,
+  ANSWERS_HINT,
   STILL_DATED_SHOWN,
   TITLE_ASKED_NOTE,
 } from "./server-words.js";
@@ -1697,6 +1698,7 @@ export class McpServer {
       ...(neighbours.length === 0 ? {} : { neighbours, neighboursHint: NEIGHBOURS_HINT }),
       ...this.slotOf(deposit),
       ...this.stillDatedNear(deposit, dated, facts.sent.status, [], session),
+      ...this.answersReminder(deposit, facts.sent, neighbours),
       ...(settle === null ? {} : { settle }),
       ...(feltNow === null ? {} : { feelingsNow: feltNow }),
       // AN ERROR ONLY WHEN NOTHING LANDED (review of #316): a refused note
@@ -1999,6 +2001,30 @@ export class McpServer {
   }
 
   /**
+   * A WRITE THAT LOOKS LIKE IT ANSWERS A REMINDER DUE NOW (2026-10-20, an
+   * experiment, lightly held). "The backup ran" written as a fresh memory —
+   * no `updates` — leaves the weekly reminder open, and it comes back the
+   * same day. So when a write says something was `done`, or that the owner
+   * said it, and one of its listed neighbours (already shown, close by the
+   * neighbours' own bars) is a dated memory whose occurrence is due today or
+   * overdue inside its window and not yet closed, it is named with the way to
+   * close it. Never closed here: a close neighbour can be another thing.
+   */
+  private answersReminder(deposit: DepositResult, sent: { readonly status?: unknown; readonly saidBy?: unknown }, neighbours: readonly Neighbour[]): Record<string, unknown> {
+    if (!deposit.deposited || deposit.memoryId === null || neighbours.length === 0) return {};
+    if ((deposit.proposal?.updates?.declared ?? null) !== null) return {};
+    if (sent.status !== "done" && sent.saidBy !== "owner") return {};
+    const today = this.today();
+    const out: { id: string; title: string | null; due: string; recurring?: string }[] = [];
+    for (const n of neighbours) {
+      const open = this.counterpart.prospective.openOccurrence(n.id, today);
+      if (open === null || open.closed || today < open.firstDay) continue;
+      out.push({ id: n.id, title: n.title, due: open.occurrence, ...(open.recurring === null ? {} : { recurring: open.recurring }) });
+    }
+    return out.length === 0 ? {} : { answers: out, answersHint: ANSWERS_HINT };
+  }
+
+  /**
    * OTHER OPEN DATED MEMORIES NEAR A CLOSE (2026-10-14, Group 1 check-in,
    * lightly held). One obligation was found on several memories — a plain
    * reminder, a moved chain, a list — and a "done" that `updates` one left the
@@ -2006,10 +2032,12 @@ export class McpServer {
    * with `eventDate: null` or `status: done`), the nearest memories of the
    * new one and of the one it closed that still hold a date are LISTED, by id
    * and title, so the writer can close them in the same step. Never closed
-   * here: a nearby date can be another obligation. Empty when none.
+   * here: a nearby date can be another obligation. Empty when none. Not
+   * beside a `done` that closed one occurrence of a repeat (2026-10-20): the
+   * reminder stays, so there is no obligation ended to look for copies of.
    */
   private stillDatedNear(deposit: DepositResult, dated: ReminderRead, sentStatus: unknown, siblings: readonly string[], session: string | null): Record<string, unknown> {
-    if (!deposit.deposited || deposit.memoryId === null) return {};
+    if (!deposit.deposited || deposit.memoryId === null || deposit.occurrence !== undefined) return {};
     const closed = deposit.reminder !== undefined && deposit.reminder.eventDate === null;
     const declared = (deposit.proposal?.updates?.declared ?? null) !== null;
     const meant = declared && (("fields" in dated && dated.fields.eventDate === null) || sentStatus === "done");

@@ -105,6 +105,13 @@ export interface DrewOnResult {
    * pending file; the boundary's worker lands them. 0 when fewer than two.
    */
   readonly linked: number;
+  /**
+   * Named memories replaced by THIS session (F6b, 2026-10-20, lightly held):
+   * superseded, or faded under a newer one, by a memory this session wrote or
+   * one born today (`by`). Not refused: each went on to be credited like any
+   * other (and may still be refused for its day cadence). Absent when none.
+   */
+  readonly replacedHere?: { id: string; by: string }[];
 }
 
 /** What one boundary's temporal contiguity pass did. Counts only. */
@@ -553,6 +560,14 @@ export interface DepositResult {
    */
   readonly reminder?: DepositReminder;
   /**
+   * DONE FOR THIS TIME (2026-10-20, an experiment): a `status: done` at a
+   * REPEATING reminder's id, with no date sent, closed the occurrence open
+   * today and left the reminder as it was — its date, its repeat, its
+   * standing (`counterpart-deposit.ts#carryReminder`). `closed` is null when
+   * no occurrence was open today, so nothing was closed.
+   */
+  readonly occurrence?: DepositOccurrence;
+  /**
    * What the declared `updates:` did (2026-09-29): which arm of the revision
    * dispatch ran, and — on the ordinary-memory arm — how the old memory was
    * settled, or why it was not. Absent when nothing was declared.
@@ -642,6 +657,19 @@ export interface DepositReminder {
   readonly chainSkipped?: readonly string[];
 }
 
+/** What a `done` at a repeating reminder closed (`DepositResult.occurrence`, 2026-10-20). */
+export interface DepositOccurrence {
+  /** The memory holding the repeating reminder; it keeps its date and its repeat. */
+  readonly reminder: string;
+  readonly recurring: Recurrence;
+  /** The occurrence closed (its date), or null when none was open today. */
+  readonly closed: string | null;
+  /** True when it had been closed already (named in `drewOn`, or done earlier). */
+  readonly already?: boolean;
+  /** The next occurrence after the one closed (or after today), which comes back as normal. */
+  readonly next: string | null;
+}
+
 /** `carryReminder`'s answer: the proposal to mint, and what it took from where. */
 export interface ReminderCarryPlan {
   readonly proposal: Proposal;
@@ -649,6 +677,12 @@ export interface ReminderCarryPlan {
   readonly from: string | null;
   readonly inherited: readonly ("eventDate" | "remind" | "recurring")[];
   readonly recurringDropped?: boolean;
+  /**
+   * A `done` at a REPEATING reminder (2026-10-20): the memory holding it,
+   * whose open occurrence the deposit closes. `from` is null then: nothing is
+   * carried or moved, and the new memory is undated.
+   */
+  readonly occurrence?: { readonly holder: string; readonly recurring: Recurrence };
 }
 
 export interface SweepEntry {

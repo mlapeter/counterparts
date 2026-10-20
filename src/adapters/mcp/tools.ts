@@ -422,7 +422,7 @@ const TRAITS_PROPERTY = {
 const EVENT_DATE_PROPERTY = {
   type: ["string", "null"],
   description:
-    'Optional: the calendar date this memory is ABOUT, when that is a future date — so it comes back around then (when it already happened, that is occurredOn). Decision, kill/renew dates and outside deadlines are eventDates. Write it yourself, in one of four shapes: a day "2026-10-15", a month "2026-10", a range of two days "2026-10-20..2026-10-31" (that is how to say "late October"), or a year "2026" (a year alone never comes back on its own). Say "before the 15th" as the day or a range ending on it. Leave it out when nothing is dated; a date written only in the text is never read. An unreadable date is refused, and nothing is stored. Revising a dated memory by its id with `updates`: its date, remind and recurring carry over unless you send new ones; send null to drop the date (done, cancelled).',
+    'Optional: the calendar date this memory is ABOUT, when that is a future date — so it comes back around then (when it already happened, that is occurredOn). Decision, kill/renew dates and outside deadlines are eventDates. Write it yourself, in one of four shapes: a day "2026-10-15", a month "2026-10", a range of two days "2026-10-20..2026-10-31" (that is how to say "late October"), or a year "2026" (a year alone never comes back on its own). Say "before the 15th" as the day or a range ending on it. Leave it out when nothing is dated; a date written only in the text is never read. An unreadable date is refused, and nothing is stored. Revising a dated memory by its id with `updates`: its date, remind and recurring carry over unless you send new ones; send null to drop the date (done, cancelled). A repeating one done just this time: send `status: "done"` and leave eventDate out — only this occurrence closes.',
 } as const;
 
 /**
@@ -434,7 +434,7 @@ const RECURRING_PROPERTY = {
   type: ["string", "null"],
   enum: [...RECURRENCES, null],
   description:
-    'Optional, with a day eventDate: "daily", "weekly", "monthly" or "yearly" — it then comes back every time, counted from that day (a birthday: its date, "yearly"); null on a revision stops it repeating.',
+    'Optional, with a day eventDate: "daily", "weekly", "monthly" or "yearly" — it then comes back every time, counted from that day (a birthday: its date, "yearly"); null on a revision stops it repeating (one time done: status "done").',
 } as const;
 
 /**
@@ -460,7 +460,7 @@ const STATUS_PROPERTY = {
   type: "string",
   enum: ["done", "planned", "proposed", "asked"],
   description:
-    'Optional: what kind of thing it is — "done" (it happened), "planned" (decided, not done yet), "proposed" (put forward, not decided), "asked" (a question or request still open).',
+    'Optional: what kind of thing it is — "done" (it happened; with `updates` at a repeating reminder, this occurrence is done and the repeat stays), "planned" (decided, not done yet), "proposed" (put forward, not decided), "asked" (a question or request still open).',
 } as const;
 
 /** The privilege `remember` and `session_end` share for the three fields (v12). */
@@ -706,7 +706,7 @@ const REMEMBER: ToolSpec = {
       updates: {
         type: "string",
         description:
-          "The id or handle of a memory this revises, if it revises one. A field — never written into the text. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`.",
+          "The id or handle of a memory this revises, if it revises one. A field — never written into the text. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`. A REPEATING reminder done this time (the weekly backup ran): its id with `status: done` and no eventDate closes this occurrence only, and it comes back on its next date; `eventDate: null` ends the repeat.",
       },
       how: HOW_PROPERTY,
       settle: SETTLE_PROPERTY,
@@ -1172,7 +1172,7 @@ const SESSION_END: ToolSpec = {
             updates: {
               type: "string",
               description:
-                "The id or handle of a memory this revises, if it revises one. A field — never written into `content`. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`.",
+                "The id or handle of a memory this revises, if it revises one. A field — never written into `content`. To close a dated or open memory whose work got done: its id, with `eventDate: null` or `unresolved: false`. A REPEATING reminder done this time (the weekly backup ran): its id with `status: done` and no eventDate closes this occurrence only, and it comes back on its next date; `eventDate: null` ends the repeat.",
             },
             how: HOW_PROPERTY,
             eventDate: EVENT_DATE_PROPERTY,

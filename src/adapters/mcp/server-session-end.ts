@@ -351,6 +351,7 @@ export async function depositEntries(
       ...(neighbours.length === 0 ? {} : { neighbours }),
       ...server["slotOf"](result),
       ...server["stillDatedNear"](result, dated, facts.sent.status, batch, session),
+      ...server["answersReminder"](result, facts.sent, neighbours),
     });
   }
   return { outcomes, deposited, duplicates, entries };
@@ -466,6 +467,8 @@ export function drewOnField(server: McpServer, raw: unknown, via: "session_end" 
     ...(out.actedOn.length === 0
       ? {}
       : { actedOn: out.actedOn, actedOnNote: "Dated memories you acted on: they will not come back as footnotes around this date again." }),
+    // F6b (2026-10-20): replaced by this session, so counted all the same.
+    ...(out.replacedHere === undefined ? {} : { replacedHere: out.replacedHere }),
   };
 }
 

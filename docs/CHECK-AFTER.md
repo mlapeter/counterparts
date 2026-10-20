@@ -28,6 +28,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | 0.3.27, 10-19 (#528) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Meaning computed in line whenever no fresh cue is ready (#521) | 0.3.27, 10-19 | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
+| A weekly reminder done for this week (`status: "done"` at its id closes this occurrence only; F6b: drewOn credits a memory this session replaced) | not released, 10-20 | ~10-27, the next Tuesday | "Due ~2026-10-27" below; `docs/decisions.d/feat-reminder-done-this-week.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -181,6 +182,26 @@ On the owner's session-start wakes in ~/counterparts and ~/random (read-only).
 - **Look at:** the Yesterday line in ~/random: `…; and 2 sessions in ~/counterparts`.
 - **Changes a decision if:** a folder Mike keeps apart shows up there → the gate is not the
   one the "Today, elsewhere" line uses, and it is a bug.
+
+## Due ~2026-10-27, the next Tuesday (a weekly reminder done for this week, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-reminder-done-this-week.md)
+
+### The backup reminder closes for the week, and comes back
+- **Trying:** a memory that `updates` a repeating reminder with `status: "done"` closes only the
+  occurrence open that day; the reminder keeps its date, repeat and standing.
+- **Look at:** after Mike says the backup is done on a Tuesday, the write's answer (`reminder.
+  occurrenceClosed: true`, `next`), then a new session the same day: no plain line, no
+  "Arriving:" line, no footnote for the backup reminder. On 10-27 it is said again. In the store:
+  the reminder's firing row for that `d:<date>` window in state `suppressed`, the
+  reminder row's `event_date` and `meta.recurring` unchanged, its `fade` unchanged, no
+  contradictions pair over it.
+- **Also look at:** whether sessions write the done memory with `updates` (or follow the
+  `answers` hint when they don't), and whether a `drewOn` naming a memory the session itself
+  corrected comes back credited with `replacedHere` instead of `faded-under-newer`.
+- **Changes a decision if:** the reminder still comes back the same day after a done (a path that
+  doesn't read the window state), it does NOT come back the next Tuesday, it closes the wrong
+  week (a done said Saturday closes the coming Tuesday's), or the reminder fades or leaves the
+  core after a done.
+- **Revert:** revert the PR; a done at a repeat then ends the repeat again.
 
 ## Due at the first live catch-up (the nightly run's or `counterparts catch-up`)
 

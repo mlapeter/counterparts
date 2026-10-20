@@ -593,3 +593,57 @@ Review 07 C3–C5, item 18 of the mechanisms work; the group-5 builder, lightly 
   `skipped: true`); a cleared one is marked `reminderSpentBy` the closing memory. Undoing
   the write's settle puts back only the holder's date, not the chain's: the settle records
   one reminder, and carrying the chain in it is left for later.
+
+## 21. Done for this time: one occurrence of a repeat closes, the repeat stays (2026-10-20)
+
+Mike's go 2026-10-20, an experiment, lightly held. Found by the ~/random session from the
+code: Mike's weekly reminder (every Tuesday, back up the store) came back at 09:15 after he
+ran the backup at 08:40 and the session wrote a "backup ran" memory. The only thing that
+closed one occurrence was naming the reminder's id in `drewOn` (§20's referenced-stop), and a
+plain one not even then, before its line was told. The documented close — `updates` with
+`eventDate: null`, or a `done` that spent the date (§20's chain close) — ended the whole
+repeat. Any weekly reminder hits this.
+
+- **`updates` at a repeating reminder with `status: done`, no `eventDate` and no
+  `recurring: null` closes the occurrence open today** (`counterpart-deposit.ts
+  #carryReminder` → `#closeOccurrenceFor` → `Prospective#closeOccurrence`). Nothing is
+  carried or moved; the new memory is undated. The window is referenced with `why: done`,
+  so the cue path and the wake's lane drop it as they drop a `drewOn` stop, and `plainDue`
+  skips a referenced window — the one change here to the plain lane, and it changes nothing
+  else, since `actedOn` references a plain window only after its last beat is told. The
+  next occurrence is its own key, untouched. One open window at a time
+  (`recurringWindowAt`) means "today's" is unambiguous; for a weekly date said done in the
+  last three days before the next one, that is the NEXT occurrence's (its lead wins over the
+  last one's grace) — the answer names the date it closed. No window open (a monthly date
+  mid-month): nothing closed, said so, the reminder unchanged.
+- **The reminder keeps its standing.** The declared revision does not run for this write:
+  the link `mint` wrote is the whole effect. A `changed` settle would fade the reminder ×0.5
+  under a memory that says one week was done, and a core reminder would take pressure or
+  leave the core (`revision.ts#fulfil`). When the occurrence had reached nobody yet, the
+  close counts as its delivery — one `surfaced` use (`creditOccurrence`, `via: done`) — so a
+  week marked done before it was said keeps the reminder as alive as a week that was said
+  (§16).
+- **The update guard lets it through** (`closesOrRedates`): a `done` at a memory holding a
+  date is a close, and "backup ran" needs few words in common with "back up every Tuesday".
+  This applies to a one-off date too.
+- **Unchanged:** a one-off dated memory with `status: done` is spent as before (date
+  dropped, chain closed, settled `changed` under the done memory) — for a one-off, this
+  time IS the whole obligation. `eventDate: null` ends a repeat; so does `status: done`
+  with `recurring: null` (the author said stop).
+- **The answer says it plainly** (`server-args.ts#occurrenceEcho`): `occurrenceClosed`,
+  the date closed, `next`, and a note ("Closed this occurrence only (Tue 20 Oct 2026) … It
+  comes back Tue 27 Oct 2026. To end the repeat instead: updates its id with eventDate:
+  null."). `stillDated` is not listed beside it: no obligation ended.
+- **A write that looks like it answers a reminder due now is told how to close it**
+  (`McpServer#answersReminder`, `answers` + `answersHint`, on `remember` and each
+  `session_end` entry): a write with no `updates`, `status: done` or `saidBy: owner`, whose
+  listed neighbours include a dated memory with an occurrence open, due (on or past its
+  first day — not in its lead days) and not closed. Offered, never closed.
+- **F6b, beside it in `creditDrewOn`:** a named memory superseded or faded under a newer
+  one is credited, not refused, when the memory now standing for it (`headOf`) was written by
+  this session or born this lived day (`replacedHere` in the result). The old one, not the
+  head: the head was born today and physics never credits a birth day. The settle stands.
+  Archived (a `corrected` settle archives) is still refused, and `rateShown`'s credit keeps
+  the old refusal; both left as they were.
+- Check ~10-27 (CHECK-AFTER): the backup reminder closes for the week when Mike says it is
+  done, and returns on 10-27.
