@@ -125,10 +125,12 @@ bun tools/plugin-bundle/build.ts --flavor sidebar <clone of counterparts-sidebar
 - Create `counterparts-ai/counterparts-sidebar` **empty** (no README, no licence): the
   build refuses a folder that holds anything but a previous bundle and `.git`.
 - The build refuses any flavor but `directory` in a checkout on the `directory` branch,
-  and the directory flavor anywhere else. The guard reads the branch the checkout is on,
-  so check out the `directory` branch itself (`git switch directory`), never a detached
-  commit: a detached HEAD names no branch and skips it. The directory flavor is only ever
-  built on a branch named exactly `directory`. The directory branch stays as it is until
+  and the directory flavor in a checkout on any other branch. The guard reads the branch
+  the checkout is on, so check out the `directory` branch itself (`git switch directory`),
+  never a detached commit: a detached HEAD names no branch and skips it, as does a plain
+  folder with no git (which `tools/plugin-loop/run.sh --bundle=directory` relies on). The
+  directory flavor is only ever written into a checkout on the branch named exactly
+  `directory`. The directory branch stays as it is until
   the directory steps say otherwise.
 - The directory flavor master builds already differs from the held directory submission
   (v0.3.23, under review), and #547 adds to that: `commands/uninstall.md`,
