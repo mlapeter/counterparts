@@ -422,8 +422,8 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
     }, r["created_at"]);
   }
 
-  // USES. Pinned awake returns first on their day when asked, so a derived
-  // credit the same day lands as the same day's (physics refuses a second).
+  // USES. With `recorded`, the recorded awake returns are pinned as cued uses
+  // (ordered among the day's other acts by their own instants, below).
   if (returnsMode === "recorded") {
     const marks = AWAKE_RETURN_SOURCES.map(() => "?").join(",");
     for (const r of db.query(`SELECT memory_id, day, source, session, at FROM returns WHERE source IN (${marks}) ORDER BY at`).all(...AWAKE_RETURN_SOURCES) as Row[]) {
@@ -506,19 +506,35 @@ function read(db: Database, returnsMode: "derived" | "recorded"): Extracted {
   const lastDay = Math.max(livedDay, ...acts.keys());
   const days: RecordedDay[] = [];
   const learnedOn = db.query("SELECT MIN(learned_on) AS d FROM memories WHERE birth_day = ? AND learned_on <> ''");
-  let prevDate = "";
+  // THE DATES. The replay's clock moves one lived day per NEW date (after the
+  // first boundary, which always moves it), so after day 1 every day needs a
+  // date strictly later than the day before, and a day whose sleep-cycle row
+  // is gone (pruned past retention, or an append that failed) must fit
+  // strictly between its dated neighbours: dated by what was learned on it,
+  // else as the day after the one before, and refused when there is no room
+  // rather than silently landing on a neighbour's date.
+  const dayDates: string[] = [];
   for (let d = 0; d <= lastDay; d++) {
-    // A day whose sleep cycle row is gone (pruned past retention, or an
-    // append that failed) is dated by what was learned on it, else as the day
-    // after the one before: lived days only need to be in order.
+    const prev = d === 0 ? "" : dayDates[d - 1]!;
     let date = dateOf.get(d);
     if (date === undefined) {
       daysDatedByFallback += 1;
+      let n = d + 1;
+      while (n <= lastDay && !dateOf.has(n)) n += 1;
+      const next = dateOf.get(n);
+      // Day 1 may share day 0's date (the first boundary always moves the clock).
+      const fits = (x: string): boolean => (d === 1 ? x >= prev : x > prev) && (next === undefined || x < next);
       const learned = str((learnedOn.get(d) as Row | null)?.["d"]);
-      date = learned !== null && learned > prevDate ? learned : nextDate(prevDate === "" ? created : prevDate);
+      date = learned !== null && fits(learned) ? learned : nextDate(prev === "" ? created : prev);
+      if (!fits(date)) throw new SourceError("SOURCE_DAYS_UNDATABLE", `lived day ${String(d)} has no sleep cycle and no free date between ${prev} and ${String(next)}`);
     }
-    if (prevDate !== "" && date < prevDate) throw new SourceError("SOURCE_DAYS_OUT_OF_ORDER", `lived day ${String(d)} is dated ${date}, before ${prevDate}`);
-    prevDate = date;
+    if (d >= 2 ? date <= prev : date < prev) {
+      throw new SourceError("SOURCE_DAYS_OUT_OF_ORDER", `lived day ${String(d)} is dated ${date}, not after day ${String(d - 1)}'s ${prev}`);
+    }
+    dayDates.push(date);
+  }
+  for (let d = 0; d <= lastDay; d++) {
+    const date = dayDates[d]!;
     // By recorded instant; an act never before its memory's birth (a clamped
     // instant ties, and the kind order puts the birth first); the kind order
     // also settles acts the record gave no instant.

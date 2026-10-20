@@ -96,10 +96,9 @@ export interface RunRecord {
   readonly ranAt: string;
   readonly elapsedMs: number;
   readonly source: { readonly schemaVersion: number; readonly livedDay: number; readonly eventsFrom: number; readonly memories: number; readonly chapterCopiesSkipped: number };
-  readonly mode: { readonly returns: "derived" | "recorded"; readonly throughDay: number; readonly budgetBytes: number };
+  readonly mode: { readonly returns: "derived" | "recorded"; readonly throughDay: number; readonly earlyDays: number; readonly budgetBytes: number };
   readonly gaps: Extracted["gaps"] & {
     readonly refused: Readonly<Record<string, number>>;
-    readonly clockMismatches: number;
   };
   readonly days: readonly DayLine[];
   readonly early: readonly EarlyPromotion[];
@@ -191,7 +190,6 @@ async function replayInto(
     const key = `${what}:${typeof code === "string" ? code : err instanceof Error ? err.name : "unknown"}`;
     refused[key] = (refused[key] ?? 0) + 1;
   };
-  let clockMismatches = 0;
   const days: DayLine[] = [];
   const birthRank = new Map<string, number>();
   const birthDay = new Map<string, number>();
@@ -209,7 +207,11 @@ async function replayInto(
         promoted = report.cycle.promoted.length;
         for (const p of report.cycle.phases) if (p.budgetExhausted) budgetExhausted.push(p.phase);
       }
-      if (c.store.livedDay() !== rec.day) clockMismatches += 1;
+      // A replay whose clock has slipped would land every later act a day off:
+      // stopped, never counted and carried on.
+      if (c.store.livedDay() !== rec.day) {
+        throw new ReplayError("CLOCK_MISMATCH", `lived day ${String(rec.day)} (${rec.date}) replayed as day ${String(c.store.livedDay())}`);
+      }
       const tally = { births: 0, usesFed: 0, credited: 0, returns: 0, nightFed: 0, nightCounted: 0, settlesFed: 0, settlesOk: 0 };
       for (const act of rec.acts) apply(c, act, rec.day, tally, refuse, birthRank, birthDay);
       days.push({
@@ -251,8 +253,8 @@ async function replayInto(
       memories: src.memoriesReplayed,
       chapterCopiesSkipped: src.chapterCopiesSkipped,
     },
-    mode: { returns: opts.returns ?? "derived", throughDay: through, budgetBytes },
-    gaps: { ...src.gaps, refused, clockMismatches },
+    mode: { returns: opts.returns ?? "derived", throughDay: through, earlyDays: (src.days[0]?.day ?? 0) + (opts.earlyDays ?? 10), budgetBytes },
+    gaps: { ...src.gaps, refused },
     days,
     early,
     fidelity,

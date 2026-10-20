@@ -23,7 +23,7 @@ export function render(r: RunRecord): string {
   out.push(`physics-only replay · source v${String(s.schemaVersion)}, day ${String(s.livedDay)}, ${String(s.memories)} memories (${String(s.chapterCopiesSkipped)} chapter copies left out) · returns ${r.mode.returns} · through day ${String(r.mode.throughDay)} · ${(r.elapsedMs / 1000).toFixed(1)}s`);
   if (s.eventsFrom > 0) out.push(`  ! the source's event log starts at day ${String(s.eventsFrom)}: uses before it are not in the record`);
   const g = r.gaps;
-  out.push(`gaps: credit ids cut ${String(g.creditIdsCut)} · acts on unknown ids ${String(g.actsOnUnknownIds)} · uses before birth ${String(g.usesBeforeBirth)} · bodies from current row ${String(g.bodiesFromCurrentRow)} · merges undated ${String(g.mergesUndated)} · days dated by fallback ${String(g.daysDatedByFallback)} · clock mismatches ${String(g.clockMismatches)}`);
+  out.push(`gaps: credit ids cut ${String(g.creditIdsCut)} · acts on unknown ids ${String(g.actsOnUnknownIds)} · uses before birth ${String(g.usesBeforeBirth)} · bodies from current row ${String(g.bodiesFromCurrentRow)} · merges undated ${String(g.mergesUndated)} · days dated by fallback ${String(g.daysDatedByFallback)}`);
   const refused = Object.entries(g.refused);
   if (refused.length > 0) out.push(`refused: ${refused.map(([k, n]) => `${k} ${String(n)}`).join(" · ")}`);
   out.push("");
@@ -44,7 +44,7 @@ export function render(r: RunRecord): string {
     );
   }
   out.push("");
-  out.push(`early core (the first ${String(r.early.length)} promotions in the window):`);
+  out.push(`early core (every promotion through day ${String(r.mode.earlyDays)}: ${String(r.early.length)}):`);
   out.push("id                 day  lane  born  rank  returns/days/sessions  pool  recorded  behind it");
   for (const e of r.early) {
     out.push(

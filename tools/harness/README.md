@@ -71,7 +71,10 @@ and the band census.
 - Merges as they were before 10-11: the original's returns and mark go to the merged memory,
   and the original is archived. A merge since then is a settle, and it replays as one.
 - A lived day whose sleep-cycle row is gone gets a date from what was learned on it, or else
-  the day after the previous day. The record counts these days.
+  the day after the previous day, but only if that date falls strictly between its dated
+  neighbours. If no date fits, the source is refused rather than shifted. The record counts
+  the days dated this way. If the replay's clock ever differs from the record's lived day,
+  the run stops.
 
 ## Safety
 

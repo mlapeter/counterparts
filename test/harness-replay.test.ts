@@ -128,7 +128,6 @@ test("the record reads as lived days of acts, the gaps counted", () => {
 
 test("the replay lands every act on its day, and the record carries no memory text", async () => {
   const r = await runPhysicsReplay({ source, workRoot: work, env });
-  expect(r.gaps.clockMismatches).toBe(0);
   expect(r.days.map((d) => d.births)).toEqual([2, 1, 1, 0, 0]);
   expect(r.days[2]!.uses.credited).toBe(2);
   expect(r.days[2]!.settles).toEqual({ fed: 1, ok: 1 });
@@ -199,6 +198,21 @@ test("a day whose sleep-cycle row was pruned is dated from its neighbours, and c
   const dates = x.days.map((d) => d.date);
   expect([...dates].sort()).toEqual(dates);
   expect(new Set(dates).size).toBe(dates.length);
+});
+
+test("an undated day with no free date between its neighbours is refused, not shifted", async () => {
+  // Day 2's row is gone and day 3 is dated the day after day 1: there is no
+  // date left between them, and "the day after day 1" would be day 3's own.
+  const copy = join(root, "crowded.sqlite");
+  copyFileSync(source, copy);
+  const db = new Database(copy);
+  db.run("DELETE FROM events WHERE name = 'sleep.cycle' AND day = 2");
+  db.run("UPDATE events SET payload = json_set(payload, '$.date', ?) WHERE name = 'sleep.cycle' AND day = 3", [DATES[2]!]);
+  db.run("UPDATE memories SET learned_on = ? WHERE birth_day = 2", [DATES[1]!]);
+  db.close();
+  expect(() => extract(copy, { env })).toThrow(/SOURCE_DAYS_UNDATABLE/);
+  await expect(runPhysicsReplay({ source: copy, workRoot: work, env })).rejects.toThrow(/SOURCE_DAYS_UNDATABLE/);
+  expect(readdirSync(work)).toEqual([]);
 });
 
 test("a day's acts replay in the order the record gave them", () => {
