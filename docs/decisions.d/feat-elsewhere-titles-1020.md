@@ -12,11 +12,13 @@ differently.
   check 10-20 from ~/random" (mem_…), "Spans out of backups" (mem_…)`. A title is cut to 48
   bytes (`ELSEWHERE_TITLE_BYTES`); the id is whole, so recall can expand it. A memory with no
   title is named by its first words.
-- **Which ones, and why.** Work in progress first: a memory with a status mark (planned,
-  proposed, asked, or done, which within today's window means done today), then a work
-  memory by the wake's own rule (`self/work.ts#isWorkMemory`: marked `work`, or unmarked and
-  a skill, or a fact, entity or place written in a directory), newest first within each.
-  Nothing else: no chit-chat (`world`, unmarked person or self). Newest, not highest
+- **Which ones, and why.** Work only, by the wake's own rule (`self/work.ts#isWorkMemory`:
+  marked `work`, or unmarked and a skill, or a fact, entity or place written in a
+  directory), work in progress first: one with a status mark (planned, proposed, asked, or
+  done, which within today's window means done today), then the rest, newest first within
+  each. Nothing else: no chit-chat (`world`, unmarked person or self, an unmarked fact from
+  Desktop chat), with a status mark or without (review of #543: the mark alone let them
+  through). Newest, not highest
   salience: what stops two sessions doing the same thing is what the other one is doing
   now, and a status mark is the writer's own word that something is work in progress.
   Salience would need the physics read, which neither line makes (both are reads only, no
@@ -27,8 +29,12 @@ differently.
   confidential memory (not even to the owner, who still sees it counted), never one marked
   about me, us or the owner (personal: those cross only as the about-me chapter line's, and
   are not work), never this session's own, the nightly run's, a chapter's copy, or an
-  identity-band row, nor a dated one (a reminder: "Coming up" names it). In the wake, a
-  memory "Still open" may list is left to that lane. The
+  identity-band row, nor a dated one (a reminder: "Coming up" names it), nor an open thread
+  ("Still open"'s, and never a work line either), nor a write-up of an ended session
+  (`meta.secondHand`: the night's catch-up writes them under the subject's folder, and they
+  say what was done then, not what a session there is doing now). The night's write-up
+  runner (`writeup-<run>`, recorded in the folder that launched the run) is never named as
+  a session, there or here (review of #543). The
   folder rule is the same one that decides whether a chapter from that folder may be named
   here, so a folder Mike keeps apart leaks neither.
 - **Room.** The line keeps its 300-byte cap (`TODAY_ELSEWHERE_MAX_BYTES`) in the wake and in
@@ -46,8 +52,8 @@ differently.
   after the other folders: `Here, also open: session 25e12e7d on Fable 5 since 10:05:
   "…" (mem_…), "…" (mem_…)` — the session named as "Last here" names one (short id, the
   model the host last saw), each live session here but this one, with up to two of its own
-  memories by the same title rules (status first, then work; not confidential, not me/us/
-  owner, not dated, not an open thread, not the nightly run's). The folder's scope needs no
+  memories by the same title rules (work, status-marked first; not confidential, not me/us/
+  owner, not dated, not an open thread, not the nightly run's or a write-up). The folder's scope needs no
   asking: a session here reads this folder's work anyway. The clause shares the 300 bytes
   and is kept longest: other folders give way before it, and last both are counted ("4 other
   projects. Here, also open: 1 other session."). With no other folder the line is the clause

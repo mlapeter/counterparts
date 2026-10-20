@@ -556,6 +556,21 @@ and 4); the wake-polish builder, lightly held.
   on the old bare count to fill the line; they now write their chapters in the session's
   own directory, so the line has the titles their names promised.
 
+- **Review of #543** (the awkward states, `test/elsewhere-titles-states.test.ts`). Three
+  leaks found and closed: a status mark let a personal memory through (tier 0 skipped
+  `isWorkMemory`: an unmarked person or self memory marked `asked`, Desktop chat's unmarked
+  fact marked `planned`); the per-prompt line named open threads (the wake's skip was the
+  only guard; the read now leaves out `unresolved` rows, as `workHere` does); the night's
+  catch-up wrote write-ups (`secondHand`) under the subject's folder at 03:00, named in the
+  morning as that folder's work, and its runner's registry record (`writeup-<run>`, in the
+  folder that launched the run) printed as "Here, also open: session writeup-". Checked and
+  left: a title with a credential is refused at the battery (a title is a handle); a body
+  with one is redacted before it is stored, so the untitled fallback names redacted words;
+  a re-mark (owner, confidential) is read from the columns at every read; a session idle
+  3h59m is open here, 4h01m not, an ended one never; four live sessions here take the whole
+  line, the other folders counted ("3 other projects"), and "Last here" and the dated items
+  are where they were in a full 9,000-byte wake with the head fields (8,700–9,300).
+
 Undo: `git revert` of the PR; nothing is stored differently.
 
 ## 15. Each episode once, no bare ids (2026-10-20)
@@ -593,8 +608,9 @@ Mike's go, lightly held, an experiment. Decision record:
   session's own and the open threads and keep two. The columns only (`title`, or the
   body's first 240 characters), the same exclusions as the counts plus confidential for
   everyone, the personal marks, identity, a chapter's copy (`source`, `origin_ref`, a
-  summary's `meta.episodeId`). The caller confirms tier 1 on `isWorkMemory`, so an
-  unmarked fact in a name scope (`claude-desktop:`) stays personal, as in the wake's lanes.
+  summary's `meta.episodeId`). The caller confirms every row on `isWorkMemory` (tier 0
+  too, since the review), so an unmarked fact in a name scope (`claude-desktop:`) stays
+  personal, as in the wake's lanes.
 - **The ladder.** `elsewhereForms` used to try, per count of folders, the form with
   chapters and the one without. It now tries every non-increasing allotment of titles
   across the named folders (0–2 each), most titles first and spread before stacked, each

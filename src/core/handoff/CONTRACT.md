@@ -203,9 +203,11 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     to `ELSEWHERE_TITLE_BYTES`, 48) and whole id: a status mark first, then work
     (`self/work.ts#isWorkMemory`), newest first, chosen by `Counterpart#elsewhereTitles`
     under the one elsewhere gate (`elsewhereGate.named`: scope `on`, not this folder or the
-    store's). Never confidential (to anyone), never marked me, us or owner, never chit-chat,
-    this session's own, the nightly run's, a chapter's copy, or — in the wake — what "Still
-    open" may list. Every form stays within `TODAY_ELSEWHERE_MAX_BYTES` (300); titles give
+    store's). Never confidential (to anyone), never marked me, us or owner, never chit-chat
+    (a status mark does not make a memory work), this session's own, the nightly run's (nor
+    a write-up, `meta.secondHand`), a chapter's copy, or an open thread (`unresolved`, as
+    "Work here" leaves it out). The night's write-up runner (`writeup-…`) is never a session
+    in these lines (`Lifecycle#elsewhereHere`). Every form stays within `TODAY_ELSEWHERE_MAX_BYTES` (300); titles give
     way before folders, a chapter's title before a memory's. "Since you started" names only
     memories written since the session was last told (its window), so no title repeats.
     Still never a word of a span or a handoff's body. **Other sessions open in this folder**
