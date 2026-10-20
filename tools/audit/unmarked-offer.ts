@@ -47,7 +47,11 @@ for (const live of [DEFAULT_DATA_DIR_NAME, ...FORBIDDEN_ROOT_NAMES].map((n) => j
   }
 }
 
-const db = new Database(`file:${real}?mode=ro`, { readonly: true });
+// Immutable as well as read-only: SQLite takes no lock and writes no -shm or
+// -wal beside the copy, and a WAL-mode file opens (read-only alone refuses one
+// with no -shm). A snapshot (`VACUUM INTO`) is whole on its own; a copied
+// live .sqlite is read without its -wal, so it may be stale — use a snapshot.
+const db = new Database(`file:${real}?mode=ro&immutable=1`, { readonly: true });
 interface Row {
   id: string;
   kind: string;
