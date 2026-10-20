@@ -135,8 +135,14 @@ describe('the feed', () => {
     expect(classify(ev(512, 'contradiction.settled', 'Merged.', 1, { how: 'changed', actor: 'dream', source: 'dream-merge' }))).toBeNull()
     // a band move is one or the other, never both
     expect(classify(ev(508, 'band.transition', 'Faded.', 1, { site: 'decay', direction: 'down' }))?.mechs).toEqual(['decay'])
-    expect(classify(ev(509, 'band.transition', 'Rose.', 1, { site: 'consolidate', direction: 'up' }))?.mechs).toEqual(['consolidation'])
-    expect(classify(ev(510, 'band.transition', 'Crossed into identity.', 1, { site: 'decay', direction: 'up' }))).toBeNull()
+    // Every crossing is written at the decay site (2026-10-20): a move up there is a rise;
+    // the crossing into identity is the promotion's echo, and a recurve is the build's.
+    expect(classify(ev(509, 'band.transition', 'Rose.', 1, { site: 'decay', direction: 'up', to: 'semantic', cause: 'input' }))?.mechs).toEqual(['consolidation'])
+    expect(classify(ev(510, 'band.transition', 'Crossed into identity.', 1, { site: 'decay', direction: 'up', to: 'identity', cause: 'promoted' }))).toBeNull()
+    expect(classify(ev(513, 'band.transition', 'Recurved.', 1, { site: 'decay', direction: 'up', to: 'semantic', cause: 'recurve' }))).toBeNull()
+    // a dream that only folded lights Interference and Consolidation; its settles are the fold's
+    expect(classify(ev(514, 'dream.changed', 'Folded.', 1, { applied: '2', fold: '2' }))?.mechs.slice().sort()).toEqual(['consolidation', 'dreaming', 'interference'])
+    expect(classify(ev(515, 'contradiction.settled', 'Folded.', 1, { how: 'changed', actor: 'dream', source: 'fold' }))).toBeNull()
   })
 
   test('a turn’s decision row: which memories were said in full, found by this session and the turn', () => {

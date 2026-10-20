@@ -265,6 +265,47 @@ describe("firedToday (2026-10-10, the sidebar's times fired today)", () => {
     }
   });
 
+  test("three counting gaps (2026-10-20): a dream's folds, a rise at the decay site, the exact-copy merge", () => {
+    const dir = tempDir("counterparts-evidence-gaps-");
+    const c = Counterpart.open({ dir, owner: true });
+    try {
+      for (let i = 1; i <= 5; i++) c.store.advanceClock(`2026-02-${String(i).padStart(2, "0")}`);
+      const day = c.store.livedDay();
+      // A dream that only folded: two folds, and the settles the fold writes over its parts.
+      c.store.appendEvent({ name: "dream.changed", day, ref: null, payload: { applied: 2, refused: 0, fold: 2 } });
+      for (let i = 0; i < 5; i++) c.store.appendEvent({ name: "contradiction.settled", day, ref: null, payload: { how: "changed", source: "fold" } });
+      // Rises, every one written by the decay pass: two count; the crossing into
+      // identity (the echo of a promotion) and a recurve do not.
+      c.store.appendEvent({ name: "band.transition", day, payload: { from: "episodic", to: "semantic", direction: "up", site: "decay", cause: "input" } });
+      c.store.appendEvent({ name: "band.transition", day, payload: { from: "episodic", to: "semantic", direction: "up", site: "decay", cause: "held" } });
+      c.store.appendEvent({ name: "band.transition", day, payload: { from: "semantic", to: "identity", direction: "up", site: "decay", cause: "promoted" } });
+      c.store.appendEvent({ name: "band.transition", day, payload: { from: "episodic", to: "semantic", direction: "up", site: "decay", cause: "recurve" } });
+    } finally {
+      c.close();
+    }
+    const s = Store.open({ dir, observer: true });
+    try {
+      const day = s.livedDay();
+      const verdicts = new Map(mechanismEvidence(s, { sinceDay: day - 6, today: day }).verdicts.map((v) => [v.id, v]));
+      const part = (id: string, key: string): number => verdicts.get(id)?.parts.find((p) => p.key === key)?.count ?? -1;
+      expect(part("consolidation", "folded")).toBe(2);
+      expect(part("interference", "folded")).toBe(2);
+      expect(verdicts.get("consolidation")?.fired).toBe(true);
+      expect(verdicts.get("interference")?.fired).toBe(true);
+      // The fold's settles are the fold's, not five contradictions settled.
+      expect(part("reconsolidation", "settled")).toBe(0);
+      expect(verdicts.get("reconsolidation")?.fired).toBe(false);
+      expect(part("consolidation", "rose")).toBe(2);
+      // A rise is not a fade.
+      expect(part("decay", "faded")).toBe(0);
+      // The exact-copy proof is worded for what reaches it.
+      const merged = MECHANISM_EVIDENCE.find((m) => m.id === "consolidation")?.proofs.find((p) => p.key === "merged");
+      expect(merged?.says[0]).toBe("exact copy merged into the one already held");
+    } finally {
+      s.close();
+    }
+  });
+
   test("firingKey: a dream's rows share one key; every other row is its own", () => {
     const row = (seq: number, name: string, ref: string | null) => ({ seq, at: 0, day: 1, name, ref, dedup_key: null, payload: null });
     expect(firingKey(row(1, "dream.journaled", "drm_x"))).toBe(firingKey(row(2, "dream.changed", "drm_x")));

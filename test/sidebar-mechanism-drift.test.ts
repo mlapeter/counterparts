@@ -60,7 +60,8 @@ const SAMPLES: Readonly<Record<string, Payload>> = {
   "interference.faded": { how: "changed", source: "slot" },
   "reconsolidation.settled": { how: "changed", source: "write" },
   "retrieval.turns": { surfacedCount: 1, footnoteCount: 0 },
-  "consolidation.rose": { site: "consolidate", direction: "up" },
+  // Every crossing is written at the decay site (2026-10-20): a rise is a move up there.
+  "consolidation.rose": { from: "episodic", to: "semantic", site: "decay", direction: "up", cause: "input" },
   "emotional.felt": { accepted: 1, memoryId: "mem_a", felt: [{ id: "mem_a", words: ["curious"] }] },
   "emotional.feltRecalled": { surfacedCount: 1, footnoteCount: 0, surfaced: [{ id: "mem_a" }], felt: [{ id: "mem_a", words: ["proud"] }] },
 };
@@ -79,7 +80,14 @@ const MORE: readonly { event: string; payload: Payload }[] = [
   { event: "dream.changed", payload: { "nominate-core": 1 } },
   { event: "recall.decision", payload: { surfacedCount: 2, footnoteCount: 1, moodMatched: 1 } },
   { event: "recall.decision", payload: { surfacedCount: 0, footnoteCount: 0, moodMatched: 0 } },
-  { event: "band.transition", payload: { site: "decay", direction: "up" } }, // the crossing into identity, not a fade
+  { event: "band.transition", payload: { site: "decay", direction: "up" } }, // a rise, not a fade
+  // The crossing into identity (counted as `band.promoted`) and a recurve: neither a fade nor a rise.
+  { event: "band.transition", payload: { from: "semantic", to: "identity", site: "decay", direction: "up", cause: "promoted" } },
+  { event: "band.transition", payload: { from: "episodic", to: "semantic", site: "decay", direction: "up", cause: "recurve" } },
+  // A dream that only folded, and the settles its fold writes (2026-10-20).
+  { event: "dream.changed", payload: { applied: 2, fold: 2 } },
+  { event: "dream.changed", payload: { applied: 3, merge: 1, fold: 1, gist: 1 } },
+  { event: "contradiction.settled", payload: { how: "changed", source: "fold" } }, // counted as the fold, not as a settle
   { event: "contradiction.settled", payload: { how: "open" } },
   { event: "contradiction.settled", payload: { how: "corrected" } }, // live beside "changed" (2 of 50 on 2026-10-10)
   { event: "contradiction.settled", payload: { how: "changed" } }, // from before rows said their source: declared
