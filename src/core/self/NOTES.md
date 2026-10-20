@@ -2395,3 +2395,24 @@ of date" prefix replaced the "keep or retire it" words.
   24-character floor for an opening. A page cited only by passage, with every id refused, is
   sent back naming them. A clear lets the trace go, as it does the short version. In layers, a
   section that came or went has its own line and is not counted as "the same in every version".
+
+## 2026-10-20 — personal news reaches other folders once marked (Mike's go, lightly held, an experiment)
+
+Mike: non-work memories should flow across folders, work should mostly stay in its folder.
+The wake's split already does that by the mark (`work.ts#isWorkMemory`: me, us, owner and
+world are in Nearby everywhere; an unmarked fact, entity or place written in a directory is
+"Work here" in that directory only). What was missing was the mark: sessions leave `about`
+unset, and the reflection was offered five unmarked memories a night.
+
+- **The field says why** (`mcp/tools.ts#ABOUT_PROPERTY`, used by `remember` and each
+  `session_end` memory): mark anything personal owner or us, so it reaches every folder ("a
+  friend visiting this weekend, how a long week left the owner"); work belongs to the folder
+  it was written in, though sessions elsewhere may see its title (F4's "Today, elsewhere");
+  left unmarked, a fact written here is this folder's work, so mark the personal ones. The
+  chapter's `about` says the same of a session. Field descriptions are served whole (the
+  2,048-character cut is the tool description's, `test/description-cut.test.ts`).
+- **The reflection keeps up** (`dream/NOTES.md`, same day): 24 a night, the personal-looking
+  first. No change to the wake or recall: a memory it marks owner or us is in another
+  folder's Nearby by the rules that were there (`test/unmarked-offer-1020.test.ts`, the
+  last test). Recall by question was never folder-gated.
+- No change to F4's elsewhere line.

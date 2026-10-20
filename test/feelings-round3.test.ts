@@ -222,7 +222,8 @@ describe("the reflection is offered unmarked memories to mark", () => {
     const c = brain();
     // The old unmarked stock: written in a project weeks ago.
     clock = BASE - 30 * DAY;
-    const old = [0, 1, 2, 3, 4, 5].map((i) => mem(c, `An old unmarked project fact number ${String(i)} about the build.`, { origin: { scope: SCOPE } }));
+    // More than the offer holds (24 since 2026-10-20), so it is full.
+    const old = Array.from({ length: REFLECT_TUNABLES.UNMARKED }, (_, i) => i).map((i) => mem(c, `An old unmarked project fact number ${String(i)} about the build.`, { origin: { scope: SCOPE } }));
     const skill = mem(c, "An old unmarked skill: how we read a release checklist together.", { kind: "skill", origin: { scope: SCOPE } });
     // A full night: more recent memories than the room holds even as ids.
     clock = BASE - DAY;

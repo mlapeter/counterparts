@@ -27,6 +27,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | 0.3.27, 10-19 (#528) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | The reflection closes open threads that are plainly done (`closeNow`, a why each, said in the share; `reopen` undoes), and still asks about the unsure ones | merged 10-20, unreleased | ~10-24: how many it closed itself (`reflections.detail.selfClosed`, `reflection.finished`'s `selfClosed`) (any folder, by Mike's 10-20 exception) and how many it asked instead, confidential or reopened (`closeAskedInstead`), whether any was wrong (`detail.reopened`, `reflection.reopened`), how the wake's Still open count moves from 58; revert by putting back the 10-16 `close` line in the prompt | `docs/decisions.d/feat-reflection-closes-done-threads-1020.md` |
+| Personal news flows across folders: the reflection is offered 24 unmarked memories a night (was 5), the personal-looking first, and marks the personal ones owner or us; the `about` field says what a mark does | in review 10-20, unreleased | ~10-24: how many it marked owner/us, any Mike reverses, whether personal news reaches other folders | "Due ~2026-10-24 (personal news across folders)" below; `docs/decisions.d/feat-unmarked-personal-marks-1020.md` |
 | The nightly writers held to the page's 4,600-byte room: the night's first page past it is sent back to be cut; a second try is kept; one never sent again is kept at the run's end. A page past the room with a short version shows it in the wake | built 10-20, unreleased | ~10-23 (three mornings after install): the page's bytes each morning, `past-room` holds and how each night ended, the wake's `elements=` and the page's rung | "Due ~2026-10-23 (the nightly writers held…)" below; `docs/decisions.d/feat-page-held-to-room-1020.md` |
 | Meaning computed in line whenever no fresh cue is ready (#521) | 0.3.27, 10-19 | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
@@ -246,6 +247,35 @@ sessions open at once (read-only; ask the sessions themselves too).
 - **Changes a decision if:** sessions still duplicate work → give the line more room, or the
   clause here more titles; titles read as noise → keep only status-marked
   memories, or one title a folder; a gate leak → revert at once (`git revert` of the PR).
+
+## Due ~2026-10-24 (personal news across folders, 2026-10-20, Mike's go, lightly held, an experiment — docs/decisions.d/feat-unmarked-personal-marks-1020.md)
+
+Trying: the reflection is offered 24 unmarked memories a night (was 5), the personal-looking first
+(`src/core/dream/unmarked.ts`), with room for 32 about marks (was 8), so the personal ones get marked owner or us
+and reach every folder; and the `about` field on `remember`/`session_end` says what a mark does. Revert:
+`REFLECT_TUNABLES.UNMARKED` 5 and `LIMITS.about` 8 (`src/core/dream/reflect.ts`).
+
+- **First, the switch:** `counterparts core` says "Open" or "Closed to reflection alone". Closed, the reflection may
+  only mark work or world (owner ruling D1 on #256) and none of this moves; opening it is Mike's call.
+- **The baseline, before the first night on it:** `bun tools/audit/unmarked-offer.ts <a COPY of the newest
+  snapshot's counterparts.sqlite>` — the unmarked work pool, how many a lived day adds, how many look personal.
+  Counts only; it refuses a path under ~/.counterparts. Not run at build time (the session's permissions refused
+  the copy), so the cap of 24 is unmeasured: if a day adds far more than 24, raise it; if the pool empties in a
+  night or two, lower it.
+- **How many it marked owner or us:** `core_events` rows with `action = 'about'` and `actor = 'reflection'` since
+  install, by the mark set (the memory's `about` now) and the `reason`'s "was …"; `counts.about` on each
+  `reflection.finished`. The pool again with the probe: is it shrinking?
+- **Wrong marks Mike reverses:** an `about` row by the owner (`counterparts about`, the dashboard) on a memory the
+  reflection marked, or a work note that turns up in another folder's Nearby. If the reflection marks build notes
+  personal, tighten the prompt's "owner or us when it is personal" before touching the order.
+- **Does personal news reach other folders:** a wake in a folder other than ~/counterparts (or Desktop chat):
+  are recent personal things (a visit, how a week left Mike) in Nearby that were "Work here" only before?
+- **The morning share:** past three re-labels it says two by name and the rest as a count. Is that enough for him?
+- **The child's context** (review of #558): the bundle does not grow — the offer's lines (≤ 24 × ~320 chars) come
+  out of the same 80,000-character room, so on a full night they displace other memories (measured on a test
+  full night: 62 memories shown instead of 78, the first part +0.5k chars). What can grow is the reflection
+  reading offered ids whole before it marks them, and the finish's 24 whys. Check the reflection child's peak
+  against the 10-19 watch (127.5k of ~150k); past ~140k, lower `UNMARKED` before anything else.
 
 ## Due ~2026-10-27 (core questions that waited a week, 2026-10-20, Mike's go, an experiment — docs/decisions.d/feat-core-questions-waited-1020.md)
 
