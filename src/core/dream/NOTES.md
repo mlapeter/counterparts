@@ -775,14 +775,17 @@ the live ~52):
   `threadReopenedBy` on the memory, and a later `closeNow` of it is refused
   (`reopened-by-owner`; the bundle marks it `reopened`): `revise` leaves its untouched
   days alone, so without the stamp the next nights would close it again.
-- **The nightly run's stance limits it.** The night child's server is not the owner's
-  (`night-run.ts#nightMcpConfig`, `OWNER_ENV` "0", 2026-10-02: "its write-ups close no
-  thread opened elsewhere — until that is decided on its own") and is scoped to the
-  launching session's directory. So from the nightly run a self-close lands only for a
-  thread written in that directory; any other (`other-directory`; `confidential` never
-  reaches the bundle) is ASKED instead — a proposal, with a note and
-  `counts.closeAskedInstead` — and the owner's yes from his own session closes it. The
-  guards are unchanged; widening what the night may close is Mike's call, not taken here.
+- **The nightly run's stance, and the exception Mike made.** The night child's server is
+  not the owner's (`night-run.ts#nightMcpConfig`, `OWNER_ENV` "0", 2026-10-02: "its
+  write-ups close no thread opened elsewhere — until that is decided on its own") and is
+  scoped to the launching session's directory, so as first built a self-close landed only
+  for a thread written there. Mike, 2026-10-20 09:38: "i think its ok for nightly run to
+  close threads from other folders" — a lightly held exception for `closeNow` and its
+  `reopen` alone (`threadGuard`'s `anyDirectory`): the folder check is not made for a
+  thread the reflection was shown as stale. Write-ups keep the 10-02 rule, and the `close`
+  phase keeps its checks. A confidential thread (shown only to a bundle read as the
+  owner's) and one the owner reopened are ASKED instead, from any session — a proposal,
+  with a note and `counts.closeAskedInstead` — and the owner's yes closes it.
 - Nothing in doctor or the dashboard counted proposals, so no line changed; the
   `reflection.finished` record now carries `closeAsked`, `selfClosed` and
   `closeAskedInstead`, and

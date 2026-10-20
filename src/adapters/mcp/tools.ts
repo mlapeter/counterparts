@@ -1685,7 +1685,7 @@ const REFLECT: ToolSpec = {
     },
     {
       claim:
-        "It may close or propose closing only open threads it was shown as stale: one it closes itself carries its why, keeps the checks a deposit that answers a thread makes, is said in the morning share, and `reopen` puts it back (after which it may only be asked about); `close` closes only ids a reflection proposed, after the owner's yes, with the same checks.",
+        "It may close or propose closing only open threads it was shown as stale: one it closes itself carries its why, is never protected or confidential (any folder, since 2026-10-20), is said in the morning share, and `reopen` puts it back (after which it may only be asked about); `close` closes only ids a reflection proposed, after the owner's yes, with the same checks.",
       mechanizedBy: "src/core/dream/reflect.ts#Reflections.finish (closeNow, close) + #Reflections.close + #Reflections.reopen",
     },
     {

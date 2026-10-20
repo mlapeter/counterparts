@@ -11,16 +11,20 @@
   (58 open on Mike's store on 10-20, 12 untouched for 2+ weeks), and asking every time
   means a yes/no most mornings. On 10-20 Mike said yes to two obvious ones. Mike: "ok lets
   go ahead and do that".
-- **Kept the same**: ids only from the night's `staleOpen` list, `closeThread`'s checks
-  (protected, archived, and for a session not the owner's, confidential or another
-  directory), at most `STALE_OPEN` (5) asked and closed together a night, nothing once the
-  share was told or carried.
-- **Asked instead**: the nightly run's server is not the owner's and is scoped to the
-  launching session's folder (`night-run.ts#nightMcpConfig`, decided 2026-10-02), so it
-  closes on its own only threads written in that folder. One from another folder (or one
-  the owner reopened) is asked about instead, as before this change, and a yes from his
-  session closes it. If the experiment should reach every folder, that stance is Mike's to
-  change; it is not changed here.
+- **Kept the same**: ids only from the night's `staleOpen` list (shown through recall's
+  gates), `closeThread`'s protected and archived checks, at most `STALE_OPEN` (5) asked and
+  closed together a night, nothing once the share was told or carried.
+- **A lightly held exception to the 2026-10-02 night-run ruling, Mike, 2026-10-20 09:38:
+  "i think its ok for nightly run to close threads from other folders".** The nightly
+  run's server is not the owner's and is scoped to the launching session's folder
+  (`night-run.ts#nightMcpConfig`, 10-02: "its write-ups close no thread opened elsewhere").
+  For `closeNow` and its undo `reopen` alone, the folder check is not made: a stale thread
+  the reflection was shown may be closed, and reopened, whatever folder wrote it. Night
+  write-ups keep the 10-02 rule and still close no thread opened elsewhere; the `close`
+  phase (the owner's yes) keeps its checks too.
+- **Asked instead**: a confidential thread is never closed by the reflection, from any
+  session, and neither is one the owner reopened. It is asked about instead, and a yes
+  from his session closes it (`counts.closeAskedInstead`).
 - **Undo**: the reflect tool's phase `reopen` (reflection id + the ids it closed). After a
   reopen the memory carries `threadReopenedBy`, and no reflection closes it on its own
   again; it may only ask.
