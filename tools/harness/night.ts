@@ -22,7 +22,7 @@
  */
 import { createHash } from "node:crypto";
 import { chmodSync, closeSync, copyFileSync, openSync, readSync, writeFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
@@ -577,7 +577,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
       if (opts.seat === "model") {
         // `work` was made under a realpath, so `dir` is the path the child saw.
         const slug = dir.replace(/[^A-Za-z0-9-]/g, "-");
-        const projects = join(env["HOME"] ?? "", ".claude", "projects", slug);
+        const projects = join(env["HOME"] ?? homedir(), ".claude", "projects", slug);
         if (slug.includes("counterparts-night-") && existsSync(projects)) rmSync(projects, { recursive: true, force: true });
       }
     }
