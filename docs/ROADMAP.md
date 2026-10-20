@@ -12,7 +12,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 | | |
 |---|---|
-| **On npm** | 0.3.27 (Oct 19) |
+| **On npm** | 0.3.28 (Oct 20) |
 | **On master, not released** | nothing yet |
 | **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11); the plugin with neither, as one downloaded program (0.3.14). Not Windows. |
@@ -23,13 +23,6 @@ each mechanism is working. It should run in whatever AI host people use.
 
 *One line each; the details, and where each stands, are in [WORKLIST](WORKLIST.md). Experiments waiting on a
 check are in [CHECK-AFTER](CHECK-AFTER.md).*
-
-**Being built:**
-- Sessions see what other open sessions wrote, here and in other folders (F4, #543)
-
-**Merged 10-20, not released yet:** the reflection closes plainly done threads (F1) and answers week-old core
-questions · wake without repeats (F2) · reading last night's dream and reflection (F7) · a weekly reminder done for
-this week (F6) · the self page held to its room (F5) · facts title tail and soft time words · the fox follows activity
 
 **Next:** follow-ups in [WORKLIST](WORKLIST.md) (scopes off for folders kept apart, the plugin-split messages, same-session
 neighbours after the bench measures the tail)
@@ -131,6 +124,7 @@ Rethinking (owner, 2026-10-19, lightly held): "shown strengthens nothing" was a 
 
 ## Recently done
 
+- **10-20**: 0.3.28 on npm, mostly experiments to check ~10-22 to ~10-27: the nightly reflection closes plainly done threads and says so in the share, `reopen` by the thread id (#535); recall opens dream and reflection ids, `counterparts night` reads them and writes nothing (#538); "done" at a repeating reminder closes this occurrence only, a done memory beside a due reminder gets a hint, drewOn credits a memory replaced that day (#540); the wake without repeats, one tag at its head (`meet=` and `store=` in it), Coming up items carry their own id, the daily snapshot claimed (#536); the nightly writers held to the self page's 4,600-byte room, the wake shows a long page's short version (#541); the reflection answers core memories that waited 7+ lived days, doctor counts them, an owner retire is sticky (#542); facts list the next 20 matches by title and "lately" orders by recency (#544); "Today, elsewhere", "Since you started" and "Here, also open" name other sessions' work by title (#543); the fox follows activity (#545); the plugin must update with this core; no store-format change, nothing to run after upgrading from 0.3.27
 - **10-19**: 0.3.27 on npm, recall that learns from use, most of it experiments to check ~10-22: a session's first prompt matched by meaning, facts ignore quantity words (#521); footnotes skip what this session wrote, the dream replays what the day used, the nightly run's sessions get no footnotes (#523); footnote ratings count as use, memories used together linked strongly, a memory rated 0 twice surfaces less, doctor's Feedback loop line (#525); a newer memory stands in for the one it replaced (#526); no links written at store time, the slot detector flags only (#528); light stemming and everyday words count less (#529); context priming along links and a train-of-thought vector (#530); no store migration (store v13), cache v6 to v7 re-indexes words once in the background; going back to 0.3.26 needs the cache deleted and rebuilt
 - **10-18**: 0.3.26 on npm: "Still open" leads with what was touched in the last 14 lived days and counts the untouched, a stale handoff says its staleness in one sentence and only the newest shows whole when all are stale, the Yesterday line names folders (#517); "Today, elsewhere" dates a session started on an earlier day (#513); doctor's Fired line reads mood matching as disabled (#515); facts say a coarse date may be inside the time asked (#516); no store-format change, nothing to run after upgrading from 0.3.25
 - **10-16**: 0.3.25 on npm: a chapter is stood for by a summary memory that fades, not a full copy; the `chapter` tool takes `summary`, the engine writes one when none is given (#504); the nightly reflection proposes closing stale open items and the reflect tool's `close` phase closes them on the owner's yes (#507); the wake lists long items as one line (#508) and is trimmed: one tag line, the date once, a shorter header, the page written to 4,600 bytes, craft out, Coming up = due today (#511); recall's rolling "last month"/"past N months" and weekdays in facts dates (#510); the sidebar says where you left off, its fox tries a picture first, its clickable rows are back in the full flavor, and the directory build stands down beside the npm install (#498, #499, #500, #501, #505, #509); no store-format change, nothing to run after upgrading from 0.3.24
