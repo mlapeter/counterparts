@@ -389,7 +389,9 @@ dream having run.
   of their own (2026-10-11): on a night the plain fit leaves one waiting or a bare id, what
   they cost as lines is held back from the shared room (never past the room there is), so
   a full night shows each at least as a line; any other night is fitted as before. A writer's mark is never
-  offered. A reflection's own later feelings are counted but never make a change. Three questions, rotated so consecutive nights share none (the dream question only
+  offered, nor one written in a folder the host's setting has off or paused (`begin`'s
+  `folderOn`, review of #558: the MCP server reads it as `lifecycle.ts#chapterExports`
+  does; a setting that will not read offers none from a folder). A reflection's own later feelings are counted but never make a change. Three questions, rotated so consecutive nights share none (the dream question only
   after a dream). **In parts, not cut** (2026-09-28): a bundle longer than
   `RESULT_CHARS` (the tool result's ceiling is about 25k tokens) comes as part 1 of N —
   everything but the long lists, which go on in order as far as the room allows — and
@@ -470,7 +472,11 @@ dream having run.
     10-02) gates confidential memories out of its bundles and threads opened elsewhere
     out of its write-ups, and never gated a mark: a night as not-the-owner with the switch
     at its default marks owner or us like any open-door night. A confidential memory is
-    never in a guest bundle, so it is never offered and never re-marked.
+    never in a guest bundle, so it is never offered and never re-marked. **A folder set
+    off keeps its work** (review of #558): a memory that is its folder's work, written in
+    a folder the host's setting has off or paused (`finish`'s `folderOn`), is refused any
+    mark but `work` (`folder-off-work-only`) — shown in another lane or not — since owner,
+    us or world would carry it into every folder's wake.
   - **Trait nudges** (folded into v9, 2026-09-27; at most 5): where a memory it was shown
     really shows how I acted, on one of the seven axes (`store/traits.ts`), source
     `reflection` — "where did you act unlike your self page?" is their natural question.

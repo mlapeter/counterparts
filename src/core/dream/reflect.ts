@@ -70,6 +70,7 @@ import { aboutMe, acceptsReflectedFeeling, keepCore, laterFeelingWasReflections,
 import {
   ABOUT_MARKS,
   CARRIED_BY_MAX_CHARS,
+  aboutMarkOf,
   CORE_ABOUT_MARKS,
   checkFeelings,
   TRAIT_AXES,
@@ -442,6 +443,13 @@ export interface ReflectFinish {
   readonly title?: string;
   /** Required the first time; on a second `finish` the entry already stands and this may be left out. */
   readonly entry?: string;
+  /**
+   * Is this directory on in the host's folder setting (review of #558)? A
+   * memory that is its folder's work (`self/work.ts#isWorkMemory`), written in
+   * a folder set `off` or `paused`, may be marked only work: any other mark
+   * would carry it into every folder's wake. Absent: every directory is.
+   */
+  readonly folderOn?: (scope: string) => boolean;
   readonly cites?: readonly string[];
   readonly share?: { readonly text?: string; readonly cites?: readonly string[] } | null;
   /** `short` (2026-10-10): the page's short version, for a page past its room — beside `text`, or alone on a later `finish` to add one to the page this reflection wrote. */
@@ -655,7 +663,20 @@ export class Reflections {
    * WHOLE (2026-09-28). When it would not fit one tool result, what the dream
    * saw is delivered in parts — said in the result, fetched with `saw`.
    */
-  begin(input: { session: string; dream?: string | null; scope?: string | null; model?: string | null; at?: string }):
+  begin(input: {
+    session: string;
+    dream?: string | null;
+    scope?: string | null;
+    model?: string | null;
+    at?: string;
+    /**
+     * Is this directory on in the host's folder setting (review of #558)? An
+     * unmarked memory written in a folder set `off` or `paused` is not offered
+     * to be marked, since a mark of owner, us or world would carry it into
+     * every folder's wake. Absent: every directory is (no setting is on).
+     */
+    folderOn?: (scope: string) => boolean;
+  }):
     | { ok: true; bundle: ReflectBundle; text: string; instructions: string }
     | { ok: false; reason: ReflectRefusal } {
     if (this.ctx.observer) return { ok: false, reason: "observer" };
@@ -679,7 +700,7 @@ export class Reflections {
     }
     const id = `rfl_${randomBytes(6).toString("hex")}`;
     const questions = this.questionsFor(dreamId !== null);
-    const fitted = this.compose(id, dreamId, questions, day, at);
+    const fitted = this.compose(id, dreamId, questions, day, at, input.folderOn);
     const composed = fitted.bundle;
     const saw = composed.dreamSaw;
     // IN PARTS, NEVER CUT (2026-09-28). A night's bundle — the page whole, what
@@ -1094,6 +1115,12 @@ export class Reflections {
       const r = id !== null && shown.has(id) ? this.store.row(id) : undefined;
       if (r === undefined || !this.showable(r)) {
         about.push({ id, ok: false, reason: "not-shown-or-gone", detail: this.notCitable(id, shown) });
+        continue;
+      }
+      // A FOLDER SET OFF (review of #558): its work stays in it. Marked
+      // anything but work, it would reach every folder's wake.
+      if (mark !== "work" && isWorkMemory({ about: aboutMarkOf(r.about), kind: r.kind, originScope: r.origin_scope, journal: isJournalCopy(r) }) && !folderIsOn(r.origin_scope, input.folderOn)) {
+        about.push({ id, ok: false, reason: "folder-off-work-only", detail: `${r.id} was written in a folder that is set off or paused; it stays that folder's work.` });
         continue;
       }
       const core = (CORE_ABOUT_MARKS as readonly string[]).includes(mark);
@@ -2146,7 +2173,7 @@ export class Reflections {
    * alone past that. Nothing is cut by count; what the room could not take at
    * all is counted (`shownAs.notShown`).
    */
-  private compose(id: string, dreamId: string | null, questions: readonly string[], day: number, at: string): Composed {
+  private compose(id: string, dreamId: string | null, questions: readonly string[], day: number, at: string, folderOn?: (scope: string) => boolean): Composed {
     const T = REFLECT_TUNABLES;
     const denied = new Set(this.store.deniedIds());
     const priority = new Map<string, number>();
@@ -2215,7 +2242,13 @@ export class Reflections {
       // marked — a writer's mark is never offered to be overridden here. Skills
       // too since 2026-10-11 (the about-marks review: 5 of 34 unmarked skills
       // read as personal, and nothing else ever offered them).
-      if ((row.about ?? null) === null && isWorkMemory({ about: null, kind: row.kind, originScope: row.origin_scope, journal: isJournalCopy(row) })) {
+      // Not one written in a folder the owner set off or paused (review of
+      // #558): unmarked, it stays in that folder; marked, it would reach all.
+      if (
+        (row.about ?? null) === null &&
+        isWorkMemory({ about: null, kind: row.kind, originScope: row.origin_scope, journal: isJournalCopy(row) }) &&
+        folderIsOn(row.origin_scope, folderOn)
+      ) {
         unmarked.push({ id: mid, kind: row.kind, title: row.title, body: row.body, uses: row.uses, createdAt: row.created_at ?? 0, felt: withFeelings.has(mid) });
       }
       // The names of the people in the store, for the offer's order — read
@@ -3164,6 +3197,19 @@ function isJournalCopy(row: MemoryRow): boolean {
   try {
     const meta = JSON.parse(row.meta) as Record<string, unknown>;
     return typeof meta["episodeId"] === "string";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Is the folder a memory was written in on (review of #558)? One with no
+ * origin is not asked; the host's answer throwing counts as no.
+ */
+function folderIsOn(scope: string | null, folderOn: ((scope: string) => boolean) | undefined): boolean {
+  if (folderOn === undefined || scope === null || scope.trim().length === 0) return true;
+  try {
+    return folderOn(scope) === true;
   } catch {
     return false;
   }

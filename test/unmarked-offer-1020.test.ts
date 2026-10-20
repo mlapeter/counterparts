@@ -11,11 +11,12 @@
  * per test, removed after. No model is called.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openServer } from "../src/adapters/mcp/index.js";
+import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import { toolSpec } from "../src/adapters/mcp/tools.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { REFLECT_TUNABLES } from "../src/core/dream/index.js";
@@ -278,6 +279,100 @@ describe("a re-marked memory reaches another folder by the existing rules", () =
     } finally {
       s.counterpart.close();
     }
+  });
+});
+
+describe("a folder the owner set off or paused: its unmarked memories are not offered (review of #558)", () => {
+  // Marked owner, us or world, an unmarked memory reaches every folder's
+  // Nearby — whatever folder it was written in. So one written in a folder
+  // that was later set off (a bookkeeping folder, say) is never offered.
+  test("core: folderOn leaves out a memory from a folder it says no to, and the night may mark it only work, even when another lane showed it", () => {
+    const c = brain(false);
+    const taxes = mem(c, "Dana's taxes are due on the 15th; the rent went up too.", { origin: { scope: WORKSHOP } });
+    const visit = mem(c, "Dana's friend Katie is visiting this weekend.", { origin: { scope: LIBRARY } });
+    const b = c.reflections.begin({ session: SESSION, folderOn: (scope) => scope !== WORKSHOP });
+    if (!b.ok) throw new Error(b.reason);
+    expect(b.bundle.unmarked).toContain(visit);
+    expect(b.bundle.unmarked).not.toContain(taxes);
+    const done = c.reflections.finish({
+      reflection: b.bundle.reflection,
+      session: SESSION,
+      entry: "A quiet night.",
+      folderOn: (scope) => scope !== WORKSHOP,
+      about: [
+        { id: taxes, about: "owner", why: "Her money, not the build." },
+        { id: taxes, about: "world", why: "Not the build." },
+        { id: visit, about: "owner", why: "Her friend, not the build." },
+      ],
+    });
+    if (!done.ok) throw new Error(done.reason);
+    // Written today, it is in the recent lane all the same — shown, and still not carried out.
+    expect(b.bundle.recent).toContain(taxes);
+    expect(done.outcome.about.map((a) => a.reason)).toEqual(["folder-off-work-only", "folder-off-work-only", "marked"]);
+    expect(c.store.read(taxes).about ?? null).toBeNull();
+    expect(c.store.read(visit).about).toBe("owner");
+    // Work keeps it where it is, and stays open.
+    const b2 = c.reflections.finish({ reflection: b.bundle.reflection, session: SESSION, folderOn: (scope) => scope !== WORKSHOP, about: [{ id: taxes, about: "work", why: "Its folder's own." }] });
+    if (!b2.ok) throw new Error(b2.reason);
+    expect(c.store.read(taxes).about).toBe("work");
+  });
+
+  test("core: a host whose answer throws offers nothing from that folder", () => {
+    const c = brain(false);
+    const taxes = mem(c, "Dana's taxes are due on the 15th.", { origin: { scope: WORKSHOP } });
+    const b = c.reflections.begin({ session: SESSION, folderOn: () => { throw new Error("unreadable"); } });
+    if (!b.ok) throw new Error(b.reason);
+    expect(b.bundle.unmarked).not.toContain(taxes);
+  });
+
+  test("the MCP reflect tool reads the folder setting: off and paused folders' memories are not offered, an on one's are; an unreadable setting offers none", async () => {
+    const BOOKS = join(root, "books");
+    const PAUSED = join(root, "paused");
+    mkdirSync(BOOKS, { recursive: true });
+    mkdirSync(PAUSED, { recursive: true });
+    let c = brain(true);
+    const books = mem(c, "Dana's taxes are due on the 15th; the rent went up too.", { origin: { scope: BOOKS } });
+    const paused = mem(c, "Dana's sister is visiting next weekend.", { origin: { scope: PAUSED } });
+    const shop = mem(c, "Dana's friend Katie is visiting this weekend.", { origin: { scope: WORKSHOP } });
+    closeAll();
+    const scopesFile = join(root, "config", "scopes.json");
+    mkdirSync(join(root, "config"), { recursive: true });
+    const at = new Date(NOW).toISOString();
+    writeScopes(scopesFile, setScope(setScope(null, BOOKS, "off", { at }), PAUSED, "paused", { at }));
+    const offered = async (file: string, session: string, mark: readonly string[] = []): Promise<{ unmarked: string[]; about: string[] }> => {
+      const s = openServer({ dir, session, scope: LIBRARY, owner: false, timeZone: "UTC", scopesFile: file });
+      try {
+        const r = await s.call("reflect", { phase: "begin", session });
+        expect(r.isError ?? false).toBe(false);
+        const rid = r.structuredContent["reflection"] as string;
+        const detail = JSON.parse(s.counterpart.store.reflection(rid)?.detail ?? "{}") as { unmarked?: string[] };
+        if (mark.length === 0) return { unmarked: detail.unmarked ?? [], about: [] };
+        const f = await s.call("reflect", { phase: "finish", session, reflection: rid, entry: "A quiet night.", about: mark.map((id) => ({ id, about: "owner", why: "Hers." })) });
+        const about = (f.structuredContent["about"] ?? (f.structuredContent["outcome"] as Record<string, unknown> | undefined)?.["about"] ?? []) as { reason: string }[];
+        return { unmarked: detail.unmarked ?? [], about: about.map((a) => a.reason) };
+      } finally {
+        s.counterpart.close();
+      }
+    };
+    const u = await offered(scopesFile, "s-night-1", [books, shop]);
+    expect(u.unmarked).toContain(shop);
+    expect(u.unmarked).not.toContain(books);
+    expect(u.unmarked).not.toContain(paused);
+    // Shown in the recent lane all the same (written today), the books folder's note is not carried out by a mark.
+    expect(u.about).toEqual(["folder-off-work-only", "marked"]);
+    c = brain(true);
+    expect(c.store.read(books).about ?? null).toBeNull();
+    expect(c.store.read(shop).about).toBe("owner");
+    closeAll();
+
+    // A setting that will not read: nothing from a folder is offered.
+    rmSync(dir, { recursive: true, force: true });
+    c = brain(true);
+    const again = mem(c, "Dana's friend Katie is visiting this weekend.", { origin: { scope: WORKSHOP } });
+    closeAll();
+    const broken = join(root, "config", "broken.json");
+    writeFileSync(broken, "{ not json");
+    expect((await offered(broken, "s-night-2")).unmarked).not.toContain(again);
   });
 });
 
