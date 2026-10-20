@@ -140,6 +140,9 @@ watchdog). Three things change so it can't reach the owner's live store:
   owner's hooks load. Measured 2026-10-20: no session file, no event, no backup in the live
   store. Whether plugins load is not left to a guess: each child's own init line (its first
   stream-json line) is read, and the record shows the plugins it loaded and its MCP servers.
+  Measured 2026-10-20: only Claude Code's own (`cc-plugin-agents-md`, `cc-plugin-telemetry`,
+  `cc-plugin-plugin-authoring`), none of the owner's; one MCP server, the harness's
+  `counterparts`.
 - **Backups:**
   - `COUNTERPARTS_CONFIG` names a temp config on the temp store.
   - The night's quiet flag is set, as on every night child.
