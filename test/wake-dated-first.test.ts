@@ -684,7 +684,8 @@ describe("at the composition: three dated items, and who gives the room", () => 
     // lend; reminders longer than the furniture's slack.
     const lend = wholeCost(7_012) - (COMPOSE - PAGE_FLOOR_RESERVE_BYTES);
     expect(lend).toBeGreaterThan(0);
-    const { me, ids } = selfWith(pageOfSize(7_012), SHORT, LONG, { WAKE_LINE_BYTES: Number.POSITIVE_INFINITY });
+    // The 10-10 ladder, whole first even with a short version (`PAGE_SHORT_PAST_ROOM` off, 2026-10-20): this is about the borrowing.
+    const { me, ids } = selfWith(pageOfSize(7_012), SHORT, LONG, { WAKE_LINE_BYTES: Number.POSITIVE_INFINITY, PAGE_SHORT_PAST_ROOM: false });
     const first = ids[0] ?? "";
     const base = { budgetBytes: COMPOSE, day: 2, lendBytes: lend };
     // Nothing dated: whole, on borrowed room.
@@ -719,7 +720,7 @@ describe("at the composition: three dated items, and who gives the room", () => 
     // furniture and dates of 2026-10-16 left the line ~30 bytes more slack.)
     for (const extra of [0, 200, 440, 1_200]) {
       const lend = wholeCost(7_012) - (COMPOSE - PAGE_FLOOR_RESERVE_BYTES) + extra;
-      const { me, ids } = selfWith(pageOfSize(7_012), SHORT, LONG);
+      const { me, ids } = selfWith(pageOfSize(7_012), SHORT, LONG, { PAGE_SHORT_PAST_ROOM: false });
       const first = ids[0] ?? "";
       const base = { budgetBytes: COMPOSE, day: 2, lendBytes: lend };
       // The page whole on borrowed room, with the line or without it.
@@ -825,7 +826,7 @@ describe("at the composition: three dated items, and who gives the room", () => 
   });
 
   test("the page within its own room outranks even a due-day reminder: no borrowing to give back, no step down", () => {
-    const { me, ids } = selfWith(pageOfSize(6_000), SHORT, LONG);
+    const { me, ids } = selfWith(pageOfSize(6_000), SHORT, LONG, { PAGE_SHORT_PAST_ROOM: false });
     // The tightest budget at which the page prints whole without borrowing.
     const b = wholeCost(6_000) + PAGE_FLOOR_RESERVE_BYTES;
     expect(me.build({ budgetBytes: b, day: 2 }).page?.rung).toBe("whole");
@@ -887,9 +888,10 @@ describe("a plain reminder due today, cued out and told overnight, still reaches
         expect(lines.some((l) => l.startsWith("Last here: "))).toBe(true);
         expect(lines.some((l) => l.startsWith("Last said here, "))).toBe(true);
       }
-      // Whole on what "Work here" lends, or — past that — its short version.
-      if (pageBytes === 7_100) expect(m.text).toContain(SHORT);
-      else expect(m.text.split("\n")).toContain(PAGE_END_LINES.whole);
+      // Past its room with a short version: the short version (2026-10-20,
+      // `PAGE_SHORT_PAST_ROOM`; until then whole on what "Work here" lends,
+      // or — past that — its short version).
+      expect(m.text).toContain(SHORT);
       expect(listed.length).toBe(1);
       expect(listed[0]).toEndWith(REMINDERS[0]);
       expect(collapsed).toBe(false);

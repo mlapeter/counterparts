@@ -811,8 +811,9 @@ stays thin (`self/writer.ts#PAGE_ROOM_RULE`, inside `PAGE_WRITING_RULE`). A page
 on the night's first send comes back `past-room` (`Counterpart` maps `Self#revisePage`'s
 refusal to the words `pastRoomWords` gives), as a refused part: `retry` names it, the MCP
 `say` asks for the cut before anything else, and a second `finish` with just the page is
-written whether or not it was cut. The hold counts once per session per night across both
-nightly doors, so after a held writer the reflection's page is kept on its first send. If the
-reflection never sends again, the nightly process keeps the held page at the child's return
+written whether or not it was cut. The hold counts once per door per session per night,
+so the reflection is held on its own first page past the room even after the writer was held
+(10-20's pattern: the writer overshot first, the reflection wrote the longest page after it). If
+the reflection never sends again, the nightly process keeps the held page at the child's return
 (`night-run.ts` → `Self#keepHeldPage`). Tests: `test/page-held-to-room.test.ts` §2–3, and the
 6,200-byte reflection in `test/nightly-run.test.ts` (held once, then kept).

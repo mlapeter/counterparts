@@ -155,10 +155,10 @@ export interface SelfTunables {
   /**
    * THE NIGHTLY WRITERS ARE HELD TO THE ROOM (2026-10-20, Mike's go, lightly
    * held, an experiment). On: a page past `PAGE_ROOM_BYTES` from the nightly
-   * page writer or the reflection (`by` `writer` / `reflection`) is refused the
-   * first time in a night — "N bytes over; cut, don't add a short version" —
-   * and the night's next send past it, from either of them in the same
-   * session, is kept as before; a held page not sent again is kept at the
+   * page writer or the reflection (`by` `writer` / `reflection`) is refused
+   * each door's first time in a night — "N bytes over; cut, don't add a short
+   * version" — and that door's next send past it in the same session is
+   * kept as before; a held page not sent again is kept at the
    * run's end (`Self#keepHeldPage`), so no night loses its rewrite to this. A
    * session's and the owner's pages are not held: the room stays their
    * target. Off: the room is every writer's target, as from 2026-10-10.

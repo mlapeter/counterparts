@@ -2242,10 +2242,12 @@ plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of t
   10-17; 4,756 then 4,956 on 10-20, the reflection rewriting after the writer).
 - **Chosen: refuse once, keep the resend, keep a held page at the run's end.** In
   `Self#revisePage`, after the ceiling, the version check and the gate: from `writer` or
-  `reflection` (`PAGE_HELD_DOORS`), a page past the room is refused `past-room` the first
-  time in a night for that session (`heldTonight` reads the refusal rows by `date` and
-  `session`). The refusal row carries the gate's text, its short version, reason and model
-  (`held`), and `at`, the version it was held against. A second send past the room is kept
+  `reflection` (`PAGE_HELD_DOORS`), a page past the room is refused `past-room` each
+  door's first time in a night for that session (`heldTonight` reads the refusal rows by
+  `date`, `by` and `session`). Per door, not per night: keyed per night, the writer's hold
+  on 10-20's pattern (the writer overshot first) would have let the reflection's 4,956 in
+  on its first send. The refusal row carries the gate's text, its short version, reason and model
+  (`held`), and `at`, the version it was held against. That door's second send past the room is kept
   as before (with the short version asked for). `keepHeldPage` writes the newest held page
   when the page still stands at `at` — called by `runNight` at the child's return, before
   the wake catches up — and records a writer's night `revised` after the `failed` its close

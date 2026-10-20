@@ -174,16 +174,32 @@ describe("1. the nightly doors are held to the room, once a night", () => {
     });
   }
 
-  test("a second send past the room the same night is kept — from either nightly door, in the same session", () => {
+  test("each door is held once a night: 10-20's pattern (the writer over, cut; then the reflection over) holds the reflection too", () => {
     const s = store();
     const me = selfOn(s);
     expect(me.revisePage(pageOf(4_756), { by: "writer", reason: "the writer", session: SESSION }).reason).toBe("past-room");
-    // The reflection, later in the same run: the night was already held once.
-    const kept = me.revisePage(pageOf(4_956), { by: "reflection", reason: "the reflection", session: SESSION, short: SHORT });
+    expect(me.revisePage(pageOf(4_500), { by: "writer", reason: "the writer, cut", session: SESSION }).written).toBe(true);
+    // The reflection, later in the same run: its own first page past the room is held.
+    expect(me.revisePage(pageOf(4_956), { by: "reflection", reason: "the reflection", session: SESSION }).reason).toBe("past-room");
+    expect(me.page()?.bytes).toBe(4_500);
+    // Its second send past it is kept, with its short version.
+    const kept = me.revisePage(pageOf(4_956), { by: "reflection", reason: "the reflection again", session: SESSION, short: SHORT });
     expect(kept).toMatchObject({ written: true, overRoom: ROOM });
     expect(kept.short).toMatchObject({ kept: true });
-    // Another session's night is its own.
+    // The writer's second send that night is kept too; another session's night is its own.
+    expect(me.revisePage(pageOf(4_700), { by: "writer", reason: "again", session: SESSION }).written).toBe(true);
     expect(me.revisePage(pageOf(4_800), { by: "writer", reason: "another run", session: "s-other" }).reason).toBe("past-room");
+  });
+
+  test("both doors held, neither sent again: the run's end keeps the reflection's, the night's last", () => {
+    const s = store();
+    const me = selfOn(s);
+    me.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
+    expect(me.revisePage(pageOf(4_756), { by: "writer", reason: "the writer", session: SESSION }).reason).toBe("past-room");
+    expect(me.revisePage(pageOf(4_956), { by: "reflection", reason: "the reflection", session: SESSION }).reason).toBe("past-room");
+    expect(me.keepHeldPage()?.written).toBe(true);
+    expect(me.page()?.bytes).toBe(4_956);
+    expect(me.page()?.by).toBe("reflection");
   });
 
   test("a session's page and the owner's are not held: the room stays their target", () => {

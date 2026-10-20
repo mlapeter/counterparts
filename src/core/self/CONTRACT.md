@@ -548,10 +548,10 @@ proposals and their archive; render and delivery telemetry.
     reflection, the `self_page` tool's `short`, the console's `--short`). Measured in BYTES
     at both ends. **The nightly writers are held to it** (2026-10-20, Mike's go,
     `PAGE_HELD_TO_ROOM`, lightly held, an experiment): from the page writer or the
-    reflection (`PAGE_HELD_DOORS`), the night's first page past the room is refused,
-    `past-room`, with its bytes and how far over, the gate's text kept on the refusal row
-    (`held`); a second send past it from either door in the same session that night is kept
-    as above; and a held page never sent again is kept when the nightly process's child
+    reflection (`PAGE_HELD_DOORS`), each door's first page of a night past the room is
+    refused, `past-room`, with its bytes and how far over, the gate's text kept on the
+    refusal row (`held`); that door's second send past it in the same session that night is
+    kept as above; and a held page never sent again is kept when the nightly process's child
     returns (`Self#keepHeldPage`, `night-run.ts`), unless the page moved since. So a night
     never ends with no page change because of the hold. A session's page and the owner's
     are not held. It replaces the rotating identity list by

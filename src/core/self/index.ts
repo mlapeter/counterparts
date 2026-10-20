@@ -1574,18 +1574,21 @@ export class Self {
   }
 
   /**
-   * WAS A NIGHTLY DOOR HELD TO THE ROOM ALREADY TONIGHT, in this session
-   * (2026-10-20)? Then the next send past it is kept: the hold asks once a
-   * night. Read off the durable refusal rows; never throws.
+   * WAS THIS NIGHTLY DOOR HELD TO THE ROOM ALREADY TONIGHT, in this session
+   * (2026-10-20)? Then its next send past it is kept: the hold asks each door
+   * once a night. Per door, not per night: on 10-20 the writer overshot first
+   * and the reflection made the night's longest page after it, so a hold the
+   * writer used up would never have reached the reflection. Read off the
+   * durable refusal rows; never throws.
    */
-  private heldTonight(session: string | null): boolean {
+  private heldTonight(by: SelfPageAuthor, session: string | null): boolean {
     const today = this.calendarToday();
     try {
       return this.store
         .eventLog({ name: SELF_PAGE_REFUSED_EVENT, order: "desc", limit: 50 })
         .some((r) => {
           const held = heldDraftOf(r.payload);
-          return held !== null && held.date === today && held.session === session;
+          return held !== null && held.date === today && held.by === by && held.session === session;
         });
     } catch {
       return false;
@@ -1839,10 +1842,10 @@ export class Self {
     // reflection both write every night, and the room they were told was only
     // a target: on 10-17 the page was 4,928 bytes, on 10-20 the writer made
     // 4,756 and the reflection 4,956, and the wake paid for every byte. Past
-    // the room, a night's first send is refused with how far over — "cut,
-    // don't add a short version" — inside the retry each door already has. A
-    // second send past it (either door, the same session, the same night) is
-    // kept as before the hold, so a resend always lands; and the refusal row
+    // the room, each door's first send of a night is refused with how far over
+    // — "cut, don't add a short version" — inside the retry each door already
+    // has. That door's second send past it (the same session, the same night)
+    // is kept as before the hold, so a resend always lands; and the refusal row
     // carries the page it held (the gate's text), which the run's end keeps
     // when it was never sent again (`keepHeldPage`). No night loses its
     // rewrite to this. A session's page and the owner's are not held.
@@ -1851,7 +1854,7 @@ export class Self {
       opts.keepPastRoom !== true &&
       PAGE_HELD_DOORS.includes(opts.by) &&
       bytes > room &&
-      !this.heldTonight(session)
+      !this.heldTonight(opts.by, session)
     ) {
       const over = bytes - room;
       this.emit("self.page.refused", undefined, { reason: "past-room", by: opts.by, bytes, room, over });
