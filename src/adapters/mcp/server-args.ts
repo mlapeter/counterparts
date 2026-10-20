@@ -39,6 +39,8 @@ export interface RecallRowFields {
   readonly time?: string;
   /** Meaning mode's own counts (`MeaningResult.counts`). */
   readonly counts?: Readonly<Record<string, number>>;
+  /** By address: the dreams and reflections opened (`nights.ts`) — not memories, so not `expanded`. */
+  readonly nights?: number;
 }
 
 /**
