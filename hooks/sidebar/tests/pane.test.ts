@@ -1705,7 +1705,7 @@ test('Claude’s turn: a prompt puts the fox to work at once (the alert face, th
     await settle(w)
     const ended = stageBlits(w).length
     const back = stageBlits(w).slice(from).map(b => ('cells' in b ? b.cells : ''))
-    expect(back).toContain(IDLE)
+    expect(back.includes(IDLE)).toBe(true) // (a boolean: a failing message of whole drawings is megabytes)
     await w.clock.advance(40000)
     await settle(w)
     expect(stageBlits(w).slice(ended).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(false)

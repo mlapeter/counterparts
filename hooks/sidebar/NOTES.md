@@ -63,6 +63,18 @@ lightly held.
   end (`session_end`, then `turn.complete` right after) still writes both
   notepad lines before he relaxes. The turn ends: a blink back to the
   sitting face, and the idle clock starts there (lie at 45 s, nap at 2 min).
+- **What it costs.** On the picture and half-block tiers a change is a blit;
+  on sextants (iTerm2, VS Code, WezTerm) and the desktop Svg every change
+  redraws the pane, so a turn runs about six times idle's redraw rate for as
+  long as it lasts, beside the streaming transcript. If it is too much in the
+  rig, the knobs: `WORK.holdMs`, `workWag` (one tail1/tail2 pass instead of
+  two) and its weight.
+- A turn's end heard after work already ended by itself (a model-only turn
+  over 10 min, he has lain down or napped meanwhile) still gets him up: the
+  turn ended, he looks up. Kept on purpose; a guard is two lines if not.
+- Watch in the rig: a composer-typed command that starts no turn, if
+  `prompt.submit` fires for it, would put him to work for 30 s (validate
+  shows commands arrive on `command.run`, so probably not).
 - Background agents' calls after the main turn ended keep him up (busy) but
   not at work. Untested in the rig: whether `turn.complete` reaches the
   module on the turn that hot-reloads it (if not, the 10 min expiry, or the
