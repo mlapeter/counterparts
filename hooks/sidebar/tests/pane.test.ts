@@ -1537,6 +1537,123 @@ test('after two minutes with nothing happening it naps, and the person’s promp
   await ui.unmount()
 })
 
+// The fox and what is really happening (2026-10-20): any tool call is activity; a save the status file shows writes once.
+const NOTEPAD = ['note0', 'note1', 'note2'].map(frame => halfCells({ frame, fx: [] }))
+/** Times he took up the notepad: runs of notepad frames (a step the mocked timer wakes late on may be skipped, never a run). */
+const notepads = (w: World): number => {
+  let n = 0
+  let on = false
+  for (const b of stageBlits(w)) {
+    const pad = 'cells' in b && NOTEPAD.includes(b.cells)
+    if (pad && !on) n += 1
+    on = pad
+  }
+  return n
+}
+const LYING = ['lie0', 'lieBlink', 'nap0', 'nap1'].map(frame => halfCells({ frame, fx: [] }))
+const deposit = (seq: number, at: number, session = SESSION) => ({ ...ev(seq, 'gate.deposit', 'I wrote something down and every gate was clear.', 0, { accepted: '1', session }), at })
+
+test('Claude working keeps the fox up: a tool call (any tool) every 40 s, and three minutes on he has not lain down or napped; left alone after, he lies down', async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  on('tool.call', () => ({ result: 'ok', text: 'file contents' }))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  for (let i = 0; i < 5; i++) {
+    await w.clock.advance(40000)
+    await $.tool.call({ tool: 'Read', file_path: '/work/project/x.ts' } as never)
+    await settle(w)
+  }
+  expect(stageBlits(w).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(false)
+  await w.clock.advance(150000)
+  await settle(w)
+  expect(stageBlits(w).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true)
+  await ui.unmount()
+})
+
+test('a save the status file shows for this session writes on the notepad at the next look, once for a burst; the memory tool’s own save does not write twice; old saves are not replayed', async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  on('tool.call', () => ({ result: 'ok', text: '{"stored":true,"id":"mem_f0000002"}' }))
+  // already in the file when the pane opens, a few seconds old: the first look takes it as known
+  w.events.push(deposit(600, w.clock.now() - 3000))
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  const notes = () => notepads(w)
+  await w.clock.advance(20000)
+  await settle(w)
+  expect(notes()).toBe(0)
+  // a burst of four rows from one write-up, with no memory tool call heard here
+  for (let i = 0; i < 4; i++) w.events.push(deposit(601 + i, w.clock.now()))
+  await w.clock.advance(15000)
+  await settle(w)
+  await w.clock.advance(5000)
+  await settle(w)
+  expect(notes()).toBe(1) // one burst: one save's notepad
+  // another session's save: nothing
+  await w.clock.advance(60000)
+  w.events.push(deposit(610, w.clock.now(), 'sess-other'))
+  await w.clock.advance(20000)
+  await settle(w)
+  expect(notes()).toBe(1)
+  // the memory tool's call writes at once; its rows, written during the call, find the notepad already written
+  await w.clock.advance(60000)
+  const at = w.clock.now()
+  w.events.push(deposit(620, at))
+  await $.tool.call({ tool: 'mcp__counterparts__remember', title: 'A fox, written once', text: 'x' } as never)
+  await settle(w)
+  await w.clock.advance(5000)
+  await settle(w)
+  expect(notes()).toBe(2)
+  await w.clock.advance(30000)
+  await settle(w)
+  expect(notes()).toBe(2) // its rows, at the next look: no second notepad
+  // two memory calls a second apart (one message's batch): one notepad, and neither call's rows write another
+  await w.clock.advance(60000)
+  w.events.push(deposit(630, w.clock.now()))
+  await $.tool.call({ tool: 'mcp__counterparts__remember', title: 'First of a batch', text: 'x' } as never)
+  await w.clock.advance(1000)
+  w.events.push(deposit(631, w.clock.now()))
+  await $.tool.call({ tool: 'mcp__counterparts__remember', title: 'Second of a batch', text: 'y' } as never)
+  await settle(w)
+  await w.clock.advance(45000)
+  await settle(w)
+  expect(notes()).toBe(3)
+  await ui.unmount()
+})
+
+test('a call that throws or is denied still ends, so he lies down 45 s after; a saving call still running when the poll reads its rows writes the notepad once, as it returns (review of #545)', async ($, on) => {
+  const w = world(on, foxDetail('basic'))
+  let mode: 'throw' | 'deny' | 'slow' = 'throw'
+  on('tool.call', async () => {
+    if (mode === 'throw') throw new Error('broken')
+    if (mode === 'deny') return { deny: 'not now' }
+    w.events.push(deposit(700, w.clock.now()))
+    await w.clock.sleep(40000)
+    return { result: 'ok', text: '{"deposited":1}' }
+  })
+  await start($, w)
+  const ui = await mount($, w, 'terminal')
+  await w.clock.advance(30000)
+  await $.tool.call({ tool: 'Bash', command: 'false' } as never).catch(() => undefined)
+  mode = 'deny'
+  await $.tool.call({ tool: 'Bash', command: 'rm -rf /' } as never).catch(() => undefined)
+  await settle(w)
+  const from = stageBlits(w).length
+  await w.clock.advance(70000)
+  await settle(w)
+  expect(stageBlits(w).slice(from).some(b => 'cells' in b && LYING.includes(b.cells))).toBe(true)
+  // the write-up: its rows land at once, the call answers 40 s later, two looks in between
+  mode = 'slow'
+  const before = notepads(w)
+  const call = $.tool.call({ tool: 'mcp__counterparts__session_end', memories: [{ title: 'Slow write-up', text: 'x' }] } as never)
+  await w.clock.advance(40000)
+  await call
+  await settle(w)
+  await w.clock.advance(40000)
+  await settle(w)
+  expect(notepads(w) - before).toBe(1)
+  await ui.unmount()
+})
+
 // ── which store wrote the status file ──────────────────────────────────────
 
 async function wakeWithStore($: Engine, w: World, id: string): Promise<void> {

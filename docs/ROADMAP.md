@@ -25,23 +25,22 @@ each mechanism is working. It should run in whatever AI host people use.
 check are in [CHECK-AFTER](CHECK-AFTER.md).*
 
 **Being built:**
-- The reflection closes threads that are plainly done, across folders, and says so (F1, #535)
-- Wake fixes: each session named once, one top tag, no bare ids, Coming up shows ids (F2)
-- A weekly reminder marked done for this week only; drewOn credit for a just-superseded memory (F6, F6b)
-- Reading a dream's or reflection's record from a session (F7)
+- Sessions see what other open sessions wrote, here and in other folders (F4, #543)
 
-**Next, after those:**
-- Sessions see what other open sessions wrote (F4, after F2)
-- The self page held to its room (F5, after F1)
+**Merged 10-20, not released yet:** the reflection closes plainly done threads (F1) and answers week-old core
+questions · wake without repeats (F2) · reading last night's dream and reflection (F7) · a weekly reminder done for
+this week (F6) · the self page held to its room (F5) · facts title tail and soft time words · the fox follows activity
 
-**Checks coming up:** 0.3.27's seven experiments ~10-22 · lists vs attachments 10-22 · F1 ~10-24 ·
+**Next:** follow-ups in [WORKLIST](WORKLIST.md) (scopes off for folders kept apart, the plugin-split messages, same-session
+neighbours after the bench measures the tail)
+
+**Checks coming up:** 0.3.27's seven experiments ~10-22 · lists vs attachments 10-22 · F4 ~10-23 · F1 ~10-24 ·
 10-18's benchmark-motivated changes ~10-25 · F6 10-27 · emotion's weight 11-01 · forgetting resumes late October
 
 **Needs a talk:**
-- Lists vs attachments, and the notes module (recommended next: it leaves the running experiments alone)
-- Dream throughput (after ~10-22) · schemas with gist
+- Notes and schemas, designed together (brief: `~/counterparts-notes/2026-10-20-notes-and-schemas-brief.md`), with lists vs attachments
+- Dream throughput (after ~10-22)
 - The decisive memory staying quiet at the moment of action, with footnote noise (F3, at the ~10-22 check)
-- Retiring the 10-10 "Decisions to review" walk in IMPROVEMENTS
 
 **Elsewhere:** the plugin directory approval and whether to post without it (10-21) · the site's SEO push
 

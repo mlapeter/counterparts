@@ -558,6 +558,40 @@ export function savedItems(tool: string, args: Record<string, unknown>, resultTe
   return [];
 }
 
+/** A memory tool that saves (`remember`, the old `note`, `session_end`); a chapter is a journal entry. */
+export function savesMemory(tool: string): boolean {
+  return REMEMBER.has(tool) || tool === 'session_end';
+}
+
+/** A save older than this when the status file is next read (a pane hidden a while) is not played as new. */
+export const SAVE_FRESH_MS = 2 * 60000;
+
+/**
+ * Whether the status file's new rows hold a save for this session that the
+ * fox has not written down yet (2026-10-20): a `gate.deposit` naming the
+ * session, with `accepted` > 0, written after the last save the fox heard
+ * (`after`, `Director.saveAt`) and within SAVE_FRESH_MS of `now`.
+ *
+ * Every deposit comes through the memory tools (`session_end`, `remember`),
+ * and the `tool.call` hook hears the save as the call returns, after the
+ * call's rows were written: so those rows are older than `after`, and the
+ * same save does not write twice (a second call inside one notepad's run
+ * plays nothing more, and still moves `after`). What is left is a save that hook did not
+ * see (a reload mid-call, an answer it could not read). A burst read in two
+ * looks writes once: the first look's notepad is newer than the rest.
+ */
+export function savedSince(events: readonly DashEvent[], session: string, after: number, now: number): boolean {
+  if (session === '') return false;
+  return events.some(
+    e =>
+      e.name === 'gate.deposit' &&
+      e.at > after &&
+      now - e.at < SAVE_FRESH_MS &&
+      num(e, 'accepted') > 0 &&
+      e.detail?.some(d => (d.key === 'session' || d.key === 'actorId') && d.value === session) === true,
+  );
+}
+
 /** The ids a `recall` call opened by address: its `ids`, or a `handle` that is an id. */
 export function openedIds(tool: string, args: Record<string, unknown>): { ids: string[]; handle: string | null } {
   const ours = ourTool(tool);
