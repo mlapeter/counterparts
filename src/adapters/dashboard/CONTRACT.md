@@ -1,5 +1,7 @@
 # `dashboard/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 The owner's window: what was remembered, what faded, what changed and why — visually, at a

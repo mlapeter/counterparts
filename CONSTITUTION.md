@@ -1,9 +1,9 @@
 # The Counterparts Constitution
 
-_Ratified by the owner 2026-08-25; last amended 2026-10-11 (this file's git history is
+_Ratified by the owner 2026-08-25; last amended 2026-10-20 (this file's git history is
 the amendment log). This is the ONE page with standing authority — everything else,
-including owner answers given during the build, is a working default, revisable without
-ceremony when it fights this page. Changing THIS page is deliberate and rare._
+including owner answers given during the build, is a working default, open to discussion
+at any time and revisable without ceremony. Changing THIS page is deliberate and rare._
 
 **Thesis — why this exists**
 
@@ -56,8 +56,10 @@ ceremony when it fights this page. Changing THIS page is deliberate and rare._
     deliberate, named, and defended. (Reference shelf: the owner's memory field guide,
     mikelapeter.com/lab/memory.)
 13. **Decisions are defaults.** Only this page is scripture, including this line.
-    Everything else is revisable without ceremony when it fights the thesis. Changing
-    this page is deliberate and rare.
+    Everything else (contracts, rulings, tunables, owner answers) guides the work
+    without limiting it. Any of it can be raised for discussion at any time, and it is
+    revised without ceremony when a better way shows up or it fights the thesis.
+    Changing this page is deliberate and rare.
 14. **Port the scars, not the code.** Learnings travel as acceptance criteria, never as
     copy-paste.
 15. **Complexity is earned.** Start with the simplest brain-faithful rule that could

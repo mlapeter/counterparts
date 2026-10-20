@@ -1,5 +1,7 @@
 # `log/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 *Added 2026-09-30, from the owner's ask of that day: "log files of everything that happened,
 errors, etc, as long as we don't make it insanely verbose and just keep it for past 7 days or
 so." Working defaults throughout, held lightly: the allowlist in particular is meant to be

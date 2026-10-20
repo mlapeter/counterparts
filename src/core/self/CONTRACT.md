@@ -1,5 +1,7 @@
 # `self/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 The autobiographical self: identity documents, the first-person episode journal, and the
@@ -146,6 +148,7 @@ counted by doctor, and said in the next morning share).
 - **Named handles are aliases, not a second lookup path** — "the lighthouse conversation" enters
   through the ordinary rarity-weighted name channel. [v1 §9.2]
 - **Lived salience is the only legitimate identity input.** [v1 §14.2, earned 2026-08-24]
+  For now, the reflection is the one other route into the core: deviation §2(d).
 - **Freeze, but keep counting** — the frozen arm runs the identical walk with identical
   guards, mutates nothing, and emits the same per-occasion event with a frozen marker.
   *The event IS the measurement; the movement is what is withheld.* [v1 earned-mechanism #8]
@@ -173,11 +176,11 @@ counted by doctor, and said in the next morning share).
   untouched on every kind: **the fallback remains a reporter on identity — it may soften, it
   never strengthens.**
 - **The second-signature queue for permanent protection is dropped; legibility is kept.**
-  **PROPOSED** — owner call at check-in; evidence and counter-argument in
+  **Decided, for now** (owner, 2026-10-20; settled by module-map Rulings 3 of 2026-08-25); evidence and counter-argument in
   `schemas/CONTRACT.md` §4. The wake's untrimmable second-signature reminder goes with it;
   the self-store pointer goes with the tool.
 - **The identity *index* as a separate derived surface — its own budget, warmth ordering,
-  promotion path, and reconciler — is dropped.** **PROPOSED** — owner call at check-in. Why
+  promotion path, and reconciler — is dropped.** **Decided, for now** (owner, 2026-10-20; settled by module-map Rulings 3 of 2026-08-25). Why
   it looks safe: the index existed because canonical identity prose was too big to inject,
   and its promotion path had **zero production callers**, so the "warm shelf" could only
   cool. With identity elements as ordinary memories carrying strength, the briefing ranks by
@@ -427,7 +430,8 @@ proposals and their archive; render and delivery telemetry.
    episodes (the journal, not the schema) and migrated rows are excluded and counted
    beside the fallback-minted quarantine — a migrated store read 3 MB tripped on day 0
    before anyone had written to it (2026-09-03).
-5. **[M]** Identity strength comes from lived salience only. A fallback-authored
+5. **[M]** Identity strength comes from lived salience only (for now, beside the
+   reflection's route into the core, deviation §2(d)). A fallback-authored
    confirmation against a self- or skill-kind element moves nothing — no `uses`, no strength,
    no band crossing, no lived day burned — and emits its frozen marker anyway, on the
    identical walk, so the frozen rate stays comparable to the live one.

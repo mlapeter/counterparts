@@ -1,5 +1,7 @@
 # `coverage/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 Say what is not written up yet, in one place. A captured piece of conversation counts as

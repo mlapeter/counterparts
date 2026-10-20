@@ -1,5 +1,7 @@
 # `embed/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 Text in, vector out, **on this machine, for nothing**: the static embedding table that

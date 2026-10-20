@@ -1,5 +1,7 @@
 # `fit/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 *Added 2026-09-28 (build B), from the owner's conversation of that day and the two notes
 behind it (`2026-09-28-brain-compression-research.md`, `2026-09-28-brain-principle-audit.md`,
 kept privately). A working default, held lightly: revise it when a real night shows it wrong.*

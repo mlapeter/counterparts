@@ -1,5 +1,7 @@
 # `adapters/claude-code/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 The launch adapter: wake injection at session start, the end-of-session write, and crash
@@ -147,7 +149,7 @@ credential — belongs here, discovered at runtime, never assumed by the core.
   2026-09-24 there are no keys at all (§1a), so there is nothing to rotate and no credential
   source to configure. (Until then credentials came from one configured source the package
   owned, never an inherited shell environment — scar §2.18.)
-- **Model-seat pins are dropped.** **PROPOSED** — owner call at check-in. Constitution
+- **Model-seat pins are dropped.** **Decided, for now** (owner, 2026-10-20; settled by module-map Rulings 3 of 2026-08-25). Constitution
   line 2 says which seat runs which job is a design choice, never doctrine, and the model
   lineup will have moved. What is **kept** is the bake-off *method* (earned-mechanism #20:
   real archived inputs through the real path, blind-judged, including the losing tier as a

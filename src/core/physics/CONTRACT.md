@@ -1,5 +1,7 @@
 # `physics/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 All the arithmetic of memory on one page: strength, decay, reinforcement, revision, dedup,
@@ -443,6 +445,9 @@ REVISE iff  P(old) > ι(kind(old)) × strength(old, d)
   only. The cosine negation-blindness caveat is thereby moot on this path.
 - Identity-band elements are revisable through this same arithmetic — the review's
   unrevisability ceiling is resolved by summation.
+- **In practice, for now, memories change through the reconsolidation settle**, beside
+  this arithmetic: a contradiction settled `changed`, `corrected` or `open`, each with a
+  reason and an undo (a `changed` settle's one cut is §5.12).
 
 ### 5.7 Dedup
 
@@ -467,7 +472,8 @@ belief stopped being a belief.)*
 
 ### 5.8 Forgetting
 
-Only physics forgets (owner decision): no model, on any path, holds delete power.
+Only physics forgets (owner decision): no model deletes; for now, a model may archive,
+with a record and an undo.
 
 ```
 PRUNE(m,d) iff strength(m,d) < φ = 0.02                            # TUNABLE

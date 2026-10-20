@@ -1,5 +1,7 @@
 # `adapters/cli/` — CONTRACT
 
+*This contract guides the work; it doesn't limit it. Anything here, RESOLVED items included, can be raised for discussion at any time and revised when there's a better way (constitution line 13).*
+
 ## 1. Purpose
 
 The `counterparts` command: status, install, and the owner-only operations — removal,
@@ -78,8 +80,8 @@ owner owns the data.
   settled). `export` is therefore a first-class owner operation: **explicit owner action,
   encrypted, owner-keyed**, in portable formats readable in any editor. Nothing leaves the
   machine any other way, and the core has no egress path at all.
-- **Zero runtime dependencies as a vow is released.** **PROPOSED** — owner call at
-  check-in. It was a proxy for constitution line 10 that already needed an exemption in v1,
+- **Zero runtime dependencies as a vow is released.** **Decided, for now** (owner, 2026-10-20; settled by module-map Rulings 3 of 2026-08-25).
+  It was a proxy for constitution line 10 that already needed an exemption in v1,
   and v2 ships as a distributable package where dependency hygiene is judgment. The default
   stays zero.
 
