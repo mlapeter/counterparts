@@ -1225,6 +1225,8 @@ export const register: Register = on => {
     try {
       // Any call (any tool, a subagent's too) is the session working: the fox stays up while it runs.
       await foxEvent($, 'busy').catch(() => undefined)
+      // A main-loop call means a turn is running, whether or not its start was heard here (a reload mid-turn).
+      if (e.agentId === undefined) await foxEvent($, 'turn').catch(() => undefined)
       // The fox dreams while this session's dream runs.
       if (ours?.tool === 'dream') await foxEvent($, 'dream').catch(() => undefined)
       let ran: Awaited<ReturnType<typeof next>>
@@ -1253,10 +1255,25 @@ export const register: Register = on => {
     }
   }).catch(($, e, next) => next(e))
 
-  // A prompt the person sent: the fox looks up.
+  // A prompt the person sent: the fox looks up, and goes to work.
   on('prompt.submit', async ($, e, next) => {
     const kind = e.origin.kind
     if (kind === 'composer' || kind === 'bridge') await foxEvent($, 'prompt')
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // Claude's turn, the main loop's only (a subagent's runs inside an Agent call, which keeps him busy anyway;
+  // and the hooks a spawn is nested in never hear its start): while it runs the fox is at work.
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
+    await foxEvent($, 'turn').catch(() => undefined)
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // Its end, for any reason (an answer, an interrupt, a refusal, an error), whether or not its start was heard here.
+  on('turn.complete', async ($, e, next) => {
+    if (e.agentId !== undefined) return next(e)
+    await foxEvent($, 'turnEnd').catch(() => undefined)
     return next(e)
   }).catch(($, e, next) => next(e))
 
