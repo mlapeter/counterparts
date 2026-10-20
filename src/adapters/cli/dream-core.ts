@@ -67,7 +67,7 @@ export const DREAM_LIST_LIMIT = 20;
  * (`limit: "all"`). The header says how many of how many, so a list that stops
  * is never read as all there is.
  */
-export function dreamListLines(counterpart: Counterpart, limit: number | "all" = DREAM_LIST_LIMIT): string[] {
+export function dreamListLines(counterpart: Counterpart, limit: number | "all" = DREAM_LIST_LIMIT, via: "dream" | "night" = "dream"): string[] {
   const total = counterpart.store.dreamCount();
   const dreams = counterpart.dreams.list(limit === "all" ? Math.max(1, total) : limit);
   const setting = counterpart.dreams.setting();
@@ -79,7 +79,7 @@ export function dreamListLines(counterpart: Counterpart, limit: number | "all" =
   const out = [
     ...head,
     dreams.length < total
-      ? `Dreams — newest first (${String(dreams.length)} of ${String(total)} shown; every one: counterparts dream --list --all)`
+      ? `Dreams — newest first (${String(dreams.length)} of ${String(total)} shown; every one: counterparts ${via === "night" ? "night --all" : "dream --list --all"})`
       : `Dreams — newest first (all ${String(dreams.length)})`,
     "",
   ];
@@ -88,12 +88,18 @@ export function dreamListLines(counterpart: Counterpart, limit: number | "all" =
     const title = dream.title === null || dream.title.length === 0 ? "(no journal)" : `"${dream.title}"`;
     out.push(`${dream.id}  ${when}  ${dream.state.padEnd(9)} ${title} — ${countsLine(counts)}`);
   }
-  out.push("", "Read one: counterparts dream --show <id>    Reverse one: counterparts dream --undo <id>");
+  // From `night` (2026-10-20), the read-only door, the pointer stays on it.
+  out.push(
+    "",
+    via === "night"
+      ? "Read one: counterparts night <id> (or last)    Undo one (the owner's): counterparts dream --undo <id>"
+      : "Read one: counterparts dream --show <id>    Reverse one: counterparts dream --undo <id>",
+  );
   const reflections = counterpart.reflections.list(10);
   if (reflections.length > 0) {
     out.push("", `Reflections — the waking self, newest first (${String(reflections.length)} shown)`, "");
     for (const r of reflections) out.push(`${r.id}  ${r.date ?? `lived day ${String(r.day)}`}  ${reflectionSummary(r)}`);
-    out.push("", "Read one: counterparts dream --show <rfl_…>");
+    out.push("", via === "night" ? "Read one: counterparts night <rfl_…>" : "Read one: counterparts dream --show <rfl_…>");
   }
   return out;
 }

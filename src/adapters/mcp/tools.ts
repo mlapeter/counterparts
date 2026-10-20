@@ -883,7 +883,7 @@ const RECALL: ToolSpec = {
       },
       handle: {
         type: "string",
-        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored.`,
+        description: `A memory id or exact title to read whole. Exact: never treated as a search term. Takes no mode. A dream's id (drm_…) or a reflection's (rfl_…) reads a short summary of that night, read-only. Or "${LAST_EXCHANGE_HANDLE}": the last thing said to another session in this folder (about the last day) and its last reply, read from what was captured, never stored.`,
       },
       ids: {
         type: "array",
@@ -891,7 +891,7 @@ const RECALL: ToolSpec = {
         // The cap is one number, imported. A literal here and a constant in
         // `deliberate.ts` is the drift the registry audit exists to prevent.
         maxItems: RECALL_MAX_IDS,
-        description: `Memory ids from an earlier answer or an index (a dream's, a reflection's), to read whole — up to ${RECALL_MAX_IDS} at once. A long body comes in parts: see part. Not combinable with handle or question; takes no mode.`,
+        description: `Memory ids from an earlier answer or an index (a dream's, a reflection's), to read whole — up to ${RECALL_MAX_IDS} at once; a dream or reflection id (drm_…, rfl_…) among them comes back as that night's summary. A long body comes in parts: see part. Not combinable with handle or question; takes no mode.`,
       },
       part: {
         type: "integer",

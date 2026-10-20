@@ -613,6 +613,11 @@ The standalone verb does not ask either: typing it is the yes.*
     again. Neither command is on `OWNER_OPS`: like `self-page`, reading works from an
     instrument, and the write refuses at the core's own seam under observer. Confidential
     rows print as `[confidential]`.
+    *Extended 2026-10-20.* `counterparts night` prints the same lines with no write at all:
+    the recent dreams and reflections, `last` (the newest dream and the reflection after
+    it), `last-reflection`, or one by id (`show <id>` means the same). It always opens the
+    store as an observer, so a session can run it to review the night with the owner — a
+    host's safety check refuses `dream`, which also undoes. `--undo` stays on `dream`.
 
 ## 6. Scars honored
 

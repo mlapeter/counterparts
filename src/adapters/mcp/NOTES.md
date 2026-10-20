@@ -1670,3 +1670,21 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   proposed only; as a phase: the ids the owner said yes to). Shortened the summary and
   admission to keep `settle`'s claim inside the 2,048-character host cut;
   `description-cut.test.ts`'s recorded lengths moved with it.
+
+## 2026-10-20 — recall opens a dream's id and a reflection's
+
+- **Why.** The wake says "I dreamed … (drm_…)" and the morning share names its reflection,
+  but `recall` answered both ids `handle-unknown`, and the console's `dream` — the only
+  reader — also undoes, so a host's auto-mode check refused to run it for the session. The
+  owner and the session could not review last night together without him typing a command.
+- **Shape.** `deliberate.ts#expandHandle` branches on `nightKindOf` right after the chapter
+  address, so `ids` gets it through `expandIds` for free. The summary rides in
+  `DeliberateResult.nights`, not `memories`: `Recalled` is memory-shaped, and everything
+  that credits, marks seen or logs a title's resolution reads `memories`. `reason` stays
+  `expanded`; `resolvedIdOf` then finds no single memory and logs no resolution.
+- **Confidentiality.** The rule `cli/export.ts#restsOnConfidential` and the share's
+  `touchesConfidential` already drew: withheld whole from a stranger when anything it was
+  shown, changed or cited is confidential now. A gist is quoted only when short and not
+  confidential, in any session; the owner opens the id to read it.
+- **The console.** `counterparts night` is a separate command with no write (`dream`
+  keeps `--undo`); `ask --id drm_…` prints the night's lines rather than "nothing came".

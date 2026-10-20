@@ -151,6 +151,7 @@ import {
   embedQuestion,
 } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
+import { NIGHTS_GLOSS } from "./nights.js";
 import { factsRecall, renderFacts } from "./facts.js";
 import { meaningRecall, renderMeaning } from "./meaning.js";
 import {
@@ -2588,9 +2589,17 @@ export class McpServer {
       ...(result.reason === "handle-confidential-withheld"
         ? {
             withheld:
-              "That memory is marked confidential and this is not the owner's own session. It exists; it is not being shown.",
+              result.nightAsked !== undefined
+                ? `That ${result.nightAsked} rests on a memory marked confidential, and this is not the owner's own session. It exists; it is not being shown.`
+                : "That memory is marked confidential and this is not the owner's own session. It exists; it is not being shown.",
           }
         : {}),
+      ...(result.reason === "handle-unknown" && result.nightAsked !== undefined
+        ? { notFound: `No ${result.nightAsked} by that id in this memory. The console's read-only \`counterparts night\` lists the recent ones.` }
+        : {}),
+      // A NIGHT asked for by its id (2026-10-20, `nights.ts`): a read-only
+      // summary beside the memories. Opening one credits nothing.
+      ...(result.nights !== undefined && result.nights.length > 0 ? { nights: result.nights.map((n) => ({ ...n })), nightsGloss: NIGHTS_GLOSS } : {}),
       ...(result.reason === "both-arguments"
         ? { refused: "One kind of ask per call: a question (with a mode), ids, or a handle." }
         : {}),
