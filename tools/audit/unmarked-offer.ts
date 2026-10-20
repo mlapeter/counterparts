@@ -9,7 +9,8 @@
  * reflection's, not confidential (the night's bundle is a guest's).
  *
  * Never on a live store: it refuses any path under ~/.counterparts or
- * ~/.bansai, and opens the file read-only. Copy a snapshot first:
+ * the older stores beside it (`store/paths.ts`), and opens the file read-only.
+ * Copy a snapshot first:
  *
  *   cp -R ~/.counterparts/snapshots/<newest> /tmp/snap   (not store/spans)
  *   bun tools/audit/unmarked-offer.ts /tmp/snap/<…>/counterparts.sqlite [--days 14]
@@ -21,6 +22,7 @@ import { join, sep } from "node:path";
 
 import { personNames, unmarkedRanker } from "../../src/core/dream/unmarked.js";
 import { isWorkMemory } from "../../src/core/self/work.js";
+import { DEFAULT_DATA_DIR_NAME, FORBIDDEN_ROOT_NAMES } from "../../src/core/store/paths.js";
 import type { Kind } from "../../src/core/types.js";
 
 const args = process.argv.slice(2);
@@ -32,7 +34,7 @@ if (file === undefined) {
   process.exit(2);
 }
 const real = realpathSync(file);
-for (const live of [join(homedir(), ".counterparts"), join(homedir(), ".bansai")]) {
+for (const live of [DEFAULT_DATA_DIR_NAME, ...FORBIDDEN_ROOT_NAMES].map((n) => join(homedir(), n))) {
   let liveReal = live;
   try {
     liveReal = realpathSync(live);
