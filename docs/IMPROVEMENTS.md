@@ -29,7 +29,12 @@ and the lessons learned. Legacy-only fixes are low priority by default.
 
 ## Decisions to review — the mechanisms work, groups 1–5 (2026-10-10)
 
-**Status:** `open` — Mike walks this list; npm is held until he has. Written by the Group 1a
+**Status:** the record of these decisions and their reasons, not a queue for the owner. Retired as
+a walk on 2026-10-20, with Mike's agreement: about fifteen releases have shipped since it opened, and
+the 10-11, 10-14 and 10-18 check-ins looked at the parts that mattered. What is being watched lives in
+[CHECK-AFTER](CHECK-AFTER.md), with a date; open questions for the owner live in
+[WORKLIST](WORKLIST.md) ("Needs a talk first"). A decision a later change replaced carries an
+**Overtaken** line in place. Written by the Group 1a
 build (strength) from the mechanisms synthesis (§4, as amended by its draft 2, §8). Each line
 says who decided it, when, and why, in plain words. The ones that reverse a ruling of Mike's
 come first. Nothing here quotes a memory. A new subsection arrives as a fragment in
@@ -103,6 +108,8 @@ come first. Nothing here quotes a memory. A new subsection arrives as a fragment
    check-in. Half weight toward the core's recurrence is a constant waiting for Group 3's
    recurrence lane (`ENGAGED_RECURRENCE_WEIGHT`); today an engaged return buys no lane day.
    The Stop ask is unchanged: the field text is the only prompt.
+   **Overtaken (2026-10-19): drewOn is a full use now, its return an awake one (a lane day), as an
+   experiment; the revert is `W_ENGAGED` 0.5** (#525, 0.3.27).
 
 The rest are not reversals of Mike's rulings as far as b2, f8 and the builders know. Some
 reverse older defaults and contract lines; those go to the rules audit.
@@ -242,6 +249,8 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
   until it is used after the window.** Decided by Mike, 2026-10-10, loosely held; revisit after
   ~5 lived days. Why: completed intentions are inhibited, gently; zeroing salience and
   feeling (the first build) archived felt facts and agreed conventions within weeks.
+  **Overtaken (2026-10-11): Mike cut the spent slope; after its window a dated memory is back on
+  its own curve (item 2)** (#386).
 - **A dream replay or a reflection's citation re-anchors the curve** (as a use does, without
   being one). Why: the synthesis says a replay revives; a return's longer stability alone
   lifts a faded default note by about 0.01, not back into reach.
@@ -278,6 +287,8 @@ Calls the synthesis left open, made in code (each carries its own `Decided by` c
   under the new curve those stay in reach for months. New memories, claimed by attention, fade
   as designed. No re-score was done (decided: no one-off fixes). A one-time scale-down of old
   claims is a separate decision for Mike.
+  **Overtaken (2026-10-10, 10-14): Mike decided the old-claims era, which reads old claims at
+  today's defaults, and on 10-14 made it the whole salience the curve reads** (#377, #494).
 
 ### Decided by the Group 1c builder, 2026-10-10, lightly held; revisit after ~5 lived days
 
@@ -306,6 +317,9 @@ were refined by b2+f8 at the review of #369, named where they were):
 - **What a session said and nobody wrote up stays owed for 14 days of use (was 3)**, and its
   text is kept that long. Why: on the 10-10 snapshot 18 owed stretches lapsed unwritten; the
   night takes four sessions, oldest first, and did not reach them in time.
+  **Overtaken (2026-10-13), the text half only: a debt still lapses after 14 days of use, but the
+  text is never kept more than 14 days after the session's last activity, owed or not, and goes 3
+  days after its write-up** (#468, 0.3.21).
 - **The per-session ask limit yields to a stretch that is due.** At the limit a session is
   still asked when it holds unwritten pieces that are due (three of them, half an hour on).
   Why: the limit refused 84 asks in 4 sessions, 35 of them while something was owed; review
@@ -329,6 +343,8 @@ were refined by b2+f8 at the review of #369, named where they were):
 ### Decided by random-06, 2026-10-11, lightly held (the wake's "Arriving:" order)
 
 - Decided by random-06, 2026-10-11, lightly held: "Arriving:" ranks plain reminders first, then nearest date — a plain reminder due the morning the wake is read, then every other plain one, then the quiet ones, each by nearest date (whole days either side, so a date in its grace days counts as near as one as far ahead; the warmth order only breaks a tie). The cap stays 2 and the "+N more arriving" line names the rest. Why: the 0.3.17 release check on a copy of Mike's store found his Oct-15 tax deadline (plain) missing from the wake on 10-13, because two quiet items due 10-14 took both lines. Builder's choice, for review: "nearest" counts days either side rather than putting dates still ahead before dates behind — the existing order of a reminder "was due yesterday" beside one due tomorrow is kept that way.
+  **Overtaken (2026-10-16): "Coming up" lists only what is due today; later and overdue dates are
+  counted in its one line, with ids** (#511, 0.3.25).
 
 ### Decided by the arriving-plain builder, 2026-10-11, lightly held (doctor's Vectors line on a new install)
 
@@ -337,6 +353,8 @@ were refined by b2+f8 at the review of #369, named where they were):
 ### Decided by the follow-ups builder, 2026-10-11, lightly held (the wake's Yesterday line)
 
 - Decided by the follow-ups builder, 2026-10-11, lightly held: at a session start the Yesterday line names a chapter by title and id when this session's own directory wrote it, or when it is about me, us or the owner and its directory's scope is on (the "About me, from another directory" gate); every other chapter of that day joins the line's "and N more" count, and when they are all there is the line is the count alone ("chapters from N sessions in other directories"). A chapter whose row recorded no directory counts as another directory's. The turn-end's and `rebrief`'s published render keep the store-wide line. Why: the gate is the reader's — own directory against another, and the scope setting the host hands the wake — and the published bundle has no reader, so it stays as it was; it reaches a session only when the session-start assembly falls back (a bundle an older build published, another ceiling), filed as self INTERFACE-GAPS §14.
+  **Overtaken (2026-10-18): the Yesterday line names the other folders ("and 2 sessions in
+  ~/counterparts") instead of a count** (#517, 0.3.26).
 - Decided by the follow-ups builder, 2026-10-11, lightly held: the plugin's first-run lock in the temp directory is waited on only when it is a directory this user owns (not a link); anything else at its name is passed over, left where it is, and the install runs without the lock. Why: on Linux the temp directory is a shared `/tmp`, the lock's name is predictable, and with the sticky bit another user's directory there can be neither removed nor waited out — every first run waited its 20 s and failed. A per-user path alone does not close it (its name is just as predictable), so some fallback is needed either way; the lock only keeps the hook and the server, starting together, from installing at once, and `install` writes the same two things either way (measured: two first runs racing with no lock between them, every round one valid configuration and store).
 
 ### Decided by the rollback builder, 2026-10-11, lightly held (`counterparts rollback`)
@@ -377,6 +395,8 @@ were refined by b2+f8 at the review of #369, named where they were):
   names no lower tier. Why: `drewOn` lands at one session's Stop, and the open that should
   lift it is usually another session's; #371 lifted only within a session. Missed: an engaged
   credit whose return was refused because another return already counted that day.
+  **Overtaken (2026-10-19): drewOn is a full use itself, so there is nothing to lift while the
+  experiment runs** (#525, 0.3.27).
 - Decided by the drewOn builder, 2026-10-11, lightly held: "at most 3 per boundary" is per
   recall turn, shared by `session_end` and `chapter` (both answer the same ask, in the turn
   the Stop opened); only credits that land use a slot, so a refused id never pushes a later
@@ -763,6 +783,8 @@ were refined by b2+f8 at the review of #369, named where they were):
   at the current threshold; a 0.05 link passes 0.6% of its node). The lever if it stays
   noisy: the write's own turn and a deliberate question near it only, no recent-turns window
   for a batch's memories. (Tightened before merge: see the #423 reviewer's bullets below.)
+  **Overtaken (2026-10-19): no write-time links at all, as an experiment agreed with Mike
+  (`WRITE_LINK_MAX` 0)** (#528, 0.3.27).
 - Decided by the Group 4 builder, 2026-10-11, lightly held (review 06 C4, the ants rule): no
   "a reinforced edge fades slower" in this build, and no column. It could be computed from what
   is stored — a stability that grows with the edge's own weight above one co-use (e.g. linear
@@ -819,6 +841,7 @@ were refined by b2+f8 at the review of #369, named where they were):
   window; one written mid-session keeps what was in mind. Why: Mike's rule was "like a brain,
   unless there's a big downside", and 14 of 14 batch links hand-read as noise: what was in
   mind at a session's end is not what each memory written then was about.
+  **Overtaken (2026-10-19): no memory gets write-time links now** (#528, 0.3.27).
 - Decided by the #423 reviewer, 2026-10-11, lightly held: "mid-session" is the jot door (the
   note tool), read from the memory's `gate.deposit` row; a session-end write-up, a catch-up's
   write-up and a chapter copy (no deposit row) get no window, and so does any memory whose row
@@ -827,6 +850,7 @@ were refined by b2+f8 at the review of #369, named where they were):
   the two turns before it 2, 4, 14. The door, not timing, because timing (60 s apart) splits
   the jots nearly in half and would give a lone session-end memory a window; chapter copies
   were getting write-time links too.
+  **Overtaken (2026-10-19): no memory gets write-time links now** (#528, 0.3.27).
 - Decided by the #423 reviewer, 2026-10-11, lightly held, against the coordinator's decision
   that a batch memory may still link to a deliberate question's answer within 15 minutes: no
   deliberate-question links for any door (`WRITE_LINK_ASKED_MS` 0, off; one number restores
@@ -839,6 +863,7 @@ were refined by b2+f8 at the review of #369, named where they were):
   fired on the bench store (every write a session-end write-up, no recall while it was
   written), before or after; one dream's replay links it. The hermetic clinic test now writes
   through the jot door.
+  **Overtaken (2026-10-19): no memory gets write-time links now** (#528, 0.3.27).
 - Decided by the #423 reviewer, 2026-10-11, lightly held: Association goes amber for links
   laid with none reaching recall only once the store has lived 14 days and laid 20 links in
   the 7-lived-day window (`vitalAfter`); before that it is waiting on the dashboard ("No
@@ -1251,6 +1276,8 @@ were refined by b2+f8 at the review of #369, named where they were):
   reads as "the row has a real use of its own": an awake, reflection or engaged return. An engaged-only day
   counts `ENGAGED_RECURRENCE_WEIGHT` (0.5) of a day, and at least one day must be a full one ("half, never
   alone"). Why: an `engaged`-source anchor alone would shut out every row whose only uses were referenced ones.
+  **Overtaken (2026-10-19): a drewOn's return is an awake one now, a full recurrence day, while the
+  experiment runs** (#525, 0.3.27).
 - Decided by the group3a builder, 2026-10-11, lightly held: a memory a later member of its slot settled over
   (`changed`) does not cross by the slow lane. The slot's recurrence lifts its CURRENT state. Why: otherwise
   an outdated state ("I preferred X") could become core on the strength of its successor's use. The fast lane
@@ -1677,6 +1704,8 @@ were refined by b2+f8 at the review of #369, named where they were):
   for day items the bound covers the whole lane, grace days included; it bounds nothing today. Leaving the
   grace-day ("was due") lines out of `near` would restore a bound. The page's borrowing still outranks
   these lines, and "Still open"'s first item is rescued before them.
+  **Overtaken (2026-10-16): "Coming up" lists only what is due today, on Mike's word, so lines due
+  in the next three days are counted, not listed** (#511, 0.3.25).
 - Decided by COUNTERPARTS, 2026-10-12, lightly held (built here): once a QUIET day item's date is behind the
   day asked about, the wake's lane applies the cue-only brakes to it again (over-fired, once a day, once a
   session, held for after). Why: #442's reviewer found that a quiet item cued twice in its lead days rode
@@ -1874,6 +1903,7 @@ were refined by b2+f8 at the review of #369, named where they were):
 - Decided by the plain-words builder, lightly held: the lane headings are renamed ("Coming up:", "Might be relevant:"), and the old headings stay readable. `LEGACY_FRAMING` and `headingsOf` (self/briefing.ts) let `arrivingTense`, `collapsedLane`, `countedLanes` and the console's lane splitters read a wake bundle stored under "Arriving:" / "Nearby, if it helps:" for the one delivery after an upgrade; nothing composes the old text. Why: doctor and the console read stored bundles, and a rename that broke them for a session would be worse than the jargon.
 - Decided by the plain-words builder, lightly held: style memories name the person when `ownerDisplayName()` knows them, otherwise "They like …"; the name step stores "They like to be called X." (the name is not known yet). `PUSHBACK_BASELINE` became `pushbackBaseline(name)`. Why: stored text is read back by the person; "the owner" is internal vocabulary. The MCP enum "owner" is untouched.
 - Decided by the plain-words builder, lightly held: the retention line says text is deleted a week after the session's last activity or end (whichever is latest), a still-owed write-up lapses after about two weeks of use, and backups hold it about 14 days longer. Why: it must stay exact; it is longer than the old line on purpose.
+  **Overtaken (2026-10-13): text goes 3 days after its write-up, never past 14 days, and backups hold none; the line says so** (#468, 0.3.21).
 - Decided by the plain-words builder, lightly held: "Last here" and "Yesterday" no longer print "N chapters" beside an id, and dates print as "Oct 11" via `stampWords`, applied where `counterpart.ts` builds the stamps (`time.ts#localStamp` still prints MM-DD for other lines). "About me, from another directory:" and "Today, elsewhere: N other directories" also say "project". Why: ids are what Claude needs to recall; the count is not.
 - Decided by the plain-words builder, lightly held: doctor's clock line prints "day N of use" and "last session end" in place of "lived day" and "newest boundary", and the absent-row line says "no session has ended here yet". Chapter headings stored in episode bodies ("lived day N") are parsed by code and are untouched. Why: wording only; Wake-line logic and finding keys unchanged.
 - Decided by the plain-words builder, lightly held: left alone, as outside the list: the dashboard's "Arriving" label and "Nearby" lane mention, the dashboard's own "lived day" wording, and CLI help for commands other than scope and self-page. Why: not named in the job; a later pass can take them.
@@ -1881,6 +1911,7 @@ were refined by b2+f8 at the review of #369, named where they were):
 ### Decided by the #456 reviewer, 2026-10-12, lightly held
 
 - Decided by the #456 reviewer, 2026-10-12, lightly held: the retention line is shortened to "Session text is kept until I've written it up and the session has ended, then deleted a week later. If a write-up is still owed, the text is let go after about two weeks of use. Backups hold it about 14 days longer." Why: checked against `remember/owes.ts` (7 days from the latest of last activity, write-up mark and session end; an open or owed session is never deleted), `LAPSE_DAYS_OF_USE` 14 and the snapshots' `DEFAULT_KEEP` 14; the shorter line says the same and reads plainly. The two edges it leaves out: a session with nothing owed goes a week after its last activity, and a session the host never closes counts as ended once its registry record ages out (a week).
+  **Overtaken (2026-10-13): the retention line was rewritten for the simpler retention (3 days after a write-up, 14 at most, no text in backups)** (#468, 0.3.21).
 
 ### Decided by the dashboard-words builder, 2026-10-12, lightly held (wording)
 
@@ -1909,6 +1940,7 @@ were refined by b2+f8 at the review of #369, named where they were):
 - Decided by the sidebar fox builder, 2026-10-12, lightly held: the sidebar's search box is hidden for 0.3.20
   behind `COUNTERPARTS_SIDEBAR_SEARCH=1`. Why: in the owner's real sessions a click never put the keyboard in it,
   and it could not be checked live without touching his live memory (hooks/sidebar/NOTES.md, "The fox").
+  **Overtaken (2026-10-14): the search box is gone from the sidebar** (0.3.22).
 - Decided by the sidebar fox builder, 2026-10-12, lightly held: the fox holds one still frame between moments and
   does not breathe in a loop. Why: the owner asked for less movement, and the breathing bob was the trial's
   suspected flicker. A still hold also means a single timer wake for 8–20 s.
@@ -1920,6 +1952,8 @@ were refined by b2+f8 at the review of #369, named where they were):
 - Decided by the sidebar fox builder, 2026-10-12, lightly held: pictures are tried only where the environment
   says kitty or Ghostty, outside tmux and screen. Two refused picture blits switch the session to sextants. Why:
   the engine gives a mod no capability flag, and elsewhere an Image draws dim alt text.
+  **Overtaken (2026-10-15): the fox tries a picture first in every terminal and falls back on the
+  engine's own refusal, not the terminal's name** (#498, 0.3.25).
 - Decided by the PR #460 reviewer, 2026-10-12, lightly held: the sextant tier gives its Text runs hand-picked
   xterm-256 colours (`TEXT_256` in fox.ts), spelt so chalk's rounding and a nearest-colour mapping both land on
   them. Why: on the owner's iTerm the Text colours came out in 256 colours, and chalk's rounding turned the rust
@@ -2091,9 +2125,13 @@ were refined by b2+f8 at the review of #369, named where they were):
   hidden them first. Mike proposed rating every footnote (1–10); 0–3 with anchors was chosen
   because self-ratings on a wide scale bunch and lean polite. Cost: about 75 more characters
   on each due Stop ask, which now also names drewOn.
+  **Overtaken (2026-10-19): ratings count as use (3 a full use, 2 useful, 1 on topic, an unrated
+  showing a glimpse), as an experiment agreed with Mike** (#525, 0.3.27).
 - Decided by Mike, 2026-10-14, lightly held: **habituation (ignoring lowers how readily a
   memory surfaces) stays unbuilt** until the ratings give a real signal. Never a strength
   change, as before.
+  **Overtaken (2026-10-19): light habituation is built, as an experiment: rated 0 in two sessions
+  within 7 lived days raises a memory's bar ×1.5, never its strength** (#525, 0.3.27).
 - Decided by Mike, 2026-10-14, lightly held: **routine work is left at the default salience
   by the tool text, not by a code change** (#493, option A). Why: of 494 new work memories
   since 10-11, 40 were claimed ≤ 0.25 and the median claim was 0.40 (about 9 lived days in

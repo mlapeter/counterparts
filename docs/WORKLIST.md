@@ -60,9 +60,26 @@ repeating them.*
   memory that did was the stale one saying backups copy spans, so a non-problem got flagged. Same root as the 10-19
   big-picture thread 1 (memory and use barely touch). Take this test case, and footnote noise (~2 of 7 useful in
   ~/random on 10-20; 47% noise / 18% useful measured 10-19), into the ~10-22 check before designing anything.
-- **The 10-10 "Decisions to review" list** in [IMPROVEMENTS](IMPROVEMENTS.md): ~100 entries stitched from
-  `decisions.d/` since 10-10, its status still "open, Mike walks this list". Since then every change goes in as an
-  experiment and CHECK-AFTER tracks the ones that need a look. Proposal: retire the walk and say so in the file.
+- **From the retired 10-10 decisions list** ([IMPROVEMENTS](IMPROVEMENTS.md), "Decisions to review"; retired as a
+  walk 10-20 with Mike's agreement, now a record). Promised a look that never came, or sent for Mike's review with
+  no sign he saw it:
+  - *Skill and place salience weigh 1.0* (Mike 10-10, "revisit after ~5 lived days"); no check since. His call
+    to keep: skill notes could now crowd reach if they're over-written. Heading: "Decided by the Group 1a builder,
+    2026-10-10".
+  - *The symmetry tripwire flags only up-ratchets* (Mike 10-10, same promise, same heading); no check since. His
+    call to keep: it no longer sees a memory falling too fast.
+  - *Tool descriptions trimmed to what changes a call* (#415, "needs the bench A/B before merge"): merged 10-11
+    with no A/B on record (the probe fixtures are still in `test/fixtures/description-probe/`). It changes what the
+    model reads at every write-up. Heading: "Decided by the context-trims builder, 2026-10-11".
+  - *A note claims only its own turn of the backlog* (coordinator 10-11, "for random-06's and Mike's review"). It
+    decides what counts as written up. Heading: "Decided by the coordinator, 2026-10-11 (a note claims its own turn)".
+  - *Routine work left at the default salience by the tool text* (Mike 10-14): "option B (scale work claims in
+    code) only if the median doesn't move"; the median hasn't been read again, and option B is his to choose. Heading: "Decided by Mike,
+    2026-10-14 (the Group 1 check-in)".
+  - *A core memory being reconsidered that is also unsettled never takes the first "Still open" place*, against
+    #430's rotation; "revisit if one sits unanswered more than a week", with nothing watching it. Keeping or
+    retiring a core memory is partly his decision, so a flag he never sees matters. Heading:
+    "Decided by the wake-polish builder, 2026-10-18", "Left open by the review".
 - **Benchmark-motivated changes from 10-18** (Mike: lightly held, review in about a week): #516's "may be inside the
   window" label and the rest of that day's list. Due ~10-25.
 - **The synthetic bench's drift**: re-tune check (BENCHMARK session's).
