@@ -4685,11 +4685,13 @@ export class Store {
    * work, and cross only as the about-me chapter line's), a chapter's copy,
    * or the nightly run's. The title, or the body's first 240 characters when
    * there is none; the columns only, no prose read. Which DIRECTORY may be
-   * named is the caller's gate (`Counterpart#elsewhereGate`).
+   * named is the caller's gate (`Counterpart#elsewhereGate`). With `sessions`
+   * (2026-10-20, the other sessions open in this folder), only those sessions'
+   * rows, and the limit is per session instead of per directory.
    */
   memoryTitlesByScopeSince(
     at: number,
-    opts?: { readonly until?: number; readonly perScope?: number },
+    opts?: { readonly until?: number; readonly perScope?: number; readonly sessions?: readonly string[] },
   ): { id: string; scope: string; session: string | null; title: string; at: number; tier: number; about: string | null; kind: string }[] {
     return memoryReads.memoryTitlesByScopeSince(this, at, opts);
   }

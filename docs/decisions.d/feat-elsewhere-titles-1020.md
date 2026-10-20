@@ -41,9 +41,21 @@ differently.
   last told: its window already starts at the wake or at the last line it showed
   (`sinceSeen`), so a title one line named the next does not name again, and a title the
   wake named is not named at the first line. Nothing new, no line, as before.
-- **Not covered:** a second session in this same folder. Both lines skip this folder by
-  design ("Last here", "Last said here" and the handoffs speak for it), and that stays.
-  Whether a live session here should be named too is a question for after the check.
+- **Other sessions open in this same folder** (added the same day, the coordinator's ask:
+  the commoner case, several sessions in ~/counterparts at once). A clause of their own,
+  after the other folders: `Here, also open: session 25e12e7d on Fable 5 since 10:05:
+  "…" (mem_…), "…" (mem_…)` — the session named as "Last here" names one (short id, the
+  model the host last saw), each live session here but this one, with up to two of its own
+  memories by the same title rules (status first, then work; not confidential, not me/us/
+  owner, not dated, not an open thread, not the nightly run's). The folder's scope needs no
+  asking: a session here reads this folder's work anyway. The clause shares the 300 bytes
+  and is kept longest: other folders give way before it, and last both are counted ("4 other
+  projects. Here, also open: 1 other session."). With no other folder the line is the clause
+  alone. "Since you started" names a session here only when it opened inside the window or
+  wrote something that may be named ("here, also open: session 25e12e7d: "…" (mem_…)"). In
+  the wake, "Work here" leaves a memory the clause printed to it (the line that says who is
+  at work on it); one the clause gave up for room is still a work line. The folder itself is
+  still not named by path, and an ended session here is still "Last here"'s.
 
 Check ~10-23 (`docs/CHECK-AFTER.md`): do parallel sessions avoid duplicate work, and are the
 titles useful or noise?

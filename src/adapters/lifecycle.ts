@@ -674,6 +674,7 @@ export class Lifecycle implements HostLifecycle {
           lastAt: Math.max(r.lastBoundaryAt, r.endedAt ?? 0),
           live: isLive(r, now),
           endedAt: r.endedAt,
+          model: r.model ?? null,
         }));
       },
     };

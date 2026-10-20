@@ -133,8 +133,8 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere } from "./coverage/index.js";
-import { ELSEWHERE_TITLES_MAX, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
-import type { ChapterHere, LastHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
+import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
+import type { ChapterHere, HereSession, LastHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
 import { LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, lastExchangeLine, withExchange } from "./handoff/last-exchange.js";
 import type { LastExchange } from "./handoff/last-exchange.js";
 import { addDays, daysBetween, isDay, localDate, localStamp, localStampAfter, startOfLocalDay, yearOf } from "./time.js";
@@ -911,7 +911,9 @@ export class Counterpart {
    *     there is no line;
    *   - this session's own directory, this session, and the nightly run's
    *     directory (the store's own) are never named — "Last here" and the
-   *     handoffs speak for this directory;
+   *     handoffs speak for this directory — except, since 2026-10-20, the
+   *     other sessions still open in it, by id and work titles, in a clause
+   *     of their own ("Here, also open:", `hereSessions`);
    *   - a chapter's title only on the "About me, from another directory"
    *     line's gate: not confidential, and a copy marked about me, us or the
    *     owner — never one the line already names;
@@ -968,7 +970,9 @@ export class Counterpart {
         const d = dirOf(c.scope);
         if (d.chapter === null || d.chapter.writtenAt < c.writtenAt) d.chapter = c;
       }
-      const lines = todayElsewhereLines([...dirs.values()] as TodayElsewhere[], zone);
+      // This folder's other open sessions (2026-10-20), the same title gates.
+      const mine = this.hereSessions(gate, here?.sessions?.() ?? [], since, until, { skip: new Set(this.store.openThreadIds()), startedSince: false });
+      const lines = todayElsewhereLines([...dirs.values()] as TodayElsewhere[], zone, mine);
       if (lines === null) return {};
       return lines.shorter.length === 0 ? { elsewhere: lines.line } : { elsewhere: lines.line, elsewhereShorter: lines.shorter };
     } catch {
@@ -1000,6 +1004,8 @@ export class Counterpart {
     crosses(c: ChapterHere): boolean;
     norm(scope: string): string;
     reader: string | null;
+    /** This session's own directory, normalized ("" when none). */
+    own: string;
   } | null {
     const exportsFrom = here?.exportsFrom;
     if (exportsFrom === undefined) return null;
@@ -1026,7 +1032,7 @@ export class Counterpart {
       if (reader !== null && c.session === reader) return false;
       return named(c.scope);
     };
-    return { named, crosses, norm, reader };
+    return { named, crosses, norm, reader, own };
   }
 
   /**
@@ -1063,6 +1069,57 @@ export class Counterpart {
       chosen.set(key, held.slice(0, ELSEWHERE_TITLES_MAX).map(({ id, title, at }) => ({ id, title, at })));
     }
     return chosen;
+  }
+
+  /**
+   * THE OTHER SESSIONS OPEN IN THIS FOLDER (2026-10-20, Mike's go via the
+   * coordinator, an experiment): the commoner case of parallel work, several
+   * sessions in one folder at once, which both elsewhere lines skipped by
+   * design. Each live session in `gate.own` — not this one, not the nightly
+   * run's (the store's own folder) — with up to two of its memories written
+   * in `[since, until)` by the same title rules as another folder's
+   * (`Store#memoryTitlesByScopeSince` by session, `isWorkMemory`, not in
+   * `skip`), filed in this folder. The folder's own scope needs no asking:
+   * a session here reads this folder's work anyway. `startedSince`: the
+   * start is said only when it falls inside the window ("Since you started").
+   * Throws only what the store throws.
+   */
+  private hereSessions(
+    gate: { norm(scope: string): string; reader: string | null; own: string },
+    sessions: readonly WakeSession[],
+    since: number,
+    until: number,
+    opts: { readonly skip?: ReadonlySet<string>; readonly startedSince: boolean },
+  ): HereSession[] {
+    const own = gate.own;
+    if (own.length === 0 || own === gate.norm(this.store.dir)) return [];
+    const live = sessions.filter(
+      (s) => s.live && s.session !== gate.reader && s.startedAt < until && gate.norm(s.scope) === own,
+    );
+    if (live.length === 0) return [];
+    const ids = [...new Set(live.map((s) => s.session))];
+    const titles = new Map<string, (MemoryHere & { tier: number })[]>();
+    for (const m of this.store.memoryTitlesByScopeSince(since, { until, perScope: ELSEWHERE_TITLES_MAX, sessions: ids })) {
+      if (m.session === null || opts.skip?.has(m.id) === true || gate.norm(m.scope) !== own) continue;
+      if (m.tier !== 0 && !isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
+      const held = titles.get(m.session) ?? [];
+      held.push({ id: m.id, title: m.title, at: m.at, tier: m.tier });
+      titles.set(m.session, held);
+    }
+    const out: HereSession[] = [];
+    for (const id of ids) {
+      const s = live.filter((x) => x.session === id).sort((a, b) => b.lastAt - a.lastAt)[0];
+      if (s === undefined) continue;
+      const held = (titles.get(id) ?? []).sort((a, b) => a.tier - b.tier || b.at - a.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      out.push({
+        session: id,
+        model: s.model ?? null,
+        startedAt: opts.startedSince && s.startedAt < since ? null : s.startedAt,
+        lastAt: s.lastAt,
+        titles: held.slice(0, ELSEWHERE_TITLES_MAX).map(({ id: mid, title, at }) => ({ id: mid, title, at })),
+      });
+    }
+    return out;
   }
 
   /**
@@ -1124,7 +1181,8 @@ export class Counterpart {
         const d = dirOf(c.scope);
         if (d.chapter === null || d.chapter.writtenAt < c.writtenAt) d.chapter = c;
       }
-      return sinceElsewhereLines([...dirs.values()] as SinceElsewhere[], { at: since, started: window.started, now: until }, this.store.zone());
+      const mine = this.hereSessions(gate, here.sessions?.() ?? [], since, until, { startedSince: true });
+      return sinceElsewhereLines([...dirs.values()] as SinceElsewhere[], { at: since, started: window.started, now: until }, this.store.zone(), mine);
     } catch {
       return null;
     }
@@ -1311,7 +1369,10 @@ export class Counterpart {
     // here because the stored bundle has no directory. It goes ABOVE whatever
     // handoff block is chosen, in the room that block leaves — the handoff and
     // "Last here" are chosen first and never give way to it (`withWorkHere`).
-    const work = this.workHereLines(scope);
+    // A memory the elsewhere line printed above already names — another
+    // session here at work on it (2026-10-20) — is that line's, not repeated
+    // as a work line; one the line gave up for room is still a work line.
+    const work = this.workHereLines(scope, elsewhereNamedIn(result.text));
     if (newest === undefined && aboveLadder.length === 0) return { kind: "work-only", scope, budget, work, lastHere };
     const fits = (block: string): ReturnType<typeof spliceBeforeSentinel> | null => {
       const spliced = spliceBeforeSentinel(result.text, block);
@@ -1384,7 +1445,7 @@ export class Counterpart {
    * `WORK_HERE_MAX` chosen from them (`rotateWork`, 2026-10-02); `found` is
    * how many were ranked, for the overflow row. Never throws.
    */
-  private workHereLines(scope: string): { lines: string[]; found: number } {
+  private workHereLines(scope: string, skip: ReadonlySet<string> = new Set()): { lines: string[]; found: number } {
     const t = this.self.tunables;
     if (!t.CRAFT_AT_DELIVERY || scope.trim().length === 0) return { lines: [], found: 0 };
     try {
@@ -1394,7 +1455,7 @@ export class Counterpart {
         max: t.WORK_HERE_MAX,
         pool: t.WORK_HERE_POOL,
         excerpt: t.WORK_HERE_EXCERPT,
-        skip: settledOver(this.store),
+        skip: skip.size === 0 ? settledOver(this.store) : new Set([...settledOver(this.store), ...skip]),
         year: yearOf(this.store.today()),
       });
       return { lines: rotateWork(ranked, t.WORK_HERE_MAX, day), found: ranked.length };

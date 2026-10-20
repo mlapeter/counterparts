@@ -2261,7 +2261,10 @@ plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of t
   above it is what it was. `self/work.ts#isWorkMemory` is now also read by
   `Counterpart#elsewhereTitles`, so "work" means one thing in "Work here" and in the
   elsewhere line. A memory "Still open" may list is left to that lane (the store's
-  `openThreadIds`, read once at assembly). Decision: `docs/decisions.d/feat-elsewhere-titles-1020.md`.
+  `openThreadIds`, read once at assembly). The same day the line gained "Here, also open:",
+  this folder's other live sessions with their work, and "Work here" (composed at delivery
+  in `counterpart.ts`) leaves a memory that clause printed to it. Decision:
+  `docs/decisions.d/feat-elsewhere-titles-1020.md`.
 
 ## 2026-10-20 — the nightly writers held to the room; past it, the short version first (Mike's go, lightly held, an experiment)
 

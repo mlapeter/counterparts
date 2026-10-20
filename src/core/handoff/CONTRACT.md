@@ -208,7 +208,13 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     open" may list. Every form stays within `TODAY_ELSEWHERE_MAX_BYTES` (300); titles give
     way before folders, a chapter's title before a memory's. "Since you started" names only
     memories written since the session was last told (its window), so no title repeats.
-    Still never a word of a span or a handoff's body.
+    Still never a word of a span or a handoff's body. **Other sessions open in this folder**
+    (the same day, the coordinator's ask): a clause of their own, `HERE_ALSO_OPEN` ("Here,
+    also open: session 25e12e7d on Fable 5 since 10:05: "…" (mem_…)"), from
+    `Counterpart#hereSessions` — each live registry session in this folder but the reader,
+    with up to two of its own memories by the same title rules — kept longest in the shared
+    300 bytes. The folder is still never named by path; an ended session is "Last here"'s.
+    "Work here" leaves a memory the printed clause names to it (`elsewhereNamedIn`).
 
 12. **[M] A handoff says when it may be out of date** (2026-10-01; one sentence since
     2026-10-18, `staleWords`). Beside who and when, at delivery, each handoff shown: how old

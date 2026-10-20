@@ -291,3 +291,145 @@ describe("Since you started names only what is new", () => {
     expect(prompt(w, at(D2, 13))).toBeUndefined();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Another session open in this same folder (2026-10-20, the coordinator's
+// addition: the commoner case — several sessions in ~/counterparts at once)
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("Here, also open: the other sessions in this folder", () => {
+  /** Two more sessions: P beside S in HERE, Q in HERE too. */
+  const P = "25e12e7d-0000-4000-8000-000000000025";
+  const Q = "3c3c3c3c-0000-4000-8000-00000000003c";
+
+  function wakeOf(w: World, session: string): string {
+    const lc = new Lifecycle({ counterpart: w.c, config: { dataDir: storeDir }, configPath: config, now: () => w.now() });
+    const text = lc.composeWake({ sessionId: session, scope: HERE, at: D2 }, BUDGET).text;
+    expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
+    return text;
+  }
+  const hereLine = (text: string): string | undefined =>
+    text.split("\n").find((l) => l.startsWith("Here, also open: ") || l.startsWith("Today, elsewhere: "));
+
+  test("two live sessions in one folder each see the other's work by title, named as Last here names a session — and never their own", () => {
+    const w = world(at(D2, 8));
+    recordSession(storeDir, { sessionId: S, scope: HERE, phase: "start", at: at(D2, 8, 5), model: "claude-opus-5-5" });
+    recordSession(storeDir, { sessionId: P, scope: HERE, phase: "start", at: at(D2, 8, 10), model: "claude-fable-5" });
+    const mine = memory(w, at(D2, 8, 20), { session: S, scope: HERE, title: "Reading the wake check", body: "Reading.", about: "work", status: "planned" });
+    const theirs = memory(w, at(D2, 8, 30), { session: P, scope: HERE, title: "Roadmap: the notes module", body: "Notes.", about: "work", status: "planned" });
+    const theirs2 = memory(w, at(D2, 8, 25), { session: P, scope: HERE, title: "Dream throughput numbers", body: "Numbers.", about: "work" });
+    w.set(at(D2, 9));
+    const forS = hereLine(wakeOf(w, S)) ?? "";
+    expect(forS).toBe(`Here, also open: session 25e12e7d on Fable 5 since 08:10: "Roadmap: the notes module" (${theirs}), "Dream throughput numbers" (${theirs2}).`);
+    expect(forS).not.toContain(mine);
+    const forP = hereLine(wakeOf(w, P)) ?? "";
+    expect(forP).toBe(`Here, also open: session 5e550000 on Opus 5.5 since 08:05: "Reading the wake check" (${mine}).`);
+    expect(forP).not.toContain(theirs);
+    // With another folder too, the clause follows the folders, and is kept longest.
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 8, 40) });
+    memory(w, at(D2, 8, 45), { session: A, scope: THERE, title: "Bakery work", body: "Work.", about: "work" });
+    w.set(at(D2, 9, 5));
+    const both = hereLine(wakeOf(w, S)) ?? "";
+    expect(both).toStartWith(`Today, elsewhere: ${tilde(THERE)} open since 08:40 (live)`);
+    expect(both).toContain(`. Here, also open: session 25e12e7d on Fable 5 since 08:10: "Roadmap: the notes module" (${theirs})`);
+  });
+
+  test("the same title gates: no confidential, me/us/owner, dated, open-thread, nightly or chit-chat title; an ended session, or one in another folder, is not here", () => {
+    const w = world(at(D2, 8));
+    recordSession(storeDir, { sessionId: S, scope: HERE, phase: "start", at: at(D2, 8) });
+    recordSession(storeDir, { sessionId: P, scope: HERE, phase: "start", at: at(D2, 8, 10) });
+    recordSession(storeDir, { sessionId: Q, scope: HERE, phase: "start", at: at(D2, 8, 12) });
+    recordSession(storeDir, { sessionId: Q, scope: HERE, phase: "end", at: at(D2, 8, 50) });
+    memory(w, at(D2, 8, 20), { session: P, scope: HERE, title: "CONFIDENTIAL rent", body: "Rent.", about: "work", status: "planned", meta: { confidential: true } });
+    memory(w, at(D2, 8, 21), { session: P, scope: HERE, title: "OWNERMARK how he likes it", body: "So.", about: "owner", status: "done" });
+    memory(w, at(D2, 8, 22), { session: P, scope: HERE, title: "USMARK our joke", body: "Ha.", about: "us" });
+    memory(w, at(D2, 8, 23), { session: P, scope: HERE, title: "CHITCHAT rain", body: "Rain.", about: "world" });
+    memory(w, at(D2, 8, 24), { session: P, scope: HERE, title: "OPENTHREAD whether to ship", body: "Whether to ship.", about: "work", meta: { unresolved: true } });
+    memory(w, at(D2, 8, 25), { session: P, scope: HERE, title: "NIGHTLY gist", body: "Gist.", about: "work", source: "dreamed" });
+    w.set(at(D2, 8, 26));
+    w.c.store.put({ type: "memory", kind: "fact", title: "DATED ship by Friday", body: "Ship.", about: "work", status: "planned", eventDate: "2026-10-23", origin: { session: P, scope: HERE } });
+    memory(w, at(D2, 8, 30), { session: Q, scope: HERE, title: "ENDEDSESSION its work", body: "Work.", about: "work" });
+    const ok = memory(w, at(D2, 8, 40), { session: P, scope: HERE, title: "The one that may show", body: "Fine.", about: "work" });
+    w.set(at(D2, 9));
+    const line = hereLine(wakeOf(w, S)) ?? "";
+    expect(line).toBe(`Here, also open: session 25e12e7d since 08:10: "The one that may show" (${ok}).`);
+    for (const never of ["CONFIDENTIAL", "OWNERMARK", "USMARK", "CHITCHAT", "OPENTHREAD", "NIGHTLY", "DATED", "ENDEDSESSION", "3c3c3c3c"]) {
+      expect(line).not.toContain(never);
+    }
+  });
+
+  test("Work here leaves a memory the clause names to it, and keeps one the clause gave up", () => {
+    const w = world(at(D2, 8));
+    recordSession(storeDir, { sessionId: S, scope: HERE, phase: "start", at: at(D2, 8) });
+    recordSession(storeDir, { sessionId: P, scope: HERE, phase: "start", at: at(D2, 8, 10) });
+    const named = memory(w, at(D2, 8, 30), { session: P, scope: HERE, title: "Roadmap: the notes module", body: "The notes module comes after the wake polish.", about: "work" });
+    w.set(at(D2, 9));
+    const text = wakeOf(w, S);
+    expect(hereLine(text)).toContain(named);
+    expect(text.split("\n").filter((l) => l.includes(named))).toHaveLength(1);
+  });
+
+  test("the room: a live session here and other folders share the 300 bytes, this folder's sessions kept longest", () => {
+    const long = "A very long title about calibrating the seventh oven before the morning rush";
+    const dirs = Array.from({ length: 4 }, (_, i) => ({
+      scope: `/home/someone/folder-${String(i)}`,
+      firstAt: at(D2, 7, i),
+      lastAt: at(D2, 8, i),
+      live: true,
+      chapter: null,
+      memories: 3,
+      titles: [{ id: `mem_00000000000${String(i)}`, title: `${long} ${String(i)}`, at: at(D2, 8, i) }],
+    }));
+    const here = [
+      { session: P, model: "claude-fable-5", startedAt: at(D2, 8, 10), titles: [{ id: "mem_aaaaaaaaaaaa", title: long, at: at(D2, 8, 30) }, { id: "mem_bbbbbbbbbbbb", title: `Second ${long}`, at: at(D2, 8, 20) }] },
+    ];
+    const lines = todayElsewhereLines(dirs, ZONE, here);
+    const all = [lines?.line ?? "", ...(lines?.shorter ?? [])];
+    for (const form of all) expect(bytes(form)).toBeLessThanOrEqual(TODAY_ELSEWHERE_MAX_BYTES);
+    for (let i = 1; i < all.length; i += 1) expect(bytes(all[i] ?? "")).toBeLessThan(bytes(all[i - 1] ?? ""));
+    // Every form but the last names the session here; the last counts both.
+    for (const form of all.slice(0, -1)) expect(form).toContain("session 25e12e7d");
+    expect(all[all.length - 1]).toBe("Today, elsewhere: 4 other projects. Here, also open: 1 other session.");
+  });
+
+  test("Since you started names a session here only for what is new in it; nothing new, no line", () => {
+    const w = world(at(D2, 9));
+    recordSession(storeDir, { sessionId: P, scope: HERE, phase: "start", at: at(D2, 9) });
+    const before = memory(w, at(D2, 9, 10), { session: P, scope: HERE, title: "TOLDATWAKE roadmap draft", body: "Draft.", about: "work" });
+    const hooks = (): ClaudeCodeAdapter =>
+      new ClaudeCodeAdapter({
+        counterpart: w.c,
+        config: { dataDir: storeDir, owner: true },
+        configPath: config,
+        now: () => w.now(),
+        scope: { mode: "on", matched: HERE, entry: null } as ScopeVerdict,
+        command: "/bin/true",
+        args: ["runner"],
+        spawner: () => ({ pid: 4242 }),
+      });
+    const prompt = (t: number): string | undefined => {
+      w.set(t);
+      return hooks()
+        .userPromptSubmit({ sessionId: S, scope: HERE, at: D2, prompt: "where were we?" } as HookInput)
+        .injection.split("\n")
+        .find((l) => l.startsWith("Since "));
+    };
+    w.set(at(D2, 10));
+    const woke = hooks().sessionStart({ sessionId: S, scope: HERE, at: D2 } as HookInput).injection;
+    expect(woke).toContain(`Here, also open: session 25e12e7d since 09:00: "TOLDATWAKE roadmap draft" (${before}).`);
+    expect(prompt(at(D2, 10, 1))).toBeUndefined(); // arms
+    // P is still open and busy with nothing new: no line.
+    recordSession(storeDir, { sessionId: P, scope: HERE, phase: "boundary", at: at(D2, 10, 20) });
+    expect(prompt(at(D2, 10, 30))).toBeUndefined();
+    // P writes something: named, and only it.
+    const fresh = memory(w, at(D2, 10, 40), { session: P, scope: HERE, title: "Roadmap: notes module first", body: "Notes first.", about: "work", status: "planned" });
+    const first = prompt(at(D2, 10, 45)) ?? "";
+    expect(first).toBe(`Since you started (10:00): here, also open: session 25e12e7d: "Roadmap: notes module first" (${fresh}).`);
+    expect(first).not.toContain("TOLDATWAKE");
+    // A new session opens here: said with its start, an hour on.
+    recordSession(storeDir, { sessionId: Q, scope: HERE, phase: "start", at: at(D2, 11, 0) });
+    const second = prompt(at(D2, 11, 50)) ?? "";
+    expect(second).toBe("Since 10:45: here, also open: session 3c3c3c3c open since 11:00.");
+    expect(prompt(at(D2, 13))).toBeUndefined();
+  });
+});

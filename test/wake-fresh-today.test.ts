@@ -471,6 +471,9 @@ describe("Today, elsewhere", () => {
 
   test("another directory's live session, its gated chapter title, its memory count and its work title — never a work chapter, a body, a span's words or a handoff", () => {
     const m = morning();
+    // This folder's other session closed, so the line's room is the other
+    // folders' (a live one here is named too since 2026-10-20: elsewhere-titles.test.ts).
+    recordSession(storeDir, { sessionId: E, scope: HERE, phase: "end", at: at(D2, 9, 55) });
     const text = m.lc.composeWake({ sessionId: B, scope: HERE, at: D2 }, BUDGET).text;
     const line = lineOf(text);
     expect(line).toBe(

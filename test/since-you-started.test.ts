@@ -235,7 +235,12 @@ describe("Since you started", () => {
       chapter(w.c, { session, scope, title: `NOTNAMED chapter ${String(i)}`, about: "me" });
     }
     const line = prompt(w, at(10, 30)) ?? "";
-    expect(line).toBe(`Since you started (10:00): ${tilde(THERE)} open since 10:10, 3 memories: "WORKTITLE-oven-offset" (${worktitle}).`);
+    // This folder is not named by path; its other open session is (2026-10-20),
+    // without its chapter's copy.
+    expect(line).toBe(
+      `Since you started (10:00): ${tilde(THERE)} open since 10:10, 3 memories: "WORKTITLE-oven-offset" (${worktitle}). ` +
+        "Here, also open: session b0b0b0b3 open since 10:15.",
+    );
     for (const never of ["WORKCHAPTER", "KEPTHOME", "proofing timer", "SPANWORDS", "HANDOFFBODY", "NOTNAMED", tilde(WATCH), tilde(REST), tilde(FAR), tilde(HERE) + " ", tilde(storeDir)]) {
       expect(line).not.toContain(never);
     }

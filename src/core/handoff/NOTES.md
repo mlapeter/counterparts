@@ -608,8 +608,22 @@ Mike's go, lightly held, an experiment. Decision record:
   lane tests check their lanes with that line set aside. On the long temp paths of the
   since tests, two folders with a title each leave no room for the chapter: the chapter
   gives way first, by design.
-- **Not done:** a parallel session in this same folder is still not named (both lines skip
-  this folder); the per-prompt line still says nothing within its hour, so titles written
+- **The same folder** (added the same day, the coordinator's ask). `elsewhereForms` takes a
+  second list, this folder's other live sessions (`HereSession`), put FIRST in the entries
+  the ladder counts down, so other folders give way before them; they print as a clause of
+  their own after the folders ("… . Here, also open: …"), or alone ("Here, also open: …";
+  for the per-prompt line, "Since …: here, also open: …"), and the last form counts both. The
+  read is the same SQL partitioned by `origin_session` (`sessions` option), filtered to rows
+  filed in this folder. The folder's scope is not asked: `named()` still refuses this
+  folder, and nothing from here is new to a session here. A session that ran out its
+  registry TTL (4 h since its last boundary) is not live and is not named. One fixture had
+  to change because of it: `last-exchange`'s control wake (A's) now sees B open here, so B
+  is closed before it; `wake-fresh-today`'s first test closes its HERE session so the line's
+  room stays the other folders' as it pins.
+- **Work here.** `addHandoffPointer`'s work lines skip a `mem_` id the printed elsewhere
+  line holds (`elsewhereNamedIn`, read off the body text as the 10-20 episode dedupe reads
+  it), so another session's work shows once, in the line that says who is doing it.
+- **Not done:** the per-prompt line still says nothing within its hour, so titles written
   in that hour wait for the next line rather than being lost.
 
 Undo: `git revert` of the PR; nothing is stored differently.
