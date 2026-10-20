@@ -2334,7 +2334,8 @@ export class McpServer {
       answer = renderFacts(r);
       // The page's results only: the title tail (`r.tail`) is listed, not
       // shown with its words, so it is not seen, not quotable and not in
-      // `ids` (2026-10-20, from the benchmark loss read; lightly held).
+      // `ids` (2026-10-20, from the benchmark loss read; helps real recall
+      // too; lightly held, revisit).
       ids = r.memories.map((m) => m.id);
       body = {
         matched: r.matched,
@@ -2509,7 +2510,8 @@ export class McpServer {
         // look-up opened or a question's answer showed.
         ...boundedIds(delivered),
         // What a facts answer LISTED by title only (2026-10-20, from the
-        // benchmark loss read; lightly held, revisit ~10-27): not delivered,
+        // benchmark loss read; helps real recall too; lightly held, revisit
+        // ~10-27): not delivered,
         // so apart from `ids`; joined later against opens by id.
         ...(listed === null || listed.idCount === 0 ? {} : { tail: listed.idCount, tailIds: listed.ids }),
       });

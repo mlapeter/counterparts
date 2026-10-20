@@ -43,7 +43,8 @@ export interface RecallRowFields {
   readonly nights?: number;
   /**
    * A facts answer's title tail, by id (`facts.ts#FACTS_TAIL_SIZE`; 2026-10-20,
-   * lightly held): listed, not delivered — kept apart from the delivered ids
+   * from the benchmark loss read; helps real recall too; lightly held,
+   * revisit): listed, not delivered — kept apart from the delivered ids
    * so a later open by id can be joined against it (the ~10-27 check).
    */
   readonly tail?: readonly string[];

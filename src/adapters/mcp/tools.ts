@@ -838,7 +838,7 @@ const RECALL: ToolSpec = {
         "src/adapters/mcp/facts.ts#factsRecall (store.search per word with a limit of its document count; schemas#subjectsIn -> store.memoriesNaming; FACTS_MEANING_CAP)",
     },
     {
-      claim: `A facts answer opens with a count of distinct facts — \"12 match · showing ${String(FACTS_PAGE_SIZE)} · 2 more → page 2\" — and pages with page: 2, 3, … in a stable order. After the page's results it lists the next ${String(FACTS_TAIL_SIZE)} by title, id and date, one line each, to open by id (2026-10-20, lightly held). It says \"may not be everything\" only when a cap cut something or weak matches were left out, and says which.`,
+      claim: `A facts answer opens with a count of distinct facts — \"12 match · showing ${String(FACTS_PAGE_SIZE)} · 2 more → page 2\" — and pages with page: 2, 3, … in a stable order. After the page's results it lists the next ${String(FACTS_TAIL_SIZE)} by title, id and date, one line each, to open by id (2026-10-20, from the benchmark loss read; helps real recall too; lightly held, revisit). It says \"may not be everything\" only when a cap cut something or weak matches were left out, and says which.`,
       mechanizedBy: "src/adapters/mcp/facts.ts#renderFacts (FACTS_PAGE_SIZE, FACTS_TAIL_SIZE, FACTS_WEAK_FRACTION, meaningCapped)",
     },
     {
