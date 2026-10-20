@@ -2263,7 +2263,28 @@ plain one in turn) and `mem_9d9af2754e64` (born day 25). Undo: `git revert` of t
   whole and borrows nothing (`test/page-held-to-room.test.ts` §4).
 - **Not held**: a session's `self_page` and the owner's console. The 1,150 bytes between the
   target and the room stay theirs; that asymmetry is part of the experiment.
-- **Unsure**: `heldTonight` keys on the session and the calendar date, so a run that crosses
-  midnight is held once on each side; and a held page kept at the run's end is past the
-  room by construction, so on that night the wake shows its short version if it had one,
-  else the page whole as before.
+- **Unsure**: a held page kept at the run's end is past the room by construction, so on
+  that night the wake shows its short version if it had one, else the page whole as before.
+- **Review of #541 (same day).** Four fixes, each with a test in
+  `test/page-held-to-room.test.ts` §5:
+  - The night is the last 12 hours by the wall clock (`PAGE_HELD_NIGHT_MS`), not the
+    calendar date. Keyed on the date, a run crossing midnight held a door twice, and the
+    run's end (which read today's date) missed a hold made before midnight. `runNight`
+    passes its own start.
+  - No run end. Only `runNight` called `keepHeldPage`, but a night launched from a session
+    (the dream tool's `launch`, under the default `ask`) or a run killed after the hold never
+    reaches it, so #358's lost night came back there. The worker now keeps a held page at a
+    boundary once the hold is 30 minutes old (`PAGE_HELD_SETTLE_MS`), with the same version
+    guard, and only within the 12 hours. A writer still cutting is left alone; one cutting
+    past 30 minutes gets `version-moved` and the kept page handed back.
+  - The short version sent with a held page was stored raw on the refusal row. The page body
+    was the gate's text, but the short version was not, so a credential in it sat in the event
+    log for its 90-day retention. It now goes through the short version's own gates first,
+    and only what they keep is stored.
+  - The hold was looked for among the 50 newest refusal rows of every kind, so a run of other
+    refusals could push it out. Now the scan reads up to 1,000 rows, bounded by lived day.
+  - Checked and left alone: `counterparts delete activity-log` removes `sessions/log/` files
+    and not the events table, so a held page survives until it is kept. Retention is 90 lived
+    days. The database export copies the row, as it copies every page version. The dashboard
+    narrates the refusal without its body. A short version that is stale against its page is
+    null (`shortOf` checks the hash), so it is never shown first.

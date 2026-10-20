@@ -558,7 +558,7 @@ page past the room with a short version shows that in the wake. Revert: `PAGE_HE
   last one before the morning's first session), and whether it is within 4,600. The holds: `self.page.refused`
   rows with `reason: "past-room"` (`bytes`, `over`, `by`), and whether the same night then has a revised row by
   the same door within the room (cut), past it (kept on the second try), or one whose reason ends "kept at the
-  run's end" (never sent again).
+  run's end" or "kept at a later boundary" (never sent again; the second is a night with no run end).
 - **The wake:** the session-start wake's `elements=` count in its head tag (or `self.briefing` rows'
   `elements`) and the page's rung (`page.rung` on the same row: `whole`, or `short` past the room), against the
   10-20 morning: 4 sections down to 3 with a 4,956-byte page.

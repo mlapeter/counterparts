@@ -38,6 +38,10 @@
   6,472–7,100-byte page and a short version now shows the short version),
   `test/wake-trims.test.ts` and `test/page-never-cut.test.ts` (the rule's words), and
   `test/description-cut.test.ts` (`self_page`'s description, +63). New: `test/page-held-to-room.test.ts`.
+- **Review of #541**: the night is the last 12 hours by the wall clock, not the date (a run
+  can cross midnight); with no run end (a night launched from a session under the default
+  `ask`, or a run killed after the hold) the worker keeps a held page at its next boundary
+  once the hold is 30 minutes old; the held short version is stored only after its gates.
 - **Check ~10-23**: the page's bytes on three mornings, and the wake's `elements=` count
   (`docs/CHECK-AFTER.md`).
 - **Revert by** `PAGE_HELD_TO_ROOM: false` and `PAGE_SHORT_PAST_ROOM: false`

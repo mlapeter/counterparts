@@ -428,7 +428,8 @@ dream having run.
     `past-room` with how far over and "cut, don't add a short version", inside the
     finish's own retry — the entry and every other part stand — and a second finish with
     the page is written, cut or not. A held page it never sends again is kept when the
-    nightly process's child returns (`Self#keepHeldPage`).
+    nightly process's child returns (`Self#keepHeldPage`), or with no run end (launched
+    from a session) at the worker's next boundary once it has settled.
   - **The share** — two or three sentences, citing what it rests on — is offered in the
     hand-back; `told` records `told` on the memories it cites; a later session carries
     an untold one once. A memory promoted on reflection alone is named in the next share.

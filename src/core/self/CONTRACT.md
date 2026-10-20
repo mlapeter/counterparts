@@ -552,7 +552,12 @@ proposals and their archive; render and delivery telemetry.
     refused, `past-room`, with its bytes and how far over, the gate's text kept on the
     refusal row (`held`); that door's second send past it in the same session that night is
     kept as above; and a held page never sent again is kept when the nightly process's child
-    returns (`Self#keepHeldPage`, `night-run.ts`), unless the page moved since. So a night
+    returns (`Self#keepHeldPage`, `night-run.ts`), or — with no run end (a night launched
+    from a session, a run killed after the hold) — at the worker's next boundary once the
+    hold is 30 minutes old (`PAGE_HELD_SETTLE_MS`, `bin/runner.ts`), unless the page moved
+    since. "A night" is the last 12 hours by the wall clock (`PAGE_HELD_NIGHT_MS`), so a
+    run crossing midnight is one night. The held short version is stored only as its gates
+    keep it (review of #541). So a night
     never ends with no page change because of the hold. A session's page and the owner's
     are not held. It replaces the rotating identity list by
     emptying the lane before the share, the trim order or the counts see it, so
