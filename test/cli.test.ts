@@ -1612,7 +1612,6 @@ describe("remove — the loud removal", () => {
       title: null,
       body: "",
       meta: "{}",
-      confidential: 0,
       protected: 0,
       promoted_identity: 0,
       uses: 0,

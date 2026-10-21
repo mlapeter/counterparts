@@ -467,6 +467,19 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       setNextChangeDays: [[{ id: seedId, day: 1 }]],
       clearNextChangeDays: [],
       setCacheNote: ["habituation", "{}"],
+      // v14 (2026-10-21, wave 2's one bump): pre-provisioned, no caller yet.
+      tagMemory: [seedId, ["tag"], "write"],
+      untagMemory: [seedId],
+      recordTagMerge: ["tags", "tag", "night"],
+      undoTagMerge: ["tags"],
+      setSubjectKind: [seedId, "topic"],
+      ensureSelfSubject: [],
+      setBeliefFields: [seedId, { confidence: 0.5 }],
+      fileSupport: [{ beliefId: "sch_x", memoryId: seedId, stance: "support", route: "session", day: 0, weight: 1 }],
+      unfileSupport: ["sch_x", seedId],
+      setFolderProject: ["/work", "sch_x", "owner"],
+      clearFolderProject: ["/work"],
+      recordRecallTurn: [{ sessionId: "s1", turn: 1, day: 0, candidates: 0, shown: [] }],
     };
     for (const method of WRITE_METHODS) {
       const fn = (s as unknown as Record<string, ((...a: unknown[]) => unknown) | undefined>)[

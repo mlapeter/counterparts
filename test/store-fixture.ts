@@ -159,8 +159,39 @@ export function findable<T extends Pick<Store, "put">>(store: T, claimed = 0.5):
   return store;
 }
 
+/** The tables, indexes and `memories` columns store v14 added (2026-10-21). */
+export const V14_TABLES = ["memory_tags", "tag_merges", "belief_support", "folder_projects", "recall_turns"] as const;
+export const V14_INDEXES = [
+  "memory_tags_tag",
+  "tag_merges_tag",
+  "belief_support_memory",
+  "folder_projects_project",
+  "recall_turns_day",
+  "memories_subject_kind",
+  "memories_birth_route",
+] as const;
+export const V14_COLUMNS = ["subject_kind", "birth_route", "confidence", "birth_salience"] as const;
+
 /**
- * TURN A CURRENT FILE BACK INTO A v12 ONE (2026-10-10): drop what store v13
+ * TURN A CURRENT FILE BACK INTO A v13 ONE (2026-10-21): drop what store v14
+ * added — its indexes, its five tables, its four `memories` columns — and put
+ * back the retired `confidential` column it dropped (appended, where a v13
+ * file has it mid-table: the drop does not care where it sits). For the
+ * fixtures that fake an OLDER file by stripping a fresh one (`stripV13`
+ * calls it first): otherwise the v14 columns sit before the re-added v13 ones and a
+ * migrated store's `table_info` cannot match a fresh one's. The stamp is the
+ * caller's to set.
+ */
+export function stripV14(db: { run(sql: string): unknown }): void {
+  for (const i of V14_INDEXES) db.run(`DROP INDEX IF EXISTS ${i}`);
+  for (const t of V14_TABLES) db.run(`DROP TABLE IF EXISTS ${t}`);
+  for (const c of V14_COLUMNS) db.run(`ALTER TABLE memories DROP COLUMN ${c}`);
+  db.run("ALTER TABLE memories ADD COLUMN confidential INTEGER NOT NULL DEFAULT 0");
+}
+
+/**
+ * TURN A CURRENT FILE BACK INTO A v12 ONE (2026-10-10): `stripV14` first
+ * (2026-10-21), then drop what store v13
  * added — its triggers (four, and the old-claims era's fifth) and its indexes first (SQLite will not drop a
  * column an index or a trigger names), then the `derivations` table and the
  * six columns. For the fixtures that fake an OLDER file by stripping a fresh
@@ -169,6 +200,8 @@ export function findable<T extends Pick<Store, "put">>(store: T, claimed = 0.5):
  * caller's to set.
  */
 export function stripV13(db: { run(sql: string): unknown }): void {
+  // A current file is v14 (2026-10-21): back to v13 first.
+  stripV14(db);
   for (const t of ["memories_next_change_inputs", "memories_next_change_era", "feelings_next_change_insert", "feelings_next_change_update", "feelings_next_change_delete"]) {
     db.run(`DROP TRIGGER IF EXISTS ${t}`);
   }

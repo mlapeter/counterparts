@@ -642,3 +642,11 @@ memories cover 0.8 of those still live (`removed-by-owner`). Its own name covers
 as long as they say it, so new memories naming it do not bring it back. A different name is
 refused only if it is in nearly every memory the card linked. If the owner removes those
 memories too, the record holds nothing: the name could then be born again from new ones.
+
+## 2026-10-21 — `ensureSelfSubject`: the card my beliefs about me attach to (store v14)
+
+- One public write, for wave 2's lane C: `ensureSelfSubject()` calls `Store#ensureSelfSubject`
+  (make once, protected, revive an archived one; the store's comment has why its kind is
+  `fact`) and registers the card in this module's loaded meta, so `addBelief` on it is not
+  refused `entity-unknown` in a `Schemas` opened before the card existed. The card has no
+  name, so the alias index gains no handle. Nothing calls it yet. Lightly held.
