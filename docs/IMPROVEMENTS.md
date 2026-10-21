@@ -3099,6 +3099,74 @@ differently.
 Check ~10-23 (`docs/CHECK-AFTER.md`): do parallel sessions avoid duplicate work, and are the
 titles useful or noise?
 
+### Decided with Mike, 2026-10-20, lightly held, an experiment (personal news flows across folders)
+
+- Mike's go, 2026-10-20 15:47 ("ok go ahead with that plan"), lightly held, an experiment:
+  the nightly reflection is offered 24 unmarked memories a night (`REFLECT_TUNABLES.UNMARKED`,
+  was 5), the most likely personal first (`dream/unmarked.ts`: a feeling recorded, another
+  person named, a word of life outside the work, an entity, the owner's name), and its about
+  limit is 32 (was 8). Why: he wants non-work memories ("a friend is visiting this weekend")
+  to flow across folders and work to mostly stay in its folder; an unmarked fact written in
+  a project is that project's work and shown only there, sessions often leave `about`
+  unset, and five a night never kept up ("Mike was worn out after the visit" stayed local).
+  24 is the brief's 20–30, not measured on his store from the build session (the read of a
+  snapshot copy was refused by its permissions); `tools/audit/unmarked-offer.ts` counts it
+  on a copy. Revert: `UNMARKED` 5 and `LIMITS.about` 8.
+- The 10-02 exception the plan allowed was not needed, and none was made. The plan named
+  one: if the only thing keeping the night from marking owner or us was that it runs as
+  not-the-owner (`night-run.ts`, `OWNER_ENV` "0", 10-02), lift that for unmarked memories
+  it was shown, as Mike lifted it for closing threads that morning (#535). Checked: the
+  10-02 stance never gated a mark (it keeps confidential memories out of the bundles and
+  write-ups from closing threads opened elsewhere). What makes a night "closed-door" is the
+  owner's own switch, `counterparts core --reflected-feeling off` (owner ruling D1 on #256,
+  "closed is fully closed"; open by default), whose help text promises him that a
+  reflection then only moves marks toward work or world. That is his word, not the night's
+  stance, so it stands unchanged; on a default store the reflection already marks owner or
+  us. Confidential memories are never in the night's bundle, so never offered or re-marked.
+- A folder set off or paused keeps its work (review of #558): an unmarked memory written
+  in one is not offered, and the reflection may mark it only `work` — owner, us or world
+  would carry it into every folder's Nearby, which reads no folder setting. The MCP server
+  reads the setting as the elsewhere lines do (`lifecycle.ts#chapterExports`); one that
+  will not read offers none from a folder.
+- Kept: `UNMARKED_REST_NIGHTS` 3 (what the last three nights were offered waits behind the
+  rest). A mark takes a memory out of the pool, so only what the reflection left rotates.
+- The share: past three re-labels into me, us or the owner, two by name and the rest in one
+  sentence with their count, all cited (D2's "every move in is told" kept, in less room),
+  and the way back said after them ("say so and I'll mark it back", review of #558).
+- The `about` field on `remember` and `session_end` says what the mark does: owner or us
+  reaches every folder; work belongs to its folder, though sessions elsewhere may see its
+  title; unmarked counts as this folder's work, so mark the personal ones. No change to F4's
+  elsewhere line.
+
+### Decided by the self-measures builder, 2026-10-20, lightly held, an experiment (self measures, #550)
+
+- Written at release from the pull request's own account. A claim is a sentence, to start
+  (`self/page.ts#pageClaims`); the reflection's `finish` takes `page.claims` and the trace is
+  kept on the page row's meta, tied to the text by hash, with no schema change. A passage
+  that names no sentence is reported in the finish note, never refused.
+- For "the page in layers", a passage is a section (its heading), not a sentence: the page
+  is rewritten whole each night, so a sentence seldom survives word for word.
+- Derivations are read from the element's meta (`fit#derivedFrom`): nothing writes the v13
+  `derivations` table yet, so it would always read 0. Links count edges in both directions.
+  Days and contexts cover the element, its returns, its parents and its linked memories.
+- Doctor's "Core" line reads every live row and edge, so it stays out of the session-start
+  reading; both new lines are always green.
+
+### Decided by the mechanism-counting builder, 2026-10-20, lightly held (mechanism proofs, #555)
+
+- Written at release from the pull request's own account. A dream's `fold` counts under
+  Consolidation and Interference, as `dreamMerged` does, and a fold's settles no longer
+  count under Reconsolidation (one fold over five parts is one fold, not six events).
+- "Rose a band" counts any move up whatever its site, except the crossing into identity
+  (cause `promoted`), which `band.promoted` already counts as "became core", and `recurve`.
+  A departure from the brief, which said to count rises to identity too; it under-counts a
+  `keepCore` restore and a second promotion of one id. Check: if none of the week's
+  `to: identity` rows has a `band.promoted` for the same id about a lived day earlier, drop
+  the exclusion in `mechanism-evidence.ts#rose`, the feed.ts rule and the two test rows.
+- `memory.merged` is kept, reworded "exact copy merged into the one already held": the door
+  refuses the same text only within one scope, so a copy written from a second folder still
+  merges at sleep. No store write was added for refused duplicates.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
