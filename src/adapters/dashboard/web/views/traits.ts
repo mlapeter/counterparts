@@ -94,8 +94,6 @@ export interface TraitNudgeRow {
   readonly firmness: number;
   /** What in the moment showed it; empty when never said. */
   readonly carriedBy: string;
-  /** Always false since 2026-10-21; goes with the leftover types. */
-  readonly withheld: boolean;
   /** When it was recorded (the store's clock, ms). */
   readonly at: number;
 }
@@ -256,7 +254,6 @@ export function traitsView(src: DashboardSource): TraitsView {
         strength: round(clamp01(n.strength)),
         firmness: m.firmness,
         carriedBy: n.carried_by,
-        withheld: false,
         at: n.created_at,
       };
     });

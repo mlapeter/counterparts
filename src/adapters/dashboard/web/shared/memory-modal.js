@@ -204,7 +204,7 @@ function ref(id, text, role) {
 
 function linked(d) {
   const around = d.points.filter((p) => p.role === "hangs on" || p.role === "grounded in")
-    .map((p) => ref(p.id, p.text, false, esc(p.role)));
+    .map((p) => ref(p.id, p.text, esc(p.role)));
   const wired = d.edges.slice().sort((a, b) => b.weight - a.weight).map((e) =>
     ref(e.id, e.text, '<span class="mc-wbar" title="wired together: ' + n2(e.weight) + '"><span style="width:' +
       Math.round(Math.max(0, Math.min(1, e.weight)) * 100) + '%"></span></span>'));

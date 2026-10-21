@@ -87,6 +87,23 @@ describe("the dashboard's dates", () => {
     expect(html).not.toMatch(/\d{4}-\d{2}-\d{2}/);
   });
 
+  test("the card labels what a memory hangs on or is grounded in (PR C review, 2026-10-21)", async () => {
+    const { memoryCard } = (await import(join(WEB, "shared/memory-modal.js"))) as { memoryCard(d: Record<string, unknown>): string };
+    const html = memoryCard({
+      id: "mem_1", kind: "fact", title: "A title", text: "Some words.", shownText: "Some words.",
+      archived: null, journal: false, chapter: false, curve: null, curveNote: null,
+      salience: { relevance: 0, emotional: 0, predictive: 0, novelty: 0, combined: 0, claimed: null },
+      createdAt: Date.UTC(2026, 8, 28, 17, 47), writtenOn: "2026-09-28", writtenClock: "11:47 MDT",
+      learnedOn: null, happenedOn: null, eventDate: null, writtenDate: null, prospective: [],
+      uses: 0, useDays: [], bornDay: 3, day: 5, lastUsedDay: 3, reinforcedDays: 0, promotion: null, promoted: false, protected: false,
+      pressure: 0, bar: null, feelings: [], intensity: 0, edges: [], timeline: [], revision: 1, contentHash: "h",
+      points: [{ id: "mem_2", text: "the point", role: "hangs on" }, { id: "mem_3", text: "the ground", role: "grounded in" }],
+      band: "episodic", recordedBand: "episodic", strength: 0.5, repetition: 0, consolidated: false, removal: [],
+    });
+    expect(html).toContain('<span class="role">hangs on</span>');
+    expect(html).toContain('<span class="role">grounded in</span>');
+  });
+
   test("the card's written day is the local one, at either end of the day", async () => {
     // The UTC day it used to read put a Denver evening's memory on tomorrow, and a
     // Tokyo morning's on yesterday. Half past midnight and half past eleven, both
