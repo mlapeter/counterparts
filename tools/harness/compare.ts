@@ -316,7 +316,8 @@ export function renderCompare(mode: Mode, sides: readonly [SideResult, SideResul
 }
 
 /** Parses each setting with the checkout's own `settings.ts`; exits 1 with the refusal. */
-const SETTINGS_CHECK = 'const m = await import("./tools/harness/settings.ts"); for (const t of JSON.parse(process.argv[1])) m.parseSetting(t);';
+const SETTINGS_CHECK =
+  'const m = await import("./tools/harness/settings.ts"); try { for (const t of JSON.parse(process.argv[1])) m.parseSetting(t); } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(1); }';
 
 /** Run the compare: sides, runs, the table. Removes its worktrees and scratch whatever happens. */
 export function runCompare(o: CompareOptions): { readonly text: string; readonly sides: readonly [SideResult, SideResult] } {
@@ -347,7 +348,7 @@ export function runCompare(o: CompareOptions): { readonly text: string; readonly
       const co = made.get(side.ref)!;
       if (side.ref === null || side.set.length === 0 || !existsSync(join(co.dir, "tools", "harness", "settings.ts"))) continue;
       const check = spawnSync(process.execPath, ["-e", SETTINGS_CHECK, JSON.stringify(side.set)], { cwd: co.dir, encoding: "utf8" });
-      if (check.status !== 0) throw new CompareError("COMPARE_SETTING", `${side.name} (${side.ref}): ${(check.stderr || check.stdout).split("\n").find((l) => l.includes("SETTING_"))?.replace(/^.*?(SETTING_)/, "$1").trim() ?? (check.stderr || check.stdout).trim()}`);
+      if (check.status !== 0) throw new CompareError("COMPARE_SETTING", `${side.name} (${side.ref}): ${(check.stderr || check.stdout).trim()}`);
     }
     const results: SideResult[] = [];
     for (const side of sides) {
