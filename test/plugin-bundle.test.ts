@@ -44,6 +44,17 @@ const repoJson = (rel: string): Record<string, unknown> => JSON.parse(readFileSy
 const plan = planBundle();
 const paths = bundlePaths(plan);
 
+/** The margin both flavors keep under the directory's MAX_FILES, so a merge
+ *  that adds files fails here before a release fails the directory.
+ *  510 for now (2026-10-21): the full flavor was 503 on master, ~510 after
+ *  wave 2; it tightens to ~505 once the sidebar split (#547) lands. */
+const FILE_MARGIN = 510;
+const withinMargin = (flavor: string, count: number): void => {
+  if (count > FILE_MARGIN) {
+    throw new Error(`the ${flavor} flavor holds ${count} files, over the ${FILE_MARGIN} margin (limit ${MAX_FILES})`);
+  }
+};
+
 describe("the file set", () => {
   test("holds what Claude Code reads and what the launcher, hooks, server, console, sidebar and dashboard run", () => {
     for (const f of [
@@ -107,8 +118,11 @@ describe("the file set", () => {
     for (const f of frames) expect(paths).toContain(`hooks/sidebar/art/fox/${f}`);
   });
 
-  test(`stays within the directory's ${MAX_FILES} files`, () => {
+  test(`stays within the ${FILE_MARGIN}-file margin under the directory's ${MAX_FILES}`, () => {
+    withinMargin("full", paths.length);
     expect(paths.length).toBeLessThanOrEqual(MAX_FILES);
+    // The builder says, without refusing, when the full flavor nears the limit; nothing else.
+    expect(plan.warnings.filter((w) => !/^\d+ files, near the directory's \d+$/.test(w))).toEqual([]);
     expect(paths.length).toBeGreaterThan(100);
   });
 });
@@ -374,8 +388,10 @@ describe("the directory flavor", () => {
   });
 
   test("within the directory's limits: file count, and no file over 256 KiB at all", () => {
+    withinMargin("directory", dirPaths.length);
     expect(dirPaths.length).toBeLessThanOrEqual(MAX_FILES);
-    expect(dir.warnings).toEqual([]);
+    // The "near 512" line is build output, not a failure; any other warning is.
+    expect(dir.warnings.filter((w) => !/^\d+ files, near the directory's \d+$/.test(w))).toEqual([]);
     const sizes = [
       ...Object.entries(dir.generated).map(([f, text]) => [f, Buffer.byteLength(text)] as const),
       ...dir.copied.map((f) => [f, lstatSync(join(REPO, f)).size] as const),
