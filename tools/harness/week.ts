@@ -212,7 +212,7 @@ interface TurnChild {
 /** One turn of a person's session, planned as the night's child is locked down, but with the session's tools, its folder, and `--resume`. */
 export function planTurn(opts: WeekOptions, t: TurnChild): ChildPlan & { ok: boolean; reason: string } {
   const plan = planNightChild({
-    config: { dataDir: t.dir, owner: true, injectionBudgetBytes: opts.budgetBytes ?? 9_000, ...(opts.model === undefined ? {} : { dreaming: { model: opts.model } }) },
+    config: { dataDir: t.dir, injectionBudgetBytes: opts.budgetBytes ?? 9_000, ...(opts.model === undefined ? {} : { dreaming: { model: opts.model } }) },
     run: "owner-week",
     prompt: t.prompt,
     scope: t.scope,
@@ -317,7 +317,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   let clock = at(startDate, 0);
   const now = (): number => clock;
   const embedder = openEmbedder({ embedder: { enabled: true } });
-  const open = (): Counterpart => Counterpart.open({ dir, owner: true, budgetBytes: budget, now, timeZone, ...(embedder === null ? {} : { embed: embedder.embed }) });
+  const open = (): Counterpart => Counterpart.open({ dir, budgetBytes: budget, now, timeZone, ...(embedder === null ? {} : { embed: embedder.embed }) });
   const counterpart = open();
   // AS A NEW INSTALL BEGINS: the meeting waits for the first session, dreaming is on.
   if (opts.install !== false) counterpart.store.setMetaMany(opts.install === "without-meeting" ? NEW_INSTALL_META.filter(([k]) => k !== "onboarding.meet") : NEW_INSTALL_META);

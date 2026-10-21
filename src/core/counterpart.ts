@@ -404,10 +404,6 @@ export class Counterpart {
 
   /** Undefined when no embedder was wired, and under observer. See below. */
   private readonly vectors: VectorSource | undefined;
-  /** The owner's own session? What it still decides: closing threads and
-   *  reminders opened in another directory, and the last exchange. Lightly
-   *  held, pending the talk about whether the night run counts as the owner. */
-  private readonly owner: boolean;
   /** The host's `pageWriter.mode` (`session` when absent): who runs the nightly writer. */
   private readonly pageWriterModeOpt: PageWriterMode;
   /** The package version this process runs, when the adapter said (`CounterpartOptions.build`). */
@@ -462,7 +458,6 @@ export class Counterpart {
     // belongs in `Store.open` too, and this is not a substitute for that.
     if (opts.dir !== undefined) assertSafeDataDir(opts.dir);
     this.observer = isObserver(opts);
-    this.owner = opts.owner === true && !this.observer;
     this.pageWriterModeOpt = opts.pageWriterMode ?? "session";
     this.build = typeof opts.build === "string" && opts.build.length > 0 ? opts.build : null;
     this.onEvent = opts.onEvent;
@@ -572,7 +567,6 @@ export class Counterpart {
     });
     this.recall = new Recall({
       store: this.store,
-      owner: opts.owner === true,
       ...(this.reportedBudget === null ? {} : { budgetBytes: this.reportedBudget }),
       onEvent: (e) => this.relay("recall", e),
       now: this.nowFn,
@@ -648,7 +642,6 @@ export class Counterpart {
     this.reflections = new Reflections({
       store: this.store,
       observer: this.observer,
-      owner: this.owner,
       gate: (text) => {
         const redacted = redactSecrets(text);
         return redacted.replace(/\[REDACTED[^\]]*\]/g, "").trim().length === 0
@@ -1431,10 +1424,11 @@ export class Counterpart {
     });
   }
 
-  /** The wake's "Last said here" line for `here`, or null. Never throws. Only
-   *  in the owner's session (review of #392): owner-only for now, lightly held. */
+  /** The wake's "Last said here" line for `here`, or null. Never throws. Any
+   *  session in the folder gets it — except under observer, whose wake must
+   *  not point at a handle that stands down (review of #392). */
   private lastExchangeLine(here: WakeHere): string | null {
-    if (!this.owner) return null;
+    if (this.observer) return null;
     try {
       const ex = this.lastExchange(here);
       return ex === null ? null : lastExchangeLine(ex, { zone: this.store.zone(), now: this.nowFn() });
@@ -3691,7 +3685,6 @@ export class Counterpart {
       scope: ctx.scope,
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
-      ...(ctx.owner === undefined ? {} : { owner: ctx.owner }),
       ...(ctx.facts === undefined ? {} : { facts: ctx.facts }),
       ...(ctx.about === undefined ? {} : { about: ctx.about }),
     });
@@ -4669,9 +4662,8 @@ export class Counterpart {
   private closeThread(
     p: Proposal,
     successor: string,
-    owner: boolean,
   ): { from: string; closed: boolean; refused?: ThreadRefusal } | null {
-    return depositPart.closeThread(this, p, successor, owner);
+    return depositPart.closeThread(this, p, successor);
   }
 
   private carryReminder(p: Proposal, sentStatus?: MemoryStatus | null): ReminderCarryPlan {

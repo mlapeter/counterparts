@@ -121,7 +121,7 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
     const { s, associate, cued } = seeded();
     const behind = FOREIGN.slice(0, 4).map((body) => s.put({ type: "memory", kind: "fact", body }));
     for (const id of behind) coUse(associate, cued, id, 6);
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const d = recallTurn(r, { sessionId: "s1", text: TURN }, { associate }).decision;
     const max = r.tunables.LINK_POINTERS_MAX;
     const shown = d.footnotes.filter((id) => behind.includes(id));
@@ -175,7 +175,7 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
     const anchor = candidate(s, cued, { cue: 50, activation: 50, cueFraction: 1 });
     const pointer = candidate(s, id, { hops: 1_000, activation: 1_000, maxTier: "footnoted", linkOnly: true, linkedFrom: { [cued]: 1_000 } });
     const out = gate(
-      { candidates: [anchor, pointer], state: freshGateState("g"), storeSize: 500, owner: true, affectStated: false, turn: 1 },
+      { candidates: [anchor, pointer], state: freshGateState("g"), storeSize: 500, affectStated: false, turn: 1 },
       withTunables(),
     );
     expect(out.surfaced.map((c) => c.id)).not.toContain(id);
@@ -194,7 +194,7 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
     const turnedAway = candidate(s, cued, { cue: 0.0001, activation: 0.0001, cueFraction: 1 });
     const pointer = candidate(s, id, { hops: 1, activation: 1, maxTier: "footnoted", linkOnly: true, linkedFrom: { [cued]: 1 } });
     const out = gate(
-      { candidates: [turnedAway, pointer], state: freshGateState("g"), storeSize: 500, owner: true, affectStated: false, turn: 1 },
+      { candidates: [turnedAway, pointer], state: freshGateState("g"), storeSize: 500, affectStated: false, turn: 1 },
       withTunables(),
     );
     expect(out.verdicts.find((x) => x.id === cued)?.verdict).toBe("below-floor");
@@ -208,8 +208,8 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
     const { s, associate, cued } = seeded();
     const behind = s.put({ type: "memory", kind: "fact", body: FOREIGN[0] as string });
     coUse(associate, cued, behind, 6);
-    const without = recallTurn(new Recall({ store: s, owner: true }), { sessionId: "a", text: TURN }, {}).decision;
-    const withLinks = recallTurn(new Recall({ store: s, owner: true }), { sessionId: "b", text: TURN }, { associate }).decision;
+    const without = recallTurn(new Recall({ store: s }), { sessionId: "a", text: TURN }, {}).decision;
+    const withLinks = recallTurn(new Recall({ store: s }), { sessionId: "b", text: TURN }, { associate }).decision;
     // Every memory the conversation brought is still there, in the same order,
     // and the pointer comes after them.
     expect(withLinks.surfaced).toEqual(without.surfaced);
@@ -226,11 +226,11 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
       meta: { confidential: true },
     });
     coUse(associate, cued, secret, 6);
-    const stranger = recallTurn(new Recall({ store: s, owner: false }), { sessionId: "x", text: TURN }, { associate }).decision;
+    const stranger = recallTurn(new Recall({ store: s }), { sessionId: "x", text: TURN }, { associate }).decision;
     expect(stranger.verdicts.find((v) => v.id === secret)?.verdict).not.toBe("confidential-withheld");
     expect(stranger.footnotes).toContain(secret);
 
-    const owner = new Recall({ store: s, owner: true });
+    const owner = new Recall({ store: s });
     const first = recallTurn(owner, { sessionId: "o", text: TURN }, { associate }).decision;
     expect(first.footnotes).toContain(secret);
     const second = recallTurn(owner, { sessionId: "o", text: TURN }, { associate }).decision;
@@ -252,7 +252,7 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
     coUse(associate, cued, distractor, 1); // one co-use (0.1): under the threshold
     for (const [arm, vector] of [["lexical", undefined], ["semantic", [1, 0]]] as const) {
       const d = recallTurn(
-        new Recall({ store: s, owner: true }),
+        new Recall({ store: s }),
         { sessionId: `pc-${arm}`, text: TURN, ...(vector === undefined ? {} : { vector: [...vector] }) },
         { associate },
       ).decision;
@@ -265,7 +265,7 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
   });
 
   test("a pointer the reply expands is COUNTED as used, and the expansion credits it (trains)", () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     findable(c.store);
     brains.push(c);
     for (const body of FILLER) c.store.put({ type: "memory", kind: "fact", body });
@@ -375,8 +375,8 @@ describe("2. best-first across depths, a threshold stop, the node budget recorde
     const weaker = s.put({ type: "memory", kind: "fact", body: "Neglect is the usual cause, the forum said.", physics: { birthDay: 0, lastUsedDay: 0 } });
     coUse(associate, cued, weaker, 6);
     const turn = { sessionId: "s1", text: "my sourdough starter died of neglect" };
-    const one = recallTurn(new Recall({ store: s, owner: true, tunables: { SPREAD_SEEDS: 1 } }), turn, { associate }).decision;
-    const all = recallTurn(new Recall({ store: s, owner: true }), { ...turn, sessionId: "s2" }, { associate }).decision;
+    const one = recallTurn(new Recall({ store: s, tunables: { SPREAD_SEEDS: 1 } }), turn, { associate }).decision;
+    const all = recallTurn(new Recall({ store: s }), { ...turn, sessionId: "s2" }, { associate }).decision;
     expect(one.spread?.seeds).toBe(1);
     // With one seed, the weaker candidate is not a seed and the link lifts it.
     expect(one.verdicts.find((v) => v.id === weaker)?.hops).toBeGreaterThan(0);
@@ -497,7 +497,7 @@ describe("4. temporal contiguity: adjacent only, lag-weighted, forward where the
   });
 
   function brainAt(clock: { now: number }, opts: { observer?: boolean } = {}): Counterpart {
-    const c = Counterpart.open({ dir, owner: true, now: () => clock.now, ...(opts.observer === true ? { observer: true } : {}) });
+    const c = Counterpart.open({ dir, now: () => clock.now, ...(opts.observer === true ? { observer: true } : {}) });
     findable(c.store);
     brains.push(c);
     return c;
@@ -746,7 +746,7 @@ describe("4. temporal contiguity: adjacent only, lag-weighted, forward where the
 // ═══════════════════════════════════════════════════════════════════════════
 describe("5. index co-credit: one batch lookup co-credits as a pair set, and the once-a-day rule does not block it", () => {
   test("three ids read in one `recall ids:[…]` link pairwise, today's first time and again later the same day", async () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     findable(c.store);
     brains.push(c);
     const ids = ["An index line about the kiln.", "An index line about the glaze.", "An index line about the firing."].map((body) =>

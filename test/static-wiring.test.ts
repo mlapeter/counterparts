@@ -142,7 +142,7 @@ describe("openEmbedder — which embedder the knob switches on", () => {
 describe("in-process embedding: a memory has its vector in the process that wrote it", () => {
   test("a memory lands with its vector at write time, and box 3 is tagged — no worker ran", () => {
     const e = createStaticEmbedder(loadStaticModel({ dir: weights }));
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
     const s = c.store;
     expect(s.embedderVerdict).toEqual({ kind: "tagged", tag: `${e.model}@4`, adopted: 0 });
@@ -164,7 +164,7 @@ describe("one embed per write: the gate's text and the store's text are one comp
     const asked: string[] = [];
     const counting = { ...model, embed: (text: string) => (asked.push(text), model.embed(text)) };
     const e = createStaticEmbedder(counting);
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
     asked.length = 0; // whatever opening computed is not the write's
     const ok = await c.submitJot({ content: "The otter survey found eleven holts on the river." }, { session: "s1", scope: "proj" });
@@ -197,7 +197,7 @@ describe("vectors.ts — the worker's two jobs, on the table", () => {
     bare.close();
     const e = createStaticEmbedder(loadStaticModel({ dir: weights }));
     // Opening with the table tags box 3 and refills inline at open...
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
     expect(c.store.unembeddedCount()).toBe(0);
     // ...and a row written afterwards by a bare process is the backfill's.
@@ -216,7 +216,7 @@ describe("vectors.ts — the worker's two jobs, on the table", () => {
 
   test("the lagged cue computes on the table", async () => {
     const e = createStaticEmbedder(loadStaticModel({ dir: weights }));
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
     c.store.put({ type: "memory", kind: "fact", body: "The otter survey found eleven holts." });
     c.captureSpans({
@@ -259,7 +259,7 @@ describe("a withdrawn vector channel costs no call (held / cache-ahead)", () => 
     s.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
     s.close();
     const b = tripwire("paid-b");
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: b.embed, vectors: b });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, embed: b.embed, vectors: b });
     opened.push(c);
     expect(c.store.embedderVerdict.kind).toBe("held");
     c.store.put({ type: "memory", kind: "fact", body: "A second memory, written while held." });
@@ -303,7 +303,7 @@ describe("a static table's null is the item's, so the backfill retires it", () =
     const unknown = bare.put({ type: "memory", kind: "fact", body: "🙂🙂 ¿¿ zzqx" });
     bare.close();
     const e = createStaticEmbedder(loadStaticModel({ dir: weights }));
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
     // The at-open refill could not embed it either — it has no token the table knows.
     expect(c.store.missingVectors(10)).toEqual([unknown]);
@@ -321,7 +321,7 @@ describe("a static table's null is the item's, so the backfill retires it", () =
 describe("an embedder that was asked for and is not here reaches a DURABLE row (review MAJOR 3)", () => {
   test("backfill: reason embedder-unavailable, the code in codes, kind static — in box 2's event log", async () => {
     const e = openStaticEmbedder({ weightsDir: join(weights, "nope") });
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
     c.store.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
     expect(c.store.embedderVerdict).toEqual({ kind: "none" }); // no identity, nothing reconciled
@@ -333,7 +333,7 @@ describe("an embedder that was asked for and is not here reaches a DURABLE row (
 
   test("a working table's row says which rule found its weights and which model ran", async () => {
     const e = openStaticEmbedder({ weightsDir: weights });
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
     const report = await backfillVectors({ counterpart: c, embedder: e });
     expect(report).toMatchObject({ kind: "static", weights: "option", model: e.model });
@@ -341,7 +341,7 @@ describe("an embedder that was asked for and is not here reaches a DURABLE row (
 
   test("the lagged cue records embed-failed with the refusal beside it", async () => {
     const e = openStaticEmbedder({ weightsDir: join(weights, "nope") });
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, embed: e.embed, vectors: e });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, embed: e.embed, vectors: e });
     opened.push(c);
     c.captureSpans({ session: "s1", scope: "proj", turns: [{ role: "user", text: "Where is the otter holt?" }] });
     const events: { name: string; data: Record<string, unknown> }[] = [];
@@ -379,7 +379,7 @@ describe("embedder.kind is ignored while the embedder is OFF (review MINOR 5)", 
 describe("the MCP server's store reconciles like a hook's (review MAJOR 1)", () => {
   test("openServer hands the embedder's identity to its store: tagged, and a note gets its vector at write time", () => {
     const e = openStaticEmbedder({ weightsDir: weights });
-    const server = openServer({ dir, owner: true, embedder: e });
+    const server = openServer({ dir, embedder: e });
     opened.push({ close: () => server.counterpart.close() });
     const s = server.counterpart.store;
     expect(s.embedderVerdict).toEqual({ kind: "tagged", tag: `${e.model}@4`, adopted: 0 });
@@ -399,7 +399,7 @@ describe("the MCP server's store reconciles like a hook's (review MAJOR 1)", () 
     });
     Store.open({ dir, embed: paidB }).close();
     // The server with NO embedder at all still sees the hold.
-    const server = openServer({ dir, owner: true });
+    const server = openServer({ dir });
     opened.push({ close: () => server.counterpart.close() });
     expect(server.counterpart.store.embedderVerdict.kind).toBe("held");
     expect(server.counterpart.store.nearestTo([10, 1, 2, 3], 3)).toEqual([]);
@@ -410,7 +410,7 @@ describe("the MCP server's store reconciles like a hook's (review MAJOR 1)", () 
 describe("MAJOR A of the re-review, through the real chain: the session-long MCP server after a hook flips the store", () => {
   test("server under the static table, a hook resets the store to the paid seat, `note` files NO vector under the paid tag and the question ranks nothing", async () => {
     const e = openStaticEmbedder({ weightsDir: weights });
-    const server = openServer({ dir, session: "s-mcp", scope: "/scope/one", owner: true, embedder: e });
+    const server = openServer({ dir, session: "s-mcp", scope: "/scope/one", embedder: e });
     opened.push({ close: () => server.counterpart.close() });
     server.counterpart.store.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
     expect(server.counterpart.store.embedderVerdict.kind).toBe("tagged");
@@ -457,7 +457,7 @@ describe("`\"embedder\": null` is an unreadable configuration, never a throw (re
 describe("the two per-write checks compose in one MCP server: #187's schema guard and #190's identity check", () => {
   test("an identity change refuses the VECTOR (words still land); a schema stamped ahead refuses the WHOLE write", async () => {
     const e = openStaticEmbedder({ weightsDir: weights });
-    const server = openServer({ dir, session: "s-both", scope: "/scope/one", owner: true, embedder: e });
+    const server = openServer({ dir, session: "s-both", scope: "/scope/one", embedder: e });
     opened.push({ close: () => server.counterpart.close() });
     const store = server.counterpart.store;
     store.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });

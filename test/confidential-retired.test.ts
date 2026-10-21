@@ -2,10 +2,8 @@
  * CONFIDENTIAL MEMORIES, RETIRED (2026-10-21, Mike's call). The `confidential`
  * meta key a caller could pass through the store API is inert: the column is
  * written 0 and no core or MCP gate reads it, so a memory carrying the key is
- * answered like any other in a session that is not the owner's. What stays is
- * checked beside it: the stance still keeps a thread opened in another
- * directory, and the last exchange, to the owner. The one-time count of rows
- * still holding 1 is written once, and doctor names it only when above 0.
+ * answered like any other. The one-time count of rows still holding 1 is
+ * written once, and doctor names it only while any remain.
  *
  * Hermetic: a fresh temp store per test, removed after. No model is called.
  */
@@ -18,7 +16,6 @@ import { openServer } from "../src/adapters/mcp/index.js";
 import { run } from "../src/adapters/cli/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { confidentialRetiredFindings } from "../src/adapters/claude-code/doctor.js";
-import { Counterpart } from "../src/core/counterpart.js";
 import { CONFIDENTIAL_RETIRED_KEY, Store } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
@@ -85,7 +82,7 @@ describe("the meta key is inert", () => {
     const seed = Store.open({ dir });
     const id = put(seed, WORDS, { meta: { confidential: true } });
     seed.close();
-    const guest = openServer({ dir, session: SESSION, scope: SCOPE, owner: false });
+    const guest = openServer({ dir, session: SESSION, scope: SCOPE });
     open.push(guest.counterpart);
 
     const byId = payload(await guest.call("recall", { ids: [id] }));
@@ -103,28 +100,6 @@ describe("the meta key is inert", () => {
 
     const meaning = await guest.call("recall", { question: "What is the zqmarble clinic appointment about?", mode: "meaning" });
     expect(JSON.stringify(meaning)).not.toContain("confidential");
-  });
-});
-
-describe("what the stance still decides", () => {
-  test("not the owner's (the night run's COUNTERPARTS_OWNER=0): a thread written in another directory is still not closed, a marked one here is", async () => {
-    const guest = Counterpart.open({ dir, owner: false });
-    open.push(guest);
-    const thread = put(guest.store, "Is the zqmarble invoice paid yet?", { origin: { scope: "/scope/elsewhere" }, meta: { unresolved: true } });
-    const there = await guest.submitJot({ content: "The zqmarble invoice was paid on Monday; nothing is owed now.", updates: thread, unresolved: false }, { session: "s-night", scope: SCOPE });
-    expect(there.thread).toEqual({ from: thread, closed: false, refused: "other-directory" });
-    expect(guest.store.read(thread).doc.meta["unresolved"]).toBe(true);
-    const marked = put(guest.store, "Is the zqmarble lease renewed yet?", { meta: { unresolved: true, confidential: true } });
-    const here = await guest.submitJot({ content: "The zqmarble lease renewed for two more years.", updates: marked, unresolved: false }, { session: "s-night", scope: SCOPE });
-    expect(here.thread).toEqual({ from: marked, closed: true });
-  });
-
-  test("not the owner's: the last exchange is still owner-only", async () => {
-    Counterpart.open({ dir }).close();
-    const guest = openServer({ dir, session: SESSION, scope: SCOPE, owner: false });
-    open.push(guest.counterpart);
-    const got = payload(await guest.call("recall", { handle: "last exchange" }));
-    expect(got["reason"]).toBe("owner-only");
   });
 });
 

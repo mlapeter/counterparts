@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
   open.push(c);
   return c;
 }
@@ -180,7 +180,7 @@ describe("stale open threads, proposed closed", () => {
     expect(c.reflections.close({ reflection: begun.bundle.reflection, session: SESSION, ids: [w.stale] })).toEqual({ ok: false, reason: "nothing-proposed" });
     expect(openFlag(c, w.stale)).toBe(true);
   });
-  test("from a session that is not the owner's, close refuses a thread written in another directory", () => {
+  test("close takes a thread written in another directory, from any session (the folder check went with the yours/guest split, 2026-10-21)", () => {
     let c = brain();
     nextDay(c);
     const there = mem(c, "Open: is the other project's deploy done?", { meta: { unresolved: true }, origin: { scope: "/a" } });
@@ -193,16 +193,12 @@ describe("stale open threads, proposed closed", () => {
     expect(done.outcome.close.proposed).toEqual([there]);
     c.close();
     open.splice(0);
-    c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+    c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
     open.push(c);
     const elsewhere = c.reflections.close({ reflection: id, session: "s-guest", ids: [there], scope: "/b" });
     if (!elsewhere.ok) throw new Error(elsewhere.reason);
-    expect(elsewhere.closed).toEqual([]);
-    expect(elsewhere.refused).toEqual([{ id: there, reason: "other-directory" }]);
-    expect(openFlag(c, there)).toBe(true);
-    const here = c.reflections.close({ reflection: id, session: "s-guest", ids: [there], scope: "/a" });
-    if (!here.ok) throw new Error(here.reason);
-    expect(here.closed).toEqual([there]);
+    expect(elsewhere.closed).toEqual([there]);
+    expect(elsewhere.refused).toEqual([]);
     expect(openFlag(c, there)).toBe(false);
   });
 });
@@ -214,7 +210,7 @@ describe("the reflect tool's close phase", () => {
     c.close();
     open.splice(0);
     recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true, now: () => BASE + dateN * 86_400_000 });
+    const s = openServer({ dir, session: SESSION, scope: "/proj", now: () => BASE + dateN * 86_400_000 });
     try {
       const begin = await s.call("reflect", { phase: "begin", session: SESSION });
       expect(begin.isError ?? false).toBe(false);
@@ -429,7 +425,7 @@ describe("stale open threads, closed when plainly done", () => {
     for (let i = 0; i < REFLECT_TUNABLES.STALE_OPEN_DAYS + 1; i += 1) nextDay(c);
     c.close();
     open.splice(0);
-    c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+    c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
     open.push(c);
     const begun = c.reflections.begin({ session: SESSION });
     if (!begun.ok) throw new Error(begun.reason);
@@ -457,7 +453,7 @@ describe("stale open threads, closed when plainly done", () => {
   });
 
   test("a thread carrying the retired confidential mark is self-closed like any other, from a session not the owner's too (2026-10-21)", () => {
-    const c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
     open.push(c);
     nextDay(c);
     const secret = mem(c, "Open: did the private terms with the supplier renew?", { meta: { unresolved: true, confidential: true } });
@@ -473,17 +469,17 @@ describe("stale open threads, closed when plainly done", () => {
     expect(openFlag(c, secret)).toBe(false);
   });
 
-  test("a write-up from a session that is not the owner's still closes no thread opened in another folder (the 10-02 rule)", async () => {
+  test("a night write-up closes a thread opened in another folder (the 10-02 rule went with the yours/guest split, 2026-10-21)", async () => {
     let c = brain();
     nextDay(c);
     const there = mem(c, "Open: is the other project's deploy done?", { meta: { unresolved: true }, origin: { scope: "/a" } });
     c.close();
     open.splice(0);
-    c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+    c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
     open.push(c);
     const out = await c.submitJot({ content: "The other project's deploy went out on Tuesday.", updates: there, unresolved: false }, { session: "s-night", scope: "/b" });
-    expect(out.thread).toEqual({ from: there, closed: false, refused: "other-directory" });
-    expect(openFlag(c, there)).toBe(true);
+    expect(out.thread).toEqual({ from: there, closed: true });
+    expect(openFlag(c, there)).toBe(false);
   });
 });
 
@@ -595,7 +591,7 @@ describe("the reflect tool's closeNow and reopen", () => {
     c.close();
     open.splice(0);
     recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true, now: () => BASE + dateN * 86_400_000 });
+    const s = openServer({ dir, session: SESSION, scope: "/proj", now: () => BASE + dateN * 86_400_000 });
     try {
       const begin = await s.call("reflect", { phase: "begin", session: SESSION });
       expect(begin.isError ?? false).toBe(false);
@@ -633,7 +629,7 @@ describe("the reflect tool's closeNow and reopen", () => {
     c.close();
     open.splice(0);
     recordSession(dir, { sessionId: "s-later", scope: "/proj", phase: "start" });
-    const s = openServer({ dir, session: "s-later", scope: "/proj", owner: true, now: () => BASE + dateN * 86_400_000 });
+    const s = openServer({ dir, session: "s-later", scope: "/proj", now: () => BASE + dateN * 86_400_000 });
     try {
       const none = await s.call("reflect", { phase: "reopen", session: "s-later" });
       expect(none.isError).toBe(true);
@@ -706,7 +702,7 @@ describe("reopen from the thread's id alone", () => {
     c.store.revise(w.stale, { meta: { confidential: true } });
     c.close();
     open.splice(0);
-    c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+    c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
     open.push(c);
     const out = c.reflections.reopen({ session: "s-guest", ids: [w.stale] });
     if (!out.ok) throw new Error(out.reason);

@@ -53,7 +53,7 @@ function mem(c: Counterpart, body: string, over: Partial<PutInput> = {}): string
 
 /** One journaled dream that merged two memories and drew a link. */
 function dreamed(): { id: string; a: string; b: string; c: string; merged: string } {
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     c.store.advanceClock("2026-09-20");
     const day = c.store.livedDay();
@@ -141,7 +141,7 @@ describe("counterparts dream", () => {
 
 describe("counterparts core", () => {
   function promoted(): string {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       const id = mem(c, "I say what I do not know before I guess.", { kind: "self" });
       c.store.updatePhysics(id, { promotedIdentity: true });
@@ -206,7 +206,7 @@ describe("fired: the rows for dreaming and consolidation", () => {
     for (const id of ["returns", "dream", "dream-changes", "dream-ask", "dream-replays", "core-demote", "upgrade-census", "gist"]) {
       expect(ids.has(id), id).toBe(true);
     }
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     let today = "";
     try {
       c.store.advanceClock("2026-09-20");

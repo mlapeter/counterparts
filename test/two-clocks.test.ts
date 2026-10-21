@@ -130,7 +130,7 @@ describe("the physics clock is a different clock", () => {
    * Every live entry point passes `date` explicitly, so nothing live moves.
    */
   test("a boundary with no date given advances the physics clock by the session's date", async () => {
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, now: () => PINNED, timeZone: "UTC" });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, now: () => PINNED, timeZone: "UTC" });
     open.push(c);
     await c.sessionEnd();
     expect(c.store.getMeta("lastActiveDate")).toBe(PINNED_DATE);
@@ -152,7 +152,7 @@ describe("the physics clock is a different clock", () => {
 
 describe("the mint path never reads the ambient clock", () => {
   test("a deposited memory carries the session's date", async () => {
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, now: () => PINNED, timeZone: "UTC" });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, now: () => PINNED, timeZone: "UTC" });
     open.push(c);
     const out = await c.submitJot(
       { content: "The kiln is fired on Tuesdays, never on Mondays.", kind: "fact" },
@@ -165,7 +165,7 @@ describe("the mint path never reads the ambient clock", () => {
 
   test("the memory carries the date the author deposited, not the date the row was written", async () => {
     let at = PINNED;
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, now: () => at, timeZone: "UTC" });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, now: () => at, timeZone: "UTC" });
     open.push(c);
     const out = await c.submitJot(
       { content: "A note taken on the day it was taken.", kind: "fact" },
@@ -192,7 +192,7 @@ describe("the mint path never reads the ambient clock", () => {
    */
   test("the crash fallback dates its memories by the session's clock too", async () => {
     let at = PINNED;
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, now: () => at, timeZone: "UTC" });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, now: () => at, timeZone: "UTC" });
     open.push(c);
     c.captureSpans({
       session: "s1",
@@ -255,7 +255,7 @@ describe("the mint path never reads the ambient clock", () => {
   });
 
   test("a schema's `current-state` is dated by the store's clock", () => {
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: 20_000, now: () => PINNED, timeZone: "UTC" });
+    const c = Counterpart.open({ dir, budgetBytes: 20_000, now: () => PINNED, timeZone: "UTC" });
     open.push(c);
     const born = c.schemas.mention({
       name: "Ondine",

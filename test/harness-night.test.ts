@@ -132,19 +132,19 @@ test("ids the replay minted are learned beside the recorded answer, and put into
 
 test("the recorded seat drives the real night through the memory's own server; a write-up owed is refused, not recorded", async () => {
   let clock = Date.parse("2026-03-10T07:00:00.000Z");
-  const c = Counterpart.open({ dir, owner: true, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" });
+  const c = Counterpart.open({ dir, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" });
   const id = c.store.put({ type: "memory", kind: "fact", body: "The relief valve is seated before the pump runs.", salience: { novelty: null, relevance: 0.7, emotional: 0.2, predictive: 0.6 } });
   c.close();
   const path = join(root, "reflection.jsonl");
   transcript(path, [{ name: "mcp__counterparts__recall", input: { ids: [id] }, answer: { reason: "recorded" } }]);
   const empty = join(root, "dream.jsonl");
   transcript(empty, []);
-  const open = (): Counterpart => Counterpart.open({ dir, owner: false, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" });
+  const open = (): Counterpart => Counterpart.open({ dir, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" });
   const seat = recordedSeat({ dream: readChild(empty), reflection: readChild(path), open, setClock: (at) => (clock = Math.max(clock, at)), now: () => clock });
   const asks: string[] = [];
   const run = await runNight({
-    open: () => Counterpart.open({ dir, owner: true, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" }),
-    config: { dataDir: dir, owner: true, injectionBudgetBytes: 9_000, timeZone: "UTC" },
+    open: () => Counterpart.open({ dir, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" }),
+    config: { dataDir: dir, injectionBudgetBytes: 9_000, timeZone: "UTC" },
     run: "nrn_test",
     session: "ses-x",
     scope: root,
@@ -167,7 +167,7 @@ test("the recorded seat drives the real night through the memory's own server; a
 
 test("a scripted night, recorded and replayed on a copy of the store before it, comes out the same", async () => {
   let clock = Date.parse("2026-03-10T07:00:00.000Z");
-  const open = (owner: boolean): Counterpart => Counterpart.open({ dir, owner, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" });
+  const open = (owner: boolean): Counterpart => Counterpart.open({ dir, now: () => clock, timeZone: "UTC" });
   const c = open(true);
   for (const body of ["The relief valve is seated before the pump runs.", "Loop two loses pressure when the valve is late.", "Mike prefers the valve checked twice."]) {
     c.store.put({ type: "memory", kind: "fact", body, salience: { novelty: null, relevance: 0.7, emotional: 0.3, predictive: 0.6 } });
@@ -180,7 +180,7 @@ test("a scripted night, recorded and replayed on a copy of the store before it, 
   const session = "ses-night";
   const calls: { name: string; input: Record<string, unknown>; answer: unknown }[] = [];
   const live = open(false);
-  const server = new McpServer({ counterpart: live, session, scope: root, owner: false, env: { COUNTERPARTS_NIGHT_CHILD: "dream", COUNTERPARTS_NIGHT_RUN: "nrn_real" }, now: () => clock });
+  const server = new McpServer({ counterpart: live, session, scope: root, env: { COUNTERPARTS_NIGHT_CHILD: "dream", COUNTERPARTS_NIGHT_RUN: "nrn_real" }, now: () => clock });
   const call = async (tool: string, input: Record<string, unknown>): Promise<Record<string, unknown>> => {
     clock += 1_000;
     const out = (await server.call(tool, input)).structuredContent;

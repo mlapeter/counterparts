@@ -44,7 +44,7 @@ afterEach(() => {
 });
 
 function withBrain<T>(fn: (c: Counterpart) => T, opts: { observer?: boolean } = {}): T {
-  const c = Counterpart.open({ dir, owner: true, ...(opts.observer === true ? { observer: true } : {}) });
+  const c = Counterpart.open({ dir, ...(opts.observer === true ? { observer: true } : {}) });
   try {
     return fn(c);
   } finally {
@@ -241,7 +241,7 @@ describe("the dashboard's door: the about action and the card's control", () => 
 describe("the session's door: remember's remark, by self", () => {
   test("only on a memory this session was shown; then recorded as mine with the why; alone or beside a note", async () => {
     const id = withBrain((c) => mem(c, "Reading practice: how it works, started 2026-09-26.", { kind: "skill" }));
-    const s = openServer({ dir, session: SESSION, scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: SESSION, scope: SCOPE });
     try {
       const early = await s.call("remember", { remark: { id, about: "us", why: "How the two of us read together." } });
       expect(early.isError).toBe(true);
@@ -297,7 +297,7 @@ describe("--reflected-feeling off reaches a night child's remark, not an awake o
     });
     // Either mark: the child's name on the server (the night's MCP configuration), or the run's id.
     for (const env of [{ [NIGHT_CHILD_ENV]: "reflection" }, { [NIGHT_RUN_ENV]: "run_test" }]) {
-      const night = openServer({ dir, session: SESSION, scope: SCOPE, owner: true, env });
+      const night = openServer({ dir, session: SESSION, scope: SCOPE, env });
       try {
         await night.call("recall", { ids: [id] });
         const r = await night.call("remember", { remark: { id, about: "us", why: "Ours." } });
@@ -307,7 +307,7 @@ describe("--reflected-feeling off reaches a night child's remark, not an awake o
         night.counterpart.close();
       }
     }
-    const awake = openServer({ dir, session: SESSION, scope: SCOPE, owner: true, env: {} });
+    const awake = openServer({ dir, session: SESSION, scope: SCOPE, env: {} });
     try {
       await awake.call("recall", { ids: [id] });
       const r = await awake.call("remember", { remark: { id, about: "us", why: "Ours." } });
@@ -333,7 +333,7 @@ describe("remark beside each other part: an error only when nothing landed (revi
       for (const d of ["2026-09-02", "2026-09-03", "2026-09-04"]) c.store.advanceClock(d);
       return { shown, other, a, b };
     });
-    const s = openServer({ dir, session: SESSION, scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: SESSION, scope: SCOPE });
     await s.call("recall", { ids: [ids.shown, ids.other] });
     return { s, ...ids };
   }

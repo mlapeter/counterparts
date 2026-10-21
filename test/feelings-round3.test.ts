@@ -48,7 +48,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, now: () => clock });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => clock });
   open.push(c);
   return c;
 }
@@ -265,7 +265,7 @@ describe("re-feeling while awake: note's feelingsNow", () => {
   test("only what this session was shown; recorded later, awake; once a calendar day; the first feeling stays", async () => {
     brain().close();
     open.splice(0);
-    const s = openServer({ dir, session: SESSION, scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: SESSION, scope: SCOPE });
     try {
       const store = s.counterpart.store;
       const id = mem(s.counterpart, "The night the 0.3.10 install re-filed sixty-four feelings, I was afraid it had broken them.");
@@ -417,7 +417,7 @@ describe("feelingsNow: what counts as shown (review of #316)", () => {
   test("only ids recall DELIVERED; a write's neighbours; ambient SURFACED, not footnoted; kept per session", async () => {
     brain().close();
     open.splice(0);
-    const s = openServer({ dir, session: SESSION, scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: SESSION, scope: SCOPE });
     try {
       const store = s.counterpart.store;
       // Long bodies: recall by ids delivers some and leaves the rest waiting.
@@ -457,7 +457,7 @@ describe("feelingsNow: what counts as shown (review of #316)", () => {
     }
 
     // Another server (another session): nothing the first was shown carries over.
-    const t = openServer({ dir, session: "s-other", scope: SCOPE, owner: true });
+    const t = openServer({ dir, session: "s-other", scope: SCOPE });
     try {
       const any = t.counterpart.store.list({ type: "memory", archived: false })[0] as string;
       const res = await t.call("remember", { feelingsNow: [{ id: any, emotion: "wistful", core: "sad" }] });
@@ -470,7 +470,7 @@ describe("feelingsNow: what counts as shown (review of #316)", () => {
   test("a refused note beside a recorded feeling is not an error", async () => {
     brain().close();
     open.splice(0);
-    const s = openServer({ dir, session: SESSION, scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: SESSION, scope: SCOPE });
     try {
       const id = mem(s.counterpart, "The night the install re-filed the feelings.");
       await s.call("recall", { ids: [id] });

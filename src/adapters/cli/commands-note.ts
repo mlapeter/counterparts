@@ -318,7 +318,6 @@ export async function recallCommand(
           {
             counterpart,
             sessionId: "console",
-            owner: true,
             vector: embedded.vector,
             semantic: embedded.semantic,
             asker: parsed.flags["voiced"] === true ? "self" : "owner",
@@ -330,7 +329,7 @@ export async function recallCommand(
         return EXIT.ok;
       }
       const facts = factsRecall(
-        { counterpart, sessionId: "console", owner: true, vector: embedded.vector, semantic: embedded.semantic },
+        { counterpart, sessionId: "console", vector: embedded.vector, semantic: embedded.semantic },
         question,
         page,
       );
@@ -357,7 +356,7 @@ export async function recallCommand(
       );
       return EXIT.ok;
     }
-    const result = deliberateRecall(counterpart, { handle: idFlag }, { sessionId: "console", owner: true });
+    const result = deliberateRecall(counterpart, { handle: idFlag }, { sessionId: "console" });
     if (parsed.flags["json"] === true) {
       io.out(JSON.stringify(result, null, 2));
       return EXIT.ok;

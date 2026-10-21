@@ -98,13 +98,13 @@ afterEach(() => {
 });
 
 function counterpart(over: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, budgetBytes: BUDGET_BYTES, ...over });
+  const c = Counterpart.open({ dir, budgetBytes: BUDGET_BYTES, ...over });
   open.push(c);
   return c;
 }
 
 function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
-  return { dataDir: dir, injectionBudgetBytes: BUDGET_BYTES, owner: true, ...over };
+  return { dataDir: dir, injectionBudgetBytes: BUDGET_BYTES, ...over };
 }
 
 /**
@@ -668,7 +668,7 @@ describe("session mode: the writer in the nightly run", () => {
     seeder.close();
     recordSession(dir, { sessionId: "sess_night", scope: SCOPE, phase: "start" });
 
-    const s = openServer({ dir, scope: SCOPE, owner: true });
+    const s = openServer({ dir, scope: SCOPE });
     open.push(s.counterpart);
     const res = await s.call("dream", { phase: "writer", session: "sess_night" });
     expect(res.isError ?? false).toBe(false);
@@ -708,7 +708,7 @@ describe("session mode: the writer in the nightly run", () => {
     seeder.close();
     recordSession(dir, { sessionId: "sess_a", scope: SCOPE, phase: "start" });
     recordSession(dir, { sessionId: "sess_b", scope: SCOPE, phase: "start" });
-    const s = openServer({ dir, scope: SCOPE, owner: true });
+    const s = openServer({ dir, scope: SCOPE });
     open.push(s.counterpart);
     expect(s.counterpart.claimNightWriter({ session: "sess_a", run: "drm_test" }).claimed).toBe(true);
     await s.call("self_page", { body: PAGE, session: "sess_b" });
@@ -720,7 +720,7 @@ describe("session mode: the writer in the nightly run", () => {
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
     seeder.close();
     recordSession(dir, { sessionId: "sess_off", scope: SCOPE, phase: "start" });
-    const s = openServer({ dir, scope: SCOPE, owner: true, pageWriterMode: "off" });
+    const s = openServer({ dir, scope: SCOPE, pageWriterMode: "off" });
     open.push(s.counterpart);
     const res = await s.call("dream", { phase: "writer", session: "sess_off" });
     expect(res.structuredContent["writer"]).toBe(false);
@@ -760,7 +760,7 @@ describe("the writer's own door on the page", () => {
     seeder.close();
     recordSession(dir, { sessionId: "sess_w", scope: SCOPE, phase: "start", pageWriterFor: about });
 
-    const s = openServer({ dir, session: "sess_w", scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: "sess_w", scope: SCOPE });
     open.push(s.counterpart);
     const res = await s.call("self_page", { body: PAGE, reason: "the night's revision" });
     expect(res.isError ?? false).toBe(false);
@@ -784,7 +784,7 @@ describe("the writer's own door on the page", () => {
     // id. A session answering the page-writer ask right after its wake has
     // called nothing else, so without the id in the call the mark could never
     // be read and every night's revision was filed as an ordinary amendment.
-    const s = openServer({ dir, scope: SCOPE, owner: true });
+    const s = openServer({ dir, scope: SCOPE });
     open.push(s.counterpart);
     expect(s.session).toBeNull();
     const res = await s.call("self_page", {
@@ -802,7 +802,7 @@ describe("the writer's own door on the page", () => {
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
     seeder.close();
     // No registry record for this id at all: the claim cannot be corroborated.
-    const s = openServer({ dir, scope: SCOPE, owner: true });
+    const s = openServer({ dir, scope: SCOPE });
     open.push(s.counterpart);
     const res = await s.call("self_page", { body: PAGE, session: "sess_nobody" });
     // The page is NOT refused — this door has always worked unbound, and it
@@ -819,7 +819,7 @@ describe("the writer's own door on the page", () => {
     seeder.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
     seeder.close();
     recordSession(dir, { sessionId: "sess_b", scope: SCOPE, phase: "start", pageWriterFor: about });
-    const s = openServer({ dir, scope: SCOPE, owner: true });
+    const s = openServer({ dir, scope: SCOPE });
     open.push(s.counterpart);
     await s.call("self_page", { body: PAGE, session: "sess_b" });
     expect(s.counterpart.selfPage()?.by).toBe("writer");
@@ -835,7 +835,7 @@ describe("the writer's own door on the page", () => {
     seedYesterday(seeder, ["A placeholder thing noticed yesterday."]);
     seeder.close();
     recordSession(dir, { sessionId: "sess_p", scope: SCOPE, phase: "start" });
-    const s = openServer({ dir, session: "sess_p", scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: "sess_p", scope: SCOPE });
     open.push(s.counterpart);
     await s.call("self_page", { body: PAGE, reason: "an ordinary amendment" });
     expect(s.counterpart.selfPage()?.by).toBe("session");
@@ -850,7 +850,7 @@ describe("the writer's own door on the page", () => {
     seeder.recordPageWriterRun({ about, mode: "session", outcome: "revised" });
     seeder.close();
     recordSession(dir, { sessionId: "sess_s", scope: SCOPE, phase: "start", pageWriterFor: about });
-    const s = openServer({ dir, session: "sess_s", scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: "sess_s", scope: SCOPE });
     open.push(s.counterpart);
     // `by` is not an argument of the tool at all; and the stale mark is refused.
     await s.call("self_page", { body: PAGE, reason: "after the night closed", by: "writer" });
@@ -864,7 +864,7 @@ describe("the writer's own door on the page", () => {
     seeder.recordPageWriterRun({ about, mode: "session", outcome: "asked" });
     seeder.close();
     recordSession(dir, { sessionId: "sess_r", scope: SCOPE, phase: "start", pageWriterFor: about });
-    const s = openServer({ dir, session: "sess_r", scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: "sess_r", scope: SCOPE });
     open.push(s.counterpart);
     const res = await s.call("self_page", { body: "x".repeat(SELF_TUNABLES.PAGE_MAX_BYTES + 1) });
     expect(res.isError ?? false).toBe(true);
@@ -1233,7 +1233,7 @@ describe("on the floor F5 laid", () => {
     // still `schemas/`'s to answer rather than this mechanism's.
     makeBodyUnreadable(c.store, id);
     c.close();
-    expect(() => Counterpart.open({ dir, owner: true, budgetBytes: BUDGET_BYTES })).toThrow();
+    expect(() => Counterpart.open({ dir, budgetBytes: BUDGET_BYTES })).toThrow();
     // The consequence that matters here: there is no wake for the writer to
     // fail and no boundary for it to break, because nothing gets that far.
   });

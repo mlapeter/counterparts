@@ -33,7 +33,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, owner: true, injectionBudgetBytes: 9_000, ...over });
+const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, injectionBudgetBytes: 9_000, ...over });
 
 /** A plain answer: the seat's own fields only, as a seat that isn't Claude Code gives. */
 const clean = (over: Partial<NightAnswer> = {}): NightAnswer => ({
@@ -60,7 +60,7 @@ function scripted(asks: SeatAsk[], script: ((ask: SeatAsk) => NightAnswer)[] = [
 
 function night(seat: Seat<NightAnswer>, kind: Parameters<typeof runNight>[0]["kind"] = { kind: "night" }): ReturnType<typeof runNight> {
   return runNight({
-    open: () => Counterpart.open({ dir, owner: true, budgetBytes: 9_000 }),
+    open: () => Counterpart.open({ dir, budgetBytes: 9_000 }),
     config: config(),
     run: "nrn_seat",
     session: "ses-launch",

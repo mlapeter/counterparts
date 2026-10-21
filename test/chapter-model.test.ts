@@ -69,7 +69,7 @@ const jsonl = (entries: readonly Record<string, unknown>[]): string =>
 
 function adapter(): ClaudeCodeAdapter {
   const a = openAdapter(
-    { dataDir: store, injectionBudgetBytes: 9000, owner: true },
+    { dataDir: store, injectionBudgetBytes: 9000 },
     { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }) },
   );
   closers.push(() => a.counterpart.close());
@@ -77,7 +77,7 @@ function adapter(): ClaudeCodeAdapter {
 }
 
 function server(): McpServer {
-  const s = openServer({ dir: store, scope: project, owner: true });
+  const s = openServer({ dir: store, scope: project });
   closers.push(() => s.counterpart.close());
   return s;
 }

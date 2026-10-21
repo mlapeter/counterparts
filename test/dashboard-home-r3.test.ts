@@ -49,7 +49,7 @@ beforeAll(async () => {
 
   // A new lived day: awake returns, memories written, a dream that replays and
   // nominates, one mood-matched turn, then one real sleep and three checks.
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     c.store.advanceClock(DATE);
     const day = c.store.livedDay();
@@ -86,7 +86,7 @@ beforeAll(async () => {
     c.close();
   }
   for (let i = 0; i < 4; i++) {
-    const k = Counterpart.open({ dir, owner: true });
+    const k = Counterpart.open({ dir });
     try {
       await k.sessionEnd({ date: DATE, at: DATE });
     } finally {
@@ -95,7 +95,7 @@ beforeAll(async () => {
   }
   // A memory the owner took OUT of the core, which was one return away: it
   // must read as neither ready nor one return away anywhere here.
-  const k = Counterpart.open({ dir, owner: true });
+  const k = Counterpart.open({ dir });
   try {
     const owner = ownerNames(k.store);
     const day = k.store.livedDay();
@@ -125,8 +125,8 @@ beforeAll(async () => {
   }
 
   // A store that went through the v8 upgrade on lived day 3.
-  Counterpart.open({ dir: upgradedDir, owner: true }).close();
-  const u = Counterpart.open({ dir: upgradedDir, owner: true });
+  Counterpart.open({ dir: upgradedDir }).close();
+  const u = Counterpart.open({ dir: upgradedDir });
   try {
     for (let d = 1; d <= 5; d++) u.store.advanceClock(`2026-01-0${String(d)}`);
     u.store.setMeta(V8_UPGRADE_KEY, JSON.stringify({ from: "7", day: 3, at: 0 }));

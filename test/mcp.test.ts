@@ -49,7 +49,7 @@ import {
   toolSpec,
 } from "../src/adapters/mcp/index.js";
 import type { Response, ToolResult } from "../src/adapters/mcp/index.js";
-import { launchOptions, ownerStance } from "../src/adapters/mcp/bin/serve.js";
+import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
 import { FACTS_JOURNAL_GLOSS } from "../src/adapters/mcp/facts.js";
 import { toolDefinitions } from "../src/adapters/mcp/tools.js";
 import { findable } from "./store-fixture.js";
@@ -82,7 +82,7 @@ afterEach(() => {
 
 function server(opts: Parameters<typeof openServer>[0] = {}): McpServer {
   // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
-  const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true, ...opts });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/one", ...opts });
   findable(s.counterpart.store);
   open.push(s.counterpart);
   return s;
@@ -266,10 +266,9 @@ describe("the wire", () => {
   });
 
   test("launch options come from flags and environment, never from a guessed default", () => {
+    // `--owner` is still accepted, and ignored (the yours/guest split was removed 2026-10-21).
     expect(launchOptions(["--session", "abc", "--owner"], {})).toEqual({
       session: "abc",
-      owner: true,
-      ownerSaid: "flag",
       observer: false,
       unreadable: [],
     });
@@ -330,64 +329,19 @@ describe("the wire", () => {
     expect(opts.unreadable[0]).toContain("1, true, on");
   });
 
-  test("COUNTERPARTS_OWNER gets the same vocabulary and the OPPOSITE collapse", () => {
-    // Same helper, one line apart: `owner` GRANTS reach where `observer`
-    // WITHHOLDS it, so least privilege is `false` here and `true` there. Junk
-    // must never mint an owner.
-    for (const value of ["on", "TRUE", " 1 "]) {
-      expect(launchOptions([], { COUNTERPARTS_OWNER: value }).owner).toBe(true);
+  test("COUNTERPARTS_OWNER is read by nothing now (2026-10-21): any value, junk included, changes nothing and says nothing", () => {
+    for (const value of ["1", "0", "off", "sure"]) {
+      expect(launchOptions([], { COUNTERPARTS_OWNER: value })).toEqual({ observer: false, unreadable: [] });
     }
-    for (const value of ["off", "0", "FALSE"]) {
-      expect(launchOptions([], { COUNTERPARTS_OWNER: value }).owner).toBe(false);
-    }
-    const junk = launchOptions([], { COUNTERPARTS_OWNER: "sure" });
-    expect(junk.owner).toBe(false);
-    expect(junk.observer).toBe(false);
-    expect(junk.unreadable).toHaveLength(1);
-    expect(junk.unreadable[0]).toContain("COUNTERPARTS_OWNER");
-    expect(junk.unreadable[0]).toContain("NOT owner-stanced");
   });
 
-  test("the owner's own sessions are the owner (2026-10-02): with nothing said, the installed configuration decides; anything said wins", () => {
-    const unset = launchOptions([], {});
-    expect(unset.ownerSaid).toBe("unset");
-    const installed = { owner: true };
-    // A server Claude Code started, on an install: the owner's.
-    expect(ownerStance(unset, installed, true)).toEqual({ owner: true, ownerFrom: "config", codeTabOwner: true });
-    // Desktop's server: a guest for its chats; a Code-tab call it serves is the owner's.
-    expect(ownerStance(unset, installed, false)).toEqual({ owner: false, ownerFrom: "default", codeTabOwner: true });
-    // The opt-out, and junk: said, so no default upgrades them.
-    for (const value of ["0", "off", "sure"]) {
-      const said = launchOptions([], { COUNTERPARTS_OWNER: value });
-      expect(said.ownerSaid).toBe("env");
-      expect(ownerStance(said, installed, true)).toEqual({ owner: false, ownerFrom: "off", codeTabOwner: false });
-    }
-    expect(ownerStance(launchOptions([], { COUNTERPARTS_OWNER: "1" }), {}, false)).toEqual({ owner: true, ownerFrom: "env", codeTabOwner: false });
-    expect(ownerStance(launchOptions(["--owner"], {}), {}, false).ownerFrom).toBe("env");
-    // A configuration without the key, or an observer's, makes nobody the owner.
-    expect(ownerStance(unset, {}, true).owner).toBe(false);
-    expect(ownerStance(unset, { owner: true, observer: true }, true)).toEqual({ owner: false, ownerFrom: "default", codeTabOwner: false });
-  });
-
-  test("status says the stance and what decided it", async () => {
+  test("status says the stance: observer or not, and nothing about an owner", async () => {
     const dir = mkdtempSync(join(tmpdir(), "counterparts-owner-status-"));
     try {
-      const own = openServer({ dir, owner: true, ownerFrom: "config" });
-      const stance = (await own.call("status", {})).structuredContent["stance"] as Record<string, unknown>;
-      expect(stance).toMatchObject({ observer: false, owner: true });
-      expect(String(stance["ownerFrom"])).toContain("the installed configuration (owner: true)");
-      expect(stance["ownerMeans"]).toBeUndefined();
-      own.counterpart.close();
-      const guest = openServer({ dir, owner: false });
-      const g = (await guest.call("status", {})).structuredContent["stance"] as Record<string, unknown>;
-      expect(g).toMatchObject({ owner: false, ownerFrom: "nothing made this launch the owner's" });
-      expect(String(g["ownerMeans"])).toContain("COUNTERPARTS_OWNER=0");
-      guest.counterpart.close();
-      // An explicit opt-out is labelled as one (review of #318).
-      const off = openServer({ dir, owner: false, ownerFrom: "off" });
-      const o = (await off.call("status", {})).structuredContent["stance"] as Record<string, unknown>;
-      expect(String(o["ownerFrom"])).toContain("the opt-out");
-      off.counterpart.close();
+      const s = openServer({ dir });
+      const stance = (await s.call("status", {})).structuredContent["stance"] as Record<string, unknown>;
+      expect(stance).toEqual({ observer: false });
+      s.counterpart.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -400,8 +354,6 @@ describe("the wire", () => {
     const both = launchOptions(["--observer"], { COUNTERPARTS_OBSERVER: "maybe" });
     expect(both.observer).toBe(true);
     expect(both.unreadable).toHaveLength(1);
-    // `--owner` beside an OFF variable: the flag is the sentence somebody typed.
-    expect(launchOptions(["--owner"], { COUNTERPARTS_OWNER: "off" }).owner).toBe(true);
   });
 });
 
@@ -1379,7 +1331,7 @@ describe("recall — deliberate retrieval", () => {
   });
 
   test("the retired confidential mark (2026-10-21): a direct lookup and a list answer a non-owner like any other", async () => {
-    const s = server({ owner: false });
+    const s = server({});
     seed(s.counterpart);
     const id = s.counterpart.store.put({
       type: "memory",
@@ -1924,7 +1876,7 @@ describe("observer stands down over the wire", () => {
   test("every tool stands down and SAYS so, and nothing durable moves", async () => {
     // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
     Store.open({ dir }).close();
-    const s = server({ observer: true, owner: true });
+    const s = server({ observer: true });
     const before = fingerprint(dir);
 
     const calls: [string, Record<string, unknown>][] = [
@@ -1947,11 +1899,6 @@ describe("observer stands down over the wire", () => {
     expect(s.events("mcp.observer.standdown").length).toBe(calls.length);
   });
 
-  test("an observer is a non-owner regardless of what the host claimed", () => {
-    Store.open({ dir }).close();
-    const s = server({ observer: true, owner: true });
-    expect(s.owner).toBe(false);
-  });
 });
 
 // ── dependency direction ────────────────────────────────────────────────────

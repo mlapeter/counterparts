@@ -338,13 +338,13 @@ describe("cues", () => {
 
 describe("facts mode", () => {
   test("a question that says baking finds the memory that says bake", () => {
-    const c = Counterpart.open({ dir: join(dir, "store"), owner: true, timeZone: "UTC" });
+    const c = Counterpart.open({ dir: join(dir, "store"), timeZone: "UTC" });
     findable(c.store);
     const id = c.store.put({ type: "memory", kind: "fact", body: "Wants to bake sourdough with rye flour" });
     for (const body of ["The harbor ferry leaves at noon", "Prefers espresso over filter coffee", "The library closes early on Sundays"]) {
       c.store.put({ type: "memory", kind: "fact", body });
     }
-    const r = factsRecall({ counterpart: c, sessionId: "s-facts", owner: true, vector: null, semantic: "embedder-off" }, "what was I baking?");
+    const r = factsRecall({ counterpart: c, sessionId: "s-facts", vector: null, semantic: "embedder-off" }, "what was I baking?");
     expect(r.memories.map((m) => m.id)).toContain(id);
     c.close();
   });

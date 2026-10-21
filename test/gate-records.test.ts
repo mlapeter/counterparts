@@ -78,7 +78,7 @@ function goQuiet(): void {
 }
 
 function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, now: () => Date.now() + offsetMs, ...opts });
+  const c = Counterpart.open({ dir, now: () => Date.now() + offsetMs, ...opts });
   open.push(c);
   return c;
 }

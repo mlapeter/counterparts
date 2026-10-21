@@ -48,18 +48,18 @@ afterEach(() => {
 });
 
 function config(): AdapterConfig {
-  return { dataDir: dir, injectionBudgetBytes: BUDGET, owner: true };
+  return { dataDir: dir, injectionBudgetBytes: BUDGET };
 }
 
 function counterpart(): Counterpart {
-  const c = Counterpart.open({ dir, budgetBytes: BUDGET, owner: true });
+  const c = Counterpart.open({ dir, budgetBytes: BUDGET });
   closers.push(c);
   return c;
 }
 
 /** Seeds a few warm facts and the page; returns the store's today and tomorrow. */
 function seed(): { d1: string; d2: string } {
-  const c = Counterpart.open({ dir, budgetBytes: BUDGET, owner: true });
+  const c = Counterpart.open({ dir, budgetBytes: BUDGET });
   try {
     const day = c.store.livedDay();
     for (let i = 0; i < 4; i += 1) {
@@ -142,7 +142,7 @@ function wakeOf(session: string, scope: string, at: string): string {
 /** A session's MCP server; `note` still answers after its rename to `remember` (G1c). */
 function server(session: string, scope: string): ReturnType<typeof openServer> {
   recordSession(dir, { sessionId: session, scope, phase: "start" });
-  const mcp = openServer({ dir, session, scope, owner: true });
+  const mcp = openServer({ dir, session, scope });
   closers.push(mcp.counterpart);
   return mcp;
 }

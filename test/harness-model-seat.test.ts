@@ -148,7 +148,7 @@ test("a child's init line says what it loaded", () => {
 test("night --model end to end: the night runs with the model's seat on the copy and its clock, the record says what the child loaded", async () => {
   // A store, and a recorded night on it (begun and journaled through the server), as night.ts needs one to compare.
   let clock = NOW;
-  const open = (owner: boolean): Counterpart => Counterpart.open({ dir, owner, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" });
+  const open = (owner: boolean): Counterpart => Counterpart.open({ dir, now: () => clock, timeZone: "UTC" });
   const c = open(true);
   for (const body of ["The relief valve is seated before the pump runs.", "Loop two loses pressure when the valve is late."]) {
     c.store.put({ type: "memory", kind: "fact", body, salience: { novelty: null, relevance: 0.7, emotional: 0.3, predictive: 0.6 } });
@@ -163,7 +163,7 @@ test("night --model end to end: the night runs with the model's seat on the copy
   const source = join(root, "pre.sqlite");
   snapshot(source);
   const live = open(false);
-  const s = new McpServer({ counterpart: live, session: "ses-n", scope: root, owner: false, env: { COUNTERPARTS_NIGHT_CHILD: "dream" }, now: () => clock });
+  const s = new McpServer({ counterpart: live, session: "ses-n", scope: root, env: { COUNTERPARTS_NIGHT_CHILD: "dream" }, now: () => clock });
   clock += 1_000;
   const begun = (await s.call("dream", { phase: "begin", session: "ses-n" })).structuredContent;
   clock += 1_000;
@@ -193,8 +193,8 @@ test("night --model end to end: the night runs with the model's seat on the copy
     expect(plan.args).toContain("--setting-sources");
     if (e["COUNTERPARTS_NIGHT_CHILD"] === "dream") {
       const at0 = Number(e["HARNESS_NOW"]);
-      const copy = Counterpart.open({ dir: e["COUNTERPARTS_DATA_DIR"]!, owner: false, budgetBytes: 9_000, now: () => at0, timeZone: "UTC" });
-      const server = new McpServer({ counterpart: copy, session: e["COUNTERPARTS_SESSION"]!, scope: root, owner: false, env: { COUNTERPARTS_NIGHT_CHILD: "dream" }, now: () => at0 });
+      const copy = Counterpart.open({ dir: e["COUNTERPARTS_DATA_DIR"]!, budgetBytes: 9_000, now: () => at0, timeZone: "UTC" });
+      const server = new McpServer({ counterpart: copy, session: e["COUNTERPARTS_SESSION"]!, scope: root, env: { COUNTERPARTS_NIGHT_CHILD: "dream" }, now: () => at0 });
       const b = (await server.call("dream", { phase: "begin", session: e["COUNTERPARTS_SESSION"] })).structuredContent;
       await server.call("dream", { phase: "journal", dream: b["dream"], session: e["COUNTERPARTS_SESSION"], title: "T", text: "A dream." });
       copy.close();

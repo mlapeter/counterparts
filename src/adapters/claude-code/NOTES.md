@@ -2619,3 +2619,10 @@ running both, found confusing. The npm install now leaves `npm-live.json` beside
   (`plugin.ts#keepOne`), the plugin's id read off its install path, phrased for the person and asking nothing
   of the model. The folder-origin wording is unchanged.
 
+## 2026-10-21 — no owner in the configuration
+
+- Mike, 2026-10-21 12:18: "for 1, i agree, lets remove it." `install` no longer writes `owner: true`; a configuration that carries it (every
+  earlier install) reads it, ignores it, and names it under doctor's "Old settings" for
+  one release. Doctor's Mode line says "remembering" or the observer line, nothing
+  about an owner. The night run's MCP configuration no longer sets
+  `COUNTERPARTS_OWNER=0`.

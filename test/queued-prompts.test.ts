@@ -110,7 +110,7 @@ const jsonl = (entries: readonly Record<string, unknown>[]): string =>
 
 function adapter(): ClaudeCodeAdapter {
   const a = openAdapter(
-    { dataDir: dir, injectionBudgetBytes: 9000, owner: true },
+    { dataDir: dir, injectionBudgetBytes: 9000 },
     { command: "/bin/true", args: ["runner"], spawner: (_p: SpawnPlan) => ({ pid: 4242 }) },
   );
   closers.push(() => a.counterpart.close());

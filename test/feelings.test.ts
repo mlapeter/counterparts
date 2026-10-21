@@ -220,7 +220,7 @@ describe("the store", () => {
 
 describe("the MCP doors", () => {
   function server(): McpServer {
-    const s = openServer({ dir, scope: "/tmp/feelings-project", owner: true });
+    const s = openServer({ dir, scope: "/tmp/feelings-project" });
     open.push({ close: () => s.counterpart.close() });
     return s;
   }

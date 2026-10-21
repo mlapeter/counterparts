@@ -206,7 +206,7 @@ describe("review of #193 — the fixes, pinned", () => {
     expect(lag.source).toBe("other-model");
     expect(lag.hits).toBeNull();
     // Through the real recording path: no candidate carries another model's cosine.
-    const got = new Recall({ store: s1, owner: true }).recall({ sessionId: "s-other", text: "what did we note", owner: true });
+    const got = new Recall({ store: s1 }).recall({ sessionId: "s-other", text: "what did we note" });
     expect(got.decision.semanticUsed).toBe(false);
     // A row ranked under the model the file records now is used as before.
     saveSessionSemantic(s1, {
@@ -259,9 +259,9 @@ describe("review of #193 — the fixes, pinned", () => {
     const s = store(embedder(POTION, 256));
     s.put({ type: "memory", kind: "fact", body: "The otter holt is by the river." });
     const events: { name: string; data?: Record<string, unknown> }[] = [];
-    const r = new Recall({ store: s, owner: true, onEvent: (e) => events.push(e) });
+    const r = new Recall({ store: s, onEvent: (e) => events.push(e) });
     const vector = embedder(POTION, 256)("\nThe otter holt is by the river.") ?? [];
-    r.recall({ sessionId: "s-tel", text: "otter holt", owner: true, vector });
+    r.recall({ sessionId: "s-tel", text: "otter holt", vector });
     const ev = events.find((e) => e.name === "recall.semantic.tuning");
     expect(ev?.data).toMatchObject({ identity: "potion-base-8M@256", path: "inline", floor: 0.15, weight: 6, source: "in-line" });
   });

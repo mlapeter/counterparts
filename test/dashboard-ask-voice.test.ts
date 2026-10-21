@@ -195,7 +195,7 @@ function store(name: string | null): { dir: string; config: string } {
   temps.push(root);
   const dir = join(root, "store");
   mkdirSync(dir, { recursive: true });
-  Counterpart.open({ dir, owner: true, ...(name === null ? {} : { identity: { name } }) }).close();
+  Counterpart.open({ dir, ...(name === null ? {} : { identity: { name } }) }).close();
   const config = join(root, "claude-code.json");
   writeFileSync(config, JSON.stringify({ dataDir: dir, injectionBudgetBytes: 9000, embedder: { enabled: false } }));
   return { dir, config };

@@ -2909,7 +2909,7 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
   });
 
   test("Self page: the rung the last wake used decides the colour — the outline is amber and says what to do; its short version is green (2026-10-10)", () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     // 9,200 bytes: past its room, and past what a 9,000-byte wake can hold.
     const body = `## Core\n\n${"A line the page keeps. ".repeat(400)}`;
     const written = c.revisePage(body, { reason: "long", by: "owner" });
@@ -2930,7 +2930,7 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
     expect(f.data["room"]).toBe(PAGE_ROOM_BYTES);
 
     // A short version written with it, and the next wake shows that: green.
-    const again = Counterpart.open({ dir, owner: true });
+    const again = Counterpart.open({ dir });
     expect(again.addPageShort("## Core\n\nA line the page keeps, said once.", { by: "owner" }).written).toBe(true);
     again.rebrief({ budgetBytes: 9_000 });
     again.close();
@@ -2942,7 +2942,7 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
   });
 
   test("Self page: a page within its room is green — the last wake showed it whole", () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     const body = `## Core\n\n${"A line the page keeps. ".repeat(400)}`.slice(0, PAGE_ROOM_BYTES - 1).trimEnd() + ".";
     expect(c.revisePage(body, { reason: "within the room", by: "owner" }).written).toBe(true);
     c.rebrief({ budgetBytes: 9_000 });
@@ -2957,7 +2957,7 @@ describe("what reached the session, not what ran (2026-10-02)", () => {
   });
 
   test("Self page: one line about it, or nothing, is amber — and with the page within its room, the ceiling is named", () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     expect(c.revisePage(`## Core\n\n${"A line the page keeps. ".repeat(40)}`, { reason: "short enough", by: "owner" }).written).toBe(true);
     // A ceiling with room for one line and no more.
     c.rebrief({ budgetBytes: 1_000 });
@@ -3012,7 +3012,7 @@ describe("the gaps #315 listed, closed (2026-10-02)", () => {
     mintStore();
     writeConfig();
     const budget = 1500;
-    const c = Counterpart.open({ dir, owner: true, budgetBytes: budget });
+    const c = Counterpart.open({ dir, budgetBytes: budget });
     for (let i = 0; i < 40; i++) {
       c.store.put({
         type: "memory",
@@ -3064,7 +3064,7 @@ describe("the gaps #315 listed, closed (2026-10-02)", () => {
   });
 
   test("Reflection: a share stuck at `carried` says how long ago it was carried, and that it was never told", () => {
-    const c = Counterpart.open({ dir, owner: true, now: () => Date.parse("2026-09-10T12:00:00Z"), timeZone: "UTC" });
+    const c = Counterpart.open({ dir, now: () => Date.parse("2026-09-10T12:00:00Z"), timeZone: "UTC" });
     c.store.openReflection({ id: "rfl_aaaaaaaaaaaa", day: c.store.livedDay(), date: "2026-09-10", questions: [], shown: [] });
     c.store.updateReflection("rfl_aaaaaaaaaaaa", { state: "reflected", share: "Something to say.", shareState: "carried", shareSession: "s-later" });
     c.close();

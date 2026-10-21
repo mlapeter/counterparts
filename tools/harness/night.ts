@@ -227,7 +227,6 @@ export function recordedSeat(input: RecordedSeatInput): Seat<NightAnswer> & { re
         counterpart,
         session: ask.session,
         scope: ask.scope,
-        owner: false,
         ...(input.embedder === undefined || input.embedder === null ? {} : { embedder: input.embedder }),
         // As the night's child's server is launched (`night-run.ts#nightMcpConfig`).
         env: { COUNTERPARTS_NIGHT_CHILD: ask.act, COUNTERPARTS_NIGHT_RUN: ask.run },
@@ -437,7 +436,6 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
     const store = (owner: boolean, withEmbedder: boolean): Counterpart =>
       Counterpart.open({
         dir,
-        owner,
         budgetBytes: opts.budgetBytes ?? 9_000,
         now,
         ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }),
@@ -491,7 +489,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
     const replayStart = now();
     const run = await runNight({
       open: () => store(true, false),
-      config: { dataDir: dir, owner: true, injectionBudgetBytes: opts.budgetBytes ?? 9_000, ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }) },
+      config: { dataDir: dir, injectionBudgetBytes: opts.budgetBytes ?? 9_000, ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }) },
       run: "nrn_harness_replay",
       session: night.session ?? "",
       scope: night.scope ?? dir,

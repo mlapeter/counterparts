@@ -123,7 +123,7 @@ afterEach(() => {
 });
 
 function brain(opts: { observer?: boolean } = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, ...(opts.observer === true ? { observer: true } : {}) });
+  const c = Counterpart.open({ dir, ...(opts.observer === true ? { observer: true } : {}) });
   open.push(c);
   return c;
 }
@@ -310,7 +310,7 @@ describe("Counterpart#creditDrewOn — the engaged tier, by the session's own wo
 const SESSION = "sess_drewon_1";
 
 function server(opts: { observer?: boolean } = {}): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/drewon", owner: true, ...(opts.observer === true ? { observer: true } : {}) });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/drewon", ...(opts.observer === true ? { observer: true } : {}) });
   open.push(s.counterpart);
   return s;
 }
@@ -420,7 +420,7 @@ describe("the drewOn field on session_end and chapter", () => {
   });
 
   test("review of #385: a Desktop call that names no session credits nothing — it may be another chat's", async () => {
-    const s = openServer({ dir, owner: true, host: DESKTOP_HOST, lifecycle: { spawner: () => ({ pid: 4242 }) }, manifestVersion: () => null });
+    const s = openServer({ dir, host: DESKTOP_HOST, lifecycle: { spawner: () => ({ pid: 4242 }) }, manifestVersion: () => null });
     open.push(s.counterpart);
     const c = s.counterpart;
     c.store.advanceClock("2026-08-25");

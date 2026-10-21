@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 function server(opts: Parameters<typeof openServer>[0] = {}): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true, ...opts });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/one", ...opts });
   open.push(s.counterpart);
   return s;
 }
@@ -243,7 +243,7 @@ describe("the three kinds, written as a new memory with updates + how", () => {
   });
 
   test("a swept declaration (no how) stays a link, as before", () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     const store = c.store;
     aged(store);
@@ -512,7 +512,7 @@ describe("the dream: a flag is a pair; a dream may settle with a reason; its und
   }
 
   test("contradiction {a, b} writes an unsettled pair; it is raised once awake, by pair id; undoing the dream withdraws it", () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     open.push(c);
     const m = lived(c);
     const begun = c.dreams.begin({ session: SESSION, scope: "/proj" });
@@ -535,7 +535,7 @@ describe("the dream: a flag is a pair; a dream may settle with a reason; its und
   });
 
   test("settle {holds, over, how, why}: the trail names the dream; without a why it is refused; an undo of the dream takes it back as dream-undo", () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     open.push(c);
     const m = lived(c);
     const begun = c.dreams.begin({ session: SESSION, scope: "/proj" });
@@ -608,11 +608,11 @@ describe("recall shows a memory's standing", () => {
     const newer = put(store, "The zygomorphic orchid needs watering once a week in autumn.");
     const f = flag(store, { x: older, y: newer, source: "dream" });
     const turn = "how often should the zygomorphic orchid get watering";
-    const first = new Recall({ store, owner: true }).build({ sessionId: "r1", text: turn });
+    const first = new Recall({ store }).build({ sessionId: "r1", text: turn });
     expect(first.injection).toContain(`Unsettled — may be out of date, see [${newer}]`);
     const out = settle(store, { pair: f.ok ? f.pair : "", holds: newer, how: "changed", actor: "owner" });
     expect(out.ok).toBe(true);
-    const second = new Recall({ store, owner: true }).build({ sessionId: "r2", text: turn });
+    const second = new Recall({ store }).build({ sessionId: "r2", text: turn });
     expect(second.injection).not.toContain("Unsettled");
     const says = second.injection;
     expect(says.includes(`Earlier (now [${newer}])`) || says.includes(`(earlier: [${older}])`)).toBe(true);
@@ -806,7 +806,7 @@ describe("visible: the owner's settle, doctor's line, the mechanism's evidence",
   });
 
   test("the reflection may settle two memories it was shown, with a plain reason; the trail names it", () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     open.push(c);
     c.store.advanceClock("2026-09-10");
     for (let d = 11; d <= 20; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);

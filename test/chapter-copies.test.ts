@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 function server(): McpServer {
-  const s = openServer({ dir, session: "sess_copies", scope: "/scope/one", owner: true });
+  const s = openServer({ dir, session: "sess_copies", scope: "/scope/one" });
   // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
   findable(s.counterpart.store);
   open.push(s.counterpart);

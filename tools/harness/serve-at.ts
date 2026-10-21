@@ -56,7 +56,6 @@ async function main(): Promise<void> {
   const owner = env[SERVE_AT_ENV.owner] === "1";
   const counterpart = Counterpart.open({
     dir,
-    owner,
     budgetBytes: Number(env[SERVE_AT_ENV.budget] ?? "9000"),
     now,
     ...(timeZone === undefined || timeZone.length === 0 ? {} : { timeZone }),
@@ -66,7 +65,6 @@ async function main(): Promise<void> {
     counterpart,
     ...(env[SERVE_AT_ENV.session] === undefined ? {} : { session: env[SERVE_AT_ENV.session] }),
     ...(env[SERVE_AT_ENV.scope] === undefined ? {} : { scope: env[SERVE_AT_ENV.scope] }),
-    owner,
     ...(embedder === null ? {} : { embedder }),
     ...(env[SERVE_AT_ENV.scopes] === undefined || env[SERVE_AT_ENV.scopes] === "" ? {} : { scopesFile: env[SERVE_AT_ENV.scopes] }),
     env: {

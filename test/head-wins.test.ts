@@ -65,7 +65,7 @@ function put(store: Store, body: string): string {
 }
 
 function shown(store: Store, session: string, text: string): { ids: string[]; injection: string } {
-  const r = new Recall({ store, owner: true }).build({ sessionId: session, text });
+  const r = new Recall({ store }).build({ sessionId: session, text });
   return { ids: [...r.decision.surfaced, ...r.decision.footnotes], injection: r.injection };
 }
 
@@ -103,7 +103,7 @@ describe("the chain head wins", () => {
     const older = put(store, "The pelican crossing on Elm street has a long red phase.");
     const newer = put(store, "The pelican crossing on Elm street was retimed: a short red phase now.");
     expect(settle(store, { holds: newer, over: older, how: "changed", actor: "owner" }).ok).toBe(true);
-    const rec = new Recall({ store, owner: true });
+    const rec = new Recall({ store });
     const first = rec.build({ sessionId: "s1", text: "pelican crossing on Elm street red phase" });
     expect([...first.decision.surfaced, ...first.decision.footnotes]).toContain(newer);
     const second = rec.build({ sessionId: "s1", text: "the Elm street pelican crossing red phase again" });

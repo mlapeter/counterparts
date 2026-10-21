@@ -67,10 +67,9 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function brain(opts: { owner?: boolean; observer?: boolean; pageWriterMode?: "off" | "session" } = {}): Counterpart {
+function brain(opts: { observer?: boolean; pageWriterMode?: "off" | "session" } = {}): Counterpart {
   const c = Counterpart.open({
     dir,
-    owner: opts.owner ?? true,
     ...(opts.observer === true ? { observer: true } : { identity: { name: "Mike" } }),
     ...(opts.pageWriterMode === undefined ? {} : { pageWriterMode: opts.pageWriterMode }),
     now: () => Date.now() + offsetMs,
@@ -116,7 +115,7 @@ function takeLine(c: Counterpart, input: { at: string; session: string }): strin
  */
 function server(c: Counterpart, session?: string): McpServer {
   if (session !== undefined) recordSession(dir, { sessionId: session, scope: "/proj", phase: "start", at: Date.now() + offsetMs });
-  return new McpServer({ counterpart: c, scope: "/proj", owner: true, registryDir: dir, now: () => Date.now() + offsetMs });
+  return new McpServer({ counterpart: c, scope: "/proj", registryDir: dir, now: () => Date.now() + offsetMs });
 }
 
 // ---------------------------------------------------------------------------
@@ -808,7 +807,7 @@ describe("a page writer that writes 6,200 bytes, past its room, through the real
     const status = c.pageWriterStatus(about);
     expect(status.outcome).toBe("failed");
     expect(status.run?.detail).toBe(`${pageTooLargeDetail(16_400, 16_384)}; not sent again before the run moved on to the dream`);
-    const f = pageWriterFindings(c.store, { dataDir: dir, owner: true })[0];
+    const f = pageWriterFindings(c.store, { dataDir: dir })[0];
     expect(f?.severity).toBe("amber");
     const words = writerWords({ about, outcome: status.outcome, derived: status.derived, run: { detail: status.run?.detail ?? "" } }, about);
     expect(words.what).toBe(
@@ -911,7 +910,7 @@ describe("undo that dream: the dream tool's undo phase", () => {
     expect(c.store.row(a)?.archived).toBe(0);
     expect(c.store.row(b)?.archived).toBe(0);
     // The nightly run's child cannot undo a dream.
-    const night = new McpServer({ counterpart: c, scope: "/proj", owner: true, registryDir: dir, now: () => Date.now() + offsetMs, env: { [NIGHT_CHILD_ENV]: "dream" } });
+    const night = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir, now: () => Date.now() + offsetMs, env: { [NIGHT_CHILD_ENV]: "dream" } });
     expect((await night.call("dream", { phase: "undo", session: SESSION, dream: dreamId })).structuredContent["reason"]).toBe("night-run");
   });
 });

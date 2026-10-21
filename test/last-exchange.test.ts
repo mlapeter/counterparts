@@ -116,7 +116,6 @@ function world(start: number, opts: { budget?: number; wholeItems?: boolean } = 
   // `wholeItems`: no line form (#489 C), for a morning whose lanes must need the room.
   const c = Counterpart.open({
     dir: storeDir,
-    owner: true,
     budgetBytes: opts.budget ?? BUDGET,
     now: () => now,
     timeZone: ZONE,
@@ -132,7 +131,7 @@ function world(start: number, opts: { budget?: number; wholeItems?: boolean } = 
     hooks(o = {}) {
       return new ClaudeCodeAdapter({
         counterpart: c,
-        config: { dataDir: storeDir, owner: true, injectionBudgetBytes: opts.budget ?? BUDGET, timeZone: ZONE },
+        config: { dataDir: storeDir, injectionBudgetBytes: opts.budget ?? BUDGET, timeZone: ZONE },
         configPath: join(root, "claude-code.json"),
         now: () => now,
         scope: { mode: o.mode ?? "on", matched: HERE, entry: null } as ScopeVerdict,
@@ -224,7 +223,6 @@ function recallServer(w: World, opts: { session?: string; scope?: string; observ
     counterpart: w.c,
     session: opts.session ?? B,
     scope: opts.scope ?? HERE,
-    owner: true,
     now: () => w.now(),
     // The server's own observer option is `launchObserver` (review of #392:
     // `observer` is not one, so the test that passed it ran as the owner).
@@ -302,11 +300,11 @@ describe("the line names the latest other session in this folder", () => {
     // An observer folder: the entry point opens the store as an observer
     // (`bin/hook.ts` folds the mode into the config). Its wake is delivered,
     // with no line pointing at a handle that would stand down (review of #392).
-    const obs = Counterpart.open({ dir: storeDir, observer: true, owner: true, budgetBytes: BUDGET, now: () => at(9, 30), timeZone: ZONE });
+    const obs = Counterpart.open({ dir: storeDir, observer: true, budgetBytes: BUDGET, now: () => at(9, 30), timeZone: ZONE });
     open.push(obs);
     const hooks = new ClaudeCodeAdapter({
       counterpart: obs,
-      config: { dataDir: storeDir, owner: true, observer: true, injectionBudgetBytes: BUDGET, timeZone: ZONE },
+      config: { dataDir: storeDir, observer: true, injectionBudgetBytes: BUDGET, timeZone: ZONE },
       configPath: join(root, "claude-code.json"),
       now: () => at(9, 30),
       scope: { mode: "observer", matched: HERE, entry: null } as ScopeVerdict,
@@ -641,7 +639,7 @@ describe("the handle", () => {
     for (const mode of ["off", "paused"] as const) {
       const file = join(root, `scopes-${mode}.json`);
       writeScopes(file, setScope(null, HERE, mode, { at: D }));
-      const s = new McpServer({ counterpart: w.c, session: B, scope: HERE, owner: true, now: () => w.now(), scopesFile: file });
+      const s = new McpServer({ counterpart: w.c, session: B, scope: HERE, now: () => w.now(), scopesFile: file });
       const got = await lastExchangeOf(s);
       expect(got["reason"]).toBe("scope-off");
       expect(JSON.stringify(got)).not.toContain("Words an off folder keeps");
@@ -662,21 +660,21 @@ describe("the handle", () => {
     expect(w.c.store.eventLog({ limit: 100_000 }).length).toBe(events);
   });
 
-  test("a session that is not the owner's gets neither the handle's words nor the line (review of #392)", async () => {
+  test("any session in the folder gets the handle's words and the line (owner-only until the yours/guest split was removed, 2026-10-21)", async () => {
     const w = world(at(9));
     new Session(w, A, HERE).add(typed("Words only the owner hears."), said("Kept.")).stop(at(9, 5));
     w.set(at(9, 30));
-    const s = new McpServer({ counterpart: w.c, session: B, scope: HERE, owner: false, now: () => w.now() });
+    const s = new McpServer({ counterpart: w.c, session: B, scope: HERE, now: () => w.now() });
     const got = await lastExchangeOf(s);
-    expect(got["reason"]).toBe("owner-only");
-    expect(JSON.stringify(got)).not.toContain("Words only the owner hears");
-    // The wake of a store opened as not the owner's: no line.
-    const guest = Counterpart.open({ dir: storeDir, owner: false, budgetBytes: BUDGET, now: () => at(9, 30), timeZone: ZONE });
+    expect(got["reason"]).not.toBe("owner-only");
+    expect(JSON.stringify(got)).toContain("Words only the owner hears");
+    // A wake from a fresh open of the store: the line is there.
+    const guest = Counterpart.open({ dir: storeDir, budgetBytes: BUDGET, now: () => at(9, 30), timeZone: ZONE });
     open.push(guest);
     guest.rebrief({ budgetBytes: BUDGET, at: D });
     const hooks = new ClaudeCodeAdapter({
       counterpart: guest,
-      config: { dataDir: storeDir, owner: false, injectionBudgetBytes: BUDGET, timeZone: ZONE },
+      config: { dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: ZONE },
       configPath: join(root, "claude-code.json"),
       now: () => at(9, 30),
       scope: { mode: "on", matched: HERE, entry: null } as ScopeVerdict,
@@ -685,8 +683,8 @@ describe("the handle", () => {
       spawner: () => ({ pid: 4242 }),
     });
     const text = hooks.sessionStart({ sessionId: B, scope: HERE, at: D } as HookInput).injection;
-    expect(text).not.toContain("Last said here");
-    expect(text).not.toContain("Words only the owner hears");
+    expect(text).toContain("Last said here");
+    expect(text).toContain("Words only the owner hears");
   });
 });
 

@@ -64,7 +64,7 @@ afterEach(() => {
 
 function store(start: number): { c: Counterpart; set(t: number): void } {
   let now = start;
-  const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: BUDGET, now: () => now, timeZone: "UTC" });
+  const c = Counterpart.open({ dir: storeDir, budgetBytes: BUDGET, now: () => now, timeZone: "UTC" });
   open.push(c);
   return {
     c,
@@ -184,7 +184,7 @@ describe("one tag", () => {
       for (const c of open.splice(0)) c.close();
       rmSync(storeDir, { recursive: true, force: true });
       let now = at(D1, 8);
-      const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: budget, now: () => now, timeZone: "UTC" });
+      const c = Counterpart.open({ dir: storeDir, budgetBytes: budget, now: () => now, timeZone: "UTC" });
       open.push(c);
       const k = { c, set: (t: number): void => void (now = t) };
       c.revisePage(`## Core\n\n${"I keep the garden's ledger and say what I do not know, and I say it plainly when asked. ".repeat(60)}\n\n## Lately\n\n${"The beans are in and the frost is coming. ".repeat(20)}`, { by: "owner", reason: "seed" });
@@ -262,7 +262,7 @@ describe("at least once (review of #536)", () => {
       for (const c of open.splice(0)) c.close();
       rmSync(storeDir, { recursive: true, force: true });
       let now = at(D1, 8);
-      const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: budget, now: () => now, timeZone: "UTC" });
+      const c = Counterpart.open({ dir: storeDir, budgetBytes: budget, now: () => now, timeZone: "UTC" });
       open.push(c);
       const k = { c, set: (t: number): void => void (now = t) };
       c.revisePage(`## Core\n\n${"I keep the garden's ledger and say what I do not know, and I say it plainly when asked. ".repeat(60)}\n\n## Lately\n\n${"The beans are in and the frost is coming. ".repeat(20)}`, { by: "owner", reason: "seed" });

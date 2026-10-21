@@ -105,7 +105,6 @@ function server(over: Parameters<typeof openServer>[0] = {}): McpServer {
     dir,
     session: SESSION,
     scope: projectDir,
-    owner: true,
     scopesFile: join(scopesDir, "scopes.json"),
     ...over,
   });
@@ -413,7 +412,6 @@ describe("the schema gate: a store a newer build migrated refuses every tool", (
       let calls = 0;
       const counterpart = Counterpart.open({
         dir,
-        owner: true,
         vectors: {
           vector: (): Promise<number[] | null> => {
             calls += 1;
@@ -428,7 +426,7 @@ describe("the schema gate: a store a newer build migrated refuses every tool", (
         },
       });
       open.push(counterpart);
-      const s = new McpServerClass({ counterpart, session: SESSION, scope: projectDir, owner: true, scopesFile: join(scopesDir, "scopes.json") });
+      const s = new McpServerClass({ counterpart, session: SESSION, scope: projectDir, scopesFile: join(scopesDir, "scopes.json") });
       for (const body of ["The garage door opener needs a new battery soon.", "The library closes early on Sundays now."]) {
         counterpart.store.put({ type: "memory", kind: "fact", body });
       }
@@ -877,7 +875,7 @@ describe("the hook's door to the notice (ClaudeCodeAdapter#updateNotice / #markU
   function hookAdapter(observer = false): ClaudeCodeAdapter {
     if (observer) Store.open({ dir }).close();
     const a = openAdapter(
-      { dataDir: dir, owner: true, ...(observer ? { observer: true } : {}) },
+      { dataDir: dir, ...(observer ? { observer: true } : {}) },
       { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }) },
     );
     open.push(a.counterpart);

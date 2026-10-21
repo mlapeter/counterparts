@@ -65,7 +65,7 @@ function at(hour: number, ymd = DAY): void {
 }
 
 function config(): AdapterConfig {
-  return { dataDir: dir, injectionBudgetBytes: 9_000, owner: true, timeZone: ZONE };
+  return { dataDir: dir, injectionBudgetBytes: 9_000, timeZone: ZONE };
 }
 
 type Adapter = ReturnType<typeof openAdapter>;

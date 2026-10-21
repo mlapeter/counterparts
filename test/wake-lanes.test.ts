@@ -65,7 +65,6 @@ afterEach(() => {
 function counterpart(tunables?: Record<string, unknown>): Counterpart {
   const c = Counterpart.open({
     dir: storeDir,
-    owner: true,
     now: () => NOW,
     timeZone: ZONE,
     ...(tunables === undefined ? {} : { selfTunables: tunables }),
@@ -349,7 +348,7 @@ describe("the chapter tool takes an `about` mark, carried to the chapter's memor
 
   function server(c: Counterpart, scope: string): McpServer {
     recordSession(storeDir, { sessionId: S, scope, phase: "start", at: NOW });
-    return new McpServer({ counterpart: c, session: S, scope, owner: true, registryDir: storeDir, now: () => NOW });
+    return new McpServer({ counterpart: c, session: S, scope, registryDir: storeDir, now: () => NOW });
   }
 
   function copyOf(c: Counterpart, episodeId: string): { id: string; about: string | null; by: string | null } {
@@ -422,7 +421,7 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
 
   function server(c: Counterpart): McpServer {
     recordSession(storeDir, { sessionId: S, scope: WORKSHOP, phase: "start", at: NOW });
-    return new McpServer({ counterpart: c, session: S, scope: WORKSHOP, owner: true, registryDir: storeDir, now: () => NOW });
+    return new McpServer({ counterpart: c, session: S, scope: WORKSHOP, registryDir: storeDir, now: () => NOW });
   }
 
   const flagged = (c: Counterpart, id: string): boolean => c.store.readProse(id).meta["unresolved"] === true;
@@ -474,7 +473,7 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
     expect(stillOpen(c)).not.toContain("shop lease renews");
   });
 
-  test("closing passes the revision step's checks first: protected, and — for a session not the owner's — another directory (review of #313)", async () => {
+  test("closing passes the revision step's checks first: protected, from any folder (review of #313; the folder check went with the yours/guest split, 2026-10-21)", async () => {
     const openThread = (c: Counterpart, body: string, opts: { scope?: string; meta?: Record<string, unknown>; protect?: boolean } = {}): string =>
       c.store.put({
         type: "memory",
@@ -494,16 +493,16 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
     const guarded = openThread(owner, "Whether the bench gets a vise is an open question the owner protected.", { protect: true });
     expect(await close(owner, guarded)).toEqual({ from: guarded, closed: false, refused: "protected-refuses-revision" });
     expect(flagged(owner, guarded)).toBe(true);
-    // The owner may close one written elsewhere.
+    // One written elsewhere closes too.
     const elsewhere = openThread(owner, "Whether the library extends its hours is an open question.", { scope: LIBRARY });
     expect(await close(owner, elsewhere)).toEqual({ from: elsewhere, closed: true });
     owner.close();
 
-    const guest = Counterpart.open({ dir: storeDir, owner: false, now: () => NOW, timeZone: ZONE });
+    const guest = Counterpart.open({ dir: storeDir, now: () => NOW, timeZone: ZONE });
     open.push(guest);
     const there = openThread(guest, "Whether the catalogue gets a second shelf is still open.", { scope: LIBRARY });
-    expect(await close(guest, there, WORKSHOP)).toEqual({ from: there, closed: false, refused: "other-directory" });
-    expect(flagged(guest, there)).toBe(true);
+    expect(await close(guest, there, WORKSHOP)).toEqual({ from: there, closed: true });
+    expect(flagged(guest, there)).toBe(false);
     // The retired confidential mark (2026-10-21) refuses nothing.
     const secret = openThread(guest, "Whether the supplier renews the private terms is still open.", { meta: { confidential: true } });
     expect(await close(guest, secret)).toEqual({ from: secret, closed: true });
@@ -512,10 +511,10 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
     expect(flagged(guest, mine)).toBe(false);
   });
 
-  test("the close and the list agree (2026-10-02): a refused close leaves the thread under Still open; the caller's own stance can open the door", async () => {
-    const guest = Counterpart.open({ dir: storeDir, owner: false, now: () => NOW, timeZone: ZONE });
-    open.push(guest);
-    const there = guest.store.put({
+  test("the close and the list agree: a thread written in another folder is closed from here and leaves Still open", async () => {
+    const c = Counterpart.open({ dir: storeDir, now: () => NOW, timeZone: ZONE });
+    open.push(c);
+    const there = c.store.put({
       type: "memory",
       kind: "fact",
       body: "Whether the reading room gets a second lamp is still open.",
@@ -523,16 +522,10 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
       meta: { unresolved: true },
       origin: { scope: LIBRARY },
     });
-    expect(stillOpen(guest)).toContain("the reading room gets a second lamp");
-    const refused = await guest.submitJot({ content: "The reading room got its second lamp on Tuesday.", updates: there, unresolved: false }, { session: "s-closer", scope: WORKSHOP });
-    expect(refused.thread).toEqual({ from: there, closed: false, refused: "other-directory" });
-    // Not settled over either: the declaration is a link, and the list still says open.
-    expect(refused.revision?.settle ?? null).toBe(null);
-    expect(stillOpen(guest)).toContain("the reading room gets a second lamp");
-    // The same close, from a caller whose session is the owner's (a Code-tab call on Desktop's server).
-    const owned = await guest.submitJot({ content: "The reading room's second lamp is in and working.", updates: there, unresolved: false }, { session: "s-closer", scope: WORKSHOP, owner: true });
-    expect(owned.thread).toEqual({ from: there, closed: true });
-    expect(stillOpen(guest)).not.toContain("the reading room gets a second lamp");
+    expect(stillOpen(c)).toContain("the reading room gets a second lamp");
+    const done = await c.submitJot({ content: "The reading room's second lamp is in and working.", updates: there, unresolved: false }, { session: "s-closer", scope: WORKSHOP });
+    expect(done.thread).toEqual({ from: there, closed: true });
+    expect(stillOpen(c)).not.toContain("the reading room gets a second lamp");
   });
 
   test("the lane is small: at most THREADS_MAX, person-scoped first, oldest first", () => {

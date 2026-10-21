@@ -178,7 +178,6 @@ async function replayInto(
   let clock = middayUtc(src.days[0]!.date);
   const c = Counterpart.open({
     dir,
-    owner: true,
     budgetBytes,
     now: () => clock,
     timeZone: "UTC",

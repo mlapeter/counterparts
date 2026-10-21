@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, now: () => Date.now() + offsetMs });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => Date.now() + offsetMs });
   open.push(c);
   return c;
 }
@@ -74,7 +74,7 @@ function mem(c: Counterpart, body: string, over: Partial<PutInput> = {}): string
 
 function server(c: Counterpart): McpServer {
   recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-  return new McpServer({ counterpart: c, scope: "/proj", owner: true, registryDir: dir, now: () => Date.now() + offsetMs });
+  return new McpServer({ counterpart: c, scope: "/proj", registryDir: dir, now: () => Date.now() + offsetMs });
 }
 
 function textOf(res: { content?: readonly { text?: string }[] }): string {

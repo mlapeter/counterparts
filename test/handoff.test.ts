@@ -732,7 +732,7 @@ describe("the field on the session_end ask", () => {
   const SESSION = "sess_handoff_1";
 
   function mcp(opts: Parameters<typeof openServer>[0] = {}): ReturnType<typeof openServer> {
-    const s = openServer({ dir, session: SESSION, scope: HERE, owner: true, ...opts });
+    const s = openServer({ dir, session: SESSION, scope: HERE, ...opts });
     open.push(s.counterpart);
     return s;
   }
@@ -1362,7 +1362,7 @@ describe("the session that writes it and the session that reads it", () => {
     // A real directory, named the way a host names one — unresolved.
     const here = mkdtempSync(join(tmpdir(), "counterparts-scope-"));
     try {
-      const s = openServer({ dir, session: "sess_a", scope: here, owner: true });
+      const s = openServer({ dir, session: "sess_a", scope: here });
       open.push(s.counterpart);
       await s.call("session_end", {
         session: "sess_a",
@@ -1376,7 +1376,7 @@ describe("the session that writes it and the session that reads it", () => {
       // A DIFFERENT adapter, in a different process's shape, given the scope the
       // hook entry point would have resolved.
       const a = openAdapter(
-        { dataDir: dir, injectionBudgetBytes: 9_000, owner: true },
+        { dataDir: dir, injectionBudgetBytes: 9_000 },
         { command: "/bin/true", args: ["runner"] },
       );
       open.push(a.counterpart);
@@ -1410,7 +1410,7 @@ describe("the session that writes it and the session that reads it", () => {
     const here = mkdtempSync(join(tmpdir(), "counterparts-scope-"));
     const there = mkdtempSync(join(tmpdir(), "counterparts-scope-"));
     try {
-      const s = openServer({ dir, session: "sess_a", scope: here, owner: true });
+      const s = openServer({ dir, session: "sess_a", scope: here });
       open.push(s.counterpart);
       await s.call("session_end", {
         session: "sess_a",
@@ -1422,7 +1422,7 @@ describe("the session that writes it and the session that reads it", () => {
       open.length = 0;
 
       const a = openAdapter(
-        { dataDir: dir, injectionBudgetBytes: 9_000, owner: true },
+        { dataDir: dir, injectionBudgetBytes: 9_000 },
         { command: "/bin/true", args: ["runner"] },
       );
       open.push(a.counterpart);
@@ -1826,13 +1826,13 @@ describe("several sessions leave handoffs in one directory", () => {
   });
 
   test("over the wire: two sessions, two handoffs; a blank field and retireHandoff each take only what they name", async () => {
-    const first = openServer({ dir, session: "sess_first", scope: HERE, owner: true });
+    const first = openServer({ dir, session: "sess_first", scope: HERE });
     open.push(first.counterpart);
     await first.call("session_end", { session: "sess_first", memories: [], handoff: BODY });
     first.counterpart.close();
     open.length = 0;
 
-    const second = openServer({ dir, session: "sess_second", scope: HERE, owner: true });
+    const second = openServer({ dir, session: "sess_second", scope: HERE });
     open.push(second.counterpart);
     await second.call("session_end", { session: "sess_second", memories: [], handoff: BODY_TWO });
     const both = second.counterpart.readHandoffs(HERE);
@@ -1872,7 +1872,7 @@ describe("several sessions leave handoffs in one directory", () => {
   test("the writing session's model rides from host state onto the row", async () => {
     // No record for the session in the registry: the row records no model
     // rather than a guess.
-    const bare = openServer({ dir, session: "sess_bare", scope: HERE, owner: true });
+    const bare = openServer({ dir, session: "sess_bare", scope: HERE });
     open.push(bare.counterpart);
     await bare.call("session_end", { session: "sess_bare", memories: [], handoff: BODY });
     expect(bare.counterpart.readHandoff(HERE)?.model ?? null).toBeNull();
@@ -1880,7 +1880,7 @@ describe("several sessions leave handoffs in one directory", () => {
     open.length = 0;
     // The hooks recorded which model answered: the row carries it.
     recordSession(dir, { sessionId: "sess_model", scope: HERE, phase: "start", model: "claude-opus-5-5" });
-    const s = openServer({ dir, session: "sess_model", scope: HERE, owner: true });
+    const s = openServer({ dir, session: "sess_model", scope: HERE });
     open.push(s.counterpart);
     await s.call("session_end", { session: "sess_model", memories: [], handoff: BODY_TWO });
     const mine = s.counterpart.readHandoffs(HERE).find((x) => x.session === "sess_model");

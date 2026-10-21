@@ -64,7 +64,7 @@ const embed: Embedder = (text: string): number[] | null => {
 };
 
 function server(): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true, embed });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/one", embed });
   open.push(s.counterpart);
   return s;
 }
@@ -189,7 +189,7 @@ test("the head wins ambient recall only: by handle, by facts and by meaning the 
   );
   expect(headOf(store, old)).toBe(head);
   // Ambient: the earlier is not shown by its own words.
-  const ambient = new Recall({ store, owner: true }).build({ sessionId: "r-ambient", text: "how often should the zygomorphic orchid get watering" }).injection;
+  const ambient = new Recall({ store }).build({ sessionId: "r-ambient", text: "how often should the zygomorphic orchid get watering" }).injection;
   expect(ambient).not.toContain("twice a week");
   // By handle: that memory, marked.
   const byId = payload(await s.call("recall", { handle: old }));

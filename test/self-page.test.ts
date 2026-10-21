@@ -1390,7 +1390,7 @@ describe("the page on the rows floor", () => {
     db.close();
     const after = store();
     expect(rowTombstoned(after.row(id) as { body: string; content_hash: string })).toBe(true);
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     expect(readSelfPage(after)).toBeNull();
     expect(c.schemas.loadSkips().unaccounted).toEqual([id]);
@@ -1405,7 +1405,7 @@ describe("the page on the rows floor", () => {
     db2.close();
     let code = "NO_THROW";
     try {
-      Counterpart.open({ dir, owner: true }).close();
+      Counterpart.open({ dir }).close();
     } catch (err) {
       code = err instanceof Error && "code" in err ? String((err as { code: unknown }).code) : "NOT_STORE_ERROR";
     }

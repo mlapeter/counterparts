@@ -211,7 +211,7 @@ describe("the lights, on a seeded store", () => {
 
   test("the window is LIVED days, and a row that lands whether or not the mechanism acted does not count", () => {
     const dir = tempDir("counterparts-mech-window-");
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       // Ten lived days.
       for (let i = 1; i <= 10; i++) c.store.advanceClock(`2026-01-${String(i).padStart(2, "0")}`);
@@ -242,7 +242,7 @@ describe("times fired today (the sidebar's “Mechanisms today”, 2026-10-10)",
   function seedToday(dir: string): void {
     const now = Date.now();
     let t = now - 2 * 86_400_000; // two calendar days ago
-    const c = Counterpart.open({ dir, owner: true, now: () => t });
+    const c = Counterpart.open({ dir, now: () => t });
     try {
       for (let i = 1; i <= 9; i++) c.store.advanceClock(`2026-01-${String(i).padStart(2, "0")}`);
       const day = c.store.livedDay();
@@ -305,7 +305,7 @@ describe("times fired today (the sidebar's “Mechanisms today”, 2026-10-10)",
   function seedFelt(dir: string): { felt: string; plain: string } {
     const now = Date.now();
     let t = now - 2 * 86_400_000;
-    const c = Counterpart.open({ dir, owner: true, now: () => t });
+    const c = Counterpart.open({ dir, now: () => t });
     try {
       for (let i = 1; i <= 9; i++) c.store.advanceClock(`2026-01-${String(i).padStart(2, "0")}`);
       const day = c.store.livedDay();
@@ -375,7 +375,7 @@ describe("times fired today (the sidebar's “Mechanisms today”, 2026-10-10)",
     const zone = "Pacific/Honolulu";
     const dir = tempDir("counterparts-mech-today-zone-");
     let t = Date.parse("2026-10-10T09:59:00Z"); // Oct 9, 23:59 in Honolulu
-    const c = Counterpart.open({ dir, owner: true, timeZone: zone, now: () => t });
+    const c = Counterpart.open({ dir, timeZone: zone, now: () => t });
     try {
       for (let i = 1; i <= 9; i++) c.store.advanceClock(`2026-10-0${String(i)}`);
       const day = c.store.livedDay();

@@ -522,7 +522,7 @@ describe("the observer guarantee, restated for a web adapter", () => {
 
   test("the source refuses to be built from a writable brain", () => {
     const dir = tempDir("counterparts-web-writable-");
-    const c = Counterpart.open({ dir: join(dir, "s"), owner: true });
+    const c = Counterpart.open({ dir: join(dir, "s") });
     try {
       expect(() => sourceOf(c)).toThrow();
     } finally {
@@ -831,7 +831,7 @@ describe("totality: nothing the core can record has nowhere to go", () => {
     // dashboard forever. `IO_FAILED` and `OBSERVER` cannot be a normal day even
     // once, and they keep the alarm.
     const dir = mkdtempSync(join(tmpdir(), "counterparts-web-sweep-"));
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     const quiet = {
       NO_CRASHED_SESSION: 5,
       NOTHING_TO_SWEEP: 1,
@@ -894,7 +894,7 @@ describe("totality: nothing the core can record has nowhere to go", () => {
    */
   test("remember.prune narrates: a finished pass calm, a held latch amber, on the spans node", () => {
     const dir = mkdtempSync(join(tmpdir(), "counterparts-web-prune-"));
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     const counts = { scopes: 2, deleted: 3, keptOwed: 1, keptYoung: 0, keptLive: 1, failed: 0, lines: 9, bytes: 99, retentionDays: 7 };
     try {
       c.store.appendEvent({ name: "remember.prune", day: 1, payload: { date: "2026-09-22", reason: "PRUNED", ...counts } });
@@ -918,7 +918,7 @@ describe("totality: nothing the core can record has nowhere to go", () => {
 
   test("store.embedder.reconciled narrates: a reset calm, a hold amber, on the store node", () => {
     const dir = mkdtempSync(join(tmpdir(), "counterparts-web-reconciled-"));
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       c.store.appendEvent({ name: "store.embedder.reconciled", day: 1, payload: { kind: "reset", from: null, to: "potion-base-8M@256", dropped: 4 } });
       c.store.appendEvent({ name: "store.embedder.reconciled", day: 1, payload: { kind: "held", recorded: "voyage-3.5@1024", configured: "potion-base-8M@256", rows: 12 } });
@@ -940,7 +940,7 @@ describe("totality: nothing the core can record has nowhere to go", () => {
 
   test("adapter.wake.delivered: no transcript at the first prompt is calm; one missing at the Stop, unreadable or read without the wake is amber (2026-10-08)", () => {
     const dir = mkdtempSync(join(tmpdir(), "counterparts-web-wake-"));
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       const row = (payload: Record<string, unknown>): void => {
         c.store.appendEvent({ name: "adapter.wake.delivered", day: 1, payload: { outcome: "not-found", ok: false, ...payload } });
@@ -998,7 +998,7 @@ describe("nothing is withheld as confidential (2026-10-21)", () => {
   test("a memory carrying the retired confidential key shows its words on every surface: reveal, the list, the card, search", () => {
     const dir = tempDir("counterparts-web-conf-");
     const target = join(dir, "s");
-    const c = Counterpart.open({ dir: target, owner: true });
+    const c = Counterpart.open({ dir: target });
     const id = c.store.put({
       type: "memory",
       kind: "fact",

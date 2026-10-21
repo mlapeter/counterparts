@@ -486,7 +486,7 @@ describe("the scope registry", () => {
 
     // The console's write, then the tool's: neither loses the other's entry.
     expect((await cli(["scope", other, "--off"])).code).toBe(EXIT.ok);
-    const s = openServer({ dir: store, scope: project, owner: true, scopesFile });
+    const s = openServer({ dir: store, scope: project, scopesFile });
     try {
       const set = await s.call("scope", { mode: "off" });
       expect(set.structuredContent["set"]).toBe(true);
@@ -1262,7 +1262,7 @@ describe("a directory set OBSERVER is exactly the existing observer stance", () 
     // Exactly what `bin/hook.ts#main` builds for a registry `observer`: the
     // loaded config with `observer: true` folded in, and the verdict carried.
     const a = openAdapter(
-      { dataDir: store, injectionBudgetBytes: BUDGET_BYTES, owner: true, observer: true },
+      { dataDir: store, injectionBudgetBytes: BUDGET_BYTES, observer: true },
       {
         command: "/bin/true",
         args: ["runner"],
@@ -1353,7 +1353,7 @@ describe("a directory set OFF stands down the seams added after this branch fork
     Store.open({ dir: store }).close();
     let spawns = 0;
     const a = openAdapter(
-      { dataDir: store, injectionBudgetBytes: BUDGET_BYTES, owner: true },
+      { dataDir: store, injectionBudgetBytes: BUDGET_BYTES },
       {
         command: "/bin/true",
         args: ["runner"],
@@ -1416,7 +1416,7 @@ describe("the first-launch question", () => {
   });
 
   function adapterFor(over: Partial<AdapterConfig> = {}, scope?: Parameters<typeof openAdapter>[1]) {
-    const a = openAdapter({ dataDir: store, injectionBudgetBytes: BUDGET_BYTES, owner: true, ...over }, {
+    const a = openAdapter({ dataDir: store, injectionBudgetBytes: BUDGET_BYTES, ...over }, {
       command: "/bin/true",
       args: ["runner"],
       spawner: () => ({ pid: 1 }),
@@ -1508,7 +1508,7 @@ describe("the first-launch question", () => {
 
   test("the verdict and an unreadable registry are both on the record", () => {
     const a = openAdapter(
-      { dataDir: store, injectionBudgetBytes: BUDGET_BYTES, owner: true },
+      { dataDir: store, injectionBudgetBytes: BUDGET_BYTES },
       {
         command: "/bin/true",
         args: ["runner"],
@@ -1732,7 +1732,6 @@ describe("the MCP server in a directory set off", () => {
     const s = openServer({
       dir: store,
       scope: join(work, "project"),
-      owner: true,
       scopesFile,
       ...over,
     });
@@ -1987,7 +1986,7 @@ describe("one capture scope per session, wherever the shell wanders", () => {
 
   /** How many conversational spans this memory holds for one directory. */
   function spansIn(scope: string): number {
-    const s = openServer({ dir: store, scope, owner: true });
+    const s = openServer({ dir: store, scope });
     try {
       return s.counterpart.spans.spans(s.scope).length;
     } finally {
@@ -2091,7 +2090,7 @@ describe("one capture scope per session, wherever the shell wanders", () => {
 
     // The server as this host launches it: its scope is fixed for the life of
     // the process and it never hears about the worktree.
-    const s = openServer({ dir: store, scope: project, owner: true });
+    const s = openServer({ dir: store, scope: project });
     try {
       const before = s.counterpart.spans.coverageReport(s.scope);
       expect(before.spans).toBeGreaterThan(0);
@@ -2140,7 +2139,7 @@ describe("one capture scope per session, wherever the shell wanders", () => {
     ).toBe(0);
     expect(spansIn(canonicalScope(worktree))).toBe(0);
 
-    const s = openServer({ dir: store, scope: project, owner: true });
+    const s = openServer({ dir: store, scope: project });
     try {
       // CONTROL: before the author answers, this silent session IS the fallback's
       // to read. `staleMs: 0` stands in for the twelve idle hours.

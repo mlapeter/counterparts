@@ -76,7 +76,7 @@ afterEach(() => {
 /** A counterpart on a clock the test turns by hand. */
 function brain(start = NOW): { c: Counterpart; set(at: number): void } {
   let at = start;
-  const c = Counterpart.open({ dir, owner: true, now: () => at });
+  const c = Counterpart.open({ dir, now: () => at });
   open.push(c);
   return {
     c,

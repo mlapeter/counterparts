@@ -134,7 +134,7 @@ describe("beside #284's standing labels", () => {
 
 describe("the ids work through the recall tool", () => {
   test("a real store past the threads cap: every id the wake names comes back from `recall ids`", async () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     const extra = 4;
     const total = SELF_TUNABLES.THREADS_MAX + extra;
@@ -157,7 +157,7 @@ describe("the ids work through the recall tool", () => {
     for (const id of ids) expect(out.kept.threads).not.toContain(id);
 
     recordSession(dir, { sessionId: "s-more", scope: "/proj", phase: "start" });
-    const server = new McpServer({ counterpart: c, scope: "/proj", owner: true, registryDir: dir });
+    const server = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir });
     const r = await server.call("recall", { ids });
     expect(r.isError ?? false).toBe(false);
     const got = (r.structuredContent["memories"] as { id: string }[]).map((x) => x.id);
@@ -167,7 +167,7 @@ describe("the ids work through the recall tool", () => {
 
 describe("the folded line's handles work through the recall tool (2026-10-12)", () => {
   test("each folded lane names its own first ids, and recall returns them", async () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     const ids: string[] = [];
     for (let i = 0; i < 6; i += 1) {
@@ -187,7 +187,7 @@ describe("the folded line's handles work through the recall tool (2026-10-12)", 
     const named = (m?.[1] ?? "").split(", ");
     expect(named).toEqual(ids.slice(0, 3));
     recordSession(dir, { sessionId: "s-fold", scope: "/proj", phase: "start" });
-    const server = new McpServer({ counterpart: c, scope: "/proj", owner: true, registryDir: dir });
+    const server = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir });
     const r = await server.call("recall", { ids: named });
     expect(r.isError ?? false).toBe(false);
     expect((r.structuredContent["memories"] as { id: string }[]).map((x) => x.id).sort()).toEqual([...named].sort());

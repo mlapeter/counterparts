@@ -48,10 +48,9 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function brain(opts: { owner?: boolean; observer?: boolean } = {}): Counterpart {
+function brain(opts: { observer?: boolean } = {}): Counterpart {
   const c = Counterpart.open({
     dir,
-    owner: opts.owner ?? true,
     ...(opts.observer === true ? { observer: true } : { identity: { name: "Mike" } }),
     now: () => Date.now() + offsetMs,
   });
@@ -104,7 +103,7 @@ function begin(c: Counterpart): { id: string; shown: string[] } {
 
 describe("begin: the bundle", () => {
   test("new memories since the last dream, each with older neighbours; recall's gates hold", () => {
-    const c = brain({ owner: false });
+    const c = brain({});
     const m = lived(c);
     const day = c.store.livedDay();
     const secret = mem(c, "A confidential note about the deploy migration container.", {
@@ -665,7 +664,7 @@ describe("gist marks: a personal mark among its sources wins (D6 closed)", () =>
   });
 
   test("over an owner memory carrying the retired confidential mark it is the owner's, and carries no mark (review of #403; 2026-10-21)", () => {
-    const c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => Date.now() + offsetMs });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => Date.now() + offsetMs });
     open.push(c);
     const [g] = gists(c, [[{}, { about: "owner", aboutBy: "owner", meta: { confidential: true } }]]) as [string];
     expect(c.store.row(g)).toMatchObject({ about: "owner", confidential: 0, source: "dreamed" });
@@ -806,7 +805,7 @@ describe("the ask: once a day, snoozed by a no", () => {
 
   test("memories carrying the retired confidential mark count toward every gate alike (2026-10-21), and the line names the count", () => {
     // Two plain and three marked new memories: a guest's gate and the owner's both see five (due).
-    const guest = brain({ owner: false });
+    const guest = brain({});
     const day = days(guest);
     fresh(guest, day, 2);
     fresh(guest, day, 3, { meta: { confidential: true } });
@@ -814,7 +813,7 @@ describe("the ask: once a day, snoozed by a no", () => {
     guest.close();
     open.splice(0);
 
-    const owner = brain({ owner: true });
+    const owner = brain({});
     expect(owner.dreams.status(AT)).toMatchObject({ due: true, reason: "due" });
     expect(owner.dreams.askLine({ at: AT, session: SESSION })).toContain("(5 new memories)");
   });
@@ -939,7 +938,7 @@ describe("a dream never becomes a lived memory through the sweep", () => {
 describe("the ask reaches a session through user-prompt-submit, once a day — the person sees it (2026-09-29)", () => {
   test("the model's context and the person's terminal carry it once; a second session that day does not; the page writer never does", () => {
     const a = openAdapter(
-      { dataDir: dir, injectionBudgetBytes: 9_000, owner: true },
+      { dataDir: dir, injectionBudgetBytes: 9_000 },
       { command: "/bin/true", args: ["runner"], spawner: (_p: SpawnPlan) => ({ pid: 4242 }) },
     );
     open.push(a.counterpart);

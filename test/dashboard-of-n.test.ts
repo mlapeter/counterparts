@@ -167,7 +167,7 @@ describe("4. dreams: how many, and a way to every one", () => {
   });
 
   test("`dream --list` says N of total; `--all` lists every one", () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       const some = dreamListLines(c);
       // The dreaming setting leads the list (2026-09-28, #271); the count line follows it.

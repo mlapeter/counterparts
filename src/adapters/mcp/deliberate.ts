@@ -320,9 +320,6 @@ export interface DeliberateInput {
 
 export interface DeliberateOptions {
   readonly sessionId: string;
-  /** The owner's own session? Gates nothing here since the confidentiality
-   *  boundary was retired (2026-10-21); the field goes with the column's types. */
-  readonly owner: boolean;
 }
 
 /**

@@ -687,3 +687,11 @@ session: the new memory is not confidential.
   column's types go. The update guard's held view and the write's neighbours no longer
   take an owner. `sweepWake` stands PROTECTED rows out and counts them, as before; its
   `omitted` is protected-only now.
+
+## 2026-10-21 — no folder check on closing
+
+- Mike, 2026-10-21 12:18: "for 1, i agree, lets remove it." `closeThread` and `closeReminderChain` refuse a protected memory (and the
+  thread close an archived one), from any session and any folder; the
+  `other-directory` refusal and the `owner` on `DepositContext` are gone, and so is
+  the keep-open path that refusal fed. The `ThreadRefusal` variant stays until the
+  leftover types go.

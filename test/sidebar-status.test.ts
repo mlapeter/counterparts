@@ -151,12 +151,12 @@ describe("who writes it", () => {
       seedEmpty({ dir: store });
       const cfg = join(dir, "claude-code.json");
       writeFileSync(cfg, JSON.stringify({ dataDir: store }));
-      const report = await runOnce({ config: { dataDir: store, owner: true }, sidebarConfigPath: cfg, embedder: null });
+      const report = await runOnce({ config: { dataDir: store }, sidebarConfigPath: cfg, embedder: null });
       expect(report.sidebar?.written).toBe(true);
       expect(existsSync(join(dir, SIDEBAR_FILE_NAME))).toBe(true);
       // not asked: not written
       rmSync(join(dir, SIDEBAR_FILE_NAME));
-      const quiet = await runOnce({ config: { dataDir: store, owner: true }, embedder: null });
+      const quiet = await runOnce({ config: { dataDir: store }, embedder: null });
       expect(quiet.sidebar).toBeUndefined();
       expect(existsSync(join(dir, SIDEBAR_FILE_NAME))).toBe(false);
     } finally {
@@ -178,7 +178,6 @@ describe("who writes it", () => {
         dir: store,
         session: "sess_sidebar_1",
         scope: "/scope/sidebar",
-        owner: true,
         afterCall: (tool) => {
           told.push(tool);
           writer?.schedule(20);
@@ -281,7 +280,7 @@ describe("the review's cases (2026-10-14)", () => {
         configPath: cfg,
         dataDir: b,
         beforeRename: () => {
-          const c = Counterpart.open({ dir: b, owner: true });
+          const c = Counterpart.open({ dir: b });
           try {
             c.store.appendEvent({ name: "test.moved", day: c.store.livedDay(), payload: {} });
           } finally {
@@ -336,7 +335,7 @@ describe("Emotion in the file (2026-10-14)", () => {
       const store = join(dir, "store");
       const cfg = join(dir, "claude-code.json");
       writeFileSync(cfg, JSON.stringify({ dataDir: store }));
-      const c = Counterpart.open({ dir: store, owner: true });
+      const c = Counterpart.open({ dir: store });
       let felt = "";
       let plain = "";
       try {

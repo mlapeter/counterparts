@@ -74,7 +74,7 @@ function dated(s: Store, date: string, input: Partial<PutInput> = {}): string {
 }
 
 function hooks(budget = 20_000): ReturnType<typeof openAdapter> {
-  const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: budget, owner: true };
+  const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: budget };
   const a = openAdapter(config, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
   open.push(a.counterpart);
   return a;
@@ -268,7 +268,7 @@ describe("the nightly run's headless session", () => {
 
 describe("two hook processes racing for one beat", () => {
   test("both see it due, both try to claim it at once, exactly one is told", async () => {
-    const setup = Counterpart.open({ dir: join(dir, "store"), owner: true });
+    const setup = Counterpart.open({ dir: join(dir, "store") });
     const id = dated(setup.store, "2026-10-15", { title: "pay your taxes", meta: { [CUE_MODE_META]: "plain" } });
     setup.close();
 
@@ -307,7 +307,7 @@ describe("two hook processes racing for one beat", () => {
     expect(outs.map((o) => o.due)).toEqual([1, 1]);
     expect(outs.map((o) => o.won).sort()).toEqual([0, 1]);
 
-    const after = Counterpart.open({ dir: join(dir, "store"), owner: true });
+    const after = Counterpart.open({ dir: join(dir, "store") });
     open.push(after);
     const rows = after.store.eventLog({ name: PROSPECTIVE_PLAIN_EVENT });
     expect(rows.map((r) => r.ref)).toEqual([id]);
@@ -330,7 +330,7 @@ const FILLER = [
 
 describe("an explicit eventDate is its own importance signal", () => {
   test("a QUIET note at the authored default salience comes back as a footnote on its day, and spends its fire", async () => {
-    const s = openServer({ dir, session: "sess_floor", scope: "/scope/one", owner: true });
+    const s = openServer({ dir, session: "sess_floor", scope: "/scope/one" });
     open.push(s.counterpart);
     for (const body of FILLER) s.counterpart.store.put({ type: "memory", kind: "fact", body });
     const body = (
@@ -356,7 +356,7 @@ describe("an explicit eventDate is its own importance signal", () => {
   });
 
   test("the floor still gates a date a CALLER extracted; decay and archival still hold for an explicit one", () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     // Explicit, dull: eligible.
     const dull = dated(c.store, "2026-09-04", { salience: DEFAULTED });

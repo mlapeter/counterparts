@@ -62,7 +62,7 @@ afterEach(() => {
 
 /** The authored default claim a `note` gets when its author claims nothing. */
 const DEFAULTED = { relevance: 0.25, emotional: 0.25, predictive: 0.25 };
-const CONFIG = (): AdapterConfig => ({ dataDir: dir, injectionBudgetBytes: 20_000, owner: true });
+const CONFIG = (): AdapterConfig => ({ dataDir: dir, injectionBudgetBytes: 20_000 });
 const RUNNER = { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) };
 
 function hooks(): ClaudeCodeAdapter {
@@ -328,7 +328,7 @@ describe("what is not a repeat is not credited", () => {
 
   test("dropping `recurring` (updates + recurring: null) stops the credit, and the memory fades to the prune like any other", async () => {
     let clock = Date.parse("2026-10-09T12:00:00Z");
-    const server: McpServer = openServer({ dir, session: "sess_drop", scope: "/scope/one", owner: true, now: () => clock, timeZone: "UTC" });
+    const server: McpServer = openServer({ dir, session: "sess_drop", scope: "/scope/one", now: () => clock, timeZone: "UTC" });
     open.push(server.counterpart);
     const a = new ClaudeCodeAdapter({ counterpart: server.counterpart, config: CONFIG(), ...RUNNER });
     const s = server.counterpart.store;

@@ -46,7 +46,7 @@ beforeAll(async () => {
   quietDir = mkdtempSync(join(tmpdir(), "counterparts-home-r4-quiet-"));
   await seedDemo({ dir });
   await seedDemo({ dir: quietDir });
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     c.store.advanceClock(DATE);
     const day = c.store.livedDay();
@@ -89,7 +89,7 @@ beforeAll(async () => {
     c.close();
   }
   // The quiet store: a lived day passes with nothing in it.
-  const q = Counterpart.open({ dir: quietDir, owner: true });
+  const q = Counterpart.open({ dir: quietDir });
   try {
     q.store.advanceClock(DATE);
     q.store.put({ type: "memory", kind: "fact", body: "The last thing written before a quiet day.", salience: { relevance: 0.5, emotional: 0.1, predictive: 0.4 }, physics: { birthDay: q.store.livedDay(), lastUsedDay: q.store.livedDay() } });

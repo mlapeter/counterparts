@@ -99,7 +99,7 @@ function goQuiet(): void {
 }
 
 function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, now: () => Date.now() + offsetMs, ...opts });
+  const c = Counterpart.open({ dir, now: () => Date.now() + offsetMs, ...opts });
   open.push(c);
   return c;
 }
@@ -1635,7 +1635,7 @@ describe("observer stance — a full lifecycle leaves canonical state byte-ident
 
   /** Populate a store the ordinary way, then close it. */
   async function populated(): Promise<void> {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike", aliases: ["mike"] } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike", aliases: ["mike"] } });
     c.wake(BUDGET_BYTES);
     c.captureSpans({ session: "s1", scope: "proj", turns: TURNS });
     await c.submitSessionEnd(
@@ -1655,7 +1655,7 @@ describe("observer stance — a full lifecycle leaves canonical state byte-ident
     await populated();
     const before = canonicalSnapshot(dir);
 
-    const probe = Counterpart.open({ dir, observer: true, owner: true });
+    const probe = Counterpart.open({ dir, observer: true });
     // The wake is DELIVERED to an observer: observation is a read (§1 G8).
     const woke = probe.wake(BUDGET_BYTES);
     expect(woke.ok).toBe(true);

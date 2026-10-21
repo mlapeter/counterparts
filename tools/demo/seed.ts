@@ -218,7 +218,7 @@ export interface SeedOptions {
 export function seedEmpty(opts: SeedOptions): SeedReport {
   const dir = assertDemoTarget(opts.dir);
   mkdirSync(dir, { recursive: true });
-  const c = Counterpart.open({ dir, owner: true, budgetBytes: opts.budgetBytes ?? DEMO_BUDGET_BYTES });
+  const c = Counterpart.open({ dir, budgetBytes: opts.budgetBytes ?? DEMO_BUDGET_BYTES });
   c.close();
   return {
     dir,
@@ -298,11 +298,10 @@ export async function seedDemo(opts: SeedOptions): Promise<SeedReport> {
   // since 2026-09-25 a row's `learned_on` is the local date of its moment
   // (docs/time.md) — so an unpinned seed run in Honolulu dated every row the day
   // before the story says. Pinned, the demo reads the same on every machine.
-  Counterpart.open({ dir, owner: true, budgetBytes, identity: { name: OWNER_NAME }, now, timeZone: "UTC" }).close();
+  Counterpart.open({ dir, budgetBytes, identity: { name: OWNER_NAME }, now, timeZone: "UTC" }).close();
 
   const c = Counterpart.open({
     dir,
-    owner: true,
     budgetBytes,
     now,
     timeZone: "UTC",

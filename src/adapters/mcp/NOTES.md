@@ -1726,3 +1726,15 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   here. The `owner` fields on the facts, meaning and deliberate contexts are kept but gate
   nothing; they go with the column's types. The last exchange stays owner-only for now,
   lightly held.
+
+## 2026-10-21 — the yours/guest split is removed
+
+- Mike, 2026-10-21 12:18: "for 1, i agree, lets remove it." `McpServerOptions.owner`, `ownerFrom` and `codeTabOwner`, the server's `owner`
+  getter, `OWNER_FALSE_NOTE`, `OWNER_ENV_NAME` and `bin/serve.ts#ownerStance` are gone;
+  `status`'s `stance` is `{ observer }` now. Every session the server serves — a Claude
+  Code session, a Code-tab call, a Desktop chat, the night run — closes a thread or a
+  reminder by its id from any folder, and reads the last exchange of its folder.
+  `COUNTERPARTS_OWNER` is read by nothing; `--owner` is still parsed and ignored for
+  one release, so an old registration launches. The `owner` fields on the facts,
+  meaning and deliberate contexts, and on the `mcp.recall` / `mcp.initialize` rows, went
+  too (PR C need not take them).

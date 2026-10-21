@@ -227,12 +227,12 @@ export async function deposit(
   // chain is read BEFORE the move, which rewrites the holder's forward pointer.
   const chain = carry.from !== null && carry.proposal.eventDate === null && !cp.observer ? reminderChain(cp, carry.from) : [];
   const moved = carry.from === null ? null : cp["moveReminder"](carry, mint.id);
-  const ended = moved === null ? { closed: [], skipped: [] } : closeReminderChain(cp, chain, mint.id, { owner: ctx.owner === undefined ? cp["owner"] : ctx.owner && !cp.observer, scope: proposal.scope });
+  const ended = moved === null ? { closed: [], skipped: [] } : closeReminderChain(cp, chain, mint.id);
   const reminder =
     moved === null
       ? null
       : { ...moved, ...(ended.closed.length === 0 ? {} : { alsoClosed: ended.closed }), ...(ended.skipped.length === 0 ? {} : { chainSkipped: ended.skipped }) };
-  const thread = cp["closeThread"](proposal, mint.id, ctx.owner === undefined ? cp["owner"] : ctx.owner && !cp.observer);
+  const thread = cp["closeThread"](proposal, mint.id);
   cp["emit"]("counterpart.deposit", mint.id, {
     source,
     kind: proposal.kind,
@@ -247,13 +247,6 @@ export async function deposit(
   // "737 gate fires" counted fires on proposals that were accepted.
   cp["recordDeposit"](result, ctx, source, mint);
   cp["creditNamedIn"](proposal.title ?? null, proposal.content, proposal.day, mint.id, source);
-  // THE CLOSE AND THE LIST AGREE (2026-10-02). A thread this session may
-  // not close — opened in another directory, for a session that is not the
-  // owner's — is not settled over either: the declaration
-  // stays a link (no `how`), so the old memory stays live and stays under
-  // "Still open", which is what the refusal says. It used to be refused and
-  // settled at once, and the wake dropped what the deposit said was open.
-  const keepOpen = thread?.refused === "other-directory";
   // DONE FOR THIS TIME (2026-10-20): the occurrence open today is closed, and
   // the declared revision does NOT run — the link `mint` wrote is the whole
   // effect. A `changed` settle would fade the reminder ×0.5 under a memory
@@ -263,7 +256,7 @@ export async function deposit(
   // The day the write is about: a write-up's own day, else the door's clock (review of #540).
   const doneOn = ctx.writeUp?.happenedOn ?? ctx.at;
   const occurrence = carry.occurrence === undefined ? null : closeOccurrenceFor(cp, carry.occurrence, mint.id, doneOn);
-  const revision = occurrence !== null ? null : cp["applyDeclaredRevision"](keepOpen ? withoutHow(proposal) : proposal, mint, source, ctx.session);
+  const revision = occurrence !== null ? null : cp["applyDeclaredRevision"](proposal, mint, source, ctx.session);
   // THE MEMORY THE REMINDER LEFT STEPS BACK (2026-10-11, Group 2b; review 07
   // §4.3): after the declared revision, so the writer's own settle (its
   // `how`, its words) comes first; a row of its own only when the two are not
@@ -581,7 +574,7 @@ export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undef
  * the reminder. `Store#revise` keeps the old meta in the version it writes.
  * A failed clear does not fail the deposit; it is emitted and reported.
  */
-export function closeThread(cp: Counterpart, p: Proposal, successor: string, owner: boolean): { from: string; closed: boolean; refused?: ThreadRefusal } | null {
+export function closeThread(cp: Counterpart, p: Proposal, successor: string): { from: string; closed: boolean; refused?: ThreadRefusal } | null {
   if (p.threadSaid !== true) return null;
   const target = p.updates?.method === "declared" ? p.updates.resolved : null;
   if (target === null || target === successor) return null;
@@ -592,12 +585,12 @@ export function closeThread(cp: Counterpart, p: Proposal, successor: string, own
     if (cp.store.readProse(target).meta[UNRESOLVED_META_KEY] !== true) return null;
     // THE REVISION STEP'S CHECKS, FIRST (review of #313): a flag is state
     // like any other, so what refuses a revision refuses this — the owner's
-    // protection and an archived row, in `revision.ts`'s own words — and a
-    // session that is not the owner's closes nothing written in another
-    // directory.
+    // protection and an archived row, in `revision.ts`'s own words. Any
+    // session closes a thread by its id, whatever folder wrote it (the
+    // yours/guest split, and its other-directory refusal, was removed
+    // 2026-10-21).
     if (row.protected === 1) refused = "protected-refuses-revision";
     else if (row.archived === 1) refused = "target-archived";
-    else if (!owner && (row.origin_scope ?? "") !== p.scope) refused = "other-directory";
   } catch {
     return null;
   }
@@ -856,17 +849,14 @@ export function reminderChain(cp: Counterpart, from: string): string[] {
  * The other half of `reminderChain`: each of its memories that still holds a
  * date has it cleared, marked spent by the closing memory
  * (`REMINDER_SPENT_BY_META`, as a `done` holder marks the one it spends).
- * `closeThread`'s guards first (review of #493): a protected memory, and —
- * for a session that is not the owner's — one written in another directory
- * keep their date and come back as `skipped`, for the
- * reply to list. An undo of the write's settle puts back the holder's date
+ * `closeThread`'s guard first (review of #493): a protected memory keeps its
+ * date and comes back as `skipped`, for the reply to list. An undo of the write's settle puts back the holder's date
  * only, not these (the settle records one reminder).
  */
 export function closeReminderChain(
   cp: Counterpart,
   chain: readonly string[],
   successor: string,
-  who: { owner: boolean; scope: string },
 ): { closed: string[]; skipped: string[] } {
   const closed: string[] = [];
   const skipped: string[] = [];
@@ -874,7 +864,7 @@ export function closeReminderChain(
     if (id === successor) continue;
     const row = cp.store.row(id);
     if (row === undefined || row.archived === 1 || row.event_date === null) continue;
-    if (row.protected === 1 || (!who.owner && (row.origin_scope ?? "") !== who.scope)) {
+    if (row.protected === 1) {
       skipped.push(id);
       continue;
     }

@@ -923,3 +923,10 @@ reflection was offered five a night.
   other-directory. The night's `OWNER_ENV` "0" still means a write-up closes no thread
   opened elsewhere; the reflection's self-close and `reopen` still reach any folder.
   `ReflectContext.owner` stays for `threadGuard`, lightly held.
+
+## 2026-10-21 — the night run is answered like any session
+
+- Mike, 2026-10-21 12:18: "for 1, i agree, lets remove it." `ReflectContext.owner` is gone and `threadGuard` checks protected and archived
+  only, so `close` (the owner's yes) also reaches a thread written in another folder,
+  as the self-close and `reopen` already did. The night run no longer launches with
+  `COUNTERPARTS_OWNER=0`.

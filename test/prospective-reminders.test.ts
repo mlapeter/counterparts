@@ -280,7 +280,6 @@ function server(): McpServer {
     dir,
     session: SESSION,
     scope: "/scope/one",
-    owner: true,
     now: () => Date.parse("2026-09-26T12:00:00Z"),
     timeZone: "UTC",
   });
@@ -411,7 +410,7 @@ const FILLER = [
 const NOTHING = "zygomorphic vellichor quixotry";
 
 function counterpartWithDate(date: string, mode?: "plain" | "quiet"): { c: Counterpart; id: string } {
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   open.push(c);
   for (const body of FILLER) c.store.put({ type: "memory", kind: "fact", body });
   const id = c.store.put({
@@ -637,7 +636,7 @@ describe("plain reminders", () => {
 
 describe("plain reminders reach the person AND the model, through the hooks", () => {
   function hooks(): ReturnType<typeof openAdapter> {
-    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000, owner: true };
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000 };
     const a = openAdapter(config, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
     open.push(a.counterpart);
     return a;

@@ -69,7 +69,7 @@ afterEach(() => {
 
 function server(owner = true): McpServer {
   // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
-  const s = openServer({ dir, session: "sess_feel", scope: "/scope/one", owner });
+  const s = openServer({ dir, session: "sess_feel", scope: "/scope/one" });
   findable(s.counterpart.store);
   open.push(s.counterpart);
   return s;
@@ -89,7 +89,7 @@ async function ask(s: McpServer, question: string): Promise<string[]> {
 /** Ask in meaning mode directly, for the arranged result. */
 function meaning(c: Counterpart, question: string, opts: { owner?: boolean; asker?: "self" | "owner" } = {}): MeaningResult {
   return meaningRecall(
-    { counterpart: c, sessionId: "feel", owner: opts.owner ?? true, asker: opts.asker ?? "self", vector: null, semantic: "embedder-off" },
+    { counterpart: c, sessionId: "feel", asker: opts.asker ?? "self", vector: null, semantic: "embedder-off" },
     question,
   );
 }
@@ -277,8 +277,8 @@ describe("what does not change", () => {
     const f = seed(s.counterpart);
     const question = "Han";
     expect(readFeelingAsk(question, { asker: "self" }, new Set(["unsettled"]), 3).ranked).toBe(false);
-    const withLane = s.counterpart.recall.build({ sessionId: "cmp", text: question, owner: true, feeling: { asker: "self" } });
-    const without = s.counterpart.recall.build({ sessionId: "cmp", text: question, owner: true });
+    const withLane = s.counterpart.recall.build({ sessionId: "cmp", text: question, feeling: { asker: "self" } });
+    const without = s.counterpart.recall.build({ sessionId: "cmp", text: question });
     expect(withLane.feeling?.ranked).toBe(false);
     expect(withLane.feeling?.strengths.size).toBe(0);
     const strip = (d: typeof withLane.decision): unknown => ({ ...d, elapsedMs: 0 });
@@ -292,7 +292,7 @@ describe("what does not change", () => {
   test("the ambient turn never opens the lane — 'I felt sad' nominates nothing", () => {
     const s = server();
     const f = seed(s.counterpart);
-    const built = s.counterpart.recall.build({ sessionId: "amb", text: "I felt so sad today", owner: true });
+    const built = s.counterpart.recall.build({ sessionId: "amb", text: "I felt so sad today" });
     expect(built.feeling).toBeUndefined();
     const seen = built.decision.verdicts.map((v) => v.id);
     for (const id of [f.card, f.han, f.week, f.unsettled]) expect(seen).not.toContain(id);
@@ -314,7 +314,7 @@ describe("what does not change", () => {
   test("no feeling word reaches the decision record", () => {
     const s = server();
     seed(s.counterpart);
-    const built = s.counterpart.recall.build({ sessionId: "rec", text: "when did I feel unsettled", owner: true, feeling: { asker: "self" } });
+    const built = s.counterpart.recall.build({ sessionId: "rec", text: "when did I feel unsettled", feeling: { asker: "self" } });
     expect(JSON.stringify(built.decision)).not.toContain("unsettled");
   });
 });
@@ -417,8 +417,8 @@ describe("B2: an everyday word is not a question about feeling", () => {
     const f = importerStore(s.counterpart);
     // A real feeling question that also names the importer.
     const q = "what moved me about the importer happy path";
-    const withLane = s.counterpart.recall.build({ sessionId: "bg1", text: q, owner: true, feeling: { asker: "self" } });
-    const without = s.counterpart.recall.build({ sessionId: "bg2", text: q, owner: true });
+    const withLane = s.counterpart.recall.build({ sessionId: "bg1", text: q, feeling: { asker: "self" } });
+    const without = s.counterpart.recall.build({ sessionId: "bg2", text: q });
     const verdict = (b: typeof withLane) => b.decision.verdicts.find((v) => v.id === f.target);
     expect(withLane.feeling?.ranked).toBe(true);
     // The bar it faces is the one the words set; the stamps may take its
@@ -472,8 +472,8 @@ describe("R1: the cut is the words' — stamps never take a text row's place", (
       c.store.put({ type: "memory", kind: "fact", body: `Importer note ${String(i)}: the parser step ${"x".repeat(i % 5)} handles row ${String(i * 3)} of the header batch.` });
     }
     const q = "what moved me about the importer parser step";
-    const withLane = c.recall.build({ sessionId: "r1a", text: q, owner: true, feeling: { asker: "self" } });
-    const without = c.recall.build({ sessionId: "r1b", text: q, owner: true });
+    const withLane = c.recall.build({ sessionId: "r1a", text: q, feeling: { asker: "self" } });
+    const without = c.recall.build({ sessionId: "r1b", text: q });
     expect(withLane.feeling?.ranked).toBe(true);
     expect(without.decision.candidates).toBeGreaterThanOrEqual(RECALL.MAX_CANDIDATES);
     const bgWith = withLane.decision.background;
@@ -608,7 +608,7 @@ describe("lane 6, item 1: any feeling word reaches its core, tiered", () => {
     // The weakest core match (0.4, halved) is the one of four left off the three slots.
     expect(moments(r)).not.toContain(f.sheepish[2]);
     expect(r.counts.moments).toBe(4);
-    const built = c.recall.build({ sessionId: "l6b-lane", text: "when was I afraid", owner: true, feeling: { asker: "self" } });
+    const built = c.recall.build({ sessionId: "l6b-lane", text: "when was I afraid", feeling: { asker: "self" } });
     expect(built.feeling?.pool).toBe(4);
     expect(built.feeling?.core).toBe(3);
     // The core tier brings no more cue than the weakest exact nomination (none of these bodies shares a word with the question).
@@ -734,14 +734,14 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     const s = server();
     const c = s.counterpart;
     const f = uneasyStore(c);
-    const built = c.recall.build({ sessionId: "l6n", text: "when was I afraid", owner: true, feeling: { asker: "self" } });
+    const built = c.recall.build({ sessionId: "l6n", text: "when was I afraid", feeling: { asker: "self" } });
     const seen = new Set(built.decision.verdicts.map((v) => v.id));
     expect(seen.has(f.wheelDoc)).toBe(true);
     expect(built.feeling?.noTopic.has(f.wheelDoc)).toBe(true);
     for (const id of f.sheepish) expect(built.feeling?.noTopic.has(id)).toBe(false);
     // A topic word: the garden plan, asked about by its own word, is not "no topic".
     const question = "how did I feel about the garden plan";
-    const topical = c.recall.build({ sessionId: "l6n2", text: question, owner: true, feeling: { asker: "self" } });
+    const topical = c.recall.build({ sessionId: "l6n2", text: question, feeling: { asker: "self" } });
     expect(topical.feeling?.ranked).toBe(true);
     expect(topical.feeling?.noTopic.has(f.topical)).toBe(false);
     // Meaning (#322): the feeling question's moments are the stamped rows, and
@@ -769,7 +769,7 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     // A wheel note asked about only through frame words stays below the stamped rows.
     uneasyStore(c);
     const note = c.store.put({ type: "memory", kind: "fact", body: "Wheel note: what you can do when afraid is file it under uneasy." });
-    const built = c.recall.build({ sessionId: "can", text: "what can I do when I feel afraid", owner: true, feeling: { asker: "self" } });
+    const built = c.recall.build({ sessionId: "can", text: "what can I do when I feel afraid", feeling: { asker: "self" } });
     expect(built.decision.verdicts.some((v) => v.id === note)).toBe(true);
     expect(built.feeling?.noTopic.has(note)).toBe(true);
   });
@@ -792,7 +792,7 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
       ["how did I feel in May", may],
       ["how did I feel about the Can", can],
     ] as const) {
-      const built = c.recall.build({ sessionId: `l6t-${id}`, text: question, owner: true, feeling: { asker: "self" } });
+      const built = c.recall.build({ sessionId: `l6t-${id}`, text: question, feeling: { asker: "self" } });
       expect(built.feeling?.ranked).toBe(true);
       expect(built.feeling?.noTopic.has(id)).toBe(false);
     }
@@ -806,8 +806,8 @@ describe("lane 6, item 3: memories about the feeling system don't crowd a feelin
     const s = server();
     const f = seed(s.counterpart);
     const question = "what do I know about Han";
-    const withLane = s.counterpart.recall.build({ sessionId: "cmp6", text: question, owner: true, feeling: { asker: "self", ownerNames: ["mike"] } });
-    const without = s.counterpart.recall.build({ sessionId: "cmp6", text: question, owner: true });
+    const withLane = s.counterpart.recall.build({ sessionId: "cmp6", text: question, feeling: { asker: "self", ownerNames: ["mike"] } });
+    const without = s.counterpart.recall.build({ sessionId: "cmp6", text: question });
     expect(withLane.feeling?.ranked).toBe(false);
     expect(withLane.feeling?.noTopic.size).toBe(0);
     const strip = (d: typeof withLane.decision): unknown => ({ ...d, elapsedMs: 0 });

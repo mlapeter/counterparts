@@ -72,7 +72,7 @@ afterEach(() => {
 });
 
 function config(): AdapterConfig {
-  return { dataDir: dir, injectionBudgetBytes: 9_000, owner: true, timeZone: ZONE };
+  return { dataDir: dir, injectionBudgetBytes: 9_000, timeZone: ZONE };
 }
 
 type Adapter = ReturnType<typeof openAdapter>;
@@ -86,7 +86,7 @@ function adapter(): Adapter {
 }
 
 function server(a: Adapter, session: string): McpServer {
-  return new McpServer({ counterpart: a.counterpart, session, scope: SCOPE, owner: true, registryDir: dir });
+  return new McpServer({ counterpart: a.counterpart, session, scope: SCOPE, registryDir: dir });
 }
 
 async function remember(a: Adapter, session: string, text: string): Promise<string> {
@@ -209,7 +209,7 @@ describe("part C: a session is not handed back what it wrote", () => {
 
 describe("part C, in the core: the echo set is ambient only", () => {
   test("recallForTurn skips what the session wrote, counts it, and a session that wrote nothing is unaffected", () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     closers.push(c);
     findable(c.store);
     for (const body of FILLER) c.store.put({ type: "memory", kind: "fact", body });

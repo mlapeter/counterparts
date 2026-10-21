@@ -59,7 +59,7 @@ function turn(echo?: ReadonlySet<string>) {
   const earlier = cand("earlier", "The quokka build uses the vermilion cache layer.", 15, { head: "head" });
   const head = cand("head", "Assets moved to a plain CDN; no cache layer now.", 15, { standsFor: "earlier" });
   return gate(
-    { candidates: [...bg, earlier, head], state: freshGateState("s"), storeSize: 200, owner: true, affectStated: false, turn: 1, ...(echo ? { echo } : {}) },
+    { candidates: [...bg, earlier, head], state: freshGateState("s"), storeSize: 200, affectStated: false, turn: 1, ...(echo ? { echo } : {}) },
     TUNABLES,
   );
 }
@@ -128,7 +128,7 @@ describe("path B: a head the words reached more weakly stands in too", () => {
       expect(settle(store, { holds: newer, over: older, how: "changed", actor: "owner" }).ok).toBe(true);
       // "assets" reaches both; "layer" only the earlier one, so the head is
       // reached, but well below it (measured: 1.6 against the earlier's 4.0).
-      const r = new Recall({ store, owner: true }).build({ sessionId: "s1", text: "garage battery and the assets and the layer" });
+      const r = new Recall({ store }).build({ sessionId: "s1", text: "garage battery and the assets and the layer" });
       const ids = [...r.decision.surfaced, ...r.decision.footnotes];
       expect(ids).not.toContain(older);
       expect(ids).toContain(newer);
@@ -216,7 +216,7 @@ describe("the review of #526", () => {
     return [6, 8, 10, 12, 14, 6, 8, 10, 12, 14].map((a, i) => cand(`bg${i}`, `${words[i % 5]} ${i}`, a));
   };
   const gateOf = (cs: Candidate[], extra: Partial<Parameters<typeof gate>[0]> = {}) =>
-    gate({ candidates: cs, state: freshGateState("s"), storeSize: 200, owner: true, affectStated: false, turn: 1, ...extra }, TUNABLES);
+    gate({ candidates: cs, state: freshGateState("s"), storeSize: 200, affectStated: false, turn: 1, ...extra }, TUNABLES);
 
   test("either bar: a head that showed on its own salience still shows when it stands in", () => {
     // Reached directly at 14.0 on a high salience it cleared its own bar; the
@@ -245,7 +245,6 @@ describe("the review of #526", () => {
 
   test("a head the candidate marks confidential stands in for a guest too (the gate was retired 2026-10-21)", () => {
     const r = gateOf([...bgOf(), cand("earlier", "e", 16, { head: "head" }), cand("head", "h", 16, { standsFor: "earlier", confidential: true })], {
-      owner: false,
     });
     expect(verdictOf(r, "head")).not.toBe("confidential-withheld");
     expect(verdictOf(r, "earlier")).toBe("inhibited");
@@ -256,7 +255,7 @@ describe("the review of #526", () => {
     const bg = [6, 8, 10, 12, 14, 6, 8, 10, 12, 14].map((a, i) => cand(`bg${i}`, `${words[i % 5]} ${i}`, a));
     const earlier = cand("earlier", "e", 15, { head: "head" });
     const run = (cs: Candidate[]) =>
-      gate({ candidates: cs, state: freshGateState("s"), storeSize: 200, owner: true, affectStated: false, turn: 1 }, TUNABLES);
+      gate({ candidates: cs, state: freshGateState("s"), storeSize: 200, affectStated: false, turn: 1 }, TUNABLES);
     const before = run([...bg, earlier, cand("head", "h", 2)]);
     const after = run([...bg, earlier, cand("head", "h", 15, { standsFor: "earlier", directReach: 2 })]);
     expect(after.background.mean).toBeCloseTo(before.background.mean, 9);

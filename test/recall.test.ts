@@ -225,7 +225,6 @@ function gateOn(candidates: Candidate[], over: Partial<Parameters<typeof gate>[0
       candidates,
       state: freshGateState("unit"),
       storeSize: 100,
-      owner: true,
       affectStated: false,
       turn: 1,
       ...over,
@@ -320,7 +319,7 @@ describe("cues — boilerplate, rarity, and the two subject rules", () => {
 describe("the surfacing pipeline", () => {
   test("an empty store returns cleanly: the empty string, reason no-candidates", () => {
     const s = store();
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({ sessionId: "s1", text: "anything at all about sourdough" });
     expect(out.injection).toBe("");
     expect(out.decision.reason).toBe("no-candidates");
@@ -336,7 +335,7 @@ describe("the surfacing pipeline", () => {
       title: "Sourdough starter",
       body: "The sourdough starter died after two weeks of neglect and needs daily feeding.",
     });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({ sessionId: "s1", text: "what happened to my sourdough starter" });
 
     // Name the reason, not just the absence: before the fix this was
@@ -346,7 +345,7 @@ describe("the surfacing pipeline", () => {
     expect(out.decision.storeSize).toBe(1);
     expect(delivered(out.decision)).toContain(id);
     // …and an unrelated turn is still quiet on the same one-memory store.
-    const quiet = new Recall({ store: s, owner: true }).recall({
+    const quiet = new Recall({ store: s }).recall({
       sessionId: "s2",
       text: "qqqq wwww eeee rrrr",
     });
@@ -378,7 +377,7 @@ describe("the surfacing pipeline", () => {
     ];
     let turn = 0;
     for (const text of turns) {
-      const out = new Recall({ store: s, owner: true }).recall({
+      const out = new Recall({ store: s }).recall({
         sessionId: `s${(turn += 1)}`,
         text,
       });
@@ -393,7 +392,7 @@ describe("the surfacing pipeline", () => {
     // …and the cap is inert the moment a second memory exists: at N=2 the
     // ordinary floors are back in force and it is they that hold the tier.
     put(s, { body: "Bought hiking boots that finally fit properly and are not too stiff." });
-    const after = new Recall({ store: s, owner: true }).recall({
+    const after = new Recall({ store: s }).recall({
       sessionId: "sN2",
       text: turns[0] as string,
     });
@@ -422,7 +421,7 @@ describe("the surfacing pipeline", () => {
     let turn = 0;
     const ask = (text: string): string[] =>
       delivered(
-        new Recall({ store: s, owner: true }).recall({ sessionId: `s${(turn += 1)}`, text }).decision,
+        new Recall({ store: s }).recall({ sessionId: `s${(turn += 1)}`, text }).decision,
       );
 
     expect(ask("what happened to my sourdough starter")).toContain(first);
@@ -442,7 +441,7 @@ describe("the surfacing pipeline", () => {
       body: "The sourdough starter died after two weeks of neglect; a sourdough starter needs daily feeding.",
       salience: { relevance: 0.6, emotional: 0.2, predictive: 0.4 },
     });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     // The turn LEANS ON its cue, and that is why this one goes loud: the
     // loud-tier floor is 4.5 cue units, this turn reaches 4.83, and the same
     // memory under a single passing mention reaches 3.49 and footnotes. See
@@ -471,7 +470,7 @@ describe("the surfacing pipeline", () => {
     });
     const mid = put(s, { kind: "skill", body: "The kiln shelf cracked during the last firing." });
     const weak = put(s, { kind: "fact", body: "A kiln sits in the corner of the shared studio." });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({ sessionId: "s1", text: "kiln firing schedule" });
 
     expect(out.decision.background.regime).toBe("relative");
@@ -487,7 +486,7 @@ describe("the surfacing pipeline", () => {
   test("a quiet turn renders the EMPTY STRING, not an empty block", () => {
     const s = store();
     seed(s);
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({ sessionId: "s1", text: "qqqq wwww eeee rrrr" });
     expect(out.injection).toBe("");
     expect(out.injection).not.toContain("counterparts:recall");
@@ -513,7 +512,7 @@ describe("the hard gates salience cannot override", () => {
       body: "The sourdough starter died after two weeks of neglect.",
     });
 
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({ sessionId: "s1", text: "my sourdough starter died again" });
 
     // The strongest, most protected memory in the store is not merely refused —
@@ -567,7 +566,7 @@ describe("the hard gates salience cannot override", () => {
       meta: { confidential: true },
     });
     for (const owner of [false, true]) {
-      const r = new Recall({ store: s, owner });
+      const r = new Recall({ store: s });
       const got = r.recall({ sessionId: `s-${String(owner)}`, text: "the compensation renegotiation with Marisol" });
       expect(verdictOf(got.decision.verdicts, id)).not.toBe("confidential-withheld");
       expect(delivered(got.decision)).toContain(id);
@@ -655,7 +654,7 @@ describe("per-session gate state is PERSISTED (the ruling, and v1's dark behavio
     });
     const turn = { sessionId: "shared-session", text: "my sourdough starter died again" };
 
-    const first = new Recall({ store: s1, owner: true }).recall(turn);
+    const first = new Recall({ store: s1 }).recall(turn);
     // Assert the POSITIVE first: a vacuously quiet turn would make the dedup
     // assertion below meaningless.
     expect(first.decision.reason).toBe("rendered");
@@ -665,7 +664,7 @@ describe("per-session gate state is PERSISTED (the ruling, and v1's dark behavio
 
     // A fresh process, as far as this module can tell: new Store, new Recall.
     const s2 = store();
-    const second = new Recall({ store: s2, owner: true }).recall(turn);
+    const second = new Recall({ store: s2 }).recall(turn);
 
     expect(second.decision.turn).toBe(2);
     expect(verdictOf(second.decision.verdicts, id)).toBe("dedup-suppressed");
@@ -678,7 +677,7 @@ describe("per-session gate state is PERSISTED (the ruling, and v1's dark behavio
     const s = store();
     seed(s);
     put(s, { kind: "skill", body: "The sourdough starter died after two weeks of neglect." });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     r.recall({ sessionId: "s1", text: "my sourdough starter died again" });
 
     const rows = s.gateRecords("s1");
@@ -696,14 +695,14 @@ describe("per-session gate state is PERSISTED (the ruling, and v1's dark behavio
     const s1 = store();
     seed(s1);
     put(s1, { kind: "skill", body: "The sourdough starter died after two weeks of neglect." });
-    new Recall({ store: s1, owner: true }).recall({
+    new Recall({ store: s1 }).recall({
       sessionId: "s1",
       text: "my sourdough starter died again",
     });
     s1.close();
 
     const s2 = store();
-    const r2 = new Recall({ store: s2, owner: true });
+    const r2 = new Recall({ store: s2 });
     const next = r2.recall({ sessionId: "s1", text: "what should I do about it" });
     expect(next.decision.carriedCueCount).toBeGreaterThan(0);
     // ...and they expire after exactly one turn: turn 2 minted no cues of its
@@ -720,7 +719,7 @@ describe("per-session gate state is PERSISTED (the ruling, and v1's dark behavio
     const s = store({ now: () => now });
     seed(s);
     put(s, { kind: "skill", body: "The sourdough starter died after two weeks of neglect." });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     r.recall({ sessionId: "quiet", text: "my sourdough starter died again" });
     r.recall({ sessionId: "active", text: "my sourdough starter died again" });
     const quietBefore = s.gateRecords("quiet");
@@ -774,7 +773,7 @@ describe("per-session gate state is PERSISTED (the ruling, and v1's dark behavio
       body: "The layoff conversation with Marisol left a mark that has not faded.",
       salience: { relevance: 0.8, emotional: 0.95, predictive: 0.3 },
     });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const t = { sessionId: "s1", text: "I still feel upset about the layoff conversation" };
 
     const a = r.recall(t);
@@ -795,7 +794,7 @@ describe("the footnote tier trains nothing, proved through the seam", () => {
     s.advanceClock("2026-08-26");
     const before = s.physicsOf(id);
 
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.resolveUse("s1", id, "footnoted");
 
     expect(USE_TIER_WEIGHT.footnoted).toBe(0);
@@ -819,7 +818,7 @@ describe("the footnote tier trains nothing, proved through the seam", () => {
     const s = store();
     const id = put(s, { body: "The sourdough starter died after two weeks of neglect." });
     s.advanceClock("2026-08-26");
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
 
     const out = r.resolveUse("s1", id, "referenced");
     expect(out.credited).toBe(true);
@@ -832,7 +831,7 @@ describe("the footnote tier trains nothing, proved through the seam", () => {
     const s = store();
     const id = put(s, { body: "The sourdough starter died after two weeks of neglect." });
     s.advanceClock("2026-08-26");
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
 
     expect(r.resolveUse("s1", id, "referenced").credited).toBe(true);
     const down = r.resolveUse("s1", id, "surfaced");
@@ -848,7 +847,7 @@ describe("the footnote tier trains nothing, proved through the seam", () => {
     const b = put(s, { kind: "person", body: "Robin from accounting handles quarterly invoices." });
     const aliases = new Map<string, readonly string[]>([["robin", [a, b]]]);
 
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({ sessionId: "s1", text: "robin robin robin", aliases });
 
     const surfacedIds = [...out.decision.surfaced, ...out.decision.footnotes];
@@ -989,7 +988,7 @@ describe("the bounded injection", () => {
       body: "## the lighthouse conversation\n\nWe talked for an hour about the lighthouse at Fernbrook Point and why it stopped turning.",
       source: "episode",
     });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({ sessionId: "s1", text: "what did we say about the lighthouse at Fernbrook Point?" });
     const epi = delivered(out.decision).filter((id) => id.startsWith("epi_"));
     // The ruling keeps it RECALLABLE. If the activation pass stopped delivering
@@ -1009,7 +1008,7 @@ describe("the bounded injection", () => {
       kind: "skill",
       body: "The sourdough starter died after two weeks of neglect.",
     });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({ sessionId: "s1", text: "my sourdough starter died again" });
     const expected = out.decision.sentinel;
     expect(expected).not.toBeNull();
@@ -1034,7 +1033,7 @@ describe("the bounded injection", () => {
       title: "Sourdough starter",
       body: "The sourdough starter died after two weeks of neglect and needs daily feeding in warm weather to recover its rise.",
     });
-    const r = new Recall({ store: s, owner: true, budgetBytes: 200 });
+    const r = new Recall({ store: s, budgetBytes: 200 });
     const out = r.recall({ sessionId: "s1", text: "my sourdough starter died again" });
     expect(byteLength(out.injection)).toBeLessThanOrEqual(200);
     if (out.injection !== "") {
@@ -1056,14 +1055,12 @@ describe("observer mode — surfaces, strengthens nothing, deposits nothing", ()
     s.close();
 
     const obs = store({ observer: true });
-    const r = new Recall({ store: obs, owner: true });
+    const r = new Recall({ store: obs });
     const out = r.recall({ sessionId: "probe", text: "my sourdough starter died again" });
 
     expect(r.observer).toBe(true);
     expect(out.decision.reason).toBe("rendered");
     expect(delivered(out.decision)).toContain(id);
-    // An observer is a NON-OWNER for confidentiality, whatever it was told.
-    expect(out.decision.owner).toBe(false);
   });
 
   test("resolveUse REFUSES under observer, checked before any other work", () => {
@@ -1074,7 +1071,7 @@ describe("observer mode — surfaces, strengthens nothing, deposits nothing", ()
     s.close();
 
     const obs = store({ observer: true });
-    const r = new Recall({ store: obs, owner: true });
+    const r = new Recall({ store: obs });
     const out = r.resolveUse("probe", id, "referenced");
 
     expect(out.credited).toBe(false);
@@ -1097,7 +1094,7 @@ describe("observer mode — surfaces, strengthens nothing, deposits nothing", ()
     s.close();
 
     const obs = store({ observer: true });
-    const r = new Recall({ store: obs, owner: true });
+    const r = new Recall({ store: obs });
     r.recall({ sessionId: "probe", text: "my sourdough starter died again" });
 
     expect(obs.gateRecords("probe")).toEqual([]);
@@ -1128,7 +1125,7 @@ describe("structural guarantees", () => {
     const s = store();
     seed(s);
     put(s, { kind: "skill", body: "The sourdough starter died after two weeks of neglect." });
-    const r = new Recall({ store: s, owner: true, budgetMs: -1 });
+    const r = new Recall({ store: s, budgetMs: -1 });
     const out = r.recall({ sessionId: "s1", text: "my sourdough starter died again" });
 
     expect(out.injection).toBe("");
@@ -1148,7 +1145,7 @@ describe("structural guarantees", () => {
       title: "Sourdough starter",
       body: "The distinctive phrase zygomorphic appears only inside this body.",
     });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({ sessionId: "s1", text: "sourdough starter zygomorphic" });
     const serialized = JSON.stringify(out.decision);
     expect(serialized).not.toContain("zygomorphic");
@@ -1159,11 +1156,11 @@ describe("structural guarantees", () => {
     const s = store();
     seed(s);
     const id = put(s, { kind: "skill", body: "The sourdough starter died after two weeks." });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     expect(delivered(r.recall({ sessionId: "a", text: "my sourdough starter died" }).decision)).toContain(id);
 
     s.archive(id, "test");
-    const after = new Recall({ store: s, owner: true }).recall({
+    const after = new Recall({ store: s }).recall({
       sessionId: "b",
       text: "my sourdough starter died",
     });
@@ -1321,10 +1318,9 @@ describe("cue length normalization", () => {
 
     const before = new Recall({
       store: s,
-      owner: true,
       tunables: { CUE_LENGTH_NORM: 0, CUE_DOC_CAP: Infinity },
     }).build({ sessionId: "before", text: turn });
-    const after = new Recall({ store: s, owner: true }).build({ sessionId: "after", text: turn });
+    const after = new Recall({ store: s }).build({ sessionId: "after", text: turn });
 
     // The verdict list is not a ranking (the gate groups it), so compare the
     // number the gate actually ranks on.
@@ -1367,7 +1363,7 @@ describe("supplied semantic hits bypass the vector scan entirely", () => {
     // Box 3 holds no embeddings at all: `nearestTo` can only ever answer empty.
     expect(s.nearestTo([1, 0, 0], 8)).toEqual([]);
 
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const quiet = r.build({ sessionId: "s1", text: "Nothing here about that at all." });
     expect(quiet.decision.verdicts.map((v) => v.id)).not.toContain(target);
     expect(quiet.decision.semanticSource).toBe("none");
@@ -1390,7 +1386,7 @@ describe("supplied semantic hits bypass the vector scan entirely", () => {
     const s = store();
     seed(s);
     const target = put(s, { body: "The kestrel hovered over the verge by the bypass." });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
 
     const weak = r.build({
       sessionId: "s1",
@@ -1421,7 +1417,6 @@ describe("supplied semantic hits bypass the vector scan entirely", () => {
     // first checkpoint decides — with and without the override.
     const r = new Recall({
       store: s,
-      owner: true,
       budgetMs: 10,
       now: () => {
         clock += 1;
@@ -1469,7 +1464,6 @@ describe("the loud tier is rare, in miniature", () => {
         candidates,
         state: freshGateState("unit"),
         storeSize,
-        owner: true,
         affectStated: false,
         turn: 1,
       },
@@ -1515,7 +1509,7 @@ describe("the loud tier is rare, in miniature", () => {
       kind: "skill",
       body: "The sourdough starter died after two weeks of neglect; a sourdough starter needs daily feeding.",
     });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     // The shape of the live turn 3: ordinary words the store has seen
     // everywhere, and no distinctive vocabulary of its own.
     const out = r.recall({
@@ -1542,7 +1536,7 @@ describe("the loud tier is rare, in miniature", () => {
     // A second memory the turn grazes rather than cues — it shares "died" and
     // "neglect" and nothing distinctive.
     put(s, { body: "The tomato seedlings died after a week of neglect in the cold frame." });
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = r.recall({
       sessionId: "s1",
       text: "my sourdough starter died, my sourdough starter, that poor sourdough starter",
@@ -1558,7 +1552,7 @@ describe("the loud tier is rare, in miniature", () => {
       const s = store({ dir: join(dir, where) });
       for (const filler of FILLER) s.put({ type: "memory", kind: "fact", body: filler });
       const id = s.put({ type: "memory", kind: "skill", title: "Sourdough starter", body });
-      return { id, out: new Recall({ store: s, owner: true }).recall({ sessionId: where, text }) };
+      return { id, out: new Recall({ store: s }).recall({ sessionId: where, text }) };
     };
 
     const glancing = build("glancing", "my sourdough starter died again");
@@ -1584,7 +1578,7 @@ describe("the loud tier is rare, in miniature", () => {
       kind: "skill",
       body: "The zygomorphic orchid bloomed after the second frost.",
     });
-    const out = new Recall({ store: s, owner: true }).recall({
+    const out = new Recall({ store: s }).recall({
       sessionId: "s1",
       text: "why did the zygomorphic orchid bloom",
     });
@@ -1760,7 +1754,7 @@ describe("I13 — document frequency counts LIVE rows", () => {
       salience: { claimed: 0.5 },
     });
 
-    const out = new Recall({ store: s, owner: true }).recall({
+    const out = new Recall({ store: s }).recall({
       sessionId: "s1",
       text: "what happened to my sourdough starter",
     });
@@ -1776,7 +1770,7 @@ describe("I13 — document frequency counts LIVE rows", () => {
     const gone = put(s, { body: "The zygomorphic orchid was moved to the north window." });
     s.archive(gone, "duplicate");
 
-    const out = new Recall({ store: s, owner: true }).recall({
+    const out = new Recall({ store: s }).recall({
       sessionId: "s1",
       text: "why did the zygomorphic orchid bloom",
     });

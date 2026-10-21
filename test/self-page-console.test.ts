@@ -537,8 +537,8 @@ describe("the page is visible where mechanisms are", () => {
 
     // THE BY-ID DOOR, with its own positive control: expanding the page would
     // credit a use for a row the wake delivers whole every morning.
-    expect(expandHandle(reader, id, { owner: true, sessionId: "s1" }).reason).toBe("expanded");
-    expect(expandHandle(reader, pageId, { owner: true, sessionId: "s1" }).reason).toBe("handle-unknown");
+    expect(expandHandle(reader, id, { sessionId: "s1" }).reason).toBe("expanded");
+    expect(expandHandle(reader, pageId, { sessionId: "s1" }).reason).toBe("handle-unknown");
     reader.store.close();
   });
 

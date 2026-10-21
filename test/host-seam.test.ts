@@ -81,7 +81,7 @@ describe("host on registry records — absent reads as claude-code", () => {
     const proj = join(root, "proj");
     mkdirSync(proj, { recursive: true });
     const a = openAdapter(
-      { dataDir: store, owner: true },
+      { dataDir: store },
       { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }), scope: { mode: "on", matched: proj, entry: null } },
     );
     try {
@@ -100,7 +100,7 @@ describe("the lifecycle, without Claude Code's adapter", () => {
     const store = join(root, "store");
     const proj = join(root, "proj");
     mkdirSync(proj, { recursive: true });
-    const c = Counterpart.open({ dir: store, owner: true });
+    const c = Counterpart.open({ dir: store });
     try {
       const life: HostLifecycle = new Lifecycle({ counterpart: c, config: { dataDir: store }, host: "claude-desktop" });
       expect(life).not.toBeInstanceOf(ClaudeCodeAdapter);

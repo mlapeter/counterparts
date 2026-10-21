@@ -48,8 +48,8 @@ afterEach(() => {
 
 /** An adapter whose spawner counts instead of starting anything. */
 function hooks(): ClaudeCodeAdapter {
-  const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000, owner: true, identity: { name: "Dana" } };
-  const counterpart = Counterpart.open({ dir, owner: true, identity: { name: "Dana" } });
+  const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000, identity: { name: "Dana" } };
+  const counterpart = Counterpart.open({ dir, identity: { name: "Dana" } });
   open.push(counterpart);
   return new ClaudeCodeAdapter({
     counterpart,

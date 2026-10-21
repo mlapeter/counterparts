@@ -425,7 +425,7 @@ describe("the cutoff: recorded once, kept off when turned off", () => {
     // The LongMemEval harness opens at clock 0, then moves the clock to each
     // session's date and writes through the session-end door with no claim.
     let now = 0;
-    const c = Counterpart.open({ dir, owner: true, timeZone: "UTC", now: () => now });
+    const c = Counterpart.open({ dir, timeZone: "UTC", now: () => now });
     now = Date.UTC(2023, 4, 20, 12);
     const plain = await c.submitSessionEnd(
       { content: "The user adopted a rescue greyhound named Biscuit last spring.", kind: "fact" },

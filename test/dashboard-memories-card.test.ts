@@ -52,7 +52,7 @@ const ids: Record<string, string> = {};
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-memcard-"));
   await seedDemo({ dir });
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     const s = c.store;
     const day = s.livedDay();

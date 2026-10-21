@@ -57,7 +57,7 @@ describe("hygiene", () => {
   });
 
   test("an old flag is asked again once at full weight, then habituates again", () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     open.push(c);
     for (const d of ["2026-09-01", "2026-09-02"]) c.store.advanceClock(d);
     const a = put(c.store, "The upkeep is eight food a day.");

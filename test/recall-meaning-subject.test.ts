@@ -43,7 +43,7 @@ beforeAll(async () => {
   work = mkdtempSync(join(tmpdir(), "counterparts-meaning-subject-"));
   dir = join(work, "store");
   await seedDemo({ dir });
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     const core = findIdentityCore(c.store);
     if (core === null) throw new Error("the demo store has no owner card");
@@ -84,7 +84,7 @@ test("the store reaches the bug: the owner's card outnumbers one person, another
 describe("the recall tool, meaning mode", () => {
   let s: McpServer;
   beforeAll(() => {
-    s = openServer({ dir, session: "sess_subject", scope: "/subject", owner: true });
+    s = openServer({ dir, session: "sess_subject", scope: "/subject" });
   });
   afterAll(() => {
     s.counterpart.close();
@@ -210,7 +210,7 @@ describe("a card named with a common word (review of #334)", () => {
   beforeAll(async () => {
     const copy = join(work, "store-common-word");
     cpSync(dir, copy, { recursive: true });
-    s = openServer({ dir: copy, session: "sess_common", scope: "/common", owner: true });
+    s = openServer({ dir: copy, session: "sess_common", scope: "/common" });
     s.counterpart.schemas.mention({
       name: "Will",
       kind: "person",

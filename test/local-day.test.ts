@@ -394,7 +394,7 @@ describe("the boundaries, by the clock", () => {
   test("M2, doctor: the evening in Chicago reads the claim as in flight and the SAME night as owed — what Self says", () => {
     inZone("America/Chicago", () => {
       let at = Date.parse("2026-09-18T15:00:00Z"); // 10:00 CDT on the 18th
-      const c = Counterpart.open({ dir, owner: true, now: () => at });
+      const c = Counterpart.open({ dir, now: () => at });
       open.push(c);
       for (const d of ["2026-09-16", "2026-09-17", "2026-09-18"]) memoryOn(c.store, d);
       expect(c.pageWriterDue({ mode: "session" }).about).toBe("2026-09-17");
@@ -405,7 +405,7 @@ describe("the boundaries, by the clock", () => {
       expect(c.pageWriterStatus("2026-09-17").outcome).toBe("asked");
       expect(c.pageWriterClaimOpen("2026-09-17")).toBe(true);
 
-      const f = pageWriterFindings(c.store, { dataDir: dir, owner: true })[0];
+      const f = pageWriterFindings(c.store, { dataDir: dir })[0];
       expect(f?.detail).toContain("last ran for 2026-09-17 on 2026-09-18 — asked");
       expect(f?.detail).not.toContain("derived");
       expect(f?.detail).toContain("2026-09-17 is owed");

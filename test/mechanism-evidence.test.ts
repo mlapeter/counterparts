@@ -91,7 +91,7 @@ describe("one judgement, two surfaces", () => {
   test("consolidation, not due: its phase ran on time, so both say waiting with the next run", () => {
     const dir = tempDir("counterparts-evidence-sched-");
     const TODAY = "2026-01-12";
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     let day = 0;
     try {
       for (let i = 1; i <= 12; i++) c.store.advanceClock(`2026-01-${String(i).padStart(2, "0")}`);
@@ -126,7 +126,7 @@ describe("one judgement, two surfaces", () => {
 
   test("a phase far behind its schedule is quiet (amber), not waiting", () => {
     const dir = tempDir("counterparts-evidence-late-");
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       for (let i = 1; i <= 12; i++) c.store.advanceClock(`2026-01-${String(i).padStart(2, "0")}`);
       c.store.setMeta(markerKey("consolidate"), String(c.store.livedDay() - 6));
@@ -146,7 +146,7 @@ describe("dreaming: core suggestions are said apart from changes (2026-09-27)", 
   test("a nomination is not counted among a dream's changes, on either surface", () => {
     const dir = tempDir("counterparts-evidence-dream-");
     const TODAY = "2026-01-12";
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       for (let i = 1; i <= 12; i++) c.store.advanceClock(`2026-01-${String(i).padStart(2, "0")}`);
       const day = c.store.livedDay();
@@ -186,7 +186,7 @@ describe("dreaming: core suggestions are said apart from changes (2026-09-27)", 
   test("a dream that only suggested reads as suggestions, with no changes", () => {
     const dir = tempDir("counterparts-evidence-dream-only-");
     const TODAY = "2026-01-12";
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       for (let i = 1; i <= 12; i++) c.store.advanceClock(`2026-01-${String(i).padStart(2, "0")}`);
       const day = c.store.livedDay();
@@ -235,7 +235,7 @@ describe("built / partly / not", () => {
 describe("firedToday (2026-10-10, the sidebar's times fired today)", () => {
   test("by default today is the window's lived day; a surface may hand in its own; a dream's rows are one firing", () => {
     const dir = tempDir("counterparts-evidence-today-");
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       for (let i = 1; i <= 5; i++) c.store.advanceClock(`2026-02-${String(i).padStart(2, "0")}`);
       const day = c.store.livedDay();
@@ -267,7 +267,7 @@ describe("firedToday (2026-10-10, the sidebar's times fired today)", () => {
 
   test("three counting gaps (2026-10-20): a dream's folds, a rise at the decay site, the exact-copy merge", () => {
     const dir = tempDir("counterparts-evidence-gaps-");
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       for (let i = 1; i <= 5; i++) c.store.advanceClock(`2026-02-${String(i).padStart(2, "0")}`);
       const day = c.store.livedDay();
@@ -311,7 +311,7 @@ describe("firedToday (2026-10-10, the sidebar's times fired today)", () => {
     // similarity source. The identical-body arm is not: `contentHashCandidates`
     // runs on every cycle, and the door refuses a repeat only in its own scope.
     const dir = tempDir("counterparts-evidence-copy-");
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       const content = "Backups cover canonical prose and the operational database, and deliberately skip the cache.";
       expect((await c.submitSessionEnd({ content, kind: "fact" }, { session: "s1", scope: "proj" })).deposited).toBe(true);

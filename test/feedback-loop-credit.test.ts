@@ -67,7 +67,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   findable(c.store);
   open.push(c);
   return c;

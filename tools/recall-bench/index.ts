@@ -180,7 +180,7 @@ export function benchOverStore(store: Store, input: BenchInput, config: BenchCon
     // real elapsed time is reported per row so the two never get confused.
     BUDGET_MS: 600_000,
   });
-  const recall = new Recall({ store, owner: true, tunables });
+  const recall = new Recall({ store, tunables });
   // The hop channel, as the live turn wires it (`--spread`): a READ of the
   // edge graph, so the bench still writes nothing.
   const associate = config.spread === true ? new Associate({ store }) : null;
@@ -196,7 +196,7 @@ export function benchOverStore(store: Store, input: BenchInput, config: BenchCon
   for (const [i, q] of input.queries.entries()) {
     const label = q.turn === undefined ? `q${i + 1}` : `turn ${q.turn}`;
     // A FRESH session per query: no dedup, no cue carry-over, no refractory.
-    const built = recall.build({ sessionId: `bench-${config.name}-${i}`, text: q.text, owner: true, day, ...hop });
+    const built = recall.build({ sessionId: `bench-${config.name}-${i}`, text: q.text, day, ...hop });
     const d = built.decision;
     const delivered: Delivered[] = [
       ...d.surfaced.map((id) => ({ id, tier: "surfaced" })),
@@ -296,7 +296,7 @@ function runToolQuery(
   label: string,
 ): ToolRow {
   const facts = factsRecall(
-    { counterpart: { store, recall }, sessionId: `bench-tool-${label}`, owner: true, vector: null, semantic: "embedder-off" },
+    { counterpart: { store, recall }, sessionId: `bench-tool-${label}`, vector: null, semantic: "embedder-off" },
     tq.question,
   );
   const admitted: Delivered[] = facts.memories.map((m) => ({ id: m.id, tier: "facts" }));

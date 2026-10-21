@@ -73,7 +73,7 @@ interface Night {
 
 /** One night: a dream that linked, merged and drew a gist, then a reflection after it. */
 function night(): Night {
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" } });
   try {
     c.store.advanceClock("2026-09-20");
     const a = mem(c, "The migration step must run before the container boots, or it boots empty.");
@@ -117,7 +117,7 @@ function night(): Night {
 }
 
 function server(owner: boolean, observer = false): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/night", owner, ...(observer ? { observer: true } : {}) });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/night", ...(observer ? { observer: true } : {}) });
   open.push(s.counterpart);
   return s;
 }
@@ -346,7 +346,7 @@ function files(): Record<string, string> {
 
 describe("review of #538 — awkward nights", () => {
   test("a dream of hundreds of changes names 12 ids per kind and 12 gists, counts the rest, and stays small", async () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     let dream: string;
     try {
       c.store.advanceClock("2026-09-20");
@@ -372,7 +372,7 @@ describe("review of #538 — awkward nights", () => {
   });
 
   test("ten long reflections by id share the answer's room: the ones past it wait by id", async () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     const made: string[] = [];
     try {
       c.store.advanceClock("2026-09-20");
@@ -412,7 +412,7 @@ describe("review of #538 — awkward nights", () => {
 
   test("an undone dream: its state, what was undone counted, nothing undone listed or quoted", async () => {
     const n = night();
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     try {
       expect(c.dreams.undo(n.dream).ok).toBe(true);
     } finally {
@@ -429,7 +429,7 @@ describe("review of #538 — awkward nights", () => {
   });
 
   test("an interrupted night: a dream begun and never journaled, a reflection begun and never finished, one with no dream", async () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     let dream: string;
     let reflection: string;
     try {
@@ -483,7 +483,7 @@ describe("review of #538 — awkward nights", () => {
     const n = night();
     const file = join(root, "scopes.json");
     writeScopes(file, setScope(null, "/scope/night", "off", { at: "2026-09-21" }));
-    const s = openServer({ dir, session: SESSION, scope: "/scope/night", owner: true, scopesFile: file });
+    const s = openServer({ dir, session: SESSION, scope: "/scope/night", scopesFile: file });
     open.push(s.counterpart);
     const p = payload(await s.call("recall", { handle: n.dream }));
     expect(p["reason"]).toBe("scope-off");

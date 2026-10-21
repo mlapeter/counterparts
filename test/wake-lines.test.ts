@@ -331,7 +331,7 @@ describe("the wake's lines join the lookup ledger", () => {
     const HERE = join(root, "garden");
     mkdirSync(HERE, { recursive: true });
     let now = T0;
-    const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
+    const c = Counterpart.open({ dir: storeDir, budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
     open.push(c);
     const ids: string[] = [];
     for (let i = 0; i < 4; i += 1) ids.push(c.store.put({ type: "memory", kind: "fact", title: `Does bed ${String(i)} want lime?`, body: longBody(`Open ${String(i)}: whether bed ${String(i)} wants lime this autumn.`), meta: { unresolved: true }, salience: { relevance: 0.9, emotional: 0.5, predictive: 0.5 } }));
@@ -340,7 +340,7 @@ describe("the wake's lines join the lookup ledger", () => {
     now += 60_000;
     const hooks = new ClaudeCodeAdapter({
       counterpart: c,
-      config: { dataDir: storeDir, owner: true, injectionBudgetBytes: BUDGET, timeZone: ZONE },
+      config: { dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: ZONE },
       configPath: join(root, "claude-code.json"),
       now: () => now,
       scope: { mode: "on", matched: HERE, entry: null } as ScopeVerdict,
@@ -359,7 +359,7 @@ describe("the wake's lines join the lookup ledger", () => {
     expect(JSON.parse(row?.payload ?? "{}")).toMatchObject({ lined: lined.length });
 
     now += 60_000;
-    const server = new McpServer({ counterpart: c, session, scope: HERE, owner: true, now: () => now });
+    const server = new McpServer({ counterpart: c, session, scope: HERE, now: () => now });
     const first = lined[0] ?? "";
     const r = await server.call("recall", { ids: [first] });
     expect(r.isError ?? false).toBe(false);

@@ -64,7 +64,6 @@ function date(n: number): string {
 function brain(): Counterpart {
   const c = Counterpart.open({
     dir,
-    owner: true,
     identity: { name: "Mike" },
     now: () => Date.now() + dateN * 86_400_000,
   });

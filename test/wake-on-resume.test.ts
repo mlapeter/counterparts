@@ -77,7 +77,7 @@ interface World {
 /** A store with a published wake, on the test's clock, and hooks over it. */
 async function world(start: number): Promise<World> {
   let now = start;
-  const c = Counterpart.open({ dir: storeDir, owner: true, now: () => now, timeZone: ZONE });
+  const c = Counterpart.open({ dir: storeDir, now: () => now, timeZone: ZONE });
   open.push(c);
   c.store.put({
     type: "memory",
@@ -95,7 +95,7 @@ async function world(start: number): Promise<World> {
     hooks: () =>
       new ClaudeCodeAdapter({
         counterpart: c,
-        config: { dataDir: storeDir, owner: true, injectionBudgetBytes: 9_000 },
+        config: { dataDir: storeDir, injectionBudgetBytes: 9_000 },
         configPath: join(root, "claude-code.json"),
         now: () => now,
         scope: verdict,

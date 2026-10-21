@@ -59,7 +59,7 @@ afterEach(() => {
 const today = (): string => new Date().toISOString().slice(0, 10);
 
 function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
-  return { dataDir: storeDir, owner: true, injectionBudgetBytes: 9_000, ...over };
+  return { dataDir: storeDir, injectionBudgetBytes: 9_000, ...over };
 }
 
 function adapter(mode: "on" | "unset"): ClaudeCodeAdapter {
@@ -99,7 +99,7 @@ function seed(): void {
   // A clock the seed turns: the ended session's six pieces are ten minutes
   // apart, so what it left unwritten owes a write-up (`core/coverage/`).
   let clock = Date.now();
-  const c = Counterpart.open({ dir: storeDir, owner: true, now: () => clock });
+  const c = Counterpart.open({ dir: storeDir, now: () => clock });
   try {
     c.store.put({
       type: "memory",
@@ -155,7 +155,7 @@ function contextOf(stdout: string): string {
 function startDelivered(sessionId: string, wakeBytes: number): Delivered {
   // A fresh day's pointer allowance for each start, so a walk over wake sizes
   // measures room and never the day's count.
-  const c = Counterpart.open({ dir: storeDir, owner: true });
+  const c = Counterpart.open({ dir: storeDir });
   c.store.setMeta(WRITE_UP_ASK_DATE_KEY, "1999-01-01");
   c.store.setMeta(WRITE_UP_ASK_COUNT_KEY, "0");
   c.close();

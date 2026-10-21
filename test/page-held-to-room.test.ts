@@ -77,7 +77,6 @@ function date(n: number): string {
 function brain(): Counterpart {
   const c = Counterpart.open({
     dir,
-    owner: true,
     identity: { name: "Mike" },
     now: () => Date.now() + dateN * 86_400_000,
   });
@@ -315,7 +314,7 @@ describe("3. no night loses its rewrite to the hold", () => {
   });
 
   test("through the real nightly process: a page held in the child and never sent again is in the store and the wake when the run ends", async () => {
-    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: PAGE_HOST_BUDGET_BYTES, owner: true };
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: PAGE_HOST_BUDGET_BYTES };
     const seed = Counterpart.open({ dir, budgetBytes: PAGE_HOST_BUDGET_BYTES });
     seed.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
     seed.close();
@@ -501,7 +500,7 @@ describe("5. the awkward states: midnight, a credential, a crowded log, no run e
   });
 
   test("through the real worker: a boundary after a night with no run end keeps the settled held page and the wake shows it", async () => {
-    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: PAGE_HOST_BUDGET_BYTES, owner: true };
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: PAGE_HOST_BUDGET_BYTES };
     const seed = Counterpart.open({ dir, budgetBytes: PAGE_HOST_BUDGET_BYTES });
     seed.revisePage(pageOf(3_000), { by: "owner", reason: "before" });
     seed.close();
@@ -521,7 +520,7 @@ describe("5. the awkward states: midnight, a credential, a crowded log, no run e
   test("through the real nightly process, across midnight: held at 23:58, the run ending at 00:10 still keeps it", async () => {
     let t = Date.UTC(2026, 9, 20, 23, 50);
     const clock = (): number => t;
-    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: PAGE_HOST_BUDGET_BYTES, owner: true, timeZone: "UTC" };
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: PAGE_HOST_BUDGET_BYTES, timeZone: "UTC" };
     const openAt = (): Counterpart => Counterpart.open({ dir, budgetBytes: PAGE_HOST_BUDGET_BYTES, now: clock, timeZone: "UTC" });
     const seed = openAt();
     seed.revisePage(pageOf(3_000), { by: "owner", reason: "before" });

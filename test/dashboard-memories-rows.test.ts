@@ -38,7 +38,7 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-memrows-"));
   await seedDemo({ dir });
   let t = Date.parse("2026-09-26T10:00:00Z");
-  const c = Counterpart.open({ dir, owner: true, now: () => t });
+  const c = Counterpart.open({ dir, now: () => t });
   try {
     const s = c.store;
     const day = s.livedDay();

@@ -242,7 +242,7 @@ describe("physics §5.10 — height, slope, and the feeling that softens", () =>
 // ═══════════════════════════════════════════════════════════════════════════
 describe("a lone emotional score is kept", () => {
   function server(): McpServer {
-    const s = openServer({ dir, scope: "/tmp/emotion-project", owner: true });
+    const s = openServer({ dir, scope: "/tmp/emotion-project" });
     open.push({ close: () => s.counterpart.close() });
     return s;
   }
@@ -367,7 +367,7 @@ describe("the wheel's words from real use, blends and aliases", () => {
   });
 
   test("the MCP reply says 'kept as your own word' and suggests only when close", async () => {
-    const s = openServer({ dir, scope: "/tmp/emotion-project", owner: true });
+    const s = openServer({ dir, scope: "/tmp/emotion-project" });
     open.push({ close: () => s.counterpart.close() });
     const out = (await s.call("remember", {
       text: "The glaze notes finally make sense after the long evening going through them.",
@@ -525,7 +525,7 @@ describe("mood-matching never admits an uncued memory", () => {
     const cued = ["a", "b", "c", "d", "e"].map((id, i) => cand(id, { cue: 1 + i * 0.1, sal: 0.3 }));
     const uncued = cand("u", { cue: 0, arrival: 50, sal: 1, mood: 1 });
     const g = gate(
-      { candidates: [...cued, uncued], state: freshGateState("s-gate"), storeSize: 200, owner: true, affectStated: false, turn: 1 },
+      { candidates: [...cued, uncued], state: freshGateState("s-gate"), storeSize: 200, affectStated: false, turn: 1 },
       t,
     );
     expect(g.background.regime).toBe("relative");
@@ -550,7 +550,7 @@ describe("mood-matching never admits an uncued memory", () => {
 
     // No "the" in the turn: it is a (weak) cue, and it would reach every memory.
     const turn = { sessionId: "s1", text: "Any kiln news this week?", day: 0 };
-    const r = new Recall({ store: s, owner: true, tunables: MOOD_ON });
+    const r = new Recall({ store: s, tunables: MOOD_ON });
     const before = r.build({ ...turn, sessionId: "before" }).decision;
 
     // Ten days on, the owner records feeling low — the mood, on a memory the turn never names.
@@ -581,7 +581,7 @@ describe("mood-matching never admits an uncued memory", () => {
     // Same store, same turn, the mood switched off (no feeling is strong enough
     // to set one): every activation — so every candidate — is identical. The
     // mood moved salience and nothing else.
-    const moodless = new Recall({ store: s, owner: true, tunables: { ...MOOD_ON, MOOD_MIN_STRENGTH: 2 } }).build({ ...turn, sessionId: "moodless" }).decision;
+    const moodless = new Recall({ store: s, tunables: { ...MOOD_ON, MOOD_MIN_STRENGTH: 2 } }).build({ ...turn, sessionId: "moodless" }).decision;
     const activations = (d: typeof after): Map<string, number> => new Map(d.verdicts.map((x) => [x.id, x.activation]));
     expect(activations(moodless)).toEqual(activations(after));
     expect(moodless.verdicts.every((x) => x.mood === undefined)).toBe(true);
@@ -612,7 +612,7 @@ describe("mood-matching never admits an uncued memory", () => {
     const moodNote = put("Feeling low about the studio today, nothing went right.");
     s.addFeelings(moodNote, [{ whose: "owner", core: "sad", emotion: "lonely", strength: 1 }]);
     const strong = { MOOD_SAME_WEIGHT: 1, MOOD_CROSS_WEIGHT: 1, MOOD_LOW_LOW_WEIGHT: 1 } as const;
-    const d = new Recall({ store: s, owner: true, tunables: strong }).build({ sessionId: "s-ids", text: "Any kiln news this week?", day: 0 }).decision;
+    const d = new Recall({ store: s, tunables: strong }).build({ sessionId: "s-ids", text: "Any kiln news this week?", day: 0 }).decision;
     const admittedLifted = d.verdicts.filter((x) => (x.verdict === "surfaced" || x.verdict === "footnoted") && (x.mood ?? 0) > 0);
     expect(admittedLifted.map((x) => x.id)).toContain(own);
     expect(d.moodMatched).toBe(admittedLifted.length);

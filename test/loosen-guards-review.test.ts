@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" } });
   open.push(c);
   return c;
 }
@@ -130,7 +130,7 @@ describe("the credential scan covers `emotion` at every door", () => {
   });
 
   test("the note door: the same", async () => {
-    const s = openServer({ dir, scope: "/tmp/review268-project", owner: true });
+    const s = openServer({ dir, scope: "/tmp/review268-project" });
     open.push({ close: () => s.counterpart.close() });
     const r = await s.call("remember", {
       text: "The release went out after a long night.",

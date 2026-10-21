@@ -36,7 +36,7 @@ function midday(date: string): number {
 /** A five-day record: births on days 0–2, uses, a settle, a feeling, an about-mark. */
 async function makeSource(dir: string): Promise<void> {
   let clock = midday(DATES[0]!);
-  const c = Counterpart.open({ dir, owner: true, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" });
+  const c = Counterpart.open({ dir, budgetBytes: 9_000, now: () => clock, timeZone: "UTC" });
   const put = (id: string, kind: "fact" | "self", body: string, day: number): void => {
     c.store.put({
       id,

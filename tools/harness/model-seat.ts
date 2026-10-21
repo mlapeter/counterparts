@@ -98,7 +98,6 @@ export function planModelChild(input: ModelSeatInput, ask: SeatAsk, hostSession:
   const plan = planNightChild({
     config: {
       dataDir: input.dir,
-      owner: false,
       injectionBudgetBytes: input.budgetBytes ?? 9_000,
       ...(input.model === undefined ? {} : { dreaming: { model: input.model } }),
     },

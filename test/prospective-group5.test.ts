@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   open.push(c);
   return c;
 }
@@ -168,7 +168,7 @@ describe("a missed plain day is told once, late, within its grace", () => {
   });
 
   test("through the hooks: SessionStart the day after says it late, to the person and the model, once", () => {
-    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000, owner: true };
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000 };
     const a = openAdapter(config, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
     open.push(a.counterpart);
     const id = dated(a.counterpart, "2026-10-12", { title: "renew the library card", meta: PLAIN });
@@ -204,9 +204,9 @@ describe("a missed plain day is told once, late, within its grace", () => {
 /** A server and a store on the same injected clock (review of #411), so a write is learned on that day. */
 function serverAt(iso: string): McpServer {
   const now = (): number => Date.parse(iso);
-  const counterpart = Counterpart.open({ dir, owner: true, now, timeZone: "UTC" });
+  const counterpart = Counterpart.open({ dir, now, timeZone: "UTC" });
   open.push(counterpart);
-  return new McpServer({ counterpart, session: "sess_group5_r", scope: "/scope/group5", owner: true, now });
+  return new McpServer({ counterpart, session: "sess_group5_r", scope: "/scope/group5", now });
 }
 
 async function noteAt(s: McpServer, args: Record<string, unknown>): Promise<string> {
@@ -233,7 +233,7 @@ describe("the late beat, never twice and never wrong (review of #411)", () => {
     dated(a, "2026-10-12", { meta: PLAIN });
     a.close();
     open.length = 0;
-    const o = Counterpart.open({ dir, owner: true, observer: true });
+    const o = Counterpart.open({ dir, observer: true });
     open.push(o);
     expect(o.plainReminders({ at: "2026-10-13" })).toEqual([]);
   });
@@ -326,7 +326,7 @@ describe("drewOn: a dated memory the session drew on is acted on", () => {
 
   test("through session_end, on the server's own calendar day, the answer says which were acted on", async () => {
     const SESSION = "sess_group5_1";
-    const s = openServer({ dir, session: SESSION, scope: "/scope/group5", owner: true, now: () => new Date("2026-10-12T12:00:00Z").getTime() });
+    const s = openServer({ dir, session: SESSION, scope: "/scope/group5", now: () => new Date("2026-10-12T12:00:00Z").getTime() });
     open.push(s.counterpart);
     const c = s.counterpart;
     c.store.advanceClock("2026-10-10");

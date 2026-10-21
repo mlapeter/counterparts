@@ -65,7 +65,7 @@ afterEach(() => {
 
 function brain(): Counterpart {
   // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
-  const c = Counterpart.open({ dir, snapshotsDir: join(root, "snaps"), owner: true, now: () => clock, timeZone: "UTC", identity: { name: "Mike" } });
+  const c = Counterpart.open({ dir, snapshotsDir: join(root, "snaps"), now: () => clock, timeZone: "UTC", identity: { name: "Mike" } });
   findable(c.store);
   open.push(c);
   return c;
@@ -122,7 +122,7 @@ function later(minutes = 30): void {
 }
 
 function ctx(c: Counterpart, over: Partial<MeaningContext> = {}): MeaningContext {
-  return { counterpart: c, sessionId: "sess_asker", owner: true, ...over };
+  return { counterpart: c, sessionId: "sess_asker", ...over };
 }
 
 function entries(r: MeaningResult): MeaningEntry[] {
@@ -250,7 +250,7 @@ describe("a card's arc", () => {
   test("a memory carrying the retired confidential mark is in a non-owner's answer as in the owner's (2026-10-21)", () => {
     const c = brain();
     const s = seed(c);
-    const guest = meaningRecall(ctx(c, { owner: false }), "Tell me about Han");
+    const guest = meaningRecall(ctx(c, {}), "Tell me about Han");
     const all = (r: MeaningResult) => entries(r).flatMap((e) => e.moments.map((m) => m.id));
     expect(all(guest)).toContain(s.secret);
     const owner = meaningRecall(ctx(c), "Tell me about Han");
@@ -677,7 +677,7 @@ describe("thin evidence", () => {
     chapter(c, "sess_t2", "Rua signed the contract after all, and the project can start on Monday as planned.");
     expect(meaningRecall(ctx(c), "What has Rua been to me?").notes).toContain("2 chapters, all from one week");
 
-    const d = Counterpart.open({ dir: join(root, "other"), snapshotsDir: join(root, "snaps2"), owner: true, now: () => clock });
+    const d = Counterpart.open({ dir: join(root, "other"), snapshotsDir: join(root, "snaps2"), now: () => clock });
     findable(d.store);
     open.push(d);
     card(d, "Rua");

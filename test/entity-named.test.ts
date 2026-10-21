@@ -418,7 +418,7 @@ const TURNS = [
 ];
 
 function root(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, now: () => NOW, ...opts });
+  const c = Counterpart.open({ dir, now: () => NOW, ...opts });
   opened.push(c);
   return c;
 }

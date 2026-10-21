@@ -81,7 +81,7 @@ function store(): Store {
 }
 
 function brain(clock?: { now: number }): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, ...(clock === undefined ? {} : { now: () => clock.now }) });
+  const c = Counterpart.open({ dir, ...(clock === undefined ? {} : { now: () => clock.now }) });
   findable(c.store);
   open.push(c);
   for (const d of ["2026-09-01", "2026-09-02", "2026-09-03"]) c.store.advanceClock(d);
@@ -89,7 +89,7 @@ function brain(clock?: { now: number }): Counterpart {
 }
 
 function server(): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/one" });
   open.push(s.counterpart);
   for (const d of ["2026-09-01", "2026-09-02", "2026-09-03"]) s.counterpart.store.advanceClock(d);
   return s;
@@ -632,7 +632,7 @@ describe("ambient recall: a quiet pointer to a head hides its earlier version (l
       ]);
       associate.flush();
     }
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const d = recallTurn(r, { sessionId: "s1", text: "my sourdough starter died, how often should I feed it" }, { associate }).decision;
     const shown = [...d.surfaced, ...d.footnotes];
     expect(shown).toContain(head);

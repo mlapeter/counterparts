@@ -357,7 +357,7 @@ describe("the schema: folded into the unreleased v9", () => {
 
 describe("the MCP doors: note and session_end", () => {
   function server(): McpServer {
-    const s = openServer({ dir, scope: "/tmp/traits-project", owner: true });
+    const s = openServer({ dir, scope: "/tmp/traits-project" });
     open.push({ close: () => s.counterpart.close() });
     return s;
   }
@@ -449,7 +449,7 @@ describe("the MCP doors: note and session_end", () => {
 describe("the reflection: writes nudges on what it was shown, is shown no balance", () => {
   const SESSION = "s-traits-reflect";
   function brain(): Counterpart {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, snapshotsDir: snaps });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" }, snapshotsDir: snaps });
     open.push(c);
     return c;
   }
@@ -517,7 +517,7 @@ describe("a dream's merge carries the originals' nudges, as it carries their fee
   test("each nudge keeps its source, model and moment, words included", () => {
     const at = Date.parse("2026-09-27T12:00:00Z");
     let now = at;
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, snapshotsDir: snaps, now: () => now });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" }, snapshotsDir: snaps, now: () => now });
     open.push(c);
     c.store.advanceClock("2026-09-10");
     for (let d = 11; d <= 26; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);

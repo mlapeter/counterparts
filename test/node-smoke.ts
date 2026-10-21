@@ -232,14 +232,14 @@ describe("under Node", () => {
   });
 
   test("meaning mode arranges a card's arc in this process", () => {
-    const c = Counterpart.open({ dir: join(work, "meaning"), snapshotsDir: join(work, "meaning-snaps"), owner: true });
+    const c = Counterpart.open({ dir: join(work, "meaning"), snapshotsDir: join(work, "meaning-snaps") });
     try {
       const card = c.schemas.mention({ name: "Ada", kind: "person", source: "Ada", chunkRef: "card-Ada", aliases: [], day: c.store.livedDay() });
       assert.ok(card.ok, String(card.reason));
       // A claim, as the mint seam always leaves one (2026-10-10): a raw put that
       // claims nothing stands below reach, and meaning mode lists it as faded.
       const id = c.store.put({ type: "memory", kind: "fact", body: "Ada shipped the parser today.", salience: { claimed: 0.5 }, origin: { session: "node-smoke-m", scope: work } });
-      const r = meaningRecall({ counterpart: c, sessionId: "node-smoke-m", owner: true }, "What has Ada been to me?");
+      const r = meaningRecall({ counterpart: c, sessionId: "node-smoke-m" }, "What has Ada been to me?");
       assert.equal(r.reason, "answered");
       assert.ok(r.shown.includes(id), JSON.stringify(r.shown));
       assert.match(renderMeaning(r), /^Ada · 1 session with no chapter · 1 moment/);

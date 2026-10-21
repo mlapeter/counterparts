@@ -104,7 +104,7 @@ function freshStore(now: number = T0): Store {
 /** A counterpart on a pinned clock, with a page, open questions, a skill, and three dated items. */
 function world(opts: { page?: boolean } = {}): { c: Counterpart; ids: Record<string, string>; now: { t: number } } {
   const now = { t: T0 };
-  const c = Counterpart.open({ dir: join(root, "store"), owner: true, budgetBytes: BUDGET, now: () => now.t, timeZone: ZONE });
+  const c = Counterpart.open({ dir: join(root, "store"), budgetBytes: BUDGET, now: () => now.t, timeZone: ZONE });
   open.push(c);
   if (opts.page !== false) {
     expect(c.revisePage("## Core\n\nI keep the garden's ledger.\n\n## Lately\n\nThe beans are in.", { by: "owner", reason: "a page" }).written).toBe(true);
@@ -125,7 +125,7 @@ function sessionStart(w: { c: Counterpart; now: { t: number } }, session = "a1b2
   mkdirSync(HERE, { recursive: true });
   const hooks = new ClaudeCodeAdapter({
     counterpart: w.c,
-    config: { dataDir: w.c.store.dir, owner: true, injectionBudgetBytes: BUDGET, timeZone: ZONE },
+    config: { dataDir: w.c.store.dir, injectionBudgetBytes: BUDGET, timeZone: ZONE },
     configPath: join(root, "claude-code.json"),
     now: () => w.now.t,
     scope: { mode: "on", matched: HERE, entry: null } as ScopeVerdict,
@@ -377,7 +377,7 @@ describe("5. How I work: leaves the wake; a craft memory is still a footnote", (
 
   test("a craft memory still comes up per turn when the turn reaches it — recall's gate has no kind it leaves out", () => {
     const now = { t: T0 };
-    const c = Counterpart.open({ dir: join(root, "recall"), owner: true, budgetBytes: BUDGET, now: () => now.t, timeZone: ZONE });
+    const c = Counterpart.open({ dir: join(root, "recall"), budgetBytes: BUDGET, now: () => now.t, timeZone: ZONE });
     open.push(c);
     for (const body of ["The library closes early on Sundays now.", "Ran the morning loop around the reservoir."]) c.store.put({ type: "memory", kind: "fact", body, salience: SALIENT });
     const skill = c.store.put({ type: "memory", kind: "skill", body: "Drain the irrigation hose before a hard frost, or the coupling splits.", salience: { relevance: 1, emotional: 1, predictive: 1 } });

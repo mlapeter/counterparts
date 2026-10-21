@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 function config(): AdapterConfig {
-  return { dataDir: dir, injectionBudgetBytes: 9_000, owner: true, timeZone: ZONE };
+  return { dataDir: dir, injectionBudgetBytes: 9_000, timeZone: ZONE };
 }
 
 function childEnv(): Record<string, string> {

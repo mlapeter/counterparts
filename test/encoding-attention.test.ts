@@ -70,7 +70,7 @@ afterEach(() => {
 });
 
 function server(): McpServer {
-  const s = openServer({ dir, session: "sess_g1c", scope: "/scope/g1c", owner: true });
+  const s = openServer({ dir, session: "sess_g1c", scope: "/scope/g1c" });
   open.push(s.counterpart);
   return s;
 }
@@ -234,7 +234,7 @@ describe("the default floor by what a memory is about (01 C2)", () => {
   });
 
   test("a revision through `submitJot` reads the same way, the mark at birth (no re-label recorded)", async () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     const first = await c.submitJot({ content: "We decided the two of us read one chapter a night." }, { session: "sess_g1c", scope: "/scope/g1c", about: "us" });
     c.store.setAbout(first.memoryId as string, "us", { by: "writer" });
@@ -251,7 +251,7 @@ describe("the default floor by what a memory is about (01 C2)", () => {
 
   test("through a `session_end` entry too", async () => {
     const seen: { name: string; data?: Record<string, unknown> }[] = [];
-    const c = Counterpart.open({ dir, owner: true, onEvent: (e) => seen.push(e as unknown as { name: string; data?: Record<string, unknown> }) });
+    const c = Counterpart.open({ dir, onEvent: (e) => seen.push(e as unknown as { name: string; data?: Record<string, unknown> }) });
     open.push(c);
     const r = await c.submitSessionEnd({ content: "We decided the two of us read one chapter a night." }, { session: "sess_g1c", scope: "/scope/g1c", about: "us" });
     expect(r.deposited).toBe(true);
