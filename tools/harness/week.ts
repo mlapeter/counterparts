@@ -33,7 +33,7 @@ import { Database } from "bun:sqlite";
 import { ClaudeCodeAdapter, NIGHT_KIND_ENV, NIGHT_RUN_ENV, openEmbedder, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
 import type { ChildPlan, ChildResult, HookInput, NightStarter, SpawnPlan } from "../../src/adapters/claude-code/index.js";
 import type { TurnExpansion } from "../../src/adapters/lifecycle.js";
-import { lookupScope, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
+import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
 import { Counterpart } from "../../src/core/counterpart.js";
 import type { PlainReminder } from "../../src/core/counterpart.js";
 
@@ -155,7 +155,7 @@ function reminded(injection: string, text: string): string {
   return injection.trim().length === 0 ? text : `<system-reminder>\n${injection.trim()}\n</system-reminder>\n\n${text}`;
 }
 
-/** The ids the model opened with the recall tool in one turn, read from its stream-json. */
+/** The ids and handles the model opened with the recall tool in one turn, read from its stream-json as live reads a transcript. */
 export function recalledIds(output: string | undefined): string[] {
   const out: string[] = [];
   for (const line of (output ?? "").split("\n")) {
@@ -165,10 +165,12 @@ export function recalledIds(output: string | undefined): string[] {
       if (o.type !== "assistant" || !Array.isArray(o.message?.content)) continue;
       for (const b of o.message.content as { type?: string; name?: string; input?: Record<string, unknown> }[]) {
         if (b.type !== "tool_use" || b.name !== "mcp__counterparts__recall") continue;
+        // As live reads them (`transcript.ts#expansionIdsOf`): the handle, then every id, unfiltered;
+        // a handle or title is resolved at the boundary through the server's resolution log.
+        const handle = b.input?.["handle"];
+        if (typeof handle === "string") out.push(handle);
         const ids = b.input?.["ids"];
-        for (const id of [...(Array.isArray(ids) ? ids : []), b.input?.["handle"]]) {
-          if (typeof id === "string" && /^(mem|epi|sch)_[0-9a-f]{12}$/.test(id)) out.push(id);
-        }
+        if (Array.isArray(ids)) for (const id of ids) if (typeof id === "string") out.push(id);
       }
     } catch {
       continue;
@@ -301,8 +303,8 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   // AS A NEW INSTALL BEGINS: the meeting waits for the first session, dreaming is on.
   if (opts.install !== false) counterpart.store.setMetaMany(opts.install === "without-meeting" ? NEW_INSTALL_META.filter(([k]) => k !== "onboarding.meet") : NEW_INSTALL_META);
 
-  // THE PRODUCT DECIDES WHAT RUNS: its spawner is asked for the night (at the
-  // day's first session, when the gate says so) and for the worker (at each
+  // THE PRODUCT DECIDES WHAT RUNS: its spawner is asked for the night (at a
+  // morning's first prompt, when the gate says so) and for the worker (at each
   // boundary). The harness records each ask and runs it after the hook call:
   // the night through `runNight` with the model seat, the worker as the
   // boundary it runs (`sessionEnd`).
@@ -314,15 +316,19 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   const nights: { day: number; state: string; kind: string; parts: string[] }[] = [];
   let boundaries = 0;
   const drain = async (date: string, day: number): Promise<void> => {
-    let workerDue = false;
-    while (asked.length > 0) {
-      const plan = asked.shift()!;
-      const kind = plan.env[NIGHT_KIND_ENV];
-      const run = plan.env[NIGHT_RUN_ENV];
-      if (kind === undefined || run === undefined) {
-        workerDue = true;
-        continue;
-      }
+    // THE WORKER FIRST: live's starts within seconds of its Stop, and its
+    // boundary moves the lived day before a night it launched has done
+    // anything. A night's returns then land on the day they belong to.
+    const plans = asked.splice(0);
+    const nightsAsked = plans.filter((p) => p.env[NIGHT_KIND_ENV] !== undefined && p.env[NIGHT_RUN_ENV] !== undefined);
+    if (plans.length > nightsAsked.length) {
+      boundaries += 1;
+      await counterpart.sessionEnd({ date, sweep: { skipped: "not-opted-in" } });
+    }
+    for (const plan of nightsAsked) {
+      if (opts.nights === false) continue;
+      const kind = plan.env[NIGHT_KIND_ENV]!;
+      const run = plan.env[NIGHT_RUN_ENV]!;
       say(`  night (${kind})`);
       const night = await runNight({
         open,
@@ -336,10 +342,6 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
       });
       nights.push({ day, state: night.state, kind, parts: [...(night.parts ?? [])] });
     }
-    if (workerDue) {
-      boundaries += 1;
-      await counterpart.sessionEnd({ date, sweep: { skipped: "not-opted-in" } });
-    }
   };
   const adapterFor = (scope: string): ClaudeCodeAdapter =>
     new ClaudeCodeAdapter({
@@ -351,7 +353,8 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
       args: ["harness-worker"],
       nightArgs: ["harness-night"],
       spawner,
-      scope: lookupScope(registry, scope),
+      // Read again per session: a scope the model set through the tool counts from the next session on.
+      scope: lookupScope(readScopes(scopesFile).registry ?? registry, scope),
     });
   // WHAT `bin/hook.ts#deliverTurn` CLAIMS when a hook's words go out: the plain
   // reminders shown, the day's dream line (or a held one), its note. Without
@@ -388,6 +391,16 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
         claim(adapter, base(), woke);
         await drain(date, d + 1);
         if (s.turns.length === 0) {
+          // THE EXTRA MORNING: the product launches the night from the first
+          // prompt (`hooks.ts#dreamLines`), never from the session start, so
+          // the morning has one, empty.
+          const said = adapter.userPromptSubmit({ ...base(), prompt: "" });
+          claim(adapter, base(), said);
+          // The day's first boundary, as a live session's first Stop gives it
+          // within seconds, before the night it launched has begun its dream.
+          boundaries += 1;
+          await counterpart.sessionEnd({ date, sweep: { skipped: "not-opted-in" } });
+          await drain(date, d + 1);
           adapter.sessionEnd({ ...base() });
           await drain(date, d + 1);
           continue;

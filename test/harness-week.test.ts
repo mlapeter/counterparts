@@ -72,6 +72,8 @@ test("the week drives the product's adapter on its clock, one child per turn, an
   // Nights: launched by the product's own gate at a morning's first session, never on day 1.
   expect(r.nights.length).toBeGreaterThan(0);
   expect(r.nights.every((n) => n.day >= 2 && n.kind.length > 0)).toBe(true);
+  // The last scripted day is dreamed too: the extra morning's first prompt launches its night.
+  expect(r.nights.map((n) => n.day)).toContain(4);
   // The worker the product asked for at each Stop and session end, run by the harness.
   expect(r.boundaries).toBeGreaterThanOrEqual(3);
 
@@ -97,6 +99,12 @@ test("the week drives the product's adapter on its clock, one child per turn, an
   expect((db.query("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode).toBe("delete");
   // The copy holds the week: every turn's memory is in it.
   expect((db.query("SELECT COUNT(*) AS n FROM memories WHERE type = 'memory'").get() as { n: number }).n).toBeGreaterThanOrEqual(3);
+  // Each night ENDS on the lived day of the morning it ran on: the Stop's boundary moved the day
+  // first. (Its `started` row is written by the hook at launch, before any boundary, as live's is.)
+  const dayOf = new Map((db.query("SELECT json_extract(payload, '$.date') AS date, MAX(day) AS day FROM events WHERE name = 'sleep.cycle' GROUP BY 1").all() as { date: string; day: number }[]).map((x) => [x.date, x.day]));
+  const nightRows = db.query("SELECT day, json_extract(payload, '$.date') AS date FROM events WHERE name = 'dream.night' AND json_extract(payload, '$.state') <> 'started'").all() as { day: number; date: string }[];
+  expect(nightRows.length).toBeGreaterThan(0);
+  for (const n of nightRows) expect(n.day).toBe(dayOf.get(n.date)!);
   db.close();
   expect(readdirSync(join(root, "work"))).toEqual([]);
   expect(JSON.stringify(r)).not.toContain("ZEBRA-WORDS");
@@ -145,7 +153,8 @@ test("the model's recall calls are read from its output as expansions", () => {
     JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "mcp__counterparts__recall", input: { handle: "epi_bbbbbbbbbbbb" } }] } }),
     JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "mcp__counterparts__remember", input: { ids: ["mem_cccccccccccc"] } }] } }),
   ].join("\n");
-  expect(recalledIds(out)).toEqual(["mem_aaaaaaaaaaaa", "epi_bbbbbbbbbbbb"]);
+  // As live reads them: every string, unfiltered (a handle or title resolves at the boundary).
+  expect(recalledIds(out)).toEqual(["mem_aaaaaaaaaaaa", "nonsense", "epi_bbbbbbbbbbbb"]);
 });
 
 test("a work root or an output under the owner's live root is refused before anything runs", async () => {
@@ -154,4 +163,21 @@ test("a work root or an output under the owner's live root is refused before any
   await expect(runWeek({ script: SCRIPT, workRoot: join(home, ".counterparts", "w"), env })).rejects.toThrow(/TARGET_IS_LIVE/);
   await expect(runWeek({ script: SCRIPT, workRoot: join(root, "w"), out: join(home, ".counterparts", "x.sqlite"), env })).rejects.toThrow(/TARGET_IS_LIVE/);
   expect(existsSync(join(home, ".counterparts", "w"))).toBe(false);
+});
+
+test("--no-nights runs no night, whatever the product asks for", async () => {
+  const start = (p: ChildPlan): Promise<ChildResult> => {
+    const allowed = p.args[p.args.indexOf("--allowedTools") + 1] ?? "";
+    if (allowed.includes("mcp__counterparts__remember")) {
+      const e = (JSON.parse(p.args[p.args.indexOf("--mcp-config") + 1]!) as { mcpServers: { counterparts: { env: Record<string, string> } } }).mcpServers.counterparts.env;
+      const at0 = Number(e["HARNESS_NOW"]);
+      const c = Counterpart.open({ dir: e["COUNTERPARTS_DATA_DIR"]!, owner: true, budgetBytes: 9_000, now: () => at0, timeZone: "UTC" });
+      c.store.put({ type: "memory", kind: "fact", body: `A thing at ${String(at0)}.`, salience: { novelty: null, relevance: 0.7, emotional: 0.3, predictive: 0.6 } });
+      c.close();
+    }
+    return Promise.resolve({ code: 0, timedOut: false, error: null, output: result("ok") });
+  };
+  const r = await runWeek({ script: SCRIPT, start, install: "without-meeting", nights: false, workRoot: join(root, "w"), env: { HOME: join(root, "home"), PATH: process.env["PATH"] ?? "" } });
+  expect(r.nights).toEqual([]);
+  expect(r.boundaries).toBeGreaterThan(0);
 });
