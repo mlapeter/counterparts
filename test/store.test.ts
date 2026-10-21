@@ -9,6 +9,7 @@
  * "it threw".
  */
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import {
   existsSync,
   mkdirSync,
@@ -916,6 +917,36 @@ describe("box 2 — canonical operational state", () => {
 // ── transactionality ─────────────────────────────────────────────────────────
 
 describe("transactionality — a killed multi-row mutation leaves no partial state", () => {
+  test("putUnless asks its precondition holding the write lock, and a yes stages nothing", () => {
+    // The card twins (2026-10-21): a check made before the transaction can
+    // race; one made inside it cannot, because no other writer can commit
+    // between the check and the insert.
+    const s = store();
+    const other = new Database(paths.operational(dir));
+    try {
+      other.exec("PRAGMA busy_timeout = 0");
+      let lockedOut = false;
+      const refused = s.putUnless(mem("refused"), () => {
+        try {
+          other.exec("BEGIN IMMEDIATE");
+          other.exec("ROLLBACK");
+        } catch {
+          lockedOut = true;
+        }
+        return true;
+      });
+      expect(lockedOut).toBe(true);
+      expect(refused).toBeNull();
+      expect(s.list()).toEqual([]);
+      expect(s.events("store.put")).toEqual([]);
+      const id = s.putUnless(mem("kept"), () => false);
+      expect(s.list()).toEqual([id as string]);
+      expect(s.readProse(id as string).body).toBe("kept");
+    } finally {
+      other.close();
+    }
+  });
+
   test("an aborted putMany persists nothing at all", () => {
     const s = store();
     const good = "mem_aaaaaaaaaaaa";

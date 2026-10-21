@@ -17,9 +17,10 @@
  * Hermetic: every test makes a fresh temp data dir and removes only that path.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { Store } from "../src/core/store/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
@@ -360,4 +361,98 @@ describe("through the composition: the boundary's births phase, and facts mode b
     expect(out.deposited).toBe(true);
     expect(c.schemas.entities().filter((e) => e.kind !== "self")).toEqual([]);
   });
+});
+
+describe("one name, one card, whichever process runs first (the card twins, 2026-10-21)", () => {
+  // A session's Stop and SessionEnd workers both run the cycle, and on four
+  // nights of the owner's store both ran the births phase at once: 40 names got
+  // two cards. Each process judged names against the index it read at open.
+
+  function wrens(s: Store): string[] {
+    return s
+      .list({ type: "schema", archived: false })
+      .filter((id) => s.row(id)?.title === "Wren" && s.row(id)?.superseded_by === null);
+  }
+
+  test("a mention judged against a stale index finds the other process's card under the write lock", () => {
+    const first = store();
+    const second = store();
+    const a = Schemas.open({ store: first });
+    const b = Schemas.open({ store: second });
+    const mention = { name: "Wren", kind: "person" as const, source: "Dinner with Wren.", day: 4 };
+    const born = a.mention({ ...mention, chunkRef: "a" });
+    expect(born.born).toBe(true);
+    // `b` read its index before that card existed: only the check under the
+    // write lock can see it.
+    const out = b.mention({ ...mention, chunkRef: "b" });
+    expect(out.born).toBe(false);
+    expect(out.reason).toBe("existing");
+    expect(out.id).toBe(born.id);
+    expect(b.events("schema.birth.raced")).toHaveLength(1);
+    expect(b.events("schema.birth")).toHaveLength(0);
+    expect(wrens(first)).toEqual([born.id as string]);
+  });
+
+  test("a births phase whose index predates the other process's birth offers the name to no one", async () => {
+    const c = Counterpart.open({ dir: join(dir, "store"), now: () => NOW });
+    opened.push(c);
+    spouse(c.store);
+    const late = Counterpart.open({ dir: join(dir, "store"), now: () => NOW });
+    opened.push(late);
+    await c.sessionEnd({ date: "2026-03-02" });
+    expect(wrens(c.store)).toHaveLength(1);
+    // `late` passed the births marker before `c` advanced it: the phase runs.
+    const r = late.schemas.birthsFromNames(c.store.livedDay());
+    expect(r.born).toEqual([]);
+    expect(r.offered).toBe(0);
+    expect(wrens(c.store)).toHaveLength(1);
+    // And the card `late` never saw born is the one it now knows.
+    expect(late.schemas.entities().filter((e) => e.name === "Wren")).toHaveLength(1);
+  });
+
+  test("three PROCESSES running the births phase at once make one card", async () => {
+    // Instances in one process cannot interleave: the property is the write
+    // lock between connections, so these are real children, released together.
+    const storeDir = join(dir, "store");
+    const seed = Counterpart.open({ dir: storeDir, now: () => NOW });
+    spouse(seed.store);
+    seed.close();
+    const gate = join(dir, "gate");
+    mkdirSync(gate);
+    const child = join(dir, "births-child.ts");
+    const module = fileURLToPath(new URL("../src/core/counterpart.ts", import.meta.url));
+    writeFileSync(
+      child,
+      [
+        `import { existsSync, writeFileSync } from "node:fs";`,
+        `import { join } from "node:path";`,
+        `import { Counterpart } from ${JSON.stringify(module)};`,
+        `const [store, gate, tag] = process.argv.slice(2) as [string, string, string];`,
+        `const c = Counterpart.open({ dir: store });`,
+        `writeFileSync(join(gate, "ready-" + tag), "");`,
+        `while (!existsSync(join(gate, "go"))) Bun.sleepSync(2);`,
+        `const r = c.schemas.birthsFromNames(4);`,
+        `c.close();`,
+        `console.log(JSON.stringify({ born: r.born.length, refused: r.refused }));`,
+      ].join("\n"),
+      "utf8",
+    );
+    const tags = ["alpha", "beta", "gamma"];
+    const kids = tags.map((tag) =>
+      // The runtime running this test, by path.
+      Bun.spawn([process.execPath, child, storeDir, gate, tag], { stdout: "pipe", stderr: "pipe" }),
+    );
+    const ready = (): boolean => tags.every((tag) => existsSync(join(gate, `ready-${tag}`)));
+    for (let waited = 0; !ready() && waited < 30_000; waited += 10) await Bun.sleep(10);
+    expect(ready()).toBe(true);
+    writeFileSync(join(gate, "go"), "");
+    const codes = await Promise.all(kids.map((k) => k.exited));
+    const outs = await Promise.all(kids.map((k) => new Response(k.stdout).text()));
+    expect(codes).toEqual([0, 0, 0]);
+    const reports = outs.map((o) => JSON.parse(o.trim()) as { born: number });
+    expect(reports.reduce((n, r) => n + r.born, 0)).toBe(1);
+    const after = Store.open({ dir: storeDir, now: () => NOW });
+    opened.push(after);
+    expect(wrens(after)).toHaveLength(1);
+  }, 60_000);
 });

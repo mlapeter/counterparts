@@ -532,10 +532,10 @@ describe("the root binds the seams a caller would otherwise have to remember", (
     // no longer recall candidates (2026-10-11, Group 3 part D), so a memory
     // saying the handle is.
     c.store.put({ type: "memory", kind: "fact", body: "Robin climbs; Robin belays Robin.", salience: { claimed: 0.8 } });
-    // Two concurrent births can each claim one handle; the next open reads both.
-    const first = c.schemas;
-    const second = brain().schemas;
-    first.mention({
+    // Two births that each claimed one handle, as the births race left them on
+    // a store before 2026-10-21 (a birth now asks again under the write lock,
+    // so the second is written directly); the next open reads both.
+    c.schemas.mention({
       name: "Robin Fielding",
       kind: "person",
       source: "Robin Fielding runs the Tuesday climbing session",
@@ -543,13 +543,12 @@ describe("the root binds the seams a caller would otherwise have to remember", (
       day: 0,
       aliases: ["Robin"],
     });
-    second.mention({
-      name: "Robin Chen",
+    c.store.put({
+      type: "schema",
       kind: "person",
-      source: "Robin Chen handles the quarterly invoices",
-      chunkRef: "c2",
-      day: 0,
-      aliases: ["Robin"],
+      title: "Robin Chen",
+      body: "Robin Chen handles the quarterly invoices",
+      meta: { role: "entity", name: "Robin Chen", aliases: ["Robin"] },
     });
 
     const fresh = brain();
