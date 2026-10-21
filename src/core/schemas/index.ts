@@ -36,6 +36,7 @@
 import {
   applyChallenge,
   band as bandOfPhysics,
+  fadeOf,
   clampSalienceAtSeam,
   pruneVerdict,
   revisionBar,
@@ -208,20 +209,6 @@ export interface SchemasOptions {
 }
 
 const ZERO_DIMS: DimensionsInput = { relevance: 0, emotional: 0, predictive: 0 };
-
-/**
- * A REVISED BELIEF'S SALIENCE (lane C, physics §5.13): it is born weak like
- * any belief — what the challenger claimed, else its dimensions' mean, never
- * above `BELIEF_BIRTH_CEILING` (read at use), and no feeling of its own. A
- * belief's feeling is its support's, weighed into each filing. (A new
- * belief's goes through the seam instead, `addBelief`.)
- */
-function bornWeak(dims: DimensionsInput | undefined, claimed: number | null): Salience {
-  const ceiling = PHYSICS_TUNABLES.BELIEF_BIRTH_CEILING;
-  const given = claimed ?? (dims === undefined ? null : (dims.relevance + dims.predictive) / 2);
-  const s = Math.min(ceiling, Math.max(0, Number.isFinite(given) && given !== null ? given : ceiling));
-  return { novelty: null, relevance: s, emotional: 0, predictive: s, claimed: s };
-}
 
 /** The memory sources that are not lived: a dream's words, a reflection's own entry (reflect.ts `notLivedReason`). */
 const NOT_LIVED_SOURCES: ReadonlySet<string> = new Set(["dreamed", "reflection"]);
@@ -1204,6 +1191,27 @@ export class Schemas {
     }
 
     let successorId: string | null = null;
+    // A BELIEF BORN UNDER LANE C IS CONTESTED, NEVER REWRITTEN (2026-10-21):
+    // past its bar it keeps its words — no memory's body becomes a belief —
+    // takes one cut, and waits for the next reflection to revise or retire it
+    // through the settle door. A migrated belief keeps the accommodation path.
+    if (outcome.verdict === "revise" && target.belief === true) {
+      this.contest(targetId, input, outcome.pressureAfter, outcome.bar);
+      return {
+        verdict: "hold",
+        reason: "contested",
+        credited: outcome.credited,
+        targetId,
+        retargeted,
+        successorId: null,
+        force: outcome.force,
+        pressureBefore: outcome.pressureBefore,
+        pressureAfter: outcome.pressureAfter,
+        bar: outcome.bar,
+        increment,
+        contested: true,
+      };
+    }
     if (outcome.verdict === "revise") {
       successorId = this.supersedeBelief(targetId, rec, row, input, challenger);
     }
@@ -1221,6 +1229,31 @@ export class Schemas {
       bar: outcome.bar,
       increment,
     };
+  }
+
+  /**
+   * CONTESTED (lane C, physics §5.13): the contrary pressure on a belief
+   * crossed its support's resistance. Its text stands; its strength takes one
+   * cut (`BELIEF_CONTESTED_FADE`, as a `changed` settle's: a multiplier, undone
+   * by dividing it back out), its pressure starts again from nothing, and its
+   * meta says so (`contested`: the day, the memory that carried it, the
+   * pressure and the bar) for the next reflection to revise or retire it. A
+   * durable `belief.contested` event keeps the story.
+   */
+  private contest(id: string, input: ChallengeInput, pressure: number, bar: number): void {
+    const p = this.store.physicsOf(id);
+    const factor = PHYSICS_TUNABLES.BELIEF_CONTESTED_FADE;
+    this.store.updatePhysics(id, { fade: fadeOf(p) * factor, pressure: 0, lastChallengedDay: input.day });
+    const contested = { day: input.day, by: input.challengerId, pressure, bar, fade: factor };
+    this.store.revise(id, { meta: { contested }, reason: "belief-contested" });
+    this.store.appendEvent({
+      name: "belief.contested",
+      day: input.day,
+      ref: id,
+      dedupKey: `belief.contested:${id}:${String(input.day)}`,
+      payload: { beliefId: id, ...contested },
+    });
+    this.emit("schema.belief.contested", id, { day: input.day, challengerId: input.challengerId, pressure, bar });
   }
 
   /**
@@ -1375,18 +1408,14 @@ export class Schemas {
         ...(spec.meta ?? {}),
       },
       // The evidence that carried the revision sets the successor's salience:
-      // an element is as strongly held as what made it (NOTES §3) — but a
-      // revised BELIEF is born weak like any belief (lane C, 2026-10-21), by
-      // the route `correction` (it is what the evidence corrected it to; the
-      // store carries no route to a successor), so it stays a belief to
-      // physics. Its predecessor's support stays where it was counted: it
-      // backed the belief that lost, and the successor earns its own.
-      salience:
-        spec.role === "belief"
-          ? bornWeak({ relevance: spec.challenger.salience.relevance, emotional: 0, predictive: spec.challenger.salience.predictive }, spec.challenger.salience.claimed ?? null)
-          : spec.challenger.salience,
-      ...(spec.role === "belief" ? { birthRoute: "correction" as const } : {}),
-      ...(spec.role === "belief" && (spec.row.about === "me" || spec.row.about === "us") ? { about: spec.row.about, aboutBy: "writer" as const } : {}),
+      // an element is as strongly held as what made it (NOTES §3). Since lane
+      // C (2026-10-21) only a MIGRATED belief reaches this path — a belief
+      // born under lane C's rules is contested, never rewritten
+      // (`challengeBelief`) — so its successor stays migrated (the store
+      // carries no route to a successor), on the physics it lived, and its
+      // predecessor's support stays where it was counted.
+      salience: spec.challenger.salience,
+      ...(spec.role === "belief" ? { birthRoute: "migrated" as const } : {}),
       physics: { birthDay: input.day, lastUsedDay: input.day, ...seed },
       // The channel vocabulary's fifth member finally has its writer (PR-2
       // review should-fix 1): an accommodation successor is the engine

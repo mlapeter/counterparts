@@ -241,7 +241,7 @@ export function recountSupport(
   store: Store,
   beliefId: string,
   /** A row just taken off (`unfileSupport`): what it counted for is part of the last count. */
-  gone?: { readonly stance: string; readonly weight: number; readonly day: number },
+  gone?: { readonly stance: string; readonly weight: number; readonly day: number; readonly bornDay: number | null },
 ): Map<string, number> {
   const out = new Map<string, number>();
   if (!has(store, "belief_support")) return out;
@@ -251,12 +251,12 @@ export function recountSupport(
   const before = { uses: 0, days: new Set<number>() };
   if (gone !== undefined && gone.stance === "support" && gone.weight > 0) {
     before.uses += gone.weight;
-    before.days.add(gone.day);
+    before.days.add(gone.bornDay ?? gone.day);
   }
   const filings: SupportFiling[] = rows.map((r) => {
     if (r.stance === "support" && r.weight > 0) {
       before.uses += r.weight;
-      before.days.add(r.day);
+      before.days.add(r.born_day ?? r.day);
     }
     const m = store.row(r.memory_id);
     const feeling = m === undefined ? 0 : emotionalIntensity({ salience: rowToPhysics(m).salience, feelingPeak: m.feeling_peak_lived ?? m.feeling_peak ?? null });

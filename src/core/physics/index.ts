@@ -555,6 +555,31 @@ export const TUNABLES = {
   SUPPORT_SAME_FOLDER: 0.75,
   /** Feeling adds weight, never required: x (1 + this x the memory's strongest feeling felt at the time). CAL. */
   SUPPORT_FEELING: 0.5,
+  /**
+   * A BELIEF'S OWN ARM (§5.13): its height from support, `CAP x (1 −
+   * e^(−support / SCALE))`, in place of the repetition arm — so a belief can
+   * rise past the semantic floor as life backs it (a newborn's 0.3 is its
+   * salience; ~4 full supports reach 0.5, ~10 reach 0.83). It also sets the
+   * belief's steepness (q), so a well-backed belief fades slowly. CAL.
+   */
+  BELIEF_SUPPORT_CAP: 0.9,
+  BELIEF_SUPPORT_SCALE: 4,
+  /**
+   * A BELIEF'S RESISTANCE GROWS WITH ITS SUPPORT (§5.13, not its subject's
+   * kind): the bar a contrary challenge must pass is
+   * `FLOOR + (CAP − FLOOR) x (1 − e^(−support / SCALE)) x min(1, days / DAYS)²`,
+   * `days` the distinct lived days its support's memories come from. A thin
+   * belief (one or two supports from one day) stays under `F_DAY_CAP_SLOW`, so
+   * one contrary memory can contest it the same day; one backed from two days
+   * or more resists past 2 x `F_DAY_CAP_SLOW`, so it takes three lived days of
+   * contrary pressure (§5.6's bound), and never more than three (CAP 1). CAL.
+   */
+  BELIEF_RESIST_FLOOR: 0.1,
+  BELIEF_RESIST_CAP: 1.0,
+  BELIEF_RESIST_SCALE: 1.5,
+  BELIEF_RESIST_DAYS: 2,
+  /** A belief whose contrary pressure crossed its bar is CONTESTED: its text stays, its strength takes this cut once (as a `changed` settle's). CAL. */
+  BELIEF_CONTESTED_FADE: 0.5,
 
   // --- §5.7 dedup ---
   /** CAL, and the sharpest instance of scar §2.8: in v1's embedding space
@@ -968,11 +993,28 @@ export function cons(m: Pick<MemoryPhysics, "consolidated">): number {
  */
 export function base(m: MemoryPhysics): number {
   const k = kindPhysics(m.kind);
-  // A BELIEF's repetition arm is its support (§5.13), at full weight whatever
-  // its subject's kind: a belief about a person (omega_rep 0) is earned by
-  // life like any other. Its `uses` are support and nothing else.
-  const wRep = m.belief === true ? 1 : k.wRep;
-  return Math.max(k.wSal * salArm(m), wRep * rep(m)) + cons(m);
+  // A BELIEF's second arm is its support (§5.13), whatever its subject's
+  // kind: a belief about a person (omega_rep 0) is earned by life like any
+  // other, and it can rise past the repetition arm's 0.5.
+  if (m.belief === true) return Math.max(k.wSal * salArm(m), supportArm(m)) + cons(m);
+  return Math.max(k.wSal * salArm(m), k.wRep * rep(m)) + cons(m);
+}
+
+/** A belief's height from its support (§5.13): `BELIEF_SUPPORT_CAP x (1 − e^(−uses / BELIEF_SUPPORT_SCALE))`; 0 for any other row. */
+export function supportArm(m: Pick<MemoryPhysics, "uses"> & Partial<Pick<MemoryPhysics, "belief">>): number {
+  if (m.belief !== true || !(m.uses > 0)) return 0;
+  return TUNABLES.BELIEF_SUPPORT_CAP * (1 - Math.exp(-m.uses / TUNABLES.BELIEF_SUPPORT_SCALE));
+}
+
+/**
+ * A BELIEF'S RESISTANCE (§5.13): what contrary pressure must pass, from its
+ * support alone — not its kind's inertia, not how strong it reads today.
+ * `days` is how many lived days its support's memories come from.
+ */
+export function beliefResistance(m: Pick<MemoryPhysics, "uses"> & Partial<Pick<MemoryPhysics, "reinforcedDays">>): number {
+  const spread = Math.min(1, Math.max(0, reinforcedDays(m)) / TUNABLES.BELIEF_RESIST_DAYS);
+  const backed = 1 - Math.exp(-Math.max(0, m.uses) / TUNABLES.BELIEF_RESIST_SCALE);
+  return TUNABLES.BELIEF_RESIST_FLOOR + (TUNABLES.BELIEF_RESIST_CAP - TUNABLES.BELIEF_RESIST_FLOOR) * backed * spread * spread;
 }
 
 // ---------------------------------------------------------------------------
@@ -1060,11 +1102,12 @@ export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak"
  */
 export function stability(
   m: Pick<MemoryPhysics, "kind" | "uses" | "salience"> &
-    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity" | "eraClaim" | "eraExempt">>,
+    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity" | "eraClaim" | "eraExempt" | "belief">>,
 ): number {
   const kappa = kindPhysics(m.kind).kappa;
   if (m.promotedIdentity === true || !(kappa > 0)) return Number.POSITIVE_INFINITY;
-  const q = steepnessInput(m);
+  // A belief's steepness follows its support too (§5.13): well backed, it hardens.
+  const q = m.belief === true ? Math.max(steepnessInput(m), supportArm(m)) : steepnessInput(m);
   return (
     (TUNABLES.S0 *
       Math.exp(TUNABLES.STABILITY_GAIN * q) *
@@ -1953,7 +1996,7 @@ export interface SupportCredit {
   readonly uses: number;
   /** The last lived day a support filing counted for something — the curve's anchor — or null. */
   readonly lastDay: number | null;
-  /** Distinct lived days a support filing counted on. */
+  /** Distinct lived days the counted support's memories come from (a filing's own day when its memory's is unknown). */
   readonly days: number;
 }
 
@@ -2017,7 +2060,7 @@ export function supportCredit(filings: readonly SupportFiling[]): SupportCredit 
     if (f.stance === "support" && w > 0) {
       uses += w;
       lastDay = lastDay === null ? f.day : Math.max(lastDay, f.day);
-      days.add(f.day);
+      days.add(f.bornDay ?? f.day);
     }
   }
   return { weights, uses, lastDay, days: days.size };
@@ -2283,6 +2326,8 @@ export function revisionBar(
   d: number,
   shape: DecayShape = TUNABLES.DECAY_SHAPE,
 ): number {
+  // A belief resists by its support (§5.13), not by its kind's inertia.
+  if (target.belief === true) return beliefResistance(target);
   return kindPhysics(target.kind).iota * strength(target, d, shape);
 }
 
@@ -2328,7 +2373,9 @@ export function applyChallenge(
 
   const factor = challenge.weight === undefined || !Number.isFinite(challenge.weight) ? 1 : Math.max(0, challenge.weight);
   const rawForce = Math.max(challengeForce(challenge.physics, d, shape) * factor, challenge.floor ?? 0);
-  const slow = kindPhysics(target.kind).iota >= TUNABLES.SLOW_KIND_IOTA;
+  // A belief is slow too (§5.13): its daily force is capped, so its
+  // resistance counts in lived days.
+  const slow = target.belief === true || kindPhysics(target.kind).iota >= TUNABLES.SLOW_KIND_IOTA;
   const force = slow ? Math.min(rawForce, TUNABLES.F_DAY_CAP_SLOW) : rawForce;
   const pressureAfter = pressureBefore + force;
   const revise = pressureAfter > bar;

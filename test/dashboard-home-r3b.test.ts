@@ -136,9 +136,8 @@ describe("2. the panel: one number, those memories, one line", () => {
       }
       const emotion = view.mechanisms.find((m) => m.id === "emotional")!;
       // The mood match leads last since 2026-10-14 (off by decision): the demo saved and recalled no
-      // memory with a feeling this week, so the lift on new memories leads. (24 since lane C, 2026-10-21:
-      // a belief revised under pressure is born weak again, with no feeling of its own.)
-      expect(emotion.lead).toEqual({ n: 24, words: "new memories held higher for their feeling this week" });
+      // memory with a feeling this week, so the lift on new memories leads.
+      expect(emotion.lead).toEqual({ n: 25, words: "new memories held higher for their feeling this week" });
       const cons = view.mechanisms.find((m) => m.id === "consolidation")!;
       expect(cons.lead).toEqual({ n: returns.awake, words: "came back in conversation this week" });
     });

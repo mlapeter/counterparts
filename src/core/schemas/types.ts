@@ -291,6 +291,8 @@ export interface ChallengeInput {
 /** physics' own `ChallengeReason` values, plus this module's seam refusals. */
 export type RevisionReason =
   | "revised"
+  /** A belief past its bar (lane C): its text stands, it is marked contested and cut once. */
+  | "contested"
   | "below-bar"
   | "no-declared-target"
   | "target-mismatch"
@@ -352,6 +354,8 @@ export interface RevisionOutcome {
   pressureAfter: number;
   bar: number;
   increment: PressureIncrement | null;
+  /** The belief crossed its bar and was marked contested (lane C), not rewritten. */
+  contested?: boolean;
 }
 
 // ---------------------------------------------------------------------------

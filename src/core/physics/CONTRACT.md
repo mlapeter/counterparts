@@ -702,9 +702,10 @@ Open for the owner: whether a later use should lift the fade back toward 1.
 *Design: `~/counterparts-notes/2026-10-21-beliefs-design.md` §3–5 (Mike, 10-21, lightly held).
 Every number is a top-level tunable read at use, to check on live numbers ~2026-10-26.*
 
-A belief (`memories.birth_route` set; `MemoryPhysics.belief`) is born weak — its salience at
-most `BELIEF_BIRTH_CEILING` (0.3), no feeling of its own — and rises only by SUPPORT: lived
-memories filed for it, each counted ONCE per belief (`belief_support`'s key).
+A belief born under lane C (`memories.birth_route` set and not `migrated`;
+`MemoryPhysics.belief`) is born weak — its salience at most `BELIEF_BIRTH_CEILING` (0.3), no
+feeling of its own — and rises only by SUPPORT: lived memories filed for it, each counted
+ONCE per belief (`belief_support`'s key).
 
 ```
 w(s)    = route(s) × spread(s) × (1 + SUPPORT_FEELING × I_lived(s))       SUPPORT_FEELING = 0.5
@@ -715,36 +716,54 @@ spread  = the smallest that applies against earlier filings of the same stance:
           same session 0.25 · same lived day 0.5 · same folder 0.75 · else 1
           (no folder — the chapter episodes — is one shared "unknown" folder)
 links   = at most SUPPORT_LINK_MAX (0.5) together, from beliefs at strength ≥ SUPPORT_LINK_FLOOR
-uses(b) = Σ w over its support                                   # the repetition arm
-anchor  = the last lived day a support filing counted            # the curve restarts there
-base(b) = max( ω_sal(k) × salArm(b),  1 × rep(b) ) + cons(b)     # ω_rep is 1 for any belief
+uses(b) = Σ w over its support         days(b) = distinct lived days its support's memories come from
+anchor  = the last lived day a support filing counted                     # the curve restarts there
+
+support(b) = BELIEF_SUPPORT_CAP × (1 − e^(−uses / BELIEF_SUPPORT_SCALE))        0.9, 4
+base(b)    = max( ω_sal(k) × salArm(b),  support(b) ) + cons(b)               # its own arm, not rep
+q(b)       = max( steepnessInput(b), support(b) )                             # it hardens
+bar(b)     = FLOOR + (CAP − FLOOR) × (1 − e^(−uses / SCALE)) × min(1, days / DAYS)²
+             BELIEF_RESIST_FLOOR 0.1 · CAP 1.0 · SCALE 1.5 · DAYS 2           # not ι × strength
+force      ≤ F_DAY_CAP_SLOW (0.35) a lived day, for every belief
 ```
 
-- **The same curve as any memory.** Support is a return-like credit with a use's reach: it
-  lifts the height through the repetition arm (for a belief at full weight whatever its
-  subject's kind — a belief about a person, ω_rep 0, is earned like any other) and restarts
-  the curve; a return would only lengthen it. Unsupported, a newborn 0.3 belief leaves reach
-  in about five lived days. **Named ceiling:** `rep` saturates at `REP_CAP` (0.5), so a belief
-  never reaches `THETA_SEM` however supported, and its revision bar is at most ι × 0.5 —
-  0.1 for a belief on the self subject (kind `fact`), 0.4 for one about a person, so the
-  "≥ 3 lived days to overturn a friend-model" bound of §5.6 holds for no born belief (two
-  days at `F_DAY_CAP_SLOW`). The first question for the 10-26 check.
+- **The same curve as any memory, its own arm.** Support is a return-like credit with a use's
+  reach: its sum is the belief's `uses`, which lifts the height through the SUPPORT ARM (in
+  place of the repetition arm, whatever the subject's kind — a person's ω_rep is 0 — and past
+  `REP_CAP`: ~4 full supports reach 0.5, ~10 reach 0.83), sets the steepness so a well-backed
+  belief fades slowly, and restarts the curve on the last day support counted. Unsupported, a
+  newborn 0.3 belief leaves reach in about five lived days.
+- **Resistance grows with support, not with the kind.** A belief resists contrary pressure by
+  its support alone (`beliefResistance`): a thin one — one or two supports from one lived day —
+  has a bar under the daily cap, so one strong contrary memory contests it the same day; one
+  backed from two lived days or more (3+ supports) has a bar past 2 × 0.35, so it holds two
+  days of contrary pressure and goes on the third — §5.6's bound — and never needs more than
+  three (CAP 1). The bar does not decay with the belief: resistance is what life put behind
+  it, and the pressure decays on its own curve.
+- **Contested, never rewritten.** Past the bar the belief keeps its words — no memory's body
+  becomes a belief's text — takes one cut (`BELIEF_CONTESTED_FADE` 0.5 on `fade`, as a
+  `changed` settle's), its pressure starts again from nothing, and `meta.contested` records the
+  day, the memory that carried it, the pressure and the bar (plus a durable `belief.contested`
+  event). The next reflection is asked to revise or retire it (lane C2/C3).
+- **The at-once door passes no bar.** The owner's correction and a reasoned settle reach a
+  belief through `reconsolidation.ts#settle` as the one settled OVER (never as the one that
+  holds): `corrected` archives it at once, its words and support kept on the record.
 - **Recounted, not accumulated.** The store recounts a belief's whole table at every filing
-  and unfiling (`store/wave2.ts#recountSupport`) and moves its `uses` and reinforced days by
-  the difference from the last count, so an echoed found filing or an unfiled one reads
-  exactly, and a use credited some other way is kept. The anchor never moves back.
+  and unfiling (`store/wave2.ts#recountSupport`, ~0.3 ms at 2,000 beliefs × 20 supports) and
+  moves its `uses` and its days by the difference from the last count, so an echoed found
+  filing or an unfiled one reads exactly, and a use credited some other way is kept. The
+  anchor never moves back.
 - **What never counts:** the belief itself, a showing, a recall, a rating, a reflection
   citing it, a dream's words, a reflection's entry. A rating of a belief's slot (lane E) may
   be a physics USE credit; it is never support.
 - **Feeling** is the counted memory's strongest felt at the time (`feeling_peak_lived`), so a
   feeling recorded later does not make it count more.
-- **Contrary** filings are counted the same way and press the belief through §5.6 at their
-  weight: `F = w × strength(new) × sal(new)` (`Challenge.weight`), one credited challenge a
-  lived day, REVISE when P > ι × strength. The revised belief is born weak again (route `correction`)
-  with no support: what was filed backed the belief that lost, and stays on it. A contrary
-  filing never lowers `uses`.
-- **A migrated belief** (channel `migrated`) keeps the strength it lived (owner ruling
-  2026-08-29), for now: it is not born here.
+- **Contrary** filings are counted the same way and press at their weight:
+  `F = w × strength(new) × sal(new)` (`Challenge.weight`), one credited challenge a lived day.
+  A contrary filing never lowers `uses`.
+- **A migrated belief** (birth route `migrated`) keeps the physics it lived — its salience,
+  the kind's inertia (`ι × strength`) and the accommodation path (a successor in the
+  challenger's words, itself migrated) — for now. None exists on a live store.
 
 ## 6. Scars honored
 

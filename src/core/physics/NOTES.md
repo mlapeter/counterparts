@@ -701,27 +701,30 @@ of a copy of the live store (lived day 23).
 
 **Why support is a use, not a return.** The brief asked for "a return-like credit". A return
 here only lengthens stability (`R`), so a belief credited by returns alone would never rise
-above its birth ceiling (0.3) and its revision bar would stay at ι × 0.3 however much life
-backed it — "resistance comes from accumulated support" (design §5) would not hold. So the
-support's sum is the belief's `uses`: the repetition arm lifts its height and part of its
-stability, and the last day support counted restarts its curve. `MemoryPhysics.belief` gives
-every belief the repetition arm at full weight (ω_rep 1), because a belief about a person is
-kind `person`, whose ω_rep is 0, and would otherwise never rise at all.
+above its birth ceiling (0.3) — "resistance comes from accumulated support" (design §5)
+could not hold. So the support's sum is the belief's `uses`, and the last day support
+counted restarts its curve. The `returns` table's key (memory, day, source) would also have
+collapsed two supports filed the same day.
 
-**The ceiling that leaves.** `rep` saturates at `REP_CAP` 0.5, so no belief reaches the
-semantic band, and the bar on a self-subject belief (kind `fact`, ι 0.2) is at most 0.1: a
-single contrary filing of ordinary strength (a 0.4 owner memory presses ~0.16) flips one the
-same day, and a belief about a person needs two days, not §5.6's three. A support arm with its
-own cap, or a different kind for the self subject, would change that; neither is in C1. The
-first question for the 10-26 check.
+**Its own arm, its own resistance (the coordinator's redirect on #575).** The first build
+put support through the repetition arm (capped at `REP_CAP` 0.5, so no belief could reach
+the semantic floor, nor lane F's core floor) and left resistance to `ι × strength` — a
+belief on the self subject is kind `fact`, ι 0.2, so its bar was at most 0.1 and one
+ordinary contrary memory flipped the best-supported belief about me, the inverse of design
+§5. Now: a support arm (`BELIEF_SUPPORT_CAP` 0.9, `SCALE` 4) replaces the repetition arm for
+a belief and sets its steepness; and the bar is `beliefResistance`, from support and the
+lived days it comes from, squared in the days so one day of support stays thin however much
+of it there is. Numbers at the defaults: one support from one day 0.21; two from one day
+0.24 (both under the daily cap, contested the same day); three from two days ~0.83 (holds
+two days, goes on the third); the cap 1.0 (three days, never more). The bar does not decay
+with the belief's strength: it is what life put behind it; the pressure decays on its own.
 
-**Recounted from the table.** `belief_support`'s weights are recomputed at every filing
-(`store/wave2.ts#recountSupport`), in filing order, and the belief's `uses` move by the
-difference from the stored weights. So "found rises once life echoes it" (a lived filing
-whose memory was born on a later day) is exact whenever it happens, unfiling takes back
-exactly what the row counted, and a use credited some other way (lane E may let a rating of a
-belief's slot be one) is kept. The anchor never moves back.
+**Contested, not superseded.** Crossing the bar used to mint a successor in the challenger's
+words, so a memory's body became a belief. A belief born under lane C now keeps its words,
+takes `BELIEF_CONTESTED_FADE` once, restarts its pressure and carries `meta.contested`; the
+reflection decides what to do with it (C2/C3). A migrated belief keeps the old path.
 
-**Replay numbers** (pure arithmetic, `test/beliefs-support.test.ts`): five testimonies from
-five days lift a person belief to height ~0.40 (from 0.30) with S ×1.9; at lived day 10 it
-reads more than twice an unsupported twin born the same day.
+**The cost of recounting.** On 2,000 beliefs × 20 supports (40,000 rows; a temp store, bun),
+a 21st filing with its whole-table recount takes 0.30 ms at the median and 0.64 ms at p95,
+an unfiling 0.32 / 0.67 ms: the recount reads only that belief's rows (the key's prefix) and
+each counted memory's row.

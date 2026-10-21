@@ -82,7 +82,7 @@ export * from "./standing.js";
 export * from "./recency-ask.js";
 export * from "./time-ask.js";
 export * from "./tunables.js";
-export { activate, isHandoff, isSelfPage, gatedSal, primeOf, recordedIdentity, salienceRank } from "./activate.js";
+export { activate, isBeliefRow, isHandoff, isSelfPage, gatedSal, primeOf, recordedIdentity, salienceRank } from "./activate.js";
 export type { CandidatePrime, FeelingLane, PrimeStats, SpreadFn, SpreadStats } from "./activate.js";
 export type { Candidate, ActivationResult } from "./activate.js";
 import type { ActivationResult } from "./activate.js";

@@ -26,6 +26,7 @@ import { Schemas } from "../src/core/schemas/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { phaseReport } from "../src/core/sleep/index.js";
 import { factsRecall } from "../src/adapters/mcp/facts.js";
+import { settle } from "../src/core/reconsolidation.js";
 
 const NOW = Date.parse("2026-03-02T12:00:00Z");
 const SESSION = "bbbbbbbb-1111-2222-3333-444444444444";
@@ -282,7 +283,7 @@ describe("filing support (schemas#fileSupport)", () => {
     expect(s.row(b)?.uses).toBeCloseTo(3, 9);
   });
 
-  test("contrary support presses the belief through the pressure arithmetic at its weight, once a lived day; past the bar it is revised, its history kept", () => {
+  test("contrary support presses at its weight, once a lived day, and never lifts the belief", () => {
     const { s, schemas, wren } = world();
     const b = schemas.addBelief({ entityId: wren, statement: "Wren likes early ferries.", day: 1, birthRoute: "reflection" }).id as string;
     const no1 = lived(s, "Wren: honestly the six o'clock ferry wrecks me.", 2, { saidBy: "owner", salience: { claimed: 0.4 } });
@@ -295,22 +296,99 @@ describe("filing support (schemas#fileSupport)", () => {
     const r2 = schemas.fileSupport({ beliefId: b, memoryId: no2, stance: "contrary", day: 2 });
     expect(r2.ok).toBe(true);
     expect(r2.revision?.reason).toBe("already-challenged-today");
-    // Contrary support never lifts the belief.
     expect(s.row(b)?.uses).toBe(0);
-    expect(r1.revision?.verdict).toBe("hold");
-    // A second lived day of it: the pressure, decayed a little, plus today's force, past iota x strength.
-    const no3 = lived(s, "Wren slept through the early ferry and took the noon one, happier.", 3, { salience: { claimed: 0.4 } });
-    const r3 = schemas.fileSupport({ beliefId: b, memoryId: no3, stance: "contrary", day: 3 });
-    expect(r3.revision?.verdict).toBe("revise");
-    const successor = r3.revision?.successorId as string;
-    expect(s.row(b)?.superseded_by).toBe(successor);
-    // The revised belief is a belief still, born weak again by correction. The
-    // support stays on the belief that lost: the successor starts with none.
-    expect(s.row(successor)?.birth_route).toBe("correction");
-    expect(sal(s.physicsOf(successor).salience)).toBeLessThanOrEqual(PHYSICS.BELIEF_BIRTH_CEILING + 1e-9);
-    expect(s.supportOf(b)).toHaveLength(3);
-    expect(s.supportOf(successor)).toEqual([]);
-    expect(s.row(successor)?.uses).toBe(0);
+  });
+});
+
+describe("resistance grows with support (physics §5.13), and past it a belief is contested, never rewritten", () => {
+  /** A strong contrary memory: its force reaches the daily cap. */
+  function against(s: Store, body: string, day: number): string {
+    return lived(s, body, day, { saidBy: "owner", salience: { claimed: 0.9 } });
+  }
+
+  test("support lifts a belief past the semantic floor on its own arm", () => {
+    const { s, schemas, me } = world();
+    const b = schemas.addBelief({ entityId: me, statement: "I check before I claim.", day: 1, birthRoute: "reflection", about: "me" }).id as string;
+    for (const day of [2, 3, 4, 5, 6, 7, 8, 9]) {
+      schemas.fileSupport({ beliefId: b, memoryId: lived(s, `Checked the claim first, day ${day}.`, day, { saidBy: "self" }), stance: "support", day });
+    }
+    expect(height(s.physicsOf(b))).toBeGreaterThan(PHYSICS.THETA_SEM);
+    expect(strength(s.physicsOf(b), 9)).toBeGreaterThan(PHYSICS.THETA_SEM);
+  });
+
+  test("a thin belief — two supports from one day — is contested by one contrary memory the same day", () => {
+    const { s, schemas, me } = world();
+    const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Mike: dawn sessions are our best.", 1, { saidBy: "owner", session: "a" }), stance: "support", day: 1 });
+    schemas.fileSupport({ beliefId: b, memoryId: lived(s, "I chose the dawn slot again.", 1, { saidBy: "self", session: "b" }), stance: "support", day: 1 });
+    expect(s.physicsOf(b).reinforcedDays).toBe(1);
+    const r = schemas.fileSupport({ beliefId: b, memoryId: against(s, "Mike: honestly the late nights are where we do our best work.", 1), stance: "contrary", day: 1 });
+    expect(r.revision?.reason).toBe("contested");
+    expect(r.revision?.bar).toBeLessThan(PHYSICS.F_DAY_CAP_SLOW);
+  });
+
+  test("a well-supported belief — three supports from two days — holds two days of contrary pressure and is contested on the third", () => {
+    const { s, schemas, me } = world();
+    const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Mike: dawn sessions are our best.", 1, { saidBy: "owner", session: "a" }), stance: "support", day: 1 });
+    schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Shipped the parser before breakfast.", 1, { saidBy: "self", session: "b" }), stance: "support", day: 1 });
+    schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Another dawn session, another clean merge.", 2, { saidBy: "owner" }), stance: "support", day: 2 });
+    expect(s.physicsOf(b).reinforcedDays).toBe(2);
+    const verdicts: string[] = [];
+    for (const day of [3, 4, 5]) {
+      const r = schemas.fileSupport({ beliefId: b, memoryId: against(s, `A night session went better than dawn, day ${day}.`, day), stance: "contrary", day });
+      verdicts.push(r.revision?.reason ?? "none");
+    }
+    expect(verdicts).toEqual(["below-bar", "below-bar", "contested"]);
+  });
+
+  test("contested: the text stands — no memory's body becomes a belief — it is cut once, marked, and its pressure starts again", () => {
+    const { s, schemas, me } = world();
+    const words = "We work best at dawn.";
+    const b = schemas.addBelief({ entityId: me, statement: words, day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Mike: dawn sessions are our best.", 1, { saidBy: "owner" }), stance: "support", day: 1 });
+    const before = strength(s.physicsOf(b), 1);
+    const no = against(s, "Mike: honestly the late nights are where we do our best work.", 1);
+    const r = schemas.fileSupport({ beliefId: b, memoryId: no, stance: "contrary", day: 1 });
+    expect(r.revision?.contested).toBe(true);
+    expect(r.revision?.successorId).toBeNull();
+    const row = s.row(b);
+    expect(row?.body).toBe(words);
+    expect(row?.superseded_by).toBeNull();
+    expect(row?.archived).toBe(0);
+    expect(strength(s.physicsOf(b), 1)).toBeCloseTo(before * PHYSICS.BELIEF_CONTESTED_FADE, 9);
+    expect(s.physicsOf(b).pressure).toBe(0);
+    expect((s.readProse(b).meta["contested"] as { by: string }).by).toBe(no);
+    // No belief anywhere carries a memory's words.
+    const memoryBodies = new Set(s.list({ type: "memory" }).map((id) => s.row(id)?.body));
+    for (const id of s.list({ type: "schema" })) {
+      if (s.readProse(id).meta["role"] === "belief") expect(memoryBodies.has(s.row(id)?.body)).toBe(false);
+    }
+    expect(s.eventLog({ name: "belief.contested", ref: b })).toHaveLength(1);
+  });
+
+  test("the owner's correction and a settle are the at-once door: no bar, whatever the support", () => {
+    const { s, schemas, me } = world();
+    const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    for (const day of [1, 2, 3, 4]) {
+      schemas.fileSupport({ beliefId: b, memoryId: lived(s, `Dawn went well, day ${day}.`, day, { saidBy: "owner" }), stance: "support", day });
+    }
+    const said = lived(s, "Mike: no — we are night people, that belief is wrong.", 5, { saidBy: "owner" });
+    const out = settle(s, { holds: said, over: b, how: "corrected", why: "the owner said it is wrong", actor: "owner", day: 5 });
+    expect(out.ok).toBe(true);
+    expect(s.row(b)?.archived).toBe(1);
+    // Its history is kept: its words and its support stand on the record.
+    expect(s.row(b)?.body).toBe("We work best at dawn.");
+    expect(s.supportOf(b)).toHaveLength(4);
+    // A belief never holds over a memory.
+    const other = schemas.addBelief({ entityId: me, statement: "We like short replies.", day: 5, birthRoute: "reflection", about: "us" }).id as string;
+    expect(settle(s, { holds: other, over: said, how: "changed", why: "x", actor: "owner", day: 5 }).ok).toBe(false);
+  });
+
+  test("a migrated belief keeps the physics it lived, the kind's inertia and the accommodation path", () => {
+    const { s, schemas, wren } = world();
+    const m = schemas.addBelief({ entityId: wren, statement: "Wren likes tea.", day: 1, birthRoute: "migrated", channel: "migrated", claimedSalience: 0.8 }).id as string;
+    expect(s.physicsOf(m).belief).toBeUndefined();
   });
 });
 

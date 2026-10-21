@@ -236,8 +236,10 @@ export interface MemoryPhysics {
   /**
    * A BELIEF (wave 2 lane C, 2026-10-21; physics §5.13) — NOT a column:
    * computed at the read seam from `memories.birth_route`, which only a belief
-   * carries. Its repetition arm is its SUPPORT, at full weight whatever its
-   * subject's kind (`physics#base`). Absent or false: any other memory.
+   * carries — one born under lane C's rules, not a `migrated` one, which keeps
+   * the strength and the kind's inertia it lived in v1. Its height, its
+   * steepness and its resistance come from its SUPPORT (`physics#supportArm`,
+   * `#beliefResistance`). Absent or false: any other memory.
    */
   belief?: boolean;
   /** Set only by the explicit promotion crossing or revision inheritance (§5.3). */

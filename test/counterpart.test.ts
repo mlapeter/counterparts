@@ -478,7 +478,9 @@ describe("the root binds the seams a caller would otherwise have to remember", (
       day: 0,
     }).id as string;
     const beliefId = c.schemas.addBelief({
-      birthRoute: "reflection",
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: 0,

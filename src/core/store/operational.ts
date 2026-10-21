@@ -2832,7 +2832,8 @@ export function rowToPhysics(row: MemoryRow & FeelingPeak, today?: string | null
     pressure: row.pressure,
     lastChallengedDay: row.last_challenged_day,
     // v14 (wave 2 lane C): a belief is the row with a birth route (physics
-    // §5.13). Undefined on a v13 row read before its upgrade: not one.
-    ...(row.birth_route !== null && row.birth_route !== undefined ? { belief: true } : {}),
+    // §5.13) — but a `migrated` one keeps the physics it lived, for now.
+    // Undefined on a v13 row read before its upgrade: not one.
+    ...(row.birth_route !== null && row.birth_route !== undefined && row.birth_route !== "migrated" ? { belief: true } : {}),
   };
 }

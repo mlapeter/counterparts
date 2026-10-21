@@ -671,10 +671,11 @@ first, a way to be earned (C1). What C1 decided, each lightly held:
   so a newborn lends nothing.
 - **`use` and beliefs about me.** Refused on a belief marked me/us or on the self subject or
   the identity core: a belief about me grows from what fits, not from being used at work.
-- **Contrary support presses, and the successor is the challenger's words.** That is the
-  revision path as built (§5 G1): the successor's statement is the contrary memory's body.
-  For a belief that reads oddly ("Wren slept through the ferry…" as the new belief). Kept as
-  the brief says ("REVISE as today"); a reflection that wants better words can birth a new
-  belief, and lane D's "this is wrong" is the correction door (C3).
+- **Contrary support contests; it never rewrites.** The revision path as built made the
+  successor's statement the contrary memory's body ("Wren slept through the ferry…" as the
+  new belief). For a belief born under lane C the crossing now marks it contested and cuts
+  it once (physics §5.13); the reflection revises or retires it, and the owner's correction
+  is the settle door, at once. A migrated belief keeps the old path and its successor stays
+  migrated.
 - **The self subject** is `ensureSelfSubject` above (lane A's door). C1 only reads it: a
   belief on it, or marked me/us, is "about me" for `use`.
