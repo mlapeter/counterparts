@@ -965,3 +965,30 @@ reflection was offered five a night.
   `remember … updates` with the default `changed` leaves it NULL on both rows (re-review
   of #576; lane G met the same trap). A kind changed since the night is left as it is.
 - One ask record is kept (`tags.ask.<run>`): a new run's read removes the last run's.
+
+## 2026-10-21 — the night proposes a project (wave 2 lane G, design §8; lightly held)
+
+Design §8: related folders join one project on Mike's word, "or the night proposes it from
+co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.ts` is):
+
+- **Mechanical, no model.** Over the last `PROJECT_JOIN_WINDOW` (14) lived days, two folders
+  are proposed when both were written in on at least `PROJECT_JOIN_DAYS` (3) of the same days,
+  at least half the less-used folder's days, AND their memories name at least
+  `PROJECT_JOIN_SUBJECTS` (3) of the same subjects (cards, by name), at least
+  `PROJECT_JOIN_OVERLAP` (0.4) of the telling subjects of the folder that names fewer.
+  A subject named in more than half the active folders is not telling.
+- **Why those two gates**, measured on the 10-20 corpus copy: by days and raw subjects alone
+  every busy folder paired with every other ("Mike, Counterparts, Claude"); the spread rule
+  left ~/pwntastic pairing with both busy folders on Apple/Gmail/Google; the overlap rule
+  leaves one pair, ~/random → ~/counterparts (10 shared days, overlap 0.64; every other pair
+  0.25 or under). ~/counterparts-site never qualifies (its memories name only what every
+  folder names): Mike joins it himself.
+- **One pair a night**, in the reflection's finish: a generated line in the share
+  (`joinSentence`), `detail.joinProposed` and `joinLine` kept on the row like the core line,
+  and the hand-back (and a carried share) says how to act: the reflect tool's phase "join",
+  on the owner's yes only, which joins them `by: night` and records `detail.joined` and a
+  `reflection.project.joined` row. A no, or no answer, changes nothing; the pair rests
+  `PROJECT_JOIN_REST` (7) reflections.
+- Never proposed: folders already one project; a folder the host keeps home (`folderOn`);
+  the store's own folder (the nightly run's) or one inside it.
+- `PROJECT_JOIN_ASK` (on) stops it; every number is compare-settable (`dream.*`).

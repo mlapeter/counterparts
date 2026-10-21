@@ -4297,6 +4297,11 @@ export class Store {
     return memoryReads.workCandidates(this, scope, limit);
   }
 
+  /** Folder, lived day and named subject of each memory written in a directory since `sinceDay` (`reads-memories.ts#folderCoUse`). */
+  folderCoUse(sinceDay: number): { scope: string; day: number; subject: string | null }[] {
+    return memoryReads.folderCoUse(this, sinceDay);
+  }
+
   /**
    * CRAFT THAT MAY TRAVEL (2026-10-21, `self/work.ts#isCraft`): live skill
    * memories with no mark or marked `world`, born on or after lived day

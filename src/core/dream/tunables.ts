@@ -226,6 +226,27 @@ export const DREAM_TUNABLES = {
   MAX_TITLE_CHARS: 200,
   /** Longest nomination why (was 300). */
   MAX_WHY_CHARS: 1_000,
+  /**
+   * THE NIGHT PROPOSES A PROJECT (2026-10-21, wave 2 lane G, design §8):
+   * two folders used on the same lived days, their memories naming the same
+   * subjects, are proposed as one project in the morning share — one pair a
+   * night at most, never one asked about in the last `PROJECT_JOIN_REST`
+   * reflections — and the owner's yes joins them (`dream/project-ask.ts`).
+   * Off: no proposal. Read at use.
+   */
+  PROJECT_JOIN_ASK: true,
+  /** Lived days looked back over for co-use. CAL. */
+  PROJECT_JOIN_WINDOW: 14,
+  /** Lived days both folders were written in, at least. CAL. */
+  PROJECT_JOIN_DAYS: 3,
+  /** Subjects (cards, by name) both folders' memories name, at least — only
+   *  subjects named in at most half the active folders count. CAL. */
+  PROJECT_JOIN_SUBJECTS: 3,
+  /** ...and at least this share of the telling subjects of the folder that
+   *  names fewer. CAL. */
+  PROJECT_JOIN_OVERLAP: 0.4,
+  /** Reflections a pair is not asked about again after it was. CAL. */
+  PROJECT_JOIN_REST: 7,
 } as const;
 
 export type DreamAction = keyof typeof DREAM_TUNABLES.LIMITS;

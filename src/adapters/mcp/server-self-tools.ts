@@ -557,8 +557,21 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
         server["emit"]("mcp.reflect", reflection ?? undefined, { phase: "reopen", reopened: out.reopened.length, refused: out.refused.length });
         return server["result"]({ phase, ...(reflection === null ? {} : { reflection }), reopened: out.reopened, ...(out.already.length > 0 ? { alreadyOpen: out.already } : {}), ...(out.refused.length > 0 ? { refused: out.refused } : {}) }, out.reopened.length === 0 && out.already.length === 0);
       }
+      case "join": {
+        // A YES TO THE SHARE'S PROJECT QUESTION (2026-10-21, wave 2 lane G):
+        // the two folders it named become one project, joined by the night.
+        const reflection = args["reflection"];
+        if (typeof reflection !== "string") return refused("reflection-required", "Pass `reflection`: the id the share named.");
+        const asked = reflections.joinProposal(reflection);
+        if (asked === null) return refused("nothing-proposed", "That reflection asked to join no folders, or the owner's yes is already recorded.");
+        const out = server.counterpart.joinProject({ folder: asked.folder, project: asked.into, by: "night" });
+        if (!out.ok) return refused(out.reason, `${out.detail} Nothing was joined.`);
+        reflections.recordJoined(reflection, out.project.id, session);
+        server["emit"]("mcp.reflect", reflection, { phase: "join", changed: out.changed });
+        return server["result"]({ phase, reflection, joined: out.folder, project: { id: out.project.id, name: out.project.name, folders: out.project.folders.map((f) => f.folder) }, changed: out.changed }, false);
+      }
       default:
-        return refused("phase-unknown", "phase is one of launch, begin, part, finish, settle, told, close, reopen.");
+        return refused("phase-unknown", "phase is one of launch, begin, part, finish, settle, told, close, reopen, join.");
     }
   } catch (err) {
     return refused("threw", String((err as Error).message ?? err));

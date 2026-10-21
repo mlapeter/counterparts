@@ -100,6 +100,8 @@ import { mindRanked, noteMindShown } from "./mind.js";
 import type { MindItem } from "./mind.js";
 import { settle as settleContradiction } from "../reconsolidation.js";
 import { CORE_ASK_LOOKBACK, coreAsks, coreHow, coreSentence, unsettledPairOf } from "./core-ask.js";
+import { joinHow, joinProposalOf, joinSentence, pairKey, proposeJoin } from "./project-ask.js";
+import type { JoinProposal } from "./project-ask.js";
 import type { CoreAsk, CoreDecided } from "./core-ask.js";
 import { THREAD_CLOSED_BY_META_KEY, THREAD_REOPENED_BY_META_KEY, UNRESOLVED_META_KEY } from "../mint.js";
 import type { SettleOutcome } from "../reconsolidation.js";
@@ -1637,6 +1639,22 @@ export class Reflections {
       share = { ...share, offered: true, reason: share.offered ? share.reason : "core-decided" };
     }
     const coreTell = shareLocked ? [coreSentence(decidedNow, (x) => this.handle(x))].filter((x): x is string => x !== null) : [];
+    // A PROJECT, PROPOSED (2026-10-21, wave 2 lane G; `project-ask.ts`): one
+    // pair of folders a night that look like one piece of work, asked in the
+    // share; the owner's yes joins them (the reflect tool's phase "join").
+    const priorJoin = joinProposalOf(prior["joinProposed"]);
+    const priorJoinLine = typeof prior["joinLine"] === "string" ? prior["joinLine"] : null;
+    let joinProposed: JoinProposal | null = null;
+    let joinLine: string | null = null;
+    if (!shareLocked) {
+      joinProposed = priorJoin ?? proposeJoin(this.store, { day: this.store.livedDay(), rested: this.joinRested(row.id), ...(input.folderOn === undefined ? {} : { folderOn: input.folderOn }) });
+      if (joinProposed !== null) {
+        if (priorJoinLine !== null) shareText = withoutLine(shareText, priorJoinLine);
+        joinLine = joinSentence(joinProposed);
+        shareText = [shareText, joinLine].filter((x) => x.length > 0).join(" ");
+        share = { ...share, offered: true, reason: share.offered ? share.reason : "join-proposed" };
+      }
+    }
 
     // REPLACING AN OFFERED SHARE IS A CLAIM (review of #268): a later session
     // may carry it between the read above and this write; only the write that
@@ -1740,6 +1758,11 @@ export class Reflections {
     if (decidedAll.length > 0) detail["coreDecided"] = decidedAll;
     const keptCoreLine = shareStands ? coreLine : priorCoreLine;
     if (keptCoreLine !== null) detail["coreLine"] = keptCoreLine;
+    const keptJoin = shareStands ? joinProposed : priorJoin;
+    if (keptJoin !== null) detail["joinProposed"] = keptJoin;
+    const keptJoinLine = shareStands ? joinLine : priorJoinLine;
+    if (keptJoinLine !== null) detail["joinLine"] = keptJoinLine;
+    if (prior["joined"] !== undefined) detail["joined"] = prior["joined"];
     if (again) detail["finishes"] = (typeof prior["finishes"] === "number" ? prior["finishes"] : 1) + 1;
     this.store.updateReflection(row.id, {
       ...(again ? {} : { state: "reflected" as const }),
@@ -1816,7 +1839,13 @@ export class Reflections {
         ? null
         : `Not written: ${missed.join("; ")}. You can fix these and call finish again with reflection ${row.id} and just those parts — the entry and everything already written stand.`;
 
-    const how = shareStands ? [this.closeHow(row.id, proposed, said.map((x) => x.id)), coreLine === null ? null : coreHow(decidedAll, this.ctx.ownerName() ?? "the owner")].filter((x): x is string => x !== null) : [];
+    const how = shareStands
+      ? [
+          this.closeHow(row.id, proposed, said.map((x) => x.id)),
+          coreLine === null ? null : coreHow(decidedAll, this.ctx.ownerName() ?? "the owner"),
+          joinProposed === null ? null : joinHow(row.id, joinProposed, this.ctx.ownerName() ?? "the owner"),
+        ].filter((x): x is string => x !== null)
+      : [];
     const handBack = this.handBack(row, !shareLocked && share.offered ? shareText : null, nothingMuch, pageStands, [...tellAlso, ...coreTell], how.length > 0 ? how.join(" ") : null);
     return {
       ok: true,
@@ -2076,10 +2105,46 @@ export class Reflections {
       selfClosedOf(d["selfClosed"]).map((x) => x.id).filter((x) => !reopened.has(x)),
     );
     const core = typeof d["coreLine"] === "string" ? coreHow(coreDecidedOf(d["coreDecided"]), who) : null;
+    const asked = joinProposalOf(d["joinProposed"]);
+    const join = asked === null || d["joined"] !== undefined ? null : joinHow(row.id, asked, who);
     return (
       `Counterparts: after reflecting on ${when}, you left a morning share for ${who} that was never told. At a natural moment — not mid-task — tell it in your own words, as a telling ("When I last reflected…"), tentatively where it is about ${who}. ` +
-      `Once you have told it, the counterparts reflect tool's phase "told", reflection: ${row.id}, marks it told.${close === null ? "" : ` ${close}`}${core === null ? "" : ` ${core}`} The share: ${row.share}`
+      `Once you have told it, the counterparts reflect tool's phase "told", reflection: ${row.id}, marks it told.${close === null ? "" : ` ${close}`}${core === null ? "" : ` ${core}`}${join === null ? "" : ` ${join}`} The share: ${row.share}`
     );
+  }
+
+  // ── a project, proposed (2026-10-21, lane G) ─────────────────────────────
+
+  /** The folder pairs the last `PROJECT_JOIN_REST` reflections asked about: they rest. */
+  private joinRested(current: string): Set<string> {
+    const out = new Set<string>();
+    for (const r of this.store.reflections({ limit: DREAM_TUNABLES.PROJECT_JOIN_REST + 1 }).filter((x) => x.id !== current).slice(0, DREAM_TUNABLES.PROJECT_JOIN_REST)) {
+      const p = joinProposalOf(parseDetail(r.detail)["joinProposed"]);
+      if (p !== null) out.add(pairKey(p.into, p.folder));
+    }
+    return out;
+  }
+
+  /**
+   * WHAT A REFLECTION'S SHARE ASKED TO JOIN (2026-10-21, lane G), for the
+   * reflect tool's phase "join" on the owner's yes; null when it asked none,
+   * or a yes was already recorded.
+   */
+  joinProposal(reflection: string): JoinProposal | null {
+    const row = this.store.reflection(reflection);
+    if (row === undefined) return null;
+    const d = parseDetail(row.detail);
+    return d["joined"] !== undefined ? null : joinProposalOf(d["joinProposed"]);
+  }
+
+  /** Records the yes on the reflection (`detail.joined`) and a durable row. Under observer, nothing. */
+  recordJoined(reflection: string, project: string, session: string | null): void {
+    if (this.ctx.observer) return;
+    const row = this.store.reflection(reflection);
+    if (row === undefined) return;
+    const detail = { ...parseDetail(row.detail), joined: { project, session, day: this.store.livedDay() } };
+    this.store.updateReflection(row.id, { detail });
+    this.record("reflection.project.joined", row.id, { project });
   }
 
   // ── reading ───────────────────────────────────────────────────────────────
