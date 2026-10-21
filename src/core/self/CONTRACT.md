@@ -365,12 +365,16 @@ proposals and their archive; render and delivery telemetry.
    rule. Furniture: no counts move. **Work stays in its PROJECT, and craft travels**
    (2026-10-21, design §8, `PROJECTS_TRAVEL`, lightly held): a folder belongs to a project
    (`folder_projects`; with no row, its own — nothing is written to say so), "Work here"
-   reads every folder of it (this folder keeps at least half the ranked places), and the
-   elsewhere lines never name a folder of this one's project. A skill not marked `work` is
-   craft, not work: in no stored lane, and `WORK_HERE_CRAFT_MAX` places of every folder's
-   pool take turns showing craft from outside the project, from a folder the host lets be
-   named elsewhere (`work.ts#isCraft`, `#workHere`). Off: a folder is its own project and an
-   unmarked skill is its folder's work. **An identity lane with no elements renders ONE line
+   reads every folder of it the host lets be named elsewhere (this folder always, and it
+   keeps at least half the ranked places; a joined folder set off or paused shows nothing in
+   the others), and the elsewhere lines never name a folder of this one's project. A skill
+   with no mark or marked `world`, born on or after the day craft started travelling on the
+   store (`CRAFT_SINCE_KEY`; older ones are grandfathered as their folder's work), is craft,
+   not work: in no stored lane, and `WORK_HERE_CRAFT_MAX` places of every folder's pool take
+   turns showing craft from outside the project, from a folder the host lets be named
+   elsewhere, each saying where it is from (`work.ts#isCraft`, `#workHere`). A skill marked
+   me, us or owner is never a work line. Off: a folder is its own project and an unmarked
+   skill is its folder's work, byte for byte as before. **An identity lane with no elements renders ONE line
    of furniture naming the identity core** (`briefing.ts#identityCoreLine`) when a core
    exists, and nothing when none does — the core is `type: "schema"` and no lane can reach
    it, so a store seeded by `install --name` composed a wake that named nobody (measured

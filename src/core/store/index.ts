@@ -4243,13 +4243,14 @@ export class Store {
 
   /**
    * CRAFT THAT MAY TRAVEL (2026-10-21, `self/work.ts#isCraft`): live skill
-   * memories not marked `work`, from any folder or none, and not identity,
-   * dated or emptied; newest touched first, then id, at most `limit`. The
-   * columns only, as `workCandidates`; the caller confirms each on the prose
-   * and gates its folder.
+   * memories with no mark or marked `world`, born on or after lived day
+   * `sinceDay`, from any folder or none, and not identity, dated or emptied;
+   * newest touched first, then id, at most `limit`. The columns only, as
+   * `workCandidates`; the caller confirms each on the prose and gates its
+   * folder. A `sinceDay` that is not finite: none.
    */
-  craftCandidates(limit: number): string[] {
-    return memoryReads.craftCandidates(this, limit);
+  craftCandidates(limit: number, sinceDay = 0): string[] {
+    return memoryReads.craftCandidates(this, limit, sinceDay);
   }
 
   /**

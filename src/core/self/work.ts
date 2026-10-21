@@ -71,6 +71,8 @@ export interface WorkFacts {
   readonly originScope: string | null;
   /** A journal chapter's copy (`meta.episodeId` set). */
   readonly journal: boolean;
+  /** Its lived birth day, for craft's start (`WorkRule.craftSince`). Absent: day 0. */
+  readonly bornDay?: number;
 }
 
 const UNMARKED_WORK_IN_A_DIRECTORY: ReadonlySet<Kind> = new Set<Kind>(["fact", "entity", "place"]);
@@ -95,23 +97,53 @@ export interface WorkRule {
    * project with a `work` mark.
    */
   readonly craftTravels?: boolean;
+  /**
+   * The lived day craft started travelling on this store (`craftSince`,
+   * review of #572: GRANDFATHERED). A skill born before it keeps the rule it
+   * was written under — an unmarked one is its folder's work — until a mark
+   * moves it. Absent: day 0, every skill.
+   */
+  readonly craftSince?: number;
 }
 
 export function isWorkMemory(m: WorkFacts, rule: WorkRule = {}): boolean {
   if (m.journal) return false;
   if (m.about === "work") return true;
   if (m.about !== null) return false;
-  if (m.kind === "skill") return rule.craftTravels !== true;
+  if (m.kind === "skill") return !(rule.craftTravels === true && isCraft(m, rule));
   return UNMARKED_WORK_IN_A_DIRECTORY.has(m.kind) && isDirectoryScope(m.originScope);
 }
 
 /**
- * IS THIS CRAFT THAT TRAVELS (2026-10-21, `PROJECTS_TRAVEL`): a skill nobody
- * marked `work` — how a job is done, wherever it was learned. Never a journal
- * copy. Pure.
+ * IS THIS CRAFT THAT TRAVELS (2026-10-21, `PROJECTS_TRAVEL`): a skill with no
+ * mark, or marked `world` — how a job is done, wherever it was learned — born
+ * on or after `craftSince`. A skill marked `work` is its project's; one marked
+ * me, us or owner is personal, never a work line (review of #572). Never a
+ * journal copy. Pure.
  */
-export function isCraft(m: WorkFacts): boolean {
-  return !m.journal && m.kind === "skill" && m.about !== "work";
+export function isCraft(m: WorkFacts, rule: WorkRule = {}): boolean {
+  if (m.journal || m.kind !== "skill") return false;
+  if (m.about !== null && m.about !== "world") return false;
+  return (m.bornDay ?? 0) >= (rule.craftSince ?? 0);
+}
+
+/**
+ * WHEN CRAFT STARTED TRAVELLING ON THIS STORE (review of #572, the
+ * coordinator's ruling: grandfather the old skills): the lived day, written
+ * once, the first time a writable open runs with `PROJECTS_TRAVEL` on
+ * (`Counterpart`'s open). Unset — a store never opened so, or an observer's
+ * read of one — no skill travels yet.
+ */
+export const CRAFT_SINCE_KEY = "projects.craft.since";
+
+export function craftSince(store: Pick<Store, "getMeta">): number {
+  try {
+    const raw = store.getMeta(CRAFT_SINCE_KEY);
+    const day = raw === undefined ? Number.NaN : Number(raw);
+    return Number.isFinite(day) ? day : Number.POSITIVE_INFINITY;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
 }
 
 // ── projects ────────────────────────────────────────────────────────────────
@@ -138,13 +170,26 @@ export function projectFolders(
   store: Pick<Store, "projectOfFolder" | "foldersOfProject">,
   scope: string,
   travel: boolean,
+  from?: (scope: string) => boolean,
 ): string[] {
   const here = projectFolder(scope);
   if (!travel || here.length === 0) return here.length === 0 ? [] : [here];
   try {
     const row = store.projectOfFolder(here);
     if (row === null) return [here];
-    return [here, ...store.foldersOfProject(row.project_id).filter((f) => f !== here)];
+    // ONLY THE FOLDERS THAT MAY BE NAMED ELSEWHERE (review of #572, privacy):
+    // a joined folder set off or paused keeps its work, craft and sessions to
+    // itself; this folder is always here. `from` absent: every one (a
+    // boundary's reserve, which cannot ask the host).
+    const ok = (f: string): boolean => {
+      if (from === undefined) return true;
+      try {
+        return from(f);
+      } catch {
+        return false;
+      }
+    };
+    return [here, ...store.foldersOfProject(row.project_id).filter((f) => f !== here && ok(f))];
   } catch {
     return [here];
   }
@@ -189,6 +234,11 @@ export interface WorkHereOptions {
   /** Craft travels (`PROJECTS_TRAVEL`): an unmarked skill is craft, not work
    *  (`isWorkMemory`'s `craftTravels`). Absent: the rule before. */
   readonly craftTravels?: boolean;
+  /** The lived day craft started travelling (`craftSince`); absent: day 0. */
+  readonly craftSince?: number;
+  /** Craft written in the project's own folders is a line here too. Absent:
+   *  with `craftTravels`. False while the store-wide "How I work" lane carries it (`CRAFT_IN_WAKE`). */
+  readonly craftHere?: boolean;
   /**
    * CRAFT FROM OUTSIDE THE PROJECT (2026-10-21, with `craftTravels`): `max`
    * places of the pool (`WORK_HERE_CRAFT_MAX`), taking turns by lived day
@@ -265,6 +315,7 @@ export function workHere(
   const travels = opts.craftTravels === true;
   const folders = opts.folders !== undefined && opts.folders.length > 0 ? opts.folders : [scope];
   const ours = new Set(folders.map(projectFolder));
+  const self = projectFolder(scope);
   const seen = new Set<string>();
   const found: Candidate[] = [];
   /** The candidate, when `id` may be a line and `accept` takes its facts; null when not. */
@@ -287,7 +338,7 @@ export function workHere(
     // `REACH` is not offered here; deliberate recall still finds it.
     if (belowReach(physics, opts.day)) return null;
     const journal = typeof doc.meta["episodeId"] === "string";
-    if (!accept({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal })) return null;
+    if (!accept({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay: row.birth_day })) return null;
     if (flatten(doc.body).length === 0) return null;
     return {
       id,
@@ -300,7 +351,9 @@ export function workHere(
   };
   // THE PROJECT'S OWN (2026-10-21): the work written in any of its folders,
   // and with craft travelling, the craft written there too — both are here.
-  const here = (f: WorkFacts): boolean => isWorkMemory(f, { craftTravels: travels }) || (travels && isCraft(f));
+  const rule: WorkRule = { craftTravels: travels, ...(opts.craftSince === undefined ? {} : { craftSince: opts.craftSince }) };
+  const craftHere = travels && opts.craftHere !== false;
+  const here = (f: WorkFacts): boolean => isWorkMemory(f, rule) || (craftHere && isCraft(f, rule));
   for (const folder of folders) {
     for (const where of scopesFor(folder)) {
       for (const id of store.workCandidates(where, pool * WORK_HERE_READ_PER_LINE)) {
@@ -323,7 +376,7 @@ export function workHere(
   if (craftMax > 0 && opts.craft !== undefined) {
     const from = opts.craft.from;
     const travelsFrom = (f: WorkFacts): boolean => {
-      if (!isCraft(f)) return false;
+      if (!isCraft(f, rule)) return false;
       const origin = f.originScope === null ? "" : projectFolder(f.originScope);
       if (origin.length === 0) return true;
       if (ours.has(origin)) return false;
@@ -334,13 +387,16 @@ export function workHere(
       }
     };
     const ready: Candidate[] = [];
-    for (const id of store.craftCandidates(pool * WORK_HERE_READ_PER_LINE)) {
+    for (const id of store.craftCandidates(pool * WORK_HERE_READ_PER_LINE, opts.craftSince ?? 0)) {
       if (ready.length >= pool) break;
       const c = read(id, travelsFrom);
       if (c !== null) ready.push(c);
     }
     const k = Math.min(craftMax, ready.length, pool);
-    const offset = ready.length === 0 ? 0 : (((Math.floor(opts.day) * k) % ready.length) + ready.length) % ready.length;
+    // Turns by lived day, and by folder too, so one day's folders do not all
+    // show the same craft (review of #572).
+    const turn = Math.floor(opts.day) * k + folderTurn(self);
+    const offset = ready.length === 0 ? 0 : ((turn % ready.length) + ready.length) % ready.length;
     craft = Array.from({ length: k }, (_, i) => ready[(offset + i) % ready.length] as Candidate);
   }
   // THIS FOLDER KEEPS HALF (2026-10-21): the project's other folders take at
@@ -348,12 +404,19 @@ export function workHere(
   // half — measured on a copy of the owner's store, a joined ~/counterparts-site
   // ranked none of its own work beside ~/counterparts' newest.
   const room = pool - craft.length;
-  const self = projectFolder(scope);
   const own = found.filter((c) => c.origin === self);
   const rest = found.filter((c) => c.origin !== self);
   const restTake = Math.min(rest.length, Math.max(Math.floor(room / 2), room - own.length));
   const ranked = [...own.slice(0, room - restTake), ...rest.slice(0, restTake), ...craft].sort(byTouched);
-  return ranked.map((c) => workLine(c.id, c.doc, opts.excerpt, c.bounded, opts.year));
+  // A line from another folder says which (review of #572).
+  return ranked.map((c) => workLine(c.id, c.doc, opts.excerpt, c.bounded, opts.year, c.origin.length > 0 && c.origin !== self ? c.origin : undefined));
+}
+
+/** A small, stable number per folder: where its craft rotation starts. */
+function folderTurn(folder: string): number {
+  let h = 0;
+  for (let i = 0; i < folder.length; i++) h = (h * 31 + folder.charCodeAt(i)) % 9973;
+  return h;
 }
 
 /**
@@ -377,7 +440,7 @@ export function rotateWork(lines: readonly string[], max: number, day: number): 
 }
 
 /** One work line (see `workHere`). */
-export function workLine(id: string, doc: ProseDoc, excerpt: number, bounded = false, year?: string): string {
+export function workLine(id: string, doc: ProseDoc, excerpt: number, bounded = false, year?: string, from?: string): string {
   const paragraph = doc.body.split(/\n\s*\n/).find((p) => p.trim().length > 0) ?? doc.body;
   const title = flatten(doc.title ?? "");
   const date = datePrefix({
@@ -388,7 +451,16 @@ export function workLine(id: string, doc: ProseDoc, excerpt: number, bounded = f
     ...(year === undefined ? {} : { year }),
   });
   const words = title.length === 0 ? excerptOf(paragraph, excerpt + 40) : `${title} — ${excerptOf(paragraph, excerpt)}`;
-  return `- ${date}${words} (${id})`;
+  const where = from === undefined ? "" : ` (from ${folderName(from)})`;
+  return `- ${date}${words}${where} (${id})`;
+}
+
+/** A folder as a work line names it: `~/name` under a home directory, else its last part. */
+export function folderName(folder: string): string {
+  const home = /^\/(?:Users|home)\/[^/]+\/(.+)$/.exec(folder);
+  if (home !== null) return `~/${home[1] as string}`;
+  const parts = folder.split(/[\\/]/).filter((p) => p.length > 0);
+  return parts[parts.length - 1] ?? folder;
 }
 
 /** The block for the given lines, heading included. */

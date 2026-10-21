@@ -167,6 +167,8 @@ import {
   isWorkMemory,
   projectFolders,
   projectFolder,
+  craftSince,
+  CRAFT_SINCE_KEY,
 } from "./self/index.js";
 import type {
   BriefingResult,
@@ -575,6 +577,16 @@ export class Counterpart {
       now: this.nowFn,
       ...(opts.recallTunables === undefined ? {} : { tunables: opts.recallTunables }),
     });
+    // CRAFT TRAVELS FROM TODAY ON (review of #572): the first writable open
+    // with `PROJECTS_TRAVEL` on records the lived day; skills born before it
+    // keep their folder (`self/work.ts#craftSince`). Once per store.
+    if (!this.observer && this.self.tunables.PROJECTS_TRAVEL && this.store.getMeta(CRAFT_SINCE_KEY) === undefined) {
+      try {
+        this.store.setMeta(CRAFT_SINCE_KEY, String(this.store.livedDay()));
+      } catch {
+        /* the next open records it */
+      }
+    }
     this.prospective = new Prospective({
       store: this.store,
       onEvent: (e) => this.relay("prospective", e),
@@ -1016,7 +1028,7 @@ export class Counterpart {
     // A JOINED FOLDER IS HERE (2026-10-21, `PROJECTS_TRAVEL`): the folders of
     // this one's project are never named elsewhere; their work is "Work
     // here", and their open sessions are this folder's (`hereSessions`).
-    const ours = new Set(own.length === 0 ? [] : projectFolders(this.store, own, this.self.tunables.PROJECTS_TRAVEL).map(norm));
+    const ours = new Set(own.length === 0 ? [] : projectFolders(this.store, own, this.self.tunables.PROJECTS_TRAVEL, exportsFrom).map(norm));
     const reader = here?.session ?? null;
     const allowed = new Map<string, boolean>();
     const named = (scope: string): boolean => {
@@ -1129,6 +1141,8 @@ export class Counterpart {
       const held = (titles.get(id) ?? []).sort((a, b) => a.tier - b.tier || b.at - a.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       out.push({
         session: id,
+        // Another folder of this project says which (review of #572).
+        ...(gate.norm(s.scope) === own ? {} : { scope: gate.norm(s.scope) }),
         model: s.model ?? null,
         startedAt: opts.startedSince && s.startedAt < since ? null : s.startedAt,
         lastAt: s.lastAt,
@@ -1486,9 +1500,13 @@ export class Counterpart {
         excerpt: t.WORK_HERE_EXCERPT,
         skip: skip.size === 0 ? settledOver(this.store) : new Set([...settledOver(this.store), ...skip]),
         year: yearOf(this.store.today()),
-        folders: projectFolders(this.store, scope, travels),
+        // The project's folders the host lets be named elsewhere, this one always.
+        folders: projectFolders(this.store, scope, travels, craftFrom),
         craftTravels: travels,
-        craft: { max: t.WORK_HERE_CRAFT_MAX, from: craftFrom },
+        craftSince: craftSince(this.store),
+        // The store-wide "How I work" lane carries craft when it is on.
+        craftHere: !t.CRAFT_IN_WAKE,
+        ...(t.CRAFT_IN_WAKE ? {} : { craft: { max: t.WORK_HERE_CRAFT_MAX, from: craftFrom } }),
       });
       return { lines: rotateWork(ranked, t.WORK_HERE_MAX, day), found: ranked.length };
     } catch {
@@ -3973,7 +3991,7 @@ export class Counterpart {
 
   /** Joins `folder` to a project — by its name, or by another folder — as the owner, or the night on his yes. */
   joinProject(input: { folder: string; project: string; by: "owner" | "night" }): projectsPart.JoinOutcome {
-    const out = projectsPart.joinProject(this.store, this.schemas, input);
+    const out = projectsPart.joinProject(this.store, input);
     if (out.ok && out.changed) this.emit("counterpart.project.joined", out.project.id, { by: input.by, born: out.born });
     return out;
   }

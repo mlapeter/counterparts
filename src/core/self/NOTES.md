@@ -2460,3 +2460,37 @@ learned in one folder stayed there. One switch, `PROJECTS_TRAVEL` (on):
   skill reaches every folder.
 - Recall by meaning and footnotes are not folder-gated (recall reads no `origin_scope`); a
   project filter there is lane G's second PR, behind `RECALL_BY_PROJECT`, off.
+
+### 2026-10-21, after review of #572
+
+- **Privacy:** a joined folder whose host setting is off or paused showed its work, craft and
+  live session in the other folders' wakes. `projectFolders` now takes the host's
+  `exportsFrom` and keeps only the folders it lets be named elsewhere, this folder always;
+  `workHere`'s folders, the elsewhere gate's `ours` and so `hereSessions` are built from that
+  one list. With no way to ask, only this folder.
+- **Old skills are grandfathered** (the coordinator's ruling): the first writable open with
+  `PROJECTS_TRAVEL` on records the lived day (`CRAFT_SINCE_KEY`, `projects.craft.since`);
+  an unmarked skill born before it keeps the old rule (its folder's work) until a mark moves
+  it — the reflection's unmarked offer still offers it. So on the owner's store nothing
+  travels on day one; craft travels as it is written.
+- **Craft is a skill with no mark or marked world.** A skill marked me, us or owner is not a
+  work line anywhere (the probe showed "the owner bakes bread on Sundays" under "Work here");
+  it is in the "How I work" lane when `CRAFT_IN_WAKE` is on, as before.
+- **A line from another folder says which** (`(from ~/tiny-castles)`, `folderName`), and a
+  session in another folder of the project says its folder in "Here, also open".
+- **Project cards are minted, never taken over** (`counterpart-projects.ts`): only a card
+  already a project is reused — first one that has folder rows, archived or not, so a faded
+  card never splits a project — else a new entity card titled with the name and no alias
+  (`meta.name` empty), so it links no memory that uses a common word and takes over no
+  person, place or topic card. It is protected while it has folders and let go when the last
+  leaves. Refused: the whole disk, and the store's own folder (or one holding it); a folder
+  that does not exist is joined with a note.
+- **`CRAFT_IN_WAKE` on** no longer leaves the craft lane empty: craft stays in the stored
+  lane and "Work here" carries no craft then.
+- **The day's craft differs by folder** (the rotation starts at a per-folder offset).
+- **Cost, noted:** each boundary's work reserve (`workReserveBytes`) composes every live
+  folder's lines, and the craft read is up to `WORK_HERE_POOL × WORK_HERE_READ_PER_LINE`
+  (40) prose reads per folder. Fine at today's few folders and ~35 skills; a cache per
+  boundary is the fix if it shows in the worker's time.
+- Off is byte-identical with or without folder rows (`test/projects-travel.test.ts`, and the
+  reviewer's probe: base vs off, IDENTICAL).

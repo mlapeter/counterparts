@@ -9,6 +9,8 @@
  * folder setting resolves it (`scopes.ts#canonicalScopePath`), so it matches
  * the folder the hooks record a memory in.
  */
+import { existsSync } from "node:fs";
+
 import { storeExists } from "../../core/store/index.js";
 import { canonicalScopePath, shortPath } from "../scopes.js";
 import { EXIT, openCounterpart } from "./commands-shared.js";
@@ -87,20 +89,25 @@ export function projectCommand(dir: string, io: Io, parsed: Parsed, observer: bo
   }
   const counterpart = openCounterpart(dir, observer);
   try {
-    const out = counterpart.joinProject({
-      folder: folderOf(folder, home),
-      project: looksLikeFolder(project) ? folderOf(project, home) : project,
-      by: "owner",
-    });
+    const where = folderOf(folder, home);
+    const anchor = looksLikeFolder(project) ? folderOf(project, home) : null;
+    const out = counterpart.joinProject({ folder: where, project: anchor ?? project, by: "owner" });
     if (!out.ok) {
-      io.err(`refused: ${out.detail} Nothing was joined.`);
+      // In the words that were typed, with the folder they resolved to (review of #572).
+      const resolved = where === folder ? "" : ` (${shortPath(where, home)})`;
+      io.err(`refused: counterparts project join ${folder}${resolved} ${project} — ${out.detail.replaceAll(`"${where}"`, `"${folder}"`).replaceAll(`"${anchor ?? ""}"`, `"${project}"`)} Nothing was joined.`);
       return EXIT.refused;
     }
-    const where = shortPath(out.folder, home);
+    // A folder that is not there yet is joined all the same (it may be made
+    // later), and said (review of #572).
+    for (const f of [where, ...(anchor === null ? [] : [anchor])]) {
+      if (!existsSync(f)) io.err(`note: ${shortPath(f, home)} does not exist (yet); its row is kept.`);
+    }
+    const shown = shortPath(out.folder, home);
     io.out(
       out.changed
-        ? `Joined ${where} to ${out.project.name} (${out.project.id})${out.born ? ", a new project" : ""}.`
-        : `${where} already belongs to ${out.project.name} (${out.project.id}).`,
+        ? `Joined ${shown} to ${out.project.name} (${out.project.id})${out.born ? ", a new project" : ""}.`
+        : `${shown} already belongs to ${out.project.name} (${out.project.id}).`,
     );
     if (out.left !== null) io.out(`  It left ${out.left}.`);
     io.out(`  ${out.project.name}: ${out.project.folders.map((f) => shortPath(f.folder, home)).join(", ")}. Each one's wake shows the work of all of them.`);

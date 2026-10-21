@@ -15,14 +15,14 @@
  * is pinned and the zone is UTC; every word is invented placeholder prose.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { run } from "../src/adapters/cli/index.js";
 import { parseSetting } from "../tools/harness/settings.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { SELF_TUNABLES, WORK_HERE_HEADING, isCraft, isWorkMemory, projectFolder, projectFolders, workHere } from "../src/core/self/index.js";
+import { CRAFT_SINCE_KEY, SELF_TUNABLES, WORK_HERE_HEADING, isCraft, isWorkMemory, projectFolder, projectFolders, workHere } from "../src/core/self/index.js";
 import type { AboutMark } from "../src/core/store/index.js";
 import type { Kind } from "../src/core/types.js";
 
@@ -112,8 +112,12 @@ describe("what is work, and what is craft (self/work.ts)", () => {
     expect(isCraft({ ...base, about: null, kind: "skill" })).toBe(true);
     expect(isWorkMemory({ ...base, about: "work", kind: "skill" }, { craftTravels: true })).toBe(true);
     expect(isCraft({ ...base, about: "work", kind: "skill" })).toBe(false);
-    // A skill marked personal is craft too (how a job is done), never work.
-    expect(isCraft({ ...base, about: "me", kind: "skill" })).toBe(true);
+    // Marked world is craft; marked me, us or owner is personal, never a work line.
+    expect(isCraft({ ...base, about: "world", kind: "skill" })).toBe(true);
+    expect(isCraft({ ...base, about: "me", kind: "skill" })).toBe(false);
+    // Grandfathered: born before craft started travelling, still its folder's work.
+    expect(isWorkMemory({ ...base, about: null, kind: "skill", bornDay: 2 }, { craftTravels: true, craftSince: 3 })).toBe(true);
+    expect(isCraft({ ...base, about: null, kind: "skill", bornDay: 3 }, { craftSince: 3 })).toBe(true);
     // Facts are as before: unmarked in a folder is that folder's work.
     expect(isWorkMemory({ ...base, about: null, kind: "fact" }, { craftTravels: true })).toBe(true);
     expect(isCraft({ ...base, about: null, kind: "fact" })).toBe(false);
@@ -171,21 +175,58 @@ describe("joining and leaving (Counterpart.joinProject / leaveProject)", () => {
     expect(c.projects().map((p) => p.folders.length)).toEqual([2]);
   });
 
-  test("joining by a name finds a card by that name and marks it a project; a person's name is refused", () => {
+  test("a project card is minted, never taken over: a place, a person or a topic card keeps its kind", () => {
     const c = counterpart();
-    const card = c.schemas.mention({ name: "Lantern", kind: "place", source: "Lantern", chunkRef: "t", day: 0 });
-    expect(card.ok).toBe(true);
+    const place = c.schemas.mention({ name: "Lantern", kind: "place", source: "Lantern", chunkRef: "t", day: 0 });
+    const person = c.schemas.mention({ name: "Dana", kind: "person", source: "Dana", chunkRef: "t2", day: 0 });
+    const kindBefore = c.store.row(place.id as string)?.subject_kind ?? null;
     const out = c.joinProject({ folder: GARDEN, project: "lantern", by: "owner" });
     if (!out.ok) throw new Error(out.detail);
-    expect(out.project.id).toBe(card.id as string);
-    expect(out.born).toBe(false);
-    expect(c.store.row(card.id as string)?.subject_kind).toBe("project");
-    const dana = c.schemas.mention({ name: "Dana", kind: "person", source: "Dana", chunkRef: "t2", day: 0 });
-    c.store.setSubjectKind(dana.id as string, "person");
-    const refused = c.joinProject({ folder: QUIET, project: "Dana", by: "owner" });
-    expect(refused.ok).toBe(false);
-    if (!refused.ok) expect(refused.reason).toBe("name-names-a-person");
-    expect(c.store.projectOfFolder(QUIET)).toBeNull();
+    expect(out.born).toBe(true);
+    expect(out.project.id).not.toBe(place.id as string);
+    expect(out.project.name).toBe("lantern");
+    expect(c.store.row(place.id as string)?.subject_kind ?? null).toBe(kindBefore);
+    const dana = c.joinProject({ folder: QUIET, project: "Dana", by: "owner" });
+    expect(dana.ok && dana.project.id !== person.id).toBe(true);
+    // A second join by the same name finds the project card.
+    const again = c.joinProject({ folder: SITE, project: "Lantern", by: "owner" });
+    expect(again.ok && again.project.id).toBe(out.project.id);
+  });
+
+  test("a project card links nothing: no alias, no look-back to memories using its word", () => {
+    const c = counterpart();
+    const uses = put(c, "I picked a random seed for the test.", { scope: BUILD });
+    const out = c.joinProject({ folder: join(root, "random"), project: BUILD, by: "owner" });
+    if (!out.ok) throw new Error(out.detail);
+    const out2 = c.joinProject({ folder: GARDEN, project: join(root, "random"), by: "owner" });
+    if (!out2.ok) throw new Error(out2.detail);
+    expect(c.schemas.aliasIndex().lookup("random")).toEqual([]);
+    expect(c.store.subjectsOf(uses)).not.toContain(out2.project.id);
+  });
+
+  test("a faded project card does not split its project, and the card is protected while it has folders", () => {
+    const c = counterpart();
+    const first = c.joinProject({ folder: GARDEN, project: "Gizmo", by: "owner" });
+    if (!first.ok) throw new Error(first.detail);
+    expect(c.store.row(first.project.id)?.protected).toBe(1);
+    c.store.archive(first.project.id, "faded-by-decay");
+    const second = c.joinProject({ folder: QUIET, project: "Gizmo", by: "owner" });
+    expect(second.ok && second.project.id).toBe(first.project.id);
+    expect(projectFolders(c.store, QUIET, true).sort()).toEqual([GARDEN, QUIET].sort());
+    c.leaveProject(GARDEN);
+    c.leaveProject(QUIET);
+    expect(c.store.row(first.project.id)?.protected).toBe(0);
+  });
+
+  test("the whole disk and the store's own folder are refused", () => {
+    const c = counterpart();
+    const disk = c.joinProject({ folder: "/", project: "Gizmo", by: "owner" });
+    expect(disk.ok ? "" : disk.reason).toBe("folder-too-wide");
+    const mem = c.joinProject({ folder: storeDir, project: "Gizmo", by: "owner" });
+    expect(mem.ok ? "" : mem.reason).toBe("folder-is-the-store");
+    const anchor = c.joinProject({ folder: GARDEN, project: "/", by: "owner" });
+    expect(anchor.ok ? "" : anchor.reason).toBe("folder-too-wide");
+    expect(c.store.folderProjects()).toEqual([]);
   });
 
   test("a folder is refused as a project of its own, and a non-folder is not a folder", () => {
@@ -241,6 +282,43 @@ describe("travel by project, in the wake", () => {
     expect(sited.filter((id) => pool.join("\n").includes(id)).length).toBe(4);
   });
 
+  test("a joined folder the host keeps home (off or paused) shows nothing in the others: no work, no craft, no session", () => {
+    clock = NOW;
+    const c = counterpart();
+    c.joinProject({ folder: SITE, project: BUILD, by: "owner" });
+    clock = NOW - 86_400_000;
+    const sited = put(c, "The landing page reads the version from the package file.", { about: "work", scope: SITE });
+    const craft = put(c, "I check the page on a phone before I ship it.", { kind: "skill", scope: SITE });
+    const sessions = (): never[] => [{ session: "s-site", scope: SITE, startedAt: NOW - 3_600_000, lastAt: NOW - 60_000, live: true, endedAt: null }] as never[];
+    const text = wake(c, BUILD, { exportsFrom: (f) => f !== SITE, sessions });
+    expect(text).not.toContain(sited);
+    expect(text).not.toContain(craft);
+    expect(text).not.toContain("s-site");
+    // Its own wake still has its own work.
+    expect(under(wake(c, SITE, { exportsFrom: (f) => f !== SITE }), WORK_HERE_HEADING)).toContain(sited);
+  });
+
+  test("off, wakes with folder rows are byte-identical to wakes without them", () => {
+    const c = counterpart({ PROJECTS_TRAVEL: false });
+    put(c, "The release script tags before it publishes.", { about: "work", scope: BUILD });
+    put(c, "The landing page reads the version from the package file.", { scope: SITE });
+    const card = put(c, "I read the failing test before the code it covers.", { kind: "skill", scope: GARDEN });
+    c.close();
+    const twin = join(root, "twin");
+    cpSync(storeDir, twin, { recursive: true });
+    const other = Counterpart.open({ dir: twin, now: () => clock, timeZone: ZONE, selfTunables: { PROJECTS_TRAVEL: false } });
+    open.push(other);
+    other.store.setFolderProject(BUILD, card, "default");
+    other.store.setFolderProject(SITE, card, "owner");
+    const again = counterpart({ PROJECTS_TRAVEL: false });
+    const sessions = (): never[] => [{ session: "s-site", scope: SITE, startedAt: NOW - 3_600_000, lastAt: NOW - 60_000, live: true, endedAt: null }] as never[];
+    for (const scope of [BUILD, SITE, GARDEN]) {
+      const a = wake(again, scope, { exportsFrom: () => true, sessions });
+      const b = wake(other, scope, { exportsFrom: () => true, sessions });
+      expect(b).toBe(a);
+    }
+  });
+
   test("off, a joined folder reads only itself", () => {
     const c = counterpart({ PROJECTS_TRAVEL: false });
     const built = put(c, "The release script tags before it publishes.", { about: "work", scope: BUILD });
@@ -261,11 +339,13 @@ describe("travel by project, in the wake", () => {
     put(c, "Footer links moved under the fold.", { about: "work", scope: SITE, title: "Footer links", session: "s-site" });
     put(c, "Tomato stakes go in before the rain.", { about: "work", scope: GARDEN, title: "Tomato stakes", session: "s-garden" });
     const text = wake(c, BUILD, { exportsFrom: () => true, sessions });
-    const elsewhere = text.split("\n").find((l) => l.startsWith("Today, elsewhere: ")) ?? "";
+    const line = text.split("\n").find((l) => l.startsWith("Today, elsewhere: ")) ?? "";
+    const [elsewhere = "", hereAlso = ""] = line.split("Here, also open:");
     expect(elsewhere).toContain("garden");
     expect(elsewhere).not.toContain("build-site");
-    // Its open session is this project's: "Here, also open".
-    expect(text).toContain("s-site");
+    // Its open session is this project's: "Here, also open", naming its folder.
+    expect(hereAlso).toContain("s-site");
+    expect(hereAlso).toContain("build-site");
   });
 });
 
@@ -294,6 +374,35 @@ describe("craft travels", () => {
     const ids = [older, put(c, "I name a refusal where it will be seen.", { kind: "skill", scope: QUIET })];
     const garden = under(wake(c, GARDEN), WORK_HERE_HEADING);
     expect(ids.filter((id) => garden.includes(id)).length).toBe(1);
+  });
+
+  test("old skills are grandfathered: born before craft started travelling, an unmarked skill stays its folder's work", () => {
+    const c = counterpart();
+    c.store.setMeta(CRAFT_SINCE_KEY, String(c.store.livedDay() + 1));
+    const old = put(c, "I read the failing test before the code it covers.", { kind: "skill", scope: BUILD });
+    expect(under(wake(c, GARDEN), WORK_HERE_HEADING)).not.toContain(old);
+    expect(under(wake(c, BUILD), WORK_HERE_HEADING)).toContain(old);
+  });
+
+  test("the first writable open with the switch on records the day craft started travelling, once", () => {
+    const c = counterpart();
+    const day = c.store.getMeta(CRAFT_SINCE_KEY);
+    expect(day).toBe(String(c.store.livedDay()));
+    c.close();
+    clock += 5 * 86_400_000;
+    const again = counterpart();
+    expect(again.store.getMeta(CRAFT_SINCE_KEY)).toBe(day);
+  });
+
+  test("a skill marked me, us or owner is not a work line; one marked world is craft; a line from elsewhere says where", () => {
+    const c = counterpart();
+    const owner = put(c, "The owner bakes bread on Sundays with a slow rise.", { kind: "skill", about: "owner", scope: BUILD });
+    const world = put(c, "Bread rises faster in a warm kitchen.", { kind: "skill", about: "world", scope: BUILD });
+    const garden = under(wake(c, GARDEN), WORK_HERE_HEADING);
+    expect(garden).not.toContain(owner);
+    expect(under(wake(c, BUILD), WORK_HERE_HEADING)).not.toContain(owner);
+    expect(garden).toContain(world);
+    expect(garden).toContain(`(from build) (${world})`);
   });
 
   test("off, an unmarked skill is its folder's work, as before", () => {
@@ -347,6 +456,12 @@ describe("the console: counterparts project", () => {
     expect(r.out[0]).toContain("its own project again");
     r = await cli(["project", "join", "~/garden"]);
     expect(r.code).not.toBe(0);
+    r = await cli(["project", "join", "/", "Gizmo"]);
+    expect(r.code).not.toBe(0);
+    expect(r.err.join("\n")).toContain('"/" is the whole disk');
+    r = await cli(["project", "join", "~/not-made-yet", "Gizmo"]);
+    expect(r.code).toBe(0);
+    expect(r.err.join("\n")).toContain("~/not-made-yet does not exist (yet)");
     r = await cli(["project", "join", "~/garden", "Lantern", "--observer"]);
     expect(r.code).not.toBe(0);
     expect(r.err.join("\n")).toContain("observer");

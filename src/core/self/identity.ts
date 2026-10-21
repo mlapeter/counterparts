@@ -495,6 +495,8 @@ export function rankLanes(
     readonly settledOver?: ReadonlySet<string>;
     readonly coveredByPage?: ReadonlySet<string>;
     readonly workAtDelivery?: boolean;
+    /** The lived day craft started travelling (`work.ts#craftSince`); absent: none travels. */
+    readonly craftSince?: number;
     /** Arriving ids past the caller's own count (review of #367): the lane's
      *  overflow, after its cap's, filtered as the lane is. */
     readonly horizonMore?: readonly string[];
@@ -548,11 +550,14 @@ export function rankLanes(
         kind: s.kind,
         originScope: s.originScope ?? null,
         journal: typeof s.doc.meta["episodeId"] === "string",
+        bornDay: s.doc.bornDay,
       };
       // Craft travels (`PROJECTS_TRAVEL`, 2026-10-21): it is delivered as a
-      // work line too, in any folder, so it is in no stored lane either.
+      // work line too, in any folder, so it is in no stored lane — unless the
+      // store-wide "How I work" lane is on (`CRAFT_IN_WAKE`), which carries it.
       const travels = t.PROJECTS_TRAVEL;
-      if (isWorkMemory(facts, { craftTravels: travels }) || (travels && isCraft(facts))) continue;
+      const rule = { craftTravels: travels, craftSince: opts.craftSince ?? Number.POSITIVE_INFINITY };
+      if (isWorkMemory(facts, rule) || (travels && !t.CRAFT_IN_WAKE && isCraft(facts, rule))) continue;
     }
     if (s.strength < t.WARM_FLOOR) continue;
     if (s.kind === "skill") {
