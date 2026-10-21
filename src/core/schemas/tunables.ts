@@ -145,4 +145,13 @@ export const TUNABLES = {
   BELIEF_SUBJECTS_SHOWN: 6,
   /** Beliefs shown per subject, strongest first; the rest are counted. */
   BELIEFS_SHOWN_PER_SUBJECT: 5,
+  /**
+   * CAL. A birth this close to the body of one of its own cites (token
+   * cosine) is a memory pasted in as a belief, not a claim drawn from it, and
+   * is refused (review of #577). The review suggested ~0.8; a one-line claim
+   * drawn from a short memory already reads ~0.8 ("I keep the hard problems
+   * for dawn" from "I chose to keep the dawn slot for the hard problems",
+   * 0.82), so 0.9 for now.
+   */
+  BELIEF_PASTED: 0.9,
 } as const;

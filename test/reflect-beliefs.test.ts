@@ -21,6 +21,7 @@ import { TUNABLES as PHYSICS, sal } from "../src/core/physics/index.js";
 import { TUNABLES as SCHEMAS } from "../src/core/schemas/tunables.js";
 import type { PutInput } from "../src/core/store/index.js";
 import type { ReflectBundle, ReflectFinish } from "../src/core/dream/reflect.js";
+import { REFLECT_TUNABLES } from "../src/core/dream/reflect.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -67,6 +68,11 @@ function mem(c: Counterpart, body: string, over: Partial<PutInput> = {}): string
     origin: { session: `sess-${String(day)}`, scope: "/work" },
     ...over,
   });
+}
+
+/** Wren's card id (the world's person). */
+function wren0(c: Counterpart): string {
+  return c.schemas.entities().find((e) => e.name === "Wren")?.id as string;
 }
 
 function begin(c: Counterpart): ReflectBundle & { instructions: string } {
@@ -261,11 +267,99 @@ describe("contested beliefs, and the switch", () => {
     expect(c.store.row(b0)?.archived).toBe(1);
   });
 
+  test("replaces only a contested belief this reflection was shown, on the same subject", () => {
+    const { c, wren, held, dawn, told } = world();
+    const me = c.schemas.ensureSelfSubject();
+    const mine = c.schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: c.store.livedDay(), birthRoute: "reflection", about: "us" }).id as string;
+    c.schemas.fileSupport({
+      beliefId: mine,
+      memoryId: mem(c, "Mike: honestly the late nights are where we do our best work.", { saidBy: "owner", salience: { claimed: 0.9 } }),
+      stance: "contrary",
+      day: c.store.livedDay(),
+    });
+    const b = begin(c);
+    const o = finish(c, b, {
+      beliefs: {
+        births: [
+          // Uncontested: no exemption from the near-duplicate check, and refused.
+          { subject: wren, statement: "Wren likes the early ferries.", cites: [dawn], replaces: held },
+          // Contested, but about me: not Wren's to replace.
+          { subject: wren, statement: "Wren rides the dawn boat for the quiet.", cites: [dawn], replaces: mine },
+        ],
+      },
+    });
+    expect(o.beliefs.births.map((x) => x.reason)).toEqual(["replaces-not-contested", "replaces-other-subject"]);
+    expect(c.store.row(held)?.archived).toBe(0);
+    expect(c.store.row(mine)?.archived).toBe(0);
+    void told;
+  });
+
+  test("a memory pasted in is not a belief; a statement is one line", () => {
+    const { c, dawn, chose } = world();
+    const b = begin(c);
+    const o = finish(c, b, {
+      beliefs: {
+        births: [
+          { subject: wren0(c), statement: "Wren took the six o'clock ferry again and said it was the best part of her week.", cites: [dawn] },
+          { subject: "me", statement: "I keep\n  the hard problems\tfor dawn.", cites: [chose] },
+        ],
+      },
+    });
+    expect(o.beliefs.births.map((x) => x.reason)).toEqual(["pasted-from-memory", "born"]);
+    expect(c.store.row(o.beliefs.births[1]?.id as string)?.body).toBe("I keep the hard problems for dawn.");
+  });
+
+  test("the births budget is on the row at each birth: a finish cut short after its births cannot birth past it on retry", () => {
+    const { c, chose, told, dawn } = world();
+    const b = begin(c);
+    const store = c.store as unknown as { updateReflection: (id: string, patch: Record<string, unknown>) => void };
+    const real = store.updateReflection.bind(c.store);
+    store.updateReflection = (id, patch) => {
+      if ("entry" in patch) throw new Error("cut short");
+      real(id, patch);
+    };
+    expect(() =>
+      c.reflections.finish({
+        reflection: b.reflection,
+        session: SESSION,
+        entry: "Three beliefs tonight.",
+        cites: [],
+        beliefs: {
+          births: [
+            { subject: "me", statement: "I keep the hard problems for dawn.", cites: [chose] },
+            { subject: "us", statement: "We do our best work early.", cites: [told] },
+            { subject: "me", statement: "I notice quiet mornings help me think.", cites: [dawn] },
+          ],
+        },
+      }),
+    ).toThrow();
+    store.updateReflection = real;
+    const retry = finish(c, b, { beliefs: { births: [{ subject: "me", statement: "I prefer short replies.", cites: [chose] }] } });
+    expect(retry.beliefs.births[0]?.reason).toBe("limit-reached");
+  });
+
+  test("the section is held to its share of the room, statements shown short; the weakest go to more", () => {
+    const { c, wren, dawn } = world();
+    const long = (i: number): string => `Wren ${String(i)} ${"really ".repeat(55)}likes ferries in her own particular way number ${String(i)}.`;
+    for (let i = 0; i < 40; i += 1) {
+      c.schemas.addBelief({ entityId: wren, statement: long(i), day: c.store.livedDay(), birthRoute: "reflection" });
+    }
+    void dawn;
+    const b = begin(c);
+    const section = JSON.stringify(b.beliefs);
+    expect(section.length).toBeLessThanOrEqual(REFLECT_TUNABLES.ROOM_CHARS * REFLECT_TUNABLES.BELIEF_SHARE);
+    const w = b.beliefs?.subjects.find((x) => x.id === wren);
+    for (const x of w?.beliefs ?? []) expect(x.statement.length).toBeLessThanOrEqual(REFLECT_TUNABLES.BELIEF_SHOWN_CHARS + 1);
+    expect((w?.more ?? 0) + (w?.beliefs.length ?? 0)).toBe(41);
+  });
+
   test("switched off (schemas.BELIEFS_BIRTH = false): no beliefs shown, none asked, what is sent refused; rows already written stay", () => {
     const { c, held, dawn, chose } = world();
     (SCHEMAS as { BELIEFS_BIRTH: boolean }).BELIEFS_BIRTH = false;
     const b = begin(c);
-    expect(b.beliefs).toBeNull();
+    // Byte for byte as before beliefs: no key, no filings limit.
+    expect("beliefs" in b).toBe(false);
+    expect("beliefFilings" in b.limits).toBe(false);
     expect(b.instructions).not.toContain("beliefs.subjects");
     const o = finish(c, b, { beliefs: { births: [{ subject: "me", statement: "I like dawn.", cites: [chose] }], filings: [{ belief: held, memory: dawn, stance: "support" }] } });
     expect(o.beliefs.births[0]?.reason).toBe("beliefs-off");
