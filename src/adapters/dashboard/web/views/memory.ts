@@ -240,8 +240,10 @@ export interface MemoryDetail {
 function subjectOf(store: DashboardSource["store"], id: string, meta: Record<string, unknown>): MemoryDetail["subject"] {
   const isSelf = (cardId: string): boolean => (store.row(cardId)?.subject_kind ?? null) === "self";
   const nameOf = (cardId: string): string | null => {
+    // A page exists only for a live card: not archived, not replaced, not removed.
     const row = store.row(cardId);
-    if (row === undefined || row.archived === 1 || row.body === "") return null;
+    if (row === undefined || row.archived === 1 || row.body === "" || row.superseded_by !== null) return null;
+    if (store.deniedIds().includes(cardId)) return null;
     try {
       const m = JSON.parse(row.meta) as Record<string, unknown>;
       if (m["role"] !== "entity") return null;

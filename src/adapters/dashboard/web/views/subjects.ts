@@ -154,6 +154,59 @@ function subjectByTag(cards: readonly Card[], bySize?: ReadOnlyStore): Map<strin
   return out;
 }
 
+/** A memory row the subjects tab counts: live, not replaced, not the journal. One filter for every count here. */
+function counted(row: MemoryRow | undefined): row is MemoryRow {
+  return row !== undefined && row.archived === 0 && row.superseded_by === null && !isJournal(row);
+}
+
+/**
+ * A subject's memories — what names it, and what carries its name as a tag —
+ * not the card, not its own beliefs (the page lists those above), and only
+ * the rows `counted` allows. The list's chip count and the page's "of N" are
+ * both this, so they agree.
+ */
+function memoriesOf(
+  store: ReadOnlyStore,
+  card: Card,
+  beliefs: readonly BeliefRow[],
+  tagged: boolean,
+): { via: Map<string, "names" | "tag" | "both">; found: { id: string; row: MemoryRow }[] } {
+  const own = new Set([card.id, ...beliefs.filter((b) => b.entityId === card.id).map((b) => b.id)]);
+  const via = new Map<string, "names" | "tag" | "both">();
+  for (const m of store.memoriesNaming(card.id)) if (!own.has(m)) via.set(m, "names");
+  if (tagged) {
+    for (const k of tagKeysOf(card)) {
+      for (const m of store.memoriesTagged(k)) {
+        if (own.has(m)) continue;
+        const was = via.get(m);
+        via.set(m, was === undefined || was === "tag" ? "tag" : "both");
+      }
+    }
+  }
+  const found: { id: string; row: MemoryRow }[] = [];
+  for (const m of via.keys()) {
+    const row = store.row(m);
+    if (counted(row)) found.push({ id: m, row });
+  }
+  return { via, found };
+}
+
+/**
+ * The card's own words as the page shows them: a markdown heading line is
+ * dropped, and the birth stub a card is minted with ("Born by mention on
+ * lived day 23. Asserts nothing yet.") is internal wording, not something it
+ * says — so it reads as nothing.
+ */
+export function cardWords(body: string): string {
+  const text = body
+    .split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .join("\n")
+    .trim();
+  if (/^Born by mention on lived day \d+\.\s*Asserts nothing yet\.?$/i.test(text)) return "";
+  return text;
+}
+
 function hasTags(store: ReadOnlyStore): boolean {
   return store.tagCounts({ limit: 1 }).length > 0;
 }
@@ -170,8 +223,10 @@ export interface SubjectRow {
   readonly owner: boolean;
   /** Live beliefs about it. */
   readonly beliefs: number;
-  /** Live memories that name it (`memory_subjects`) or carry its name as a tag. */
+  /** Live memories that name it (`memory_subjects`) or carry its name as a tag — the page's "of N". */
   readonly memories: number;
+  /** How many live cards share its name (twins are one subject here); 1 for most. */
+  readonly cards: number;
 }
 
 export interface CloudWord {
@@ -221,20 +276,33 @@ export function subjectsView(src: DashboardSource): SubjectsView {
   const counts = tagged ? store.tagCounts() : [];
   const tagWeight = new Map(counts.map((c) => [c.tag, c.memories]));
 
-  const rows: SubjectRow[] = cards.map((c) => {
-    const keys = tagKeysOf(c);
-    const named = new Set(store.memoriesNaming(c.id));
-    if (tagged) for (const k of keys) for (const m of store.memoriesTagged(k)) named.add(m);
-    return {
-      id: c.id,
-      name: c.name,
-      kind: c.subjectKind,
-      owner: c.owner,
-      beliefs: beliefCount.get(c.id) ?? 0,
-      memories: named.size,
-    };
-  });
-  rows.sort((a, b) => b.memories - a.memories || b.beliefs - a.beliefs || a.name.localeCompare(b.name));
+  const every: SubjectRow[] = cards.map((c) => ({
+    id: c.id,
+    name: c.name,
+    kind: c.subjectKind,
+    owner: c.owner,
+    beliefs: beliefCount.get(c.id) ?? 0,
+    memories: memoriesOf(store, c, beliefs, tagged).found.length,
+    cards: 1,
+  }));
+  every.sort((a, b) => b.memories - a.memories || b.beliefs - a.beliefs || a.name.localeCompare(b.name));
+  // TWINS: two live cards with one name (the store holds dozens of pairs,
+  // minted twice on one day) are one subject here — one chip, one word —
+  // opening the heavier card, which `every` already lists first, and saying
+  // how many cards it stands for. The double mint is lane B's to merge.
+  const lead = new Map<string, SubjectRow>();
+  const rows: SubjectRow[] = [];
+  for (const r of every) {
+    const key = normalizeTag(r.name);
+    const first = lead.get(key);
+    if (first !== undefined) {
+      lead.set(key, { ...first, cards: first.cards + 1 });
+      continue;
+    }
+    lead.set(key, r);
+    rows.push(r);
+  }
+  for (let i = 0; i < rows.length; i++) rows[i] = lead.get(normalizeTag((rows[i] as SubjectRow).name)) as SubjectRow;
   // A tag that IS a subject's name is that subject in the cloud (the heavier
   // card, when two share a name).
   const byId = new Map(cards.map((c) => [c.id, c]));
@@ -449,6 +517,7 @@ export function subjectView(src: DashboardSource, id: string): SubjectPage {
   const { cards, beliefs } = readSchemas(store);
   const card = cards.find((c) => c.id === wanted);
   if (card === undefined) {
+    if (store.row(wanted) === undefined) return { found: false, id, absent: "no subject has that id" };
     const r = reveal(store, wanted, 60);
     return { found: false, id, absent: r.present ? "that memory is not a subject" : r.label };
   }
@@ -458,26 +527,7 @@ export function subjectView(src: DashboardSource, id: string): SubjectPage {
   const lines = beliefs.filter((b) => b.entityId === card.id).map((b) => beliefLine(store, b, day));
   lines.sort((a, b) => b.strength - a.strength || b.support - a.support || (a.id < b.id ? -1 : 1));
 
-  // Its memories: what names it, and what carries its name as a tag — not its
-  // own beliefs (they are listed above) and not the journal.
-  const own = new Set([card.id, ...beliefs.filter((b) => b.entityId === card.id).map((b) => b.id)]);
-  const via = new Map<string, "names" | "tag" | "both">();
-  for (const m of store.memoriesNaming(card.id)) if (!own.has(m)) via.set(m, "names");
-  if (tagged) {
-    for (const k of tagKeysOf(card)) {
-      for (const m of store.memoriesTagged(k)) {
-        if (own.has(m)) continue;
-        const was = via.get(m);
-        via.set(m, was === undefined || was === "tag" ? "tag" : "both");
-      }
-    }
-  }
-  const found: { id: string; row: MemoryRow }[] = [];
-  for (const m of via.keys()) {
-    const row = store.row(m);
-    if (row === undefined || row.archived === 1 || isJournal(row)) continue;
-    found.push({ id: m, row });
-  }
+  const { via, found } = memoriesOf(store, card, beliefs, tagged);
   found.sort((a, b) => b.row.birth_day - a.row.birth_day || (b.row.created_at ?? 0) - (a.row.created_at ?? 0) || (a.id < b.id ? 1 : -1));
   const memories: SubjectMemory[] = found.slice(0, MEMORIES_SHOWN).map(({ id: m, row }) => {
     const r = reveal(store, m, 200);
@@ -515,7 +565,7 @@ export function subjectView(src: DashboardSource, id: string): SubjectPage {
     kindWords: card.subjectKind === null ? "not sorted yet" : (KIND_WORDS[card.subjectKind] ?? card.subjectKind),
     owner: card.owner,
     self: card.subjectKind === "self",
-    text: card.row.body.trim(),
+    text: cardWords(card.row.body),
     bornDay: card.row.birth_day,
     beliefs: shownBeliefs,
     beliefsMore: Math.max(0, lines.length - shownBeliefs.length),
@@ -544,9 +594,10 @@ export function tagView(src: DashboardSource, raw: string): TagView {
   const store = src.store;
   const tag = normalizeTag(raw);
   const ids = tag.length === 0 ? [] : store.memoriesTagged(tag);
+  // The rows `counted` allows — what the cloud's weight (`tagCounts`) counts, journal aside.
   const rows = ids
     .map((id) => ({ id, row: store.row(id) }))
-    .filter((x): x is { id: string; row: MemoryRow } => x.row !== undefined && !isJournal(x.row))
+    .filter((x): x is { id: string; row: MemoryRow } => counted(x.row))
     .sort((a, b) => b.row.birth_day - a.row.birth_day || (a.id < b.id ? 1 : -1));
   const { cards } = readSchemas(store);
   const tagToSubject = subjectByTag(cards, store);

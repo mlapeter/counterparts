@@ -237,3 +237,51 @@ describe("the subjects endpoints over a store with cards, tags and beliefs", () 
     }
   });
 });
+
+describe("the review's fixes (2026-10-21)", () => {
+  test("twins are one chip, opening the heavier card; a birth stub reads as nothing; counts share one filter", () => {
+    const dir = tempDir();
+    const c = Counterpart.open({ dir });
+    let heavy = "";
+    let light = "";
+    let kept = "";
+    try {
+      const stub = "# Google\n\nBorn by mention on lived day 0. Asserts nothing yet.";
+      heavy = c.store.put({ type: "schema", kind: "entity", body: stub, meta: { role: "entity", name: "Google", aliases: [] } });
+      light = c.store.put({ type: "schema", kind: "entity", body: stub, meta: { role: "entity", name: "Google", aliases: [] } });
+      const m = c.store.put({ type: "memory", kind: "fact", body: "Searched it on Google." });
+      c.store.linkSubjects([{ memoryId: m, subjectId: heavy }], "write");
+      // A tagged memory later replaced: neither the tag panel nor the cloud counts the old one.
+      const gone = c.store.put({ type: "memory", kind: "fact", body: "The old claude code note." });
+      c.store.tagMemory(gone, ["claude code"], "write");
+      kept = c.store.supersede(gone, { type: "memory", kind: "fact", body: "The new claude code note." });
+      c.store.tagMemory(kept, ["claude code", "notes"], "write");
+    } finally {
+      c.close();
+    }
+    const d = Dashboard.open({ dir });
+    try {
+      const v = get<SubjectsView>(d.source, "/api/subjects").json;
+      const chips = v.groups.flatMap((g) => g.subjects).filter((s) => s.name === "Google");
+      expect(chips.map((s) => [s.id, s.cards, s.memories])).toEqual([[heavy, 2, 1]]);
+      expect(v.cloud.filter((w) => w.word === "Google").map((w) => w.subject)).toEqual([heavy]);
+      // A multi-word tag is one key, and its neighbour is listed whole.
+      expect(v.cloud.find((w) => w.key === "t:notes")?.near).toEqual(["t:claude code"]);
+
+      const p = get<SubjectPage>(d.source, `/api/subject?id=${heavy}`).json;
+      expect(p.found && p.text).toBe("");
+      expect(p.found && p.memoriesTotal).toBe(1);
+      expect(get<SubjectPage>(d.source, `/api/subject?id=${light}`).json.found).toBe(true);
+
+      const tag = get<TagView>(d.source, "/api/tag?tag=claude%20code").json;
+      expect(tag.memories.map((m) => m.id)).toEqual([kept]);
+      expect(tag.total).toBe(v.cloud.find((w) => w.key === "t:claude code")?.weight ?? -1);
+
+      const never = get<SubjectPage>(d.source, "/api/subject?id=sch_ffffffffffff").json;
+      expect(never.found).toBe(false);
+      if (!never.found) expect(never.absent).toBe("no subject has that id");
+    } finally {
+      d.close();
+    }
+  });
+});

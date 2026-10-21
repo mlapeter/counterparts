@@ -100,7 +100,8 @@ export function cloudHtml(d) {
       "Words appear here as my memories name people and projects, and as they carry tags.");
   }
   const words = d.cloud.map((w) => {
-    const near = esc(w.near.join(" "));
+    // One key per line: a tag can hold spaces ("claude code").
+    const near = esc(w.near.join("\n"));
     const title = w.subject
       ? (w.kind ? w.kind + " · " : "") + plural(w.weight, "memory", "memories") + " — open its page"
       : "tag · " + plural(w.weight, "memory", "memories");
@@ -121,7 +122,7 @@ function wireCloud(box) {
   if (!cloud) return;
   const light = (el) => {
     if (!el) { cloud.classList.remove("focus"); cloud.querySelectorAll(".lit").forEach((w) => w.classList.remove("lit")); return; }
-    const near = new Set((el.dataset.near || "").split(" ").filter(Boolean));
+    const near = new Set((el.dataset.near || "").split("\n").filter(Boolean));
     cloud.classList.add("focus");
     cloud.querySelectorAll(".cw").forEach((w) => w.classList.toggle("lit", w === el || near.has(w.dataset.key)));
   };
@@ -162,10 +163,22 @@ export function allHtml(d) {
     '<p class="cloud-note">No page about me yet: it is made with my first belief about myself.</p>';
   return '<div class="card pad subj-groups">' + d.groups.map((g) =>
     '<div class="subj-group"><h3>' + esc(g.label) + ' <span class="subj-dim">' + g.subjects.length + "</span></h3>" +
-    '<div class="subj-chips">' + g.subjects.map((s) =>
-      '<a class="subj-chip" href="#subjects/' + encodeURIComponent(s.id) + '">' + esc(s.name) +
-      '<span class="subj-dim"> ' + s.memories + (s.beliefs ? " · " + plural(s.beliefs, "belief", "beliefs") : "") + "</span></a>").join("") +
+    '<div class="subj-chips">' + g.subjects.map(chipHtml).join("") +
     "</div></div>").join("") + meLink + "</div>";
+}
+
+/** One subject in the list: its name, then what is behind it — memories that
+ *  mention it (left out when there are none), beliefs, and how many cards
+ *  share its name when it is more than one. */
+export function chipHtml(s) {
+  const parts = [];
+  if (s.memories > 0) parts.push(String(s.memories));
+  if (s.beliefs > 0) parts.push(plural(s.beliefs, "belief", "beliefs"));
+  if (s.cards > 1) parts.push("(" + s.cards + " cards)");
+  const title = plural(s.memories, "memory mentions it", "memories mention it") +
+    (s.cards > 1 ? " · " + s.cards + " cards share this name" : "");
+  return '<a class="subj-chip" href="#subjects/' + encodeURIComponent(s.id) + '" title="' + esc(title) + '">' + esc(s.name) +
+    (parts.length ? '<span class="subj-dim"> ' + esc(parts.join(" · ")) + "</span>" : "") + "</a>";
 }
 
 // ── one subject's page ─────────────────────────────────────────────────────
@@ -233,6 +246,7 @@ function beliefHtml(b) {
   return '<div class="card pad subj-belief">' +
     '<p class="subj-btext" role="button" tabindex="0" data-open="' + esc(b.id) + '">' + esc(b.text) + "</p>" +
     '<div class="subj-bmeta"><span class="subj-meter" title="how strongly it is held today: ' + n2(b.strength) + '"><span style="width:' + pctW + '%"></span></span>' +
+    '<span class="subj-strength" title="how strongly it is held today">' + n2(b.strength) + "</span>" +
     '<span class="subj-dim">' + esc(held + against) + "</span>" + chips.join("") + "</div>" +
     sources + "</div>";
 }
