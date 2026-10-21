@@ -992,3 +992,28 @@ co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.t
 - Never proposed: folders already one project; a folder the host keeps home (`folderOn`);
   the store's own folder (the nightly run's) or one inside it.
 - `PROJECT_JOIN_ASK` (on) stops it; every number is compare-settable (`dream.*`).
+
+### 2026-10-21, after review of #580
+
+- **A stale yes cannot pull a folder out of its project.** The folder that would join is
+  proposed only when it is alone in its project, and the proposal keeps its lived day and both
+  folders' projects. At `join` (`joinStillStands`), the yes is refused when the proposal is
+  older than `PROJECT_JOIN_EXPIRE_DAYS` (3), when either folder's project changed since, or
+  when the host now keeps either folder home.
+- **Who may say yes.** `join` is refused in the nightly run (`NIGHT_CHILD_ENV` or
+  `NIGHT_RUN_ENV`, as a dream's undo is) and until the share was marked told, so the yes can
+  only follow the owner hearing the question.
+- **Harder for a general folder** (the coordinator's call): a folder used on the same days as
+  `PROJECT_JOIN_GENERAL` (3) others or more is never proposed, and the shared subjects must be
+  at least `PROJECT_JOIN_OVERLAP_MAX` (0.25) of the telling subjects of the folder that names
+  more, too. The question now says plainly that all of each folder's work would show in the
+  other's wake. Folder and subject names in the share are flattened and capped.
+- `written` counts distinct memories, not a row per subject.
+- **Re-measured on the corpus copy: nothing is proposed.** ~/counterparts is a general folder
+  now (used on the same days as ~/random, ~/general, ~/pwntastic and ~/counterparts-site), so
+  ~/random → ~/counterparts no longer qualifies; with the general gate lifted it still would
+  (the 0.25 floor passes: 21 shared of 46). A folder's busiest project is the one most often
+  "general", so the night will rarely propose joining INTO it; the owner's
+  `counterparts project join` remains the door for that.
+- A silent night with a proposal now offers a share whose only content is the question
+  (`share.reason` `join-proposed`). Intended.
