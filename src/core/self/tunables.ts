@@ -80,7 +80,9 @@ export interface SelfTunables {
    * and a skill nobody marked `work` is craft, not work — it may be a work
    * line in any folder (`WORK_HERE_CRAFT_MAX`) — `work.ts`. Off: a folder is
    * its own project and an unmarked skill is work where it was written.
-   * Read at use, so `harness compare --set self.PROJECTS_TRAVEL=false` sets it.
+   * Read from the copy `withTunables` makes when `Self` opens, after the
+   * harness applies its settings, so `harness compare --set
+   * self.PROJECTS_TRAVEL=false` sets it.
    */
   PROJECTS_TRAVEL: boolean;
   /** With `PROJECTS_TRAVEL`: how many places of the ranked work lines

@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { run } from "../src/adapters/cli/index.js";
+import { parseSetting } from "../tools/harness/settings.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { SELF_TUNABLES, WORK_HERE_HEADING, isCraft, isWorkMemory, projectFolder, projectFolders, workHere } from "../src/core/self/index.js";
 import type { AboutMark } from "../src/core/store/index.js";
@@ -125,9 +126,10 @@ describe("what is work, and what is craft (self/work.ts)", () => {
     expect(isWorkMemory({ ...base, about: null, kind: "skill" }, { craftTravels: false })).toBe(true);
   });
 
-  test("the switch is on, and compare-settable as a top-level boolean", () => {
+  test("the switch is on, and compare-settable", () => {
     expect(SELF_TUNABLES.PROJECTS_TRAVEL).toBe(true);
-    expect(typeof SELF_TUNABLES.WORK_HERE_CRAFT_MAX).toBe("number");
+    expect(parseSetting("self.PROJECTS_TRAVEL=false").value).toBe(false);
+    expect(parseSetting("self.WORK_HERE_CRAFT_MAX=1").value).toBe(1);
   });
 });
 
