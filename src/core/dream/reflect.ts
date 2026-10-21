@@ -2154,7 +2154,7 @@ export class Reflections {
       // replacement that repeats its contested target's claim would reissue
       // it with what went against it no longer counted.
       const replacedText = replaces === null ? null : (sch.element(replaces)?.statement ?? null);
-      if (replaces !== null && replacedText !== null && similarity(w.text, replacedText) >= SCHEMAS_TUNABLES.BELIEF_SAME_CLAIM) {
+      if (replaces !== null && replacedText !== null && similarity(w.text, replacedText) >= SCHEMAS_TUNABLES.BELIEF_SAME_CLAIM && !negationDiffers(w.text, replacedText)) {
         out.births.push({ id: replaces, ok: false, reason: "replaces-same-claim", detail: `It says what ${replaces} says: a replacement says something else — or let it go with retire.` });
         continue;
       }
@@ -3399,6 +3399,31 @@ function beliefLines(b: ReflectBeliefs, filings: number): string[] {
         ]
       : []),
   ];
+}
+
+/** The words that turn a claim around (review of #577): token cosine cannot see them. */
+const NEGATIONS: ReadonlySet<string> = new Set(["not", "no", "never", "none", "nobody", "nothing", "neither", "nor"]);
+
+/**
+ * Does one statement add or remove a negation the other has? "We don't work
+ * best at dawn." against "We work best at dawn." reads 0.91 by token cosine,
+ * and it is exactly what the contrary evidence says: a replacement, not the
+ * claim again. Counts each negation word (and every `n't`) on both sides.
+ */
+function negationDiffers(a: string, b: string): boolean {
+  const count = (text: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const raw of text.toLowerCase().replace(/[’']/g, "'").split(/[^a-z']+/)) {
+      if (raw.length === 0) continue;
+      const word = raw.endsWith("n't") ? "not" : raw;
+      if (NEGATIONS.has(word)) m.set(word, (m.get(word) ?? 0) + 1);
+    }
+    return m;
+  };
+  const x = count(a);
+  const y = count(b);
+  for (const k of new Set([...x.keys(), ...y.keys()])) if ((x.get(k) ?? 0) !== (y.get(k) ?? 0)) return true;
+  return false;
 }
 
 /** A statement as one line: every run of whitespace one space (review of #577). */

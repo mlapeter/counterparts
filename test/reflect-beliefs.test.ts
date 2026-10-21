@@ -301,9 +301,20 @@ describe("contested beliefs, and the switch", () => {
     const late = mem(c, "Mike: honestly the late nights are where we do our best work.", { saidBy: "owner", salience: { claimed: 0.9 } });
     c.schemas.fileSupport({ beliefId: b0, memoryId: late, stance: "contrary", day: c.store.livedDay() });
     const b = begin(c);
-    const o = finish(c, b, { beliefs: { births: [{ subject: "us", statement: "We work best at dawn!", cites: [late], replaces: b0 }] } });
-    expect(o.beliefs.births[0]?.reason).toBe("replaces-same-claim");
+    const o = finish(c, b, {
+      beliefs: {
+        births: [
+          { subject: "us", statement: "We work best at dawn!", cites: [late], replaces: b0 },
+          { subject: "us", statement: "We  work best, at dawn.", cites: [late], replaces: b0 },
+        ],
+      },
+    });
+    expect(o.beliefs.births.map((x) => x.reason)).toEqual(["replaces-same-claim", "replaces-same-claim"]);
     expect(c.store.row(b0)?.archived).toBe(0);
+    // A negation is what the contrary evidence says: a replacement, whatever it reads.
+    const turned = finish(c, b, { entry: undefined, beliefs: { births: [{ subject: "us", statement: "We don't work best at dawn.", cites: [late], replaces: b0 }] } });
+    expect(turned.beliefs.births[0]?.reason).toBe("born");
+    expect(c.store.row(b0)?.archived).toBe(1);
   });
 
   test("a memory pasted in is not a belief; a statement is one line", () => {

@@ -160,7 +160,8 @@ export const TUNABLES = {
    * against it no longer counted (review of #577). Not the near-duplicate
    * bar (0.6): a real revision keeps the frame — "We work best late at night"
    * for "We work best at dawn" reads 0.73 — while the claim again reads ~1
-   * ("…at dawn!" 1.00, "We don't work best at dawn." 0.91).
+   * ("…at dawn!" 1.00). A negation added or removed ("We don't work best at
+   * dawn.", 0.91) is a replacement whatever it reads (`reflect.ts#negationDiffers`).
    */
   BELIEF_SAME_CLAIM: 0.9,
 } as const;
