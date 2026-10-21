@@ -154,4 +154,13 @@ export const TUNABLES = {
    * 0.82), so 0.9 for now.
    */
   BELIEF_PASTED: 0.9,
+  /**
+   * CAL. A birth that `replaces` a contested belief and says it this nearly
+   * again (token cosine) is refused: it would reissue the claim with what went
+   * against it no longer counted (review of #577). Not the near-duplicate
+   * bar (0.6): a real revision keeps the frame — "We work best late at night"
+   * for "We work best at dawn" reads 0.73 — while the claim again reads ~1
+   * ("…at dawn!" 1.00, "We don't work best at dawn." 0.91).
+   */
+  BELIEF_SAME_CLAIM: 0.9,
 } as const;

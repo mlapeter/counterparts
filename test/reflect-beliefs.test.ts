@@ -294,6 +294,18 @@ describe("contested beliefs, and the switch", () => {
     void told;
   });
 
+  test("a replacement must say something else than the contested belief it replaces", () => {
+    const { c } = world();
+    const me = c.schemas.ensureSelfSubject();
+    const b0 = c.schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: c.store.livedDay(), birthRoute: "reflection", about: "us" }).id as string;
+    const late = mem(c, "Mike: honestly the late nights are where we do our best work.", { saidBy: "owner", salience: { claimed: 0.9 } });
+    c.schemas.fileSupport({ beliefId: b0, memoryId: late, stance: "contrary", day: c.store.livedDay() });
+    const b = begin(c);
+    const o = finish(c, b, { beliefs: { births: [{ subject: "us", statement: "We work best at dawn!", cites: [late], replaces: b0 }] } });
+    expect(o.beliefs.births[0]?.reason).toBe("replaces-same-claim");
+    expect(c.store.row(b0)?.archived).toBe(0);
+  });
+
   test("a memory pasted in is not a belief; a statement is one line", () => {
     const { c, dawn, chose } = world();
     const b = begin(c);
@@ -351,6 +363,22 @@ describe("contested beliefs, and the switch", () => {
     const w = b.beliefs?.subjects.find((x) => x.id === wren);
     for (const x of w?.beliefs ?? []) expect(x.statement.length).toBeLessThanOrEqual(REFLECT_TUNABLES.BELIEF_SHOWN_CHARS + 1);
     expect((w?.more ?? 0) + (w?.beliefs.length ?? 0)).toBe(41);
+  });
+
+  test("the trim is round-robin: me (and us) keep theirs while the room allows, the fullest subject gives first", () => {
+    const { c, wren } = world();
+    const me = c.schemas.ensureSelfSubject();
+    const long = (who: string, i: number): string => `${who} ${String(i)} ${"really ".repeat(55)}particular claim number ${String(i)}.`;
+    for (let i = 0; i < 12; i += 1) {
+      // Mine weaker (claimed low), Wren's at the ceiling.
+      c.schemas.addBelief({ entityId: me, statement: long("I", i), day: c.store.livedDay(), birthRoute: "reflection", about: "me", claimedSalience: 0.1 });
+      c.schemas.addBelief({ entityId: wren, statement: long("Wren", i), day: c.store.livedDay(), birthRoute: "reflection" });
+    }
+    const b = begin(c);
+    const mine = b.beliefs?.subjects.find((x) => x.id === me);
+    const hers = b.beliefs?.subjects.find((x) => x.id === wren);
+    expect(mine?.beliefs.length).toBeGreaterThanOrEqual(REFLECT_TUNABLES.BELIEFS_KEPT_PER_SUBJECT);
+    expect(Math.abs((mine?.beliefs.length ?? 0) - (hers?.beliefs.length ?? 0))).toBeLessThanOrEqual(1);
   });
 
   test("switched off (schemas.BELIEFS_BIRTH = false): no beliefs shown, none asked, what is sent refused; rows already written stay", () => {

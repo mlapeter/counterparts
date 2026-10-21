@@ -518,16 +518,17 @@ dream having run.
     written at each birth) on a subject it was shown, born weak (route `reflection`), its
     statement one line, each lived cite filed as its first support, one close to a live
     belief on the subject (`BELIEF_NEAR_DUPLICATE` 0.6) refused with that belief's id, one
-    that is a cite's own words (`BELIEF_PASTED` 0.8) refused; `replaces` only a contested
-    belief it was shown on the same subject;
+    that is a cite's own words (`BELIEF_PASTED` 0.9) refused; `replaces` only a contested
+    belief it was shown on the same subject, and not with its own claim again;
     `retire` lets a contested belief go through the settle door (the memory that
     contested it holds over it, `corrected`), and a birth's `replaces` does the same for
     the one it says better. **[M]** a belief's id is never in `shown`: it cannot be cited,
     felt or marked; filings and births take only memories it was shown and lived. Off:
     no beliefs shown or asked for, and what is sent is refused `beliefs-off`; the bundle
     carries no `beliefs` key and no `beliefFilings` limit, as before beliefs. The section
-    is held to `BELIEF_SHARE` of the room (the weakest dropped to `more`), each statement
-    shown to `BELIEF_SHOWN_CHARS`.
+    is held to `BELIEF_SHARE` of the room, round-robin — the subject showing the most
+    gives up its weakest to `more`, each keeping `BELIEFS_KEPT_PER_SUBJECT` while that is
+    enough, me and us the last — each statement shown to `BELIEF_SHOWN_CHARS`.
   - **Stale open threads, proposed closed** (2026-10-16, #489 D; a lightly held default):
     `begin` hands at most `STALE_OPEN` (5) memories still flagged `unresolved` and
     untouched for `STALE_OPEN_DAYS` (4) lived days (`staleOpen`, rotated like the

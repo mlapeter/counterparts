@@ -168,6 +168,8 @@ export const REFLECT_TUNABLES = {
    */
   BELIEF_SHARE: 0.06,
   BELIEF_SHOWN_CHARS: 160,
+  /** Each subject keeps this many shown beliefs while the room allows it; me and us last to give one up. */
+  BELIEFS_KEPT_PER_SUBJECT: 2,
   /** The most of one memory shown whole; longer is an excerpt with its whole length said (was a flat 400). */
   DETAIL_CHARS: 4_000,
   /** The longest chapter entry shown whole. */
@@ -2003,21 +2005,34 @@ export class Reflections {
         more: all.length - shownNow.length,
       };
     });
-    // HELD TO ITS SHARE OF THE ROOM: the weakest shown belief goes to `more`
-    // until the section fits (the subjects stay, with their counts).
+    // HELD TO ITS SHARE OF THE ROOM, ROUND-ROBIN (review of #577): the subject
+    // showing the most gives up its weakest belief to `more`, until the
+    // section fits — every subject keeping `BELIEFS_KEPT_PER_SUBJECT` while
+    // that is enough, me and us (first) the last to give any up: they are the
+    // spine, and read weaker than a person's beliefs only for being younger.
     const room = REFLECT_TUNABLES.ROOM_CHARS * REFLECT_TUNABLES.BELIEF_SHARE;
     const section = { subjects, births: SCHEMAS_TUNABLES.BELIEF_BIRTHS_PER_REFLECTION };
+    const keep = REFLECT_TUNABLES.BELIEFS_KEPT_PER_SUBJECT;
+    const pick = (floor: number, withMe: boolean): number => {
+      let at = -1;
+      subjects.forEach((s, i) => {
+        if ((i === 0 && !withMe) || s.beliefs.length <= floor) return;
+        // The most shown; on a tie the later (another subject before me).
+        if (at === -1 || s.beliefs.length >= (subjects[at] as (typeof subjects)[number]).beliefs.length) at = i;
+      });
+      return at;
+    };
     while (wireChars(JSON.stringify(section)) > room) {
-      let weakest: { s: number; b: number; strength: number } | null = null;
-      subjects.forEach((s, si) =>
-        s.beliefs.forEach((b, bi) => {
-          if (weakest === null || b.strength < weakest.strength) weakest = { s: si, b: bi, strength: b.strength };
-        }),
-      );
-      if (weakest === null) break;
-      const w = weakest as { s: number; b: number };
-      const subj = subjects[w.s] as (typeof subjects)[number];
-      subjects[w.s] = { ...subj, beliefs: subj.beliefs.filter((_, i) => i !== w.b), more: subj.more + 1 };
+      let at = pick(keep, true);
+      if (at === -1) at = pick(0, false);
+      if (at === -1) at = pick(0, true);
+      if (at === -1) break;
+      const subj = subjects[at] as (typeof subjects)[number];
+      let weakest = 0;
+      subj.beliefs.forEach((b, i) => {
+        if (b.strength < (subj.beliefs[weakest] as (typeof subj.beliefs)[number]).strength) weakest = i;
+      });
+      subjects[at] = { ...subj, beliefs: subj.beliefs.filter((_, i) => i !== weakest), more: subj.more + 1 };
     }
     return section;
   }
@@ -2133,6 +2148,14 @@ export class Reflections {
       }
       if (replaces !== null && sch.element(replaces)?.entityId !== subject) {
         out.births.push({ id: replaces, ok: false, reason: "replaces-other-subject", detail: `${replaces} is a belief about another subject than "${asked}".` });
+        continue;
+      }
+      // Saying it better is not saying it again (review of #577): a
+      // replacement that repeats its contested target's claim would reissue
+      // it with what went against it no longer counted.
+      const replacedText = replaces === null ? null : (sch.element(replaces)?.statement ?? null);
+      if (replaces !== null && replacedText !== null && similarity(w.text, replacedText) >= SCHEMAS_TUNABLES.BELIEF_SAME_CLAIM) {
+        out.births.push({ id: replaces, ok: false, reason: "replaces-same-claim", detail: `It says what ${replaces} says: a replacement says something else — or let it go with retire.` });
         continue;
       }
       const near = sch.nearestBelief(subject, w.text, replaces ?? undefined);
