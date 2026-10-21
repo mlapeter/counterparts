@@ -245,7 +245,10 @@ export function planTurn(opts: WeekOptions, t: TurnChild): ChildPlan & { ok: boo
       ...(settingsForChild() === "" ? {} : { [SETTINGS_ENV]: settingsForChild() }),
     },
   };
-  const args = [...plan.args];
+  // A PERSON'S SESSION IS KEPT (2026-10-21): the night child's
+  // `--no-session-persistence` is dropped, because a turn after the first
+  // `--resume`s this session and its hooks read its transcript.
+  const args = plan.args.filter((a) => a !== "--no-session-persistence");
   const mcp = args.indexOf("--mcp-config");
   args[mcp + 1] = JSON.stringify({ mcpServers: { counterparts: server } });
   args.push("--setting-sources", "project", ...(t.first ? ["--session-id", t.session] : ["--resume", t.session]));

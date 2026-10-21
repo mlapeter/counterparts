@@ -29,6 +29,7 @@ import {
   nightTimeoutMs,
   openAdapter,
   openNightCounterpart,
+  claudeCodeSeat,
   planNightChild,
   planNightRunner,
   readKind,
@@ -292,6 +293,43 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     }
   }
 
+  test("every child keeps no Claude Code transcript: the dream, the reflection, a write-up owed, and the plain retry all carry --no-session-persistence", async () => {
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000 };
+    CounterpartClass.open({ dir }).close();
+    const plans: string[][] = [];
+    // The first start of every child exits at once, saying nothing: the dream
+    // and the reflection are then retried plain (`runNightChild`).
+    let calls = 0;
+    const start = async (plan: { args: readonly string[] }) => {
+      plans.push([...plan.args]);
+      calls += 1;
+      return calls % 2 === 1 ? { code: 1, timedOut: false, error: null, output: "" } : { code: 0, timedOut: false, error: null, output: "" };
+    };
+    const seat = claudeCodeSeat({
+      config,
+      open: () => {
+        const c = CounterpartClass.open({ dir });
+        open.push(c);
+        return c;
+      },
+      start,
+      startCatchUp: async (plan) => {
+        plans.push([...plan.args]);
+        return { code: 0, timedOut: false, error: null };
+      },
+    });
+    for (const act of ["dream", "reflection", "catch-up"] as const) {
+      await seat.answer({ act, prompt: "p", tools: ["recall"], withhold: [], run: "nrn_t", session: "s-launch", scope: "/proj" });
+    }
+    // dream: named + plain retry; reflection: named + plain retry; catch-up: one.
+    expect(plans.length).toBe(5);
+    for (const args of plans) expect(args).toContain("--no-session-persistence");
+    // The named children still pass their session id and read their own output.
+    expect(plans[0]).toContain("--session-id");
+    expect(plans[0]).toContain("stream-json");
+    expect(plans[1]).not.toContain("--session-id");
+  });
+
   test("the child's plan, locked down: four tools, the built-ins denied, only counterparts' MCP server, a turn ceiling, a neutral directory, the prompt on stdin", () => {
     const plan = planNightChild({
       config: config({ dreaming: { model: "claude-opus-5-5" } }),
@@ -317,6 +355,8 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     expect(plan.env["MAX_MCP_OUTPUT_TOKENS"]).toBe("25000");
     expect(plan.args).toEqual([
       "-p",
+      // No Claude Code transcript of the child on disk (2026-10-21).
+      "--no-session-persistence",
       "--allowedTools",
       "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
       // Deny beats allow: the user's own allow rules cannot reach these (review finding 3; owner B).
@@ -414,6 +454,7 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     const out = await runNight(nightOf({ command: stub("exit 1") }));
     expect(out).toMatchObject({ state: "could-not-start", reason: "quick-exit", code: 1 });
     expect(nightRunWords(out)).toContain("is it logged in?");
+    expect(nightRunWords(out)).toContain("too old for the night's flags");
   });
 
   test("no `claude` on the path: could not start (`no-claude`)", async () => {
@@ -876,7 +917,7 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
     a.counterpart.dreams.recordNightRun({ ...started, state: "could-not-start", reason: "quick-exit", code: 1, endedAt: started.startedAt + 2_000 });
     offsetMs += 5_000;
     const next = a.userPromptSubmit(input({ sessionId: "s2" }));
-    expect(next.dream?.notice).toBe('Counterparts: I couldn\'t start dreaming on my own: claude stopped straight away (exit 1) — is it logged in? Say "dream" to do it here.');
+    expect(next.dream?.notice).toBe('Counterparts: I couldn\'t start dreaming on my own: claude stopped straight away (exit 1) — is it logged in? Or a claude too old for the night\'s flags — update it. Say "dream" to do it here.');
     expect(nightPlans()).toHaveLength(1);
     deliverTurn("user-prompt-submit", next, {}, null, doorsOf(a as unknown as ReturnType<typeof openAdapter>), input({ sessionId: "s2" }));
     expect(a.counterpart.store.dreamAsk(AT)).toMatchObject({ state: "offered", session: "s2" });

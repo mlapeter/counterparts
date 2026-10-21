@@ -5,6 +5,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -36,6 +37,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -72,6 +74,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -184,6 +187,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -270,6 +274,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -342,6 +347,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -373,6 +379,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -409,6 +416,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -524,6 +532,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -555,6 +564,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -638,6 +648,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -669,6 +680,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -705,6 +717,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -802,6 +815,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -833,6 +847,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -869,6 +884,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -970,6 +986,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -1001,6 +1018,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1037,6 +1055,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1149,6 +1168,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -1180,6 +1200,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1216,6 +1237,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1328,6 +1350,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -1359,6 +1382,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1395,6 +1419,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1507,6 +1532,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -1538,6 +1564,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1574,6 +1601,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1688,6 +1716,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",
@@ -1719,6 +1748,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1755,6 +1785,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
           "--disallowedTools",
@@ -1910,6 +1941,7 @@
         "command": "claude",
         "args": [
           "-p",
+          "--no-session-persistence",
           "--allowedTools",
           "mcp__counterparts__session_end",
           "--disallowedTools",

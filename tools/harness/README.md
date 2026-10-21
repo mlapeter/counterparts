@@ -81,8 +81,10 @@ and the band census.
 ```sh
 bun tools/harness/cli.ts night --dir ~/counterparts-backups/<date>-corpus/night-<date>
 #   the folder holds pre-night.sqlite (a snapshot from the night's start), dream-child.jsonl and
-#   reflection-child.jsonl (the night's children's transcripts, copied from
-#   ~/.claude/projects/-<store dir>/), and ../counterparts.sqlite (a copy from after the night)
+#   reflection-child.jsonl (the night's children's transcripts), and ../counterparts.sqlite
+#   (a copy from after the night). Since 2026-10-21 a night child runs with
+#   --no-session-persistence, so Claude Code keeps no such transcript of a new night: the
+#   recorded corpora (the 10-19 night) still replay; a new one has nothing to copy yet.
 ```
 
 This is the harness's own seat (`night.ts#recordedSeat`). It answers the night's asks with the
@@ -149,8 +151,9 @@ watchdog). Three things change so it can't reach the owner's live store:
   - `COUNTERPARTS_REQUIRE_EXPLICIT_DIR=1` is set on the child and its server.
   - No `COUNTERPARTS_*`, `CLAUDE_*` or `ANTHROPIC_*` variable of the parent reaches them; a
     key in the shell would bill the API, and the harness runs on the subscription.
-- **Transcripts:** a child's transcript (holding the copy's words) lands under
-  `~/.claude/projects/<its folder>`. That folder is removed with the run, unless `--keep`.
+- **Transcripts:** a night child keeps none (`--no-session-persistence`, 2026-10-21). A
+  scripted person's turns (`week`) do, under `~/.claude/projects/<its folder>`, since they
+  `--resume`; that folder is removed with the run, unless `--keep`.
 
 On 2026-10-20 the 10-19 night with a model in the seat took about 4 minutes:
 - the page writer ran;

@@ -2626,3 +2626,23 @@ running both, found confusing. The npm install now leaves `npm-live.json` beside
   one release. Doctor's Mode line says "remembering" or the observer line, nothing
   about an owner. The night run's MCP configuration no longer sets
   `COUNTERPARTS_OWNER=0`.
+
+## 2026-10-21 — night children keep no Claude Code transcript
+
+- `planNightChild` passes `--no-session-persistence` to every child (dream, reflection,
+  catch-up, and the plain retry). Without it Claude Code saved each child's transcript under
+  `~/.claude/projects/<the store's folder slug>/` — the memories it read and the
+  conversation it wrote up — outside the 3-day/14-day span retention, reached only by the
+  host's own `cleanupPeriodDays` (30 by default).
+- Nothing read those transcripts: the host cut comes from the child's `stream-json`
+  (`readNightSpills`, since 10-12); `--session-id` only keeps the children apart; the
+  child's hooks are QUIET (`nightRun`: `captureBoundary` takes no turns, no ask, no recall
+  — `toHookInput` still tries `transcript_path`, finds nothing, and marks the turns
+  unread, which only stands the echo skip and the pacer's rebase down, both moot for the
+  night); the model a night's rows record comes from the launching session's record, not
+  the child's.
+- Checked on the installed `claude` 2.1.306: `-p --no-session-persistence --session-id
+  <uuid> --output-format stream-json --verbose` runs, echoes the session id and leaves no
+  folder under `~/.claude/projects` for its directory.
+- `tools/harness/week.ts` drops the flag for its scripted person's turns, which
+  `--resume` the session and whose hooks read its transcript.
