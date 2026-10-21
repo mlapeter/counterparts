@@ -33,6 +33,12 @@ import { McpServer } from "../../src/adapters/mcp/index.js";
 import { Counterpart } from "../../src/core/counterpart.js";
 import type { Seat, SeatAsk, SeatTool } from "../../src/core/counterpart.js";
 
+import { pageReading } from "./page.js";
+import type { PageReading } from "./page.js";
+import { appliedSettings } from "./settings.js";
+import type { Setting } from "./settings.js";
+import { usageTally } from "./usage.js";
+import type { UsageTally } from "./usage.js";
 import { modelSeat } from "./model-seat.js";
 import type { ChildInit } from "./model-seat.js";
 import { underLiveRoot } from "./source.js";
@@ -286,6 +292,8 @@ export interface NightReplayOptions {
   readonly model?: string;
   /** TESTS ONLY, with `seat: "model"`: the child's starter in place of a real `claude -p`. */
   readonly start?: NightStarter;
+  /** Where to write the self page's words after the night (`page.ts`); never into the record. */
+  readonly pageOut?: string;
 }
 
 /** One side's verdict. */
@@ -306,6 +314,12 @@ export interface NightReplayRecord {
   readonly seat: string;
   /** A model's children, as each said at start: the plugins it loaded (none expected) and its MCP servers (only `counterparts`). */
   readonly childInits?: Readonly<Record<string, ChildInit | null>>;
+  /** Tunables this run set from outside (`settings.ts`). */
+  readonly settings: readonly Setting[];
+  /** A model's children's tokens; zeros for the recorded seat. */
+  readonly usage: UsageTally;
+  /** The self page after the night, by numbers. */
+  readonly page: PageReading | { readonly error: string } | null;
   readonly calls: Readonly<Record<string, CallTally>>;
   readonly idsMapped: number;
   readonly dream: {
@@ -542,6 +556,9 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
         },
         seat: seat.name,
         ...(model === null ? {} : { childInits: model.inits }),
+        settings: appliedSettings(),
+        usage: usageTally(),
+        page: pageReading(dir, opts.pageOut),
         calls: seat.tallies,
         idsMapped: seat.ids.size,
         dream:

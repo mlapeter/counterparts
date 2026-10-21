@@ -20,6 +20,7 @@ import { openEmbedder } from "../../src/adapters/claude-code/index.js";
 import { McpServer, serveStdio } from "../../src/adapters/mcp/index.js";
 import { Counterpart } from "../../src/core/counterpart.js";
 
+import { applySettingsFromEnv } from "./settings.js";
 import { underLiveRoot } from "./source.js";
 
 /** The variables the harness's seat sets on this server. */
@@ -41,6 +42,7 @@ export const SERVE_AT_ENV = {
 
 async function main(): Promise<void> {
   const env = process.env;
+  applySettingsFromEnv(env);
   const dir = env[SERVE_AT_ENV.dir] ?? "";
   if (dir.trim().length === 0) throw new Error(`${SERVE_AT_ENV.dir} is required`);
   if (underLiveRoot(dir)) throw new Error("refused: the harness's server never opens the owner's live store");

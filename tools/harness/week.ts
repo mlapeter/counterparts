@@ -42,6 +42,12 @@ import type { ChildInit } from "./model-seat.js";
 import { OWNER_NAME, OWNER_WEEK } from "./owner-week.js";
 import type { ScriptedDay } from "./owner-week.js";
 import { SERVE_AT_ENV } from "./serve-at.js";
+import { pageReading } from "./page.js";
+import type { PageReading } from "./page.js";
+import { SETTINGS_ENV, appliedSettings, settingsForChild } from "./settings.js";
+import type { Setting } from "./settings.js";
+import { recordUsage, usageTally } from "./usage.js";
+import type { UsageTally } from "./usage.js";
 import { underLiveRoot } from "./source.js";
 
 /** The memory tools a person's session has, as the host names them. Not the night's dream or reflection. */
@@ -72,6 +78,8 @@ export interface WeekOptions {
   readonly script?: readonly ScriptedDay[];
   /** The script's name, for the record (default "plain"). */
   readonly scriptName?: string;
+  /** Where to write the self page's words at the week's end (`page.ts`); never into the record. */
+  readonly pageOut?: string;
   /** How many of the script's days to run (default all). */
   readonly days?: number;
   /** The calendar date of day one. */
@@ -116,6 +124,12 @@ export interface WeekRecord {
   readonly owner: string;
   /** Which script ran ("plain" unless named). */
   readonly script: string;
+  /** Tunables this run set from outside (`settings.ts`); empty for the build as it is. */
+  readonly settings: readonly Setting[];
+  /** The model children's tokens, all turns and nights. */
+  readonly usage: UsageTally;
+  /** The self page at the week's end, by numbers. */
+  readonly page: PageReading | { readonly error: string } | null;
   readonly ranAt: string;
   readonly elapsedMs: number;
   readonly days: number;
@@ -229,6 +243,7 @@ export function planTurn(opts: WeekOptions, t: TurnChild): ChildPlan & { ok: boo
       [SERVE_AT_ENV.owner]: "1",
       ...(t.scopesFile === undefined ? {} : { [SERVE_AT_ENV.scopes]: t.scopesFile }),
       ...(opts.timeZone === undefined ? {} : { [SERVE_AT_ENV.timeZone]: opts.timeZone }),
+      ...(settingsForChild() === "" ? {} : { [SETTINGS_ENV]: settingsForChild() }),
     },
   };
   const args = [...plan.args];
@@ -420,6 +435,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
           first = false;
           const result = await start(plan);
           if (init === null) init = childInit(result.output);
+          recordUsage(result.output);
           if (result.code !== 0) failed += 1;
           clock += 3 * MIN;
           // THE MODEL'S RECALL CALLS, positioned at its turn, as the host's transcript gives them.
@@ -463,6 +479,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   } finally {
     counterpart.close();
   }
+  const page = pageReading(dir, opts.pageOut);
   let out: string | null = null;
   if (opts.out !== undefined) {
     // ONE FILE, folded: `VACUUM INTO` writes the whole store, whatever a log still held.
@@ -476,6 +493,9 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     harness: "owner-week",
     owner: OWNER_NAME,
     script: opts.scriptName ?? "plain",
+    settings: appliedSettings(),
+    usage: usageTally(),
+    page,
     ranAt: new Date(w.started).toISOString(),
     elapsedMs: Date.now() - w.started,
     days: script.length,

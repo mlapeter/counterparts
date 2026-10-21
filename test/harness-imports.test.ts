@@ -44,6 +44,14 @@ function sources(dir: string): string[] {
   );
 }
 
+/**
+ * THE ONE EXCEPTION (2026-10-21): `settings.ts` sets a module's tunables for a
+ * run (`harness compare --set`). That is the experimenter's hand on the rules,
+ * not the host's reach, so it alone may import the tunables, and only those.
+ */
+const SETTINGS = join(HARNESS, "settings.ts");
+const TUNABLES_FILE = /^src\/core\/(?:[a-z]+\/tunables|physics\/index)\.ts$/;
+
 test("the harness imports only the package's public seams from src/", () => {
   const allowed = exportTargets();
   const files = sources(HARNESS);
@@ -55,6 +63,7 @@ test("the harness imports only the package's public seams from src/", () => {
       if (!spec.startsWith(".")) continue;
       const target = resolve(dirname(f), spec).replace(/\.js$/, ".ts");
       if (!relative(REPO, target).startsWith("src/")) continue;
+      if (f === SETTINGS && TUNABLES_FILE.test(relative(REPO, target))) continue;
       if (!allowed.has(target)) offending.push(`${relative(REPO, f)} → ${relative(REPO, target)}`);
     }
   }

@@ -15,10 +15,25 @@ import { runWeek } from "./week.js";
 import { OWNER_WEEK_MEANINGFUL } from "./owner-week.js";
 import type { RunRecord } from "./replay.js";
 import { DEFAULT_CORPUS } from "./source.js";
+import { runCompare } from "./compare.js";
+import type { Mode } from "./compare.js";
+import { applySettings } from "./settings.js";
 
 function flag(args: readonly string[], name: string): string | undefined {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
+}
+
+/** Every value a repeated flag carries, refusing one with no value. */
+function flags(args: readonly string[], name: string): string[] {
+  const out: string[] = [];
+  args.forEach((a, i) => {
+    if (a !== name) return;
+    const v = args[i + 1];
+    if (v === undefined || v.startsWith("--")) throw new Error(`${name} needs a value`);
+    out.push(v);
+  });
+  return out;
 }
 
 export function render(r: RunRecord): string {
@@ -112,7 +127,37 @@ export function renderNight(r: NightReplayRecord): string {
 }
 
 async function main(argv: readonly string[]): Promise<number> {
-  const [cmd, ...args] = argv;
+  const [cmd, ...all] = argv;
+  if (cmd === "compare") {
+    // Everything after `--` is the mode's own; the compare's flags come before it.
+    const cut = all.indexOf("--");
+    const own = cut < 0 ? all : all.slice(0, cut);
+    const passthrough = cut < 0 ? [] : all.slice(cut + 1);
+    const KNOWN = ["--mode", "--base", "--branch", "--set", "--base-set", "--runs", "--pages"];
+    own.forEach((a, i) => {
+      if (a.startsWith("--") && !KNOWN.includes(a)) throw new Error(`compare has no ${a} (its own flags: ${KNOWN.join(" ")}; the mode's go after --)`);
+      if (!a.startsWith("--") && (i === 0 || !KNOWN.includes(own[i - 1]!))) throw new Error(`compare doesn't take "${a}" here; the mode's flags go after --`);
+    });
+    const mode = flag(own, "--mode");
+    if (mode !== "replay" && mode !== "night" && mode !== "week") throw new Error(`--mode must be replay, night or week, not ${mode ?? "(none)"}`);
+    const runs = flag(own, "--runs");
+    const { text } = runCompare({
+      mode: mode as Mode,
+      ...(flag(own, "--base") === undefined ? {} : { base: flag(own, "--base")! }),
+      ...(flag(own, "--branch") === undefined ? {} : { branch: flag(own, "--branch")! }),
+      set: flags(own, "--set"),
+      baseSet: flags(own, "--base-set"),
+      runs: runs === undefined ? 1 : /^\d+$/.test(runs) ? Number(runs) : NaN,
+      passthrough,
+      ...(flag(own, "--pages") === undefined ? {} : { pages: flag(own, "--pages")! }),
+      onProgress: (line) => process.stderr.write(`${line}\n`),
+    });
+    process.stdout.write(text + "\n");
+    return 0;
+  }
+  const args = all;
+  // A SETTING FOR THIS RUN (`settings.ts`), set before anything reads it.
+  applySettings(flags(args, "--set"));
   if (cmd === "week") {
     const days = flag(args, "--days");
     const scriptName = flag(args, "--script");
@@ -128,6 +173,7 @@ async function main(argv: readonly string[]): Promise<number> {
         return v === undefined || v.startsWith("--") ? {} : { model: v };
       })(),
       keep: args.includes("--keep"),
+      ...(flag(args, "--page-out") === undefined ? {} : { pageOut: flag(args, "--page-out")! }),
       onProgress: (line) => process.stderr.write(`${line}\n`),
     });
     const out: string[] = [`${record.owner}'s first week (${record.script}) · ${String(record.days)} days · ${(record.elapsedMs / 60_000).toFixed(1)} min`];
@@ -157,6 +203,7 @@ async function main(argv: readonly string[]): Promise<number> {
       dreamTranscript: pick("--dream", "dream-child.jsonl"),
       reflectionTranscript: pick("--reflection", "reflection-child.jsonl"),
       keep: args.includes("--keep"),
+      ...(flag(args, "--page-out") === undefined ? {} : { pageOut: flag(args, "--page-out")! }),
       ...(flag(args, "--time-zone") === undefined ? {} : { timeZone: flag(args, "--time-zone")! }),
       ...(flag(args, "--budget") === undefined ? {} : { budgetBytes: Number(flag(args, "--budget")) }),
       ...(args.includes("--no-embed") ? { embed: false } : {}),
@@ -175,6 +222,8 @@ async function main(argv: readonly string[]): Promise<number> {
   if (cmd !== "replay") {
     process.stderr.write(
       "usage: bun tools/harness/cli.ts replay [--source <copy>] [--returns derived|recorded] [--through-day N] [--early-days N] [--keep] [--json <out>]\n" +
+        "       bun tools/harness/cli.ts compare --mode replay|night|week [--branch <ref>] [--base <ref>] [--set module.KEY=V]… [--base-set …] [--runs N] [--pages <dir>] -- <the mode's own flags>\n" +
+        "       (replay, night and week also take --set module.KEY=V, and night and week --page-out <file>)\n" +
         "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--model [<name>]] [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
     );
     return 2;

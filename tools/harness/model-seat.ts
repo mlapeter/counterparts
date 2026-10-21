@@ -25,6 +25,8 @@ import type { Seat, SeatAsk } from "../../src/core/counterpart.js";
 
 import { underLiveRoot } from "./source.js";
 import { SERVE_AT_ENV } from "./serve-at.js";
+import { SETTINGS_ENV, settingsForChild } from "./settings.js";
+import { recordUsage } from "./usage.js";
 
 /** The server entry the child's `--mcp-config` names. */
 export const SERVE_AT_SCRIPT = fileURLToPath(new URL("./serve-at.ts", import.meta.url));
@@ -133,6 +135,8 @@ export function planModelChild(input: ModelSeatInput, ask: SeatAsk, hostSession:
       [SERVE_AT_ENV.embed]: input.embed === false ? "0" : "1",
       ...(ask.act === "catch-up" ? {} : { [SERVE_AT_ENV.child]: ask.act }),
       ...(input.timeZone === undefined ? {} : { [SERVE_AT_ENV.timeZone]: input.timeZone }),
+      // The run's settings reach the tools the child calls too (`settings.ts`).
+      ...(settingsForChild() === "" ? {} : { [SETTINGS_ENV]: settingsForChild() }),
     },
   };
   const args = [...plan.args];
@@ -160,7 +164,10 @@ export function modelSeat(input: ModelSeatInput): Seat<NightAnswer> & { readonly
       const at = Date.now();
       const result: ChildResult = await (input.start ?? ((p: ChildPlan) => startChild(p)))(plan);
       const neverStarted = result.spawnCode !== undefined || (result.code === null && !result.timedOut && result.error !== null);
-      if (!neverStarted) inits[ask.act] = childInit(result.output);
+      if (!neverStarted) {
+        inits[ask.act] = childInit(result.output);
+        recordUsage(result.output);
+      }
       return {
         refused: null,
         started: !neverStarted,

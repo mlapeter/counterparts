@@ -1,0 +1,140 @@
+/**
+ * A SETTING CHANGED FOR ONE RUN (2026-10-21, `harness compare`): a tunable
+ * set from outside, by the harness, in its own process and in the server its
+ * children reach (`serve-at.ts`), so a switch can be compared on and off
+ * within one build. The product grows no knob for it: the modules' tunables
+ * are plain objects read at use, and this sets a value on one before the run.
+ *
+ * Named `module.KEY=VALUE`, top-level numbers and booleans only. An unknown
+ * module or key, or a value of another type, is refused before anything runs.
+ * So is a key some reader copied at load (`CAPTURED`): set, it would change
+ * some readers and not others, or none. `dream/index.ts`'s `FIT_OVERHEAD`
+ * (from `fit.OVERHEAD`) is captured too, and `fit` isn't settable at all.
+ */
+import { TUNABLES as ASSOCIATE } from "../../src/core/associate/tunables.js";
+import { COVERAGE_TUNABLES as COVERAGE } from "../../src/core/coverage/tunables.js";
+import { DREAM_TUNABLES as DREAM } from "../../src/core/dream/tunables.js";
+import { TUNABLES as ENCODE } from "../../src/core/encode/tunables.js";
+import { TUNABLES as PHYSICS } from "../../src/core/physics/index.js";
+import { TUNABLES as PROSPECTIVE } from "../../src/core/prospective/tunables.js";
+import { TUNABLES as RECALL } from "../../src/core/recall/tunables.js";
+import { TUNABLES as REMEMBER } from "../../src/core/remember/tunables.js";
+import { TUNABLES as SCHEMAS } from "../../src/core/schemas/tunables.js";
+import { SELF_TUNABLES as SELF } from "../../src/core/self/tunables.js";
+import { TUNABLES as SLEEP } from "../../src/core/sleep/tunables.js";
+
+/** The variable that carries the settings to a child's server, as `module.KEY=VALUE` joined by `;`. */
+export const SETTINGS_ENV = "HARNESS_SET";
+
+const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
+  associate: ASSOCIATE as unknown as Record<string, unknown>,
+  coverage: COVERAGE as unknown as Record<string, unknown>,
+  dream: DREAM as unknown as Record<string, unknown>,
+  encode: ENCODE as unknown as Record<string, unknown>,
+  physics: PHYSICS as unknown as Record<string, unknown>,
+  prospective: PROSPECTIVE as unknown as Record<string, unknown>,
+  recall: RECALL as unknown as Record<string, unknown>,
+  remember: REMEMBER as unknown as Record<string, unknown>,
+  schemas: SCHEMAS as unknown as Record<string, unknown>,
+  self: SELF as unknown as Record<string, unknown>,
+  sleep: SLEEP as unknown as Record<string, unknown>,
+};
+
+/**
+ * Keys read through a copy made at load (review of #566): refused, because
+ * setting one would change only the readers of the live object.
+ */
+const CAPTURED: Readonly<Record<string, string>> = {
+  "physics.W_REFERENCED": "USE_TIER_WEIGHT",
+  "physics.W_ENGAGED": "USE_TIER_WEIGHT",
+  "physics.W_SURFACED": "USE_TIER_WEIGHT",
+  "physics.W_FOOTNOTED": "USE_TIER_WEIGHT",
+  "physics.W_SHOWN": "USE_TIER_WEIGHT",
+  "physics.W_ONTOPIC": "USE_TIER_WEIGHT",
+  "physics.W_USEFUL": "USE_TIER_WEIGHT",
+  "physics.ENGAGED_RECURRENCE_WEIGHT": "sleep/consolidate.ts RECURRENCE_SOURCES",
+  "physics.SHOWN_RECURRENCE_WEIGHT": "sleep/consolidate.ts RECURRENCE_SOURCES",
+  "physics.ONTOPIC_RECURRENCE_WEIGHT": "sleep/consolidate.ts RECURRENCE_SOURCES",
+  "physics.HOLD_LEAD_DAYS": "prospective/tunables.ts",
+  "physics.HOLD_GRACE_DAYS": "prospective/tunables.ts",
+  "physics.PHI_PRUNE": "prospective/tunables.ts",
+  "remember.CONSUMED_LEDGER_MAX": "counterpart.ts",
+};
+
+export interface Setting {
+  readonly module: string;
+  readonly key: string;
+  readonly value: number | boolean;
+  /** The build's own value, before the run set it. */
+  readonly was: number | boolean;
+}
+
+export class SettingError extends Error {
+  readonly code: "SETTING_SHAPE" | "SETTING_MODULE" | "SETTING_KEY" | "SETTING_TYPE" | "SETTING_TWICE" | "SETTING_CAPTURED";
+  constructor(code: SettingError["code"], message: string) {
+    super(`${code}: ${message}`);
+    this.code = code;
+  }
+}
+
+/** Read one `module.KEY=VALUE` against this build's tunables, refusing what it can't set. Pure. */
+export function parseSetting(text: string): Omit<Setting, "was"> & { readonly was: number | boolean } {
+  const m = /^([a-z]+)\.([A-Z0-9_]+)=(.+)$/.exec(text.trim());
+  if (m === null) throw new SettingError("SETTING_SHAPE", `"${text}" is not module.KEY=VALUE`);
+  const [, module, key, raw] = m as unknown as [string, string, string, string];
+  const target = MODULES[module];
+  if (target === undefined) throw new SettingError("SETTING_MODULE", `no module "${module}" (${Object.keys(MODULES).join(", ")})`);
+  if (!Object.prototype.hasOwnProperty.call(target, key)) throw new SettingError("SETTING_KEY", `${module} has no ${key}`);
+  const copy = CAPTURED[`${module}.${key}`];
+  if (copy !== undefined) throw new SettingError("SETTING_CAPTURED", `${module}.${key} is copied at load into ${copy}; a run can't set it`);
+  const was = target[key];
+  if (typeof was === "boolean") {
+    if (raw !== "true" && raw !== "false") throw new SettingError("SETTING_TYPE", `${module}.${key} is a boolean, not "${raw}"`);
+    return { module, key, value: raw === "true", was };
+  }
+  if (typeof was === "number") {
+    const value = Number(raw);
+    if (raw.trim() === "" || !Number.isFinite(value)) throw new SettingError("SETTING_TYPE", `${module}.${key} is a number, not "${raw}"`);
+    return { module, key, value, was };
+  }
+  throw new SettingError("SETTING_TYPE", `${module}.${key} is not a number or a boolean`);
+}
+
+let applied: Setting[] = [];
+
+/** Set each on its module, in order; refuses all of them (nothing set) when any one is refused or a key comes twice. */
+export function applySettings(texts: readonly string[]): readonly Setting[] {
+  const parsed = texts.map(parseSetting);
+  const seen = new Set<string>();
+  for (const s of parsed) {
+    const name = `${s.module}.${s.key}`;
+    if (seen.has(name)) throw new SettingError("SETTING_TWICE", `${name} is set twice`);
+    seen.add(name);
+  }
+  for (const s of parsed) MODULES[s.module]![s.key] = s.value;
+  applied = [...applied, ...parsed];
+  return parsed;
+}
+
+/** Put every applied setting back to the build's own value (tests). */
+export function restoreSettings(): void {
+  for (const s of [...applied].reverse()) MODULES[s.module]![s.key] = s.was;
+  applied = [];
+}
+
+/** What this process set, for the run's record. */
+export function appliedSettings(): readonly Setting[] {
+  return applied;
+}
+
+/** The settings as the child's server reads them (`SETTINGS_ENV`); "" when none. */
+export function settingsForChild(): string {
+  return applied.map((s) => `${s.module}.${s.key}=${String(s.value)}`).join(";");
+}
+
+/** Apply what a parent passed down in `SETTINGS_ENV` (the child's server). */
+export function applySettingsFromEnv(env: NodeJS.ProcessEnv = process.env): readonly Setting[] {
+  const raw = env[SETTINGS_ENV];
+  if (raw === undefined || raw.trim() === "") return [];
+  return applySettings(raw.split(";").filter((x) => x.trim() !== ""));
+}

@@ -222,6 +222,49 @@ typed as people type to an assistant. It took about 20 minutes, ended with 59 me
 On replay, letting facts count plus a 1-day gap promotes 2; adding a 0.5 feeling bar promotes at least 4. That's a floor: the replay ends before one more consolidation. The bar is also a crude stand-in, because it lets unweighed default feelings through.
 All of them come in on the reflection alone.
 
+## Two sides, one table (`compare`)
+
+```sh
+bun tools/harness/cli.ts compare --mode replay --set physics.CORE_FAST_ACCEPTS_REFLECTED_FEELING=false
+bun tools/harness/cli.ts compare --mode night --branch feat/x --runs 2 -- --dir <night folder> --model
+bun tools/harness/cli.ts compare --mode week --base origin/master --set physics.CORE_FAST_GAP_DAYS=1 -- --script meaningful
+```
+
+Runs the same harness mode on a base and a variant and prints them side by side, with `≠`
+where they differ:
+- **A side** is a build plus its settings. The build is the current checkout, or `--base` /
+  `--branch` refs in fresh detached worktrees, removed after.
+- **`--set module.KEY=VALUE`** sets a top-level number or boolean tunable on the variant for
+  the run (`--base-set` on the base). It's applied in the harness's process and in the server
+  its model children call (`settings.ts`), and every record lists it. An unknown module or
+  key, a wrong type, or a key set twice is refused before anything runs. This is how a switch
+  is compared on and off within one build. Nothing in `src/` grows a knob: the tunables are
+  plain objects read at use, and the harness sets a value on one. One value is captured at
+  load and can't be set: `fit.OVERHEAD` in the dream.
+- **Each run of each side is its own subprocess on its own copy**, so a base never opens a
+  store the variant migrated.
+- **Everything after `--` goes to the mode as given.** The compare owns `--json`, `--set`,
+  `--page-out`, `--keep` and `--out`, and refuses them there.
+- **`--runs N` repeats each side.** A model's run is one sample, so a cell shows each run's
+  value when they disagree, and the page row shows how far a side's own runs differ from each
+  other: the noise floor, next to the difference. The same build and settings on both sides is
+  refused unless `--runs` is 2 or more (a noise check).
+- **Tokens:** the record carries every model child's usage, read from its own stream-json
+  `result` line (`usage.ts`), so a side's cost is in its row.
+- **The page** (night and week) goes in the record by numbers only: version, bytes, the
+  memories it cites, claims with no cite behind them. The compare diffs the words in its
+  scratch and removes them; `--pages <dir>` keeps them for a human read. On the owner's
+  snapshot they are his counterpart's page, so keep them out of any repo.
+
+A key that some reader copies at load (the use-tier weights, the recurrence weights, the
+prospective holds; `settings.ts#CAPTURED`) is refused, since setting it would change only some
+of its readers. A compare stopped with Ctrl-C can leave a `harness-compare-*` worktree; remove
+it with `git worktree remove --force <dir>`, or `git worktree prune`.
+
+A side running a build from before `compare` ignores `--set`, and the table says so. Checked
+2026-10-21 against the 10-20 run: replaying Mike's record with the reflected-feeling door
+closed reproduced that run's core (0, 2, 4 on days 14, 21, 29, against 6, 9, 11 open).
+
 ## Safety
 
 - The source is opened read-only, and the harness refuses any path under `~/.counterparts`.
