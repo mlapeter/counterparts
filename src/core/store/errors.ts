@@ -97,6 +97,10 @@ export type StoreErrorCode =
   | "CONTRADICTION_PAIR_REQUIRED"
   /** v10: no contradiction pair has this id. `detail` carries `{ id }`. */
   | "CONTRADICTION_UNKNOWN"
+  /** v14: a subject kind outside `SUBJECT_KINDS`. `detail` carries `{ id }`. */
+  | "SUBJECT_KIND_INVALID"
+  /** v14: a belief's birth route outside `BIRTH_ROUTES`. `detail` carries `{ id }`. */
+  | "BIRTH_ROUTE_INVALID"
   | "ID_MALFORMED"
   | "ID_UNKNOWN"
   | "ID_CYCLE"

@@ -23,7 +23,7 @@ import { CLAIMED_DEFAULT_META_KEY } from "../src/core/mint.js";
 import { TUNABLES as PHYSICS, curveSal, sal, stability, strength } from "../src/core/physics/index.js";
 import { runCycle } from "../src/core/sleep/index.js";
 import { CURVE_META_KEY, curveSignature } from "../src/core/sleep/decay.js";
-import { Store, paths } from "../src/core/store/index.js";
+import { SCHEMA_VERSION, Store, paths } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 import {
   CLAIMED_DEFAULT_SPELLED,
@@ -415,7 +415,7 @@ describe("the cutoff: recorded once, kept off when turned off", () => {
     reader.close();
     const later = T + 86_400_000;
     const migrated = store(() => later);
-    expect(migrated.getMeta("schemaVersion")).toBe("13");
+    expect(migrated.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
     expect(migrated.getMeta(CLAIMS_ERA_CUTOFF_KEY)).toBe(String(later));
     expect(migrated.getMeta(CLAIMS_ERA_RECORDED_KEY)).toBe(String(later));
     expect(migrated.physicsOf(id).eraClaim).toBe(PHYSICS.AUTHORED_DEFAULT_CLAIM);

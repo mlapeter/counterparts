@@ -131,6 +131,7 @@ import {
   upgradeV9Findings,
   upgradeV10Findings,
   upgradeV11Findings,
+  upgradeV14Findings,
   confidentialRetiredFindings,
 } from "./doctor-upgrades.js";
 import {
@@ -166,6 +167,7 @@ export {
   upgradeV9Findings,
   upgradeV10Findings,
   upgradeV11Findings,
+  upgradeV14Findings,
   confidentialRetiredFindings,
 } from "./doctor-upgrades.js";
 export {
@@ -3384,6 +3386,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     // v10 (2026-09-29): what the upgrade carried, and the week's contradictions.
     ["upgrade-v10", () => upgradeV10Findings(store)],
     ["upgrade-v11", () => upgradeV11Findings(store)],
+    // v14 (2026-10-21): the drop, the new tables, the cards' subject kinds.
+    ["upgrade-v14", () => upgradeV14Findings(store)],
     // 2026-10-21: memories that carried the retired confidential mark, counted once. Silent at 0.
     ["confidential-retired", () => confidentialRetiredFindings(store)],
     // v12 (2026-10-03): the writer's three fields, and the subject links. Two aggregates.

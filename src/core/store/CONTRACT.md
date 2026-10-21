@@ -82,7 +82,7 @@ ended up with canonical state spread across a prose store plus half a dozen side
      `journal/<YYYY>/<YYYY-MM-DD>-<id>.md` per episode, written by the worker as each
      chapter lands, never read back, derived and regenerated if deleted.
   2. **One small canonical transactional SQLite** — the memories themselves (`title`,
-     `body`, `meta`, `confidential`, `content_hash`), their archived versions, and the
+     `body`, `meta`, `content_hash`), their archived versions, and the
      structured state around them: ids, kinds, salience, `uses`, day stamps, lineage rows,
      entity/belief rows, prospective windows, the removal record, per-session gate state.
      **Transactional**: every multi-step change commits or does not.
@@ -318,11 +318,11 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     **not** a `Store` method, for the reason `chaseRemoved` is not: §4's "unreachable from
     any model path" has to stay true of the store's own surface, and `Counterpart.store` is
     public. Two files may import it and `test/cli.test.ts` pins which.
-    The `confidential` column is INERT since 2026-10-21: the confidentiality gate it
-    carried was retired (recall CONTRACT §5 G9), every write stores 0, and no read takes
-    it (no read shape carries it since the leftover types went). A row written before may still hold 1; the first writable open by this build
-    counted those once (`CONFIDENTIAL_RETIRED_KEY`, read by doctor) and changed nothing.
-    Dropping the column in the next batched store-format change is planned (lightly held).
+    `memories.confidential` was retired 2026-10-21 (the confidentiality gate it carried,
+    recall CONTRACT §5 G9) and DROPPED at v14 the same day; no read shape carries it (the
+    leftover types went first, #571). The rows that still held 1 were counted once
+    (`CONFIDENTIAL_RETIRED_KEY`, read by doctor) — by the first writable open, or by the
+    v14 upgrade itself just before the drop when no open had — and changed nothing else.
 14. **[M] The implicit default is refusable.** `dataDir()`'s fallback to
     `~/.counterparts/store` is the one path a caller reaches by naming nothing, and on the
     owner's machine it is his live memory; `.counterparts` cannot join the forbidden roots
@@ -519,6 +519,22 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     build refuses the file `SCHEMA_AHEAD`; the way back is the copy (`NOTES.md`
     2026-10-10). `OBSERVER_READ_FLOOR` stays 11. `Store.row()` reads the store's calendar
     today beside the row (`today_date`), for physics' dated hold.
+28. **[M] v14 (2026-10-21): wave 2's one schema bump** (working default, held lightly).
+    Five tables, pre-provisioned: `memory_tags` (a memory's normalized tags, `via`),
+    `tag_merges` (an alias read as a tag, recorded so it can be undone), `belief_support`
+    (a memory counted for or against a belief ONCE — the primary key — with its route,
+    filing day and weight; where it came from is the memory's own row, by a join),
+    `folder_projects` (one project card per folder) and `recall_turns` (what a recall turn
+    showed against how many candidates). `memories` gains `subject_kind`, `birth_route`,
+    `confidence` and `birth_salience` (`sal()` of the salience a row was written with,
+    written by every insert since). The upgrade gives entity cards of kind person or place,
+    and the identity core, their subject kind, and DROPS `memories.confidential` (above);
+    nothing else is rewritten. Concept edges are read off `memory_tags` (`tagNeighbours`),
+    not kept. The owner's removal deletes a removed memory's tags, its support rows on
+    either side and its `derivations` rows, a removed card's folder rows, and takes its id
+    out of every recall turn's `shown`; the skeleton keeps none of the four new columns. The copy is taken first; a v13 build refuses the
+    file `SCHEMA_AHEAD`; the way back is the copy (`NOTES.md` 2026-10-21).
+    `OBSERVER_READ_FLOOR` stays 11.
 
 ## 6. Scars honored
 

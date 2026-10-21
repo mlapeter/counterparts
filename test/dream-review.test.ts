@@ -89,8 +89,7 @@ describe("review of #251: what a dream's changes must keep", () => {
     const secret2 = mem(c, "Acquisition talks: not public until October, keep it quiet.", {
       meta: { confidentiality: "business" },
     });
-    // As an older build left them: the column held 1.
-    c.store["ops"].run("UPDATE memories SET confidential = 1 WHERE id IN (?, ?)", secret, secret2);
+    // (An older build also set the column to 1; it was dropped at v14.)
     const id = begin(c);
     const out = c.dreams.propose({
       dream: id,

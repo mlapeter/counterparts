@@ -2192,3 +2192,98 @@ What changed with it, measured:
   more (`copiesOf`, `recallRows`, the trait reads). What still names it is left for the
   next store-format change: the DDL, the `confidential = 0` in the insert, `revise` and
   `appendBody`, the removal scrub, and the one-time `confidential.retired` count.
+
+## 2026-10-21 — v14: wave 2's one schema bump (tags, subjects, beliefs, projects)
+
+One bump for the whole of wave 2 (Mike, 10-09: no lone schema bump), so lanes B–G build on
+what is here without another. Design: `counterparts-notes/2026-10-21-beliefs-design.md`.
+Everything new is pre-provisioned: nothing writes the tables yet, and nothing reads them but
+their own store methods (`wave2.ts`, delegates on `Store`).
+
+| Change | For |
+|---|---|
+| `memory_tags(memory_id, tag, via, created_at)` PK (memory_id, tag), index (tag, memory_id) | lane B: tags, mirroring `memory_subjects`; no weight |
+| `tag_merges(alias, tag, via, created_at)` PK alias | lane B: a synonym merge, recorded so it can be undone |
+| `memories.subject_kind` (person, project, place, topic, self) + partial index | lane B: a card's kind of subject — NOT `kind`, which is physics |
+| `memories.birth_route`, `memories.confidence` + partial index on `birth_route` | lane C: a belief's birth; confidence is provisioned, unwritten |
+| `belief_support(belief_id, memory_id, stance, route, day, weight, created_at)` PK (belief_id, memory_id) | lane C: support and contrary, each memory counted once |
+| `folder_projects(folder, project_id, via, created_at)` PK folder | lane G: a folder's project (a card) |
+| `recall_turns(session_id, turn, at, day, candidates, shown)` PK (session_id, turn) + index on day | lane 1's pool test: shown against candidates per turn |
+| `memories.birth_salience`, written by every insert | lane 1's third gap: the salience a row was born with |
+| `memories.confidential` DROPPED | inert since #564/#565 |
+
+- **Support has its own table, not `derivations`.** The rule it serves is "each memory
+  counted once per belief, contrary ones too", which wants a stance and a weight and a key
+  of (belief, memory); `derivations` has neither column and keeps `how` in its key, so
+  "counted once" would be a convention instead of a constraint. `derivations` stays
+  provenance. WHERE support came from (a new day, session, folder — design §4's spread) is
+  the counted memory's own row, read by a join (`supportOf`: `birth_day`, `origin_session`,
+  `origin_scope`); measured on the 10-20 corpus copy, `origin_session` is set on every live
+  memory and `origin_scope` on all but the 150 chapter episodes. No copy on the support row.
+- **Concept edges are derived, not kept**, for now: `tagNeighbours` is a self-join on
+  `memory_tags`'s `(tag, memory_id)` index. A kept `tag_edges` table would hold words and
+  counts drawn from memories, which the owner's removal and an undone merge would each have
+  to correct; derived, both are true by construction. Measured 2026-10-21 on a synthetic
+  10,000 memories × 5 skewed tags (49k rows): one common tag's neighbours 8 ms, three
+  middling tags 1.6 ms, every pair seen 3+ times (the cloud) 60 ms. If priming per turn
+  outgrows that, a derived table can come later.
+- **Promotion needs no column.** A subject is a card, and a card's aliases are already the
+  tags it was promoted from (a name is a tag already promoted); lane B registers the tag as
+  an alias when it promotes.
+- **The subject kinds the upgrade gives** are the ones that are not a judgement: an entity
+  card (`meta.role` entity) of kind `person` is a person, of kind `place` a place, and the
+  identity core (kind `self` — the card install names after the OWNER) a person. Kind
+  `entity` cards stay NULL for lane B's night. The corpus copy: 10 people, 1 place.
+- **The self subject is made lazily** (`ensureSelfSubject`), not by the migration: the
+  migration has nothing to name it after, and a row it made would appear in every card list
+  before any lane reads it. It is an entity card with no name (the alias index links
+  nothing to it) and `subject_kind = 'self'`. Its `kind` is `fact` for now: `self` would
+  make it a second identity core (read as the owner's names); `fact` is outside the core's
+  kinds, so a belief minted on it (which inherits the card's kind) is refused by the core
+  lanes whatever its `about` says, until a later lane decides otherwise. Recall leaves the
+  card out (`role: entity`) but not a belief row: that gate is lane C's.
+- **`birth_salience` is `sal()` of the written dimensions and claim**, at the insert; the
+  dimensions can be rewritten later (`updatePhysics`), the column is not. NULL on every row
+  written before v14: it cannot be known.
+- **The drop, the first non-additive step since v6.** SQLite 3.39.5 (bun 1.3.10) and 3.51.3
+  (Node 22.23, the binary `test:node` must run under — the `node` on PATH is 20) both have
+  `DROP COLUMN` (3.35+). No index, trigger or view names the column (checked on the corpus
+  copy's `sqlite_master`, trigger bodies included), and `versions` never carried it. The
+  migration counts the rows still marked FIRST when no writable open has
+  (`retireConfidentialColumn` → `confidential.retired`, the shape the constructor writes):
+  0.3.29 shipped before the removal, so for every user the count and the drop land in the
+  same release, and after the drop nothing can count. Then `DROP COLUMN`, guarded by
+  `table_info`. The constructor's own count records 0 on a store with no column. The
+  confidential removal's PR C (#571) had already taken the column out of every read shape
+  and SELECT; this bump removes what was left: the DDL, the `confidential = 0` in the
+  insert, `revise`, `appendBody` and the removal scrub, and the count's unguarded read.
+  Measured: the drop takes 43 ms on the 40 MB corpus copy, and a real v13 file minted by
+  the pre-v14 build (its `--` lines before the column) migrates under bun and Node.
+- **Column order**: the four new columns are last in the fresh CREATE and in that order in
+  `ADDED_COLUMNS`; a migrated `memories` loses `confidential` from the middle and appends
+  them, so `table_info` matches a fresh one (`test/store-v14.test.ts`). The test fixtures
+  that fake an older file strip v14 first (`store-fixture.ts#stripV14`, called by
+  `stripV13`), putting the column back at the end.
+- **The owner's removal reaches every new table**: a removed memory's tags, its support rows
+  on either side, its `derivations` rows (v13's comment promised this and nothing did it), a
+  removed card's folder rows, and its id out of every recall turn's `shown` (the turn stays);
+  the skeleton's four new columns are blanked, as `about` and the writer's fields are.
+  A tag is a word of the memory; `tag_merges` holds vocabulary, not a memory's id, and is
+  lane B's to keep honest when a removal leaves a merged word on no memory.
+- **`OBSERVER_READ_FLOOR` stays 11**: a v13 row read `m.*` lacks columns no instrument reads,
+  the new tables are read `hasTable` first, and no read names the dropped column.
+- **Declined from the open asks** (recall INTERFACE-GAPS §1, cli §4): gate rows unbounded is
+  a sweep to call (`pruneGateSessions` exists, uncalled), and the writer's lock is a lock
+  file — neither is a store format. `recall_turns` carries `day` and an index so its own
+  sweep is cheap when one is written.
+- **The way back.** A v13 build refuses a v14 file `SCHEMA_AHEAD` (measured with master
+  `c0bf1fd2`: writer and observer both `{"expected":13,"found":"14"}`). Going back means
+  restoring the pre-migration copy: with every process on the store closed, copy
+  `<snapshots>/<instant>-pre-migration-v13-to-v14/counterparts.sqlite` over
+  `<store>/counterparts.sqlite` and remove its `-wal` / `-shm` (or `counterparts rollback`);
+  the copy still has the column and its 1s. Anything written after the upgrade is lost with
+  it, as with every earlier bump.
+- **Measured on a copy of the 10-20 corpus** (2,862 rows, 40 MB): the first writable open
+  (copy + migration + cache) took 0.87 s; doctor's new line reads "Upgrade to v14: … the
+  retired confidential column dropped (0 marked memories counted first); 10 cards marked a
+  person, 1 a place; the rest wait for the night".
