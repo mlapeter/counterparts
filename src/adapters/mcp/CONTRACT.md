@@ -543,7 +543,11 @@ list that keeps no tag — all blank or all dropped — is read as not sent), re
 duplicate's answer says its tags were not added. **[A]** Nothing reads tags
 yet: no recall result and no wake line changes with them (`test/tags-write.test.ts`); the
 night promotes the ones that matter into subjects (lane B's second PR), and recall reads
-them in lane E. Not stemmed at the write: the stored word is the word as sent.
+them in lane E. Not stemmed at the write: the stored word is the word as sent. **[M]** The
+night's tagging child (lane B's second PR) answers through the dream tool's `tags` phase:
+without `tagged`, `merges` or `kinds` it hands back what to tag, merge and sort
+(`core/dream/tags.ts#tagsBundle`); with them, it writes them as the night's
+(`applyTagsAnswer`), each item it cannot take refused by name in the answer.
 
 ## 6e. Meaning mode (2026-10-03, Release B of deliberate recall)
 

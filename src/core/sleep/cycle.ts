@@ -39,6 +39,8 @@ import { runFade } from "./fade.js";
 import type { FadeFn } from "./fade.js";
 import { runBirths } from "./births.js";
 import type { BirthsFn } from "./births.js";
+import { runTags } from "./tags.js";
+import type { TagsFn } from "./tags.js";
 import type { DedupCandidateSource } from "./dedup.js";
 import { runLogSweep } from "./log.js";
 import { advanceMarker, budgetFor, cadenceFor, markerDue, readMarker } from "./markers.js";
@@ -91,6 +93,11 @@ export interface SleepOptions {
    * the births phase reports `no-births-fn`, and no card is born.
    */
   births?: BirthsFn;
+  /**
+   * `schemas/`' night tag work (wave 2 lane B), injected like `births`.
+   * Absent ⇒ the tags phase reports `no-tags-fn`, and nothing is tagged.
+   */
+  tags?: TagsFn;
   /** Injected ranking cache. Absent ⇒ the box-3 SQLite one, opened lazily. */
   strengthCache?: StrengthCache;
   /** Extra dedup candidates (embeddings). Isolated: a throw degrades to lexical. */
@@ -322,6 +329,14 @@ export function runCycle(opts: SleepOptions): CycleReport {
       (ctx) => runBirths(ctx, opts.births),
       () => {},
       () => (opts.births === undefined ? "no-births-fn" : null),
+    );
+
+    // ── phase 4d: the tags (card names, stem merges, dead merges) ─────────
+    runPhase(
+      "tags",
+      (ctx) => runTags(ctx, opts.tags),
+      () => {},
+      () => (opts.tags === undefined ? "no-tags-fn" : null),
     );
 
     // ── phase 5: dedup ────────────────────────────────────────────────────

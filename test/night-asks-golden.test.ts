@@ -26,6 +26,7 @@ import type { NightKind } from "../src/adapters/claude-code/night-run.js";
 import { catchUpCommand } from "../src/adapters/cli/catch-up.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { TUNABLES as SCHEMAS_TUNABLES } from "../src/core/schemas/index.js";
 
 const GOLDEN = join(import.meta.dir, "fixtures", "night-asks.golden.json");
 const REPO = resolve(import.meta.dir, "..");
@@ -39,6 +40,8 @@ let dir: string;
 let launch: string;
 
 beforeEach(() => {
+  // The golden predates the night's tagging child (wave 2 lane B, held in `tags-night.test.ts`).
+  (SCHEMAS_TUNABLES as { TAGS_NIGHT: boolean }).TAGS_NIGHT = false;
   setSystemTime(new Date(NOW));
   clock = NOW;
   root = realpathSync(mkdtempSync(join(tmpdir(), "counterparts-night-asks-")));
@@ -48,6 +51,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  (SCHEMAS_TUNABLES as { TAGS_NIGHT: boolean }).TAGS_NIGHT = true;
   setSystemTime();
   rmSync(root, { recursive: true, force: true });
 });

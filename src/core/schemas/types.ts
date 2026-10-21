@@ -458,6 +458,22 @@ export interface NameBirthReport {
   lowerCase: number;
 }
 
+/** What one night's topic births did (`Schemas#birthsFromTags`, wave 2 lane B). */
+export interface TopicBirthReport {
+  day: number;
+  dryRun: boolean;
+  /** False when `TAGS_NIGHT` is off: nothing was read. */
+  on: boolean;
+  /** Tags over the bar that no card holds, heaviest first. */
+  offered: number;
+  /** Born this night (topic cards). Empty on a dry run. */
+  born: string[];
+  /** Tags over the bar held back, by reason: a stop word, a name a card already holds. */
+  refused: Record<string, number>;
+  /** Tags over the night's limit, left for the next night. */
+  skippedForLimit: number;
+}
+
 // ---------------------------------------------------------------------------
 // Reads
 // ---------------------------------------------------------------------------

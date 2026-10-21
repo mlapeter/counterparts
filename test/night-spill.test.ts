@@ -42,6 +42,7 @@ import type { AdapterConfig, ChildPlan, HookInput } from "../src/adapters/claude
 import { resultFindings } from "../src/adapters/claude-code/doctor.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart, MCP_PART_EVENT, MCP_SPILLED_EVENT } from "../src/core/counterpart.js";
+import { TUNABLES as SCHEMAS_TUNABLES } from "../src/core/schemas/index.js";
 import { nightRunOf } from "../src/core/dream/index.js";
 import type { NightRun } from "../src/core/dream/index.js";
 import type { PutInput } from "../src/core/store/index.js";
@@ -51,11 +52,14 @@ let host: string;
 const open: { close(): void }[] = [];
 
 beforeEach(() => {
+  // A night here is its dream and its reflection; the tagging child (wave 2 lane B) is held in `tags-night.test.ts`.
+  (SCHEMAS_TUNABLES as { TAGS_NIGHT: boolean }).TAGS_NIGHT = false;
   dir = mkdtempSync(join(tmpdir(), "counterparts-spill-"));
   host = mkdtempSync(join(tmpdir(), "counterparts-spill-host-"));
 });
 
 afterEach(() => {
+  (SCHEMAS_TUNABLES as { TAGS_NIGHT: boolean }).TAGS_NIGHT = true;
   for (const c of open.splice(0)) {
     try {
       c.close();

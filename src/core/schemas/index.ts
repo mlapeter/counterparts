@@ -62,6 +62,7 @@ import type { Band, Kind, Salience } from "../types.js";
 import { AliasIndex, collision, handleKey } from "./aliases.js";
 import { TUNABLES } from "./tunables.js";
 import { tallyNames } from "./names.js";
+import { clearsTopicBar, isStopTag, tallyTags } from "./tags.js";
 import type { NameCount } from "./names.js";
 import {
   BIRTH_KINDS,
@@ -90,6 +91,7 @@ import type {
   NamedInTextReport,
   NameBirthOptions,
   NameBirthReport,
+  TopicBirthReport,
   PlacementOutcome,
   PlacementReason,
   PressureIncrement,
@@ -109,6 +111,8 @@ export * from "./types.js";
 export { AliasIndex, collision, handleKey, nameTokens } from "./aliases.js";
 export type { AliasHit, CollisionKind } from "./aliases.js";
 export { TUNABLES } from "./tunables.js";
+export { clearsTopicBar, isStopTag, lookAlikePairs, mergeMap, nightTagWork, notSameKey, NOT_SAME_PREFIX, resolveTag, stemKey, tallyTags } from "./tags.js";
+export type { LookAlike, TagTally, TagsNightInput, TagsNightOutcome } from "./tags.js";
 
 /**
  * Every public method, enumerated. The totality test asserts the class exposes
@@ -133,6 +137,8 @@ export const PUBLIC_SURFACE = [
   "birthsFromNames",
   // store v14 (2026-10-21): the card my beliefs about me and us attach to (lane C).
   "ensureSelfSubject",
+  // 2026-10-21 (wave 2 lane B): a tag that matters becomes a topic card.
+  "birthsFromTags",
   // reads
   "entity",
   "entities",
@@ -1763,6 +1769,76 @@ export class Schemas {
       dryRun,
     });
     return { day, dryRun, memories: texts.length, offered: names.length, born, refused, skippedForLimit, lowerCase: tally.lowerCase };
+  }
+
+  /**
+   * A TAG THAT MATTERS BECOMES A TOPIC (wave 2 lane B, 2026-10-21; design §1,
+   * lightly held): the night's tag tally (`tags.ts#tallyTags`, through the
+   * merges) offers every tag over the topic bar (`clearsTopicBar`: memories
+   * weighted by use and feeling, lived days, sessions), heaviest first, and
+   * each is born a TOPIC CARD — unless it stays a tag (`isStopTag`: a date
+   * word, a word with a digit), a card already holds it or one of its merged
+   * words as a name (a name is a tag already promoted), or a topic card
+   * already holds it (a faded one too, for now). `limit` (the night's
+   * `TOPIC_BIRTHS_PER_NIGHT`) at most; the rest wait, counted.
+   *
+   * A topic card is shaped like the self subject (`Store#ensureSelfSubject`):
+   * an entity card with NO name and no aliases, so the alias index links
+   * nothing to it — recall's aliases (`retrieval.ts`), the names a memory is
+   * linked by and the credit a mention gives are unchanged, which is lane B's
+   * promise (no recall change; lane E decides how topics reach recall). Its
+   * tag and merged words are in `meta.topic` / `meta.topicAliases`, its kind
+   * of subject is `topic`, and its memories are the ones tagged — no
+   * `memory_subjects` rows. Off (`TAGS_NIGHT`): nothing.
+   */
+  birthsFromTags(day: number, opts: NameBirthOptions = {}): TopicBirthReport {
+    const dryRun = opts.dryRun === true;
+    const limit = opts.limit ?? Number.POSITIVE_INFINITY;
+    if (!TUNABLES.TAGS_NIGHT) return { day, dryRun, on: false, offered: 0, born: [], refused: {}, skippedForLimit: 0 };
+    const topics = this.store.topicCards();
+    const refused: Record<string, number> = {};
+    const refuse = (reason: string): false => {
+      refused[reason] = (refused[reason] ?? 0) + 1;
+      return false;
+    };
+    const offered = tallyTags(this.store).filter((t) => {
+      if (!clearsTopicBar(t)) return false;
+      // Any of its words: a later merge can move the canonical word, and the same cluster is one topic.
+      if (t.words.some((w) => topics.has(w))) return false;
+      if (isStopTag(t.tag)) return refuse("stays-a-tag");
+      if (t.words.some((w) => this.index.lookup(w).length > 0 || this.faded.lookup(w).length > 0)) return refuse("a-name-already");
+      return true;
+    });
+    const born: string[] = [];
+    let skippedForLimit = 0;
+    let attempts = 0;
+    for (const t of offered) {
+      if (attempts >= limit) {
+        skippedForLimit += 1;
+        continue;
+      }
+      attempts += 1;
+      // A dry run (the observer's report) counts what a night would try.
+      if (dryRun) continue;
+      const aliases = t.words.filter((w) => w !== t.tag);
+      const seam = clampSalienceAtSeam({ novelty: null, ...ZERO_DIMS }, null);
+      const id = this.store.put({
+        type: "schema",
+        kind: "entity",
+        title: t.tag,
+        body: `${t.tag}: a topic — the memories tagged with it.`,
+        meta: { role: "entity", name: "", aliases: [], topic: t.tag, topicAliases: aliases },
+        subjectKind: "topic",
+        salience: seam.salience,
+        physics: { birthDay: day, lastUsedDay: day },
+      });
+      this.remember(id, { role: "entity", name: "", aliases: [] });
+      this.index.register(id, "", []);
+      born.push(id);
+      this.emit("schema.topic.birth", id, { day, memories: t.memories.length, days: t.days, sessions: t.sessions, weight: t.weight });
+    }
+    this.emit("schema.topics.sweep", undefined, { day, offered: offered.length, born: born.length, skippedForLimit, dryRun });
+    return { day, dryRun, on: true, offered: offered.length, born, refused, skippedForLimit };
   }
 
   // ── reads ──────────────────────────────────────────────────────────────────

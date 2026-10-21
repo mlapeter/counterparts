@@ -51,7 +51,12 @@ alone.
   Group 3 part D: a `births` phase runs right after the entity `fade`, every lived day. Like
   the fade it is `schemas/`' verdict handed in as a function (`births.ts#BirthsFn` →
   `Schemas#birthsFromNames`, the name tally); this module owns its cadence and its nightly
-  budget, `BUDGETS.births`, and a name over the budget waits, counted.)*
+  budget, `BUDGETS.births`, and a name over the budget waits, counted.)* *(2026-10-21, wave 2
+  lane B: a `tags` phase runs right after `births`, every lived day — `schemas/tags.ts
+  #nightTagWork` handed in as `tags.ts#TagsFn`: a linked card's name written as a tag
+  (`BUDGETS.tags` a night), stem merges, and merges no memory carries let go. Behind
+  `schemas.TAGS_NIGHT`; off, the phase runs and counts `switched-off`. The topic births ride
+  the `births` phase, a night after the merges they read.)*
 - **Degrade, don't abort** — index rebuild, embedding refresh, horizon computation, backup,
   and every prune each fail without failing the cycle. [v1 §5 G6]
 - **The claim is truncated only after results are applied AND persisted.** [v1 §5 G7, E6]

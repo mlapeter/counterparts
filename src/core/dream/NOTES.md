@@ -930,3 +930,19 @@ reflection was offered five a night.
   only, so `close` (the owner's yes) also reaches a thread written in another folder,
   as the self-close and `reopen` already did. The night run no longer launches with
   `COUNTERPARTS_OWNER=0`.
+
+## 2026-10-21 — the night's tagging ask (wave 2 lane B)
+
+- Its own child, not the reflection's finish (the brief said "likely the reflection, like
+  `core-ask.ts`"): labels, "same?" and "which kind?" are small-model work, and a child of its
+  own leaves `reflect.ts` to lane C. It is the dream tool's `tags` phase (the page writer's
+  `writer` phase is the precedent), two calls: the bundle, then the answers.
+- The dream's intake is unchanged with tags present: on a copy of the 10-20 corpus, the
+  dream's `fresh` set is the same 146 memories with the card-name backlog written and
+  without (and `test/tags-night.test.ts` holds it on a fixture).
+- Its size on the corpus copy: 40 memories, 2 pairs, 10 cards — 20,124 characters, about
+  5k tokens of bundle and prompt. With `claude -p`'s own system prompt and tool list and three
+  turns, about 60–80k input tokens a night (mostly cache reads) and 2–3k out, on the small
+  model (`NIGHT_TAGS_MODEL`). Not measured on a model: no model nights from this lane.
+- The backlog on the corpus: 813 memories with no tag after the card names (of 2,138 live):
+  about 20 nights at 40. Card kinds: 120 waiting, 12 nights at 10.

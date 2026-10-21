@@ -206,6 +206,8 @@ import * as memoryReads from "./reads-memories.js";
 import * as markReads from "./reads-marks.js";
 import * as historyReads from "./reads-history.js";
 import * as wave2 from "./wave2.js";
+import * as tagReads from "./tag-reads.js";
+import type { CardLink, TagUse, UnkindedCard, UntaggedMemory } from "./tag-reads.js";
 
 /** A belief gains no return of any kind (lane C, physics §5.13): the refusal, its fields unchanged. */
 function beliefReturnRefused(source: "dream" | "reflection"): ReturnOutcome {
@@ -328,6 +330,7 @@ export {
 } from "./rollback-hold.js";
 export type { RollbackHold } from "./rollback-hold.js";
 export { normalizeTag } from "./wave2.js";
+export type { CardLink, TagUse, UnkindedCard, UntaggedMemory } from "./tag-reads.js";
 export type { RecallTurnInput, SupportInput, SupportRead } from "./wave2.js";
 export type { ChapterSummaryKind } from "./operational.js";
 export {
@@ -4614,6 +4617,43 @@ export class Store {
   /** Every recorded merge, by alias. */
   tagMerges(): TagMergeRow[] {
     return wave2.tagMerges(this);
+  }
+
+  // ── the night's tag reads (lane B, 2026-10-21; `tag-reads.ts`) ──────────
+
+  /** Live memories' links to live named cards (not the core), with the card's name, newest memory first. */
+  cardLinks(): CardLink[] {
+    return tagReads.cardLinks(this);
+  }
+
+  /** Every tag on every live memory, with the memory's day, session, use and feeling (the topic bar's read). */
+  tagUses(): TagUse[] {
+    return tagReads.tagUses(this);
+  }
+
+  /** Whether any memory — live or not — carries the tag. */
+  tagInUse(tag: string): boolean {
+    return tagReads.tagInUse(this, tag);
+  }
+
+  /** Live memories with no tag, recent and strong first, and how many there are. */
+  untaggedMemories(limit: number): { memories: UntaggedMemory[]; total: number } {
+    return tagReads.untaggedMemories(this, limit);
+  }
+
+  /** Live named cards with no subject kind, most-linked first, with a few titles each, and how many there are. */
+  unkindedCards(limit: number, titles?: number): { cards: UnkindedCard[]; total: number } {
+    return tagReads.unkindedCards(this, limit, titles);
+  }
+
+  /** The topic cards, by the tag each was promoted from (archived ones too). */
+  topicCards(): Map<string, string> {
+    return tagReads.topicCards(this);
+  }
+
+  /** The tags one hand (`via`) wrote at or after `sinceAt`, epoch ms. */
+  tagsWrittenVia(via: string, sinceAt: number): { memoryId: string; tag: string }[] {
+    return tagReads.tagsWrittenVia(this, via, sinceAt);
   }
 
   /** Sets (or, with null, clears) a card's kind of subject (`SUBJECT_KINDS`); an unknown word is refused. */

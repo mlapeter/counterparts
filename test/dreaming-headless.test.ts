@@ -51,6 +51,7 @@ import { Counterpart as CounterpartClass, NIGHT_WRITE_UP_EVENT } from "../src/co
 import type { Counterpart } from "../src/core/counterpart.js";
 import { DREAMING_DEFAULT, DREAM_MARK, DREAM_TUNABLES, RELAUNCHED_KEY, nightPartsWords, nightRunOf, nightRunWords } from "../src/core/dream/index.js";
 import type { PutInput } from "../src/core/store/index.js";
+import { TUNABLES as SCHEMAS_TUNABLES } from "../src/core/schemas/index.js";
 
 let dir: string;
 const open: { close(): void }[] = [];
@@ -58,9 +59,13 @@ const AT = "2026-09-29";
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-dreaming-headless-"));
+  // The night's third child, the tagging (wave 2 lane B), is held in `tags-night.test.ts`;
+  // here a night is its dream and its reflection, as these tests were written.
+  (SCHEMAS_TUNABLES as { TAGS_NIGHT: boolean }).TAGS_NIGHT = false;
 });
 
 afterEach(() => {
+  (SCHEMAS_TUNABLES as { TAGS_NIGHT: boolean }).TAGS_NIGHT = true;
   for (const c of open.splice(0)) {
     try {
       c.close();

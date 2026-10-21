@@ -70,6 +70,43 @@ export const TUNABLES = {
     LOWER_CASE_SHARE: 0.25,
   },
 
+  /**
+   * THE NIGHT'S TAG WORK (wave 2 lane B, 2026-10-21; design §1, lightly held).
+   * One switch for all of it: the tags phase (card names as tags, stem
+   * merges, dead merges pruned), the topic births, and the night's tagging
+   * ask (untagged memories, look-alike tags, card kinds). Off, the night does
+   * none of it; the write side (`remember`/`session_end` tags) is plain data
+   * and stays. Read at use, so `harness compare --set schemas.TAGS_NIGHT=false`
+   * reaches every reader.
+   */
+  TAGS_NIGHT: true as boolean,
+
+  /**
+   * A TAG BECOMES A TOPIC (`Schemas#birthsFromTags`): live memories carrying
+   * it (through its merges) count toward `TOPIC_MIN_MEMORIES`, each one used
+   * awake counting `TOPIC_USED_WEIGHT` more and each carrying a feeling
+   * `TOPIC_FELT_WEIGHT` more — importance is earned, not only counted (Mike,
+   * 10-21) — written on at least `TOPIC_MIN_DAYS` lived days in at least
+   * `TOPIC_MIN_SESSIONS` sessions. Names keep their own bar (`BIRTH_TALLY`).
+   * At most `TOPIC_BIRTHS_PER_NIGHT` a night, heaviest first. CAL: starting
+   * points from the brief, check 2026-10-26.
+   */
+  TOPIC_MIN_MEMORIES: 5,
+  TOPIC_MIN_DAYS: 3,
+  TOPIC_MIN_SESSIONS: 2,
+  TOPIC_USED_WEIGHT: 0.5,
+  TOPIC_FELT_WEIGHT: 0.5,
+  TOPIC_BIRTHS_PER_NIGHT: 5,
+
+  /**
+   * THE NIGHT'S TAGGING ASK (`dream/tags.ts`), per night: untagged memories
+   * shown (recent and strong first), look-alike tag pairs asked "same?", and
+   * cards with no subject kind asked which kind. CAL: starting points.
+   */
+  TAGS_BACKFILL_PER_NIGHT: 40,
+  TAGS_MERGE_ASKS_PER_NIGHT: 10,
+  TAGS_KINDS_PER_NIGHT: 10,
+
   /** Box-2 meta key prefix for a card's calendar anchor (`{ day, date }`): a
    *  lived day and the calendar date the fade sweep saw it on. NOTES §14. */
   FADE_ANCHOR_PREFIX: "schemas.fade.anchor." as const,

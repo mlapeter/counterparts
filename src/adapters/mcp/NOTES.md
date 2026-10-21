@@ -1765,3 +1765,10 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   `backfill`), so the night can tell what the writer chose from what it inherited.
 - Not here: the CLI's `counterparts note` takes no tags yet; dream merges and gists write
   none (the night's backfill reaches them); recall and the wake read none (lane E).
+
+## 2026-10-21 — the dream tool's `tags` phase (wave 2 lane B, second PR)
+
+- A phase on the dream tool, not a new tool: the tool list and its audits stay as they are,
+  and the tagging child is allowed the dream tool alone (`seat.ts#SEAT_TOOLS.tags`). Three
+  optional fields (`tagged`, `merges`, `kinds`); no privilege row (a nightly child's step).
+  The run's id comes from `COUNTERPARTS_NIGHT_RUN`, else `session:<id>:<date>`.

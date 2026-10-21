@@ -72,6 +72,13 @@ export const TUNABLES = {
      * projects said most their cards first; the rest wait, counted.
      */
     births: 10,
+    /**
+     * Card names written as tags a night at most (2026-10-21, wave 2 lane B).
+     * CAL, chosen not measured: the first night on a store with years of
+     * linked memories takes its backlog a few nights at a time; a night's own
+     * new links are a few dozen.
+     */
+    tags: 500,
     dedup: 1_000,
     versions: 1,
     briefing: 1,
@@ -100,6 +107,8 @@ export const TUNABLES = {
     fade: 3,
     /** Every lived day: the tally is one read of the live memories. */
     births: 1,
+    /** Every lived day: card names, stems and dead merges are a few reads. */
+    tags: 1,
     dedup: 1,
     versions: 1,
     briefing: 1,

@@ -24,6 +24,7 @@ import { TOOLS, openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/index.js";
 import { readTags, TAGS_PER_MEMORY } from "../src/adapters/mcp/server-args.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { UNRESOLVED_META_KEY } from "../src/core/mint.js";
 import { StoreError } from "../src/core/store/index.js";
 
 let root: string;
@@ -258,7 +259,8 @@ describe("nothing reads tags yet (lane E)", () => {
   const BODIES = [
     { title: "Quarterly taxes", body: "Mike pays the quarterly estimated taxes from the business account in April.", tags: ["taxes", "money", "backups"] },
     { title: "Backup drive", body: "The nightly backups go to the grey drive and a cloud copy on Sundays.", tags: ["backups", "taxes"] },
-    { title: "Castle game", body: "Katie and Mike are building a castle game together on weekends.", tags: ["castle game", "katie", "taxes"] },
+    // Open, so it reaches the wake's "Still open" lane (follow-up to the review of #570).
+    { title: "Castle game", body: "Katie and Mike are building a castle game together on weekends; the next level is still undecided.", tags: ["castle game", "katie", "taxes"], open: true },
     { title: "Ferry times", body: "The harbour ferry runs twice a day in winter and more often from March.", tags: ["ferry", "backups"] },
   ];
 
@@ -272,6 +274,7 @@ describe("nothing reads tags yet (lane E)", () => {
         body: m.body,
         salience: { novelty: null, relevance: 0.7, emotional: 0.3, predictive: 0.5 },
         physics: { birthDay: 0, lastUsedDay: 0 },
+        ...("open" in m ? { meta: { [UNRESOLVED_META_KEY]: true } } : {}),
         ...(tagged ? { tags: m.tags } : {}),
       });
     }
@@ -288,11 +291,18 @@ describe("nothing reads tags yet (lane E)", () => {
     const plain = plainServer.counterpart;
     const tagged = taggedServer.counterpart;
     expect(tagged.store.tagCounts().length).toBeGreaterThan(0);
-    // The wake reads the same, ids aside (review of #570).
+    // The wake reads the same, ids aside (review of #570): both stores live a
+    // boundary — the night's tag work runs on the tagged one — and the open
+    // memory must be in it, so the comparison is not of two empty wakes.
     const masked = (t: string): string => t.replace(/\b(mem|sch|epi)_[A-Za-z0-9]+/g, "<id>");
     const wake = (c: Counterpart): string => masked(c.wake(9_000, { date: "2026-10-21" }, { scope: "/proj/one", session: "sess_wake" }).text);
+    // A first wake reports the host's budget, which the boundary's render needs.
+    wake(plain);
+    wake(tagged);
+    await plain.sessionEnd({ date: "2026-10-21" });
+    await tagged.sessionEnd({ date: "2026-10-21" });
     const plainWake = wake(plain);
-    expect(plainWake.length).toBeGreaterThan(0);
+    expect(plainWake).toContain("castle game together");
     expect(wake(tagged)).toEqual(plainWake);
     let reached = 0;
     for (const text of ["when do the quarterly taxes get paid", "where do the backups go", "the castle game with Katie"]) {

@@ -102,6 +102,9 @@ export type { MindItem } from "./mind.js";
 export { CORE_MENTIONED_PREFIX, REFLECT_QUESTIONS, REFLECT_TUNABLES, Reflections, reflectionOpener } from "./reflect.js";
 export { coreAsks, coreWaiting } from "./core-ask.js";
 export type { CoreAsk, CoreDecided } from "./core-ask.js";
+// Wave 2 lane B (2026-10-21): the night's tagging ask, a child of its own.
+export { applyTagsAnswer, renderTagsBundle, tagsBundle, tagsPrompt, undoNightTags, NIGHT_CARD_KINDS, SUBJECT_KIND_BY_PREFIX, TAGS_NIGHT_PREFIX } from "./tags.js";
+export type { TagsAnswer, TagsApplied, TagsBundle } from "./tags.js";
 export { FEELING_WEEKS_TUNABLES, awakeFeelingCounts, feelingWeeks } from "./feeling-weeks.js";
 export type { FeelingWeeks } from "./feeling-weeks.js";
 export type { ReflectBundle, ReflectContext, ReflectFinish, ReflectItem, ReflectOutcome, ReflectRefusal } from "./reflect.js";
@@ -522,7 +525,8 @@ export interface NightRun {
 
 /** One child of a headless run (2026-10-11): ids, codes and times only. */
 export interface NightChildRun {
-  readonly child: "dream" | "reflection";
+  /** `tags` (2026-10-21, wave 2 lane B): the tagging child, after the reflection. */
+  readonly child: "dream" | "reflection" | "tags";
   /** Its exit code; null when it was stopped, or never started. */
   readonly code: number | null;
   readonly ms: number;
