@@ -70,6 +70,8 @@ export const NEW_INSTALL_META: readonly (readonly [string, string])[] = [
 
 export interface WeekOptions {
   readonly script?: readonly ScriptedDay[];
+  /** The script's name, for the record (default "plain"). */
+  readonly scriptName?: string;
   /** How many of the script's days to run (default all). */
   readonly days?: number;
   /** The calendar date of day one. */
@@ -112,6 +114,8 @@ export interface SessionLine {
 export interface WeekRecord {
   readonly harness: "owner-week";
   readonly owner: string;
+  /** Which script ran ("plain" unless named). */
+  readonly script: string;
   readonly ranAt: string;
   readonly elapsedMs: number;
   readonly days: number;
@@ -471,6 +475,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   return {
     harness: "owner-week",
     owner: OWNER_NAME,
+    script: opts.scriptName ?? "plain",
     ranAt: new Date(w.started).toISOString(),
     elapsedMs: Date.now() - w.started,
     days: script.length,
