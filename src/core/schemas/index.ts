@@ -295,6 +295,49 @@ export class Schemas {
     }
   }
 
+  /**
+   * ONE ROW ANOTHER PROCESS WROTE SINCE THIS INDEX WAS BUILT (review of #583):
+   * a long-lived server opened before a belief or a card was born elsewhere
+   * read its index once, at open, and would not know it — a correction
+   * would find "no belief" and a duplicate would pass. Learned on a miss, as
+   * `load` would have read it — its meta only: the alias index (which names
+   * link a memory to a card) stays as this process built it, for now, so a
+   * name another process gave a card does not start linking mid-run. False
+   * when it is not an element or a card.
+   */
+  private learn(id: string): boolean {
+    if (this.notElements.has(id)) return false;
+    const row = this.store.row(id);
+    if (row === undefined || row.type !== "schema" || rowTombstoned(row) || this.store.deniedIds().includes(id)) return false;
+    let rec: MetaRecord | null;
+    try {
+      rec = toMetaRecord(readProseWalking(this.store, id, row).meta);
+    } catch {
+      return false;
+    }
+    if (rec === null) {
+      this.notElements.add(id);
+      return false;
+    }
+    this.remember(id, rec);
+    return true;
+  }
+
+  /** Every BELIEF this index has not seen yet (`learn` each): a subject's beliefs read whole, across processes. */
+  private catchUp(): void {
+    for (const id of this.store.list({ type: "schema" })) {
+      if (this.meta.has(id) || this.notElements.has(id) || this.notBeliefs.has(id)) continue;
+      const row = this.store.row(id);
+      if (row === undefined || row.birth_route === null || row.birth_route === undefined) this.notBeliefs.add(id);
+      else this.learn(id);
+    }
+  }
+
+  /** Schema rows that are not elements or cards (the page, a handoff): not read again. */
+  private readonly notElements = new Set<string>();
+  /** Schema rows `catchUp` passed as not beliefs (a card another process made, the identity core). */
+  private readonly notBeliefs = new Set<string>();
+
   private remember(id: string, rec: MetaRecord): void {
     this.meta.set(id, rec);
     if (rec.entityId !== undefined) {
@@ -807,7 +850,7 @@ export class Schemas {
           }),
       ...(input.channel === undefined ? {} : { channel: input.channel }),
       protectedFlag: input.protected === true,
-      meta: { groundedIn: [...(input.groundedIn ?? [])] },
+      meta: { groundedIn: [...(input.groundedIn ?? [])], ...(input.fromCandidate === undefined ? {} : { fromCandidate: input.fromCandidate }) },
       birthRoute: input.birthRoute,
       ...(input.about === undefined ? {} : { about: input.about }),
     });
@@ -851,6 +894,7 @@ export class Schemas {
     } catch {
       return refuse("belief-unknown", null);
     }
+    if (!this.meta.has(beliefId)) this.learn(beliefId);
     const rec = this.meta.get(beliefId);
     const belief = this.store.row(beliefId);
     if (rec === undefined || rec.role !== "belief" || belief === undefined) return refuse("belief-unknown", beliefId);
@@ -865,6 +909,7 @@ export class Schemas {
     let route = asked as SupportRoute;
     let note: string | undefined;
     if (route === "link") {
+      if (!this.meta.has(input.memoryId)) this.learn(input.memoryId);
       const other = this.meta.get(input.memoryId);
       if (other === undefined || other.role !== "belief" || memory.archived === 1 || memory.superseded_by !== null) {
         return refuse("link-not-a-belief", beliefId);
@@ -973,6 +1018,7 @@ export class Schemas {
   private requireEntity(
     id: string,
   ): { problem: "entity-unknown" | "entity-archived" | null; row: MemoryRow } {
+    if (!this.meta.has(id)) this.learn(id);
     const rec = this.meta.get(id);
     const row = this.store.row(id);
     if (rec === undefined || rec.role !== "entity" || row === undefined) {
@@ -1134,6 +1180,7 @@ export class Schemas {
       });
     }
 
+    if (!this.meta.has(targetId)) this.learn(targetId);
     const rec = this.meta.get(targetId);
     if (rec === undefined || rec.role !== "belief") return refuse("target-not-a-belief", targetId);
     const row = this.store.row(targetId);
@@ -1926,6 +1973,7 @@ export class Schemas {
   }
 
   element(id: string): ElementView | undefined {
+    if (!this.meta.has(id)) this.learn(id);
     const rec = this.meta.get(id);
     const row = this.store.row(id);
     if (rec === undefined || row === undefined) return undefined;
@@ -1986,6 +2034,7 @@ export class Schemas {
   }
 
   beliefs(entityId: string): ElementView[] {
+    this.catchUp();
     return this.liveElementIds(entityId, "belief")
       .map((id) => this.element(id))
       .filter((e): e is ElementView => e !== undefined);

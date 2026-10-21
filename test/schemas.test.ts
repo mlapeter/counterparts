@@ -1317,6 +1317,9 @@ const PRIVATE_HELPERS = new Set([
   "contest",
   // Lane C: the force credited against a belief on one day (a read behind challengeBelief).
   "creditedOn",
+  // Review of #583: a row another process wrote, learned on a miss; and every one not seen yet.
+  "learn",
+  "catchUp",
   // SEAMS item K: story() reads the DURABLE increments out of box 2's events
   // table and unions this session's ring on top. A read helper, no new operation.
   "storyIncrements",

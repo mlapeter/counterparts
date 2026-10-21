@@ -1772,7 +1772,7 @@ export class Reflections {
     let selfClosed = [...priorSelfClosed, ...planned];
 
     // ── (i) beliefs (wave 2 lane C, 2026-10-21) — each on its own ─────────
-    const beliefParts = this.finishBeliefs(input, { row, shown, day, session, used, again });
+    const { adopted: candidatesAdopted, tried: candidatesTried, ...beliefParts } = this.finishBeliefs(input, { row, shown, day, session, used, again });
 
     // A page a first finish wrote STANDS when a second one's is refused
     // (review of #268): the hand-back and the counts say so.
@@ -1861,6 +1861,17 @@ export class Reflections {
       ...beliefParts.births.filter((x) => x.ok && x.reason === "adopted-from-dream" && x.id !== null).map((x) => x.id as string),
     ];
     if (adoptedAll.length > 0) detail["beliefsAdopted"] = adoptedAll;
+    // WHAT BECAME OF THE DREAM'S CANDIDATES (review of #583): each adopted
+    // (its belief's id) or, as the finish closes untouched, let go — one
+    // tried and refused stays open for the next finish.
+    const candidatesNow = new Map(decidedPairs(parseDetail(row.detail)["candidatesDecided"]));
+    for (const [cid, bid] of candidatesAdopted) candidatesNow.set(cid, bid);
+    if (this.ctx.schemas !== undefined && SCHEMAS_TUNABLES.BELIEFS_BIRTH) {
+      for (const [cid] of stringIdsPairs(parseDetail(row.detail)["beliefCandidates"])) {
+        if (!candidatesNow.has(cid) && !candidatesTried.has(cid)) candidatesNow.set(cid, "let-go");
+      }
+    }
+    if (candidatesNow.size > 0) detail["candidatesDecided"] = [...candidatesNow];
     if (again) detail["finishes"] = (typeof prior["finishes"] === "number" ? prior["finishes"] : 1) + 1;
     this.store.updateReflection(row.id, {
       ...(again ? {} : { state: "reflected" as const }),
@@ -1983,6 +1994,15 @@ export class Reflections {
    * its strongest beliefs (`BELIEFS_SHOWN_PER_SUBJECT`) and the rest counted.
    * Null when beliefs are off or `schemas/` is not wired. Read at begin.
    */
+  /** What every reflection of this dream decided of its candidates (review of #583): the first word on each stands. */
+  private candidatesDecided(dreamId: string): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const r of this.store.reflections({ dreamId, limit: 50 })) {
+      for (const [cid, v] of decidedPairs(parseDetail(r.detail)["candidatesDecided"])) if (!out.has(cid)) out.set(cid, v);
+    }
+    return out;
+  }
+
   private beliefsInPlay(day: number, memoryIds: readonly string[], dreamId: string | null = null): ReflectBeliefs | null {
     const schemas = this.ctx.schemas;
     if (schemas === undefined || !SCHEMAS_TUNABLES.BELIEFS_BIRTH) return null;
@@ -2030,7 +2050,9 @@ export class Reflections {
         more: all.length - shownNow.length,
       };
     });
-    // WHAT TONIGHT'S DREAM PROPOSED (lane C3): its standing candidates.
+    // WHAT TONIGHT'S DREAM PROPOSED (lane C3): its standing candidates — not
+    // one a reflection of the same dream already adopted or let go.
+    const decided = dreamId === null ? new Map<string, string>() : this.candidatesDecided(dreamId);
     const candidates =
       dreamId === null
         ? []
@@ -2046,7 +2068,7 @@ export class Reflections {
                 sources: stringIds(d["sources"]),
               };
             })
-            .filter((c) => c.statement.length > 0);
+            .filter((c) => c.statement.length > 0 && !decided.has(c.id));
     // HELD TO ITS SHARE OF THE ROOM, ROUND-ROBIN (review of #577): the subject
     // showing the most gives up its weakest belief to `more`, until the
     // section fits — every subject keeping `BELIEFS_KEPT_PER_SUBJECT` while
@@ -2097,8 +2119,8 @@ export class Reflections {
   private finishBeliefs(
     input: ReflectFinish,
     ctx: { row: ReflectionRow; shown: ReadonlySet<string>; day: number; session: string; used: (k: string) => number; again: boolean },
-  ): { births: PartResult[]; filings: PartResult[]; retire: PartResult[]; adopt: PartResult[] } {
-    const out = { births: [] as PartResult[], filings: [] as PartResult[], retire: [] as PartResult[], adopt: [] as PartResult[] };
+  ): { births: PartResult[]; filings: PartResult[]; retire: PartResult[]; adopt: PartResult[]; adopted: Map<string, string>; tried: Set<string> } {
+    const out = { births: [] as PartResult[], filings: [] as PartResult[], retire: [] as PartResult[], adopt: [] as PartResult[], adopted: new Map<string, string>(), tried: new Set<string>() };
     const sent = input.beliefs ?? null;
     if (sent === null) return out;
     const schemas = this.ctx.schemas;
@@ -2283,7 +2305,12 @@ export class Reflections {
     // ADOPTED FROM THE DREAM (lane C3): a candidate it was shown, born weak by
     // the route `dream`, its lived sources its first support; the reflection
     // may say it better and name its subject. What is not adopted is let go.
+    // ONE CANDIDATE, ONE BELIEF (review of #583): what became of each is
+    // kept on the reflection's row (`candidatesDecided`), so a second finish,
+    // or a later reflection of the same dream, cannot adopt it again; a
+    // refused attempt leaves it open (`tried`) for the next finish to say better.
     const offered = new Map(stringIdsPairs(parseDetail(ctx.row.detail)["beliefCandidates"]));
+    const decidedBefore = ctx.row.dream_id === null ? new Map<string, string>() : this.candidatesDecided(ctx.row.dream_id);
     for (const a of (sent.adopt ?? []).slice(0, 10)) {
       const cid = typeof a.candidate === "string" ? a.candidate : null;
       if (off) {
@@ -2296,10 +2323,16 @@ export class Reflections {
         out.adopt.push({ id: cid, ok: false, reason: "candidate-not-shown", detail: "candidate is an id from beliefs.candidates (tonight's dream's)." });
         continue;
       }
-      if (out.adopt.some((x) => x.ok && x.id === cid)) {
-        out.adopt.push({ id: cid, ok: false, reason: "already-adopted", detail: `${cid} was adopted already in this finish.` });
+      const was = out.adopted.get(cid) ?? decidedBefore.get(cid);
+      if (was !== undefined) {
+        out.adopt.push(
+          was === "let-go"
+            ? { id: cid, ok: false, reason: "let-go", detail: `${cid} was let go when an earlier finish closed without adopting it.` }
+            : { id: cid, ok: false, reason: "already-adopted", detail: `${cid} was adopted already, as ${was}: file to that belief in beliefs.filings instead.` },
+        );
         continue;
       }
+      out.tried.add(cid);
       const asked = (typeof a.subject === "string" && a.subject.trim().length > 0 ? a.subject : cand.subject).trim();
       const byName = [...subjects].find((sid) => sch.entity(sid)?.name.toLowerCase() === asked.toLowerCase());
       const subject = asked === "me" || asked === "us" || (me !== null && asked === me) ? me : subjects.has(asked) ? asked : (byName ?? null);
@@ -2328,12 +2361,14 @@ export class Reflections {
         continue;
       }
       const about: "me" | "us" | undefined = subject === me ? (asked === "us" ? "us" : "me") : undefined;
-      const made = sch.addBelief({ entityId: subject, statement: w.text, day: ctx.day, birthRoute: "dream", channel: "authored", groundedIn: good, ...(about === undefined ? {} : { about }) });
+      const made = sch.addBelief({ entityId: subject, statement: w.text, day: ctx.day, birthRoute: "dream", channel: "authored", groundedIn: good, fromCandidate: cid, ...(about === undefined ? {} : { about }) });
       if (!made.ok || made.id === null) {
         out.adopt.push({ id: cid, ok: false, reason: made.reason });
         continue;
       }
       born.add(made.id);
+      out.adopted.set(cid, made.id);
+      out.tried.delete(cid);
       for (const c of good) sch.fileSupport({ beliefId: made.id, memoryId: c, stance: "support", day: ctx.day });
       out.adopt.push({ id: cid, ok: true, reason: "adopted", note: `Born weak as ${made.id}, backed by ${String(good.length)} of its sources.` });
       out.births.push({ id: made.id, ok: true, reason: "adopted-from-dream" });
@@ -3502,6 +3537,12 @@ function stringIdsPairs(v: unknown): [string, { subject: string; statement: stri
     out.push([p[0], { subject: typeof d["subject"] === "string" ? d["subject"] : "me", statement: typeof d["statement"] === "string" ? d["statement"] : "", sources: stringIds(d["sources"]) }]);
   }
   return out;
+}
+
+/** What became of the dream's candidates: `[candidate id, belief id or "let-go"]` pairs. */
+function decidedPairs(v: unknown): [string, string][] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((p): p is [string, string] => Array.isArray(p) && typeof p[0] === "string" && typeof p[1] === "string");
 }
 
 function beliefsDetailOf(d: Record<string, unknown>): BeliefsShownDetail {

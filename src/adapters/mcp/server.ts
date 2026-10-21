@@ -3276,30 +3276,6 @@ export class McpServer {
    * candidate), so a core mark on one is stored as asked, with a note
    * (2026-09-28: it was refused `skill-is-how-i-work`).
    */
-  /**
-   * Is this server the nightly run's — a child's (`NIGHT_CHILD_ENV`) or its
-   * catch-up's (`NIGHT_RUN_ENV`)? The same two marks `remark` reads.
-   */
-  private nightRun(): boolean {
-    return (this.env[NIGHT_CHILD_ENV] ?? "").trim().length > 0 || (this.env[NIGHT_RUN_ENV] ?? "").trim().length > 0;
-  }
-
-  /** `remember`'s `belief` (lane C3, 2026-10-21): born beside the memory, or said why not. */
-  private recordBelief(deposit: DepositResult, arg: unknown): Record<string, unknown> {
-    if (arg === undefined) return {};
-    if (arg === null || typeof arg !== "object" || Array.isArray(arg) || typeof (arg as Record<string, unknown>)["statement"] !== "string") {
-      return { belief: { stored: false, reason: "belief-malformed", note: 'belief is one object: {statement, about?: "me" | "us"}.' } };
-    }
-    if (!deposit.deposited || deposit.memoryId === null) return { belief: { stored: false, reason: "memory-not-stored" } };
-    const a = arg as Record<string, unknown>;
-    const out = this.counterpart.sessionBelief({
-      memoryId: deposit.memoryId,
-      statement: a["statement"] as string,
-      ...(a["about"] === "us" || a["about"] === "me" ? { about: a["about"] } : {}),
-    });
-    return { belief: { stored: out.ok && out.reason === "born", reason: out.reason, ...(out.id === null ? {} : { id: out.id }), ...(out.note === undefined ? {} : { note: out.note }) } };
-  }
-
   private recordAbout(deposit: DepositResult, mark: AboutMark | null): Record<string, unknown> {
     // None sent: a revision took the mark of the memory it revises (2026-10-11), and says so.
     if (mark === null) {
@@ -3323,6 +3299,30 @@ export class McpServer {
     } catch (err) {
       return { about: { stored: false, reason: "threw", detail: String((err as Error).message ?? err) } };
     }
+  }
+
+  /**
+   * Is this server the nightly run's — a child's (`NIGHT_CHILD_ENV`) or its
+   * catch-up's (`NIGHT_RUN_ENV`)? The same two marks `remark` reads.
+   */
+  private nightRun(): boolean {
+    return (this.env[NIGHT_CHILD_ENV] ?? "").trim().length > 0 || (this.env[NIGHT_RUN_ENV] ?? "").trim().length > 0;
+  }
+
+  /** `remember`'s `belief` (lane C3, 2026-10-21): born beside the memory, or said why not. */
+  private recordBelief(deposit: DepositResult, arg: unknown): Record<string, unknown> {
+    if (arg === undefined) return {};
+    if (arg === null || typeof arg !== "object" || Array.isArray(arg) || typeof (arg as Record<string, unknown>)["statement"] !== "string") {
+      return { belief: { stored: false, reason: "belief-malformed", note: 'belief is one object: {statement, about?: "me" | "us"}.' } };
+    }
+    if (!deposit.deposited || deposit.memoryId === null) return { belief: { stored: false, reason: "memory-not-stored" } };
+    const a = arg as Record<string, unknown>;
+    const out = this.counterpart.sessionBelief({
+      memoryId: deposit.memoryId,
+      statement: a["statement"] as string,
+      ...(a["about"] === "us" || a["about"] === "me" ? { about: a["about"] } : {}),
+    });
+    return { belief: { stored: out.ok && out.reason === "born", reason: out.reason, ...(out.id === null ? {} : { id: out.id }), ...(out.note === undefined ? {} : { note: out.note }) } };
   }
 
   /**
