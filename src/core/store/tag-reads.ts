@@ -112,14 +112,17 @@ export interface UntaggedMemory {
 }
 
 /**
- * Live memories with no tag at all, RECENT AND STRONG FIRST: newest lived day,
+ * Live memories with no tag OF THEIR OWN — none written, carried or given at
+ * night; a card's name alone does not count (review of #576: ~1,300 named
+ * memories would otherwise carry only names, and no topic word) — RECENT AND
+ * STRONG FIRST: newest lived day,
  * then most used, then the highest salience they were written with. How many
  * there are in all comes beside them, for the night's report.
  */
 export function untaggedMemories(store: Store, limit: number): { memories: UntaggedMemory[]; total: number } {
   if (!has(store, "memory_tags")) return { memories: [], total: 0 };
   const where = `m.type = 'memory' AND m.archived = 0 AND m.superseded_by IS NULL AND m.body != '' AND ${NOT_JOURNAL}
-       AND NOT EXISTS (SELECT 1 FROM memory_tags t WHERE t.memory_id = m.id)`;
+       AND NOT EXISTS (SELECT 1 FROM memory_tags t WHERE t.memory_id = m.id AND t.via IN ('write', 'carried', 'night'))`;
   const total = ops(store).get<{ n: number }>(`SELECT COUNT(*) AS n FROM memories m WHERE ${where}`)?.n ?? 0;
   const salience = store.hasColumn("memories", "birth_salience") ? "COALESCE(m.birth_salience, 0)" : "0";
   const memories = ops(store).all<UntaggedMemory>(
@@ -172,7 +175,7 @@ export function unkindedCards(store: Store, limit: number, titles = 4): { cards:
 
 /**
  * The topic cards (`subject_kind` `topic`) by the tag each was promoted from
- * (`meta.topic`), archived ones too — a faded topic is not born again from
+ * (`meta.topic`) and its merged words (`meta.topicAliases`), archived ones too — a faded topic is not born again from
  * the same tag by the tally; a new memory's write is what brings tags back.
  */
 export function topicCards(store: Store): Map<string, string> {
@@ -180,8 +183,10 @@ export function topicCards(store: Store): Map<string, string> {
   if (!store.hasColumn("memories", "subject_kind")) return out;
   for (const r of ops(store).all<{ id: string; meta: string }>("SELECT id, meta FROM memories WHERE subject_kind = 'topic' ORDER BY id")) {
     try {
-      const topic = (JSON.parse(r.meta) as { topic?: unknown } | null)?.topic;
-      if (typeof topic === "string" && topic.length > 0) out.set(topic, r.id);
+      const m = JSON.parse(r.meta) as { topic?: unknown; topicAliases?: unknown } | null;
+      if (typeof m?.topic === "string" && m.topic.length > 0) out.set(m.topic, r.id);
+      // Its merged words too: a cluster whose head word moved is still this topic.
+      if (Array.isArray(m?.topicAliases)) for (const a of m.topicAliases) if (typeof a === "string" && a.length > 0 && !out.has(a)) out.set(a, r.id);
     } catch {
       /* a card whose meta cannot be read holds no topic */
     }

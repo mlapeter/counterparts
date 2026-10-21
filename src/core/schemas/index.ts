@@ -1768,7 +1768,7 @@ export class Schemas {
       lowerCase: tally.lowerCase,
       dryRun,
     });
-    return { day, dryRun, memories: texts.length, offered: names.length, born, refused, skippedForLimit, lowerCase: tally.lowerCase };
+    return { day, dryRun, memories: texts.length, offered: names.length, born, refused, skippedForLimit, lowerCase: tally.lowerCase, attempts };
   }
 
   /**
@@ -1794,7 +1794,7 @@ export class Schemas {
   birthsFromTags(day: number, opts: NameBirthOptions = {}): TopicBirthReport {
     const dryRun = opts.dryRun === true;
     const limit = opts.limit ?? Number.POSITIVE_INFINITY;
-    if (!TUNABLES.TAGS_NIGHT) return { day, dryRun, on: false, offered: 0, born: [], refused: {}, skippedForLimit: 0 };
+    if (!TUNABLES.TAGS_NIGHT) return { day, dryRun, on: false, offered: 0, born: [], refused: {}, skippedForLimit: 0, attempts: 0 };
     const topics = this.store.topicCards();
     const refused: Record<string, number> = {};
     const refuse = (reason: string): false => {
@@ -1822,23 +1822,37 @@ export class Schemas {
       if (dryRun) continue;
       const aliases = t.words.filter((w) => w !== t.tag);
       const seam = clampSalienceAtSeam({ novelty: null, ...ZERO_DIMS }, null);
-      const id = this.store.put({
-        type: "schema",
-        kind: "entity",
-        title: t.tag,
-        body: `${t.tag}: a topic — the memories tagged with it.`,
-        meta: { role: "entity", name: "", aliases: [], topic: t.tag, topicAliases: aliases },
-        subjectKind: "topic",
-        salience: seam.salience,
-        physics: { birthDay: day, lastUsedDay: day },
-      });
+      // ASKED AGAIN UNDER THE WRITE LOCK (review of #576; the card twins'
+      // class): two processes' cycles on one day both read the tally before
+      // either wrote, so the "no topic holds it yet" check runs inside the
+      // insert's own transaction (`Store#putUnless`).
+      const id = this.store.putUnless(
+        {
+          type: "schema",
+          kind: "entity",
+          title: t.tag,
+          body: `${t.tag}: a topic — the memories tagged with it.`,
+          meta: { role: "entity", name: "", aliases: [], topic: t.tag, topicAliases: aliases },
+          subjectKind: "topic",
+          salience: seam.salience,
+          physics: { birthDay: day, lastUsedDay: day },
+        },
+        () => {
+          const now = this.store.topicCards();
+          return t.words.some((w) => now.has(w));
+        },
+      );
+      if (id === null) {
+        refuse("a-topic-already");
+        continue;
+      }
       this.remember(id, { role: "entity", name: "", aliases: [] });
       this.index.register(id, "", []);
       born.push(id);
       this.emit("schema.topic.birth", id, { day, memories: t.memories.length, days: t.days, sessions: t.sessions, weight: t.weight });
     }
     this.emit("schema.topics.sweep", undefined, { day, offered: offered.length, born: born.length, skippedForLimit, dryRun });
-    return { day, dryRun, on: true, offered: offered.length, born, refused, skippedForLimit };
+    return { day, dryRun, on: true, offered: offered.length, born, refused, skippedForLimit, attempts };
   }
 
   // ── reads ──────────────────────────────────────────────────────────────────

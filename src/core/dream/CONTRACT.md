@@ -203,6 +203,13 @@ dreamer is the model (a background agent the session launches), outside this pro
   card with none, with who set it (`schemas.subjectKind.<id>`), and a row per run
   (`tags.night.<run>`); every item it cannot take is refused by name. `undoNightTags(sinceAt)`
   takes a night back. Not started when `TAGS_NIGHT` is off or there is nothing to ask.
+  *Review of #576:* the `tags` phase is served to the tagging child alone
+  (`COUNTERPARTS_NIGHT_CHILD=tags`), and that child is served nothing else of the dream tool.
+  The answer is bounded by the ask: reading it records what it showed (`tags.ask.<run>`), and
+  only those memories, pairs and cards are taken — nothing without a recorded ask. A memory
+  is "untagged" when it has no tag of its own (`write`, `carried`, `night`); a card's name
+  alone does not count. Titles and names are flattened to one line in the bundle. Undo
+  follows a carried copy down `superseded_by`, and clears only a kind still as the night set it.
 - `begin` refuses under observer, when a dream was journaled this CALENDAR day, while
   another session's run is busy (`dreaming-now`), and when nothing is new. A dream LEFT
   BEHIND — begun, never journaled, quiet for `ABANDONED_AFTER_MS` — is RESUMED when it

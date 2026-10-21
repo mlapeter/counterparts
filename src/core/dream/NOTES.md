@@ -946,3 +946,19 @@ reflection was offered five a night.
   model (`NIGHT_TAGS_MODEL`). Not measured on a model: no model nights from this lane.
 - The backlog on the corpus: 813 memories with no tag after the card names (of 2,138 live):
   about 20 nights at 40. Card kinds: 120 waiting, 12 nights at 10.
+
+## 2026-10-21 — review of #576: the tagging ask, bounded
+
+- Both ways at the door (`server-self-tools.ts`): a plain session asking for `tags` is refused
+  `night-run-only`; the tagging child asking for any other phase is refused `tags-child`. It
+  reads memory text it did not write, so it holds the one phase and nothing of the dream's
+  setting, launch or begin.
+- `askTags` records the ask under the run; `applyTagsAnswer` takes only what it lists, each
+  memory once, and re-checks at write time (live, not the journal's row, no tag of its own).
+  A pair never shown ("castle" / "taxes") and a card never asked about are refused by name.
+- "Untagged" counts only the hands that say what a memory is about (`OWN_TAG_VIAS`); a
+  card's name alone would otherwise mark ~1,300 corpus memories tagged with names only,
+  and no topic word would ever reach them.
+- Undo: a revision that carried a night tag on (`via: carried`) loses it too, down the
+  `superseded_by` chain (a revision that only links, without superseding, keeps its copy:
+  noted, not chased). A kind changed since the night is left as it is.

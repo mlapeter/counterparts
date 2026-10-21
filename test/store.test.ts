@@ -1907,6 +1907,7 @@ describe("observer mode is enforced at the store seam", () => {
     setNextChangeDays: [[{ id: "mem_000000000000", day: 1 }]],
     clearNextChangeDays: [],
     setCacheNote: ["habituation", "{}"],
+    putUnless: [mem("x"), () => false],
     // v14 (2026-10-21, wave 2's one bump): pre-provisioned, no caller yet.
     tagMemory: ["mem_000000000000", ["tag"], "write"],
     untagMemory: ["mem_000000000000"],

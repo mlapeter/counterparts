@@ -184,6 +184,8 @@ export async function sessionEnd(cp: Counterpart, input: SessionEndInput = {}): 
           born: [...names.born, ...topics.born],
           refused,
           skippedForLimit: names.skippedForLimit + topics.skippedForLimit,
+          // Each door's own limit (review of #576): min(names, budget) + min(topics, 5).
+          attempts: names.attempts + topics.attempts,
         };
       },
       // The night's tag work with no model (wave 2 lane B): card names as

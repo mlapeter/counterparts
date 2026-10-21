@@ -534,6 +534,8 @@ export const WRITE_METHODS = [
   "clearNextChangeDays",
   // 2026-10-19 (the feedback loop): a derived note in box 3 (recall's habituation).
   "setCacheNote",
+  // 2026-10-21 (the card twins): a put whose precondition is asked under the write lock.
+  "putUnless",
   // v14 (2026-10-21, wave 2's one bump): pre-provisioned, no caller yet.
   "tagMemory",
   "untagMemory",
@@ -1229,6 +1231,26 @@ export class Store {
 
   put(input: PutInput): string {
     const doc = this.mutate("put", () => this.insertOne(input));
+    this.indexOne(doc);
+    this.emit("store.put", doc.id, { type: doc.type, kind: input.kind, hash: hashText(doc.body) });
+    return doc.id;
+  }
+
+  /**
+   * A PUT WHOSE PRECONDITION IS ASKED UNDER THE WRITE LOCK (2026-10-21, the card
+   * twins). `unless` runs INSIDE the write transaction — `BEGIN IMMEDIATE`, so a
+   * second process doing the same waits on the busy timeout and then reads what
+   * the first committed — and the row is inserted only if it returned false.
+   * True stages nothing and returns null.
+   *
+   * For a row two processes may mint at once from one stale view: an entity
+   * card, which `Schemas` judges against an index read at open
+   * (`Schemas#birth`). A check made before the transaction can still race; this
+   * one cannot. `unless` reads through this store and must not write.
+   */
+  putUnless(input: PutInput, unless: () => boolean): string | null {
+    const doc = this.mutate("putUnless", () => (unless() ? null : this.insertOne(input)));
+    if (doc === null) return null;
     this.indexOne(doc);
     this.emit("store.put", doc.id, { type: doc.type, kind: input.kind, hash: hashText(doc.body) });
     return doc.id;
@@ -4636,7 +4658,7 @@ export class Store {
     return tagReads.tagInUse(this, tag);
   }
 
-  /** Live memories with no tag, recent and strong first, and how many there are. */
+  /** Live memories with no tag of their own (a card name alone does not count), recent and strong first, and how many there are. */
   untaggedMemories(limit: number): { memories: UntaggedMemory[]; total: number } {
     return tagReads.untaggedMemories(this, limit);
   }

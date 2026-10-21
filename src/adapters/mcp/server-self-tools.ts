@@ -2,7 +2,7 @@
 import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV } from "../spawn.js";
 import { readSession } from "../sessions.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
-import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, applyTagsAnswer, nightNext, nightOrder, renderTagsBundle, tagsBundle } from "../../core/dream/index.js";
+import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, applyTagsAnswer, askTags, nightNext, nightOrder, renderTagsBundle } from "../../core/dream/index.js";
 import type { DreamingSetting, NightPart } from "../../core/dream/index.js";
 import {
   NIGHT_WRITER_TOOL,
@@ -35,6 +35,13 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
   // The headless night's dream child stops before the reflection
   // (2026-10-11): the reflection runs after it, in a child of its own.
   const dreamChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "dream";
+  // THE TAGGING CHILD, BOTH WAYS (review of #576): its `tags` phase is
+  // served only to it, and it is served only that phase — it reads memory
+  // text it did not write, and must not reach the dream's setting, launch or
+  // begin. Any other session asking for `tags` is refused.
+  const tagsChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "tags";
+  if (tagsChild && phase !== "tags") return refused("tags-child", "This is the nightly run's tagging child: only phase \"tags\" is served here.");
+  if (!tagsChild && phase === "tags") return refused("night-run-only", "The tags phase is the nightly run's tagging child's alone.");
   const nextAfter = (part: NightPart, dream: string | null): string | null => {
     const next = nightNext(part);
     if (dreamChild && next === "reflection") return null;
@@ -281,7 +288,7 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
         const run = (server["env"][NIGHT_RUN_ENV] ?? "").trim() || `session:${session}:${at}`;
         const answered = args["tagged"] !== undefined || args["merges"] !== undefined || args["kinds"] !== undefined;
         if (!answered) {
-          const b = tagsBundle(server.counterpart.store);
+          const b = askTags(server.counterpart.store, run);
           server["emit"]("mcp.dream", undefined, { phase: "tags", on: b.on, memories: b.memories.length, untagged: b.untagged, pairs: b.pairs.length, cards: b.cards.length });
           return server["result"](
             {

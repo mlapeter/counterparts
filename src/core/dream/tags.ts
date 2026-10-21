@@ -23,7 +23,7 @@
  */
 import { lookAlikePairs, notSameKey, resolveTag, mergeMap, TUNABLES as SCHEMAS } from "../schemas/index.js";
 import type { LookAlike } from "../schemas/index.js";
-import { SUBJECT_KINDS } from "../store/index.js";
+import { normalizeTag, SUBJECT_KINDS } from "../store/index.js";
 import type { Store, SubjectKind } from "../store/index.js";
 import { screenTags } from "../tag-screen.js";
 import { localDate } from "../time.js";
@@ -40,6 +40,16 @@ export const NIGHT_CARD_KINDS: readonly SubjectKind[] = SUBJECT_KINDS.filter((k)
 export const SUBJECT_KIND_BY_PREFIX = "schemas.subjectKind.";
 /** One night's tagging, recorded: `tags.night.<run>` → counts and when. */
 export const TAGS_NIGHT_PREFIX = "tags.night.";
+/** What one night's ask SHOWED (review of #576): `tags.ask.<run>` → the memory ids, pairs and card ids an answer may touch. */
+export const TAGS_ASK_PREFIX = "tags.ask.";
+
+/** The hands whose tags make a memory "tagged" (review of #576): a card's name alone does not, so named memories still get topic words. */
+export const OWN_TAG_VIAS: readonly string[] = ["write", "carried", "night"];
+
+/** One line of the bundle: whitespace — a newline above all — flattened, so no title or name can forge a line. */
+function flat(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
 
 export interface TagsBundle {
   /** False when `TAGS_NIGHT` is off. */
@@ -62,8 +72,8 @@ export function tagsBundle(store: Store): TagsBundle {
   return {
     on: true,
     memories: untagged.memories.map((m) => {
-      const flat = m.body.replace(/\s+/g, " ").trim();
-      return { id: m.id, title: m.title, excerpt: flat.length > TAGS_EXCERPT_CHARS ? `${flat.slice(0, TAGS_EXCERPT_CHARS)}…` : flat, chars: flat.length };
+      const body = flat(m.body);
+      return { id: m.id, title: m.title, excerpt: body.length > TAGS_EXCERPT_CHARS ? `${body.slice(0, TAGS_EXCERPT_CHARS)}…` : body, chars: body.length };
     }),
     untagged: untagged.total,
     vocabulary: store.tagCounts({ limit: TAGS_VOCABULARY }).map((t) => t.tag),
@@ -73,13 +83,46 @@ export function tagsBundle(store: Store): TagsBundle {
   };
 }
 
-/** The bundle as the child reads it: plain lines, each with what to answer. */
+/** What a recorded ask lets an answer touch. */
+interface AskRecord {
+  readonly memories: readonly string[];
+  readonly pairs: readonly (readonly [string, string])[];
+  readonly cards: readonly string[];
+}
+
+/**
+ * THE ASK, SHOWN AND RECORDED (review of #576): the bundle, with what it
+ * showed kept under the run (`tags.ask.<run>`), so the answer is bounded by
+ * it — only the memories, pairs and cards shown, nothing else. A second read
+ * in the same run replaces the record.
+ */
+export function askTags(store: Store, run: string): TagsBundle {
+  const b = tagsBundle(store);
+  if (b.on) {
+    const record: AskRecord = { memories: b.memories.map((m) => m.id), pairs: b.pairs.map((p) => [p.a, p.b] as const), cards: b.cards.map((c) => c.id) };
+    store.setMeta(`${TAGS_ASK_PREFIX}${run}`, JSON.stringify(record));
+  }
+  return b;
+}
+
+function askOf(store: Store, run: string): AskRecord | null {
+  try {
+    const raw = store.getMeta(`${TAGS_ASK_PREFIX}${run}`);
+    if (raw === undefined) return null;
+    const r = JSON.parse(raw) as Partial<AskRecord>;
+    return { memories: r.memories ?? [], pairs: r.pairs ?? [], cards: r.cards ?? [] };
+  } catch {
+    return null;
+  }
+}
+
+/** The bundle as the child reads it: plain lines, each with what to answer. Every title and name is flattened to one line. */
 export function renderTagsBundle(b: TagsBundle): string {
   if (!b.on) return "Tagging is switched off tonight. Nothing to do.";
   const lines: string[] = [];
   if (b.memories.length > 0) {
     lines.push(`MEMORIES WITH NO TAGS (${String(b.memories.length)} of ${String(b.untagged)}): give each 3-5 tags.`);
-    for (const m of b.memories) lines.push(`- ${m.id}${m.title === null ? "" : ` | ${m.title}`} | ${m.excerpt}`);
+    for (const m of b.memories) lines.push(`- ${m.id}${m.title === null ? "" : ` | ${flat(m.title)}`} | ${m.excerpt}`);
     if (b.vocabulary.length > 0) lines.push("", `Tags already in use (reuse one when it fits): ${b.vocabulary.join(", ")}`);
   }
   if (b.pairs.length > 0) {
@@ -88,7 +131,7 @@ export function renderTagsBundle(b: TagsBundle): string {
   }
   if (b.cards.length > 0) {
     lines.push("", `CARDS WITH NO KIND (${String(b.cards.length)} of ${String(b.unkinded)}): each is a person, project, place or topic.`);
-    for (const c of b.cards) lines.push(`- ${c.id} | ${c.name} | named in: ${c.titles.length === 0 ? "(nothing live)" : c.titles.join(" / ")}`);
+    for (const c of b.cards) lines.push(`- ${c.id} | ${flat(c.name)} | named in: ${c.titles.length === 0 ? "(nothing live)" : c.titles.map(flat).join(" / ")}`);
   }
   return lines.length === 0 ? "Nothing to tag, merge or sort tonight." : lines.join("\n");
 }
@@ -125,25 +168,40 @@ export function screenNightTags(raw: unknown): string[] {
 }
 
 /**
- * THE NIGHT'S ANSWER, WRITTEN. Tags only on a live memory that has none (the
- * writer's are never touched); a merge only between two tags in use, the one
- * fewer memories carry read as the other (`via: night`); a "not the same"
- * kept under `NOT_SAME_PREFIX`; a kind only on a live named card that has
- * none, recorded with who set it. `run` names the night in every record.
+ * THE NIGHT'S ANSWER, WRITTEN — BOUNDED BY WHAT THE ASK SHOWED (review of
+ * #576; `askTags` recorded it under the run): tags only on a memory the ask
+ * listed, still live, not the journal's own row, and still without a tag of
+ * its own (`OWN_TAG_VIAS`: a card's name does not count; the writer's are
+ * never touched); a merge only of a pair the ask listed, both still in use,
+ * the one fewer memories carry read as the other (`via: night`); a "not the
+ * same" kept under `NOT_SAME_PREFIX`; a kind only on a card the ask listed
+ * that still has none, recorded with who set it. Nothing is taken without a
+ * recorded ask. `run` names the night in every record.
  */
 export function applyTagsAnswer(store: Store, answer: TagsAnswer, ctx: { readonly run: string }): TagsApplied {
   if (!SCHEMAS.TAGS_NIGHT) return { on: false, memories: 0, tags: 0, merged: 0, notSame: 0, kinds: 0, refused: ["tagging is switched off tonight"] };
+  const ask = askOf(store, ctx.run);
+  if (ask === null) return { on: true, memories: 0, tags: 0, merged: 0, notSame: 0, kinds: 0, refused: ["nothing was asked in this run: read the ask first (phase \"tags\" with no answers)"] };
+  const shownMemories = new Set(ask.memories);
+  const shownCards = new Set(ask.cards);
+  const shownPair = (a: string, b: string): boolean => ask.pairs.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
   const refused: string[] = [];
   let memories = 0;
   let tags = 0;
+  const done = new Set<string>();
   for (const item of objects(answer.tagged)) {
     const id = typeof item["id"] === "string" ? item["id"].trim() : "";
-    const row = id.length === 0 ? undefined : store.row(id);
-    if (row === undefined || row.type !== "memory" || row.archived !== 0 || row.superseded_by !== null) {
-      refused.push(`${id.length === 0 ? "(no id)" : id}: not a live memory`);
+    if (!shownMemories.has(id) || done.has(id)) {
+      refused.push(`${id.length === 0 ? "(no id)" : id}: not a memory this ask showed`);
       continue;
     }
-    if (store.tagsOf(id).length > 0) {
+    done.add(id);
+    const row = store.row(id);
+    if (row === undefined || row.type !== "memory" || row.archived !== 0 || row.superseded_by !== null || row.body.length === 0 || row.source === "episode") {
+      refused.push(`${id}: not a live memory`);
+      continue;
+    }
+    if (store.tagsOf(id).some((t) => OWN_TAG_VIAS.includes(t.via))) {
       refused.push(`${id}: already tagged`);
       continue;
     }
@@ -161,8 +219,14 @@ export function applyTagsAnswer(store: Store, answer: TagsAnswer, ctx: { readonl
   const merges = mergeMap(store);
   const counts = new Map(store.tagCounts().map((t) => [t.tag, t.memories]));
   for (const item of objects(answer.merges)) {
-    const a = typeof item["a"] === "string" ? resolveTag(merges, item["a"]) : "";
-    const b = typeof item["b"] === "string" ? resolveTag(merges, item["b"]) : "";
+    const rawA = typeof item["a"] === "string" ? normalizeTag(item["a"]) : "";
+    const rawB = typeof item["b"] === "string" ? normalizeTag(item["b"]) : "";
+    if (!shownPair(rawA, rawB)) {
+      refused.push(`"${rawA}" / "${rawB}": not a pair this ask showed`);
+      continue;
+    }
+    const a = resolveTag(merges, rawA);
+    const b = resolveTag(merges, rawB);
     if (a.length === 0 || b.length === 0 || a === b || !store.tagInUse(a) || !store.tagInUse(b)) {
       refused.push(`"${String(item["a"] ?? "")}" / "${String(item["b"] ?? "")}": not two tags in use`);
       continue;
@@ -180,12 +244,13 @@ export function applyTagsAnswer(store: Store, answer: TagsAnswer, ctx: { readonl
   }
 
   let kinds = 0;
-  const askable = new Set(store.unkindedCards(Number.MAX_SAFE_INTEGER, 0).cards.map((c) => c.id));
+  const waiting = new Set(store.unkindedCards(Number.MAX_SAFE_INTEGER, 0).cards.map((c) => c.id));
+  const askable = new Set([...shownCards].filter((id) => waiting.has(id)));
   for (const item of objects(answer.kinds)) {
     const id = typeof item["id"] === "string" ? item["id"].trim() : "";
     const kind = item["kind"];
     if (!askable.has(id)) {
-      refused.push(`${id.length === 0 ? "(no id)" : id}: not a card waiting for a kind`);
+      refused.push(`${id.length === 0 ? "(no id)" : id}: not a card this ask showed, waiting for a kind`);
       continue;
     }
     if (typeof kind !== "string" || !(NIGHT_CARD_KINDS as readonly string[]).includes(kind)) {
@@ -203,16 +268,27 @@ export function applyTagsAnswer(store: Store, answer: TagsAnswer, ctx: { readonl
 }
 
 /**
- * A NIGHT'S TAGGING TAKEN BACK: every tag the night wrote (`via: night`) and
- * every merge it made at or after `sinceAt` (epoch ms), and every card kind
- * it set on or after that day. Its "not the same" answers stay (they only
- * spare a question). Returns what went.
+ * A NIGHT'S TAGGING TAKEN BACK: every tag the night wrote (`via: night`) at
+ * or after `sinceAt` (epoch ms) — and the same tag a revision carried on from
+ * it (`via: carried`, down the memory's `superseded_by` chain; review of
+ * #576) — every merge it made since, and every card kind it set on or after
+ * that day that still reads as it set it. Its "not the same" answers stay
+ * (they only spare a question). Returns what went.
  */
 export function undoNightTags(store: Store, sinceAt: number): { tags: number; merges: number; kinds: number } {
   let tags = 0;
   const byMemory = new Map<string, string[]>();
   for (const r of store.tagsWrittenVia("night", sinceAt)) byMemory.set(r.memoryId, [...(byMemory.get(r.memoryId) ?? []), r.tag]);
-  for (const [id, words] of byMemory) tags += store.untagMemory(id, words);
+  for (const [id, words] of byMemory) {
+    tags += store.untagMemory(id, words);
+    // A revision that carried them on: down the chain, the carried copies go too.
+    const seen = new Set<string>([id]);
+    for (let next = store.row(id)?.superseded_by ?? null; next !== null && !seen.has(next); next = store.row(next)?.superseded_by ?? null) {
+      seen.add(next);
+      const carried = store.tagsOf(next).filter((t) => t.via === "carried" && words.includes(t.tag)).map((t) => t.tag);
+      if (carried.length > 0) tags += store.untagMemory(next, carried);
+    }
+  }
   let merges = 0;
   for (const m of store.tagMerges()) {
     if (m.via === "night" && m.created_at >= sinceAt && store.undoTagMerge(m.alias)) merges += 1;
@@ -220,10 +296,11 @@ export function undoNightTags(store: Store, sinceAt: number): { tags: number; me
   let kinds = 0;
   for (const [key, value] of store.metaWithPrefix(SUBJECT_KIND_BY_PREFIX)) {
     try {
-      const rec = JSON.parse(value) as { by?: unknown; at?: unknown };
+      const rec = JSON.parse(value) as { by?: unknown; at?: unknown; kind?: unknown };
       const id = key.slice(SUBJECT_KIND_BY_PREFIX.length);
       if (rec.by !== "night" || typeof rec.at !== "string" || rec.at < localDate(sinceAt, store.zone())) continue;
-      if (store.row(id) === undefined) continue;
+      // Only a kind still as the night set it: one changed since is someone else's now.
+      if (store.row(id) === undefined || store.row(id)?.subject_kind !== rec.kind) continue;
       store.setSubjectKind(id, null);
       store.setMeta(key, JSON.stringify({ by: "undone", at: store.today() }));
       kinds += 1;

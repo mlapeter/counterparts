@@ -724,3 +724,14 @@ Design §1 (`counterparts-notes/2026-10-21-beliefs-design.md`), brief B items 2,
   change; the night writes a twin pair's shared name once per memory. A card kind the v14
   upgrade got wrong (a project card of kind `place`) is never asked again: the kinds ask
   reads only cards with none.
+
+## 2026-10-21 — review of #576: topics under the write lock, honest counts
+
+- A topic birth asks "does a topic already hold any of these words?" again inside its own
+  insert (`Store#putUnless`, the same method #578 adds for name births — identical text, so
+  the two land as one), so two processes' cycles on one day cannot mint a twin; the loser is
+  counted `a-topic-already`. `topicCards` maps a topic's merged words too.
+- A merge that would close a loop (its tag already reads, through the merges, as the alias)
+  is refused inside `recordTagMerge`'s own transaction (`store/wave2.ts`).
+- Both births report `attempts`, what a night would try within each door's own limit, and the
+  observer's report reads it: min(names, 10) + min(topics, 5), not min(names + topics, 10).
