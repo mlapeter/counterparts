@@ -94,11 +94,18 @@ interface AskRecord {
  * THE ASK, SHOWN AND RECORDED (review of #576): the bundle, with what it
  * showed kept under the run (`tags.ask.<run>`), so the answer is bounded by
  * it — only the memories, pairs and cards shown, nothing else. A second read
- * in the same run replaces the record.
+ * in the same run replaces the record, and a new run's read removes the last
+ * run's: one record is kept, the latest.
  */
 export function askTags(store: Store, run: string): TagsBundle {
   const b = tagsBundle(store);
   if (b.on) {
+    // ONE ASK KEPT (re-review of #576): an answer belongs to the run that just
+    // asked, so an earlier run's record goes when a new one is written — the
+    // meta table does not grow a row a night.
+    for (const key of store.metaWithPrefix(TAGS_ASK_PREFIX).keys()) {
+      if (key !== `${TAGS_ASK_PREFIX}${run}`) store.updateMeta(key, () => null);
+    }
     const record: AskRecord = { memories: b.memories.map((m) => m.id), pairs: b.pairs.map((p) => [p.a, p.b] as const), cards: b.cards.map((c) => c.id) };
     store.setMeta(`${TAGS_ASK_PREFIX}${run}`, JSON.stringify(record));
   }
@@ -270,8 +277,8 @@ export function applyTagsAnswer(store: Store, answer: TagsAnswer, ctx: { readonl
 /**
  * A NIGHT'S TAGGING TAKEN BACK: every tag the night wrote (`via: night`) at
  * or after `sinceAt` (epoch ms) — and the same tag a revision carried on from
- * it (`via: carried`, down the memory's `superseded_by` chain; review of
- * #576) — every merge it made since, and every card kind it set on or after
+ * it (`via: carried`, followed through the revisions that declared it,
+ * `meta.updates`; review of #576) — every merge it made since, and every card kind it set on or after
  * that day that still reads as it set it. Its "not the same" answers stay
  * (they only spare a question). Returns what went.
  */
@@ -281,12 +288,21 @@ export function undoNightTags(store: Store, sinceAt: number): { tags: number; me
   for (const r of store.tagsWrittenVia("night", sinceAt)) byMemory.set(r.memoryId, [...(byMemory.get(r.memoryId) ?? []), r.tag]);
   for (const [id, words] of byMemory) {
     tags += store.untagMemory(id, words);
-    // A revision that carried them on: down the chain, the carried copies go too.
+    // A revision that carried them on: its carried copies go too, and its
+    // own revisions' after it. Followed by where a carried tag CAME FROM —
+    // the memory each revision declared (`meta.updates`, `Store#revisionsOf`)
+    // — not by `superseded_by`, which `remember … updates` with the default
+    // `changed` leaves NULL on both rows (re-review of #576).
     const seen = new Set<string>([id]);
-    for (let next = store.row(id)?.superseded_by ?? null; next !== null && !seen.has(next); next = store.row(next)?.superseded_by ?? null) {
+    const queue = store.revisionsOf(id);
+    while (queue.length > 0) {
+      const next = queue.shift() as string;
+      if (seen.has(next)) continue;
       seen.add(next);
       const carried = store.tagsOf(next).filter((t) => t.via === "carried" && words.includes(t.tag)).map((t) => t.tag);
-      if (carried.length > 0) tags += store.untagMemory(next, carried);
+      if (carried.length === 0) continue;
+      tags += store.untagMemory(next, carried);
+      queue.push(...store.revisionsOf(next));
     }
   }
   let merges = 0;

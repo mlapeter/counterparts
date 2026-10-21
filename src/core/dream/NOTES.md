@@ -959,6 +959,9 @@ reflection was offered five a night.
 - "Untagged" counts only the hands that say what a memory is about (`OWN_TAG_VIAS`); a
   card's name alone would otherwise mark ~1,300 corpus memories tagged with names only,
   and no topic word would ever reach them.
-- Undo: a revision that carried a night tag on (`via: carried`) loses it too, down the
-  `superseded_by` chain (a revision that only links, without superseding, keeps its copy:
-  noted, not chased). A kind changed since the night is left as it is.
+- Undo: a revision that carried a night tag on (`via: carried`) loses it too, and so do its
+  own revisions after it, followed by where the carried tag came from: the memory each
+  revision declared (`meta.updates`, `Store#revisionsOf`). Not `superseded_by`:
+  `remember … updates` with the default `changed` leaves it NULL on both rows (re-review
+  of #576; lane G met the same trap). A kind changed since the night is left as it is.
+- One ask record is kept (`tags.ask.<run>`): a new run's read removes the last run's.

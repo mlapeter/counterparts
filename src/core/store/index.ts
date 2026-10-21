@@ -4673,6 +4673,11 @@ export class Store {
     return tagReads.topicCards(this);
   }
 
+  /** The memories that declared themselves a revision of `id` (`meta.updates`), whether or not they superseded it. */
+  revisionsOf(id: string): string[] {
+    return tagReads.revisionsOf(this, id);
+  }
+
   /** The tags one hand (`via`) wrote at or after `sinceAt`, epoch ms. */
   tagsWrittenVia(via: string, sinceAt: number): { memoryId: string; tag: string }[] {
     return tagReads.tagsWrittenVia(this, via, sinceAt);

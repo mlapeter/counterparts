@@ -337,6 +337,10 @@ describe("the night's tagging ask", () => {
     applyTagsAnswer(c.store, { tagged: [{ id: named, tags: ["gate", "house"] }] }, { run: "nrn_n" });
     expect(tagsOf(c.store, named)).toEqual(["gate:night", "house:night", "wren:card"]);
     expect(askTags(c.store, "nrn_n2").memories).toEqual([]);
+    // One ask record kept: the latest run's (re-review of #576).
+    mem(c.store, "Another untagged memory.");
+    askTags(c.store, "nrn_n3");
+    expect([...c.store.metaWithPrefix("tags.ask.").keys()]).toEqual(["tags.ask.nrn_n3"]);
   });
 
   test("a title or a card name cannot forge a line of the ask (review of #576)", () => {
@@ -347,7 +351,7 @@ describe("the night's tagging ask", () => {
     expect(text.split("\n").filter((l) => l.includes("CARDS WITH NO KIND"))).toHaveLength(1);
   });
 
-  test("undo follows a carried copy down the revision chain, and leaves a kind someone else changed since", () => {
+  test("undo follows a carried copy down the revision chain, and leaves a kind someone else changed since", async () => {
     const c = brain();
     const startedAt = clock;
     const a = mem(c.store, "The boiler service is every October.");
@@ -355,13 +359,21 @@ describe("the night's tagging ask", () => {
     const card = c.schemas.entities().find((e) => e.name === "Driftwood")?.id as string;
     askTags(c.store, "nrn_u");
     applyTagsAnswer(c.store, { tagged: [{ id: a, tags: ["boiler"] }], kinds: [{ id: card, kind: "project" }] }, { run: "nrn_u" });
-    // A revision carries the night's tag on, and supersedes the first.
-    const b = c.store.put({ type: "memory", kind: "fact", body: "The boiler service moved to November.", tags: ["boiler"], tagsVia: "carried" });
-    c.store.supersedeInto(a, b, "changed");
+    // A revision through the real door — `updates`, the default `changed` —
+    // carries the night's tag on; and a revision of THAT carries it further.
+    // Neither supersedes anything (superseded_by stays NULL: re-review of #576).
+    clock += 60_000;
+    const b = await c.submitJot({ content: "The boiler service moved to November.", updates: a }, { session: "s1", scope: "/proj/one" });
+    clock += 60_000;
+    const d = await c.submitJot({ content: "The boiler service is November, with the same firm.", updates: b.memoryId as string }, { session: "s1", scope: "/proj/one" });
+    expect(tagsOf(c.store, b.memoryId as string)).toEqual(["boiler:carried"]);
+    expect(tagsOf(c.store, d.memoryId as string)).toEqual(["boiler:carried"]);
+    expect(c.store.row(a)?.superseded_by ?? null).toBeNull();
     c.store.setSubjectKind(card, "place");
     const undone = undoNightTags(c.store, startedAt);
-    expect(undone.tags).toBe(2);
-    expect(tagsOf(c.store, b)).toEqual([]);
+    expect(undone.tags).toBe(3);
+    expect(tagsOf(c.store, b.memoryId as string)).toEqual([]);
+    expect(tagsOf(c.store, d.memoryId as string)).toEqual([]);
     expect(undone.kinds).toBe(0);
     expect(c.store.row(card)?.subject_kind).toBe("place");
   });

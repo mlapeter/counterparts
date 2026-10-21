@@ -201,3 +201,19 @@ export function tagsWrittenVia(store: Store, via: string, sinceAt: number): { me
     .all<{ memory_id: string; tag: string }>("SELECT memory_id, tag FROM memory_tags WHERE via = ? AND created_at >= ? ORDER BY memory_id, tag", via, sinceAt)
     .map((r) => ({ memoryId: r.memory_id, tag: r.tag }));
 }
+
+/**
+ * The memories that declared themselves a revision of `id` — the RESOLVED id a
+ * deposit writes to its meta (`mint.ts#UPDATES_META_KEY`, `"updates"`). This
+ * is where a carried tag came from (`counterpart-deposit.ts#carryTags` carries
+ * only from the memory a revision declared), and it holds whether or not the
+ * revision superseded anything: `remember … updates` with `how: changed`
+ * leaves `superseded_by` NULL on both rows (re-review of #576). Read by meta
+ * text, as the store reads `unresolved` and `recurring`.
+ */
+export function revisionsOf(store: Store, id: string): string[] {
+  if (!/^[a-z]+_[A-Za-z0-9]+$/.test(id)) return [];
+  return ops(store)
+    .all<{ id: string }>(`SELECT id FROM memories WHERE type = 'memory' AND meta LIKE ? ORDER BY id`, `%"updates":"${id}"%`)
+    .map((r) => r.id);
+}
