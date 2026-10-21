@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.3.29 — 2026-10-21
+
+Personal news now travels between your folders: each night the reflection looks at up to 24 memories nobody marked (it was 5), the personal-looking ones first, and marks the ones about you or the two of you so every folder's wake can show them, while work notes stay in the folder they came from; the morning share names what it re-marked and how to have one marked back, and nothing written in a folder you set off or paused is offered or carried out. In the plugin's sidebar the fox goes to work while Claude's turn runs and sits back down when it ends. The self page now keeps which memories each sentence rests on, doctor gains two reading-only lines ("Self page claims" and "Core"), and the dashboard's Self page shows the page in layers across its kept versions. The mechanism counts now include a dream's folds and band rises, so Consolidation and Interference read higher and Reconsolidation lower than before. Most of these are experiments, to be checked in a few days. Update the plugin with this release for the working fox and for sidebar mechanism counts that match the dashboard's; a 0.3.28 plugin keeps working beside this core, with the older counts. No store-format change (store v13, cache v7) and no wiring change: nothing to run after upgrading from 0.3.28, and `counterparts connect` is not needed.
+
+- **A dream's folds count as Consolidation and Interference.** A fold gathers memories that
+  belong together into what they add up to; it now counts under both, as a dream's merges do,
+  on the dashboard, in `counterparts mechanisms` and in the sidebar. The settles a fold writes
+  over its parts count once, as the fold, and no longer under Reconsolidation.
+- **"Rose a band" counts.** A memory that moves up a band now counts under Consolidation,
+  whichever pass recorded it. Before, the count looked only for a pass that never records a
+  crossing, so it was always 0. The crossing into the core is still counted once, as "became
+  core".
+- **The exact-copy merge is worded for what reaches it**: "exact copy merged into the one
+  already held". A repeat in the same folder is turned away when it is written, which leaves no
+  row to count. A copy written from a second folder is merged at sleep, and a new test proves
+  that happens. Near-copies are still merged only in a dream; merging them at sleep too is
+  open.
+- **The self page keeps what each claim rests on.** The nightly reflection can now cite memories
+  per sentence (`page.claims`) as well as for the whole page. The cites are kept beside the page,
+  and the page's words are unchanged. A sentence with no memory behind it is a hypothesis: it
+  is shown as one, never removed. An experiment.
+- **Two new doctor lines, both readings only.** "Self page claims": how many claims the page
+  makes, how many memories it cites and how many of those are live, archived or missing, and how
+  many claims have no memory behind them. "Core": how many core elements there are, how many
+  have only one episode behind them, and the range of days and contexts their support spans.
+  `counterparts core --list` shows each element's returns, derivations and links.
+- **The dashboard's Self page shows the page in layers.** It shows how each section read across
+  the page's kept versions, and how far back those versions reach. Below that it lists the
+  page's hypotheses. It is a view only; nothing is kept longer.
+- **Personal news reaches your other folders more often.** The nightly reflection now looks
+  at up to 24 unmarked memories a night (it was 5), the ones that look personal first: a
+  feeling, someone's name, a weekend or a visit. When it marks one as about you or the two
+  of you, every folder's wake can show it. Work notes stay in the folder they were written
+  in. The morning share says what it re-marked: up to three by name; past that, two by
+  name and the rest as a count, and how to have one marked back. A memory written in a
+  folder you set off or paused is never offered, and never carried out of it by a mark.
+  An experiment.
+- **The `about` field says what the mark does.** On `remember` and `session_end`: mark
+  anything personal owner or us, and it reaches every folder. Work belongs to its folder,
+  though sessions elsewhere may see its title. Left unmarked, a fact counts as this
+  folder's work.
+- **The nightly run asks a seat.** For anyone embedding Counterparts: the package entry now
+  exports `Seat`, one interface for the model work the memory asks for at night (writing up
+  missed sessions, the dream, the reflection), with Claude Code's own night as its first
+  implementation. Nothing changes in how the night runs on Claude Code.
+- **The sidebar's fox is at work while Claude's turn runs, as an experiment.** Send a prompt
+  and he gets up and goes to work: an alert face, with a tail wag, an ear twitch or a glance
+  every few seconds. He never lies down or naps mid-turn, and a dream or a saved memory still
+  plays and hands back to work. When the turn ends, for any reason, he blinks back to sitting
+  and lies down at 45 seconds and naps at 2 minutes, as before. In terminals that draw the
+  finer sextant fox, and on the desktop, he redraws about three times as often during a turn.
+
 ## 0.3.28 — 2026-10-20
 
 The morning share now closes the open threads that are plainly done, and says which and why; say one isn't done and it is reopened. The session-start wake repeats nothing: each session is named once, and "Today, elsewhere" and a new "Here, also open" say by title what the other open sessions are working on. Saying "done" to a weekly reminder closes just this week; it comes back on its next date. Last night's dream and reflection open by their ids, and `counterparts night` reads them without changing anything. The nightly run keeps the self page within its 4,600-byte room, the reflection answers core memories that have waited a week for keep or retire, and facts list the next twenty matches by title. Most of these are experiments, to be checked in a few days. If you use the plugin, update it with this release: the wake's head is now one tag, and a plugin of 0.3.27 or earlier reads the meeting and the store as unknown until it is updated, so its sidebar footer offers the 5-minute intro again and it skips its store check. No store-format change (store v13, cache v7) and no wiring change: nothing to run after upgrading from 0.3.27, and `counterparts connect` is not needed.

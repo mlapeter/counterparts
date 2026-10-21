@@ -12,7 +12,7 @@ each mechanism is working. It should run in whatever AI host people use.
 
 | | |
 |---|---|
-| **On npm** | 0.3.28 (Oct 20) |
+| **On npm** | 0.3.29 (Oct 21) |
 | **On master, not released** | nothing yet |
 | **Hosts** | Claude Code; the Desktop app's Code tab (verified live 10-02); Claude Desktop chat (0.3.9) |
 | **Platforms** | Mac and Linux, under bun or Node 22.15+ (0.3.11); the plugin with neither, as one downloaded program (0.3.14). Not Windows. |
@@ -27,7 +27,7 @@ check are in [CHECK-AFTER](CHECK-AFTER.md).*
 **Next:** follow-ups in [WORKLIST](WORKLIST.md) (scopes off for folders kept apart, the plugin-split messages, same-session
 neighbours after the bench measures the tail)
 
-**Checks coming up:** 0.3.27's seven experiments ~10-22 · lists vs attachments 10-22 · F4 ~10-23 · F1 ~10-24 ·
+**Checks coming up:** 0.3.27's seven experiments ~10-22 · lists vs attachments 10-22 · F4 ~10-23 · F1 ~10-24 · personal news across folders ~10-24 ·
 10-18's benchmark-motivated changes ~10-25 · F6 10-27 · emotion's weight 11-01 · forgetting resumes late October
 
 **Needs a talk:**
@@ -124,6 +124,7 @@ Rethinking (owner, 2026-10-19, lightly held): "shown strengthens nothing" was a 
 
 ## Recently done
 
+- **10-21**: 0.3.29 on npm, mostly experiments: personal news flows across folders, the reflection offered 24 unmarked memories a night (was 5), personal-looking first, marks said in the share, a folder set off or paused keeps its work, the `about` field says what a mark does (#558); the sidebar's fox at work while Claude's turn runs (#549); the self page keeps cites per claim, doctor's "Self page claims" and "Core" lines, `core --list` support, the dashboard's page in layers (#550); mechanism proofs count dream folds and band rises, fold settles off Reconsolidation, the exact-copy merge reworded (#555); the night asks a seat, `Seat` exported, no behavior change (#556); contracts guide the work without limiting it, constitution line 13 (#553); the lane-1 harness, dev-only (#557, #559, #560); no store-format change, nothing to run after upgrading from 0.3.28
 - **10-20**: 0.3.28 on npm, mostly experiments to check ~10-22 to ~10-27: the nightly reflection closes plainly done threads and says so in the share, `reopen` by the thread id (#535); recall opens dream and reflection ids, `counterparts night` reads them and writes nothing (#538); "done" at a repeating reminder closes this occurrence only, a done memory beside a due reminder gets a hint, drewOn credits a memory replaced that day (#540); the wake without repeats, one tag at its head (`meet=` and `store=` in it), Coming up items carry their own id, the daily snapshot claimed (#536); the nightly writers held to the self page's 4,600-byte room, the wake shows a long page's short version (#541); the reflection answers core memories that waited 7+ lived days, doctor counts them, an owner retire is sticky (#542); facts list the next 20 matches by title and "lately" orders by recency (#544); "Today, elsewhere", "Since you started" and "Here, also open" name other sessions' work by title (#543); the fox follows activity (#545); the plugin must update with this core; no store-format change, nothing to run after upgrading from 0.3.27
 - **10-19**: 0.3.27 on npm, recall that learns from use, most of it experiments to check ~10-22: a session's first prompt matched by meaning, facts ignore quantity words (#521); footnotes skip what this session wrote, the dream replays what the day used, the nightly run's sessions get no footnotes (#523); footnote ratings count as use, memories used together linked strongly, a memory rated 0 twice surfaces less, doctor's Feedback loop line (#525); a newer memory stands in for the one it replaced (#526); no links written at store time, the slot detector flags only (#528); light stemming and everyday words count less (#529); context priming along links and a train-of-thought vector (#530); no store migration (store v13), cache v6 to v7 re-indexes words once in the background; going back to 0.3.26 needs the cache deleted and rebuilt
 - **10-18**: 0.3.26 on npm: "Still open" leads with what was touched in the last 14 lived days and counts the untouched, a stale handoff says its staleness in one sentence and only the newest shows whole when all are stale, the Yesterday line names folders (#517); "Today, elsewhere" dates a session started on an earlier day (#513); doctor's Fired line reads mood matching as disabled (#515); facts say a coarse date may be inside the time asked (#516); no store-format change, nothing to run after upgrading from 0.3.25
