@@ -143,7 +143,11 @@ export function planModelChild(input: ModelSeatInput, ask: SeatAsk, hostSession:
   return { ...plan, args };
 }
 
-/** Headless Claude Code in the harness's seat. A write-up owed is not the harness's to make: refused, by name. */
+/**
+ * Headless Claude Code in the harness's seat, for every act: a write-up owed
+ * (`catch-up`, a session that ended without its write-up, as a new owner's
+ * short sessions do), the dream, the reflection.
+ */
 export function modelSeat(input: ModelSeatInput): Seat<NightAnswer> & { readonly inits: Readonly<Record<string, ChildInit | null>> } {
   if (underLiveRoot(input.dir, input.env)) throw new Error("refused: the harness's seat never runs on the owner's live store");
   const inits: Record<string, ChildInit | null> = {};
@@ -151,7 +155,6 @@ export function modelSeat(input: ModelSeatInput): Seat<NightAnswer> & { readonly
     name: `harness:model${input.model === undefined ? "" : `:${input.model}`}`,
     inits,
     async answer(ask: SeatAsk): Promise<NightAnswer> {
-      if (ask.act === "catch-up") return { refused: "not-in-harness", started: false, code: null, timedOut: false, error: null, ms: 0 };
       const plan = planModelChild(input, ask, randomUUID());
       if (!plan.ok) return { refused: plan.reason, started: false, code: null, timedOut: false, error: null, ms: 0 };
       const at = Date.now();

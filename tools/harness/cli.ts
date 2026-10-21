@@ -11,6 +11,7 @@ import { writeFileSync } from "node:fs";
 import { replayNight } from "./night.js";
 import type { NightReplayRecord } from "./night.js";
 import { runPhysicsReplay } from "./replay.js";
+import { runWeek } from "./week.js";
 import type { RunRecord } from "./replay.js";
 import { DEFAULT_CORPUS } from "./source.js";
 
@@ -111,6 +112,33 @@ export function renderNight(r: NightReplayRecord): string {
 
 async function main(argv: readonly string[]): Promise<number> {
   const [cmd, ...args] = argv;
+  if (cmd === "week") {
+    const days = flag(args, "--days");
+    const record = await runWeek({
+      ...(days === undefined ? {} : { days: Number(days) }),
+      ...(args.includes("--no-nights") ? { nights: false } : {}),
+      ...(flag(args, "--out") === undefined ? {} : { out: flag(args, "--out")! }),
+      ...((): { model?: string } => {
+        const v = flag(args, "--model");
+        return v === undefined || v.startsWith("--") ? {} : { model: v };
+      })(),
+      keep: args.includes("--keep"),
+      onProgress: (line) => process.stderr.write(`${line}\n`),
+    });
+    const out: string[] = [`${record.owner}'s first week · ${String(record.days)} days · ${(record.elapsedMs / 60_000).toFixed(1)} min`];
+    for (const x of record.sessions) {
+      out.push(`  day ${String(x.day)} ${x.scope}: ${String(x.turns)} turns · footnotes ${String(x.footnotes)} · asks ${String(x.asks)} · failed ${String(x.failedTurns)} · memories after ${String(x.memoriesAfter)}${x.init === null ? "" : ` · plugins ${String(x.init.plugins.length)}, servers ${x.init.servers.map((v) => `${v.name}:${v.status}`).join(",")}`}`);
+    }
+    for (const n of record.nights) out.push(`  night on the morning of day ${String(n.day)} (${n.kind}): ${n.state} (${n.parts.join(",") || "none"})`);
+    out.push(`  worker boundaries the product asked for: ${String(record.boundaries)}`);
+    for (const d of record.daily) out.push(`  end of day ${String(d.day)} ${d.date}: ${String(d.alive)} memories, core ${String(d.core)}`);
+    if (record.out !== null) out.push(`store: ${record.out} (replay it: bun tools/harness/cli.ts replay --source ${record.out})`);
+    if (record.keptAt !== null) out.push(`kept: ${record.keptAt}`);
+    process.stdout.write(out.join("\n") + "\n");
+    const json = flag(args, "--json");
+    if (json !== undefined) writeFileSync(json, JSON.stringify(record, null, 2));
+    return 0;
+  }
   if (cmd === "night") {
     const dir = flag(args, "--dir");
     const pick = (name: string, file: string): string => {

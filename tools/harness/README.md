@@ -162,6 +162,55 @@ The comparison block reads the same as for the recorded night, but a model's nig
 own: the counts are for setting side by side, not for matching. A run spends subscription
 usage.
 
+## A scripted owner's first week (`week`)
+
+```sh
+bun tools/harness/cli.ts week [--days N] [--no-nights] [--model <name>] --out <week.sqlite>
+bun tools/harness/cli.ts replay --source <week.sqlite>      # then, under rule patches, compare
+```
+
+A fresh store, begun as a new install begins (the meeting offered, dreaming on), and a fixed
+week of sessions by a fictional new owner (`owner-week.ts`: Dana, a ceramics teacher; 7 days,
+11 short sessions). The same week every run, so a difference between runs belongs to the
+memory, not the script.
+
+The harness is the host. It builds Claude Code's own adapter (`ClaudeCodeAdapter`) in-process
+on the harness's clock and calls its handlers in Claude Code's order:
+- `sessionStart`;
+- per scripted line, `userPromptSubmit`, then `stop` after the model's reply. An ask it returns
+  is put to the model as the next message.
+- at the end, `sessionEnd`.
+
+**The product decides what runs.** Its spawner is the harness's, which records each ask: the
+night (at a morning's first session, when the product's gate says one is due) and the worker
+(at each Stop and session end). After each hook call the harness runs exactly those: the night
+through `runNight` with the model seat (catch-up, dream, reflection), and the worker as the
+boundary it runs. The harness also makes the claims Claude Code's delivery step makes (plain
+reminders, the dream line), credits the model's recall calls as the turn's expansions, and
+settles the folder registry as an owner who said "on".
+
+Each turn is one `claude -p` (`--session-id`, then `--resume`) with the session's memory tools
+from the harness's server, as the owner, under the same safety as the model seat.
+
+One shape differs from a live session: a hook's words arrive in the prompt as a system
+reminder, not as the host's attachment. Claude Code's own delivery step (`bin/hook.ts`) isn't
+among the package's public seams, so its claims are made through the adapter's methods.
+
+The week's store comes out as one file (`VACUUM INTO`). The rule variants are physics, so the
+model runs the week once, and the record is replayed under each patch: identical acts,
+seconds each.
+
+On 2026-10-20 (as an install with the meeting, after two reviews), the week took about 14
+minutes:
+- memories: 20 after day 1, 49 by day 7;
+- nights on the six mornings the gate chose;
+- 54 worker boundaries;
+- **core 0 every day under today's rules, the door closed, and spread.**
+
+By the product's own verdict, the candidates (self, marked `us`, from the meeting) reached the
+return gap (2 days) but not the feeling: 0.0 and 0.2, where 0.6 is needed. The `us` memories
+felt at 0.5–0.6 were facts, and a fact isn't a core kind.
+
 ## Safety
 
 - The source is opened read-only, and the harness refuses any path under `~/.counterparts`.

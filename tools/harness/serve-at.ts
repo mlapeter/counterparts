@@ -9,7 +9,8 @@
  *
  * Opened as the night's child's server is (`night-run.ts#nightMcpConfig`):
  * not the owner's, told which act it serves and which run, with the static
- * embedder. Its clock starts at `HARNESS_NOW` and runs on with the real one,
+ * embedder. A scripted owner's own session (`week.ts`) opens it as the
+ * owner's (`HARNESS_OWNER=1`), as a person's own Claude Code session is. Its clock starts at `HARNESS_NOW` and runs on with the real one,
  * so a call made a minute into the child reads a minute later.
  *
  * Everything comes from its environment, set by the harness's seat
@@ -32,6 +33,10 @@ export const SERVE_AT_ENV = {
   child: "COUNTERPARTS_NIGHT_CHILD",
   run: "COUNTERPARTS_NIGHT_RUN",
   embed: "HARNESS_EMBED",
+  /** `1`: the owner's own session (a scripted owner's); absent, not the owner's (a night child's). */
+  owner: "HARNESS_OWNER",
+  /** The folder registry a session's server reads, when the harness keeps one. */
+  scopes: "HARNESS_SCOPES_FILE",
 } as const;
 
 async function main(): Promise<void> {
@@ -46,9 +51,10 @@ async function main(): Promise<void> {
   const now = (): number => base + (Date.now() - startedAt);
   const timeZone = env[SERVE_AT_ENV.timeZone];
   const embedder = env[SERVE_AT_ENV.embed] === "0" ? null : openEmbedder({ embedder: { enabled: true } });
+  const owner = env[SERVE_AT_ENV.owner] === "1";
   const counterpart = Counterpart.open({
     dir,
-    owner: false,
+    owner,
     budgetBytes: Number(env[SERVE_AT_ENV.budget] ?? "9000"),
     now,
     ...(timeZone === undefined || timeZone.length === 0 ? {} : { timeZone }),
@@ -58,8 +64,9 @@ async function main(): Promise<void> {
     counterpart,
     ...(env[SERVE_AT_ENV.session] === undefined ? {} : { session: env[SERVE_AT_ENV.session] }),
     ...(env[SERVE_AT_ENV.scope] === undefined ? {} : { scope: env[SERVE_AT_ENV.scope] }),
-    owner: false,
+    owner,
     ...(embedder === null ? {} : { embedder }),
+    ...(env[SERVE_AT_ENV.scopes] === undefined || env[SERVE_AT_ENV.scopes] === "" ? {} : { scopesFile: env[SERVE_AT_ENV.scopes] }),
     env: {
       ...(env[SERVE_AT_ENV.child] === undefined ? {} : { [SERVE_AT_ENV.child]: env[SERVE_AT_ENV.child] }),
       ...(env[SERVE_AT_ENV.run] === undefined ? {} : { [SERVE_AT_ENV.run]: env[SERVE_AT_ENV.run] }),
