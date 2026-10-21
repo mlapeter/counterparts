@@ -722,8 +722,8 @@ anchor  = the last lived day a support filing counted                     # the 
 support(b) = BELIEF_SUPPORT_CAP × (1 − e^(−uses / BELIEF_SUPPORT_SCALE))        0.9, 4
 base(b)    = max( ω_sal(k) × salArm(b),  support(b) ) + cons(b)               # its own arm, not rep
 q(b)       = max( steepnessInput(b), support(b) )                             # it hardens
-bar(b)     = FLOOR + (CAP − FLOOR) × (1 − e^(−uses / SCALE)) × min(1, days / DAYS)²
-             BELIEF_RESIST_FLOOR 0.1 · CAP 1.0 · SCALE 1.5 · DAYS 2           # not ι × strength
+bar(b)     = FLOOR + (CAP − FLOOR) × (1 − e^(−uses / SCALE)) × min(1, ln(1 + days) / ln(1 + DAYS))
+             BELIEF_RESIST_FLOOR 0.1 · CAP 1.0 · SCALE 3 · DAYS 14            # not ι × strength
 force      ≤ F_DAY_CAP_SLOW (0.35) a lived day, for every belief
 ```
 
@@ -734,12 +734,13 @@ force      ≤ F_DAY_CAP_SLOW (0.35) a lived day, for every belief
   belief fades slowly, and restarts the curve on the last day support counted. Unsupported, a
   newborn 0.3 belief leaves reach in about five lived days.
 - **Resistance grows with support, not with the kind.** A belief resists contrary pressure by
-  its support alone (`beliefResistance`): a thin one — one or two supports from one lived day —
-  has a bar under the daily cap, so one strong contrary memory contests it the same day; one
-  backed from two lived days or more (3+ supports) has a bar past 2 × 0.35, so it holds two
-  days of contrary pressure and goes on the third — §5.6's bound — and never needs more than
-  three (CAP 1). The bar does not decay with the belief: resistance is what life put behind
-  it, and the pressure decays on its own curve.
+  its support alone (`beliefResistance`), and it hardens over WEEKS (the child-to-adult arc):
+  one or two supports from one lived day ~0.17–0.19, under the daily cap, so one strong
+  contrary memory contests it the same day; two over two days ~0.28; a support a day for a
+  week ~0.72, past 2 × 0.35, so it holds two days of contrary pressure and goes on the third
+  — §5.6's bound; a mature belief (ten supports over twenty days) ~0.97, and never more than
+  three days (CAP 1). The bar does not decay with the belief: resistance is what life put
+  behind it, and the pressure decays on its own curve.
 - **Contested, never rewritten.** Past the bar the belief keeps its words — no memory's body
   becomes a belief's text — takes one cut (`BELIEF_CONTESTED_FADE` 0.5 on `fade`, as a
   `changed` settle's), its pressure starts again from nothing, and `meta.contested` records the

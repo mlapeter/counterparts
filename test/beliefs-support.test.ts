@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { TUNABLES as PHYSICS, height, sal, strength, supportCredit, supportedPhysics } from "../src/core/physics/index.js";
+import { TUNABLES as PHYSICS, beliefResistance, height, sal, strength, supportCredit, supportedPhysics } from "../src/core/physics/index.js";
 import type { SupportFiling } from "../src/core/physics/index.js";
 import { Store } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
@@ -327,15 +327,27 @@ describe("resistance grows with support (physics §5.13), and past it a belief i
     expect(r.revision?.bar).toBeLessThan(PHYSICS.F_DAY_CAP_SLOW);
   });
 
-  test("a well-supported belief — three supports from two days — holds two days of contrary pressure and is contested on the third", () => {
+  test("resistance rises over weeks of support, not days: 2 support-days, then 7, then 30", () => {
+    const at = (days: number): number => beliefResistance({ uses: days, reinforcedDays: days });
+    expect(at(2)).toBeLessThan(PHYSICS.F_DAY_CAP_SLOW);
+    expect(at(7)).toBeGreaterThan(at(2) + 0.3);
+    expect(at(7)).toBeGreaterThan(2 * PHYSICS.F_DAY_CAP_SLOW);
+    expect(at(30)).toBeGreaterThan(at(7) + 0.2);
+    expect(at(30)).toBeLessThanOrEqual(PHYSICS.BELIEF_RESIST_CAP);
+    // Two supports over two days stay young (about 0.3); ten over twenty days are grown (about 1).
+    expect(beliefResistance({ uses: 2, reinforcedDays: 2 })).toBeCloseTo(0.3, 1);
+    expect(beliefResistance({ uses: 10, reinforcedDays: 20 })).toBeGreaterThan(0.95);
+  });
+
+  test("a mature belief — ten supports over twenty days — holds two days of contrary pressure and is contested on the third", () => {
     const { s, schemas, me } = world();
     const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
-    schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Mike: dawn sessions are our best.", 1, { saidBy: "owner", session: "a" }), stance: "support", day: 1 });
-    schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Shipped the parser before breakfast.", 1, { saidBy: "self", session: "b" }), stance: "support", day: 1 });
-    schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Another dawn session, another clean merge.", 2, { saidBy: "owner" }), stance: "support", day: 2 });
-    expect(s.physicsOf(b).reinforcedDays).toBe(2);
+    for (let day = 1; day <= 20; day += 2) {
+      schemas.fileSupport({ beliefId: b, memoryId: lived(s, `Another good dawn session, day ${day}.`, day, { saidBy: "owner" }), stance: "support", day });
+    }
+    expect(s.physicsOf(b).reinforcedDays).toBe(10);
     const verdicts: string[] = [];
-    for (const day of [3, 4, 5]) {
+    for (const day of [21, 22, 23]) {
       const r = schemas.fileSupport({ beliefId: b, memoryId: against(s, `A night session went better than dawn, day ${day}.`, day), stance: "contrary", day });
       verdicts.push(r.revision?.reason ?? "none");
     }

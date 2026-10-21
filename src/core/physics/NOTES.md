@@ -713,11 +713,14 @@ belief on the self subject is kind `fact`, ι 0.2, so its bar was at most 0.1 an
 ordinary contrary memory flipped the best-supported belief about me, the inverse of design
 §5. Now: a support arm (`BELIEF_SUPPORT_CAP` 0.9, `SCALE` 4) replaces the repetition arm for
 a belief and sets its steepness; and the bar is `beliefResistance`, from support and the
-lived days it comes from, squared in the days so one day of support stays thin however much
-of it there is. Numbers at the defaults: one support from one day 0.21; two from one day
-0.24 (both under the daily cap, contested the same day); three from two days ~0.83 (holds
-two days, goes on the third); the cap 1.0 (three days, never more). The bar does not decay
-with the belief's strength: it is what life put behind it; the pressure decays on its own.
+lived days it comes from. The first shape (`min(1, days/2)²`) hardened in two days — two
+supports over two days resisted ~0.76, nearly a month-old belief's — so the days term is
+log-shaped over about two weeks (`ln(1 + days) / ln(15)`, design session 10-21). Numbers at
+the defaults: one support from one day 0.17, two 0.19 (under the daily cap, contested the
+same day); two over two days 0.28; a support a day for a week 0.72 (holds two days, goes on
+the third); ten over twenty days 0.97; thirty days of daily support ~1.0 (three days, never
+more). The bar does not decay with the belief's strength: it is what life put behind it;
+the pressure decays on its own.
 
 **Contested, not superseded.** Crossing the bar used to mint a successor in the challenger's
 words, so a memory's body became a belief. A belief born under lane C now keeps its words,

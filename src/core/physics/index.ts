@@ -565,19 +565,21 @@ export const TUNABLES = {
   BELIEF_SUPPORT_CAP: 0.9,
   BELIEF_SUPPORT_SCALE: 4,
   /**
-   * A BELIEF'S RESISTANCE GROWS WITH ITS SUPPORT (§5.13, not its subject's
-   * kind): the bar a contrary challenge must pass is
-   * `FLOOR + (CAP − FLOOR) x (1 − e^(−support / SCALE)) x min(1, days / DAYS)²`,
-   * `days` the distinct lived days its support's memories come from. A thin
-   * belief (one or two supports from one day) stays under `F_DAY_CAP_SLOW`, so
-   * one contrary memory can contest it the same day; one backed from two days
-   * or more resists past 2 x `F_DAY_CAP_SLOW`, so it takes three lived days of
-   * contrary pressure (§5.6's bound), and never more than three (CAP 1). CAL.
+   * A BELIEF'S RESISTANCE GROWS WITH ITS SUPPORT, OVER WEEKS (§5.13, not its
+   * subject's kind): the bar a contrary challenge must pass is
+   * `FLOOR + (CAP − FLOOR) x (1 − e^(−support / SCALE)) x min(1, ln(1 + days) / ln(1 + DAYS))`,
+   * `days` the distinct lived days its support's memories come from — the
+   * child-to-adult arc, gradual. At these numbers: one or two supports from
+   * one day ~0.17–0.19 (under `F_DAY_CAP_SLOW`: one contrary memory contests
+   * it the same day); two over two days ~0.28; a support a day for a week
+   * ~0.72 (three lived days of contrary pressure, §5.6's bound); a mature
+   * belief, ten supports over twenty days, ~0.97 — never more than three days
+   * at the daily cap (CAP 1). CAL.
    */
   BELIEF_RESIST_FLOOR: 0.1,
   BELIEF_RESIST_CAP: 1.0,
-  BELIEF_RESIST_SCALE: 1.5,
-  BELIEF_RESIST_DAYS: 2,
+  BELIEF_RESIST_SCALE: 3,
+  BELIEF_RESIST_DAYS: 14,
   /** A belief whose contrary pressure crossed its bar is CONTESTED: its text stays, its strength takes this cut once (as a `changed` settle's). CAL. */
   BELIEF_CONTESTED_FADE: 0.5,
 
@@ -1012,9 +1014,10 @@ export function supportArm(m: Pick<MemoryPhysics, "uses"> & Partial<Pick<MemoryP
  * `days` is how many lived days its support's memories come from.
  */
 export function beliefResistance(m: Pick<MemoryPhysics, "uses"> & Partial<Pick<MemoryPhysics, "reinforcedDays">>): number {
-  const spread = Math.min(1, Math.max(0, reinforcedDays(m)) / TUNABLES.BELIEF_RESIST_DAYS);
+  // Over weeks, log-shaped: the first days count most, and two weeks of them saturate.
+  const spread = Math.min(1, Math.log(1 + Math.max(0, reinforcedDays(m))) / Math.log(1 + TUNABLES.BELIEF_RESIST_DAYS));
   const backed = 1 - Math.exp(-Math.max(0, m.uses) / TUNABLES.BELIEF_RESIST_SCALE);
-  return TUNABLES.BELIEF_RESIST_FLOOR + (TUNABLES.BELIEF_RESIST_CAP - TUNABLES.BELIEF_RESIST_FLOOR) * backed * spread * spread;
+  return TUNABLES.BELIEF_RESIST_FLOOR + (TUNABLES.BELIEF_RESIST_CAP - TUNABLES.BELIEF_RESIST_FLOOR) * backed * spread;
 }
 
 // ---------------------------------------------------------------------------
