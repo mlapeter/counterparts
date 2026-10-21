@@ -322,7 +322,7 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     gate it carried was retired (recall CONTRACT §5 G9), every write stores 0, and no gate
     reads it. A row written before may still hold 1; the first writable open by this build
     counted those once (`CONFIDENTIAL_RETIRED_KEY`, read by doctor) and changed nothing.
-    The column goes in the next batched store-format change.
+    Dropping the column in the next batched store-format change is planned (lightly held).
 14. **[M] The implicit default is refusable.** `dataDir()`'s fallback to
     `~/.counterparts/store` is the one path a caller reaches by naming nothing, and on the
     owner's machine it is his live memory; `.counterparts` cannot join the forbidden roots

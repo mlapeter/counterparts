@@ -2177,8 +2177,8 @@ What changed with it, measured:
   (insert, `revise`, `appendBody`), so a revised old row loses its 1 too; the SQL filters
   in `workCandidates`, `planCandidates`, `memoryCountsByScopeSince` and
   `memoryTitlesByScopeSince` are gone, and `traitReads` no longer blanks `carried_by`.
-  No schema or cache version moved: the column stays until the next batched store-format
-  change. The first writable open by this build counts live rows still holding 1 and
+  No schema or cache version moved: the column stays; dropping it in the next batched
+  store-format change is planned, lightly held. The first writable open by this build counts live rows still holding 1 and
   writes `confidential.retired` (`{count, ids ≤ 50, at, day}`) once, keyed on the row's
   absence like the claims era; doctor reads it. The removal scrub's `confidential = 0`
   stays while the column does. `confidentialByMeta` stays exported only because the

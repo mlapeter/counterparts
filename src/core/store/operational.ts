@@ -293,8 +293,8 @@ export const DDL: readonly string[] = [
      -- "unrecognized fields survive parse -> serialize untouched" (G6, v1's named
      -- incident) is satisfied for free by storing the text as given.
      meta              TEXT NOT NULL DEFAULT '{}',
-     -- Retired 2026-10-21: written 0, read by no gate. Dropped in the next
-     -- batched store-format change.
+     -- Retired 2026-10-21: written 0, read by no gate. Planned (lightly held)
+     -- to be dropped in the next batched store-format change.
      confidential      INTEGER NOT NULL DEFAULT 0,
      created_at        INTEGER,
      updated_at        INTEGER,

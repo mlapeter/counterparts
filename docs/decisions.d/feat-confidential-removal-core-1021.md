@@ -6,10 +6,10 @@
   pull requests, one release: core and MCP behaviour first, then the adapters (dashboard,
   sidebar, export, CLI), then the leftover types.
 - Existing marked rows: counted once at the first writable open after the upgrade
-  (`confidential.retired`), with a doctor amber line only when the count is above 0.
-  Nothing is archived.
-- The column: inert (written 0, never read) and dropped in the next batched store-format
-  change. No schema or cache version change now.
+  (`confidential.retired`), with a doctor amber line only while any of them are still
+  there (removed ones stop counting). Nothing is archived.
+- The column: inert now (written 0, never read). Dropping it in the next batched
+  store-format change is planned, lightly held. No schema or cache version change now.
 - The last exchange stays owner-only for now, lightly held. The reason written beside it
   was confidentiality; that reason is removed and no other is put in its place.
 - The owner/guest stance stays for now, lightly held. What it still decides is closing a

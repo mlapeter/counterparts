@@ -5119,7 +5119,8 @@ export class Store {
       doc.body,
       metaJson,
       // The retired confidentiality column (2026-10-21): written 0, read by
-      // no gate; it goes in the next batched store-format change.
+      // no gate; dropping it in the next batched store-format change is
+      // planned, lightly held.
       0,
       at,
       at,

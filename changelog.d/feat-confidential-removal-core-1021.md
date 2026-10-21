@@ -3,8 +3,9 @@
   directly with a `confidential` meta key could. A memory marked that way is now recalled,
   named, dreamed on, reflected on and written up like any other, in every session: the
   owner's, a Claude Desktop chat, the night run and an observer. If your store had any,
-  `counterparts doctor` shows one amber line with how many (the ids are in
-  `doctor --json`), once, so you can remove any you don't want with
+  they are counted once, at the first open after the upgrade, and `counterparts doctor`
+  shows one amber line with how many are still there (the ids are in `doctor --json`)
+  for as long as any remain, so you can remove any you don't want with
   `counterparts remove <id>`. A store with none shows nothing.
 - **`status` and doctor say what "owner" still means.** `owner: false` now reads: an open
   question written in another directory cannot be closed from here, and the last exchange

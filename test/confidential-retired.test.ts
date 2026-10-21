@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { openServer } from "../src/adapters/mcp/index.js";
+import { run } from "../src/adapters/cli/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { confidentialRetiredFindings } from "../src/adapters/claude-code/doctor.js";
 import { Counterpart } from "../src/core/counterpart.js";
@@ -152,7 +153,7 @@ describe("the one-time count of rows still marked", () => {
     expect(record.ids).toEqual(marked);
     const [line] = confidentialRetiredFindings(s);
     expect(line?.severity).toBe("amber");
-    expect(line?.detail).toContain("2 memories were marked confidential");
+    expect(line?.detail).toContain("2 memories marked confidential through the store API are still here (2 when counted)");
     expect(line?.fix).toContain("counterparts remove");
     expect(String(line?.data["ids"])).toBe(marked.join(", "));
     // Nothing was changed: the rows are live and still hold what they held.
@@ -162,6 +163,45 @@ describe("the one-time count of rows still marked", () => {
     const again = Store.open({ dir });
     open.push(again);
     expect(again.getMeta(CONFIDENTIAL_RETIRED_KEY)).toBe(raw as string);
+  });
+
+  test("the line counts what is still here: one removed leaves 1, both removed and doctor is no longer amber; the record stays as counted", async () => {
+    const { marked } = olderStore();
+    Store.open({ dir }).close();
+    const remove = async (id: string): Promise<void> => {
+      // The owner's own door, confirmed by typing the id, as at a terminal.
+      const said: string[] = [];
+      const io = {
+        out: (l: string) => said.push(l),
+        err: (l: string) => said.push(l),
+        prompt: async (): Promise<string> => id,
+        tty: { stdin: true, stdout: true },
+      };
+      const code = await run(["remove", id, "--confirm", "--dir", dir], { io });
+      expect({ code, said: said.join("\n") }).toMatchObject({ code: 0 });
+    };
+    await remove(marked[0] as string);
+    let s = Store.open({ dir, observer: true });
+    const [one] = confidentialRetiredFindings(s);
+    expect(one?.severity).toBe("amber");
+    expect(one?.detail).toContain("1 memory marked confidential through the store API is still here (2 when counted)");
+    expect(String(one?.data["ids"])).toBe(marked[1] as string);
+    s.close();
+    await remove(marked[1] as string);
+    s = Store.open({ dir, observer: true });
+    open.push(s);
+    expect(confidentialRetiredFindings(s)).toEqual([]);
+    expect(JSON.parse(s.getMeta(CONFIDENTIAL_RETIRED_KEY) as string)).toMatchObject({ count: 2, ids: marked });
+  });
+
+  test("past the 50 ids the record keeps, the rest are counted as still here, and the line says so", () => {
+    const s = Store.open({ dir });
+    open.push(s);
+    s.setMeta(CONFIDENTIAL_RETIRED_KEY, JSON.stringify({ count: 52, ids: [], at: 0, day: "2026-10-21" }));
+    const [line] = confidentialRetiredFindings(s);
+    expect(line?.severity).toBe("amber");
+    expect(line?.detail).toContain("52 memories");
+    expect(line?.detail).toContain("the other 52 are counted as still here");
   });
 
   test("an observer open writes nothing; a fresh store records 0 and doctor says nothing", () => {

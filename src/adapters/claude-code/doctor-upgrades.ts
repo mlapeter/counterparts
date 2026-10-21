@@ -1,5 +1,5 @@
 /** `doctor`'s findings on the store upgrades v8 to v11, read from what each upgrade recorded (moved out of `doctor.ts`, 2026-10-11). */
-import { CONFIDENTIAL_RETIRED_KEY, Store } from "../../core/store/index.js";
+import { CONFIDENTIAL_RETIRED_KEY, Store, rowTombstoned } from "../../core/store/index.js";
 import { finding } from "./doctor-finding.js";
 import type { Finding } from "./doctor-finding.js";
 
@@ -235,11 +235,15 @@ export function upgradeV11Findings(store: Store): Finding[] {
 }
 
 /**
- * THE CONFIDENTIAL MARK, RETIRED (2026-10-21): how many live memories carried
- * it when this build first opened the store (`CONFIDENTIAL_RETIRED_KEY`,
- * counted once). Nothing is withheld any more, so they surface like any other
- * memory. Amber only when the count is above 0, with the ids in `--json`;
- * silent at 0 and on a store this build has not opened writable yet.
+ * THE CONFIDENTIAL MARK, RETIRED (2026-10-21): the memories that carried it
+ * when this build first opened the store (`CONFIDENTIAL_RETIRED_KEY`, counted
+ * once). Nothing is withheld any more, so they surface like any other memory.
+ * The record is frozen; what is still there is read at report time — a
+ * recorded id the owner has since removed (denied or emptied) no longer
+ * counts. The record keeps the first 50 ids only; past those, the rest are
+ * counted as still there, and the line says so. Amber only while any remain,
+ * with the ids in `--json`; silent otherwise and on a store this build has
+ * not opened writable yet.
  */
 export function confidentialRetiredFindings(store: Store): Finding[] {
   const record = metaJson(store, CONFIDENTIAL_RETIRED_KEY);
@@ -247,16 +251,34 @@ export function confidentialRetiredFindings(store: Store): Finding[] {
   const count = metaNum(record["count"]);
   if (count <= 0) return [];
   const ids = Array.isArray(record["ids"]) ? record["ids"].filter((x): x is string => typeof x === "string") : [];
+  let denied: ReadonlySet<string>;
+  try {
+    denied = new Set(store.deniedIds());
+  } catch {
+    denied = new Set();
+  }
+  const still = ids.filter((id) => {
+    if (denied.has(id)) return false;
+    try {
+      const row = store.row(id);
+      return row !== undefined && !rowTombstoned(row);
+    } catch {
+      return true;
+    }
+  });
+  const unlisted = Math.max(0, count - ids.length);
+  const remaining = still.length + unlisted;
+  if (remaining <= 0) return [];
   const day = typeof record["day"] === "string" && record["day"].length > 0 ? record["day"] : null;
-  const one = count === 1;
+  const one = remaining === 1;
   return [
     finding(
       "confidential-retired",
       "amber",
       "Confidential",
-      `${String(count)} ${one ? "memory was" : "memories were"} marked confidential through the store API; ${day === null ? "since this version" : `since ${day}`} nothing is withheld, so ${one ? "it surfaces" : "they surface"} like any other memory`,
-      `${one ? "It is" : "They are"} listed in counterparts doctor --json${count > ids.length ? ` (the first ${String(ids.length)})` : ""}. Remove any you don't want: counterparts remove <id>.`,
-      { count, ids: ids.join(", "), day },
+      `${String(remaining)} ${one ? "memory" : "memories"} marked confidential through the store API ${one ? "is" : "are"} still here (${String(count)} when counted); ${day === null ? "since this version" : `since ${day}`} nothing is withheld, so ${one ? "it surfaces" : "they surface"} like any other memory${unlisted > 0 ? `; only the first ${String(ids.length)} were recorded by id, so the other ${String(unlisted)} are counted as still here` : ""}`,
+      `${still.length === 1 && unlisted === 0 ? "It is" : "They are"} listed in counterparts doctor --json. Remove any you don't want: counterparts remove <id>.`,
+      { count, remaining, ids: still.join(", "), unlisted, day },
     ),
   ];
 }
