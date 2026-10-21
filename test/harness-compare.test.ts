@@ -15,7 +15,9 @@ import { join } from "node:path";
 
 import { seatAsk } from "../src/core/counterpart.js";
 import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
-import { CompareError, cell, linesChanged, planSides, readRecord, renderCompare, runArgs } from "../tools/harness/compare.js";
+import { spawnSync } from "node:child_process";
+
+import { CompareError, absolutePaths, cell, linesChanged, planSides, readRecord, renderCompare, runArgs, runCompare, sameSettings } from "../tools/harness/compare.js";
 import type { SideResult } from "../tools/harness/compare.js";
 import { planModelChild } from "../tools/harness/model-seat.js";
 import { pageReading } from "../tools/harness/page.js";
@@ -72,6 +74,11 @@ test("a setting that can't be set is refused by name, and none of the batch is s
   expect(code(() => applySettings(["physics.CORE_FAST_GAP_DAYS=1", "physics.NO_SUCH_KEY=2"]))).toBe("SETTING_KEY");
   expect(PHYSICS.CORE_FAST_GAP_DAYS).toBe(was);
   expect(code(() => applySettings(["physics.CORE_FAST_GAP_DAYS=1", "physics.CORE_FAST_GAP_DAYS=3"]))).toBe("SETTING_TWICE");
+  // A key some reader copied at load: refused, since it would change only the live object's readers.
+  expect(code(() => parseSetting("physics.W_SHOWN=0.9"))).toBe("SETTING_CAPTURED");
+  expect(code(() => parseSetting("physics.SHOWN_RECURRENCE_WEIGHT=0.9"))).toBe("SETTING_CAPTURED");
+  expect(code(() => parseSetting("physics.HOLD_LEAD_DAYS=3"))).toBe("SETTING_CAPTURED");
+  expect(code(() => parseSetting("remember.CONSUMED_LEDGER_MAX=3"))).toBe("SETTING_CAPTURED");
   expect(PHYSICS.CORE_FAST_GAP_DAYS).toBe(was);
   expect(appliedSettings()).toEqual([]);
 });
@@ -229,7 +236,7 @@ test("the table marks where the sides differ, says a failed run and a build that
     ...readRecord("week", { elapsedMs: 120_000, settings: [], usage: { calls: 2, input: 1, output: 1, cacheRead: 0, cacheCreate: 0, costUsd: 0 }, daily: [{ day: 1, alive: 5, core }], nights: [], sessions: [], page: { version: 1, bytes: 10, lines: 1, by: null, cites: null, claims: null, uncited: null } }, page),
     settings,
   });
-  const failed = { ok: false, error: "boom", elapsedMs: null, tokens: null, costUsd: null, calls: null, settings: [], rows: {}, pageText: null };
+  const failed = { ok: false, error: "boom", elapsedMs: null, tokens: null, costUsd: null, calls: null, unread: null, settings: [], rows: {}, pageText: null };
   const text = renderCompare("week", [
     side("base", [], [ok(0, "a\nb"), ok(0, "a\nc")]),
     side("variant", ["physics.CORE_FAST_GAP_DAYS=1"], [ok(2, "a\nx"), failed]),
@@ -256,4 +263,56 @@ test("a store with no page reads as none, and its page file is written empty", (
   expect(pageReading(dir, out)).toBeNull();
   expect(existsSync(out)).toBe(true);
   expect(readFileSync(out, "utf8")).toBe("");
+});
+
+// ── the review's cases (#566) ───────────────────────────────────────────────
+
+test("the mode's paths are made absolute against where the compare was started, flags and other values left alone", () => {
+  expect(absolutePaths(["--dir", "night-1019", "--model", "--source", "/abs/x.sqlite", "--days", "2"], "/home/me")).toEqual([
+    "--dir", "/home/me/night-1019", "--model", "--source", "/abs/x.sqlite", "--days", "2",
+  ]);
+  expect(absolutePaths(["--dir", "--model"], "/home/me")).toEqual(["--dir", "--model"]);
+});
+
+test("a record's settings match what was asked by value, in any order", () => {
+  expect(sameSettings(["physics.A=1"], ["physics.A=1.0"])).toBe(true);
+  expect(sameSettings(["physics.B=true", "physics.A=1"], ["physics.A=1", "physics.B=true"])).toBe(true);
+  expect(sameSettings([], ["physics.A=1"])).toBe(false);
+  expect(sameSettings(["physics.A=2"], ["physics.A=1"])).toBe(false);
+});
+
+test("a ref that doesn't exist is refused before any side runs", () => {
+  const repo = join(root, "repo");
+  mkdirSync(repo);
+  const git = (...a: string[]): void => {
+    spawnSync("git", ["-C", repo, ...a], { encoding: "utf8" });
+  };
+  git("init", "-q");
+  git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x");
+  const said: string[] = [];
+  let code = "none";
+  try {
+    runCompare({ mode: "replay", branch: "no-such-ref", set: [], baseSet: [], runs: 1, passthrough: [], repo, onProgress: (l) => said.push(l) });
+  } catch (e) {
+    code = e instanceof CompareError ? e.code : String(e);
+  }
+  expect(code).toBe("COMPARE_GIT");
+  expect(said).toEqual([]);
+  expect(spawnSync("git", ["-C", repo, "worktree", "list"], { encoding: "utf8" }).stdout.trim().split("\n")).toHaveLength(1);
+});
+
+test("the compare refuses a flag it doesn't have, or a mode flag before --, without running anything", () => {
+  const cli = join(import.meta.dir, "..", "tools", "harness", "cli.ts");
+  const run = (...a: string[]): { status: number | null; err: string } => {
+    const r = spawnSync(process.execPath, [cli, "compare", ...a], { encoding: "utf8", cwd: root });
+    return { status: r.status, err: r.stderr };
+  };
+  expect(run("--mode", "replay", "--bogus").err).toContain("compare has no --bogus");
+  expect(run("--mode", "replay", "--set", "physics.CORE_FAST_GAP_DAYS=1", "--source", "x").err).toContain("compare has no --source");
+  expect(run("--mode", "replay", "--set", "physics.CORE_FAST_GAP_DAYS=1", "--runs", "abc").err).toContain("COMPARE_RUNS");
+  expect(run("--mode", "replay", "--set", "physics.CORE_FAST_GAP_DAYS=1", "--runs", "abc").status).toBe(1);
+});
+
+test("a week or night record whose page couldn't be read says so in its row", () => {
+  expect(readRecord("week", { daily: [], nights: [], sessions: [], page: { error: "locked" } }, null).rows["page version"]).toBe("unread");
 });

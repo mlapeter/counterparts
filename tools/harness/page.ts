@@ -22,8 +22,17 @@ export interface PageReading {
   readonly uncited: number | null;
 }
 
+/** Read the page, or say why it couldn't be: a failed reading never costs the run its record. */
+export function pageReading(dir: string, pageOut?: string): PageReading | { readonly error: string } | null {
+  try {
+    return readPage(dir, pageOut);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /** Read the page of the store in `dir`; null when it has none. Writes its words to `pageOut` when named. */
-export function pageReading(dir: string, pageOut?: string): PageReading | null {
+function readPage(dir: string, pageOut?: string): PageReading | null {
   const counterpart = Counterpart.open({ dir });
   try {
     const page = counterpart.selfPage();

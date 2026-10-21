@@ -133,6 +133,11 @@ async function main(argv: readonly string[]): Promise<number> {
     const cut = all.indexOf("--");
     const own = cut < 0 ? all : all.slice(0, cut);
     const passthrough = cut < 0 ? [] : all.slice(cut + 1);
+    const KNOWN = ["--mode", "--base", "--branch", "--set", "--base-set", "--runs", "--pages"];
+    own.forEach((a, i) => {
+      if (a.startsWith("--") && !KNOWN.includes(a)) throw new Error(`compare has no ${a} (its own flags: ${KNOWN.join(" ")}; the mode's go after --)`);
+      if (!a.startsWith("--") && (i === 0 || !KNOWN.includes(own[i - 1]!))) throw new Error(`compare doesn't take "${a}" here; the mode's flags go after --`);
+    });
     const mode = flag(own, "--mode");
     if (mode !== "replay" && mode !== "night" && mode !== "week") throw new Error(`--mode must be replay, night or week, not ${mode ?? "(none)"}`);
     const runs = flag(own, "--runs");
@@ -142,7 +147,7 @@ async function main(argv: readonly string[]): Promise<number> {
       ...(flag(own, "--branch") === undefined ? {} : { branch: flag(own, "--branch")! }),
       set: flags(own, "--set"),
       baseSet: flags(own, "--base-set"),
-      runs: runs === undefined ? 1 : Number(runs),
+      runs: runs === undefined ? 1 : /^\d+$/.test(runs) ? Number(runs) : NaN,
       passthrough,
       ...(flag(own, "--pages") === undefined ? {} : { pages: flag(own, "--pages")! }),
       onProgress: (line) => process.stderr.write(`${line}\n`),

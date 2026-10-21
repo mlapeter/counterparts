@@ -256,6 +256,11 @@ where they differ:
   scratch and removes them; `--pages <dir>` keeps them for a human read. On the owner's
   snapshot they are his counterpart's page, so keep them out of any repo.
 
+A key that some reader copies at load (the use-tier weights, the recurrence weights, the
+prospective holds; `settings.ts#CAPTURED`) is refused, since setting it would change only some
+of its readers. A compare stopped with Ctrl-C can leave a `harness-compare-*` worktree; remove
+it with `git worktree remove --force <dir>`, or `git worktree prune`.
+
 A side running a build from before `compare` ignores `--set`, and the table says so. Checked
 2026-10-21 against the 10-20 run: replaying Mike's record with the reflected-feeling door
 closed reproduced that run's core (0, 2, 4 on days 14, 21, 29, against 6, 9, 11 open).

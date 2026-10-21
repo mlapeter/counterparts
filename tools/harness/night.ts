@@ -319,7 +319,7 @@ export interface NightReplayRecord {
   /** A model's children's tokens; zeros for the recorded seat. */
   readonly usage: UsageTally;
   /** The self page after the night, by numbers. */
-  readonly page: PageReading | null;
+  readonly page: PageReading | { readonly error: string } | null;
   readonly calls: Readonly<Record<string, CallTally>>;
   readonly idsMapped: number;
   readonly dream: {

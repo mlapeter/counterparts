@@ -22,6 +22,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync }
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { parseSetting } from "./settings.js";
+
 export type Mode = "replay" | "night" | "week";
 
 export interface CompareOptions {
@@ -57,6 +59,14 @@ export class CompareError extends Error {
     super(`${code}: ${message}`);
     this.code = code;
   }
+}
+
+/** The mode flags that name a file or folder: made absolute, since each side runs from its own checkout. */
+const PATH_FLAGS = ["--source", "--dir", "--outcome", "--dream", "--reflection"];
+
+/** The passthrough with its paths made absolute against `cwd`. Pure. */
+export function absolutePaths(passthrough: readonly string[], cwd: string): string[] {
+  return passthrough.map((a, i) => (i > 0 && PATH_FLAGS.includes(passthrough[i - 1]!) && !a.startsWith("--") ? resolve(cwd, a) : a));
 }
 
 /** Flags the compare owns: passing one through would split a side from its record. */
@@ -110,16 +120,17 @@ function checkout(repo: string, ref: string | null, label: string): Checkout {
   mkdirSync(root, { recursive: true });
   const dir = join(root, `harness-compare-${String(process.pid)}-${label}`);
   git(repo, ["worktree", "add", "-q", "--detach", dir, sha]);
-  const modules = join(repo, "node_modules");
-  if (existsSync(modules) && !existsSync(join(dir, "node_modules"))) symlinkSync(modules, join(dir, "node_modules"));
-  return {
-    dir,
-    sha,
-    dirty: false,
-    remove: () => {
-      spawnSync("git", ["-C", repo, "worktree", "remove", "--force", dir]);
-    },
+  const remove = (): void => {
+    spawnSync("git", ["-C", repo, "worktree", "remove", "--force", dir]);
   };
+  try {
+    const modules = join(repo, "node_modules");
+    if (existsSync(modules) && !existsSync(join(dir, "node_modules"))) symlinkSync(modules, join(dir, "node_modules"));
+  } catch (err) {
+    remove();
+    throw err;
+  }
+  return { dir, sha, dirty: false, remove };
 }
 
 /** What one run's record says, in the numbers the table shows; absent fields are null (an older build's record). */
@@ -130,6 +141,8 @@ export interface Reading {
   readonly tokens: number | null;
   readonly costUsd: number | null;
   readonly calls: number | null;
+  /** Children that ran but said no usage (a crash, a timeout): their tokens are missing from `tokens`. */
+  readonly unread: number | null;
   readonly settings: readonly string[];
   /** Named rows, mode by mode: a number, a string, or null. */
   readonly rows: Readonly<Record<string, number | string | null>>;
@@ -182,7 +195,7 @@ export function readRecord(mode: Mode, rec: Record<string, unknown>, pageText: s
     rows["failed turns"] = sessions.reduce((a, s) => a + (num(s["failedTurns"]) ?? 0), 0);
   }
   if (mode !== "replay") {
-    rows["page version"] = page === undefined ? null : page === null ? "none" : num(page["version"]);
+    rows["page version"] = page === undefined ? null : page === null ? "none" : typeof page["error"] === "string" ? "unread" : num(page["version"]);
     rows["page bytes"] = page === undefined || page === null ? null : num(page["bytes"]);
     rows["page claims"] = page === undefined || page === null ? null : num(page["claims"]);
     rows["page cites"] = page === undefined || page === null ? null : num(page["cites"]);
@@ -196,6 +209,7 @@ export function readRecord(mode: Mode, rec: Record<string, unknown>, pageText: s
     tokens,
     costUsd: rec["usage"] === undefined ? null : num(usage["costUsd"]),
     calls: rec["usage"] === undefined ? null : num(usage["calls"]),
+    unread: rec["usage"] === undefined ? null : num(usage["unread"]),
     settings,
     rows,
     pageText,
@@ -215,6 +229,20 @@ export function linesChanged(a: string, b: string): number {
   for (const [l, n] of mb) diff += Math.max(0, n - (ma.get(l) ?? 0));
   for (const [l, n] of ma) diff += Math.max(0, n - (mb.get(l) ?? 0));
   return diff;
+}
+
+/** Do the record's settings say what the side asked for? Values compared as values (`1` and `1.0` are the same). Pure. */
+export function sameSettings(recorded: readonly string[], asked: readonly string[]): boolean {
+  const norm = (xs: readonly string[]): string =>
+    xs
+      .map((x) => {
+        const at = x.indexOf("=");
+        const v = x.slice(at + 1);
+        return `${x.slice(0, at)}=${v === "true" || v === "false" || !Number.isFinite(Number(v)) ? v : String(Number(v))}`;
+      })
+      .sort()
+      .join(";");
+  return norm(recorded) === norm(asked);
 }
 
 const show = (v: number | string | null): string => (v === null ? "—" : typeof v === "number" ? (Number.isInteger(v) ? String(v) : v.toFixed(2)) : v);
@@ -245,7 +273,7 @@ export function renderCompare(mode: Mode, sides: readonly [SideResult, SideResul
     s.runs.forEach((r, i) => {
       if (!r.ok) out.push(`  ${s.plan.name} run ${String(i + 1)} FAILED: ${r.error ?? "?"}`);
       const asked = s.plan.set.join(";");
-      if (r.ok && r.settings.join(";") !== asked) out.push(`  ${s.plan.name} run ${String(i + 1)}: its record says settings [${r.settings.join(", ")}], asked [${s.plan.set.join(", ")}] (an older build ignores --set)`);
+      if (r.ok && sameSettings(r.settings, s.plan.set) === false) out.push(`  ${s.plan.name} run ${String(i + 1)}: its record says settings [${r.settings.join(", ")}], asked [${s.plan.set.join(", ")}] (an older build ignores --set)`);
     });
   }
   const keys: string[] = [];
@@ -273,6 +301,8 @@ export function renderCompare(mode: Mode, sides: readonly [SideResult, SideResul
   }
   const usage = (s: SideResult, f: (r: Reading) => number | null): (number | null)[] => s.runs.filter((r) => r.ok).map(f);
   rows.push(["model calls", cell(usage(base, (r) => r.calls)), cell(usage(variant, (r) => r.calls)), ""]);
+  const unread = (s: SideResult): (number | null)[] => usage(s, (r) => r.unread);
+  if ([...unread(base), ...unread(variant)].some((x) => x !== null && x > 0)) rows.push(["children with no usage line", cell(unread(base)), cell(unread(variant)), ""]);
   rows.push(["tokens (all, incl. cache)", cell(usage(base, (r) => r.tokens)), cell(usage(variant, (r) => r.tokens)), ""]);
   rows.push(["minutes", cell(usage(base, (r) => (r.elapsedMs === null ? null : Math.round(r.elapsedMs / 6000) / 10))), cell(usage(variant, (r) => (r.elapsedMs === null ? null : Math.round(r.elapsedMs / 6000) / 10))), ""]);
   const w0 = Math.max(...rows.map((r) => r[0].length), 4);
@@ -288,30 +318,37 @@ export function renderCompare(mode: Mode, sides: readonly [SideResult, SideResul
 /** Run the compare: sides, runs, the table. Removes its worktrees and scratch whatever happens. */
 export function runCompare(o: CompareOptions): { readonly text: string; readonly sides: readonly [SideResult, SideResult] } {
   const sides = planSides(o);
+  // A side on this checkout reads its settings with this build: refused here, before anything runs.
+  // (A ref's build checks its own when its run starts.)
+  for (const side of sides) if (side.ref === null) for (const t of side.set) parseSetting(t);
   const repo = resolve(o.repo ?? join(import.meta.dir, "..", ".."));
   const say = o.onProgress ?? (() => {});
+  const pages = o.pages === undefined ? undefined : resolve(o.pages);
+  const passthrough = absolutePaths(o.passthrough, process.cwd());
   const scratch = mkdtempSync(join(tmpdir(), "harness-compare-"));
-  if (o.pages !== undefined) mkdirSync(o.pages, { recursive: true });
+  if (pages !== undefined) mkdirSync(pages, { recursive: true });
   const checkouts: Checkout[] = [];
   try {
     if (sides.some((s) => s.ref !== null)) spawnSync("git", ["-C", repo, "fetch", "-q", "origin"]);
+    // Both builds first: a bad ref is found before any run spends anything.
     const made = new Map<string | null, Checkout>();
+    for (const side of sides) {
+      if (made.has(side.ref)) continue;
+      const co = checkout(repo, side.ref, side.name);
+      made.set(side.ref, co);
+      checkouts.push(co);
+    }
     const results: SideResult[] = [];
     for (const side of sides) {
-      let co = made.get(side.ref);
-      if (co === undefined) {
-        co = checkout(repo, side.ref, side.name);
-        made.set(side.ref, co);
-        checkouts.push(co);
-      }
+      const co = made.get(side.ref)!;
       const runs: Reading[] = [];
       for (let i = 1; i <= o.runs; i++) {
         const json = join(scratch, `${side.name}-${String(i)}.json`);
-        const pageOut = o.mode === "replay" ? null : join(o.pages ?? scratch, `${side.name}-${String(i)}.page.md`);
+        const pageOut = o.mode === "replay" ? null : join(pages ?? scratch, `${side.name}-${String(i)}.page.md`);
         say(`${side.name} run ${String(i)}/${String(o.runs)} (${o.mode}) …`);
-        const r = spawnSync(process.execPath, runArgs(o.mode, side, o.passthrough, json, pageOut), { cwd: co.dir, encoding: "utf8", env: process.env, maxBuffer: 64 * 1024 * 1024 });
+        const r = spawnSync(process.execPath, runArgs(o.mode, side, passthrough, json, pageOut), { cwd: co.dir, encoding: "utf8", env: process.env, maxBuffer: 64 * 1024 * 1024 });
         if (r.status !== 0 || !existsSync(json)) {
-          runs.push({ ok: false, error: (r.stderr || r.stdout || `exit ${String(r.status)}`).trim().split("\n").slice(-3).join(" | "), elapsedMs: null, tokens: null, costUsd: null, calls: null, settings: [], rows: {}, pageText: null });
+          runs.push({ ok: false, error: (r.stderr || r.stdout || `exit ${String(r.status)}`).trim().split("\n").slice(-3).join(" | "), elapsedMs: null, tokens: null, costUsd: null, calls: null, unread: null, settings: [], rows: {}, pageText: null });
           continue;
         }
         const text = pageOut !== null && existsSync(pageOut) ? readFileSync(pageOut, "utf8") : null;

@@ -7,8 +7,9 @@
  *
  * Named `module.KEY=VALUE`, top-level numbers and booleans only. An unknown
  * module or key, or a value of another type, is refused before anything runs.
- * One value is captured at load and can't be set this way:
- * `dream/index.ts`'s `FIT_OVERHEAD` (from `fit.OVERHEAD`).
+ * So is a key some reader copied at load (`CAPTURED`): set, it would change
+ * some readers and not others, or none. `dream/index.ts`'s `FIT_OVERHEAD`
+ * (from `fit.OVERHEAD`) is captured too, and `fit` isn't settable at all.
  */
 import { TUNABLES as ASSOCIATE } from "../../src/core/associate/tunables.js";
 import { COVERAGE_TUNABLES as COVERAGE } from "../../src/core/coverage/tunables.js";
@@ -39,6 +40,27 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   sleep: SLEEP as unknown as Record<string, unknown>,
 };
 
+/**
+ * Keys read through a copy made at load (review of #566): refused, because
+ * setting one would change only the readers of the live object.
+ */
+const CAPTURED: Readonly<Record<string, string>> = {
+  "physics.W_REFERENCED": "USE_TIER_WEIGHT",
+  "physics.W_ENGAGED": "USE_TIER_WEIGHT",
+  "physics.W_SURFACED": "USE_TIER_WEIGHT",
+  "physics.W_FOOTNOTED": "USE_TIER_WEIGHT",
+  "physics.W_SHOWN": "USE_TIER_WEIGHT",
+  "physics.W_ONTOPIC": "USE_TIER_WEIGHT",
+  "physics.W_USEFUL": "USE_TIER_WEIGHT",
+  "physics.ENGAGED_RECURRENCE_WEIGHT": "sleep/consolidate.ts RECURRENCE_SOURCES",
+  "physics.SHOWN_RECURRENCE_WEIGHT": "sleep/consolidate.ts RECURRENCE_SOURCES",
+  "physics.ONTOPIC_RECURRENCE_WEIGHT": "sleep/consolidate.ts RECURRENCE_SOURCES",
+  "physics.HOLD_LEAD_DAYS": "prospective/tunables.ts",
+  "physics.HOLD_GRACE_DAYS": "prospective/tunables.ts",
+  "physics.PHI_PRUNE": "prospective/tunables.ts",
+  "remember.CONSUMED_LEDGER_MAX": "counterpart.ts",
+};
+
 export interface Setting {
   readonly module: string;
   readonly key: string;
@@ -48,7 +70,7 @@ export interface Setting {
 }
 
 export class SettingError extends Error {
-  readonly code: "SETTING_SHAPE" | "SETTING_MODULE" | "SETTING_KEY" | "SETTING_TYPE" | "SETTING_TWICE";
+  readonly code: "SETTING_SHAPE" | "SETTING_MODULE" | "SETTING_KEY" | "SETTING_TYPE" | "SETTING_TWICE" | "SETTING_CAPTURED";
   constructor(code: SettingError["code"], message: string) {
     super(`${code}: ${message}`);
     this.code = code;
@@ -63,6 +85,8 @@ export function parseSetting(text: string): Omit<Setting, "was"> & { readonly wa
   const target = MODULES[module];
   if (target === undefined) throw new SettingError("SETTING_MODULE", `no module "${module}" (${Object.keys(MODULES).join(", ")})`);
   if (!Object.prototype.hasOwnProperty.call(target, key)) throw new SettingError("SETTING_KEY", `${module} has no ${key}`);
+  const copy = CAPTURED[`${module}.${key}`];
+  if (copy !== undefined) throw new SettingError("SETTING_CAPTURED", `${module}.${key} is copied at load into ${copy}; a run can't set it`);
   const was = target[key];
   if (typeof was === "boolean") {
     if (raw !== "true" && raw !== "false") throw new SettingError("SETTING_TYPE", `${module}.${key} is a boolean, not "${raw}"`);

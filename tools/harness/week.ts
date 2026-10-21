@@ -129,7 +129,7 @@ export interface WeekRecord {
   /** The model children's tokens, all turns and nights. */
   readonly usage: UsageTally;
   /** The self page at the week's end, by numbers. */
-  readonly page: PageReading | null;
+  readonly page: PageReading | { readonly error: string } | null;
   readonly ranAt: string;
   readonly elapsedMs: number;
   readonly days: number;
