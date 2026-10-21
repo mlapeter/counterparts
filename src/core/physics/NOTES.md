@@ -741,3 +741,8 @@ also takes no use credit or return at all, for now. An un-echoed find counts its
 reflection alone"); once life echoes it, its memory's own day. A stronger contrary memory the
 same day tops the day's pressure up to its force (`applyChallenge`'s `creditedToday`), so a
 second one is not lost to the once-a-day rule. A contested belief is cut once.
+The row read's support join first asked `PRAGMA table_info` on every read (5,000 reads 32–40
+→ 123–143 ms, re-review of #575); the v14 column is now asked once per store
+(`reads-memories.ts#hasBirthRoute`), back to 31–37 ms, recount 0.38 ms p50, and a test counts
+the PRAGMAs so it cannot quietly return. A supporting memory the owner has made dark still
+counts until the chase removes it (minor, left as is).

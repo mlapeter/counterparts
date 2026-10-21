@@ -502,6 +502,26 @@ describe("resistance grows with support (physics §5.13), and past it a belief i
     expect(settle(s, { holds: no, over: thin, how: "corrected", why: "reflection", actor: "reflection", day: 4 }).ok).toBe(true);
   });
 
+  test("the row read asks for the v14 column once, not on every read (the hottest read in the code)", () => {
+    const { s, schemas, me } = world();
+    const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    s.row(b);
+    const ops = (s as unknown as { ops: { all: (sql: string, ...p: unknown[]) => unknown[] } }).ops;
+    const all = ops.all.bind(ops);
+    let pragmas = 0;
+    ops.all = (sql: string, ...p: unknown[]) => {
+      if (sql.includes("PRAGMA table_info")) pragmas += 1;
+      return all(sql, ...p);
+    };
+    try {
+      for (let i = 0; i < 1000; i += 1) s.row(b);
+    } finally {
+      ops.all = all;
+    }
+    expect(pragmas).toBe(0);
+    expect(s.physicsOf(b).belief).toBe(true);
+  });
+
   test("the owner's removal of a supporting memory counts the belief again without it", () => {
     const { s, schemas, me } = world();
     const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;

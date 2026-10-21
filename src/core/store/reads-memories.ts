@@ -41,6 +41,22 @@ const MAX_CHAIN = 32;
 const NIGHTLY_SQL = `(COALESCE(source, '') IN ('dreamed', 'reflection')
   OR COALESCE(origin_ref, '') LIKE 'dream:%' OR COALESCE(origin_ref, '') LIKE 'reflection:%')`;
 
+/**
+ * Does this store have `memories.birth_route` (v14)? Asked at most until the
+ * answer is yes, then never again for that store: `row()` is the hottest read
+ * in the code, and an uncached `PRAGMA table_info` there cost a 40k-row sleep
+ * scan about a second (review of #575; `test/beliefs-support.test.ts` counts
+ * the PRAGMAs). Only a yes is kept — a v13 file read before its upgrade asks
+ * again, and gets its yes once the upgrade has run. Nothing removes the column.
+ */
+const birthRouteSeen = new WeakSet<Store>();
+function hasBirthRoute(store: Store): boolean {
+  if (birthRouteSeen.has(store)) return true;
+  if (!store.hasColumn("memories", "birth_route")) return false;
+  birthRouteSeen.add(store);
+  return true;
+}
+
 export function row(store: Store, id: string): (MemoryRow & FeelingPeak) | undefined {
   // v9: `feeling_peak_lived` is the same peak WITHOUT the feelings a
   // reflection recorded later — the one the core's fast lane reads unless
@@ -76,7 +92,7 @@ export function row(store: Store, id: string): (MemoryRow & FeelingPeak) | undef
               ${
                 // A belief's counted support (lane C), on a store with the v14
                 // column; a v13 file read before its upgrade has none.
-                store.hasColumn("memories", "birth_route")
+                hasBirthRoute(store)
                   ? `CASE WHEN m.birth_route IS NOT NULL THEN (SELECT value FROM meta WHERE key = '${BELIEF_SUPPORT_META_PREFIX}' || m.id) END`
                   : "NULL"
               } AS belief_support
