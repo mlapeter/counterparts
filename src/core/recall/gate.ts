@@ -146,8 +146,12 @@ export interface GateInput {
   /** Memories this session wrote — ambient recall's echo set (`Turn.echo`). */
   readonly echo?: ReadonlySet<string>;
   /** Another project's work (`Turn.elsewhere`, 2026-10-21): turned away as
-   *  `project-skipped` where it would have been shown. Absent: none. */
+   *  `project-skipped` where it would have been shown (`RECALL_BY_PROJECT`).
+   *  Absent: none. */
   readonly elsewhere?: (id: string) => boolean;
+  /** Another project's work, facing `CROSS_PROJECT_BAR_LIFT` (Mike, 2026-10-21).
+   *  Absent: no lift. */
+  readonly crossing?: (id: string) => boolean;
   /** Memories habituated this turn (`habituation.ts#habituatedIds`, 2026-10-19). Absent: none. */
   readonly habituated?: ReadonlyMap<string, number>;
 }
@@ -163,6 +167,8 @@ export interface GateResult {
   /** One content-free line: no ids, no bodies, no feeling named. */
   readonly affectFlag: boolean;
   readonly affectReason: "fired" | "no-feeling-in-turn" | "refractory" | "nothing-charged";
+  /** Ids only `CROSS_PROJECT_BAR_LIFT` kept below their bar (2026-10-21). */
+  readonly crossLifted: readonly string[];
 }
 
 /** Jaccard over indexed tokens — the similarity the cache itself would compute. */
@@ -402,15 +408,20 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
 
   /** In this session's echo set (`GateInput.echo`). */
   const echo = (id: string): boolean => input.echo?.has(id) === true;
-  /** Another project's work (`GateInput.elsewhere`). A throw reads as not. */
-  const elsewhere = (id: string): boolean => {
-    if (input.elsewhere === undefined) return false;
+  /** Another project's work (`GateInput.elsewhere`, `.crossing`). A throw reads as not. */
+  const asks = (f: ((id: string) => boolean) | undefined, id: string): boolean => {
+    if (f === undefined) return false;
     try {
-      return input.elsewhere(id);
+      return f(id);
     } catch {
       return false;
     }
   };
+  const elsewhere = (id: string): boolean => asks(input.elsewhere, id);
+  const crossing = (id: string): boolean => asks(input.crossing, id);
+
+  /** Candidates only `CROSS_PROJECT_BAR_LIFT` kept from showing. */
+  const crossLifted = new Set<string>();
 
   /** Quiet pointers that passed the boundary gates, in the order activation
    *  ranked them (strongest arrival first). */
@@ -474,12 +485,18 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     // sessions faces a raised bar, both tiers — after the floor, so the floor
     // still means what it meant; a lift, never a veto.
     const habituated = input.habituated?.has(c.id) === true;
-    const lift = habituated ? 1 + t.HABITUATION_BAR_LIFT : 1;
+    // ANOTHER PROJECT'S WORK (2026-10-21, Mike's "slightly higher bar", an
+    // experiment): its bars lifted too, the same way, after the floor.
+    const crosses = t.CROSS_PROJECT_BAR_LIFT > 1 && crossing(c.id);
+    const crossLift = crosses ? t.CROSS_PROJECT_BAR_LIFT : 1;
+    const lift = (habituated ? 1 + t.HABITUATION_BAR_LIFT : 1) * crossLift;
     const plain = barsFor(c);
     const bars = { admit: plain.admit * lift, loud: plain.loud * lift };
     if (habituated) habituatedIds.add(c.id);
     faced.set(c.id, bars.admit);
     if (c.activation < bars.admit) {
+      // What the cross-project lift alone turned away, for the week's read.
+      if (crosses && c.activation >= bars.admit / crossLift) crossLifted.add(c.id);
       record(c, "below-bar");
       continue;
     }
@@ -653,5 +670,5 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     affectReason = "fired";
   }
 
-  return { background: bg, verdicts, surfaced, footnotes, affectFlag, affectReason };
+  return { background: bg, verdicts, surfaced, footnotes, affectFlag, affectReason, crossLifted: [...crossLifted] };
 }

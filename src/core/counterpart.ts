@@ -2237,25 +2237,28 @@ export class Counterpart {
 
   /**
    * ANOTHER PROJECT'S WORK, FOR AMBIENT RECALL (2026-10-21, wave 2 lane G;
-   * `recall/tunables.ts#RECALL_BY_PROJECT`, off): with the switch on and a
-   * folder to read, the turn carries a check the gate asks of what it would
-   * show — a memory that is work (`self/work.ts#isWorkMemory`, craft
+   * `recall/tunables.ts#CROSS_PROJECT_BAR_LIFT`, on at 1.25 — Mike's "a
+   * slightly higher bar" — and the hard filter `RECALL_BY_PROJECT`, off):
+   * with either on and a folder to read, the turn carries a check the gate
+   * asks of what it would show — a memory that is work (`self/work.ts#isWorkMemory`, craft
    * travelling as `PROJECTS_TRAVEL` says) written in a folder outside this
    * one's project (`projectFolders`). A memory with no folder, personal, or
    * craft is never another project's. Off, or with no folder: the turn as it
    * was. Reads only.
    */
   private withElsewhere(turn: RecallTurn, scope: string | undefined): RecallTurn {
-    if (!this.recall.tunables.RECALL_BY_PROJECT || scope === undefined || !isDirectoryScope(scope)) return turn;
+    const t = this.recall.tunables;
+    if (!(t.RECALL_BY_PROJECT || t.CROSS_PROJECT_BAR_LIFT > 1) || scope === undefined || !isDirectoryScope(scope)) return turn;
     const travels = this.self.tunables.PROJECTS_TRAVEL;
     const ours = new Set(projectFolders(this.store, scope, travels));
+    const since = craftSince(this.store);
     const elsewhere = (id: string): boolean => {
       const row = this.store.row(id);
       if (row === undefined || row.origin_scope === null) return false;
       const origin = projectFolder(row.origin_scope);
       if (origin.length === 0 || ours.has(origin)) return false;
       const journal = typeof row.meta === "string" && row.meta.includes('"episodeId"');
-      return isWorkMemory({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal }, { craftTravels: travels });
+      return isWorkMemory({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay: row.birth_day }, { craftTravels: travels, craftSince: since });
     };
     return { ...turn, elsewhere };
   }

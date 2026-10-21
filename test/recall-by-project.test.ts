@@ -1,11 +1,13 @@
 /**
- * WORK STAYS IN ITS PROJECT, IN AMBIENT RECALL TOO — behind a switch, OFF
- * (2026-10-21, wave 2 lane G, item 4; `recall/tunables.ts#RECALL_BY_PROJECT`).
+ * ANOTHER PROJECT'S WORK IN AMBIENT RECALL (2026-10-21, wave 2 lane G, item 4).
  *
- * On: a turn in a folder does not show another project's work; the gate turns
- * it away as `project-skipped` and the decision row counts it. Craft, personal
- * memories, memories with no folder and a joined folder's work still show.
- * Off (the default): nothing changes, and the count is 0.
+ * Mike's ruling: "a slightly higher bar, and review after a week" —
+ * `CROSS_PROJECT_BAR_LIFT` (1.25, on): another project's work faces lifted
+ * bars, and the decision row counts what the lift alone kept back
+ * (`crossProjectLifted`). The hard filter `RECALL_BY_PROJECT` is kept, off:
+ * on, the gate turns such a memory away as `project-skipped`. Craft, personal
+ * memories, memories with no folder and a joined folder's work are never
+ * another project's.
  *
  * Hermetic: a fresh temp data dir per test, removed after; invented prose.
  */
@@ -71,15 +73,53 @@ function on(value: boolean): void {
   (c.recall.tunables as { RECALL_BY_PROJECT: boolean }).RECALL_BY_PROJECT = value;
 }
 
-function shownIn(scope: string | undefined, session: string): { shown: string[]; skipped: number } {
-  const out = c.recallForTurn({ sessionId: session, text: PROMPT }, scope === undefined ? {} : { scope });
-  return { shown: [...out.decision.surfaced, ...out.decision.footnotes], skipped: out.decision.projectSkipped };
+function lift(value: number): void {
+  (c.recall.tunables as { CROSS_PROJECT_BAR_LIFT: number }).CROSS_PROJECT_BAR_LIFT = value;
 }
 
-describe("RECALL_BY_PROJECT", () => {
-  test("off by default, compare-settable, and off changes nothing", () => {
+function shownIn(scope: string | undefined, session: string): { shown: string[]; skipped: number; lifted: number } {
+  const out = c.recallForTurn({ sessionId: session, text: PROMPT }, scope === undefined ? {} : { scope });
+  return { shown: [...out.decision.surfaced, ...out.decision.footnotes], skipped: out.decision.projectSkipped, lifted: out.decision.crossProjectLifted };
+}
+
+describe("CROSS_PROJECT_BAR_LIFT", () => {
+  test("on at 1.25 by default and compare-settable; the hard filter off", () => {
+    expect(RECALL.CROSS_PROJECT_BAR_LIFT).toBe(1.25);
     expect(RECALL.RECALL_BY_PROJECT).toBe(false);
+    expect(parseSetting("recall.CROSS_PROJECT_BAR_LIFT=1").value).toBe(1);
     expect(parseSetting("recall.RECALL_BY_PROJECT=true").value).toBe(true);
+  });
+
+  test("another project's work faces the lift, and the row counts what only it kept back", () => {
+    const work = put("The sourdough starter died in the pantry because it was too cold.", { about: "work", scope: BAKERY });
+    lift(1);
+    const plain = shownIn(GARAGE, "s-plain");
+    expect(plain.shown).toContain(work);
+    expect(plain.lifted).toBe(0);
+    lift(1_000);
+    const lifted = shownIn(GARAGE, "s-lifted");
+    expect(lifted.shown).not.toContain(work);
+    expect(lifted.lifted).toBeGreaterThanOrEqual(1);
+    expect(lifted.skipped).toBe(0);
+    // At home, no lift.
+    const home = shownIn(BAKERY, "s-home");
+    expect(home.shown).toContain(work);
+    expect(home.lifted).toBe(0);
+  });
+
+  test("craft and a personal memory from another folder face no lift", () => {
+    lift(1_000);
+    const craft = put("I keep the sourdough starter out of the cold pantry so it does not die.", { kind: "skill", scope: BAKERY });
+    const owner = put("The owner's sourdough starter died in the pantry last winter.", { about: "owner", scope: BAKERY });
+    const r = shownIn(GARAGE, "s-craft-lift");
+    expect(r.shown).toContain(craft);
+    expect(r.shown).toContain(owner);
+  });
+});
+
+describe("RECALL_BY_PROJECT (the hard filter, off)", () => {
+  test("off changes nothing beyond the lift", () => {
+    lift(1);
     const work = put("The sourdough starter died in the pantry because it was too cold.", { about: "work", scope: BAKERY });
     const r = shownIn(GARAGE, "s-off");
     expect(r.shown).toContain(work);

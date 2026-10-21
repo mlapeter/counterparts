@@ -327,6 +327,17 @@ export interface RecallTunables {
    * nothing is skipped. Read at use.
    */
   RECALL_BY_PROJECT: boolean;
+  /**
+   * ANOTHER PROJECT'S WORK FACES A SLIGHTLY HIGHER BAR (2026-10-21, Mike's
+   * ruling on lane G item 4: "we could try a slightly higher bar, and review
+   * after a week"; an experiment, check ~2026-10-29). A memory that is another
+   * project's work (`Turn.elsewhere`) has its admit and loud bars multiplied
+   * by this, as habituation's lift does (`HABITUATION_BAR_LIFT`), after the
+   * floor. Personal memories and craft are never another project's work, so
+   * never lifted. The decision row counts what the lift alone turned away
+   * (`crossProjectLifted`). 1 is off. Read at use. CAL.
+   */
+  CROSS_PROJECT_BAR_LIFT: number;
   MOOD_SAME_WEIGHT: number;
   /** The same for the OTHER person's matching feeling: the light cross-link. CAL. */
   MOOD_CROSS_WEIGHT: number;
@@ -597,6 +608,7 @@ export const TUNABLES: RecallTunables = {
   // (Review 02 C3. Were 0.3 and 0.1; the code in `mood.ts` is kept whole, and
   // with both at 0 recall skips the per-turn `feelings` scan — `Recall#turn`.)
   RECALL_BY_PROJECT: false,
+  CROSS_PROJECT_BAR_LIFT: 1.25,
   MOOD_SAME_WEIGHT: 0,
   MOOD_CROSS_WEIGHT: 0,
   // Wheel v2 (2026-09-30): 0.5 lets neighbours match in part — a sad mood

@@ -1295,3 +1295,17 @@ written in, known for 2,914):
   (187). ~/random is the owner's notes folder about the same work, so a folder filter would
   cut that cross-talk unless ~/random joins the project. That is the fact to put in front of
   him with the question.
+
+### 2026-10-21, later — Mike ruled: a slightly higher bar, reviewed after a week
+
+"We could try a slightly higher bar, and review after a week." So the default is a lift, not a filter:
+`CROSS_PROJECT_BAR_LIFT` 1.25 multiplies another project's work's admit and loud bars, after the floor, the way
+`HABITUATION_BAR_LIFT` does (and the two multiply when both apply). The hard filter stays built and off.
+
+Why the lift is plausible, from the corpus copy's footnote ratings (0–3): home work mean 0.94 (n=163), crossing work
+from other folders 0.37 (n=38), crossing work between ~/counterparts and ~/random 0.70 (n=37), crossing
+personal/craft 0.51 (n=111). Recorded decisions keep each footnote's activation but not its bar, so how many the lift
+would have kept back can't be read off them; the decision row's `crossProjectLifted` says it from now on.
+
+Known gap: the turn's project here does not ask the host's folder setting (recall has none to ask), so a joined
+folder set off counts as this project's — the lift then does not apply to it. The wake gates it (self NOTES).

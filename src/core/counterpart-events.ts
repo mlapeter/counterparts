@@ -896,6 +896,8 @@ export const RECALL_DECISION_FIELDS = [
   // Projects (2026-10-21, lane G): another project's work the turn would have
   // shown, with `RECALL_BY_PROJECT` on; 0 while it is off.
   "projectSkipped",
+  // Mike's "slightly higher bar" (2026-10-21): what only the cross-project lift kept back.
+  "crossProjectLifted",
   // Context priming (2026-10-19, an experiment): what primed, and what it
   // changed of what was shown — counts; the ids are `primed` on the tier rows.
   "primed",
@@ -1026,6 +1028,7 @@ export function recallDecisionRecord(
     echoSkipped: d.echoSkipped,
     // PROJECTS (2026-10-21): another project's work turned away; 0 while off.
     projectSkipped: d.projectSkipped,
+    crossProjectLifted: d.crossProjectLifted,
     // CONTEXT PRIMING (2026-10-19, an experiment): null on a turn it did not run.
     primed: d.primed,
   } satisfies Record<SurfaceSetField, unknown>;
