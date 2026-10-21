@@ -22,7 +22,8 @@ import { join } from "node:path";
 import { run } from "../src/adapters/cli/index.js";
 import { parseSetting } from "../tools/harness/settings.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { CRAFT_SINCE_KEY, SELF_TUNABLES, WORK_HERE_HEADING, isCraft, isWorkMemory, projectFolder, projectFolders, workHere } from "../src/core/self/index.js";
+import { openServer } from "../src/adapters/mcp/index.js";
+import { CRAFT_SINCE_KEY, SELF_TUNABLES, WORK_HERE_HEADING, craftBornDay, isCraft, isWorkMemory, projectFolder, projectFolders, workHere } from "../src/core/self/index.js";
 import type { AboutMark } from "../src/core/store/index.js";
 import type { Kind } from "../src/core/types.js";
 
@@ -413,6 +414,34 @@ describe("craft travels", () => {
     const freshNext = c.store.supersede(fresh, { type: "memory", kind: "skill", body: "I name each branch after its brief.", salience: { relevance: 0.9, emotional: 0.6, predictive: 0.8 }, origin: { scope: BUILD } });
     expect(c.store.readProse(freshNext).meta["craftBornDay"]).toBeUndefined();
     expect(under(wake(c, GARDEN), WORK_HERE_HEADING)).toContain(freshNext);
+  });
+
+  test("through remember: a declared update of a grandfathered skill stays grandfathered, with or without a how; a dream's merge keeps the earliest", async () => {
+    const c = counterpart();
+    c.close();
+    open.length = 0;
+    const s = openServer({ dir: storeDir, session: "sess-g", scope: BUILD });
+    open.push(s.counterpart);
+    const store = s.counterpart.store;
+    const id = async (args: Record<string, unknown>): Promise<string> => String((await s.call("remember", args)).structuredContent["id"]);
+    store.advanceClock("2026-10-10");
+    const old = await id({ text: "Tiny Castles: don't share a save file between two builds.", kind: "skill" });
+    const bornOld = store.row(old)?.birth_day as number;
+    store.advanceClock("2026-10-12");
+    store.setMeta(CRAFT_SINCE_KEY, String(store.livedDay()));
+    expect(store.livedDay()).toBeGreaterThan(bornOld);
+    let head = old;
+    for (const how of [undefined, "changed", "corrected"] as const) {
+      const next = await id({ text: `Tiny Castles: never share one save file between two builds (${how ?? "plain"}).`, kind: "skill", updates: head, ...(how === undefined ? {} : { how }) });
+      expect(store.row(next)?.birth_day).toBe(store.livedDay());
+      expect(store.readProse(next).meta["craftBornDay"]).toBe(bornOld);
+      expect(isCraft({ about: null, kind: "skill", originScope: BUILD, journal: false, bornDay: craftBornDay(store.readProse(next).meta, store.livedDay()) }, { craftSince: store.livedDay() })).toBe(false);
+      head = next;
+    }
+    // A dream's merge (`carryInto`) keeps the earliest of its parts.
+    const fresh = await id({ text: "I name each branch after its brief.", kind: "skill" });
+    store.carryInto(head, fresh);
+    expect(store.readProse(fresh).meta["craftBornDay"]).toBe(bornOld);
   });
 
   test("the first writable open with the switch on records the day craft started travelling, once", () => {

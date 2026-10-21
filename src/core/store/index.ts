@@ -452,6 +452,7 @@ export const WRITE_METHODS = [
   "reinforce",
   "setBand",
   "carryInto",
+  "carryCraftBorn",
   "link",
   "linkMany",
   "setProspective",
@@ -1500,8 +1501,8 @@ export class Store {
       // the successor was given its own — a revision is still the same memory.
       carryAboutMark(this.ops, oldId, created.id);
       carryWriteFacts(this.ops, oldId, created.id);
-      const carried = this.carryCraftBorn(row, created);
-      return { doc: carried, newId: created.id };
+      const born = this.craftBornInto(oldId, created.id);
+      return { doc: born === null ? created : { ...created, meta: born }, newId: created.id };
     });
     this.indexOne(doc);
     // The head leaves box 3 as the successor enters it. Box 2 keeps the row,
@@ -1983,6 +1984,7 @@ export class Store {
       this.requireRow(toId);
       carryAboutMark(this.ops, fromId, toId);
       carryWriteFacts(this.ops, fromId, toId);
+      this.craftBornInto(fromId, toId);
       if (opts.returns !== false) this.copyReturnsRaw(fromId, toId);
     });
   }
@@ -5417,6 +5419,42 @@ export class Store {
   }
 
   /**
+   * A REVISED SKILL KEEPS THE DAY IT WAS FIRST LEARNED, for craft's rule
+   * (2026-10-21, re-review of #572): `self/work.ts#craftSince` grandfathers the
+   * unmarked skills born before craft started travelling, and a successor is
+   * born today — so a reworded old skill would start travelling without anyone
+   * choosing that. `toId`'s meta takes `CRAFT_BORN_META`: the earliest of its
+   * own carried day and `fromId`'s (its carried day, else its birth day), when
+   * that is earlier than its own birth. Only between skills. Called by every
+   * door where one memory becomes another: a write's declared `updates`
+   * (`revision.ts#applyRevision`), `supersede`, and `carryInto` (a dream's
+   * merge, a pressure crossing) — so a merge keeps the earliest of its parts.
+   * Inside the caller's transaction; returns the new meta, or null when nothing changed.
+   */
+  private craftBornInto(fromId: string, toId: string): Record<string, unknown> | null {
+    const from = this.ops.get<MemoryRow>("SELECT * FROM memories WHERE id = ?", fromId);
+    const to = this.ops.get<MemoryRow>("SELECT * FROM memories WHERE id = ?", toId);
+    if (from === undefined || to === undefined || from.kind !== "skill" || to.kind !== "skill") return null;
+    if (from.body.length === 0 || to.body.length === 0) return null;
+    const carried = (row: MemoryRow): number => {
+      const v = this.docOf(row).meta[CRAFT_BORN_META];
+      return typeof v === "number" && Number.isFinite(v) ? Math.min(v, row.birth_day) : row.birth_day;
+    };
+    const born = Math.min(carried(from), carried(to));
+    if (!(born < to.birth_day)) return null;
+    const prior = this.docOf(to).meta;
+    if (prior[CRAFT_BORN_META] === born) return null;
+    const meta = { ...prior, [CRAFT_BORN_META]: born };
+    this.ops.run("UPDATE memories SET meta = ? WHERE id = ?", serializeMeta(meta, toId), toId);
+    return meta;
+  }
+
+  /** `craftBornInto` as its own write: a declared `updates` successor (`revision.ts`). */
+  carryCraftBorn(fromId: string, toId: string): boolean {
+    return this.mutate("carryCraftBorn", () => this.craftBornInto(fromId, toId) !== null);
+  }
+
+  /**
    * A row read as the document it is.
    *
    * THE READ SEAM, and the reason nothing above `store/` noticed the floor
@@ -5431,28 +5469,6 @@ export class Store {
    * produces and which is worth a loud, named refusal rather than an empty
    * memory that reads as if it said nothing.
    */
-  /**
-   * A REVISED SKILL KEEPS THE DAY IT WAS FIRST LEARNED, for craft's rule
-   * (2026-10-21, re-review of #572): `self/work.ts#craftSince` grandfathers the
-   * unmarked skills born before craft started travelling, and a revision's
-   * successor is born today — so a reworded old skill would start travelling
-   * without anyone choosing that. The successor's meta carries
-   * `CRAFT_BORN_META` (the predecessor's own, else its birth day) when that is
-   * earlier than its own birth. Only between skills; a dream's merge takes the
-   * earliest birth day already. Inside the caller's transaction.
-   */
-  private carryCraftBorn(old: MemoryRow, created: ProseDoc): ProseDoc {
-    if (old.kind !== "skill") return created;
-    const row = this.ops.get<MemoryRow>("SELECT * FROM memories WHERE id = ?", created.id);
-    if (row === undefined || row.kind !== "skill") return created;
-    const fromMeta = this.docOf(old).meta[CRAFT_BORN_META];
-    const born = typeof fromMeta === "number" && Number.isFinite(fromMeta) ? Math.min(fromMeta, old.birth_day) : old.birth_day;
-    if (!(born < row.birth_day)) return created;
-    const meta = { ...created.meta, [CRAFT_BORN_META]: born };
-    this.ops.run("UPDATE memories SET meta = ? WHERE id = ?", serializeMeta(meta, created.id), created.id);
-    return { ...created, meta };
-  }
-
   private docOf(row: MemoryRow): ProseDoc {
     if (row.body.length === 0) {
       throw new StoreError("MEMORY_BODY_MISSING", {

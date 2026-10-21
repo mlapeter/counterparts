@@ -291,6 +291,16 @@ export function applyRevision(
     return settle("none", "challenger-unknown", targetId, { retargeted });
   }
 
+  // A REVISED SKILL KEEPS THE DAY IT WAS FIRST LEARNED (re-review of #572):
+  // the successor of a declared `updates` is the same memory, so craft's
+  // grandfathering (`self/work.ts#craftSince`) follows it. Whatever path
+  // follows, link, settle or pressure. Never fails the revision.
+  try {
+    store.carryCraftBorn(targetId, input.challengerId);
+  } catch {
+    /* the successor keeps its own day */
+  }
+
   const target = store.physicsOf(targetId);
   // Protected elements refuse EVERY revision path, always (schemas §5 G11), and
   // the check is BEFORE the arithmetic on every arm — permanence that quietly
