@@ -2238,8 +2238,11 @@ their own store methods (`wave2.ts`, delegates on `Store`).
   after v14 — the identity core install makes, a person the night births — is marked as an
   upgraded one was; a `subjectKind` given wins. A word not in `SUBJECT_KINDS` or
   `BIRTH_ROUTES` is refused by name at insert as it is by `setSubjectKind` /
-  `setBeliefFields`, and a successor (a revision, a merge) carries `subject_kind`,
-  `birth_route` and `confidence` as it carries the writer's fields (`carryWriteFacts`).
+  `setBeliefFields`, and a successor (a revision, a merge) carries `subject_kind` as it
+  carries the writer's fields (`carryWriteFacts`). Not `birth_route` or `confidence`
+  (re-review of #569): a challenge's successor exists because the old belief lost, so lane C
+  decides those for it. Known gap, lane B's: re-kinding a card later (`updatePhysics` kind,
+  person → entity) leaves its `subject_kind` as it was; nothing re-derives it.
 - **The self subject is made lazily** (`ensureSelfSubject`), not by the migration: the
   migration has nothing to name it after, and a row it made would appear in every card list
   before any lane reads it. It is an entity card with no name (the alias index links

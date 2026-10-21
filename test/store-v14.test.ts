@@ -269,9 +269,13 @@ describe("store v14 — the new columns and tables, round trip", () => {
     expect(s.row(b)?.confidence).toBe(0.3);
     expect(s.row(b)?.updated_at).toBe(now);
     now += 1;
-    // A challenged belief's successor is still that belief: its route and confidence travel.
+    // A challenge's successor exists because the old belief lost: its route and
+    // confidence are not carried (lane C decides them). A card's subject kind is.
     const next = s.supersede(b, { type: "schema", kind: "fact", body: "I like plainer words.", meta: { role: "belief", entityId: c } });
-    expect(s.row(next)).toMatchObject({ birth_route: "correction", confidence: 0.3 });
+    expect(s.row(next)).toMatchObject({ birth_route: null, confidence: null });
+    s.setSubjectKind(c, "project");
+    const card2 = s.supersede(c, { type: "schema", kind: "entity", title: "Counterparts", body: "Counterparts, the memory layer", meta: { role: "entity", name: "Counterparts" } });
+    expect(s.row(card2)?.subject_kind).toBe("project");
     try {
       s.setBeliefFields(b, { birthRoute: "osmosis" as "dream" });
       throw new Error("not refused");
