@@ -1191,6 +1191,12 @@ export interface FeelingPeak {
   feeling_peak?: number | null;
   /** v9: the same peak without the feelings a reflection recorded later. */
   feeling_peak_lived?: number | null;
+  /**
+   * NOT A COLUMN (lane C, 2026-10-21): a belief's counted support, `{ sum,
+   * days }` as JSON, from its box-2 meta row (`wave2.ts#recountSupport`), read
+   * beside a row with a birth route. Absent on a bare `SELECT *`: no support.
+   */
+  belief_support?: string | null;
 }
 
 export interface VersionRow extends Row {
@@ -2792,6 +2798,20 @@ function eraExemptRow(
  * old-claims era's cutoff rides the same way (`claims_era_cutoff`); a bare
  * `SELECT *` carries none, and reads every claim as stored.
  */
+/** A belief's counted support from its meta row's JSON (`{ sum, days }`); zeros when there is none or it will not read. */
+function beliefSupportOf(json: string | null | undefined): { support: number; supportDays: number } {
+  if (typeof json !== "string" || json.length === 0) return { support: 0, supportDays: 0 };
+  try {
+    const v = JSON.parse(json) as { sum?: unknown; days?: unknown };
+    return {
+      support: typeof v.sum === "number" && Number.isFinite(v.sum) ? v.sum : 0,
+      supportDays: typeof v.days === "number" && Number.isFinite(v.days) ? v.days : 0,
+    };
+  } catch {
+    return { support: 0, supportDays: 0 };
+  }
+}
+
 export function rowToPhysics(row: MemoryRow & FeelingPeak, today?: string | null): MemoryPhysics {
   const hold = datedHold(row, today ?? row.today_date ?? null);
   const eraClaim = eraClaimOf(row, row.claims_era_cutoff, hold);
@@ -2833,7 +2853,8 @@ export function rowToPhysics(row: MemoryRow & FeelingPeak, today?: string | null
     lastChallengedDay: row.last_challenged_day,
     // v14 (wave 2 lane C): a belief is the row with a birth route (physics
     // §5.13) — but a `migrated` one keeps the physics it lived, for now.
-    // Undefined on a v13 row read before its upgrade: not one.
-    ...(row.birth_route !== null && row.birth_route !== undefined && row.birth_route !== "migrated" ? { belief: true } : {}),
+    // Undefined on a v13 row read before its upgrade: not one. Its support is
+    // its own, read beside the row (`belief_support`), never `uses`.
+    ...(row.birth_route !== null && row.birth_route !== undefined && row.birth_route !== "migrated" ? { belief: true, ...beliefSupportOf(row.belief_support) } : {}),
   };
 }

@@ -276,6 +276,8 @@ export type SettleRefusal =
   | "archived"
   | "protected"
   | "core-takes-pressure"
+  /** A belief settled over by a dream, or by a reflection while it is not contested (lane C): it takes pressure instead. */
+  | "belief-takes-pressure"
   | "pending-date"
   | "failed";
 
@@ -371,6 +373,34 @@ function doorRefusal(store: Store, id: string, opts: { beliefMay?: boolean } = {
   }
   if (row.archived === 1) return refuse("archived", `${id} is archived (${row.archived_reason ?? "archived"}), so it is out of recall already.`);
   return null;
+}
+
+/**
+ * WHO MAY SETTLE OVER A BELIEF AT ONCE (lane C, 2026-10-21, the design
+ * session; lightly held). The owner's correction and an awake session's settle
+ * are the "at once" door. A dream suggests and the waking self decides, so a
+ * dream never does; a reflection may only let go a belief life has already
+ * CONTESTED (`meta.contested`) — it cannot silently unmake one it did not
+ * like. Either is told to file the memory as contrary support instead, which
+ * presses the belief through its bar. Null for any other row.
+ */
+function beliefOverRefusal(store: Store, over: string, actor: SettleActor): SettleOutcome | null {
+  const row = store.row(over);
+  if (row === undefined || !isBeliefRow(row)) return null;
+  if (actor === "owner" || actor === "session") return null;
+  if (actor === "reflection") {
+    let contested = false;
+    try {
+      contested = store.readProse(over).meta["contested"] !== undefined;
+    } catch {
+      contested = false;
+    }
+    if (contested) return null;
+  }
+  return refuse(
+    "belief-takes-pressure",
+    `${over} is a belief: ${actor === "reflection" ? "a reflection lets one go only once life has contested it" : "only the owner or an awake session corrects one at once"}. File the memory that goes against it as contrary support instead; that presses it through its bar.`,
+  );
 }
 
 /**
@@ -484,7 +514,7 @@ export function settle(store: Store, input: SettleInput, opts: { closeFlags?: bo
       );
     }
   }
-  const bad = memoryRefusal(store, over, how !== "open") ?? memoryRefusal(store, holds, false);
+  const bad = memoryRefusal(store, over, how !== "open") ?? memoryRefusal(store, holds, false) ?? (how === "open" ? null : beliefOverRefusal(store, over, input.actor));
   if (bad !== null) return bad;
   return supersede(
     store,
@@ -633,7 +663,7 @@ export function supersede(store: Store, input: SupersedeInput, opts: { retarget?
   if (store.observer) return refuse("observer", "This session is an observer: it reads the store and writes nothing. Nothing was settled.");
   const { holds, over, how } = input;
   if (holds === over) return refuse("same-memory", `holds and over are both ${holds}.`);
-  const bad = doorRefusal(store, over, { beliefMay: true }) ?? doorRefusal(store, holds);
+  const bad = doorRefusal(store, over, { beliefMay: true }) ?? doorRefusal(store, holds) ?? (how === "open" ? null : beliefOverRefusal(store, over, input.actor));
   if (bad !== null) return bad;
   const day = input.day ?? store.livedDay();
   const pair = input.pair;

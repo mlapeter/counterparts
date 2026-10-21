@@ -1002,21 +1002,27 @@ export function base(m: MemoryPhysics): number {
   return Math.max(k.wSal * salArm(m), k.wRep * rep(m)) + cons(m);
 }
 
-/** A belief's height from its support (§5.13): `BELIEF_SUPPORT_CAP x (1 − e^(−uses / BELIEF_SUPPORT_SCALE))`; 0 for any other row. */
-export function supportArm(m: Pick<MemoryPhysics, "uses"> & Partial<Pick<MemoryPhysics, "belief">>): number {
-  if (m.belief !== true || !(m.uses > 0)) return 0;
-  return TUNABLES.BELIEF_SUPPORT_CAP * (1 - Math.exp(-m.uses / TUNABLES.BELIEF_SUPPORT_SCALE));
+/**
+ * A belief's height from its SUPPORT (§5.13): `BELIEF_SUPPORT_CAP x (1 −
+ * e^(−support / BELIEF_SUPPORT_SCALE))`; 0 for any other row. It reads the
+ * belief's own `support`, never `uses`: a use credited by any door is not
+ * support (the shown → used → stronger loop).
+ */
+export function supportArm(m: Partial<Pick<MemoryPhysics, "belief" | "support">>): number {
+  const support = m.support ?? 0;
+  if (m.belief !== true || !(support > 0)) return 0;
+  return TUNABLES.BELIEF_SUPPORT_CAP * (1 - Math.exp(-support / TUNABLES.BELIEF_SUPPORT_SCALE));
 }
 
 /**
  * A BELIEF'S RESISTANCE (§5.13): what contrary pressure must pass, from its
- * support alone — not its kind's inertia, not how strong it reads today.
- * `days` is how many lived days its support's memories come from.
+ * support alone — not its kind's inertia, not how strong it reads today, not
+ * its uses. `supportDays` is how many lived days its support comes from.
  */
-export function beliefResistance(m: Pick<MemoryPhysics, "uses"> & Partial<Pick<MemoryPhysics, "reinforcedDays">>): number {
+export function beliefResistance(m: Partial<Pick<MemoryPhysics, "support" | "supportDays">>): number {
   // Over weeks, log-shaped: the first days count most, and two weeks of them saturate.
-  const spread = Math.min(1, Math.log(1 + Math.max(0, reinforcedDays(m))) / Math.log(1 + TUNABLES.BELIEF_RESIST_DAYS));
-  const backed = 1 - Math.exp(-Math.max(0, m.uses) / TUNABLES.BELIEF_RESIST_SCALE);
+  const spread = Math.min(1, Math.log(1 + Math.max(0, m.supportDays ?? 0)) / Math.log(1 + TUNABLES.BELIEF_RESIST_DAYS));
+  const backed = 1 - Math.exp(-Math.max(0, m.support ?? 0) / TUNABLES.BELIEF_RESIST_SCALE);
   return TUNABLES.BELIEF_RESIST_FLOOR + (TUNABLES.BELIEF_RESIST_CAP - TUNABLES.BELIEF_RESIST_FLOOR) * backed * spread;
 }
 
@@ -1105,7 +1111,7 @@ export function steepnessInput(m: Pick<MemoryPhysics, "salience" | "feelingPeak"
  */
 export function stability(
   m: Pick<MemoryPhysics, "kind" | "uses" | "salience"> &
-    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity" | "eraClaim" | "eraExempt" | "belief">>,
+    Partial<Pick<MemoryPhysics, "feelingPeak" | "returns" | "promotedIdentity" | "eraClaim" | "eraExempt" | "belief" | "support">>,
 ): number {
   const kappa = kindPhysics(m.kind).kappa;
   if (m.promotedIdentity === true || !(kappa > 0)) return Number.POSITIVE_INFINITY;
@@ -1767,6 +1773,8 @@ export function partialSourceOf(tier: UseTier): ReturnSource | null {
 
 export type ReturnReason =
   | "counted"
+  /** A belief (§5.13): no return of any kind — shown, recalled, replayed or cited, it gains nothing. */
+  | "a-belief"
   /** Shown in the wake's hints lane when it was used: the display may have
    *  prompted the use, and counting it is the rich-get-richer loop (#238). */
   | "on-display"
@@ -1995,11 +2003,11 @@ export interface SupportFiling {
 export interface SupportCredit {
   /** Each filing's weight, in the order given. */
   readonly weights: readonly number[];
-  /** The sum of the `support` weights: the belief's `uses` (its repetition arm and part of its stability). */
+  /** The sum of the `support` weights: the belief's `support` (its arm, part of its steepness, its resistance). */
   readonly uses: number;
   /** The last lived day a support filing counted for something — the curve's anchor — or null. */
   readonly lastDay: number | null;
-  /** Distinct lived days the counted support's memories come from (a filing's own day when its memory's is unknown). */
+  /** Distinct lived days the support comes from: a lived (or echoed) memory's own day, an un-echoed find's filing day. */
   readonly days: number;
 }
 
@@ -2037,11 +2045,12 @@ export function supportCredit(filings: readonly SupportFiling[]): SupportCredit 
   const days = new Set<number>();
   for (const f of filings) {
     let w: number;
+    let echoed = false;
     if (f.route === "link") {
       w = Math.max(0, Math.min(TUNABLES.SUPPORT_LINK, TUNABLES.SUPPORT_LINK_MAX - linked[f.stance]));
       linked[f.stance] += w;
     } else {
-      const echoed = f.route === "found" && f.bornDay !== null && lastLivedBorn > f.bornDay;
+      echoed = f.route === "found" && f.bornDay !== null && lastLivedBorn > f.bornDay;
       const route = echoed ? TUNABLES.SUPPORT_FOUND_ECHOED : supportRouteWeight(f.route);
       const s = seen[f.stance];
       const scope = f.scope ?? UNKNOWN_FOLDER;
@@ -2063,31 +2072,30 @@ export function supportCredit(filings: readonly SupportFiling[]): SupportCredit 
     if (f.stance === "support" && w > 0) {
       uses += w;
       lastDay = lastDay === null ? f.day : Math.max(lastDay, f.day);
-      days.add(f.bornDay ?? f.day);
+      // A lived filing counts its memory's own day. A FOUND one counts the
+      // day it was filed until life echoes it — one night of finds is one
+      // day: insight earns strength, not hardness (design §4). A link, its day.
+      days.add(LIVED_ROUTES.has(f.route) || echoed ? (f.bornDay ?? f.day) : f.day);
     }
   }
   return { weights, uses, lastDay, days: days.size };
 }
 
 /**
- * A belief's physics with its support recounted (§5.13). A return-like
- * credit with a use's reach: the support's sum is in `uses` — the height (the
- * repetition arm, which a belief always has) and part of the stability — and
- * the curve restarts on the last day support counted, where a return would
- * only lengthen it. `before` is what the support counted for at its last
- * count, so only the difference moves `uses` and the reinforced days: a use
- * credited some other way (lane E's, later) is kept. The anchor never moves
- * back — an unfiled support leaves the day it restarted the curve.
+ * A belief's physics with its support recounted (§5.13): its own `support`
+ * and `supportDays` (never `uses`, which any door's use credit moves), and
+ * the curve restarted on the last day support counted — a return-like credit
+ * with a use's reach. The anchor never moves back: an unfiled support leaves
+ * the day it restarted the curve.
  */
 export function supportedPhysics(
-  m: Pick<MemoryPhysics, "uses" | "lastUsedDay" | "reinforcedDays">,
+  m: Pick<MemoryPhysics, "lastUsedDay">,
   credit: SupportCredit,
-  before: { readonly uses: number; readonly days: number },
-): Pick<MemoryPhysics, "uses" | "lastUsedDay" | "reinforcedDays"> {
+): Pick<MemoryPhysics, "support" | "supportDays" | "lastUsedDay"> {
   return {
-    uses: Math.max(0, m.uses + credit.uses - before.uses),
+    support: credit.uses,
+    supportDays: credit.days,
     lastUsedDay: Math.max(m.lastUsedDay, credit.lastDay ?? m.lastUsedDay),
-    reinforcedDays: Math.max(0, reinforcedDays(m) + credit.days - before.days),
   };
 }
 
@@ -2177,6 +2185,8 @@ export const USE_TIER_WEIGHT: Record<UseTier, number> = {
 
 export type CreditReason =
   | "credited"
+  /** A belief (§5.13): it is earned by support alone, so a use is not credited to it, for now. */
+  | "a-belief"
   | "ignorable-tier"
   | "birth-day"
   | "already-credited-today"
@@ -2351,6 +2361,16 @@ export function applyChallenge(
   challenge: Challenge,
   d: number,
   shape: DecayShape = TUNABLES.DECAY_SHAPE,
+  opts: {
+    /**
+     * A BELIEF'S DAY IS PRESSED BY ITS STRONGEST CONTRARY MEMORY (§5.13,
+     * 2026-10-21): the force already credited against it today. A stronger
+     * challenge the same lived day credits the difference, so a second
+     * contrary memory is not lost to the once-a-day rule, and the day's total
+     * stays one challenge's (capped). Absent: the once-a-day rule as ever.
+     */
+    creditedToday?: number;
+  } = {},
 ): ChallengeOutcome {
   const bar = revisionBar(target, d, shape);
   const pressureBefore = pressureAt(target, d);
@@ -2369,7 +2389,8 @@ export function applyChallenge(
 
   if (challenge.declaredUpdates === null) return refuse("no-declared-target");
   if (challenge.declaredUpdates !== targetId) return refuse("target-mismatch");
-  if (target.lastChallengedDay !== null && d === target.lastChallengedDay) {
+  const topUp = target.lastChallengedDay !== null && d === target.lastChallengedDay && opts.creditedToday !== undefined;
+  if (target.lastChallengedDay !== null && d === target.lastChallengedDay && !topUp) {
     return refuse("already-challenged-today");
   }
   if (target.lastChallengedDay !== null && d < target.lastChallengedDay) return refuse("stale-day");
@@ -2379,7 +2400,11 @@ export function applyChallenge(
   // A belief is slow too (§5.13): its daily force is capped, so its
   // resistance counts in lived days.
   const slow = target.belief === true || kindPhysics(target.kind).iota >= TUNABLES.SLOW_KIND_IOTA;
-  const force = slow ? Math.min(rawForce, TUNABLES.F_DAY_CAP_SLOW) : rawForce;
+  const dayForce = slow ? Math.min(rawForce, TUNABLES.F_DAY_CAP_SLOW) : rawForce;
+  // Topping up today's pressure: only the part past what today already credited.
+  const already = topUp ? Math.max(0, opts.creditedToday ?? 0) : 0;
+  if (topUp && dayForce <= already) return refuse("already-challenged-today");
+  const force = dayForce - already;
   const pressureAfter = pressureBefore + force;
   const revise = pressureAfter > bar;
   return {

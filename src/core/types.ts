@@ -242,6 +242,14 @@ export interface MemoryPhysics {
    * `#beliefResistance`). Absent or false: any other memory.
    */
   belief?: boolean;
+  /**
+   * A BELIEF'S SUPPORT (§5.13) — NOT a column: the sum of its support's
+   * weights and the lived days it comes from, as the store last counted them
+   * (`store/wave2.ts#recountSupport`), read beside the row. Its own fields, so
+   * a use credited by any door is never support. Absent: 0.
+   */
+  support?: number;
+  supportDays?: number;
   /** Set only by the explicit promotion crossing or revision inheritance (§5.3). */
   promotedIdentity: boolean;
   protected: boolean;

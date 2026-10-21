@@ -769,7 +769,13 @@ export class Schemas {
     // a belief to physics. What lifts it after is support, counted once per
     // memory (`fileSupport`). A MIGRATED belief is not born here: it keeps the
     // strength it lived in v1 (owner ruling 2026-08-29), for now.
-    const migrated = input.channel === "migrated";
+    // MIGRATED IS ONE FACT, READ OFF THE ROUTE (review of #575): physics reads
+    // the row's birth route alone, so the channel must agree with it.
+    const migrated = input.birthRoute === "migrated";
+    if (migrated !== (input.channel === "migrated")) {
+      this.emit("schema.belief.refused", input.entityId, { reason: "route-channel-mismatch" });
+      return { ok: false, reason: "route-channel-mismatch", id: null };
+    }
     const ceiling = PHYSICS_TUNABLES.BELIEF_BIRTH_CEILING;
     const dims = input.dimensions;
     const put = this.mintElement({
@@ -839,6 +845,7 @@ export class Schemas {
     if (rec === undefined || rec.role !== "belief" || belief === undefined) return refuse("belief-unknown", beliefId);
     if (belief.archived === 1) return refuse("belief-archived", beliefId);
     if (input.memoryId === beliefId || input.memoryId === input.beliefId) return refuse("memory-is-the-belief", beliefId);
+    if (input.stance !== "support" && input.stance !== "contrary") return refuse("stance-unknown", beliefId);
     const memory = this.store.row(input.memoryId);
     if (memory === undefined || this.removed(input.memoryId, memory)) return refuse("memory-unknown", beliefId);
 
@@ -1135,6 +1142,10 @@ export class Schemas {
     if (challengerRow === undefined) return refuse("challenger-unknown", targetId);
     const challenger = this.store.physicsOf(input.challengerId);
 
+    // A BELIEF'S DAY IS PRESSED BY ITS STRONGEST CONTRARY MEMORY (review of
+    // #575): what was credited against it today, from the durable increments,
+    // so a stronger one the same day tops it up rather than being lost.
+    const creditedToday = target.belief === true && target.lastChallengedDay === input.day ? this.creditedOn(targetId, input.day) : undefined;
     const outcome = applyChallenge(
       targetId,
       target,
@@ -1143,6 +1154,8 @@ export class Schemas {
       // references (scar §2.5).
       { id: input.challengerId, declaredUpdates: targetId, physics: challenger, ...(input.weight === undefined ? {} : { weight: input.weight }) },
       input.day,
+      undefined,
+      creditedToday === undefined ? {} : { creditedToday },
     );
 
     let increment: PressureIncrement | null = null;
@@ -1241,6 +1254,19 @@ export class Schemas {
    * durable `belief.contested` event keeps the story.
    */
   private contest(id: string, input: ChallengeInput, pressure: number, bar: number): void {
+    // ONE CUT (review of #575): a belief already contested takes no second
+    // one; later contrary memories add pressure until the reflection or the
+    // owner settles it.
+    let already = false;
+    try {
+      already = this.store.readProse(id).meta["contested"] !== undefined;
+    } catch {
+      already = false;
+    }
+    if (already) {
+      this.emit("schema.belief.contested.again", id, { day: input.day, challengerId: input.challengerId, pressure, bar });
+      return;
+    }
     const p = this.store.physicsOf(id);
     const factor = PHYSICS_TUNABLES.BELIEF_CONTESTED_FADE;
     this.store.updatePhysics(id, { fade: fadeOf(p) * factor, pressure: 0, lastChallengedDay: input.day });
@@ -1254,6 +1280,21 @@ export class Schemas {
       payload: { beliefId: id, ...contested },
     });
     this.emit("schema.belief.contested", id, { day: input.day, challengerId: input.challengerId, pressure, bar });
+  }
+
+  /** The force credited against a belief on one lived day, from its durable increments (a read). */
+  private creditedOn(id: string, day: number): number {
+    let total = 0;
+    for (const e of this.store.eventLog({ name: "revision.pressure", ref: id })) {
+      if (e.day !== day || e.payload === null) continue;
+      try {
+        const f = (JSON.parse(e.payload) as { force?: unknown }).force;
+        if (typeof f === "number" && Number.isFinite(f)) total += f;
+      } catch {
+        /* a payload that will not read adds nothing */
+      }
+    }
+    return total;
   }
 
   /**

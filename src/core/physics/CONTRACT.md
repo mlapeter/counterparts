@@ -716,19 +716,30 @@ spread  = the smallest that applies against earlier filings of the same stance:
           same session 0.25 · same lived day 0.5 · same folder 0.75 · else 1
           (no folder — the chapter episodes — is one shared "unknown" folder)
 links   = at most SUPPORT_LINK_MAX (0.5) together, from beliefs at strength ≥ SUPPORT_LINK_FLOOR
-uses(b) = Σ w over its support         days(b) = distinct lived days its support's memories come from
+S(b)    = Σ w over its support                                             # MemoryPhysics.support
+days(b) = distinct lived days its support comes from: a lived (or echoed) memory's own day,
+          an un-echoed find's FILING day — one night of finds is one day   # .supportDays
 anchor  = the last lived day a support filing counted                     # the curve restarts there
 
-support(b) = BELIEF_SUPPORT_CAP × (1 − e^(−uses / BELIEF_SUPPORT_SCALE))        0.9, 4
+support(b) = BELIEF_SUPPORT_CAP × (1 − e^(−S / BELIEF_SUPPORT_SCALE))           0.9, 4
 base(b)    = max( ω_sal(k) × salArm(b),  support(b) ) + cons(b)               # its own arm, not rep
 q(b)       = max( steepnessInput(b), support(b) )                             # it hardens
-bar(b)     = FLOOR + (CAP − FLOOR) × (1 − e^(−uses / SCALE)) × min(1, ln(1 + days) / ln(1 + DAYS))
+bar(b)     = FLOOR + (CAP − FLOOR) × (1 − e^(−S / SCALE)) × min(1, ln(1 + days) / ln(1 + DAYS))
              BELIEF_RESIST_FLOOR 0.1 · CAP 1.0 · SCALE 3 · DAYS 14            # not ι × strength
-force      ≤ F_DAY_CAP_SLOW (0.35) a lived day, for every belief
+force      ≤ F_DAY_CAP_SLOW (0.35) a lived day, for every belief — the day's STRONGEST contrary memory:
+             a stronger one the same day credits the difference
 ```
 
+- **Support is its own, never a use** (review of #575). `S` and `days` are the belief's own
+  (`MemoryPhysics.support`, `.supportDays`; a box-2 meta row per belief the store's recount
+  writes and the row read carries), never `uses`. And a belief takes no use credit at all, for
+  now: `Store#reinforce`, `#replayReturn` and `#reflectReturn` refuse it (`a-belief`) — shown,
+  opened, rated, drawn on, replayed or cited, it gains nothing (the shown → used → stronger
+  loop). Lane E may let a slot's rating be a plain use; it would still not reach the support
+  arm or the bar.
+
 - **The same curve as any memory, its own arm.** Support is a return-like credit with a use's
-  reach: its sum is the belief's `uses`, which lifts the height through the SUPPORT ARM (in
+  reach: its sum `S` lifts the height through the SUPPORT ARM (in
   place of the repetition arm, whatever the subject's kind — a person's ω_rep is 0 — and past
   `REP_CAP`: ~4 full supports reach 0.5, ~10 reach 0.83), sets the steepness so a well-backed
   belief fades slowly, and restarts the curve on the last day support counted. Unsupported, a
@@ -742,18 +753,22 @@ force      ≤ F_DAY_CAP_SLOW (0.35) a lived day, for every belief
   three days (CAP 1). The bar does not decay with the belief: resistance is what life put
   behind it, and the pressure decays on its own curve.
 - **Contested, never rewritten.** Past the bar the belief keeps its words — no memory's body
-  becomes a belief's text — takes one cut (`BELIEF_CONTESTED_FADE` 0.5 on `fade`, as a
+  becomes a belief's text — takes ONE cut (`BELIEF_CONTESTED_FADE` 0.5 on `fade`, as a
   `changed` settle's), its pressure starts again from nothing, and `meta.contested` records the
   day, the memory that carried it, the pressure and the bar (plus a durable `belief.contested`
-  event). The next reflection is asked to revise or retire it (lane C2/C3).
-- **The at-once door passes no bar.** The owner's correction and a reasoned settle reach a
-  belief through `reconsolidation.ts#settle` as the one settled OVER (never as the one that
-  holds): `corrected` archives it at once, its words and support kept on the record.
+  event). Crossing again while contested adds pressure and no second cut. The next reflection
+  is asked to revise or retire it (lane C2).
+- **The at-once door passes no bar — for the awake** (the design session, 2026-10-21). The
+  owner's correction and an awake session's settle reach a belief through
+  `reconsolidation.ts#settle` as the one settled OVER (never as the one that holds):
+  `corrected` archives it at once, its words and support kept on the record. A DREAM's settle
+  never corrects a belief, and a REFLECTION's only one life has contested: otherwise refused
+  `belief-takes-pressure`, the memory to be filed as contrary support instead.
 - **Recounted, not accumulated.** The store recounts a belief's whole table at every filing
-  and unfiling (`store/wave2.ts#recountSupport`, ~0.3 ms at 2,000 beliefs × 20 supports) and
-  moves its `uses` and its days by the difference from the last count, so an echoed found
-  filing or an unfiled one reads exactly, and a use credited some other way is kept. The
-  anchor never moves back.
+  and unfiling, and when the owner removes a memory it was counted on
+  (`store/wave2.ts#recountSupport`, ~0.3 ms at 2,000 beliefs × 20 supports), and writes its
+  `S` and `days` from that count, so an echoed found filing or an unfiled one reads exactly.
+  The anchor never moves back.
 - **What never counts:** the belief itself, a showing, a recall, a rating, a reflection
   citing it, a dream's words, a reflection's entry. A rating of a belief's slot (lane E) may
   be a physics USE credit; it is never support.

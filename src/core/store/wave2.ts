@@ -177,6 +177,8 @@ export interface SupportRead {
 
 export function fileSupport(store: Store, input: SupportInput, at: number): boolean {
   if (!has(store, "belief_support") || input.beliefId === input.memoryId) return false;
+  // Only the two stances (review of #575): a word like "against" is no stance.
+  if (input.stance !== "support" && input.stance !== "contrary") return false;
   ops(store).run(
     `INSERT OR IGNORE INTO belief_support (belief_id, memory_id, stance, route, day, weight, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -228,36 +230,33 @@ export function supportGivenBy(store: Store, memoryId: string): SupportRead[] {
 }
 
 /**
+ * Where a belief's counted support is kept (lane C, physics §5.13): a box-2
+ * meta row per belief, `{ sum, days }`, read beside the row
+ * (`reads-memories.ts#row`) into `MemoryPhysics.support` / `supportDays`.
+ * Its own place, not `uses`: a use credited by any door is never support.
+ * No column for it: v14 was the wave's one bump.
+ */
+export const BELIEF_SUPPORT_META_PREFIX = "belief.support.";
+
+/**
  * THE BELIEF'S SUPPORT, COUNTED AGAIN (lane C, physics §5.13): every row's
  * weight from the whole table, in filing order (`physics#supportCredit`), and
- * the difference since the last count carried onto the belief's own physics
- * (`physics#supportedPhysics`). Run inside every filing and unfiling, so the
- * belief row, the table and the weights it shows never disagree. Each counted
- * memory's feeling is its strongest felt at the time (`feeling_peak_lived`):
- * a feeling a reflection records later does not make its memory count more.
- * Returns each memory's weight; empty when the table or the belief is not there.
+ * the belief's support, its support days and its anchor written from that
+ * count (`physics#supportedPhysics`). Run inside every filing and unfiling,
+ * so the belief, the table and the weights it shows never disagree. Each
+ * counted memory's feeling is its strongest felt at the time
+ * (`feeling_peak_lived`): a feeling a reflection records later does not make
+ * its memory count more. Returns each memory's weight; empty when the table
+ * or the belief is not there. ~0.3 ms a filing at 2,000 beliefs x 20 supports.
  */
-export function recountSupport(
-  store: Store,
-  beliefId: string,
-  /** A row just taken off (`unfileSupport`): what it counted for is part of the last count. */
-  gone?: { readonly stance: string; readonly weight: number; readonly day: number; readonly bornDay: number | null },
-): Map<string, number> {
+export function recountSupport(store: Store, beliefId: string): Map<string, number> {
   const out = new Map<string, number>();
   if (!has(store, "belief_support")) return out;
   const belief = store.row(beliefId);
   if (belief === undefined) return out;
-  const rows = ops(store).all<SupportJoin>(`${SUPPORT_JOIN} WHERE s.belief_id = ? ORDER BY s.day, s.created_at, s.memory_id`, beliefId);
-  const before = { uses: 0, days: new Set<number>() };
-  if (gone !== undefined && gone.stance === "support" && gone.weight > 0) {
-    before.uses += gone.weight;
-    before.days.add(gone.bornDay ?? gone.day);
-  }
+  // Filing order: the day, the moment, then the order the rows went in (two in one moment keep theirs).
+  const rows = ops(store).all<SupportJoin>(`${SUPPORT_JOIN} WHERE s.belief_id = ? ORDER BY s.day, s.created_at, s.rowid`, beliefId);
   const filings: SupportFiling[] = rows.map((r) => {
-    if (r.stance === "support" && r.weight > 0) {
-      before.uses += r.weight;
-      before.days.add(r.born_day ?? r.day);
-    }
     const m = store.row(r.memory_id);
     const feeling = m === undefined ? 0 : emotionalIntensity({ salience: rowToPhysics(m).salience, feelingPeak: m.feeling_peak_lived ?? m.feeling_peak ?? null });
     return {
@@ -278,14 +277,13 @@ export function recountSupport(
     write.run(w, beliefId, f.memoryId);
     out.set(f.memoryId, w);
   });
-  const next = supportedPhysics(rowToPhysics(belief), credit, { uses: before.uses, days: before.days.size });
+  const next = supportedPhysics(rowToPhysics(belief), credit);
   ops(store).run(
-    "UPDATE memories SET uses = ?, last_used_day = ?, reinforced_days = ? WHERE id = ?",
-    next.uses,
-    next.lastUsedDay,
-    next.reinforcedDays ?? 0,
-    beliefId,
+    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+    `${BELIEF_SUPPORT_META_PREFIX}${beliefId}`,
+    JSON.stringify({ sum: next.support ?? 0, days: next.supportDays ?? 0 }),
   );
+  ops(store).run("UPDATE memories SET last_used_day = ? WHERE id = ?", next.lastUsedDay, beliefId);
   return out;
 }
 

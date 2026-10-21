@@ -1315,6 +1315,8 @@ const PRIVATE_HELPERS = new Set([
   "aboutMe",
   // Lane C: a belief past its bar is marked contested (a write behind challengeBelief, not a verb).
   "contest",
+  // Lane C: the force credited against a belief on one day (a read behind challengeBelief).
+  "creditedOn",
   // SEAMS item K: story() reads the DURABLE increments out of box 2's events
   // table and unions this session's ring on top. A read helper, no new operation.
   "storyIncrements",

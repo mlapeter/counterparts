@@ -259,8 +259,11 @@ describe("store v14 — the new columns and tables, round trip", () => {
       expect(isStoreError(err, "BIRTH_ROUTE_INVALID")).toBe(true);
     }
     expect(s.list().length).toBe(before);
-    const b = s.put({ type: "schema", kind: "fact", body: "I like plain words.", meta: { role: "belief", entityId: c }, birthRoute: "reflection" });
-    expect(s.row(b)?.birth_route).toBe("reflection");
+    const born = s.put({ type: "schema", kind: "fact", body: "I like plainer words.", meta: { role: "belief", entityId: c }, birthRoute: "reflection" });
+    expect(s.row(born)?.birth_route).toBe("reflection");
+    // Set once, at birth (lane C, review of #575): a route is never changed after.
+    expect(() => s.setBeliefFields(born, { birthRoute: "correction" })).toThrow();
+    const b = s.put({ type: "schema", kind: "fact", body: "I like plain words.", meta: { role: "belief", entityId: c } });
     const stamped = s.row(b)?.updated_at as number;
     let now = stamped + 1000;
     (s as unknown as { nowFn: () => number }).nowFn = () => now;
@@ -389,7 +392,7 @@ describe("store v14 — the new columns and tables, round trip", () => {
       [m1, "support", "testimony", 1, 1],
       [m2, "contrary", "found", 2, 0.7],
     ]);
-    expect(s.row(belief)?.uses).toBe(1);
+    expect(s.physicsOf(belief).support).toBe(1);
     expect(rows.map((r) => [r.session, r.scope])).toEqual([
       ["sess-a", "/work/site"],
       ["sess-b", "/work/repo"],
@@ -399,7 +402,7 @@ describe("store v14 — the new columns and tables, round trip", () => {
     expect(s.unfileSupport(belief, m2)).toBe(true);
     expect(s.supportOf(belief)).toHaveLength(1);
     expect(s.unfileSupport(belief, m1)).toBe(true);
-    expect(s.row(belief)?.uses).toBe(0);
+    expect(s.physicsOf(belief).support).toBe(0);
   });
 
   test("folders and projects: one project per folder, replaced, cleared; the card must exist", () => {

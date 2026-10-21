@@ -26,6 +26,7 @@ import type {
 import { aboutMarkOf, CORE_ABOUT_MARKS, STATUSES } from "./marks.js";
 import type { MemoryStatus } from "./marks.js";
 import type { Store } from "./index.js";
+import { BELIEF_SUPPORT_META_PREFIX } from "./wave2.js";
 
 /** `LATER_FEELING_SOURCES` as a SQL list — the sources `feeling_peak_lived` leaves out. Constants only, never input. */
 const LATER_SQL = LATER_FEELING_SOURCES.map((x) => `'${x}'`).join(", ");
@@ -71,7 +72,14 @@ export function row(store: Store, id: string): (MemoryRow & FeelingPeak) | undef
                     AND f.created_at = (SELECT MAX(g.created_at) FROM feelings g WHERE g.memory_id = m.id AND g.source IN (${RECORDED_LATER_SQL}))),
                 (SELECT MAX(f.strength) FROM feelings f WHERE f.memory_id = m.id)) AS feeling_peak,
               (SELECT MAX(f.strength) FROM feelings f
-                WHERE f.memory_id = m.id AND (f.source IS NULL OR f.source NOT IN (${LATER_SQL}))) AS feeling_peak_lived
+                WHERE f.memory_id = m.id AND (f.source IS NULL OR f.source NOT IN (${LATER_SQL}))) AS feeling_peak_lived,
+              ${
+                // A belief's counted support (lane C), on a store with the v14
+                // column; a v13 file read before its upgrade has none.
+                store.hasColumn("memories", "birth_route")
+                  ? `CASE WHEN m.birth_route IS NOT NULL THEN (SELECT value FROM meta WHERE key = '${BELIEF_SUPPORT_META_PREFIX}' || m.id) END`
+                  : "NULL"
+              } AS belief_support
          FROM memories m WHERE m.id = ?`,
     id,
   );

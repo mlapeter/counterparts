@@ -731,3 +731,13 @@ reflection decides what to do with it (C2/C3). A migrated belief keeps the old p
 a 21st filing with its whole-table recount takes 0.30 ms at the median and 0.64 ms at p95,
 an unfiling 0.32 / 0.67 ms: the recount reads only that belief's rows (the key's prefix) and
 each counted memory's row.
+
+**Review of #575 (2026-10-21).** Support is the belief's own now (`support`, `supportDays`, a
+box-2 meta row per belief, read beside the row): the first build put it in the shared `uses`,
+which `Store#reinforce` also writes, and the reviewer lifted a belief with no support from
+0.10 to 0.78 by reinforcing it on eight days — the shown → used → stronger loop. A belief
+also takes no use credit or return at all, for now. An un-echoed find counts its filing day
+(ten old memories found on one night had hardened a belief to 0.82 at once: "hardened by the
+reflection alone"); once life echoes it, its memory's own day. A stronger contrary memory the
+same day tops the day's pressure up to its force (`applyChallenge`'s `creditedToday`), so a
+second one is not lost to the once-a-day rule. A contested belief is cut once.

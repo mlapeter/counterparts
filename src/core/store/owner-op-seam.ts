@@ -45,6 +45,7 @@ import { hashText } from "./prose.js";
 import { unfade } from "../physics/index.js";
 import type { Db } from "./db.js";
 import { CARD_TOMBSTONE_PREFIX } from "./operational.js";
+import { BELIEF_SUPPORT_META_PREFIX, recountSupport } from "./wave2.js";
 import type { MemoryRow } from "./operational.js";
 import type { RemovalNote, Store } from "./index.js";
 
@@ -342,7 +343,12 @@ export function chaseRemoved(store: Store, id: string): ChaseReport {
     }
     try {
       db.run("DELETE FROM memory_tags WHERE memory_id = ?", id);
+      // The beliefs it was counted for are counted again without it (lane C),
+      // and a removed belief's own count goes with it.
+      const backed = db.all<{ belief_id: string }>("SELECT DISTINCT belief_id FROM belief_support WHERE memory_id = ?", id).map((r) => r.belief_id);
       db.run("DELETE FROM belief_support WHERE belief_id = ? OR memory_id = ?", id, id);
+      db.run("DELETE FROM meta WHERE key = ?", `${BELIEF_SUPPORT_META_PREFIX}${id}`);
+      for (const b of backed) recountSupport(store, b);
       db.run("DELETE FROM folder_projects WHERE project_id = ?", id);
       const turns = db.all<{ session_id: string; turn: number; shown: string }>(
         "SELECT session_id, turn, shown FROM recall_turns WHERE shown LIKE ?",

@@ -217,18 +217,22 @@ name/alias resolution; birth and death telemetry.
     defaults, physics §5.13). `addBelief` takes a birth route (`store#BIRTH_ROUTES`), writes
     it on the row, and caps the dimensions and the claim at `BELIEF_BIRTH_CEILING` at the
     seam, with no feeling, whoever writes it; a `migrated` belief keeps the strength, the
-    inertia and the accommodation path it lived (for now). Beliefs
+    inertia and the accommodation path it lived (for now) — `migrated` is read off the birth
+    route alone, a channel that disagrees is refused, and a route is never changed after
+    birth. Beliefs
     about me or us carry `about` me/us. `fileSupport` is the one door support comes through:
     a lived memory (a memory or a chapter, not a dream's words or a reflection's entry) or,
     by `link`, another belief at `SUPPORT_LINK_FLOOR`; never the belief itself, and no word
-    but a support route (a rating, a showing or a recall is none); `testimony` and `choice`
+    but a support route (a rating, a showing or a recall is none), no stance but `support`
+    or `contrary`; `testimony` and `choice`
     read off the memory's `said_by`, never claimed; `use` not on a belief about me or us.
     Each memory counts once per belief (the table's key: filing again is `already-counted`).
     A contrary filing presses through `challengeBelief` at its weight, against a bar that
     grows with the belief's support (physics §5.13); past it the belief is CONTESTED — its
     text stands (no memory's body ever becomes a belief's), it is cut once and marked
-    `meta.contested` — never rewritten. The owner's correction or a settle reaches a belief
-    at once through `reconsolidation.ts#settle`, as the one settled over, passing no bar.
+    `meta.contested` — never rewritten. The owner's correction or an awake session's settle
+    reaches a belief at once through `reconsolidation.ts#settle`, as the one settled over,
+    passing no bar; a dream's never, a reflection's only once the belief is contested.
     **Invisible for now**:
     recall's candidates, facts mode and the core lanes leave belief rows out by role
     (`meta.role: belief`) until lanes E and F, each behind its own switch.

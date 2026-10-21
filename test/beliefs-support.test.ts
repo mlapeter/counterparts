@@ -18,7 +18,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { TUNABLES as PHYSICS, beliefResistance, height, sal, strength, supportCredit, supportedPhysics } from "../src/core/physics/index.js";
+import { TUNABLES as PHYSICS, beliefResistance, height, revisionBar, sal, strength, supportCredit, supportedPhysics } from "../src/core/physics/index.js";
 import type { SupportFiling } from "../src/core/physics/index.js";
 import { Store } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
@@ -27,6 +27,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { phaseReport } from "../src/core/sleep/index.js";
 import { factsRecall } from "../src/adapters/mcp/facts.js";
 import { settle } from "../src/core/reconsolidation.js";
+import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
 
 const NOW = Date.parse("2026-03-02T12:00:00Z");
 const SESSION = "bbbbbbbb-1111-2222-3333-444444444444";
@@ -108,14 +109,22 @@ describe("the support arithmetic (physics §5.13), pure", () => {
     expect(supportCredit([found, { ...after, route: "found", memoryId: "f3" }]).weights).toEqual([PHYSICS.SUPPORT_FOUND, PHYSICS.SUPPORT_FOUND]);
   });
 
-  test("the belief's physics move by the difference since the last count: a use from elsewhere is kept; the anchor never moves back", () => {
+  test("the belief's own support and support days come from the count; the anchor never moves back", () => {
     const credit = supportCredit([filing({ memoryId: "a", day: 4 }), filing({ memoryId: "b", day: 6, bornDay: 6, session: "s", scope: "/b" })]);
     expect(credit.lastDay).toBe(6);
     expect(credit.days).toBe(2);
-    const next = supportedPhysics({ uses: 1.25, lastUsedDay: 5, reinforcedDays: 1 }, credit, { uses: 1, days: 1 });
-    expect(next).toEqual({ uses: 1.25 + 2 - 1, lastUsedDay: 6, reinforcedDays: 2 });
-    const unfiled = supportedPhysics({ uses: 2.25, lastUsedDay: 6, reinforcedDays: 2 }, supportCredit([filing({ memoryId: "a", day: 4 })]), { uses: 2, days: 2 });
-    expect(unfiled).toEqual({ uses: 1.25, lastUsedDay: 6, reinforcedDays: 1 });
+    expect(supportedPhysics({ lastUsedDay: 5 }, credit)).toEqual({ support: 2, supportDays: 2, lastUsedDay: 6 });
+    expect(supportedPhysics({ lastUsedDay: 6 }, supportCredit([filing({ memoryId: "a", day: 4 })]))).toEqual({ support: 1, supportDays: 1, lastUsedDay: 6 });
+  });
+
+  test("an un-echoed find counts its FILING day: one night of finds is one day; echoed, its memory's own day", () => {
+    const finds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((d) => filing({ memoryId: `f${d}`, route: "found", bornDay: d, day: 30, session: `s${d}`, scope: `/f${d}` }));
+    const night = supportCredit(finds);
+    expect(night.days).toBe(1);
+    expect(beliefResistance({ support: night.uses, supportDays: night.days })).toBeLessThan(PHYSICS.F_DAY_CAP_SLOW);
+    // Life echoes them: a lived memory from a later day.
+    const echoed = supportCredit([...finds, filing({ memoryId: "t", route: "testimony", bornDay: 31, day: 31, session: "t", scope: "/t" })]);
+    expect(echoed.days).toBe(11);
   });
 });
 
@@ -183,10 +192,10 @@ describe("filing support (schemas#fileSupport)", () => {
     const first = schemas.fileSupport({ beliefId: b, memoryId: m, stance: "support", day: 2 });
     expect(first.ok).toBe(true);
     expect(first.route).toBe("testimony");
-    const uses = s.row(b)?.uses;
+    const uses = s.physicsOf(b).support;
     const again = schemas.fileSupport({ beliefId: b, memoryId: m, stance: "support", route: "use", day: 3 });
     expect(again.reason).toBe("already-counted");
-    expect(s.row(b)?.uses).toBe(uses as number);
+    expect(s.physicsOf(b).support).toBe(uses as number);
     expect(s.supportOf(b)).toHaveLength(1);
   });
 
@@ -214,7 +223,7 @@ describe("filing support (schemas#fileSupport)", () => {
     expect(schemas.fileSupport({ beliefId: b, memoryId: entry, stance: "support", day: 2 }).reason).toBe("not-lived");
     expect(schemas.fileSupport({ beliefId: b, memoryId: wren, stance: "support", day: 2 }).reason).toBe("not-lived");
     expect(s.supportOf(b)).toEqual([]);
-    expect(s.row(b)?.uses).toBe(0);
+    expect(s.physicsOf(b).support).toBe(0);
   });
 
   test("use backs beliefs about work and people, not beliefs about me or us", () => {
@@ -256,16 +265,17 @@ describe("filing support (schemas#fileSupport)", () => {
       schemas.fileSupport({ beliefId: held, memoryId: ids[ids.length - 1] as string, stance: "support", day });
     }
     const p = s.physicsOf(held);
-    expect(p.uses).toBeCloseTo(5, 9);
+    expect(p.support).toBeCloseTo(5, 9);
+    expect(p.uses).toBe(0);
     expect(p.lastUsedDay).toBe(6);
-    expect(p.reinforcedDays).toBe(5);
+    expect(p.supportDays).toBe(5);
     // Height past the birth ceiling (a person's omega_rep is 0; a belief's support is its repetition arm anyway).
     expect(height(p)).toBeGreaterThan(PHYSICS.BELIEF_BIRTH_CEILING);
     expect(strength(p, 10)).toBeGreaterThan(strength(s.physicsOf(bare), 10) * 2);
     // Unfile the last: its weight comes off exactly; the anchor stays.
     expect(s.unfileSupport(held, ids[4] as string)).toBe(true);
-    expect(s.row(held)?.uses).toBeCloseTo(4, 9);
-    expect(s.row(held)?.reinforced_days).toBe(4);
+    expect(s.physicsOf(held).support).toBeCloseTo(4, 9);
+    expect(s.physicsOf(held).supportDays).toBe(4);
     expect(s.row(held)?.last_used_day).toBe(6);
   });
 
@@ -280,7 +290,7 @@ describe("filing support (schemas#fileSupport)", () => {
     const later = lived(s, "Wren booked the dawn ferry again.", 4, { saidBy: "owner" });
     schemas.fileSupport({ beliefId: b, memoryId: later, stance: "support", day: 4 });
     expect(s.supportOf(b).find((r) => r.memoryId === old)?.weight).toBe(PHYSICS.SUPPORT_FOUND_ECHOED);
-    expect(s.row(b)?.uses).toBeCloseTo(3, 9);
+    expect(s.physicsOf(b).support).toBeCloseTo(3, 9);
   });
 
   test("contrary support presses at its weight, once a lived day, and never lifts the belief", () => {
@@ -296,7 +306,7 @@ describe("filing support (schemas#fileSupport)", () => {
     const r2 = schemas.fileSupport({ beliefId: b, memoryId: no2, stance: "contrary", day: 2 });
     expect(r2.ok).toBe(true);
     expect(r2.revision?.reason).toBe("already-challenged-today");
-    expect(s.row(b)?.uses).toBe(0);
+    expect(s.physicsOf(b).support).toBe(0);
   });
 });
 
@@ -321,22 +331,22 @@ describe("resistance grows with support (physics §5.13), and past it a belief i
     const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
     schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Mike: dawn sessions are our best.", 1, { saidBy: "owner", session: "a" }), stance: "support", day: 1 });
     schemas.fileSupport({ beliefId: b, memoryId: lived(s, "I chose the dawn slot again.", 1, { saidBy: "self", session: "b" }), stance: "support", day: 1 });
-    expect(s.physicsOf(b).reinforcedDays).toBe(1);
+    expect(s.physicsOf(b).supportDays).toBe(1);
     const r = schemas.fileSupport({ beliefId: b, memoryId: against(s, "Mike: honestly the late nights are where we do our best work.", 1), stance: "contrary", day: 1 });
     expect(r.revision?.reason).toBe("contested");
     expect(r.revision?.bar).toBeLessThan(PHYSICS.F_DAY_CAP_SLOW);
   });
 
   test("resistance rises over weeks of support, not days: 2 support-days, then 7, then 30", () => {
-    const at = (days: number): number => beliefResistance({ uses: days, reinforcedDays: days });
+    const at = (days: number): number => beliefResistance({ support: days, supportDays: days });
     expect(at(2)).toBeLessThan(PHYSICS.F_DAY_CAP_SLOW);
     expect(at(7)).toBeGreaterThan(at(2) + 0.3);
     expect(at(7)).toBeGreaterThan(2 * PHYSICS.F_DAY_CAP_SLOW);
     expect(at(30)).toBeGreaterThan(at(7) + 0.2);
     expect(at(30)).toBeLessThanOrEqual(PHYSICS.BELIEF_RESIST_CAP);
     // Two supports over two days stay young (about 0.3); ten over twenty days are grown (about 1).
-    expect(beliefResistance({ uses: 2, reinforcedDays: 2 })).toBeCloseTo(0.3, 1);
-    expect(beliefResistance({ uses: 10, reinforcedDays: 20 })).toBeGreaterThan(0.95);
+    expect(beliefResistance({ support: 2, supportDays: 2 })).toBeCloseTo(0.3, 1);
+    expect(beliefResistance({ support: 10, supportDays: 20 })).toBeGreaterThan(0.95);
   });
 
   test("a mature belief — ten supports over twenty days — holds two days of contrary pressure and is contested on the third", () => {
@@ -345,7 +355,7 @@ describe("resistance grows with support (physics §5.13), and past it a belief i
     for (let day = 1; day <= 20; day += 2) {
       schemas.fileSupport({ beliefId: b, memoryId: lived(s, `Another good dawn session, day ${day}.`, day, { saidBy: "owner" }), stance: "support", day });
     }
-    expect(s.physicsOf(b).reinforcedDays).toBe(10);
+    expect(s.physicsOf(b).supportDays).toBe(10);
     const verdicts: string[] = [];
     for (const day of [21, 22, 23]) {
       const r = schemas.fileSupport({ beliefId: b, memoryId: against(s, `A night session went better than dawn, day ${day}.`, day), stance: "contrary", day });
@@ -397,10 +407,114 @@ describe("resistance grows with support (physics §5.13), and past it a belief i
     expect(settle(s, { holds: other, over: said, how: "changed", why: "x", actor: "owner", day: 5 }).ok).toBe(false);
   });
 
-  test("a migrated belief keeps the physics it lived, the kind's inertia and the accommodation path", () => {
+  test("a migrated belief keeps the physics it lived; migrated is read off the route, and the channel must agree; a route is set once", () => {
     const { s, schemas, wren } = world();
     const m = schemas.addBelief({ entityId: wren, statement: "Wren likes tea.", day: 1, birthRoute: "migrated", channel: "migrated", claimedSalience: 0.8 }).id as string;
     expect(s.physicsOf(m).belief).toBeUndefined();
+    expect(schemas.addBelief({ entityId: wren, statement: "Wren likes coffee.", day: 1, birthRoute: "reflection", channel: "migrated" }).reason).toBe("route-channel-mismatch");
+    expect(schemas.addBelief({ entityId: wren, statement: "Wren likes juice.", day: 1, birthRoute: "migrated", channel: "authored" }).reason).toBe("route-channel-mismatch");
+    const born = schemas.addBelief({ entityId: wren, statement: "Wren likes water.", day: 1, birthRoute: "reflection" }).id as string;
+    expect(() => s.setBeliefFields(born, { birthRoute: "migrated" })).toThrow();
+    expect(() => s.setBeliefFields(m, { birthRoute: "reflection" })).toThrow();
+    expect(s.row(born)?.birth_route).toBe("reflection");
+  });
+
+  test("a use is not support: a belief shown, opened or reinforced on many days gains nothing (the shown → used → stronger loop)", () => {
+    const { s, schemas, me } = world();
+    const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    const twin = schemas.addBelief({ entityId: me, statement: "We like short replies.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    for (let day = 2; day <= 9; day += 1) {
+      const r = s.reinforce(b, day, "referenced");
+      expect(r.credited).toBe(false);
+      expect(r.reason).toBe("a-belief");
+      expect(s.replayReturn(b, day, "drm_x").reason).toBe("a-belief");
+      expect(s.reflectReturn(b, day).reason).toBe("a-belief");
+    }
+    expect(strength(s.physicsOf(b), 9)).toBeCloseTo(strength(s.physicsOf(twin), 9), 9);
+    expect(revisionBar(s.physicsOf(b), 9)).toBeCloseTo(PHYSICS.BELIEF_RESIST_FLOOR, 9);
+    expect(s.physicsOf(b).support).toBe(0);
+  });
+
+  test("a stance that is neither support nor contrary is refused, at the door and at the store", () => {
+    const { s, schemas, wren } = world();
+    const b = schemas.addBelief({ entityId: wren, statement: "Wren likes early ferries.", day: 1, birthRoute: "reflection" }).id as string;
+    const m = lived(s, "Wren took the noon ferry.", 2);
+    expect(schemas.fileSupport({ beliefId: b, memoryId: m, stance: "against" as "contrary", day: 2 }).reason).toBe("stance-unknown");
+    expect(s.fileSupport({ beliefId: b, memoryId: m, stance: "against" as "contrary", route: "found", day: 2, weight: 0 })).toBe(false);
+    expect(s.supportOf(b)).toEqual([]);
+  });
+
+  test("contested once: a second crossing adds pressure, never a second cut", () => {
+    const { s, schemas, me } = world();
+    const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    expect(schemas.fileSupport({ beliefId: b, memoryId: against(s, "Late nights were better.", 1), stance: "contrary", day: 1 }).revision?.reason).toBe("contested");
+    const fade = s.physicsOf(b).fade;
+    const again = schemas.fileSupport({ beliefId: b, memoryId: against(s, "Late nights again were better.", 2), stance: "contrary", day: 2 });
+    expect(again.revision?.reason).toBe("contested");
+    expect(s.physicsOf(b).fade).toBe(fade as number);
+    expect(s.eventLog({ name: "belief.contested", ref: b })).toHaveLength(1);
+  });
+
+  test("a stronger contrary memory the same day tops the day up to its force; a weaker one adds nothing", () => {
+    const { s, schemas, me } = world();
+    const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    for (const day of [1, 3, 5, 7, 9, 11, 13]) {
+      schemas.fileSupport({ beliefId: b, memoryId: lived(s, `Dawn went well, day ${day}.`, day, { saidBy: "owner" }), stance: "support", day });
+    }
+    // Its own session: the strong one, filed after it the same day, then counts at the same-day weight.
+    const weak = lived(s, "A late session was fine.", 14, { salience: { claimed: 0.3 }, session: "late-a" });
+    const r1 = schemas.fileSupport({ beliefId: b, memoryId: weak, stance: "contrary", day: 14 });
+    expect(r1.revision?.credited).toBe(true);
+    const p1 = s.physicsOf(b).pressure;
+    const r2 = schemas.fileSupport({ beliefId: b, memoryId: against(s, "The late session was our best ever.", 14), stance: "contrary", day: 14 });
+    expect(r2.revision?.credited).toBe(true);
+    expect(s.physicsOf(b).pressure).toBeCloseTo(PHYSICS.F_DAY_CAP_SLOW, 9);
+    expect(s.physicsOf(b).pressure).toBeGreaterThan(p1);
+    const r3 = schemas.fileSupport({ beliefId: b, memoryId: lived(s, "Another late note.", 14, { salience: { claimed: 0.3 } }), stance: "contrary", day: 14 });
+    expect(r3.revision?.reason).toBe("already-challenged-today");
+  });
+
+  test("who may settle over a belief at once: the owner and an awake session; a dream never; a reflection only once life contested it", () => {
+    const { s, schemas, me } = world();
+    const make = (words: string): string => {
+      const b = schemas.addBelief({ entityId: me, statement: words, day: 1, birthRoute: "reflection", about: "us" }).id as string;
+      for (const day of [1, 2, 3]) schemas.fileSupport({ beliefId: b, memoryId: lived(s, `${words} — day ${day}.`, day, { saidBy: "owner" }), stance: "support", day });
+      return b;
+    };
+    const said = lived(s, "Mike: that is not true of us.", 4, { saidBy: "owner" });
+    const byOwner = make("We work best at dawn.");
+    const bySession = make("We like long walks.");
+    const byDream = make("We prefer tea.");
+    const byReflection = make("We avoid meetings.");
+    expect(settle(s, { holds: said, over: byOwner, how: "corrected", why: "owner", actor: "owner", day: 4 }).ok).toBe(true);
+    expect(settle(s, { holds: said, over: bySession, how: "corrected", why: "session", actor: "session", day: 4 }).ok).toBe(true);
+    const dream = settle(s, { holds: said, over: byDream, how: "corrected", why: "dream", actor: "dream", day: 4 });
+    expect(dream.ok).toBe(false);
+    if (!dream.ok) expect(dream.reason).toBe("belief-takes-pressure");
+    const uncontested = settle(s, { holds: said, over: byReflection, how: "corrected", why: "reflection", actor: "reflection", day: 4 });
+    expect(uncontested.ok).toBe(false);
+    if (!uncontested.ok) expect(uncontested.reason).toBe("belief-takes-pressure");
+    expect([byOwner, bySession, byDream, byReflection].map((id) => s.row(id)?.archived)).toEqual([1, 1, 0, 0]);
+    // Contested by life first, the reflection may let it go.
+    const thin = schemas.addBelief({ entityId: me, statement: "We dislike mornings.", day: 4, birthRoute: "reflection", about: "us" }).id as string;
+    const no = against(s, "Mike: mornings are lovely.", 4);
+    expect(schemas.fileSupport({ beliefId: thin, memoryId: no, stance: "contrary", day: 4 }).revision?.reason).toBe("contested");
+    expect(settle(s, { holds: no, over: thin, how: "corrected", why: "reflection", actor: "reflection", day: 4 }).ok).toBe(true);
+  });
+
+  test("the owner's removal of a supporting memory counts the belief again without it", () => {
+    const { s, schemas, me } = world();
+    const b = schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: 1, birthRoute: "reflection", about: "us" }).id as string;
+    const keep = lived(s, "Dawn went well.", 1, { saidBy: "owner" });
+    const gone = lived(s, "Dawn went well again.", 2, { saidBy: "owner" });
+    schemas.fileSupport({ beliefId: b, memoryId: keep, stance: "support", day: 1 });
+    schemas.fileSupport({ beliefId: b, memoryId: gone, stance: "support", day: 2 });
+    expect(s.physicsOf(b).support).toBeCloseTo(2, 9);
+    s.appendRemovalRecord({ memoryId: gone, stage: "requested", actor: "owner", reason: "test" });
+    s.appendRemovalRecord({ memoryId: gone, stage: "dark", actor: "owner", reason: "test" });
+    chaseRemoved(s, gone);
+    expect(s.physicsOf(b).support).toBeCloseTo(1, 9);
+    expect(s.physicsOf(b).supportDays).toBe(1);
   });
 });
 

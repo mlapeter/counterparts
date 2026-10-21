@@ -176,6 +176,8 @@ export interface BeliefInput {
 
 export type BeliefAddReason =
   | "added"
+  /** Lane C: `migrated` is the route and the channel together, or neither. */
+  | "route-channel-mismatch"
   | "entity-unknown"
   | "entity-archived"
   | "statement-empty";
@@ -247,6 +249,8 @@ export type SupportFileReason =
   | "belief-archived"
   | "memory-unknown"
   | "memory-is-the-belief"
+  /** A stance that is neither `support` nor `contrary` (review of #575: "against" was counted as support). */
+  | "stance-unknown"
   /** Not a lived memory: a schema row (but a belief, by `link`), a dream's words, a reflection's own entry. */
   | "not-lived"
   /** A word that is not a support route — a rating, a showing, a recall is never one. */
