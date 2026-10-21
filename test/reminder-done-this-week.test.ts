@@ -54,9 +54,9 @@ let clock = Date.parse("2026-10-13T09:00:00Z");
 /** The brain and the server on ONE clock (review of #540): `openServer`'s `now`
  *  reaches the server only, and the store would read the wall clock. */
 function server(): McpServer {
-  const counterpart = Counterpart.open({ dir, owner: true, now: () => clock, timeZone: "UTC" });
+  const counterpart = Counterpart.open({ dir, now: () => clock, timeZone: "UTC" });
   open.push(counterpart);
-  return new McpServer({ counterpart, session: SESSION, scope: "/scope/one", owner: true, now: () => clock });
+  return new McpServer({ counterpart, session: SESSION, scope: "/scope/one", now: () => clock });
 }
 
 /** Move the clock and the store's lived day to `date`, 09:00 UTC. */
@@ -261,7 +261,7 @@ describe("which occurrence a done closes (review of #540)", () => {
 
   test("a write-up the next morning closes the day it is about, not the day it is written", async () => {
     clock = Date.parse("2026-10-13T09:00:00Z");
-    const c = Counterpart.open({ dir, owner: true, now: () => clock, timeZone: "UTC" });
+    const c = Counterpart.open({ dir, now: () => clock, timeZone: "UTC" });
     open.push(c);
     c.store.advanceClock("2026-10-13");
     const id = (await c.submitJot({ kind: "fact", title: "Morning pills", content: "Every morning, take the blood pressure pills with breakfast.", eventDate: "2026-10-13", recurring: "daily", remind: "plain" }, { session: "s0", scope: "proj", at: "2026-10-13" })).memoryId as string;
@@ -386,7 +386,7 @@ describe("a write that looks like it answers a reminder due now", () => {
 // ── F6b: drewOn and a memory this session replaced ───────────────────────────
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   open.push(c);
   return c;
 }

@@ -52,12 +52,12 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, owner: true, injectionBudgetBytes: 9_000, timeZone: "UTC", ...over });
+const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, injectionBudgetBytes: 9_000, timeZone: "UTC", ...over });
 
 /** A session that lived yesterday and ended unwritten: the catch-up owes it. */
 function lived(id: string, scope: string): void {
   let at = NOW - 20 * HOUR;
-  const c = Counterpart.open({ dir, owner: true, now: () => at, timeZone: "UTC" });
+  const c = Counterpart.open({ dir, now: () => at, timeZone: "UTC" });
   try {
     recordSession(dir, { sessionId: id, scope, phase: "start", at });
     const turns: { role: "user" | "assistant"; text: string }[] = [];
@@ -180,7 +180,7 @@ async function night(
   // must read as before the next one's children, as on a real machine.
   clock += HOUR;
   const out = await runNight({
-    open: () => Counterpart.open({ dir, owner: true, budgetBytes: 9_000, timeZone: "UTC", now: () => clock }),
+    open: () => Counterpart.open({ dir, budgetBytes: 9_000, timeZone: "UTC", now: () => clock }),
     config: config(over),
     run: "nrn_golden",
     session: "ses-launching",
@@ -234,7 +234,7 @@ test("the night's composed asks match the golden written before the seat existed
   // not retried plain, since it began; the reflection follows.
   scenarios["began-then-quick-exit"] = await night({ kind: "night" }, [
     () => {
-      const c = Counterpart.open({ dir, owner: true, budgetBytes: 9_000, timeZone: "UTC", now: () => clock });
+      const c = Counterpart.open({ dir, budgetBytes: 9_000, timeZone: "UTC", now: () => clock });
       try {
         c.store.put({ type: "memory", kind: "fact", body: "The relief valve is seated before the pump runs.", salience: { novelty: null, relevance: 0.7, emotional: 0.2, predictive: 0.6 } });
         const begun = c.dreams.begin({ session: "ses-launching" });
@@ -251,7 +251,7 @@ test("the night's composed asks match the golden written before the seat existed
   // this is the one that tells the launching session's row from anyone else's.
   scenarios["writer-then-quick-exit"] = await night({ kind: "night" }, [
     () => {
-      const c = Counterpart.open({ dir, owner: true, budgetBytes: 9_000, timeZone: "UTC", now: () => clock });
+      const c = Counterpart.open({ dir, budgetBytes: 9_000, timeZone: "UTC", now: () => clock });
       try {
         c.self.recordPageWriterRun({ about: "2026-03-09", mode: "session", outcome: "started", session: "ses-launching", run: "nrn_golden" });
       } finally {

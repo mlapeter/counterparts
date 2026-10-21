@@ -75,7 +75,7 @@ beforeAll(async () => {
   marks = (await import(join(WEB, "shared/memory-marks.js"))) as typeof marks;
   dir = mkdtempSync(join(tmpdir(), "counterparts-ask-answers-"));
   await seedDemo({ dir });
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   findable(c.store); // fixtures the tests expect to find (2026-10-10)
   try {
     const s = c.store;
@@ -272,7 +272,7 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
   test("feelings recorded in a chapter, whose they are, side by side", async () => {
     const first = (await ask<MeaningResult>({ question: "what has Halfmoon been to me", mode: "meaning" })).answer;
     const entry = first.arc.flatMap((l) => (l.fold ? [] : [l.entry])).find((e) => e.kind === "chapter" && e.moments.length > 0) as MeaningEntry;
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     findable(c.store);
     try {
       c.store.addFeelings(entry.moments[0]?.id as string, [
@@ -294,7 +294,7 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
   });
 
   test("a name asked about with no card is said first, above the head, and the answer is what mentions it (2026-10-09)", async () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     findable(c.store);
     let said: string;
     try {
@@ -337,7 +337,7 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     // The server passes the owner's name (`server.ts#ownerNameOf`); the
     // rewrite once turned "me" into it, and meaning took the owner's own card
     // (more memories than this person's) as the subject.
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     findable(c.store);
     let ownerName: string | null;
     let person: { name: string; count: number } | undefined;
@@ -375,7 +375,7 @@ describe("by meaning: the switch asks in meaning mode, and the arc is drawn", ()
     // #333 turned his "I" into "you" in meaning mode, which named no card, so
     // the question was read by its words ("like"). In my voice "you" asked
     // about is his card (`meaning.ts#subjectOf`).
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     findable(c.store);
     let ownerName: string | null;
     try {

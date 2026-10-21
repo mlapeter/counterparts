@@ -40,7 +40,7 @@ let gistId = "";
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-home-r3b-"));
   await seedDemo({ dir });
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     c.store.advanceClock(DATE);
     const day = c.store.livedDay();

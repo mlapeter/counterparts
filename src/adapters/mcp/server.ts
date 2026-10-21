@@ -46,13 +46,10 @@
  *      tool returns a result that SAYS it stood down, plus telemetry. A silent
  *      no-op would be indistinguishable from a broken server, which is the
  *      exact failure §2.4 records.
- *   3. **The owner stance comes from the host.** The host is the only thing
- *      that knows whose session this is; it says so at construction, and the
- *      value is never re-derived from anything the model can influence. What
- *      it still decides (closing a thread opened in another directory, the
- *      last exchange) is lightly held, pending the talk about whether the
- *      night run counts as the owner. (The confidentiality it used to scope,
- *      §5 G6, was retired 2026-10-21.)
+ *   3. **No yours/guest split** (removed 2026-10-21, Mike: "for 1, i agree,
+ *      lets remove it"). Every session the server serves — a Claude Code
+ *      session, a Desktop chat, the night run — is answered the same way;
+ *      only the observer stance is different, and it is read-only.
  *
  * Telemetry is content-by-reference throughout: ids, counts, tiers, reasons.
  * No body text, no question text, no note text ever reaches an event.
@@ -174,8 +171,6 @@ import { writeUpDoor } from "./write-up.js";
 import type { ToolName } from "./tools.js";
 import { scriptArgs } from "../runtime.js";
 import {
-  OWNER_ENV_NAME,
-  OWNER_FALSE_NOTE,
   SERVER_NAME,
   SERVER_VERSION,
   DESKTOP_INSTRUCTIONS,
@@ -242,7 +237,6 @@ export {
   desktopBindNote,
   NO_DESKTOP_SESSION,
   desktopWriteUpAsk,
-  OWNER_FALSE_NOTE,
   dreamHow,
   RECALL_MODE_WORDS,
 } from "./server-words.js";
@@ -274,10 +268,6 @@ export class McpServer {
    *  `scope` as that session's directory for the call (`callAs`), never this. */
   private placeScope: string;
   scopeSource: ScopeSource;
-  /** Did the host say this is the owner's session? Read through `owner`. */
-  private readonly ownerClaimed: boolean;
-  private readonly ownerFrom: "env" | "config" | "default" | "off";
-  private readonly codeTabOwner: boolean;
   /** The store's own observer bit (observer-mode G7): set at open, never lifted. */
   private readonly storeObserver: boolean;
   /**
@@ -385,9 +375,6 @@ export class McpServer {
     }
     this.storeObserver = opts.counterpart.observer;
     this.launchObserver = opts.launchObserver === true;
-    this.ownerClaimed = opts.owner === true;
-    this.ownerFrom = opts.ownerFrom ?? (opts.owner === true ? "env" : "default");
-    this.codeTabOwner = opts.codeTabOwner === true;
     this.embedderGiven = opts.embedder ?? null;
     this.onEvent = opts.onEvent;
     this.afterCall = opts.afterCall;
@@ -469,27 +456,6 @@ export class McpServer {
     return this.launchObserver;
   }
 
-  /** An observer is a non-owner regardless of what the host claimed
-   *  (observer-mode G7): an instrument reading somebody's store is not them. */
-  get owner(): boolean {
-    return (this.ownerClaimed || (this.callAs !== null && this.codeTabOwner)) && !this.observer;
-  }
-
-  /** What `status` says decided the stance (2026-10-02), in words. */
-  private ownerStance(): Record<string, unknown> {
-    const from =
-      this.callAs !== null && this.codeTabOwner && !this.ownerClaimed
-        ? "a Claude Code session from Desktop's Code tab, which the installed configuration (owner: true) makes the owner's"
-        : this.ownerFrom === "config"
-          ? "the installed configuration (owner: true): this is your own Claude Code session"
-          : this.ownerFrom === "env"
-            ? `--owner or ${OWNER_ENV_NAME}, set on this launch`
-            : this.ownerFrom === "off"
-              ? `${OWNER_ENV_NAME} on this launch says not the owner's (0, off or false, or a value it could not read): the opt-out`
-              : "nothing made this launch the owner's";
-    return { owner: this.owner, ownerFrom: from, ...(this.owner ? {} : { ownerMeans: OWNER_FALSE_NOTE }) };
-  }
-
   /** An instrument opens no sockets, whatever the host handed it (scar E7). */
   private get embedder(): QuestionEmbedder | null {
     return this.observer ? null : this.embedderGiven;
@@ -562,7 +528,6 @@ export class McpServer {
         this.emit("mcp.initialize", undefined, {
           protocolVersion: version,
           observer: this.observer,
-          owner: this.owner,
           boundSession: this.session !== null,
           ...(this.desktop ? { host: this.host } : {}),
         });
@@ -1701,9 +1666,6 @@ export class McpServer {
       // What it is about sets an unclaimed memory's default floor (2026-10-10).
       about: about.mark,
       ...(model === undefined ? {} : { model }),
-      // This call's stance, which a Code-tab call on Desktop's server can hold
-      // when the store opened as a guest (2026-10-02).
-      owner: this.owner,
     });
     const neighbours = this.neighboursOf(deposit, [], CONTRADICTION_TUNABLES.NEIGHBOURS, session);
     this.markSeen([...neighbours.map((n) => n.id), ...(deposit.slot === undefined ? [] : [deposit.slot.over])]);
@@ -2195,7 +2157,7 @@ export class McpServer {
         ...(typeof question === "string" ? { question } : {}),
         ...(askedIds.length > 0 ? { ids: askedIds } : {}),
       },
-      { sessionId: this.session ?? key, owner: this.owner },
+      { sessionId: this.session ?? key },
     );
     const resolved = this.noteHandleResolution(handle, result);
     // THE MEASUREMENT (2026-09-28): did this lookup fetch what a mechanism's
@@ -2219,7 +2181,6 @@ export class McpServer {
       returned: result.memories.length,
       considered: result.considered,
       storeSize: result.storeSize,
-      owner: this.owner,
       // Scar §2.4: a budget gets an event when it is APPROACHED, not only when
       // it blows. The three overflowed calls of 2026-09-04 emitted nothing.
       chars: payload["chars"] as number,
@@ -2264,23 +2225,11 @@ export class McpServer {
    * points at, from the same reader (`Counterpart#lastExchange`). Read at the
    * call and never stored: no memory, no credit, no seen set, no durable row
    * — a ring event only. Never another directory's: the buffer it reads is
-   * this one's. Never reached under observer (recall stands down, G5); and
-   * the words go only to the owner's session (review of #392): owner-only for
-   * now, lightly held.
+   * this one's. Never reached under observer (recall stands down, G5). Any
+   * session in the folder reads it (owner-only until 2026-10-21, when the
+   * yours/guest split was removed).
    */
   private lastExchangeTool(): ToolResult {
-    if (!this.owner) {
-      this.emit("mcp.recall.lastexchange", undefined, { found: false, owner: false });
-      return this.result(
-        {
-          path: "handle",
-          reason: "owner-only",
-          handle: LAST_EXCHANGE_HANDLE,
-          detail: "The last exchange is read only in the owner's own session.",
-        },
-        false,
-      );
-    }
     const reader = this.session ?? this.hostSession();
     const ex = this.counterpart.lastExchange({
       scope: this.scope,
@@ -2337,7 +2286,6 @@ export class McpServer {
     const ctx = {
       counterpart: this.counterpart,
       sessionId: this.session ?? key,
-      owner: this.owner,
       ...(this.scope === undefined ? {} : { scope: this.scope }),
       vector: embedded.vector,
       semantic: embedded.semantic,
@@ -2415,7 +2363,6 @@ export class McpServer {
       semantic: row.semantic,
       returned: ids.length,
       considered: row.considered,
-      owner: this.owner,
       chars: answer.length,
       truncated: false,
       droppedForBudget: 0,
@@ -2511,7 +2458,6 @@ export class McpServer {
         ...(row.counts === undefined ? {} : { counts: row.counts }),
         considered: row.considered,
         storeSize: row.storeSize,
-        owner: this.owner,
         chars: payload["chars"] ?? 0,
         truncated: payload["truncated"] === true,
         droppedForBudget: 0,
@@ -3006,7 +2952,7 @@ export class McpServer {
         livedDay: store.livedDay(),
         lastActiveDate: store.getMeta("lastActiveDate") ?? null,
       },
-      stance: { observer: this.observer, ...this.ownerStance() },
+      stance: { observer: this.observer },
     };
   }
 

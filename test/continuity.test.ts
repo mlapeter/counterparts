@@ -95,7 +95,7 @@ function afternoon(): {
   talk(session: string, t: number, scope?: string): void;
 } {
   let now = at(15, 0);
-  const c = Counterpart.open({ dir: storeDir, owner: true, now: () => now, timeZone: ZONE });
+  const c = Counterpart.open({ dir: storeDir, now: () => now, timeZone: ZONE });
   open.push(c);
   const turns = new Map<string, { role: "user" | "assistant"; text: string }[]>();
   return {
@@ -104,7 +104,7 @@ function afternoon(): {
       now = t;
     },
     server(session: string, scope = HERE): McpServer {
-      return new McpServer({ counterpart: c, session, scope, owner: true, registryDir: storeDir, now: () => now });
+      return new McpServer({ counterpart: c, session, scope, registryDir: storeDir, now: () => now });
     },
     // One turn, as the Stop hook captures it: the transcript so far, then the
     // turn-end.

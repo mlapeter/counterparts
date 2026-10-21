@@ -46,10 +46,9 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function brain(opts: { owner?: boolean; observer?: boolean } = {}): Counterpart {
+function brain(opts: { observer?: boolean } = {}): Counterpart {
   const c = Counterpart.open({
     dir,
-    owner: opts.owner ?? true,
     ...(opts.observer === true ? { observer: true } : { identity: { name: "Mike" } }),
     // The calendar follows the test's days (the reflection's once-a-day gate
     // is the calendar date since 2026-09-28).
@@ -141,7 +140,7 @@ describe("core by meaning: the about mark, not the kind", () => {
     const c = brain();
     c.close();
     open.splice(0);
-    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true });
+    const s = openServer({ dir, session: SESSION, scope: "/proj" });
     try {
       const note = await s.call("remember", { text: "Mike lets an AI act for itself, and that changed how I work with him.", kind: "person", about: "us" });
       const id = note.structuredContent["id"] as string;
@@ -227,7 +226,7 @@ describe("the v9 upgrade carries today's rule, and says so", () => {
       db.run("UPDATE meta SET value = '8' WHERE key = 'schemaVersion'");
       db.close();
 
-      const after = Counterpart.open({ dir, owner: true, snapshotsDir: join(root, "snaps") });
+      const after = Counterpart.open({ dir, snapshotsDir: join(root, "snaps") });
       open.push(after);
       expect(after.store.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
       expect(after.store.migration?.from).toBe("8");
@@ -644,7 +643,7 @@ describe("the reflect tool, and the carried share through the hook", () => {
     c.close();
     open.splice(0);
     recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true });
+    const s = openServer({ dir, session: SESSION, scope: "/proj" });
     try {
       const launch = await s.call("reflect", { phase: "launch", session: SESSION });
       expect(String(launch.structuredContent["prompt"])).toContain('phase "begin"');
@@ -670,7 +669,7 @@ describe("the reflect tool, and the carried share through the hook", () => {
 
   test("a share the reflecting session never told is carried once by the next session, after that session ended", () => {
     const a = openAdapter(
-      { dataDir: dir, injectionBudgetBytes: 9_000, owner: true },
+      { dataDir: dir, injectionBudgetBytes: 9_000 },
       { command: "/bin/true", args: ["runner"], spawner: (_p: SpawnPlan) => ({ pid: 4242 }) },
     );
     open.push(a.counterpart);
@@ -691,7 +690,7 @@ describe("the reflect tool, and the carried share through the hook", () => {
 
   test("a turn no person started does not carry the share; the next typed prompt does (review of #445)", () => {
     const a = openAdapter(
-      { dataDir: dir, injectionBudgetBytes: 9_000, owner: true },
+      { dataDir: dir, injectionBudgetBytes: 9_000 },
       { command: "/bin/true", args: ["runner"], spawner: (_p: SpawnPlan) => ({ pid: 4242 }) },
     );
     open.push(a.counterpart);

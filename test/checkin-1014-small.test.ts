@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 function server(): McpServer {
-  const s = openServer({ dir, session: "sess_checkin", scope: "/scope/one", owner: true });
+  const s = openServer({ dir, session: "sess_checkin", scope: "/scope/one" });
   findable(s.counterpart.store);
   open.push(s.counterpart);
   return s;
@@ -288,8 +288,8 @@ describe("C (review of #493). the chain close keeps closeThread's guards and its
     expect(still.find((x) => x.id === a)?.skipped).toBe(true);
   });
 
-  test("for a session that is not the owner's, another directory's chain memory is skipped (a marked one is not, since 2026-10-21)", async () => {
-    const s = openServer({ dir, session: "sess_guest", scope: "/scope/one", owner: false });
+  test("another directory's chain memory is closed too, from any session (the yours/guest split removed 2026-10-21)", async () => {
+    const s = openServer({ dir, session: "sess_guest", scope: "/scope/one" });
     findable(s.counterpart.store);
     open.push(s.counterpart);
     const store = s.counterpart.store;
@@ -301,10 +301,9 @@ describe("C (review of #493). the chain close keeps closeThread's guards and its
     const r = payload(await s.call("remember", { text: `Paid it: ${BODY}.`, updates: b, eventDate: null }));
     expect(store.row(b)?.event_date).toBeNull();
     expect(store.row(secret)?.event_date).toBeNull();
-    expect(store.row(elsewhere)?.event_date).toBe("2027-04-15");
-    const skipped = (r["stillDated"] as { id: string; title: string | null; skipped?: boolean }[]).filter((x) => x.skipped === true);
-    expect(skipped.map((x) => x.id)).toEqual([elsewhere]);
-    expect(skipped[0]?.title).not.toBeNull();
+    expect(store.row(elsewhere)?.event_date).toBeNull();
+    const skipped = ((r["stillDated"] ?? []) as { id: string; skipped?: boolean }[]).filter((x) => x.skipped === true);
+    expect(skipped).toEqual([]);
   });
 
   test("a cycle in the pointers ends; every dated memory on it is closed once and marked spent", async () => {

@@ -44,7 +44,7 @@ beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-memories-live-"));
   await seedDemo({ dir });
   // Feelings for the radar: two of yours under happy (proud), one of mine under sad.
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     const people = c.store.list({ type: "memory", kind: "person", archived: false });
     feltIds.push(...people.slice(0, 3));
@@ -70,7 +70,7 @@ afterAll(async () => {
 });
 
 function write(body: string, kind: "fact" | "person" = "fact"): void {
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     c.store.put({ type: "memory", kind, body, source: "authored" });
   } finally {

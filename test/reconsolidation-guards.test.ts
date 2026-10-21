@@ -85,7 +85,7 @@ describe("a reading or a world memory", () => {
 
 describe("a pending dated memory", () => {
   test("is never buried by a settle; the write that updates it carries the reminder and settles it", async () => {
-    const srv = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true });
+    const srv = openServer({ dir, session: SESSION, scope: "/scope/one" });
     open.push(srv.counterpart);
     const s = srv.counterpart.store;
     for (const d of ["2026-09-01", "2026-09-02", "2026-09-03"]) s.advanceClock(d);

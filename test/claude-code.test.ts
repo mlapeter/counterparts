@@ -204,7 +204,7 @@ function goQuiet(ms: number = REMEMBER.CRASH_STALE_MS + 60_000): void {
 }
 
 function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
-  return { dataDir: dir, injectionBudgetBytes: BUDGET_BYTES, owner: true, ...over };
+  return { dataDir: dir, injectionBudgetBytes: BUDGET_BYTES, ...over };
 }
 
 /**
@@ -1652,7 +1652,7 @@ describe("stop — one ask, committed before it blocks, and a detached worker", 
 
   test("an observer spawns NO worker, and says so (§15 G3)", () => {
     // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
-    Counterpart.open({ dir, owner: true }).close();
+    Counterpart.open({ dir }).close();
     const { a, calls } = adapter({ observer: true });
     const result = a.stop(input());
     expect(result.reason).toBe("observer");
@@ -1844,9 +1844,10 @@ describe("configuration — reported, checkable, and failing toward standing dow
   test("an UNREADABLE configuration resolves to OBSERVER, never to 'encode anyway'", () => {
     expect(loadConfig({ injectionBudgetBytes: "nine thousand" }).config.observer).toBe(true);
     expect(loadConfig("not an object").reason).toBe("unreadable");
-    expect(loadConfig({ owner: "yes" }).config.observer).toBe(true);
     // A setting this build no longer reads is NOT unreadable: it is ignored and
-    // named (keyless, 2026-09-24).
+    // named (keyless, 2026-09-24; `owner`, any value, since 2026-10-21).
+    expect(loadConfig({ owner: "yes" }).config.observer).toBeUndefined();
+    expect(loadConfig({ owner: true }).config.retired?.[0]).toContain('"owner" is no longer used')
     expect(loadConfig({ models: { interpret: { id: 7 } } }).config.observer).toBeUndefined();
     // An ABSENT configuration is ordinary, and is not a stand-down.
     expect(loadConfig(undefined).config.observer).toBeUndefined();
@@ -2966,7 +2967,7 @@ describe("the hooks record the live session for the tools to bind against", () =
 
   test("an observer records nothing — an instrument has no session to write under", () => {
     // An observer no longer mints an absent store (cli INTERFACE-GAPS §7).
-    Counterpart.open({ dir, owner: true }).close();
+    Counterpart.open({ dir }).close();
     const { a } = adapter({ observer: true });
     a.sessionStart(input());
     a.stop(input());
@@ -3151,7 +3152,6 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
   function brain(embedder: LiveEmbedder | null): Counterpart {
     const c = Counterpart.open({
       dir,
-      owner: true,
       budgetBytes: BUDGET_BYTES,
       ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
     });
@@ -3471,7 +3471,6 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
   function brainAt(at: string, embedder: LiveEmbedder | null, recallTunables?: Partial<RecallTunables>): Counterpart {
     const c = Counterpart.open({
       dir: at,
-      owner: true,
       budgetBytes: BUDGET_BYTES,
       ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
       ...(recallTunables === undefined ? {} : { recallTunables }),
@@ -3507,7 +3506,6 @@ describe("the embedding backfill — the guaranteed path to a vector", () => {
   function brain(embedder: LiveEmbedder | null): Counterpart {
     const c = Counterpart.open({
       dir,
-      owner: true,
       ...(embedder === null ? {} : { embed: embedder.embed, vectors: embedder }),
     });
     open.push(c);

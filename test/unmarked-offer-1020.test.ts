@@ -57,7 +57,7 @@ afterEach(() => {
 
 /** The night's stance by default: not the owner (night-run.ts, 10-02). */
 function brain(owner = false): Counterpart {
-  const c = Counterpart.open({ dir, owner, identity: { name: "Dana" }, now: () => NOW, timeZone: "UTC" });
+  const c = Counterpart.open({ dir, identity: { name: "Dana" }, now: () => NOW, timeZone: "UTC" });
   open.push(c);
   return c;
 }
@@ -274,7 +274,7 @@ describe("a re-marked memory reaches another folder by the existing rules", () =
     c = brain(true);
     expect(nearby(wakeIn(c, LIBRARY))).toContain("worn out after her sister");
     closeAll();
-    const s = openServer({ dir, session: "s-library", scope: LIBRARY, owner: true, timeZone: "UTC" });
+    const s = openServer({ dir, session: "s-library", scope: LIBRARY, timeZone: "UTC" });
     try {
       const r = await s.call("recall", { query: "sister visit worn out", mode: "facts" });
       expect(JSON.stringify(r.structuredContent)).toContain(visit);
@@ -342,7 +342,7 @@ describe("a folder the owner set off or paused: its unmarked memories are not of
     const at = new Date(NOW).toISOString();
     writeScopes(scopesFile, setScope(setScope(null, BOOKS, "off", { at }), PAUSED, "paused", { at }));
     const offered = async (file: string, session: string, mark: readonly string[] = []): Promise<{ unmarked: string[]; about: string[] }> => {
-      const s = openServer({ dir, session, scope: LIBRARY, owner: false, timeZone: "UTC", scopesFile: file });
+      const s = openServer({ dir, session, scope: LIBRARY, timeZone: "UTC", scopesFile: file });
       try {
         const r = await s.call("reflect", { phase: "begin", session });
         expect(r.isError ?? false).toBe(false);

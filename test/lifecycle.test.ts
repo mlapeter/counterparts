@@ -77,7 +77,7 @@ afterEach(() => {
 
 function adapter(): ClaudeCodeAdapter {
   const a = openAdapter(
-    { dataDir: dir, injectionBudgetBytes: BUDGET_BYTES, owner: true },
+    { dataDir: dir, injectionBudgetBytes: BUDGET_BYTES },
     { command: "/bin/true", args: ["runner"], spawner: (_p: SpawnPlan) => ({ pid: 4242 }) },
   );
   open.push(a.counterpart);
@@ -580,7 +580,7 @@ describe("the handle door (G50)", () => {
   /** The MCP tool over the SAME counterpart the hooks drive — one store, two
    *  adapters, which is the shape the live host runs. */
   function tool(a: ClaudeCodeAdapter): McpServer {
-    return new McpServer({ counterpart: a.counterpart, scope: "proj", owner: true, registryDir: dir });
+    return new McpServer({ counterpart: a.counterpart, scope: "proj", registryDir: dir });
   }
 
   function creditPayload(c: Counterpart): Record<string, unknown> {
@@ -744,7 +744,6 @@ describe("the handle door (G50)", () => {
     const stranger = new McpServer({
       counterpart: c,
       scope: "proj",
-      owner: false,
       registryDir: dir,
     });
     const withheld = (await stranger.call("recall", { handle: "the clinic note" })).structuredContent;
@@ -839,7 +838,7 @@ describe("the handle door, across projects (G50 review)", () => {
   const OTHER = "other-proj";
 
   function tool(a: ClaudeCodeAdapter, scope = "proj", owner = true): McpServer {
-    return new McpServer({ counterpart: a.counterpart, scope, owner, registryDir: dir });
+    return new McpServer({ counterpart: a.counterpart, scope });
   }
 
   function creditPayload(c: Counterpart): Record<string, unknown> {
@@ -1049,7 +1048,6 @@ describe("the handle door, before this session started (G50 review)", () => {
     const earlier = new McpServer({
       counterpart: a.counterpart,
       scope: "proj",
-      owner: true,
       registryDir: dir,
       now: () => Date.now() - 60_000,
     });
@@ -1073,7 +1071,6 @@ describe("the handle door, before this session started (G50 review)", () => {
     const now = new McpServer({
       counterpart: a.counterpart,
       scope: "proj",
-      owner: true,
       registryDir: dir,
     });
     expect(((await now.call("recall", { handle: "storage split" })).structuredContent)["reason"]).toBe(
@@ -1311,7 +1308,7 @@ describe("the identity lane rotates", () => {
   );
 
   test("over successive boundaries every identity element renders before any renders twice", async () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     const ids = IDENTITY_BODIES.map((body, i) =>
       c.store.put({
@@ -1351,7 +1348,7 @@ describe("the identity lane rotates", () => {
   });
 
   test("an element the budget trimmed is not stamped as rendered", async () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     for (const body of IDENTITY_BODIES) {
       c.store.put({

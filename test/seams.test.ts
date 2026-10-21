@@ -797,7 +797,7 @@ describe("SEAMS C — recall's alias map comes from schemas, and the safety half
 
   test("composed, an ambiguous handle sets trains:false and resolveUse REFUSES the credit", () => {
     const { s, schemas } = ambiguous();
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
 
     const out = recallTurn(r, { sessionId: "s1", text: "robin robin robin" }, { schemas });
     const surfacedIds = [...out.decision.surfaced, ...out.decision.footnotes];
@@ -815,7 +815,7 @@ describe("SEAMS C — recall's alias map comes from schemas, and the safety half
 
   test("WITHOUT the wiring the same turn trains — which is the gap this seam closes", () => {
     const { s } = ambiguous();
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     // A caller that forgets the map (the borrowed-map failure mode, scar §2.6).
     const out = r.recall({ sessionId: "s2", text: "robin robin robin" });
     const surfacedIds = [...out.decision.surfaced, ...out.decision.footnotes];
@@ -869,7 +869,7 @@ describe("SEAMS D — a temporal window is one more CUE, capped at the footnote 
 
   test("the cue reaches recall through the CUE channel and is counted as cue by cueFraction", () => {
     const { s, prospective, id } = dated();
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
 
     // Turn text that touches NOTHING: the only cue is the calendar.
     const out = recallTurn(
@@ -889,7 +889,7 @@ describe("SEAMS D — a temporal window is one more CUE, capped at the footnote 
 
   test("there is NO second injection path: recall's `arrival` is still pure recency", () => {
     const { s, prospective, id } = dated();
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = recallTurn(
       r,
       { sessionId: "s1", text: TURN_TEXT },
@@ -909,7 +909,7 @@ describe("SEAMS D — a temporal window is one more CUE, capped at the footnote 
 
   test("a cue-only-temporal candidate is FOOTNOTED, and the record names the ceiling", () => {
     const { s, prospective, id } = dated();
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = recallTurn(
       r,
       { sessionId: "s1", text: TURN_TEXT },
@@ -938,7 +938,6 @@ describe("SEAMS D — a temporal window is one more CUE, capped at the footnote 
         candidates: [unitCandidate({ ...base, id: "mem_capped", maxTier: "footnoted" })],
         state: freshGateState("u"),
         storeSize: 100,
-        owner: true,
         affectStated: false,
         turn: 1,
       },
@@ -949,7 +948,6 @@ describe("SEAMS D — a temporal window is one more CUE, capped at the footnote 
         candidates: [unitCandidate({ ...base, id: "mem_uncapped", maxTier: "surfaced" })],
         state: freshGateState("u"),
         storeSize: 100,
-        owner: true,
         affectStated: false,
         turn: 1,
       },
@@ -965,7 +963,7 @@ describe("SEAMS D — a temporal window is one more CUE, capped at the footnote 
 
   test("a temporal cue TRAINS — it is id-addressed, so nothing about it is ambiguous", () => {
     const { s, prospective, id } = dated();
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = recallTurn(
       r,
       { sessionId: "s1", text: TURN_TEXT },
@@ -1442,7 +1440,7 @@ describe("SEAMS L — hops raise what the conversation reached; links may add a 
     const { s, associate, cued, dark } = linked();
     expect(associate.linked(cued, dark)).toBe(true);
 
-    const r = new Recall({ store: s, owner: true });
+    const r = new Recall({ store: s });
     const out = recallTurn(r, { sessionId: "s1", text: "my sourdough starter died" }, { associate });
 
     // The anchor is SHOWN — a pointer completes something that came to mind.
@@ -1472,7 +1470,7 @@ describe("SEAMS L — hops raise what the conversation reached; links may add a 
       { id: dark, tier: "referenced" },
     ]);
     associate.flush();
-    const out = recallTurn(new Recall({ store: s, owner: true }), { sessionId: "s1", text: "my sourdough starter died" }, { associate });
+    const out = recallTurn(new Recall({ store: s }), { sessionId: "s1", text: "my sourdough starter died" }, { associate });
     // Reached (0.1 passes 1.25% of the seed), counted, and under the 5% bar.
     expect(out.decision.spread?.linkOnly).toBe(1);
     expect(out.decision.spread?.pointerCandidates).toBe(0);
@@ -1507,7 +1505,7 @@ describe("SEAMS L — hops raise what the conversation reached; links may add a 
     }
     // The words cue nothing here; only the embedding reaches `semantic`.
     const turn = { sessionId: "a", text: "what a peculiar feeling", vector: [1, 0] };
-    const d = new Recall({ store: s, owner: true }).recall(composeTurn(turn, { associate })).decision;
+    const d = new Recall({ store: s }).recall(composeTurn(turn, { associate })).decision;
     expect(d.verdicts.find((v) => v.id === semantic)?.semantic).toBeGreaterThan(0);
     const v = d.verdicts.find((x) => x.id === behind);
     expect(v?.via).toBe("link");
@@ -1544,7 +1542,7 @@ describe("SEAMS L — hops raise what the conversation reached; links may add a 
   test("the turn's record says what spreading did: seeds, depth, stop, computed, landed, pointers", () => {
     const { s, associate, dark } = linked();
     const turn = { sessionId: "a", text: "my sourdough starter died" };
-    const d = new Recall({ store: s, owner: true }).recall(composeTurn(turn, { associate })).decision;
+    const d = new Recall({ store: s }).recall(composeTurn(turn, { associate })).decision;
     expect(d.spread).not.toBeNull();
     expect(d.spread?.seeds).toBeGreaterThanOrEqual(1);
     expect(d.spread?.depth).toBeGreaterThanOrEqual(1);
@@ -1559,7 +1557,7 @@ describe("SEAMS L — hops raise what the conversation reached; links may add a 
     expect(d.spread?.pointersShown).toBe(1);
     expect(d.footnotes).toContain(dark);
     // No traversal injected: nothing to report, and it says null rather than 0.
-    expect(new Recall({ store: s, owner: true }).recall({ ...turn, sessionId: "b" }).decision.spread).toBeNull();
+    expect(new Recall({ store: s }).recall({ ...turn, sessionId: "b" }).decision.spread).toBeNull();
   });
 
   test("salience ranks the candidate cut, and the cut is counted, never silent", () => {
@@ -1617,7 +1615,6 @@ describe("SEAMS L — hops raise what the conversation reached; links may add a 
         candidates: [withoutHops],
         state: freshGateState("u"),
         storeSize: 100,
-        owner: true,
         affectStated: false,
         turn: 1,
       },
@@ -2039,7 +2036,6 @@ describe("MemorySource is TOTAL — every member has a live writer that lands it
     const reflections = new Reflections({
       store: s,
       observer: false,
-      owner: true,
       gate: (text) => ({ ok: true, text }),
       page: () => null,
       today: () => "2026-09-26",
@@ -2313,7 +2309,7 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
   let offsetMs = 0;
 
   function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
-    const c = Counterpart.open({ dir, owner: true, now: () => Date.now() + offsetMs, ...opts });
+    const c = Counterpart.open({ dir, now: () => Date.now() + offsetMs, ...opts });
     brains.push(c);
     return c;
   }

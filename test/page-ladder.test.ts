@@ -354,7 +354,7 @@ describe("the top lines survive a host's cut (Claude Code 2.1.296, measured 2026
     setSystemTime(new Date(startOfLocalDay("2026-10-09", zone) + 8 * 3_600_000));
     // A configured ceiling above the host's cap — the case the cap is for.
     const budget = 16_000;
-    const a = openAdapter({ dataDir: dir, injectionBudgetBytes: budget, owner: true, timeZone: zone }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: null });
+    const a = openAdapter({ dataDir: dir, injectionBudgetBytes: budget, timeZone: zone }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder: null });
     open.push(a.counterpart);
     const page = headedPage(15_000);
     expect(a.counterpart.revisePage(page, { reason: "a long page", by: "owner" }).written).toBe(true);

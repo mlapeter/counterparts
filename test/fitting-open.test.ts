@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" } });
   open.push(c);
   return c;
 }
@@ -144,7 +144,7 @@ describe("open lists read by open state, not through the newest N", () => {
 
 function mcp(c: Counterpart): McpServer {
   recordSession(dir, { sessionId: "s-open", scope: "/proj", phase: "start" });
-  return new McpServer({ counterpart: c, scope: "/proj", owner: true, registryDir: dir });
+  return new McpServer({ counterpart: c, scope: "/proj", registryDir: dir });
 }
 
 function lived(c: Counterpart): void {

@@ -89,7 +89,7 @@ interface World {
 
 function world(start: number): World {
   let now = at(D1, 18);
-  const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
+  const c = Counterpart.open({ dir: storeDir, budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
   open.push(c);
   c.rebrief({ budgetBytes: BUDGET, at: D1 });
   let reg = setScope(null, FAR, "off", { at: D2 });
@@ -134,7 +134,7 @@ function memory(
 function hooks(w: World): ClaudeCodeAdapter {
   return new ClaudeCodeAdapter({
     counterpart: w.c,
-    config: { dataDir: storeDir, owner: true },
+    config: { dataDir: storeDir },
     configPath: config,
     now: () => w.now(),
     scope: { mode: "on", matched: HERE, entry: null } as ScopeVerdict,
@@ -285,7 +285,7 @@ describe("the room", () => {
       for (const c of open.splice(0)) c.close();
       rmSync(storeDir, { recursive: true, force: true });
       let now = at(D1, 8);
-      const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: budget, now: () => now, timeZone: ZONE });
+      const c = Counterpart.open({ dir: storeDir, budgetBytes: budget, now: () => now, timeZone: ZONE });
       open.push(c);
       const set = (t: number): void => void (now = t);
       c.revisePage(`## Core\n\n${"I keep the garden's ledger and say what I do not know, and I say it plainly when asked. ".repeat(60)}\n\n## Lately\n\n${"The beans are in and the frost is coming. ".repeat(20)}`, { by: "owner", reason: "seed" });

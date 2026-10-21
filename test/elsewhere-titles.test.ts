@@ -110,7 +110,7 @@ interface World {
 /** A store on the test's clock, a published bundle from the evening before, FAR off and REST paused. */
 function world(start: number): World {
   let now = at(D1, 18);
-  const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
+  const c = Counterpart.open({ dir: storeDir, budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
   open.push(c);
   c.rebrief({ budgetBytes: BUDGET, at: D1 });
   let reg = setScope(null, FAR, "off", { at: D2 });
@@ -250,7 +250,7 @@ describe("Since you started names only what is new", () => {
     const verdict = { mode: "on", matched: HERE, entry: null } as ScopeVerdict;
     return new ClaudeCodeAdapter({
       counterpart: w.c,
-      config: { dataDir: storeDir, owner: true },
+      config: { dataDir: storeDir },
       configPath: config,
       now: () => w.now(),
       scope: verdict,
@@ -397,7 +397,7 @@ describe("Here, also open: the other sessions in this folder", () => {
     const hooks = (): ClaudeCodeAdapter =>
       new ClaudeCodeAdapter({
         counterpart: w.c,
-        config: { dataDir: storeDir, owner: true },
+        config: { dataDir: storeDir },
         configPath: config,
         now: () => w.now(),
         scope: { mode: "on", matched: HERE, entry: null } as ScopeVerdict,

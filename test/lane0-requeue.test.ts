@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" } });
   open.push(c);
   return c;
 }

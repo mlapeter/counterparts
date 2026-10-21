@@ -103,7 +103,7 @@ function world(start: number, opts: { observer?: boolean } = {}): World {
   let now = start;
   // An observer reads a store that exists; it makes none.
   if (opts.observer === true) Counterpart.open({ dir: storeDir, timeZone: ZONE }).close();
-  const c = Counterpart.open({ dir: storeDir, owner: true, now: () => now, timeZone: ZONE, ...(opts.observer === true ? { observer: true } : {}) });
+  const c = Counterpart.open({ dir: storeDir, now: () => now, timeZone: ZONE, ...(opts.observer === true ? { observer: true } : {}) });
   open.push(c);
   writeScopes(join(root, "scopes.json"), setScope(null, join(root, "nothing-here"), "off", { at: D }));
   const verdict: ScopeVerdict = { mode: opts.observer === true ? "observer" : "on", matched: HERE, entry: null } as ScopeVerdict;
@@ -112,7 +112,7 @@ function world(start: number, opts: { observer?: boolean } = {}): World {
     hooks(o = {}) {
       return new ClaudeCodeAdapter({
         counterpart: c,
-        config: { dataDir: storeDir, owner: true, ...(o.budget === undefined ? {} : { injectionBudgetBytes: o.budget }) },
+        config: { dataDir: storeDir, ...(o.budget === undefined ? {} : { injectionBudgetBytes: o.budget }) },
         configPath: config,
         now: () => now,
         scope: verdict,

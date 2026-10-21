@@ -95,7 +95,7 @@ describe("B1: the changed cut is a strength multiplier", () => {
   });
 
   test("P-A2: one credited occasion per memory per lived day still holds across a settle", () => {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     const store = c.store;
     days(store, 4);

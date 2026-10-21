@@ -89,7 +89,6 @@ function stubSpawner(): (plan: SpawnPlan) => { pid: number } {
 function plainServer(opts: Parameters<typeof openServer>[0] = {}): McpServer {
   const s = openServer({
     dir,
-    owner: true,
     lifecycle: { spawner: stubSpawner() },
     manifestVersion: () => null,
     env: {},
@@ -133,7 +132,7 @@ async function wireCall(s: McpServer, id: number, name: string, args: Record<str
 /** The Code-tab session's record, written by the hooks themselves: a SessionStart with entrypoint `claude-desktop`. */
 function codeTabSessionStart(sessionId: string, scope = project): { injection: string | null } {
   const a = openAdapter(
-    { dataDir: dir, owner: true },
+    { dataDir: dir },
     { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) },
   );
   open.push(a.counterpart);
@@ -147,11 +146,10 @@ function expectUnbound(s: McpServer): void {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("the owner's own sessions are the owner (2026-10-02)", () => {
-  test("Desktop's server, a guest for its chats, serves a Code-tab call as the owner's: it closes a thread opened in another directory, and the list agrees", async () => {
+describe("every session closes a thread from any folder (the yours/guest split removed 2026-10-21)", () => {
+  test("Desktop's server closes a thread opened in another directory, for a Code-tab call and for a chat alike", async () => {
     codeTabSessionStart("tab-own");
-    // As the entry point opens it with nothing said and the install's `owner: true`.
-    const s = plainServer({ owner: false, codeTabOwner: true });
+    const s = plainServer({});
     await pump(s, [rpc(1, "initialize", { clientInfo: { name: "claude-ai" } })]);
     const elsewhere = join(root, "elsewhere");
     const thread = s.counterpart.store.put({
@@ -162,13 +160,6 @@ describe("the owner's own sessions are the owner (2026-10-02)", () => {
       meta: { unresolved: true },
       origin: { scope: elsewhere },
     });
-    // A Desktop chat is still a guest.
-    const chat = (await wireCall(s, 2, "wake"))["session"] as string;
-    expect((await wireCall(s, 3, "status", { session: chat }))["stance"]).toMatchObject({ owner: false });
-    // The Code tab's call is the owner's, and says why.
-    const stance = (await wireCall(s, 4, "status", { session: "tab-own" }))["stance"] as Record<string, unknown>;
-    expect(stance).toMatchObject({ owner: true });
-    expect(String(stance["ownerFrom"])).toContain("Desktop's Code tab");
     const closed = await wireCall(s, 5, "note", {
       session: "tab-own",
       text: "The pump housing took the second gasket; the seep stopped.",
@@ -181,7 +172,7 @@ describe("the owner's own sessions are the owner (2026-10-02)", () => {
 
   test("#317 × #318: what a Code-tab call's recall showed it, it may feel again (a memory carrying the retired confidential mark too)", async () => {
     codeTabSessionStart("tab-feel");
-    const s = plainServer({ owner: false, codeTabOwner: true });
+    const s = plainServer({});
     await pump(s, [rpc(1, "initialize", { clientInfo: { name: "claude-ai" } })]);
     const secret = s.counterpart.store.put({
       type: "memory",
@@ -430,7 +421,7 @@ describe("the Code-tab wake line, and the descriptions", () => {
     expect(codeTabSessionLine({ sessionId: "abc-1" })).toBeNull();
     expect(codeTabSessionLine({ entrypoint: CODE_TAB_ENTRYPOINT, sessionId: "" })).toBeNull();
 
-    const a = openAdapter({ dataDir: dir, owner: true }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
+    const a = openAdapter({ dataDir: dir }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
     open.push(a.counterpart);
     const terminal = a.sessionStart({ sessionId: "term-1", scope: project, at: localDate(Date.now()), entrypoint: "cli" });
     expect(terminal.injection ?? "").not.toContain("Code tab");
@@ -497,7 +488,7 @@ describe("review of #309", () => {
     expect(before["sessionRefused"]).toBe("session-not-live");
     expect(String(before["sessionNote"])).toContain("no session");
     // The person types; the UserPromptSubmit hook runs before the model calls anything.
-    const a = openAdapter({ dataDir: dir, owner: true }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
+    const a = openAdapter({ dataDir: dir }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
     open.push(a.counterpart);
     a.userPromptSubmit({ sessionId: "tab-idle", scope: project, at: localDate(Date.now()), prompt: "where were we on the gate?", entrypoint: CODE_TAB_ENTRYPOINT });
     expect(readSession(dir, "tab-idle")?.lastBoundaryAt ?? 0).toBeGreaterThanOrEqual(realNow);

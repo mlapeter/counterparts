@@ -5427,7 +5427,8 @@ describe("install", () => {
     // No credentials file any more (keyless, 2026-09-24).
     expect(parsed["credentialsFile"]).toBeUndefined();
     expect(parsed["injectionBudgetBytes"]).toBe(9000);
-    expect(parsed["owner"]).toBe(true);
+    // No `owner` key any more (the yours/guest split was removed 2026-10-21).
+    expect(parsed["owner"]).toBeUndefined();
     expect(parsed["identity"]).toEqual({ name: "Ada" });
     // AND THE CORE EXISTS NOW, not at the first hook. `install` used to write
     // the name into the config and leave the minting to `openAdapter` at the

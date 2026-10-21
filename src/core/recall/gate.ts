@@ -141,7 +141,6 @@ export interface GateInput {
   readonly candidates: readonly Candidate[];
   readonly state: GateState;
   readonly storeSize: number;
-  readonly owner: boolean;
   /** The turn stated a feeling (any subject) — the affect flag's turn gate. */
   readonly affectStated: boolean;
   readonly turn: number;

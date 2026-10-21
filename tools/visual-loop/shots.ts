@@ -411,7 +411,7 @@ async function liveEvent(
     };
     const before = await stateOf("sleep");
 
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       c.store.advanceClock("2026-07-13");
       await c.submitSessionEnd(
@@ -485,7 +485,7 @@ async function liveEvent(
         text: "the home headline's memory count could not be read from the open page — the staleness check would prove nothing",
       });
     }
-    const jot = Counterpart.open({ dir, owner: true });
+    const jot = Counterpart.open({ dir });
     let minted: string | null = null;
     try {
       const text =

@@ -46,8 +46,8 @@ beforeAll(() => {
   const base = Date.parse("2026-09-01T15:00:00Z");
   let offset = 0;
   const now = (): number => base + offset;
-  Counterpart.open({ dir: at, owner: true, identity: { name: "Mike" }, now }).close();
-  const c = Counterpart.open({ dir: at, owner: true, budgetBytes: 9000, now });
+  Counterpart.open({ dir: at, identity: { name: "Mike" }, now }).close();
+  const c = Counterpart.open({ dir: at, budgetBytes: 9000, now });
   try {
     for (const [i, date] of dates.entries()) {
       offset = Date.parse(`${date}T15:00:00Z`) - base;
@@ -155,7 +155,7 @@ describe("the self tab, round 3b", () => {
   test("2 (2026-09-30): an arriving line is its memory, by title, opening its card — not its whole body", () => {
     const dir = mkdtempSync(join(tmpdir(), "counterparts-self-arriving-"));
     try {
-      const c = Counterpart.open({ dir, owner: true, budgetBytes: 9000 });
+      const c = Counterpart.open({ dir, budgetBytes: 9000 });
       let titled: string;
       let bare: string;
       try {

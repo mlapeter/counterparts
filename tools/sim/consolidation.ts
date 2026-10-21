@@ -138,7 +138,7 @@ async function partB(): Promise<void> {
   const rng = mulberry32(20260926);
   const dir = join(ROOT, "sixty");
   let clock = Date.UTC(2026, 0, 1, 12);
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, now: () => clock, timeZone: "UTC", budgetBytes: 9_000 });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => clock, timeZone: "UTC", budgetBytes: 9_000 });
   const put = (kind: Kind, body: string, dims: { r: number; e: number; p: number }): string =>
     c.store.put({
       type: "memory",

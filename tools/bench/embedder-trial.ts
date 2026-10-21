@@ -383,7 +383,7 @@ function armKey(arm: Arm): string {
 
 function runArm(store: Store, relevantIds: readonly Set<string>[], arm: Arm, vectors: readonly (number[] | null)[]): QueryResult[] {
   const tunables = armTunables(arm);
-  const recall = new Recall({ store, owner: true, tunables });
+  const recall = new Recall({ store, tunables });
   const day = store.livedDay();
   const storeSize = store.list({ archived: false }).length;
   const out: QueryResult[] = [];
@@ -400,7 +400,6 @@ function runArm(store: Store, relevantIds: readonly Set<string>[], arm: Arm, vec
     const built = recall.build({
       sessionId: `trial-${armKey(arm)}-${i}`,
       text: q.text,
-      owner: true,
       day,
       ...(vector === undefined ? {} : { vector }),
     });
@@ -472,13 +471,13 @@ function runPerTurnArm(
   vectors: readonly (number[] | null)[],
 ): PerTurnResult[] {
   const tunables = armTunables(arm);
-  const recall = new Recall({ store, owner: true, tunables });
+  const recall = new Recall({ store, tunables });
   const day = store.livedDay();
   const out: PerTurnResult[] = [];
   QUERIES.forEach((q, i) => {
     const relevant = relevantIds[i] ?? new Set<string>();
     const sessionId = `pt-${armKey(arm)}-${i}`;
-    const t1 = recall.recall({ sessionId, text: q.text, owner: true, day }).decision;
+    const t1 = recall.recall({ sessionId, text: q.text, day }).decision;
     const vector = vectors[i] ?? null;
     if (vector !== null) {
       // The worker, after the boundary: rank the exchange, stamp it for the next turn.
@@ -496,7 +495,6 @@ function runPerTurnArm(
     const t2 = recall.recall({
       sessionId,
       text: FOLLOW_UP,
-      owner: true,
       day,
       ...(lag.hits === null ? {} : { semanticHits: lag.hits }),
       semanticSource: lag.source,
@@ -582,7 +580,7 @@ function runTopicChangeArm(
   vectors: readonly (number[] | null)[],
 ): TopicChangeResult[] {
   const tunables = armTunables(arm);
-  const recall = new Recall({ store, owner: true, tunables });
+  const recall = new Recall({ store, tunables });
   const day = store.livedDay();
   const out: TopicChangeResult[] = [];
   QUERIES.forEach((q, i) => {
@@ -592,7 +590,7 @@ function runTopicChangeArm(
     const oldTopic = relevantIds[i] ?? new Set<string>();
     const newTopic = relevantIds[j] ?? new Set<string>();
     const sessionId = `tc-${armKey(arm)}-${i}`;
-    recall.recall({ sessionId, text: q.text, owner: true, day });
+    recall.recall({ sessionId, text: q.text, day });
     const vector = vectors[i] ?? null;
     if (vector !== null) {
       saveSessionSemantic(store, {
@@ -610,7 +608,6 @@ function runTopicChangeArm(
     const t2 = recall.recall({
       sessionId,
       text: next.text,
-      owner: true,
       day,
       ...(lag.hits === null ? {} : { semanticHits: lag.hits }),
       semanticSource: lag.source,

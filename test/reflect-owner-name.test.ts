@@ -44,7 +44,7 @@ afterEach(() => {
 
 function brain(name: string | null = NAME): Counterpart {
   // The calendar follows the test's days (the gates are the calendar date since 2026-09-28).
-  const c = Counterpart.open({ dir, owner: true, ...(name === null ? {} : { identity: { name } }), now: () => Date.now() + dateN * 86_400_000 });
+  const c = Counterpart.open({ dir, ...(name === null ? {} : { identity: { name } }), now: () => Date.now() + dateN * 86_400_000 });
   open.push(c);
   return c;
 }

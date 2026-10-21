@@ -46,8 +46,8 @@ beforeAll(async () => {
   const base = Date.parse("2026-09-21T15:00:00Z");
   let offset = 0;
   const now = (): number => base + offset;
-  Counterpart.open({ dir, owner: true, budgetBytes: 9000, identity: { name: "Mike" }, now }).close();
-  const c = Counterpart.open({ dir, owner: true, budgetBytes: 9000, now });
+  Counterpart.open({ dir, budgetBytes: 9000, identity: { name: "Mike" }, now }).close();
+  const c = Counterpart.open({ dir, budgetBytes: 9000, now });
   const ids: string[] = [];
   try {
     const dates = ["2026-09-21", "2026-09-22", "2026-09-23"];
@@ -88,7 +88,7 @@ beforeAll(async () => {
   } finally {
     c.close();
   }
-  Counterpart.open({ dir: emptyDir, owner: true }).close();
+  Counterpart.open({ dir: emptyDir }).close();
 });
 
 afterAll(() => {
@@ -285,7 +285,7 @@ describe("the self tab's side column (round 2, an experiment)", () => {
     const at = mkdtempSync(join(tmpdir(), "counterparts-self-writer-"));
     try {
       const then = Date.parse("2026-09-02T15:00:00Z");
-      const c = Counterpart.open({ dir: at, owner: true, now: () => then });
+      const c = Counterpart.open({ dir: at, now: () => then });
       try {
         c.revisePage(PAGE_1, { reason: "first", by: "writer" });
         c.recordPageWriterRun({ about: "2026-09-01", mode: "session", outcome: "asked" });
@@ -364,8 +364,8 @@ describe("the self tab, round 3", () => {
     const base = noonHere("2026-09-01");
     let offset = 0;
     const now = (): number => base + offset;
-    Counterpart.open({ dir: at, owner: true, identity: { name: "Mike" }, now }).close();
-    const c = Counterpart.open({ dir: at, owner: true, now });
+    Counterpart.open({ dir: at, identity: { name: "Mike" }, now }).close();
+    const c = Counterpart.open({ dir: at, now });
     try {
       for (const [i, date] of dates.entries()) {
         offset = noonHere(date) - base;
@@ -434,8 +434,8 @@ describe("the self tab, round 3", () => {
   test("S1: a page one lived day behind says nothing", () => {
     const fresh = mkdtempSync(join(tmpdir(), "counterparts-self-r3-fresh-"));
     try {
-      Counterpart.open({ dir: fresh, owner: true, identity: { name: "Mike" } }).close();
-      const c = Counterpart.open({ dir: fresh, owner: true });
+      Counterpart.open({ dir: fresh, identity: { name: "Mike" } }).close();
+      const c = Counterpart.open({ dir: fresh });
       try {
         c.store.advanceClock("2026-09-01");
         const d = c.store.livedDay();
@@ -502,8 +502,8 @@ describe("the self tab, round 3", () => {
   test("S4: a chapter whose heading named no date falls back to its entry's own date", () => {
     const x = mkdtempSync(join(tmpdir(), "counterparts-self-r3-undated-"));
     try {
-      Counterpart.open({ dir: x, owner: true }).close();
-      const c = Counterpart.open({ dir: x, owner: true });
+      Counterpart.open({ dir: x }).close();
+      const c = Counterpart.open({ dir: x });
       try {
         c.store.advanceClock("2026-09-01");
         c.store.put({

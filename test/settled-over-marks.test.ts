@@ -50,7 +50,7 @@ afterEach(() => {
 });
 
 function server(opts: Parameters<typeof openServer>[0] = {}): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true, ...opts });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/one", ...opts });
   open.push(s.counterpart);
   return s;
 }
@@ -256,7 +256,7 @@ describe("ambient recall (already labelled by standingOf)", () => {
     const old = put(s, "The zygomorphic orchid needs watering twice a week.", { title: "Zygomorphic orchid watering" });
     const head = put(s, "The zygomorphic orchid needs watering once a week in autumn.", { title: "Orchid watering in autumn" });
     changed(s, head, old);
-    const text = new Recall({ store: s, owner: true }).build({ sessionId: "r1", text: "how often should the zygomorphic orchid get watering" }).injection;
+    const text = new Recall({ store: s }).build({ sessionId: "r1", text: "how often should the zygomorphic orchid get watering" }).injection;
     const lines = text.split("\n").filter((l) => l.includes(`watering [${old}]`) || l.includes("twice a week"));
     expect(lines).toEqual([]);
     expect(text).toContain(`[${head}]`);
@@ -267,7 +267,7 @@ describe("ambient recall (already labelled by standingOf)", () => {
 
 describe("the dream and the reflection", () => {
   function brain(): Counterpart {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     open.push(c);
     return c;
   }
@@ -360,7 +360,7 @@ describe("review of #408: footnotes and neighbours name the same memory", () => 
     expect(standingOf(s, c)?.prefix).toBe("");
     // Ambient recall (Group 2, 2026-10-11): the head wins — A and B are not
     // shown at all, C is.
-    const text = new Recall({ store: s, owner: true }).build({ sessionId: "r1", text: "how often should the zygomorphic orchid get watering" }).injection;
+    const text = new Recall({ store: s }).build({ sessionId: "r1", text: "how often should the zygomorphic orchid get watering" }).injection;
     const linesOfA = text.split("\n").filter((l) => l.includes("twice a week") || l.includes("Zygomorphic orchid watering"));
     expect(linesOfA).toEqual([]);
     expect(text).toContain(`[${c}]`);
@@ -400,7 +400,7 @@ describe("review of #408: footnotes and neighbours name the same memory", () => 
 
 describe("review of #408: a corrected memory is never shown as current", () => {
   test("not a neighbour, not in the dream's or the reflection's bundle, not coming up; by id it says Corrected by", () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     open.push(c);
     c.store.advanceClock("2026-09-10");
     for (let d = 11; d <= 20; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);
@@ -518,7 +518,7 @@ describe("review of #408: headOf's walk is bounded and never throws", () => {
 
 describe("review of #408: the marks stay inside each result's ceiling", () => {
   test("a busy night where nearly every memory was settled over: dream and reflection parts all under the ceiling, no cut", async () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     open.push(c);
     c.store.advanceClock("2026-09-10");
     const said = '"said" "so" "plainly" '.repeat(20);
@@ -533,7 +533,7 @@ describe("review of #408: the marks stay inside each result's ceiling", () => {
     // Each memory changed by the next: all but the last carry the mark.
     for (let i = 1; i < ids.length; i += 1) changed(c.store, ids[i] as string, ids[i - 1] as string);
     recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-    const s = new McpServer({ counterpart: c, scope: "/proj", owner: true, registryDir: dir });
+    const s = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir });
     const fits = (res: ToolResult): void => {
       expect(res.isError ?? false).toBe(false);
       expect(wireChars(JSON.stringify(res.structuredContent))).toBeLessThanOrEqual(TOOL_RESULT_CEILING.CHARS);

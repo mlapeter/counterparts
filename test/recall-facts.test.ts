@@ -55,7 +55,7 @@ afterEach(() => {
 
 function brain(now = NOW): Counterpart {
   // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
-  const c = Counterpart.open({ dir: join(dir, "store"), owner: true, now: () => now, timeZone: ZONE });
+  const c = Counterpart.open({ dir: join(dir, "store"), now: () => now, timeZone: ZONE });
   findable(c.store);
   open.push(c);
   return c;
@@ -63,7 +63,7 @@ function brain(now = NOW): Counterpart {
 
 function ask(c: Counterpart, question: string, opts: { page?: number; owner?: boolean } = {}): FactsResult {
   return factsRecall(
-    { counterpart: c, sessionId: SESSION, owner: opts.owner ?? true, vector: null, semantic: "embedder-off" },
+    { counterpart: c, sessionId: SESSION, vector: null, semantic: "embedder-off" },
     question,
     opts.page === undefined ? {} : { page: opts.page },
   );
@@ -1019,7 +1019,7 @@ describe("what never comes back, and what comes back labeled", () => {
 
 describe("through the tool", () => {
   function server(c: Counterpart): McpServer {
-    return new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", owner: true, registryDir: join(dir, "store"), now: () => NOW });
+    return new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", registryDir: join(dir, "store"), now: () => NOW });
   }
   const body = (r: ToolResult): Record<string, unknown> => r.structuredContent;
 
@@ -1062,7 +1062,7 @@ describe("through the tool", () => {
     const out = body(await s.call("recall", { question: "What has Zorabel been to me?", mode: "meaning" }));
     expect(out["mode"]).toBe("meaning");
     expect(out["reason"]).toBe("answered");
-    const direct = meaningRecall({ counterpart: c, sessionId: SESSION, owner: true }, "What has Zorabel been to me?");
+    const direct = meaningRecall({ counterpart: c, sessionId: SESSION }, "What has Zorabel been to me?");
     expect(out["answer"]).toBe(renderMeaning(direct));
     expect(out["ids"]).toEqual([...direct.shown]);
     expect(direct.shown).toContain(moment);
@@ -1156,7 +1156,7 @@ describe("through the tool", () => {
 // correction archived could not be reached, even by a search that named it.
 describe("corrected versions are named, as wrong, and open by id (through the tool)", () => {
   function server(c: Counterpart, owner = true): McpServer {
-    return new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", owner, registryDir: join(dir, "store"), now: () => NOW });
+    return new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", now: () => NOW });
   }
   const body = (r: ToolResult): Record<string, unknown> => r.structuredContent;
 
@@ -1235,7 +1235,7 @@ describe("order within a day (renderAt#sameDayTimes)", () => {
   /** A store on a clock the test moves, so each put has its own `created_at`. */
   function clocked(zone = ZONE): { c: Counterpart; at: (iso: string) => void } {
     let t = NOW;
-    const c = Counterpart.open({ dir: join(dir, "store"), owner: true, now: () => t, timeZone: zone });
+    const c = Counterpart.open({ dir: join(dir, "store"), now: () => t, timeZone: zone });
     findable(c.store);
     open.push(c);
     return {
@@ -1308,7 +1308,7 @@ describe("order within a day (renderAt#sameDayTimes)", () => {
     const db = new Database(paths.operational(join(dir, "store")));
     db.run("UPDATE memories SET created_at = NULL WHERE id = ?", [old]);
     db.close();
-    const again = Counterpart.open({ dir: join(dir, "store"), owner: true, now: () => NOW, timeZone: ZONE });
+    const again = Counterpart.open({ dir: join(dir, "store"), now: () => NOW, timeZone: ZONE });
     open.push(again);
     const r = ask(again, "zqold");
     expect(r.memories.length).toBe(3);
@@ -1478,7 +1478,7 @@ describe("the title tail (2026-10-20)", () => {
     const c = brain();
     seed(c);
     forty(c);
-    const s = new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", owner: true, registryDir: join(dir, "store"), now: () => NOW });
+    const s = new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", registryDir: join(dir, "store"), now: () => NOW });
     const out = (await s.call("recall", { question: "the zqcrate orders", mode: "facts" })).structuredContent;
     const ids = out["ids"] as string[];
     expect(ids.length).toBe(FACTS_PAGE_SIZE);
@@ -1533,7 +1533,7 @@ describe("the title tail (2026-10-20)", () => {
   test("a settled-over memory folds into the version that holds now (the guest half that showed it on its own went with the confidential mark, 2026-10-21)", () => {
     // A clock that moves, so equal matches rank newest first and the old one lands in the tail.
     let t = NOW - 3_600_000;
-    const c = Counterpart.open({ dir: join(dir, "store"), owner: true, now: () => (t += 1000), timeZone: ZONE });
+    const c = Counterpart.open({ dir: join(dir, "store"), now: () => (t += 1000), timeZone: ZONE });
     findable(c.store);
     open.push(c);
     seed(c);

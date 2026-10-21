@@ -123,7 +123,7 @@ afterEach(() => {
 /** A counterpart on a clock the test turns, for seeding the past. */
 function seeder(): { c: Counterpart; set(at: number): void; done(): void } {
   let at = Date.now();
-  const c = Counterpart.open({ dir: storeDir, owner: true, now: () => at });
+  const c = Counterpart.open({ dir: storeDir, now: () => at });
   return {
     c,
     set(next: number): void {
@@ -188,7 +188,7 @@ function ended(
 }
 
 function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
-  return { dataDir: storeDir, owner: true, ...over };
+  return { dataDir: storeDir, ...over };
 }
 
 /** One SessionStart in `scope` — the adapter a hook process builds, then closed. */
@@ -214,14 +214,14 @@ function start(
 
 /** Another calendar day, as far as the day's allowance is concerned. */
 function newDay(): void {
-  const c = Counterpart.open({ dir: storeDir, owner: true });
+  const c = Counterpart.open({ dir: storeDir });
   c.store.setMeta(WRITE_UP_ASK_DATE_KEY, "1999-01-01");
   c.store.setMeta(WRITE_UP_ASK_COUNT_KEY, "0");
   c.close();
 }
 
 function server(): McpServer {
-  const s = openServer({ dir: storeDir, scope: PROJ, owner: true });
+  const s = openServer({ dir: storeDir, scope: PROJ });
   open.push(s.counterpart);
   return s;
 }
@@ -293,7 +293,7 @@ describe("the pointer: the next session start in that project is pointed at it",
     expect(out.injection).not.toContain(WRITE_UP_OPEN);
     // The marks the door reads.
     expect(readSession(storeDir, "new-1")?.writeUpPointer).toBe("old-1");
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     expect(readWriteUpProgress(c.store)[progressKey("old-1", PROJ)]).toMatchObject({ parts: 1, done: 0, chunk: WRITE_UP_PART_BYTES });
     expect(readWriteUpPointer(c.store)).toMatchObject({ outcome: "pointed" });
     c.close();
@@ -310,7 +310,7 @@ describe("the pointer: the next session start in that project is pointed at it",
     expect(ask).toContain("session: new-1, writeUp: short-1 and no memories");
     expect(ask).toContain(WRITE_UP_SHORT_LINE);
     // A debt like any other since 2026-09-30 (`core/coverage/`): it owes, and it is small.
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     const held = planRetention(c.spans, writeUpSources(c.store)).find((h) => h.session === "short-1");
     c.close();
     expect(held).toMatchObject({ owes: true, small: true });
@@ -362,7 +362,7 @@ describe("the pointer: the next session start in that project is pointed at it",
     expect(markNothingNew(storeDir, "idle-nn", opened + 60_000)).not.toBeNull();
     claimUnwritten(t.c.spans, { session: "idle-nn", scope: PROJ, by: CLAIM_NOTHING_NEW, ref: "idle-nn" });
     t.done();
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     const plan = planRetention(c.spans, writeUpSources(c.store));
     c.close();
     expect(plan.filter((h) => h.owes)).toEqual([]);
@@ -473,7 +473,7 @@ describe("the pointer: the next session start in that project is pointed at it",
       a.counterpart.close();
     }
     // Doctor reads it and says the wake is too full, and by how much — never "open a session".
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     const f = doctorFindings({
       configPath: join(root, "claude-code.json"),
@@ -558,7 +558,7 @@ describe("the door: `session_end` with `writeUp`", () => {
     s.done();
     // A second session at work in this project, right now: it has said something today.
     recordSession(storeDir, { sessionId: "live-2", scope: PROJ, phase: "start" });
-    const w = Counterpart.open({ dir: storeDir, owner: true });
+    const w = Counterpart.open({ dir: storeDir });
     w.captureSpans({ session: "live-2", scope: PROJ, turns: [{ role: "user", text: "The live session's own first turn about the pump." }] });
     w.close();
   }
@@ -639,7 +639,7 @@ describe("the door: `session_end` with `writeUp`", () => {
     seeded();
     expect(start("new-1").ask ?? "").toContain("writeUp: old-1");
     // The writer speaks first — the natural order: the user's task, then the write-up.
-    const w = Counterpart.open({ dir: storeDir, owner: true });
+    const w = Counterpart.open({ dir: storeDir });
     w.captureSpans({
       session: "new-1",
       scope: PROJ,
@@ -673,7 +673,7 @@ describe("the door: `session_end` with `writeUp`", () => {
   });
 
   test("the `cover` seam: absent covers the depositor's own words, `{ session }` another's, `false` none", async () => {
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     const talk = (session: string, text: string): string => {
       c.captureSpans({ session, scope: PROJ, turns: [{ role: "user", text }] });
@@ -699,7 +699,7 @@ describe("the door: `session_end` with `writeUp`", () => {
   });
 
   test("`submitJot` never takes `cover`: a jot always covers its own words", async () => {
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     c.captureSpans({ session: "jotter", scope: PROJ, turns: [{ role: "user", text: "The jotter's own words about the pump." }] });
     c.captureSpans({ session: "other", scope: PROJ, turns: [{ role: "user", text: "Another session's words about the valve." }] });
@@ -723,12 +723,12 @@ describe("the door: `session_end` with `writeUp`", () => {
     ended(seed, "old-1", { at: Date.now() - 2 * DAY });
     ended(seed, "answered", { at: Date.now() - 2 * DAY, answered: true });
     seed.done();
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     saveWriteUpProgress(c.store, progressKey("answered", PROJ), { chunk: WRITE_UP_PART_BYTES, parts: 1, done: 0, handedAt: 1 });
     saveWriteUpProgress(c.store, progressKey("nobody", PROJ), { chunk: WRITE_UP_PART_BYTES, parts: 2, done: 1, handedAt: 1 });
     c.close();
     expect(start("new-1").ask ?? "").toContain("writeUp: old-1");
-    const d = Counterpart.open({ dir: storeDir, owner: true });
+    const d = Counterpart.open({ dir: storeDir });
     expect(Object.keys(readWriteUpProgress(d.store)).sort()).toEqual([progressKey("old-1", PROJ)]);
     d.close();
   });
@@ -749,7 +749,7 @@ describe("the door: `session_end` with `writeUp`", () => {
 
     // The memories claimed its words (`cover`), so by `core/coverage/`'s rule
     // it owes nothing: no later session is pointed at it, nothing is minted twice.
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     expect(planRetention(c.spans, writeUpSources(c.store)).find((h) => h.session === "old-1")?.owes).toBe(false);
     const minted = c.spans.proposalRecords<ProposalRecord>(PROJ).filter((p) => p.accepted === true);
     expect(minted.map((p) => p.session)).toEqual(["new-1"]);
@@ -839,7 +839,7 @@ describe("the door: `session_end` with `writeUp`", () => {
     // OTHER's writer is served OTHER's words, and its answer marks the session.
     newDay();
     expect(start("other-writer", { scope: OTHER }).ask ?? "").toContain("writeUp: multi");
-    const o = openServer({ dir: storeDir, scope: OTHER, owner: true });
+    const o = openServer({ dir: storeDir, scope: OTHER });
     open.push(o.counterpart);
     const got = payload(await o.call("session_end", { session: "other-writer", writeUp: "multi" }));
     expect(String(got["text"])).toContain("SECRET-OTHER-PROJECT");
@@ -888,7 +888,7 @@ describe("the door: `session_end` with `writeUp`", () => {
 
   test("a batch writer HOLDS (the update guard, 2026-10-09): an unrelated corrected stays held — nobody reads the reply, and that is the safe side", async () => {
     seeded();
-    const w = Counterpart.open({ dir: storeDir, owner: true });
+    const w = Counterpart.open({ dir: storeDir });
     const passport = w.store.put({
       type: "memory",
       kind: "fact",
@@ -991,7 +991,7 @@ describe("the door: `session_end` with `writeUp`", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the worker never sweeps — a crashed session waits for the next session (keyless, 2026-09-24)", () => {
   function gateReason(): unknown {
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     try {
       const rows = c.store.eventLog({ name: SWEEP_GATE_EVENT, limit: 5 });
       return JSON.parse(rows[rows.length - 1]?.payload ?? "{}")["reason"];
@@ -1016,7 +1016,7 @@ describe("the worker never sweeps — a crashed session waits for the next sessi
     expect(report.swept).toBe(0);
     expect(events[0]?.["sweep"]).toBe("next-session");
     expect(gateReason()).toBe("not-opted-in");
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     try {
       expect(c.spans.writeUps(PROJ)).toEqual([]);
     } finally {
@@ -1041,7 +1041,7 @@ describe("the worker never sweeps — a crashed session waits for the next sessi
 // ═══════════════════════════════════════════════════════════════════════════
 describe("doctor: one line, `Write-ups` (#192's `Crash write-up`, re-read off the coverage ledger 2026-09-30)", () => {
   function line(over: Partial<AdapterConfig> = {}): { severity: string; detail: string } {
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     const findings = doctorFindings({
       configPath: join(root, "claude-code.json"),
@@ -1088,7 +1088,7 @@ describe("doctor: one line, `Write-ups` (#192's `Crash write-up`, re-read off th
     expect(payload(await s.call("session_end", { session: "proj-writer", writeUp: "multi", memories: [] }))["reason"]).toBe("written-up-here");
     s.counterpart.close();
     open.splice(open.indexOf(s.counterpart), 1);
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     const f = doctorFindings({
       configPath: join(root, "claude-code.json"),
@@ -1123,7 +1123,7 @@ describe("doctor: one line, `Write-ups` (#192's `Crash write-up`, re-read off th
 
   test("Authorship carries the owed count as detail and stays green — the loss is Write-ups' one amber", () => {
     const lines = (): { authorship: { severity: string; detail: string; stale: unknown }; crash: string } => {
-      const c = Counterpart.open({ dir: storeDir, owner: true });
+      const c = Counterpart.open({ dir: storeDir });
       open.push(c);
       const findings = doctorFindings({
         configPath: join(root, "claude-code.json"),
@@ -1189,7 +1189,7 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
     expect(empty).toMatchObject({ reason: "written-up", marked: true });
     two.s.counterpart.close();
     open.length = 0;
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     const plan = planRetention(c.spans, writeUpSources(c.store));
     c.close();
     for (const id of ["short-a", "short-b"]) {
@@ -1205,7 +1205,7 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
     ended(s, "full-kept", { at: Date.now() - 2 * DAY, bytes: 900 });
     ended(s, "tail", { at: Date.now() - 2 * DAY, bytes: 200, captures: 1 });
     s.done();
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     const v = verdicts(c);
     c.close();
     expect(v.later.get("short-kept")).toBe("kept-owed");
@@ -1237,7 +1237,7 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
     } finally {
       a.counterpart.close();
     }
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     const plan = planRetention(c.spans, writeUpSources(c.store));
     c.close();
     expect(plan.find((h) => h.session === "night-child")).toBeUndefined();
@@ -1250,7 +1250,7 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
       s.c.captureJot({ session: "mcp", scope: PROJ, text: `A note that would not parse, kept as a jot (${String(i)}).` });
     }
     s.done();
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     const held = planRetention(c.spans, writeUpSources(c.store)).find((h) => h.session === "mcp");
     c.close();
     expect(held).toMatchObject({ owes: true, small: true });
@@ -1283,7 +1283,7 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
     });
     srv.counterpart.close();
     open.length = 0;
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     const sources = writeUpSources(c.store);
     const v = (t: number): string | undefined =>
       planRetention(new SpanBuffer({ dir: storeDir, now: () => t }), sources).find((h) => h.session === "short-x")?.verdict;
@@ -1343,7 +1343,7 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
     } finally {
       a.counterpart.close();
     }
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     const f = doctorFindings({
       configPath: join(root, "claude-code.json"),
@@ -1364,7 +1364,7 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
     const s = seeder();
     ended(s, "short-old", { at: Date.now() - (WRITE_UP_WAIT_DAYS + 2) * DAY, bytes: 200, asked: false });
     s.done();
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     try {
       const f = doctorFindings({
         configPath: join(root, "claude-code.json"),

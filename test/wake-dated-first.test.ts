@@ -113,7 +113,7 @@ afterEach(() => {
 });
 
 function config(dataDir: string, zone: string, budget = BUDGET): AdapterConfig {
-  return { dataDir, injectionBudgetBytes: budget, owner: true, timeZone: zone };
+  return { dataDir, injectionBudgetBytes: budget, timeZone: zone };
 }
 
 function clock(zone: string, ymd: string, hour: number): void {

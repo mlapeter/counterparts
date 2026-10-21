@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 function brain(opts: { observer?: boolean } = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, ...(opts.observer === true ? { observer: true } : {}) });
+  const c = Counterpart.open({ dir, ...(opts.observer === true ? { observer: true } : {}) });
   open.push(c);
   return c;
 }
@@ -310,7 +310,7 @@ describe("Counterpart#rateShown", () => {
 const SESSION = "sess_rated_1";
 
 function server(opts: { observer?: boolean } = {}): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/rated", owner: true, ...(opts.observer === true ? { observer: true } : {}) });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/rated", ...(opts.observer === true ? { observer: true } : {}) });
   open.push(s.counterpart);
   return s;
 }

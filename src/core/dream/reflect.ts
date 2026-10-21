@@ -383,10 +383,6 @@ export type ReflectRefusal =
 export interface ReflectContext {
   readonly store: Store;
   readonly observer: boolean;
-  /** The owner's own session: a thread opened in another directory may be
-   *  closed from here (`threadGuard`). Lightly held, pending the talk about
-   *  whether the night run counts as the owner. */
-  readonly owner: boolean;
   /** The credential scan every word passes (the same one a dream's words do). */
   readonly gate: (text: string, sessionId: string) => { ok: true; text: string } | { ok: false; reason: string };
   readonly page: () => string | null;
@@ -486,7 +482,7 @@ export interface ReflectFinish {
    * `shows` (the memory that does). Closed here, and said in the share.
    */
   readonly closeNow?: readonly { readonly id?: string; readonly why?: string; readonly shows?: string }[];
-  /** The session's directory, for `closeThread`'s checks on a self-close (a session not the owner's closes only its own directory's). */
+  /** The session's directory. (It once fed a folder check on closing; that went with the yours/guest split, 2026-10-21.) */
   readonly scope?: string | null;
 }
 
@@ -1567,17 +1563,14 @@ export class Reflections {
         continue;
       }
       // ANY FOLDER (Mike, 2026-10-20 09:38: "i think its ok for nightly run
-      // to close threads from other folders" — a lightly held exception to
-      // the 10-02 night stance, for this door alone; a write-up still closes
-      // no thread opened elsewhere). A thread it was shown as stale may be
-      // closed whatever folder wrote it, so the directory check is not made
-      // here. ASKED INSTEAD: one the owner reopened, from any session, is
-      // asked about, as a proposal; the owner's yes, from a session that
-      // may, closes it.
+      // to close threads from other folders"; since 2026-10-21 every door
+      // may, the yours/guest split removed). ASKED INSTEAD: one the owner
+      // reopened, from any session, is asked about, as a proposal; the
+      // owner's yes closes it.
       const guard =
         typeof open.meta[THREAD_REOPENED_BY_META_KEY] === "string"
           ? "reopened-by-owner"
-          : threadGuard(open.row, this.ctx.owner, input.scope, { anyDirectory: true });
+          : threadGuard(open.row);
       if (guard === "reopened-by-owner") {
         proposed.push(cid);
         askedInstead += 1;
@@ -1906,10 +1899,9 @@ export class Reflections {
    * the owner, asked in the share, agreed some open threads are done. Closes
    * only ids this reflection proposed, with the write a deposit that answers a
    * thread makes (`counterpart-deposit.ts#closeThread`: the flag set false,
-   * reason `thread-closed`) and its checks — the owner's protection, an
-   * archived row, and, from a session that is not the owner's, nothing
-   * written in another directory. Any day, told or
-   * not; an id already closed is said so, not refused.
+   * reason `thread-closed`) and its checks — the owner's protection and an
+   * archived row, from any folder. Any day, told or not; an id already
+   * closed is said so, not refused.
    */
   close(input: { reflection: string; session: string; ids: readonly string[]; scope?: string | null }):
     | { ok: true; closed: string[]; already: string[]; refused: { id: string; reason: string }[] }
@@ -1946,7 +1938,7 @@ export class Reflections {
         already.push(id);
         continue;
       }
-      const why = threadGuard(r, this.ctx.owner, input.scope);
+      const why = threadGuard(r);
       if (why !== null) {
         refused.push({ id, reason: why });
         continue;
@@ -2021,9 +2013,8 @@ export class Reflections {
         already.push(id);
         continue;
       }
-      // The way back reaches as far as the self-close did (Mike, 2026-10-20):
-      // any folder.
-      const why = threadGuard(r, this.ctx.owner, input.scope, { anyDirectory: true });
+      // The way back reaches as far as the self-close did: any folder.
+      const why = threadGuard(r);
       if (why !== null) {
         refused.push({ id, reason: why });
         continue;
@@ -3035,16 +3026,13 @@ function selfClosedOf(v: unknown): SelfClose[] {
 
 /**
  * `closeThread`'s checks (`counterpart-deposit.ts`), for a thread closed or
- * reopened from here: the owner's protection, an archived row, and — from a
- * session that is not the owner's — nothing written in another directory.
- * Null when it may be written. `anyDirectory`: the
- * reflection's own self-close and its `reopen` (Mike, 2026-10-20), which reach
- * a thread from any folder it was shown as stale; `close` keeps the check.
+ * reopened from here: the owner's protection and an archived row. Null when
+ * it may be written. From any folder (the other-directory refusal went with
+ * the yours/guest split, 2026-10-21).
  */
-function threadGuard(r: MemoryRow, owner: boolean, scope: string | null | undefined, opts: { anyDirectory?: boolean } = {}): string | null {
+function threadGuard(r: MemoryRow): string | null {
   if (r.protected === 1) return "protected-refuses-revision";
   if (r.archived === 1) return "target-archived";
-  if (!owner && opts.anyDirectory !== true && (r.origin_scope ?? "") !== (scope ?? "")) return "other-directory";
   return null;
 }
 

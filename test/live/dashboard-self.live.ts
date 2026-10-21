@@ -44,7 +44,7 @@ const now = (): number => base + offset;
 
 function openAt(date: string): Counterpart {
   offset = Date.parse(`${date}T15:00:00Z`) - base;
-  return Counterpart.open({ dir, owner: true, budgetBytes: 9000, now });
+  return Counterpart.open({ dir, budgetBytes: 9000, now });
 }
 
 async function liveDay(c: Counterpart, i: number, date: string, page: string): Promise<void> {
@@ -72,7 +72,7 @@ async function liveDay(c: Counterpart, i: number, date: string, page: string): P
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-self-live-"));
-  Counterpart.open({ dir, owner: true, budgetBytes: 9000, identity: { name: "Mike" }, now }).close();
+  Counterpart.open({ dir, budgetBytes: 9000, identity: { name: "Mike" }, now }).close();
   const c = openAt("2026-09-21");
   try {
     const dates = ["2026-09-21", "2026-09-22", "2026-09-23"];

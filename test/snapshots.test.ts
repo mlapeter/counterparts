@@ -131,7 +131,7 @@ function makeCopiesFail(where = snapsDir): void {
 
 /** A real counterpart at `dir`, with one memory in it so a copy has substance. */
 function counterpart(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   open.push(c);
   return c;
 }
@@ -737,7 +737,7 @@ describe("one run", () => {
 
   test("a store outside the package's layout is skipped, silently and by name", () => {
     const elsewhere = join(root, "loose");
-    const c = Counterpart.open({ dir: elsewhere, owner: true });
+    const c = Counterpart.open({ dir: elsewhere });
     open.push(c);
     const report = runSnapshot({ counterpart: c, dataDir: elsewhere, now: NOW, date: TODAY });
     expect(report.reason).toBe("no-default-dir");
@@ -1055,7 +1055,7 @@ describe("a snapshot can actually be restored", () => {
     mkdirSync(join(root, "restored"), { recursive: true });
     cpSync(join(snapsDir, report.name as string), restoredDir, { recursive: true });
 
-    const restored = Counterpart.open({ dir: restoredDir, owner: true });
+    const restored = Counterpart.open({ dir: restoredDir });
     open.push(restored);
     // The canonical halves are all there.
     expect(restored.store.list({ archived: false })).toContain(id);
@@ -1325,7 +1325,7 @@ describe("the worker's fourth step", () => {
     makeCopiesFail();
 
     const report = await runOnce({
-      config: { dataDir: dir, owner: true },
+      config: { dataDir: dir },
       date: TODAY,
     });
     // The snapshot broke; the worker did not. Nothing about a failed copy may
@@ -1342,7 +1342,7 @@ describe("the worker's fourth step", () => {
     open.length = 0;
 
     const report = await runOnce({
-      config: { dataDir: dir, owner: true },
+      config: { dataDir: dir },
       date: TODAY,
     });
     expect(report.ran).toBe(true);

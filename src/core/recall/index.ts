@@ -103,12 +103,6 @@ export interface RecallOptions {
   budgetBytes?: number;
   /** Latency budget for the build pass, ms. */
   budgetMs?: number;
-  /**
-   * Is this the owner's own session? Defaults to FALSE; an observer is a
-   * non-owner regardless. Recorded on the decision; since the confidentiality
-   * gate was retired (2026-10-21) it gates nothing in recall.
-   */
-  owner?: boolean;
   onEvent?: (e: RecallEvent) => void;
   /** Injectable clock, so the latency budget is testable without sleeping. */
   now?: () => number;
@@ -151,8 +145,6 @@ export interface Turn {
   spread?: SpreadFn;
   /** Lived day. Defaults to the store's clock (scar E8 — lived, not calendar). */
   day?: number;
-  /** Per-turn override of the session's owner stance. */
-  owner?: boolean;
   budgetBytes?: number;
   /**
    * Per-turn override of the LATENCY budget. It exists for one caller: the
@@ -238,7 +230,6 @@ export interface RecallDecision {
   readonly turn: number;
   readonly day: number;
   readonly observer: boolean;
-  readonly owner: boolean;
   readonly reason: DecisionReason;
   readonly aborted: boolean;
   readonly storeSize: number;
@@ -368,7 +359,6 @@ export class Recall {
   /** One predicate, one definition: the store's. Never re-derived here. */
   readonly observer: boolean;
 
-  private readonly defaultOwner: boolean;
   private readonly budgetBytes: number;
   private readonly budgetMs: number;
   private readonly onEvent: ((e: RecallEvent) => void) | undefined;
@@ -380,7 +370,6 @@ export class Recall {
     this.store = opts.store;
     this.tunables = withTunables(opts.tunables ?? {});
     this.observer = opts.store.observer;
-    this.defaultOwner = opts.owner === true && !this.observer;
     this.budgetBytes = opts.budgetBytes ?? this.tunables.BUDGET_BYTES;
     this.budgetMs = opts.budgetMs ?? this.tunables.BUDGET_MS;
     this.onEvent = opts.onEvent;
@@ -397,7 +386,6 @@ export class Recall {
   build(turn: Turn): BuildOutput {
     const started = this.now();
     const day = turn.day ?? this.store.livedDay();
-    const owner = (turn.owner ?? this.defaultOwner) && !this.observer;
     const budgetBytes = turn.budgetBytes ?? this.budgetBytes;
     const budgetMs = turn.budgetMs ?? this.budgetMs;
 
@@ -454,7 +442,6 @@ export class Recall {
         turn: turnNo,
         day,
         observer: this.observer,
-        owner,
         reason,
         aborted: reason === "latency-abort",
         storeSize: 0,
@@ -577,7 +564,6 @@ export class Recall {
         candidates,
         state,
         storeSize: act.storeSize,
-        owner,
         affectStated: affect.stated,
         turn: turnNo,
         ...(turn.echo === undefined || turn.echo.size === 0 ? {} : { echo: turn.echo }),
@@ -665,7 +651,6 @@ export class Recall {
       turn: turnNo,
       day,
       observer: this.observer,
-      owner,
       reason,
       aborted: false,
       storeSize: act.storeSize,

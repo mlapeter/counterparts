@@ -267,7 +267,7 @@ describe("the content rule (store §5 G10)", () => {
   test("a hook that fails on an error carrying the marker logs the failure and not the words", () => {
     const log = openLog({ dataDir: dir, proc: "hook:stop", session: "s1" });
     const a = openAdapter(
-      { dataDir: dir, injectionBudgetBytes: 9000, owner: true },
+      { dataDir: dir, injectionBudgetBytes: 9000 },
       { command: "/bin/true", args: ["x"], spawner: () => ({ pid: 1 }), embedder: null, onEvent: log.event, onCounterpartEvent: log.event },
     );
     open.push(a.counterpart);
@@ -288,7 +288,7 @@ describe("the content rule (store §5 G10)", () => {
     recordSession(dir, { sessionId: "s-live", scope: "proj", phase: "start" });
     recordSession(dir, { sessionId: "s-old", scope: "proj", phase: "start" });
     const log = openLog({ dataDir: dir, proc: "mcp" });
-    const s = openServer({ dir, scope: "proj", owner: true, onEvent: log.event, onCounterpartEvent: log.event });
+    const s = openServer({ dir, scope: "proj", onEvent: log.event, onCounterpartEvent: log.event });
     open.push(s.counterpart);
     await s.call("session_end", { session: "s-live", writeUp: "SecretWordBravo" });
     await s.call("session_end", { session: "s-live", writeUp: "s-old" });
@@ -351,7 +351,7 @@ describe("seven days", () => {
 
   test("SessionStart prunes them, beside the session registry", () => {
     const a = openAdapter(
-      { dataDir: dir, injectionBudgetBytes: 9000, owner: true },
+      { dataDir: dir, injectionBudgetBytes: 9000 },
       { command: "/bin/true", args: ["x"], spawner: () => ({ pid: 1 }), embedder: null },
     );
     open.push(a.counterpart);
@@ -407,7 +407,7 @@ describe("a log that cannot be written", () => {
       log.threw(new Error("x"));
     }).not.toThrow();
     const a = openAdapter(
-      { dataDir: dir, injectionBudgetBytes: 9000, owner: true },
+      { dataDir: dir, injectionBudgetBytes: 9000 },
       { command: "/bin/true", args: ["x"], spawner: () => ({ pid: 1 }), embedder: null, onEvent: log.event, onCounterpartEvent: log.event },
     );
     open.push(a.counterpart);
@@ -684,7 +684,7 @@ describe("two failures are durable rows", () => {
 
   test("a write-up pointer that could not be composed is an adapter.writeup.failed row", () => {
     const a = openAdapter(
-      { dataDir: dir, injectionBudgetBytes: 9000, owner: true },
+      { dataDir: dir, injectionBudgetBytes: 9000 },
       { command: "/bin/true", args: ["x"], spawner: () => ({ pid: 1 }), embedder: null },
     );
     open.push(a.counterpart);

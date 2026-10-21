@@ -77,7 +77,7 @@ function consoleWith(answers: readonly string[] = []): { io: Io; out: string[]; 
 /** Two sessions that talked, both ended; "owes" left a stretch unwritten. */
 function seed(): void {
   let at = Date.now() - 1 * DAY;
-  const c = Counterpart.open({ dir, owner: true, now: () => at });
+  const c = Counterpart.open({ dir, now: () => at });
   for (const session of ["owes", "written"]) {
     const turns: { role: "user" | "assistant"; text: string }[] = [];
     for (let i = 0; i < 3; i++) {
@@ -187,7 +187,7 @@ describe("delete conversation-text", () => {
 describe("backups never hold conversation text, and delete backups", () => {
   test("a copy taken now holds the database and no spans/, and is recognised as ours", () => {
     seed();
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     open.push(c);
     const report = runSnapshot({ counterpart: c, dataDir: dir, config: { dir: snaps } });
     expect(report.reason).toBe("taken");

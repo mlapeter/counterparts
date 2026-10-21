@@ -92,7 +92,7 @@ afterEach(() => {
 });
 
 function config(zone: string, budget = BUDGET): AdapterConfig {
-  return { dataDir: dir, injectionBudgetBytes: budget, owner: true, timeZone: zone };
+  return { dataDir: dir, injectionBudgetBytes: budget, timeZone: zone };
 }
 
 function clock(zone: string, ymd: string, hour: number): void {
@@ -264,7 +264,6 @@ describe("the page at its room prints whole at 9,000 under the widest reserves (
       clock(zone, "2026-10-09", 8);
       const s: McpServer = openServer({
         dir,
-        owner: true,
         timeZone: zone,
         host: DESKTOP_HOST,
         lifecycle: { config: config(zone), spawner: () => ({ pid: 4242 }) },
@@ -413,7 +412,7 @@ describe("the page at its room prints whole at 9,000 under the widest reserves (
 
 describe("the writer is told the room as a target, and never refused under the ceiling (2026-10-10)", () => {
   test("the self_page tool: at the room it is stored whole; one byte past it is KEPT, and the answer asks for a short version", async () => {
-    const s = openServer({ dir, owner: true });
+    const s = openServer({ dir });
     closers.push(s.counterpart);
     const page = pageOfSize("multibyte");
     const at = await s.call("self_page", { body: page });

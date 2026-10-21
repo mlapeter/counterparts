@@ -296,8 +296,6 @@ export interface CounterpartOptions extends Stance {
    * learns the ceiling from its host's configuration at session start.
    */
   budgetBytes?: number;
-  /** Is this the owner's own session? Defaults FALSE in `recall/` (§15 G7). */
-  owner?: boolean;
   embed?: Embedder;
   /**
    * The LIVE half of the same embedder: text in, vector out, and it may reach a
@@ -502,14 +500,6 @@ export interface DepositContext {
   /** The model writing it, from host state (`MintOptions.model`); absent = NULL. */
   model?: string;
   /**
-   * THE CALLER'S STANCE FOR THIS DEPOSIT, when it is not the process's
-   * (2026-10-02): a Claude Code session from Desktop's Code tab is served by
-   * Desktop's server, whose store opened as a guest, and it is still the
-   * owner's own session. Read only by the thread close (`closeThread`).
-   * Absent: the process's own `owner`.
-   */
-  owner?: boolean;
-  /**
    * Memories the same call wrote before this one (a dump's earlier entries):
    * the writer's own words of the same moment, never read as an earlier state
    * of this one by the slot detector (review of #420; the neighbours' rule,
@@ -631,10 +621,11 @@ export interface DepositResult {
 
 /**
  * Why a deposit did not close the open thread it names (review of #313): the
- * revision step's own refusals for a protected or archived row, and the one
- * a session that is not the owner's meets — a row written in another
- * directory. `confidential` is retired (2026-10-21): nothing produces it; the
- * variant goes with the column's types.
+ * revision step's own refusals for a protected or archived row. Retired
+ * (2026-10-21; nothing produces them, and they go with the leftover types):
+ * `confidential`, and `other-directory`, the refusal a session that was not
+ * the owner's met for a thread written in another directory, before the
+ * yours/guest split was removed.
  */
 export type ThreadRefusal = "protected-refuses-revision" | "target-archived" | "confidential" | "other-directory";
 
@@ -666,8 +657,7 @@ export interface DepositReminder {
   readonly alsoClosed?: readonly string[];
   /**
    * Memories of that chain still holding a date that this write could not
-   * close (`closeThread`'s guards: protected, or another directory's for a
-   * session that is not the owner's). Listed in the reply.
+   * close (`closeThread`'s guard: a protected memory). Listed in the reply.
    */
   readonly chainSkipped?: readonly string[];
 }

@@ -299,13 +299,13 @@ describe("cards are born from the tally, gated by mention() (Schemas#birthsFromN
 
 describe("through the composition: the boundary's births phase, and facts mode by name", () => {
   function brain(): Counterpart {
-    const c = Counterpart.open({ dir: join(dir, "store"), owner: true, now: () => NOW });
+    const c = Counterpart.open({ dir: join(dir, "store"), now: () => NOW });
     opened.push(c);
     return c;
   }
 
   function ask(c: Counterpart, question: string): string[] {
-    const r = factsRecall({ counterpart: c, sessionId: SESSION, owner: true, vector: null, semantic: "embedder-off" }, question);
+    const r = factsRecall({ counterpart: c, sessionId: SESSION, vector: null, semantic: "embedder-off" }, question);
     return r.memories.map((m) => m.id);
   }
 

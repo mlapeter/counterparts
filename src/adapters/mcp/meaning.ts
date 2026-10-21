@@ -120,9 +120,6 @@ const TITLE_CHARS = 90;
 export interface MeaningContext {
   readonly counterpart: Counterpart;
   readonly sessionId: string;
-  /** The owner's own session? Gates nothing here since the confidentiality
-   *  boundary was retired (2026-10-21); the field goes with the column's types. */
-  readonly owner: boolean;
   /** The question's embedding, or null / absent: the meaning channel is then off, and a no-card answer says so. */
   readonly vector?: readonly number[] | null;
   /** Why there is no vector, when there is none. Defaults to `embedder-off`. */

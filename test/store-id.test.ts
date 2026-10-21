@@ -99,7 +99,7 @@ describe("the store id", () => {
   test("a session-start wake names the same store on the line under the onboarding marker", () => {
     mkdirSync(join(root, "proj"), { recursive: true });
     const adapter = openAdapter(
-      { dataDir: a, owner: true, injectionBudgetBytes: 9_000 },
+      { dataDir: a, injectionBudgetBytes: 9_000 },
       { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }), configPath: join(root, "trial", "claude-code.json") },
     );
     let injection = "";

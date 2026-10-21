@@ -249,7 +249,7 @@ describe("the child's own output is read, and nothing under the host's projects 
   });
 
   test("the run's child asks for stream-json (with --verbose, which -p requires) and keeps its STDOUT; the catch-up child does not", () => {
-    const config: AdapterConfig = { dataDir: dir, owner: true };
+    const config: AdapterConfig = { dataDir: dir };
     const base = { config, run: "nrn_1", prompt: "P", scope: "/proj", session: "s1", baseEnv: { PATH: "/usr/bin" } };
     const reading = planNightChild({ ...base, readOutput: true });
     const at = reading.args.indexOf("--output-format");
@@ -272,7 +272,7 @@ describe("the child's own output is read, and nothing under the host's projects 
   });
 
   test("the child is started with --session-id when the run names one, and without it otherwise (the catch-up child)", () => {
-    const config: AdapterConfig = { dataDir: dir, owner: true };
+    const config: AdapterConfig = { dataDir: dir };
     const base = { config, run: "nrn_1", prompt: "P", scope: "/proj", session: "s1", baseEnv: { PATH: "/usr/bin" } };
     const named = planNightChild({ ...base, hostSession: ID });
     const at = named.args.indexOf("--session-id");
@@ -305,7 +305,7 @@ function lived(c: Counterpart): void {
   mem(c, "I say what I do not know before I guess.", { kind: "self" });
 }
 
-const config = (): AdapterConfig => ({ dataDir: dir, owner: true, identity: { name: "Mike" } });
+const config = (): AdapterConfig => ({ dataDir: dir, identity: { name: "Mike" } });
 
 function openNight(): Counterpart {
   const c = openNightCounterpart(config());
@@ -574,7 +574,7 @@ describe("the morning hand-back of a cut run", () => {
 
 describe("a reflection handed in parts is told to read every part before it writes", () => {
   test("the instructions open with it when the bundle comes in parts, and say nothing of parts when it is whole", () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     open.push(c);
     lived(c);
     const whole = c.reflections.begin({ session: "s1" });
@@ -586,7 +586,7 @@ describe("a reflection handed in parts is told to read every part before it writ
   });
 
   test("in parts: the first line names part 2 and the reflection, and the result still fits its room", () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" } });
     open.push(c);
     lived(c);
     // Enough long memories that the bundle cannot come whole.

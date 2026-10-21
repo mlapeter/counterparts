@@ -73,7 +73,7 @@ afterEach(() => {
 });
 
 function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
-  return { dataDir: dir, injectionBudgetBytes: BUDGET, owner: true, ...over };
+  return { dataDir: dir, injectionBudgetBytes: BUDGET, ...over };
 }
 
 function counterpart(over: { budget?: number | null } = {}): Counterpart {
@@ -255,7 +255,7 @@ describe("the wake keeps up: page, write-up, run end", () => {
     });
     closers.push(a.counterpart);
     recordSession(dir, { sessionId: "s1", scope: "proj", phase: "start" });
-    const mcp = openServer({ dir, session: "s1", scope: "proj", owner: true });
+    const mcp = openServer({ dir, session: "s1", scope: "proj" });
     closers.push(mcp.counterpart);
 
     // The session answers the Stop ask through `session_end`...

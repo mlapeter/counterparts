@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 function config(zone: string, budget = BUDGET): AdapterConfig {
-  return { dataDir: dir, injectionBudgetBytes: budget, owner: true, timeZone: zone };
+  return { dataDir: dir, injectionBudgetBytes: budget, timeZone: zone };
 }
 
 /** `hour` o'clock on `ymd`, in `zone`, as the frozen clock. */

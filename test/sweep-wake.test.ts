@@ -81,7 +81,6 @@ function goQuiet(): void {
 function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
   const c = Counterpart.open({
     dir,
-    owner: true,
     budgetBytes: BUDGET,
     now: () => Date.now() + offsetMs,
     ...opts,
@@ -306,7 +305,7 @@ describe("cold start is unchanged", () => {
   });
 
   test("a host that reported NO injection ceiling gets no wake, and no invented one (scar §2.18)", async () => {
-    const c = Counterpart.open({ dir, owner: true, now: () => Date.now() + offsetMs });
+    const c = Counterpart.open({ dir, now: () => Date.now() + offsetMs });
     open.push(c);
     seedSelf(c);
     crashOneSession(c);

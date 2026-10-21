@@ -337,7 +337,7 @@ describe("the sleep cycle runs the fade", () => {
   });
 
   test("the composition root wires it: a boundary fades a card and the durable row counts it", async () => {
-    const c = Counterpart.open({ dir, owner: true, now: () => NOW });
+    const c = Counterpart.open({ dir, now: () => NOW });
     opened.push(c);
     const id = mention(c.schemas, "Ephemeral", "entity");
     const at = pastAll("entity");

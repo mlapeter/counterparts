@@ -64,7 +64,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" } });
   open.push(c);
   return c;
 }
@@ -83,7 +83,7 @@ function mem(c: Counterpart, body: string, over: Partial<PutInput> = {}): string
 
 function server(c: Counterpart, opts: { resultCeilingChars?: number } = {}): McpServer {
   recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-  return new McpServer({ counterpart: c, scope: "/proj", owner: true, registryDir: dir, ...opts });
+  return new McpServer({ counterpart: c, scope: "/proj", registryDir: dir, ...opts });
 }
 
 /** What Claude Code hands the model: `structuredContent`, serialized â€” by wire cost. */
@@ -268,7 +268,7 @@ describe("the net: a result over the ceiling is cut to it, said, and recorded â€
     for (let i = 0; i < 30; i += 1) mem(c, `Something worth waking to, number ${String(i)}, said at a little length so the wake has it.`, { kind: "person", about: "us" });
     expect(c.revisePage(`## Core\n\n${"I keep this page. ".repeat(200)}`, { reason: "a long page", by: "owner" }).written).toBe(true);
     c.rebrief();
-    const s = new McpServer({ counterpart: c, owner: true, registryDir: dir, host: DESKTOP_HOST, lifecycle: { spawner: () => ({ pid: 4242 }) }, manifestVersion: () => null, resultCeilingChars: 1_000 });
+    const s = new McpServer({ counterpart: c, registryDir: dir, host: DESKTOP_HOST, lifecycle: { spawner: () => ({ pid: 4242 }) }, manifestVersion: () => null, resultCeilingChars: 1_000 });
     const res = await s.call("wake", {});
     expect(wire(res)).toBeLessThanOrEqual(1_000);
     const note = res.structuredContent["cut"] as string;

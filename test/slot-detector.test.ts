@@ -91,7 +91,7 @@ const fakeEmbed: Embedder = (text: string): number[] | null => {
 };
 
 function server(opts: { embed?: Embedder } = {}): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true, embed: opts.embed ?? fakeEmbed });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/one", embed: opts.embed ?? fakeEmbed });
   open.push(s.counterpart);
   return s;
 }
@@ -299,7 +299,7 @@ describe("the dream confirms or undoes, on a budget", () => {
   }
 
   test("to-confirm items sit beside the ranked ones, at most SLOT_PER_NIGHT, never as a disagreement, never raised awake", () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, embed: fakeEmbed });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" }, embed: fakeEmbed });
     open.push(c);
     lived(c);
     const pairs: string[] = [];
@@ -322,7 +322,7 @@ describe("the dream confirms or undoes, on a budget", () => {
   });
 
   test("slot {same: true} confirms, slot {same: false} withdraws; undoing the dream puts both back as proposals", () => {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, embed: fakeEmbed });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" }, embed: fakeEmbed });
     open.push(c);
     lived(c);
     const a1 = mk(c, "Follower count 1250 on instagram.");
@@ -372,7 +372,7 @@ describe("flag only (SLOT_FADE 1, an experiment since 2026-10-19): no cut until 
     return c.store.put({ type: "memory", kind: "fact", body, source: "authored", salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 }, physics: { birthDay: day, lastUsedDay: day } });
   }
   function brain(): Counterpart {
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, embed: fakeEmbed });
+    const c = Counterpart.open({ dir, identity: { name: "Mike" }, embed: fakeEmbed });
     open.push(c);
     lived(c);
     return c;

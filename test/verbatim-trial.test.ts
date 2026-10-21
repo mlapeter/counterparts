@@ -61,7 +61,7 @@ describe("nothing on the write path cuts a long body", () => {
     const shelf = list("shelf");
     const garage = list("garage");
     expect(shelf.length).toBeGreaterThan(6_000);
-    const s = openServer({ dir, session: "s-verbatim", scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: "s-verbatim", scope: SCOPE });
     try {
       const a = (await s.call("remember", { text: shelf, title: "Mike's shelf inventory, 100 items (2026-10-11)" })) as Result;
       expect(a.structuredContent["stored"]).toBe(true);
@@ -86,7 +86,7 @@ describe("nothing on the write path cuts a long body", () => {
   test("a body past one result comes back in parts that join to the whole", async () => {
     const pasted = Array.from({ length: 4 }, (_, i) => list(`room ${String(i)}`)).join("\n\n");
     expect(pasted.length).toBeGreaterThan(8_000 * 2);
-    const s = openServer({ dir, session: "s-verbatim", scope: SCOPE, owner: true });
+    const s = openServer({ dir, session: "s-verbatim", scope: SCOPE });
     try {
       const a = (await s.call("remember", { text: pasted, title: "Mike's four room inventories (2026-10-11)" })) as Result;
       const id = String(a.structuredContent["id"]);
@@ -108,7 +108,7 @@ describe("nothing on the write path cuts a long body", () => {
 
 describe("a facts line says when its excerpt hides a list or a table", () => {
   test("a remembered list is found by its title's words, and its excerpt ends saying it is a list of 100", async () => {
-    const w = openServer({ dir, session: "s-write", scope: SCOPE, owner: true });
+    const w = openServer({ dir, session: "s-write", scope: SCOPE });
     let id: string;
     try {
       const a = (await w.call("remember", { text: list("shelf"), title: "Mike's shelf inventory, 100 items (2026-10-11)" })) as Result;
@@ -117,7 +117,7 @@ describe("a facts line says when its excerpt hides a list or a table", () => {
     } finally {
       w.counterpart.close();
     }
-    const r = openServer({ dir, session: "s-read", scope: SCOPE, owner: true });
+    const r = openServer({ dir, session: "s-read", scope: SCOPE });
     try {
       const f = (await r.call("recall", { question: "Mike's shelf inventory", mode: "facts" })) as Result;
       const answer = String(f.structuredContent["answer"]);
@@ -133,7 +133,7 @@ describe("a facts line says when its excerpt hides a list or a table", () => {
   });
 
   test("two different lists of the same shape are two results; one list pasted twice is one (review of #409)", async () => {
-    const w = openServer({ dir, session: "s-write", scope: SCOPE, owner: true });
+    const w = openServer({ dir, session: "s-write", scope: SCOPE });
     const ids: string[] = [];
     try {
       for (const where of ["shelf", "attic", "basement"]) {
@@ -148,7 +148,7 @@ describe("a facts line says when its excerpt hides a list or a table", () => {
     } finally {
       w.counterpart.close();
     }
-    const r = openServer({ dir, session: "s-read", scope: SCOPE, owner: true });
+    const r = openServer({ dir, session: "s-read", scope: SCOPE });
     try {
       const f = (await r.call("recall", { question: "inventory", mode: "facts" })) as Result;
       const got = f.structuredContent["ids"] as string[];

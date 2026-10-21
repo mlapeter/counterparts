@@ -46,7 +46,7 @@ const ids = { head: "", fading: "", felt: [] as string[] };
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), "counterparts-memories-r4-"));
   await seedDemo({ dir });
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     const s = c.store;
     const day = s.livedDay();

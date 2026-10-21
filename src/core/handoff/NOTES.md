@@ -651,3 +651,9 @@ Undo: `git revert` of the PR; nothing is stored differently.
   elsewhere lines and the about-me chapter line name a chapter by the scope, folder and
   about-me rules alone; a store whose copies will not read now reads as about nothing
   rather than as confidential.
+
+## 2026-10-21 — the last exchange for any session in the folder
+
+- The "Last said here" line and the recall handle are no longer owner-only: any
+  session in the folder gets them (the yours/guest split was removed). The line is
+  still not given under observer, whose handle stands down.

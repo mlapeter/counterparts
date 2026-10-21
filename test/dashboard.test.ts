@@ -149,7 +149,7 @@ interface Seeded {
  * what makes the identity view's absence marker a real assertion.
  */
 async function seed(target = dir): Promise<Seeded> {
-  const c = Counterpart.open({ dir: target, owner: true });
+  const c = Counterpart.open({ dir: target });
   const fillerIds: string[] = [];
   for (const body of FILLER) {
     fillerIds.push(
@@ -252,7 +252,7 @@ function dash(opts: Parameters<typeof Dashboard.open>[0] = {}): Dashboard {
  *  by looking at it (cli INTERFACE-GAPS §7, closed 2026-08-26) — so the tests
  *  about honest emptiness must create the emptiness they read. */
 function emptyStore(): void {
-  Counterpart.open({ dir, owner: true }).close();
+  Counterpart.open({ dir }).close();
 }
 
 // ── the byte-identical protocol ──────────────────────────────────────────────
@@ -405,7 +405,7 @@ describe("the dashboard is an OBSERVER by construction, not by good behaviour", 
   });
 
   test("sourceOf REFUSES a writable brain — the views cannot be handed one", () => {
-    const writable = Counterpart.open({ dir, owner: true });
+    const writable = Counterpart.open({ dir });
     open.push(writable);
     expect(() => sourceOf(writable)).toThrow(ObserverRequired);
     // And a real observer passes, so the refusal is a stance check, not a wall.
@@ -424,7 +424,7 @@ describe("the dashboard is an OBSERVER by construction, not by good behaviour", 
     const sameAsCore: DashboardSource["store"] extends ReadOnlyStore ? true : false = true;
     expect([noWrites, sameAsCore]).toEqual([true, true]);
 
-    Counterpart.open({ dir, owner: true }).close();
+    Counterpart.open({ dir }).close();
     const instrument = Counterpart.open({ dir, observer: true });
     open.push(instrument);
     const src = sourceOf(instrument);
@@ -738,7 +738,7 @@ describe("TOTALITY: every axis the registries know is displayed or marked absent
   });
 
   test("the census reads the LIVE band — a semantic-strength row is not filed under its birth column (review F6)", () => {
-    const writable = Counterpart.open({ dir, owner: true });
+    const writable = Counterpart.open({ dir });
     const id = writable.store.put({
       type: "memory",
       kind: "fact",
@@ -797,7 +797,7 @@ describe("RENDER-TIME id resolution: ids in state, text at the moment of printin
   test("a REMOVED id renders a named absence, immediately, everywhere it appears", async () => {
     const s = await seed();
     // The owner takes one challenger dark. Nothing else changes.
-    const writable = Counterpart.open({ dir, owner: true });
+    const writable = Counterpart.open({ dir });
     writable.store.appendRemovalRecord({
       memoryId: s.challengerIds[0] as string,
       stage: "dark",
@@ -892,7 +892,7 @@ describe("status — the brain at a glance", () => {
     // it is outside every sleep phase (`sleep/types.ts#isJournal`). Excluding it
     // silently would be the same census failure with better arithmetic.
     await seed();
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     const before = stripAnsi(dash().status());
     expect(before).not.toContain("journal");
     const held = Number(/I am holding (\d+) memor/.exec(before)?.[1] ?? "0");
@@ -965,7 +965,7 @@ describe("browse — the memory list, and one memory opened", () => {
     expect(rowsBefore).toBeGreaterThan(0);
     expect(countBefore).toBe(rowsBefore);
 
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     const epiId = c.store.put({
       type: "episode",
       kind: "self",
@@ -1093,7 +1093,7 @@ describe("stories — the revision narrative, from the durable log", () => {
     // Nothing argues with the account of a day: an episode admitted here would
     // open a story with no challenge log behind it.
     await seed();
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     const epiId = c.store.put({
       type: "episode",
       kind: "self",
@@ -1146,7 +1146,7 @@ describe("identity — the band and the protected set, side by side", () => {
     const before = stripAnsi(dash().identity());
     expect(before).toContain("Ada is the owner of this store");
 
-    const writable = Counterpart.open({ dir, owner: true });
+    const writable = Counterpart.open({ dir });
     writable.store.appendRemovalRecord({
       memoryId: s.protectedId,
       stage: "dark",
@@ -1183,7 +1183,7 @@ describe("identity — the band and the protected set, side by side", () => {
     expect(unseeded).toContain("No identity core yet");
     expect(unseeded).toContain("--name");
 
-    const writable = Counterpart.open({ dir, owner: true, identity: { name: "Ada Lovelace" } });
+    const writable = Counterpart.open({ dir, identity: { name: "Ada Lovelace" } });
     writable.close();
 
     const seededView = stripAnsi(dash().identity());
@@ -1195,7 +1195,7 @@ describe("identity — the band and the protected set, side by side", () => {
     const s = await seed();
     // Force the one recoverable half of the gap above: put a row in the identity
     // band, then remove it. `self/enumerate` drops it; the band still lists it.
-    const writable = Counterpart.open({ dir, owner: true });
+    const writable = Counterpart.open({ dir });
     writable.store.setBand(s.fillerIds[0] as string, "identity", writable.store.livedDay());
     writable.store.appendRemovalRecord({
       memoryId: s.fillerIds[0] as string,

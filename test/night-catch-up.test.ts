@@ -105,7 +105,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, owner: true, injectionBudgetBytes: BUDGET, ...over });
+const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, injectionBudgetBytes: BUDGET, ...over });
 
 /** Claude Code's seat with a test's starter for the catch-up's children. */
 const seatFor = (start: (plan: ChildPlan) => Promise<ChildResult>): ReturnType<typeof claudeCodeSeat> =>
@@ -135,7 +135,7 @@ function lived(
   opts: { at?: number; end?: boolean; pieces?: number; reply?: (i: number) => string; say?: (i: number) => string } = {},
 ): void {
   let at = opts.at ?? YESTERDAY_10();
-  const c = Counterpart.open({ dir, owner: true, now: () => at });
+  const c = Counterpart.open({ dir, now: () => at });
   try {
     recordSession(dir, { sessionId: id, scope, phase: "start", at });
     const turns: { role: "user" | "assistant"; text: string }[] = [];
@@ -159,7 +159,7 @@ function lived(
 /** A chapter written yesterday by another session, titled. */
 function chapterYesterday(session: string, title: string): string {
   const at = YESTERDAY_10() + 3 * HOUR;
-  const c = Counterpart.open({ dir, owner: true, now: () => at });
+  const c = Counterpart.open({ dir, now: () => at });
   try {
     const out = c.appendEpisode(session, `What we did: ${title}.`, { title });
     expect(out.appended).toBe(true);
@@ -180,7 +180,7 @@ function drivingChild(seen: ChildPlan[], answers: { memories: (id: string, part:
     const runner = plan.env[SESSION_ENV] as string;
     const scope = plan.env[SCOPE_ENV] as string;
     const ids = [...plan.stdin.matchAll(/^- ([A-Za-z0-9._-]+):/gm)].map((m) => m[1] as string);
-    const s = openServer({ dir, owner: true, session: runner, scope });
+    const s = openServer({ dir, session: runner, scope });
     try {
       for (const id of ids) {
         for (let guard = 0; guard < 10; guard++) {
@@ -382,7 +382,7 @@ describe("claim-first: the night run and an in-session catch-up never write the 
     const wp = writeUpPlan({ store: c.store, spans: c.spans });
     expect(owedWriteUps(wp, dir, proj, now, { exclude: "here-2", progress }).map((o) => o.held.session)).not.toContain("old-1");
 
-    const s = openServer({ dir, owner: true, scope: proj });
+    const s = openServer({ dir, scope: proj });
     closers.push(s.counterpart);
     const refused = payload(await s.call("session_end", { session: "here-1", writeUp: "old-1" }));
     expect(refused).toMatchObject({ reason: "claimed", stored: false });
@@ -392,7 +392,7 @@ describe("claim-first: the night run and an in-session catch-up never write the 
   test("the other way round: a session that fetched it holds it, and tonight's plan does not grant it", async () => {
     lived("old-1", proj);
     recordSession(dir, { sessionId: "here-1", scope: proj, phase: "start", writeUpPointer: "old-1" });
-    const s = openServer({ dir, owner: true, scope: proj });
+    const s = openServer({ dir, scope: proj });
     closers.push(s.counterpart);
     expect(payload(await s.call("session_end", { session: "here-1", writeUp: "old-1" }))).toMatchObject({ reason: "part" });
     const key = progressKey("old-1", Object.keys(readWriteUpProgress(s.counterpart.store))[0]?.split("|")[1] ?? "");
@@ -426,7 +426,7 @@ describe("the night's bound: whole parts while they fit, the rest left owed and 
 
     // The door serves part 1 and refuses part 2 by name.
     expect(grantCatchUp(c, plan, { scope: launch, now })?.subjects.length).toBe(plan.subjects.length);
-    const s = openServer({ dir, owner: true, session: plan.runner, scope: launch });
+    const s = openServer({ dir, session: plan.runner, scope: launch });
     closers.push(s.counterpart);
     expect(payload(await s.call("session_end", { session: plan.runner, writeUp: "big-1" }))).toMatchObject({ reason: "part", part: 1 });
     expect(
@@ -476,7 +476,7 @@ describe("the granted door, its rough edges smoothed", () => {
     recordSession(dir, { sessionId: "writeup-x", scope: launch, phase: "start" });
     const { grantWriteUps } = await import("../src/adapters/sessions.js");
     expect(grantWriteUps(dir, { runner: "writeup-x", scope: launch, subjects: ["small-1"], at: now })).toBe(true);
-    const s = openServer({ dir, owner: true, session: "writeup-x", scope: launch });
+    const s = openServer({ dir, session: "writeup-x", scope: launch });
     closers.push(s.counterpart);
     expect(payload(await s.call("session_end", { session: "writeup-x", writeUp: "small-1" }))).toMatchObject({ reason: "part", ended: "small-1" });
   });
@@ -538,7 +538,7 @@ describe("the Yesterday line", () => {
 
   test("chapters are read by the day each was WRITTEN: a session that chaptered yesterday and again today is still yesterday's, and two chapters yesterday count as two (review of #308)", () => {
     const at = (t: number): Counterpart => {
-      const c = Counterpart.open({ dir, owner: true, now: () => t });
+      const c = Counterpart.open({ dir, now: () => t });
       closers.push(c);
       return c;
     };
@@ -591,7 +591,7 @@ describe("the Yesterday line", () => {
 
   test("the live wake carries it once a chapter was written yesterday", () => {
     chapterYesterday("chap-1", "Seating the relief valves");
-    const big = Counterpart.open({ dir, owner: true, budgetBytes: BUDGET });
+    const big = Counterpart.open({ dir, budgetBytes: BUDGET });
     closers.push(big);
     expect(big.refreshWake({ at: TODAY(), trigger: "run-end" }).reason).toBe("rendered");
     const s = Store.open({ dir, observer: true });
@@ -613,7 +613,7 @@ describe("review of #308: the runner writes up and nothing else; claims and gran
     const plan = grantCatchUp(c, planCatchUp(c, { run: "nrn_h", now }), { scope: launch, now });
     expect(plan?.subjects.length).toBe(1);
     const runner = catchUpRunner("nrn_h");
-    const s = openServer({ dir, owner: true, session: runner, scope: launch });
+    const s = openServer({ dir, session: runner, scope: launch });
     closers.push(s.counterpart);
     const MEM = [{ content: "A first-hand memory the runner should never write: the pump was serviced.", kind: "fact" }];
     for (const [tool, args] of [
@@ -630,7 +630,7 @@ describe("review of #308: the runner writes up and nothing else; claims and gran
     expect(s.counterpart.spans.proposalRecords<{ session: string }>(launch).length).toBe(0);
     expect(s.counterpart.readHandoffs(launch)).toEqual([]);
     // A runner record with the prefix and no grant left is refused too.
-    const bare = openServer({ dir, owner: true, session: "writeup-nrn_old", scope: launch });
+    const bare = openServer({ dir, session: "writeup-nrn_old", scope: launch });
     closers.push(bare.counterpart);
     expect(payload(await bare.call("session_end", { session: "writeup-nrn_old", memories: MEM }))["reason"]).toBe("write-up-runner");
     // Reading is allowed; the write-up itself goes through.
@@ -648,7 +648,7 @@ describe("review of #308: the runner writes up and nothing else; claims and gran
     expect(plan.subjects.map((x) => x.session).sort()).toEqual(["old-1", "old-2"]);
     // A session in proj fetches old-1 after the plan was read.
     recordSession(dir, { sessionId: "here-1", scope: proj, phase: "start", writeUpPointer: "old-1" });
-    const s = openServer({ dir, owner: true, scope: proj });
+    const s = openServer({ dir, scope: proj });
     closers.push(s.counterpart);
     expect(payload(await s.call("session_end", { session: "here-1", writeUp: "old-1" }))).toMatchObject({ reason: "part" });
     const granted = grantCatchUp(c, plan, { scope: launch, now });
@@ -669,7 +669,7 @@ describe("review of #308: the runner writes up and nothing else; claims and gran
     const runner = catchUpRunner("nrn_killed");
     const { grantWriteUps } = await import("../src/adapters/sessions.js");
     expect(grantWriteUps(dir, { runner, scope: launch, subjects: ["old-1"], at: long })).toBe(true);
-    const s = openServer({ dir, owner: true, session: runner, scope: launch });
+    const s = openServer({ dir, session: runner, scope: launch });
     closers.push(s.counterpart);
     expect(payload(await s.call("session_end", { session: runner, writeUp: "old-1" }))).toMatchObject({ reason: "grant-expired" });
     expect(endStaleRunners(dir, c.store.now())).toBe(1);
@@ -693,7 +693,7 @@ describe("review of #308: the runner writes up and nothing else; claims and gran
       startCatchUp: async (plan) => {
         seen.push(plan);
         const runner = plan.env[SESSION_ENV] as string;
-        const s = openServer({ dir, owner: true, session: runner, scope: plan.env[SCOPE_ENV] as string });
+        const s = openServer({ dir, session: runner, scope: plan.env[SCOPE_ENV] as string });
         try {
           const id = [...plan.stdin.matchAll(/^- ([A-Za-z0-9._-]+):/gm)][0]?.[1] as string;
           payload(await s.call("session_end", { session: runner, writeUp: id }));
@@ -1029,7 +1029,7 @@ describe("`counterparts catch-up`: the night's catch-up on demand, through the s
   });
 
   test("nothing owed: one line, exit 0, no child", async () => {
-    Counterpart.open({ dir, owner: true }).close();
+    Counterpart.open({ dir }).close();
     const seen: ChildPlan[] = [];
     const c = console_();
     expect(await run(["catch-up", "--dir", dir], { io: c.io, env: { PATH: "/usr/bin:/bin" }, catchUpStart: drivingChild(seen) })).toBe(EXIT.ok);
@@ -1182,7 +1182,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
 
   /** The hooks as install leaves a NEW store (dreaming `auto`, the meeting not started), a clock the test moves, and a spawner that records. */
   function hooksAt(opts: { setting?: "auto" | "ask" | "off" | "new-install"; observer?: boolean } = {}): ClaudeCodeAdapter {
-    const counterpart = Counterpart.open({ dir, owner: true, ...(opts.observer === true ? { observer: true } : {}), now: () => Date.now() + offsetMs });
+    const counterpart = Counterpart.open({ dir, ...(opts.observer === true ? { observer: true } : {}), now: () => Date.now() + offsetMs });
     closers.push(counterpart);
     const setting = opts.setting ?? "new-install";
     if (opts.observer !== true) {

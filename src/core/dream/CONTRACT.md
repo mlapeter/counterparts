@@ -470,11 +470,10 @@ dream having run.
     closed only moves toward `work`/`world` are allowed (D1). **The door is the owner's
     switch, not the night's stance** (checked 2026-10-20): it is closed only by
     `counterparts core --reflected-feeling off` (`acceptsReflectedFeeling`; open by
-    default). The nightly run's not-the-owner stance (`night-run.ts`, `OWNER_ENV` "0",
-    10-02) gates threads opened elsewhere out of its write-ups, and never gated a mark: a
-    night as not-the-owner with the switch at its default marks owner or us like any
-    open-door night. (It also gated confidential memories out of its bundles until that
-    mark was retired, 2026-10-21; every bundle is now read the same.) **A folder set
+    default). (The nightly run's not-the-owner stance, `OWNER_ENV` "0" from 10-02, never
+    gated a mark; it gated threads opened elsewhere out of its write-ups and, until
+    2026-10-21, confidential memories out of its bundles. RETIRED 2026-10-21 with the
+    yours/guest split: the night run is answered like any session.) **A folder set
     off keeps its work** (review of #558): a memory that is its folder's work, written in
     a folder the host's setting has off or paused (`finish`'s `folderOn`), is refused any
     mark but `work` (`folder-off-work-only`) — shown in another lane or not — since owner,
@@ -502,10 +501,9 @@ dream having run.
     once the share was told or carried); `close` closes only ids the reflection proposed,
     and `reopen` reopens only ids it closed itself, both with `closeThread`'s checks; a
     thread the owner reopened is never closed by a reflection again, only asked about.
-    A self-close and its
-    `reopen` reach a stale thread from any folder (Mike, 2026-10-20, a lightly held
-    exception to the night run's 10-02 stance); night write-ups and `close` keep the
-    folder check.
+    A self-close, its `reopen`, `close` and the night's write-ups reach a thread from any
+    folder (the self-close since Mike's 2026-10-20 exception; the rest since the
+    yours/guest split was removed, 2026-10-21).
   - **Core questions that waited a week** (2026-10-20, an experiment, Mike's go: "i agree
     with your recs, lightly held, lets try it and see how it goes"; `core-ask.ts`): `begin`'s
     `reconsidering` holds only the core memories flagged "being reconsidered"

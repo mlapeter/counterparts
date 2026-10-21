@@ -287,9 +287,10 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     are found by shape (`ownerWords`): the end-of-session ask never enters the buffer,
     its answer is never a reply (no conversation span beside it), and host text is
     stripped or cut — host text with no mark of its own is the known limit
-    (INTERFACE-GAPS §9). Secrets are redacted. Only the owner's session gets the line
-    or the handle's words, and under observer the handle stands down with the rest of
-    recall (review of #392). At delivery it sits at the foot of "Last
+    (INTERFACE-GAPS §9). Secrets are redacted. Any session in the directory gets the
+    line and the handle's words (owner-only until 2026-10-21, RETIRED with the
+    yours/guest split); under observer the line is not given and the handle stands
+    down with the rest of recall (review of #392). At delivery it sits at the foot of "Last
     here"'s blocks, each width tried with it first and then without; its room is
     reserved in "Work here"'s term (§6).
 

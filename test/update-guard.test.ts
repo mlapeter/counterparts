@@ -85,7 +85,7 @@ const fakeEmbed: Embedder = (text: string): number[] | null => {
 /** A server on the test's store — or on a second one beside it (`sub`). */
 function server(opts: { embed?: Embedder; sub?: string } = {}): McpServer {
   const at = opts.sub === undefined ? dir : join(dir, opts.sub);
-  const s = openServer({ dir: at, session: SESSION, scope: "/scope/one", owner: true, ...(opts.embed === undefined ? {} : { embed: opts.embed }) });
+  const s = openServer({ dir: at, session: SESSION, scope: "/scope/one", ...(opts.embed === undefined ? {} : { embed: opts.embed }) });
   open.push(s.counterpart);
   return s;
 }

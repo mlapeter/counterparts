@@ -189,7 +189,7 @@ describe("numbers on each feeling", () => {
   });
 
   test("the MCP door: core and strength may be left out, valence given; the enum is the seven", async () => {
-    const s = openServer({ dir, scope: "/tmp/wheel-v2-project", owner: true });
+    const s = openServer({ dir, scope: "/tmp/wheel-v2-project" });
     open.push({ close: () => s.counterpart.close() });
     const out = (await s.call("remember", {
       text: "The handoff note was read the next morning and it held.",

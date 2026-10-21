@@ -1402,7 +1402,7 @@ describe("the write-up pointer never costs the wake", () => {
     const scope = canonicalScope(work);
     // Six pieces ten minutes apart: a stretch past the floor (`core/coverage/`).
     let clock = Date.now() - 86_400_000;
-    const c = Counterpart.open({ dir: store, owner: true, now: () => clock });
+    const c = Counterpart.open({ dir: store, now: () => clock });
     try {
       recordSession(store, { sessionId: "ended-owing", scope, phase: "start", at: Date.now() - 86_400_000 });
       const turns: { role: "user" | "assistant"; text: string }[] = [];

@@ -109,7 +109,7 @@ afterEach(() => {
 
 function store(start: number): { c: Counterpart; set(t: number): void } {
   let now = start;
-  const c = Counterpart.open({ dir: storeDir, owner: true, budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
+  const c = Counterpart.open({ dir: storeDir, budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
   open.push(c);
   return {
     c,

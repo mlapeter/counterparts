@@ -71,7 +71,7 @@ afterEach(() => {
 });
 
 function hooks(over: Partial<AdapterConfig> = {}): ReturnType<typeof openAdapter> {
-  const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000, owner: true, ...over };
+  const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000, ...over };
   const a = openAdapter(config, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
   open.push(a.counterpart);
   return a;
@@ -172,7 +172,7 @@ describe("A. the day's ask is shown to the person, and claimed only when it leav
     const prompt = a.counterpart.dreams.launchPrompt({ session: "s1" });
     expect(prompt).toContain("since you last slept");
     expect(prompt.toLowerCase()).not.toContain("last night");
-    const s = new McpServer({ counterpart: a.counterpart, scope: "proj", owner: true, registryDir: dir, session: "s1" });
+    const s = new McpServer({ counterpart: a.counterpart, scope: "proj", registryDir: dir, session: "s1" });
     const launch = await s.call("dream", { phase: "launch", session: "s1" });
     expect(String(launch.structuredContent["how"])).toContain("While I slept I dreamed…");
     expect(JSON.stringify(launch.structuredContent).toLowerCase()).not.toContain("last night");
@@ -184,7 +184,7 @@ describe("A. the day's ask is shown to the person, and claimed only when it leav
     c.store.put({ type: "memory", kind: "fact", body: "A placeholder thing noticed yesterday.", learnedOn: pageWriterNight(c.store).about });
     lived(c);
     recordSession(dir, { sessionId: "s1", scope: "proj", phase: "start" });
-    const s = new McpServer({ counterpart: c, scope: "proj", owner: true, registryDir: dir, session: "s1" });
+    const s = new McpServer({ counterpart: c, scope: "proj", registryDir: dir, session: "s1" });
     expect((await s.call("dream", { phase: "writer", session: "s1" })).structuredContent["writer"]).toBe(true);
     await s.call("self_page", { body: "## Core\n\nThe night's revision.", reason: "the night", session: "s1" });
     expect(c.selfPage()?.by).toBe("writer");
@@ -259,7 +259,7 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     return path;
   }
 
-  const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, owner: true, identity: { name: "Mike" }, ...over });
+  const config = (over: Partial<AdapterConfig> = {}): AdapterConfig => ({ dataDir: dir, identity: { name: "Mike" }, ...over });
 
   function nightOf(over: Partial<Parameters<typeof runNight>[0]> = {}): Parameters<typeof runNight>[0] {
     const cfg = over.config ?? config();
@@ -343,8 +343,7 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     expect(mcp.mcpServers["counterparts"]?.args[3]?.endsWith(join("adapters", "mcp", "bin", "serve.ts"))).toBe(true);
     expect(mcp.mcpServers["counterparts"]?.env).toEqual({
       COUNTERPARTS_DATA_DIR: dir,
-      // The headless run keeps the guest's stance, said (2026-10-02).
-      COUNTERPARTS_OWNER: "0",
+      // No stance of its own since the yours/guest split was removed (2026-10-21).
       COUNTERPARTS_CONFIG: "/cfg/claude-code.json",
       COUNTERPARTS_SESSION: "s-launch",
       COUNTERPARTS_SCOPE: "/proj/here",
@@ -648,7 +647,7 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     lived(openNight());
     const c = openNight();
     const say = async (env: Record<string, string>): Promise<string> => {
-      const s = new McpServer({ counterpart: c, scope: binDir, owner: true, registryDir: dir, session: "s1", env });
+      const s = new McpServer({ counterpart: c, scope: binDir, registryDir: dir, session: "s1", env });
       const begun = (await s.call("dream", { phase: "begin", session: "s1" })) as { content: { text: string }[] };
       const dream = (JSON.parse(begun.content[0]?.text ?? "{}") as { dream?: string }).dream ?? "";
       const journaled = (await s.call("dream", { phase: "journal", session: "s1", dream, text: "A dream." })) as { content: { text: string }[] };
@@ -694,7 +693,7 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
           const c = openNightCounterpart(config());
           try {
             // The writer's phase, as the child's MCP server (pinned to s1) answers it.
-            const s = new McpServer({ counterpart: c, scope: binDir, owner: true, registryDir: dir, session: "s1" });
+            const s = new McpServer({ counterpart: c, scope: binDir, registryDir: dir, session: "s1" });
             await s.call("dream", { phase: "writer", session: "s1" });
             const d = c.dreams.begin({ session: "s1" });
             if (!d.ok) throw new Error(d.reason);
@@ -758,10 +757,9 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
 
   /** An adapter whose clock the test moves, and whose spawner records instead of starting. */
   function autoHooks(opts: { nightArgs?: readonly string[] | null; observer?: boolean; config?: Partial<AdapterConfig> } = {}): ClaudeCodeAdapter {
-    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000, owner: true, identity: { name: "Mike" }, ...(opts.observer === true ? { observer: true } : {}), ...(opts.config ?? {}) };
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000, identity: { name: "Mike" }, ...(opts.observer === true ? { observer: true } : {}), ...(opts.config ?? {}) };
     const counterpart = CounterpartClass.open({
       dir,
-      owner: true,
       identity: { name: "Mike" },
       ...(opts.observer === true ? { observer: true } : {}),
       now: () => Date.now() + offsetMs,
@@ -833,7 +831,7 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
     offsetMs = 9 * 60 * 60_000;
     const later = (): number => Date.now() + offsetMs;
     // Stale, the lazy bind the child used to rely on refuses the call.
-    const lazy = new McpServer({ counterpart: a.counterpart, scope: "proj", owner: true, registryDir: dir, now: later });
+    const lazy = new McpServer({ counterpart: a.counterpart, scope: "proj", registryDir: dir, now: later });
     const refused = await lazy.call("dream", { phase: "writer", session: "s1" });
     expect(refused.isError).toBe(true);
     expect(JSON.stringify(refused.structuredContent)).toContain("session-not-live");
@@ -847,7 +845,7 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
     const child = planNightChild({ config: { dataDir: dir }, run: "nrn_x", prompt: "p", scope: String(runner.env["COUNTERPARTS_SCOPE"]), session: String(runner.env["COUNTERPARTS_SESSION"]) });
     const launched = launchOptions([], child.env);
     expect(launched.session).toBe("s1");
-    const pinned = new McpServer({ counterpart: a.counterpart, scope: "proj", owner: true, registryDir: dir, now: later, ...(launched.session === undefined ? {} : { session: launched.session }) });
+    const pinned = new McpServer({ counterpart: a.counterpart, scope: "proj", registryDir: dir, now: later, ...(launched.session === undefined ? {} : { session: launched.session }) });
     const ok = await pinned.call("dream", { phase: "writer", session: "s1" });
     expect(ok.isError ?? false).toBe(false);
   });
@@ -1053,7 +1051,7 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
     const turn = a.userPromptSubmit(input());
     expect(turn.injection).toContain("it takes effect from the next run (a run already under way finishes)");
     expect(a.counterpart.dreams.nightRunUnderWay()).toBe(true);
-    const s = new McpServer({ counterpart: a.counterpart, scope: "proj", owner: true, registryDir: dir, session: "s1" });
+    const s = new McpServer({ counterpart: a.counterpart, scope: "proj", registryDir: dir, session: "s1" });
     const off = await s.call("dream", { phase: "setting", session: "s1", value: "off" });
     expect(String(off.structuredContent["said"])).toContain("A run already under way in the background finishes; the setting takes effect from the next run.");
     // Nothing was stopped: the run's row is still `started`.
@@ -1208,7 +1206,7 @@ describe("the headless child's bundles carry the memories — in what Claude Cod
       seed.close();
       recordSession(dir, { sessionId: "e2e-s1", scope, phase: "start" });
       // Exactly what bin/nightly.ts hands `claude -p` for its one MCP server.
-      const child = planNightChild({ config: { dataDir: dir, owner: true, identity: { name: "Mike" } }, run: "nrn_b", prompt: "p", scope, session: "e2e-s1", runtime: process.execPath });
+      const child = planNightChild({ config: { dataDir: dir, identity: { name: "Mike" } }, run: "nrn_b", prompt: "p", scope, session: "e2e-s1", runtime: process.execPath });
       const mcp = JSON.parse(child.args[child.args.indexOf("--mcp-config") + 1] ?? "{}") as { mcpServers: { counterparts: { env: Record<string, string> } } };
       const launch = launchOptions([], mcp.mcpServers.counterparts.env);
       const s = openServer({ ...launch, dir });

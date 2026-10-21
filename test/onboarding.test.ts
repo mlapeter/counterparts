@@ -100,14 +100,14 @@ function localNoon(day: string): number {
 const SERVER_NOW = localNoon(DAY1);
 
 function server(over: Parameters<typeof openServer>[0] = {}): McpServer {
-  const s = openServer({ dir: storeDir, session: "sess-meet-1", scope: proj, owner: true, scopesFile, now: () => SERVER_NOW, ...over });
+  const s = openServer({ dir: storeDir, session: "sess-meet-1", scope: proj, scopesFile, now: () => SERVER_NOW, ...over });
   open.push(s);
   return s;
 }
 
 function adapter(): ClaudeCodeAdapter {
   return openAdapter(
-    { dataDir: storeDir, owner: true, injectionBudgetBytes: 9_000 },
+    { dataDir: storeDir, injectionBudgetBytes: 9_000 },
     { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }), configPath: join(root, "cp", "claude-code.json") },
   );
 }
@@ -189,7 +189,7 @@ describe("a fresh install against an upgrade", () => {
       expect(s.getMeta(AUTO_RESET_KEY)).toBe("chosen");
     });
     // The first hook does not undo it (`Dreams#resetAutoOnce`).
-    const c2 = Counterpart.open({ dir: storeDir, owner: true });
+    const c2 = Counterpart.open({ dir: storeDir });
     expect(c2.dreams.resetAutoOnce()).toBe(false);
     expect(c2.dreams.setting()).toBe("auto");
     c2.close();
@@ -290,7 +290,7 @@ describe("the meet tool", () => {
 
   test("the close names the plugin's route, and a known name is not asked", async () => {
     newInstallStore();
-    const c = Counterpart.open({ dir: storeDir, owner: true, identity: { name: "Ada" } });
+    const c = Counterpart.open({ dir: storeDir, identity: { name: "Ada" } });
     c.close();
     const s = server({ install: "plugin" });
     const script = String((await s.call("meet", {})).structuredContent["script"]);
@@ -655,10 +655,10 @@ describe("the meeting holds the dream and the write-up ask, through the real hoo
     let t = localNoon(DAY1) - 3_600_000;
     const now = (): number => t;
     const plans: SpawnPlan[] = [];
-    const counterpart = Counterpart.open({ dir: storeDir, owner: true, now });
+    const counterpart = Counterpart.open({ dir: storeDir, now });
     const hooks = new ClaudeCodeAdapter({
       counterpart,
-      config: { dataDir: storeDir, owner: true, injectionBudgetBytes: 20_000 },
+      config: { dataDir: storeDir, injectionBudgetBytes: 20_000 },
       command: "/usr/bin/bun",
       args: ["run", "/pkg/bin/runner.ts"],
       nightArgs: ["run", "/pkg/bin/nightly.ts"],

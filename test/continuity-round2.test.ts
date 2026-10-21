@@ -70,7 +70,7 @@ function afternoon(opts: { owner?: boolean } = {}): {
   talk(session: string, t: number, scope?: string): void;
 } {
   let now = at(15, 0);
-  const c = Counterpart.open({ dir: storeDir, owner: opts.owner ?? true, now: () => now, timeZone: ZONE });
+  const c = Counterpart.open({ dir: storeDir, now: () => now, timeZone: ZONE });
   open.push(c);
   const turns = new Map<string, { role: "user" | "assistant"; text: string }[]>();
   return {
@@ -79,7 +79,7 @@ function afternoon(opts: { owner?: boolean } = {}): {
       now = t;
     },
     server(session: string, scope = HERE): McpServer {
-      return new McpServer({ counterpart: c, session, scope, owner: true, registryDir: storeDir, now: () => now });
+      return new McpServer({ counterpart: c, session, scope, registryDir: storeDir, now: () => now });
     },
     talk(session: string, t: number, scope = HERE): void {
       now = t;
@@ -391,7 +391,7 @@ describe("a chapter about me reaches a wake in another directory, and only what 
       expect(wake(owner.c, B, 9_000, THERE, () => true)).toContain("Last here:");
       owner.c.close();
       // The same store, read by a session that is not the owner's.
-      const guest = Counterpart.open({ dir: storeDir, owner: false, now: () => at(17, 0), timeZone: ZONE });
+      const guest = Counterpart.open({ dir: storeDir, now: () => at(17, 0), timeZone: ZONE });
       open.push(guest);
       expect(wake(guest, B, 9_000, HERE, () => true)).toContain("Naming the garden beds");
       expect(wake(guest, B, 9_000, THERE, () => true)).toContain("Last here:");

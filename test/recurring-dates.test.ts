@@ -77,7 +77,7 @@ function store(): Store {
 }
 
 function counterpart(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   open.push(c);
   return c;
 }
@@ -361,7 +361,7 @@ const SESSION = "sess_recurring";
 const NOON = Date.parse("2026-10-09T12:00:00Z");
 
 function server(): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: "/scope/one", owner: true, now: () => NOON, timeZone: "UTC" });
+  const s = openServer({ dir, session: SESSION, scope: "/scope/one", now: () => NOON, timeZone: "UTC" });
   open.push(s.counterpart);
   return s;
 }
@@ -591,7 +591,7 @@ describe("the wake and recall show how often, beside the date", () => {
 
   test("recall (meaning): a repeating reminder is dated by its next occurrence, with how often", () => {
     let clock = Date.parse("2026-10-01T10:00:00Z");
-    const c = Counterpart.open({ dir, owner: true, now: () => clock, timeZone: "UTC", identity: { name: "Mike" } });
+    const c = Counterpart.open({ dir, now: () => clock, timeZone: "UTC", identity: { name: "Mike" } });
     open.push(c);
     const card = c.schemas.mention({ name: "Han", kind: "person", source: "Han", chunkRef: "card-han", aliases: [], day: c.store.livedDay() });
     expect(card.ok).toBe(true);
@@ -604,7 +604,7 @@ describe("the wake and recall show how often, beside the date", () => {
       meta: { [RECURRING_META]: "yearly" },
     });
     clock = Date.parse("2026-10-03T09:00:00Z");
-    const r = meaningRecall({ counterpart: c, sessionId: "sess_asker", owner: true }, "What has Han been to me?");
+    const r = meaningRecall({ counterpart: c, sessionId: "sess_asker" }, "What has Han been to me?");
     const dated = r.open.find((o) => o.id === id);
     expect(dated).toEqual({ id, title: expect.any(String), why: "dated", date: "2026-10-12", every: "every October 12" });
     expect(renderMeaning(r)).toContain("dated 2026-10-12, every October 12");

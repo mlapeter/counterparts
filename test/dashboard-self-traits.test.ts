@@ -52,8 +52,8 @@ const axis = (v: TraitsView, id: string): TraitAxisView => {
 
 beforeAll(() => {
   at = fresh("counterparts-self-traits-");
-  Counterpart.open({ dir: at, owner: true, identity: { name: "Mike" } }).close();
-  const c = Counterpart.open({ dir: at, owner: true });
+  Counterpart.open({ dir: at, identity: { name: "Mike" } }).close();
+  const c = Counterpart.open({ dir: at });
   try {
     c.store.advanceClock(localDate(Date.now(), c.store.zone()));
     const d = c.store.livedDay();
@@ -207,7 +207,7 @@ describe("the view, on a store", () => {
 
   test("a store no trait was ever written on reads as the calm empty state", () => {
     const dir = fresh("counterparts-self-traits-empty-");
-    Counterpart.open({ dir, owner: true }).close();
+    Counterpart.open({ dir }).close();
     const v = withSource(dir, (src) => traitsView(src));
     expect(v.nudges).toBe(0);
     expect(v.memories).toBe(0);
@@ -226,9 +226,9 @@ describe("a week ago: firmness then, and memories that have left since", () => {
 
   beforeAll(() => {
     wk = fresh("counterparts-self-traits-week-");
-    Counterpart.open({ dir: wk, owner: true, identity: { name: "Mike" } }).close();
+    Counterpart.open({ dir: wk, identity: { name: "Mike" } }).close();
     // An archive BEFORE the week-ago date needs the store's clock back then.
-    const past = Counterpart.open({ dir: wk, owner: true, now: () => Date.now() - 9 * DAY });
+    const past = Counterpart.open({ dir: wk, now: () => Date.now() - 9 * DAY });
     try {
       for (let k = 10; k >= 9; k--) past.store.advanceClock(localDate(Date.now() - k * DAY, past.store.zone()));
       w["gone-long"] = past.store.put({
@@ -243,7 +243,7 @@ describe("a week ago: firmness then, and memories that have left since", () => {
     } finally {
       past.close();
     }
-    const c = Counterpart.open({ dir: wk, owner: true });
+    const c = Counterpart.open({ dir: wk });
     try {
       for (let k = 8; k >= 0; k--) c.store.advanceClock(localDate(Date.now() - k * DAY, c.store.zone()));
       d = c.store.livedDay();

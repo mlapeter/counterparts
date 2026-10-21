@@ -86,7 +86,7 @@ function topicVector(text: string): number[] {
 }
 
 function brain(sub = "store", embed = true): Counterpart {
-  const c = Counterpart.open({ dir: join(dir, sub), owner: true, ...(embed ? { embed: topicVector } : {}) });
+  const c = Counterpart.open({ dir: join(dir, sub), ...(embed ? { embed: topicVector } : {}) });
   findable(c.store);
   open.push(c);
   return c;
@@ -375,7 +375,7 @@ describe("context priming: nothing to prime from", () => {
   test("a session's first prompt with nothing open here: the same injection and verdicts as with priming off", () => {
     const on = brain("same");
     const { names } = basketStore(on);
-    const off = Counterpart.open({ dir: join(dir, "same"), owner: true, embed: topicVector, recallTunables: { PRIME_LINK_UNITS: 0, PRIME_TRAIN_SHARE: 0 } });
+    const off = Counterpart.open({ dir: join(dir, "same"), embed: topicVector, recallTunables: { PRIME_LINK_UNITS: 0, PRIME_TRAIN_SHARE: 0 } });
     open.push(off);
     for (const [i, text] of [ASK_BASKET, ASK_STARTER, "what goes on the shopping list this week?"].entries()) {
       const a = on.recallForTurn({ sessionId: `on-${i}`, text });
@@ -454,13 +454,13 @@ describe("context priming: the folder, wired through the Claude Code hooks", () 
       stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0, lastFailures: [] }),
     };
     const a = openAdapter(
-      { dataDir: data, injectionBudgetBytes: 9_000, owner: true, timeZone: ZONE },
+      { dataDir: data, injectionBudgetBytes: 9_000, timeZone: ZONE },
       { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }), embedder },
     );
     open.push(a.counterpart);
     findable(a.counterpart.store);
     for (const body of FILLER) a.counterpart.store.put({ type: "memory", kind: "fact", body });
-    const server = new McpServer({ counterpart: a.counterpart, session: "s-prev", scope: SCOPE, owner: true, registryDir: data });
+    const server = new McpServer({ counterpart: a.counterpart, session: "s-prev", scope: SCOPE, registryDir: data });
     const asked = await server.call("remember", { session: "s-prev", text: "Is the proving basket still at Mrs Okafor's, or did it come back?", unresolved: true });
     expect(asked.isError).not.toBe(true);
     const thread = (asked.structuredContent as Record<string, unknown>)["id"] as string;
@@ -530,7 +530,7 @@ describe("context priming: the review's awkward states (2026-10-19)", () => {
   ];
 
   function steady(tunables: Record<string, number>, sub: string): { shown: number; byTrain: number; trainPrimed: number } {
-    const c = Counterpart.open({ dir: join(dir, sub), owner: true, embed: topicVector, recallTunables: tunables });
+    const c = Counterpart.open({ dir: join(dir, sub), embed: topicVector, recallTunables: tunables });
     findable(c.store);
     open.push(c);
     // Bread only: every candidate is on the topic, closer or farther, which is

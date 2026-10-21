@@ -69,7 +69,7 @@ function day(): {
   talk(session: string, t: number): void;
 } {
   let now = at(15, 0);
-  const c = Counterpart.open({ dir: storeDir, owner: true, now: () => now, timeZone: "UTC" });
+  const c = Counterpart.open({ dir: storeDir, now: () => now, timeZone: "UTC" });
   open.push(c);
   const turns = new Map<string, { role: "user" | "assistant"; text: string }[]>();
   return {
@@ -78,7 +78,7 @@ function day(): {
       now = t;
     },
     unbound(env?: Record<string, string>): McpServer {
-      return new McpServer({ counterpart: c, scope: HERE, owner: true, registryDir: storeDir, now: () => now, ...(env === undefined ? {} : { env }) });
+      return new McpServer({ counterpart: c, scope: HERE, registryDir: storeDir, now: () => now, ...(env === undefined ? {} : { env }) });
     },
     talk(session: string, t: number): void {
       now = t;
@@ -303,7 +303,7 @@ describe("the last session, asked in facts mode, and a session's notes from befo
     const elsewhere = join(root, "elsewhere");
     mkdirSync(elsewhere, { recursive: true });
     k.set(at(16, 20));
-    const away = new McpServer({ counterpart: k.c, scope: elsewhere, owner: true, registryDir: storeDir, now: () => at(16, 20) });
+    const away = new McpServer({ counterpart: k.c, scope: elsewhere, registryDir: storeDir, now: () => at(16, 20) });
     const other = idOf(await away.call("remember", { text: "The bike chain was waxed on the 28th." }));
     recordSession(storeDir, { sessionId: B, scope: HERE, phase: "start", at: at(17, 0), model: "claude-opus-5-5" });
     k.talk(B, at(17, 1));

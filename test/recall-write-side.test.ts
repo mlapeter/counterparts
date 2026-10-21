@@ -71,13 +71,13 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, snapshotsDir: join(root, "snaps"), owner: true, now: () => clock });
+  const c = Counterpart.open({ dir, snapshotsDir: join(root, "snaps"), now: () => clock });
   open.push(c);
   return c;
 }
 
 function server(session = "sess_write_side"): McpServer {
-  const s = openServer({ dir, snapshotsDir: join(root, "snaps"), session, scope: "/proj/one", owner: true, now: () => clock });
+  const s = openServer({ dir, snapshotsDir: join(root, "snaps"), session, scope: "/proj/one", now: () => clock });
   open.push(s.counterpart);
   return s;
 }

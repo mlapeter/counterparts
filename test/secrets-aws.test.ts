@@ -396,7 +396,7 @@ afterEach(() => {
 });
 
 function server(): McpServer {
-  const s = openServer({ dir, session: SESSION, scope: SCOPE, owner: true });
+  const s = openServer({ dir, session: SESSION, scope: SCOPE });
   open.push(s.counterpart);
   return s;
 }
@@ -486,7 +486,7 @@ describe("every entrance takes BOTH halves out — the caller-side half of encod
 
   test("the crash fallback's mint (the one entrance no model-facing door reaches)", async () => {
     let now = Date.parse("2026-09-23T15:00:00Z");
-    const c = Counterpart.open({ dir, owner: true, now: () => now });
+    const c = Counterpart.open({ dir, now: () => now });
     open.push(c);
     const turns = [
       { role: "user" as const, text: `Can you check the deploy config? ${PROSE}` },

@@ -53,7 +53,7 @@ test("the week drives the product's adapter on its clock, one child per turn, an
     if (allowed.includes("mcp__counterparts__remember")) {
       const e = (JSON.parse(p.args[p.args.indexOf("--mcp-config") + 1]!) as { mcpServers: { counterparts: { env: Record<string, string> } } }).mcpServers.counterparts.env;
       const at0 = Number(e["HARNESS_NOW"]);
-      const c = Counterpart.open({ dir: e["COUNTERPARTS_DATA_DIR"]!, owner: true, budgetBytes: 9_000, now: () => at0, timeZone: "UTC" });
+      const c = Counterpart.open({ dir: e["COUNTERPARTS_DATA_DIR"]!, budgetBytes: 9_000, now: () => at0, timeZone: "UTC" });
       c.store.put({ type: "memory", kind: "fact", body: `A thing Dana said at ${String(at0)}.`, salience: { novelty: null, relevance: 0.7, emotional: 0.3, predictive: 0.6 } });
       c.close();
     }
@@ -171,7 +171,7 @@ test("--no-nights runs no night, whatever the product asks for", async () => {
     if (allowed.includes("mcp__counterparts__remember")) {
       const e = (JSON.parse(p.args[p.args.indexOf("--mcp-config") + 1]!) as { mcpServers: { counterparts: { env: Record<string, string> } } }).mcpServers.counterparts.env;
       const at0 = Number(e["HARNESS_NOW"]);
-      const c = Counterpart.open({ dir: e["COUNTERPARTS_DATA_DIR"]!, owner: true, budgetBytes: 9_000, now: () => at0, timeZone: "UTC" });
+      const c = Counterpart.open({ dir: e["COUNTERPARTS_DATA_DIR"]!, budgetBytes: 9_000, now: () => at0, timeZone: "UTC" });
       c.store.put({ type: "memory", kind: "fact", body: `A thing at ${String(at0)}.`, salience: { novelty: null, relevance: 0.7, emotional: 0.3, predictive: 0.6 } });
       c.close();
     }

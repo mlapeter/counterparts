@@ -355,7 +355,7 @@ describe("a store written before the floor is refused by name, and never touched
       // of its own, so this also proves the refusal lands before any of that:
       // a directory created here would be a byte written into his old store.
       (): unknown => Counterpart.open({ dir: source, observer: true }),
-      (): unknown => Counterpart.open({ dir: source, owner: true }),
+      (): unknown => Counterpart.open({ dir: source }),
     ]) {
       let code = "NO_THROW";
       try {

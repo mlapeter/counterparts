@@ -23,7 +23,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 function server(): McpServer {
-  const s = openServer({ dir, session: "sess_undated", scope: "/scope/one", owner: true });
+  const s = openServer({ dir, session: "sess_undated", scope: "/scope/one" });
   open.push(s.counterpart);
   for (const d of ["2026-09-01", "2026-09-02", "2026-09-03"]) s.counterpart.store.advanceClock(d);
   return s;

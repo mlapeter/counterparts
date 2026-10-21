@@ -50,7 +50,6 @@ function server(opts: { now?: number; timeZone?: string } = {}): McpServer {
     dir,
     session: SESSION,
     scope: "/scope/one",
-    owner: true,
     now: () => opts.now ?? NOON,
     timeZone: opts.timeZone ?? "UTC",
   });

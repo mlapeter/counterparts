@@ -83,7 +83,7 @@ afterEach(() => {
 /** A counterpart on a clock the test turns, in UTC. */
 function clocked(start = T0): { c: Counterpart; at(): number; set(t: number): void } {
   let at = start;
-  const c = Counterpart.open({ dir: storeDir, owner: true, now: () => at, timeZone: ZONE });
+  const c = Counterpart.open({ dir: storeDir, now: () => at, timeZone: ZONE });
   open.push(c);
   return {
     c,
@@ -228,7 +228,7 @@ describe("the pacer's third arm: pieces and time", () => {
 
   test("the adapter.ask row says which rule fired", () => {
     const a = openAdapter(
-      { dataDir: storeDir, owner: true, timeZone: ZONE },
+      { dataDir: storeDir, timeZone: ZONE },
       { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }), scope: { mode: "on", matched: PROJ, entry: null } },
     );
     open.push(a.counterpart);
@@ -298,7 +298,7 @@ describe("what a session owes: three pieces over fifteen minutes, not at work", 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("what writes a stretch up", () => {
   function server(): McpServer {
-    const s = openServer({ dir: storeDir, scope: PROJ, owner: true });
+    const s = openServer({ dir: storeDir, scope: PROJ });
     open.push(s.counterpart);
     return s;
   }
@@ -317,7 +317,7 @@ describe("what writes a stretch up", () => {
 
   function ended(session: string): LedgerEntry | undefined {
     recordSession(storeDir, { sessionId: session, scope: PROJ, phase: "end", at: Date.now() });
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     return ledger(c.spans, { now: Date.now(), zone: c.store.zone(), host: (s) => ({ endedAt: readSession(storeDir, s)?.endedAt ?? null }) }).find(
       (e) => e.session === session,
@@ -331,7 +331,7 @@ describe("what writes a stretch up", () => {
     const e = ended("nn");
     expect(e?.stretch).toBeNull();
     expect(e?.owed).toBe(false);
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     const claims = [...new Set(c.spans.coverage(PROJ).map((m) => m.proposalId))];
     expect(claims).toHaveLength(1);
@@ -355,7 +355,7 @@ describe("what writes a stretch up", () => {
 
   test("A CHAPTER claims them, naming the episode", () => {
     seeded("ch");
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     const written = c.appendEpisode("ch", "A chapter from ch: the relief valve went in first, and the loop held.", { scope: PROJ });
     expect(written.appended).toBe(true);
@@ -415,7 +415,7 @@ describe("the in-session write-up path, end to end", () => {
 
     // The next session's start is pointed at it.
     const a = openAdapter(
-      { dataDir: storeDir, owner: true },
+      { dataDir: storeDir },
       { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }), scope: { mode: "on", matched: PROJ, entry: null } },
     );
     const started = a.sessionStart({ sessionId: "new-e2e", scope: PROJ, at: new Date().toISOString().slice(0, 10) });
@@ -423,7 +423,7 @@ describe("the in-session write-up path, end to end", () => {
     expect(started.ask ?? "").toContain("writeUp: old-e2e");
 
     // Fetch, then answer with a memory.
-    const s = openServer({ dir: storeDir, scope: PROJ, owner: true });
+    const s = openServer({ dir: storeDir, scope: PROJ });
     open.push(s.counterpart);
     const fetched = s.call("session_end", { session: "new-e2e", writeUp: "old-e2e" });
     const f = (await fetched).structuredContent;
@@ -433,7 +433,7 @@ describe("the in-session write-up path, end to end", () => {
     expect(answered).toMatchObject({ reason: "written-up", marked: true });
 
     // Written up: nothing unwritten, nothing owed, and the pointer is quiet.
-    const c = Counterpart.open({ dir: storeDir, owner: true });
+    const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     const e = ledger(c.spans, { now: Date.now(), zone: c.store.zone() }).find((x) => x.session === "old-e2e");
     expect(e?.stretch).toBeNull();
@@ -686,13 +686,13 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
 
   test("doctor's Write-ups line: yesterday's state, amber on a stretch owed from yesterday, and the week's lapses", () => {
     const { today } = yesterdayStore();
-    const c = Counterpart.open({ dir: storeDir, owner: true, timeZone: ZONE });
+    const c = Counterpart.open({ dir: storeDir, timeZone: ZONE });
     open.push(c);
     const read = (): ReturnType<typeof doctorFindings>[number] | undefined =>
       doctorFindings({
         configPath: join(root, "claude-code.json"),
         configReason: "loaded",
-        config: { dataDir: storeDir, owner: true },
+        config: { dataDir: storeDir },
         dir: storeDir,
         store: c.store,
         today,
@@ -729,7 +729,7 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
     const p = talker(k, "print-1");
     for (let i = 0; i < 3; i++) p.piece(printedAt + i * 10 * MIN);
     p.end(printedAt + 25 * MIN);
-    const c = Counterpart.open({ dir: storeDir, owner: true, timeZone: ZONE });
+    const c = Counterpart.open({ dir: storeDir, timeZone: ZONE });
     open.push(c);
     const said = coverageLines({ store: c.store, date: today, today }).join("\n");
     expect(said).toContain("Owed now: 1 session — owing-one (5 pieces).");
@@ -741,7 +741,7 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
 
   test("the catch-up's unread line is today's, or that run's date's — never a past date's from a later run (review of #435)", () => {
     const { yesterday, today } = yesterdayStore();
-    const c = Counterpart.open({ dir: storeDir, owner: true, timeZone: ZONE });
+    const c = Counterpart.open({ dir: storeDir, timeZone: ZONE });
     open.push(c);
     c.store.appendEvent({ name: NIGHT_WRITE_UP_EVENT, day: c.store.livedDay(), ref: "nrn_test", payload: { state: "done", granted: 1, written: 0, parts: 3, unread: 2, left: 1 } });
     expect(coverageLines({ store: c.store, date: today, today }).join("\n")).toContain("left 2 parts unread; they stay owed.");

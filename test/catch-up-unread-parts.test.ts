@@ -74,7 +74,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const config = (): AdapterConfig => ({ dataDir: dir, owner: true, injectionBudgetBytes: 9_000 });
+const config = (): AdapterConfig => ({ dataDir: dir, injectionBudgetBytes: 9_000 });
 
 function midnight(): number {
   const d = new Date();
@@ -99,7 +99,7 @@ function prose(id: string, i: number, bytes: number): string {
  */
 function livedWithChapter(id: string, opts: { kept: number; unkept: number; bytes: number }): void {
   let at = YESTERDAY_9();
-  const c = Counterpart.open({ dir, owner: true, now: () => at });
+  const c = Counterpart.open({ dir, now: () => at });
   try {
     recordSession(dir, { sessionId: id, scope: proj, phase: "start", at });
     const turns: { role: "user" | "assistant"; text: string }[] = [];
@@ -177,7 +177,7 @@ function release(plan: ReturnType<typeof planCatchUp>): void {
 /** The runner's MCP server, its write-up answers going to the process log as in production. */
 function runnerServer(runner: string): ReturnType<typeof openServer> {
   const log = openLog({ dataDir: dir, proc: "mcp", session: runner, now: () => Date.now() });
-  const s = openServer({ dir, owner: true, session: runner, scope: dir, onEvent: log.event });
+  const s = openServer({ dir, session: runner, scope: dir, onEvent: log.event });
   closers.push({ close: () => s.counterpart.close() });
   return s;
 }
@@ -187,7 +187,7 @@ function child(answer: (id: string, part: number) => Record<string, unknown>): (
   return async (plan) => {
     const runner = plan.env[SESSION_ENV] as string;
     const ids = [...plan.stdin.matchAll(/^- ([A-Za-z0-9._-]+):/gm)].map((m) => m[1] as string);
-    const s = openServer({ dir, owner: true, session: runner, scope: plan.env[SCOPE_ENV] as string });
+    const s = openServer({ dir, session: runner, scope: plan.env[SCOPE_ENV] as string });
     try {
       for (const id of ids) {
         for (let guard = 0; guard < 12; guard++) {
@@ -312,7 +312,7 @@ describe("a catch-up's empty answer says why, or the part stays owed", () => {
     livedWithChapter("plain-1", { kept: 0, unkept: 6, bytes: 2_000 });
     // The ordinary path: a session the SessionStart pointer named.
     recordSession(dir, { sessionId: "live-9", scope: proj, phase: "start", at: Date.now(), writeUpPointer: "plain-1" });
-    const s = openServer({ dir, owner: true, session: "live-9", scope: proj });
+    const s = openServer({ dir, session: "live-9", scope: proj });
     closers.push({ close: () => s.counterpart.close() });
     const f = payload(await s.call("session_end", { session: "live-9", writeUp: "plain-1" }));
     expect(f["reason"]).toBe("part");
@@ -418,7 +418,7 @@ describe("catch-up --reowe <run>", () => {
   });
 
   test("words no longer kept, and a run the log never saw, are refused by name", async () => {
-    Counterpart.open({ dir, owner: true }).close();
+    Counterpart.open({ dir }).close();
     const log = openLog({ dataDir: dir, proc: "mcp", session: "writeup-cup_gone", now: () => Date.now() });
     log.event({ at: Date.now(), name: "mcp.write_up", ref: "gone-1", data: { reason: "part-written", part: 1, of: 2, deposited: 0, marked: null } });
     const c = openNightCounterpart(config());
@@ -470,7 +470,7 @@ describe("review of #435: the edges", () => {
     expect(n).toBeGreaterThanOrEqual(4);
     const stopAfterTwo = async (plan: ChildPlan): Promise<ChildResult> => {
       const runner = plan.env[SESSION_ENV] as string;
-      const s = openServer({ dir, owner: true, session: runner, scope: plan.env[SCOPE_ENV] as string });
+      const s = openServer({ dir, session: runner, scope: plan.env[SCOPE_ENV] as string });
       try {
         for (let k = 1; k <= 2; k++) {
           const f = payload(await s.call("session_end", { session: runner, writeUp: "plain-1" }));
@@ -531,7 +531,7 @@ describe("review of #435: the edges", () => {
   });
 
   test("catch-up --dry-run or --yes without --reowe is a usage mistake, not a real run", async () => {
-    Counterpart.open({ dir, owner: true }).close();
+    Counterpart.open({ dir }).close();
     const err: string[] = [];
     const io: Io = { out: () => undefined, err: (l) => err.push(l) };
     const env = { PATH: "/usr/bin:/bin", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };

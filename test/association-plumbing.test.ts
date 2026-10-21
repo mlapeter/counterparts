@@ -58,7 +58,7 @@ afterEach(() => {
 });
 
 function brain(opts: Parameters<typeof Counterpart.open>[0] = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, ...opts });
+  const c = Counterpart.open({ dir, ...opts });
   open.push(c);
   return c;
 }
@@ -441,7 +441,7 @@ describe("(b) the credit pass scores each ambient showing once, at the first bou
 describe("(b) the boundary's row carries the score, and the probe reads the hit rate", () => {
   function adapter(): ClaudeCodeAdapter {
     const a = openAdapter(
-      { dataDir: dir, injectionBudgetBytes: 9000, owner: true },
+      { dataDir: dir, injectionBudgetBytes: 9000 },
       { command: "/bin/true", args: ["runner"], spawner: (_p: SpawnPlan) => ({ pid: 4242 }) },
     );
     open.push(a.counterpart);

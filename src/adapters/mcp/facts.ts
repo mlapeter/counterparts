@@ -245,9 +245,6 @@ export interface FactsSource {
 export interface FactsContext {
   readonly counterpart: FactsSource;
   readonly sessionId: string;
-  /** The owner's own session? Gates nothing here since the confidentiality
-   *  boundary was retired (2026-10-21); the field goes with the column's types. */
-  readonly owner: boolean;
   /** The asking session's directory, for "the last session"; none at the console. */
   readonly scope?: string;
   /** The question embedded in line; null when it could not be. */

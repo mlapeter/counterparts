@@ -1501,7 +1501,7 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
   /** The whole brain, opened and closed around one assertion block — the thing
    *  that used to throw. Closed in a `finally` so a failure leaks no handle. */
   function woken(fn: (c: Counterpart) => void): void {
-    const c = Counterpart.open({ dir, owner: true });
+    const c = Counterpart.open({ dir });
     try {
       fn(c);
     } finally {

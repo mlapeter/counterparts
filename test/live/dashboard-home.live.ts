@@ -49,7 +49,7 @@ afterAll(async () => {
 
 /** A memory written while the page is open. */
 function storeMoves(): void {
-  const c = Counterpart.open({ dir, owner: true });
+  const c = Counterpart.open({ dir });
   try {
     c.store.put({ type: "memory", kind: "fact", body: "A memory written while the home tab was open." });
     c.store.appendEvent({ name: "gate.deposit", day: c.store.livedDay(), payload: { accepted: 1 } });

@@ -392,7 +392,7 @@ describe("the pace is what the person typed; conversation text from both roles i
 
   function adapter(): ClaudeCodeAdapter {
     const a = openAdapter(
-      { dataDir: store, injectionBudgetBytes: 9000, owner: true },
+      { dataDir: store, injectionBudgetBytes: 9000 },
       { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }) },
     );
     closers.push(() => a.counterpart.close());
@@ -880,7 +880,7 @@ describe("'nothing new' is an answer (decision 4)", () => {
 
   function adapter(): ClaudeCodeAdapter {
     const a = openAdapter(
-      { dataDir: store, injectionBudgetBytes: 9000, owner: true },
+      { dataDir: store, injectionBudgetBytes: 9000 },
       { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }) },
     );
     closers.push(() => a.counterpart.close());
@@ -888,7 +888,7 @@ describe("'nothing new' is an answer (decision 4)", () => {
   }
 
   function server(): McpServer {
-    const s = openServer({ dir: store, scope: project, owner: true });
+    const s = openServer({ dir: store, scope: project });
     closers.push(() => s.counterpart.close());
     return s;
   }

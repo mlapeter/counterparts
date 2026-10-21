@@ -189,7 +189,6 @@ export async function runReplay(opts: DriverOptions): Promise<ReplayRun> {
 
   const brain = Counterpart.open({
     dir: storeDir,
-    owner: true,
     budgetBytes: opts.budgetBytes,
     // THE SCORER READS THE WHOLE RUN AT ITS END, and sleep's `log` phase runs
     // DURING the run (`sessionEnd` → `runCycle`, in-process): on the default

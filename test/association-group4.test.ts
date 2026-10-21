@@ -53,7 +53,7 @@ const T = ASSOCIATE_TUNABLES;
 const WRITE_LINK_MAX_WHEN_ON = 4;
 
 function brainAt(clock: { now: number }, opts: { observer?: boolean } = {}): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, now: () => clock.now, ...(opts.observer === true ? { observer: true } : {}) });
+  const c = Counterpart.open({ dir, now: () => clock.now, ...(opts.observer === true ? { observer: true } : {}) });
   findable(c.store);
   brains.push(c);
   return c;

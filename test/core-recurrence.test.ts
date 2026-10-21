@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, now: () => Date.now() + dateN * 86_400_000 });
+  const c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => Date.now() + dateN * 86_400_000 });
   open.push(c);
   return c;
 }
@@ -333,7 +333,7 @@ describe("my doors: remember's core, and the reflection's core part", () => {
     c.close();
     open.splice(0);
     recordSession(dir, { sessionId: "s-core", scope: "/proj", phase: "start" });
-    const s = openServer({ dir, session: "s-core", scope: "/proj", owner: true });
+    const s = openServer({ dir, session: "s-core", scope: "/proj" });
     try {
       const keep = await s.call("remember", { core: { id: a, decision: "keep", why: "It is about us." } });
       expect(keep.structuredContent["reason"]).toBe("core-only");

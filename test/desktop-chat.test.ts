@@ -38,7 +38,6 @@ import {
   DESKTOP_DREAM_NOTE,
   DESKTOP_INSTRUCTIONS,
   ERROR_CODES,
-  OWNER_FALSE_NOTE,
   SERVER_VERSION,
   START_PROMPT,
   TOOL_NAMES,
@@ -120,7 +119,7 @@ function stubSpawner(): { spawner: (plan: SpawnPlan) => { pid: number }; plans: 
 }
 
 function server(opts: Parameters<typeof openServer>[0] = {}): McpServer {
-  const s = openServer({ dir, owner: true, ...opts });
+  const s = openServer({ dir, ...opts });
   open.push(s.counterpart);
   return s;
 }
@@ -614,12 +613,10 @@ describe("the wake's parts", () => {
     expect(String(payload(await s.call("wake", {}))["wake"])).not.toContain(DESKTOP_DREAM_NOTE);
   });
 
-  test("status explains `owner: false` in one phrase, and says nothing extra for the owner", async () => {
-    const s = desktopServer({ owner: false });
+  test("status says nothing about an owner: a Desktop chat is answered like any session (2026-10-21)", async () => {
+    const s = desktopServer({});
     const stance = payload(await s.call("status", {}))["stance"] as Record<string, unknown>;
-    expect(stance).toMatchObject({ owner: false, ownerMeans: OWNER_FALSE_NOTE });
-    const owner = desktopServer({ owner: true });
-    expect((payload(await owner.call("status", {}))["stance"] as Record<string, unknown>)["ownerMeans"]).toBeUndefined();
+    expect(stance).toEqual({ observer: false });
   });
 
   test("observer: wake stands down over the wire and writes nothing", async () => {
@@ -686,11 +683,10 @@ describe("the place: `claude-desktop:` is a name, not a directory", () => {
   test("observer on claude-desktop: takes effect at once, per call — and the scope tool can still set it back", async () => {
     const scopesFile = join(root, "config", "scopes.json");
     mkdirSync(dirname(scopesFile), { recursive: true });
-    const s = desktopServer({ scopesFile, owner: true });
+    const s = desktopServer({ scopesFile });
     const session = payload(await s.call("wake", {}))["session"] as string;
     expect(payload(await s.call("scope", { mode: "observer" }))["set"]).toBe(true);
     expect(s.observer).toBe(true);
-    expect(s.owner).toBe(false);
     expect(payload(await s.call("remember", { session, text: "An observer writes nothing." }))["stoodDown"]).toBe(true);
     expect(payload(await s.call("wake", {}))["stoodDown"]).toBe(true);
     expect(payload(await s.call("scope", { mode: "on" }))["set"]).toBe(true);
@@ -754,7 +750,7 @@ describe("detection and shared leaves", () => {
     // for a Desktop session that ended owing (seeded here by hand: Desktop
     // itself captures nothing, but a later host of the same place might).
     let at = Date.now() - 2 * DAY;
-    const seeded = Counterpart.open({ dir, owner: true, now: () => at });
+    const seeded = Counterpart.open({ dir, now: () => at });
     open.push(seeded);
     recordSession(dir, { sessionId: "old-d", scope: DESKTOP_SCOPE, phase: "start", at });
     const turns: { role: "user"; text: string }[] = [];
@@ -781,7 +777,7 @@ describe("writeUpFor's shape — `mayWriteUp` on the runner's own record — and
   /** A session that talked in `scope` two days ago and ENDED owing a write-up. */
   function endedOwing(id: string, scope: string, opts: { end?: boolean } = {}): void {
     let at = Date.now() - 2 * DAY;
-    const c = Counterpart.open({ dir, owner: true, now: () => at });
+    const c = Counterpart.open({ dir, now: () => at });
     recordSession(dir, { sessionId: id, scope, phase: "start", at });
     const turns: { role: "user" | "assistant"; text: string }[] = [];
     for (let i = 0; i < 6; i++) {
@@ -837,7 +833,7 @@ describe("writeUpFor's shape — `mayWriteUp` on the runner's own record — and
     endedOwing("quiet-1", proj, { end: false });
     // At work today: it said something a moment ago and has not ended.
     {
-      const c = Counterpart.open({ dir, owner: true });
+      const c = Counterpart.open({ dir });
       recordSession(dir, { sessionId: "busy-1", scope: proj, phase: "start" });
       c.captureSpans({ session: "busy-1", scope: proj, turns: [{ role: "user", text: "The busy session's turn about the pump, today." }] });
       c.close();
@@ -965,7 +961,7 @@ describe("install --host claude-desktop", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 function desktopLine(desktop: DesktopReading): { severity: string; detail: string } | undefined {
-  const store = Counterpart.open({ dir, owner: true });
+  const store = Counterpart.open({ dir });
   open.push(store);
   const findings = doctorFindings({
     configPath: join(root, "claude-code.json"),
@@ -1027,7 +1023,7 @@ describe("Desktop's Code tab, 'No folder': the first-launch question is not aske
       [scratch, false],
       [ordinary, true],
     ] as const) {
-      const a = openAdapter({ dataDir: dir, owner: true }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
+      const a = openAdapter({ dataDir: dir }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 1 }) });
       open.push(a.counterpart);
       const out = a.sessionStart({ sessionId: `s-${String(asks)}`, scope, at });
       expect((out.ask ?? "").includes(SCOPE_ASK_OPEN)).toBe(asks);
