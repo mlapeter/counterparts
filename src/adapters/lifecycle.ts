@@ -1228,6 +1228,7 @@ export class Lifecycle implements HostLifecycle {
       // decision row (`echoSkipped`).
       echoWindow: input.turnsUnread === true ? "unread" : input.compactedAt === undefined ? "session" : "compaction",
       echoSkipped: decision.echoSkipped,
+      projectSkipped: decision.projectSkipped,
     });
     return result;
   }

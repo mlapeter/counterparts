@@ -176,6 +176,13 @@ export interface Turn {
    */
   echo?: ReadonlySet<string>;
   /**
+   * ANOTHER PROJECT'S WORK (2026-10-21, wave 2 lane G): is this id work from
+   * a project other than the turn's folder's? Ambient only — bound by
+   * `Counterpart#recallForTurn` — and read only while `RECALL_BY_PROJECT` is
+   * on; the gate turns such a memory away as `project-skipped`.
+   */
+  elsewhere?: (id: string) => boolean;
+  /**
    * CONTEXT PRIMING (an experiment, 2026-10-19; `prime.ts`): this turn's own
    * vector for the train of thought, one hop along links, and what is open in
    * this folder. Ambient only — set by `Counterpart#recallForTurn` and by
@@ -284,6 +291,9 @@ export interface RecallDecision {
    * long session lost. 0 when no echo set was given.
    */
   readonly echoSkipped: number;
+  /** How many this turn would have shown but did not because they are another
+   *  project's work (`Turn.elsewhere`, `RECALL_BY_PROJECT`, 2026-10-21). 0 when off. */
+  readonly projectSkipped: number;
   /** What context priming did this turn (2026-10-19, `PrimeSummary`); null when it did not run. */
   readonly primed: PrimeSummary | null;
   /**
@@ -475,6 +485,7 @@ export class Recall {
         moodMatched: 0,
         moodMatchedIds: [],
         echoSkipped: 0,
+        projectSkipped: 0,
         primed: plan === null ? null : { ...NO_PRIME, sources: plan.sources, train: plan.activation.train !== null },
         spread: null,
         dropped: 0,
@@ -567,6 +578,7 @@ export class Recall {
         affectStated: affect.stated,
         turn: turnNo,
         ...(turn.echo === undefined || turn.echo.size === 0 ? {} : { echo: turn.echo }),
+        ...(turn.elsewhere !== undefined && this.tunables.RECALL_BY_PROJECT ? { elsewhere: turn.elsewhere } : {}),
         ...(habituated.size === 0 ? {} : { habituated }),
       },
       this.tunables,
@@ -672,6 +684,7 @@ export class Recall {
       moodMatched: moodLifted.length,
       moodMatchedIds: moodLifted.slice(0, MOOD_MATCHED_IDS_CAP),
       echoSkipped: gated.verdicts.filter((v) => v.verdict === "echo-skipped").length,
+      projectSkipped: gated.verdicts.filter((v) => v.verdict === "project-skipped").length,
       primed,
       // What the gate SHOWED of the pointers activation handed it, after the
       // render's trim: the pointer lane's last number (2026-09-28).

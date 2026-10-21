@@ -1276,3 +1276,22 @@ call (`ref` the session) and touches nothing else. What the build chose:
 - `Candidate.confidential`, `isConfidential` and the `confidential-withheld` verdict are
   gone. An old `mcp.recall` row may still carry the string in `blockedBy`; its readers
   take any verdict name.
+
+## 2026-10-21 — a project filter for ambient recall, built and OFF (wave 2 lane G, item 4)
+
+Nothing in recall read `origin_scope`, so a footnote could show another folder's work. Design
+§8 says work stays in its project, but that came from the wake's rule, and Mike has not said
+anything about footnotes yet; the coordinator is asking him. So the filter is built behind
+`RECALL_BY_PROJECT`, default off (CONTRACT §5 G21).
+
+Measured on a copy of the 2026-10-20 corpus, from its recorded `recall.decision` rows (3,081
+ambient turns that showed something; the session's folder is the one its own memories were
+written in, known for 2,914):
+
+- On, it would have removed 1,373 of 5,958 footnotes (23%) and 14 of 78 surfaced items,
+  and 1,001 turns would have lost at least one.
+- With ~/counterparts-site joined to ~/counterparts: 1,152 footnotes (19%), 11 surfaced.
+- The largest crossings are ~/counterparts → ~/random (352) and ~/random → ~/counterparts
+  (187). ~/random is the owner's notes folder about the same work, so a folder filter would
+  cut that cross-talk unless ~/random joins the project. That is the fact to put in front of
+  him with the question.

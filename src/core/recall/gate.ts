@@ -47,6 +47,9 @@ export type Verdict =
   /** This session WROTE it (since its last compaction), so it is already in
    *  its context: would have been shown, and was not (2026-10-19, part C). */
   | "echo-skipped"
+  /** Another project's work, in a turn in this one (`GateInput.elsewhere`,
+   *  `RECALL_BY_PROJECT`, 2026-10-21): would have been shown, and was not. */
+  | "project-skipped"
   /** Hard gate (a). */
   | "dark-uncued"
   /** Hard gate (b), evaluated before any salience adjustment. */
@@ -142,6 +145,9 @@ export interface GateInput {
   readonly turn: number;
   /** Memories this session wrote — ambient recall's echo set (`Turn.echo`). */
   readonly echo?: ReadonlySet<string>;
+  /** Another project's work (`Turn.elsewhere`, 2026-10-21): turned away as
+   *  `project-skipped` where it would have been shown. Absent: none. */
+  readonly elsewhere?: (id: string) => boolean;
   /** Memories habituated this turn (`habituation.ts#habituatedIds`, 2026-10-19). Absent: none. */
   readonly habituated?: ReadonlyMap<string, number>;
 }
@@ -396,6 +402,15 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
 
   /** In this session's echo set (`GateInput.echo`). */
   const echo = (id: string): boolean => input.echo?.has(id) === true;
+  /** Another project's work (`GateInput.elsewhere`). A throw reads as not. */
+  const elsewhere = (id: string): boolean => {
+    if (input.elsewhere === undefined) return false;
+    try {
+      return input.elsewhere(id);
+    } catch {
+      return false;
+    }
+  };
 
   /** Quiet pointers that passed the boundary gates, in the order activation
    *  ranked them (strongest arrival first). */
@@ -427,6 +442,10 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       }
       if (echo(c.id)) {
         record(c, "echo-skipped");
+        continue;
+      }
+      if (elsewhere(c.id)) {
+        record(c, "project-skipped");
         continue;
       }
       pointerPool.push(c);
@@ -473,6 +492,13 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     // the background sample, as a dedup-suppressed candidate does.
     if (echo(c.id)) {
       record(c, "echo-skipped");
+      continue;
+    }
+    // ANOTHER PROJECT'S WORK (2026-10-21, `RECALL_BY_PROJECT`, off by
+    // default): checked where the echo skip is, for its reason — the count is
+    // what would have been shown.
+    if (elsewhere(c.id)) {
+      record(c, "project-skipped");
       continue;
     }
     // Loud-tier eligibility. Hard gate (c) first: arrival makes a memory warm,

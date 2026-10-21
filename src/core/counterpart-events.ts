@@ -893,6 +893,9 @@ export const RECALL_DECISION_FIELDS = [
   // turn would have shown — the echo skip's count. Added to the hashed set the
   // way `moodMatchedIds` was (2026-10-14); `tools/parallel`'s hash moves with it.
   "echoSkipped",
+  // Projects (2026-10-21, lane G): another project's work the turn would have
+  // shown, with `RECALL_BY_PROJECT` on; 0 while it is off.
+  "projectSkipped",
   // Context priming (2026-10-19, an experiment): what primed, and what it
   // changed of what was shown — counts; the ids are `primed` on the tier rows.
   "primed",
@@ -1021,6 +1024,8 @@ export function recallDecisionRecord(
     // THE ECHO SKIP (2026-10-19, part C): what this session wrote and the turn
     // would have shown, turned away because it is already in context.
     echoSkipped: d.echoSkipped,
+    // PROJECTS (2026-10-21): another project's work turned away; 0 while off.
+    projectSkipped: d.projectSkipped,
     // CONTEXT PRIMING (2026-10-19, an experiment): null on a turn it did not run.
     primed: d.primed,
   } satisfies Record<SurfaceSetField, unknown>;
