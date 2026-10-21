@@ -42,9 +42,11 @@ import {
   strength as strengthOf,
   successorSeed,
   supersedeRecord,
+  supportRouteWeight,
+  SUPPORT_ROUTES,
   TUNABLES as PHYSICS_TUNABLES,
 } from "../physics/index.js";
-import type { MemoryPhysics } from "../physics/index.js";
+import type { MemoryPhysics, SupportRoute } from "../physics/index.js";
 import { gateAliases } from "../encode/aliases.js";
 import { containsSecret, redactSecrets } from "../encode/secrets.js";
 import { nameRegex, occursAsWholeWord } from "../encode/words.js";
@@ -54,7 +56,7 @@ import { Store, hashText } from "../store/index.js";
 // the two files `test/cli.test.ts` allows to import it.
 import { readProseWalking } from "../store/walk-seam.js";
 import { rowTombstoned } from "../store/index.js";
-import type { MemoryRow, PutInput } from "../store/index.js";
+import type { BirthRoute, MemoryRow, PutInput } from "../store/index.js";
 import type { Band, Kind, Salience } from "../types.js";
 import { AliasIndex, collision, handleKey } from "./aliases.js";
 import { TUNABLES } from "./tunables.js";
@@ -97,6 +99,9 @@ import type {
   SchemaEvent,
   SchemaRole,
   SchemaSliceOut,
+  SupportFileOutcome,
+  SupportFileReason,
+  SupportFilingInput,
 } from "./types.js";
 
 export * from "./types.js";
@@ -117,6 +122,8 @@ export const PUBLIC_SURFACE = [
   "creditNamedIn",
   "addAliases",
   "addBelief",
+  // 2026-10-21 (wave 2 lane C): a memory counted for or against a belief, once.
+  "fileSupport",
   "addCurrentState",
   "challengeBelief",
   "replaceCurrentState",
@@ -201,6 +208,23 @@ export interface SchemasOptions {
 }
 
 const ZERO_DIMS: DimensionsInput = { relevance: 0, emotional: 0, predictive: 0 };
+
+/**
+ * A REVISED BELIEF'S SALIENCE (lane C, physics §5.13): it is born weak like
+ * any belief — what the challenger claimed, else its dimensions' mean, never
+ * above `BELIEF_BIRTH_CEILING` (read at use), and no feeling of its own. A
+ * belief's feeling is its support's, weighed into each filing. (A new
+ * belief's goes through the seam instead, `addBelief`.)
+ */
+function bornWeak(dims: DimensionsInput | undefined, claimed: number | null): Salience {
+  const ceiling = PHYSICS_TUNABLES.BELIEF_BIRTH_CEILING;
+  const given = claimed ?? (dims === undefined ? null : (dims.relevance + dims.predictive) / 2);
+  const s = Math.min(ceiling, Math.max(0, Number.isFinite(given) && given !== null ? given : ceiling));
+  return { novelty: null, relevance: s, emotional: 0, predictive: s, claimed: s };
+}
+
+/** The memory sources that are not lived: a dream's words, a reflection's own entry (reflect.ts `notLivedReason`). */
+const NOT_LIVED_SOURCES: ReadonlySet<string> = new Set(["dreamed", "reflection"]);
 
 export class Schemas {
   readonly store: Store;
@@ -750,25 +774,141 @@ export class Schemas {
       this.emit("schema.belief.refused", input.entityId, { reason: "statement-empty" });
       return { ok: false, reason: "statement-empty", id: null };
     }
+    // BORN WEAK (wave 2 lane C, 2026-10-21; physics §5.13): every belief
+    // starts provisional, whoever writes it — its dimensions and its claim at
+    // most `BELIEF_BIRTH_CEILING` (the seam's ceiling, so a cut is recorded as
+    // one), no feeling of its own (its support carries feeling), the ceiling
+    // itself when nothing was said, and a birth route, which is what makes it
+    // a belief to physics. What lifts it after is support, counted once per
+    // memory (`fileSupport`). A MIGRATED belief is not born here: it keeps the
+    // strength it lived in v1 (owner ruling 2026-08-29), for now.
+    const migrated = input.channel === "migrated";
+    const ceiling = PHYSICS_TUNABLES.BELIEF_BIRTH_CEILING;
+    const dims = input.dimensions;
     const put = this.mintElement({
       role: "belief",
       entityId: input.entityId,
       kind: entity.row.kind,
       body: statement,
       day: input.day,
-      dimensions: input.dimensions,
-      claimedSalience: input.claimedSalience ?? null,
+      ...(migrated
+        ? { dimensions: dims, claimedSalience: input.claimedSalience ?? null }
+        : {
+            dimensions:
+              dims === undefined
+                ? undefined
+                : { relevance: Math.min(ceiling, dims.relevance), emotional: 0, predictive: Math.min(ceiling, dims.predictive) },
+            claimedSalience: input.claimedSalience ?? (dims === undefined ? ceiling : null),
+            ceiling,
+          }),
       ...(input.channel === undefined ? {} : { channel: input.channel }),
       protectedFlag: input.protected === true,
       meta: { groundedIn: [...(input.groundedIn ?? [])] },
+      birthRoute: input.birthRoute,
+      ...(input.about === undefined ? {} : { about: input.about }),
     });
     this.emit("schema.belief.added", put, {
       entityId: input.entityId,
       kind: entity.row.kind,
       day: input.day,
       protected: input.protected === true,
+      route: input.birthRoute,
     });
     return { ok: true, reason: "added", id: put };
+  }
+
+  /**
+   * COUNTS A MEMORY FOR OR AGAINST A BELIEF, ONCE (wave 2 lane C, 2026-10-21;
+   * physics §5.13). Support is how a belief is earned: lived memories that
+   * fit, each counted once per belief (the table's key — filing it again is
+   * `already-counted` and adds nothing), weighed by route, by spread (a day,
+   * session or folder the belief already has counts less) and by feeling. The
+   * store recounts the belief in the same transaction.
+   *
+   * What may be filed, for now: a LIVED memory (a memory or a chapter; not a
+   * dream's words or a reflection's own entry), or, by `link`, another live
+   * belief strong enough to lend. Never the belief itself, and never a
+   * showing, a recall or a rating of it — those are not memories and not
+   * routes (lane E: a rating of the belief's slot is a use credit, not
+   * support). `testimony` and `choice` are read off the memory's `said_by`.
+   *
+   * A CONTRARY filing is counted the same way and then presses the belief
+   * through the pressure arithmetic (`challengeBelief`, §5.6) at its weight:
+   * REVISE when P > iota x strength, as any challenge.
+   */
+  fileSupport(input: SupportFilingInput): SupportFileOutcome {
+    const refuse = (reason: SupportFileReason, beliefId: string | null): SupportFileOutcome => {
+      this.emit("schema.support.refused", beliefId ?? input.beliefId, { reason, memoryId: input.memoryId, day: input.day });
+      return { ok: false, reason, beliefId, route: null, weight: 0 };
+    };
+    let beliefId: string;
+    try {
+      beliefId = this.store.resolve(input.beliefId);
+    } catch {
+      return refuse("belief-unknown", null);
+    }
+    const rec = this.meta.get(beliefId);
+    const belief = this.store.row(beliefId);
+    if (rec === undefined || rec.role !== "belief" || belief === undefined) return refuse("belief-unknown", beliefId);
+    if (belief.archived === 1) return refuse("belief-archived", beliefId);
+    if (input.memoryId === beliefId || input.memoryId === input.beliefId) return refuse("memory-is-the-belief", beliefId);
+    const memory = this.store.row(input.memoryId);
+    if (memory === undefined || this.removed(input.memoryId, memory)) return refuse("memory-unknown", beliefId);
+
+    const asked = input.route ?? "found";
+    if (!(SUPPORT_ROUTES as readonly string[]).includes(asked)) return refuse("route-unknown", beliefId);
+    let route = asked as SupportRoute;
+    let note: string | undefined;
+    if (route === "link") {
+      const other = this.meta.get(input.memoryId);
+      if (other === undefined || other.role !== "belief" || memory.archived === 1 || memory.superseded_by !== null) {
+        return refuse("link-not-a-belief", beliefId);
+      }
+      if (strengthOf(this.store.physicsOf(input.memoryId), input.day) < PHYSICS_TUNABLES.SUPPORT_LINK_FLOOR) {
+        return refuse("link-too-weak", beliefId);
+      }
+    } else {
+      if ((memory.type !== "memory" && memory.type !== "episode") || NOT_LIVED_SOURCES.has(memory.source ?? "")) {
+        return refuse("not-lived", beliefId);
+      }
+      // Testimony and choice are what the memory says it is, never a claim.
+      const read: SupportRoute | null = memory.said_by === "owner" ? "testimony" : memory.said_by === "self" ? "choice" : null;
+      if (read !== null && read !== route) {
+        if (route !== "found") note = `filed as ${read}: the memory was said by ${memory.said_by === "owner" ? "the owner" : "me"}`;
+        route = read;
+      } else if (read === null && (route === "testimony" || route === "choice")) {
+        note = `filed as found: ${route} is read off the memory's said_by, and it has none`;
+        route = "found";
+      }
+      if (route === "use" && this.aboutMe(belief, rec)) return refuse("use-not-about-me", beliefId);
+    }
+
+    const filed = this.store.fileSupport({
+      beliefId,
+      memoryId: input.memoryId,
+      stance: input.stance,
+      route,
+      day: input.day,
+      weight: supportRouteWeight(route),
+    });
+    if (!filed) {
+      this.emit("schema.support.counted-before", beliefId, { memoryId: input.memoryId, day: input.day });
+      return { ok: false, reason: "already-counted", beliefId, route: null, weight: 0 };
+    }
+    const weight = this.store.supportOf(beliefId).find((r) => r.memoryId === input.memoryId)?.weight ?? 0;
+    this.emit("schema.support.filed", beliefId, { memoryId: input.memoryId, stance: input.stance, route, weight, day: input.day });
+    const out: SupportFileOutcome = { ok: true, reason: "filed", beliefId, route, weight, ...(note === undefined ? {} : { note }) };
+    if (input.stance === "contrary") {
+      return { ...out, revision: this.challengeBelief({ updates: beliefId, challengerId: input.memoryId, day: input.day, weight }) };
+    }
+    return out;
+  }
+
+  /** A belief about me or us — marked so, or on the self subject or the identity core — which `use` does not back. */
+  private aboutMe(belief: MemoryRow, rec: MetaRecord): boolean {
+    if (belief.about === "me" || belief.about === "us") return true;
+    const subject = rec.entityId === undefined ? undefined : this.store.row(rec.entityId);
+    return subject !== undefined && (subject.subject_kind === "self" || subject.kind === "self");
   }
 
   /**
@@ -853,6 +993,11 @@ export class Schemas {
     meta?: Record<string, unknown>;
     salience?: Salience;
     seed?: Partial<MemoryPhysics>;
+    /** A lower ceiling on the claim than the channel's (a belief born weak, lane C). */
+    ceiling?: number;
+    /** A belief's birth route (v14) and its about mark, written at birth. */
+    birthRoute?: BirthRoute;
+    about?: "me" | "us";
   }): string {
     // The CEILING derives from the channel with "authored" as the arithmetic
     // default — but the PERSISTED source is `spec.channel ?? null`: a caller
@@ -875,7 +1020,7 @@ export class Schemas {
       const seam = clampSalienceAtSeam(
         { novelty: null, ...(spec.dimensions ?? ZERO_DIMS) },
         spec.claimedSalience,
-        channel === "fallback" ? PHYSICS_TUNABLES.SWEEP_CLAIM_CEILING : 1,
+        Math.min(channel === "fallback" ? PHYSICS_TUNABLES.SWEEP_CLAIM_CEILING : 1, spec.ceiling ?? 1),
       );
       if (seam.event !== null) {
         this.emit("salience.lifted", spec.entityId, {
@@ -913,6 +1058,10 @@ export class Schemas {
         ...(spec.seed ?? {}),
       },
       ...(spec.channel === undefined ? {} : { source: spec.channel }),
+      ...(spec.birthRoute === undefined ? {} : { birthRoute: spec.birthRoute }),
+      // "Me" and "us" are the mark (v9) a belief about the self carries; the
+      // engine sets it at birth, so it is the writer's.
+      ...(spec.about === undefined ? {} : { about: spec.about, aboutBy: "writer" as const }),
     };
     if (spec.happenedOn !== undefined) put.happenedOn = spec.happenedOn;
     const id = this.store.put(put);
@@ -1005,7 +1154,7 @@ export class Schemas {
       // The RESOLVED id is what physics is told, and the raw declaration stays in
       // the retarget event: the model proposes semantics, the engine resolves
       // references (scar §2.5).
-      { id: input.challengerId, declaredUpdates: targetId, physics: challenger },
+      { id: input.challengerId, declaredUpdates: targetId, physics: challenger, ...(input.weight === undefined ? {} : { weight: input.weight }) },
       input.day,
     );
 
@@ -1226,8 +1375,18 @@ export class Schemas {
         ...(spec.meta ?? {}),
       },
       // The evidence that carried the revision sets the successor's salience:
-      // an element is as strongly held as what made it (NOTES §3).
-      salience: spec.challenger.salience,
+      // an element is as strongly held as what made it (NOTES §3) — but a
+      // revised BELIEF is born weak like any belief (lane C, 2026-10-21), by
+      // the route `correction` (it is what the evidence corrected it to; the
+      // store carries no route to a successor), so it stays a belief to
+      // physics. Its predecessor's support stays where it was counted: it
+      // backed the belief that lost, and the successor earns its own.
+      salience:
+        spec.role === "belief"
+          ? bornWeak({ relevance: spec.challenger.salience.relevance, emotional: 0, predictive: spec.challenger.salience.predictive }, spec.challenger.salience.claimed ?? null)
+          : spec.challenger.salience,
+      ...(spec.role === "belief" ? { birthRoute: "correction" as const } : {}),
+      ...(spec.role === "belief" && (spec.row.about === "me" || spec.row.about === "us") ? { about: spec.row.about, aboutBy: "writer" as const } : {}),
       physics: { birthDay: input.day, lastUsedDay: input.day, ...seed },
       // The channel vocabulary's fifth member finally has its writer (PR-2
       // review should-fix 1): an accommodation successor is the engine

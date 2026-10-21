@@ -312,7 +312,7 @@ describe("store v14 — the new columns and tables, round trip", () => {
     const schemas = Schemas.open({ store: s });
     const me = schemas.ensureSelfSubject();
     expect(schemas.ensureSelfSubject()).toBe(me);
-    const out = schemas.addBelief({ entityId: me, statement: "I like to check before I claim.", day: 0 });
+    const out = schemas.addBelief({ birthRoute: "reflection", entityId: me, statement: "I like to check before I claim.", day: 0 });
     expect(out).toMatchObject({ ok: true, reason: "added" });
     expect(s.row(out.id as string)?.kind).toBe("fact");
     // A Schemas opened before it existed: revived through the same door, it registers too.
@@ -320,7 +320,7 @@ describe("store v14 — the new columns and tables, round trip", () => {
     s.archive(me, "faded");
     const late = Schemas.open({ store: s });
     expect(early.ensureSelfSubject()).toBe(me);
-    expect(early.addBelief({ entityId: me, statement: "We work best in the morning.", day: 0 }).ok).toBe(true);
+    expect(early.addBelief({ birthRoute: "reflection", entityId: me, statement: "We work best in the morning.", day: 0 }).ok).toBe(true);
     expect(late.ensureSelfSubject()).toBe(me);
   });
 
@@ -378,16 +378,18 @@ describe("store v14 — the new columns and tables, round trip", () => {
     const m1 = s.put({ type: "memory", kind: "fact", body: "Mike asked for plainer copy.", origin: { session: "sess-a", scope: "/work/site" } });
     s.advanceClock("2026-10-02");
     const m2 = s.put({ type: "memory", kind: "fact", body: "Mike kept the jargon in the README.", origin: { session: "sess-b", scope: "/work/repo" } });
-    expect(s.fileSupport({ beliefId: belief, memoryId: m1, stance: "support", route: "session", day: 1, weight: 1 })).toBe(true);
+    expect(s.fileSupport({ beliefId: belief, memoryId: m1, stance: "support", route: "testimony", day: 1, weight: 1 })).toBe(true);
     // Re-citing what was counted adds nothing, whatever it says the second time.
-    expect(s.fileSupport({ beliefId: belief, memoryId: m1, stance: "support", route: "reflection", day: 2, weight: 0.5 })).toBe(false);
-    expect(s.fileSupport({ beliefId: belief, memoryId: m2, stance: "contrary", route: "session", day: 2, weight: 1 })).toBe(true);
-    expect(s.fileSupport({ beliefId: belief, memoryId: belief, stance: "support", route: "reflection", day: 2, weight: 1 })).toBe(false);
+    expect(s.fileSupport({ beliefId: belief, memoryId: m1, stance: "support", route: "found", day: 2, weight: 0.5 })).toBe(false);
+    expect(s.fileSupport({ beliefId: belief, memoryId: m2, stance: "contrary", route: "found", day: 2, weight: 1 })).toBe(true);
+    expect(s.fileSupport({ beliefId: belief, memoryId: belief, stance: "support", route: "found", day: 2, weight: 1 })).toBe(false);
     const rows = s.supportOf(belief);
+    // The weight is the count's (lane C, physics §5.13), not the one passed in.
     expect(rows.map((r) => [r.memoryId, r.stance, r.route, r.day, r.weight])).toEqual([
-      [m1, "support", "session", 1, 1],
-      [m2, "contrary", "session", 2, 1],
+      [m1, "support", "testimony", 1, 1],
+      [m2, "contrary", "found", 2, 0.7],
     ]);
+    expect(s.row(belief)?.uses).toBe(1);
     expect(rows.map((r) => [r.session, r.scope])).toEqual([
       ["sess-a", "/work/site"],
       ["sess-b", "/work/repo"],
@@ -396,6 +398,8 @@ describe("store v14 — the new columns and tables, round trip", () => {
     expect(s.supportGivenBy(m2).map((r) => r.beliefId)).toEqual([belief]);
     expect(s.unfileSupport(belief, m2)).toBe(true);
     expect(s.supportOf(belief)).toHaveLength(1);
+    expect(s.unfileSupport(belief, m1)).toBe(true);
+    expect(s.row(belief)?.uses).toBe(0);
   });
 
   test("folders and projects: one project per folder, replaced, cleared; the card must exist", () => {

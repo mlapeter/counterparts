@@ -4047,6 +4047,7 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
       day: 0,
     }).id as string;
     const beliefId = sc.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: STATEMENT,
       day: 0,

@@ -187,6 +187,7 @@ describe("core and doctor reads keep the newest rows", () => {
     const schemas = Schemas.open({ store });
     const entityId = schemas.mention({ name: "Ada", kind: "person", source: "Ada prefers async review", chunkRef: "c1", day: 0 }).id as string;
     const beliefId = schemas.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "Ada prefers async review",
       day: 0,

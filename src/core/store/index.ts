@@ -4673,14 +4673,30 @@ export class Store {
    * a second filing of the same pair changes nothing and returns false, so
    * re-citing what was counted adds nothing (design §4). A belief cannot
    * support itself.
+   *
+   * Lane C (2026-10-21): a new row is COUNTED in the same transaction — every
+   * weight on the belief recounted from the table (`wave2.ts#recountSupport`,
+   * physics §5.13) and the belief's physics moved by the difference. The
+   * row is written at 0 and the count gives it its weight, so the `weight`
+   * passed in is not what it keeps; `supportOf` reads what it counts for. Whether a memory MAY be filed (a lived memory, a known
+   * route) is `schemas#fileSupport`'s to decide; this keeps the count.
    */
   fileSupport(input: wave2.SupportInput): boolean {
-    return this.mutate("fileSupport", () => wave2.fileSupport(this, input, this.nowFn()));
+    return this.mutate("fileSupport", () => {
+      const filed = wave2.fileSupport(this, { ...input, weight: 0 }, this.nowFn());
+      if (filed) wave2.recountSupport(this, input.beliefId);
+      return filed;
+    });
   }
 
-  /** Takes a memory's count off a belief (an undo). False when it was not counted. */
+  /** Takes a memory's count off a belief (an undo), and counts what is left. False when it was not counted. */
   unfileSupport(beliefId: string, memoryId: string): boolean {
-    return this.mutate("unfileSupport", () => wave2.unfileSupport(this, beliefId, memoryId));
+    return this.mutate("unfileSupport", () => {
+      const was = wave2.supportOf(this, beliefId).find((r) => r.memoryId === memoryId);
+      const gone = wave2.unfileSupport(this, beliefId, memoryId);
+      if (gone) wave2.recountSupport(this, beliefId, was);
+      return gone;
+    });
   }
 
   /** What a belief is counted on, each row with its memory's own day, session and folder — the spread, by a join. */

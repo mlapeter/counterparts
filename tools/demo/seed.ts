@@ -447,7 +447,12 @@ export async function seedDemo(opts: SeedOptions): Promise<SeedReport> {
           refusals.push(`${day.date} belief ${belief.key}: no entity for ${belief.about}`);
           continue;
         }
+        // The demo's beliefs stand for ones already lived (its stories show
+        // pressure building and holding): seeded as migrated, they keep the
+        // strength they are given. A belief born today starts weak (lane C).
         const out = c.schemas.addBelief({
+          birthRoute: "migrated",
+          channel: "migrated",
           entityId,
           statement: belief.statement,
           day: livedDay,

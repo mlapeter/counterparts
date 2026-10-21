@@ -12,6 +12,9 @@
 import type { Db } from "./db.js";
 import type { BeliefSupportRow, FolderProjectRow, RecallTurnRow, TagMergeRow } from "./operational.js";
 import type { Store } from "./index.js";
+import { emotionalIntensity, supportCredit, supportedPhysics } from "../physics/index.js";
+import type { SupportFiling } from "../physics/index.js";
+import { rowToPhysics } from "./operational.js";
 
 /**
  * A tag as stored: trimmed, lowercased, inner whitespace one space. The one
@@ -222,6 +225,68 @@ export function supportOf(store: Store, beliefId: string): SupportRead[] {
 export function supportGivenBy(store: Store, memoryId: string): SupportRead[] {
   if (!has(store, "belief_support")) return [];
   return ops(store).all<SupportJoin>(`${SUPPORT_JOIN} WHERE s.memory_id = ? ORDER BY s.belief_id`, memoryId).map(supportRead);
+}
+
+/**
+ * THE BELIEF'S SUPPORT, COUNTED AGAIN (lane C, physics §5.13): every row's
+ * weight from the whole table, in filing order (`physics#supportCredit`), and
+ * the difference since the last count carried onto the belief's own physics
+ * (`physics#supportedPhysics`). Run inside every filing and unfiling, so the
+ * belief row, the table and the weights it shows never disagree. Each counted
+ * memory's feeling is its strongest felt at the time (`feeling_peak_lived`):
+ * a feeling a reflection records later does not make its memory count more.
+ * Returns each memory's weight; empty when the table or the belief is not there.
+ */
+export function recountSupport(
+  store: Store,
+  beliefId: string,
+  /** A row just taken off (`unfileSupport`): what it counted for is part of the last count. */
+  gone?: { readonly stance: string; readonly weight: number; readonly day: number },
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!has(store, "belief_support")) return out;
+  const belief = store.row(beliefId);
+  if (belief === undefined) return out;
+  const rows = ops(store).all<SupportJoin>(`${SUPPORT_JOIN} WHERE s.belief_id = ? ORDER BY s.day, s.created_at, s.memory_id`, beliefId);
+  const before = { uses: 0, days: new Set<number>() };
+  if (gone !== undefined && gone.stance === "support" && gone.weight > 0) {
+    before.uses += gone.weight;
+    before.days.add(gone.day);
+  }
+  const filings: SupportFiling[] = rows.map((r) => {
+    if (r.stance === "support" && r.weight > 0) {
+      before.uses += r.weight;
+      before.days.add(r.day);
+    }
+    const m = store.row(r.memory_id);
+    const feeling = m === undefined ? 0 : emotionalIntensity({ salience: rowToPhysics(m).salience, feelingPeak: m.feeling_peak_lived ?? m.feeling_peak ?? null });
+    return {
+      memoryId: r.memory_id,
+      stance: r.stance === "contrary" ? "contrary" : "support",
+      route: r.route,
+      day: r.day,
+      bornDay: r.born_day,
+      session: r.origin_session,
+      scope: r.origin_scope,
+      feeling,
+    };
+  });
+  const credit = supportCredit(filings);
+  const write = ops(store).prepare("UPDATE belief_support SET weight = ? WHERE belief_id = ? AND memory_id = ?");
+  filings.forEach((f, i) => {
+    const w = credit.weights[i] ?? 0;
+    write.run(w, beliefId, f.memoryId);
+    out.set(f.memoryId, w);
+  });
+  const next = supportedPhysics(rowToPhysics(belief), credit, { uses: before.uses, days: before.days.size });
+  ops(store).run(
+    "UPDATE memories SET uses = ?, last_used_day = ?, reinforced_days = ? WHERE id = ?",
+    next.uses,
+    next.lastUsedDay,
+    next.reinforcedDays ?? 0,
+    beliefId,
+  );
+  return out;
 }
 
 // ── folders and projects ───────────────────────────────────────────────────

@@ -484,7 +484,7 @@ describe("death by decay", () => {
       chunkRef: "c1",
       day: 0,
     }).id as string;
-    s.addBelief({ entityId: id, statement: "it ships on Fridays", day: 0 });
+    s.addBelief({ birthRoute: "reflection", entityId: id, statement: "it ships on Fridays", day: 0 });
 
     const v = s.fadeVerdict(id, D_FLOOR(), pastFloors(s));
     expect(v.fade).toBe(false);
@@ -590,6 +590,9 @@ describe("belief revision by pressure", () => {
       day: 0,
     }).id as string;
     const beliefId = s.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
@@ -611,6 +614,7 @@ describe("belief revision by pressure", () => {
     // The latent second door, closed: a belief placed on behalf of a sweep
     // carries the model's claim, and the ceiling cuts it at the element seam.
     const swept = s.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "Bansai is the most important project that has ever existed.",
       day: 0,
@@ -618,16 +622,19 @@ describe("belief revision by pressure", () => {
       claimedSalience: 0.95,
       channel: "fallback",
     }).id as string;
-    expect(s.store.row(swept)?.claimed).toBe(0.6);
+    // Since lane C (2026-10-21) every born belief starts weak: the birth
+    // ceiling is lower than the sweep's, and it is the one that cuts.
+    expect(s.store.row(swept)?.claimed).toBe(PHYSICS.BELIEF_BIRTH_CEILING);
     expect(s.store.row(swept)?.source).toBe("fallback");
     const lift = events.find((e) => e.event === "salience.lifted" && e.data?.["capped"] === true);
     expect({ claimed: lift?.data?.["claimed"], ceiling: lift?.data?.["ceiling"] }).toEqual({
       claimed: 0.95,
-      ceiling: 0.6,
+      ceiling: Math.min(PHYSICS.SWEEP_CLAIM_CEILING, PHYSICS.BELIEF_BIRTH_CEILING),
     });
 
     // Migrated is lived v1 state: full floor, honestly attributed.
     const migrated = s.addBelief({
+      birthRoute: "migrated",
       entityId,
       statement: "A v1 belief whose aggregate salience was earned by living it.",
       day: 0,
@@ -644,6 +651,7 @@ describe("belief revision by pressure", () => {
     // arithmetic still defaults authored; only the CLAIM of authorship must be
     // explicit.
     const unstated = s.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "Beliefs placed with no channel stay honestly unrecorded.",
       day: 0,
@@ -652,6 +660,7 @@ describe("belief revision by pressure", () => {
 
     // Authorship, when actually stated, records.
     const authored = s.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "Beliefs placed by the experiencer keep their testimony whole.",
       day: 0,
@@ -770,6 +779,9 @@ describe("belief revision by pressure", () => {
       day: 0,
     }).id as string;
     const beliefId = s.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada's name is Ada",
       day: 0,
@@ -915,7 +927,7 @@ describe("current-state replacement (owner ruling 2026-09-04)", () => {
   test("every refusal names its own ground, and none of them throws", () => {
     const { s, entityId, stateId } = setup();
     const cid = challenger(s.store, { day: 1, salience: 0.45, body: "evidence" });
-    const beliefId = s.addBelief({ entityId, statement: "it is a memory system", day: 0 })
+    const beliefId = s.addBelief({ birthRoute: "reflection", entityId, statement: "it is a memory system", day: 0 })
       .id as string;
 
     expect(s.replaceCurrentState({ updates: "", challengerId: cid, day: 1 }).reason).toBe(
@@ -1042,12 +1054,12 @@ describe("status lives on the entity, never in identity", () => {
     );
     s.store.archive(entityId, "owner-retired-it");
     expect(s.addCurrentState({ entityId, statement: "x", day: 0 }).reason).toBe("entity-archived");
-    expect(s.addBelief({ entityId, statement: "x", day: 0 }).reason).toBe("entity-archived");
+    expect(s.addBelief({ birthRoute: "reflection", entityId, statement: "x", day: 0 }).reason).toBe("entity-archived");
   });
 
   test("beliefs on the identity core are NOT refused — only status is", () => {
     const { s, selfId } = withSelf();
-    const out = s.addBelief({ entityId: selfId, statement: "I prefer evidence to ceremony", day: 1 });
+    const out = s.addBelief({ birthRoute: "reflection", entityId: selfId, statement: "I prefer evidence to ceremony", day: 1 });
     expect(out.ok).toBe(true);
     expect(s.beliefs(selfId)).toHaveLength(1);
   });
@@ -1170,7 +1182,7 @@ describe("the alias index", () => {
       day: 0,
       aliases: ["cparts"],
     }).id as string;
-    s.addBelief({ entityId: id, statement: "it embeds into any host", day: 0 });
+    s.addBelief({ birthRoute: "reflection", entityId: id, statement: "it embeds into any host", day: 0 });
     s.addCurrentState({ entityId: id, statement: "schemas module landed", day: 0 });
 
     // The slice type is encode's, plus an elision count (INTERFACE-GAPS §4).
@@ -1208,7 +1220,7 @@ describe("the alias index", () => {
       day: 0,
       aliases: ["cparts"],
     }).id as string;
-    first.addBelief({ entityId: id, statement: "it embeds", day: 0 });
+    first.addBelief({ birthRoute: "reflection", entityId: id, statement: "it embeds", day: 0 });
     first.store.close();
     open.length = 0;
 
@@ -1299,6 +1311,8 @@ describe("module properties", () => {
 /** Methods TypeScript marks private; they are on the prototype at runtime. */
 const PRIVATE_HELPERS = new Set([
   "load",
+  // Lane C (2026-10-21): is a belief about me or us (which `use` does not back)? A read.
+  "aboutMe",
   // SEAMS item K: story() reads the DURABLE increments out of box 2's events
   // table and unions this session's ring on top. A read helper, no new operation.
   "storyIncrements",
@@ -1352,6 +1366,7 @@ describe("statement bodies cross the secrets gate at the source (PR-6 review SF1
       day: 0,
     }).id as string;
     const beliefId = s.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "The Deploy key is AIzaSyD-1234567890abcdefghijklmnopqrstuv and it broke the build.",
       day: 0,
@@ -1378,6 +1393,7 @@ describe("the index build is a look at the ADDRESS, not at the memory", () => {
       day: 0,
     }).id as string;
     const beliefId = s.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "it embeds into any host",
       day: 0,
@@ -1414,6 +1430,7 @@ describe("the index build is a look at the ADDRESS, not at the memory", () => {
       day: 0,
     }).id as string;
     const beliefId = s.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
@@ -1480,11 +1497,13 @@ describe("removing a schema element is survivable (2026-09-18)", () => {
       day: 0,
     }).id as string;
     const first = s.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
     }).id as string;
     const second = s.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "Ada reads faster when someone talks her through it",
       day: 0,

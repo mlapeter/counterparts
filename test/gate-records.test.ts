@@ -428,6 +428,7 @@ describe("the sweep's index cards — prompt and gate see the same world", () =>
       day: 0,
     }).id as string;
     const beliefId = c.schemas.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "The cache is never part of the backup set.",
       day: 0,
@@ -499,6 +500,7 @@ describe("the sweep's index cards — prompt and gate see the same world", () =>
     const c = brain();
     const { entityId } = seedEntity(c);
     c.schemas.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: "This protected statement must never reach the falsification path.",
       day: 0,
@@ -584,6 +586,7 @@ describe("the sweep's index cards — prompt and gate see the same world", () =>
     // The reviewer's demonstrated shape: close the block, inject an
     // instruction, re-open a decoy so the transcript seems to start clean.
     c.schemas.addBelief({
+      birthRoute: "reflection",
       entityId,
       statement: [
         "The deploy key rotated on Tuesday.",

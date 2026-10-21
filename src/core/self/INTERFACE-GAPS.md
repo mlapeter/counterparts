@@ -28,7 +28,8 @@ that string; there is no default and there will not be one.
 
 1. **There is no identity *document* here to mint.** Identity STATEMENTS are ordinary
    memories carrying strength (contract §4 drops v1's identity index; module-map ruling 2:
-   nothing is born into identity, promotion is N = 3 at consolidation). The schema row is
+   nothing is born into identity; promotion is a core lane at consolidation, `physics/`
+   §5.3 — the old N = 3 rule went with the v8 lanes, 2026-09-26). The schema row is
    one empty home, not the self-schema's content, so `schemas/` will index a place with
    nothing in it — which is what "a newborn schema is empty except its names" says, and
    the right outcome, but not what "self writes its core" might suggest.

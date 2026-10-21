@@ -233,6 +233,13 @@ export interface MemoryPhysics {
    * (`physics#curveSal`), never read alone. Computed at the read seam, never stored.
    */
   eraExempt?: boolean;
+  /**
+   * A BELIEF (wave 2 lane C, 2026-10-21; physics §5.13) — NOT a column:
+   * computed at the read seam from `memories.birth_route`, which only a belief
+   * carries. Its repetition arm is its SUPPORT, at full weight whatever its
+   * subject's kind (`physics#base`). Absent or false: any other memory.
+   */
+  belief?: boolean;
   /** Set only by the explicit promotion crossing or revision inheritance (§5.3). */
   promotedIdentity: boolean;
   protected: boolean;

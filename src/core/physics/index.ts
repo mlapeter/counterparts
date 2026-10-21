@@ -512,6 +512,50 @@ export const TUNABLES = {
    *  assistant-recommended, explicitly NOT an owner ruling. */
   H_SUPERSEDED_DAYS: 90,
 
+  // --- §5.13 support: a belief earned by life (wave 2 lane C, 2026-10-21) ---
+  //
+  // Starting points, lightly held: CHECK 2026-10-26 on live numbers (how many
+  // beliefs a night, how far support lifts them, how often a contrary flips
+  // one). Each is top-level so `harness compare --set physics.KEY=…` can move
+  // it, and read at use (`supportRouteWeight`), never copied at load.
+  /** Every belief starts weak and provisional, whoever writes it: its salience at birth, at most (dimensions and claim both). CAL. */
+  BELIEF_BIRTH_CEILING: 0.3,
+  /** TESTIMONY: the owner's own words (`said_by = owner`) back it. CAL. */
+  SUPPORT_TESTIMONY: 1.0,
+  /** CHOICE: my own real choice, lived (`said_by = self`). CAL. */
+  SUPPORT_CHOICE: 1.0,
+  /** USE: awake use of the belief at work — for beliefs about work, people and projects, not about me. CAL. */
+  SUPPORT_USE: 0.5,
+  /**
+   * FOUND: an older memory a reflection connects to the belief for the first
+   * time. Seeing a pattern is insight, so it counts — a little less than
+   * lived evidence UNTIL LIFE ECHOES IT: once a lived filing (testimony,
+   * choice, use) whose memory was born on a LATER lived day than the found
+   * memory is filed on the same belief, the found filing counts at full
+   * weight (`SUPPORT_FOUND_ECHOED`). CAL.
+   */
+  SUPPORT_FOUND: 0.7,
+  /** What a found filing rises to once life echoes it. */
+  SUPPORT_FOUND_ECHOED: 1.0,
+  /** LINK: another belief (strong enough to lend it, `SUPPORT_LINK_FLOOR`) backs it — each. CAL. */
+  SUPPORT_LINK: 0.25,
+  /** …and at most this much from links altogether, so a cluster can't hold itself up. */
+  SUPPORT_LINK_MAX: 0.5,
+  /** A belief lends support only at this strength or more (a newborn's 0.3 does not). CAL. */
+  SUPPORT_LINK_FLOOR: 0.35,
+  /**
+   * SPREAD: a filing whose memory's lived day, session or folder is already
+   * on the belief (same stance) counts less — the smallest factor that
+   * applies, never a product (one session is one day and one folder). A
+   * memory with no folder (the chapter episodes) shares one "unknown" folder:
+   * unknown, not new. CAL.
+   */
+  SUPPORT_SAME_DAY: 0.5,
+  SUPPORT_SAME_SESSION: 0.25,
+  SUPPORT_SAME_FOLDER: 0.75,
+  /** Feeling adds weight, never required: x (1 + this x the memory's strongest feeling felt at the time). CAL. */
+  SUPPORT_FEELING: 0.5,
+
   // --- §5.7 dedup ---
   /** CAL, and the sharpest instance of scar §2.8: in v1's embedding space
    *  arbitrary same-corpus pairs sat at median cosine 0.576, so an intuited
@@ -924,7 +968,11 @@ export function cons(m: Pick<MemoryPhysics, "consolidated">): number {
  */
 export function base(m: MemoryPhysics): number {
   const k = kindPhysics(m.kind);
-  return Math.max(k.wSal * salArm(m), k.wRep * rep(m)) + cons(m);
+  // A BELIEF's repetition arm is its support (§5.13), at full weight whatever
+  // its subject's kind: a belief about a person (omega_rep 0) is earned by
+  // life like any other. Its `uses` are support and nothing else.
+  const wRep = m.belief === true ? 1 : k.wRep;
+  return Math.max(k.wSal * salArm(m), wRep * rep(m)) + cons(m);
 }
 
 // ---------------------------------------------------------------------------
@@ -1852,6 +1900,152 @@ export function creditReturn(
 }
 
 // ---------------------------------------------------------------------------
+// §5.13 Support — a belief earned by life (wave 2 lane C, 2026-10-21)
+// ---------------------------------------------------------------------------
+
+/** How a memory was counted for or against a belief (`belief_support.route`). */
+export const SUPPORT_ROUTES = ["testimony", "choice", "use", "found", "link"] as const;
+export type SupportRoute = (typeof SUPPORT_ROUTES)[number];
+
+/** The lived routes: what life itself said, as against what a reflection found or another belief lends. */
+const LIVED_ROUTES: ReadonlySet<string> = new Set(["testimony", "choice", "use"]);
+
+/** A filing with no folder (the chapter episodes) shares this one: unknown, not new. */
+const UNKNOWN_FOLDER = "(unknown folder)";
+
+/** A route's starting weight, read at use (so a compare can set it). 0 for a word that is not a route. */
+export function supportRouteWeight(route: string): number {
+  switch (route) {
+    case "testimony":
+      return TUNABLES.SUPPORT_TESTIMONY;
+    case "choice":
+      return TUNABLES.SUPPORT_CHOICE;
+    case "use":
+      return TUNABLES.SUPPORT_USE;
+    case "found":
+      return TUNABLES.SUPPORT_FOUND;
+    case "link":
+      return TUNABLES.SUPPORT_LINK;
+    default:
+      return 0;
+  }
+}
+
+/** One filing, as the support arithmetic reads it: the row, and where its memory came from. */
+export interface SupportFiling {
+  readonly memoryId: string;
+  readonly stance: "support" | "contrary";
+  readonly route: string;
+  /** The lived day it was filed. */
+  readonly day: number;
+  /** The counted memory's own lived birth day, session and folder — null when unknown. */
+  readonly bornDay: number | null;
+  readonly session: string | null;
+  readonly scope: string | null;
+  /** The memory's strongest feeling felt at the time, 0..1 (0 when none). */
+  readonly feeling: number;
+}
+
+export interface SupportCredit {
+  /** Each filing's weight, in the order given. */
+  readonly weights: readonly number[];
+  /** The sum of the `support` weights: the belief's `uses` (its repetition arm and part of its stability). */
+  readonly uses: number;
+  /** The last lived day a support filing counted for something — the curve's anchor — or null. */
+  readonly lastDay: number | null;
+  /** Distinct lived days a support filing counted on. */
+  readonly days: number;
+}
+
+/**
+ * WHAT A BELIEF'S SUPPORT ADDS UP TO (§5.13). Pure; the store recomputes it
+ * from the whole table at every filing (`Store#fileSupport`), the way returns
+ * are recomputed from theirs, so an unfiled row or a found filing that life
+ * later echoed reads exactly. `filings` in filing order (day, then moment).
+ *
+ *   w = route x spread x (1 + SUPPORT_FEELING x feeling)
+ *   route  = testimony 1 · choice 1 · use 0.5 · found 0.7 (1 once echoed) · link 0.25
+ *   spread = the smallest of SAME_SESSION / SAME_DAY / SAME_FOLDER that an
+ *            earlier filing of the same stance already holds, else 1
+ *   links  = at most SUPPORT_LINK_MAX together; no spread, no feeling
+ *
+ * Each memory is counted once per belief by the table's key, so re-citing
+ * adds nothing; nothing here can see the belief being shown, recalled or
+ * cited, so none of those adds anything either. A contrary filing gets its
+ * weight here too: it is the factor its challenge is pressed at (`Challenge.weight`).
+ */
+export function supportCredit(filings: readonly SupportFiling[]): SupportCredit {
+  const seen: Record<"support" | "contrary", { days: Set<number>; sessions: Set<string>; scopes: Set<string> }> = {
+    support: { days: new Set(), sessions: new Set(), scopes: new Set() },
+    contrary: { days: new Set(), sessions: new Set(), scopes: new Set() },
+  };
+  // Life echoes a found filing when a lived one was born on a later day than its memory.
+  let lastLivedBorn = Number.NEGATIVE_INFINITY;
+  for (const f of filings) {
+    if (f.stance === "support" && LIVED_ROUTES.has(f.route) && f.bornDay !== null) lastLivedBorn = Math.max(lastLivedBorn, f.bornDay);
+  }
+  const linked: Record<"support" | "contrary", number> = { support: 0, contrary: 0 };
+  const weights: number[] = [];
+  let uses = 0;
+  let lastDay: number | null = null;
+  const days = new Set<number>();
+  for (const f of filings) {
+    let w: number;
+    if (f.route === "link") {
+      w = Math.max(0, Math.min(TUNABLES.SUPPORT_LINK, TUNABLES.SUPPORT_LINK_MAX - linked[f.stance]));
+      linked[f.stance] += w;
+    } else {
+      const echoed = f.route === "found" && f.bornDay !== null && lastLivedBorn > f.bornDay;
+      const route = echoed ? TUNABLES.SUPPORT_FOUND_ECHOED : supportRouteWeight(f.route);
+      const s = seen[f.stance];
+      const scope = f.scope ?? UNKNOWN_FOLDER;
+      const spread =
+        f.session !== null && s.sessions.has(f.session)
+          ? TUNABLES.SUPPORT_SAME_SESSION
+          : f.bornDay !== null && s.days.has(f.bornDay)
+            ? TUNABLES.SUPPORT_SAME_DAY
+            : s.scopes.has(scope)
+              ? TUNABLES.SUPPORT_SAME_FOLDER
+              : 1;
+      const feeling = Number.isFinite(f.feeling) ? clamp01(f.feeling) : 0;
+      w = route * spread * (1 + TUNABLES.SUPPORT_FEELING * feeling);
+      if (f.session !== null) s.sessions.add(f.session);
+      if (f.bornDay !== null) s.days.add(f.bornDay);
+      s.scopes.add(scope);
+    }
+    weights.push(w);
+    if (f.stance === "support" && w > 0) {
+      uses += w;
+      lastDay = lastDay === null ? f.day : Math.max(lastDay, f.day);
+      days.add(f.day);
+    }
+  }
+  return { weights, uses, lastDay, days: days.size };
+}
+
+/**
+ * A belief's physics with its support recounted (§5.13). A return-like
+ * credit with a use's reach: the support's sum is in `uses` — the height (the
+ * repetition arm, which a belief always has) and part of the stability — and
+ * the curve restarts on the last day support counted, where a return would
+ * only lengthen it. `before` is what the support counted for at its last
+ * count, so only the difference moves `uses` and the reinforced days: a use
+ * credited some other way (lane E's, later) is kept. The anchor never moves
+ * back — an unfiled support leaves the day it restarted the curve.
+ */
+export function supportedPhysics(
+  m: Pick<MemoryPhysics, "uses" | "lastUsedDay" | "reinforcedDays">,
+  credit: SupportCredit,
+  before: { readonly uses: number; readonly days: number },
+): Pick<MemoryPhysics, "uses" | "lastUsedDay" | "reinforcedDays"> {
+  return {
+    uses: Math.max(0, m.uses + credit.uses - before.uses),
+    lastUsedDay: Math.max(m.lastUsedDay, credit.lastDay ?? m.lastUsedDay),
+    reinforcedDays: Math.max(0, reinforcedDays(m) + credit.days - before.days),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Guarantee 12 — the symmetry counter (scar §2.10)
 // ---------------------------------------------------------------------------
 
@@ -2002,6 +2196,12 @@ export interface Challenge {
   declaredUpdates: string | null;
   physics: MemoryPhysics;
   /**
+   * A FACTOR ON THE FORCE (wave 2 lane C, 2026-10-21): a CONTRARY support
+   * filing challenges at its route's weight (§5.13), as support counts at it —
+   * `F = weight x strength(new) x sal(new)`. Absent: 1.
+   */
+  weight?: number;
+  /**
    * A FLOOR ON THE FORCE (2026-10-11, Group 2b; review 10 C4): the writer
    * DECLARED a change at this memory, and the declaration is the evidence —
    * a "done" memory's low salience says nothing about it. Still capped at
@@ -2126,7 +2326,8 @@ export function applyChallenge(
   }
   if (target.lastChallengedDay !== null && d < target.lastChallengedDay) return refuse("stale-day");
 
-  const rawForce = Math.max(challengeForce(challenge.physics, d, shape), challenge.floor ?? 0);
+  const factor = challenge.weight === undefined || !Number.isFinite(challenge.weight) ? 1 : Math.max(0, challenge.weight);
+  const rawForce = Math.max(challengeForce(challenge.physics, d, shape) * factor, challenge.floor ?? 0);
   const slow = kindPhysics(target.kind).iota >= TUNABLES.SLOW_KIND_IOTA;
   const force = slow ? Math.min(rawForce, TUNABLES.F_DAY_CAP_SLOW) : rawForce;
   const pressureAfter = pressureBefore + force;

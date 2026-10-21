@@ -262,6 +262,11 @@ the row's `meta` column). A card is how a name reaches its memories — subjects
 subject channel — and a newborn one holds only its name, so once cards were born from the
 names the memories say, a turn naming someone footnoted the stub. Facts mode keeps it out of
 its results the same way (`facts.ts#neverAResult`). The identity core is a card too.*
+*A FOURTH, FOR NOW (2026-10-21, wave 2 lane C): a BELIEF (`activate.ts#isBeliefRow`, off the
+row's `meta` column) — never a candidate, a footnote, "came to mind", or a head standing in
+for one (`index.ts#headsWin`), and never a facts-mode result. The night starts writing
+beliefs; showing them is lane E's, in a slot of their own behind its own switch. Opening one
+by its id still reads it, as a card's id does.*
 **Outputs** — a rendered injection (empty string, affect flag, footnotes, or a surfaced
 gist); a decision record (tier counts, ids, salience — content-by-reference); reference
 credit at the boundary; reinforcement deltas handed to `physics/`.
