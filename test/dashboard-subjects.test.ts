@@ -159,9 +159,8 @@ describe("the subjects endpoints over a store with cards, tags and beliefs", () 
     let weak = "";
     try {
       const day = c.store.livedDay();
-      strong = c.schemas.addBelief({ entityId: mike, statement: "Mike wants decisions kept light.", day, claimedSalience: 0.9, groundedIn: [mem["b"] as string] }).id as string;
-      weak = c.schemas.addBelief({ entityId: mike, statement: "Mike walks pages one by one.", day, claimedSalience: 0.1 }).id as string;
-      c.store.setBeliefFields(strong, { birthRoute: "reflection" });
+      strong = c.schemas.addBelief({ entityId: mike, statement: "Mike wants decisions kept light.", day, claimedSalience: 0.9, groundedIn: [mem["b"] as string], birthRoute: "reflection" }).id as string;
+      weak = c.schemas.addBelief({ entityId: mike, statement: "Mike walks pages one by one.", day, claimedSalience: 0.1, birthRoute: "reflection" }).id as string;
       expect(c.store.fileSupport({ beliefId: strong, memoryId: mem["b"] as string, stance: "support", route: "lived", day, weight: 1 })).toBe(true);
       // Counted once: a second filing of the same memory adds nothing.
       expect(c.store.fileSupport({ beliefId: strong, memoryId: mem["b"] as string, stance: "support", route: "reflection", day, weight: 1 })).toBe(false);
@@ -216,7 +215,7 @@ describe("the subjects endpoints over a store with cards, tags and beliefs", () 
     // Lane C's door: `Schemas#ensureSelfSubject` registers the card, so a belief can be minted on it at once.
     const c = Counterpart.open({ dir });
     const self = c.schemas.ensureSelfSubject();
-    const belief = c.schemas.addBelief({ entityId: self, statement: "I say plainly what I checked.", day: c.store.livedDay() }).id as string;
+    const belief = c.schemas.addBelief({ entityId: self, statement: "I say plainly what I checked.", day: c.store.livedDay(), birthRoute: "reflection" }).id as string;
     c.close();
     const d = Dashboard.open({ dir });
     try {
