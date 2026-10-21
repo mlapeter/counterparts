@@ -15,7 +15,7 @@ step, no dependencies. `server.ts` serves them as files (see "Serving" below).
 | `ask-voice.ts` | `toMyVoice(question, ownerName)`: Ask is the owner talking to me, so `ask` turns his question into my voice before it searches ("do you remember what I said" → "do I remember what Mike said"; his I → "you" when the store knows no name). Pure; the rules are in its header and `test/dashboard-ask-voice.test.ts`. The server reads the name (`sleep#ownerNames`) and hands `actions.ts` the string |
 | `static.ts` | `resolveStatic()`: which URL paths are static files and where they live (pure; no fs) |
 | `views.ts` | the index of `views/`: re-exports every view, so callers import from here |
-| `views/<name>.ts` | one module per `/api` view: `meta`, `overview` (the home tab's; its "Today" lines are `today`), `memories` (`/api/memories` + `/api/memories/list`), `memory`, `search` (`/api/search`), `mind` (the self tab's; its trait bars are `traits`), `activity`, `flow-view` (`/api/flow` + `/api/node`), `health`, `pulse`, `mechanisms`, `mechanism-panel` (`/api/mechanism?id=`) |
+| `views/<name>.ts` | one module per `/api` view: `meta`, `overview` (the home tab's; its "Today" lines are `today`), `memories` (`/api/memories` + `/api/memories/list`), `memory`, `search` (`/api/search`), `mind` (the self tab's; its trait bars are `traits`), `subjects` (the subjects tab: `/api/subjects`, `/api/subject?id=` — `me` for the subject that is me — and `/api/tag?tag=`; read off the live `schema` rows, not `schemas`), `activity`, `flow-view` (`/api/flow` + `/api/node`), `health`, `pulse`, `mechanisms`, `mechanism-panel` (`/api/mechanism?id=`) |
 | `views/archive-words.ts` | why a memory was archived, in plain words: one table (`ARCHIVE_WORDS`, a group phrase and a single-row phrase per reason) and one fallback for a reason nobody mapped; health's bar, the memories list and home's archived count read it |
 | `views/mechanisms.ts` | `/api/mechanisms`: each mechanism's light (grey = not built, green = fired in the last 7 lived days, waiting = built and not due — a scheduled run ahead, or nothing to act on — amber = built and quiet), its `build` (built / partly / not: the pill's "partly built" tag), one evidence line, the newest backing event `seq`s. Which rows count as a firing is `adapters/mechanism-evidence.ts` — ONE judgement shared with `counterparts mechanisms` (`cli/mechanisms.ts`), which keeps its own words and its calendar window; this file owns the lived-day window and the dashboard's words |
 | `views/shared.ts` | the census and small counters every view leans on |
@@ -69,7 +69,7 @@ shared/
                       light.js (the status dot: green / waiting ring / amber / grey),
                       tips.js + .css (the `?`: explaining words behind a tap or hover; one
                       copy for every page, pinned tips kept across a live refresh)
-pages/<tab>/          tabs: home (was overview), memories, self (was mind), flow, health;
+pages/<tab>/          tabs: home (was overview), memories, subjects, self (was mind), flow, health;
                       #overview and #mind still land (shell/tabs.js RENAMED)
   index.js            default export { name, mount(section), render(), refresh?, show?,
                       resize?, redraw?, onEvents?, onDeposit? }; composes its sections' markup

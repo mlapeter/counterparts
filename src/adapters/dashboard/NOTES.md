@@ -729,3 +729,37 @@ folds too.
 - `Revealed.confidential`, `gistOfDoc().confidential` and the `confidential` field on
   every view's rows are gone; the client's `said(text)` takes one argument and the
   `.withheld` styles and branches are gone.
+
+## 2026-10-21 — the subjects tab (wave 2 lane D)
+
+Design §7: a page per subject, a tag cloud, and (to follow, on lane C's correction method)
+a "this is wrong" button on each belief.
+
+- **Where it lives: a new tab, `subjects`, between memories and self.** `#subjects` is the
+  cloud and every subject by kind; `#subjects/<id>` one subject's page; `#subjects/me` the
+  subject that is me (`Store#selfSubject`), or its absence until lane C makes it. Each thing
+  is shown once: the memory card links a card, or a belief, to its page; the
+  self tab links to `#subjects/me`; the page links each memory to its card. Nothing about a
+  subject is repeated on another tab.
+- **Read from the store, not from `schemas`.** `Schemas` reads its cards' meta once, at its
+  open; the dashboard's source lives as long as the server, so `schemas.beliefs()` would miss
+  every belief born after the server started. `views/subjects.ts` reads the live `schema`
+  rows' meta itself (a few hundred rows; one pass per request).
+- **Every live entity card has a page.** The v14 upgrade judged only people and places
+  (`subject_kind`); the rest are "not sorted yet" until lane B's night sorts them, rather
+  than left without a page (totality). Two cards with one name (the store has a few) are one
+  word in the cloud and two chips in the list.
+- **The cloud: tags with subjects emphasized**, not subjects alone (the brief's lean). A tag
+  that is a subject's name or alias merges into the subject; concept edges
+  (`Store#tagNeighbours`) ride on each word, lit on hover or focus, not drawn as lines. With
+  no tags yet (every store until lane B's writers run), the cloud is the subjects alone,
+  sized by the memories that name them (`memory_subjects`), and says so. A plain tag opens a
+  small panel under the cloud (`/api/tag`): its newest memories and what it comes up with.
+- **A belief line:** its words (open its card), a strength meter, "held up by N memories
+  over D days" (`belief_support`, each memory once; contrary counted apart), how it was born
+  (`birth_route`), confidence when set, and the memories behind it in a fold — counted
+  support, then what argues against it, then a `groundedIn` source the ledger has not
+  counted ("cited"). Strongest first, twelve shown.
+- **One theme exists** (`tokens.css`, glow), so the pages were checked in it only, at 1400
+  and 390 wide, against an empty store, an un-upgraded v13 copy of the corpus, and a v14
+  copy seeded with tags, a self subject, nine beliefs and their support.
