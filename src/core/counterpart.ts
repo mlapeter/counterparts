@@ -168,6 +168,7 @@ import {
   projectFolders,
   projectFolder,
   craftSince,
+  craftBornDay,
   CRAFT_SINCE_KEY,
   isDirectoryScope,
 } from "./self/index.js";
@@ -2258,7 +2259,16 @@ export class Counterpart {
       const origin = projectFolder(row.origin_scope);
       if (origin.length === 0 || ours.has(origin)) return false;
       const journal = typeof row.meta === "string" && row.meta.includes('"episodeId"');
-      return isWorkMemory({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay: row.birth_day }, { craftTravels: travels, craftSince: since });
+      // A revised skill's first-learned day (`craftBornDay`), read only for a skill.
+      let bornDay = row.birth_day;
+      if (row.kind === "skill") {
+        try {
+          bornDay = craftBornDay(this.store.readProse(id).meta, row.birth_day);
+        } catch {
+          /* its own birth */
+        }
+      }
+      return isWorkMemory({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay }, { craftTravels: travels, craftSince: since });
     };
     return { ...turn, elsewhere };
   }
