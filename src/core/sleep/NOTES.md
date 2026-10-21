@@ -1126,3 +1126,14 @@ write-ahead log.
   worker whose cycle stood aside now skips it (`runner.wake` reason `held-elsewhere`).
 - Minor: the cache opens inside the `try`, so a throw there gives the lease back; a stand-aside
   row carries one day, the lived day its report read, in the column and the payload alike.
+
+**The known residual, accepted** (2026-10-21, with the day coordinator; the decision is in
+`docs/decisions.d/fix-sleep-single-flight-1021.md` until release). The take-over rules can
+misjudge a LIVE holder: by its clock (a row that looks taken in the future, or ends too far
+ahead), or by `kill(pid, 0)` reporting it dead when it is not — another pid namespace, a store
+synced to another machine. That holder runs on until its next fence, so the two cycles overlap
+for at most one phase. Births in that window still make one card per name: the re-check under
+the write lock (`Schemas#birth`, #578) sees the other cycle's cards, and the trial merge of
+#569, #578 and #581 made no twin. Another phase may run twice in that window, as any phase
+could before the lease; births was the one where that left lasting damage. Revisit if a store
+is ever shared across machines or pid namespaces.
