@@ -4242,6 +4242,17 @@ export class Store {
   }
 
   /**
+   * CRAFT THAT MAY TRAVEL (2026-10-21, `self/work.ts#isCraft`): live skill
+   * memories not marked `work`, from any folder or none, and not identity,
+   * dated or emptied; newest touched first, then id, at most `limit`. The
+   * columns only, as `workCandidates`; the caller confirms each on the prose
+   * and gates its folder.
+   */
+  craftCandidates(limit: number): string[] {
+    return memoryReads.craftCandidates(this, limit);
+  }
+
+  /**
    * WHAT A SESSION WROTE IN ONE DIRECTORY AFTER A MOMENT THAT MAY BE A PLAN
    * (2026-10-09, the handoff's "since" line): live memories a session wrote
    * itself (`source = 'authored'`: a note, a `session_end` entry) under one of
@@ -4709,6 +4720,11 @@ export class Store {
   /** The project a folder belongs to, or null. */
   projectOfFolder(folder: string): FolderProjectRow | null {
     return wave2.projectOfFolder(this, folder);
+  }
+
+  /** Every folder row, by project then folder (lane G's list). */
+  folderProjects(): FolderProjectRow[] {
+    return wave2.folderProjects(this);
   }
 
   /** The folders that belong to a project, sorted. */

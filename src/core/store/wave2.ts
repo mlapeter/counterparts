@@ -248,6 +248,11 @@ export function projectOfFolder(store: Store, folder: string): FolderProjectRow 
   return ops(store).get<FolderProjectRow>("SELECT * FROM folder_projects WHERE folder = ?", folder) ?? null;
 }
 
+export function folderProjects(store: Store): FolderProjectRow[] {
+  if (!has(store, "folder_projects")) return [];
+  return ops(store).all<FolderProjectRow>("SELECT * FROM folder_projects ORDER BY project_id, folder");
+}
+
 export function foldersOfProject(store: Store, projectId: string): string[] {
   if (!has(store, "folder_projects")) return [];
   return ops(store)

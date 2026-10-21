@@ -2424,3 +2424,39 @@ unset, and the reflection was offered five unmarked memories a night.
   are gone (a caller's own `omit` still counts what it held back, said as "held back").
   `workHere` no longer skips a marked row. The crash fallback's wake (`sweepWake`) still
   stands PROTECTED rows out and counts them.
+
+## 2026-10-21 — projects, and craft that travels (wave 2 lane G, design §8; lightly held)
+
+A memory knew its folder, not its project, and an unmarked skill counted as work, so craft
+learned in one folder stayed there. One switch, `PROJECTS_TRAVEL` (on):
+
+- **A folder belongs to a project** (`folder_projects`, store v14). With no row it is its own,
+  and nothing is written to say so: the wake writes nothing (§5 G1), and a card per folder
+  seen would be noise (the corpus copy has scratch-workspace folders). The project's card is
+  made at the first join (`counterpart-projects.ts`): found by name — a live card that is not
+  a person or me, marked `subject_kind` `project` — or born by mention, so the alias index
+  holds its name. Joining by a folder names the project after that folder (`via: default`).
+  The owner's door is `counterparts project join|leave|list`.
+- **Travel by project** (`work.ts#projectFolders`): "Work here" reads every folder of the
+  project, and the elsewhere gate (`counterpart.ts#elsewhereGate`) never names a folder of
+  this one's project; its open sessions are "Here, also open". **This folder keeps half**:
+  the project's other folders take at most half the ranked places unless this one has too
+  little. Measured on a copy of the 10-20 corpus: joined, ~/counterparts-site ranked 0 of
+  its own 8 beside ~/counterparts' newest; with the half rule, 3 of its own, 3 of
+  ~/counterparts' and 2 craft.
+- **Craft travels** (`isWorkMemory`'s `craftTravels`, `isCraft`): a skill not marked `work`
+  is craft, in no stored lane and a work line in any folder. `WORK_HERE_CRAFT_MAX` (2) places
+  of the pool are craft from outside the project, taking turns by lived day among the newest
+  (by date alone it never ranked beside a busy project's work), from a folder the host lets
+  be named elsewhere (`exportsFrom`; none when the host cannot be asked), or from no folder.
+  A skill marked `work` stays with its project. Measured on the copy, 7 lived days of
+  `workHere` + `rotateWork`: skills reaching another folder's wake 0 → 10 distinct (15 lines
+  in 10 of 10 folders' wakes on day one).
+- **Where the old rule stays**: the reflection's unmarked offer and its folder-off guard
+  (`dream/reflect.ts`) still read an unmarked skill as work — the offer is how a skill gets
+  pinned to its project with `work`, and a skill from a folder set off stays there; the
+  elsewhere titles (`elsewhereTitles`, `hereSessions`) still name a folder's craft as what it
+  did today. The `about` field's text now says work is one project's own and an unmarked
+  skill reaches every folder.
+- Recall by meaning and footnotes are not folder-gated (recall reads no `origin_scope`); a
+  project filter there is lane G's second PR, behind `RECALL_BY_PROJECT`, off.

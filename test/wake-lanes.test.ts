@@ -169,11 +169,13 @@ describe("Nearby is personal; work waits for its directory", () => {
     // Not in any lane. The "Today, elsewhere" line may name the workshop's
     // work as what was done there (2026-10-20, an experiment) — never its body.
     const lanes = text.split("\n").filter((l) => !l.startsWith("Today, elsewhere: ")).join("\n");
-    for (const id of [work, unmarked, skill]) expect(lanes).not.toContain(id);
+    for (const id of [work, unmarked]) expect(lanes).not.toContain(id);
     expect(lanes).not.toContain("trailing comma");
     expect(lanes).not.toContain("build cache");
-    expect(text).not.toContain("narrow test file");
-    expect(text).not.toContain(skill);
+    // An unmarked skill is craft, and craft travels (2026-10-21,
+    // `PROJECTS_TRAVEL`): a work line in any folder, never Nearby.
+    expect(nearby).not.toContain("narrow test file");
+    expect(under(text, WORK_HERE_HEADING).join("\n")).toContain(skill);
     // The stored bundle has no craft lane any more: it is composed per directory.
     expect(text).not.toContain(FRAMING.craft);
     expect(readSentinel(text).intact).toBe(true);

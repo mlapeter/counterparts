@@ -362,7 +362,15 @@ proposals and their archive; render and delivery telemetry.
    unmarked a night since 2026-10-20, the most likely personal first: `dream/unmarked.ts`); the delivery splices that directory's
    newest few as "Work here, if it helps:" above the handoff block, in the room the
    handoff and "Last here" leave, with a reserve of its own under the handoff's share
-   rule. Furniture: no counts move. **An identity lane with no elements renders ONE line
+   rule. Furniture: no counts move. **Work stays in its PROJECT, and craft travels**
+   (2026-10-21, design §8, `PROJECTS_TRAVEL`, lightly held): a folder belongs to a project
+   (`folder_projects`; with no row, its own — nothing is written to say so), "Work here"
+   reads every folder of it (this folder keeps at least half the ranked places), and the
+   elsewhere lines never name a folder of this one's project. A skill not marked `work` is
+   craft, not work: in no stored lane, and `WORK_HERE_CRAFT_MAX` places of every folder's
+   pool take turns showing craft from outside the project, from a folder the host lets be
+   named elsewhere (`work.ts#isCraft`, `#workHere`). Off: a folder is its own project and an
+   unmarked skill is its folder's work. **An identity lane with no elements renders ONE line
    of furniture naming the identity core** (`briefing.ts#identityCoreLine`) when a core
    exists, and nothing when none does — the core is `type: "schema"` and no lane can reach
    it, so a store seeded by `install --name` composed a wake that named nobody (measured
@@ -711,6 +719,8 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `WORK_HERE_MAX` | 4 | Work lines one delivery shows for its directory. |
 | `WORK_HERE_POOL` | 8 | Work lines ranked for the day's rotation to choose `WORK_HERE_MAX` from (2026-10-02): the newest stays first, the others take turns by lived day (`work.ts#rotateWork`). |
 | `WORK_HERE_EXCERPT` | 60 | Characters of a work line's excerpt after its title. |
+| `PROJECTS_TRAVEL` | true | Work stays in its project, craft travels (2026-10-21, design §8, G2): "Work here" and the elsewhere lines read a folder's project (`folder_projects`), and a skill not marked `work` is craft that may be a work line anywhere. Off: a folder is its own project and an unmarked skill is its folder's work. |
+| `WORK_HERE_CRAFT_MAX` | 2 | With `PROJECTS_TRAVEL`: places of the work pool held by craft from outside the project, taking turns by lived day among the newest. CAL. |
 | `THREADS_MAX` | 5 | Open threads considered (12 until 2026-10-01). `note` and `session_end` set the flag since then, and `updates` with `unresolved: false` clears it — INTERFACE-GAPS §8. |
 | `HINTS_MAX` | 8 | Warm-shelf hints considered. |
 | `HINT_STEP` | 1 | What one published showing in the hints ("Nearby") lane adds to a memory's habituation load — used while shown or not (2026-09-26). |

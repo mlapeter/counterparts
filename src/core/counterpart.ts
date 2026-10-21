@@ -165,6 +165,8 @@ import {
   writerInstruction,
   fitNightWriter,
   isWorkMemory,
+  projectFolders,
+  projectFolder,
 } from "./self/index.js";
 import type {
   BriefingResult,
@@ -256,6 +258,7 @@ import * as boundaryPart from "./counterpart-boundary.js";
 import { rowIds } from "./counterpart-boundary.js";
 import * as sweepPart from "./counterpart-sweep.js";
 import * as depositPart from "./counterpart-deposit.js";
+import * as projectsPart from "./counterpart-projects.js";
 
 // What moved to the counterpart-*.ts parts, re-exported so every import of this file still resolves.
 export {
@@ -1003,16 +1006,22 @@ export class Counterpart {
     reader: string | null;
     /** This session's own directory, normalized ("" when none). */
     own: string;
+    /** Every folder of its project, normalized, `own` among them (2026-10-21). */
+    ours: ReadonlySet<string>;
   } | null {
     const exportsFrom = here?.exportsFrom;
     if (exportsFrom === undefined) return null;
     const norm = (scope: string): string => scope.trim().replace(/\/+$/, "");
     const own = norm(here?.scope ?? "");
+    // A JOINED FOLDER IS HERE (2026-10-21, `PROJECTS_TRAVEL`): the folders of
+    // this one's project are never named elsewhere; their work is "Work
+    // here", and their open sessions are this folder's (`hereSessions`).
+    const ours = new Set(own.length === 0 ? [] : projectFolders(this.store, own, this.self.tunables.PROJECTS_TRAVEL).map(norm));
     const reader = here?.session ?? null;
     const allowed = new Map<string, boolean>();
     const named = (scope: string): boolean => {
       const key = norm(scope);
-      if (key.length === 0 || key === own || key === norm(this.store.dir)) return false;
+      if (key.length === 0 || key === own || ours.has(key) || key === norm(this.store.dir)) return false;
       let open = allowed.get(key);
       if (open === undefined) {
         try {
@@ -1029,7 +1038,7 @@ export class Counterpart {
       if (reader !== null && c.session === reader) return false;
       return named(c.scope);
     };
-    return { named, crosses, norm, reader, own };
+    return { named, crosses, norm, reader, own, ours };
   }
 
   /**
@@ -1057,6 +1066,8 @@ export class Counterpart {
       // Work, by the wake's own rule of what work is; a status mark puts it
       // first, never makes a personal memory work (review of #543: an
       // unmarked person or self memory, or Desktop chat's unmarked fact).
+      // An unmarked skill still counts here though craft travels (2026-10-21):
+      // what a folder did today is named by its craft as much as its work.
       if (!isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
       const key = gate.norm(m.scope);
       const held = out.get(key) ?? [];
@@ -1085,7 +1096,7 @@ export class Counterpart {
    * Throws only what the store throws.
    */
   private hereSessions(
-    gate: { norm(scope: string): string; reader: string | null; own: string },
+    gate: { norm(scope: string): string; reader: string | null; own: string; ours: ReadonlySet<string> },
     sessions: readonly WakeSession[],
     since: number,
     until: number,
@@ -1093,14 +1104,19 @@ export class Counterpart {
   ): HereSession[] {
     const own = gate.own;
     if (own.length === 0 || own === gate.norm(this.store.dir)) return [];
+    // This folder, or another of its project's (2026-10-21).
+    const here = (scope: string): boolean => {
+      const key = gate.norm(scope);
+      return key === own || gate.ours.has(key);
+    };
     const live = sessions.filter(
-      (s) => s.live && s.session !== gate.reader && s.startedAt < until && gate.norm(s.scope) === own,
+      (s) => s.live && s.session !== gate.reader && s.startedAt < until && here(s.scope),
     );
     if (live.length === 0) return [];
     const ids = [...new Set(live.map((s) => s.session))];
     const titles = new Map<string, (MemoryHere & { tier: number })[]>();
     for (const m of this.store.memoryTitlesByScopeSince(since, { until, perScope: ELSEWHERE_TITLES_MAX, sessions: ids })) {
-      if (m.session === null || opts.skip?.has(m.id) === true || gate.norm(m.scope) !== own) continue;
+      if (m.session === null || opts.skip?.has(m.id) === true || !here(m.scope)) continue;
       if (!isWorkMemory({ about: m.about, kind: m.kind as Kind, originScope: m.scope, journal: false })) continue;
       const held = titles.get(m.session) ?? [];
       held.push({ id: m.id, title: m.title, at: m.at, tier: m.tier });
@@ -1372,7 +1388,9 @@ export class Counterpart {
     // A memory the elsewhere line printed above already names — another
     // session here at work on it (2026-10-20) — is that line's, not repeated
     // as a work line; one the line gave up for room is still a work line.
-    const work = this.workHereLines(scope, elsewhereNamedIn(result.text));
+    // Craft from another folder only where the host's setting lets that
+    // folder be named elsewhere; with no way to ask, none (2026-10-21).
+    const work = this.workHereLines(scope, elsewhereNamedIn(result.text), here?.exportsFrom ?? (() => false));
     if (newest === undefined && aboveLadder.length === 0) return { kind: "work-only", scope, budget, work, lastHere };
     const fits = (block: string): ReturnType<typeof spliceBeforeSentinel> | null => {
       const spliced = spliceBeforeSentinel(result.text, block);
@@ -1443,13 +1461,24 @@ export class Counterpart {
    * answer. What a later memory settled over is left out, as every lane but
    * identity leaves it out. Up to `WORK_HERE_POOL` are ranked and today's
    * `WORK_HERE_MAX` chosen from them (`rotateWork`, 2026-10-02); `found` is
-   * how many were ranked, for the overflow row. Never throws.
+   * how many were ranked, for the overflow row. `craftFrom`: may craft
+   * written in that folder be a line here (2026-10-21) — the delivery passes
+   * the host's setting; the boundary's reserve, which cannot know, every
+   * folder. Never throws.
    */
-  private workHereLines(scope: string, skip: ReadonlySet<string> = new Set()): { lines: string[]; found: number } {
+  private workHereLines(
+    scope: string,
+    skip: ReadonlySet<string> = new Set(),
+    craftFrom: (scope: string) => boolean = () => true,
+  ): { lines: string[]; found: number } {
     const t = this.self.tunables;
     if (!t.CRAFT_AT_DELIVERY || scope.trim().length === 0) return { lines: [], found: 0 };
     try {
       const day = this.store.livedDay();
+      // PROJECTS (2026-10-21, `PROJECTS_TRAVEL`): every folder of this one's
+      // project is here, and craft from a folder `craftFrom` lets be named
+      // elsewhere may take a few of the lines.
+      const travels = t.PROJECTS_TRAVEL;
       const ranked = workHere(this.store, scope, {
         day,
         max: t.WORK_HERE_MAX,
@@ -1457,6 +1486,9 @@ export class Counterpart {
         excerpt: t.WORK_HERE_EXCERPT,
         skip: skip.size === 0 ? settledOver(this.store) : new Set([...settledOver(this.store), ...skip]),
         year: yearOf(this.store.today()),
+        folders: projectFolders(this.store, scope, travels),
+        craftTravels: travels,
+        craft: { max: t.WORK_HERE_CRAFT_MAX, from: craftFrom },
       });
       return { lines: rotateWork(ranked, t.WORK_HERE_MAX, day), found: ranked.length };
     } catch {
@@ -3921,6 +3953,35 @@ export class Counterpart {
   keepCore(id: string, opts: { why: string; actor?: CoreDecisionActor }): CoreDecision {
     const out = keepCore(this.store, { id, why: opts.why, actor: opts.actor ?? "owner" });
     if (out.ok) this.emit("counterpart.core.kept", id, { day: this.store.livedDay() });
+    return out;
+  }
+
+  /**
+   * PROJECTS (2026-10-21, wave 2 lane G): which folders are one piece of
+   * work, so a folder's "Work here" reads them all (`self/work.ts`). Bodies
+   * in `counterpart-projects.ts`. Reads work under observer; a join or a
+   * leave refuses there at the store's seam.
+   */
+  projects(): projectsPart.ProjectView[] {
+    return projectsPart.listProjects(this.store);
+  }
+
+  /** The project `folder` belongs to, or null when it is its own. */
+  projectOf(folder: string): projectsPart.ProjectView | null {
+    return projectsPart.projectOf(this.store, folder);
+  }
+
+  /** Joins `folder` to a project — by its name, or by another folder — as the owner, or the night on his yes. */
+  joinProject(input: { folder: string; project: string; by: "owner" | "night" }): projectsPart.JoinOutcome {
+    const out = projectsPart.joinProject(this.store, this.schemas, input);
+    if (out.ok && out.changed) this.emit("counterpart.project.joined", out.project.id, { by: input.by, born: out.born });
+    return out;
+  }
+
+  /** `folder` is its own project again. */
+  leaveProject(folder: string): { left: string | null; folder: string } {
+    const out = projectsPart.leaveProject(this.store, folder);
+    if (out.left !== null) this.emit("counterpart.project.left", out.left, {});
     return out;
   }
 

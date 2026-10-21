@@ -39,6 +39,24 @@
  * here" already names the chapter in its directory, and its copy crossing
  * directories is decided by a core mark (`counterpart.ts#selfChapterElsewhere`).
  *
+ * PROJECTS, AND CRAFT THAT TRAVELS (2026-10-21, wave 2 lane G, design §8;
+ * `SelfTunables.PROJECTS_TRAVEL`, on, lightly held). Two changes, one switch:
+ *
+ *   - work stays inside its PROJECT, not its folder: a folder belongs to a
+ *     project (`folder_projects`, v14), by default its own, and the owner joins
+ *     related folders into one (`counterparts project join`). "Work here" reads
+ *     every folder of the project (`projectFolders`, `workHere`'s `folders`);
+ *   - an UNMARKED SKILL IS NO LONGER WORK (`craftTravels`): craft learned in one
+ *     folder was stuck there, conflating craft with project. A skill marked
+ *     `work` still stays with its project; any other skill is CRAFT
+ *     (`isCraft`), and the "Work here" lines of every folder may carry a few,
+ *     from any folder whose host setting lets it be named elsewhere
+ *     (`WORK_HERE_CRAFT_MAX`). `about` still says personal or work, and the
+ *     project says which work; no sub-labels for now.
+ *
+ * Off, both are as before: a folder is its own project, and an unmarked skill
+ * is work in the folder it was written in.
+ *
  * Pure: the caller hands in the row's facts.
  */
 import type { Kind, MemoryPhysics } from "../types.js";
@@ -68,12 +86,68 @@ export function isDirectoryScope(scope: string | null): boolean {
   return s.startsWith("/") || /^[A-Za-z]:[\\/]/.test(s);
 }
 
-export function isWorkMemory(m: WorkFacts): boolean {
+export interface WorkRule {
+  /**
+   * Craft travels (`PROJECTS_TRAVEL`, 2026-10-21): an unmarked skill is craft,
+   * not work. Absent or false: the rule before, an unmarked skill is work —
+   * what the nightly reflection's offer and its folder-off guard still read
+   * (`dream/reflect.ts`), since a skill is still the craft it may pin to a
+   * project with a `work` mark.
+   */
+  readonly craftTravels?: boolean;
+}
+
+export function isWorkMemory(m: WorkFacts, rule: WorkRule = {}): boolean {
   if (m.journal) return false;
   if (m.about === "work") return true;
   if (m.about !== null) return false;
-  if (m.kind === "skill") return true;
+  if (m.kind === "skill") return rule.craftTravels !== true;
   return UNMARKED_WORK_IN_A_DIRECTORY.has(m.kind) && isDirectoryScope(m.originScope);
+}
+
+/**
+ * IS THIS CRAFT THAT TRAVELS (2026-10-21, `PROJECTS_TRAVEL`): a skill nobody
+ * marked `work` — how a job is done, wherever it was learned. Never a journal
+ * copy. Pure.
+ */
+export function isCraft(m: WorkFacts): boolean {
+  return !m.journal && m.kind === "skill" && m.about !== "work";
+}
+
+// ── projects ────────────────────────────────────────────────────────────────
+
+/**
+ * A folder as `folder_projects` keys it: trimmed, no trailing slash — the form
+ * `origin_scope` and the elsewhere gate's `norm` already use. The adapter
+ * resolves a typed path to the real directory first (`scopes.ts`).
+ */
+export function projectFolder(scope: string): string {
+  const trimmed = scope.trim();
+  const bare = trimmed.replace(/\/+$/, "");
+  return bare.length > 0 ? bare : trimmed;
+}
+
+/**
+ * THE FOLDERS OF `scope`'s PROJECT, `scope` first, the rest sorted
+ * (2026-10-21): with no row for it, or with `PROJECTS_TRAVEL` off (`travel`
+ * false), the folder alone — a folder is its own project by default, and no
+ * row or card is written to say so (the wake writes nothing). Reads only;
+ * a store that will not answer is the folder alone.
+ */
+export function projectFolders(
+  store: Pick<Store, "projectOfFolder" | "foldersOfProject">,
+  scope: string,
+  travel: boolean,
+): string[] {
+  const here = projectFolder(scope);
+  if (!travel || here.length === 0) return here.length === 0 ? [] : [here];
+  try {
+    const row = store.projectOfFolder(here);
+    if (row === null) return [here];
+    return [here, ...store.foldersOfProject(row.project_id).filter((f) => f !== here)];
+  } catch {
+    return [here];
+  }
 }
 
 // ── the craft lane, composed at delivery ────────────────────────────────────
@@ -109,6 +183,21 @@ export interface WorkHereOptions {
   /** The calendar year the lines are read in (`YYYY`): a date in it prints
    *  short (`briefing.ts#shortDay`, 2026-10-16). Absent: whole. */
   readonly year?: string;
+  /** Every folder of `scope`'s project (`projectFolders`, 2026-10-21): their
+   *  work is all "here". Absent: `scope` alone. */
+  readonly folders?: readonly string[];
+  /** Craft travels (`PROJECTS_TRAVEL`): an unmarked skill is craft, not work
+   *  (`isWorkMemory`'s `craftTravels`). Absent: the rule before. */
+  readonly craftTravels?: boolean;
+  /**
+   * CRAFT FROM OUTSIDE THE PROJECT (2026-10-21, with `craftTravels`): `max`
+   * places of the pool (`WORK_HERE_CRAFT_MAX`), taking turns by lived day
+   * among the newest, each from a folder `from` lets be named elsewhere (the
+   * host's setting; a memory with no folder has none to keep it). Craft
+   * written in the project's own folders is here already and takes no place
+   * of these. Absent: none.
+   */
+  readonly craft?: { readonly max: number; readonly from: (scope: string) => boolean };
 }
 
 interface Candidate {
@@ -117,6 +206,8 @@ interface Candidate {
   readonly strength: number;
   readonly doc: ProseDoc;
   readonly bounded: boolean;
+  /** The folder it was written in, as `projectFolder` keys it ("" for none). */
+  readonly origin: string;
 }
 
 /** `/a/b/` and `/a/b` name one directory, as the handoff pointer reads them. */
@@ -147,6 +238,11 @@ export function excerptOf(text: string, n: number): string {
  * then by id. No warm floor: a lesson written yesterday is worth a line here
  * however lightly it is held yet.
  *
+ * Since 2026-10-21 (`PROJECTS_TRAVEL`): "here" is every folder of the
+ * project (`folders`), and with craft travelling a skill not marked `work`
+ * is craft — here when written in the project, and up to `craft.max` more
+ * from elsewhere, ranked with the rest.
+ *
  * Each line: `- <date> · <title> — <excerpt…> (<id>)`, or the excerpt alone
  * when the memory has no title — a pointer the recall tool expands by id, not
  * the memory whole. Read once per delivery, never at a boundary's render: the
@@ -160,47 +256,104 @@ export function excerptOf(text: string, n: number): string {
 export const WORK_HERE_READ_PER_LINE = 5;
 
 export function workHere(
-  store: Pick<Store, "workCandidates" | "row" | "readProse" | "physicsOf">,
+  store: Pick<Store, "workCandidates" | "craftCandidates" | "row" | "readProse" | "physicsOf">,
   scope: string,
   opts: WorkHereOptions,
 ): string[] {
   const pool = Math.max(opts.max, opts.pool ?? opts.max);
   if (opts.max <= 0 || scope.trim().length === 0) return [];
+  const travels = opts.craftTravels === true;
+  const folders = opts.folders !== undefined && opts.folders.length > 0 ? opts.folders : [scope];
+  const ours = new Set(folders.map(projectFolder));
   const seen = new Set<string>();
   const found: Candidate[] = [];
-  for (const where of scopesFor(scope)) {
-    for (const id of store.workCandidates(where, pool * WORK_HERE_READ_PER_LINE)) {
-      if (seen.has(id) || opts.skip?.has(id) === true) continue;
-      seen.add(id);
-      const row = store.row(id);
-      if (row === undefined || row.band === "identity" || row.event_date !== null) continue;
-      let doc: ProseDoc;
-      let physics: MemoryPhysics;
-      try {
-        doc = store.readProse(id);
-        physics = store.physicsOf(id);
-      } catch {
-        continue;
+  /** The candidate, when `id` may be a line and `accept` takes its facts; null when not. */
+  const read = (id: string, accept: (facts: WorkFacts) => boolean): Candidate | null => {
+    if (seen.has(id) || opts.skip?.has(id) === true) return null;
+    seen.add(id);
+    const row = store.row(id);
+    if (row === undefined || row.band === "identity" || row.event_date !== null) return null;
+    let doc: ProseDoc;
+    let physics: MemoryPhysics;
+    try {
+      doc = store.readProse(id);
+      physics = store.physicsOf(id);
+    } catch {
+      return null;
+    }
+    if (doc.meta["unresolved"] === true) return null;
+    // BELOW REACH (2026-10-10, Group 1, review 03 C2): the wake's work lines
+    // are an ambient channel, so a memory that has faded below physics'
+    // `REACH` is not offered here; deliberate recall still finds it.
+    if (belowReach(physics, opts.day)) return null;
+    const journal = typeof doc.meta["episodeId"] === "string";
+    if (!accept({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal })) return null;
+    if (flatten(doc.body).length === 0) return null;
+    return {
+      id,
+      touched: Math.max(doc.bornDay, physics.lastUsedDay),
+      strength: strength(physics, opts.day),
+      doc,
+      bounded: row.source === "migrated",
+      origin: row.origin_scope === null ? "" : projectFolder(row.origin_scope),
+    };
+  };
+  // THE PROJECT'S OWN (2026-10-21): the work written in any of its folders,
+  // and with craft travelling, the craft written there too — both are here.
+  const here = (f: WorkFacts): boolean => isWorkMemory(f, { craftTravels: travels }) || (travels && isCraft(f));
+  for (const folder of folders) {
+    for (const where of scopesFor(folder)) {
+      for (const id of store.workCandidates(where, pool * WORK_HERE_READ_PER_LINE)) {
+        const c = read(id, here);
+        if (c !== null) found.push(c);
       }
-      if (doc.meta["unresolved"] === true) continue;
-      // BELOW REACH (2026-10-10, Group 1, review 03 C2): the wake's work lines
-      // are an ambient channel, so a memory that has faded below physics'
-      // `REACH` is not offered here; deliberate recall still finds it.
-      if (belowReach(physics, opts.day)) continue;
-      const journal = typeof doc.meta["episodeId"] === "string";
-      if (!isWorkMemory({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal })) continue;
-      if (flatten(doc.body).length === 0) continue;
-      found.push({
-        id,
-        touched: Math.max(doc.bornDay, physics.lastUsedDay),
-        strength: strength(physics, opts.day),
-        doc,
-        bounded: row.source === "migrated",
-      });
     }
   }
-  found.sort((a, b) => b.touched - a.touched || b.strength - a.strength || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return found.slice(0, pool).map((c) => workLine(c.id, c.doc, opts.excerpt, c.bounded, opts.year));
+  const byTouched = (a: Candidate, b: Candidate): number =>
+    b.touched - a.touched || b.strength - a.strength || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  found.sort(byTouched);
+  // CRAFT FROM ELSEWHERE (2026-10-21): written outside the project in a
+  // folder the host lets be named elsewhere, or in none. Up to `pool` of the
+  // newest are read, and `craft.max` of them TAKE TURNS by lived day, as the
+  // work lines do (`rotateWork`), so all the craft comes round, not only the
+  // newest. They hold their places in the pool: ranked by date against a busy
+  // project's newest work, craft would never be offered there.
+  const craftMax = travels && opts.craft !== undefined ? Math.max(0, Math.floor(opts.craft.max)) : 0;
+  let craft: Candidate[] = [];
+  if (craftMax > 0 && opts.craft !== undefined) {
+    const from = opts.craft.from;
+    const travelsFrom = (f: WorkFacts): boolean => {
+      if (!isCraft(f)) return false;
+      const origin = f.originScope === null ? "" : projectFolder(f.originScope);
+      if (origin.length === 0) return true;
+      if (ours.has(origin)) return false;
+      try {
+        return from(origin);
+      } catch {
+        return false;
+      }
+    };
+    const ready: Candidate[] = [];
+    for (const id of store.craftCandidates(pool * WORK_HERE_READ_PER_LINE)) {
+      if (ready.length >= pool) break;
+      const c = read(id, travelsFrom);
+      if (c !== null) ready.push(c);
+    }
+    const k = Math.min(craftMax, ready.length, pool);
+    const offset = ready.length === 0 ? 0 : (((Math.floor(opts.day) * k) % ready.length) + ready.length) % ready.length;
+    craft = Array.from({ length: k }, (_, i) => ready[(offset + i) % ready.length] as Candidate);
+  }
+  // THIS FOLDER KEEPS HALF (2026-10-21): the project's other folders take at
+  // most half of the places left, unless this one has too little to fill its
+  // half — measured on a copy of the owner's store, a joined ~/counterparts-site
+  // ranked none of its own work beside ~/counterparts' newest.
+  const room = pool - craft.length;
+  const self = projectFolder(scope);
+  const own = found.filter((c) => c.origin === self);
+  const rest = found.filter((c) => c.origin !== self);
+  const restTake = Math.min(rest.length, Math.max(Math.floor(room / 2), room - own.length));
+  const ranked = [...own.slice(0, room - restTake), ...rest.slice(0, restTake), ...craft].sort(byTouched);
+  return ranked.map((c) => workLine(c.id, c.doc, opts.excerpt, c.bounded, opts.year));
 }
 
 /**

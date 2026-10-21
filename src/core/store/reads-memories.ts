@@ -156,6 +156,20 @@ export function workCandidates(store: Store, scope: string, limit: number): stri
     .map((r) => r.id);
 }
 
+export function craftCandidates(store: Store, limit: number): string[] {
+  return store["ops"]
+    .all<{ id: string }>(
+      `SELECT id FROM memories
+          WHERE type = 'memory' AND archived = 0 AND kind = 'skill'
+            AND (about IS NULL OR about != 'work')
+            AND band != 'identity' AND event_date IS NULL AND body != ''
+          ORDER BY MAX(birth_day, last_used_day) DESC, id
+          LIMIT ?`,
+      Math.max(0, Math.floor(limit)),
+    )
+    .map((r) => r.id);
+}
+
 export function planCandidates(store: Store, input: {
   readonly scopes: readonly string[];
   readonly after: number;
