@@ -268,7 +268,7 @@ export class McpServer {
    *  `scope` as that session's directory for the call (`callAs`), never this. */
   private placeScope: string;
   scopeSource: ScopeSource;
-  /** The store's own observer bit (observer-mode G7): set at open, never lifted. */
+  /** The store's own observer bit (observer-mode G3, read-only at the store seam): set at open, never lifted. */
   private readonly storeObserver: boolean;
   /**
    * THE LAUNCH DIRECTORY'S `observer` ENTRY, when the launch could not tell
@@ -444,7 +444,7 @@ export class McpServer {
   }
 
   /**
-   * ONE PREDICATE (observer-mode G7): the store's bit, always. Beside it, for
+   * ONE PREDICATE (observer-mode G1): the store's bit, always. Beside it, for
    * Claude Desktop, what `scopes.json` says about `claude-desktop:` NOW — read
    * per call, as `off` and `paused` are, so the `scope` tool's `observer` takes
    * effect at once (review of #294, finding 2); for every other client, the
@@ -2043,8 +2043,8 @@ export class McpServer {
     const anchors = [deposit.memoryId, deposit.reminder?.from, deposit.mint?.updates].filter((x): x is string => typeof x === "string");
     const out: { id: string; title: string | null; eventDate: string; skipped?: true }[] = [];
     const seen = new Set<string>(exclude);
-    // The chain's own memories this write could not close (protected, or not
-    // this session's to close) come first, marked (review of #493).
+    // The chain's own memories this write could not close (protected) come
+    // first, marked (review of #493).
     for (const id of deposit.reminder?.chainSkipped ?? []) {
       seen.add(id);
       const row = this.counterpart.store.row(id);

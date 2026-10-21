@@ -263,7 +263,6 @@ describe("S2, retired: a reflection resting on a memory carrying the old confide
     });
     expect(done.outcome.page.written).toBe(true);
     expect(done.outcome.refusedCites).toEqual([]);
-    expect(owner.store.row(done.outcome.entryId as string)?.confidential).toBe(0);
     expect(owner.store.readProse(done.outcome.entryId as string).meta["confidential"]).toBeUndefined();
     expect(done.outcome.share.offered).toBe(true);
     recordSession(dir, { sessionId: SESSION, scope: "proj", phase: "end" });

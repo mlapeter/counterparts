@@ -1012,16 +1012,16 @@ describe("nothing is withheld as confidential (2026-10-21)", () => {
     const d = open(target);
     try {
       const r = reveal(d.src.store, id, 80);
-      expect(r).toMatchObject({ present: true, confidential: false });
+      expect(r).toMatchObject({ present: true });
       expect(r.text).toContain("whiteboard");
 
-      const points = get(d.src, "/api/memories").json["points"] as { id: string; text: string; confidential: boolean }[];
+      const points = get(d.src, "/api/memories").json["points"] as { id: string; text: string; confidential?: boolean }[];
       const row = points.find((p) => p.id === id);
-      expect(row?.confidential).toBe(false);
+      expect(row?.confidential).toBeUndefined();
       expect(row?.text).toContain("whiteboard");
       const detail = get(d.src, `/api/memory?id=${id}`).json;
       expect(String(detail["text"])).toContain("whiteboard");
-      expect(detail["confidential"]).toBe(false);
+      expect(detail["confidential"]).toBeUndefined();
       expect(detail["contentHash"]).toBe(d.src.store.row(id)?.content_hash);
       const hits = get(d.src, "/api/search?q=whiteboard").json["hits"] as { id: string; text: string }[];
       expect(hits.find((h) => h.id === id)?.text).toContain("whiteboard");

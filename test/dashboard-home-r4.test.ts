@@ -180,7 +180,6 @@ describe("1. Today: memory only, each line a way in", () => {
       const all = todayView(src);
       const secret = all.lines.find((l) => (l.to as { memory?: string }).memory === made.secret);
       expect(secret).toBeDefined(); // the newest written: it is shown
-      expect(secret!.confidential).toBe(false);
       expect(JSON.stringify(all)).toContain("side door");
     });
   });

@@ -723,3 +723,9 @@ folds too.
   ignores it and says so on stderr, which reaches the action's `err`.
 - The client JS still takes `said(text, confidential)` and keeps `.withheld`; with the
   field always false they render words. They go with the leftover types.
+
+## 2026-10-21 — the always-false confidential fields removed
+
+- `Revealed.confidential`, `gistOfDoc().confidential` and the `confidential` field on
+  every view's rows are gone; the client's `said(text)` takes one argument and the
+  `.withheld` styles and branches are gone.

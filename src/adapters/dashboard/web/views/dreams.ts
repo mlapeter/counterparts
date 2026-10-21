@@ -28,7 +28,6 @@ export const CORE_HISTORY_LIMIT = 8;
 export interface DreamMemoryRef {
   readonly id: string;
   readonly text: string;
-  readonly confidential: boolean;
   /**
    * What a merge or a gist was made FROM (`dream_changes.detail.fidelity`,
    * #277): how the dream had this original in front of it, in words, when it
@@ -82,7 +81,6 @@ export interface DreamsView {
 export interface CoreHistoryRow {
   readonly id: string;
   readonly text: string;
-  readonly confidential: boolean;
   readonly day: number;
   /** promoted: the lane; demoted: null; nominated: null. */
   readonly lane: string | null;
@@ -101,7 +99,7 @@ export interface CoreHistory {
 function ref(src: DashboardSource, id: string | null, here = false): DreamMemoryRef | null {
   if (id === null) return null;
   const r = here ? revealHere(src.store, id, 90) : reveal(src.store, id, 90);
-  return { id, text: r.text ?? r.label, confidential: r.confidential };
+  return { id, text: r.text ?? r.label };
 }
 
 function detailOf(c: DreamChangeRow): Record<string, unknown> {
@@ -213,7 +211,6 @@ function historyRow(src: DashboardSource, e: CoreEventRow): CoreHistoryRow {
   return {
     id: e.memory_id,
     text: r.text ?? r.label,
-    confidential: r.confidential,
     day: e.day,
     lane: e.lane,
     reason: e.reason,

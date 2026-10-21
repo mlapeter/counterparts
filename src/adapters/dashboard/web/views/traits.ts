@@ -88,16 +88,12 @@ export interface TraitNudgeRow {
   readonly id: string;
   /** Its words (a first line), or a named absence. */
   readonly text: string;
-  /** Always false since 2026-10-21; goes with the leftover types. */
-  readonly confidential: boolean;
   /** The pole it pulled toward. */
   readonly toward: string;
   readonly strength: number;
   readonly firmness: number;
   /** What in the moment showed it; empty when never said. */
   readonly carriedBy: string;
-  /** Always false since 2026-10-21; goes with the leftover types. */
-  readonly withheld: boolean;
   /** When it was recorded (the store's clock, ms). */
   readonly at: number;
 }
@@ -228,8 +224,8 @@ export function traitsView(src: DashboardSource): TraitsView {
   };
 
   // A live memory read once more: its firmness today and its words.
-  const memo = new Map<string, { firmness: number; text: string; confidential: boolean }>();
-  const about = (id: string): { firmness: number; text: string; confidential: boolean } => {
+  const memo = new Map<string, { firmness: number; text: string }>();
+  const about = (id: string): { firmness: number; text: string } => {
     const seen = memo.get(id);
     if (seen !== undefined) return seen;
     let firmness = 0;
@@ -239,7 +235,7 @@ export function traitsView(src: DashboardSource): TraitsView {
       /* a row whose physics will not read weighs nothing, and is still listed */
     }
     const r = reveal(store, id, 110);
-    const out = { firmness: round(clamp01(firmness)), text: r.text ?? r.label, confidential: r.confidential };
+    const out = { firmness: round(clamp01(firmness)), text: r.text ?? r.label };
     memo.set(id, out);
     return out;
   };
@@ -254,12 +250,10 @@ export function traitsView(src: DashboardSource): TraitsView {
       return {
         id: n.memory_id,
         text: m.text,
-        confidential: false,
         toward: n.toward,
         strength: round(clamp01(n.strength)),
         firmness: m.firmness,
         carriedBy: n.carried_by,
-        withheld: false,
         at: n.created_at,
       };
     });

@@ -133,7 +133,6 @@ describe("the dream journal view", () => {
     const v = withSource(dir, (src) => dreamsView(src));
     const link = v.dreams[0]?.changes.find((c) => c.action === "link");
     const secret = link?.memories.find((m) => m.id === ids["secret"]);
-    expect(secret?.confidential).toBe(false);
     expect(secret?.text).toContain("confidential note");
   });
 

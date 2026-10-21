@@ -55,8 +55,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-/** The night's stance by default: not the owner (night-run.ts, 10-02). */
-function brain(owner = false): Counterpart {
+function brain(): Counterpart {
   const c = Counterpart.open({ dir, identity: { name: "Dana" }, now: () => NOW, timeZone: "UTC" });
   open.push(c);
   return c;
@@ -86,7 +85,7 @@ function begin(c: Counterpart) {
 
 describe("the door: what makes a night closed, and what a night as not-the-owner may mark", () => {
   test("a night as not-the-owner, the switch at its default: owner and us marks land on offered unmarked memories, and the share says so", () => {
-    const c = brain(false);
+    const c = brain();
     const visit = mem(c, "Dana was worn out after the visit from her sister.", { origin: { scope: WORKSHOP } });
     const lunch = mem(c, "Lunch with the two of us on the porch was the best part of the week.", { origin: { scope: WORKSHOP } });
     const b = begin(c);
@@ -111,7 +110,7 @@ describe("the door: what makes a night closed, and what a night as not-the-owner
   });
 
   test("the owner's switch off (ruling D1 on #256) is what closes it: work or world only, then and now", () => {
-    const c = brain(false);
+    const c = brain();
     const visit = mem(c, "Dana was worn out after the visit from her sister.", { origin: { scope: WORKSHOP } });
     c.store.setMeta(REFLECTED_FEELING_KEY, "off");
     const b = begin(c);
@@ -129,7 +128,7 @@ describe("the door: what makes a night closed, and what a night as not-the-owner
   });
 
   test("a memory carrying the retired confidential mark (2026-10-21) is offered and marked like any other", () => {
-    const c = brain(false);
+    const c = brain();
     const secret = mem(c, "A private worry Dana shared about her sister's health.", { origin: { scope: WORKSHOP }, meta: { confidential: true } });
     const plain = mem(c, "Dana's friend is visiting this weekend.", { origin: { scope: WORKSHOP } });
     const b = begin(c);
@@ -156,7 +155,7 @@ describe("the offer: 24 a night, the most likely personal first", () => {
   });
 
   test("on a store with more than the cap, the personal-looking ones come first, ahead of better-used work", () => {
-    const c = brain(false);
+    const c = brain();
     // A person the store knows, by a person memory (personal wherever written, so not offered itself).
     mem(c, "Priya is an old friend from school who lives up the coast.", { kind: "person", title: "Priya", meta: { name: "Priya" } });
     const work: string[] = [];
@@ -179,7 +178,7 @@ describe("the offer: 24 a night, the most likely personal first", () => {
   });
 
   test("a person card's name or alias counts as a person named", () => {
-    const c = brain(false);
+    const c = brain();
     c.store.put({
       type: "schema",
       kind: "person",
@@ -219,7 +218,7 @@ describe("the offer: 24 a night, the most likely personal first", () => {
   });
 
   test("many re-labels into the owner are said in the share, the first two by name and the rest in one sentence", () => {
-    const c = brain(false);
+    const c = brain();
     const ids = [0, 1, 2, 3, 4].map((i) => mem(c, `Dana's friend number ${String(i)} is visiting this weekend.`, { origin: { scope: WORKSHOP } }));
     const b = begin(c);
     for (const id of ids) expect(b.bundle.unmarked).toContain(id);
@@ -252,14 +251,14 @@ describe("a re-marked memory reaches another folder by the existing rules", () =
       for (let i = at + 1; at >= 0 && i < lines.length && (lines[i] ?? "").length > 0; i++) out.push(lines[i] as string);
       return out.join("\n");
     };
-    let c = brain(true);
+    let c = brain();
     const visit = mem(c, "Dana was worn out after her sister's visit, and slept most of Sunday.", { origin: { scope: WORKSHOP } });
     expect(nearby(wakeIn(c, LIBRARY))).not.toContain("worn out after her sister");
     expect(wakeIn(c, WORKSHOP)).toContain(visit);
     closeAll();
 
     // The night: not the owner.
-    c = brain(false);
+    c = brain();
     const b = begin(c);
     expect(b.bundle.unmarked).toContain(visit);
     const done = c.reflections.finish({
@@ -271,7 +270,7 @@ describe("a re-marked memory reaches another folder by the existing rules", () =
     if (!done.ok) throw new Error(done.reason);
     closeAll();
 
-    c = brain(true);
+    c = brain();
     expect(nearby(wakeIn(c, LIBRARY))).toContain("worn out after her sister");
     closeAll();
     const s = openServer({ dir, session: "s-library", scope: LIBRARY, timeZone: "UTC" });
@@ -289,7 +288,7 @@ describe("a folder the owner set off or paused: its unmarked memories are not of
   // Nearby — whatever folder it was written in. So one written in a folder
   // that was later set off (a bookkeeping folder, say) is never offered.
   test("core: folderOn leaves out a memory from a folder it says no to, and the night may mark it only work, even when another lane showed it", () => {
-    const c = brain(false);
+    const c = brain();
     const taxes = mem(c, "Dana's taxes are due on the 15th; the rent went up too.", { origin: { scope: WORKSHOP } });
     const visit = mem(c, "Dana's friend Katie is visiting this weekend.", { origin: { scope: LIBRARY } });
     const b = c.reflections.begin({ session: SESSION, folderOn: (scope) => scope !== WORKSHOP });
@@ -320,7 +319,7 @@ describe("a folder the owner set off or paused: its unmarked memories are not of
   });
 
   test("core: a host whose answer throws offers nothing from that folder", () => {
-    const c = brain(false);
+    const c = brain();
     const taxes = mem(c, "Dana's taxes are due on the 15th.", { origin: { scope: WORKSHOP } });
     const b = c.reflections.begin({ session: SESSION, folderOn: () => { throw new Error("unreadable"); } });
     if (!b.ok) throw new Error(b.reason);
@@ -332,7 +331,7 @@ describe("a folder the owner set off or paused: its unmarked memories are not of
     const PAUSED = join(root, "paused");
     mkdirSync(BOOKS, { recursive: true });
     mkdirSync(PAUSED, { recursive: true });
-    let c = brain(true);
+    let c = brain();
     const books = mem(c, "Dana's taxes are due on the 15th; the rent went up too.", { origin: { scope: BOOKS } });
     const paused = mem(c, "Dana's sister is visiting next weekend.", { origin: { scope: PAUSED } });
     const shop = mem(c, "Dana's friend Katie is visiting this weekend.", { origin: { scope: WORKSHOP } });
@@ -362,14 +361,14 @@ describe("a folder the owner set off or paused: its unmarked memories are not of
     expect(u.unmarked).not.toContain(paused);
     // Shown in the recent lane all the same (written today), the books folder's note is not carried out by a mark.
     expect(u.about).toEqual(["folder-off-work-only", "marked"]);
-    c = brain(true);
+    c = brain();
     expect(c.store.read(books).about ?? null).toBeNull();
     expect(c.store.read(shop).about).toBe("owner");
     closeAll();
 
     // A setting that will not read: nothing from a folder is offered.
     rmSync(dir, { recursive: true, force: true });
-    c = brain(true);
+    c = brain();
     const again = mem(c, "Dana's friend Katie is visiting this weekend.", { origin: { scope: WORKSHOP } });
     closeAll();
     const broken = join(root, "config", "broken.json");

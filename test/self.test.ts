@@ -2856,16 +2856,4 @@ describe("the journal's markdown copy", () => {
     expect(journalFilesFor(dir, "epi_smuggled")).toEqual([]);
     expect(journalFilesFor(dir, "epi_tooshallow")).toEqual([]);
   });
-
-  test("CONFIDENTIAL does not reach an episode row today — and this is where it will land when it does", () => {
-    const s = store();
-    const { episodeId } = chaptered(s, "ZQCONFPROBE — an ordinary chapter.");
-    // `confidentialByMeta` reads `meta.confidential` / `meta.confidentiality`,
-    // and the chapter door writes neither: it has no parameter for it. So the
-    // class does not apply to the journal today. The local copy is the owner's
-    // own disk and is written as is either way (ruling 2, 2026-09-18); it is
-    // `export --markdown` that omits a confidential row, and that is F7's test.
-    expect(s.row(episodeId)?.confidential).toBe(0);
-    expect(readFileSync(join(dir, journalFiles(dir)[0] as string), "utf8")).toContain("ZQCONFPROBE");
-  });
 });

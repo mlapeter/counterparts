@@ -2184,3 +2184,11 @@ What changed with it, measured:
   stays while the column does. `confidentialByMeta` stays exported only because the
   export and the dashboard still read it; it goes when they stop.
 
+## 2026-10-21 — the confidential read shapes are gone
+
+- `StoredMemory.confidential`, `MemoryRow.confidential`, `copiesOf`'s `confidential`,
+  `TraitRead.confidential` / `withheld`, the `includeConfidential` and `{confidential}`
+  options and `confidentialByMeta` are deleted, and no read selects the column any
+  more (`copiesOf`, `recallRows`, the trait reads). What still names it is left for the
+  next store-format change: the DDL, the `confidential = 0` in the insert, `revise` and
+  `appendBody`, the removal scrub, and the one-time `confidential.retired` count.

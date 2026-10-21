@@ -86,7 +86,7 @@ test("the week drives the product's adapter on its clock, one child per turn, an
   expect(first.args[first.args.indexOf("--allowedTools") + 1]).toContain("mcp__counterparts__session_end");
   expect(first.args[first.args.indexOf("--allowedTools") + 1]).not.toContain("mcp__counterparts__dream");
   const server = (JSON.parse(first.args[first.args.indexOf("--mcp-config") + 1]!) as { mcpServers: { counterparts: { env: Record<string, string> } } }).mcpServers.counterparts.env;
-  expect(server["HARNESS_OWNER"]).toBe("1");
+  expect(server["HARNESS_OWNER"]).toBeUndefined();
   expect(Number(server["HARNESS_NOW"])).toBe(Date.parse("2026-03-02T10:00:00Z"));
   expect(first.cwd?.endsWith("/shop")).toBe(true);
   expect(first.stdin).toContain("hello, I make mugs");

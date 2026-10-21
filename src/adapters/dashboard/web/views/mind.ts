@@ -77,9 +77,9 @@ export interface StoryView extends ContestedRow {
 
 export interface MindView {
   readonly opening: string;
-  readonly identity: { id: string; text: string; kind: Kind; band: Band; strength: number; bytes: number; bornDay: number; lastUsedDay: number; confidential: boolean }[];
+  readonly identity: { id: string; text: string; kind: Kind; band: Band; strength: number; bytes: number; bornDay: number; lastUsedDay: number }[];
   readonly identityAbsent: string | null;
-  readonly guarded: { id: string; text: string; kind: Kind; band: Band; strength: number; bytes: number; bornDay: number; lastUsedDay: number; confidential: boolean }[];
+  readonly guarded: { id: string; text: string; kind: Kind; band: Band; strength: number; bytes: number; bornDay: number; lastUsedDay: number }[];
   readonly guardedAbsent: string | null;
   readonly both: string[];
   readonly protectedOutsideIdentity: { id: string; text: string }[];
@@ -246,7 +246,6 @@ export interface PageStep {
 export interface Candidate {
   readonly id: string;
   readonly text: string;
-  readonly confidential: boolean;
   readonly kind: Kind;
   readonly feeling: number;
   readonly needFeeling: number;
@@ -269,7 +268,6 @@ export interface Candidate {
 export interface SettlingRow {
   readonly id: string;
   readonly text: string;
-  readonly confidential: boolean;
   readonly kind: Kind;
 }
 
@@ -343,7 +341,6 @@ export interface JournalChapter {
   /** The chapter's own text, headings off. Null when it could not be read. */
   readonly text: string | null;
   readonly bytes: number;
-  readonly confidential: boolean;
 }
 
 export interface JournalDay {
@@ -383,7 +380,6 @@ export function mindView(src: DashboardSource): MindView {
       strength: el.strength,
       bytes: el.bytes,
       ...livedDays(src, el.id),
-      confidential: r.confidential,
     };
   };
 
@@ -1067,7 +1063,6 @@ function settlingView(
     return {
       id: r.id,
       text: t.text ?? t.label,
-      confidential: t.confidential,
       kind: r.kind,
       feeling: r.feeling,
       needFeeling: PHYSICS.CORE_FAST_FEELING,
@@ -1081,15 +1076,14 @@ function settlingView(
       oneReturnAway: r.oneReturnAway,
     };
   });
-  const row = (el: { id: string; text: string; confidential?: boolean; kind?: Kind }): SettlingRow => ({
+  const row = (el: { id: string; text: string; kind?: Kind }): SettlingRow => ({
     id: el.id,
     text: el.text,
-    confidential: el.confidential === true,
     kind: el.kind ?? "fact",
   });
   const reconsidering = store.coreReconsidering().map((r) => {
     const t = reveal(store, r.id, 110);
-    return { id: r.id, text: t.text ?? t.label, confidential: t.confidential, kind: (store.row(r.id)?.kind ?? "fact") as Kind, why: reconsiderWords(r.reason), day: r.day };
+    return { id: r.id, text: t.text ?? t.label, kind: (store.row(r.id)?.kind ?? "fact") as Kind, why: reconsiderWords(r.reason), day: r.day };
   });
   return {
     core: x.core.map(row),
@@ -1104,7 +1098,7 @@ function settlingView(
       pressure: s.pressure,
       bar: s.bar,
     })),
-    outside: x.outside.map((o) => ({ id: o.id, text: o.text, confidential: false, kind: "fact" as Kind })),
+    outside: x.outside.map((o) => ({ id: o.id, text: o.text, kind: "fact" as Kind })),
     unreadable: x.unreadable,
     candidates,
     onTheWay: raw.filter((r) => r.days > 0).length,
@@ -1257,7 +1251,6 @@ export interface WakeMemory {
   readonly id: string;
   readonly text: string;
   readonly title: string | null;
-  readonly confidential: boolean;
 }
 
 /** A wake line's leading date (`2026-07-10 · `, `by Jul 9 · `) lifted off. */
@@ -1269,7 +1262,7 @@ function wakeMemory(store: DashboardSource["store"], id: string): WakeMemory | n
   if (row === undefined || row.archived === 1) return null;
   const t = reveal(store, id, 110);
   const title = row.title === null || row.title.trim() === "" ? null : row.title.trim();
-  return { id, text: t.text ?? t.label, title, confidential: t.confidential };
+  return { id, text: t.text ?? t.label, title };
 }
 
 /**
@@ -1297,7 +1290,7 @@ function arrivingOf(store: DashboardSource["store"], lines: readonly string[]): 
   return lines.map((line) => {
     const hit = known.find((k) => line === k.said) ?? known.find((k) => line.includes(k.said.slice(0, 80)));
     const m = hit === undefined ? null : wakeMemory(store, hit.id);
-    return m ?? { id: null, text: line, title: null, confidential: false };
+    return m ?? { id: null, text: line, title: null };
   });
 }
 
@@ -1404,7 +1397,7 @@ function journalChapters(src: DashboardSource): ReadChapter[] {
     try {
       doc = store.readProse(id);
     } catch {
-      all.push({ id, chapter: 1, title: reveal(store, id, 60).label, model: null, first: "", text: null, bytes: 0, confidential: false, day: 0, date: null, iso: rowIso, isoFromHeading: false });
+      all.push({ id, chapter: 1, title: reveal(store, id, 60).label, model: null, first: "", text: null, bytes: 0, day: 0, date: null, iso: rowIso, isoFromHeading: false });
       continue;
     }
     const models = chapterModels(doc.meta ?? {});
@@ -1424,8 +1417,6 @@ function journalChapters(src: DashboardSource): ReadChapter[] {
         first: first.length > 200 ? `${first.slice(0, 200).trimEnd()}…` : first,
         text: rest,
         bytes: new TextEncoder().encode(rest).length,
-        // Always false since 2026-10-21; the field goes with the leftover types.
-        confidential: false,
         day: lead.livedDay ?? doc.bornDay,
         date: lead.date,
         iso: fromHeading ?? rowIso,

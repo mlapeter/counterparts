@@ -214,7 +214,6 @@ function unitCandidate(spec: {
     matched: 1,
     trains: true,
     maxTier: spec.maxTier,
-    confidential: false,
   };
 }
 

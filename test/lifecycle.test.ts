@@ -837,7 +837,7 @@ describe("the handle door, across projects (G50 review)", () => {
    *  process's cwd, so the two are different absolute directories. */
   const OTHER = "other-proj";
 
-  function tool(a: ClaudeCodeAdapter, scope = "proj", owner = true): McpServer {
+  function tool(a: ClaudeCodeAdapter, scope = "proj"): McpServer {
     return new McpServer({ counterpart: a.counterpart, scope });
   }
 
@@ -914,7 +914,7 @@ describe("the handle door, across projects (G50 review)", () => {
     const id = await ownerResolved(a);
 
     const confused = (
-      await tool(a, OTHER, false).call("recall", {
+      await tool(a, OTHER).call("recall", {
         handle: "the clinic note",
         question: "when is that appointment",
       })
@@ -941,7 +941,7 @@ describe("the handle door, across projects (G50 review)", () => {
     // its contract says, and the tool answers as it always would.
     chmodSync(expansionsPath(dir), 0o400);
     sameTitle(a.counterpart);
-    const withheld = (await tool(a, OTHER, false).call("recall", { handle: "the clinic note" }))
+    const withheld = (await tool(a, OTHER).call("recall", { handle: "the clinic note" }))
       .structuredContent;
     expect(withheld["reason"]).toBe("handle-ambiguous");
     // Restored BEFORE the boundary: an unreadable log would credit nothing for
@@ -965,7 +965,7 @@ describe("the handle door, across projects (G50 review)", () => {
 
     // The stranger IS refused, and its shadow IS written — under ITS scope.
     sameTitle(c);
-    const withheld = (await tool(a, OTHER, false).call("recall", { handle: "the clinic note" }))
+    const withheld = (await tool(a, OTHER).call("recall", { handle: "the clinic note" }))
       .structuredContent;
     expect(withheld["reason"]).toBe("handle-ambiguous");
     // Read unfiltered, the shadow is the newest answer and hides the owner's id.

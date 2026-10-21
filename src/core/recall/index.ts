@@ -82,7 +82,7 @@ export * from "./standing.js";
 export * from "./recency-ask.js";
 export * from "./time-ask.js";
 export * from "./tunables.js";
-export { activate, isConfidential, isHandoff, isSelfPage, gatedSal, primeOf, recordedIdentity, salienceRank } from "./activate.js";
+export { activate, isHandoff, isSelfPage, gatedSal, primeOf, recordedIdentity, salienceRank } from "./activate.js";
 export type { CandidatePrime, FeelingLane, PrimeStats, SpreadFn, SpreadStats } from "./activate.js";
 export type { Candidate, ActivationResult } from "./activate.js";
 import type { ActivationResult } from "./activate.js";
@@ -1125,7 +1125,6 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
         doc: store.readProse(head),
         physics,
         strength: strength(physics, day),
-        confidential: row.confidential === 1,
         standsFor: c.id,
         ...(direct !== undefined && direct.pastCut !== true && direct.cue - (direct.stamp ?? 0) + direct.semantic > 0
           ? // The words' reach only: a head start priming gave the direct

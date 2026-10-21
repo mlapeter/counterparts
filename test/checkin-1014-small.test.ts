@@ -246,7 +246,6 @@ describe("D. a revision with no title carries the old one, except when it closes
     const store = s.counterpart.store;
     const old = String(payload(await s.call("remember", { text: "The zqharbour mooring fee is owed to my cousin.", title: "Zqharbour mooring debt" }))["id"]);
     store.revise(old, { meta: { confidential: true } });
-    expect(store.row(old)?.confidential).toBe(0);
     const r = payload(await s.call("remember", { text: "The zqharbour mooring fee owed to my cousin is now half.", updates: old }));
     expect(store.readProse(String(r["id"])).title).toBe("Zqharbour mooring debt");
   });

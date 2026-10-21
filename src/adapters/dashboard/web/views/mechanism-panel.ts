@@ -56,16 +56,15 @@ export const FADE_BEHIND = 60;
 interface Said {
   readonly id: string;
   readonly text: string;
-  readonly confidential: boolean;
 }
 
 function said(src: DashboardSource, id: string, width = 72): Said {
   const r = reveal(src.store, id, width);
-  return { id, text: r.text ?? r.label, confidential: r.confidential };
+  return { id, text: r.text ?? r.label };
 }
 
 function saidLine(m: MemoryLine): Said {
-  return { id: m.id, text: m.text, confidential: m.confidential };
+  return { id: m.id, text: m.text };
 }
 
 export interface FadeCurve extends Said {
@@ -776,7 +775,7 @@ function reconsolidationPicture(src: DashboardSource): Picture {
     return {
       seq: row.seq,
       day: row.day,
-      target: { id: targetId, text: here.text ?? here.label, confidential: here.confidential },
+      target: { id: targetId, text: here.text ?? here.label },
       challenger: said(src, challengerId),
       pressure: round(pressure),
       bar: round(bar),

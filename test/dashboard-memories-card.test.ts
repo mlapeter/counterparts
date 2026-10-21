@@ -290,16 +290,16 @@ describe("M4 — the card's Versions say what a dream merge was", () => {
   });
 
   test("one near-copy reads singular; the merged-in copy's own card says where it went", () => {
-    const one = versionRows([{ rel: "replaced", id: "mem_a", text: "t", confidential: false, day: 6, seq: null, reason: DREAM_MERGE_REASON, dream: true }]);
+    const one = versionRows([{ rel: "replaced", id: "mem_a", text: "t", day: 6, seq: null, reason: DREAM_MERGE_REASON, dream: true }]);
     expect(one.map((r) => r.label)).toEqual(["near-copy merged in a dream"]);
     // Two dreams on two days stay two rows.
     const two = versionRows([
-      { rel: "replaced", id: "mem_a", text: "t", confidential: false, day: 6, seq: null, reason: DREAM_MERGE_REASON, dream: true },
-      { rel: "replaced", id: "mem_b", text: "t", confidential: false, day: 9, seq: null, reason: DREAM_MERGE_REASON, dream: true },
+      { rel: "replaced", id: "mem_a", text: "t", day: 6, seq: null, reason: DREAM_MERGE_REASON, dream: true },
+      { rel: "replaced", id: "mem_b", text: "t", day: 9, seq: null, reason: DREAM_MERGE_REASON, dream: true },
     ]);
     expect(two.map((r) => r.label)).toEqual(["near-copy merged in a dream", "near-copy merged in a dream"]);
     // Anything else keeps its words and its reason.
-    const plain = versionRows([{ rel: "replaced", id: "mem_c", text: "t", confidential: false, day: 3, seq: null, reason: "owner-edit", dream: false }]);
+    const plain = versionRows([{ rel: "replaced", id: "mem_c", text: "t", day: 3, seq: null, reason: "owner-edit", dream: false }]);
     expect(plain[0]).toMatchObject({ label: "replaced this older memory", reason: "owner edit" });
 
     withSrc((src) => {
@@ -307,7 +307,7 @@ describe("M4 — the card's Versions say what a dream merge was", () => {
       // Opened by its old id it forwards to the merged memory; its own lineage is at its address.
       expect(copy.id).toBe(String(ids.merged));
     });
-    const became = versionRows([{ rel: "became", id: "mem_m", text: "t", confidential: false, day: 6, seq: 2, reason: DREAM_MERGE_REASON, dream: true }]);
+    const became = versionRows([{ rel: "became", id: "mem_m", text: "t", day: 6, seq: 2, reason: DREAM_MERGE_REASON, dream: true }]);
     expect(became[0]?.label).toBe("merged in a dream into this near-copy");
   });
 });

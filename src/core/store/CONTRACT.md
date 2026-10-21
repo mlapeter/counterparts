@@ -318,9 +318,9 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     **not** a `Store` method, for the reason `chaseRemoved` is not: §4's "unreachable from
     any model path" has to stay true of the store's own surface, and `Counterpart.store` is
     public. Two files may import it and `test/cli.test.ts` pins which.
-    `StoredMemory.confidential` is an INERT column since 2026-10-21: the confidentiality
-    gate it carried was retired (recall CONTRACT §5 G9), every write stores 0, and no gate
-    reads it. A row written before may still hold 1; the first writable open by this build
+    The `confidential` column is INERT since 2026-10-21: the confidentiality gate it
+    carried was retired (recall CONTRACT §5 G9), every write stores 0, and no read takes
+    it (no read shape carries it since the leftover types went). A row written before may still hold 1; the first writable open by this build
     counted those once (`CONFIDENTIAL_RETIRED_KEY`, read by doctor) and changed nothing.
     Dropping the column in the next batched store-format change is planned (lightly held).
 14. **[M] The implicit default is refusable.** `dataDir()`'s fallback to
@@ -477,9 +477,8 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     nothing in the core reads the table to decide anything, and the store computes no
     profile. Reads, all working under observer: `traitsFor(id)`, `traitsOn(ids)`,
     `traitsAll({ sinceMs?, live? })` (with memory ids, live memories by default),
-    `traitCensus()` (counts). Every nudge comes back whole (since 2026-10-21: the
-    `confidential` / `withheld` fields and the `includeConfidential` option are left
-    inert, `withheld` always false). The owner's removal
+    `traitCensus()` (counts). Every nudge comes back whole (since 2026-10-21). The
+    owner's removal
     deletes them with the memory. A dev store stamped v9 before the table existed gains
     it at its next writer open (`operational.ts#ensureCurrentTables`); an observer reads
     it as empty until then.

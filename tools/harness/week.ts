@@ -240,7 +240,6 @@ export function planTurn(opts: WeekOptions, t: TurnChild): ChildPlan & { ok: boo
       [SERVE_AT_ENV.budget]: String(opts.budgetBytes ?? 9_000),
       [SERVE_AT_ENV.session]: t.session,
       [SERVE_AT_ENV.scope]: t.scope,
-      [SERVE_AT_ENV.owner]: "1",
       ...(t.scopesFile === undefined ? {} : { [SERVE_AT_ENV.scopes]: t.scopesFile }),
       ...(opts.timeZone === undefined ? {} : { [SERVE_AT_ENV.timeZone]: opts.timeZone }),
       ...(settingsForChild() === "" ? {} : { [SETTINGS_ENV]: settingsForChild() }),
@@ -302,7 +301,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   const { work, dir, script, startDate, timeZone, env } = w;
   const configPath = join(work, "harness-config.json");
   const budget = opts.budgetBytes ?? 9_000;
-  const config = { dataDir: dir, owner: true, injectionBudgetBytes: budget, timeZone };
+  const config = { dataDir: dir, injectionBudgetBytes: budget, timeZone };
   writeFileSync(configPath, JSON.stringify(config));
   // THE FOLDERS, settled as a person who said "on" everywhere here: the
   // registry beside the config (`scopes.ts#scopesPath`), so no first-launch

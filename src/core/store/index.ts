@@ -151,7 +151,6 @@ import {
   occurredOnOf,
   saidByOf,
   statusOf,
-  confidentialByMeta,
   carryAboutMark,
   carryWriteFacts,
   ABOUT_MARKS,
@@ -211,7 +210,6 @@ export {
   saidByOf,
   statusOf,
   occurredOnOf,
-  confidentialByMeta,
   ABOUT_MARKS,
   CORE_ABOUT_MARKS,
   IDENTITY_ABOUT_MARKS,
@@ -4180,15 +4178,13 @@ export class Store {
   /**
    * THE LIVE MEMORIES MINTED FROM THESE ROWS (`origin_ref`), grouped by the
    * row they came from, each with what a wake's line needs to decide on it:
-   * the `about` mark (2026-10-01, review of #311). The `confidential` member
-   * is the retired column's reading (2026-10-21): no caller gates on it, and
-   * it goes with the column's type.
+   * the `about` mark (2026-10-01, review of #311).
    * `origin_ref` has no index, so a per-row `list({ originRef })` was a scan
    * per episode — 300 episodes on a 15k-row store cost the wake seconds. This
    * is ONE scan for the whole set, in chunks the SQL parameter limit allows.
    * No schema change. Never returns a removed row's words; ids and flags only.
    */
-  copiesOf(refs: readonly string[]): Map<string, { id: string; confidential: boolean; about: string | null }[]> {
+  copiesOf(refs: readonly string[]): Map<string, { id: string; about: string | null }[]> {
     return memoryReads.copiesOf(this, refs);
   }
 
@@ -4212,8 +4208,7 @@ export class Store {
    * `scopes`, born after `after` (epoch ms), whose v12 `status` is one of
    * `statuses` or whose meta may say `unresolved` — a loose text match the
    * caller confirms on the prose. Not archived, superseded or emptied.
-   * `confidential` is ignored (the gate was retired 2026-10-21; the option
-   * goes with the column's type). Newest first, then id, at most
+   * Newest first, then id, at most
    * `limit`. The columns only, as `workCandidates`. A store without the v12
    * column throws; the caller wraps it.
    */
@@ -4223,7 +4218,6 @@ export class Store {
     readonly after: number;
     readonly statuses: readonly MemoryStatus[];
     readonly limit: number;
-    readonly confidential?: boolean;
   },
   ): string[] {
     return memoryReads.planCandidates(this, input);
@@ -4360,10 +4354,8 @@ export class Store {
 
   // ── traits (folded into v9): READ-ONLY, for the dashboard ────────────────
   //
-  // Every nudge comes back whole, `carried_by` included. The confidentiality
-  // rule that blanked it was retired 2026-10-21: `withheld` is always false
-  // and `includeConfidential` is ignored; both go with the column's type.
-  // The store computes no balance: that arithmetic is the dashboard's.
+  // Every nudge comes back whole, `carried_by` included. The store computes no
+  // balance: that arithmetic is the dashboard's.
 
   /**
    * Is `name` a table in box 2? A development store stamped v9 before a table
@@ -4558,9 +4550,8 @@ export class Store {
 
   private readonly tablesSeen = new Set<string>();
 
-  private traitReads(rows: (TraitRow & { confidential: number })[], _includeConfidential: boolean): TraitRead[] {
+  private traitReads(rows: TraitRow[]): TraitRead[] {
     return rows.map((r) => {
-      const confidential = r.confidential === 1;
       return {
         id: r.id,
         memory_id: r.memory_id,
@@ -4572,8 +4563,6 @@ export class Store {
         model: r.model,
         created_at: r.created_at,
         updated_at: r.updated_at,
-        confidential,
-        withheld: false,
       };
     });
   }
@@ -4582,16 +4571,16 @@ export class Store {
    * A memory's trait nudges, oldest first (then in the order written). A
    * removed memory has none. Works under observer.
    */
-  traitsFor(memoryId: string, opts?: { includeConfidential?: boolean }): TraitRead[] {
-    return markReads.traitsFor(this, memoryId, opts);
+  traitsFor(memoryId: string): TraitRead[] {
+    return markReads.traitsFor(this, memoryId);
   }
 
   /**
    * The nudges on several memories in ONE query, keyed by memory id; ids with
    * none are simply absent. Works under observer.
    */
-  traitsOn(ids: readonly string[], opts?: { includeConfidential?: boolean }): Map<string, TraitRead[]> {
-    return markReads.traitsOn(this, ids, opts);
+  traitsOn(ids: readonly string[]): Map<string, TraitRead[]> {
+    return markReads.traitsOn(this, ids);
   }
 
   /**
@@ -4603,7 +4592,7 @@ export class Store {
    * `sinceMs` (the store's clock, UTC ms) narrows to nudges recorded since.
    * Oldest first. Works under observer.
    */
-  traitsAll(opts?: { includeConfidential?: boolean; live?: boolean; sinceMs?: number }): TraitRead[] {
+  traitsAll(opts?: { live?: boolean; sinceMs?: number }): TraitRead[] {
     return markReads.traitsAll(this, opts);
   }
 
@@ -4683,11 +4672,11 @@ export class Store {
    * WHAT EACH DIRECTORY WROTE SINCE A MOMENT, as COUNTS (2026-10-10, the
    * wake's "Today, elsewhere" line): live memories by `origin_scope`, born at
    * or after `at` (epoch ms), not the nightly run's (`NIGHTLY_SQL`).
-   * `confidential` is ignored since 2026-10-21. Numbers only — no id, no title, no
+   * Numbers only — no id, no title, no
    * word of any memory leaves this read. Largest first, then the scope.
    */
-  memoryCountsByScopeSince(at: number, opts?: { confidential?: boolean }): { scope: string; count: number }[] {
-    return memoryReads.memoryCountsByScopeSince(this, at, opts);
+  memoryCountsByScopeSince(at: number): { scope: string; count: number }[] {
+    return memoryReads.memoryCountsByScopeSince(this, at);
   }
 
   /**

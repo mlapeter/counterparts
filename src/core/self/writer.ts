@@ -658,8 +658,6 @@ export interface WriterJournal {
   readonly total: number;
   /** Entries the room did not take. */
   readonly notShown: number;
-  /** Always 0 since 2026-10-21 (nothing is held back as confidential any more). */
-  readonly omitted: number;
   /** Characters the journal took. */
   readonly chars: number;
 }
@@ -695,7 +693,7 @@ export interface WriterInput {
  * (MAJOR-1).
  *
  * `omit` is the caller's predicate, exactly as `Self#build` takes one; none
- * is passed by default (the confidential stand-aside was retired 2026-10-21).
+ * is passed by default.
  * What it holds back is COUNTED, so a page written from half a day says so on
  * its row.
  */
@@ -706,7 +704,7 @@ export function dayMemories(
     day: number;
     budgetBytes: number;
     max: number;
-    omit?: (m: { id: string; confidential: boolean; protectedRow: boolean }) => boolean;
+    omit?: (m: { id: string; protectedRow: boolean }) => boolean;
   },
 ): { memories: WriterMemory[]; dropped: number; omitted: number; bytes: number } {
   const picked: (WriterMemory & { order: number })[] = [];
@@ -730,17 +728,14 @@ export function dayMemories(
     // with its summary as its line (2026-10-15), and would be shown twice.
     if (row.source === "episode" && row.origin_ref !== null && row.origin_ref.length > 0) continue;
     let statement: string;
-    let confidential: boolean;
     try {
-      const read = store.read(id);
-      statement = read.doc.body;
-      confidential = read.confidential;
+      statement = store.read(id).doc.body;
     } catch {
       // A memory whose prose will not read is skipped, never a throw — the same
       // direction `identity.ts#scanActive` takes for the same reason (§5 G7).
       continue;
     }
-    if (opts.omit?.({ id, confidential, protectedRow: row.protected === 1 }) === true) {
+    if (opts.omit?.({ id, protectedRow: row.protected === 1 }) === true) {
       omitted += 1;
       continue;
     }

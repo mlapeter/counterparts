@@ -25,7 +25,7 @@ import * as M from "../src/adapters/dashboard/web/pages/self/sections/map.js";
 const WEB = fileURLToPath(new URL("../src/adapters/dashboard/web/", import.meta.url));
 const read = (p: string): string => readFileSync(join(WEB, p), "utf8");
 
-type Node = { id: string; text: string; confidential: boolean; strength: number; core: boolean; ready: boolean; oneReturnAway: boolean; closeness: number };
+type Node = { id: string; text: string; strength: number; core: boolean; ready: boolean; oneReturnAway: boolean; closeness: number };
 type Link = { a: string; b: string; weight: number };
 type Box = { x0: number; x1: number; y0: number; y1: number };
 type P = { x: number; y: number };
@@ -44,7 +44,7 @@ const sentence = (i: number): string => {
 function crowd(core = 7, ready = 5, one = 12, others = 40): { nodes: Node[]; links: Link[]; total: number; more: number } {
   const nodes: Node[] = [];
   const mk = (id: string, i: number, extra: Partial<Node>): Node =>
-    ({ id, text: sentence(i), confidential: false, strength: 0.4 + (i % 6) / 10, core: false, ready: false, oneReturnAway: false, closeness: 0, ...extra });
+    ({ id, text: sentence(i), strength: 0.4 + (i % 6) / 10, core: false, ready: false, oneReturnAway: false, closeness: 0, ...extra });
   let i = 0;
   for (let k = 0; k < core; k++) nodes.push(mk(`mem_core${k}`, i++, { core: true, closeness: 2 }));
   for (let k = 0; k < ready; k++) nodes.push(mk(`mem_ready${k}`, i++, { ready: true, closeness: 2 }));

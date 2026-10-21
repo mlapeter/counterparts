@@ -2124,7 +2124,7 @@ export class Self {
     day?: number;
     budgetBytes?: number;
     max?: number;
-    omit?: (m: { id: string; confidential: boolean; protectedRow: boolean }) => boolean;
+    omit?: (m: { id: string; protectedRow: boolean }) => boolean;
     /** The day's journal, composed by the caller (2026-10-15, `dream/slices.ts#dayJournal`). */
     journal?: WriterJournal;
   }): WriterInput {

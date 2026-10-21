@@ -3854,7 +3854,7 @@ export class Counterpart {
    * A read.
    */
   coreList(): {
-    core: { id: string; kind: string; lane: string | null; day: number | null; body: string | null; confidential: boolean }[];
+    core: { id: string; kind: string; lane: string | null; day: number | null; body: string | null }[];
     nominated: { id: string; day: number; reason: string | null; dream: string | null }[];
     demoted: { id: string; day: number; reason: string | null }[];
     /** Core memories being reconsidered (2026-10-11): still core, waiting on a decision. `reason` is the category. */
@@ -3878,7 +3878,6 @@ export class Counterpart {
         lane: promoted?.lane ?? null,
         day: promoted?.day ?? null,
         body,
-        confidential: row.confidential === 1,
       });
     }
     const nominated = this.store
@@ -4071,8 +4070,7 @@ export class Counterpart {
    * WHAT THE NIGHTLY WRITER IS HANDED — the page as it stands and the day just
    * gone, bounded and ordered by salience.
    *
-   * Nothing is held back by default (the confidential stand-aside was
-   * retired 2026-10-21). PROTECTED rows are not held back here either, and
+   * Nothing is held back by default. PROTECTED rows are not held back here, and
    * that is the one deliberate difference from the crash fallback's wake:
    * `sweepWake` hides them because its reader is about to propose new
    * memories from a transcript and must not restate permanent ink as
@@ -4090,7 +4088,7 @@ export class Counterpart {
     budgetBytes?: number;
     /** Most memories carried (the tunable's when absent). */
     max?: number;
-    omit?: (m: { id: string; confidential: boolean; protectedRow: boolean }) => boolean;
+    omit?: (m: { id: string; protectedRow: boolean }) => boolean;
   }): WriterInput {
     const budget = opts.budgetBytes ?? this.self.tunables.PAGE_WRITER_MEMORY_BYTES;
     // THE DAY'S JOURNAL (2026-10-15), in a room of its own taken out of the
@@ -4125,7 +4123,7 @@ export class Counterpart {
         c.entries.map((e) => ({ episode: c.id, title: c.title, chapter: e.chapter, fidelity: e.fidelity, text: e.text, chars: e.chars })),
       );
       // What the block spends on them, measured as it renders (framing included).
-      const journal = { entries, total: day.entries, notShown: day.notShown, omitted: day.omitted };
+      const journal = { entries, total: day.entries, notShown: day.notShown };
       return { ...journal, chars: journalBlockChars(input.about, journal) };
     } catch {
       return null;

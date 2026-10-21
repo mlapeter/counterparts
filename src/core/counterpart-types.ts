@@ -621,13 +621,12 @@ export interface DepositResult {
 
 /**
  * Why a deposit did not close the open thread it names (review of #313): the
- * revision step's own refusals for a protected or archived row. Retired
- * (2026-10-21; nothing produces them, and they go with the leftover types):
- * `confidential`, and `other-directory`, the refusal a session that was not
- * the owner's met for a thread written in another directory, before the
- * yours/guest split was removed.
+ * revision step's own refusals for a protected or archived row. (Until
+ * 2026-10-21 also `confidential` and `other-directory`; nothing produces
+ * them since. An old `counterpart.thread.refused` event row may still carry
+ * one.)
  */
-export type ThreadRefusal = "protected-refuses-revision" | "target-archived" | "confidential" | "other-directory";
+export type ThreadRefusal = "protected-refuses-revision" | "target-archived";
 
 /** A revision's reminder: carried over, replaced, or dropped — and moved. */
 export interface DepositReminder {

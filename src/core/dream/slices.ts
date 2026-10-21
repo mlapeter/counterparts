@@ -303,8 +303,6 @@ export interface DayJournal {
   readonly entries: number;
   /** Entries the room did not take. */
   readonly notShown: number;
-  /** Always 0 since 2026-10-21 (nothing is held back as confidential any more); goes with the retired column's types. */
-  readonly omitted: number;
   /** Characters of the room used. */
   readonly used: number;
 }
@@ -331,7 +329,7 @@ export function dayJournal(
     zone?: string;
   },
 ): DayJournal {
-  const empty: DayJournal = { chapters: [], entries: 0, notShown: 0, omitted: 0, used: 0 };
+  const empty: DayJournal = { chapters: [], entries: 0, notShown: 0, used: 0 };
   const said = readableDate(opts.about);
   if (said === "" || opts.room <= 0) return empty;
   let ids: string[];
@@ -367,7 +365,7 @@ export function dayJournal(
     lineBytes: opts.lineBytes,
     entryChars: opts.entryChars,
   });
-  return { chapters: fitted.chapters, entries, notShown: fitted.notShown, omitted: 0, used: fitted.used };
+  return { chapters: fitted.chapters, entries, notShown: fitted.notShown, used: fitted.used };
 }
 
 let wheelWords: Set<string> | null = null;

@@ -67,7 +67,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function server(owner = true): McpServer {
+function server(): McpServer {
   // Fixtures are memories the tests expect to find (`store-fixture.ts#findable`, 2026-10-10).
   const s = openServer({ dir, session: "sess_feel", scope: "/scope/one" });
   findable(s.counterpart.store);
@@ -87,7 +87,7 @@ async function ask(s: McpServer, question: string): Promise<string[]> {
 }
 
 /** Ask in meaning mode directly, for the arranged result. */
-function meaning(c: Counterpart, question: string, opts: { owner?: boolean; asker?: "self" | "owner" } = {}): MeaningResult {
+function meaning(c: Counterpart, question: string, opts: { asker?: "self" | "owner" } = {}): MeaningResult {
   return meaningRecall(
     { counterpart: c, sessionId: "feel", asker: opts.asker ?? "self", vector: null, semantic: "embedder-off" },
     question,
@@ -299,7 +299,7 @@ describe("what does not change", () => {
   });
 
   test("a stamped memory carrying the retired confidential mark is answered to a non-owner too (2026-10-21)", async () => {
-    const s = server(false);
+    const s = server();
     seed(s.counterpart);
     const secret = s.counterpart.store.put({
       type: "memory",

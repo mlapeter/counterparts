@@ -32,7 +32,6 @@ export interface TimelineStep {
   /** The other memory, when there is one (click to open it). */
   readonly id: string | null;
   readonly text: string;
-  readonly confidential: boolean;
   /** The lived day it happened, when the store knows it. */
   readonly day: number | null;
   /** For `revised`: the version's number. */
@@ -132,7 +131,6 @@ export interface MemoryDetail {
   readonly journal: boolean;
   readonly title: string;
   readonly text: string;
-  readonly confidential: boolean;
   /**
    * Which record this is — the revision it is on, and the hash of the text
    * above.
@@ -164,7 +162,7 @@ export interface MemoryDetail {
   readonly bar: number | null;
   readonly archived: string | null;
   readonly removal: { stage: string; actor: string; reason: string | null; at: number }[];
-  readonly edges: { id: string; text: string; weight: number; confidential: boolean }[];
+  readonly edges: { id: string; text: string; weight: number }[];
   readonly points: { role: string; id: string; text: string }[];
   readonly versions: { seq: number; reason: string; day: number; became: string }[];
   readonly prospective: { date: string; state: string; fires: number; precision: string }[];
@@ -244,7 +242,6 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     journal: false,
     title: "",
     text: "",
-    confidential: false,
     revision: 0,
     contentHash: "",
     kind: "fact" as Kind,
@@ -377,7 +374,6 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     // store (constitution line 6). (Until 2026-10-21 a confidential body was
     // withheld here; that mark is retired, and the field stays false.)
     text: doc.body.trim(),
-    confidential: false,
     revision: row?.revision ?? 0,
     contentHash: row?.content_hash ?? "",
     kind: physics.kind,
@@ -408,7 +404,7 @@ export function memoryDetail(src: DashboardSource, id: string): MemoryDetail {
     removal: store.removalRecord(headId).map((x) => ({ stage: x.stage, actor: x.actor, reason: x.reason, at: x.at })),
     edges: store.edgesFrom(headId).map((edge) => {
       const rr = reveal(store, edge.dst, 72);
-      return { id: edge.dst, text: rr.text ?? rr.label, weight: edge.weight, confidential: rr.confidential };
+      return { id: edge.dst, text: rr.text ?? rr.label, weight: edge.weight };
     }),
     points,
     versions: store.versions(headId).map((v) => ({
@@ -503,9 +499,9 @@ function feelingsWithCarry(src: DashboardSource, id: string): MemoryDetail["feel
 function timelineOf(src: DashboardSource, id: string, updates: unknown): TimelineStep[] {
   const store = src.store;
   const steps: TimelineStep[] = [];
-  const words = (other: string): { text: string; confidential: boolean } => {
+  const words = (other: string): { text: string } => {
     const rr = revealHere(store, other, 90);
-    return { text: rr.text ?? rr.label, confidential: rr.confidential };
+    return { text: rr.text ?? rr.label };
   };
   for (const other of store.list({ archived: true })) {
     if (other === id) continue;
@@ -520,7 +516,7 @@ function timelineOf(src: DashboardSource, id: string, updates: unknown): Timelin
   let became: TimelineStep | null = null;
   for (const v of store.versions(id)) {
     if (v.successor_id === null) {
-      steps.push({ rel: "revised", id: null, text: "its words were rewritten in place", confidential: false, day: v.version_day, seq: v.seq, ...why(v.reason) });
+      steps.push({ rel: "revised", id: null, text: "its words were rewritten in place", day: v.version_day, seq: v.seq, ...why(v.reason) });
     } else {
       became = { rel: "became", id: v.successor_id, ...words(v.successor_id), day: v.version_day, seq: v.seq, ...why(v.reason) };
     }

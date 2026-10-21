@@ -116,7 +116,7 @@ function night(): Night {
   }
 }
 
-function server(owner: boolean, observer = false): McpServer {
+function server(observer = false): McpServer {
   const s = openServer({ dir, session: SESSION, scope: "/scope/night", ...(observer ? { observer: true } : {}) });
   open.push(s.counterpart);
   return s;
@@ -156,7 +156,7 @@ describe("nightKindOf", () => {
 describe("recall opens a night by its id", () => {
   test("a dream: date, title, counts, the ids by kind, its gist's words, the reflection after it — and no memory", async () => {
     const n = night();
-    const s = server(true);
+    const s = server();
     const before = s.counterpart.store.physicsOf(n.third);
     const res = await s.call("recall", { handle: n.dream });
     const p = payload(res);
@@ -182,7 +182,7 @@ describe("recall opens a night by its id", () => {
 
   test("a reflection: entry, share and whether it was told, what it cited, closes, and the page", async () => {
     const n = night();
-    const s = server(true);
+    const s = server();
     const p = payload(await s.call("recall", { handle: n.reflection }));
     expect(p["reason"]).toBe("expanded");
     const r = (p["nights"] as ReflectionSummary[])[0] as ReflectionSummary;
@@ -200,7 +200,7 @@ describe("recall opens a night by its id", () => {
 
   test("ids: a night beside a memory — each answered, the memory as a memory", async () => {
     const n = night();
-    const s = server(true);
+    const s = server();
     const p = payload(await s.call("recall", { ids: [n.dream, n.third, n.reflection] }));
     expect(p["reason"]).toBe("expanded");
     expect((p["memories"] as { id: string }[]).map((m) => m.id)).toEqual([n.third]);
@@ -210,7 +210,7 @@ describe("recall opens a night by its id", () => {
 
   test("an unknown dream or reflection id is handle-unknown, said as a night", async () => {
     night();
-    const s = server(true);
+    const s = server();
     for (const id of ["drm_000000000000", "rfl_000000000000"]) {
       const res = await s.call("recall", { handle: id });
       const p = payload(res);
@@ -226,7 +226,7 @@ describe("recall opens a night by its id", () => {
   test("a night resting on a memory carrying the retired confidential mark (2026-10-21) opens for a session not the owner's, its gist quoted", async () => {
     const n = night();
     markConfidential(n.gist, SECRET);
-    const stranger = server(false);
+    const stranger = server();
     const res = await stranger.call("recall", { handle: n.dream });
     const p = payload(res);
     expect(p["reason"]).toBe("expanded");
@@ -241,7 +241,7 @@ describe("recall opens a night by its id", () => {
 
   test("under observer, recall stands down for a night as for a memory", async () => {
     const n = night();
-    const res = await server(true, true).call("recall", { handle: n.dream });
+    const res = await server(true).call("recall", { handle: n.dream });
     expect(payload(res)["stoodDown"]).toBe(true);
   });
 });
@@ -360,7 +360,7 @@ describe("review of #538 — awkward nights", () => {
     } finally {
       c.close();
     }
-    const res = await server(true).call("recall", { handle: dream });
+    const res = await server().call("recall", { handle: dream });
     const d = (payload(res)["nights"] as DreamSummary[])[0] as DreamSummary;
     expect(d.touched["link"]?.ids.length).toBe(NIGHT_IDS_PER_KIND);
     expect(d.touched["link"]?.more).toBe(40 - NIGHT_IDS_PER_KIND);
@@ -395,7 +395,7 @@ describe("review of #538 — awkward nights", () => {
     } finally {
       c.close();
     }
-    const res = await server(true).call("recall", { ids: made });
+    const res = await server().call("recall", { ids: made });
     const p = payload(res);
     const shipped = (p["nights"] as { id: string }[]).map((n) => n.id);
     const waiting = p["waiting"] as string[];
@@ -406,7 +406,7 @@ describe("review of #538 — awkward nights", () => {
     // Under the room the memories' path keeps, weighed the same way.
     expect(2 * wireChars(JSON.stringify(p["nights"], null, 2))).toBeLessThanOrEqual(RECALL_ID_RESULT_CHARS);
     // Asked again for the ones that waited, they come.
-    const next = payload(await server(true).call("recall", { ids: waiting.slice(0, 3) }));
+    const next = payload(await server().call("recall", { ids: waiting.slice(0, 3) }));
     expect((next["nights"] as { id: string }[]).map((n) => n.id)).toEqual(waiting.slice(0, 3));
   });
 
@@ -418,7 +418,7 @@ describe("review of #538 — awkward nights", () => {
     } finally {
       c.close();
     }
-    const d = (payload(await server(true).call("recall", { handle: n.dream }))["nights"] as DreamSummary[])[0] as DreamSummary;
+    const d = (payload(await server().call("recall", { handle: n.dream }))["nights"] as DreamSummary[])[0] as DreamSummary;
     expect(d.state).toBe("undone");
     expect(d.undone).toBe(3);
     expect(d.touched).toEqual({});
@@ -444,7 +444,7 @@ describe("review of #538 — awkward nights", () => {
     } finally {
       c.close();
     }
-    const s = server(true);
+    const s = server();
     const d = (payload(await s.call("recall", { handle: dream }))["nights"] as DreamSummary[])[0] as DreamSummary;
     expect(d.state).toBe("begun");
     expect(d.title).toBeNull();
@@ -492,7 +492,7 @@ describe("review of #538 — awkward nights", () => {
 
   test("the recall row counts a night apart from the memories it opened", async () => {
     const n = night();
-    const s = server(true);
+    const s = server();
     await s.call("recall", { ids: [n.dream, n.reflection] });
     const row = s.counterpart.store.eventLog({ name: "mcp.recall", order: "desc", limit: 1 })[0];
     const p = JSON.parse(String(row?.payload)) as Record<string, unknown>;

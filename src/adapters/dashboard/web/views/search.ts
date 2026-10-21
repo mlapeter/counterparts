@@ -40,7 +40,6 @@ export interface Hit {
   kind: Kind;
   band: Band;
   strength: number;
-  confidential: boolean;
   /** The row shape the memories list uses (`memory-words.ts`). */
   title: string | null;
   shown: string;
@@ -115,8 +114,6 @@ function hitOf(store: DashboardSource["store"], id: string, score: number, day: 
     kind: row.kind,
     band: b,
     strength: s,
-    // Always false since 2026-10-21; the field goes with the leftover types.
-    confidential: false,
     title: row.title === null || row.title.trim() === "" ? null : row.title.trim(),
     shown: shown.text || (r.text ?? r.label),
     date: shown.date,

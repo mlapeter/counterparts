@@ -63,7 +63,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-function afternoon(opts: { owner?: boolean } = {}): {
+function afternoon(): {
   c: Counterpart;
   set(t: number): void;
   server(session: string, scope?: string): McpServer;

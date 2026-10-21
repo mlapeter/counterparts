@@ -4,9 +4,8 @@
  * views name an absence (removed, superseded, unreadable) the same way
  * everywhere.
  *
- * Until 2026-10-21 this was also where a confidential memory's words were
- * withheld. That mark is retired: `Revealed.confidential` and `gistOfDoc`'s
- * `confidential` are always false now, kept until the leftover types go.
+ * (Until 2026-10-21 this was also where a confidential memory's words were
+ * withheld; that mark is retired.)
  *
  * Render-time, like everything else here (CONTRACT §3, scar §2.20): nothing
  * below caches.
@@ -22,8 +21,6 @@ export interface Revealed {
   readonly present: boolean;
   /** The current text, or null when absent. */
   readonly text: string | null;
-  /** Always false since 2026-10-21 (nothing is withheld); goes with the leftover types. */
-  readonly confidential: boolean;
   /** Ready to print: the text, or a named absence. */
   readonly label: string;
 }
@@ -36,7 +33,6 @@ function revealed(ref: ResolvedRef): Revealed {
     state: ref.state,
     present,
     text: present ? ref.text : null,
-    confidential: false,
     label: ref.label,
   };
 }
@@ -73,6 +69,6 @@ export function revealPayload(
 }
 
 /** A doc already in hand — the list paths read the row once and reuse it. */
-export function gistOfDoc(doc: ProseDoc, width = 64): { text: string; confidential: boolean } {
-  return { text: gistOf(doc, width), confidential: false };
+export function gistOfDoc(doc: ProseDoc, width = 64): { text: string } {
+  return { text: gistOf(doc, width) };
 }

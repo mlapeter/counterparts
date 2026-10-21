@@ -1270,3 +1270,9 @@ call (`ref` the session) and touches nothing else. What the build chose:
   variant so old `mcp.recall` rows read; `Candidate.confidential` and `isConfidential` stay
   until the adapters that read them drop them. The recall stance (`owner`) is still
   recorded on the decision; it gates nothing here now.
+
+## 2026-10-21 — the confidential leftovers removed
+
+- `Candidate.confidential`, `isConfidential` and the `confidential-withheld` verdict are
+  gone. An old `mcp.recall` row may still carry the string in `blockedBy`; its readers
+  take any verdict name.

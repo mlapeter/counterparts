@@ -166,9 +166,6 @@ export interface StoredMemory {
   supersededBy: string | null;
   revision: number;
   contentHash: string;
-  /** The retired confidentiality column, as it stands (2026-10-21: written 0,
-   *  read by no gate in core). Goes with the column's type. */
-  confidential: boolean;
   /** v7 moments, UTC ms (docs/time.md). Null on a row written before v7. */
   createdAt: number | null;
   updatedAt: number | null;
@@ -234,7 +231,6 @@ export interface RecallRow {
   readonly origin_session: string | null;
   readonly origin_scope: string | null;
   readonly origin_ref: string | null;
-  readonly confidential: number;
   /** `meta` for a schema or an episode row (a role, a session); null for a memory. */
   readonly meta: string | null;
 }
