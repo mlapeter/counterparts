@@ -3167,6 +3167,83 @@ titles useful or noise?
   refuses the same text only within one scope, so a copy written from a second folder still
   merges at sleep. No store write was added for refused duplicates.
 
+### Decided by Mike, 2026-10-21 (confidential memories removed; the owner stance lightly held)
+
+- Decided by Mike, 2026-10-21: remove the confidential-memories feature, thoroughly and
+  carefully. Why: nobody used it, nothing in the product set the mark, it didn't really
+  work, it added complexity, and it was never clear whom "confidential" protected. Three
+  pull requests, one release: core and MCP behaviour first, then the adapters (dashboard,
+  sidebar, export, CLI), then the leftover types.
+- Existing marked rows: counted once at the first writable open after the upgrade
+  (`confidential.retired`), with a doctor amber line only while any of them are still
+  there (removed ones stop counting). Nothing is archived.
+- The column: inert now (written 0, never read). Dropping it in the next batched
+  store-format change is planned, lightly held. No schema or cache version change now.
+- The last exchange stays owner-only for now, lightly held. The reason written beside it
+  was confidentiality; that reason is removed and no other is put in its place.
+- The owner/guest stance stays for now, lightly held. What it still decides is closing a
+  thread or reminder opened in another directory and the last exchange. Mike: "we almost
+  need to have the 'the night run counts as you' convo to really know, i'm basically no
+  longer sure if the rules about yours/guest make sense anymore or are even worth
+  keeping." So `ownerMeans` and doctor's Mode line were reworded minimally, and nothing
+  new was written to harden the stance.
+- This replaces one sentence in the 10-20 unmarked-offer decision ("Confidential memories
+  are never in the night's bundle, so never offered or re-marked"): every bundle is read
+  the same now, so a memory carrying the old key is offered and marked like any other.
+
+### Decided by the confidential-removal builder, 2026-10-21, lightly held (the adapters' half)
+
+- Decided by the confidential-removal builder, 2026-10-21, lightly held: the
+  `--include-confidential` flag (console) and `includeConfidential` (the dashboard's
+  export action) are accepted and ignored for one release, with one stderr line, then
+  removed; a database export still refuses the flag by name. `ExportReport`'s three
+  omitted counts stay at 0 for the same release. Why: the flag sits in scripts and in
+  the shipped changelog (Mike's Q5 ruling).
+- Decided the same way: an old event row keeps reading. `blockedBy` rows carrying
+  `confidential-withheld` are narrated like any verdict, and an old `store.export` row's
+  `omittedConfidential` is still said, since it is true of that copy.
+- The dashboard's absent-row fold stays, under a plain name (`shownOf`'s `absent`),
+  and the sidebar mod's `feed.ts` is left for the mod's own release.
+
+### Decided by Mike, 2026-10-21 (the yours/guest split removed)
+
+- Decided by Mike, 2026-10-21 12:18, on the coordinator's recommendation: "for 1, i
+  agree, lets remove it." After confidential memories went, the owner stance decided
+  two things — closing a thread or reminder opened in another folder, and the last
+  exchange — and Mike had said earlier that day: "i'm basically no longer sure if the
+  rules about yours/guest make sense anymore or are even worth keeping." So both go:
+  every session, the night run and Desktop chats included, closes by id from any
+  folder and reads its folder's last exchange. The night run counts as Mike with no
+  special rule.
+- What stays: observer mode, read-only, and every owner operation still refuses under
+  it; protected memories are never closed; the scope and folder-off gates;
+  `redactSecrets`; `markAbout`'s night rule (keyed on `night`, not on the owner).
+- `owner` in a configuration, `COUNTERPARTS_OWNER` and the memory server's `--owner`
+  are accepted and ignored for one release (the configuration's is named under
+  doctor's "Old settings"), then removed. This replaces the "lightly held" owner
+  stance and owner-only last exchange recorded in
+  `feat-confidential-removal-core-1021`.
+
+### Decided by Mike, 2026-10-21 (night children keep no Claude Code transcript)
+
+- Decided by Mike, 2026-10-21 (the site session found it; Mike said to send it): every
+  `claude -p` night child runs with `--no-session-persistence`. Why: Claude Code saved each
+  child's transcript — memory text and the conversation being written up — under
+  `~/.claude/projects/`, outside Counterparts' 3-day/14-day retention, and nothing in the
+  package reads it any more (the host cut has come from the child's `stream-json` since
+  2026-10-12).
+- Decided by the builder, 2026-10-21, lightly held: the plain retry for a host that
+  refuses the child's arguments carries the flag too, so on a host too old to know it the
+  night does not run, rather than run and leave a transcript. Revisit if a supported host
+  turns out to lack the flag.
+- Transcripts from earlier nights are left to Claude Code's own cleanup; nothing under
+  `~/.claude` is deleted by Counterparts.
+- What this costs (2026-10-21, review of #574): `tools/harness night` replays a recorded
+  night from its children's transcripts (`night.ts#readChild`, `--dream` /
+  `--reflection`), copied from `~/.claude/projects`. No new night leaves those files now;
+  the recorded 10-19 corpus still replays. An opt-in recorder is not built: that is
+  Mike's call.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
