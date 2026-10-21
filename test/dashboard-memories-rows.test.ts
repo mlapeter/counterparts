@@ -157,16 +157,16 @@ describe("a date written at the front of a memory is lifted off what is shown", 
     }
   });
 
-  test("a chapter's heading date, a written date, else the day it was recorded; a confidential row lifts nothing", () => {
+  test("a chapter's heading date, a written date, else the day it was recorded; an absent row lifts nothing", () => {
     expect(chapterDate("Fri 10 Jul 2026")).toBe("2026-07-10");
     expect(chapterDate("not a date")).toBeNull();
     const chapter = shownOf("## chapter 1 — Fri 10 Jul 2026 · lived day 30\n\nEnd of six weeks.", {
-      chapter: true, learnedOn: "2026-07-11", confidential: false,
+      chapter: true, learnedOn: "2026-07-11", absent: false,
     });
     expect(chapter).toEqual({ text: "End of six weeks.", date: "2026-07-10", dateFrom: "chapter" });
-    const plain = shownOf("# A heading\nFirst line.\nSecond line.", { chapter: false, learnedOn: "2026-07-11", confidential: false });
+    const plain = shownOf("# A heading\nFirst line.\nSecond line.", { chapter: false, learnedOn: "2026-07-11", absent: false });
     expect(plain).toEqual({ text: "First line. Second line.", date: "2026-07-11", dateFrom: "recorded" });
-    const secret = shownOf("2026-07-09: a private thing.", { chapter: false, learnedOn: "2026-07-11", confidential: true, withheld: "[withheld]" });
+    const secret = shownOf("2026-07-09: a private thing.", { chapter: false, learnedOn: "2026-07-11", absent: true, absentLabel: "[withheld]" });
     expect(secret).toEqual({ text: "[withheld]", date: "2026-07-11", dateFrom: "recorded" });
   });
 
@@ -202,15 +202,15 @@ describe("the list's new marks, filters and sort", () => {
     });
   });
 
-  test("a confidential row keeps its feelings' words but lifts nothing from its body", () => {
+  test("a row carrying the retired confidential key shows its words, its written date and what carried its feelings (2026-10-21)", () => {
     withSrc((src) => {
       const r = allRows(src).find((x) => x.id === ids.secret);
-      expect(r?.confidential).toBe(true);
-      expect(r?.text).not.toContain("private");
-      expect(r?.dateFrom).toBe("recorded");
+      expect(r?.confidential).toBe(false);
+      expect(r?.text).toContain("private");
+      expect(r?.dateFrom).toBe("text");
       expect(r?.feelings[0]?.word).toBe("anxious");
       const card = memoryDetail(src, ids.secret as string);
-      expect(card.feelings[0]?.carriedBy).toBe("");
+      expect(card.feelings[0]?.carriedBy).toBe("a private reason");
     });
   });
 
@@ -369,16 +369,16 @@ describe("a date that still repeats is kept, so it is never fading (2026-10-09)"
     });
   });
 
-  test("the list: not fading, and the row says how often it comes round; a withheld one says nothing of when", () => {
+  test("the list: not fading, and the row says how often it comes round, a row carrying the retired confidential key too", () => {
     withSrc((src) => {
       const rows = allRows(src);
       const repeat = rows.find((r) => r.id === ids.repeat);
       expect(repeat?.hold).toBe("settling");
       expect(repeat?.repeats).toBe("every May 14");
       const secret = rows.find((r) => r.id === ids.repeatSecret);
-      expect(secret?.confidential).toBe(true);
+      expect(secret?.confidential).toBe(false);
       expect(secret?.hold).toBe("settling");
-      expect(secret?.repeats).toBeNull();
+      expect(secret?.repeats).toBe("every Monday");
       // A one-off carries no repeat, and the fading filter holds neither.
       expect(rows.find((r) => r.id === ids.fading)?.repeats).toBeNull();
       const fading = getList(src, "?hold=fading&limit=200").rows.map((r) => r.id);
@@ -528,8 +528,8 @@ describe("the memory card", () => {
       expect(plain.writtenDate).toBeNull();
       expect(plain.shownText).toBe(plain.text);
       const secret = memoryDetail(src, ids.secret as string);
-      expect(secret.writtenDate).toBeNull();
-      expect(secret.shownText).not.toContain("private");
+      expect(secret.writtenDate).toBe("2026-07-09");
+      expect(secret.shownText).toContain("private");
       const ch = allRows(src).find((r) => r.journal);
       const chCard = memoryDetail(src, ch?.id ?? "");
       expect(chCard.writtenDate).toBe(ch?.date ?? "");

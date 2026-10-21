@@ -175,16 +175,14 @@ describe("1. Today: memory only, each line a way in", () => {
     expect(read("pages/home/index.js")).not.toContain("registerLiveFeed");
   });
 
-  test("a confidential memory is a line that says so, never its words", () => {
+  test("a memory carrying the retired confidential key is a line in its own words (2026-10-21)", () => {
     withSource(dir, (src) => {
       const all = todayView(src);
       const secret = all.lines.find((l) => (l.to as { memory?: string }).memory === made.secret);
       expect(secret).toBeDefined(); // the newest written: it is shown
-      expect(secret!.confidential).toBe(true);
-      expect(secret!.text).toBe("");
-      expect(JSON.stringify(all)).not.toContain("side door");
+      expect(secret!.confidential).toBe(false);
+      expect(JSON.stringify(all)).toContain("side door");
     });
-    expect(read("pages/home/sections/today.js")).toContain("a private memory");
   });
 
   test("an empty today falls back to the most recent lived day, and says which", () => {

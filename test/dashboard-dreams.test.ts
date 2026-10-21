@@ -129,12 +129,12 @@ describe("the dream journal view", () => {
     expect(merge?.undone).toBe(false);
   });
 
-  test("a confidential memory a dream touched is withheld here, as everywhere", () => {
+  test("a memory a dream touched that carries the retired confidential key reads in its own words (2026-10-21)", () => {
     const v = withSource(dir, (src) => dreamsView(src));
     const link = v.dreams[0]?.changes.find((c) => c.action === "link");
     const secret = link?.memories.find((m) => m.id === ids["secret"]);
-    expect(secret?.confidential).toBe(true);
-    expect(secret?.text).not.toContain("confidential note");
+    expect(secret?.confidential).toBe(false);
+    expect(secret?.text).toContain("confidential note");
   });
 
   test("it rides in /api/mind, and on its own route; a store that never dreamed says so", () => {

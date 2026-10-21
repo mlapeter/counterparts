@@ -6,7 +6,7 @@
  * adds, and how many of them read as personal by the reflection's own order
  * (`core/dream/unmarked.ts`). Prints counts only — never a memory's words or
  * a name. Approximates the reflection's bundle: live, not a dream's or a
- * reflection's, not confidential (the night's bundle is a guest's).
+ * reflection's.
  *
  * Never on a live store: it refuses any path under ~/.counterparts or
  * the older stores beside it (`store/paths.ts`), and opens the file read-only.
@@ -67,7 +67,7 @@ interface Row {
 const rows = db
   .query<Row, []>(
     `SELECT id, kind, title, body, uses, created_at, birth_day, about, origin_scope, meta FROM memories
-     WHERE type = 'memory' AND archived = 0 AND confidential = 0 AND superseded_by IS NULL
+     WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL
        AND (source IS NULL OR source NOT IN ('dreamed', 'reflection'))`,
   )
   .all();
@@ -89,7 +89,7 @@ const journal = (meta: string): boolean => {
     return false;
   }
 };
-const cards = db.query<{ title: string | null; meta: string }, []>(`SELECT title, meta FROM memories WHERE type = 'schema' AND kind = 'person' AND archived = 0 AND confidential = 0`).all();
+const cards = db.query<{ title: string | null; meta: string }, []>(`SELECT title, meta FROM memories WHERE type = 'schema' AND kind = 'person' AND archived = 0`).all();
 const people = personNames([...rows.filter((r) => r.kind === "person"), ...cards], owner);
 const rank = unmarkedRanker({ owner, people });
 

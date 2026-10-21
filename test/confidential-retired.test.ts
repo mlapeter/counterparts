@@ -218,3 +218,43 @@ describe("the one-time count of rows still marked", () => {
     expect(confidentialRetiredFindings(fresh)).toEqual([]);
   });
 });
+
+describe("an upgraded store's marked rows (the column still 1) on the adapters' surfaces", () => {
+  /** One memory as an older build left it: the meta key, and the column at 1. */
+  function oldMarked(): string {
+    const s = Store.open({ dir });
+    const id = put(s, "ZQOLDMARK The clinic appointment about the migraines is on Thursday.", { meta: { confidential: true } });
+    s["ops"].run("UPDATE memories SET confidential = 1 WHERE id = ?", id);
+    s.close();
+    return id;
+  }
+
+  function console_(): { out: string[]; err: string[]; io: { out(l: string): void; err(l: string): void } } {
+    const out: string[] = [];
+    const err: string[] = [];
+    return { out, err, io: { out: (l) => out.push(l), err: (l) => err.push(l) } };
+  }
+
+  test("export --markdown carries it, with no omitted line on the terminal or in the manifest", async () => {
+    const id = oldMarked();
+    const target = join(root, "tree");
+    const c = console_();
+    expect(await run(["export", "--dir", dir, "--out", target, "--markdown", "--plaintext"], { io: c.io })).toBe(0);
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(join(target, "memories", "fact", `${id}.md`), "utf8")).toContain("ZQOLDMARK");
+    // (The temp path itself holds the word "confidential", so the check is for the old sentences.)
+    expect(c.out.join("\n")).not.toMatch(/left out|omitted|withheld/i);
+    expect(readFileSync(join(target, "README.md"), "utf8")).not.toMatch(/confidential|omitted/i);
+  });
+
+  test("the remove list prints its words and no [confidential] marker", async () => {
+    const id = oldMarked();
+    const c = console_();
+    const io = { ...c.io, prompt: async (): Promise<string> => "n", tty: { stdin: true, stdout: true } };
+    await run(["remove", "--dir", dir, "ZQOLDMARK"], { io });
+    const printed = c.out.join("\n");
+    expect(printed).toContain(id);
+    expect(printed).toContain("ZQOLDMARK");
+    expect(printed).not.toContain("[confidential]");
+  });
+});

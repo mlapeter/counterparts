@@ -180,10 +180,11 @@ snapshots and exports; the removal record; telemetry by reference.
    report names which ran: the whole store as one SQLite file through `VACUUM INTO`, or
    `--markdown`, a readable tree — one file per memory grouped by kind, the journal as is,
    the self page as its own file, `--with-versions` for every earlier wording. **Filenames
-   are ids, never titles.** The markdown tree **omits confidential rows unless
-   `--include-confidential`, and says how many it omitted** — in the terminal and in a
-   manifest inside the tree, at zero as well, because a directory that does not say what
-   is missing from it reads as complete. Removed rows are never exported; a row that will
+   are ids, never titles.** A manifest inside the tree says what is in it and what is
+   not, because a directory that does not say what is missing from it reads as complete.
+   (Until 2026-10-21 the tree also omitted confidential rows unless
+   `--include-confidential`, and counted them; nothing is omitted as confidential now,
+   and the flag is accepted and ignored, with a line on stderr, for one release.) Removed rows are never exported; a row that will
    not render is named by its id rather than silently absent. **`--markdown --passphrase`
    is supported properly** — the tree is rendered into memory, sealed, and only then
    written, so that path has no scratch anywhere. It refuses a non-empty target unless
@@ -195,9 +196,8 @@ snapshots and exports; the removal record; telemetry by reference.
    report says which.*
    *Extended 2026-10-09.* The tree also holds one file per dream (`dreams/`: its journal
    and its changes) and per reflection (`reflections/`: what it was asked, its entry, its
-   morning share and what became of it), dated like the journal. A dream or reflection
-   that was shown, changed or cites a memory that is confidential now is left out unless
-   `--include-confidential`, and counted apart from memory rows, at zero as well.
+   morning share and what became of it), dated like the journal. Each night's file names
+   the other's; a night whose file cannot be written is named rather than absent.
 8. **[M] Backups never leave the machine and never throw** — a backup problem must not
    block a consolidation cycle.
 9. **[M] Reads are pure.** Inspecting the protected list or the census writes nothing and
@@ -613,15 +613,12 @@ The standalone verb does not ask either: typing it is the yes.*
     one back to ordinary fading through `Counterpart.demoteCore`, which requires the
     reason, records it, restarts fading from today and keeps the lanes from promoting it
     again. Neither command is on `OWNER_OPS`: like `self-page`, reading works from an
-    instrument, and the write refuses at the core's own seam under observer. Confidential
-    rows print as `[confidential]`.
+    instrument, and the write refuses at the core's own seam under observer.
     *Extended 2026-10-20.* `counterparts night` prints the same lines with no write at all:
     the recent dreams and reflections, `last` (the newest dream and the reflection after
     it), `last-reflection`, or one by id (`show <id>` means the same). It always opens the
     store as an observer, so a session can run it to review the night with the owner — a
     host's safety check refuses `dream`, which also undoes. `--undo` stays on `dream`.
-    A reflection's entry whose memory is marked confidential prints as `[confidential]`,
-    like any confidential row (review of #538), here and under `dream --show`.
 
 ## 6. Scars honored
 

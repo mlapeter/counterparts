@@ -48,7 +48,7 @@ import { Dashboard, DURABLE_EVENT_NAMES, NEVER, NONE, sourceOf } from "../src/ad
 import type { DashboardSource } from "../src/adapters/dashboard/index.js";
 import { EVENT_NODE, FLOW_EDGES, FLOW_NODES, NODE_KEYS, nodeOf } from "../src/adapters/dashboard/web/flow.js";
 import { NARRATORS, REF_KIND, narrate } from "../src/adapters/dashboard/web/narrate.js";
-import { WITHHELD, reveal } from "../src/adapters/dashboard/web/reveal.js";
+import { reveal } from "../src/adapters/dashboard/web/reveal.js";
 import {
   DEFAULT_PORT,
   isAllowedHost,
@@ -994,8 +994,8 @@ describe("totality: nothing the core can record has nowhere to go", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-describe("what the page withholds", () => {
-  test("a confidential memory keeps its row and loses only its words", () => {
+describe("nothing is withheld as confidential (2026-10-21)", () => {
+  test("a memory carrying the retired confidential key shows its words on every surface: reveal, the list, the card, search", () => {
     const dir = tempDir("counterparts-web-conf-");
     const target = join(dir, "s");
     const c = Counterpart.open({ dir: target, owner: true });
@@ -1012,42 +1012,19 @@ describe("what the page withholds", () => {
     const d = open(target);
     try {
       const r = reveal(d.src.store, id, 80);
-      // The row exists — the owner can see THAT it is there.
-      expect(r.present).toBe(true);
-      // And its words do not. Asserted outright rather than branched on: a
-      // branch here would swallow the regression this test exists to catch.
-      expect(r.confidential).toBe(true);
-      expect(r.text).toBeNull();
-      expect(r.label).toBe(WITHHELD);
+      expect(r).toMatchObject({ present: true, confidential: false });
+      expect(r.text).toContain("whiteboard");
 
-      const points = get(d.src, "/api/memories").json["points"] as {
-        id: string;
-        text: string;
-        confidential: boolean;
-        strength: number;
-        band: string;
-      }[];
+      const points = get(d.src, "/api/memories").json["points"] as { id: string; text: string; confidential: boolean }[];
       const row = points.find((p) => p.id === id);
-      expect(row?.confidential).toBe(true);
-      expect(row?.text).toBe(WITHHELD);
-      // The dot is still on the chart with its real physics: withholding the
-      // sentence is not hiding the memory.
-      expect(typeof row?.strength).toBe("number");
-      expect(["episodic", "semantic", "identity"]).toContain(String(row?.band));
+      expect(row?.confidential).toBe(false);
+      expect(row?.text).toContain("whiteboard");
       const detail = get(d.src, `/api/memory?id=${id}`).json;
-      expect(detail["text"]).toBe(WITHHELD);
-      // NOR A DERIVATIVE OF THE WORDS. The modal's subtitle carries the content
-      // hash, which is `hashText` over the serialized document — a confirmation
-      // oracle for an exactly-guessed secret rather than a way to recover one,
-      // but this is the surface whose whole job is withholding. It is blank
-      // here, and the page renders a blank as `—`.
-      expect(detail["contentHash"]).toBe("");
-      expect(String(detail["contentHash"])).not.toBe(d.src.store.row(id)?.content_hash);
-      // The revision stays: it says how often this was rewritten, not what it says.
-      expect(Number(detail["revision"])).toBe(d.src.store.row(id)?.revision as number);
-      // And nothing leaks through the search surface either.
+      expect(String(detail["text"])).toContain("whiteboard");
+      expect(detail["confidential"]).toBe(false);
+      expect(detail["contentHash"]).toBe(d.src.store.row(id)?.content_hash);
       const hits = get(d.src, "/api/search?q=whiteboard").json["hits"] as { id: string; text: string }[];
-      for (const hit of hits) if (hit.id === id) expect(hit.text).toBe(WITHHELD);
+      expect(hits.find((h) => h.id === id)?.text).toContain("whiteboard");
     } finally {
       d.close();
     }

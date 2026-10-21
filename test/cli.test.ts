@@ -162,16 +162,6 @@ function store(opts: Parameters<typeof Store.open>[0] = {}): Store {
   return s;
 }
 
-/**
- * A row as an OLDER build left it, marked confidential in the column. Since
- * 2026-10-21 every write stores 0 there (the core no longer reads it); the
- * export's and the remove list's own use of it goes in their own pull request,
- * and until then these tests seed the column the way an upgraded store has it.
- */
-function markedByOlderBuild(s: Store, id: string): void {
-  s["ops"].run("UPDATE memories SET confidential = 1 WHERE id = ?", id);
-}
-
 function text(lines: readonly string[]): string {
   return lines.join("\n");
 }
@@ -1055,7 +1045,6 @@ describe("export", () => {
       body: "ZQSECRETROW — the migraine clinic appointment.",
       meta: { confidential: true },
     });
-    markedByOlderBuild(s, secret);
     const removed = s.put({ type: "memory", kind: "fact", body: "ZQREMOVEDROW — gone by the time this exports." });
     const self = new Self({ store: s, gate: () => ({ ok: true }) });
     self.openChapter("s1", { turns: 9, bytes: 6_000 });
@@ -1088,9 +1077,9 @@ describe("export", () => {
     const written = readFileSync(join(target, "memories", "fact", `${plain}.md`), "utf8");
     expect(written).toContain("ZQPLAINROW");
     expect(written).toContain("title: Plain");
-    // Only `fact/`: the one `person` row here is confidential, and an omitted
-    // row does not even leave its kind's directory behind as a hint.
-    expect(readdirSync(join(target, "memories")).sort()).toEqual(["fact"]);
+    // Every kind present, the `person` row carrying the retired confidential
+    // key included (nothing is left out as confidential since 2026-10-21).
+    expect(readdirSync(join(target, "memories")).sort()).toEqual(["fact", "person"]);
     // The self page is its own file at the top of the tree.
     expect(readFileSync(join(target, "self-page.md"), "utf8")).toContain("ZQPAGEROW");
     expect(readFileSync(join(target, "self-page.md"), "utf8")).toContain(`id: ${page}`);
@@ -1137,7 +1126,6 @@ describe("export", () => {
     const s = store();
     const a = s.put({ type: "memory", kind: "fact", title: "Garden", body: "ZQGARDEN — the tomatoes came in." });
     const b = s.put({ type: "memory", kind: "fact", title: "Kitchen", body: "ZQKITCHEN — the sauce was the point." });
-    const later = s.put({ type: "memory", kind: "person", body: "ZQLATERSECRET — marked confidential after the night." });
     s.openDream({ id: "drm_one", day: 3, date: "2026-10-08", model: "test-model", shown: [a, b] });
     s.recordDreamChange("drm_one", { action: "link", ref: a, ref2: b });
     const undone = s.recordDreamChange("drm_one", { action: "link", ref: b, ref2: a });
@@ -1152,15 +1140,7 @@ describe("export", () => {
       shareCites: [a],
       shareState: "offered",
     });
-    // A second night, shown a memory that became confidential afterwards: it
-    // is left out unless asked for, and counted.
-    s.openDream({ id: "drm_two", day: 4, date: "2026-10-09", shown: [later] });
-    s.updateDream("drm_two", { state: "journaled", title: "Later", journal: "ZQSECONDJOURNAL — a night about someone." });
     s.close();
-    const marked = store();
-    marked.revise(later, { meta: { confidential: true } });
-    markedByOlderBuild(marked, later);
-    marked.close();
 
     const target = join(outside, "nights");
     const c = consoleWith();
@@ -1187,19 +1167,11 @@ describe("export", () => {
     expect(reflection).toContain(`- ${a} "Garden"`);
     expect(reflection).toContain("## Morning share\n\nZQSHARE — I keep thinking about the garden.\n\nShare not told yet.");
 
-    // The night that rests on a now-confidential memory: not one byte of it.
-    expect(treeFiles(target).some((p) => p.includes("drm_two"))).toBe(false);
-    for (const path of treeFiles(target)) {
-      expect(readFileSync(join(target, path), "utf8").includes("ZQSECONDJOURNAL")).toBe(false);
-    }
-    // Counted apart from the memory rows, on the terminal and in the manifest.
-    expect(text(c.out)).toContain("1 confidential row was left out");
-    expect(text(c.out)).toContain("1 dream that rests on a confidential memory was left out too.");
+    // Counted apart from the memory rows, in the manifest.
     const readme = readFileSync(join(target, "README.md"), "utf8");
     expect(readme).toContain("and 1 dream and 1 reflection.");
     expect(readme).toContain("`dreams/<year>/<date>-<id>.md` — 1 dream, one file each");
     expect(readme).toContain("`reflections/<year>/<date>-<id>.md` — 1 reflection, one file each");
-    expect(readme).toContain("**1** dream, **0** reflections.");
 
     // …and the durable row counts them, apart from `rows` (which the
     // dashboard reads as memories).
@@ -1207,22 +1179,12 @@ describe("export", () => {
     const payload = JSON.parse((rows[0] as { payload: string | null }).payload as string) as Record<string, unknown>;
     expect(payload["dreams"]).toBe(1);
     expect(payload["reflections"]).toBe(1);
-    expect(payload["omittedDreams"]).toBe(1);
-    expect(payload["omittedReflections"]).toBe(0);
-
-    // The opt-in takes the second night too.
-    const opened = join(outside, "nights-opened");
-    const c2 = consoleWith();
-    expect(
-      await run(["export", "--out", opened, "--markdown", "--plaintext", "--include-confidential"], { io: c2.io, env: { [ENV]: dir } }),
-    ).toBe(EXIT.ok);
-    expect(readFileSync(join(opened, "dreams", "2026", "2026-10-09-drm_two.md"), "utf8")).toContain("ZQSECONDJOURNAL");
+    // Nothing is counted as left out any more (2026-10-21): the row no longer carries those fields.
+    expect(payload["omittedDreams"]).toBeUndefined();
+    expect(payload["omittedConfidential"]).toBeUndefined();
   });
 
-  test("a night file never points at a night this copy left out (review of #331)", async () => {
-    // The dream rests on a memory marked confidential afterwards; the
-    // reflection after it does not. The reflection is written, and says its
-    // dream was left out rather than naming a path that is not in the tree.
+  test("a night file names the other night's file (review of #331), a memory with the retired confidential key in it or not", async () => {
     const s = store();
     const kept = s.put({ type: "memory", kind: "fact", body: "ZQKEPT — an ordinary thing." });
     const later = s.put({ type: "memory", kind: "person", body: "ZQLATER — marked confidential after the night." });
@@ -1233,21 +1195,11 @@ describe("export", () => {
     s.close();
     const marked = store();
     marked.revise(later, { meta: { confidential: true } });
-    markedByOlderBuild(marked, later);
     marked.close();
 
-    const target = join(outside, "nights-linked");
-    expect(await run(["export", "--out", target, "--markdown", "--plaintext"], { io: consoleWith().io, env: { [ENV]: dir } })).toBe(EXIT.ok);
-    expect(existsSync(join(target, "dreams", "2026", "2026-10-08-drm_left.md"))).toBe(false);
-    const reflection = readFileSync(join(target, "reflections", "2026", "2026-10-08-rfl_kept.md"), "utf8");
-    expect(reflection).toContain("After dream drm_left (left out of this copy: it rests on a confidential memory).");
-    expect(reflection).not.toContain("dreams/2026/2026-10-08-drm_left.md");
-
-    // With the opt-in both are written, and each names the other's file.
+    // Both are written, and each names the other's file.
     const opened = join(outside, "nights-linked-opened");
-    expect(
-      await run(["export", "--out", opened, "--markdown", "--plaintext", "--include-confidential"], { io: consoleWith().io, env: { [ENV]: dir } }),
-    ).toBe(EXIT.ok);
+    expect(await run(["export", "--out", opened, "--markdown", "--plaintext"], { io: consoleWith().io, env: { [ENV]: dir } })).toBe(EXIT.ok);
     expect(readFileSync(join(opened, "reflections", "2026", "2026-10-08-rfl_kept.md"), "utf8")).toContain(
       "After dream drm_left — `dreams/2026/2026-10-08-drm_left.md`.",
     );
@@ -1266,46 +1218,26 @@ describe("export", () => {
     const readme = readFileSync(join(target, "README.md"), "utf8");
     expect(readme).toContain("`dreams/` — none: this store has no dream to export.");
     expect(readme).toContain("`reflections/` — none: this store has no reflection to export.");
-    expect(text(c.out)).toContain("No confidential rows were left out (there were none).");
+    expect(text(c.out)).not.toContain("left out");
   });
 
-  test("--markdown OMITS confidential rows, and SAYS how many — on the terminal and in the tree", async () => {
+  test("--include-confidential is accepted and ignored for one release: the same tree, and one line on stderr saying so", async () => {
     const { secret } = furnished();
-    const target = join(outside, "omitted");
+    const plain = join(outside, "plain-tree");
+    const flagged = join(outside, "flagged-tree");
     const c = consoleWith();
-    expect(
-      await run(["export", "--out", target, "--markdown", "--plaintext"], {
-        io: c.io,
-        env: { [ENV]: dir },
-      }),
-    ).toBe(EXIT.ok);
-    // Ruling 4, both halves: omitted, and said.
-    expect(existsSync(join(target, "memories", "person", `${secret}.md`))).toBe(false);
-    expect(text(c.out)).toContain("1 confidential row was left out");
-    // …and said INSIDE the artefact, because the terminal scrolls away and six
-    // months later the directory is all there is.
-    expect(readFileSync(join(target, "README.md"), "utf8")).toContain(
-      "Confidential memories omitted: **1**",
-    );
-    // NOT ONE BYTE of it anywhere in the tree.
-    for (const path of treeFiles(target)) {
-      const holds = readFileSync(join(target, path)).toString("latin1").includes("ZQSECRETROW");
-      expect({ path, holdsTheSecret: holds }).toEqual({ path, holdsTheSecret: false });
-    }
-
-    // …and the opt-in takes it, and says THAT rather than a count.
-    const opened = join(outside, "opened");
+    expect(await run(["export", "--out", plain, "--markdown", "--plaintext"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.ok);
+    expect(text(c.err)).not.toContain("--include-confidential");
     const c2 = consoleWith();
     expect(
-      await run(["export", "--out", opened, "--markdown", "--plaintext", "--include-confidential"], {
-        io: c2.io,
-        env: { [ENV]: dir },
-      }),
+      await run(["export", "--out", flagged, "--markdown", "--plaintext", "--include-confidential"], { io: c2.io, env: { [ENV]: dir } }),
     ).toBe(EXIT.ok);
-    expect(readFileSync(join(opened, "memories", "person", `${secret}.md`), "utf8")).toContain(
-      "ZQSECRETROW",
-    );
-    expect(text(c2.out)).toContain("Confidential rows are INCLUDED");
+    expect(text(c2.err)).toBe("--include-confidential: nothing is held back any more; the flag does nothing and will be removed.");
+    expect(treeFiles(flagged).sort()).toEqual(treeFiles(plain).sort());
+    expect(readFileSync(join(flagged, "memories", "person", `${secret}.md`), "utf8")).toContain("ZQSECRETROW");
+    // No "omitted" line on the terminal or in the manifest.
+    expect(text(c2.out)).not.toMatch(/confidential/i);
+    expect(readFileSync(join(flagged, "README.md"), "utf8")).not.toMatch(/confidential|omitted/i);
   });
 
   test("a REMOVED row is never exported, and --with-versions takes the earlier wordings", async () => {
@@ -1363,48 +1295,6 @@ describe("export", () => {
     expect([...opened.keys()].some((k) => k.startsWith("memories/"))).toBe(true);
     expect([...opened.keys()]).toContain("README.md");
     expect([...opened.keys()].some((k) => k.startsWith("journal/"))).toBe(true);
-  });
-
-  test("MINOR-1/2: a CONFIDENTIAL page is omitted, not 'absent', and rows and versions count apart", async () => {
-    const s = store();
-    const self = new Self({ store: s, gate: () => ({ ok: true }) });
-    const pageId = self.revisePage("ZQPAGESECRET — who I am.", { by: "owner", reason: "t" }).id as string;
-    // The page exists and is confidential. The manifest used to print the "no
-    // page" branch for this store, which is the one thing the manifest exists
-    // to make impossible: a directory that reads as complete.
-    s.revise(pageId, { body: "ZQPAGESECRET — who I am, still.", meta: { confidential: true } });
-    markedByOlderBuild(s, pageId);
-    const openRow = s.put({ type: "memory", kind: "fact", body: "An open memory, first wording." });
-    s.revise(openRow, { body: "An open memory, second wording.", meta: { confidential: true } });
-    // …and back to open. `revise` MERGES meta into the prior meta, so the class
-    // has to be cleared by name. The LIVE row is open and one of its earlier
-    // wordings is not — the shape the two counters exist for.
-    s.revise(openRow, { body: "An open memory, third wording.", meta: { confidential: false } });
-    expect(s.row(openRow)?.confidential).toBe(0);
-    s.close();
-
-    const target = join(outside, "counted");
-    const c = consoleWith();
-    expect(
-      await run(["export", "--out", target, "--markdown", "--plaintext", "--with-versions"], {
-        io: c.io,
-        env: { [ENV]: dir },
-      }),
-    ).toBe(EXIT.ok);
-    const readme = readFileSync(join(target, "README.md"), "utf8");
-    expect(readme).toContain("omitted as confidential");
-    expect(readme).not.toContain("this store has no written self page");
-    // TWO UNITS, counted apart: one row (the page) and one earlier wording.
-    expect(readme).toContain("Confidential memories omitted: **1**");
-    expect(readme).toContain("earlier wording");
-    expect(text(c.out)).toContain("1 confidential row");
-    // Nothing of either leaked into the tree.
-    for (const path of treeFiles(target)) {
-      expect({
-        path,
-        holds: readFileSync(join(target, path)).toString("latin1").includes("ZQPAGESECRET"),
-      }).toEqual({ path, holds: false });
-    }
   });
 
   test("MINOR-3: --into-non-empty does not silently replace a file; --overwrite says which", async () => {
@@ -1546,7 +1436,7 @@ describe("export", () => {
     const payload = JSON.parse((rows[0] as { payload: string | null }).payload as string) as Record<string, unknown>;
     expect(payload["kind"]).toBe("markdown");
     expect(payload["encrypted"]).toBe(false);
-    expect(payload["omittedConfidential"]).toBe(1);
+    expect(payload["omittedConfidential"]).toBeUndefined();
     expect(payload["rows"]).toBeGreaterThan(0);
     // WHERE the memories went is more than the row needs, and the terminal has
     // already said it (§5 G10). No body, no title, no path.
@@ -2282,32 +2172,6 @@ describe("remove — the interactive door", () => {
     expect(after.deniedIds().sort()).toEqual([first, second].sort());
     // The raced one has ONE record — the nested run's — not two.
     expect(after.removalRecord(raced).length).toBe(4);
-  });
-
-  test("an untitled confidential memory shows no words at all", async () => {
-    const s = store();
-    const secret = s.put({
-      type: "memory",
-      kind: "fact",
-      body: "PASSWORD hunter2 for the culvert gate control panel.",
-      meta: { confidential: true },
-    });
-    markedByOlderBuild(s, secret);
-    const plain = s.put({ type: "memory", kind: "fact", body: "The culvert gate sticks in October." });
-    s.close();
-
-    const c = terminal(["culvert", "1,2", "n"]);
-    expect(await run(["remove"], { io: c.io, env: { [ENV]: dir } })).toBe(EXIT.refused);
-    const printed = text(c.out);
-    // `export` omits confidential memories by default even for the owner; this
-    // list may not be the one surface that prints one unmarked (review m1).
-    expect(printed).toContain(`${secret}  [confidential] fact — (untitled)  (`);
-    expect(printed).not.toContain("hunter2");
-    expect(printed).not.toContain("PASSWORD");
-    // An ORDINARY untitled memory still shows its first line — that is what the
-    // person searched for and how they tell the numbers apart.
-    expect(printed).toContain(`${plain}  fact — The culvert gate sticks in October.  (`);
-    expect(aftermath()).toEqual({ denied: [], records: 0 });
   });
 
   test("several ids on the command line are several ids, not a sentence", async () => {

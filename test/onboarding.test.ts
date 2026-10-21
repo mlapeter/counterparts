@@ -550,26 +550,6 @@ describe("the wake's line: no double offer", () => {
     expect(second).toContain(`Counterparts: from your first meeting — "Ada is building a tide-chart app." (${workId}). Bring it up only if it fits naturally; no forced callback.`);
     expect(start("s3", DAY2)).not.toContain("from your first meeting");
   });
-
-  test("an answer marked confidential since is passed over by the second session's line", async () => {
-    newInstallStore();
-    const s = server({ session: "s1" });
-    await s.call("meet", {});
-    const work = await s.call("meet", { step: "work", answer: "Ada is interviewing elsewhere, quietly." });
-    await s.call("meet", { step: "love", answer: "Ada loves Middlemarch." });
-    await s.call("meet", { step: "done" });
-    for (const x of open.splice(0)) x.counterpart.close();
-    // As an older build left it: the column held 1 (every write stores 0 since
-    // 2026-10-21; this offer's own reading of it goes with the adapters' pull request).
-    withStore((st) => {
-      const id = String(work.structuredContent["id"]);
-      st.revise(id, { meta: { confidential: true } });
-      st["ops"].run("UPDATE memories SET confidential = 1 WHERE id = ?", id);
-    });
-    const second = start("s2", DAY2);
-    expect(second).not.toContain("interviewing");
-    expect(second).toContain("Ada loves Middlemarch.");
-  });
 });
 
 // ── the endpoint ─────────────────────────────────────────────────────────────

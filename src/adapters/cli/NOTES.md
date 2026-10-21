@@ -2080,3 +2080,15 @@ door the plugin's `/counterparts:uninstall` drives.
   delete itself has to happen with Claude Code closed: the person runs the launcher in a
   terminal (`sh <plugin root>/src/adapters/plugin-run.sh cli uninstall`, the plan's
   `terminalArgs` after the launcher) and answers there.
+
+## 2026-10-21 — export, remove and dream lists: nothing is held back as confidential
+
+- `export --markdown` carries every live row, every earlier wording and every night.
+  `confidentialNote`, `restsOnConfidential` and the manifest's omitted lines are
+  gone; `NightFate` is `{path} | {left: "unrenderable"}`. `--include-confidential`
+  is accepted and ignored for one release, with one stderr line; it is still refused
+  by name without `--markdown`, beside `--with-versions`. `ExportReport`'s
+  `omittedConfidential`, `omittedDreams` and `omittedReflections` stay at 0, marked
+  deprecated, for the same release; the `store.export` row no longer carries them.
+- The `remove` list and `dream` / `night` / `core --list` lost their `[confidential]`
+  markers; `[journal]` and the body fallback stay.
