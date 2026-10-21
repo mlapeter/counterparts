@@ -1738,3 +1738,30 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   one release, so an old registration launches. The `owner` fields on the facts,
   meaning and deliberate contexts, and on the `mcp.recall` / `mcp.initialize` rows, went
   too (PR C need not take them).
+
+## 2026-10-21 — tags at the write (wave 2 lane B, first PR)
+
+- `remember` and `session_end` entries take `tags` (design §1, brief B). The door reads them
+  in `server-args.ts#readTags` beside `readWriteFacts`; they ride `DepositContext.tags` →
+  `counterpart-deposit.ts#carryTags` → `Proposal.tags` → `mint.ts` → `PutInput.tags`, and
+  `insertOne` writes them after the subject links, in the same transaction.
+- **Their own field, not a fourth fact.** The three fields are scalars with a per-field
+  carry (`pick`) and an echo built around them; a list carries whole or not at all.
+- **Not stemmed at the write.** `stem.ts` is an experiment with a revert date; if stored
+  tags depended on it, reverting it would orphan them. The night's merge (stems match →
+  `tag_merges`) is where stems come in.
+- **Loose limits**, lightly held: 48 characters a tag, 8 a memory; past those, dropped and
+  named. The secret screen (`containsSecret`) reads the words as sent, before lowercasing
+  (an AWS key id lowercased passes the battery) and before anything of the tag is echoed.
+  Review of #570: the screen moved into core (`core/tag-screen.ts#screenTags`), called by
+  `readTags` and by `carryTags`, so a caller of `submitJot` that skips this door is screened
+  too; and blanks no longer mean "none" (only `null` or `[]` do), so `tags: ""` on a
+  revision inherits.
+- **No privilege row** for the field: privileges render into the description inside the
+  2,048-character cut, and nothing the model reads changes with tags yet. The field's own
+  description says what a good tag is (a topic, a person, a project, a place; not a date,
+  not a feeling, not "memory").
+- A carried tag is `via: carried` (the store's vocabulary was `write`, `night`, `merge`,
+  `backfill`), so the night can tell what the writer chose from what it inherited.
+- Not here: the CLI's `counterparts note` takes no tags yet; dream merges and gists write
+  none (the night's backfill reaches them); recall and the wake read none (lane E).

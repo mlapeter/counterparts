@@ -207,10 +207,12 @@ import {
   readAbout,
   readTraits,
   readWriteFacts,
+  readTags,
   reminderEcho,
   titleEcho,
   undatedReminderWarning,
   factsEcho,
+  tagsEcho,
   threadOf,
   addressBlocked,
   resolvedIdOf,
@@ -1656,6 +1658,8 @@ export class McpServer {
     // v12: when it happened, who said it, what kind — never a refusal: what
     // cannot be read is dropped and said beside the memory that landed.
     const facts = readWriteFacts(args, this.today());
+    // v14, lane B: its tags, loose first the same way.
+    const tags = readTags(args);
     const deposit = await this.counterpart.submitJot(draft, {
       session,
       scope: this.scope,
@@ -1663,6 +1667,7 @@ export class McpServer {
       at: this.today(),
       ownSpanHash,
       facts: facts.sent,
+      ...(tags.sent === undefined ? {} : { tags: tags.sent }),
       // What it is about sets an unclaimed memory's default floor (2026-10-10).
       about: about.mark,
       ...(model === undefined ? {} : { model }),
@@ -1682,6 +1687,7 @@ export class McpServer {
       ...titleEcho(deposit, TITLE_ASKED_NOTE),
       ...undatedReminderWarning(deposit, dated, args["title"], text),
       ...factsEcho(deposit, facts),
+      ...tagsEcho(deposit, tags),
       ...this.settledOf(deposit, args["how"] !== undefined),
       ...threadOf(deposit),
       // IN THE PAYLOAD, so it rides in `structuredContent` — which is what

@@ -526,6 +526,25 @@ old memory (`counterpart-deposit.ts#carryFacts`). **[A]** The descriptions ask t
 resolve "last week" to a date at write time and keep `occurredOn` (when it happened) apart
 from `eventDate` (a future date to be reminded on). Facts mode reads them (§6f).
 
+## 6d'. Tags (2026-10-21, schema v14, wave 2 lane B)
+
+**[M]** `remember` and each `session_end` entry (write-ups included) take an optional
+`tags` list — a few words for what the memory is about — written to `memory_tags` in the
+row's own transaction (`store/index.ts#insertOne`, `via` `write`), so a write that does not
+land leaves none. **[M]** Loose first, as the three fields: each is normalized
+(`normalizeTag`), and one that is not text, is too long, carries a secret, or comes past
+the per-memory limit is dropped and said in the answer's `tags`; the memory lands all the
+same. The screen is the core's (`core/tag-screen.ts#screenTags`), run by the door
+(`server-args.ts#readTags`) and again at the core's seam (`carryTags`), so an embedder
+calling `submitJot` directly is screened the same. **[M]** A revision by `updates` carries
+the tags of the memory it revises unless it sends its own (null or an empty list: none; a
+list that keeps no tag — all blank or all dropped — is read as not sent), recorded `via`
+`carried`; nothing moves off the old memory (`counterpart-deposit.ts#carryTags`). A
+duplicate's answer says its tags were not added. **[A]** Nothing reads tags
+yet: no recall result and no wake line changes with them (`test/tags-write.test.ts`); the
+night promotes the ones that matter into subjects (lane B's second PR), and recall reads
+them in lane E. Not stemmed at the write: the stored word is the word as sent.
+
 ## 6e. Meaning mode (2026-10-03, Release B of deliberate recall)
 
 `recall` with `mode: "meaning"` arranges what memory holds about a subject over time;

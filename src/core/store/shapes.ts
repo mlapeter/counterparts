@@ -158,6 +158,14 @@ export interface PutInput {
    */
   subjectKind?: SubjectKind;
   birthRoute?: BirthRoute;
+  /**
+   * v14, lane B (2026-10-21): the memory's tags, written to `memory_tags` in
+   * the same transaction as the row (`normalizeTag`; empty ones skipped), with
+   * `tagsVia` as their `via` (default `write`). Memories only. Absent or empty:
+   * no tags.
+   */
+  tags?: readonly string[];
+  tagsVia?: string;
 }
 
 /** How a subject link was found (`memory_subjects.via`, v12). */
