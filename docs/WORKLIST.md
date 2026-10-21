@@ -1,6 +1,6 @@
 # Worklist
 
-*The details behind the roadmap's "To do" list. Started 2026-10-20, updated 13:20. One entry per thing still to do: what it is,
+*The details behind the roadmap's "To do" list. Started 2026-10-20, updated 10-21 09:45. One entry per thing still to do: what it is,
 why, where it stands. Close an entry by moving it to "Done" with the date and the PR; drop it after a release.
 Experiments with a date to check live in [CHECK-AFTER](CHECK-AFTER.md); this file points there rather than
 repeating them.*
@@ -27,6 +27,13 @@ repeating them.*
 - **"Read last night" lists the reflection's core decisions** (`adapters/mcp/nights.ts` shows closes, not
   `coreDecided`).
 - **F4 room** if the ~10-23 check shows the four-sessions line too thin.
+- **Wake polish from random-7b's read of the 10-21 wake** (relayed by the Fable roadmap session, mem_2008a1ffe09f;
+  one small PR, not roadmap). (1) The wake says nothing about the night: only the day's first session hears it
+  finished, through the prompt hook. Add one line: dream ran HH:MM `drm_…` / running since HH:MM / none yet, and
+  whether the morning share was already told and in which session, so a second session doesn't retell it.
+  (2) "Still open"'s tail of five bare recall ids is weight: show the oldest untouched item's title, or nothing.
+  (3) "Last said here" is cut past meaning ("morning! morning!"): give it enough words, or drop it when it's
+  that short. random-7b called "Today, elsewhere" the wake's most useful line (F4 working as meant).
 
 ## Needs a talk first
 
