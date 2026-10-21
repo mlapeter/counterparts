@@ -519,7 +519,8 @@ dream having run.
     statement one line, each lived cite filed as its first support, one close to a live
     belief on the subject (`BELIEF_NEAR_DUPLICATE` 0.6) refused with that belief's id, one
     that is a cite's own words (`BELIEF_PASTED` 0.9) refused; `replaces` only a contested
-    belief it was shown on the same subject, and not with its own claim again;
+    belief it was shown on the same subject, citing at least one memory that went against
+    it (`contestedBy`, shown so it can be cited), and not with its own claim again;
     `retire` lets a contested belief go through the settle door (the memory that
     contested it holds over it, `corrected`), and a birth's `replaces` does the same for
     the one it says better. **[M]** a belief's id is never in `shown`: it cannot be cited,

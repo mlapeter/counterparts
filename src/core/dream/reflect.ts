@@ -405,6 +405,8 @@ export interface ReflectBeliefs {
       readonly about?: "me" | "us";
       /** Contrary pressure crossed its bar: revise or retire it. */
       readonly contested?: true;
+      /** A contested belief's contrary memories — the evidence a `replaces` birth must cite (shown, so it can). */
+      readonly contestedBy?: readonly string[];
     }[];
     /** Beliefs on it not shown (the weaker ones), counted. */
     readonly more: number;
@@ -2000,7 +2002,15 @@ export class Reflections {
           support: b.support,
           against: b.against,
           ...(b.about === null ? {} : { about: b.about }),
-          ...(b.contested ? { contested: true as const } : {}),
+          ...(b.contested
+            ? {
+                contested: true as const,
+                contestedBy: this.store
+                  .supportOf(b.id)
+                  .filter((r) => r.stance === "contrary")
+                  .map((r) => r.memoryId),
+              }
+            : {}),
         })),
         more: all.length - shownNow.length,
       };
@@ -2149,6 +2159,17 @@ export class Reflections {
       if (replaces !== null && sch.element(replaces)?.entityId !== subject) {
         out.births.push({ id: replaces, ok: false, reason: "replaces-other-subject", detail: `${replaces} is a belief about another subject than "${asked}".` });
         continue;
+      }
+      // A REVISION RESTS ON THE EVIDENCE (the coordinator, review of #577):
+      // a replacement cites at least one memory that went against the belief
+      // it replaces. A restatement does not; word overlap alone cannot tell
+      // them apart ("We work best at dawn, not at night." reads 0.85).
+      if (replaces !== null) {
+        const evidence = new Set(this.store.supportOf(replaces).filter((r) => r.stance === "contrary").map((r) => r.memoryId));
+        if (!good.some((c) => evidence.has(c))) {
+          out.births.push({ id: replaces, ok: false, reason: "replaces-without-the-evidence", detail: `A replacement rests on what went against ${replaces}: cite one of its contestedBy memories.` });
+          continue;
+        }
       }
       // Saying it better is not saying it again (review of #577): a
       // replacement that repeats its contested target's claim would reissue
@@ -2739,6 +2760,9 @@ export class Reflections {
     // BELIEFS ON THE SUBJECTS IN PLAY (lane C): the self subject, then the
     // cards the memories tonight may show name most.
     const beliefs = this.beliefsInPlay(day, [...priority.keys()]);
+    // What contested a belief shown is shown too (review of #577): a
+    // replacement must cite it, so the reflection must be able to.
+    for (const s of beliefs?.subjects ?? []) for (const x of s.beliefs) for (const m of x.contestedBy ?? []) take(5)(m);
     const page = this.ctx.page();
     const earlier = this.store
       .reflections({ limit: T.EARLIER + 4 })
@@ -3395,7 +3419,7 @@ function beliefLines(b: ReflectBeliefs, filings: number): string[] {
     `  births (at most ${String(b.births)} new beliefs; most nights need none): {subject: "me" (for me or us) or a subject's id, statement: one short claim in your own words — not a memory's words, cites: the lived memories it rests on, about: "me" or "us" on me}. One that says what a belief here already says is refused with that belief's id: file to it instead.`,
     ...(contested
       ? [
-          `  contested: a belief marked contested met more against it than its support holds. Read what went against it; then either let it go — retire: {belief, why} — or say it better as a birth with replaces: its id (the new one starts weak). Leave it if you are not sure.`,
+          `  contested: a belief marked contested met more against it than its support holds. Read what went against it; then either let it go — retire: {belief, why} — or say it better as a birth with replaces: its id, citing what went against it (contestedBy; the new one starts weak). Leave it if you are not sure.`,
         ]
       : []),
   ];

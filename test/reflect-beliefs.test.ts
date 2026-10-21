@@ -261,7 +261,7 @@ describe("contested beliefs, and the switch", () => {
     nextDay(c);
     const late = mem(c, "Mike: the late session last night was our best this month.", { saidBy: "owner" });
     const b = begin(c);
-    const o = finish(c, b, { beliefs: { births: [{ subject: "us", statement: "We do our best work late at night.", cites: [late], replaces: b0 }] } });
+    const o = finish(c, b, { beliefs: { births: [{ subject: "us", statement: "We do our best work late at night.", cites: [late, against], replaces: b0 }] } });
     expect(o.beliefs.births[0]?.reason).toBe("born");
     expect(o.beliefs.retire[0]).toMatchObject({ id: b0, ok: true, reason: "retired" });
     expect(c.store.row(b0)?.archived).toBe(1);
@@ -295,7 +295,7 @@ describe("contested beliefs, and the switch", () => {
   });
 
   test("a replacement must say something else than the contested belief it replaces", () => {
-    const { c } = world();
+    const { c, dawn } = world();
     const me = c.schemas.ensureSelfSubject();
     const b0 = c.schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: c.store.livedDay(), birthRoute: "reflection", about: "us" }).id as string;
     const late = mem(c, "Mike: honestly the late nights are where we do our best work.", { saidBy: "owner", salience: { claimed: 0.9 } });
@@ -310,6 +310,12 @@ describe("contested beliefs, and the switch", () => {
       },
     });
     expect(o.beliefs.births.map((x) => x.reason)).toEqual(["replaces-same-claim", "replaces-same-claim"]);
+    // The contesting memory is shown with the belief, so it can be cited.
+    expect(b.beliefs?.subjects[0]?.beliefs.find((x) => x.id === b0)?.contestedBy).toEqual([late]);
+    expect(b.memories[late]).toBeDefined();
+    // A restatement that does not rest on what went against it is refused, however it is worded.
+    const reworded = finish(c, b, { entry: undefined, beliefs: { births: [{ subject: "us", statement: "No doubt: we work best at dawn.", cites: [dawn], replaces: b0 }] } });
+    expect(reworded.beliefs.births[0]?.reason).toBe("replaces-without-the-evidence");
     expect(c.store.row(b0)?.archived).toBe(0);
     // A negation is what the contrary evidence says: a replacement, whatever it reads.
     const turned = finish(c, b, { entry: undefined, beliefs: { births: [{ subject: "us", statement: "We don't work best at dawn.", cites: [late], replaces: b0 }] } });

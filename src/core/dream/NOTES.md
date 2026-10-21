@@ -1045,3 +1045,10 @@ co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.t
   temp copy of the corpus store, `harness compare --set schemas.BELIEFS_BIRTH=false` against
   the default (~1.8M tokens), to read how many beliefs a night births and files and whether
   the near-duplicate bar holds; then Dana's meaningful week once, after C3.
+- **A replacement rests on the evidence** (review of #577, the coordinator's call): a
+  `replaces` birth must cite at least one of the contested belief's contrary memories
+  (`replaces-without-the-evidence` otherwise), and those memories are shown with the belief
+  (`contestedBy`). The same-claim check (`BELIEF_SAME_CLAIM` 0.9, negations exempt) stays,
+  but word overlap cannot fully stop a reworded restatement: "We work best at dawn, not at
+  night." (0.85), "No doubt: we work best at dawn." (0.85) and "…nothing else comes close."
+  (0.75) pass it. Citing the evidence is what a restatement lacks. On the 10-26 check list.
