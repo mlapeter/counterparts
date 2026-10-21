@@ -407,6 +407,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       reinforce: [seedId, 1],
       setBand: [seedId, "semantic", 1],
       carryInto: [seedId, seedId],
+      carryCraftBorn: [seedId, seedId],
       link: [{ src: seedId, dst: seedId, weight: 1, day: 0 }],
       linkMany: [[{ src: seedId, dst: seedId, weight: 1, day: 0 }]],
       setProspective: [

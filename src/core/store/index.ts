@@ -464,6 +464,7 @@ export const WRITE_METHODS = [
   "reinforce",
   "setBand",
   "carryInto",
+  "carryCraftBorn",
   "link",
   "linkMany",
   "setProspective",
@@ -609,6 +610,12 @@ function verdictData(v: EmbedderVerdict): Record<string, string | number | boole
       return { kind: v.kind, reason: v.reason };
   }
 }
+
+/**
+ * The lived day a skill was first learned, carried across its revisions
+ * (`Store#carryCraftBorn`); `self/work.ts` reads it for craft's start.
+ */
+export const CRAFT_BORN_META = "craftBornDay";
 
 export class Store {
   readonly dir: string;
@@ -1506,7 +1513,8 @@ export class Store {
       // the successor was given its own — a revision is still the same memory.
       carryAboutMark(this.ops, oldId, created.id);
       carryWriteFacts(this.ops, oldId, created.id);
-      return { doc: created, newId: created.id };
+      const born = this.craftBornInto(oldId, created.id);
+      return { doc: born === null ? created : { ...created, meta: born }, newId: created.id };
     });
     this.indexOne(doc);
     // The head leaves box 3 as the successor enters it. Box 2 keeps the row,
@@ -1998,6 +2006,7 @@ export class Store {
       this.requireRow(toId);
       carryAboutMark(this.ops, fromId, toId);
       carryWriteFacts(this.ops, fromId, toId);
+      this.craftBornInto(fromId, toId);
       if (opts.returns !== false) this.copyReturnsRaw(fromId, toId);
     });
   }
@@ -4264,6 +4273,18 @@ export class Store {
   }
 
   /**
+   * CRAFT THAT MAY TRAVEL (2026-10-21, `self/work.ts#isCraft`): live skill
+   * memories with no mark or marked `world`, born on or after lived day
+   * `sinceDay`, from any folder or none, and not identity, dated or emptied;
+   * newest touched first, then id, at most `limit`. The columns only, as
+   * `workCandidates`; the caller confirms each on the prose and gates its
+   * folder. A `sinceDay` that is not finite: none.
+   */
+  craftCandidates(limit: number, sinceDay = 0): string[] {
+    return memoryReads.craftCandidates(this, limit, sinceDay);
+  }
+
+  /**
    * WHAT A SESSION WROTE IN ONE DIRECTORY AFTER A MOMENT THAT MAY BE A PLAN
    * (2026-10-09, the handoff's "since" line): live memories a session wrote
    * itself (`source = 'authored'`: a note, a `session_end` entry) under one of
@@ -4753,6 +4774,11 @@ export class Store {
   /** The project a folder belongs to, or null. */
   projectOfFolder(folder: string): FolderProjectRow | null {
     return wave2.projectOfFolder(this, folder);
+  }
+
+  /** Every folder row, by project then folder (lane G's list). */
+  folderProjects(): FolderProjectRow[] {
+    return wave2.folderProjects(this);
   }
 
   /** The folders that belong to a project, sorted. */
@@ -5439,6 +5465,42 @@ export class Store {
       wave2.tagMemory(this, id, input.tags, input.tagsVia ?? "write", at);
     }
     return doc;
+  }
+
+  /**
+   * A REVISED SKILL KEEPS THE DAY IT WAS FIRST LEARNED, for craft's rule
+   * (2026-10-21, re-review of #572): `self/work.ts#craftSince` grandfathers the
+   * unmarked skills born before craft started travelling, and a successor is
+   * born today — so a reworded old skill would start travelling without anyone
+   * choosing that. `toId`'s meta takes `CRAFT_BORN_META`: the earliest of its
+   * own carried day and `fromId`'s (its carried day, else its birth day), when
+   * that is earlier than its own birth. Only between skills. Called by every
+   * door where one memory becomes another: a write's declared `updates`
+   * (`revision.ts#applyRevision`), `supersede`, and `carryInto` (a dream's
+   * merge, a pressure crossing) — so a merge keeps the earliest of its parts.
+   * Inside the caller's transaction; returns the new meta, or null when nothing changed.
+   */
+  private craftBornInto(fromId: string, toId: string): Record<string, unknown> | null {
+    const from = this.ops.get<MemoryRow>("SELECT * FROM memories WHERE id = ?", fromId);
+    const to = this.ops.get<MemoryRow>("SELECT * FROM memories WHERE id = ?", toId);
+    if (from === undefined || to === undefined || from.kind !== "skill" || to.kind !== "skill") return null;
+    if (from.body.length === 0 || to.body.length === 0) return null;
+    const carried = (row: MemoryRow): number => {
+      const v = this.docOf(row).meta[CRAFT_BORN_META];
+      return typeof v === "number" && Number.isFinite(v) ? Math.min(v, row.birth_day) : row.birth_day;
+    };
+    const born = Math.min(carried(from), carried(to));
+    if (!(born < to.birth_day)) return null;
+    const prior = this.docOf(to).meta;
+    if (prior[CRAFT_BORN_META] === born) return null;
+    const meta = { ...prior, [CRAFT_BORN_META]: born };
+    this.ops.run("UPDATE memories SET meta = ? WHERE id = ?", serializeMeta(meta, toId), toId);
+    return meta;
+  }
+
+  /** `craftBornInto` as its own write: a declared `updates` successor (`revision.ts`). */
+  carryCraftBorn(fromId: string, toId: string): boolean {
+    return this.mutate("carryCraftBorn", () => this.craftBornInto(fromId, toId) !== null);
   }
 
   /**

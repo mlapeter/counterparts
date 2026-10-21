@@ -651,6 +651,18 @@ unknown id or mark is refused by name; an archived memory is marked and said to 
 earlier version's id marks the current one. Reading works under observer; the change
 refuses there. The dashboard's `about` action runs this command.
 
+## 6b″. `project` (2026-10-21, wave 2 lane G)
+
+**[M]** `counterparts project [list]` prints each project with a folder row and its folders;
+`project join <folder> <project>` puts the folder in a project named by a word (a project
+card of that name, or a new one — never another kind of card) or in another folder's project
+(that folder is the project's first, `via: default`); `project leave <folder>` makes it its
+own again. The whole disk and the store's own folder are refused, in the words typed; a
+folder that does not exist yet is joined with a note. Typed folders resolve as the folder setting resolves them
+(`scopes.ts#canonicalScopePath`, `~` expanded, no trailing slash), so they match the folder a
+memory records. Through `Counterpart.joinProject` / `leaveProject`
+(`core/counterpart-projects.ts`). Reading works under observer; join and leave refuse there.
+
 ## 6c. Claude Desktop (2026-09-30, host groundwork PR B)
 
 **[M]** `install --host claude-desktop` makes the store and configuration exactly as the
