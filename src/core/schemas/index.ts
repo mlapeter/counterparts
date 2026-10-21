@@ -359,30 +359,87 @@ export class Schemas {
    * free here. That is how one name got two cards (NOTES, "Card twins"): two
    * workers ran the births phase at once, each against its own index.
    *
-   * One id list, and a row read only for an id neither `load` nor an earlier
-   * call has walked; ids this process minted are already in `meta`. Taken the
-   * way `load` takes them, removed and blanked rows skipped (not counted:
-   * `loadSkips` is what the OPEN left out).
+   * Two passes. The rows neither `load` nor an earlier call has walked (ids
+   * this process minted are already in `meta`), taken the way `load` takes
+   * them, removed and blanked rows skipped (not counted: `loadSkips` is what
+   * the OPEN left out). Then the live cards still missing from the index — one
+   * archived when `load` read it and brought back by another process since
+   * (review of #578) — registered as live. Returns the ids it put in the index.
    */
-  private adopt(): void {
+  private adopt(): string[] {
+    const added: string[] = [];
     let denied: Set<string> | undefined;
-    for (const id of this.unwalked()) {
+    const unwalked = this.store.list({ type: "schema" }).filter((id) => !this.walked.has(id) && !this.meta.has(id));
+    for (const id of unwalked) {
       this.walked.add(id);
       const row = this.store.row(id);
       if (row === undefined || rowTombstoned(row)) continue;
       if ((denied ??= new Set(this.store.deniedIds())).has(id)) continue;
       this.take(id, row);
+      if (this.index.has(id)) added.push(id);
     }
+    for (const { id, rec } of this.unseenCards()) {
+      this.remember(id, rec);
+      this.faded.unregister(id);
+      this.index.register(id, rec.name ?? "", rec.aliases ?? []);
+      added.push(id);
+    }
+    return added;
   }
 
-  /** Schema ids neither `load` nor `adopt` has walked and this process did not mint. */
-  private unwalked(): string[] {
-    return this.store.list({ type: "schema" }).filter((id) => !this.walked.has(id) && !this.meta.has(id));
+  /**
+   * THE LIVE CARDS THIS INDEX DOES NOT HOLD: live schema rows not in the index,
+   * less the ones it knows are not cards. A row it has never read is read here
+   * (and not remembered: this is a read, asked inside a write transaction);
+   * removed and blanked rows are skipped.
+   */
+  private unseenCards(): { id: string; rec: MetaRecord }[] {
+    const out: { id: string; rec: MetaRecord }[] = [];
+    let denied: Set<string> | undefined;
+    for (const id of this.store.list({ type: "schema", archived: false })) {
+      if (this.index.has(id)) continue;
+      const known = this.meta.get(id);
+      if (known !== undefined && known.role !== "entity") continue;
+      // Walked and still unknown: `load` skipped it, or it carries no record.
+      if (known === undefined && this.walked.has(id)) continue;
+      const row = this.store.row(id);
+      if (row === undefined || row.archived !== 0 || rowTombstoned(row)) continue;
+      if ((denied ??= new Set(this.store.deniedIds())).has(id)) continue;
+      const rec = known ?? toMetaRecord(readProseWalking(this.store, id, row).meta);
+      if (rec === null || rec.role !== "entity") continue;
+      out.push({ id, rec });
+    }
+    return out;
+  }
+
+  /**
+   * A CARD BORN WITHOUT ITS LOOK-BACK (review of #578). A birth commits the
+   * card, then links the memories already naming it (`linkNamingMemories`); a
+   * process killed between the two leaves a card nothing links, and nothing
+   * would ever link them: the tally skips the name the card holds. So before
+   * the night's tally, a live card with no `birth` link at all looks back — one
+   * read finds them, and this runs outside any write lock. A births card always
+   * has some (its name was in at least `MIN_MEMORIES` memories); one that
+   * truly has none looks again each night, finding nothing. The identity core
+   * is not born here and is left alone.
+   */
+  private relinkUnlinked(day: number): number {
+    const linked = new Set(this.store.subjectsLinkedVia("birth"));
+    let relinked = 0;
+    for (const [id, rec] of this.meta) {
+      if (rec.role !== "entity" || linked.has(id) || !this.index.has(id)) continue;
+      const row = this.store.row(id);
+      if (row === undefined || row.archived !== 0 || row.kind === "self") continue;
+      const links = this.linkNamingMemories(id);
+      this.emit("schema.subjects.relinked", id, { day, links });
+      relinked += 1;
+    }
+    return relinked;
   }
 
   /**
    * `settle`'s three name gates — an exact holder, a near collision, an alias
-   * held — asked of the live cards this index has not taken in (2026-10-21, the
+   * held — asked of the live cards this index does not hold (2026-10-21, the
    * card twins). Reads only, so it is safe inside the write transaction
    * `Schemas#birth` asks it in, and the index changes only when the answer is
    * yes and `birth` adopts what it found.
@@ -390,13 +447,7 @@ export class Schemas {
   private heldUnseen(name: string, aliases: readonly string[]): boolean {
     const unseen = new AliasIndex();
     const terms: string[] = [];
-    let denied: Set<string> | undefined;
-    for (const id of this.unwalked()) {
-      const row = this.store.row(id);
-      if (row === undefined || row.archived !== 0 || rowTombstoned(row)) continue;
-      if ((denied ??= new Set(this.store.deniedIds())).has(id)) continue;
-      const rec = toMetaRecord(readProseWalking(this.store, id, row).meta);
-      if (rec === null || rec.role !== "entity") continue;
+    for (const { id, rec } of this.unseenCards()) {
       unseen.register(id, rec.name ?? "", rec.aliases ?? []);
       terms.push(rec.name ?? "", ...(rec.aliases ?? []));
     }
@@ -1851,6 +1902,7 @@ export class Schemas {
     // The cards other processes made since this index was read (the card
     // twins, 2026-10-21): a name one of them holds is not offered.
     this.adopt();
+    if (!dryRun) this.relinkUnlinked(day);
     const denied = new Set(this.store.deniedIds());
     const texts = this.store.liveMemoryTexts().filter((m) => !denied.has(m.id));
     const tally = tallyNames(texts, {

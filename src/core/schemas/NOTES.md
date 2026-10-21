@@ -784,3 +784,16 @@ is sometimes the earlier one), so the two ran at once, not one after the other.
 - The identity core, minted by `self/` after this index loads on a store's first open, is now
   taken in by a birth that names it, which refuses it (`second-self-refused`) instead of
   giving the owner's name a person card.
+
+**Review of #578, two fixes.**
+- *A card killed between its birth and its look-back.* The birth commits the card, then
+  `linkNamingMemories` links the memories already naming it. A process killed between the two
+  left a card nothing links, and nothing would: the tally skips a name a card holds. Now, before
+  the night's tally, a live card with no `birth` link looks back (`relinkUnlinked`, one read to
+  find them, outside any write lock; `schema.subjects.relinked`). A births card always has some.
+  On the corpus copy the only live card without one is the identity core, which is left alone,
+  so nothing looks again night after night.
+- *"Unseen" meant never walked.* The check under the lock read only ids this index had never
+  walked, so a card archived when it loaded and brought back by another process since was
+  invisible to it. It now reads the live cards the index does not hold (`unseenCards`), and
+  `adopt` registers them.
