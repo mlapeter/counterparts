@@ -51,6 +51,7 @@ import {
   RECALL_CREDIT_EVENT,
   RUNNER_FAILED_EVENT,
   SLEEP_CYCLE_EVENT,
+  SLEEP_CYCLE_HELD_EVENT,
   SNAPSHOT_TAKEN_EVENT,
   SPAWN_REFUSED_EVENT,
   SPAWN_STARTED_EVENT,
@@ -58,6 +59,7 @@ import {
   WAKE_DELIVERED_EVENT,
 } from "../src/core/counterpart.js";
 import { DATABASE_FILE, STORE_CREATED_KEY, Store } from "../src/core/store/index.js";
+import { CYCLE_LEASE_KEY } from "../src/core/sleep/index.js";
 import { CODE_TAB_ENTRYPOINT } from "../src/adapters/claude-code/hooks.js";
 import { localDate } from "../src/core/time.js";
 import {
@@ -532,6 +534,29 @@ describe("doctor — the reading", () => {
     const findings = doctorFindings(input({ store: s }));
     expect(by(findings, "sleep").severity).toBe("red");
     expect(by(findings, "sleep").detail).toContain("dedup");
+  });
+
+  test("a cycle that stood aside for a lease that no longer holds is amber, and a live one is not (review of #581)", () => {
+    mintStore();
+    writeConfig();
+    const s = store();
+    s.appendEvent({ name: SLEEP_CYCLE_EVENT, day: s.livedDay(), payload: { reason: "ran", failed: 0, date: "2026-09-14" } });
+    s.appendEvent({ name: SLEEP_CYCLE_HELD_EVENT, day: s.livedDay(), payload: { reason: "held-elsewhere", date: "2026-09-14" } });
+    const now = s.now();
+    // A live holder (this process) whose lease is still running: the stand-aside was right.
+    s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "w1", pid: process.pid, at: now - 1_000, until: now + 60_000 }));
+    expect(by(doctorFindings(input({ store: s })), "sleep").severity).toBe("green");
+    // Run out: stuck until the next cycle takes it over.
+    s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "w1", pid: process.pid, at: now - 20 * 60_000, until: now - 1 }));
+    const expired = by(doctorFindings(input({ store: s })), "sleep");
+    expect(expired.severity).toBe("amber");
+    expect(expired.detail).toContain("expired");
+    // Ending implausibly far ahead: a clock that jumped back.
+    s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "w1", pid: process.pid, at: now - 1, until: now + 24 * 60 * 60_000 }));
+    expect(by(doctorFindings(input({ store: s })), "sleep").detail).toContain("until-too-far");
+    // A cycle row newer than the stand-aside: whatever the lease, the night ran.
+    s.appendEvent({ name: SLEEP_CYCLE_EVENT, day: s.livedDay(), payload: { reason: "ran", failed: 0, date: "2026-09-14" } });
+    expect(by(doctorFindings(input({ store: s })), "sleep").severity).toBe("green");
   });
 
   /**

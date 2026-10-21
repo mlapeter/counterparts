@@ -605,7 +605,10 @@ export const NARRATORS = {
    * was already running on this store. Calm: it is the ordinary case of a
    * session's two closing hooks, and the other cycle's own row says what ran.
    */
-  "sleep.cycle.held": () => {
+  "sleep.cycle.held": (t) => {
+    if (String(t.p["reason"] ?? "") === "lease-lost") {
+      return calm("My sleep stalled partway and another took over; that one finishes the night.");
+    }
     return calm("Another sleep was already running, so I left it to that one.");
   },
   /**

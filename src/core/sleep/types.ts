@@ -544,11 +544,21 @@ export interface CycleReport {
   readonly events: readonly SleepEvent[];
   /**
    * PRESENT ONLY WHEN THIS CYCLE STOOD ASIDE (2026-10-21, `lease.ts`): another
-   * cycle held the store's lease, so no phase ran — `order` and `phases` are
-   * empty, `symmetry` was not computed, and `census` is today's births read as
-   * they stand. Who held it and since when.
+   * cycle held the store's lease. Found held at the start, no phase ran and
+   * `order`/`phases` are empty. Taken over while it ran (`lostAt`, the fence,
+   * review of #581), they are the phases it finished before it stopped, and the
+   * night is the other cycle's. `symmetry` was not computed; `census` is the
+   * day's births read as they stand. Who holds it, as far as the row says (all
+   * null when the row was gone by the time it looked).
    */
-  readonly held?: { readonly owner: string; readonly pid: number | null; readonly since: number; readonly until: number };
+  readonly held?: {
+    readonly owner: string | null;
+    readonly pid: number | null;
+    readonly since: number | null;
+    readonly until: number | null;
+    /** The phase the fence stopped it before (or after, for the last); absent when it never started. */
+    readonly lostAt?: Phase;
+  };
 }
 
 export function phaseReport(report: CycleReport, phase: Phase): PhaseReport {

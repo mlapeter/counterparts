@@ -24,8 +24,8 @@
  */
 
 export { runCycle, todayDate, census } from "./cycle.js";
-export { CYCLE_LEASE_KEY, CycleLeaseLost, holdsLease, readLease, releaseLease, takeLease } from "./lease.js";
-export type { CycleLease, LeaseStore, LeaseTake } from "./lease.js";
+export { CYCLE_LEASE_KEY, CycleLeaseLost, holdsLease, leaseStale, pidAlive, readLease, releaseLease, takeLease } from "./lease.js";
+export type { CycleLease, LeaseStale, LeaseStore, LeaseTake } from "./lease.js";
 export type { SleepOptions } from "./cycle.js";
 
 export {

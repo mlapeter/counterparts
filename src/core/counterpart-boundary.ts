@@ -210,16 +210,18 @@ export async function sessionEnd(cp: Counterpart, input: SessionEndInput = {}): 
   const briefingEvents = cp["takeBriefingEvents"]();
   if (cycle.held !== undefined) {
     // ANOTHER CYCLE HOLDS THE STORE (`sleep/lease.ts`): this boundary's flush
-    // ran above, and no phase did. Neither cycle row nor briefing row — nothing
-    // ran or rendered — but its own row, so the stand-aside is countable.
+    // ran above; the night is the other cycle's — whether this one found it
+    // held at the start or had its lease taken over part-way. Neither cycle
+    // row nor briefing row nor the wake's caught-up marks (the holder writes
+    // those), but its own row, so the stand-aside is countable.
     recordCycleHeld(cp, cycle, date);
   } else {
     cp["recordSleepCycle"](cycle, date, briefingEvents, null);
     cp["recordSelfBriefing"](briefingEvents, date);
-  }
-  if (briefingEvents.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
-    if (behind !== null) noteWakeCaught(cp.store, behind.raw);
-    noteWakeBuild(cp.store, cp["build"]);
+    if (briefingEvents.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
+      if (behind !== null) noteWakeCaught(cp.store, behind.raw);
+      noteWakeBuild(cp.store, cp["build"]);
+    }
   }
 
   cp["emit"]("counterpart.sessionEnd", undefined, {
@@ -242,16 +244,21 @@ function recordCycleHeld(cp: Counterpart, cycle: CycleReport, date: string): voi
   if (cp.observer || held === undefined) return;
   try {
     const now = cp.store.now();
+    // ONE DAY on the row: the lived day the cycle stood aside on, as its report
+    // read it (`sleep/cycle.ts#standAside`) — for the row's column and the
+    // payload alike. A holder that has just advanced the clock may be a day ahead.
     cp.store.appendEvent({
       name: SLEEP_CYCLE_HELD_EVENT,
-      day: cp.store.livedDay(),
+      day: cycle.day,
       payload: {
-        reason: "held-elsewhere",
+        // Found held at the start, or taken over part-way (the fence).
+        reason: held.lostAt === undefined ? "held-elsewhere" : "lease-lost",
+        ...(held.lostAt === undefined ? {} : { lostAt: held.lostAt, phasesDone: cycle.phases.length }),
         date,
         day: cycle.day,
         holderPid: held.pid,
-        heldMs: Math.max(0, now - held.since),
-        untilMs: Math.max(0, held.until - now),
+        heldMs: held.since === null ? null : Math.max(0, now - held.since),
+        untilMs: held.until === null ? null : Math.max(0, held.until - now),
       },
     });
   } catch (err) {

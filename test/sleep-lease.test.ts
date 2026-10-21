@@ -22,8 +22,6 @@ import { Store } from "../src/core/store/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import {
   CYCLE_LEASE_KEY,
-  CycleKilled,
-  CycleLeaseLost,
   PHASES,
   TUNABLES,
   markerKey,
@@ -67,7 +65,7 @@ function store(opts: { now?: () => number; observer?: boolean } = {}): Store {
 
 /** Another process's lease, written as its `takeLease` would have. */
 function foreignLease(s: Store, at: number, until: number): void {
-  s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "other-worker", pid: 4242, at, until }));
+  s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "other-worker", pid: process.pid, at, until }));
 }
 
 function cycle(s: Store, onStep?: Parameters<typeof runCycle>[0]["onStep"]): ReturnType<typeof runCycle> {
@@ -118,13 +116,27 @@ describe("the cycle under the lease", () => {
     const s = store();
     foreignLease(s, NOW - 1_000, NOW + 60_000);
     const report = cycle(s);
-    expect(report.held).toEqual({ owner: "other-worker", pid: 4242, since: NOW - 1_000, until: NOW + 60_000 });
+    expect(report.held).toEqual({ owner: "other-worker", pid: process.pid, since: NOW - 1_000, until: NOW + 60_000 });
     expect(report.order).toEqual([]);
     expect(report.phases).toEqual([]);
     for (const phase of PHASES) expect(s.getMeta(markerKey(phase))).toBeUndefined();
     expect(report.events.map((e) => e.name)).toEqual(["sleep.cycle.held"]);
     // The holder's row is untouched.
     expect(readLease(s.getMeta(CYCLE_LEASE_KEY))?.owner).toBe("other-worker");
+  });
+
+  test("a cycle that throws before its first phase still gives its lease back", () => {
+    const s = store();
+    expect(() =>
+      runCycle({
+        store: s,
+        date: "2026-03-02",
+        onEvent: (e) => {
+          if (e.name === "sleep.cycle.start") throw new Error("boom");
+        },
+      }),
+    ).toThrow("boom");
+    expect(s.getMeta(CYCLE_LEASE_KEY)).toBeUndefined();
   });
 
   test("a cycle that ran gives its lease back", () => {
@@ -161,21 +173,17 @@ describe("the cycle under the lease", () => {
     const kid = Bun.spawn([process.execPath, child, storeDir], { stdout: "pipe", stderr: "pipe" });
     expect(await kid.exited).toBe(9);
 
-    const inside = Store.open({ dir: storeDir, now: () => NOW + 60_000 });
-    opened.push(inside);
-    // The dead worker's lease is still there, and the phases before births are done.
-    expect(readLease(inside.getMeta(CYCLE_LEASE_KEY))?.owner).toBeDefined();
-    expect(inside.getMeta(markerKey("fade"))).toBeDefined();
-    expect(inside.getMeta(markerKey("births"))).toBeUndefined();
-    const early = runCycle({ store: inside, date: "2026-03-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS });
-    expect(early.held).toBeDefined();
-    inside.close();
-
-    const later = Store.open({ dir: storeDir, now: () => NOW + TUNABLES.CYCLE_LEASE_MS + 1 });
+    const later = Store.open({ dir: storeDir, now: () => NOW + 60_000 });
     opened.push(later);
+    // The dead worker's lease is still there, and the phases before births are done.
+    expect(readLease(later.getMeta(CYCLE_LEASE_KEY))?.owner).toBeDefined();
+    expect(later.getMeta(markerKey("fade"))).toBeDefined();
+    expect(later.getMeta(markerKey("births"))).toBeUndefined();
+    // Its pid names no process, so the next cycle takes it over at once rather
+    // than waiting out the lease (review of #581).
     const report = runCycle({ store: later, date: "2026-03-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS });
     expect(report.held).toBeUndefined();
-    expect(report.events.some((e) => e.name === "sleep.lease.reclaimed")).toBe(true);
+    expect(report.events.find((e) => e.name === "sleep.lease.reclaimed")?.data?.["why"]).toBe("holder-dead");
     // The phases the dead worker finished are done; the one it died in runs now.
     expect(phaseReport(report, "fade").reason).not.toBe("completed");
     expect(phaseReport(report, "births").status).not.toBe("did-not-run");
@@ -183,28 +191,58 @@ describe("the cycle under the lease", () => {
     expect(later.getMeta(CYCLE_LEASE_KEY)).toBeUndefined();
   }, 60_000);
 
-  test("a WEDGED worker whose lease was reclaimed stops at its next phase: never two cycles at once", () => {
+  test("a WEDGED worker whose lease was reclaimed stops at its next phase and stands aside: never two cycles at once", () => {
     const s = store();
-    let thrown: unknown = null;
-    try {
-      cycle(s, (st) => {
-        // Stuck past its lease inside `prune`: another cycle reclaims the store.
-        if (st.phase === "prune" && st.stage === "start") {
-          const took = takeLease(s, { owner: "reclaimer", now: NOW + TUNABLES.CYCLE_LEASE_MS + 1 });
-          expect(took.taken).toBe(true);
-        }
-      });
-    } catch (err) {
-      thrown = err;
-    }
-    expect(thrown).toBeInstanceOf(CycleLeaseLost);
-    expect(thrown).toBeInstanceOf(CycleKilled);
-    // It finished the phase it was in, and went no further.
-    expect((thrown as CycleLeaseLost).phase).toBe("fade");
+    const report = cycle(s, (st) => {
+      // Stuck past its lease inside `prune`: another cycle reclaims the store.
+      if (st.phase === "prune" && st.stage === "start") {
+        const took = takeLease(s, { owner: "reclaimer", pid: process.pid, now: NOW + TUNABLES.CYCLE_LEASE_MS + 1 });
+        expect(took.taken).toBe(true);
+      }
+    });
+    // It finished the phase it was in, went no further, and says it stood aside.
+    expect(report.held?.lostAt).toBe("fade");
+    expect(report.held?.owner).toBe("reclaimer");
+    expect(report.order.at(-1)).toBe("prune");
     expect(s.getMeta(markerKey("prune"))).toBeDefined();
     expect(s.getMeta(markerKey("fade"))).toBeUndefined();
+    expect(report.events.some((e) => e.name === "sleep.lease.lost")).toBe(true);
     // And it did not take the reclaimer's lease away on its way out.
     expect(readLease(s.getMeta(CYCLE_LEASE_KEY))?.owner).toBe("reclaimer");
+  });
+
+  test("a worker wedged inside the LAST phase and taken over stands aside at its release, not as a second night", () => {
+    const s = store();
+    const report = cycle(s, (st) => {
+      if (st.phase === "log" && st.stage === "start") {
+        takeLease(s, { owner: "reclaimer", pid: process.pid, now: NOW + TUNABLES.CYCLE_LEASE_MS + 1 });
+      }
+    });
+    expect(report.held?.lostAt).toBe("log");
+    expect(report.order).toEqual([...PHASES]);
+    expect(readLease(s.getMeta(CYCLE_LEASE_KEY))?.owner).toBe("reclaimer");
+  });
+
+  test("a clock that jumped backward does not stall the cycle for the size of the jump", () => {
+    const s = store();
+    // Taken a day "in the future" by a live holder: the clock went back since.
+    s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "w", pid: process.pid, at: NOW + 86_400_000, until: NOW + 86_400_000 + TUNABLES.CYCLE_LEASE_MS }));
+    const report = cycle(s);
+    expect(report.held).toBeUndefined();
+    expect(report.events.find((e) => e.name === "sleep.lease.reclaimed")?.data?.["why"]).toBe("taken-in-the-future");
+    // A row ending further ahead than any lease lasts is the same clock.
+    s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "w", pid: process.pid, at: NOW - 1, until: NOW + 2 * TUNABLES.CYCLE_LEASE_MS }));
+    expect(takeLease(s, { owner: "x", now: NOW })).toMatchObject({ taken: true, why: "until-too-far" });
+  });
+
+  test("a lease whose holder is gone is taken over at once; a live one, even this process's, is not", async () => {
+    const s = store();
+    const gone = Bun.spawn([process.execPath, "-e", "0"], { stdout: "ignore", stderr: "ignore" });
+    await gone.exited;
+    s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "w", pid: gone.pid, at: NOW - 1_000, until: NOW + 60_000 }));
+    expect(takeLease(s, { owner: "x", now: NOW })).toMatchObject({ taken: true, why: "holder-dead" });
+    s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "w", pid: process.pid, at: NOW - 1_000, until: NOW + 60_000 }));
+    expect(takeLease(s, { owner: "y", now: NOW }).taken).toBe(false);
   });
 
   test("an observer never takes the lease, and is not stopped by one", () => {
@@ -253,12 +291,33 @@ describe("through the boundary: the flush runs, the cycle stands aside", () => {
     expect(c.associate.pendingDeltas()).toEqual([]);
     expect(c.associate.linked(a, b)).toBe(true);
     // The cycle is not.
-    expect(report.cycle.held?.pid).toBe(4242);
+    expect(report.cycle.held?.pid).toBe(process.pid);
     expect(c.store.eventLog({ name: "sleep.cycle" })).toEqual([]);
     expect(c.store.eventLog({ name: "self.briefing" })).toEqual([]);
     const held = c.store.eventLog({ name: "sleep.cycle.held" });
     expect(held).toHaveLength(1);
-    expect(JSON.parse(held[0]?.payload ?? "{}")).toMatchObject({ reason: "held-elsewhere", date: "2026-03-02", holderPid: 4242, heldMs: 50 });
+    expect(JSON.parse(held[0]?.payload ?? "{}")).toMatchObject({ reason: "held-elsewhere", date: "2026-03-02", holderPid: process.pid, heldMs: 50 });
+  });
+
+  test("a boundary whose cycle was taken over in its last phase writes no second night: no cycle row, no briefing row, no runner failure", async () => {
+    const c = brain();
+    c.store.put({ type: "memory", kind: "fact", body: "Something warm enough to render.", physics: { birthDay: 0, lastUsedDay: 0 } });
+    // Wedged inside the log sweep while another cycle reclaims the store.
+    const sweep = c.store.pruneEvents.bind(c.store);
+    c.store.pruneEvents = (opts) => {
+      takeLease(c.store, { owner: "reclaimer", pid: process.pid, now: NOW + TUNABLES.CYCLE_LEASE_MS + 1 });
+      return sweep(opts);
+    };
+    const report = await c.sessionEnd({ date: "2026-03-02" });
+    expect(report.cycle.held?.lostAt).toBe("log");
+    expect(c.store.eventLog({ name: "sleep.cycle" })).toEqual([]);
+    expect(c.store.eventLog({ name: "self.briefing" })).toEqual([]);
+    const held = c.store.eventLog({ name: "sleep.cycle.held" });
+    expect(held).toHaveLength(1);
+    expect(JSON.parse(held[0]?.payload ?? "{}")).toMatchObject({ reason: "lease-lost", lostAt: "log", phasesDone: PHASES.length });
+    // One day on the row: the column and the payload agree.
+    expect(held[0]?.day).toBe(report.cycle.day);
+    expect(JSON.parse(held[0]?.payload ?? "{}").day).toBe(report.cycle.day);
   });
 
   test("two worker PROCESSES released together: births run once, and each boundary is a cycle or a stand-aside", async () => {

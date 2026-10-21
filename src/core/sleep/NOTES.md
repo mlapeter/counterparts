@@ -1089,13 +1089,40 @@ own.
 - **A wedged holder** is what a lease alone gets wrong, and the watchdog cannot be counted on for
   it: the spawn's `timeout` is a timer in the hook that already exited, and the worker's own
   timer cannot fire while it is stuck in synchronous work. So the lease is FENCED: before the
-  clock and every phase the cycle reads the row, and stops with `CycleLeaseLost` (a
-  `CycleKilled`, so the boundary records it as a cycle that died) once it is not the owner. A
-  wedged cycle finishes at most the phase it was stuck in.
+  clock and every phase the cycle reads the row, and stops with `CycleLeaseLost` once it is not
+  the owner; after the last phase its release is that check. A wedged cycle finishes at most
+  the phase it was stuck in. (How it is graded: the review entry below.)
 - **An observer** takes no lease and is not stopped by one: it writes nothing.
 - A port without `updateMeta` runs unleased and says so (`sleep.lease.unavailable`).
 
 INTERFACE-GAPS §6 put the lock in the adapter. It is here instead, because every caller — the
-worker, the MCP server's session end, the harness — runs the cycle through `runCycle`, and a
-lock only one of them took would not be one. The idempotent-replay test now compares rows,
-not bytes: the lease's take and release move the write-ahead log.
+worker, the night run, the harness and the tools, through `Counterpart#sessionEnd` or directly —
+runs the cycle through `runCycle`, and a lock only one of them took would not be one. The
+idempotent-replay test now compares rows, not bytes: the lease's take and release move the
+write-ahead log.
+
+**Review of #581 (2026-10-21).** Five holes, closed:
+- *No fence after the last phase.* A holder wedged inside `log` and taken over finished its
+  sweep, failed its release without a word, and the boundary wrote a second `sleep.cycle ran`
+  row, a second `self.briefing` and the wake's caught-up marks. The release after the last
+  phase is now the last fence: false (the row is another's) stops it like any fence, and a
+  release that cannot write says `sleep.lease.release.failed`.
+- *A fenced cycle graded as a missed night.* `CycleLeaseLost` went out as a throw: a
+  `sleep.cycle threw` row (doctor red, health "not completing") and a runner failure. Now
+  `runCycle` catches it and returns the cycle as one that stood aside part-way (`held.lostAt`,
+  the phases it finished); the boundary writes `sleep.cycle.held` with reason `lease-lost` and
+  nothing else, and the runner sees a normal return. The night is the reclaimer's.
+- *A backward clock jump stalled cycles for the size of the jump* (~24 h in the probe). A row
+  taken "in the future", or running out further ahead than a lease lasts, is now taken over
+  (`leaseStale`), and so is a row whose pid names no process. That also means a crashed
+  worker's lease is taken over at the next boundary rather than after ten minutes, and a tool on
+  a frozen clock (`tools/wake-dump.ts`, `tools/sim/`, `tools/harness/replay.ts`) cannot leave a
+  lease that never expires: the row it leaves names a pid that is gone. A live holder misjudged
+  by the clock rules is stopped by the fence.
+- *Doctor was blind to a stuck lease.* The Sleep line goes amber when a boundary stood aside
+  after the newest cycle row and the lease it stood aside for no longer holds (run out, holder
+  gone, clock).
+- *The briefing still rendered twice*: the runner's `refreshWake` ran outside the lease. A
+  worker whose cycle stood aside now skips it (`runner.wake` reason `held-elsewhere`).
+- Minor: the cache opens inside the `try`, so a throw there gives the lease back; a stand-aside
+  row carries one day, the lived day its report read, in the column and the payload alike.
