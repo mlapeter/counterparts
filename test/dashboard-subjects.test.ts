@@ -213,12 +213,11 @@ describe("the subjects endpoints over a store with cards, tags and beliefs", () 
   test("`me` is the subject that is me once it exists, with its beliefs", () => {
     const dir = tempDir();
     seeded(dir);
+    // Lane C's door: `Schemas#ensureSelfSubject` registers the card, so a belief can be minted on it at once.
     const c = Counterpart.open({ dir });
-    const self = c.store.ensureSelfSubject();
+    const self = c.schemas.ensureSelfSubject();
+    const belief = c.schemas.addBelief({ entityId: self, statement: "I say plainly what I checked.", day: c.store.livedDay() }).id as string;
     c.close();
-    const c2 = Counterpart.open({ dir });
-    const belief = c2.schemas.addBelief({ entityId: self, statement: "I say plainly what I checked.", day: c2.store.livedDay() }).id as string;
-    c2.close();
     const d = Dashboard.open({ dir });
     try {
       const v = get<SubjectsView>(d.source, "/api/subjects").json;
