@@ -64,14 +64,14 @@ function snapshot(dir: string): Map<string, string> {
 }
 
 /** A store with Mike (a person), a project nobody has sorted, memories naming them, and tags. */
-function seeded(dir: string): { mike: string; dash: string; mem: Record<string, string> } {
+function seeded(dir: string): { mike: string; dash: string; mem: Record<"a" | "b" | "c", string> } {
   const c = Counterpart.open({ dir });
   try {
     const day = c.store.livedDay();
     const mike = c.schemas.mention({ name: "Mike", kind: "person", source: "Mike", chunkRef: "card-mike", day }).id as string;
     const dash = c.schemas.mention({ name: "Dashboard", kind: "entity", source: "Dashboard", chunkRef: "card-dash", day }).id as string;
     c.store.setSubjectKind(mike, "person");
-    const mem: Record<string, string> = {};
+    const mem: Record<"a" | "b" | "c", string> = { a: "", b: "", c: "" };
     mem["a"] = c.store.put({ type: "memory", kind: "fact", body: "Mike walked the Dashboard page by page." });
     mem["b"] = c.store.put({ type: "memory", kind: "fact", body: "Mike wants decisions kept light." });
     mem["c"] = c.store.put({ type: "memory", kind: "fact", body: "Taxes are due in April." });
@@ -191,7 +191,7 @@ describe("the subjects endpoints over a store with cards, tags and beliefs", () 
       expect(p.near.map((n) => n.tag)).toContain("decisions");
 
       // The memory card links a belief to its subject's page, and a card to its own.
-      const card = get<{ subject: { id: string; isCard: boolean; self: boolean } | null }>(d.source, `/api/memory?id=${strong}`).json;
+      const card = get<{ subject: { id: string; name: string; isCard: boolean; self: boolean } | null }>(d.source, `/api/memory?id=${strong}`).json;
       expect(card.subject).toEqual({ id: mike, name: "Mike", isCard: false, self: false });
       const own = get<{ subject: { id: string; isCard: boolean } | null }>(d.source, `/api/memory?id=${mike}`).json;
       expect(own.subject?.isCard).toBe(true);
