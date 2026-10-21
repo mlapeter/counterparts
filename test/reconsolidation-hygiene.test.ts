@@ -65,7 +65,7 @@ describe("hygiene", () => {
     const f = flag(c.store, { x: a, y: b, source: "dream" });
     const read = (): number => {
       const day = c.store.livedDay();
-      const m = mindRanked(c.store, { today: "2026-09-30", day, showable: () => true, owner: true });
+      const m = mindRanked(c.store, { today: "2026-09-30", day, showable: () => true });
       noteMindShown(c.store, m.items, day);
       return JSON.parse(c.store.getMeta(`mind.seen.${f.ok ? f.pair : ""}`) ?? "{}").times as number;
     };

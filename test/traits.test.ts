@@ -181,15 +181,14 @@ describe("the store: recorded once, read by the dashboard, feeding nothing", () 
     expect(s.row(nudged)?.feeling_peak ?? null).toBe(null);
   });
 
-  test("a confidential memory's nudge keeps its numbers and withholds its words, unless asked", () => {
+  test("a nudge on a memory carrying the retired confidential mark comes back whole, words included (2026-10-21)", () => {
     const s = store();
     const secret = mem(s, "The private thing he told me, which I answered honestly.", { meta: { confidential: true } });
     s.addTraits(secret, [candid]);
     const [t] = s.traitsFor(secret);
-    expect(t).toMatchObject({ axis: "agreeable-candid", toward: "candid", strength: 0.6, carried_by: "", confidential: true, withheld: true });
-    expect(s.traitsAll()[0]?.carried_by).toBe("");
-    expect(s.traitsOn([secret]).get(secret)?.[0]?.carried_by).toBe("");
-    expect(s.traitsFor(secret, { includeConfidential: true })[0]).toMatchObject({ carried_by: "said the plan had a hole", withheld: false });
+    expect(t).toMatchObject({ axis: "agreeable-candid", toward: "candid", strength: 0.6, carried_by: "said the plan had a hole", confidential: false, withheld: false });
+    expect(s.traitsAll()[0]?.carried_by).toBe("said the plan had a hole");
+    expect(s.traitsOn([secret]).get(secret)?.[0]?.carried_by).toBe("said the plan had a hole");
   });
 
   test("an archived or superseded memory's nudges leave the all-read (unless asked) and the census", () => {
@@ -358,7 +357,7 @@ describe("the schema: folded into the unreleased v9", () => {
 
 describe("the MCP doors: note and session_end", () => {
   function server(): McpServer {
-    const s = openServer({ dir, scope: "/tmp/traits-project", owner: true, bundlesAsOwner: true });
+    const s = openServer({ dir, scope: "/tmp/traits-project", owner: true });
     open.push({ close: () => s.counterpart.close() });
     return s;
   }
@@ -450,7 +449,7 @@ describe("the MCP doors: note and session_end", () => {
 describe("the reflection: writes nudges on what it was shown, is shown no balance", () => {
   const SESSION = "s-traits-reflect";
   function brain(): Counterpart {
-    const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" }, snapshotsDir: snaps });
+    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, snapshotsDir: snaps });
     open.push(c);
     return c;
   }
@@ -515,10 +514,10 @@ describe("the reflection: writes nudges on what it was shown, is shown no balanc
 // ---------------------------------------------------------------------------
 
 describe("a dream's merge carries the originals' nudges, as it carries their feelings", () => {
-  test("each nudge keeps its source, model and moment; a confidential original's are withheld on the merged memory", () => {
+  test("each nudge keeps its source, model and moment, words included", () => {
     const at = Date.parse("2026-09-27T12:00:00Z");
     let now = at;
-    const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" }, snapshotsDir: snaps, now: () => now });
+    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, snapshotsDir: snaps, now: () => now });
     open.push(c);
     c.store.advanceClock("2026-09-10");
     for (let d = 11; d <= 26; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);
@@ -539,14 +538,12 @@ describe("a dream's merge carries the originals' nudges, as it carries their fee
     });
     if (!out.ok) throw new Error(out.reason);
     const merged = out.results[0]?.id as string;
-    expect(c.store.row(merged)?.confidential).toBe(1);
-    const carried = c.store.traitsFor(merged, { includeConfidential: true });
+    expect(c.store.row(merged)?.confidential).toBe(0);
+    const carried = c.store.traitsFor(merged);
     expect(carried.map((t) => [t.axis, t.toward, t.source, t.model, t.created_at, t.carried_by])).toEqual([
       ["careful-bold", "careful", "session", "claude-opus-5-5", at, "checked twice"],
       ["agreeable-candid", "candid", "reflection", null, at, "told him plainly"],
     ]);
-    // Read without asking: the merged memory is confidential, so its words are withheld.
-    expect(c.store.traitsFor(merged).every((t) => t.withheld && t.carried_by === "")).toBe(true);
     // The originals keep theirs (live, earlier under the merged memory since Group 2b) — and the all-read counts the moment once.
     expect(c.store.traitsFor(a).length).toBe(1);
     expect(c.store.traitsAll().map((t) => t.memory_id)).toEqual([merged, merged]);

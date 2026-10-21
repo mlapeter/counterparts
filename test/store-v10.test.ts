@@ -117,7 +117,7 @@ describe("schema v10", () => {
     expect(note["raised"]).toBe(1);
     expect(note["standing"]).toBe(2);
     // The carried pairs are what "my mind" reads now, habituation and all.
-    const mind = mindRanked(after, { today: "2026-09-04", day: after.livedDay(), showable: () => true, owner: true });
+    const mind = mindRanked(after, { today: "2026-09-04", day: after.livedDay(), showable: () => true });
     expect(mind.items.filter((i) => i.kind === "unsettled").map((i) => i.pair).sort()).toEqual([ab?.id, cd?.id].sort());
   });
 

@@ -147,7 +147,7 @@ export function workCandidates(store: Store, scope: string, limit: number): stri
     .all<{ id: string }>(
       `SELECT id FROM memories
           WHERE type = 'memory' AND archived = 0 AND origin_scope = ?
-            AND band != 'identity' AND event_date IS NULL AND confidential = 0 AND body != ''
+            AND band != 'identity' AND event_date IS NULL AND body != ''
             AND (about = 'work' OR (about IS NULL AND kind IN ('skill', 'fact', 'entity', 'place')))
           ORDER BY MAX(birth_day, last_used_day) DESC, id
           LIMIT ?`,
@@ -174,7 +174,6 @@ export function planCandidates(store: Store, input: {
       `SELECT id FROM memories
           WHERE type = 'memory' AND archived = 0 AND superseded_by IS NULL AND body != ''
             AND source = 'authored' AND origin_scope IN (${marks(scopes.length)}) AND created_at > ?
-            ${input.confidential === true ? "" : "AND confidential = 0"}
             AND (${status}meta LIKE '%"unresolved":true%')
           ORDER BY created_at DESC, id
           LIMIT ?`,
@@ -263,7 +262,6 @@ export function memoryCountsByScopeSince(store: Store, at: number, opts: { confi
       `SELECT origin_scope, COUNT(*) AS n FROM memories
           WHERE type = 'memory' AND created_at IS NOT NULL AND created_at >= ? AND origin_scope IS NOT NULL AND origin_scope != ''
             AND archived = 0 AND superseded_by IS NULL AND NOT ${NIGHTLY_SQL}
-            ${opts.confidential === true ? "" : "AND confidential = 0"}
           GROUP BY origin_scope
           ORDER BY n DESC, origin_scope`,
       at,
@@ -299,7 +297,7 @@ export function memoryTitlesByScopeSince(
              FROM memories
             WHERE type = 'memory' AND created_at IS NOT NULL AND created_at >= ? AND created_at < ?
               AND origin_scope IS NOT NULL AND origin_scope != '' ${only}
-              AND archived = 0 AND superseded_by IS NULL AND body != '' AND confidential = 0
+              AND archived = 0 AND superseded_by IS NULL AND body != ''
               AND band != 'identity' AND event_date IS NULL AND COALESCE(about, '') NOT IN (${personal})
               AND COALESCE(source, '') != 'episode' AND COALESCE(origin_ref, '') NOT LIKE 'epi\\_%' ESCAPE '\\'
               AND meta NOT LIKE '%"episodeId"%' AND NOT ${NIGHTLY_SQL}

@@ -193,7 +193,9 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       remember: { total: 2533, beforeList: 1387 },
       // session_end and chapter grew by 305 each on 2026-10-11: the `drewOn`
       // claim, last in each list (an engine row since the trim; the field says it).
-      recall: { total: 4645, beforeList: 1200 },
+      // −39 on 2026-10-21 (confidential memories removed): "with the same
+      // confidentiality boundary" out of the ids claim.
+      recall: { total: 4606, beforeList: 1200 },
       status: { total: 1212, beforeList: 501 },
       session_end: { total: 2485, beforeList: 1088 },
       // chapter +33 on 2026-10-11 (chapter wording): "a diary of what
@@ -208,8 +210,10 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // the list's start; the head is untouched.
       self_page: { total: 4909, beforeList: 1772 },
       // +18 on 2026-10-12 (onboarding round 1): the `undo` phase, said ("undo that dream").
-      dream: { total: 3787, beforeList: 1782 },
-      reflect: { total: 3333, beforeList: 1486 },
+      // dream −58 and reflect −16 on 2026-10-21 (confidential memories removed):
+      // the bundle claim's and the self-close claim's confidentiality words.
+      dream: { total: 3729, beforeList: 1782 },
+      reflect: { total: 3317, beforeList: 1486 },
       // `meet` (2026-10-11): kept short on purpose — its script is its result.
       meet: { total: 459, beforeList: 210 },
       wake: { total: 1958, beforeList: 1229 },

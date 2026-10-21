@@ -71,14 +71,16 @@ load-bearing, and this adapter is designed on the assumption that it will be use
   still carries the absolute in §3 and §5 guarantee 8; correcting it is the open half.
 - **A candidate count must not become an undercount** — a top-K tuned for surfacing is
   wrong for an aggregation question. [v1] §9.1 G3.
-- **Confidentiality is enforced at the boundary of the ask**; withholding is *stated* for a
-  direct lookup and silent in a list. [v1] §9.1 G5.
 - **A census surface exists and includes what was removed** — counts and dates, never
   bodies or hashes. [v1] §9.1 G6, scar §2.20.
 - **Observer stands down over the wire.** [v1] test-triage `mcp.test.ts`, scar E7.
 
 ## 4. Drops / simplifies
 
+- **Confidentiality at the boundary of the ask is dropped** (2026-10-21, Mike's call; it
+  was kept from [v1] §9.1 G5 until then). Nothing in the product set the mark, nobody used
+  it, and v1 never exercised it either. A memory marked through the store API's meta key is
+  answered like any other; the column is inert (store CONTRACT §5 G13).
 - **The v1 self-store tool is superseded by experiencer authorship** — self-writing became
   the primary path (owner decision, settled). This adapter therefore exposes **no tool that
   writes an identity element**: what enters the identity band is decided by promotion and
@@ -182,7 +184,7 @@ actually wrote (chapter), the written self page or the version a write to it pro
      (2026-10-14, Mike's call), its scores counted as use, co-use linked and a twice-0
      memory habituated (an experiment since 2026-10-19; check ~10-22).
    - `recall`: the bookkeeping a call writes; what facts mode considers and how it ranks;
-     the count header and paging; the bounded answer; confidential material; every
+     the count header and paging; the bounded answer; every
      memory's provenance; observer stand-down.
    - `chapter`: the journal's gate; earlier states kept on revision; observer stand-down;
      `drewOn`'s credit.
@@ -199,7 +201,9 @@ actually wrote (chapter), the written self page or the version a write to it pro
    an answer's words be credited at the boundary — the credit itself is the boundary's.
 5. **[M] Under observer, every tool stands down over the wire and says so** (scars E7,
    §2.4).
-6. **[M] Confidential material is returned only in the owner's own session.**
+6. **RETIRED 2026-10-21.** Confidential material was returned only in the owner's own
+   session (§4 says why it was dropped). The reasons `handle-confidential-withheld` and
+   `confidential-withheld` are no longer produced; old event rows keep them.
 7. **[M] The census names what was removed** — counts, kinds, dates; never bodies, never
    hashes.
 8. **[A] Wire-protocol framing is host trivia** and may change without touching a core
@@ -484,14 +488,13 @@ who, how, why and when; an observer writes nothing and says so.
 **[M] A held `updates` answers in the same field** (2026-10-09, the update guard,
 `schemas/CONTRACT.md` §5 1b). A `changed` or `corrected` at a memory that looks unrelated
 comes back as `settled: {ok: false, held: true, reason: "looks-unrelated", how, holds,
-over, title, text, detail}` — the old memory's own title and text (none for a
-confidential one outside the owner's session), the two ids to settle with, and
+over, title, text, detail}` — the old memory's own title and text, the two ids to settle with, and
 `HELD_HINT`, the neighbours' ask said for this case. The held memory is not listed again
 among the neighbours. Nothing else about the reply changes: the memory is stored.
 
 **[M] A neighbour a later memory settled over is marked** (2026-10-11): `standing:
 "earlier (now mem_…)"`, before its title (`recall/standing.ts#headOf`, `earlierMark`) — or
-left out when the memory that holds now is already in view or is not this writer's to see.
+left out when the memory that holds now is already in view.
 
 ## 6c. Re-feeling while awake (2026-10-02, lane B)
 
@@ -509,7 +512,7 @@ changed in the moment, alone or beside anything else the call does. Only on a me
 session was shown (the `feelingsNow` rule); recorded `about_by = 'self'` with the why (a
 missing why is recorded as missing), through `counterpart.ts#markAbout` — the owner's
 `counterparts about` path. A dream's or a reflection's words move only toward work or
-world; a confidential memory outside the owner's session is not found.
+world.
 
 ## 6d. The writer's three fields (2026-10-03, schema v12)
 
@@ -563,7 +566,7 @@ them.
   dream journal stays outside. Open threads and reminders dated today or later are listed.
   Recurring subjects and feelings are laid side by side, unnamed.
 - **[M]** A search writes nothing. `shown` is exactly the ids printed, for the seen set
-  and quote credit. Confidential material is left out of a non-owner's answer silently.
+  and quote credit.
   The rendered answer stays inside the 12,000-character list room (`fit`).
 - **[A]** "us" is not triggered by *we* or *our*, which a question uses for joint work.
   A chapter address names a chapter, and `ids` / `handle` open it (§6f).
@@ -625,8 +628,7 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   filter. Explicit windows ("last week", "in September", "since 10-12") are unchanged.
 - **[M]** Rebuilt here, not inherited from ambient: a chapter and its copy are one result
   (the chapter, labeled journal); near-duplicates (token overlap ≥ 0.85) are left out and
-  counted; the self page and handoffs are never results; confidential rows are absent for
-  a non-owner, silently (counted on the durable row only).
+  counted; the self page and handoffs are never results.
 - **[M]** Each result: title and id; `you said / I said / inferred · status · happened <date>
   | no event date`; `learned <date> in <dir> · <who> · CURRENT`; earlier versions folded
   (in-place `versions`, and `changed` pairs — an earlier one that matched brings its
@@ -635,7 +637,7 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   ones the question's words reach first, then the latest, three at most and the rest
   counted (2026-10-09: archived, a corrected memory is out of the word index, and a wrong
   correction made a true one unreachable); `open` and unsettled pairs named —
-  never naming a confidential or removed memory to a non-owner.
+  never naming a removed memory.
   Unknown fields say so. Short bodies whole, long ones a 300-character excerpt.
 - **[M]** The header counts distinct facts; "may not be everything" only when the meaning
   cap cut or weak matches (below a fifth of the best score) were left out. Faded matches
@@ -673,11 +675,8 @@ Working defaults, held lightly; the revisit (a few days of daily use) checks the
   date, title, the entry, the share and whether it was told, what it cited, the closes
   proposed and done, and the page version it wrote. **Opening a night credits nothing** —
   no memory is delivered, so the credit pass, the seen set and the handle log have nothing
-  to key on; the ids it names open as memories, credited as any open. The boundary is the
-  export's and the morning share's: a night shown, changing, citing or become a
-  confidential memory is withheld whole from a session not the owner's, stated
-  (`handle-confidential-withheld`); and no summary carries a confidential body, the
-  owner's included — a gist's, or an entry whose memory is marked (`entryConfidential`).
+  to key on; the ids it names open as memories, credited as any open. (The confidentiality
+  boundary that withheld a night from a non-owner was retired 2026-10-21, §5 G6.)
   Nights share the by-id answer's room (`RECALL_ID_RESULT_CHARS`, weighed as `boundById`
   weighs): one past it waits by id in `waiting`, as a memory does. An unknown night id is
   `handle-unknown`. Under observer recall stands down, as for a memory.

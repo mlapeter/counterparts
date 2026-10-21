@@ -1999,30 +1999,27 @@ describe("what was planned here since the handoff (2026-10-09)", () => {
     const done = put("Done thing. It shipped.", { session: "sess_b", status: "done", at: t0 + 33 * MIN });
     const elsewhere = put("Elsewhere plan. Another project.", { session: "sess_b", status: "planned", scope: THERE, at: t0 + 34 * MIN });
     const dreamed = put("Dreamed plan. A reading of older ones.", { session: "sess_b", status: "planned", source: "dreamed", at: t0 + 35 * MIN });
+    // The retired confidential mark (2026-10-21) is an inert meta key: named like any other.
     const secret = put("Secret plan. Not for every session.", { session: "sess_b", status: "proposed", meta: { confidential: true }, at: t0 + 36 * MIN });
     const before = put("Before plan. Older than the handoff.", { session: "sess_b", status: "planned", at: t0 - MIN });
     const h0 = handoffs(s).readAll(HERE)[0] as Handoff;
     const named = (ho: Handoffs): string[] => ho.plansSince(HERE, h0).items.map((p) => p.id);
     // Newest first, three named, the fourth counted.
     const plain = handoffs(s).plansSince(HERE, h0);
-    expect(plain.items.map((p) => p.id)).toEqual([open, other, later]);
-    expect(plain.items.map((p) => p.word)).toEqual(["open", "asked", "planned"]);
-    expect(plain.items[0]?.title).toBe("Open thread");
-    expect(plain.more).toBe(0);
-    for (const id of [sameAnswer, done, elsewhere, dreamed, secret, before]) expect(named(handoffs(s))).not.toContain(id);
-    // The owner's session is named the confidential one too, and a fourth is counted.
-    const owner = new Handoffs({ store: s, gate: episodeGate(), owner: true }).plansSince(HERE, h0);
-    expect(owner.items.map((p) => p.id)).toEqual([secret, open, other]);
-    expect(owner.more).toBe(1);
+    expect(plain.items.map((p) => p.id)).toEqual([secret, open, other]);
+    expect(plain.items.map((p) => p.word)).toEqual(["proposed", "open", "asked"]);
+    expect(plain.items[1]?.title).toBe("Open thread");
+    expect(plain.more).toBe(1);
+    for (const id of [sameAnswer, done, elsewhere, dreamed, before]) expect(named(handoffs(s))).not.toContain(id);
     // What a later memory settled over is not named.
-    expect(named(new Handoffs({ store: s, gate: episodeGate(), settled: () => new Set([open]) }))).toEqual([other, later]);
+    expect(named(new Handoffs({ store: s, gate: episodeGate(), settled: () => new Set([open]) }))).toEqual([secret, other, later]);
     // Nor what the published wake already lists under "Still open:" (review of #332),
     // and a listing that cannot be read leaves out nothing.
-    expect(named(new Handoffs({ store: s, gate: episodeGate(), listed: () => new Set([open]) }))).toEqual([other, later]);
+    expect(named(new Handoffs({ store: s, gate: episodeGate(), listed: () => new Set([open]) }))).toEqual([secret, other, later]);
     const unreadable = (): ReadonlySet<string> => {
       throw new Error("no meta");
     };
-    expect(named(new Handoffs({ store: s, gate: episodeGate(), listed: unreadable }))).toEqual([open, other, later]);
+    expect(named(new Handoffs({ store: s, gate: episodeGate(), listed: unreadable }))).toEqual([secret, open, other]);
   });
 
   test("a store with nothing planned names nothing, and one that cannot answer names nothing rather than failing", () => {

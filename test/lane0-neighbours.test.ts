@@ -45,7 +45,7 @@ function embed(text: string): number[] {
 }
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" }, embed });
+  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, embed });
   open.push(c);
   return c;
 }

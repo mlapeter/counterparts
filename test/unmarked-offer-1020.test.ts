@@ -128,14 +128,14 @@ describe("the door: what makes a night closed, and what a night as not-the-owner
     expect(c.store.read(visit).about ?? null).toBeNull();
   });
 
-  test("a confidential memory is never offered, never re-marked by the night, and the night's remark cannot find it", () => {
+  test("a memory carrying the retired confidential mark (2026-10-21) is offered and marked like any other", () => {
     const c = brain(false);
     const secret = mem(c, "A private worry Dana shared about her sister's health.", { origin: { scope: WORKSHOP }, meta: { confidential: true } });
     const plain = mem(c, "Dana's friend is visiting this weekend.", { origin: { scope: WORKSHOP } });
     const b = begin(c);
     expect(b.bundle.unmarked).toContain(plain);
-    expect(b.bundle.unmarked).not.toContain(secret);
-    expect(b.bundle.memories[secret]).toBeUndefined();
+    expect(b.bundle.unmarked).toContain(secret);
+    expect(b.bundle.memories[secret]).toBeDefined();
     const done = c.reflections.finish({
       reflection: b.bundle.reflection,
       session: SESSION,
@@ -143,9 +143,8 @@ describe("the door: what makes a night closed, and what a night as not-the-owner
       about: [{ id: secret, about: "owner", why: "It is hers." }],
     });
     if (!done.ok) throw new Error(done.reason);
-    expect(done.outcome.about[0]?.reason).toBe("not-shown-or-gone");
-    expect(c.markAbout({ id: secret, mark: "owner", by: "self", why: "It is hers.", owner: false, night: true }).ok).toBe(false);
-    expect(c.store.read(secret).about ?? null).toBeNull();
+    expect(done.outcome.about[0]?.reason).toBe("marked");
+    expect(c.store.read(secret).about).toBe("owner");
   });
 });
 

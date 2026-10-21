@@ -241,15 +241,14 @@ describe("D. a revision with no title carries the old one, except when it closes
     expect(String(r["titleAsked"])).toContain("A title is asked for");
   });
 
-  test("a confidential memory's title is never carried, even for the owner", async () => {
+  test("a title is carried whatever the retired confidential mark says (2026-10-21)", async () => {
     const s = server();
     const store = s.counterpart.store;
     const old = String(payload(await s.call("remember", { text: "The zqharbour mooring fee is owed to my cousin.", title: "Zqharbour mooring debt" }))["id"]);
     store.revise(old, { meta: { confidential: true } });
-    expect(store.row(old)?.confidential).toBe(1);
+    expect(store.row(old)?.confidential).toBe(0);
     const r = payload(await s.call("remember", { text: "The zqharbour mooring fee owed to my cousin is now half.", updates: old }));
-    expect(store.readProse(String(r["id"])).title ?? null).toBeNull();
-    expect(r["titleCarried"]).toBeUndefined();
+    expect(store.readProse(String(r["id"])).title).toBe("Zqharbour mooring debt");
   });
 });
 
@@ -289,7 +288,7 @@ describe("C (review of #493). the chain close keeps closeThread's guards and its
     expect(still.find((x) => x.id === a)?.skipped).toBe(true);
   });
 
-  test("for a session that is not the owner's, a confidential or another directory's chain memory is skipped", async () => {
+  test("for a session that is not the owner's, another directory's chain memory is skipped (a marked one is not, since 2026-10-21)", async () => {
     const s = openServer({ dir, session: "sess_guest", scope: "/scope/one", owner: false });
     findable(s.counterpart.store);
     open.push(s.counterpart);
@@ -301,11 +300,11 @@ describe("C (review of #493). the chain close keeps closeThread's guards and its
     link(s, elsewhere, b);
     const r = payload(await s.call("remember", { text: `Paid it: ${BODY}.`, updates: b, eventDate: null }));
     expect(store.row(b)?.event_date).toBeNull();
-    expect(store.row(secret)?.event_date).toBe("2027-04-14");
+    expect(store.row(secret)?.event_date).toBeNull();
     expect(store.row(elsewhere)?.event_date).toBe("2027-04-15");
     const skipped = (r["stillDated"] as { id: string; title: string | null; skipped?: boolean }[]).filter((x) => x.skipped === true);
-    expect(skipped.map((x) => x.id).sort()).toEqual([secret, elsewhere].sort());
-    expect(skipped.find((x) => x.id === secret)?.title).toBeNull();
+    expect(skipped.map((x) => x.id)).toEqual([elsewhere]);
+    expect(skipped[0]?.title).not.toBeNull();
   });
 
   test("a cycle in the pointers ends; every dated memory on it is closed once and marked spent", async () => {

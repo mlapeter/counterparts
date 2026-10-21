@@ -277,7 +277,7 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     reference at the floor — a 16-hex SHA-256 prefix of a short, low-entropy body is
     guessable — and it is acceptable because of where it goes, which `NOTES.md` 2026-09-20
     traces rather than assumes: the removal record and the tombstone carry no hash at all,
-    the dashboard blanks it for confidential rows, and `store.put`'s emitted `hash` reaches
+    the dashboard blanked it for confidential rows (until that mark was retired, 2026-10-21), and `store.put`'s emitted `hash` reaches
     no durable row. If it ever starts riding telemetry that lands on disk, look again.*
 11. **[M] Every top-level path in the data directory is classified**: in the backup set, or
     on an explicit documented exclusion list. Adding a directory breaks the build until it
@@ -318,11 +318,11 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     **not** a `Store` method, for the reason `chaseRemoved` is not: §4's "unreachable from
     any model path" has to stay true of the store's own surface, and `Counterpart.store` is
     public. Two files may import it and `test/cli.test.ts` pins which.
-    `StoredMemory.confidential` rides on the ordinary read for the opposite reason: the
-    confidentiality class is a gate, and a gate that re-parses JSON at every call site is a
-    gate that will one day fail open (`confidentialByMeta`, the one truth table, which
-    `recall/activate.ts#isConfidential` is a door onto). It is a COLUMN since the floor and
-    the truth table is unchanged.
+    `StoredMemory.confidential` is an INERT column since 2026-10-21: the confidentiality
+    gate it carried was retired (recall CONTRACT §5 G9), every write stores 0, and no gate
+    reads it. A row written before may still hold 1; the first writable open by this build
+    counted those once (`CONFIDENTIAL_RETIRED_KEY`, read by doctor) and changed nothing.
+    The column goes in the next batched store-format change.
 14. **[M] The implicit default is refusable.** `dataDir()`'s fallback to
     `~/.counterparts/store` is the one path a caller reaches by naming nothing, and on the
     owner's machine it is his live memory; `.counterparts` cannot join the forbidden roots
@@ -477,9 +477,9 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     nothing in the core reads the table to decide anything, and the store computes no
     profile. Reads, all working under observer: `traitsFor(id)`, `traitsOn(ids)`,
     `traitsAll({ sinceMs?, live? })` (with memory ids, live memories by default),
-    `traitCensus()` (counts). Each read row carries `confidential`; a confidential
-    memory's nudge keeps its numbers and comes back with `carried_by` empty and
-    `withheld: true` unless the caller asks `includeConfidential`. The owner's removal
+    `traitCensus()` (counts). Every nudge comes back whole (since 2026-10-21: the
+    `confidential` / `withheld` fields and the `includeConfidential` option are left
+    inert, `withheld` always false). The owner's removal
     deletes them with the memory. A dev store stamped v9 before the table existed gains
     it at its next writer open (`operational.ts#ensureCurrentTables`); an observer reads
     it as empty until then.

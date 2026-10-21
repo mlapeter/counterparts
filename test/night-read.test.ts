@@ -126,7 +126,7 @@ function payload(r: ToolResult): Record<string, unknown> {
   return r.structuredContent;
 }
 
-/** Mark a memory confidential after the night that was shown it. */
+/** Give a memory the retired confidential mark (an inert meta key since 2026-10-21) after the night that was shown it. */
 function markConfidential(id: string, body?: string): void {
   const s = Store.open({ dir });
   try {
@@ -223,39 +223,20 @@ describe("recall opens a night by its id", () => {
     expect(mixed["perId"]).toEqual([{ id: "drm_000000000000", reason: "handle-unknown" }]);
   });
 
-  test("a night resting on a confidential memory is withheld whole from a session not the owner's, and no body leaks", async () => {
+  test("a night resting on a memory carrying the retired confidential mark (2026-10-21) opens for a session not the owner's, its gist quoted", async () => {
     const n = night();
     markConfidential(n.gist, SECRET);
     const stranger = server(false);
-    for (const id of [n.dream]) {
-      const res = await stranger.call("recall", { handle: id });
-      const p = payload(res);
-      expect(p["reason"]).toBe("handle-confidential-withheld");
-      expect(String(p["withheld"])).toContain("That dream rests on a memory marked confidential");
-      expect(JSON.stringify(res)).not.toContain("ZQSECRET");
-      expect(JSON.stringify(res)).not.toContain("being understood");
-    }
-    // The reflection after it was shown the gist too, so it rests on it as well.
-    expect(payload(await stranger.call("recall", { handle: n.reflection }))["reason"]).toBe("handle-confidential-withheld");
-    // A memory it never touched is still a memory, read as one.
-    expect(payload(await stranger.call("recall", { handle: n.third }))["reason"]).toBe("expanded");
-  });
-
-  test("the owner reads the same dream — and its summary still carries no confidential body", async () => {
-    const n = night();
-    markConfidential(n.gist, SECRET);
-    const res = await server(true).call("recall", { handle: n.dream });
-    const d = (payload(res)["nights"] as DreamSummary[])[0] as DreamSummary;
-    expect(d.gists).toEqual([{ id: n.gist, confidential: true }]);
-    expect(JSON.stringify(res)).not.toContain("ZQSECRET");
-  });
-
-  test("a reflection that cited a confidential memory is withheld from a stranger", async () => {
-    const n = night();
-    markConfidential(n.third);
-    const p = payload(await server(false).call("recall", { handle: n.reflection }));
-    expect(p["reason"]).toBe("handle-confidential-withheld");
-    expect(String(p["withheld"])).toContain("That reflection");
+    const res = await stranger.call("recall", { handle: n.dream });
+    const p = payload(res);
+    expect(p["reason"]).toBe("expanded");
+    expect(p["withheld"]).toBeUndefined();
+    const d = (p["nights"] as DreamSummary[])[0] as DreamSummary;
+    expect(d.gists).toEqual([{ id: n.gist, text: SECRET }]);
+    // The reflection after it, and the entry it became, open too.
+    const r = payload(await stranger.call("recall", { handle: n.reflection }));
+    expect(r["reason"]).toBe("expanded");
+    expect(((r["nights"] as ReflectionSummary[])[0] as ReflectionSummary).entry).not.toBeNull();
   });
 
   test("under observer, recall stands down for a night as for a memory", async () => {
@@ -427,58 +408,6 @@ describe("review of #538 — awkward nights", () => {
     // Asked again for the ones that waited, they come.
     const next = payload(await server(true).call("recall", { ids: waiting.slice(0, 3) }));
     expect((next["nights"] as { id: string }[]).map((n) => n.id)).toEqual(waiting.slice(0, 3));
-  });
-
-  test("a dream whose merge folded a memory marked confidential later is withheld from a stranger", async () => {
-    const n = night();
-    markConfidential(n.b);
-    const p = payload(await server(false).call("recall", { handle: n.dream }));
-    expect(p["reason"]).toBe("handle-confidential-withheld");
-    expect(JSON.stringify(p)).not.toContain("Boot order");
-  });
-
-  test("a reflection whose share cites a confidential memory is withheld from a stranger; the owner reads it", async () => {
-    const n = night();
-    markConfidential(n.third);
-    expect(payload(await server(false).call("recall", { handle: n.reflection }))["reason"]).toBe("handle-confidential-withheld");
-    expect(payload(await server(true).call("recall", { handle: n.reflection }))["reason"]).toBe("expanded");
-  });
-
-  test("an entry that became a confidential memory is not quoted, the owner's session and the console included", async () => {
-    const n = night();
-    const entryId = Store.open({ dir, observer: true }).reflection(n.reflection)?.entry_id as string;
-    expect(entryId).toMatch(/^mem_/);
-    markConfidential(entryId);
-    const res = await server(true).call("recall", { handle: n.reflection });
-    const r = (payload(res)["nights"] as ReflectionSummary[])[0] as ReflectionSummary;
-    expect(r.entry).toBeNull();
-    expect(r.entryConfidential).toBe(true);
-    expect(JSON.stringify(res)).not.toContain("Order matters");
-    const shown = (await cli(["night", n.reflection])).out.join("\n");
-    expect(shown).toContain("[confidential]");
-    expect(shown).not.toContain("Order matters");
-  });
-
-  test("mixed ids for a stranger: the withheld night leaks nothing past its own id; the rest answer", async () => {
-    // A night before any of the others' memories existed, so it was shown none of them.
-    const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
-    let other: string;
-    try {
-      c.store.advanceClock("2026-09-19");
-      mem(c, "An older thing, nothing to do with the rest.");
-      other = bareDream(c, "Unrelated", "2026-09-19");
-    } finally {
-      c.close();
-    }
-    const n = night();
-    markConfidential(n.gist, SECRET);
-    const res = await server(false).call("recall", { ids: [n.dream, other, n.third] });
-    const p = payload(res);
-    expect(p["reason"]).toBe("expanded");
-    expect((p["perId"] as { id: string; reason: string }[]).map((x) => x.reason)).toEqual(["handle-confidential-withheld", "expanded", "expanded"]);
-    expect((p["nights"] as { id: string }[]).map((x) => x.id)).toEqual([other]);
-    const wire = JSON.stringify(res);
-    for (const leak of ["Boot order", "booting empty", "ZQSECRET", "being understood", n.gist, n.merged, n.reflection]) expect(wire).not.toContain(leak);
   });
 
   test("an undone dream: its state, what was undone counted, nothing undone listed or quoted", async () => {

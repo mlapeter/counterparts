@@ -1,5 +1,5 @@
 /** `doctor`'s findings on the store upgrades v8 to v11, read from what each upgrade recorded (moved out of `doctor.ts`, 2026-10-11). */
-import { Store } from "../../core/store/index.js";
+import { CONFIDENTIAL_RETIRED_KEY, Store } from "../../core/store/index.js";
 import { finding } from "./doctor-finding.js";
 import type { Finding } from "./doctor-finding.js";
 
@@ -230,6 +230,33 @@ export function upgradeV11Findings(store: Store): Finding[] {
       `Upgrade to v11: feelings use seven cores now (happy, warm, calm, curious, sad, uneasy, angry) — ${String(refiled)} of ${String(feelings)} recorded ${feelings === 1 ? "feeling" : "feelings"} re-filed${listed.length > 0 ? ` (${listed})` : ""}, each keeping its old core beside it`,
       "",
       { feelings, refiled, moves: listed },
+    ),
+  ];
+}
+
+/**
+ * THE CONFIDENTIAL MARK, RETIRED (2026-10-21): how many live memories carried
+ * it when this build first opened the store (`CONFIDENTIAL_RETIRED_KEY`,
+ * counted once). Nothing is withheld any more, so they surface like any other
+ * memory. Amber only when the count is above 0, with the ids in `--json`;
+ * silent at 0 and on a store this build has not opened writable yet.
+ */
+export function confidentialRetiredFindings(store: Store): Finding[] {
+  const record = metaJson(store, CONFIDENTIAL_RETIRED_KEY);
+  if (record === null) return [];
+  const count = metaNum(record["count"]);
+  if (count <= 0) return [];
+  const ids = Array.isArray(record["ids"]) ? record["ids"].filter((x): x is string => typeof x === "string") : [];
+  const day = typeof record["day"] === "string" && record["day"].length > 0 ? record["day"] : null;
+  const one = count === 1;
+  return [
+    finding(
+      "confidential-retired",
+      "amber",
+      "Confidential",
+      `${String(count)} ${one ? "memory was" : "memories were"} marked confidential through the store API; ${day === null ? "since this version" : `since ${day}`} nothing is withheld, so ${one ? "it surfaces" : "they surface"} like any other memory`,
+      `${one ? "It is" : "They are"} listed in counterparts doctor --json${count > ids.length ? ` (the first ${String(ids.length)})` : ""}. Remove any you don't want: counterparts remove <id>.`,
+      { count, ids: ids.join(", "), day },
     ),
   ];
 }

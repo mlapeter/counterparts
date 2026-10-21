@@ -686,42 +686,15 @@ describe("current first: earlier versions fold, corrected ones are named as wron
   });
 
   // Review of #323: a pair line named its other side whatever it was.
-  test("a pair line never names a confidential memory to a non-owner", () => {
+  test("a pair line names a memory carrying the retired confidential mark (2026-10-21) to a non-owner too", () => {
     const c = brain();
     seed(c);
     const a = c.store.put({ type: "memory", kind: "fact", body: "The zqdentist is on Elm Street." });
     const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqdentist moved to the clinic.", meta: { confidential: true } });
     expect(settle(c.store, { holds: a, over: secret, how: "open", why: "unsure", actor: "session" }).ok).toBe(true);
-    const old = c.store.put({ type: "memory", kind: "fact", body: "The zqpharmacy closes at six." });
-    const secretNow = c.store.put({ type: "memory", kind: "fact", body: "The zqpharmacy hours changed.", meta: { confidential: true } });
-    expect(settle(c.store, { holds: secretNow, over: old, how: "changed", why: "moved", actor: "session" }).ok).toBe(true);
-    const guest = renderFacts(ask(c, "zqdentist zqpharmacy", { owner: false }));
-    expect(guest).not.toContain(secret);
-    expect(guest).not.toContain(secretNow);
-    expect(guest).toContain("earlier — now a later version");
-    const owner = renderFacts(ask(c, "zqdentist zqpharmacy"));
-    expect(owner).toContain(`disagrees with ${secret}`);
-  });
-});
-
-describe("an earlier version shown on its own names the END of its chain (review of #408)", () => {
-  test("A→B→C with B hidden from this asker: A reads now C, the memory standing and the neighbours name", () => {
-    const c = brain();
-    seed(c);
-    const a = c.store.put({ type: "memory", kind: "fact", body: "The zqferry leaves at nine." });
-    const b = c.store.put({ type: "memory", kind: "fact", body: "The zqferry timetable changed.", meta: { confidential: true } });
-    const z = c.store.put({ type: "memory", kind: "fact", body: "The ferry now leaves at half past ten." });
-    expect(settle(c.store, { holds: b, over: a, how: "changed", why: "moved", actor: "session" }).ok).toBe(true);
-    expect(settle(c.store, { holds: z, over: b, how: "changed", why: "moved again", actor: "session" }).ok).toBe(true);
-    // A guest cannot see B, so A cannot fold under it and is shown on its own.
-    const r = ask(c, "zqferry", { owner: false });
-    const shownA = r.memories.find((m) => m.id === a);
-    expect(shownA?.current).toBe(false);
-    // Before: its immediate holder, which this asker may not be told of ("a later version").
-    expect(shownA?.now).toBe(z);
-    const text = renderFacts(r);
-    expect(text).toContain(`earlier — now ${z}`);
-    expect(text).not.toContain(b);
+    const guest = renderFacts(ask(c, "zqdentist", { owner: false }));
+    expect(guest).toContain(`disagrees with ${secret}`);
+    expect(guest).toBe(renderFacts(ask(c, "zqdentist")));
   });
 });
 
@@ -966,17 +939,15 @@ describe("what never comes back, and what comes back labeled", () => {
     expect(r.memories[0]?.faded).toBe(true);
   });
 
-  test("confidential memories are silently absent for a non-owner, counted only for the durable row", () => {
+  test("a memory carrying the retired confidential mark (2026-10-21) is answered to a non-owner like any other", () => {
     const c = brain();
     seed(c);
     c.store.put({ type: "memory", kind: "fact", body: "The zqclinic visit is on Friday.", meta: { confidential: true } });
-    const open1 = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street." });
+    c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street." });
     const r = ask(c, "zqclinic", { owner: false });
-    expect(r.memories.map((m) => m.id)).toEqual([open1]);
-    expect(r.matched).toBe(1);
-    expect(r.blockedBy["confidential-withheld"]).toBe(1);
-    expect(renderFacts(r)).not.toContain("Friday");
-    expect(ask(c, "zqclinic").matched).toBe(2);
+    expect(r.matched).toBe(2);
+    expect(r.blockedBy["confidential-withheld"]).toBeUndefined();
+    expect(renderFacts(r)).toContain("Friday");
   });
 
   test("a chapter and its own copy are one result, the chapter, labeled journal", () => {
@@ -1233,35 +1204,15 @@ describe("corrected versions are named, as wrong, and open by id (through the to
     expect(lines[3]).toBe("   +1 more corrected (was wrong)");
   });
 
-  test("a confidential corrected memory is counted, never named, to a non-owner", async () => {
+  test("a corrected memory carrying the retired confidential mark (2026-10-21) is named to a non-owner as to the owner", async () => {
     const c = brain();
     seed(c);
     const right = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Oak Street." });
     const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street.", meta: { confidential: true } });
     expect(settle(c.store, { holds: right, over: secret, how: "corrected", why: "Oak", actor: "session" }).ok).toBe(true);
     const guest = String(body(await server(c, false).call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
-    expect(guest).not.toContain(secret);
-    expect(guest).not.toContain("Elm");
-    expect(guest).toContain("   1 corrected version hidden");
-    const owner = String(body(await server(c).call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
-    expect(owner).toContain(`corrected (was wrong): "The zqclinic is on Elm Street." (learned 10-03), corrected 10-03 · ${secret}`);
-  });
-
-  test("beside a plain corrected one, a confidential one is only counted to a non-owner, and its id opens nothing", async () => {
-    const c = brain();
-    seed(c);
-    const right = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Oak Street." });
-    const plain = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Pine Street." });
-    const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street.", meta: { confidential: true } });
-    for (const over of [plain, secret]) expect(settle(c.store, { holds: right, over, how: "corrected", why: "Oak", actor: "session" }).ok).toBe(true);
-    const guest = server(c, false);
-    const answer = String(body(await guest.call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
-    expect(answer).toContain(`   corrected (was wrong): "The zqclinic is on Pine Street." (learned 10-03), corrected 10-03 · ${plain}\n   +1 more corrected (was wrong)\n`);
-    expect(answer).not.toContain(secret);
-    expect(answer).not.toContain("Elm");
-    const opened = JSON.stringify(await guest.call("recall", { ids: [secret] }));
-    expect(opened).toContain("handle-confidential-withheld");
-    expect(opened).not.toContain("Elm");
+    expect(guest).toContain(`corrected (was wrong): "The zqclinic is on Elm Street." (learned 10-03), corrected 10-03 · ${secret}`);
+    expect(guest).not.toContain("hidden");
   });
 
   test("an answer with no corrected version carries no corrected field or line", async () => {
@@ -1471,15 +1422,12 @@ describe("the title tail (2026-10-20)", () => {
     expect(renderFacts(r)).not.toContain("titles only");
   });
 
-  test("a confidential memory is never in a non-owner's tail; the owner's tail may list it", () => {
+  test("a memory carrying the retired confidential mark (2026-10-21) counts in a non-owner's answer as in the owner's", () => {
     const c = brain();
     seed(c);
     forty(c);
-    const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqcrate order for the clinic, kept private.", meta: { confidential: true } });
-    const stranger = ask(c, "the zqcrate orders", { owner: false });
-    expect(stranger.matched).toBe(40);
-    expect([...stranger.memories.map((m) => m.id), ...stranger.tail.map((t) => t.id)]).not.toContain(secret);
-    expect(renderFacts(stranger)).not.toContain(secret);
+    c.store.put({ type: "memory", kind: "fact", body: "The zqcrate order for the clinic, kept private.", meta: { confidential: true } });
+    expect(ask(c, "the zqcrate orders", { owner: false }).matched).toBe(41);
     expect(ask(c, "the zqcrate orders").matched).toBe(41);
   });
 
@@ -1582,7 +1530,7 @@ describe("the title tail (2026-10-20)", () => {
 
   // Review of #544: a settled-over memory whose current version this asker may
   // not see does not fold, and its title in the tail read as current.
-  test("a settled-over memory listed on its own carries the earlier mark, as its body would", () => {
+  test("a settled-over memory folds into the version that holds now (the guest half that showed it on its own went with the confidential mark, 2026-10-21)", () => {
     // A clock that moves, so equal matches rank newest first and the old one lands in the tail.
     let t = NOW - 3_600_000;
     const c = Counterpart.open({ dir: join(dir, "store"), owner: true, now: () => (t += 1000), timeZone: ZONE });
@@ -1596,13 +1544,6 @@ describe("the title tail (2026-10-20)", () => {
     for (let i = 100; i < 115; i++) crate(i);
     const secretNow = c.store.put({ type: "memory", kind: "fact", body: "The depot moved to the clinic.", meta: { confidential: true } });
     expect(settle(c.store, { holds: secretNow, over: old, how: "changed", why: "moved", actor: "session" }).ok).toBe(true);
-    const guest = ask(c, "zqcrate", { owner: false });
-    const at = guest.tail.findIndex((x) => x.id === old);
-    expect(at).toBeGreaterThanOrEqual(0);
-    expect(guest.tail[at]?.now).toBe("a later version");
-    const text = renderFacts(guest);
-    expect(text).toContain(`. earlier (now a later version): zqcrate order 77 for town77 · ${old} · `);
-    expect(text).not.toContain(secretNow);
     // The owner sees the current version, which the old one folded into: no mark on any line.
     const owner = ask(c, "zqcrate");
     expect([...owner.memories.map((m) => m.id), ...owner.tail.map((x) => x.id)]).not.toContain(old);

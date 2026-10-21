@@ -116,7 +116,7 @@ Rethinking (owner, 2026-10-19, lightly held): "shown strengthens nothing" was a 
 
 - **Flat dashboard sketch**: the owner's exploratory branch `dashboard/flat`.
 - **Three-way identity study**: run it a second time before any write-up.
-- **Confidential memories (frozen 2026-10-02)**: the confidentiality gate came over from v1, but no tool can mark a memory confidential and the live store holds none. It still runs through about 48 files. Leave it as it is, build nothing new around it, and don't block a review on it. The plan is to review it and remove it later, unless a real need for it turns up first.
+- **Confidential memories (removed 2026-10-21, Mike's call)**: the gate that came over from v1 is gone in three pull requests shipped in one release — core and MCP behaviour, the adapters (dashboard, sidebar, export, CLI), then the leftover types. The `confidential` column stays, written 0 and read by nothing, until the next batched store-format change drops it.
 - **A store outside the home directory**: `uninstall --dir` isn't supported.
 - **Small open gaps**: sleep §9, handoff §4, mcp §2, mcp §9, cli §10–11, I11/I12. Details are in [roadmap-history.md](roadmap-history.md) under "Parked" and in each module's INTERFACE-GAPS.
 

@@ -165,14 +165,13 @@ describe("Today, elsewhere names titles", () => {
     );
   });
 
-  test("gated: a folder that is off or paused, a confidential memory, one about me, us or the owner, chit-chat, this session's own, the nightly run's and a chapter's copy are never named by title", () => {
+  test("gated: a folder that is off or paused, one about me, us or the owner, chit-chat, this session's own, the nightly run's and a chapter's copy are never named by title", () => {
     const w = world(at(D2, 8));
     recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 8) });
     recordSession(storeDir, { sessionId: C, scope: FAR, phase: "start", at: at(D2, 8) });
     recordSession(storeDir, { sessionId: "c9cacbcd-0000-4000-8000-00000000000c", scope: REST, phase: "start", at: at(D2, 8) });
     memory(w, at(D2, 8, 5), { session: C, scope: FAR, title: "OFFFOLDER ledger totals", body: "Totals.", about: "work", status: "planned" });
     memory(w, at(D2, 8, 5), { session: "c9cacbcd-0000-4000-8000-00000000000c", scope: REST, title: "PAUSEDFOLDER cellar stock", body: "Stock.", about: "work" });
-    memory(w, at(D2, 8, 10), { session: A, scope: THERE, title: "CONFIDENTIAL the bakery's rent", body: "Rent.", about: "work", status: "planned", meta: { confidential: true } });
     memory(w, at(D2, 8, 11), { session: A, scope: THERE, title: "OWNERMARK how Mike likes his bread", body: "Crusty.", about: "owner", status: "done" });
     memory(w, at(D2, 8, 12), { session: A, scope: THERE, title: "USMARK what we laughed about", body: "Flour.", about: "us" });
     memory(w, at(D2, 8, 13), { session: A, scope: THERE, title: "MEMARK why I like dawn", body: "Quiet.", about: "me" });
@@ -188,10 +187,10 @@ describe("Today, elsewhere names titles", () => {
     w.set(at(D2, 9));
     const line = wakeLine(w) ?? "";
     expect(line).toContain(`"The one that may cross" (${ok})`);
-    for (const never of ["OFFFOLDER", "PAUSEDFOLDER", "CONFIDENTIAL", "OWNERMARK", "USMARK", "MEMARK", "NIGHTLY", "COPY", "CHITCHAT", "DATED", "OWNSESSION", tilde(FAR), tilde(REST)]) {
+    for (const never of ["OFFFOLDER", "PAUSEDFOLDER", "OWNERMARK", "USMARK", "MEMARK", "NIGHTLY", "COPY", "CHITCHAT", "DATED", "OWNSESSION", tilde(FAR), tilde(REST)]) {
       expect(line).not.toContain(never);
     }
-    // The owner's count still includes the confidential one; its title stays home.
+    // The count is every memory written there today; the titles left out stay home.
     expect(line).toMatch(/, \d+ memories: "The one that may cross"/);
   });
 
@@ -334,13 +333,12 @@ describe("Here, also open: the other sessions in this folder", () => {
     expect(both).toContain(`. Here, also open: session 25e12e7d on Fable 5 since 08:10: "Roadmap: the notes module" (${theirs})`);
   });
 
-  test("the same title gates: no confidential, me/us/owner, dated, open-thread, nightly or chit-chat title; an ended session, or one in another folder, is not here", () => {
+  test("the same title gates: no me/us/owner, dated, open-thread, nightly or chit-chat title; an ended session, or one in another folder, is not here", () => {
     const w = world(at(D2, 8));
     recordSession(storeDir, { sessionId: S, scope: HERE, phase: "start", at: at(D2, 8) });
     recordSession(storeDir, { sessionId: P, scope: HERE, phase: "start", at: at(D2, 8, 10) });
     recordSession(storeDir, { sessionId: Q, scope: HERE, phase: "start", at: at(D2, 8, 12) });
     recordSession(storeDir, { sessionId: Q, scope: HERE, phase: "end", at: at(D2, 8, 50) });
-    memory(w, at(D2, 8, 20), { session: P, scope: HERE, title: "CONFIDENTIAL rent", body: "Rent.", about: "work", status: "planned", meta: { confidential: true } });
     memory(w, at(D2, 8, 21), { session: P, scope: HERE, title: "OWNERMARK how he likes it", body: "So.", about: "owner", status: "done" });
     memory(w, at(D2, 8, 22), { session: P, scope: HERE, title: "USMARK our joke", body: "Ha.", about: "us" });
     memory(w, at(D2, 8, 23), { session: P, scope: HERE, title: "CHITCHAT rain", body: "Rain.", about: "world" });
@@ -353,7 +351,7 @@ describe("Here, also open: the other sessions in this folder", () => {
     w.set(at(D2, 9));
     const line = hereLine(wakeOf(w, S)) ?? "";
     expect(line).toBe(`Here, also open: session 25e12e7d since 08:10: "The one that may show" (${ok}).`);
-    for (const never of ["CONFIDENTIAL", "OWNERMARK", "USMARK", "CHITCHAT", "OPENTHREAD", "NIGHTLY", "DATED", "ENDEDSESSION", "3c3c3c3c"]) {
+    for (const never of ["OWNERMARK", "USMARK", "CHITCHAT", "OPENTHREAD", "NIGHTLY", "DATED", "ENDEDSESSION", "3c3c3c3c"]) {
       expect(line).not.toContain(never);
     }
   });

@@ -143,7 +143,7 @@ test("the week begins as a new install does: exactly the meta beginNewInstall wr
   beginNewInstall(installed);
   installed.close();
   const before = metaOf(join(root, "plain"));
-  const added = [...metaOf(join(root, "install"))].filter(([k, v]) => before.get(k) !== v && !/created|livedDay|schemaVersion|lastActive|claims\.era/.test(k));
+  const added = [...metaOf(join(root, "install"))].filter(([k, v]) => before.get(k) !== v && !/created|livedDay|schemaVersion|lastActive|claims\.era|confidential\.retired/.test(k));
   expect(new Map(added)).toEqual(new Map(NEW_INSTALL_META));
 });
 

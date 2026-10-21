@@ -355,8 +355,8 @@ describe("composing a wake for a sweep changes nothing a live session will see",
 // ═══════════════════════════════════════════════════════════════════════════
 // (d) egress — constitution 6
 // ═══════════════════════════════════════════════════════════════════════════
-describe("nothing confidential and nothing permanent leaves through the wake", () => {
-  test("(d) a CONFIDENTIAL row and a PROTECTED row are stood aside, counted, and never in the prompt", async () => {
+describe("nothing permanent leaves through the wake", () => {
+  test("(d) a PROTECTED row is stood aside, counted, and never in the prompt; a row carrying the retired confidential mark goes like any other (2026-10-21)", async () => {
     const c = brain();
     seedSelf(c);
     c.store.put({
@@ -380,19 +380,18 @@ describe("nothing confidential and nothing permanent leaves through the wake", (
     crashOneSession(c);
 
     const [prompt] = await sweepCapturingPrompts(c);
-    // The ordinary identity belief went...
+    // The ordinary identity belief went, and so did the marked one...
     expect(prompt).toContain(SELF_MARKER);
-    // ...and neither of the other two did, on any surface of the prompt.
-    expect(prompt).not.toContain(SECRET_MARKER);
-    expect(prompt).not.toContain("compensation renegotiation");
+    expect(prompt).toContain(SECRET_MARKER);
+    // ...and the protected one did not, on any surface of the prompt.
     expect(prompt).not.toContain(PROTECTED_MARKER);
     expect(prompt).not.toContain("must never reach the falsification path");
 
     // The stand-aside is COUNTED, never silent (scar §2.4) — and the row
     // carries the count, not the rows.
     const [row] = wakeRows(c);
-    expect(row?.["omitted"]).toBe(2);
-    expect(row?.["elements"]).toBe(1);
+    expect(row?.["omitted"]).toBe(1);
+    expect(row?.["elements"]).toBe(2);
     expect(JSON.stringify(row)).not.toContain(SECRET_MARKER);
     expect(JSON.stringify(row)).not.toContain(PROTECTED_MARKER);
   });
@@ -447,7 +446,7 @@ describe("nothing confidential and nothing permanent leaves through the wake", (
     expect(composed.text).toContain("Mike Lapeter");
   });
 
-  test("a store whose whole active set is confidential falls back to cold start, not to a leak", async () => {
+  test("a store whose whole active set is protected falls back to cold start, not to a leak", async () => {
     const c = brain();
     // WITH an identity core, which is the shape the day-0 lane reads: nothing
     // rendering must still be `cold-start` and carry no block, not a day-0 line.
@@ -457,8 +456,8 @@ describe("nothing confidential and nothing permanent leaves through the wake", (
       kind: "person",
       band: "identity",
       title: "Compensation",
-      body: `${SECRET_MARKER} The compensation renegotiation with Marisol is confidential until the offer lands.`,
-      meta: { confidential: true },
+      body: `${SECRET_MARKER} The compensation renegotiation with Marisol is settled for good.`,
+      physics: { protected: true },
       learnedOn: "2026-09-01",
     });
     crashOneSession(c);

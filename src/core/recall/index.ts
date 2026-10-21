@@ -104,8 +104,9 @@ export interface RecallOptions {
   /** Latency budget for the build pass, ms. */
   budgetMs?: number;
   /**
-   * Is this the owner's own session? Defaults to FALSE: withholding is the safe
-   * direction, and an observer is a non-owner regardless (observer-mode.md G7).
+   * Is this the owner's own session? Defaults to FALSE; an observer is a
+   * non-owner regardless. Recorded on the decision; since the confidentiality
+   * gate was retired (2026-10-21) it gates nothing in recall.
    */
   owner?: boolean;
   onEvent?: (e: RecallEvent) => void;
@@ -540,7 +541,7 @@ export class Recall {
         mood,
         maxCandidates,
         storeSize,
-        ...(turn.feeling === undefined ? {} : { feeling: { ...turn.feeling, owner } }),
+        ...(turn.feeling === undefined ? {} : { feeling: turn.feeling }),
         ...(plan === null ? {} : { prime: plan.activation }),
       },
       this.tunables,
@@ -1071,8 +1072,7 @@ function upgradeOf(prior: { tier: UseTier; day: number } | undefined, today: num
  * weakly than the earlier one, 2026-10-19), the head is brought
  * in to stand for it — the earlier's numbers (what came to mind), the head's
  * words, and its standing label naming the earlier one (`(earlier: [id])`) —
- * left out of the turn's background. Not a confidential head for a guest:
- * the gate withholds it, and the earlier one then shows, labelled. Bounded:
+ * left out of the turn's background. Bounded:
  * one `headOf` per candidate (a few indexed reads); never throws.
  */
 export function headsWin(store: Store, candidates: readonly Candidate[], day: number): Candidate[] {

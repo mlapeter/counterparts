@@ -26,7 +26,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Context priming (#530, the downward direction): what the session used/wrote and the folder's open threads warm neighbours, along links and a centred train-of-thought vector; handoffs age 0.7/lived day | 0.3.27, 10-19 | ~2 lived days after install: ratings of primed vs unprimed footnotes, tunnel vision | "Due ~2026-10-22 (context priming)" below |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | 0.3.27, 10-19 (#528) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
-| The reflection closes open threads that are plainly done (`closeNow`, a why each, said in the share; `reopen` undoes), and still asks about the unsure ones | merged 10-20, unreleased | ~10-24: how many it closed itself (`reflections.detail.selfClosed`, `reflection.finished`'s `selfClosed`) (any folder, by Mike's 10-20 exception) and how many it asked instead, confidential or reopened (`closeAskedInstead`), whether any was wrong (`detail.reopened`, `reflection.reopened`), how the wake's Still open count moves from 58; revert by putting back the 10-16 `close` line in the prompt | `docs/decisions.d/feat-reflection-closes-done-threads-1020.md` |
+| The reflection closes open threads that are plainly done (`closeNow`, a why each, said in the share; `reopen` undoes), and still asks about the unsure ones | merged 10-20, unreleased | ~10-24: how many it closed itself (`reflections.detail.selfClosed`, `reflection.finished`'s `selfClosed`) (any folder, by Mike's 10-20 exception) and how many it asked instead, reopened (`closeAskedInstead`; confidential ones too until 10-21), whether any was wrong (`detail.reopened`, `reflection.reopened`), how the wake's Still open count moves from 58; revert by putting back the 10-16 `close` line in the prompt | `docs/decisions.d/feat-reflection-closes-done-threads-1020.md` |
 | Personal news flows across folders: the reflection is offered 24 unmarked memories a night (was 5), the personal-looking first, and marks the personal ones owner or us; the `about` field says what a mark does | in review 10-20, unreleased | ~10-24: how many it marked owner/us, any Mike reverses, whether personal news reaches other folders | "Due ~2026-10-24 (personal news across folders)" below; `docs/decisions.d/feat-unmarked-personal-marks-1020.md` |
 | The nightly writers held to the page's 4,600-byte room: the night's first page past it is sent back to be cut; a second try is kept; one never sent again is kept at the run's end. A page past the room with a short version shows it in the wake | built 10-20, unreleased | ~10-23 (three mornings after install): the page's bytes each morning, `past-room` holds and how each night ended, the wake's `elements=` and the page's rung | "Due ~2026-10-23 (the nightly writers held…)" below; `docs/decisions.d/feat-page-held-to-room-1020.md` |
 | Meaning computed in line whenever no fresh cue is ready (#521) | 0.3.27, 10-19 | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
@@ -240,8 +240,8 @@ sessions open at once (read-only; ask the sessions themselves too).
   whether any expanded a title's `mem_` id with recall.
 - **Look at:** "Since you started" never names a title twice in one session, and still says
   nothing when nothing new was written.
-- **Look at:** nothing from a folder that is off, paused or observed, nothing confidential,
-  nothing marked about me, us or the owner, in either line.
+- **Look at:** nothing from a folder that is off, paused or observed, nothing marked about
+  me, us or the owner, in either line.
 - **Look at:** the wake's lanes did not lose room to the line (doctor's Wake line, the
   `counterpart.wake.assembled` bytes; the line is still at most 300 bytes).
 - **Changes a decision if:** sessions still duplicate work → give the line more room, or the
@@ -405,8 +405,8 @@ it does not move that read.
 ### No settled-over memory outranks its head in ambient results (MOD #3)
 - **Look at:** `recall.decision` events since the install: any id in `surfaced` or `footnotes` for which a
   settled `changed` / `corrected` pair names it as `over` (and whose head is live), on a turn where the head
-  is not also shown. With the head-wins rule (recall CONTRACT §6b) that should be only a guest session with a
-  confidential head. Also the wake's lanes, which already left settled-over memories out.
+  is not also shown. With the head-wins rule (recall CONTRACT §6b) that should be none (a guest session with a
+  confidential head was the exception until 10-21). Also the wake's lanes, which already left settled-over memories out.
 - **Why:** on 10-10 earlier versions were shown 55 times after their settle, 51 of them without the newer.
 - **Changes a decision if:** an earlier one still shows beside or above its head → the gate's inhibition is
   missing a door (a quiet pointer, a carried cue): a bug lane. The head showing for an earlier the turn reached

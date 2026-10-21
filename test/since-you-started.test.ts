@@ -217,7 +217,7 @@ describe("Since you started", () => {
     expect(readSession(storeDir, S)?.sinceSeen).toEqual({ at: at(10), state: "armed" });
   });
 
-  test("the gates are Today-elsewhere's: a work title but no span, handoff or confidential chapter; off, paused and observer folders, this one and the nightly run's are not named", () => {
+  test("the gates are Today-elsewhere's: a work title but no span or handoff; off, paused and observer folders, this one and the nightly run's are not named", () => {
     const w = world(at(9));
     const WATCH = join(root, "greenhouse");
     const REST = join(root, "cellar");
@@ -230,9 +230,8 @@ describe("Since you started", () => {
     writeScopes(join(root, "scopes.json"), reg);
     expect(prompt(w, at(10, 1))).toBeUndefined();
     w.set(at(10, 20));
-    // THERE: a work chapter, a work memory with a title, a confidential chapter, a span, a handoff.
+    // THERE: a work chapter, a work memory with a title, a span, a handoff.
     chapter(w.c, { session: A, scope: THERE, title: "WORKCHAPTER oven seven calibration", about: "work" });
-    chapter(w.c, { session: "a1b2c3d5-0000-4000-8000-00000000000a", scope: THERE, title: "KEPTHOME a confidential chapter", about: "me", confidential: true });
     const worktitle = w.c.store.put({ type: "memory", kind: "fact", title: "WORKTITLE-oven-offset", body: "The proofing timer counts minutes.", about: "work", origin: { session: A, scope: THERE } });
     w.c.captureSpans({ session: A, scope: THERE, turns: [{ role: "user", text: "SPANWORDS the starter smells of apples" }, { role: "assistant", text: "SPANWORDS that is the yeast." }] });
     w.c.writeHandoff("HANDOFFBODY: score the loaves before the second proof.", { scope: THERE, session: A });
@@ -247,10 +246,10 @@ describe("Since you started", () => {
     // This folder is not named by path; its other open session is (2026-10-20),
     // without its chapter's copy.
     expect(line).toBe(
-      `Since you started (10:00): ${tilde(THERE)} open since 10:10, 3 memories: "WORKTITLE-oven-offset" (${worktitle}). ` +
+      `Since you started (10:00): ${tilde(THERE)} open since 10:10, 2 memories: "WORKTITLE-oven-offset" (${worktitle}). ` +
         "Here, also open: session b0b0b0b3 open since 10:15.",
     );
-    for (const never of ["WORKCHAPTER", "KEPTHOME", "proofing timer", "SPANWORDS", "HANDOFFBODY", "NOTNAMED", tilde(WATCH), tilde(REST), tilde(FAR), tilde(HERE) + " ", tilde(storeDir)]) {
+    for (const never of ["WORKCHAPTER", "proofing timer", "SPANWORDS", "HANDOFFBODY", "NOTNAMED", tilde(WATCH), tilde(REST), tilde(FAR), tilde(HERE) + " ", tilde(storeDir)]) {
       expect(line).not.toContain(never);
     }
   });

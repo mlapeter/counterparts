@@ -720,8 +720,9 @@ describe("the handle door (G50)", () => {
     announce("s1", "s-stranger");
     const c = a.counterpart;
     seed(c);
-    // Confidential, so a session that is not the owner's is told it exists and
-    // shown nothing (`handle-confidential-withheld`).
+    // A title that goes ambiguous after the owner resolved it, so the next ask
+    // is refused (`handle-ambiguous`) and shown nothing. (Until 2026-10-21 this
+    // was a confidential memory refused `handle-confidential-withheld`.)
     const id = c.store.put({
       type: "memory",
       kind: "person",
@@ -729,7 +730,6 @@ describe("the handle door (G50)", () => {
       body: "The clinic appointment about the recurring migraines is on the fourteenth.",
       salience: { novelty: null, relevance: 0.7, emotional: 0.5, predictive: 0.5 },
       physics: { birthDay: 0, lastUsedDay: 0 },
-      meta: { confidential: true },
     });
     c.store.advanceClock("2026-01-02");
 
@@ -739,7 +739,8 @@ describe("the handle door (G50)", () => {
     ).toBe("expanded");
     expect(readHandleResolutions(dir).map.get(saltedKey("the clinic note"))).toBe(id);
 
-    // A DIFFERENT session, not the owner's, asks the same title an hour later.
+    // The title goes ambiguous; a DIFFERENT session asks it an hour later.
+    sameTitle(c);
     const stranger = new McpServer({
       counterpart: c,
       scope: "proj",
@@ -747,7 +748,7 @@ describe("the handle door (G50)", () => {
       registryDir: dir,
     });
     const withheld = (await stranger.call("recall", { handle: "the clinic note" })).structuredContent;
-    expect(withheld["reason"]).toBe("handle-confidential-withheld");
+    expect(withheld["reason"]).toBe("handle-ambiguous");
 
     // Its boundary must not inherit the owner's resolution. It read nothing.
     a.stop(
@@ -818,7 +819,8 @@ describe("the handle door (G50)", () => {
 //       before the resolver ran. Nothing is refused, so nothing is recorded.
 //   A2  the call was `recall { handle, question }` — `both-arguments`, path
 //       `none`, refused by the dispatcher before the handle path exists.
-//   A3  the call WAS refused `handle-confidential-withheld`, and the shadow
+//   A3  the call WAS refused (`handle-ambiguous` now; `handle-confidential-withheld`
+//       until 2026-10-21), and the shadow
 //       could not be written (a read-only log, a full disk).
 //
 // In all three the transcript still carries the title, so the boundary still
@@ -847,7 +849,7 @@ describe("the handle door, across projects (G50 review)", () => {
     >;
   }
 
-  /** The fixture: a confidential memory with an exact title, and the owner's
+  /** The fixture: a memory with an exact title, and the owner's
    *  own resolution of it sitting in the log.
    *
    *  BOTH sessions announce themselves FIRST, before any resolution is
@@ -871,7 +873,6 @@ describe("the handle door, across projects (G50 review)", () => {
       body: "The clinic appointment about the recurring migraines is on the fourteenth.",
       salience: { novelty: null, relevance: 0.7, emotional: 0.5, predictive: 0.5 },
       physics: { birthDay: 0, lastUsedDay: 0 },
-      meta: { confidential: true },
     });
     c.store.advanceClock("2026-01-02");
     const answered = (await tool(a).call("recall", { handle: "the clinic note" })).structuredContent;
@@ -940,9 +941,10 @@ describe("the handle door, across projects (G50 review)", () => {
     // `recordHandleResolution` returns false rather than throwing, exactly as
     // its contract says, and the tool answers as it always would.
     chmodSync(expansionsPath(dir), 0o400);
+    sameTitle(a.counterpart);
     const withheld = (await tool(a, OTHER, false).call("recall", { handle: "the clinic note" }))
       .structuredContent;
-    expect(withheld["reason"]).toBe("handle-confidential-withheld");
+    expect(withheld["reason"]).toBe("handle-ambiguous");
     // Restored BEFORE the boundary: an unreadable log would credit nothing for
     // the wrong reason, and prove nothing about the filter.
     chmodSync(expansionsPath(dir), 0o600);
@@ -963,9 +965,10 @@ describe("the handle door, across projects (G50 review)", () => {
     const id = await ownerResolved(a);
 
     // The stranger IS refused, and its shadow IS written — under ITS scope.
+    sameTitle(c);
     const withheld = (await tool(a, OTHER, false).call("recall", { handle: "the clinic note" }))
       .structuredContent;
-    expect(withheld["reason"]).toBe("handle-confidential-withheld");
+    expect(withheld["reason"]).toBe("handle-ambiguous");
     // Read unfiltered, the shadow is the newest answer and hides the owner's id.
     expect(readHandleResolutions(dir).map.get(saltedKey("the clinic note"))).toBeNull();
 
@@ -1370,3 +1373,15 @@ describe("the identity lane rotates", () => {
     expect(stamped).toBeLessThan(IDENTITY_BODIES.length);
   });
 });
+
+/** A second memory under the same title, so the handle goes ambiguous (the refusal the G50 shadows test since 2026-10-21). */
+function sameTitle(c: Counterpart): void {
+  c.store.put({
+    type: "memory",
+    kind: "fact",
+    title: "the clinic note",
+    body: "A second clinic note, about the parking, under the same title.",
+    salience: { novelty: null, relevance: 0.5, emotional: 0.3, predictive: 0.5 },
+    physics: { birthDay: 0, lastUsedDay: 0 },
+  });
+}

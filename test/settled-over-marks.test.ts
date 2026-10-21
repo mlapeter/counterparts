@@ -152,7 +152,7 @@ describe("a write's neighbours", () => {
     const head = put(s, NEW_RULE);
     changed(s, head, old);
     const id = put(s, CLOSE_TO_OLD);
-    const got = writeNeighbours(s, { id, owner: true });
+    const got = writeNeighbours(s, { id });
     const listed = got.find((n) => n.id === old);
     expect(listed).toBeDefined();
     expect(listed?.standing).toBe(earlierMark(head));
@@ -163,19 +163,18 @@ describe("a write's neighbours", () => {
     for (const n of got) if (n.id !== old) expect(n.standing).toBeUndefined();
   });
 
-  test("left out when what holds now is already in view or not this writer's to see", () => {
+  test("left out when what holds now is already in view", () => {
     const s = Store.open({ dir });
     open.push(s);
     aged(s);
     const old = put(s, OLD_RULE);
+    // The retired confidential mark (2026-10-21) on the holder changes nothing.
     const head = put(s, NEW_RULE, { meta: { confidential: true } });
     changed(s, head, old);
     const id = put(s, CLOSE_TO_OLD);
-    // The holder is private and this is a guest: the old one goes unlisted rather than unexplained.
-    expect(writeNeighbours(s, { id, owner: false }).map((n) => n.id)).not.toContain(old);
-    expect(writeNeighbours(s, { id, owner: true }).find((n) => n.id === old)?.standing).toBe(earlierMark(head));
+    expect(writeNeighbours(s, { id }).find((n) => n.id === old)?.standing).toBe(earlierMark(head));
     // The holder is the write's own sibling (or what it updates): nothing to point at that is not already here.
-    expect(writeNeighbours(s, { id, owner: true, exclude: [head] }).map((n) => n.id)).not.toContain(old);
+    expect(writeNeighbours(s, { id, exclude: [head] }).map((n) => n.id)).not.toContain(old);
   });
 
   test("remember: the result's neighbours mark it", async () => {
@@ -227,9 +226,9 @@ describe("a write's neighbours", () => {
     const secondId = o2[1]?.["id"] as string;
     expect(typeof firstId).toBe("string");
     expect(typeof secondId).toBe("string");
-    const unexcluded = writeNeighbours(store, { id: secondId, owner: true });
+    const unexcluded = writeNeighbours(store, { id: secondId });
     expect(unexcluded.find((n) => n.id === other)?.standing).toBe(earlierMark(firstId));
-    expect(writeNeighbours(store, { id: secondId, owner: true, exclude: [firstId] }).map((n) => n.id)).not.toContain(other);
+    expect(writeNeighbours(store, { id: secondId, exclude: [firstId] }).map((n) => n.id)).not.toContain(other);
   });
 });
 
@@ -318,7 +317,7 @@ describe("the dream and the reflection", () => {
     const at = { physics: { birthDay: day, lastUsedDay: day } };
     const old = put(s, "The dentist appointment is on September 12th at nine.", { ...at, eventDate: "2026-09-12" });
     const head = put(s, "The dentist appointment moved to September 13th at ten.", { ...at, eventDate: "2026-09-13" });
-    const input = { today: "2026-09-10", day, showable: () => true, owner: true };
+    const input = { today: "2026-09-10", day, showable: () => true };
     const before = onMyMind(s, input).flatMap((m) => m.ids);
     expect(before).toContain(old);
     changed(s, head, old);
@@ -367,7 +366,7 @@ describe("review of #408: footnotes and neighbours name the same memory", () => 
     expect(text).toContain(`[${c}]`);
     expect(text).not.toContain(`[${b}]:`);
     const w = put(s, "The zygomorphic orchid needs watering twice a week, they said at the shop.");
-    const n = writeNeighbours(s, { id: w, owner: true, limit: 10 }).find((x) => x.id === a);
+    const n = writeNeighbours(s, { id: w, limit: 10 }).find((x) => x.id === a);
     expect(n?.standing).toBe(earlierMark(c));
   });
 
@@ -414,7 +413,7 @@ describe("review of #408: a corrected memory is never shown as current", () => {
     expect(settle(c.store, { holds: right, over: wrong, how: "corrected", actor: "session", why: "misread" }).ok).toBe(true);
     expect(c.store.row(wrong)?.archived).toBe(1);
     const w = mk(CLOSE_TO_OLD);
-    expect(writeNeighbours(c.store, { id: w, owner: true, limit: 10 }).map((n) => n.id)).not.toContain(wrong);
+    expect(writeNeighbours(c.store, { id: w, limit: 10 }).map((n) => n.id)).not.toContain(wrong);
     const d = c.dreams.begin({ session: SESSION, scope: "/proj" });
     if (!d.ok) throw new Error(d.reason);
     expect(Object.keys(d.bundle.memories)).not.toContain(wrong);
@@ -422,7 +421,7 @@ describe("review of #408: a corrected memory is never shown as current", () => {
     const r = c.reflections.begin({ session: SESSION, scope: "/proj" });
     if (!r.ok) throw new Error(r.reason);
     expect(Object.keys(r.bundle.memories)).not.toContain(wrong);
-    const mind = onMyMind(c.store, { today: "2026-09-20", day, showable: () => true, owner: true }).flatMap((m) => m.ids);
+    const mind = onMyMind(c.store, { today: "2026-09-20", day, showable: () => true }).flatMap((m) => m.ids);
     expect(mind).not.toContain(wrong);
     expect(standingOf(c.store, wrong, { byId: true })?.prefix).toContain(`Corrected by [${right}]`);
   });

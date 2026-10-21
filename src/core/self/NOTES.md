@@ -2416,3 +2416,11 @@ unset, and the reflection was offered five unmarked memories a night.
   folder's Nearby by the rules that were there (`test/unmarked-offer-1020.test.ts`, the
   last test). Recall by question was never folder-gated.
 - No change to F4's elsewhere line.
+
+## 2026-10-21 — the writer holds nothing back by default
+
+- `pageWriterInput`'s default `omit` is none (it was confidential-only), the day's journal
+  no longer holds sessions back, and the writer's "held back as confidential" sentences
+  are gone (a caller's own `omit` still counts what it held back, said as "held back").
+  `workHere` no longer skips a marked row. The crash fallback's wake (`sweepWake`) still
+  stands PROTECTED rows out and counts them.

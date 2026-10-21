@@ -65,7 +65,6 @@ function brain(): Counterpart {
   const c = Counterpart.open({
     dir,
     owner: true,
-    bundlesAsOwner: true,
     identity: { name: "Mike" },
     now: () => Date.now() + dateN * 86_400_000,
   });
@@ -98,16 +97,12 @@ function longPage(): string {
   return `${page}## Lately\n\nThe kiln and the cone readings.`;
 }
 
-const SECRET = "Mike told me about the health scare he has not told anyone else about yet.";
-
-/** A reflection with a confidential memory and an open one shown to it. */
+/** A reflection with an open memory shown to it. (Until 2026-10-21 a confidential one too, for the short version's confidential-words gate, retired that day.) */
 function setUp(): { c: Counterpart; open: string; reflection: string } {
   const c = brain();
   nextDay(c);
   nextDay(c);
-  const secret = mem(c, SECRET, { kind: "person", about: "owner", meta: { confidential: true } });
   const plain = mem(c, "Mike and I finished the release together and he said thank you.", { kind: "person", about: "us" });
-  expect(c.store.row(secret)?.confidential).toBe(1);
   const begun = c.reflections.begin({ session: SESSION });
   if (!begun.ok) throw new Error(`begin refused: ${begun.reason}`);
   return { c, open: plain, reflection: begun.bundle.reflection };
@@ -128,7 +123,6 @@ function heldFirst(c: Counterpart, reflection: string, cite: string): void {
 
 describe("1. a reflection's short version crosses the reflection's own gates", () => {
   for (const [what, short] of [
-    ["a confidential memory's words", `## Core\n\n${SECRET}`],
     ["the dream's mark", `## Core\n\nI keep a careful account. ${DREAM_MARK} a dream]`],
   ] as const) {
     test(`beside the page: a short version carrying ${what} is not kept — the page is, and the note says why`, () => {
@@ -149,7 +143,6 @@ describe("1. a reflection's short version crosses the reflection's own gates", (
       // Nothing of it reached the store's page row.
       const id = findPageRow(c.store);
       expect(id).not.toBeNull();
-      expect(JSON.stringify(c.store.readProse(id as string).meta)).not.toContain("health scare");
       expect(JSON.stringify(c.store.readProse(id as string).meta)).not.toContain(DREAM_MARK);
     });
 

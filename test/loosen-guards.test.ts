@@ -20,6 +20,7 @@ import { TOOLS } from "../src/adapters/mcp/tools.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { DREAM_TUNABLES, REFLECT_TUNABLES } from "../src/core/dream/index.js";
+import { DREAM_MARK } from "../src/core/dream/mark.js";
 import { CARRIED_BY_MAX_CHARS, OTHER_WORD_MAX_CHARS, checkFeelings, repairEmotion } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
@@ -44,7 +45,7 @@ afterEach(() => {
 
 function brain(): Counterpart {
   // The calendar follows the test's days (the once-a-day gates are the calendar date since 2026-09-28).
-  const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" }, now: () => Date.now() + dateN * 86_400_000 });
+  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, now: () => Date.now() + dateN * 86_400_000 });
   open.push(c);
   return c;
 }
@@ -139,7 +140,7 @@ describe("feelings: an emotion that carries a phrase is split, never refused for
   });
 
   test("the note door stores a phrased emotion, split, and says so", async () => {
-    const s = openServer({ dir, scope: "/tmp/loosen-project", owner: true, bundlesAsOwner: true });
+    const s = openServer({ dir, scope: "/tmp/loosen-project", owner: true });
     open.push({ close: () => s.counterpart.close() });
     const r = await s.call("remember", {
       text: "The release went out clean after the long night.",
@@ -346,7 +347,7 @@ describe("reflect: a second finish supplies what the first did not write", () =>
     return { secret, open: openId, reflection: begun.bundle.reflection };
   }
 
-  test("a refused page names the matching words and says it can be sent again; the second finish writes it without re-minting the entry, and replaces the untold share", () => {
+  test("a refused page says why and that it can be sent again; the second finish writes it without re-minting the entry, and replaces the untold share", () => {
     const c = brain();
     const s = setup(c);
     const first = c.reflections.finish({
@@ -354,15 +355,16 @@ describe("reflect: a second finish supplies what the first did not write", () =>
       session: SESSION,
       entry: "The release, and being trusted.",
       cites: [s.open],
-      page: { text: "## Core\n\nMike told me about the health scare he has not told anyone else about yet.", cites: [s.open] },
+      // A page the reflection's own gate refuses (the dream's mark; until
+      // 2026-10-21 this test used a confidential memory's words).
+      page: { text: `## Core\n\n${DREAM_MARK} I am trusted with what matters.`, cites: [s.open] },
       share: { text: "I rewrote my page about being trusted.", cites: [s.open] },
     });
     if (!first.ok) throw new Error(String(first.reason));
     const o = first.outcome;
-    expect(o.page).toMatchObject({ written: false, reason: "confidential-words-on-the-page" });
-    expect(o.page.detail).toContain(s.secret);
-    expect(o.page.detail).toContain("mike told me about the health");
-    expect(o.retry).toContain("page — confidential-words-on-the-page");
+    expect(o.page).toMatchObject({ written: false, reason: "dream-mark-in-text" });
+    expect(o.page.detail).toContain("dream's mark");
+    expect(o.retry).toContain("page — dream-mark-in-text");
     expect(o.retry).toContain(`finish again with reflection ${s.reflection}`);
     const entryId = o.entryId as string;
     expect(entryId).not.toBe(null);
@@ -501,7 +503,7 @@ describe("reflect: a second finish supplies what the first did not write", () =>
 
   test("through the MCP door: a second finish may leave out the entry, and the result says what was not written", async () => {
     recordSession(dir, { sessionId: "s-mcp", scope: "/proj", phase: "start" });
-    const srv = openServer({ dir, session: "s-mcp", scope: "/proj", owner: true, bundlesAsOwner: true });
+    const srv = openServer({ dir, session: "s-mcp", scope: "/proj", owner: true });
     open.push({ close: () => srv.counterpart.close() });
     const c = srv.counterpart;
     dateN = 0;

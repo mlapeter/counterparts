@@ -677,3 +677,13 @@ or any `status: done`, widened in the review of #493): the old title would read 
 open, so nothing is carried and the reply says a title was not given and is asked for
 (`titleAsked`). A sent title wins. A confidential memory's title is never carried, for any
 session: the new memory is not confidential.
+
+## 2026-10-21 — confidential memories removed (deposit and sweep)
+
+- A revision now carries an old memory's title whatever the retired mark said, a thread
+  marked confidential is closed like any other, and the reminder chain skips only
+  protected rows and, for a session that is not the owner's, another directory's.
+  `ThreadRefusal` keeps the `confidential` variant (nothing produces it) until the
+  column's types go. The update guard's held view and the write's neighbours no longer
+  take an owner. `sweepWake` stands PROTECTED rows out and counts them, as before; its
+  `omitted` is protected-only now.

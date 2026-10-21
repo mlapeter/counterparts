@@ -2170,3 +2170,17 @@ What changed with it, measured:
 - `isChapterSummary` / `chapterSummaryKind` / `CHAPTER_SUMMARY_META` live in
   `operational.ts` because `reachExempt` reads them: a chapter's summary is not exempt
   from reach, a frozen full copy still is. No schema change.
+
+## 2026-10-21 — the confidential column goes inert
+
+- Confidential memories were removed (Mike's call). Every write stores `confidential = 0`
+  (insert, `revise`, `appendBody`), so a revised old row loses its 1 too; the SQL filters
+  in `workCandidates`, `planCandidates`, `memoryCountsByScopeSince` and
+  `memoryTitlesByScopeSince` are gone, and `traitReads` no longer blanks `carried_by`.
+  No schema or cache version moved: the column stays until the next batched store-format
+  change. The first writable open by this build counts live rows still holding 1 and
+  writes `confidential.retired` (`{count, ids ≤ 50, at, day}`) once, keyed on the row's
+  absence like the claims era; doctor reads it. The removal scrub's `confidential = 0`
+  stays while the column does. `confidentialByMeta` stays exported only because the
+  export and the dashboard still read it; it goes when they stop.
+

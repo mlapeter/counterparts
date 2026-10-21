@@ -248,12 +248,12 @@ export async function deposit(
   cp["recordDeposit"](result, ctx, source, mint);
   cp["creditNamedIn"](proposal.title ?? null, proposal.content, proposal.day, mint.id, source);
   // THE CLOSE AND THE LIST AGREE (2026-10-02). A thread this session may
-  // not close — confidential, or opened in another directory, for a session
-  // that is not the owner's — is not settled over either: the declaration
+  // not close — opened in another directory, for a session that is not the
+  // owner's — is not settled over either: the declaration
   // stays a link (no `how`), so the old memory stays live and stays under
   // "Still open", which is what the refusal says. It used to be refused and
   // settled at once, and the wake dropped what the deposit said was open.
-  const keepOpen = thread?.refused === "confidential" || thread?.refused === "other-directory";
+  const keepOpen = thread?.refused === "other-directory";
   // DONE FOR THIS TIME (2026-10-20): the occurrence open today is closed, and
   // the declared revision does NOT run — the link `mint` wrote is the whole
   // effect. A `changed` settle would fade the reminder ×0.5 under a memory
@@ -407,8 +407,7 @@ export async function guardUpdate(cp: Counterpart, p: Proposal, ctx: DepositCont
     how,
   });
   if (read.related) return null;
-  const owner = ctx.owner === undefined ? cp["owner"] : ctx.owner && !cp.observer;
-  return { over: target, ...heldView(row, owner), how, by: read.by, cosine: read.cosine, shared: read.shared.length };
+  return { over: target, ...heldView(row), how, by: read.by, cosine: read.cosine, shared: read.shared.length };
 }
 
 /**
@@ -517,8 +516,7 @@ export function carryAbout(cp: Counterpart, p: Proposal, sent: string | null | u
  * (a dated memory's date dropped or spent, or any `status: done`): "Pay
  * taxes by the 15th" on the memory that says it was paid reads as still
  * open, so nothing is carried and the reply asks for a title. A sent title
- * always wins; a confidential memory's title is never carried (the new
- * memory is not confidential). The old title passed the gate when stored.
+ * always wins. The old title passed the gate when stored.
  */
 export function carryTitle(cp: Counterpart, p: Proposal, closes: boolean): { carried?: { title: string; from: string }; asked: boolean } {
   if (p.title !== null && p.title.trim().length > 0) return { asked: false };
@@ -529,9 +527,6 @@ export function carryTitle(cp: Counterpart, p: Proposal, closes: boolean): { car
     const row = cp.store.row(target);
     const title = row?.title ?? null;
     if (row === undefined || title === null || title.trim().length === 0) return { asked: false };
-    // A confidential memory's title never moves onto a new memory, which is
-    // not confidential when it is written — for any session, the owner's too.
-    if (row.confidential === 1) return { asked: false };
     return { carried: { title, from: target }, asked: false };
   } catch {
     return { asked: false };
@@ -598,11 +593,10 @@ export function closeThread(cp: Counterpart, p: Proposal, successor: string, own
     // THE REVISION STEP'S CHECKS, FIRST (review of #313): a flag is state
     // like any other, so what refuses a revision refuses this — the owner's
     // protection and an archived row, in `revision.ts`'s own words — and a
-    // session that is not the owner's closes nothing confidential and
-    // nothing written in another directory.
+    // session that is not the owner's closes nothing written in another
+    // directory.
     if (row.protected === 1) refused = "protected-refuses-revision";
     else if (row.archived === 1) refused = "target-archived";
-    else if (!owner && row.confidential === 1) refused = "confidential";
     else if (!owner && (row.origin_scope ?? "") !== p.scope) refused = "other-directory";
   } catch {
     return null;
@@ -863,8 +857,8 @@ export function reminderChain(cp: Counterpart, from: string): string[] {
  * date has it cleared, marked spent by the closing memory
  * (`REMINDER_SPENT_BY_META`, as a `done` holder marks the one it spends).
  * `closeThread`'s guards first (review of #493): a protected memory, and —
- * for a session that is not the owner's — a confidential one or one written
- * in another directory keep their date and come back as `skipped`, for the
+ * for a session that is not the owner's — one written in another directory
+ * keep their date and come back as `skipped`, for the
  * reply to list. An undo of the write's settle puts back the holder's date
  * only, not these (the settle records one reminder).
  */
@@ -880,7 +874,7 @@ export function closeReminderChain(
     if (id === successor) continue;
     const row = cp.store.row(id);
     if (row === undefined || row.archived === 1 || row.event_date === null) continue;
-    if (row.protected === 1 || (!who.owner && (row.confidential === 1 || (row.origin_scope ?? "") !== who.scope))) {
+    if (row.protected === 1 || (!who.owner && (row.origin_scope ?? "") !== who.scope)) {
       skipped.push(id);
       continue;
     }

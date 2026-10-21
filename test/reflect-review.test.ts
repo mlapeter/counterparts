@@ -48,7 +48,6 @@ function brain(opts: { owner?: boolean; observer?: boolean } = {}): Counterpart 
     owner: opts.owner ?? true,
     // What an owner-read reflection must keep (review of #318: no host reads
     // one so; these are the store-level proofs).
-    bundlesAsOwner: true,
     ...(opts.observer === true ? { observer: true } : { identity: { name: "Mike" } }),
     // The calendar follows the test's days (the once-a-day gates are the
     // calendar date since 2026-09-28).
@@ -250,60 +249,36 @@ describe("S1 removed (2026-09-28): a page is not refused for sharing words with 
 });
 
 // ---------------------------------------------------------------------------
-// S2 — confidential memories stay out of the page and out of other sessions
+// S2 — retired 2026-10-21 with the confidential mark: what a reflection rests
+// on is no longer held to the owner's session
 // ---------------------------------------------------------------------------
 
-describe("S2: what is confidential stays in the owner's session", () => {
-  test("the page does not rest on, or carry the words of, a confidential memory (the page is read by every session)", () => {
-    const c = brain();
-    nextDay(c);
-    nextDay(c);
-    const secret = mem(c, "Mike told me about the health scare he has not told anyone else about yet.", {
-      kind: "person",
-      about: "owner",
-      meta: { confidential: true },
-    });
-    const open = mem(c, "Mike and I finished the release together and he said thank you.", { kind: "person", about: "us" });
-    expect(c.store.row(secret)?.confidential).toBe(1);
-    const cited = reflect(c, [open], { page: { text: "## Core\n\nI am trusted with what matters to him.", cites: [secret] } });
-    expect(cited.outcome.page.written).toBe(false);
-    expect(cited.outcome.refusedCites.some((r) => r.startsWith(secret))).toBe(true);
-    nextDay(c);
-    const quoted = reflect(c, [open], {
-      page: { text: "## Core\n\nMike told me about the health scare he has not told anyone else about yet.", cites: [open] },
-    });
-    expect(quoted.outcome.page).toMatchObject({ written: false, reason: "confidential-words-on-the-page" });
-    expect(c.self.page()).toBe(null);
-  });
-
-  test("an entry is as confidential as anything it cites — the share's and the page's citations too", () => {
-    const c = brain();
-    nextDay(c);
-    nextDay(c);
-    const secret = mem(c, "The acquisition talks are confidential until October.", { meta: { confidential: true } });
-    const plain = mem(c, "We shipped the dashboard.");
-    const { outcome } = reflect(c, [plain], { share: { text: "I've been thinking about October.", cites: [secret] } });
-    expect(c.store.row(outcome.entryId as string)?.confidential).toBe(1);
-  });
-
-  test("outside the owner's session, a share or an earlier entry that rests on a confidential memory is not handed over", () => {
+describe("S2, retired: a reflection resting on a memory carrying the old confidential mark", () => {
+  test("may cite it on the page, writes an entry with no mark, and its share and entry reach a session that is not the owner's", () => {
     const owner = brain();
     nextDay(owner);
     nextDay(owner);
     const secret = mem(owner, "The acquisition talks are confidential until October.", { meta: { confidential: true } });
     recordSession(dir, { sessionId: SESSION, scope: "proj", phase: "start" });
-    const done = reflect(owner, [secret], { share: { text: "I've been thinking about October.", cites: [secret] } });
+    const done = reflect(owner, [secret], {
+      page: { text: "## Core\n\nI keep the timing of the acquisition talks in mind.", cites: [secret] },
+      share: { text: "I've been thinking about October.", cites: [secret] },
+    });
+    expect(done.outcome.page.written).toBe(true);
+    expect(done.outcome.refusedCites).toEqual([]);
+    expect(owner.store.row(done.outcome.entryId as string)?.confidential).toBe(0);
+    expect(owner.store.readProse(done.outcome.entryId as string).meta["confidential"]).toBeUndefined();
     expect(done.outcome.share.offered).toBe(true);
     recordSession(dir, { sessionId: SESSION, scope: "proj", phase: "end" });
     owner.close();
     open.splice(0);
 
     const other = brain({ owner: false });
-    expect(other.reflections.pendingShare({ session: "s-guest" })).toBe(null);
+    expect(other.reflections.pendingShare({ session: "s-guest" })).not.toBe(null);
     nextDay(other);
     const begun = other.reflections.begin({ session: "s-guest" });
     if (!begun.ok) throw new Error(begun.reason);
-    expect(begun.bundle.earlier).toEqual([]);
+    expect(begun.bundle.earlier.length).toBe(1);
   });
 });
 
@@ -334,7 +309,7 @@ describe("S3: the v9 upgrade marks a person-kind schema row naming the owner, as
       db.run("UPDATE memories SET about = NULL, about_by = NULL");
       db.run("UPDATE meta SET value = '8' WHERE key = 'schemaVersion'");
       db.close();
-      const after = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, snapshotsDir: join(root, "snaps") });
+      const after = Counterpart.open({ dir, owner: true, snapshotsDir: join(root, "snaps") });
       open.push(after);
       expect(after.store.read(belief)).toMatchObject({ about: "owner", aboutBy: "upgrade" });
       // About the owner alone is his card's since 2026-10-11 (Group 3 part A), not a core candidate.
@@ -500,7 +475,7 @@ describe("the open fast lane, end to end through the tool, sleep, doctor and the
     c.close();
     open.splice(0);
     recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true, bundlesAsOwner: true });
+    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true });
     try {
       const begin = await s.call("reflect", { phase: "begin", session: SESSION });
       const rid = begin.structuredContent["reflection"] as string;
@@ -593,7 +568,7 @@ describe("observer stance, every phase", () => {
     const count = (): string => JSON.stringify(before.query("SELECT (SELECT COUNT(*) FROM reflections), (SELECT COUNT(*) FROM feelings), (SELECT COUNT(*) FROM returns), (SELECT COUNT(*) FROM memories)").all());
     const was = count();
     recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start" });
-    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true, bundlesAsOwner: true, observer: true });
+    const s = openServer({ dir, session: SESSION, scope: "/proj", owner: true, observer: true });
     try {
       for (const args of [
         { phase: "launch" },
@@ -757,7 +732,7 @@ describe("owner rulings on the review's decisions", () => {
     // The next calendar day: one reflection a calendar day (2026-09-28), and
     // the adapter's reflection above ran on today's.
     const s = new McpServer({
-      counterpart: Counterpart.open({ dir, owner: true, bundlesAsOwner: true, pageWriterMode: "off", now: () => Date.now() + 86_400_000 }),
+      counterpart: Counterpart.open({ dir, owner: true, pageWriterMode: "off", now: () => Date.now() + 86_400_000 }),
       session: "s-mcp",
       scope: "/proj",
       owner: true,

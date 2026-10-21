@@ -52,8 +52,8 @@ dreamer is the model (a background agent the session launches), outside this pro
   consolidation]. `sleep/` stays arithmetic-only; this is the part that needs a model,
   and so it is a separate, asked-for act.
 - **Recall's gates** [v2 recall §9.1]: a dream is shown only what could surface in the
-  session that launched it — no archived, superseded, protected or schema row; nothing
-  confidential outside the owner's own session.
+  session that launched it — no archived, superseded, protected or schema row. (Nothing
+  confidential outside the owner's own session, until that mark was retired 2026-10-21.)
 - **Versions, never deletion** [constitution 7; store §16]: a merge settles over its
   originals (before 2026-10-11 it superseded them); undo restores.
 - **One door per act, every claim mechanized** [mcp §5 G2]: one tool, `dream`, with
@@ -345,11 +345,12 @@ dreamer is the model (a background agent the session launches), outside this pro
    whose merged memory has moved on since (revised into a successor, merged again,
    archived or removed) is left as it is and counted (`kept`), so an undo never stands
    originals beside a live successor (review of #251).
-7. **[M]** What a dream makes keeps the rules of what it was made from: a merge or gist drawn
-   from a confidential memory is confidential; a dated reminder, a memory the owner
+7. **[M]** What a dream makes keeps the rules of what it was made from: a dated reminder, a memory the owner
    demoted from the core, and an earlier version (one a later memory holds over: merge the
    one that holds, 2026-10-11) are not merged; a dream's merges are not "new" for the next
    ask; a dream left open is closed to changes once a newer one begins (review of #251).
+   *(Its first rule — a merge or gist drawn from a confidential memory is confidential — was
+   retired 2026-10-21 with the mark: a dream's new memory carries no confidentiality key.)*
 5. **[M]** Under observer stance nothing is written and every phase says so.
 6. **[M]** The journal lives in the `dreams` table: no decay, dedup, prune or recall
    touches it.
@@ -422,8 +423,8 @@ dream having run.
     reflection and its dream — from what it
     cites — meant to rest on at least one core memory when there is a core (a page that
     cites none is written with a note, since 2026-09-28) — never from a dreamed gist
-    or a confidential memory, and never carrying the words of a confidential memory it
-    was shown (review of #256); the old page is context. (The check on a recent gist's
+    (the confidential-memory half of this rule, review of #256, was retired 2026-10-21);
+    the old page is context. (The check on a recent gist's
     words was removed 2026-09-28 — NOTES.) With
     the host's `pageWriter.mode: off` the page is not written at all (owner ruling D3); the
     entry and the share still are. It records no page-writer run (that row made the
@@ -470,10 +471,10 @@ dream having run.
     switch, not the night's stance** (checked 2026-10-20): it is closed only by
     `counterparts core --reflected-feeling off` (`acceptsReflectedFeeling`; open by
     default). The nightly run's not-the-owner stance (`night-run.ts`, `OWNER_ENV` "0",
-    10-02) gates confidential memories out of its bundles and threads opened elsewhere
-    out of its write-ups, and never gated a mark: a night as not-the-owner with the switch
-    at its default marks owner or us like any open-door night. A confidential memory is
-    never in a guest bundle, so it is never offered and never re-marked. **A folder set
+    10-02) gates threads opened elsewhere out of its write-ups, and never gated a mark: a
+    night as not-the-owner with the switch at its default marks owner or us like any
+    open-door night. (It also gated confidential memories out of its bundles until that
+    mark was retired, 2026-10-21; every bundle is now read the same.) **A folder set
     off keeps its work** (review of #558): a memory that is its folder's work, written in
     a folder the host's setting has off or paused (`finish`'s `folderOn`), is refused any
     mark but `work` (`folder-off-work-only`) — shown in another lane or not — since owner,
@@ -500,8 +501,8 @@ dream having run.
     why, keeps `closeThread`'s checks, and lands only with the share that says it (none
     once the share was told or carried); `close` closes only ids the reflection proposed,
     and `reopen` reopens only ids it closed itself, both with `closeThread`'s checks; a
-    thread the owner reopened is never closed by a reflection again, only asked about,
-    and a confidential one is never self-closed, only asked about. A self-close and its
+    thread the owner reopened is never closed by a reflection again, only asked about.
+    A self-close and its
     `reopen` reach a stale thread from any folder (Mike, 2026-10-20, a lightly held
     exception to the night run's 10-02 stance); night write-ups and `close` keep the
     folder check.

@@ -132,9 +132,9 @@ describe("the core's door: Counterpart.markAbout", () => {
       // The owner may mark it anything.
       expect(c.markAbout({ id: gist, mark: "us", by: "owner" })).toMatchObject({ ok: true });
 
+      // The retired confidential mark (2026-10-21) is an inert meta key: found like any other.
       const secret = mem(c, "A private worry Mike shared.", { meta: { confidential: true } });
-      expect(c.markAbout({ id: secret, mark: "owner", by: "self", why: "His.", owner: false })).toMatchObject({ ok: false, reason: "unknown-id" });
-      expect(c.markAbout({ id: secret, mark: "owner", by: "self", why: "His.", owner: true })).toMatchObject({ ok: true });
+      expect(c.markAbout({ id: secret, mark: "owner", by: "self", why: "His." })).toMatchObject({ ok: true });
 
       const plain = mem(c, "Mike's sister visited in September.");
       const n = c.markAbout({ id: plain, mark: "owner", by: "self" });

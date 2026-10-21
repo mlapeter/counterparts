@@ -446,13 +446,10 @@ function isHandoffRow(store: Store, id: string): boolean {
 }
 
 /**
- * A memory's confidentiality class, as the surfacing gate asks it.
+ * A memory's old confidentiality class (`store/marks.ts#confidentialByMeta`).
  *
- * The truth table itself is `store/index.ts#confidentialByMeta`, which is also
- * what `StoredMemory.confidential` carries — one answer, so a caller holding a
- * `StoredMemory` and a caller holding a bare `ProseDoc` can never disagree. This
- * wrapper is the door for the second kind (`dashboard/web/reveal.ts`,
- * `mcp/deliberate.ts`); prefer the flag where a read already produced one.
+ * RETIRED 2026-10-21: the surfacing gate no longer asks it. Still exported for
+ * the dashboard's reveal until that surface's own removal lands; it goes then.
  */
 export function isConfidential(doc: ProseDoc): boolean {
   return confidentialByMeta(doc.meta);
@@ -710,8 +707,7 @@ export function activate(
   //
   // Every number in the sort key — cue, semantic, arrival, hops — is available
   // from the operational row alone. The prose body is not in that row, and is
-  // needed only for the confidentiality class and for whatever the renderer
-  // prints. So the ranking happens first and the FILE READS happen only for the
+  // needed only for whatever the renderer prints. So the ranking happens first and the FILE READS happen only for the
   // candidates that survive `maxCandidates`.
   //
   // This is an equivalence, not a heuristic: same candidates, same order, same
@@ -799,8 +795,7 @@ export function activate(
   // fetched. It is kept OUT of the gate's background (`Candidate.stamp`,
   // review of #293 B2): the bar is what the words and meaning found, and the
   // stamps are measured against it, never part of it. Only `recallable` rows
-  // are nominated; a confidential one takes no slot for a non-owner (the gate
-  // withholds it anyway); a chapter and its copy take one slot between them.
+  // are nominated; a chapter and its copy take one slot between them.
   const feelingOf = new Map<string, number>();
   const stampCue = new Map<string, number>();
   /** A nominated memory's place in the lane's order (0 = first). */
@@ -865,7 +860,6 @@ export function activate(
         if (slots.size >= t.FEELING_CANDIDATES_MAX) break;
         const row = recallable(id);
         if (row === undefined) continue;
-        if (input.feeling.owner !== true && row.confidential === 1) continue;
         const slot = journalCopyOf(row) ?? id;
         if (slots.has(slot)) continue;
         // A core match never brings more cue than the weakest exact one, so it
@@ -1237,8 +1231,7 @@ export function activate(
         : 0;
     // The turn-gated salience scored above — for a folded pair, the higher half's.
     const gated = c.sal;
-    // `readProse` is `read().doc`, so taking the whole read costs nothing and
-    // brings the confidentiality flag with it instead of re-deriving it.
+    // `readProse` is `read().doc`, so taking the whole read costs nothing.
     const stored = store.read(id);
     const doc = stored.doc;
     candidates.push({
@@ -1289,7 +1282,7 @@ export function activate(
   // `LINK_POINTER_MIN_FRACTION` of the strongest seed's — the first cut, and
   // every one of those goes to the gate. The gate decides which are SHOWN: only
   // one a memory the turn shows passed enough to (the anchor, `gate.ts`), then
-  // confidentiality, dedup, inhibition, `LINK_POINTERS_MAX`. What the threshold
+  // dedup, inhibition, `LINK_POINTERS_MAX`. What the threshold
   // left out is counted on the turn's record (`linkOnly` against
   // `pointerCandidates`), never cut silently.
   const threshold = strongestSeed * t.LINK_POINTER_MIN_FRACTION;

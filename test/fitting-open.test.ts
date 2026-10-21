@@ -104,7 +104,7 @@ describe("open lists read by open state, not through the newest N", () => {
     flag(c.store, { x: a, y: b, source: "dream", dreamId: "drm_old" });
     for (let i = 1; i <= 11; i += 1) dreamRow(c, `drm_${String(i).padStart(3, "0")}`, "2026-09-02", i);
     expect(c.store.dreams({ limit: 10 }).some((d) => d.id === "drm_old")).toBe(false);
-    const mind = onMyMind(c.store, { today: "2026-09-12", day: c.store.livedDay(), showable: () => true, owner: true });
+    const mind = onMyMind(c.store, { today: "2026-09-12", day: c.store.livedDay(), showable: () => true });
     expect(mind.some((m) => m.kind === "unsettled" && m.ids.includes(a))).toBe(true);
     const lines = c.dreams.raiseLines({ session: "s-now" });
     expect(lines.some((l) => l.includes(a) && l.includes(b))).toBe(true);
@@ -228,7 +228,7 @@ describe("review of #278: a flagged pair habituates on my mind, and rises again 
     c.store.recordDreamChange("drm_flag", { action: "contradiction", ref: a, ref2: b, detail: {} });
     const flagged = flag(c.store, { x: a, y: b, source: "dream", dreamId: "drm_flag" });
     const pairId = flagged.ok ? flagged.pair : "";
-    const input = { today: "2026-09-02", day: c.store.livedDay(), showable: () => true, owner: true };
+    const input = { today: "2026-09-02", day: c.store.livedDay(), showable: () => true };
     const score = (): number => {
       const items = mindRanked(c.store, input).items;
       return items.findIndex((m) => m.kind === "unsettled");

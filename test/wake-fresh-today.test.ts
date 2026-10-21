@@ -281,21 +281,22 @@ describe("the Yesterday line names another directory's titles on the About-me ga
   /**
    * Yesterday's chapters in five places: this directory (a work chapter), an
    * `on` directory about me, an `on` directory about work, an `off` directory
-   * about me, and a confidential one about me in the `on` directory.
+   * about me. (A confidential one about me in the `on` directory stood here
+   * until that mark was retired, 2026-10-21.)
    */
   function yesterday(): { c: Counterpart; lc: Lifecycle; ids: Record<string, string> } {
     const k = store(at(D1, 9));
     const { c } = k;
     writeScopes(join(root, "scopes.json"), setScope(null, FAR, "off", { at: D1 }));
     const ids: Record<string, string> = {};
-    const put = (key: string, session: string, scope: string, about: "me" | "work", hour: number, confidential = false): void => {
+    const put = (key: string, session: string, scope: string, about: "me" | "work", hour: number): void => {
       k.set(at(D1, hour));
       const epi = c.store.put({
         type: "episode",
         kind: "self",
         title: `${key.toUpperCase()}TITLE chapter`,
         body: `## chapter 1 — ${readableDate(D1)} · lived day 1\n\nA placeholder chapter.\n`,
-        meta: { sessionId: session, chapters: 1, ...(confidential ? { confidential: true } : {}) },
+        meta: { sessionId: session, chapters: 1 },
         source: "episode",
         origin: { session, scope },
       });
@@ -306,7 +307,6 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     put("work", G, YON, "work", 11);
     put("aboutme", A, THERE, "me", 12);
     put("off", F, FAR, "me", 13);
-    put("secret", C, THERE, "me", 14, true);
     // The evening's turn-end published the line store-wide; the morning's
     // session start reads it for THIS session.
     k.set(at(D2, 7));
@@ -338,7 +338,7 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     expect(text.split("\n").find((l) => l.startsWith("Last here: "))).toContain(`(${y.ids["own"]})`);
     for (const once of [y.ids["own"] ?? "?", y.ids["aboutme"] ?? "?"]) expect(text.split(once).length - 1).toBe(1);
     expect(lineOf(text)).not.toContain(placeWords(FAR));
-    for (const never of ["WORKTITLE", "OFFTITLE", "SECRETTITLE", y.ids["work"] ?? "?", y.ids["off"] ?? "?", y.ids["secret"] ?? "?"]) {
+    for (const never of ["WORKTITLE", "OFFTITLE", y.ids["work"] ?? "?", y.ids["off"] ?? "?"]) {
       expect(text).not.toContain(never);
     }
     expect(readSentinel(text).intact).toBe(true);
@@ -365,7 +365,7 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     expect(folders).toBe(
       `Yesterday: "ABOUTMETITLE chapter" (${y.ids["aboutme"]}); "OFFTITLE chapter" (${y.ids["off"]}); and 2 sessions in ${placeWords(HERE)}, ${placeWords(YON)}.`,
     );
-    for (const never of ["OWNTITLE", "WORKTITLE", "SECRETTITLE", y.ids["own"] ?? "?", y.ids["work"] ?? "?"]) expect(folders).not.toContain(never);
+    for (const never of ["OWNTITLE", "WORKTITLE", y.ids["own"] ?? "?", y.ids["work"] ?? "?"]) expect(folders).not.toContain(never);
   });
 
   test("the published bundle, which no one session reads, keeps the store-wide line; the shorter forms never surface a hidden id", () => {
@@ -375,7 +375,6 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     // INTERFACE-GAPS self §14).
     const published = y.c.wake(BUDGET).text;
     for (const shown of ["OWNTITLE", "WORKTITLE", "ABOUTMETITLE", "OFFTITLE"]) expect(published).toContain(shown);
-    expect(published).not.toContain("SECRETTITLE");
     // The shorter forms over the named two, with two counted.
     const named = chaptersOn(y.c.store, D1).filter((c) => c.id === y.ids["own"] || c.id === y.ids["aboutme"]);
     const shorter = yesterdayShorter(named, D1, [{ scope: YON, sessions: 2 }]);
@@ -383,7 +382,7 @@ describe("the Yesterday line names another directory's titles on the About-me ga
     for (const line of shorter) {
       // A title given up joins the count (2026-10-20), never left as a bare id.
       expect(line).toEndWith(`; and 1 more; 2 sessions in ${placeWords(YON)}.`);
-      for (const hidden of [y.ids["work"], y.ids["off"], y.ids["secret"]]) expect(line).not.toContain(hidden ?? "?");
+      for (const hidden of [y.ids["work"], y.ids["off"]]) expect(line).not.toContain(hidden ?? "?");
     }
     expect(yesterdayLine([], D1, undefined, [{ scope: YON, sessions: 1 }])).toBe(`Yesterday, ${stampWords(D1.slice(5))}: a session in ${placeWords(YON)}.`);
     // At a session start, without the date (2026-10-16).
@@ -521,7 +520,7 @@ describe("Today, elsewhere", () => {
     expect(there).toContain(`${tilde(HERE)} open since 07:30 (live), 1 memory`);
   });
 
-  test("an observer folder, a paused one and a folder under an off one are not named; a confidential chapter's title stays home (review of #376)", () => {
+  test("an observer folder, a paused one and a folder under an off one are not named; a work chapter's title stays home (review of #376)", () => {
     const k = store(at(D1, 18));
     const { c } = k;
     c.rebrief({ budgetBytes: BUDGET, at: D1 });
@@ -544,17 +543,17 @@ describe("Today, elsewhere", () => {
     for (const [scope, head] of places) {
       const session = `${head}-0000-4000-8000-000000000001`;
       recordSession(storeDir, { sessionId: session, scope, phase: "start", at: at(D2, 8) });
-      // THERE's chapter is confidential; the others' are not, but their folders are not on.
+      // THERE's chapter is work (its title stays home); the others' are about me, but their folders are not on.
       const epi = c.store.put({
         type: "episode",
         kind: "self",
         title: `KEPTHOME chapter in ${head}`,
         body: `## chapter 1 — ${readableDate(D2)} · lived day 1\n\nA placeholder chapter.\n`,
-        meta: { sessionId: session, chapters: 1, ...(scope === THERE ? { confidential: true } : {}) },
+        meta: { sessionId: session, chapters: 1 },
         source: "episode",
         origin: { session, scope },
       });
-      copy(c, epi, session, scope, "me", "A placeholder copy about me.");
+      copy(c, epi, session, scope, scope === THERE ? "work" : "me", "A placeholder copy about me.");
       const id = c.store.put({ type: "memory", kind: "fact", body: "A placeholder memory.", origin: { session, scope } });
       if (scope === THERE) thereMemory = id;
     }

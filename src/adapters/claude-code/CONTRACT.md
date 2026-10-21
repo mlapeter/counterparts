@@ -8,7 +8,7 @@ The launch adapter: wake injection at session start, the end-of-session write, a
 detection — everything host-specific, so the core stays host-agnostic. Session start is
 where this adapter delivers a wake; it is no longer the only place one is read, because
 since 2026-09-17 the core composes a read-only one into the crash fallback's prompt — the
-same composer, minus the prospective lane and minus anything protected or confidential —
+same composer, minus the prospective lane and minus anything protected —
 and this adapter's interpret client put that prompt on the wire until 2026-09-24 (see
 §1a: the sweep no longer interprets here).
 

@@ -63,7 +63,6 @@ function brain(): Counterpart {
   const c = Counterpart.open({
     dir,
     owner: true,
-    bundlesAsOwner: true,
     identity: { name: "Mike" },
     now: () => Date.now() + dateN * 86_400_000,
   });
@@ -315,9 +314,10 @@ describe("3. the reflection sends cites per passage", () => {
     expect(readSelfPage(c.store)?.trace).toEqual({ cites: [cite], claims: null });
   });
 
-  test("a page cited only by passage, every id refused (not shown, confidential): sent back naming them (review of #550)", () => {
+  test("a page cited only by passage, every id refused (not shown, a dream's gist): sent back naming them (review of #550)", () => {
     const { c, cite } = reflecting();
-    const secret = mem(c.store, "A confidential thing about Mike's health.", { about: "owner", meta: { confidential: true } });
+    // A dreamed gist is never a page's source (the confidential case this test used was retired 2026-10-21).
+    const secret = mem(c.store, "A dreamed thought about Mike's health.", { about: "owner", source: "dreamed" });
     const begun = c.reflections.begin({ session: `${SESSION}-2` });
     if (!begun.ok) throw new Error(begun.reason);
     const text = "## Core\n\nI finished the release with Mike. I like plain words.";
@@ -334,7 +334,7 @@ describe("3. the reflection sends cites per passage", () => {
     const detail = String(done.outcome.page.detail ?? "");
     expect(detail).toContain("page.cites and page.claims name no memory");
     expect(detail).toContain("mem_notshown0:not-shown");
-    expect(detail).toContain(`${secret}:confidential-is-not-a-page-source`);
+    expect(detail).toContain(`${secret}:`);
   });
 
   test("a sentence the gate redacted reads as uncited, and nothing of it is kept but its key (review of #550)", () => {

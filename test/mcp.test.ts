@@ -1378,7 +1378,7 @@ describe("recall — deliberate retrieval", () => {
     expect(String(result["answer"])).toContain("Nothing matched");
   });
 
-  test("confidentiality: STATED for a direct lookup, SILENT in a list", async () => {
+  test("the retired confidential mark (2026-10-21): a direct lookup and a list answer a non-owner like any other", async () => {
     const s = server({ owner: false });
     seed(s.counterpart);
     const id = s.counterpart.store.put({
@@ -1391,22 +1391,13 @@ describe("recall — deliberate retrieval", () => {
     });
 
     const direct = payload(await s.call("recall", { handle: id }));
-    expect(direct["reason"]).toBe("handle-confidential-withheld");
-    expect(direct["withheld"]).toContain("confidential");
-    expect((direct["memories"] as unknown[]).length).toBe(0);
+    expect(direct["reason"]).toBe("expanded");
+    expect(direct["withheld"]).toBeUndefined();
+    expect((direct["memories"] as unknown[]).length).toBe(1);
 
     const listed = payload(await s.call("recall", { question: "the clinic appointment migraines", mode: "facts" }));
-    const ids = listed["ids"] as string[];
-    expect(ids).not.toContain(id);
-    expect(String(listed["answer"])).not.toContain(id);
-    // Silent means silent: no count, no gap announced, nothing that says a
-    // withheld thing exists. Only the memories that were shown are named.
+    expect(listed["ids"] as string[]).toContain(id);
     expect(JSON.stringify(listed)).not.toContain("withheld");
-
-    // The owner's own session gets it.
-    const asOwner = server({ owner: true });
-    const ownerView = payload(await asOwner.call("recall", { handle: id }));
-    expect(ownerView["reason"]).toBe("expanded");
   });
 
   test("recall and status deposit nothing and train nothing — G4, asserted directly", async () => {
@@ -1535,32 +1526,6 @@ describe("recall — deliberate retrieval", () => {
     expect(out.ids).toEqual(many.slice(0, ROW_IDS_MAX));
     expect(out.idCount).toBe(ROW_IDS_MAX + 5);
     expect(boundedIds([])).toEqual({ ids: [], idCount: 0 });
-  });
-
-  test("blockedBy carries `confidential-withheld` to the OWNER'S STORE, and still not to the caller", async () => {
-    // Two audiences, one gate. §9.1 G5 keeps a list silent to whoever asked —
-    // announcing a gap leaks that something is there. The durable row is read
-    // by the owner, in the owner's own store, where the memory already sits:
-    // without it the confidentiality gate stays exactly as unreadable as the
-    // 2026-09-17 inventory found it.
-    const s = server({ owner: false });
-    seed(s.counterpart);
-    s.counterpart.store.put({
-      type: "memory",
-      kind: "person",
-      title: "Clinic appointment",
-      body: "The clinic appointment about the recurring migraines is on the fourteenth.",
-      salience: { relevance: 0.7, emotional: 0.5, predictive: 0.5 },
-      meta: { confidential: true },
-    });
-    const listed = payload(await s.call("recall", { question: "the clinic appointment migraines", mode: "facts" }));
-    expect(JSON.stringify(listed)).not.toContain("withheld");
-
-    const row = s.counterpart.store.eventLog({ name: "mcp.recall", limit: 5 })[0];
-    const blocked = (JSON.parse(row?.payload ?? "{}") as Record<string, unknown>)[
-      "blockedBy"
-    ] as Record<string, number>;
-    expect(blocked["confidential-withheld"]).toBe(1);
   });
 
   test("an observer session writes no recall row at all", async () => {

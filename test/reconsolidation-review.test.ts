@@ -103,7 +103,7 @@ test("to confirm: the least shown first, so a dream that passes them by does not
   const seen = new Map<string, number>();
   for (let night = 0; night < 3; night += 1) {
     const day = store.livedDay();
-    const read = mindRanked(store, { today: store.today(), day, showable: () => true, owner: true, slots: true });
+    const read = mindRanked(store, { today: store.today(), day, showable: () => true, slots: true });
     const confirm = read.items.filter((i) => i.kind === "to-confirm");
     expect(confirm).toHaveLength(T.SLOT_PER_NIGHT);
     expect(read.slotsMore).toBe(6 - T.SLOT_PER_NIGHT);

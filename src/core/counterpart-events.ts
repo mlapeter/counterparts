@@ -135,7 +135,7 @@ export const SWEEP_GATE_EVENT = "sweep.gate";
  * went, and whether the cap cut anything; it cannot read one line of the self
  * from here. `bytes` is the SELF's bytes, not the block's: the fence and its
  * instructions add a fixed 683 bytes on top, per chunk. `omitted` is the
- * confidential/protected stand-aside, COUNTED rather than silent — a filter
+ * protected stand-aside, COUNTED rather than silent — a filter
  * nobody can see firing is a filter nobody can trust.
  */
 export const SWEEP_WAKE_EVENT = "sweep.wake";

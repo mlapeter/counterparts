@@ -908,3 +908,18 @@ reflection was offered five a night.
 - **The share stays short**: past three re-labels into me, us or the owner, two are said by
   name and the rest in one sentence with their count — every one still cited.
 - Tests: `test/unmarked-offer-1020.test.ts`.
+
+## 2026-10-21 — confidential memories removed (dream and reflection)
+
+- `BUNDLE_OWNER`, the `bundleOwner` getters, `CounterpartOptions.bundlesAsOwner` and the
+  dream's `queue`/`gate` owner parameter are gone: they existed only for the confidential
+  mark. Every bundle is read the same, so a store that had marked rows may count a few
+  more in a dream's queue and the ask. Both `confidentialityOf` copies are deleted, so a
+  merge, a gist or a reflection's entry carries no confidentiality key. Reflection lost
+  its page-source refusal (`confidential-is-not-a-page-source`), its six-word-run check
+  (`confidential-words-on-the-page`, and `sharedRun` with it), `touchesConfidential` and
+  the confidential ask-instead on a self-close. `showable` keeps protected, archived,
+  superseded, schema and empty rows out; `threadGuard` keeps protected, archived and
+  other-directory. The night's `OWNER_ENV` "0" still means a write-up closes no thread
+  opened elsewhere; the reflection's self-close and `reopen` still reach any folder.
+  `ReflectContext.owner` stays for `threadGuard`, lightly held.

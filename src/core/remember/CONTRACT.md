@@ -131,8 +131,8 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
 
   **The fallback reads as ITSELF, not as a stranger** (owner ruling 2026-09-17). Ahead of
   the transcript its prompt carries a WAKE — composed by the same composer a live session's
-  wake uses, but *not* the same bundle: no prospective/horizon lane, no protected and no
-  confidential rows, and against the reported budget whole where a live wake first reserves
+  wake uses, but *not* the same bundle: no prospective/horizon lane, no protected rows,
+  and against the reported budget whole where a live wake first reserves
   its preface. It is built at most once per sweep, lazily, on the first chunk that reaches
   the interpreter, against a byte cap (`SWEEP_WAKE_BYTES`, or the host's ordinary wake
   budget) — and the reader is told to write in the first person, in its own voice, as the
@@ -140,8 +140,9 @@ is that the ask is ambient (constitution line 8) and its coverage is measured, n
   memory it wakes with; read cold, the fallback wrote the owner's own day back as
   paraphrase (`docs/finding-12-diagnosis-2026-09-17.md`: 888 fallback memories against 193
   authored). Three limits are mechanized, not intended: the wake is composed read-only and
-  moves no rotation or published bundle; confidential and protected rows never enter it,
-  because this prompt leaves the machine (constitution 6); and the memories it produces are
+  moves no rotation or published bundle; protected rows never enter it, because this
+  prompt leaves the machine (the confidential rows that stood aside with them until
+  2026-10-21 are no longer marked); and the memories it produces are
   still `source: fallback`, so the authored/fallback ratio stays legible. A store with
   nothing to say, or a host that reported no ceiling, carries no wake and behaves exactly
   as before.

@@ -40,7 +40,12 @@ same `MAX_CANDIDATES` is a lower bar over the same shortlist.
 deliberate ask can raise `MAX_CANDIDATES` and lower `FLOOR_GLOBAL_UNITS` on its own
 terms. One optional argument, no new module.
 
-## 2. Confidentiality is a prose-`meta` convention with one reader
+## 2. Confidentiality is a prose-`meta` convention with one reader — CLOSED 2026-10-21 (answered: removed)
+
+**Answered 2026-10-21:** Mike's call was to remove the feature rather than pick a
+classifier. The gates are gone from core and this adapter; the meta keys are inert, and
+the column is written 0 until the next batched store-format change drops it. What follows
+is the gap as it stood.
 
 `isConfidential(doc)` reads `meta.confidential` / `meta.confidentiality` and is
 exported from `recall/activate.ts`. Nothing WRITES those fields: no tool, no

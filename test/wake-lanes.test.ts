@@ -287,21 +287,22 @@ describe("the craft lane, composed at delivery for the session's directory", () 
     expect(line?.detail).toContain(`"Work here" lines that did not fit, in 1 directory-day`);
   });
 
-  test("not a thread, not a reminder, not a journal copy, not confidential, not settled over — and never shown twice", () => {
+  test("not a thread, not a reminder, not a journal copy, not settled over — and never shown twice", () => {
     const c = counterpart();
     const shown = put(c, "The glue sets in twenty minutes at room temperature.", { about: "work", scope: WORKSHOP });
     const open = put(c, "Which clamp fits the long board is still an open question.", { about: "work", scope: WORKSHOP, meta: { unresolved: true } });
     const copy = put(c, "Chapter copy: a long day at the bench.", { about: "work", scope: WORKSHOP, kind: "self", meta: { episodeId: "epi_000000000001" } });
+    // The retired confidential mark (2026-10-21) leaves a work memory in the lane like any other.
     const secret = put(c, "The supplier's account terms are private.", { about: "work", scope: WORKSHOP, meta: { confidential: true } });
     const text = wake(c, WORKSHOP);
     const lines = under(text, WORK_HERE_HEADING);
-    expect(lines.length).toBe(1);
-    expect(lines[0]).toContain(shown);
+    expect(lines.length).toBe(2);
+    expect(lines.join("\n")).toContain(shown);
+    expect(lines.join("\n")).toContain(secret);
     // The unresolved work memory is a thread, shown store-wide, once.
     expect(under(text, FRAMING.threads).join("\n")).toContain("Which clamp fits");
     expect(text.split(open).length - 1).toBeLessThanOrEqual(1);
     expect(text).not.toContain(copy);
-    expect(text).not.toContain(secret);
     // No id anywhere in the bundle twice.
     const ids = text.match(/mem_[0-9a-f]{12}/g) ?? [];
     expect(new Set(ids).size).toBe(ids.length);
@@ -473,7 +474,7 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
     expect(stillOpen(c)).not.toContain("shop lease renews");
   });
 
-  test("closing passes the revision step's checks first: protected, and — for a session not the owner's — confidential or another directory (review of #313)", async () => {
+  test("closing passes the revision step's checks first: protected, and — for a session not the owner's — another directory (review of #313)", async () => {
     const openThread = (c: Counterpart, body: string, opts: { scope?: string; meta?: Record<string, unknown>; protect?: boolean } = {}): string =>
       c.store.put({
         type: "memory",
@@ -493,8 +494,8 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
     const guarded = openThread(owner, "Whether the bench gets a vise is an open question the owner protected.", { protect: true });
     expect(await close(owner, guarded)).toEqual({ from: guarded, closed: false, refused: "protected-refuses-revision" });
     expect(flagged(owner, guarded)).toBe(true);
-    // The owner may close a confidential one, and one written elsewhere.
-    const elsewhere = openThread(owner, "Whether the library extends its hours is an open question.", { scope: LIBRARY, meta: { confidential: true } });
+    // The owner may close one written elsewhere.
+    const elsewhere = openThread(owner, "Whether the library extends its hours is an open question.", { scope: LIBRARY });
     expect(await close(owner, elsewhere)).toEqual({ from: elsewhere, closed: true });
     owner.close();
 
@@ -503,8 +504,9 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
     const there = openThread(guest, "Whether the catalogue gets a second shelf is still open.", { scope: LIBRARY });
     expect(await close(guest, there, WORKSHOP)).toEqual({ from: there, closed: false, refused: "other-directory" });
     expect(flagged(guest, there)).toBe(true);
+    // The retired confidential mark (2026-10-21) refuses nothing.
     const secret = openThread(guest, "Whether the supplier renews the private terms is still open.", { meta: { confidential: true } });
-    expect(await close(guest, secret)).toEqual({ from: secret, closed: false, refused: "confidential" });
+    expect(await close(guest, secret)).toEqual({ from: secret, closed: true });
     const mine = openThread(guest, "Whether the shop opens on Saturdays is still an open question.");
     expect(await close(guest, mine)).toEqual({ from: mine, closed: true });
     expect(flagged(guest, mine)).toBe(false);

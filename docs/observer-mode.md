@@ -36,8 +36,7 @@ measurement is itself an encoding event.
 - **Spawns no consolidation** — because a cycle advances the clock, decays the store, and
   rewrites the briefing: *the instrument mutating what it measures.* [v1] §15 G3.
 - **Reads normally.** [v1] §15 G4 — the wake is delivered, recall works, surfacing and
-  ranking compute as usual. *An observer still sees; it just leaves no trace.* It is
-  additionally treated as a non-owner for confidentiality.
+  ranking compute as usual. *An observer still sees; it just leaves no trace.*
 - **Telemetry is the deliberate exception.** [v1] §15 G5, earned-mechanism #13 — a
   stood-down instrument logs its stand-down, so it is distinguishable from a broken hook.
 - **Fail direction is toward standing down.** [v1] §15 G6 — an unreadable configuration
@@ -83,7 +82,8 @@ measurement is itself an encoding event.
 5. **[M] Fail toward standing down.** A config-load failure resolves to observer.
 6. **[M] Every stand-down emits an event.** Silence is indistinguishable from a broken hook
    (scar §2.4); this is the module's single deliberate write.
-7. **[M] An observer is a non-owner for confidentiality.**
+7. **RETIRED 2026-10-21.** It said an observer is a non-owner for confidentiality; the
+   confidential mark was retired that day.
 8. **[A] Nothing here is tunable, and that is the answer.** Observer mode joins the
    non-ablatable class with the secrets gate: you do not A/B a property whose "off" arm is
    a trust hazard.

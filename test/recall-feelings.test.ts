@@ -298,9 +298,9 @@ describe("what does not change", () => {
     for (const id of [f.card, f.han, f.week, f.unsettled]) expect(seen).not.toContain(id);
   });
 
-  test("confidentiality holds: a confidential stamped memory is not answered to a non-owner", async () => {
+  test("a stamped memory carrying the retired confidential mark is answered to a non-owner too (2026-10-21)", async () => {
     const s = server(false);
-    const f = seed(s.counterpart);
+    seed(s.counterpart);
     const secret = s.counterpart.store.put({
       type: "memory",
       kind: "self",
@@ -308,13 +308,7 @@ describe("what does not change", () => {
       meta: { confidential: true },
     });
     s.counterpart.store.addFeelings(secret, [{ whose: "self", core: "fear", emotion: "worried", strength: 0.95 }]);
-    const ids = await ask(s, "what have I felt most strongly");
-    expect(ids).not.toContain(secret);
-    expect(new Set(ids)).toEqual(new Set([f.week, f.han, f.unsettled]));
-    // Not counted either: a list does not hint at what it withholds.
-    expect(meaning(s.counterpart, "what have I felt most strongly", { owner: false }).counts.moments).toBe(4);
-    const asOwner = server(true);
-    expect(await ask(asOwner, "what have I felt most strongly")).toContain(secret);
+    expect(await ask(s, "what have I felt most strongly")).toContain(secret);
   });
 
   test("no feeling word reaches the decision record", () => {
@@ -463,23 +457,6 @@ describe("B1: whose 'I' — the dashboard asks in the counterpart's voice", () =
     const typed = await answer(["ask", "--dir", dir, "--json", "--", "the migration tables"]);
     expect(voiced.mode).toBe("facts");
     expect(voiced).toEqual(typed);
-  });
-});
-
-describe("the minors", () => {
-  test("a confidential stamp takes no slot a non-owner could never see", async () => {
-    const s = server(false);
-    const f = seed(s.counterpart);
-    // Six confidential stamps stronger than any open one.
-    const secret: string[] = [];
-    for (let i = 0; i < 6; i++) {
-      const id = s.counterpart.store.put({ type: "memory", kind: "self", body: `A private appointment, number ${String(i)}.`, meta: { confidential: true } });
-      s.counterpart.store.addFeelings(id, [{ whose: "self", core: "fear", emotion: "worried", strength: 0.99 }]);
-      secret.push(id);
-    }
-    const ids = await ask(s, "what have I felt most strongly");
-    expect(new Set(ids)).toEqual(new Set([f.week, f.han, f.unsettled]));
-    for (const id of secret) expect(ids).not.toContain(id);
   });
 });
 

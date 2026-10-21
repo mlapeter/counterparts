@@ -247,17 +247,15 @@ describe("a card's arc", () => {
     expect(new Set(r.shown)).toEqual(printed);
   });
 
-  test("a confidential memory is left out of a non-owner's answer, silently; the owner sees it", () => {
+  test("a memory carrying the retired confidential mark is in a non-owner's answer as in the owner's (2026-10-21)", () => {
     const c = brain();
     const s = seed(c);
     const guest = meaningRecall(ctx(c, { owner: false }), "Tell me about Han");
     const all = (r: MeaningResult) => entries(r).flatMap((e) => e.moments.map((m) => m.id));
-    expect(all(guest)).not.toContain(s.secret);
-    expect(renderMeaning(guest)).not.toContain("salary");
+    expect(all(guest)).toContain(s.secret);
     const owner = meaningRecall(ctx(c), "Tell me about Han");
-    expect(owner.counts.moments).toBe(guest.counts.moments + 1);
-    // The answer says nothing about the one left out.
-    expect(renderMeaning(guest)).not.toMatch(/confidential|withheld/i);
+    expect(owner.counts.moments).toBe(guest.counts.moments);
+    expect(renderMeaning(guest)).not.toMatch(/withheld/i);
   });
 
   test("a search writes nothing: no use, no physics, no rows", () => {

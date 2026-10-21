@@ -643,3 +643,11 @@ Mike's go, lightly held, an experiment. Decision record:
   in that hour wait for the next line rather than being lost.
 
 Undo: `git revert` of the PR; nothing is stored differently.
+
+## 2026-10-21 — confidential chapters are no longer left out
+
+- `HandoffsOptions.owner` is gone (it existed only for the "since" line's confidential
+  rule), and `ChapterHere.confidential` with it. "Last here", the Yesterday line, the
+  elsewhere lines and the about-me chapter line name a chapter by the scope, folder and
+  about-me rules alone; a store whose copies will not read now reads as about nothing
+  rather than as confidential.
