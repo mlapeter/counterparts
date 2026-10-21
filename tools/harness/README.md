@@ -200,16 +200,16 @@ The week's store comes out as one file (`VACUUM INTO`). The rule variants are ph
 model runs the week once, and the record is replayed under each patch: identical acts,
 seconds each.
 
-On 2026-10-20 (as an install with the meeting, on the corrected harness), the week took about
-14 minutes:
-- memories: 20 after day 1, 45 by day 7;
-- nights on the 5 mornings the gate chose;
-- 53 worker boundaries;
+On 2026-10-20 (as an install with the meeting, after two reviews), the week took about 14
+minutes:
+- memories: 20 after day 1, 49 by day 7;
+- nights on the six mornings the gate chose;
+- 54 worker boundaries;
 - **core 0 every day under today's rules, the door closed, and spread.**
 
-By the product's own verdict, every candidate memory (self or person or entity, about us)
-lacked both fast-lane conditions: a feeling of 0.6 or more, and a return 2 or more days after
-birth. The `us` memories felt strongly were facts, and a fact isn't a core kind.
+By the product's own verdict, the candidates (self, marked `us`, from the meeting) reached the
+return gap (2 days) but not the feeling: 0.0 and 0.2, where 0.6 is needed. The `us` memories
+felt at 0.5–0.6 were facts, and a fact isn't a core kind.
 
 ## Safety
 
