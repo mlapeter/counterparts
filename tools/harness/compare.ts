@@ -315,6 +315,9 @@ export function renderCompare(mode: Mode, sides: readonly [SideResult, SideResul
   return out.join("\n");
 }
 
+/** Parses each setting with the checkout's own `settings.ts`; exits 1 with the refusal. */
+const SETTINGS_CHECK = 'const m = await import("./tools/harness/settings.ts"); for (const t of JSON.parse(process.argv[1])) m.parseSetting(t);';
+
 /** Run the compare: sides, runs, the table. Removes its worktrees and scratch whatever happens. */
 export function runCompare(o: CompareOptions): { readonly text: string; readonly sides: readonly [SideResult, SideResult] } {
   const sides = planSides(o);
@@ -337,6 +340,14 @@ export function runCompare(o: CompareOptions): { readonly text: string; readonly
       const co = checkout(repo, side.ref, side.name);
       made.set(side.ref, co);
       checkouts.push(co);
+    }
+    // A ref's settings, read by that ref's own build before anything runs (a build from before
+    // `settings.ts` has none to check, and the table says it ignored them).
+    for (const side of sides) {
+      const co = made.get(side.ref)!;
+      if (side.ref === null || side.set.length === 0 || !existsSync(join(co.dir, "tools", "harness", "settings.ts"))) continue;
+      const check = spawnSync(process.execPath, ["-e", SETTINGS_CHECK, JSON.stringify(side.set)], { cwd: co.dir, encoding: "utf8" });
+      if (check.status !== 0) throw new CompareError("COMPARE_SETTING", `${side.name} (${side.ref}): ${(check.stderr || check.stdout).split("\n").find((l) => l.includes("SETTING_"))?.replace(/^.*?(SETTING_)/, "$1").trim() ?? (check.stderr || check.stdout).trim()}`);
     }
     const results: SideResult[] = [];
     for (const side of sides) {
