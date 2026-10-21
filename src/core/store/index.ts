@@ -74,6 +74,7 @@ import {
   RECURRING_META,
   SCHEMA_VERSION,
   SUBJECT_KINDS,
+  deterministicSubjectKind,
   olderFirst,
   openOperational,
   rowToPhysics,
@@ -4596,40 +4597,62 @@ export class Store {
   /**
    * THE SUBJECT MY BELIEFS ABOUT MYSELF AND ABOUT US ATTACH TO (v14, for lane
    * C), made once: an entity card (`meta.role` `entity`, no name, so the alias
-   * index links nothing to it) with `subject_kind = 'self'`. Idempotent under
-   * the write lock: a second call returns the first card. "Us" is the same
-   * subject; a belief about us says so with `about = 'us'`.
+   * index links nothing to it) with `subject_kind = 'self'`, born PROTECTED.
+   * Idempotent under the write lock: a second call returns the first card,
+   * and one that was archived (a fade, a prune) is revived — protected again,
+   * back in the index — rather than a second minted. A card the owner removed
+   * is gone (its `subject_kind` blanked with it), and the next call mints
+   * anew. "Us" is the same subject; a belief about us says so with `about = 'us'`.
+   *
+   * The door lane C calls is `Schemas#ensureSelfSubject`, which calls this and
+   * registers the card in what `schemas/` has loaded, so `addBelief` finds it.
    *
    * Not `kind: "self"`: that is the identity core, the one card install names
    * after the OWNER (`self/identity.ts#findIdentityCore`, `ownerNames`), and
    * a second would be read as him. Its `kind` is `fact` for now, and a belief
    * minted on it inherits it (`schemas#addBelief`): outside the core's kinds,
    * so the core lanes refuse such a belief whatever its `about` says
-   * (`sleep/consolidate.ts#identityBlock`, "not-a-core-kind"), and with the
-   * lowest revision inertia (ι 0.2), so its resistance is its support's.
+   * (`sleep/consolidate.ts#identityBlock`, "not-a-core-kind"); with the lowest
+   * revision inertia (ι 0.2), so its resistance is its support's; and with
+   * κ 1.0 and a fact's short floors, which is why the card is protected (a
+   * belief's support does not count as attached for the fade, `schemas#fadeVerdict`).
    * Recall does NOT leave belief rows out by kind or role today (it leaves out
    * the card itself, `role: entity`); that gate is lane C's. Lightly held:
    * the lane that lets beliefs about me reach the core re-decides the kind.
-   * `schemas/` reads its cards' meta once, at its open (`Schemas#requireEntity`):
-   * a card made here after that is unknown to it until it is told or reopened.
    */
   ensureSelfSubject(): string {
-    const doc = this.mutate("ensureSelfSubject", () => {
-      const found = wave2.subjectsOfKind(this, "self")[0];
-      if (found !== undefined) return null;
-      return this.insertOne({
+    const out = this.mutate("ensureSelfSubject", (): { id: string; doc: ProseDoc | null; minted: boolean } => {
+      const found = this.ops.get<{ id: string; archived: number }>(
+        `SELECT id, archived FROM memories
+          WHERE subject_kind = 'self' AND body != '' AND superseded_by IS NULL
+          ORDER BY archived, id LIMIT 1`,
+      );
+      if (found !== undefined && found.archived === 0) return { id: found.id, doc: null, minted: false };
+      if (found !== undefined) {
+        this.ops.run(
+          "UPDATE memories SET archived = 0, archived_reason = NULL, protected = 1, updated_at = ? WHERE id = ?",
+          this.nowFn(),
+          found.id,
+        );
+        return { id: found.id, doc: this.docOf(this.requireRow(found.id)), minted: false };
+      }
+      const doc = this.insertOne({
         type: "schema",
         kind: "fact",
         title: "Me",
         body: "Me: the subject my beliefs about myself, and about us, belong to.",
         meta: { role: "entity", name: "", aliases: [] },
         subjectKind: "self",
+        physics: { protected: true },
       });
+      return { id: doc.id, doc, minted: true };
     });
-    if (doc === null) return this.selfSubject() as string;
-    this.indexOne(doc);
-    this.emit("store.put", doc.id, { type: doc.type, kind: "fact", hash: hashText(doc.body) });
-    return doc.id;
+    if (out.doc !== null) {
+      this.indexOne(out.doc);
+      if (out.minted) this.emit("store.put", out.id, { type: "schema", kind: "fact", hash: hashText(out.doc.body) });
+      else this.emit("store.self-subject.revived", out.id);
+    }
+    return out.id;
   }
 
   /** Sets a belief's fields after birth (`birth_route`, `confidence`); a route not in `BIRTH_ROUTES` is refused. */
@@ -4639,8 +4662,9 @@ export class Store {
     }
     this.mutate("setBeliefFields", () => {
       this.requireRow(id);
-      if (fields.birthRoute !== undefined) this.ops.run("UPDATE memories SET birth_route = ? WHERE id = ?", fields.birthRoute, id);
-      if (fields.confidence !== undefined) this.ops.run("UPDATE memories SET confidence = ? WHERE id = ?", fields.confidence, id);
+      const at = this.nowFn();
+      if (fields.birthRoute !== undefined) this.ops.run("UPDATE memories SET birth_route = ?, updated_at = ? WHERE id = ?", fields.birthRoute, at, id);
+      if (fields.confidence !== undefined) this.ops.run("UPDATE memories SET confidence = ?, updated_at = ? WHERE id = ?", fields.confidence, at, id);
     });
   }
 
@@ -5279,6 +5303,18 @@ export class Store {
     // a function or a NaN in `meta` is silent data loss, and the refusal must
     // land while nothing has been written.
     const metaJson = serializeMeta(meta, id);
+    // v14: a card's kind of subject and a belief's birth route are refused by
+    // name when not in their lists, as `setSubjectKind` / `setBeliefFields`
+    // refuse them, before anything is written. A card given none gets the
+    // deterministic one (`deterministicSubjectKind`: people, places, the
+    // identity core), as the v14 upgrade gave the cards it found.
+    if (input.subjectKind !== undefined && !(SUBJECT_KINDS as readonly string[]).includes(input.subjectKind)) {
+      throw new StoreError("SUBJECT_KIND_INVALID", { id });
+    }
+    if (input.birthRoute !== undefined && !(BIRTH_ROUTES as readonly string[]).includes(input.birthRoute)) {
+      throw new StoreError("BIRTH_ROUTE_INVALID", { id });
+    }
+    const subjectKind = input.subjectKind ?? deterministicSubjectKind(input.type, input.kind, meta);
     const contentHash = hashText(doc.body);
     const s: Salience = {
       novelty: input.salience?.novelty ?? null,
@@ -5340,12 +5376,12 @@ export class Store {
       input.occurredOn === undefined ? null : occurredOnOf(input.occurredOn),
       input.saidBy === undefined ? null : saidByOf(input.saidBy),
       input.status === undefined ? null : statusOf(input.status),
-      // v14: a card's kind of subject and a belief's birth route, given at
-      // birth. An unknown word writes NULL, as the writer's fields do.
-      input.subjectKind !== undefined && (SUBJECT_KINDS as readonly string[]).includes(input.subjectKind) ? input.subjectKind : null,
-      input.birthRoute !== undefined && (BIRTH_ROUTES as readonly string[]).includes(input.birthRoute) ? input.birthRoute : null,
+      subjectKind,
+      input.birthRoute ?? null,
       // v14: the salience it was written with, before anything rewrites the
       // dimensions (`updatePhysics`) — `sal()`, the author's mean and claim.
+      // An import or a copy (a dream's merge, a chapter copy) carries the
+      // salience it was inserted with, not its source's birth.
       sal(s),
     );
     // v12: WHAT IT NAMES, linked in the same transaction as the row — every

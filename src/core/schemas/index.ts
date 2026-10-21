@@ -123,6 +123,8 @@ export const PUBLIC_SURFACE = [
   "fadeSweep",
   // 2026-10-11 (Group 3 part D): the night's name tally offers names to `mention`.
   "birthsFromNames",
+  // store v14 (2026-10-21): the card my beliefs about me and us attach to (lane C).
+  "ensureSelfSubject",
   // reads
   "entity",
   "entities",
@@ -708,6 +710,28 @@ export class Schemas {
   }
 
   // ── beliefs and current state ──────────────────────────────────────────────
+
+  /**
+   * THE SUBJECT THAT IS ME (store v14, 2026-10-21; for lane C): the one card
+   * my beliefs about myself and about us attach to, made, found, or revived
+   * by `Store#ensureSelfSubject` (its comment has the shape and why its kind is
+   * `fact`), and registered here so `addBelief` finds it with no
+   * `entity-unknown` refusal. It has no name, so the alias index gains no
+   * handle from it. Nothing calls this yet.
+   */
+  ensureSelfSubject(): string {
+    const id = this.store.ensureSelfSubject();
+    const row = this.store.row(id);
+    if (row !== undefined) {
+      const rec = toMetaRecord(readProseWalking(this.store, id, row).meta);
+      if (rec !== null) {
+        this.remember(id, rec);
+        this.faded.unregister(id);
+        this.index.register(id, rec.name ?? "", rec.aliases ?? []);
+      }
+    }
+    return id;
+  }
 
   /**
    * Mint a belief on an entity. The row's kind is the ENTITY's kind, which is

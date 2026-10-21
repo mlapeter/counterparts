@@ -1992,31 +1992,48 @@ export function retireConfidentialColumn(db: Db, today: string | null): { confid
 }
 
 /**
- * THE v14 BACKFILL of `memories.subject_kind` — only where it is not a
- * judgement, so the night (lane B) is left the cards that need a model. A
- * live-or-archived entity card (`type = 'schema'`, `meta.role` `entity`) of
- * kind `person` is a person and of kind `place` a place; the identity core
- * (kind `self`, the one card install names after the OWNER —
- * `self/identity.ts#findIdentityCore`) is a person too. Kind `entity` cards
- * (projects, tools, topics, organisations) stay NULL. Rows still NULL only;
- * idempotent. Returns how many of each it gave.
+ * A CARD'S KIND OF SUBJECT WHERE IT IS NOT A JUDGEMENT (v14, 2026-10-21), or
+ * null where it is (the night's, lane B). An entity card (`type = 'schema'`,
+ * `meta.role` `entity`) of kind `person` is a person and of kind `place` a
+ * place; the identity core (kind `self`, the one card install names after the
+ * OWNER — `self/identity.ts#findIdentityCore`) is a person too. Kind `entity`
+ * cards (projects, tools, topics, organisations) get null. One rule, read by
+ * the upgrade's backfill and by every insert (`Store#insertOne`), so a card
+ * born after v14 is marked as an upgraded one is.
+ */
+export function deterministicSubjectKind(
+  type: string,
+  kind: string,
+  meta: Readonly<Record<string, unknown>> | null,
+): SubjectKind | null {
+  if (type !== "schema" || meta === null || meta["role"] !== "entity") return null;
+  if (kind === "person" || kind === "self") return "person";
+  if (kind === "place") return "place";
+  return null;
+}
+
+/**
+ * THE v14 BACKFILL of `memories.subject_kind`, by `deterministicSubjectKind`,
+ * on live and archived cards (not a removed one), so the night (lane B) is
+ * left only the cards that need a model. Rows still NULL only; idempotent.
+ * Returns how many of each it gave.
  */
 export function backfillSubjectKinds(db: Db): Record<string, number> {
-  const rows = db.all<{ id: string; kind: string; meta: string }>(
-    `SELECT id, kind, meta FROM memories
+  const rows = db.all<{ id: string; type: string; kind: string; meta: string }>(
+    `SELECT id, type, kind, meta FROM memories
       WHERE type = 'schema' AND kind IN ('person', 'place', 'self') AND subject_kind IS NULL AND body != ''`,
   );
   const write = db.prepare("UPDATE memories SET subject_kind = ? WHERE id = ? AND subject_kind IS NULL");
   const out: Record<string, number> = {};
   for (const r of rows) {
-    let role: unknown;
+    let meta: Record<string, unknown> | null;
     try {
-      role = (JSON.parse(r.meta) as Record<string, unknown> | null)?.["role"];
+      meta = JSON.parse(r.meta) as Record<string, unknown> | null;
     } catch {
-      role = undefined;
+      meta = null;
     }
-    if (role !== "entity") continue;
-    const subject = r.kind === "place" ? "place" : "person";
+    const subject = deterministicSubjectKind(r.type, r.kind, meta);
+    if (subject === null) continue;
     write.run(subject, r.id);
     out[subject] = (out[subject] ?? 0) + 1;
   }

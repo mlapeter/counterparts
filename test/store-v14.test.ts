@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { sal } from "../src/core/physics/index.js";
+import { Schemas } from "../src/core/schemas/index.js";
 import {
   CONFIDENTIAL_RETIRED_KEY,
   OBSERVER_READ_FLOOR,
@@ -243,14 +244,34 @@ describe("store v14 — the new columns and tables, round trip", () => {
     s.setSubjectKind(c, null);
     expect(s.row(c)?.subject_kind).toBeNull();
     expect(() => s.setSubjectKind(c, "planet" as "topic")).toThrow();
-    const odd = s.put({ type: "memory", kind: "fact", body: "Not a subject.", subjectKind: "planet" as "topic", birthRoute: "osmosis" as "dream" });
-    expect(s.row(odd)?.subject_kind).toBeNull();
-    expect(s.row(odd)?.birth_route).toBeNull();
+    // Refused at birth too, by the same name, and nothing is written.
+    const before = s.list().length;
+    try {
+      s.put({ type: "memory", kind: "fact", body: "Not a subject.", subjectKind: "planet" as "topic" });
+      throw new Error("not refused");
+    } catch (err) {
+      expect(isStoreError(err, "SUBJECT_KIND_INVALID")).toBe(true);
+    }
+    try {
+      s.put({ type: "memory", kind: "fact", body: "Not a belief.", birthRoute: "osmosis" as "dream" });
+      throw new Error("not refused");
+    } catch (err) {
+      expect(isStoreError(err, "BIRTH_ROUTE_INVALID")).toBe(true);
+    }
+    expect(s.list().length).toBe(before);
     const b = s.put({ type: "schema", kind: "fact", body: "I like plain words.", meta: { role: "belief", entityId: c }, birthRoute: "reflection" });
     expect(s.row(b)?.birth_route).toBe("reflection");
+    const stamped = s.row(b)?.updated_at as number;
+    let now = stamped + 1000;
+    (s as unknown as { nowFn: () => number }).nowFn = () => now;
     s.setBeliefFields(b, { birthRoute: "correction", confidence: 0.3 });
     expect(s.row(b)?.birth_route).toBe("correction");
     expect(s.row(b)?.confidence).toBe(0.3);
+    expect(s.row(b)?.updated_at).toBe(now);
+    now += 1;
+    // A challenged belief's successor is still that belief: its route and confidence travel.
+    const next = s.supersede(b, { type: "schema", kind: "fact", body: "I like plainer words.", meta: { role: "belief", entityId: c } });
+    expect(s.row(next)).toMatchObject({ birth_route: "correction", confidence: 0.3 });
     try {
       s.setBeliefFields(b, { birthRoute: "osmosis" as "dream" });
       throw new Error("not refused");
@@ -259,18 +280,64 @@ describe("store v14 — the new columns and tables, round trip", () => {
     }
   });
 
-  test("the self subject: made once, an entity card that is not the identity core, kind fact, subject_kind self", () => {
+  test("the self subject: made once, protected, an entity card that is not the identity core, kind fact, subject_kind self", () => {
     const s = store();
     expect(s.selfSubject()).toBeNull();
     const me = s.ensureSelfSubject();
     expect(s.ensureSelfSubject()).toBe(me);
     expect(s.selfSubject()).toBe(me);
     const row = s.row(me);
-    expect(row?.type).toBe("schema");
-    expect(row?.kind).toBe("fact");
-    expect(row?.subject_kind).toBe("self");
+    expect(row).toMatchObject({ type: "schema", kind: "fact", subject_kind: "self", protected: 1 });
     expect(JSON.parse(row?.meta ?? "{}")).toMatchObject({ role: "entity", name: "" });
     expect(s.list({ type: "schema", kind: "self" })).not.toContain(me);
+  });
+
+  test("the self subject archived (a fade, a prune) is revived, protected again, never minted twice", () => {
+    const s = store();
+    const me = s.ensureSelfSubject();
+    s.archive(me, "faded");
+    s["ops"].run("UPDATE memories SET protected = 0 WHERE id = ?", me);
+    expect(s.selfSubject()).toBeNull();
+    expect(s.ensureSelfSubject()).toBe(me);
+    expect(s.row(me)).toMatchObject({ archived: 0, archived_reason: null, protected: 1 });
+    expect(s.subjectsOfKind("self", { archived: true })).toEqual([me]);
+  });
+
+  test("schemas/ makes it and registers it: addBelief finds it with no entity-unknown, and a belief inherits kind fact", () => {
+    const s = store();
+    const schemas = Schemas.open({ store: s });
+    const me = schemas.ensureSelfSubject();
+    expect(schemas.ensureSelfSubject()).toBe(me);
+    const out = schemas.addBelief({ entityId: me, statement: "I like to check before I claim.", day: 0 });
+    expect(out).toMatchObject({ ok: true, reason: "added" });
+    expect(s.row(out.id as string)?.kind).toBe("fact");
+    // A Schemas opened before it existed: revived through the same door, it registers too.
+    const early = Schemas.open({ store: s });
+    s.archive(me, "faded");
+    const late = Schemas.open({ store: s });
+    expect(early.ensureSelfSubject()).toBe(me);
+    expect(early.addBelief({ entityId: me, statement: "We work best in the morning.", day: 0 }).ok).toBe(true);
+    expect(late.ensureSelfSubject()).toBe(me);
+  });
+
+  test("a card born after v14 gets its deterministic subject kind, as an upgraded one did", () => {
+    const s = store();
+    const person = card(s, "person", "Katie");
+    const place = card(s, "place", "Lisbon");
+    const project = card(s, "entity", "Counterparts");
+    const core = s.put({ type: "schema", kind: "self", title: "Mike", body: "Mike", meta: { role: "entity", name: "Mike", aliases: [] } });
+    const page = s.put({ type: "schema", kind: "self", title: "Self", body: "Who I am.", meta: { role: "page" } });
+    const handoff = s.put({ type: "schema", kind: "place", body: "A handoff.", meta: { role: "handoff" } });
+    const given = s.put({ type: "schema", kind: "person", title: "Ana", body: "Ana", meta: { role: "entity", name: "Ana" }, subjectKind: "topic" });
+    expect([person, place, project, core, page, handoff, given].map((id) => s.row(id)?.subject_kind)).toEqual([
+      "person",
+      "place",
+      null,
+      "person",
+      null,
+      null,
+      "topic",
+    ]);
   });
 
   test("tags: normalized, counted once, untagged, listed both ways; concept edges by a self-join; merges recorded and undone", () => {

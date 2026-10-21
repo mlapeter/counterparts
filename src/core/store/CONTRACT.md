@@ -528,7 +528,8 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     showed against how many candidates). `memories` gains `subject_kind`, `birth_route`,
     `confidence` and `birth_salience` (`sal()` of the salience a row was written with,
     written by every insert since). The upgrade gives entity cards of kind person or place,
-    and the identity core, their subject kind, and DROPS `memories.confidential` (above);
+    and the identity core, their subject kind — every insert since applies the same rule —
+    and DROPS `memories.confidential` (above);
     nothing else is rewritten. Concept edges are read off `memory_tags` (`tagNeighbours`),
     not kept. The owner's removal deletes a removed memory's tags, its support rows on
     either side and its `derivations` rows, a removed card's folder rows, and takes its id

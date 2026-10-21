@@ -2233,7 +2233,13 @@ their own store methods (`wave2.ts`, delegates on `Store`).
 - **The subject kinds the upgrade gives** are the ones that are not a judgement: an entity
   card (`meta.role` entity) of kind `person` is a person, of kind `place` a place, and the
   identity core (kind `self` — the card install names after the OWNER) a person. Kind
-  `entity` cards stay NULL for lane B's night. The corpus copy: 10 people, 1 place.
+  `entity` cards stay NULL for lane B's night. The corpus copy: 10 people, 1 place. The same
+  rule (`deterministicSubjectKind`) runs at every insert (review of #569), so a card born
+  after v14 — the identity core install makes, a person the night births — is marked as an
+  upgraded one was; a `subjectKind` given wins. A word not in `SUBJECT_KINDS` or
+  `BIRTH_ROUTES` is refused by name at insert as it is by `setSubjectKind` /
+  `setBeliefFields`, and a successor (a revision, a merge) carries `subject_kind`,
+  `birth_route` and `confidence` as it carries the writer's fields (`carryWriteFacts`).
 - **The self subject is made lazily** (`ensureSelfSubject`), not by the migration: the
   migration has nothing to name it after, and a row it made would appear in every card list
   before any lane reads it. It is an entity card with no name (the alias index links
@@ -2241,7 +2247,12 @@ their own store methods (`wave2.ts`, delegates on `Store`).
   make it a second identity core (read as the owner's names); `fact` is outside the core's
   kinds, so a belief minted on it (which inherits the card's kind) is refused by the core
   lanes whatever its `about` says, until a later lane decides otherwise. Recall leaves the
-  card out (`role: entity`) but not a belief row: that gate is lane C's.
+  card out (`role: entity`) but not a belief row: that gate is lane C's. `fact` also brings
+  κ 1.0 and a fact's short floors, and a belief's support does not count as attached for the
+  fade (`schemas#fadeVerdict`), so the card is born PROTECTED, and `ensureSelfSubject` finds
+  an archived one and revives it rather than minting a second (review of #569). The door
+  lane C calls is `Schemas#ensureSelfSubject`: it calls the store's and registers the card in
+  what `schemas/` loaded at its open, so `addBelief` finds it.
 - **`birth_salience` is `sal()` of the written dimensions and claim**, at the insert; the
   dimensions can be rewritten later (`updatePhysics`), the column is not. NULL on every row
   written before v14: it cannot be known.
@@ -2276,6 +2287,13 @@ their own store methods (`wave2.ts`, delegates on `Store`).
   a sweep to call (`pruneGateSessions` exists, uncalled), and the writer's lock is a lock
   file — neither is a store format. `recall_turns` carries `day` and an index so its own
   sweep is cheap when one is written.
+- **A process left running across the update is not refused, and breaks.** A v13 build
+  refuses a v14 file `SCHEMA_AHEAD` AT OPEN; one that opened the file before the upgrade
+  keeps its handle, and its reads that name the dropped column fail (found in the review of
+  #569: a 0.3.29 dashboard answers 500s with "no such column: confidential", and so would a
+  night run; the MCP server refuses cleanly). The first non-additive step since v6 is what
+  makes this new: an additive bump left an old handle reading a superset. So a dashboard or
+  a Claude session left running across the update must be restarted; the changelog says so.
 - **The way back.** A v13 build refuses a v14 file `SCHEMA_AHEAD` (measured with master
   `c0bf1fd2`: writer and observer both `{"expected":13,"found":"14"}`). Going back means
   restoring the pre-migration copy: with every process on the store closed, copy
