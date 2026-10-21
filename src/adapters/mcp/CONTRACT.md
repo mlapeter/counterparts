@@ -534,9 +534,13 @@ row's own transaction (`store/index.ts#insertOne`, `via` `write`), so a write th
 land leaves none. **[M]** Loose first, as the three fields: each is normalized
 (`normalizeTag`), and one that is not text, is too long, carries a secret, or comes past
 the per-memory limit is dropped and said in the answer's `tags`; the memory lands all the
-same (`server-args.ts#readTags`). **[M]** A revision by `updates` carries the tags of the
-memory it revises unless it sends its own (null: none), recorded `via` `carried`; nothing
-moves off the old memory (`counterpart-deposit.ts#carryTags`). **[A]** Nothing reads tags
+same. The screen is the core's (`core/tag-screen.ts#screenTags`), run by the door
+(`server-args.ts#readTags`) and again at the core's seam (`carryTags`), so an embedder
+calling `submitJot` directly is screened the same. **[M]** A revision by `updates` carries
+the tags of the memory it revises unless it sends its own (null or an empty list: none; a
+list that keeps no tag — all blank or all dropped — is read as not sent), recorded `via`
+`carried`; nothing moves off the old memory (`counterpart-deposit.ts#carryTags`). A
+duplicate's answer says its tags were not added. **[A]** Nothing reads tags
 yet: no recall result and no wake line changes with them (`test/tags-write.test.ts`); the
 night promotes the ones that matter into subjects (lane B's second PR), and recall reads
 them in lane E. Not stemmed at the write: the stored word is the word as sent.

@@ -470,6 +470,8 @@ export interface DepositTags {
   readonly tags: readonly string[];
   /** The memory this revision took them from because the writer sent none; null when they were sent. */
   readonly from: string | null;
+  /** What the core's screen dropped (`tag-screen.ts`), said plainly; absent when nothing was. */
+  readonly dropped?: readonly string[];
 }
 
 /** What a deposit recorded of the three fields (v12), and what it carried over. */

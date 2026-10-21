@@ -1,6 +1,7 @@
 /** `Counterpart`'s deposit: the gate's record, the update guard, and carrying facts, reminders and threads onto what is written (bodies moved out of `counterpart.ts`, 2026-10-11; the class keeps a delegate for each). */
 import { batteryGate } from "./bridge.js";
 import { mintProposal, UNRESOLVED_META_KEY } from "./mint.js";
+import { screenTags } from "./tag-screen.js";
 import { cueModeOf, recurrenceOf, DATE_FROM_META, DATE_LINEAGE_MAX, DATE_MOVED_TO_META } from "./prospective/index.js";
 import { errCode, submitProposal } from "./remember/index.js";
 import type { Proposal, SubmitResult, ProposalSource } from "./remember/index.js";
@@ -571,20 +572,28 @@ export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undef
  * for a revision of a memory the author addressed by `updates:` (declared and
  * resolved, as `carryFacts` reads it) and sent no tags — the tags of the
  * memory it revises, every one whatever found it (as `about` is carried).
- * Sent as `null` or empty: none, nothing carried. Nothing MOVES: the old
- * memory keeps its own. Null when nothing was sent and nothing carried.
+ * Sent as `null` or empty: none, nothing carried. Sent tags pass the one
+ * screen (`tag-screen.ts#screenTags`); a list that keeps none is read as not
+ * sent. Nothing MOVES: the old memory keeps its own. Null when nothing was
+ * sent, dropped or carried.
  */
 export function carryTags(cp: Counterpart, p: Proposal, sent: readonly string[] | null | undefined): DepositTags | null {
-  if (sent !== undefined) return sent === null ? { tags: [], from: null } : { tags: [...sent], from: null };
+  if (sent === null || (sent !== undefined && sent.length === 0)) return { tags: [], from: null };
+  // THE ONE SCREEN, at the core's own seam (review of #570): an embedder's
+  // tags pass what the MCP door's do. All dropped or blank: not sent.
+  const screened = sent === undefined ? null : screenTags(sent);
+  const dropped = screened === null || screened.dropped.length === 0 ? {} : { dropped: screened.dropped };
+  if (screened !== null && screened.kept.length > 0) return { tags: [...screened.kept], from: null, ...dropped };
   const target = p.updates?.method === "declared" ? p.updates.resolved : null;
-  if (target === null) return null;
+  const none = screened === null || screened.dropped.length === 0 ? null : { tags: [], from: null, ...dropped };
+  if (target === null) return none;
   let prior: string[];
   try {
     prior = cp.store.tagsOf(target).map((t) => t.tag);
   } catch {
-    return null;
+    return none;
   }
-  return prior.length === 0 ? null : { tags: prior, from: target };
+  return prior.length === 0 ? none : { tags: prior, from: target, ...dropped };
 }
 
 /**

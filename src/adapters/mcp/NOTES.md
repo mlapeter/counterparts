@@ -1751,8 +1751,12 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   tags depended on it, reverting it would orphan them. The night's merge (stems match →
   `tag_merges`) is where stems come in.
 - **Loose limits**, lightly held: 48 characters a tag, 8 a memory; past those, dropped and
-  named. The secret screen reads the words as sent, before lowercasing (an AWS key id
-  lowercased passes the battery) and before anything of the tag is echoed.
+  named. The secret screen (`containsSecret`) reads the words as sent, before lowercasing
+  (an AWS key id lowercased passes the battery) and before anything of the tag is echoed.
+  Review of #570: the screen moved into core (`core/tag-screen.ts#screenTags`), called by
+  `readTags` and by `carryTags`, so a caller of `submitJot` that skips this door is screened
+  too; and blanks no longer mean "none" (only `null` or `[]` do), so `tags: ""` on a
+  revision inherits.
 - **No privilege row** for the field: privileges render into the description inside the
   2,048-character cut, and nothing the model reads changes with tags yet. The field's own
   description says what a good tag is (a topic, a person, a project, a place; not a date,

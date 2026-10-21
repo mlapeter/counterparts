@@ -70,10 +70,13 @@ describe("the door reads tags loose first", () => {
     expect(readTags({ tags: "taxes, Katie ,castle game" })).toEqual({ sent: ["taxes", "katie", "castle game"], dropped: [] });
   });
 
-  test("absent is not sent; null or an empty list is sent as none", () => {
+  test("absent is not sent; null or an empty list is sent as none; all blanks are not sent", () => {
     expect(readTags({})).toEqual({ dropped: [] });
     expect(readTags({ tags: null })).toEqual({ sent: null, dropped: [] });
     expect(readTags({ tags: [] })).toEqual({ sent: null, dropped: [] });
+    // Review of #570: blanks are not an explicit "none", so a revision still inherits.
+    expect(readTags({ tags: "" })).toEqual({ dropped: [] });
+    expect(readTags({ tags: ["  ", ""] })).toEqual({ dropped: [] });
   });
 
   test("what cannot be kept is dropped and said; all dropped reads as not sent", () => {
@@ -123,7 +126,7 @@ describe("remember and session_end write tags with the row", () => {
     const before = countTagRows(s);
     const dup = payload(await s.call("remember", { text, tags: ["castle game", "saves"] }));
     expect(dup["stored"]).toBe(false);
-    expect(dup["tags"]).toEqual({ stored: false });
+    expect(dup["tags"]).toEqual({ stored: false, reason: "memory-not-stored", note: "This memory was already stored; these tags were not added to it." });
     const refused = payload(await s.call("remember", { text: "  ", tags: ["nothing"] }));
     expect(refused["stored"]).not.toBe(true);
     expect(countTagRows(s)).toBe(before);
@@ -162,6 +165,42 @@ describe("remember and session_end write tags with the row", () => {
     expect(tagsOn(s, c as string)).toEqual([]);
     expect(outcomes[1]?.["tags"]).toEqual({ stored: true, tags: ["katie", "castle game"] });
     expect(outcomes[2]?.["tags"]).toBeUndefined();
+  });
+});
+
+describe("the core screens tags at its own seam (review of #570)", () => {
+  test("an embedder's submitJot: a secret and an overlong tag are dropped, the rest kept", async () => {
+    const s = server();
+    const c = s.counterpart;
+    const out = await c.submitJot(
+      { content: "The quarterly estimates went out from the business account." },
+      { session: "sess_embed", scope: "/proj/one", tags: ["AKIAIOSFODNN7EXAMPLE", "x".repeat(200), "Taxes"] },
+    );
+    expect(out.deposited).toBe(true);
+    const id = out.memoryId as string;
+    expect(c.store.tagsOf(id).map((t) => t.tag)).toEqual(["taxes"]);
+    expect(out.tags?.tags).toEqual(["taxes"]);
+    expect(out.tags?.dropped).toHaveLength(2);
+    expect(JSON.stringify(out.tags)).not.toContain("akia");
+    expect(JSON.stringify(out.tags)).not.toContain("AKIA");
+    expect(c.store.memoriesTagged("akiaiosfodnn7example")).toEqual([]);
+  });
+
+  test("a revision whose sent tags are all blank or all dropped still inherits", async () => {
+    const s = server();
+    const first = payload(await s.call("remember", { text: "The boiler service is every October.", tags: ["boiler", "house"] }));
+    const a = first["id"] as string;
+    clock += 60_000;
+    const second = payload(await s.call("remember", { text: "The boiler service moved to every November.", updates: a, tags: "" }));
+    expect(tagsOn(s, second["id"] as string).map((t) => t.tag)).toEqual(["boiler", "house"]);
+    clock += 60_000;
+    const embedded = await s.counterpart.submitJot(
+      { content: "The boiler service is every November, booked with the same firm.", updates: second["id"] as string },
+      { session: "sess_embed", scope: "/proj/one", tags: ["  ", "AKIAIOSFODNN7EXAMPLE"] },
+    );
+    expect(s.counterpart.store.tagsOf(embedded.memoryId as string).map((t) => t.tag)).toEqual(["boiler", "house"]);
+    expect(embedded.tags?.from).toBe(second["id"] as string);
+    expect(embedded.tags?.dropped).toEqual(["a tag that looked like a secret"]);
   });
 });
 
@@ -249,6 +288,12 @@ describe("nothing reads tags yet (lane E)", () => {
     const plain = plainServer.counterpart;
     const tagged = taggedServer.counterpart;
     expect(tagged.store.tagCounts().length).toBeGreaterThan(0);
+    // The wake reads the same, ids aside (review of #570).
+    const masked = (t: string): string => t.replace(/\b(mem|sch|epi)_[A-Za-z0-9]+/g, "<id>");
+    const wake = (c: Counterpart): string => masked(c.wake(9_000, { date: "2026-10-21" }, { scope: "/proj/one", session: "sess_wake" }).text);
+    const plainWake = wake(plain);
+    expect(plainWake.length).toBeGreaterThan(0);
+    expect(wake(tagged)).toEqual(plainWake);
     let reached = 0;
     for (const text of ["when do the quarterly taxes get paid", "where do the backups go", "the castle game with Katie"]) {
       const p = plain.recallForTurn({ sessionId: "s1", text }).decision;
@@ -265,5 +310,11 @@ describe("nothing reads tags yet (lane E)", () => {
     const asked = await ask(taggedServer, tagged);
     expect(asked.length).toBeGreaterThan(0);
     expect(asked).toEqual(await ask(plainServer, plain));
+    // Meaning mode too (review of #570), its answer word for word, ids aside.
+    const mean = async (s: McpServer): Promise<string> =>
+      masked(String(payload(await s.call("recall", { question: "what has the castle game with Katie been", mode: "meaning" }))["answer"] ?? ""));
+    const meant = await mean(taggedServer);
+    expect(meant.length).toBeGreaterThan(0);
+    expect(meant).toEqual(await mean(plainServer));
   });
 });
