@@ -386,7 +386,7 @@ describe("the tool text for about", () => {
           ? (spec.properties["about"] as { description: string })
           : ((spec.properties["memories"] as { items: { properties: Record<string, { description: string }> } }).items.properties["about"] as { description: string });
       expect(about.description).toContain("owner or us, so it reaches every folder");
-      expect(about.description).toContain("Work belongs to the folder it was written in, though sessions elsewhere may see its title.");
+      expect(about.description).toContain("Work belongs to the folder it was written in (and the folders joined to it as one project), though sessions elsewhere may see its title.");
       expect(about.description).toContain("counts as this folder's work and is shown only here — so mark the personal ones.");
     }
     const chapter = (toolSpec("chapter")?.inputSchema as { properties: Record<string, { description: string }> }).properties["about"];

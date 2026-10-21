@@ -1612,7 +1612,6 @@ describe("remove — the loud removal", () => {
       title: null,
       body: "",
       meta: "{}",
-      confidential: 0,
       protected: 0,
       promoted_identity: 0,
       uses: 0,
@@ -4048,6 +4047,9 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
       day: 0,
     }).id as string;
     const beliefId = sc.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: STATEMENT,
       day: 0,

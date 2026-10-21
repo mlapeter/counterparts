@@ -1547,7 +1547,7 @@ describe("a removed id refuses BY NAME on every read path (§16 G12)", () => {
 
 // ── opening writes nothing when there is nothing to write ────────────────────
 
-/** The columns schema v6 introduced — the ones `ADDED_COLUMNS` may never carry. */
+/** The columns schema v6 introduced — the ones `ADDED_COLUMNS` may never carry (`confidential` was dropped at v14, and never comes back through it either). */
 const V6_COLUMNS = ["title", "body", "meta", "confidential"];
 
 describe("an instrument does not write at open (live-verify 2026-08-25)", () => {
@@ -1612,8 +1612,11 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     // (`operational.ts#OBSERVER_READ_FLOOR`). v13 (2026-10-10) decided the
     // same, for the same reason: its new columns are nothing an instrument
     // reads, and a v12 feeling softens from its memory's birth as before.
+    // v14 (2026-10-21) decided the same again: its tables are read `hasTable`
+    // first and are empty until written, its columns are read `?? null`, and
+    // no read names the column it dropped.
     // Raising SCHEMA_VERSION without touching this line still fails here.
-    expect({ version: SCHEMA_VERSION, floor: OBSERVER_READ_FLOOR }).toEqual({ version: 13, floor: 11 });
+    expect({ version: SCHEMA_VERSION, floor: OBSERVER_READ_FLOOR }).toEqual({ version: 14, floor: 11 });
   });
 
   test("a store below the floor refuses under observer — there is no floor below v6", () => {
@@ -1703,6 +1706,12 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
       "edges.reinforced",
       "feelings.recorded_day",
       "returns.session",
+      // v14 (2026-10-21): wave 2's one bump — a card's kind of subject, a
+      // belief's birth route and confidence, the salience a row was born with.
+      "memories.subject_kind",
+      "memories.birth_route",
+      "memories.confidence",
+      "memories.birth_salience",
     ]);
     for (const spec of ADDED_COLUMNS) {
       expect({ column: spec.column, namesAFloorColumn: V6_COLUMNS.includes(spec.column) }).toEqual({
@@ -1829,6 +1838,7 @@ describe("observer mode is enforced at the store seam", () => {
     reinforce: ["mem_000000000000", 1],
     setBand: ["mem_000000000000", "semantic", 1],
     carryInto: ["mem_000000000000", "mem_000000000000"],
+    carryCraftBorn: ["mem_000000000000", "mem_000000000000"],
     link: [{ src: "mem_000000000000", dst: "mem_000000000000", weight: 1, day: 0 }],
     linkMany: [[{ src: "mem_000000000000", dst: "mem_000000000000", weight: 1, day: 0 }]],
     setProspective: [
@@ -1897,6 +1907,19 @@ describe("observer mode is enforced at the store seam", () => {
     setNextChangeDays: [[{ id: "mem_000000000000", day: 1 }]],
     clearNextChangeDays: [],
     setCacheNote: ["habituation", "{}"],
+    // v14 (2026-10-21, wave 2's one bump): pre-provisioned, no caller yet.
+    tagMemory: ["mem_000000000000", ["tag"], "write"],
+    untagMemory: ["mem_000000000000"],
+    recordTagMerge: ["tags", "tag", "night"],
+    undoTagMerge: ["tags"],
+    setSubjectKind: ["mem_000000000000", "topic"],
+    ensureSelfSubject: [],
+    setBeliefFields: ["mem_000000000000", { confidence: 0.5 }],
+    fileSupport: [{ beliefId: "sch_x", memoryId: "mem_000000000000", stance: "support", route: "session", day: 0, weight: 1 }],
+    unfileSupport: ["sch_x", "mem_000000000000"],
+    setFolderProject: ["/work", "sch_x", "owner"],
+    clearFolderProject: ["/work"],
+    recordRecallTurn: [{ sessionId: "s1", turn: 1, day: 0, candidates: 0, shown: [] }],
   };
 
   function populated(): { id: string; snapshot: string } {

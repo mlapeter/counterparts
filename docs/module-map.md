@@ -67,7 +67,8 @@ boundary, the sweep fallback and the deposit in `counterpart-boundary.ts`,
 `counterpart-sweep.ts` and `counterpart-deposit.ts`. `core/store/index.ts` keeps the class
 and every write; `marks.ts`, `shapes.ts` and `index-text.ts` hold its marks, shapes and
 index text, and `reads-memories.ts`, `reads-marks.ts` and `reads-history.ts` the bodies of
-its public reads. `mcp/server.ts` keeps the class; `server-words.ts`, `server-options.ts`
+its public reads; `wave2.ts` holds the bodies of the v14 tables' reads and writes (each write
+entered through the class's `mutate`). `mcp/server.ts` keeps the class; `server-words.ts`, `server-options.ts`
 and `server-args.ts` hold its words, options and argument readers, and
 `server-session-end.ts` and `server-self-tools.ts` the bodies of five of its tools.
 `cli/commands.ts` keeps the dispatcher, the help, and the repair that reads through the

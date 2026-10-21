@@ -407,6 +407,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       reinforce: [seedId, 1],
       setBand: [seedId, "semantic", 1],
       carryInto: [seedId, seedId],
+      carryCraftBorn: [seedId, seedId],
       link: [{ src: seedId, dst: seedId, weight: 1, day: 0 }],
       linkMany: [[{ src: seedId, dst: seedId, weight: 1, day: 0 }]],
       setProspective: [
@@ -467,6 +468,19 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       setNextChangeDays: [[{ id: seedId, day: 1 }]],
       clearNextChangeDays: [],
       setCacheNote: ["habituation", "{}"],
+      // v14 (2026-10-21, wave 2's one bump): pre-provisioned, no caller yet.
+      tagMemory: [seedId, ["tag"], "write"],
+      untagMemory: [seedId],
+      recordTagMerge: ["tags", "tag", "night"],
+      undoTagMerge: ["tags"],
+      setSubjectKind: [seedId, "topic"],
+      ensureSelfSubject: [],
+      setBeliefFields: [seedId, { confidence: 0.5 }],
+      fileSupport: [{ beliefId: "sch_x", memoryId: seedId, stance: "support", route: "session", day: 0, weight: 1 }],
+      unfileSupport: ["sch_x", seedId],
+      setFolderProject: ["/work", "sch_x", "owner"],
+      clearFolderProject: ["/work"],
+      recordRecallTurn: [{ sessionId: "s1", turn: 1, day: 0, candidates: 0, shown: [] }],
     };
     for (const method of WRITE_METHODS) {
       const fn = (s as unknown as Record<string, ((...a: unknown[]) => unknown) | undefined>)[
@@ -600,6 +614,9 @@ describe("SEAMS K — the box-2 events table replaces the in-memory rings that m
       day: 0,
     }).id as string;
     const beliefId = schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
@@ -999,6 +1016,9 @@ describe("SEAMS E — a supersede retargets the edges, so the successor is not b
       day: 0,
     }).id as string;
     const beliefId = schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
@@ -1076,6 +1096,9 @@ describe("SEAMS E — a supersede retargets the edges, so the successor is not b
       day: 0,
     }).id as string;
     const beliefId = schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
@@ -1976,6 +1999,9 @@ describe("MemorySource is TOTAL — every member has a live writer that lands it
       day: 0,
     }).id as string;
     const belief = sch.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId: ent,
       statement: "Ada prefers async review over meetings",
       day: 0,
@@ -2359,6 +2385,9 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
       day: c.store.livedDay(),
     }).id as string;
     const beliefId = c.schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: c.store.livedDay(),
@@ -2489,6 +2518,9 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
       day: c.store.livedDay(),
     }).id as string;
     const beliefId = c.schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Bansai is the live instance and stays primary",
       day: c.store.livedDay(),
@@ -2721,6 +2753,9 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
     const c = brain();
     const { entityId } = personBelief(c);
     const protectedId = c.schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada is the owner of this store, and that never gets revised away",
       day: c.store.livedDay(),

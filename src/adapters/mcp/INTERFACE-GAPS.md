@@ -44,8 +44,8 @@ terms. One optional argument, no new module.
 
 **Answered 2026-10-21:** Mike's call was to remove the feature rather than pick a
 classifier. The gates are gone from core and this adapter; the meta keys are inert, and
-the column is written 0; dropping it in the next batched store-format change is planned,
-lightly held. What follows
+the column was dropped at store v14 the same day (after the rows still marked were
+counted). What follows
 is the gap as it stood.
 
 `isConfidential(doc)` reads `meta.confidential` / `meta.confidentiality` and is

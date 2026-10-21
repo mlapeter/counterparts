@@ -1716,6 +1716,9 @@ describe("dedup leaves a revision's successor alone", () => {
       day: 0,
     }).id as string;
     const beliefId = sc.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
@@ -2083,6 +2086,9 @@ describe("dedup never compares a belief with a memory", () => {
     }).id as string;
     const STATEMENT = "Ada prefers async review";
     const beliefId = sc.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: STATEMENT,
       day: 0,
@@ -2155,6 +2161,9 @@ describe("dedup never compares a belief with a memory", () => {
       day: 0,
     }).id as string;
     const beliefId = sc.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers asynchronous review",
       day: 0,
@@ -2201,6 +2210,9 @@ describe("dedup never compares a belief with a memory", () => {
     const BODY = "Ada asked for the review notes in writing";
     // A belief saying the SAME thing sits right beside them and is untouched.
     const beliefId = sc.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: BODY,
       day: 0,
@@ -2238,12 +2250,18 @@ describe("dedup never compares a belief with a memory", () => {
     }).id as string;
     const STATEMENT = "Ada prefers async review";
     const a = sc.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: STATEMENT,
       day: 0,
       dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
     }).id as string;
     const b = sc.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: STATEMENT,
       day: 1,

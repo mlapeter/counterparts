@@ -33,7 +33,7 @@ import { USE_TIER_WEIGHT, strength } from "../physics/index.js";
 import type { CreditOutcome, UseTier } from "../physics/index.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { isChapterSummary } from "../store/index.js";
-import { activate, primeOf } from "./activate.js";
+import { activate, isBeliefRow, primeOf } from "./activate.js";
 import type { Candidate, SpreadFn, SpreadStats } from "./activate.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
 import { detectAffect, stripBoilerplate } from "./cues.js";
@@ -82,7 +82,7 @@ export * from "./standing.js";
 export * from "./recency-ask.js";
 export * from "./time-ask.js";
 export * from "./tunables.js";
-export { activate, isHandoff, isSelfPage, gatedSal, primeOf, recordedIdentity, salienceRank } from "./activate.js";
+export { activate, isBeliefRow, isHandoff, isSelfPage, gatedSal, primeOf, recordedIdentity, salienceRank } from "./activate.js";
 export type { CandidatePrime, FeelingLane, PrimeStats, SpreadFn, SpreadStats } from "./activate.js";
 export type { Candidate, ActivationResult } from "./activate.js";
 import type { ActivationResult } from "./activate.js";
@@ -1116,7 +1116,8 @@ export function headsWin(store: Store, candidates: readonly Candidate[], day: nu
     if (direct !== undefined && (c.linkOnly === true || direct.activation >= c.activation)) return;
     try {
       const row = store.row(head);
-      if (row === undefined) return;
+      // A belief never stands in for a candidate either (lane C: invisible until lane E).
+      if (row === undefined || isBeliefRow(row)) return;
       const physics = store.physicsOf(head);
       out.push({
         ...c,

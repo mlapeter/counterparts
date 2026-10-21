@@ -728,6 +728,22 @@ export function isEntityCard(row: MemoryRow): boolean {
   }
 }
 
+/**
+ * A BELIEF ROW (wave 2 lane C, 2026-10-21): `type: schema`, `meta.role:
+ * belief`. Kept out of the core lanes for now (`consolidate.ts`): a belief
+ * about me reaching the core is lane F's, behind its own switch. The role's
+ * owner is `schemas/`.
+ */
+export function isBeliefRow(row: Pick<MemoryRow, "type" | "meta">): boolean {
+  if (row.type !== "schema" || !row.meta.includes('"belief"')) return false;
+  try {
+    const meta = JSON.parse(row.meta) as { role?: unknown } | null;
+    return meta !== null && typeof meta === "object" && meta.role === "belief";
+  } catch {
+    return false;
+  }
+}
+
 export function countSkip(out: PhaseOutcome, reason: string, n = 1): void {
   out.skipped[reason] = (out.skipped[reason] ?? 0) + n;
 }

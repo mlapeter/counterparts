@@ -2424,3 +2424,82 @@ unset, and the reflection was offered five unmarked memories a night.
   are gone (a caller's own `omit` still counts what it held back, said as "held back").
   `workHere` no longer skips a marked row. The crash fallback's wake (`sweepWake`) still
   stands PROTECTED rows out and counts them.
+
+## 2026-10-21 — projects, and craft that travels (wave 2 lane G, design §8; lightly held)
+
+A memory knew its folder, not its project, and an unmarked skill counted as work, so craft
+learned in one folder stayed there. One switch, `PROJECTS_TRAVEL` (on):
+
+- **A folder belongs to a project** (`folder_projects`, store v14). With no row it is its own,
+  and nothing is written to say so: the wake writes nothing (§5 G1), and a card per folder
+  seen would be noise (the corpus copy has scratch-workspace folders). The project's card is
+  made at the first join (`counterpart-projects.ts`): found by name — a live card that is not
+  a person or me, marked `subject_kind` `project` — or born by mention, so the alias index
+  holds its name. Joining by a folder names the project after that folder (`via: default`).
+  The owner's door is `counterparts project join|leave|list`.
+- **Travel by project** (`work.ts#projectFolders`): "Work here" reads every folder of the
+  project, and the elsewhere gate (`counterpart.ts#elsewhereGate`) never names a folder of
+  this one's project; its open sessions are "Here, also open". **This folder keeps half**:
+  the project's other folders take at most half the ranked places unless this one has too
+  little. Measured on a copy of the 10-20 corpus: joined, ~/counterparts-site ranked 0 of
+  its own 8 beside ~/counterparts' newest; with the half rule, 3 of its own, 3 of
+  ~/counterparts' and 2 craft.
+- **Craft travels** (`isWorkMemory`'s `craftTravels`, `isCraft`): a skill not marked `work`
+  is craft, in no stored lane and a work line in any folder. `WORK_HERE_CRAFT_MAX` (2) places
+  of the pool are craft from outside the project, taking turns by lived day among the newest
+  (by date alone it never ranked beside a busy project's work), from a folder the host lets
+  be named elsewhere (`exportsFrom`; none when the host cannot be asked), or from no folder.
+  A skill marked `work` stays with its project. Measured on the copy, 7 lived days of
+  `workHere` + `rotateWork`: skills reaching another folder's wake 0 → 10 distinct (15 lines
+  in 10 of 10 folders' wakes on day one).
+- **Where the old rule stays**: the reflection's unmarked offer and its folder-off guard
+  (`dream/reflect.ts`) still read an unmarked skill as work — the offer is how a skill gets
+  pinned to its project with `work`, and a skill from a folder set off stays there; the
+  elsewhere titles (`elsewhereTitles`, `hereSessions`) still name a folder's craft as what it
+  did today. The `about` field's text now says work is one project's own and an unmarked
+  skill reaches every folder.
+- Recall by meaning and footnotes are not folder-gated (recall reads no `origin_scope`); a
+  project filter there is lane G's second PR, behind `RECALL_BY_PROJECT`, off.
+
+### 2026-10-21, after review of #572
+
+- **Privacy:** a joined folder whose host setting is off or paused showed its work, craft and
+  live session in the other folders' wakes. `projectFolders` now takes the host's
+  `exportsFrom` and keeps only the folders it lets be named elsewhere, this folder always;
+  `workHere`'s folders, the elsewhere gate's `ours` and so `hereSessions` are built from that
+  one list. With no way to ask, only this folder.
+- **Old skills are grandfathered** (the coordinator's ruling): the first writable open with
+  `PROJECTS_TRAVEL` on records the lived day (`CRAFT_SINCE_KEY`, `projects.craft.since`);
+  an unmarked skill born before it keeps the old rule (its folder's work) until a mark moves
+  it — the reflection's unmarked offer still offers it. So on the owner's store nothing
+  travels on day one; craft travels as it is written.
+- **Craft is a skill with no mark or marked world.** A skill marked me, us or owner is not a
+  work line anywhere (the probe showed "the owner bakes bread on Sundays" under "Work here");
+  it is in the "How I work" lane when `CRAFT_IN_WAKE` is on, as before.
+- **A line from another folder says which** (`(from ~/tiny-castles)`, `folderName`), and a
+  session in another folder of the project says its folder in "Here, also open".
+- **Project cards are minted, never taken over** (`counterpart-projects.ts`): only a card
+  already a project is reused — first one that has folder rows, archived or not, so a faded
+  card never splits a project — else a new entity card titled with the name and no alias
+  (`meta.name` empty), so it links no memory that uses a common word and takes over no
+  person, place or topic card. It is protected while it has folders and let go when the last
+  leaves. Refused: the whole disk, and the store's own folder (or one holding it); a folder
+  that does not exist is joined with a note.
+- **`CRAFT_IN_WAKE` on** no longer leaves the craft lane empty: craft stays in the stored
+  lane and "Work here" carries no craft then.
+- **The day's craft differs by folder** (the rotation starts at a per-folder offset).
+- **Cost, noted:** each boundary's work reserve (`workReserveBytes`) composes every live
+  folder's lines, and the craft read is up to `WORK_HERE_POOL × WORK_HERE_READ_PER_LINE`
+  (40) prose reads per folder. Fine at today's few folders and ~35 skills; a cache per
+  boundary is the fix if it shows in the worker's time.
+- Off is byte-identical with or without folder rows (`test/projects-travel.test.ts`, and the
+  reviewer's probe: base vs off, IDENTICAL).
+- **A revision keeps the grandfathering** (re-review of #572): a successor is born today, so a
+  reworded old unmarked skill would have started travelling unasked. The day a skill was
+  first learned rides in the successor's meta (`craftBornDay`, `CRAFT_BORN_META`) when it is
+  earlier, and the craft rule reads that (`craftBornDay`). Written at every door where one
+  memory becomes another: a write's declared `updates`, with or without a `how`
+  (`revision.ts#applyRevision` → `Store#carryCraftBorn` — the path `remember` takes; the
+  first fix sat only on `Store#supersede`, which only cards use), `supersede`, and
+  `carryInto` (a dream's merge, a pressure crossing), each the earliest of the parts'. Meta
+  rather than a carried `work` mark, which nobody gave.

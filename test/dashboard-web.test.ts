@@ -88,6 +88,9 @@ const ENDPOINTS = [
   "/api/memories",
   "/api/search?q=swap",
   "/api/mind",
+  "/api/subjects",
+  "/api/subject?id=me",
+  "/api/tag?tag=swap",
   "/api/flow",
   "/api/health",
   "/api/fired",
@@ -1104,7 +1107,7 @@ describe("the shapes the page draws with", () => {
     expect(body(read("pages/flow/index.js"), "async function refresh(")).toContain("/api/flow");
     // Both pages are in the registry the pulse walks, and export the hook.
     const registry = read("shell/pages.js");
-    expect(registry).toContain("home, memories, self, flow, health");
+    expect(registry).toContain("home, memories, subjects, self, flow, health");
     expect(overview).toMatch(/export default \{[\s\S]*\brefresh,/);
     // And the paint is a function of its own, and the headline's counts can be
     // read back off the page (the visual loop's staleness check).

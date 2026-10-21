@@ -3,7 +3,10 @@
  * meta key a caller could pass through the store API is inert: the column is
  * written 0 and no core or MCP gate reads it, so a memory carrying the key is
  * answered like any other. The one-time count of rows still holding 1 is
- * written once, and doctor names it only while any remain.
+ * written once, and doctor names it only while any remain. Since v14 (the
+ * same day) the column is gone: the upgrade that drops it takes the count
+ * first, so an "older store" here is a v13 file (`stripV14`) with the column
+ * at 1.
  *
  * Hermetic: a fresh temp store per test, removed after. No model is called.
  */
@@ -16,8 +19,10 @@ import { openServer } from "../src/adapters/mcp/index.js";
 import { run } from "../src/adapters/cli/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { confidentialRetiredFindings } from "../src/adapters/claude-code/doctor.js";
-import { CONFIDENTIAL_RETIRED_KEY, Store } from "../src/core/store/index.js";
+import { CONFIDENTIAL_RETIRED_KEY, Store, paths } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
+import { Database } from "bun:sqlite";
+import { stripV14 } from "./store-fixture.js";
 
 const SESSION = "sess_conf_retired";
 const SCOPE = "/scope/conf-retired";
@@ -60,22 +65,28 @@ function payload(r: ToolResult): Record<string, unknown> {
   return r.structuredContent;
 }
 
-function column(s: Store, id: string): number {
-  return (s["ops"].get("SELECT confidential FROM memories WHERE id = ?", id) as { confidential: number }).confidential;
+/** This (closed) store, back to v13 with the retired column, `marked` at 1 and no count yet. */
+function backToV13(marked: readonly string[], counted = false): void {
+  const db = new Database(paths.operational(dir));
+  stripV14(db);
+  for (const id of marked) db.run("UPDATE memories SET confidential = 1 WHERE id = ?", [id]);
+  if (!counted) db.run("DELETE FROM meta WHERE key = ?", [CONFIDENTIAL_RETIRED_KEY]);
+  db.run("UPDATE meta SET value = '13' WHERE key = 'schemaVersion'");
+  db.close();
 }
 
 describe("the meta key is inert", () => {
-  test("a write stores 0 whatever the meta says, and a revise that sets the key stores 0 too", () => {
+  test("there is no column to write (v14): the key is kept in meta as given, on a write and on a revise", () => {
     const s = Store.open({ dir });
     open.push(s);
+    expect(s.hasColumn("memories", "confidential")).toBe(false);
     const a = put(s, WORDS, { meta: { confidential: true } });
     const b = put(s, "A second zqmarble note, classed the old way.", { meta: { confidentiality: "secret" } });
-    expect(column(s, a)).toBe(0);
-    expect(column(s, b)).toBe(0);
     expect(s.read(a).doc.meta["confidential"]).toBe(true);
+    expect(s.read(b).doc.meta["confidentiality"]).toBe("secret");
     const c = put(s, "A plain zqmarble memory, marked later.");
     s.revise(c, { meta: { confidential: true }, reason: "test" });
-    expect(column(s, c)).toBe(0);
+    expect(s.read(c).doc.meta["confidential"]).toBe(true);
   });
 
   test("a session that is not the owner's recalls it by question, by id and by meaning, and nothing says withheld", async () => {
@@ -104,7 +115,7 @@ describe("the meta key is inert", () => {
 });
 
 describe("the one-time count of rows still marked", () => {
-  /** A store as an older build left it: two live rows holding 1, one archived, and no record yet. */
+  /** A store as an older build left it (v13): two live rows holding 1, one archived, and no record yet. */
   function olderStore(): { marked: string[] } {
     const s = Store.open({ dir });
     const a = put(s, "Old marked one.");
@@ -112,13 +123,12 @@ describe("the one-time count of rows still marked", () => {
     const gone = put(s, "Old marked, archived.");
     put(s, "Old plain one.");
     s.archive(gone, "test");
-    s["ops"].run("UPDATE memories SET confidential = 1 WHERE id IN (?, ?, ?)", a, b, gone);
-    s["ops"].run("DELETE FROM meta WHERE key = ?", CONFIDENTIAL_RETIRED_KEY);
     s.close();
+    backToV13([a, b, gone]);
     return { marked: [a, b].sort() };
   }
 
-  test("counted once at the next writable open, amber in doctor, and a second open does not rewrite it", () => {
+  test("counted once at the next writable open (the v14 upgrade, before its drop), amber in doctor, and a second open does not rewrite it", () => {
     const { marked } = olderStore();
     const s = Store.open({ dir });
     const raw = s.getMeta(CONFIDENTIAL_RETIRED_KEY);
@@ -131,8 +141,9 @@ describe("the one-time count of rows still marked", () => {
     expect(line?.detail).toContain("2 memories marked confidential through the store API are still here (2 when counted)");
     expect(line?.fix).toContain("counterparts remove");
     expect(String(line?.data["ids"])).toBe(marked.join(", "));
-    // Nothing was changed: the rows are live and still hold what they held.
-    for (const id of marked) expect(column(s, id)).toBe(1);
+    // Nothing else was changed: the rows are live, with their words; the column is gone.
+    for (const id of marked) expect(s.read(id).doc.body).toContain("Old marked");
+    expect(s.hasColumn("memories", "confidential")).toBe(false);
     s.close();
 
     const again = Store.open({ dir });
@@ -194,13 +205,13 @@ describe("the one-time count of rows still marked", () => {
   });
 });
 
-describe("an upgraded store's marked rows (the column still 1) on the adapters' surfaces", () => {
-  /** One memory as an older build left it: the meta key, and the column at 1. */
+describe("an upgraded store's marked rows (the column at 1 before the v14 drop) on the adapters' surfaces", () => {
+  /** One memory as an older build left it (v13): the meta key, and the column at 1. */
   function oldMarked(): string {
     const s = Store.open({ dir });
     const id = put(s, "ZQOLDMARK The clinic appointment about the migraines is on Thursday.", { meta: { confidential: true } });
-    s["ops"].run("UPDATE memories SET confidential = 1 WHERE id = ?", id);
     s.close();
+    backToV13([id], true);
     return id;
   }
 

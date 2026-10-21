@@ -40,6 +40,7 @@ import { SELF_PAGE_ROLE_SPELLED, datedHold, rowToPhysics } from "../src/core/sto
 import { SELF_PAGE_ROLE } from "../src/core/self/page.js";
 import { HANDOFF_KIND, HANDOFF_LIFE_DAYS, HANDOFF_META_WRITTEN_DAY, HANDOFF_ROLE } from "../src/core/handoff/index.js";
 import { HANDOFF_SHAPE } from "../src/core/sleep/types.js";
+import { stripV13 } from "./store-fixture.js";
 import { addDays } from "../src/core/time.js";
 
 let root: string;
@@ -617,14 +618,6 @@ describe("why a band moved, and the up-ratchet tripwire (review of #372)", () =>
 // store v13
 // ═══════════════════════════════════════════════════════════════════════════
 
-const V13_COLUMNS: readonly [string, string][] = [
-  ["memories", "next_change_day"],
-  ["memories", "dream_shown_day"],
-  ["feelings", "recorded_day"],
-  ["returns", "session"],
-  ["edges", "source"],
-  ["edges", "reinforced"],
-];
 const V13_INDEXES = [
   "memories_next_change",
   "memories_dream_shown",
@@ -655,10 +648,8 @@ function v12Store(): { id: string; felt: string } {
   s.addFeelings(id, [{ whose: "self", emotion: "relieved", strength: 0.5 }]);
   s.close();
   const db = new Database(paths.operational(dir));
-  for (const t of V13_TRIGGERS) db.run(`DROP TRIGGER ${t}`);
-  for (const i of V13_INDEXES) db.run(`DROP INDEX ${i}`);
-  db.run("DROP TABLE derivations");
-  for (const [t, c] of V13_COLUMNS) db.run(`ALTER TABLE ${t} DROP COLUMN ${c}`);
+  // v14 first (2026-10-21), then v13's own objects (`store-fixture.ts#stripV13`).
+  stripV13(db);
   db.run("UPDATE meta SET value = '12' WHERE key = 'schemaVersion'");
   const felt = (db.query("SELECT id FROM feelings").get() as { id: string }).id;
   db.close();
@@ -666,8 +657,8 @@ function v12Store(): { id: string; felt: string } {
 }
 
 describe("store v13 — the one additive migration (synthesis §3)", () => {
-  test("the version is 13 and the observer floor stays at 11", () => {
-    expect(SCHEMA_VERSION).toBe(13);
+  test("the version is 13 or later and the observer floor stays at 11", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(13);
     expect(OBSERVER_READ_FLOOR).toBe(11);
   });
 
@@ -680,8 +671,8 @@ describe("store v13 — the one additive migration (synthesis §3)", () => {
     reader.close();
 
     const s = store();
-    expect(s.getMeta("schemaVersion")).toBe("13");
-    const snaps = readdirSync(join(root, "snaps")).filter((n) => n.includes("pre-migration-v12-to-v13"));
+    expect(s.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+    const snaps = readdirSync(join(root, "snaps")).filter((n) => n.includes(`pre-migration-v12-to-v${String(SCHEMA_VERSION)}`));
     expect(snaps.length).toBe(1);
     const up = JSON.parse(s.getMeta(V13_UPGRADE_KEY) ?? "{}") as Record<string, unknown>;
     expect(up["from"]).toBe("12");
@@ -725,15 +716,12 @@ describe("store v13 — the one additive migration (synthesis §3)", () => {
       }
     };
     const db = new Database(paths.operational(dir));
-    for (const t of V13_TRIGGERS) db.run(`DROP TRIGGER ${t}`);
-    for (const i of V13_INDEXES) db.run(`DROP INDEX ${i}`);
-    db.run("DROP TABLE derivations");
-    for (const [t, c] of V13_COLUMNS) db.run(`ALTER TABLE ${t} DROP COLUMN ${c}`);
+    stripV13(db);
     db.run("UPDATE meta SET value = '12' WHERE key = 'schemaVersion'");
     db.close();
     const before = read();
     const s = store();
-    expect(s.getMeta("schemaVersion")).toBe("13");
+    expect(s.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
     runCycle({ store: s, date: "2026-10-02" });
     runCycle({ store: s, date: "2026-10-03" });
     expect(s.row(ids[0] as string)?.claimed).toBe(0.25);
@@ -745,11 +733,11 @@ describe("store v13 — the one additive migration (synthesis §3)", () => {
   test("the copy taken before migrating is the way back: restored, it is the v12 store as it was", () => {
     const { id } = v12Store();
     const s = store();
-    expect(s.getMeta("schemaVersion")).toBe("13");
+    expect(s.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
     s.put({ type: "memory", kind: "fact", body: "Written after the upgrade." });
     s.close();
     open.splice(0);
-    const snap = readdirSync(join(root, "snaps")).find((n) => n.includes("pre-migration-v12-to-v13")) as string;
+    const snap = readdirSync(join(root, "snaps")).find((n) => n.includes(`pre-migration-v12-to-v${String(SCHEMA_VERSION)}`)) as string;
     const copy = join(root, "snaps", snap, "counterparts.sqlite");
     expect(existsSync(copy)).toBe(true);
     // Put it back (the store closed): the database and nothing else.

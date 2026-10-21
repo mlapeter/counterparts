@@ -239,7 +239,7 @@ const ABOUT_PROPERTY = {
   type: "string",
   enum: ["me", "us", "owner", "work", "world"],
   description:
-    "What this is about, by meaning — me (who I am), us (the owner and me), owner (the owner, as a person), work (the craft: how a job is done), world (anything else). Mark anything personal — people, feelings, life outside the work — owner or us, so it reaches every folder: a friend visiting this weekend, how a long week left the owner. Work belongs to the folder it was written in, though sessions elsewhere may see its title. Left unmarked, a fact written here counts as this folder's work and is shown only here — so mark the personal ones. Left out on a revision (`updates`), it keeps the mark of the memory it revises. Only me and us can become part of who I am — never a plan.",
+    "What this is about, by meaning — me (who I am), us (the owner and me), owner (the owner, as a person), work (this project's own: what is being built here, and how), world (anything else). Mark anything personal — people, feelings, life outside the work — owner or us, so it reaches every folder: a friend visiting this weekend, how a long week left the owner. Work belongs to the folder it was written in (and the folders joined to it as one project), though sessions elsewhere may see its title. Left unmarked, a fact written here counts as this folder's work and is shown only here — so mark the personal ones. A skill left unmarked is craft — how a job is done — and reaches every folder; mark a skill work only when it belongs to this project alone. Left out on a revision (`updates`), it keeps the mark of the memory it revises. Only me and us can become part of who I am — never a plan.",
 };
 
 /**
@@ -462,6 +462,19 @@ const STATUS_PROPERTY = {
   enum: ["done", "planned", "proposed", "asked"],
   description:
     'Optional: what kind of thing it is — "done" (it happened; with `updates` at a repeating reminder, this occurrence is done and the repeat stays), "planned" (decided, not done yet), "proposed" (put forward, not decided), "asked" (a question or request still open).',
+} as const;
+
+/**
+ * v14, lane B (2026-10-21): a few TAGS on a `remember` or a `session_end`
+ * entry — what the memory is about, in words the night can promote into a
+ * subject. Plain data: no privilege row, since nothing the model reads
+ * changes with them yet (recall does not read tags; lane E).
+ */
+const TAGS_PROPERTY = {
+  type: ["array", "null"],
+  items: { type: "string" },
+  description:
+    'Optional: 3-5 short tags for what this is about — a topic ("taxes", "backups"), a person, a project, a place; one to three words each, lowercase. Not a date, not a feeling, not "memory" or "note". Revising a memory with `updates`: its tags carry over unless you send your own (null: none).',
 } as const;
 
 /** The privilege `remember` and `session_end` share for the three fields (v12). */
@@ -737,6 +750,7 @@ const REMEMBER: ToolSpec = {
       occurredOn: OCCURRED_ON_PROPERTY,
       saidBy: SAID_BY_PROPERTY,
       status: STATUS_PROPERTY,
+      tags: TAGS_PROPERTY,
       feelings: FEELINGS_PROPERTY,
       about: ABOUT_PROPERTY,
       unresolved: UNRESOLVED_PROPERTY,
@@ -1177,6 +1191,7 @@ const SESSION_END: ToolSpec = {
             occurredOn: OCCURRED_ON_PROPERTY,
             saidBy: SAID_BY_PROPERTY,
             status: STATUS_PROPERTY,
+            tags: TAGS_PROPERTY,
             feelings: FEELINGS_PROPERTY,
             about: ABOUT_PROPERTY,
             unresolved: UNRESOLVED_PROPERTY,

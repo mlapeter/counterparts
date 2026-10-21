@@ -199,12 +199,18 @@ async function seed(target = dir): Promise<Seeded> {
     day: 0,
   }).id as string;
   const beliefId = c.schemas.addBelief({
+    // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+    birthRoute: "migrated",
+    channel: "migrated",
     entityId,
     statement: "Ada prefers async review",
     day: 0,
     dimensions: { relevance: 0.6, emotional: 0.6, predictive: 0.6 },
   }).id as string;
   const protectedId = c.schemas.addBelief({
+    // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+    birthRoute: "migrated",
+    channel: "migrated",
     entityId,
     statement: "Ada is the owner of this store, and that never gets revised away",
     day: 0,

@@ -642,3 +642,40 @@ memories cover 0.8 of those still live (`removed-by-owner`). Its own name covers
 as long as they say it, so new memories naming it do not bring it back. A different name is
 refused only if it is in nearly every memory the card linked. If the owner removes those
 memories too, the record holds nothing: the name could then be born again from new ones.
+
+## 2026-10-21 — `ensureSelfSubject`: the card my beliefs about me attach to (store v14)
+
+- One public write, for wave 2's lane C: `ensureSelfSubject()` calls `Store#ensureSelfSubject`
+  (make once, protected, revive an archived one; the store's comment has why its kind is
+  `fact`) and registers the card in this module's loaded meta, so `addBelief` on it is not
+  refused `entity-unknown` in a `Schemas` opened before the card existed. The card has no
+  name, so the alias index gains no handle. Nothing calls it yet. Lightly held.
+
+## Beliefs, born weak and earned by life (2026-10-21, wave 2 lane C)
+
+`addBelief` had no caller from August to October. Lane C gives it producers (C2, C3) and,
+first, a way to be earned (C1). What C1 decided, each lightly held:
+
+- **Born weak through the seam.** The ceiling caps the dimensions and the claim at
+  `clampSalienceAtSeam` (the seam's ceiling is the lower of the channel's and
+  `BELIEF_BIRTH_CEILING`), so a cut is recorded as a `salience.lifted` with `capped`, as the
+  sweep's always was. With nothing said the claim is the ceiling itself: a belief at 0 would
+  be below reach the day it is born. A `migrated` belief keeps its strength (the 2026-08-29
+  ruling that migrated is lived v1 state); the tests that exercise the pressure arithmetic
+  on a strong belief use that channel, since no born belief reaches their strength.
+- **Testimony and choice are read, never claimed.** A caller's `testimony` on a memory with
+  no `said_by` is filed `found` with a note — accept and repair, not refuse.
+- **What is lived.** A `memory` or an `episode` row, not a dream's words or a reflection's
+  entry (`reflect.ts#notLivedReason`'s two sources). A card is not support; another belief
+  is, only by `link`, and only at `SUPPORT_LINK_FLOOR` (0.35) — just above a newborn's 0.3,
+  so a newborn lends nothing.
+- **`use` and beliefs about me.** Refused on a belief marked me/us or on the self subject or
+  the identity core: a belief about me grows from what fits, not from being used at work.
+- **Contrary support contests; it never rewrites.** The revision path as built made the
+  successor's statement the contrary memory's body ("Wren slept through the ferry…" as the
+  new belief). For a belief born under lane C the crossing now marks it contested and cuts
+  it once (physics §5.13); the reflection revises or retires it, and the owner's correction
+  is the settle door, at once. A migrated belief keeps the old path and its successor stays
+  migrated.
+- **The self subject** is `ensureSelfSubject` above (lane A's door). C1 only reads it: a
+  belief on it, or marked me/us, is "about me" for `use`.
