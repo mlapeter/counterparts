@@ -21,6 +21,7 @@ import { isDay, occurrenceOnOrAfter } from "./time.js";
 import type { Recurrence } from "./time.js";
 import { markWakeBehind } from "./self/index.js";
 import { ownerNames } from "./sleep/index.js";
+import { isBeliefRow } from "./recall/index.js";
 import { statusOf, inheritFrom, occurredOnOf, saidByOf } from "./store/index.js";
 import type { MemoryRow, Inherited, MemoryStatus } from "./store/index.js";
 import type {
@@ -368,6 +369,10 @@ export async function guardUpdate(cp: Counterpart, p: Proposal, ctx: DepositCont
   try {
     row = cp.store.row(target);
     if (row === undefined || cp["closesOrRedates"](p, target, row, ctx.facts)) return null;
+    // THE OWNER'S CORRECTION OF A BELIEF, BY ITS ID (lane C3, 2026-10-21):
+    // "that's wrong" need share no word with the belief it answers, and it is
+    // the at-once door (`revision.ts`). Anyone else's update of one is read.
+    if (isBeliefRow(row) && ctx.facts?.saidBy === "owner") return null;
   } catch {
     return null;
   }

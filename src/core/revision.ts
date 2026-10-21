@@ -95,7 +95,7 @@ import { TUNABLES, applyChallenge, successorSeed, supersedeRecord } from "./phys
 import { directionOf } from "./mint.js";
 import { DATE_MOVED_TO_META } from "./prospective/index.js";
 import { headOf } from "./recall/standing.js";
-import { FULFILLED_SOURCE, PRESSURE_UNDONE_REASON, flag, settleOnWrite, supersede } from "./reconsolidation.js";
+import { FULFILLED_SOURCE, PRESSURE_UNDONE_REASON, flag, settle as settlePair, settleOnWrite, supersede } from "./reconsolidation.js";
 import type { SettleOutcome } from "./reconsolidation.js";
 import type { SettleHow } from "./types.js";
 import type { Schemas } from "./schemas/index.js";
@@ -118,6 +118,8 @@ export type RevisionApplyReason =
   | "target-is-an-entity"
   | "confirmation-not-a-challenge"
   | "target-removed"
+  /** Lane C3: the owner's words, written awake, said a belief is wrong — settled `corrected` at once. */
+  | "corrected-by-owner"
   | "observer";
 
 export interface RevisionInput {
@@ -147,6 +149,12 @@ export interface RevisionInput {
   howSent?: boolean;
   /** The writing session, for the settle's trail. */
   session?: string | null;
+  /**
+   * Written AWAKE (a session's note or write-up; lane C3, 2026-10-21) — not
+   * the crash-fallback sweep's retelling. The owner's correction of a belief
+   * is at once only from an awake write.
+   */
+  awake?: boolean;
 }
 
 export interface RevisionOptions {
@@ -318,6 +326,20 @@ export function applyRevision(
 
   // ── a schema BELIEF: pressure, and supersede only past the bar ─────────────
   if (element?.role === "belief") {
+    // THE OWNER'S CORRECTION, AT ONCE (wave 2 lane C3, 2026-10-21): a belief
+    // born under lane C that the owner's own words, written awake, say is
+    // wrong leaves through the settle door, `corrected` — archived, its words
+    // and support kept on the record — passing no bar. Anything else presses.
+    // A refused settle (a protected belief) falls to the pressure below.
+    const said = store.row(input.challengerId);
+    if (input.awake === true && target.belief === true && said?.said_by === "owner") {
+      const out = settlePair(
+        store,
+        { holds: input.challengerId, over: targetId, how: "corrected", why: "the owner said it is wrong", actor: "session", actorId: input.session ?? null, day: input.day },
+        opts.retarget === undefined ? {} : { retarget: opts.retarget },
+      );
+      if (out.ok) return settle("belief", "corrected-by-owner", targetId, { moved: true, retargeted, settle: out });
+    }
     const out = schemas.challengeBelief({
       updates: targetId,
       challengerId: input.challengerId,

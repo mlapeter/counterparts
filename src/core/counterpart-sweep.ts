@@ -794,6 +794,8 @@ export function applyDeclaredRevision(cp: Counterpart, proposal: Proposal, mint:
       ...(proposal.how === undefined ? {} : { how: proposal.how }),
       ...(proposal.howSent === undefined ? {} : { howSent: proposal.howSent }),
       session,
+      // Written awake unless the crash-fallback sweep retold it (lane C3).
+      awake: door !== "sweep",
     },
     {
       // SEAMS E again, for the memory paths `schemas/` does not own.

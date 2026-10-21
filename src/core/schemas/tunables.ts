@@ -164,4 +164,15 @@ export const TUNABLES = {
    * dawn.", 0.91) is a replacement whatever it reads (`reflect.ts#negationDiffers`).
    */
   BELIEF_SAME_CLAIM: 0.9,
+  /**
+   * A SESSION'S RARE BIRTH (lane C3): at most this many beliefs born in the
+   * moment a lived day, across sessions — the reflection is the usual author.
+   * CAL.
+   */
+  BELIEF_SESSION_BIRTHS_PER_DAY: 2,
+  /**
+   * …and only from the owner's words, my own choice, or a vivid moment: a
+   * memory felt at the time at least this strongly. CAL.
+   */
+  BELIEF_SESSION_VIVID: 0.6,
 } as const;

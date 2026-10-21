@@ -335,7 +335,12 @@ dreamer is the model (a background agent the session launches), outside this pro
   feeling twice in one dream is one record), `nominate-core`
   (the dream's SUGGESTION of what a memory is about — any memory not already core,
   because a dream cannot set the mark and a nomination promotes nothing; recorded in
-  `core_events` with the dream's reason).
+  `core_events` with the dream's reason), `belief-candidate` (wave 2 lane C3, 2026-10-21;
+  Mike's "try it", lightly held: a belief the dream sees across memories it was shown,
+  `{subject: "me" | "us" | a name, text, sources}`, at most `BELIEF_CANDIDATES` 2 a night,
+  lived sources only — recorded as the change itself and NEVER minted: "the interpreter
+  flags; the engine mints". The next reflection adopts it or lets it go; undone with the
+  dream. Off with `schemas.BELIEFS_BIRTH`, and then the dream is not asked).
 - **Accept and repair; every refusal names what tripped it** (owner direction
   2026-09-28). A change that is refused says the rule and the id or field in `detail`;
   one that was written with something to say (a split emotion, a capped strength, a
@@ -523,7 +528,10 @@ dream having run.
     it (`contestedBy`, shown so it can be cited), and not with its own claim again;
     `retire` lets a contested belief go through the settle door (the memory that
     contested it holds over it, `corrected`), and a birth's `replaces` does the same for
-    the one it says better. **[M]** a belief's id is never in `shown`: it cannot be cited,
+    the one it says better. `adopt` (lane C3) takes a candidate tonight's dream proposed
+    (shown as `beliefs.candidates`), born weak by the route `dream`, its lived sources its
+    first support, its subject and words the reflection's to sharpen; what is not adopted
+    is let go, and an adopted belief stays when the dream is undone (it was decided awake). **[M]** a belief's id is never in `shown`: it cannot be cited,
     felt or marked; filings and births take only memories it was shown and lived. Off:
     no beliefs shown or asked for, and what is sent is refused `beliefs-off`; the bundle
     carries no `beliefs` key and no `beliefFilings` limit, as before beliefs. The section

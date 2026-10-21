@@ -1052,3 +1052,20 @@ co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.t
   but word overlap cannot fully stop a reworded restatement: "We work best at dawn, not at
   night." (0.85), "No doubt: we work best at dawn." (0.85) and "…nothing else comes close."
   (0.75) pass it. Citing the evidence is what a restatement lacks. On the 10-26 check list.
+
+## 2026-10-21 — the dream proposes beliefs; a session writes one rarely; the owner corrects (lane C3)
+
+- **A candidate is a change, not a row.** `belief-candidate` records `{subject, statement,
+  sources}` on the dream's change and writes nothing else, so undoing the dream withdraws
+  it and nothing has to be archived; the reflection's adoption is a birth of its own
+  (route `dream`), awake, and outlives the dream's undo. The subject is free text from the
+  dream (it is shown no cards): "me", "us", or a name, which the reflection maps to a
+  subject it was shown, or names itself.
+- **Its ceiling is top-level** (`BELIEF_CANDIDATES`, settable by a compare); the `LIMITS`
+  entry only names the action.
+- **A session's birth** asks for testimony, a choice, or a felt moment (≥
+  `BELIEF_SESSION_VIVID` 0.6 felt at the time), so an ordinary note does not mint beliefs;
+  the reflection is the usual author.
+- **The owner's correction** goes through the update guard by id (his "that's wrong" need
+  share no word with the belief) and settles at once; another writer's update of a belief
+  is read by the guard and, if it goes on, presses.

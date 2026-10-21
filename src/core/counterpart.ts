@@ -107,6 +107,8 @@ import type {
   UpdatesResolution,
 } from "./remember/index.js";
 import { redactSecrets } from "./encode/index.js";
+import { TUNABLES as SCHEMAS_TUNABLES } from "./schemas/tunables.js";
+import { similarity as textSimilarity } from "./remember/updates.js";
 import type { SchemaSlice as EncodeSchemaSlice } from "./encode/index.js";
 import { recallTurn } from "./retrieval.js";
 import { applyRevision } from "./revision.js";
@@ -3774,6 +3776,88 @@ export class Counterpart {
   /** An in-the-moment deliberate deposit. Channel: `authored`. Always covers
    *  its own session's words: `cover` is not taken here, and is dropped if a
    *  caller outside TypeScript sends it. */
+  /**
+   * A SESSION'S RARE BELIEF (wave 2 lane C3, 2026-10-21): written in the
+   * moment beside the memory that carries it — the owner's words about me or
+   * us (testimony), my own real choice, or a vivid moment (a memory felt at
+   * least `BELIEF_SESSION_VIVID` at the time). On the self subject, born weak
+   * (route `session`), that memory its first support; at most
+   * `BELIEF_SESSION_BIRTHS_PER_DAY` a lived day. One that says what a belief
+   * already says files the memory to that belief instead. Off with
+   * `schemas.BELIEFS_BIRTH`.
+   */
+  sessionBelief(input: { memoryId: string; statement: string; about?: "me" | "us" }): {
+    ok: boolean;
+    reason: "born" | "filed-to-existing" | "beliefs-off" | "observer" | "memory-unknown" | "not-testimony-choice-or-vivid" | "statement-required" | "limit-reached" | string;
+    id: string | null;
+    note?: string;
+  } {
+    if (this.observer) return { ok: false, reason: "observer", id: null };
+    if (!SCHEMAS_TUNABLES.BELIEFS_BIRTH) return { ok: false, reason: "beliefs-off", id: null, note: "Beliefs are off: none was written." };
+    const row = this.store.row(input.memoryId);
+    if (row === undefined || row.type !== "memory") return { ok: false, reason: "memory-unknown", id: null };
+    const vivid = Math.max(row.feeling_peak_lived ?? 0, row.emotional ?? 0) >= SCHEMAS_TUNABLES.BELIEF_SESSION_VIVID;
+    if (row.said_by !== "owner" && row.said_by !== "self" && !vivid) {
+      return { ok: false, reason: "not-testimony-choice-or-vivid", id: null, note: "A belief is written in the moment only from the owner's words (saidBy owner), my own choice (saidBy self), or a strongly felt moment; the reflection can draw it later." };
+    }
+    const statement = redactSecrets(input.statement).replace(/\s+/g, " ").trim();
+    if (statement.length === 0) return { ok: false, reason: "statement-required", id: null };
+    // A memory pasted in is not a belief drawn from it (review of #577).
+    if (textSimilarity(statement, row.body) > SCHEMAS_TUNABLES.BELIEF_PASTED) {
+      return { ok: false, reason: "pasted-from-memory", id: null, note: "The belief is the memory's own words: say the claim it shows, in a line of your own." };
+    }
+    const day = this.store.livedDay();
+    const me = this.schemas.ensureSelfSubject();
+    const near = this.schemas.nearestBelief(me, statement);
+    if (near !== null) {
+      const filed = this.schemas.fileSupport({ beliefId: near.id, memoryId: input.memoryId, stance: "support", day });
+      return { ok: filed.ok, reason: "filed-to-existing", id: near.id, note: `It says what ${near.id} says: this memory was counted for that belief instead${filed.ok ? "" : ` (${filed.reason})`}.` };
+    }
+    const today = this.store
+      .list({ type: "schema", archived: false })
+      .filter((id) => {
+        const r = this.store.row(id);
+        return r !== undefined && r.birth_route === "session" && r.birth_day === day;
+      }).length;
+    if (today >= SCHEMAS_TUNABLES.BELIEF_SESSION_BIRTHS_PER_DAY) {
+      return { ok: false, reason: "limit-reached", id: null, note: `At most ${String(SCHEMAS_TUNABLES.BELIEF_SESSION_BIRTHS_PER_DAY)} beliefs are written in the moment a day; the reflection can draw this one tonight.` };
+    }
+    const made = this.schemas.addBelief({
+      entityId: me,
+      statement,
+      day,
+      birthRoute: "session",
+      channel: "authored",
+      groundedIn: [input.memoryId],
+      about: input.about === "us" ? "us" : "me",
+    });
+    if (!made.ok || made.id === null) return { ok: false, reason: made.reason, id: null };
+    const filed = this.schemas.fileSupport({ beliefId: made.id, memoryId: input.memoryId, stance: "support", day });
+    return { ok: true, reason: "born", id: made.id, note: `Born weak, backed by this memory (${String(filed.route)}).` };
+  }
+
+  /**
+   * THE OWNER SAYS A BELIEF IS WRONG (wave 2 lane C3, 2026-10-21; lane D's
+   * "this is wrong" calls it): his words become a memory, said by him, that
+   * updates the belief — and a belief born under lane C is settled
+   * `corrected` at once through the settle door (`revision.ts`, the owner's
+   * correction), its history kept. A migrated belief takes it as pressure.
+   */
+  async correctBelief(input: { beliefId: string; text: string; session: string; scope: string; at?: string }): Promise<DepositResult> {
+    const row = this.store.row(input.beliefId);
+    const about = row?.about === "me" || row?.about === "us" ? row.about : "owner";
+    return this.submitJot(
+      { content: input.text, updates: input.beliefId },
+      {
+        session: input.session,
+        scope: input.scope,
+        ...(input.at === undefined ? {} : { at: input.at }),
+        facts: { saidBy: "owner" },
+        about,
+      },
+    );
+  }
+
   async submitJot(draft: unknown, ctx: DepositContext): Promise<DepositResult> {
     return this.deposit(draft, "jot", {
       session: ctx.session,
