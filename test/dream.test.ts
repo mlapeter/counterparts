@@ -667,7 +667,7 @@ describe("gist marks: a personal mark among its sources wins (D6 closed)", () =>
     const c = Counterpart.open({ dir, identity: { name: "Mike" }, now: () => Date.now() + offsetMs });
     open.push(c);
     const [g] = gists(c, [[{}, { about: "owner", aboutBy: "owner", meta: { confidential: true } }]]) as [string];
-    expect(c.store.row(g)).toMatchObject({ about: "owner", confidential: 0, source: "dreamed" });
+    expect(c.store.row(g)).toMatchObject({ about: "owner", source: "dreamed" });
     expect(c.store.readProse(g).meta["confidential"]).toBeUndefined();
   });
 });

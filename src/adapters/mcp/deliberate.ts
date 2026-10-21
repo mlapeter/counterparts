@@ -260,8 +260,6 @@ export type DeliberateReason =
   | "expanded"
   | "handle-unknown"
   | "handle-ambiguous"
-  /** RETIRED 2026-10-21: no call produces it; the variant goes with the column's types. */
-  | "handle-confidential-withheld"
   | "no-argument"
   | "both-arguments"
   | "ids-too-many"

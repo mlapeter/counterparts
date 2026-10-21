@@ -46,7 +46,6 @@ function cand(id: string, body: string, activation: number, extra: Partial<Candi
     matched: 1,
     trains: true,
     maxTier: "surfaced",
-    confidential: false,
     ...extra,
   };
 }
@@ -241,13 +240,6 @@ describe("the review of #526", () => {
     expect(verdictOf(r, "head")).toBe("below-bar");
     expect(verdictOf(r, "earlier")).toBe("inhibited");
     expect(shownIds(r)).toEqual([]);
-  });
-
-  test("a head the candidate marks confidential stands in for a guest too (the gate was retired 2026-10-21)", () => {
-    const r = gateOf([...bgOf(), cand("earlier", "e", 16, { head: "head" }), cand("head", "h", 16, { standsFor: "earlier", confidential: true })], {
-    });
-    expect(verdictOf(r, "head")).not.toBe("confidential-withheld");
-    expect(verdictOf(r, "earlier")).toBe("inhibited");
   });
 
   test("the weak direct reach stays in the background: no other memory's bar moves", () => {

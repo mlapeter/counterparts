@@ -95,7 +95,6 @@ export function read(store: Store, id: string): StoredMemory {
     supersededBy: row.superseded_by,
     revision: row.revision,
     contentHash: row.content_hash,
-    confidential: row.confidential === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     model: row.model,
@@ -121,21 +120,21 @@ export function resolve(store: Store, id: string): string {
   throw new StoreError("ID_CHAIN_TOO_DEEP", { id, max: MAX_CHAIN });
 }
 
-export function copiesOf(store: Store, refs: readonly string[]): Map<string, { id: string; confidential: boolean; about: string | null }[]> {
-  const out = new Map<string, { id: string; confidential: boolean; about: string | null }[]>();
+export function copiesOf(store: Store, refs: readonly string[]): Map<string, { id: string; about: string | null }[]> {
+  const out = new Map<string, { id: string; about: string | null }[]>();
   const unique = [...new Set(refs)];
   const CHUNK = 500;
   for (let i = 0; i < unique.length; i += CHUNK) {
     const part = unique.slice(i, i + CHUNK);
-    const rows = store["ops"].all<{ id: string; origin_ref: string; confidential: number; about: string | null }>(
-      `SELECT id, origin_ref, confidential, about FROM memories
+    const rows = store["ops"].all<{ id: string; origin_ref: string; about: string | null }>(
+      `SELECT id, origin_ref, about FROM memories
           WHERE type = 'memory' AND archived = 0 AND origin_ref IN (${part.map(() => "?").join(", ")})
           ORDER BY id`,
       ...part,
     );
     for (const r of rows) {
       const held = out.get(r.origin_ref) ?? [];
-      held.push({ id: r.id, confidential: r.confidential === 1, about: r.about });
+      held.push({ id: r.id, about: r.about });
       out.set(r.origin_ref, held);
     }
   }
@@ -162,7 +161,6 @@ export function planCandidates(store: Store, input: {
   readonly after: number;
   readonly statuses: readonly MemoryStatus[];
   readonly limit: number;
-  readonly confidential?: boolean;
 }): string[] {
   const scopes = input.scopes.filter((s) => s.length > 0);
   const statuses = input.statuses.filter((s) => (STATUSES as readonly string[]).includes(s));
@@ -216,7 +214,7 @@ export function recallRows(store: Store): RecallRow[] {
   return store["ops"].all<RecallRow>(
     `SELECT id, type, kind, title, learned_on, created_at, updated_at,
               ${v12 ? "occurred_on, said_by, status" : "NULL AS occurred_on, NULL AS said_by, NULL AS status"},
-              source, origin_session, origin_scope, origin_ref, confidential,
+              source, origin_session, origin_scope, origin_ref,
               CASE WHEN type = 'memory' THEN NULL ELSE meta END AS meta
          FROM memories
         WHERE archived = 0 AND superseded_by IS NULL AND NOT (body = '' AND content_hash = '')
@@ -256,7 +254,7 @@ export function livedReturnsSince(store: Store, filter: { sinceAt?: number; sinc
     .map((r) => ({ memoryId: r.memory_id, source: r.source, session: r.session }));
 }
 
-export function memoryCountsByScopeSince(store: Store, at: number, opts: { confidential?: boolean } = {}): { scope: string; count: number }[] {
+export function memoryCountsByScopeSince(store: Store, at: number): { scope: string; count: number }[] {
   return store["ops"]
     .all<{ origin_scope: string; n: number }>(
       `SELECT origin_scope, COUNT(*) AS n FROM memories

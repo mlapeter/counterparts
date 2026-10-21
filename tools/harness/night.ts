@@ -433,7 +433,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
     // THE CHILD'S SERVER EMBEDS, the night's own process does not: as live
     // (`mcp/bin/serve.ts` opens the static table; `openNightCounterpart` none).
     const embedder = opts.embed === false ? null : openEmbedder({ embedder: { enabled: true } });
-    const store = (owner: boolean, withEmbedder: boolean): Counterpart =>
+    const store = (withEmbedder: boolean): Counterpart =>
       Counterpart.open({
         dir,
         budgetBytes: opts.budgetBytes ?? 9_000,
@@ -442,7 +442,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
         ...(withEmbedder && embedder !== null && embedder.embed !== undefined ? { embed: embedder.embed } : {}),
       });
     const configPath = join(work, "harness-config.json");
-    writeFileSync(configPath, JSON.stringify({ dataDir: dir, owner: false, injectionBudgetBytes: opts.budgetBytes ?? 9_000 }));
+    writeFileSync(configPath, JSON.stringify({ dataDir: dir, injectionBudgetBytes: opts.budgetBytes ?? 9_000 }));
     const model =
       opts.seat === "model"
         ? modelSeat({
@@ -469,7 +469,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
             dream,
             reflection,
             existed: idsIn(opts.source),
-            open: () => store(false, true),
+            open: () => store(true),
             embedder,
             setClock: (at) => {
               clock = Math.max(clock, at);
@@ -488,7 +488,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
     };
     const replayStart = now();
     const run = await runNight({
-      open: () => store(true, false),
+      open: () => store(false),
       config: { dataDir: dir, injectionBudgetBytes: opts.budgetBytes ?? 9_000, ...(opts.timeZone === undefined ? {} : { timeZone: opts.timeZone }) },
       run: "nrn_harness_replay",
       session: night.session ?? "",

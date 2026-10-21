@@ -772,9 +772,6 @@ export interface MemoryRow extends Row {
   body: string;
   /** `ProseDoc.meta` as verbatim JSON (G6). Parsed once, at the read seam. */
   meta: string;
-  /** The retired confidentiality column (2026-10-21): written 0, read by no
-   *  gate (CONTRACT §5 G13). A row written before then may still hold 1. */
-  confidential: number;
   /** v7 moments (UTC ms). NULL on a row written before v7. */
   created_at: number | null;
   updated_at: number | null;

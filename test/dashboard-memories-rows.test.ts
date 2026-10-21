@@ -205,7 +205,6 @@ describe("the list's new marks, filters and sort", () => {
   test("a row carrying the retired confidential key shows its words, its written date and what carried its feelings (2026-10-21)", () => {
     withSrc((src) => {
       const r = allRows(src).find((x) => x.id === ids.secret);
-      expect(r?.confidential).toBe(false);
       expect(r?.text).toContain("private");
       expect(r?.dateFrom).toBe("text");
       expect(r?.feelings[0]?.word).toBe("anxious");
@@ -376,7 +375,6 @@ describe("a date that still repeats is kept, so it is never fading (2026-10-09)"
       expect(repeat?.hold).toBe("settling");
       expect(repeat?.repeats).toBe("every May 14");
       const secret = rows.find((r) => r.id === ids.repeatSecret);
-      expect(secret?.confidential).toBe(false);
       expect(secret?.hold).toBe("settling");
       expect(secret?.repeats).toBe("every Monday");
       // A one-off carries no repeat, and the fading filter holds neither.

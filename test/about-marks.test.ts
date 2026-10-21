@@ -124,7 +124,7 @@ describe("the core's door: Counterpart.markAbout", () => {
     });
   });
 
-  test("by self: a dream's words move only toward work or world; a confidential one outside the owner's session is not found; no why is recorded as such", () => {
+  test("by self: a dream's words move only toward work or world; no why is recorded as such", () => {
     withBrain((c) => {
       const gist = mem(c, "Dreamed: running isn't reaching.", { source: "dreamed", kind: "skill" });
       expect(c.markAbout({ id: gist, mark: "us", by: "self", why: "It is about how we work." })).toMatchObject({ ok: false, reason: "dreamed-is-a-suggestion" });

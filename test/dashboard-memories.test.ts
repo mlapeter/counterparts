@@ -137,7 +137,7 @@ describe("the list: every memory, newest first, paged by the server", () => {
         if (r.archivedReason === "pruned") expect(r.archived).toContain("let go at the floor");
         // A revised row is listed with what IT said, not what replaced it.
         const row = src.store.row(r.id);
-        if (row !== undefined && row.superseded_by !== null && row.confidential !== 1) {
+        if (row !== undefined && row.superseded_by !== null) {
           const own = row.body.split("\n").map((l) => l.trim()).find((l) => l.length > 0 && !l.startsWith("#")) ?? "";
           expect(r.line.startsWith(own.slice(0, 40))).toBe(true);
         }

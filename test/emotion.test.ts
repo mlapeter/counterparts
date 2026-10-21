@@ -515,7 +515,6 @@ function cand(id: string, spec: { cue: number; arrival?: number; sal: number; mo
     matched: 1,
     trains: true,
     maxTier: "surfaced",
-    confidential: false,
   };
 }
 

@@ -61,7 +61,7 @@ function brain(now = NOW): Counterpart {
   return c;
 }
 
-function ask(c: Counterpart, question: string, opts: { page?: number; owner?: boolean } = {}): FactsResult {
+function ask(c: Counterpart, question: string, opts: { page?: number } = {}): FactsResult {
   return factsRecall(
     { counterpart: c, sessionId: SESSION, vector: null, semantic: "embedder-off" },
     question,
@@ -692,7 +692,7 @@ describe("current first: earlier versions fold, corrected ones are named as wron
     const a = c.store.put({ type: "memory", kind: "fact", body: "The zqdentist is on Elm Street." });
     const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqdentist moved to the clinic.", meta: { confidential: true } });
     expect(settle(c.store, { holds: a, over: secret, how: "open", why: "unsure", actor: "session" }).ok).toBe(true);
-    const guest = renderFacts(ask(c, "zqdentist", { owner: false }));
+    const guest = renderFacts(ask(c, "zqdentist", {}));
     expect(guest).toContain(`disagrees with ${secret}`);
     expect(guest).toBe(renderFacts(ask(c, "zqdentist")));
   });
@@ -944,7 +944,7 @@ describe("what never comes back, and what comes back labeled", () => {
     seed(c);
     c.store.put({ type: "memory", kind: "fact", body: "The zqclinic visit is on Friday.", meta: { confidential: true } });
     c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street." });
-    const r = ask(c, "zqclinic", { owner: false });
+    const r = ask(c, "zqclinic", {});
     expect(r.matched).toBe(2);
     expect(r.blockedBy["confidential-withheld"]).toBeUndefined();
     expect(renderFacts(r)).toContain("Friday");
@@ -1155,7 +1155,7 @@ describe("through the tool", () => {
 // the word index, and "N corrected versions hidden" named none — one a wrong
 // correction archived could not be reached, even by a search that named it.
 describe("corrected versions are named, as wrong, and open by id (through the tool)", () => {
-  function server(c: Counterpart, owner = true): McpServer {
+  function server(c: Counterpart): McpServer {
     return new McpServer({ counterpart: c, session: SESSION, scope: "/scope/one", now: () => NOW });
   }
   const body = (r: ToolResult): Record<string, unknown> => r.structuredContent;
@@ -1210,7 +1210,7 @@ describe("corrected versions are named, as wrong, and open by id (through the to
     const right = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Oak Street." });
     const secret = c.store.put({ type: "memory", kind: "fact", body: "The zqclinic is on Elm Street.", meta: { confidential: true } });
     expect(settle(c.store, { holds: right, over: secret, how: "corrected", why: "Oak", actor: "session" }).ok).toBe(true);
-    const guest = String(body(await server(c, false).call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
+    const guest = String(body(await server(c).call("recall", { question: "zqclinic street", mode: "facts" }))["answer"]);
     expect(guest).toContain(`corrected (was wrong): "The zqclinic is on Elm Street." (learned 10-03), corrected 10-03 · ${secret}`);
     expect(guest).not.toContain("hidden");
   });
@@ -1427,7 +1427,7 @@ describe("the title tail (2026-10-20)", () => {
     seed(c);
     forty(c);
     c.store.put({ type: "memory", kind: "fact", body: "The zqcrate order for the clinic, kept private.", meta: { confidential: true } });
-    expect(ask(c, "the zqcrate orders", { owner: false }).matched).toBe(41);
+    expect(ask(c, "the zqcrate orders", {}).matched).toBe(41);
     expect(ask(c, "the zqcrate orders").matched).toBe(41);
   });
 

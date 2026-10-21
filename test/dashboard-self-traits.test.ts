@@ -169,7 +169,7 @@ describe("the view, on a store", () => {
     const a = axis(v.traits, "agreeable-candid");
     expect(a.memories).toBe(2);
     const secret = a.rows.find((r) => r.id === ids["secret"]);
-    expect(secret).toMatchObject({ toward: "agreeable", withheld: false, confidential: false });
+    expect(secret).toMatchObject({ toward: "agreeable" });
     expect(secret?.carriedBy).not.toBe("");
     // It pulls toward "agreeable": the balance is not what the core one alone gives (+1).
     expect(a.balance as number).toBeLessThan(1);

@@ -189,7 +189,7 @@ describe("the self tab, round 3b", () => {
       // No title: the first sentence stands in; the rest is on hover only.
       expect(html).toContain(">The dentist is at nine on the fourth.</button>");
       // A line no memory was found for is still listed, as its first sentence.
-      expect(memoryItem({ id: null, text: "Something arrives. More words.", title: null, confidential: false }))
+      expect(memoryItem({ id: null, text: "Something arrives. More words.", title: null }))
         .toBe('<li class="wk-line-i" title="Something arrives. More words.">Something arrives.</li>');
     } finally {
       rmSync(dir, { recursive: true, force: true });

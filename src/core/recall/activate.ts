@@ -56,7 +56,7 @@ import { TUNABLES as PHYSICS, belowReach, curveSal, salArm, softenedFeeling, str
 import type { FeelingRow, Hit, ProseDoc, Store } from "../store/index.js";
 import { askedNames, feelingTokens, isFeelingFrameWord, readFeelingAsk, stampCores } from "./feeling-ask.js";
 import type { FeelingAskInput } from "./feeling-ask.js";
-import { confidentialByMeta, feelingValence, feltDay, reachExempt, rowToPhysics, stemTerm, tokenize } from "../store/index.js";
+import { feelingValence, feltDay, reachExempt, rowToPhysics, stemTerm, tokenize } from "../store/index.js";
 import { buildCues, informativeness } from "./cues.js";
 import type { Cue } from "./cues.js";
 import type { RecallTunables, SemanticPath, SemanticTuning } from "./tunables.js";
@@ -101,7 +101,6 @@ export interface Candidate {
    *  never make it loud (prospective §12 G5). Absent from the gate's other rules
    *  by design — it caps, it never admits. */
   readonly maxTier: "surfaced" | "footnoted";
-  readonly confidential: boolean;
   /**
    * A QUIET POINTER (association build 2, 2026-09-28): a memory no cue and no
    * embedding reached, brought here ONLY by links from memories that were
@@ -443,16 +442,6 @@ function isHandoffRow(store: Store, id: string): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * A memory's old confidentiality class (`store/marks.ts#confidentialByMeta`).
- *
- * RETIRED 2026-10-21: the surfacing gate no longer asks it. Still exported for
- * the dashboard's reveal until that surface's own removal lands; it goes then.
- */
-export function isConfidential(doc: ProseDoc): boolean {
-  return confidentialByMeta(doc.meta);
 }
 
 /**
@@ -1264,7 +1253,6 @@ export function activate(
       trains: unambiguousMatch.has(id) || semantic > 0 || temporal > 0 || c.feeling > 0,
       // §12 G5: temporal ALONE reaches the footnote tier at most.
       maxTier: temporal > 0 && cue - temporal <= 0 && semantic <= 0 ? "footnoted" : "surfaced",
-      confidential: stored.confidential,
       ...(c.feeling > 0 ? { feeling: c.feeling } : {}),
       ...(c.stamp > 0 ? { stamp: c.stamp } : {}),
       ...(topIds.has(id) ? {} : { pastCut: true as const }),
@@ -1327,7 +1315,6 @@ export function activate(
       // a use like any other, and it is what confirms the link.
       trains: true,
       maxTier: "footnoted",
-      confidential: stored.confidential,
       linkOnly: true,
       linkedFrom: linkOnlyFrom.get(id) ?? {},
     });

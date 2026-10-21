@@ -153,8 +153,6 @@ describe("the store: recorded once, read by the dashboard, feeding nothing", () 
         carried_by: "said the plan had a hole",
         source: "session",
         model: "claude-opus-5-5",
-        confidential: false,
-        withheld: false,
       }),
     ]);
     expect(s.traitsFor(b)[0]?.source).toBe("reflection");
@@ -186,7 +184,7 @@ describe("the store: recorded once, read by the dashboard, feeding nothing", () 
     const secret = mem(s, "The private thing he told me, which I answered honestly.", { meta: { confidential: true } });
     s.addTraits(secret, [candid]);
     const [t] = s.traitsFor(secret);
-    expect(t).toMatchObject({ axis: "agreeable-candid", toward: "candid", strength: 0.6, carried_by: "said the plan had a hole", confidential: false, withheld: false });
+    expect(t).toMatchObject({ axis: "agreeable-candid", toward: "candid", strength: 0.6, carried_by: "said the plan had a hole" });
     expect(s.traitsAll()[0]?.carried_by).toBe("said the plan had a hole");
     expect(s.traitsOn([secret]).get(secret)?.[0]?.carried_by).toBe("said the plan had a hole");
   });
@@ -538,7 +536,6 @@ describe("a dream's merge carries the originals' nudges, as it carries their fee
     });
     if (!out.ok) throw new Error(out.reason);
     const merged = out.results[0]?.id as string;
-    expect(c.store.row(merged)?.confidential).toBe(0);
     const carried = c.store.traitsFor(merged);
     expect(carried.map((t) => [t.axis, t.toward, t.source, t.model, t.created_at, t.carried_by])).toEqual([
       ["careful-bold", "careful", "session", "claude-opus-5-5", at, "checked twice"],

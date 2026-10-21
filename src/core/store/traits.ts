@@ -87,12 +87,7 @@ export interface TraitRow extends Row {
   updated_at: number;
 }
 
-/**
- * A nudge as a READER gets it (`Store#traitsFor` / `traitsOn` / `traitsAll`):
- * the row, whole. `confidential` and `withheld` are what is left of a retired
- * gate (2026-10-21): the first reads the inert column, the second is always
- * false. Both go with the column's type.
- */
+/** A nudge as a READER gets it (`Store#traitsFor` / `traitsOn` / `traitsAll`): the row, whole. */
 export interface TraitRead {
   id: string;
   memory_id: string;
@@ -104,10 +99,6 @@ export interface TraitRead {
   model: string | null;
   created_at: number;
   updated_at: number;
-  /** The retired column's reading; nothing gates on it (2026-10-21). */
-  confidential: boolean;
-  /** Always false since 2026-10-21: nothing is blanked any more. */
-  withheld: boolean;
 }
 
 export interface CheckedTrait {

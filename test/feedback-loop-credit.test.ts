@@ -420,7 +420,6 @@ describe("D. habituation", () => {
         matched: 1,
         trains: true,
         maxTier: "surfaced",
-        confidential: false,
       }) as Candidate;
     const t = withTunables();
     const input = (activation: number, habituated?: Map<string, number>) => ({

@@ -66,7 +66,7 @@ describe("the dashboard's dates", () => {
     const { memoryCard } = (await import(join(WEB, "shared/memory-modal.js"))) as { memoryCard(d: Record<string, unknown>): string };
     const createdAt = Date.UTC(2026, 8, 28, 17, 47);
     const html = memoryCard({
-      id: "mem_1", kind: "fact", title: "A title", text: "Some words.", shownText: "Some words.", confidential: false,
+      id: "mem_1", kind: "fact", title: "A title", text: "Some words.", shownText: "Some words.",
       archived: null, journal: false, chapter: false, curve: null, curveNote: null,
       salience: { relevance: 0, emotional: 0, predictive: 0, novelty: 0, combined: 0, claimed: null },
       createdAt, writtenOn: "2026-09-28", writtenClock: "11:47 MDT",

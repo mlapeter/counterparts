@@ -313,10 +313,8 @@ export interface ListRow {
   readonly id: string;
   /** The title, when the memory carries one. */
   readonly title: string | null;
-  /** The first line of the memory's own words — or its named absence, or the withholding. */
+  /** The first line of the memory's own words, or its named absence. */
   readonly line: string;
-  /** Always false since 2026-10-21; goes with the leftover types. */
-  readonly confidential: boolean;
   readonly kind: Kind;
   readonly band: Band;
   readonly strength: number;
@@ -628,8 +626,6 @@ export function memoryListView(
       id: r.id,
       title,
       line,
-      // Always false since 2026-10-21; the field goes with the leftover types.
-      confidential: false,
       kind: r.kind,
       band: r.band,
       strength: r.strength,

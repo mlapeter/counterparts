@@ -42,7 +42,7 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function brain(owner = true): Counterpart {
+function brain(): Counterpart {
   const c = Counterpart.open({ dir, now: () => Date.now() + offsetMs });
   open.push(c);
   return c;
@@ -104,7 +104,6 @@ describe("review of #251: what a dream's changes must keep", () => {
     // Both were in the bundle (nothing is held back now), so both changes are made.
     expect(out.results.map((r) => r.reason)).toEqual(["merged", "dreamed"]);
     for (const made of out.results.map((r) => r.id as string)) {
-      expect(c.store.row(made)?.confidential).toBe(0);
       const meta = c.store.readProse(made).meta;
       expect(meta["confidential"]).toBeUndefined();
       expect(meta["confidentiality"]).toBeUndefined();

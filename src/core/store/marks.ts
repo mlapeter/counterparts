@@ -45,20 +45,6 @@ export function occurredOnOf(v: unknown): string | null {
 }
 
 /**
- * A memory's old confidentiality class, from its `meta`.
- *
- * RETIRED 2026-10-21: no core gate and no store write asks it any more, and
- * the column it used to fill is written 0. It is still exported because the
- * adapters' surfaces (the markdown export, the dashboard) read it until their
- * own removal lands; it goes then.
- */
-export function confidentialByMeta(meta: Readonly<Record<string, unknown>>): boolean {
-  if (meta["confidential"] === true) return true;
-  const klass = meta["confidentiality"];
-  return typeof klass === "string" && klass !== "" && klass !== "open" && klass !== "normal";
-}
-
-/**
  * v9 (2026-09-27): WHAT A MEMORY IS ABOUT — a neutral, descriptive mark, so a
  * writer is not nudged toward "core-eligible": `me` (who I am), `us` (the
  * owner and me together), `owner` (the owner himself), `work` (the craft: how

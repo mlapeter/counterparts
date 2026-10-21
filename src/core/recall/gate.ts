@@ -42,10 +42,6 @@ export type Verdict =
   | "surfaced"
   /** Admitted, quiet tier: "quietly available". */
   | "footnoted"
-  /** RETIRED 2026-10-21: no build produces it. Old `mcp.recall` rows carry
-   *  it in `blockedBy`, so readers stay tolerant; the variant goes with the
-   *  candidate's `confidential` field. */
-  | "confidential-withheld"
   /** Boundary: this session already saw it. */
   | "dedup-suppressed"
   /** This session WROTE it (since its last compaction), so it is already in

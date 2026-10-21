@@ -162,7 +162,6 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
       matched: 0,
       trains: true,
       maxTier: "surfaced",
-      confidential: false,
       ...over,
     };
   }

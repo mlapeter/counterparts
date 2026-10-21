@@ -309,7 +309,7 @@ describe("M6 rows", () => {
       memRow(r: Record<string, unknown>, o?: Record<string, unknown>): string;
       journalTitle(d: string | null): string;
     };
-    const base = { id: "mem_1", title: null, text: "A plain fact.", confidential: false, kind: "fact", date: "2026-09-27", dateFrom: "recorded",
+    const base = { id: "mem_1", title: null, text: "A plain fact.", kind: "fact", date: "2026-09-27", dateFrom: "recorded",
       core: false, protected: false, journal: false, feelings: [], archived: null, hold: "settling", versions: 1, schemaRole: null };
     const plain = memRow(base);
     expect(plain).not.toMatch(/lit-\d|smeter/);
@@ -332,7 +332,6 @@ describe("M6 rows", () => {
     expect(found).toContain('<div class="mtitle">The <mark>castle</mark> &lt;game&gt;</div>');
     expect(found).toContain("A <mark>castle</mark> &amp; a moat; castles differ. <mark>CASTLE</mark>.");
     expect(memRow({ ...base, text: "<b>amp</b>" }, { mark: ["amp", "b"] })).toContain("&lt;<mark>b</mark>&gt;<mark>amp</mark>&lt;/<mark>b</mark>&gt;");
-    expect(memRow({ ...base, confidential: true, text: "withheld" }, { mark: ["withheld"] })).not.toContain("<mark>");
     const { searchWords } = (await import(join(WEB, "pages/memories/row.js"))) as { searchWords(q: string): string[] };
     expect(searchWords("The castle-game, a 2nd try")).toEqual(["the", "castle", "game", "2nd", "try"]);
     const { questionWords, findHead } = (await import(join(WEB, "pages/memories/sections/search.js"))) as {

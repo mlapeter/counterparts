@@ -31,7 +31,6 @@ import {
   detectAffect,
   freshGateState,
   gate,
-  isConfidential,
   SCALAR_REF,
   activate,
   informativeness,
@@ -159,7 +158,6 @@ interface CandSpec {
   sal?: number;
   kind?: Candidate["kind"];
   body?: string;
-  confidential?: boolean;
   trains?: boolean;
   emotional?: number;
   /** SEAMS item D: the temporal portion of `cue`, and the per-candidate cap. */
@@ -195,7 +193,6 @@ function cand(spec: CandSpec): Candidate {
     matched: 1,
     trains: spec.trains ?? true,
     maxTier: spec.maxTier ?? (temporal > 0 && cue - temporal <= 0 && semantic <= 0 ? "footnoted" : "surfaced"),
-    confidential: spec.confidential ?? false,
   };
 }
 
@@ -570,52 +567,6 @@ describe("the hard gates salience cannot override", () => {
       const got = r.recall({ sessionId: `s-${String(owner)}`, text: "the compensation renegotiation with Marisol" });
       expect(verdictOf(got.decision.verdicts, id)).not.toBe("confidential-withheld");
       expect(delivered(got.decision)).toContain(id);
-    }
-  });
-
-  /**
-   * The gate's truth table, value by value, asserted against LITERALS.
-   *
-   * Since 2026-10-21 the class has one door, `isConfidential(doc)`, read only by
-   * the adapters that have not dropped it yet; `StoredMemory.confidential` is the
-   * inert column and reads false. Every row below states the answer the
-   * pre-split code gave, including the odd ones: the
-   * comparison is case-sensitive and untrimmed, so `"OPEN"` and `" open"` are
-   * confidential, and `confidential` is checked with `=== true`, so `1` and
-   * `"true"` are not.
-   */
-  const CONFIDENTIALITY_TABLE: readonly [Record<string, unknown>, boolean][] = [
-    [{}, false],
-    [{ confidential: true }, true],
-    [{ confidential: false }, false],
-    [{ confidential: "true" }, false],
-    [{ confidential: 1 }, false],
-    [{ confidential: null }, false],
-    [{ confidentiality: "sensitive" }, true],
-    [{ confidentiality: "secret" }, true],
-    [{ confidentiality: "open" }, false],
-    [{ confidentiality: "normal" }, false],
-    [{ confidentiality: "" }, false],
-    [{ confidentiality: "OPEN" }, true],
-    [{ confidentiality: " open" }, true],
-    [{ confidentiality: null }, false],
-    [{ confidentiality: 42 }, false],
-    // Either key alone can say yes; neither can veto the other.
-    [{ confidential: false, confidentiality: "sensitive" }, true],
-    [{ confidential: true, confidentiality: "open" }, true],
-    [{ confidential: true, confidentiality: "normal" }, true],
-  ];
-
-  test("the old confidentiality class is one truth table (still read by the export and the dashboard), and the column no longer carries it", () => {
-    const s = store();
-    for (const [meta, expected] of CONFIDENTIALITY_TABLE) {
-      const id = put(s, { body: `a memory carrying ${JSON.stringify(meta)}`, meta });
-      const label = JSON.stringify(meta);
-      // The meta survives the round trip — otherwise the row below is vacuous.
-      expect(s.readProse(id).meta, label).toEqual(meta);
-      expect(isConfidential(s.readProse(id)), label).toBe(expected);
-      // The column is inert since 2026-10-21: every write stores 0.
-      expect(s.read(id).confidential, label).toBe(false);
     }
   });
 
