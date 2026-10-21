@@ -124,8 +124,9 @@ describe("begin: the bundle", () => {
     expect(fresh).not.toContain(m.old);
     // The older memory arrives as a neighbour, not as new.
     expect(b.fresh.flatMap((f) => f.neighbours)).toContain(m.old);
-    // Not the owner's session: confidential stays out; protected always does.
-    expect(Object.keys(b.memories)).not.toContain(secret);
+    // Not the owner's session: protected always stays out; the retired
+    // confidential mark (2026-10-21) keeps nothing out.
+    expect(Object.keys(b.memories)).toContain(secret);
     expect(Object.keys(b.memories)).not.toContain(guarded);
     // The text carries the mark, so it can never be captured as lived.
     expect(out.text.startsWith(dreamOpener(b.dream))).toBe(true);
@@ -663,12 +664,12 @@ describe("gist marks: a personal mark among its sources wins (D6 closed)", () =>
     expect(c.store.row(plain)?.about ?? null).toBeNull();
   });
 
-  test("over a confidential owner memory it is the owner's and as confidential as its source (review of #403)", () => {
-    // The owner's own dream: only that one is shown a confidential memory.
-    const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" }, now: () => Date.now() + offsetMs });
+  test("over an owner memory carrying the retired confidential mark it is the owner's, and carries no mark (review of #403; 2026-10-21)", () => {
+    const c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => Date.now() + offsetMs });
     open.push(c);
     const [g] = gists(c, [[{}, { about: "owner", aboutBy: "owner", meta: { confidential: true } }]]) as [string];
-    expect(c.store.row(g)).toMatchObject({ about: "owner", confidential: 1, source: "dreamed" });
+    expect(c.store.row(g)).toMatchObject({ about: "owner", confidential: 0, source: "dreamed" });
+    expect(c.store.readProse(g).meta["confidential"]).toBeUndefined();
   });
 });
 
@@ -803,15 +804,13 @@ describe("the ask: once a day, snoozed by a no", () => {
     }
   };
 
-  test("confidential memories count only toward the owner's own gate, and the line names the count", () => {
-    // Two plain and three confidential new memories: a guest's gate sees two
-    // (too little), the owner's sees five (due).
+  test("memories carrying the retired confidential mark count toward every gate alike (2026-10-21), and the line names the count", () => {
+    // Two plain and three marked new memories: a guest's gate and the owner's both see five (due).
     const guest = brain({ owner: false });
     const day = days(guest);
     fresh(guest, day, 2);
     fresh(guest, day, 3, { meta: { confidential: true } });
-    expect(guest.dreams.status(AT)).toMatchObject({ due: false, reason: "too-little-new", newSince: 2 });
-    expect(guest.dreams.askLine({ at: AT, session: SESSION })).toBeNull();
+    expect(guest.dreams.status(AT)).toMatchObject({ due: true, reason: "due" });
     guest.close();
     open.splice(0);
 

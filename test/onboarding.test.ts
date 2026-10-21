@@ -559,7 +559,13 @@ describe("the wake's line: no double offer", () => {
     await s.call("meet", { step: "love", answer: "Ada loves Middlemarch." });
     await s.call("meet", { step: "done" });
     for (const x of open.splice(0)) x.counterpart.close();
-    withStore((st) => st.revise(String(work.structuredContent["id"]), { meta: { confidential: true } }));
+    // As an older build left it: the column held 1 (every write stores 0 since
+    // 2026-10-21; this offer's own reading of it goes with the adapters' pull request).
+    withStore((st) => {
+      const id = String(work.structuredContent["id"]);
+      st.revise(id, { meta: { confidential: true } });
+      st["ops"].run("UPDATE memories SET confidential = 1 WHERE id = ?", id);
+    });
     const second = start("s2", DAY2);
     expect(second).not.toContain("interviewing");
     expect(second).toContain("Ada loves Middlemarch.");

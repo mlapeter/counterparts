@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { DREAM_TUNABLES } from "../src/core/dream/index.js";
+import { DREAM_MARK } from "../src/core/dream/mark.js";
 import type { PutInput } from "../src/core/store/index.js";
 
 let dir: string;
@@ -40,7 +41,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" } });
+  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" } });
   open.push(c);
   return c;
 }
@@ -129,7 +130,7 @@ describe("the credential scan covers `emotion` at every door", () => {
   });
 
   test("the note door: the same", async () => {
-    const s = openServer({ dir, scope: "/tmp/review268-project", owner: true, bundlesAsOwner: true });
+    const s = openServer({ dir, scope: "/tmp/review268-project", owner: true });
     open.push({ close: () => s.counterpart.close() });
     const r = await s.call("remember", {
       text: "The release went out after a long night.",
@@ -161,10 +162,12 @@ describe("a second finish", () => {
     const second = c.reflections.finish({
       reflection: s.reflection,
       session: SESSION,
-      page: { text: "## Core\n\nMike told me about the health scare he has not told anyone else about yet.", cites: [s.m] },
+      // A page the reflection's own gate refuses (the dream's mark; until
+      // 2026-10-21 this test used a confidential memory's words).
+      page: { text: `## Core\n\n${DREAM_MARK} I finished the release with Mike.`, cites: [s.m] },
     });
     if (!second.ok) throw new Error(String(second.reason));
-    expect(second.outcome.page).toMatchObject({ written: false, reason: "confidential-words-on-the-page" });
+    expect(second.outcome.page).toMatchObject({ written: false, reason: "dream-mark-in-text" });
     expect(second.outcome.page.detail).toContain("The page written earlier stands.");
     expect(second.outcome.handBack).toContain("I rewrote my self page.");
     expect(c.store.reflection(s.reflection)?.page_version).toBe(first.outcome.page.version);

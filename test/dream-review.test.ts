@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 function brain(owner = true): Counterpart {
-  const c = Counterpart.open({ dir, owner, bundlesAsOwner: true, identity: { name: "Mike" }, now: () => Date.now() + offsetMs });
+  const c = Counterpart.open({ dir, owner, identity: { name: "Mike" }, now: () => Date.now() + offsetMs });
   open.push(c);
   return c;
 }
@@ -80,7 +80,7 @@ function begin(c: Counterpart): string {
 }
 
 describe("review of #251: what a dream's changes must keep", () => {
-  test("a merge or a gist made from a confidential memory is confidential too", () => {
+  test("a merge or a gist made from a memory an older build marked confidential carries no mark (retired 2026-10-21)", () => {
     const c = brain();
     const m = lived(c);
     const secret = mem(c, "The acquisition talks with the other company are not public until October.", {
@@ -89,6 +89,8 @@ describe("review of #251: what a dream's changes must keep", () => {
     const secret2 = mem(c, "Acquisition talks: not public until October, keep it quiet.", {
       meta: { confidentiality: "business" },
     });
+    // As an older build left them: the column held 1.
+    c.store["ops"].run("UPDATE memories SET confidential = 1 WHERE id IN (?, ?)", secret, secret2);
     const id = begin(c);
     const out = c.dreams.propose({
       dream: id,
@@ -99,29 +101,14 @@ describe("review of #251: what a dream's changes must keep", () => {
       ],
     });
     if (!out.ok) throw new Error("refused");
-    // secret2 stays live under the merged memory since Group 2b, so the gist drawn from it is made, and is confidential too.
+    // Both were in the bundle (nothing is held back now), so both changes are made.
     expect(out.results.map((r) => r.reason)).toEqual(["merged", "dreamed"]);
-    expect(c.store.row(out.results[1]?.id as string)?.confidential).toBe(1);
-    const merged = out.results[0]?.id as string;
-    expect(c.store.row(merged)?.confidential).toBe(1);
-    expect(c.store.readProse(merged).meta["confidentiality"]).toBe("business");
-    // secret2 is merged away now; a gist drawn from the merged memory keeps the mark.
-    const gist = c.dreams.propose({
-      dream: id,
-      session: SESSION,
-      changes: [{ action: "gist", text: "Timing is everything with announcements.", sources: [m.a, merged] }],
-    });
-    if (!gist.ok) throw new Error("refused");
-    expect(gist.results[0]?.ok).toBe(true);
-    expect(c.store.row(gist.results[0]?.id as string)?.confidential).toBe(1);
-    // And a plain merge stays plain.
-    const plain = c.dreams.propose({
-      dream: id,
-      session: SESSION,
-      changes: [{ action: "merge", ids: [m.a, m.b], text: "Migrations before the container boots." }],
-    });
-    if (!plain.ok) throw new Error("refused");
-    expect(c.store.row(plain.results[0]?.id as string)?.confidential).toBe(0);
+    for (const made of out.results.map((r) => r.id as string)) {
+      expect(c.store.row(made)?.confidential).toBe(0);
+      const meta = c.store.readProse(made).meta;
+      expect(meta["confidential"]).toBeUndefined();
+      expect(meta["confidentiality"]).toBeUndefined();
+    }
   });
 
   test("a dated reminder and a memory the owner demoted are not merged", () => {

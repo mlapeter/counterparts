@@ -164,11 +164,13 @@ describe("kept apart, and marked after", () => {
     const ok = memory(w, at(D2, 8, 5), { session: A, scope: THERE, title: "Oven seven offset", body: "Eleven degrees hot.", about: "work" });
     w.set(at(D2, 8, 30));
     w.c.store.setAbout(owner, "owner", { by: "owner", why: "it was personal" });
+    // The retired confidential mark (2026-10-21) keeps a title in: named like any other.
     w.c.store.revise(secret, { meta: { confidential: true } });
     w.set(at(D2, 9));
     const line = elsewhereOf(wakeText(w));
     expect(line).toContain(`"Oven seven offset" (${ok})`);
-    for (const never of ["LEDGERFOLDER", "CELLARFOLDER", "REMARKEDOWNER", "REMARKEDCONFIDENTIAL", "ledger", "cellar"]) expect(line).not.toContain(never);
+    expect(line).toContain(secret);
+    for (const never of ["LEDGERFOLDER", "CELLARFOLDER", "REMARKEDOWNER", "ledger", "cellar"]) expect(line).not.toContain(never);
     // The owner's count is every memory written there today, as before titles.
     expect(line).toContain(", 3 memories:");
   });

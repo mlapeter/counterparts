@@ -383,17 +383,18 @@ describe("a chapter about me reaches a wake in another directory, and only what 
     }
   });
 
-  test("a confidential chapter (the episode or its copy) never crosses, not even for the owner; Last here names it to the owner only", () => {
+  test("a chapter carrying the retired confidential mark (the episode or its copy) crosses like any other, for the owner and a guest (2026-10-21)", () => {
     for (const where of ["episode", "copy"] as const) {
       const owner = afternoon();
       const { THERE } = bakery(owner, "me", { confidential: where });
-      expect(wake(owner.c, B, 9_000, HERE, () => true)).not.toContain("Naming the garden beds");
+      expect(wake(owner.c, B, 9_000, HERE, () => true)).toContain("Naming the garden beds");
       expect(wake(owner.c, B, 9_000, THERE, () => true)).toContain("Last here:");
       owner.c.close();
       // The same store, read by a session that is not the owner's.
       const guest = Counterpart.open({ dir: storeDir, owner: false, now: () => at(17, 0), timeZone: ZONE });
       open.push(guest);
-      for (const scope of [HERE, THERE, "claude-desktop:"]) expect(wake(guest, B, 9_000, scope, () => true)).not.toContain("Naming the garden beds");
+      expect(wake(guest, B, 9_000, HERE, () => true)).toContain("Naming the garden beds");
+      expect(wake(guest, B, 9_000, THERE, () => true)).toContain("Last here:");
       guest.close();
       rmSync(storeDir, { recursive: true, force: true });
     }
@@ -562,7 +563,7 @@ describe("confidential titles stay out of the stored Yesterday line, and the wal
       origin: { session, scope: "/tmp/garden" },
     });
 
-  test("Yesterday lists neither a confidential episode nor one with a confidential copy", () => {
+  test("Yesterday lists an episode carrying the retired confidential mark, and one whose copy carries it, like any other (2026-10-21)", () => {
     const s = Store.open({ dir });
     try {
       const plain = put(s, "Weeding the beds");
@@ -570,8 +571,7 @@ describe("confidential titles stay out of the stored Yesterday line, and the wal
       const viaCopy = put(s, "Another private matter");
       s.put({ type: "memory", kind: "fact", body: "A private detail from that chapter.", source: "episode", origin: { session: A, ref: viaCopy }, meta: { confidential: true } });
       const ids = chaptersOn(s, "2026-09-29").map((d) => d.id);
-      expect(ids).toEqual([plain]);
-      expect(ids).not.toContain(secret);
+      expect([...ids].sort()).toEqual([plain, secret, viaCopy].sort());
     } finally {
       s.close();
     }

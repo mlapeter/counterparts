@@ -194,8 +194,8 @@ export function launchOptions(
  * the server read only `COUNTERPARTS_OWNER`, which no install sets, so every
  * Claude Code session's server was a guest while its hooks — reading the
  * configuration's `owner: true` — were the owner: a thread opened in another
- * directory could not be closed from the tool, and confidential memories
- * were left out of its answers.
+ * directory could not be closed from the tool (and, until 2026-10-21,
+ * confidential memories were left out of its answers).
  *
  * With nothing said on this launch, the configuration decides: `owner: true`
  * there (every install writes it) makes a server Claude Code started the

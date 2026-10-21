@@ -45,16 +45,12 @@ export function occurredOnOf(v: unknown): string | null {
 }
 
 /**
- * A memory's confidentiality class, from its `meta`.
+ * A memory's old confidentiality class, from its `meta`.
  *
- * The truth table lives HERE, beside the writes that carry it, because it is a
- * gate: `recall/activate.ts#isConfidential` is the same answer by the same
- * function, so the surfacing boundary and `StoredMemory.confidential` can never
- * disagree. Since the floor it is also evaluated ONCE PER WRITE and stored in
- * `memories.confidential`, so the gate no longer parses JSON on every read —
- * a gate that re-parses at every call site is a gate that will one day fail
- * open. The function stays the single definition both the column and the
- * boundary are computed from.
+ * RETIRED 2026-10-21: no core gate and no store write asks it any more, and
+ * the column it used to fill is written 0. It is still exported because the
+ * adapters' surfaces (the markdown export, the dashboard) read it until their
+ * own removal lands; it goes then.
  */
 export function confidentialByMeta(meta: Readonly<Record<string, unknown>>): boolean {
   if (meta["confidential"] === true) return true;

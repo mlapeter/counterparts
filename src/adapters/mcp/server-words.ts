@@ -142,9 +142,12 @@ export function desktopWriteUpAsk(session: string): string {
   return `Counterparts: this chat has gone on a while since it was last written up. At a natural pause, hand back what caught your attention, one idea each, with session_end (session: ${session}; memories: [] only if nothing held your attention; \`updates\` anything dated or open now done; ${RATE_ASK_CLAUSE}), and add a chapter with the chapter tool (session: ${session}) if the chat was about something. ${PRONOUN_RULE}`;
 }
 
-/** What `status` says `owner: false` means — the confused Desktop chats' question (2026-09-30). */
+/** What `status` says `owner: false` means — the confused Desktop chats' question (2026-09-30).
+ *  Reworded 2026-10-21 when confidential memories were retired: what the stance
+ *  still decides, lightly held, pending the talk about whether the night run
+ *  counts as the owner. */
 export const OWNER_FALSE_NOTE =
-  "owner: false — confidential memories are left out of this server's answers, and an open question written in another directory cannot be closed from here. It is the ordinary setting for a Claude Desktop chat; your Claude Code sessions run as the owner unless COUNTERPARTS_OWNER=0. Nothing is wrong.";
+  "owner: false — an open question written in another directory cannot be closed from here, and the last exchange (what was last said in this directory) is not read here. It is the ordinary setting for a Claude Desktop chat; your Claude Code sessions run as the owner unless COUNTERPARTS_OWNER=0. Nothing is wrong.";
 
 /** The owner variable's name, for `status` (the entry point reads it, `stance-env.ts`). */
 export const OWNER_ENV_NAME = "COUNTERPARTS_OWNER";

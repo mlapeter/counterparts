@@ -2018,7 +2018,6 @@ describe("MemorySource is TOTAL — every member has a live writer that lands it
     const dreams = new Dreams({
       store: s,
       observer: false,
-      owner: true,
       gate: (text) => ({ ok: true, text }),
       page: () => null,
       wake: () => null,

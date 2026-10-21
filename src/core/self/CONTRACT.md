@@ -8,7 +8,7 @@ The autobiographical self: identity documents, the first-person episode journal,
 wake briefing that restores a continuous self — at session start for a live session, and,
 composed read-only against a caller's own budget, for any background writer of memories
 before it reads a transcript (owner ruling 2026-09-17). A composition bound for a model
-call outside this machine stands confidential and protected rows out with
+call outside this machine stands protected rows out with
 `BoundaryRequest.omit`; the published bundle and the identity rotation are written by
 `boundary()` and by nothing else, so no such reader can move what a live session wakes to.
 
@@ -84,7 +84,7 @@ counted by doctor, and said in the next morning share).
   opening lines (`meta.chapterSummary: written | automatic`; doctor counts the two). It is
   an ordinary self-kind memory in the shape the full copy had (`source: episode`,
   `origin_ref` = the chapter's id, `meta.episodeId`) plus `meta.chapter`, so recall's
-  fold, use credit and the wake's confidential and `about` flags read it unchanged; the
+  fold, use credit and the wake's `about` flag read it unchanged; the
   cards the CHAPTER names are credited to it and linked to it as subjects. Its `about` is
   its OWN chapter's (`meta.abouts` on the episode, carried whole), so the wake's "about
   me, from another directory" now takes a session in when ANY of its chapters is marked
@@ -123,7 +123,7 @@ counted by doctor, and said in the next morning share).
   leaves reach and is pruned like any memory (`store/operational.ts#isChapterSummary`
   narrows `reachExempt` and `sleep/types.ts#isJournalCopy`). The frozen full copies KEEP
   the exemption: they are the only memory their chapters have (no summary is written
-  for a chapter a copy covers), they carry the `about` marks and confidential flags the
+  for a chapter a copy covers), they carry the `about` marks the
   wake reads (71 marks on the owner's store) and the links and subject links learned on
   them (about 1,436 edge rows, 419 subject links), and they hold no salience of their own
   — let fade, they would leave at the floor in one wave and take those with them, for no
@@ -586,8 +586,8 @@ proposals and their archive; render and delivery telemetry.
     the machine, and whether the page goes with it is `PAGE_ON_EGRESS` — a switch, default
     TRUE, which is the owner's decision of 2026-09-17 (spec §15 item 3: the background
     writer is woken as the self before it reads a transcript). Turned off, that composition
-    gets no page and falls back to the identity list the predicate left standing. Nothing
-    marks a page confidential: there is one page, and the switch is the decision.
+    gets no page and falls back to the identity list the predicate left standing. There is
+    one page, and the switch is the decision.
 18. **[M]** **ONE ROW FOR THE LIFE OF THE PAGE, and a page is unwritten rather than
     removed.** `clearPage` is an ordinary revision — the body it replaces becomes an
     ordinary version, attributed like any other — to a fixed cleared line, with

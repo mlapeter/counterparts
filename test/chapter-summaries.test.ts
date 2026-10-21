@@ -536,7 +536,7 @@ describe("whole-day views show a chapter's line as its summary", () => {
     c.store.put({ type: "memory", kind: "fact", body: "The zqkiln shelf paper is nearly out; order more this week." });
     // The clock's own local day, so the suite's far-ahead time zone reads the same day.
     const about = localDate(clock, c.store.zone());
-    const day = dayJournal(c.store, { about, room: 14_000, owner: [], day: c.store.livedDay(), lineBytes: 200, entryChars: 6_000, confidential: true });
+    const day = dayJournal(c.store, { about, room: 14_000, owner: [], day: c.store.livedDay(), lineBytes: 200, entryChars: 6_000 });
     expect(day.entries).toBe(1);
     expect(day.chapters[0]?.id).toBe(written.episodeId as string);
 
@@ -557,7 +557,7 @@ describe("whole-day views show a chapter's line as its summary", () => {
     const written = c.appendEpisode(SESSION, long, { summary: SUMMARY_ONE });
     const byEpisode = chapterSummaries(c.store, [written.episodeId as string]);
     expect(byEpisode.get(written.episodeId as string)?.get(1)?.kind).toBe("written");
-    const day = dayJournal(c.store, { about: localDate(clock, c.store.zone()), room: 400, owner: [], day: c.store.livedDay(), lineBytes: 200, entryChars: 6_000, confidential: true });
+    const day = dayJournal(c.store, { about: localDate(clock, c.store.zone()), room: 400, owner: [], day: c.store.livedDay(), lineBytes: 200, entryChars: 6_000 });
     expect(day.chapters[0]?.entries[0]?.fidelity).toBe("line");
     expect(day.chapters[0]?.entries[0]?.text).toBe(SUMMARY_ONE);
   });

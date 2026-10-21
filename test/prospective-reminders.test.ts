@@ -565,19 +565,14 @@ describe("plain reminders", () => {
     expect(c.prospective.horizon({ at: "2026-10-16", day: 4 }).items.map((i) => i.memoryId)).toEqual([id]);
   });
 
-  test("a CONFIDENTIAL plain item is told only in the owner's own session", () => {
+  test("a plain item carrying the retired confidential mark is told in any session (2026-10-21)", () => {
     const c = Counterpart.open({ dir });
     open.push(c);
     const secret = dated(c.store, "2026-10-15", {
       title: "the biopsy results call",
       meta: { [CUE_MODE_META]: "plain", confidential: true },
     });
-    expect(c.plainReminders({ at: "2026-10-15" })).toEqual([]);
-    c.close();
-    open.length = 0;
-    const mine = Counterpart.open({ dir, owner: true });
-    open.push(mine);
-    expect(mine.plainReminders({ at: "2026-10-15" }).map((r) => r.memoryId)).toEqual([secret]);
+    expect(c.plainReminders({ at: "2026-10-15" }).map((r) => r.memoryId)).toEqual([secret]);
   });
 
   test("a quiet item is never told; an archived or superseded one neither", () => {

@@ -217,7 +217,7 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
     expect(withLinks.footnotes[withLinks.footnotes.length - 1]).toBe(behind);
   });
 
-  test("the boundary gates hold for pointers: withheld when confidential in a non-owner session, deduped within a session", () => {
+  test("the boundary gate holds for pointers: deduped within a session (the retired confidential mark withholds nothing, 2026-10-21)", () => {
     const { s, associate, cued } = seeded();
     const secret = s.put({
       type: "memory",
@@ -227,8 +227,8 @@ describe("1. quiet pointers: a few per turn, footnote tier only, over a threshol
     });
     coUse(associate, cued, secret, 6);
     const stranger = recallTurn(new Recall({ store: s, owner: false }), { sessionId: "x", text: TURN }, { associate }).decision;
-    expect(stranger.verdicts.find((v) => v.id === secret)?.verdict).toBe("confidential-withheld");
-    expect(stranger.footnotes).not.toContain(secret);
+    expect(stranger.verdicts.find((v) => v.id === secret)?.verdict).not.toBe("confidential-withheld");
+    expect(stranger.footnotes).toContain(secret);
 
     const owner = new Recall({ store: s, owner: true });
     const first = recallTurn(owner, { sessionId: "o", text: TURN }, { associate }).decision;

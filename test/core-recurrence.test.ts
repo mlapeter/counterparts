@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 function brain(): Counterpart {
-  const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" }, now: () => Date.now() + dateN * 86_400_000 });
+  const c = Counterpart.open({ dir, owner: true, identity: { name: "Mike" }, now: () => Date.now() + dateN * 86_400_000 });
   open.push(c);
   return c;
 }

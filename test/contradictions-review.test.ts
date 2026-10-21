@@ -243,7 +243,7 @@ describe("S5: undoing a settle nobody flagged withdraws the pair", () => {
     const rec = payload(await s.call("recall", { ids: [old] }));
     expect((rec["memories"] as Record<string, unknown>[])[0]?.["standing"]).toBeUndefined();
     expect(s.counterpart.dreams.raiseLines({ session: "next" })).toEqual([]);
-    const mind = mindRanked(store, { today: store.today(), day: store.livedDay(), showable: () => true, owner: true });
+    const mind = mindRanked(store, { today: store.today(), day: store.livedDay(), showable: () => true });
     expect(mind.items.some((i) => i.kind === "unsettled")).toBe(false);
   });
 

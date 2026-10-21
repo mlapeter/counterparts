@@ -294,7 +294,8 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    `LINK_POINTER_MIN_FRACTION` (0.05) of the strongest seed's AND the part of it that came
    from memories this turn SHOWS is at least that fraction of the strongest shown one's
    (the anchor: a pointer completes something that came to mind), never the loud tier, and
-   still behind confidentiality and session dedup. For that lane gate (a) is CHECKED
+   still behind session dedup (the confidentiality gate beside it was retired 2026-10-21,
+   G9). For that lane gate (a) is CHECKED
    rather than structural (the memory is fetched); for every other uncued memory it is
    structural as before. Tests: `association-build2.test.ts` › "1. quiet pointers".*
 6. **[M]** Tiers are disjoint and capped. *(Quiet pointers have their own cap,
@@ -311,9 +312,11 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    memory by id or title, or quoting the words a deliberate answer showed (`asked` gate
    records, read by `Counterpart#creditReferences`; never by the ambient gate), is credited
    at the boundary like any use.
-9. **[M]** Confidentiality is enforced at the boundary of the ask — sensitive material returns
-   only in the owner's own session; withholding is *stated* for a direct lookup and silent in
-   a list.
+9. **RETIRED 2026-10-21.** Confidentiality was enforced at the boundary of the ask — material
+   marked confidential returned only in the owner's own session. Removed on Mike's call:
+   nothing in the product set the mark, nobody used it, and it was never clear whom it
+   protected. The `confidential` column is inert (store CONTRACT §5 G13); the `Verdict`
+   variant `confidential-withheld` stays readable on old `mcp.recall` rows.
 10. **[M]** Reference credit is precision-biased, never downgrades an already-credited item,
     and is a no-op under observer. Since 2026-10-11 a lower tier credited earlier the same
     lived day is LIFTED by a higher one (`physics#creditUse`'s `upgradeFrom`) — from this
@@ -434,8 +437,7 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     Either way the stamps' cue is in the CUE channel (the temporal channel's shape: hard
     gate (a) stays structural, the floor (b) still applies) and is kept OUT of the gate's
     background (`Candidate.stamp`): the relative bar is what the words and meaning found.
-    Every scope rule of `recallable` and the confidentiality gate apply; a confidential
-    stamp takes no slot for a non-owner; a chapter and its copy take one slot. Ids and
+    Every scope rule of `recallable` applies; a chapter and its copy take one slot. Ids and
     numbers only reach `BuildOutput.feeling`; no feeling's word reaches the decision
     record. Tests: `recall-feelings.test.ts`.
 
@@ -474,7 +476,6 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     a `quiet` row marked `recent` was put there by the question, not admitted by the
     ambient bar, and the result's glossary says so. Activation, the gate and the
     decision record are unchanged (the rows it adds are not in `considered`).
-    Confidential rows are withheld from a non-owner silently, as a list withholds.
     Tests: `continuity.test.ts`.
 21. **[M]** **Ambient recall does not hand a session back what it wrote** (the echo skip;
     an experiment started 2026-10-19, feedback-loop build part C: trying it to see whether
@@ -568,8 +569,7 @@ already in the session; a turn that reached only the earlier one is shown its he
 (`recall/index.ts#headsWin`: the earlier's numbers, the head's words and its `(earlier:
 [id])`), left out of the turn's background. A head the turn reached only through a link
 (a quiet pointer) counts as not reached: it is brought in to stand for the earlier one and
-its pointer candidate dropped (2026-10-11, Group 2b), so the two never show side by side. A
-confidential head for a guest is withheld, and the earlier then shows, labelled. The
+its pointer candidate dropped (2026-10-11, Group 2b), so the two never show side by side. The
 deliberate path is unchanged: facts mode already folds a chain under its head, meaning mode
 marks an earlier moment `earlier (now [id])` (Group 2b), and every other answer carries the
 label.

@@ -557,7 +557,7 @@ describe("the hard gates salience cannot override", () => {
     expect(g.surfaced.map((c) => c.id)).not.toContain("mem_recency");
   });
 
-  test("confidentiality is a boundary gate: withheld from a non-owner, returned to the owner", () => {
+  test("the retired confidential mark (2026-10-21) gates nothing: a non-owner's recall reaches it as the owner's does", () => {
     const s = store();
     seed(s);
     const id = put(s, {
@@ -566,27 +566,21 @@ describe("the hard gates salience cannot override", () => {
       body: "The compensation renegotiation with Marisol is confidential until the offer lands.",
       meta: { confidential: true },
     });
-
-    const nonOwner = new Recall({ store: s, owner: false });
-    const a = nonOwner.recall({ sessionId: "s1", text: "the compensation renegotiation with Marisol" });
-    expect(verdictOf(a.decision.verdicts, id)).toBe("confidential-withheld");
-    expect(a.injection).not.toContain(id);
-
-    const owner = new Recall({ store: s, owner: true });
-    const b = owner.recall({ sessionId: "s2", text: "the compensation renegotiation with Marisol" });
-    expect(verdictOf(b.decision.verdicts, id)).not.toBe("confidential-withheld");
-    expect(delivered(b.decision)).toContain(id);
+    for (const owner of [false, true]) {
+      const r = new Recall({ store: s, owner });
+      const got = r.recall({ sessionId: `s-${String(owner)}`, text: "the compensation renegotiation with Marisol" });
+      expect(verdictOf(got.decision.verdicts, id)).not.toBe("confidential-withheld");
+      expect(delivered(got.decision)).toContain(id);
+    }
   });
 
   /**
    * The gate's truth table, value by value, asserted against LITERALS.
    *
-   * The class now has two doors — `isConfidential(doc)` for a caller holding a
-   * bare document, `StoredMemory.confidential` for one that already read the
-   * memory — and they must never disagree: a disagreement here shows a
-   * confidential memory where it must not appear. Comparing the two doors to
-   * each other would prove nothing (they are one function), so every row below
-   * states the answer the pre-split code gave, including the odd ones: the
+   * Since 2026-10-21 the class has one door, `isConfidential(doc)`, read only by
+   * the adapters that have not dropped it yet; `StoredMemory.confidential` is the
+   * inert column and reads false. Every row below states the answer the
+   * pre-split code gave, including the odd ones: the
    * comparison is case-sensitive and untrimmed, so `"OPEN"` and `" open"` are
    * confidential, and `confidential` is checked with `=== true`, so `1` and
    * `"true"` are not.
@@ -613,7 +607,7 @@ describe("the hard gates salience cannot override", () => {
     [{ confidential: true, confidentiality: "normal" }, true],
   ];
 
-  test("the confidentiality class is one truth table, whichever door asks it", () => {
+  test("the old confidentiality class is one truth table (still read by the export and the dashboard), and the column no longer carries it", () => {
     const s = store();
     for (const [meta, expected] of CONFIDENTIALITY_TABLE) {
       const id = put(s, { body: `a memory carrying ${JSON.stringify(meta)}`, meta });
@@ -621,25 +615,9 @@ describe("the hard gates salience cannot override", () => {
       // The meta survives the round trip — otherwise the row below is vacuous.
       expect(s.readProse(id).meta, label).toEqual(meta);
       expect(isConfidential(s.readProse(id)), label).toBe(expected);
-      expect(s.read(id).confidential, label).toBe(expected);
+      // The column is inert since 2026-10-21: every write stores 0.
+      expect(s.read(id).confidential, label).toBe(false);
     }
-  });
-
-  test("an odd spelling of the class still reaches the boundary gate", () => {
-    const s = store();
-    seed(s);
-    // `"OPEN"` is not `"open"`, and the gate has always read it as confidential.
-    const id = put(s, {
-      kind: "person",
-      body: "The compensation renegotiation with Marisol is unresolved.",
-      meta: { confidentiality: "OPEN" },
-    });
-    const nonOwner = new Recall({ store: s, owner: false });
-    const a = nonOwner.recall({
-      sessionId: "s1",
-      text: "the compensation renegotiation with Marisol",
-    });
-    expect(verdictOf(a.decision.verdicts, id)).toBe("confidential-withheld");
   });
 
   test("tiers are disjoint and capped, and the overflow says so", () => {

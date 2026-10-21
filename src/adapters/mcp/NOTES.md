@@ -1712,3 +1712,17 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   `threadClosedBy` names. The summary and admission were worded short again to keep
   `settle`'s claim inside the 2,048-character cut; `description-cut.test.ts`'s lengths
   moved with it.
+
+## 2026-10-21 — confidential memories removed (core and MCP behaviour)
+
+- Every withholding by the confidential mark is gone from this adapter: `deliberate.ts`
+  (by handle, by id, a chapter and its moments), `facts.ts` (results, pool, `canName`),
+  `meaning.ts` (moments, the episode index), `nights.ts` (the whole-night refusal, the
+  gists' and entry's `confidential` flags) and `server.ts` (core decisions, still-dated
+  titles, the slot's title, the `withheld` sentence). The tool descriptions lost their
+  confidentiality words and recall's engine claim; `tools-before.json` stays the
+  historical "before". `ownerMeans` now says what `owner: false` still means: an open
+  question from another directory is not closed here, and the last exchange is not read
+  here. The `owner` fields on the facts, meaning and deliberate contexts are kept but gate
+  nothing; they go with the column's types. The last exchange stays owner-only for now,
+  lightly held.

@@ -481,7 +481,7 @@ describe("noticing at write time", () => {
     expect(JSON.stringify(r.structuredContent)).toContain(x);
   });
 
-  test("nothing close, nothing listed; journal chapters, archived rows and a confidential memory outside the owner's session are left out", () => {
+  test("nothing close, nothing listed; journal chapters and archived rows are left out, and the retired confidential mark changes nothing", () => {
     const store = Store.open({ dir });
     open.push(store);
     aged(store);
@@ -489,11 +489,10 @@ describe("noticing at write time", () => {
     const archived = put(store, "The Pine building office door code is on the fridge.");
     store.archive(archived, "test");
     const id = put(store, "The Pine building office door code changed this month.");
-    expect(writeNeighbours(store, { id, owner: false }).map((n) => n.id)).not.toContain(secret);
-    expect(writeNeighbours(store, { id, owner: true }).map((n) => n.id)).toContain(secret);
-    expect(writeNeighbours(store, { id, owner: true }).map((n) => n.id)).not.toContain(archived);
+    expect(writeNeighbours(store, { id }).map((n) => n.id)).toContain(secret);
+    expect(writeNeighbours(store, { id }).map((n) => n.id)).not.toContain(archived);
     const lone = put(store, "Quantum chromodynamics describes the strong interaction.");
-    expect(writeNeighbours(store, { id: lone, owner: true })).toEqual([]);
+    expect(writeNeighbours(store, { id: lone })).toEqual([]);
   });
 });
 

@@ -189,9 +189,10 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     fortnight written elsewhere whose copy is marked `me`, `us` or `owner` adds one line
     (title, id, and the directory) on the widest rungs, given up first. Work stays where it
     was done. Only from a directory the host's scope setting has `on` (`WakeHere.exportsFrom`;
-    no way to ask means nothing crosses), only a chapter whose row records its directory,
-    and NEVER a confidential one (the episode or any copy). A confidential chapter is
-    "last here" to the owner only (review of #311). Since 2026-10-20 it reads "A chapter
+    no way to ask means nothing crosses), and only a chapter whose row records its
+    directory. (Until 2026-10-21 never a confidential one either, and a confidential
+    chapter was "last here" to the owner only, review of #311; that mark is retired.)
+    Since 2026-10-20 it reads "A chapter
     about me from <folder>: session …, <date> — "…" (epi_…)." (`ELSEWHERE_HEAD`).
     **Each episode once** (2026-10-20, lightly held): at a session start the Yesterday line
     leaves out the episode "Last here" names first, and "Before it", "+N more here" and the
@@ -205,7 +206,7 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     to `ELSEWHERE_TITLE_BYTES`, 48) and whole id: a status mark first, then work
     (`self/work.ts#isWorkMemory`), newest first, chosen by `Counterpart#elsewhereTitles`
     under the one elsewhere gate (`elsewhereGate.named`: scope `on`, not this folder or the
-    store's). Never confidential (to anyone), never marked me, us or owner, never chit-chat
+    store's). Never marked me, us or owner, never chit-chat
     (a status mark does not make a memory work), this session's own, the nightly run's (nor
     a write-up, `meta.secondHand`), a chapter's copy, or an open thread (`unresolved`, as
     "Work here" leaves it out). The night's write-up runner (`writeup-…`) is never a session
@@ -265,8 +266,8 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     and its memories straight after). Never named: a `done` or unmarked memory, another
     directory's, a dream's or a sweep's (`source = 'authored'` only), one a later memory
     settled over, one the published wake already lists under "Still open:" (one place for
-    an open question; `self/index.ts#threadsShown`, review of #332), a journal copy, a
-    confidential one outside the owner's session. Read
+    an open question; `self/index.ts#threadsShown`, review of #332), or a journal copy.
+    Read
     at delivery and at the boundary from the columns (`Store#planCandidates`), then the
     prose of what came back; a store that will not answer names nothing. Every rung of
     the ladder is tried WITH the line before the rungs WITHOUT it, which are the blocks as

@@ -456,24 +456,21 @@ describe("stale open threads, closed when plainly done", () => {
     expect(openFlag(c, there)).toBe(true);
   });
 
-  test("a confidential thread is never self-closed, even in the owner's session: it is asked instead", () => {
-    const c = Counterpart.open({ dir, owner: true, bundlesAsOwner: true, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
+  test("a thread carrying the retired confidential mark is self-closed like any other, from a session not the owner's too (2026-10-21)", () => {
+    const c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
     open.push(c);
     nextDay(c);
     const secret = mem(c, "Open: did the private terms with the supplier renew?", { meta: { unresolved: true, confidential: true } });
     for (let i = 0; i < REFLECT_TUNABLES.STALE_OPEN_DAYS + 1; i += 1) nextDay(c);
-    expect(c.store.row(secret)?.confidential).toBe(1);
     const begun = c.reflections.begin({ session: SESSION });
     if (!begun.ok) throw new Error(begun.reason);
     expect(begun.bundle.staleOpen.map((x) => x.id)).toContain(secret);
     const id = begun.bundle.reflection;
     const done = c.reflections.finish({ reflection: id, session: SESSION, entry: "A look back.", closeNow: [{ id: secret, why: "Renewed." }] });
     if (!done.ok) throw new Error(done.reason);
-    expect(done.outcome.close.closed).toEqual([]);
-    expect(done.outcome.close.proposed).toEqual([secret]);
-    expect(done.outcome.close.notes ?? []).toEqual([`${secret}: asked instead of closed (confidential).`]);
-    expect(openFlag(c, secret)).toBe(true);
-    expect(JSON.parse(c.store.reflection(id)?.detail ?? "{}")["counts"]["closeAskedInstead"]).toBe(1);
+    expect(done.outcome.close.closed.map((x) => x.id)).toEqual([secret]);
+    expect(done.outcome.close.proposed).toEqual([]);
+    expect(openFlag(c, secret)).toBe(false);
   });
 
   test("a write-up from a session that is not the owner's still closes no thread opened in another folder (the 10-02 rule)", async () => {
@@ -700,22 +697,20 @@ describe("reopen from the thread's id alone", () => {
     expect(openFlag(c, closedByWriteUp)).toBe(false);
   });
 
-  test("from a session that is not the owner's, a confidential thread is refused `confidential`", () => {
+  test("from a session that is not the owner's, a thread carrying the retired confidential mark is reopened like any other (2026-10-21)", () => {
     let c = brain();
     const w = world(c);
     const begun = c.reflections.begin({ session: SESSION });
     if (!begun.ok) throw new Error(begun.reason);
     c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "A look back.", closeNow: [{ id: w.stale, why: "Signed." }] });
-    // Made private after it was closed.
     c.store.revise(w.stale, { meta: { confidential: true } });
-    expect(c.store.row(w.stale)?.confidential).toBe(1);
     c.close();
     open.splice(0);
     c = Counterpart.open({ dir, owner: false, identity: { name: "Mike" }, now: () => BASE + dateN * 86_400_000 });
     open.push(c);
     const out = c.reflections.reopen({ session: "s-guest", ids: [w.stale] });
     if (!out.ok) throw new Error(out.reason);
-    expect(out.refused).toEqual([{ id: w.stale, reason: "confidential" }]);
-    expect(openFlag(c, w.stale)).toBe(false);
+    expect(out.reopened).toEqual([w.stale]);
+    expect(openFlag(c, w.stale)).toBe(true);
   });
 });

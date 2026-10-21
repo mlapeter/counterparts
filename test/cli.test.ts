@@ -162,6 +162,16 @@ function store(opts: Parameters<typeof Store.open>[0] = {}): Store {
   return s;
 }
 
+/**
+ * A row as an OLDER build left it, marked confidential in the column. Since
+ * 2026-10-21 every write stores 0 there (the core no longer reads it); the
+ * export's and the remove list's own use of it goes in their own pull request,
+ * and until then these tests seed the column the way an upgraded store has it.
+ */
+function markedByOlderBuild(s: Store, id: string): void {
+  s["ops"].run("UPDATE memories SET confidential = 1 WHERE id = ?", id);
+}
+
 function text(lines: readonly string[]): string {
   return lines.join("\n");
 }
@@ -1045,6 +1055,7 @@ describe("export", () => {
       body: "ZQSECRETROW — the migraine clinic appointment.",
       meta: { confidential: true },
     });
+    markedByOlderBuild(s, secret);
     const removed = s.put({ type: "memory", kind: "fact", body: "ZQREMOVEDROW — gone by the time this exports." });
     const self = new Self({ store: s, gate: () => ({ ok: true }) });
     self.openChapter("s1", { turns: 9, bytes: 6_000 });
@@ -1148,6 +1159,7 @@ describe("export", () => {
     s.close();
     const marked = store();
     marked.revise(later, { meta: { confidential: true } });
+    markedByOlderBuild(marked, later);
     marked.close();
 
     const target = join(outside, "nights");
@@ -1221,6 +1233,7 @@ describe("export", () => {
     s.close();
     const marked = store();
     marked.revise(later, { meta: { confidential: true } });
+    markedByOlderBuild(marked, later);
     marked.close();
 
     const target = join(outside, "nights-linked");
@@ -1360,6 +1373,7 @@ describe("export", () => {
     // page" branch for this store, which is the one thing the manifest exists
     // to make impossible: a directory that reads as complete.
     s.revise(pageId, { body: "ZQPAGESECRET — who I am, still.", meta: { confidential: true } });
+    markedByOlderBuild(s, pageId);
     const openRow = s.put({ type: "memory", kind: "fact", body: "An open memory, first wording." });
     s.revise(openRow, { body: "An open memory, second wording.", meta: { confidential: true } });
     // …and back to open. `revise` MERGES meta into the prior meta, so the class
@@ -2278,6 +2292,7 @@ describe("remove — the interactive door", () => {
       body: "PASSWORD hunter2 for the culvert gate control panel.",
       meta: { confidential: true },
     });
+    markedByOlderBuild(s, secret);
     const plain = s.put({ type: "memory", kind: "fact", body: "The culvert gate sticks in October." });
     s.close();
 

@@ -1261,3 +1261,12 @@ call (`ref` the session) and touches nothing else. What the build chose:
 - **Revert:** `FACTS_TAIL_SIZE = 0` turns the tail off; dropping `{ soft: true }` from
   `time-ask.ts`'s soft branch makes the four words filter the past week again (as
   "recently" and "lately" did). No store change.
+
+## 2026-10-21 — the confidentiality gate is retired (G9)
+
+- Boundary gate 1 (`confidential-withheld`) is gone from `gate.ts`, and so is its echo in
+  the heads-win rule (a marked head no longer lets the earlier one show) and the feeling
+  lane's nomination skip (`FeelingAskInput.owner` went with it). `Verdict` keeps the
+  variant so old `mcp.recall` rows read; `Candidate.confidential` and `isConfidential` stay
+  until the adapters that read them drop them. The recall stance (`owner`) is still
+  recorded on the decision; it gates nothing here now.

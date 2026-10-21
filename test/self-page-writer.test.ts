@@ -321,18 +321,21 @@ describe("what the writer reads", () => {
     ]);
   });
 
-  test("confidential rows are held back, and the holding back is COUNTED", () => {
+  test("nothing is held back by default (a row carrying the retired confidential mark goes too); what a caller's omit holds back is COUNTED", () => {
     const c = counterpart();
     const about = pageWriterNight(c.store).about;
     c.store.put({ type: "memory", kind: "fact", body: "An ordinary placeholder.", learnedOn: about });
-    c.store.put({
+    const marked = c.store.put({
       type: "memory",
       kind: "fact",
       body: "A placeholder the owner marked private.",
       learnedOn: about,
       meta: { confidential: true },
     });
-    const built = c.pageWriterInput({ about });
+    const whole = c.pageWriterInput({ about });
+    expect(whole.memories).toHaveLength(2);
+    expect(whole.omitted).toBe(0);
+    const built = c.pageWriterInput({ about, omit: (m) => m.id === marked });
     expect(built.memories).toHaveLength(1);
     expect(built.memories[0]?.statement).toBe("An ordinary placeholder.");
     expect(built.omitted).toBe(1);

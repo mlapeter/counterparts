@@ -310,14 +310,14 @@ describe("the dream confirms or undoes, on a budget", () => {
       if (!out.ok) throw new Error(out.detail);
       pairs.push(out.pair);
     }
-    const read = mindRanked(c.store, { today: "2026-09-14", day: c.store.livedDay(), showable: () => true, owner: true, slots: true });
+    const read = mindRanked(c.store, { today: "2026-09-14", day: c.store.livedDay(), showable: () => true, slots: true });
     const confirm = read.items.filter((i) => i.kind === "to-confirm");
     expect(confirm).toHaveLength(T.SLOT_PER_NIGHT);
     expect(confirm[0]?.pair).toBe(pairs[0]);
     expect(read.slotsMore).toBe(2);
     expect(read.items.some((i) => i.kind === "unsettled")).toBe(false);
     // The reflection's read has none of them.
-    expect(mindRanked(c.store, { today: "2026-09-14", day: c.store.livedDay(), showable: () => true, owner: true }).items).toHaveLength(0);
+    expect(mindRanked(c.store, { today: "2026-09-14", day: c.store.livedDay(), showable: () => true }).items).toHaveLength(0);
     expect(c.dreams.raiseLines({ session: "s-next" })).toEqual([]);
   });
 

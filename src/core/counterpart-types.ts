@@ -67,7 +67,7 @@ export interface SweepWake {
   readonly elements: number;
   /** Elements the cap's trim order dropped — the cap having bitten. */
   readonly trimmed: number;
-  /** Rows stood aside as confidential or protected, before any lane saw them. */
+  /** Rows stood aside as protected, before any lane saw them. */
   readonly omitted: number;
   readonly code: string | null;
 }
@@ -351,14 +351,6 @@ export interface CounterpartOptions extends Stance {
    */
   build?: string | null;
   /**
-   * READ A DREAM'S AND A REFLECTION'S BUNDLES AS THE OWNER (review of #318).
-   * No host sets it: a bundle is a guest's on every server
-   * (`dream/tunables.ts#BUNDLE_OWNER`). The store-level tests of what an
-   * owner-read bundle must keep — a merge of a confidential memory is
-   * confidential, a page rests on nothing confidential — set it. Absent: false.
-   */
-  bundlesAsOwner?: boolean;
-  /**
    * `self/`'s knobs over its defaults (`self/tunables.ts`). Absent: the
    * defaults. Added 2026-10-01 so the craft lane's switch
    * (`CRAFT_AT_DELIVERY`) can be turned off for a whole counterpart.
@@ -639,9 +631,10 @@ export interface DepositResult {
 
 /**
  * Why a deposit did not close the open thread it names (review of #313): the
- * revision step's own refusals for a protected or archived row, and the two
- * a session that is not the owner's meets — a confidential row, or a row
- * written in another directory.
+ * revision step's own refusals for a protected or archived row, and the one
+ * a session that is not the owner's meets — a row written in another
+ * directory. `confidential` is retired (2026-10-21): nothing produces it; the
+ * variant goes with the column's types.
  */
 export type ThreadRefusal = "protected-refuses-revision" | "target-archived" | "confidential" | "other-directory";
 
@@ -673,8 +666,8 @@ export interface DepositReminder {
   readonly alsoClosed?: readonly string[];
   /**
    * Memories of that chain still holding a date that this write could not
-   * close (`closeThread`'s guards: protected, or confidential / another
-   * directory's for a session that is not the owner's). Listed in the reply.
+   * close (`closeThread`'s guards: protected, or another directory's for a
+   * session that is not the owner's). Listed in the reply.
    */
   readonly chainSkipped?: readonly string[];
 }

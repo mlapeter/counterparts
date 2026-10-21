@@ -166,9 +166,8 @@ export interface StoredMemory {
   supersededBy: string | null;
   revision: number;
   contentHash: string;
-  /** The confidentiality class, read off the ROW's column (written from
-   *  `confidentialByMeta` at every write). Carried on the read so a caller gates
-   *  on a boolean rather than on JSON it had to re-interpret. */
+  /** The retired confidentiality column, as it stands (2026-10-21: written 0,
+   *  read by no gate in core). Goes with the column's type. */
   confidential: boolean;
   /** v7 moments, UTC ms (docs/time.md). Null on a row written before v7. */
   createdAt: number | null;
