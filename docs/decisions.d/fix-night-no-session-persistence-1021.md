@@ -12,3 +12,8 @@
   turns out to lack the flag.
 - Transcripts from earlier nights are left to Claude Code's own cleanup; nothing under
   `~/.claude` is deleted by Counterparts.
+- What this costs (2026-10-21, review of #574): `tools/harness night` replays a recorded
+  night from its children's transcripts (`night.ts#readChild`, `--dream` /
+  `--reflection`), copied from `~/.claude/projects`. No new night leaves those files now;
+  the recorded 10-19 corpus still replays. An opt-in recorder is not built: that is
+  Mike's call.

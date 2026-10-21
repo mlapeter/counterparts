@@ -454,6 +454,7 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     const out = await runNight(nightOf({ command: stub("exit 1") }));
     expect(out).toMatchObject({ state: "could-not-start", reason: "quick-exit", code: 1 });
     expect(nightRunWords(out)).toContain("is it logged in?");
+    expect(nightRunWords(out)).toContain("too old for the night's flags");
   });
 
   test("no `claude` on the path: could not start (`no-claude`)", async () => {
@@ -916,7 +917,7 @@ describe("B. auto: the first prompt of the day starts the headless run itself", 
     a.counterpart.dreams.recordNightRun({ ...started, state: "could-not-start", reason: "quick-exit", code: 1, endedAt: started.startedAt + 2_000 });
     offsetMs += 5_000;
     const next = a.userPromptSubmit(input({ sessionId: "s2" }));
-    expect(next.dream?.notice).toBe('Counterparts: I couldn\'t start dreaming on my own: claude stopped straight away (exit 1) — is it logged in? Say "dream" to do it here.');
+    expect(next.dream?.notice).toBe('Counterparts: I couldn\'t start dreaming on my own: claude stopped straight away (exit 1) — is it logged in? Or a claude too old for the night\'s flags — update it. Say "dream" to do it here.');
     expect(nightPlans()).toHaveLength(1);
     deliverTurn("user-prompt-submit", next, {}, null, doorsOf(a as unknown as ReturnType<typeof openAdapter>), input({ sessionId: "s2" }));
     expect(a.counterpart.store.dreamAsk(AT)).toMatchObject({ state: "offered", session: "s2" });

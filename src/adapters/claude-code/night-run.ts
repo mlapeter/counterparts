@@ -378,7 +378,7 @@ export interface NightChildInput {
   readonly timeoutMs?: number;
   /**
    * The child's OWN session id, a fresh UUID (`--session-id`, 2026-10-09).
-   * Absent, the host mints one (the plain retry).
+   * Absent, the host mints one (the catch-up child and the plain retry).
    */
   readonly hostSession?: string;
   /**
@@ -386,7 +386,7 @@ export interface NightChildInput {
    * --verbose`, kept by the starter (`ChildPlan.captureOutput`), so what the
    * host cut is read from what the child said (the host keeps no transcript
    * of a night child, `--no-session-persistence`). Absent, its output is
-   * ignored (the plain retry).
+   * ignored (the catch-up child and the plain retry).
    */
   readonly readOutput?: boolean;
 }

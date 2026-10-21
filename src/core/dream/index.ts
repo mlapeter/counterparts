@@ -640,7 +640,7 @@ export function nightRunWords(run: Pick<NightRun, "state" | "reason" | "detail" 
     case "spawn-failed":
       return `claude could not be started${run.detail === null ? "" : ` (${run.detail})`}`;
     case "quick-exit":
-      return `claude stopped straight away${code} — is it logged in?`;
+      return `claude stopped straight away${code} — is it logged in? Or a claude too old for the night's flags — update it.`;
     case "nothing-ran":
       return "claude ran but used none of the dream tools (the counterparts MCP server was not there, or refused the session)";
     case "unfinished":
