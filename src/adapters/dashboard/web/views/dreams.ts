@@ -14,8 +14,7 @@
  *
  * Read-only, like everything in this directory: `dreams`, `dreamChanges` and
  * `coreEvents` are reads. Memory words go through `reveal` (a merged original
- * through `revealHere`, so it reads as it stood, not as what it became), so a
- * confidential memory is withheld here exactly as everywhere else.
+ * through `revealHere`, so it reads as it stood, not as what it became).
  */
 import type { CoreEventRow, DreamChangeRow, DreamRow } from "../../../../core/store/index.js";
 import type { DashboardSource } from "../../source.js";

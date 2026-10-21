@@ -23,7 +23,7 @@
  * Which rows count as a firing is `MECHANISM_PROOFS`, in `mechanisms.ts`.
  *
  * Read-only, like everything in this directory. Memory words go through
- * `reveal`, so a confidential row is withheld here exactly as everywhere else.
+ * `reveal`, so an absent row is named the same way everywhere.
  */
 import { TUNABLES, floorDay, pruneVerdict, strength } from "../../../../core/physics/index.js";
 import type { MemoryPhysics } from "../../../../core/types.js";

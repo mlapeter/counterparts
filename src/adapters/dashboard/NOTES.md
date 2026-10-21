@@ -56,7 +56,8 @@ pixels:
 **What the web shape added that the terminal shape did not have.** Two things,
 and both are rules the terminal views should probably adopt:
 
-- **Confidential rows are withheld** (`web/reveal.ts`). `recall/activate.ts`
+- **Confidential rows are withheld** (`web/reveal.ts`; retired 2026-10-21 —
+  nothing is withheld as confidential now, see the dated note at the end). `recall/activate.ts`
   has a predicate the surfacing gate uses; the terminal views resolve straight
   through it. On a screen that gets screenshotted, that is the one surface in
   the system where the rule would not hold. The row still renders — id, band,
@@ -486,8 +487,7 @@ dashboard three things to show, all read-only:
   "woke", `undone`), title, the journal entry rendered as markdown, and every
   change in order. A merge names the memory it made and then its originals
   through `revealHere`, so they read as they stood rather than as what they
-  became; everything else goes through `reveal`, so a confidential memory a
-  dream touched is withheld as everywhere. The journal is the owner's to read in
+  became; everything else goes through `reveal`. The journal is the owner's to read in
   full — it lives in the `dreams` table and is never a memory.
 - **What crossed lately** (`views/dreams.ts#coreHistory`, `settling.history`,
   drawn at the top of the settling section): the newest crossings into the core
@@ -705,3 +705,21 @@ Part of it was a quiet day, but three proofs in `mechanism-evidence.ts` missed r
   near-copies are a dream's to merge.
 The leads (`views/mechanisms.ts`), the console's lines and the feed's dream sentence say
 folds too.
+
+## 2026-10-21 — nothing is withheld as confidential
+
+- `reveal.ts` no longer withholds a confidential row (the `WITHHELD` sentence and
+  `confidentialAt` are gone); `Revealed.confidential` and every row type's
+  `confidential` field stay, always false, until the leftover types go. The memory
+  card shows the body, the content hash, the feelings line and what carried each
+  feeling; the list, search, Today, traits and the journal show their words. The
+  absent-row fold stays: `shownOf`'s option is `absent` / `absentLabel` now (it was
+  `confidential` / `withheld`, and folded in `!present` too).
+- Narrate: `UNNAMEABLE_VERDICTS` is empty (an old `blockedBy` row's
+  `confidential-withheld` is read like any verdict); `sweep.wake` says "permanent"
+  lines; an old `store.export` row's `omittedConfidential` is still said, since it is
+  true of that copy.
+- The export action's `includeConfidential` is still passed through; the console
+  ignores it and says so on stderr, which reaches the action's `err`.
+- The client JS still takes `said(text, confidential)` and keeps `.withheld`; with the
+  field always false they render words. They go with the leftover types.

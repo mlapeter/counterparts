@@ -545,7 +545,8 @@ export const SNAPSHOT_ROTATED_EVENT = "snapshot.rotated";
  * in its own words, and this is not that name.)
  *
  * The payload is counts and flags: which kind of export, how many rows went,
- * how many confidential ones were left out, whether it was encrypted. **Not the
+ * whether it was encrypted (rows before 2026-10-21 also carry
+ * `omittedConfidential`, which nothing writes any more). **Not the
  * target path** — where the owner sent his memories is more than the row needs
  * to prove the door works (§5 G10).
  *

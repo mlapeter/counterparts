@@ -37,9 +37,8 @@
  * live set only.
  *
  * Read-only, like everything in this directory. Nudges come from
- * `traitsAll({ live: false })`, never with `includeConfidential`: a
- * confidential memory's nudge moves the bar, and its words stay withheld. A
- * memory no longer live is weighed and never read (no `reveal`, no `read`).
+ * `traitsAll({ live: false })`, every nudge whole (nothing is withheld since
+ * 2026-10-21). A memory no longer live is weighed and never read (no `reveal`, no `read`).
  */
 import { strength } from "../../../../core/physics/index.js";
 import { TRAIT_AXES } from "../../../../core/store/index.js";
@@ -87,16 +86,17 @@ export function balanceOf(nudges: readonly WeighedNudge[], poles: readonly [stri
 export interface TraitNudgeRow {
   /** The memory, for its card. */
   readonly id: string;
-  /** Its words (a first line), or the withholding. */
+  /** Its words (a first line), or a named absence. */
   readonly text: string;
+  /** Always false since 2026-10-21; goes with the leftover types. */
   readonly confidential: boolean;
   /** The pole it pulled toward. */
   readonly toward: string;
   readonly strength: number;
   readonly firmness: number;
-  /** What in the moment showed it; empty when withheld or never said. */
+  /** What in the moment showed it; empty when never said. */
   readonly carriedBy: string;
-  /** The moment's words are withheld (a confidential memory). */
+  /** Always false since 2026-10-21; goes with the leftover types. */
   readonly withheld: boolean;
   /** When it was recorded (the store's clock, ms). */
   readonly at: number;
@@ -251,18 +251,15 @@ export function traitsView(src: DashboardSource): TraitsView {
     const rows = on.map((n): TraitNudgeRow => {
       known.add(n.memory_id);
       const m = about(n.memory_id);
-      // Withheld when EITHER says so: the nudge follows the memory's column,
-      // `reveal` its prose; the two agree unless a write is mid-flight.
-      const withheld = n.withheld || n.confidential || m.confidential;
       return {
         id: n.memory_id,
         text: m.text,
-        confidential: m.confidential || n.confidential,
+        confidential: false,
         toward: n.toward,
         strength: round(clamp01(n.strength)),
         firmness: m.firmness,
-        carriedBy: withheld ? "" : n.carried_by,
-        withheld,
+        carriedBy: n.carried_by,
+        withheld: false,
         at: n.created_at,
       };
     });

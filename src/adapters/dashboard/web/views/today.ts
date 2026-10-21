@@ -36,7 +36,7 @@ export interface TodayLine {
   readonly kind: "written" | "core" | "dream" | "let-go" | "more";
   /** The words, ready to show. For "written" and "core", the memory's own words. */
   readonly text: string;
-  /** True when the memory's words are withheld: the line says so and shows none. */
+  /** Always false since 2026-10-21 (nothing is withheld); goes with the leftover types. */
   readonly confidential: boolean;
   readonly to: TodayLink;
 }
@@ -74,10 +74,9 @@ function writtenOn(src: DashboardSource, from: number): Map<number, { id: string
 }
 
 /** The words for a memory on a line: its title where it has one (as the
- *  memories list and its card lead with), else its own words; nothing when withheld. */
+ *  memories list and its card lead with), else its own words. */
 function words(src: DashboardSource, id: string): { text: string; confidential: boolean } {
   const r = reveal(src.store, id, 90);
-  if (r.confidential) return { text: "", confidential: true };
   const title = r.headId === null ? null : (src.store.row(r.headId)?.title ?? "").trim();
   return { text: title || wordEnd(r.text ?? r.label), confidential: false };
 }
@@ -106,8 +105,8 @@ export function todayView(src: DashboardSource): TodayView {
       out.push({
         line: {
           kind: "core",
-          text: w.confidential ? "A private memory became part of who I am" : `“${w.text}” became part of who I am`,
-          confidential: w.confidential,
+          text: `“${w.text}” became part of who I am`,
+          confidential: false,
           to: { hash: "self/settling" },
         },
         at: e.at,
@@ -129,7 +128,7 @@ export function todayView(src: DashboardSource): TodayView {
           kind: "let-go",
           text: gone.length > 1
             ? `Let go of ${gone.length} memories that had faded`
-            : w !== null && !w.confidential && w.text
+            : w !== null && w.text
               ? `Let go of “${w.text}” — it had faded`
               : "Let go of a memory that had faded",
           confidential: false,

@@ -369,7 +369,7 @@ describe("M6 rows", () => {
     const bare = stripChapterLead("Sun 27 Sep 2026 · claude-opus-5-5 · lived day 6 Mike wanted a lighter session. Then more.");
     expect(bare).toEqual({ rest: "Mike wanted a lighter session. Then more.", date: "2026-09-27" });
     expect(stripChapterLead("Nothing to lift here.")).toEqual({ rest: "Nothing to lift here.", date: null });
-    const shown = shownOf("Sun 27 Sep 2026 · claude-opus-5-5 · lived day 6\nMike wanted a lighter session.", { chapter: true, learnedOn: "2026-09-28", confidential: false });
+    const shown = shownOf("Sun 27 Sep 2026 · claude-opus-5-5 · lived day 6\nMike wanted a lighter session.", { chapter: true, learnedOn: "2026-09-28", absent: false });
     expect(shown.text).toBe("Mike wanted a lighter session.");
     expect(shown.date).toBe("2026-09-27");
     expect(firstSentence("Mike wanted a lighter session. Then he asked how I was.")).toBe("Mike wanted a lighter session.");

@@ -105,8 +105,8 @@ function hitOf(store: DashboardSource["store"], id: string, score: number, day: 
     chapter,
     learnedOn: row.learned_on,
     chapterDay: row.happened_on ?? null,
-    confidential: r.confidential || !r.present,
-    withheld: r.text ?? r.label,
+    absent: !r.present,
+    absentLabel: r.text ?? r.label,
   });
   return {
     id,
@@ -115,8 +115,9 @@ function hitOf(store: DashboardSource["store"], id: string, score: number, day: 
     kind: row.kind,
     band: b,
     strength: s,
-    confidential: r.confidential,
-    title: r.confidential || row.title === null || row.title.trim() === "" ? null : row.title.trim(),
+    // Always false since 2026-10-21; the field goes with the leftover types.
+    confidential: false,
+    title: row.title === null || row.title.trim() === "" ? null : row.title.trim(),
     shown: shown.text || (r.text ?? r.label),
     date: shown.date,
     dateFrom: shown.dateFrom,
@@ -169,8 +170,7 @@ export function typoDistance(a: string, b: string, max: number): number {
  * query's (`typosAllowed`; a number is never a typo), best first: more of the query's words met, then
  * fewer typos. `exact` (the word search's own hits) are left out. Each carries
  * `matched`, the words as they are written in the memory, so the page marks
- * what matched. A confidential memory is found the way the word search finds
- * one, and listed as withheld. Reads rows only.
+ * what matched. Reads rows only.
  */
 function closeMatches(store: DashboardSource["store"], query: string, exact: ReadonlySet<string>, day: number): CloseHit[] {
   const wanted = [...new Set(words(query))].filter((t) => typosAllowed(t.length) > 0 && !/^\d+$/.test(t));
@@ -212,7 +212,7 @@ function closeMatches(store: DashboardSource["store"], query: string, exact: Rea
   const out: CloseHit[] = [];
   for (const f of found) {
     const h = hitOf(store, f.id, 0, day);
-    if (h !== null) out.push({ ...h, matched: h.confidential ? [] : f.matched });
+    if (h !== null) out.push({ ...h, matched: f.matched });
     if (out.length >= CLOSE_MAX) break;
   }
   return out;

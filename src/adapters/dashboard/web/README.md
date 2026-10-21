@@ -23,7 +23,7 @@ step, no dependencies. `server.ts` serves them as files (see "Serving" below).
 | `flow.ts` | the diagram's static shape: nodes, edges, which event lights which node |
 | `narrate.ts` | a durable event → one first-person sentence, with its tone (orange only for a real problem), its feed and its icon |
 | `lanes.ts` | which feed an event belongs in — `home` (memory events: remembered, stronger, replaced, let go, a chapter, a handoff, sleep, a reminder) or `flow` (housekeeping) — and the home line's icon; one table, exhaustive by type |
-| `reveal.ts` | id → words at render time, withholding confidential rows |
+| `reveal.ts` | id → words at render time, naming an absent row |
 | `fired.ts` | `/api/fired`, the what-fired panel |
 
 ## Client side (browser modules)
@@ -262,8 +262,7 @@ calendar days ago, weighed by each memory's firmness 7 lived days ago
 (`firmnessThen`: core membership, returns and feelings rolled back exactly; a
 memory used since reads as used that day, a ceiling, since uses keep no
 history), and it still counts memories archived or merged away since (a merge's
-copied nudge counted once). A confidential memory's nudge moves the bar and its
-words show as "withheld". An
+copied nudge counted once). An
 axis with nothing behind it draws an empty track and no marker. Tapping a row
 lists its memories (each opens its card); `state.js#trait` keeps it open.
 `sections/wake.js`

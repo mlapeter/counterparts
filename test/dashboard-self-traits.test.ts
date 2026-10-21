@@ -164,17 +164,15 @@ describe("the view, on a store", () => {
     expect(core?.firmness).toBe(1);
   });
 
-  test("a confidential memory's nudge moves the bar and its words are withheld", () => {
+  test("a nudge on a memory carrying the retired confidential key moves the bar and shows its words (2026-10-21)", () => {
     const v = withSource(at, (src) => mindView(src));
     const a = axis(v.traits, "agreeable-candid");
     expect(a.memories).toBe(2);
     const secret = a.rows.find((r) => r.id === ids["secret"]);
-    expect(secret).toMatchObject({ toward: "agreeable", withheld: true, confidential: true, carriedBy: "" });
-    expect(secret?.text).not.toContain("private conversation");
+    expect(secret).toMatchObject({ toward: "agreeable", withheld: false, confidential: false });
+    expect(secret?.carriedBy).not.toBe("");
     // It pulls toward "agreeable": the balance is not what the core one alone gives (+1).
     expect(a.balance as number).toBeLessThan(1);
-    // Nowhere in the self tab's payload.
-    expect(JSON.stringify(v)).not.toContain(SECRET);
   });
 
   test("a merged original and its merge are counted once", () => {

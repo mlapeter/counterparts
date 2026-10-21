@@ -6,7 +6,6 @@
  */
 import { TUNABLES as PHYSICS, promotionEligibility, sal } from "../../../../core/physics/index.js";
 import type { PromotionVerdict } from "../../../../core/physics/index.js";
-import { isConfidential } from "../../../../core/recall/index.js";
 import {
   FRAMING,
   LEGACY_CONTEXT,
@@ -30,7 +29,7 @@ import type { Band, Kind } from "../../../../core/types.js";
 import { NEVER, NONE } from "../../layout.js";
 import { localDate } from "../../../../core/time.js";
 import type { DashboardSource } from "../../source.js";
-import { WITHHELD, reveal } from "../reveal.js";
+import { reveal } from "../reveal.js";
 // @ts-expect-error — a plain browser module, no declarations
 import { dateOr } from "../shared/dates.js";
 import { chapters, contestedRows, livedDays } from "./rows.js";
@@ -341,7 +340,7 @@ export interface JournalChapter {
   readonly title: string;
   readonly model: string | null;
   readonly first: string;
-  /** The chapter's own text, headings off. Null when withheld. */
+  /** The chapter's own text, headings off. Null when it could not be read. */
   readonly text: string | null;
   readonly bytes: number;
   readonly confidential: boolean;
@@ -1253,7 +1252,7 @@ export interface WakeList {
   readonly also: { label: string; lines: number }[];
 }
 
-/** One memory the wake list names: its words (withheld when confidential) and its title, if it has one. */
+/** One memory the wake list names: its words and its title, if it has one. */
 export interface WakeMemory {
   readonly id: string;
   readonly text: string;
@@ -1269,7 +1268,7 @@ function wakeMemory(store: DashboardSource["store"], id: string): WakeMemory | n
   const row = store.row(id);
   if (row === undefined || row.archived === 1) return null;
   const t = reveal(store, id, 110);
-  const title = t.confidential || row.title === null || row.title.trim() === "" ? null : row.title.trim();
+  const title = row.title === null || row.title.trim() === "" ? null : row.title.trim();
   return { id, text: t.text ?? t.label, title, confidential: t.confidential };
 }
 
@@ -1408,7 +1407,6 @@ function journalChapters(src: DashboardSource): ReadChapter[] {
       all.push({ id, chapter: 1, title: reveal(store, id, 60).label, model: null, first: "", text: null, bytes: 0, confidential: false, day: 0, date: null, iso: rowIso, isoFromHeading: false });
       continue;
     }
-    const withheld = isConfidential(doc);
     const models = chapterModels(doc.meta ?? {});
     const parts = doc.body.split(CHAPTER_SPLIT).filter((p) => p.trim().length > 0);
     const title = doc.title ?? "an unnamed chapter";
@@ -1423,10 +1421,11 @@ function journalChapters(src: DashboardSource): ReadChapter[] {
         chapter: n,
         title: parts.length > 1 ? `${title} · chapter ${n}` : title,
         model: lead.model ?? models[String(n)] ?? null,
-        first: withheld ? WITHHELD : first.length > 200 ? `${first.slice(0, 200).trimEnd()}…` : first,
-        text: withheld ? null : rest,
+        first: first.length > 200 ? `${first.slice(0, 200).trimEnd()}…` : first,
+        text: rest,
         bytes: new TextEncoder().encode(rest).length,
-        confidential: withheld,
+        // Always false since 2026-10-21; the field goes with the leftover types.
+        confidential: false,
         day: lead.livedDay ?? doc.bornDay,
         date: lead.date,
         iso: fromHeading ?? rowIso,
