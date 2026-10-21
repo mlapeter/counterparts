@@ -175,31 +175,41 @@ week of sessions by a fictional new owner (`owner-week.ts`: Dana, a ceramics tea
 memory, not the script.
 
 The harness is the host. It builds Claude Code's own adapter (`ClaudeCodeAdapter`) in-process
-on the harness's clock, with a spawner that starts nothing, and calls its handlers in Claude
-Code's order:
+on the harness's clock and calls its handlers in Claude Code's order:
 - `sessionStart`;
-- per scripted line, `userPromptSubmit`, then `stop` after the model's reply (an ask it returns
-  is put to the model as the next message);
-- `sessionEnd`, and the boundary the worker would run.
+- per scripted line, `userPromptSubmit`, then `stop` after the model's reply. An ask it returns
+  is put to the model as the next message.
+- at the end, `sessionEnd`.
+
+**The product decides what runs.** Its spawner is the harness's, which records each ask: the
+night (at a morning's first session, when the product's gate says one is due) and the worker
+(at each Stop and session end). After each hook call the harness runs exactly those: the night
+through `runNight` with the model seat (catch-up, dream, reflection), and the worker as the
+boundary it runs. The harness also makes the claims Claude Code's delivery step makes (plain
+reminders, the dream line), credits the model's recall calls as the turn's expansions, and
+settles the folder registry as an owner who said "on".
 
 Each turn is one `claude -p` (`--session-id`, then `--resume`) with the session's memory tools
-from the harness's server, as the owner, under the same safety as the model seat. Each
-morning after the first, the night runs with the model seat. That includes the catch-up, which
-writes up short sessions, as it does live.
+from the harness's server, as the owner, under the same safety as the model seat.
 
 One shape differs from a live session: a hook's words arrive in the prompt as a system
-reminder, not as the host's attachment.
+reminder, not as the host's attachment. Claude Code's own delivery step (`bin/hook.ts`) isn't
+among the package's public seams, so its claims are made through the adapter's methods.
 
-The week's store comes out as one file. The rule variants are physics, so the model runs the
-week once, and the record is replayed under each patch: identical acts, seconds each.
+The week's store comes out as one file (`VACUUM INTO`). The rule variants are physics, so the
+model runs the week once, and the record is replayed under each patch: identical acts,
+seconds each.
 
-On 2026-10-20, as an install with the meeting, the week took about 12 minutes:
-- memories: 18 after day 1, 47 by day 7;
-- 5 marked `us`; 2 dream nominations;
+On 2026-10-20 (as an install with the meeting, on the corrected harness), the week took about
+14 minutes:
+- memories: 20 after day 1, 45 by day 7;
+- nights on the 5 mornings the gate chose;
+- 53 worker boundaries;
 - **core 0 every day under today's rules, the door closed, and spread.**
 
-The `us` memories each came back once, through the next night's reflection: a gap of 1, where
-the fast lane needs 2 or more.
+By the product's own verdict, every candidate memory (self or person or entity, about us)
+lacked both fast-lane conditions: a feeling of 0.6 or more, and a return 2 or more days after
+birth. The `us` memories felt strongly were facts, and a fact isn't a core kind.
 
 ## Safety
 
