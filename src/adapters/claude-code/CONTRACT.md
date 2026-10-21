@@ -845,7 +845,11 @@ UUID the waiting process chose (2026-10-09), which keeps the children apart; and
 `--output-format stream-json --verbose` (2026-10-12; `-p` refuses `stream-json` without
 `--verbose`, measured on 2.1.296), its STDOUT kept in memory to 64 MiB
 (`child.ts#OUTPUT_MAX_BYTES`) and read once for the host's cut. The catch-up child's
-output is ignored. It
+output is ignored. Every child, the plain retry included, also passes
+`--no-session-persistence` (2026-10-21; checked on 2.1.306 with `--session-id` and
+`stream-json`), so the host keeps no transcript of it under `~/.claude/projects`: its
+words — memories it read, the conversation it wrote up — do not outlive this package's own
+retention there. On a host too old to know the flag the night does not run. It
 starts in a NEUTRAL directory — the store's own — so no project's CLAUDE.md, hooks or MCP
 servers load. The parent's stance, `CLAUDE_PROJECT_DIR` and `CLAUDECODE` variables are
 removed; this package's values are written last.

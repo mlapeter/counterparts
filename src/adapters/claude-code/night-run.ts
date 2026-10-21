@@ -48,7 +48,13 @@
  *     directory reaches the MCP server as its pinned scope instead;
  *   - `--max-turns` bounds it beside the watchdog;
  *   - `--session-id` names its session with a UUID this process chose
- *     (2026-10-09), so its transcript can be read once it exits.
+ *     (2026-10-09), which keeps the children apart;
+ *   - `--no-session-persistence` (2026-10-21): Claude Code keeps no
+ *     transcript of the child under `~/.claude/projects`. Its words — the
+ *     memories it read and the conversation it wrote up — would otherwise
+ *     sit there outside this package's retention, for as long as the host
+ *     keeps old sessions. Nothing reads one: what the host cut is read from
+ *     the child's own `stream-json` output (`readNightSpills`).
  * What is left and not allowed stops at a prompt nobody can answer, which is
  * the direction this should fail in. The parent's stance variables are
  * removed from its environment; this package's own values are written last.
@@ -372,15 +378,15 @@ export interface NightChildInput {
   readonly timeoutMs?: number;
   /**
    * The child's OWN session id, a fresh UUID (`--session-id`, 2026-10-09).
-   * Absent, the host mints one (the catch-up child).
+   * Absent, the host mints one (the plain retry).
    */
   readonly hostSession?: string;
   /**
    * Read the child's own output (2026-10-12): `--output-format stream-json
    * --verbose`, kept by the starter (`ChildPlan.captureOutput`), so what the
-   * host cut is read from what the child said rather than from the host's
-   * transcript under `~/.claude/projects`. Absent, its output is ignored (the
-   * catch-up child).
+   * host cut is read from what the child said (the host keeps no transcript
+   * of a night child, `--no-session-persistence`). Absent, its output is
+   * ignored (the plain retry).
    */
   readonly readOutput?: boolean;
 }
@@ -398,6 +404,10 @@ export function planNightChild(input: NightChildInput): NightChildPlan {
   const dataDir = input.config.dataDir ?? "";
   const args = [
     "-p",
+    // NO TRANSCRIPT ON DISK (2026-10-21): see the header. Every child, the
+    // plain retry below included: a host too old to know the flag refuses it,
+    // and the night is not run rather than run with a transcript left behind.
+    "--no-session-persistence",
     "--allowedTools",
     (input.tools ?? NIGHT_TOOLS).join(","),
     "--disallowedTools",
@@ -946,7 +956,8 @@ async function runNightChild(
 ): Promise<NightChildOutcome> {
   // THE CHILD'S OWN SESSION, CHOSEN HERE (2026-10-09). Its transcript was
   // once looked up by this name; since 2026-10-12 the cut is read from the
-  // child's own output instead, and the name only keeps the children apart.
+  // child's own output instead, since 2026-10-21 the host keeps no transcript
+  // of it at all, and the name only keeps the children apart.
   const hostSession = randomUUID();
   const plan = planNightChild({ ...childInput, hostSession, readOutput: true });
   const childAt = now();

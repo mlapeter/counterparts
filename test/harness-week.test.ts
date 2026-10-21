@@ -83,6 +83,8 @@ test("the week drives the product's adapter on its clock, one child per turn, an
   const first = turns[0]!;
   const sid = first.args[first.args.indexOf("--session-id") + 1]!;
   expect(turns[1]!.args[turns[1]!.args.indexOf("--resume") + 1]).toBe(sid);
+  // A person's session is kept, so it can be resumed: the night child's flag is dropped (2026-10-21).
+  for (const t of turns) expect(t.args).not.toContain("--no-session-persistence");
   expect(first.args[first.args.indexOf("--allowedTools") + 1]).toContain("mcp__counterparts__session_end");
   expect(first.args[first.args.indexOf("--allowedTools") + 1]).not.toContain("mcp__counterparts__dream");
   const server = (JSON.parse(first.args[first.args.indexOf("--mcp-config") + 1]!) as { mcpServers: { counterparts: { env: Record<string, string> } } }).mcpServers.counterparts.env;
