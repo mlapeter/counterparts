@@ -12,6 +12,7 @@ import { replayNight } from "./night.js";
 import type { NightReplayRecord } from "./night.js";
 import { runPhysicsReplay } from "./replay.js";
 import { runWeek } from "./week.js";
+import { OWNER_WEEK_MEANINGFUL } from "./owner-week.js";
 import type { RunRecord } from "./replay.js";
 import { DEFAULT_CORPUS } from "./source.js";
 
@@ -114,7 +115,10 @@ async function main(argv: readonly string[]): Promise<number> {
   const [cmd, ...args] = argv;
   if (cmd === "week") {
     const days = flag(args, "--days");
+    const scriptName = flag(args, "--script");
+    if (scriptName !== undefined && scriptName !== "plain" && scriptName !== "meaningful") throw new Error(`UNKNOWN_SCRIPT: ${scriptName} (plain or meaningful)`);
     const record = await runWeek({
+      ...(scriptName === "meaningful" ? { script: OWNER_WEEK_MEANINGFUL } : {}),
       ...(days === undefined ? {} : { days: Number(days) }),
       ...(args.includes("--no-nights") ? { nights: false } : {}),
       ...(flag(args, "--out") === undefined ? {} : { out: flag(args, "--out")! }),

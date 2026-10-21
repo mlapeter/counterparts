@@ -165,7 +165,7 @@ usage.
 ## A scripted owner's first week (`week`)
 
 ```sh
-bun tools/harness/cli.ts week [--days N] [--no-nights] [--model <name>] --out <week.sqlite>
+bun tools/harness/cli.ts week [--script plain|meaningful] [--days N] [--no-nights] [--model <name>] --out <week.sqlite>
 bun tools/harness/cli.ts replay --source <week.sqlite>      # then, under rule patches, compare
 ```
 
