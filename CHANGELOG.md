@@ -52,7 +52,8 @@ Nothing is held back from your sessions any more. Confidential memories are gone
   names `confidential-withheld`, `handle-confidential-withheld`, `confidential` and
   `other-directory` no longer exist; the dashboard's JSON rows no longer carry a
   `confidential` field (nor the traits view a `withheld` one). Nothing changes on screen. `export --include-confidential` is
-  still accepted, and ignored, this release.
+  still accepted, and ignored, this release. With the yours/guest split, `OWNER_FALSE_NOTE` is
+  gone from `counterparts/mcp` (written at release from #568's diff).
 - **The nightly run no longer leaves a Claude Code transcript behind.** Each night child
   (the dream, the reflection, a write-up owed) used to be saved by Claude Code under
   `~/.claude/projects/`, with the memories it read and the conversation it wrote up,
