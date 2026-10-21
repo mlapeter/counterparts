@@ -119,4 +119,30 @@ export const TUNABLES = {
    *  lineage must be able to tell a bar that was climbed from a fact that simply
    *  changed (scar §2.4). */
   REPLACED_REASON: "replaced-by-declaration" as const,
+
+  // --- beliefs' producers (wave 2 lane C, 2026-10-21) ---
+  //
+  // Starting points, lightly held; check 2026-10-26 on live numbers. Each is
+  // top-level so `harness compare --set schemas.KEY=…` can move it, and read
+  // at use. Support's own arithmetic is physics §5.13.
+  /**
+   * THE SWITCH. On (the default): the night's reflection is shown the beliefs
+   * on the subjects in play and asked to file support or birth a few; the
+   * dream proposes candidates (C3). Off: neither is asked, and what either
+   * sends is refused `beliefs-off`. Belief rows already written stay, inert,
+   * fading like any memory. `compare --set schemas.BELIEFS_BIRTH=false`.
+   */
+  BELIEFS_BIRTH: true,
+  /** Births a reflection may make, across its finishes (design "still open" 5 named 5). */
+  BELIEF_BIRTHS_PER_REFLECTION: 3,
+  /**
+   * CAL. A birth this close to a live belief on the same subject (token
+   * cosine, `remember/updates.ts#similarity`) is refused with that belief's
+   * id, to file to instead. v1's dedup bar was 0.6 (behavioral-spec §14).
+   */
+  BELIEF_NEAR_DUPLICATE: 0.6,
+  /** Subjects shown to a reflection: the self subject, then the cards its memories name most. */
+  BELIEF_SUBJECTS_SHOWN: 6,
+  /** Beliefs shown per subject, strongest first; the rest are counted. */
+  BELIEFS_SHOWN_PER_SUBJECT: 5,
 } as const;

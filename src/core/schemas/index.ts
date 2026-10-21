@@ -63,6 +63,7 @@ import { AliasIndex, collision, handleKey } from "./aliases.js";
 import { TUNABLES } from "./tunables.js";
 import { tallyNames } from "./names.js";
 import { clearsTopicBar, isStopTag, tallyTags } from "./tags.js";
+import { similarity } from "../remember/updates.js";
 import type { NameCount } from "./names.js";
 import {
   BIRTH_KINDS,
@@ -70,6 +71,7 @@ import {
 } from "./types.js";
 import type {
   BeliefInput,
+  BeliefStanding,
   BeliefOutcome,
   BeliefStory,
   BirthKind,
@@ -145,6 +147,9 @@ export const PUBLIC_SURFACE = [
   "element",
   "beliefs",
   "currentState",
+  // 2026-10-21 (wave 2 lane C): beliefs as they stand on a subject, and the one a birth repeats (reads).
+  "beliefStanding",
+  "nearestBelief",
   "slices",
   "loadSkips",
   "aliasIndex",
@@ -1984,6 +1989,54 @@ export class Schemas {
     return this.liveElementIds(entityId, "belief")
       .map((id) => this.element(id))
       .filter((e): e is ElementView => e !== undefined);
+  }
+
+  /**
+   * THE BELIEFS ON A SUBJECT AS THEY STAND (lane C, 2026-10-21): each live
+   * belief with its strength on `day`, and how many memories are counted for
+   * and against it, strongest first. What a reflection is shown so it can file
+   * to a belief rather than write it again. A read.
+   */
+  beliefStanding(entityId: string, day: number): BeliefStanding[] {
+    return this.beliefs(entityId)
+      .map((b): BeliefStanding => {
+        const rows = this.store.supportOf(b.id);
+        const row = this.store.row(b.id);
+        let contested = false;
+        try {
+          contested = this.store.readProse(b.id).meta["contested"] !== undefined;
+        } catch {
+          contested = false;
+        }
+        return {
+          id: b.id,
+          statement: b.statement,
+          about: row?.about === "me" ? "me" : row?.about === "us" ? "us" : null,
+          strength: strengthOf(this.store.physicsOf(b.id), day),
+          support: rows.filter((r) => r.stance === "support").length,
+          against: rows.filter((r) => r.stance === "contrary").length,
+          contested,
+        };
+      })
+      .sort((a, b) => b.strength - a.strength || (a.id < b.id ? -1 : 1));
+  }
+
+  /**
+   * THE LIVE BELIEF ON A SUBJECT CLOSEST TO A STATEMENT, at or past
+   * `BELIEF_NEAR_DUPLICATE` (token cosine, `remember/updates.ts#similarity`),
+   * or null (lane C): a birth that close is the same belief said again, and
+   * the writer is told to file to it instead. `except`: the belief a birth
+   * replaces (says better), never its duplicate. A read.
+   */
+  nearestBelief(entityId: string, statement: string, except?: string): { id: string; statement: string; similarity: number } | null {
+    let best: { id: string; statement: string; similarity: number } | null = null;
+    for (const b of this.beliefs(entityId)) {
+      // The belief a birth says better is not the one it repeats.
+      if (b.id === except) continue;
+      const s = similarity(statement, b.statement);
+      if (s >= TUNABLES.BELIEF_NEAR_DUPLICATE && (best === null || s > best.similarity)) best = { id: b.id, statement: b.statement, similarity: s };
+    }
+    return best;
   }
 
   currentState(entityId: string): ElementView[] {

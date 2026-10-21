@@ -213,7 +213,8 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // dream −58 and reflect −16 on 2026-10-21 (confidential memories removed):
       // the bundle claim's and the self-close claim's confidentiality words.
       dream: { total: 3729, beforeList: 1782 },
-      reflect: { total: 3317, beforeList: 1486 },
+      // reflect +382 on 2026-10-21 (lane C2): the beliefs claim, after the list's start.
+      reflect: { total: 3699, beforeList: 1486 },
       // `meet` (2026-10-11): kept short on purpose — its script is its result.
       meet: { total: 459, beforeList: 210 },
       wake: { total: 1958, beforeList: 1229 },

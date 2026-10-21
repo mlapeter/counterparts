@@ -503,6 +503,24 @@ dream having run.
     **It is shown no balance or totals** — no trait appears in what `begin` hands it
     (only the limit): the arithmetic stays on the dashboard. Nudges feed nothing.
   - Every memory it cites comes back: a reflection return (physics §5.11).
+  - **Beliefs** (wave 2 lane C, 2026-10-21; working defaults, the switch
+    `schemas.BELIEFS_BIRTH`, on): `begin` hands `beliefs` — the subjects in play, the
+    self subject first ("me (and us)", made the first time it is asked for) and then the
+    live cards the night's memories name most (`BELIEF_SUBJECTS_SHOWN`), each with its
+    strongest beliefs (`BELIEFS_SHOWN_PER_SUBJECT`), their strength and how many
+    memories are counted for and against them, a contested one marked — and asks, in
+    plain words, that filing beat writing anew. `finish`'s `beliefs`: `filings` count a
+    lived memory it was shown for or against a belief it was shown or bore (route `found`
+    unless the memory is the owner's words or my choice; one counted before adds
+    nothing; at most `LIMITS.beliefFilings` 12); `births` (at most
+    `BELIEF_BIRTHS_PER_REFLECTION` 3 across finishes) on a subject it was shown, born weak
+    (route `reflection`), each lived cite filed as its first support, one close to a live
+    belief on the subject (`BELIEF_NEAR_DUPLICATE` 0.6) refused with that belief's id;
+    `retire` lets a contested belief go through the settle door (the memory that
+    contested it holds over it, `corrected`), and a birth's `replaces` does the same for
+    the one it says better. **[M]** a belief's id is never in `shown`: it cannot be cited,
+    felt or marked; filings and births take only memories it was shown and lived. Off:
+    no beliefs shown or asked for, and what is sent is refused `beliefs-off`.
   - **Stale open threads, proposed closed** (2026-10-16, #489 D; a lightly held default):
     `begin` hands at most `STALE_OPEN` (5) memories still flagged `unresolved` and
     untouched for `STALE_OPEN_DAYS` (4) lived days (`staleOpen`, rotated like the
