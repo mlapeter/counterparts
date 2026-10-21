@@ -1017,3 +1017,9 @@ co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.t
   `counterparts project join` remains the door for that.
 - A silent night with a proposal now offers a share whose only content is the question
   (`share.reason` `join-proposed`). Intended.
+- **Accepted risk (the coordinator, after review of #580):** a reflection launched from an
+  awake session runs as a background agent in that session, with no night env, so in
+  principle it could call `told` and then `join` itself. Every stronger check offered would
+  also block the owner's own yes in the same session. It is the trust model `close` has
+  today. What would close it later: a yes carried by the owner's typed turn (the host's
+  record of what the person typed), checked at `join`.
