@@ -1309,3 +1309,11 @@ would have kept back can't be read off them; the decision row's `crossProjectLif
 
 Known gap: the turn's project here does not ask the host's folder setting (recall has none to ask), so a joined
 folder set off counts as this project's — the lift then does not apply to it. The wake gates it (self NOTES).
+
+After review of #579: the crossing check is the wake's rule exactly — meta read once, a journal copy by
+`meta.episodeId` as `workHere` reads it, the mark through `aboutMarkOf`, a revised skill's `craftBornDay`. So a
+Desktop-chat memory marked `work` (its scope `claude-desktop:`, not a folder) is lifted in a folder's turn when it
+is outside that folder's project — as the wake leaves it out of that folder's "Work here". (An unmarked Desktop fact
+is not work, wake and recall alike.) `crossProjectLifted` counts what the lift kept below the bar; one of those might
+still have lost to the footnote cap or the trim, and a loud→footnote demotion is not counted. Lift 1 is the same
+turn as no check at all (`recall-by-project.test.ts`).

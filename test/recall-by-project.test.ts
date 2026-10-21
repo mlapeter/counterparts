@@ -107,6 +107,27 @@ describe("CROSS_PROJECT_BAR_LIFT", () => {
     expect(home.lifted).toBe(0);
   });
 
+  test("lift 1 is the same turn as no crossing check: same surfaced, footnotes and verdicts", () => {
+    put("The sourdough starter died in the pantry because it was too cold.", { about: "work", scope: BAKERY });
+    put("The pantry runs cold all winter, so the starter sulks there.", { about: "work", scope: BAKERY });
+    lift(1);
+    const plain = c.recallForTurn({ sessionId: "s-a", text: PROMPT });
+    const checked = c.recallForTurn({ sessionId: "s-b", text: PROMPT, elsewhere: () => true });
+    const shape = (r: typeof plain): unknown => ({
+      reason: r.decision.reason,
+      surfaced: r.decision.surfaced,
+      footnotes: r.decision.footnotes,
+      verdicts: r.decision.verdicts.map((v) => [v.id, v.verdict]),
+      lifted: r.decision.crossProjectLifted,
+    });
+    expect(shape(checked)).toEqual(shape(plain));
+    expect(plain.decision.footnotes.length + plain.decision.surfaced.length).toBeGreaterThan(0);
+    // And the lift itself does change the turn when it is above 1.
+    lift(1_000);
+    const lifted = c.recallForTurn({ sessionId: "s-c", text: PROMPT, elsewhere: () => true });
+    expect(lifted.decision.crossProjectLifted).toBeGreaterThan(0);
+  });
+
   test("craft and a personal memory from another folder face no lift", () => {
     lift(1_000);
     const craft = put("I keep the sourdough starter out of the cold pantry so it does not die.", { kind: "skill", scope: BAKERY });

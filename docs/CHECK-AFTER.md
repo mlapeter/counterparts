@@ -365,7 +365,9 @@ memories): home work n=163 mean 0.94; home personal/craft n=124 mean 0.81; cross
 
 **What to look at.** Re-measure the same split on the live store with a week more ratings (the script is lane G's
 `ratings.ts`; the same joins in SQL work). Also `recall.decision`'s `crossProjectLifted` per turn: how many a day the
-lift kept back, and in which folder pairs.
+lift kept below the bar, and in which folder pairs. Read it as "kept below the bar", not "would have shown": one it
+counts might still have lost to the footnote cap or the budget's trim, and a loud item the lift demoted to a footnote
+is not counted.
 
 **What would change it.** Crossing work still rated well under home work → raise the lift (1.5?), or turn on the
 hard filter for pairs other than ~/counterparts ↔ ~/random (or join ~/random to the project). Crossing ratings rise

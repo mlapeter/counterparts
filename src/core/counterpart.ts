@@ -197,7 +197,7 @@ import { dayJournal } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
 import type { CyclePartial, CycleReport } from "./sleep/index.js";
-import { ABOUT_MARKS, CORE_ABOUT_MARKS, Store, assertSafeDataDir, rowTombstoned, hashText, indexTextOf } from "./store/index.js";
+import { ABOUT_MARKS, CORE_ABOUT_MARKS, Store, aboutMarkOf, assertSafeDataDir, rowTombstoned, hashText, indexTextOf } from "./store/index.js";
 import type {
   AboutMark,
   AddFeelingsResult,
@@ -2258,17 +2258,18 @@ export class Counterpart {
       if (row === undefined || row.origin_scope === null) return false;
       const origin = projectFolder(row.origin_scope);
       if (origin.length === 0 || ours.has(origin)) return false;
-      const journal = typeof row.meta === "string" && row.meta.includes('"episodeId"');
-      // A revised skill's first-learned day (`craftBornDay`), read only for a skill.
-      let bornDay = row.birth_day;
-      if (row.kind === "skill") {
-        try {
-          bornDay = craftBornDay(this.store.readProse(id).meta, row.birth_day);
-        } catch {
-          /* its own birth */
-        }
+      // THE WAKE'S OWN RULE, EXACTLY (review of #579): the meta read once, a
+      // journal copy as `workHere` tells one (`meta.episodeId`), the mark
+      // through `aboutMarkOf`, and a revised skill's first-learned day.
+      let meta: Readonly<Record<string, unknown>>;
+      try {
+        meta = this.store.readProse(id).meta;
+      } catch {
+        return false;
       }
-      return isWorkMemory({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay }, { craftTravels: travels, craftSince: since });
+      const journal = typeof meta["episodeId"] === "string";
+      const bornDay = row.kind === "skill" ? craftBornDay(meta, row.birth_day) : row.birth_day;
+      return isWorkMemory({ about: aboutMarkOf(row.about), kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay }, { craftTravels: travels, craftSince: since });
     };
     return { ...turn, elsewhere };
   }
