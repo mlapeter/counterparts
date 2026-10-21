@@ -214,6 +214,13 @@ export function tagsWrittenVia(store: Store, via: string, sinceAt: number): { me
 export function revisionsOf(store: Store, id: string): string[] {
   if (!/^[a-z]+_[A-Za-z0-9]+$/.test(id)) return [];
   return ops(store)
-    .all<{ id: string }>(`SELECT id FROM memories WHERE type = 'memory' AND meta LIKE ? ORDER BY id`, `%"updates":"${id}"%`)
+    // LIKE narrows cheaply; `json_extract` makes it exact (re-review of #576):
+    // LIKE alone is case-blind, reads `_` as a wildcard, and matches an
+    // `updates` nested under another key.
+    .all<{ id: string }>(
+      `SELECT id FROM memories WHERE type = 'memory' AND meta LIKE ? AND json_extract(meta, '$.updates') = ? ORDER BY id`,
+      `%"updates":"${id}"%`,
+      id,
+    )
     .map((r) => r.id);
 }
