@@ -176,6 +176,12 @@ const NAME_SOURCE_MEMORIES = 20;
 const REMOVED_COVER = 0.8;
 
 /**
+ * A card that has looked back for its memories once (`relinkUnlinked`, review of #578): one
+ * meta row per card, so a card that truly names no memory is not scanned for again every night.
+ */
+export const RELINKED_PREFIX = "schema.relinked.";
+
+/**
  * A tallied name's kind, from what its memories are ABOUT: the person, place
  * or entity memories that carry the name in their title. A person when those
  * say person at least as often as anything else, then a place, else an entity —
@@ -419,9 +425,12 @@ export class Schemas {
    * would ever link them: the tally skips the name the card holds. So before
    * the night's tally, a live card with no `birth` link at all looks back — one
    * read finds them, and this runs outside any write lock. A births card always
-   * has some (its name was in at least `MIN_MEMORIES` memories); one that
-   * truly has none looks again each night, finding nothing. The identity core
-   * is not born here and is left alone.
+   * has some (its name was in at least `MIN_MEMORIES` memories). One that truly
+   * names none would be scanned for again every night, a full pass over the
+   * memories each time, so a card looks back ONCE: a look-back that ran (found
+   * something or nothing) leaves `RELINKED_PREFIX<id>`, and a card with that row
+   * is not asked again. A look-back that failed leaves none and is retried. The
+   * identity core is not born here and is left alone.
    */
   private relinkUnlinked(day: number): number {
     const linked = new Set(this.store.subjectsLinkedVia("birth"));
@@ -430,8 +439,10 @@ export class Schemas {
       if (rec.role !== "entity" || linked.has(id) || !this.index.has(id)) continue;
       const row = this.store.row(id);
       if (row === undefined || row.archived !== 0 || row.kind === "self") continue;
+      if (this.store.getMeta(`${RELINKED_PREFIX}${id}`) !== undefined) continue;
       const links = this.linkNamingMemories(id);
-      this.emit("schema.subjects.relinked", id, { day, links });
+      if (links !== null) this.store.setMeta(`${RELINKED_PREFIX}${id}`, String(day));
+      this.emit("schema.subjects.relinked", id, { day, links: links ?? 0, failed: links === null });
       relinked += 1;
     }
     return relinked;
@@ -2325,9 +2336,10 @@ export class Schemas {
    * A card's birth looks back (v12): every memory already written whose title
    * or body names it — by its own unambiguous terms — is linked to it, `via:
    * birth`. One read of the memories' words and one regex per term. Fail-open:
-   * the card is born whatever this does, and an event says so when it fails.
+   * the card is born whatever this does, and an event says so when it fails —
+   * and the count is null then, so a caller can tell a failure from "none".
    */
-  private linkNamingMemories(cardId: string): number {
+  private linkNamingMemories(cardId: string): number | null {
     try {
       const terms = this.index.termsFor(cardId);
       if (terms === undefined) return 0;
@@ -2349,7 +2361,7 @@ export class Schemas {
       return added;
     } catch (err) {
       this.emit("schema.subjects.failed", cardId, { via: "birth", reason: String((err as { code?: string }).code ?? "UNKNOWN") });
-      return 0;
+      return null;
     }
   }
 

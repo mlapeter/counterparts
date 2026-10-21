@@ -791,8 +791,11 @@ is sometimes the earlier one), so the two ran at once, not one after the other.
   left a card nothing links, and nothing would: the tally skips a name a card holds. Now, before
   the night's tally, a live card with no `birth` link looks back (`relinkUnlinked`, one read to
   find them, outside any write lock; `schema.subjects.relinked`). A births card always has some.
-  On the corpus copy the only live card without one is the identity core, which is left alone,
-  so nothing looks again night after night.
+  On the corpus copy the only live card without one is the identity core, which is left alone, so
+  nothing on it looks back at all. A card looks back ONCE: a look-back that ran leaves
+  `schema.relinked.<id>` in meta (a card that truly names no memory would otherwise cost a full
+  regex pass over every memory every night, ~80 ms at 2.5k memories); one that failed leaves
+  none and is tried again.
 - *"Unseen" meant never walked.* The check under the lock read only ids this index had never
   walked, so a card archived when it loaded and brought back by another process since was
   invisible to it. It now reads the live cards the index does not hold (`unseenCards`), and

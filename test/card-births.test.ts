@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 
 import { DATABASE_FILE, Store } from "../src/core/store/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { Schemas, TUNABLES } from "../src/core/schemas/index.js";
+import { RELINKED_PREFIX, Schemas, TUNABLES } from "../src/core/schemas/index.js";
 import { tallyNames } from "../src/core/schemas/names.js";
 import type { TalliedText } from "../src/core/schemas/names.js";
 import { PHASES, phaseReport } from "../src/core/sleep/index.js";
@@ -501,6 +501,43 @@ describe("one name, one card, whichever process runs first (the card twins, 2026
     schemas.birthsFromNames(6);
     expect(schemas.events("schema.subjects.relinked")).toHaveLength(1);
   }, 60_000);
+
+  test("a card that names no memory looks back once, not every night; a look-back that failed is tried again", () => {
+    const s = store();
+    spouse(s);
+    const schemas = Schemas.open({ store: s });
+    // A card no memory names: its look-back finds nothing, now and later.
+    const lone = schemas.mention({ name: "Quillon", kind: "person", source: "Quillon", chunkRef: "lone", day: 4 }).id as string;
+    expect(s.memoriesNaming(lone)).toEqual([]);
+    const relinked = (sc: Schemas): string[] => sc.events("schema.subjects.relinked").map((e) => e.ref as string);
+
+    schemas.birthsFromNames(5, { limit: 0 });
+    expect(relinked(schemas)).toEqual([lone]);
+    expect(s.getMeta(`${RELINKED_PREFIX}${lone}`)).toBe("5");
+    schemas.birthsFromNames(6, { limit: 0 });
+    expect(relinked(schemas)).toEqual([lone]);
+    // Latched in the store, so another process does not look again either.
+    const next = Schemas.open({ store: s });
+    next.birthsFromNames(7, { limit: 0 });
+    expect(relinked(next)).toEqual([]);
+
+    // A look-back that FAILS leaves no latch and runs again the next night.
+    // The birth's own look-back and the first night's both fail.
+    const original = s.linkSubjects.bind(s);
+    s.linkSubjects = () => {
+      throw Object.assign(new Error("disk"), { code: "IO_FAILED" });
+    };
+    const named = schemas.mention({ name: "Wren", kind: "person", source: "Wren", chunkRef: "wren", day: 4 }).id as string;
+    expect(s.memoriesNaming(named)).toEqual([]);
+    const fresh = Schemas.open({ store: s });
+    fresh.birthsFromNames(8, { limit: 0 });
+    expect(relinked(fresh)).toContain(named);
+    expect(s.getMeta(`${RELINKED_PREFIX}${named}`)).toBeUndefined();
+    s.linkSubjects = original;
+    fresh.birthsFromNames(9, { limit: 0 });
+    expect(s.memoriesNaming(named).length).toBeGreaterThan(0);
+    expect(s.getMeta(`${RELINKED_PREFIX}${named}`)).toBe("9");
+  });
 
   test("a card archived when this index loaded and brought back elsewhere since is seen under the lock", () => {
     // Review of #578: "unseen" meant ids never walked, so a card that was
