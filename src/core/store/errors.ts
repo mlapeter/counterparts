@@ -101,6 +101,8 @@ export type StoreErrorCode =
   | "SUBJECT_KIND_INVALID"
   /** v14: a belief's birth route outside `BIRTH_ROUTES`. `detail` carries `{ id }`. */
   | "BIRTH_ROUTE_INVALID"
+  /** v14 (lane C): a belief's birth route is set once, at birth; a change after is refused. `detail` carries `{ id }`. */
+  | "BIRTH_ROUTE_FIXED"
   | "ID_MALFORMED"
   | "ID_UNKNOWN"
   | "ID_CYCLE"

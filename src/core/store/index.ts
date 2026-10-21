@@ -207,6 +207,18 @@ import * as markReads from "./reads-marks.js";
 import * as historyReads from "./reads-history.js";
 import * as wave2 from "./wave2.js";
 
+/** A belief gains no return of any kind (lane C, physics §5.13): the refusal, its fields unchanged. */
+function beliefReturnRefused(source: "dream" | "reflection"): ReturnOutcome {
+  return {
+    counted: false,
+    reason: "a-belief",
+    source,
+    gap: 0,
+    weight: 0,
+    next: { returns: 0, returnDays: 0, firstReturnDay: null, lastReturnDay: null, lastDreamDay: null },
+  };
+}
+
 /** The partial return sources (`physics#PARTIAL_RETURN_SOURCES`), quoted for an `IN (...)` list. Constants, never input. */
 const PARTIAL_SOURCES_SQL = Object.keys(PARTIAL_RETURN_SOURCES)
   .map((source) => `'${source}'`)
@@ -1612,6 +1624,14 @@ export class Store {
     const outcome = this.mutate("reinforce", () => {
       const row = this.requireRow(id);
       let physics = rowToPhysics(row);
+      // A BELIEF IS EARNED BY SUPPORT ALONE (lane C, physics §5.13): shown,
+      // opened, rated or drawn on, it is credited nothing — the shown → used →
+      // stronger loop. Lane E may let a slot's rating be a plain use; it would
+      // still never reach the support arm, which reads `support`, not `uses`.
+      if (physics.belief === true) {
+        const unchanged = { uses: physics.uses, lastUsedDay: physics.lastUsedDay, reinforcedDays: physics.reinforcedDays ?? 0 };
+        return { credited: false, reason: "a-belief" as const, w: 0, next: unchanged, ret: null };
+      }
       const upgradeFrom = opts.upgradeFrom ?? this.partialToday(id, day, row.last_used_day, tier);
       const verdict = creditUse(physics, day, tier, upgradeFrom === undefined ? {} : { upgradeFrom });
       let ret: ReturnOutcome | null = null;
@@ -1680,6 +1700,7 @@ export class Store {
   replayReturn(id: string, day: number, dreamId: string): ReturnOutcome {
     const outcome = this.mutate("replayReturn", () => {
       const row = this.requireRow(id);
+      if (rowToPhysics(row).belief === true) return beliefReturnRefused("dream");
       const ret = creditReturn(rowToPhysics(row), day, { source: "dream", since: this.spacingSince(id) });
       if (ret.counted) this.writeReturn(id, day, ret, dreamId);
       return ret;
@@ -1702,6 +1723,7 @@ export class Store {
   reflectReturn(id: string, day: number, opts: { session?: string | null } = {}): ReturnOutcome {
     const outcome = this.mutate("reflectReturn", () => {
       const row = this.requireRow(id);
+      if (rowToPhysics(row).belief === true) return beliefReturnRefused("reflection");
       const last =
         this.ops.get<{ d: number | null }>("SELECT MAX(day) AS d FROM returns WHERE memory_id = ? AND source = 'reflection'", id)?.d ??
         null;
@@ -4661,7 +4683,13 @@ export class Store {
       throw new StoreError("BIRTH_ROUTE_INVALID", { id });
     }
     this.mutate("setBeliefFields", () => {
-      this.requireRow(id);
+      const row = this.requireRow(id);
+      // HOW A BELIEF WAS BORN IS SET ONCE (lane C, review of #575): it is what
+      // makes a row a belief to physics, and `migrated` keeps another
+      // physics, so a route set at birth is never changed after.
+      if (fields.birthRoute !== undefined && row.birth_route !== null && row.birth_route !== undefined && fields.birthRoute !== row.birth_route) {
+        throw new StoreError("BIRTH_ROUTE_FIXED", { id });
+      }
       const at = this.nowFn();
       if (fields.birthRoute !== undefined) this.ops.run("UPDATE memories SET birth_route = ?, updated_at = ? WHERE id = ?", fields.birthRoute, at, id);
       if (fields.confidence !== undefined) this.ops.run("UPDATE memories SET confidence = ?, updated_at = ? WHERE id = ?", fields.confidence, at, id);
@@ -4673,14 +4701,30 @@ export class Store {
    * a second filing of the same pair changes nothing and returns false, so
    * re-citing what was counted adds nothing (design §4). A belief cannot
    * support itself.
+   *
+   * Lane C (2026-10-21): a new row is COUNTED in the same transaction — every
+   * weight on the belief recounted from the table (`wave2.ts#recountSupport`,
+   * physics §5.13) and the belief's own support written from the count. The
+   * row is written at 0 and the count gives it its weight, so the `weight`
+   * passed in is not what it keeps; `supportOf` reads what it counts for. A
+   * stance other than `support` or `contrary` is refused (false). Whether a memory MAY be filed (a lived memory, a known
+   * route) is `schemas#fileSupport`'s to decide; this keeps the count.
    */
   fileSupport(input: wave2.SupportInput): boolean {
-    return this.mutate("fileSupport", () => wave2.fileSupport(this, input, this.nowFn()));
+    return this.mutate("fileSupport", () => {
+      const filed = wave2.fileSupport(this, { ...input, weight: 0 }, this.nowFn());
+      if (filed) wave2.recountSupport(this, input.beliefId);
+      return filed;
+    });
   }
 
-  /** Takes a memory's count off a belief (an undo). False when it was not counted. */
+  /** Takes a memory's count off a belief (an undo), and counts what is left. False when it was not counted. */
   unfileSupport(beliefId: string, memoryId: string): boolean {
-    return this.mutate("unfileSupport", () => wave2.unfileSupport(this, beliefId, memoryId));
+    return this.mutate("unfileSupport", () => {
+      const gone = wave2.unfileSupport(this, beliefId, memoryId);
+      if (gone) wave2.recountSupport(this, beliefId);
+      return gone;
+    });
   }
 
   /** What a belief is counted on, each row with its memory's own day, session and folder — the spread, by a join. */

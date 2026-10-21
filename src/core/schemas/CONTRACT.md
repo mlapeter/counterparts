@@ -14,10 +14,10 @@ Schema formation and semantic memory: repeated episodes abstract into a structur
 experience is compared against, which is what makes prediction error possible. **Named
 deviation** (constitution line 12): beliefs never blend into each other. Generalization is
 only ever an explicit, provenance-carrying revision — biology's interference and source
-confusion are the bugs, not the architecture (owner ratification 2026-08-08). For now,
-beliefs aren't built yet: the live schema rows are entity, person and place cards. Today
-the one many-into-one path is the dream's fold (it names its sources). Wave 2 may add
-others.
+confusion are the bugs, not the architecture (owner ratification 2026-08-08). Beliefs are
+being built (wave 2 lane C, 2026-10-21): born weak, earned by support (guarantee 15); until
+2026-10-21 the live schema rows were entity, person and place cards only. Today the one
+many-into-one path is the dream's fold (it names its sources). Wave 2 may add others.
 
 ## 3. Keeps
 
@@ -213,6 +213,29 @@ name/alias resolution; birth and death telemetry.
     the memories already naming it. The backfill's reading goes through
     `AliasIndex#scanner`, which gives exactly `matchesIn`'s hits (a test holds them equal).
     `addAliases` does not look back.
+15. **[M] A belief is born weak and earned by support** (wave 2 lane C, 2026-10-21; working
+    defaults, physics §5.13). `addBelief` takes a birth route (`store#BIRTH_ROUTES`), writes
+    it on the row, and caps the dimensions and the claim at `BELIEF_BIRTH_CEILING` at the
+    seam, with no feeling, whoever writes it; a `migrated` belief keeps the strength, the
+    inertia and the accommodation path it lived (for now) — `migrated` is read off the birth
+    route alone, a channel that disagrees is refused, and a route is never changed after
+    birth. Beliefs
+    about me or us carry `about` me/us. `fileSupport` is the one door support comes through:
+    a lived memory (a memory or a chapter, not a dream's words or a reflection's entry) or,
+    by `link`, another belief at `SUPPORT_LINK_FLOOR`; never the belief itself, and no word
+    but a support route (a rating, a showing or a recall is none), no stance but `support`
+    or `contrary`; `testimony` and `choice`
+    read off the memory's `said_by`, never claimed; `use` not on a belief about me or us.
+    Each memory counts once per belief (the table's key: filing again is `already-counted`).
+    A contrary filing presses through `challengeBelief` at its weight, against a bar that
+    grows with the belief's support (physics §5.13); past it the belief is CONTESTED — its
+    text stands (no memory's body ever becomes a belief's), it is cut once and marked
+    `meta.contested` — never rewritten. The owner's correction or an awake session's settle
+    reaches a belief at once through `reconsolidation.ts#settle`, as the one settled over,
+    passing no bar; a dream's never, a reflection's only once the belief is contested.
+    **Invisible for now**:
+    recall's candidates, facts mode and the core lanes leave belief rows out by role
+    (`meta.role: belief`) until lanes E and F, each behind its own switch.
 
 ## 6. Scars honored
 

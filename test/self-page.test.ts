@@ -1186,11 +1186,14 @@ describe("the page survives sleep", () => {
       runCycle({ store: s, date: `2026-03-${String(i).padStart(2, "0")}`, render: () => ({ bytes: 1 }) });
     }
 
-    // The two that meet a lane cross, and stay decay-exempt.
-    for (const id of [memory, belief]) {
+    // The memory that meets a lane crosses, and stays decay-exempt.
+    for (const id of [memory]) {
       expect({ id, promoted: s.row(id)?.promoted_identity }).toEqual({ id, promoted: 1 });
       expect(s.row(id)?.band).toBe("identity");
     }
+    // A belief does not, for now (wave 2 lane C, 2026-10-21): a belief about
+    // me reaching the core is lane F's, behind its own switch.
+    expect(s.row(belief)?.promoted_identity).toBe(0);
     // The page does not, and leaves no crossing record.
     expect(s.row(page)?.promoted_identity).toBe(0);
     expect(s.row(page)?.band).not.toBe("identity");

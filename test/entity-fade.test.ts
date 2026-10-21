@@ -172,7 +172,7 @@ describe("the fade verdict is gentle", () => {
   test("an entity with live beliefs attached does not fade, however long the quiet", () => {
     const s = Schemas.open({ store: store() });
     const id = mention(s, "Ephemeral", "entity");
-    s.addBelief({ entityId: id, statement: "it ships on Fridays", day: 0 });
+    s.addBelief({ birthRoute: "reflection", entityId: id, statement: "it ships on Fridays", day: 0 });
     const at = pastAll("person"); // longer than any floor
     const v = s.fadeVerdict(id, at.day, at.date);
     expect(v.fade).toBe(false);
@@ -253,7 +253,8 @@ describe("the sleep cycle runs the fade", () => {
     const st = store();
     const s = Schemas.open({ store: st });
     const id = mention(s, "Ada", "person");
-    const belief = s.addBelief({ entityId: id, statement: "likes tea", day: 0 }).id as string;
+    // Claimed at nothing: a born belief with no support, at the floor (lane C's default is the birth ceiling).
+    const belief = s.addBelief({ birthRoute: "reflection", entityId: id, statement: "likes tea", day: 0, claimedSalience: 0 }).id as string;
     const ctx: PhaseCtx = {
       store: st,
       day: PHYSICS.D_FLOOR_DAYS + 1,

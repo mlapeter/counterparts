@@ -696,3 +696,53 @@ of a copy of the live store (lived day 23).
   count would have archived 74 with the era fix off and 130 with it on; the new wait archives
   0. The first exits come on day 39; by day 44, 26; by day 51, 130 (fix on).
 
+
+## 2026-10-21 — support: how a belief is earned (wave 2 lane C, §5.13)
+
+**Why support is a use, not a return.** The brief asked for "a return-like credit". A return
+here only lengthens stability (`R`), so a belief credited by returns alone would never rise
+above its birth ceiling (0.3) — "resistance comes from accumulated support" (design §5)
+could not hold. So the support's sum is the belief's `uses`, and the last day support
+counted restarts its curve. The `returns` table's key (memory, day, source) would also have
+collapsed two supports filed the same day.
+
+**Its own arm, its own resistance (the coordinator's redirect on #575).** The first build
+put support through the repetition arm (capped at `REP_CAP` 0.5, so no belief could reach
+the semantic floor, nor lane F's core floor) and left resistance to `ι × strength` — a
+belief on the self subject is kind `fact`, ι 0.2, so its bar was at most 0.1 and one
+ordinary contrary memory flipped the best-supported belief about me, the inverse of design
+§5. Now: a support arm (`BELIEF_SUPPORT_CAP` 0.9, `SCALE` 4) replaces the repetition arm for
+a belief and sets its steepness; and the bar is `beliefResistance`, from support and the
+lived days it comes from. The first shape (`min(1, days/2)²`) hardened in two days — two
+supports over two days resisted ~0.76, nearly a month-old belief's — so the days term is
+log-shaped over about two weeks (`ln(1 + days) / ln(15)`, design session 10-21). Numbers at
+the defaults: one support from one day 0.17, two 0.19 (under the daily cap, contested the
+same day); two over two days 0.28; a support a day for a week 0.72 (holds two days, goes on
+the third); ten over twenty days 0.97; thirty days of daily support ~1.0 (three days, never
+more). The bar does not decay with the belief's strength: it is what life put behind it;
+the pressure decays on its own.
+
+**Contested, not superseded.** Crossing the bar used to mint a successor in the challenger's
+words, so a memory's body became a belief. A belief born under lane C now keeps its words,
+takes `BELIEF_CONTESTED_FADE` once, restarts its pressure and carries `meta.contested`; the
+reflection decides what to do with it (C2/C3). A migrated belief keeps the old path.
+
+**The cost of recounting.** On 2,000 beliefs × 20 supports (40,000 rows; a temp store, bun),
+a 21st filing with its whole-table recount takes 0.30 ms at the median and 0.64 ms at p95,
+an unfiling 0.32 / 0.67 ms: the recount reads only that belief's rows (the key's prefix) and
+each counted memory's row.
+
+**Review of #575 (2026-10-21).** Support is the belief's own now (`support`, `supportDays`, a
+box-2 meta row per belief, read beside the row): the first build put it in the shared `uses`,
+which `Store#reinforce` also writes, and the reviewer lifted a belief with no support from
+0.10 to 0.78 by reinforcing it on eight days — the shown → used → stronger loop. A belief
+also takes no use credit or return at all, for now. An un-echoed find counts its filing day
+(ten old memories found on one night had hardened a belief to 0.82 at once: "hardened by the
+reflection alone"); once life echoes it, its memory's own day. A stronger contrary memory the
+same day tops the day's pressure up to its force (`applyChallenge`'s `creditedToday`), so a
+second one is not lost to the once-a-day rule. A contested belief is cut once.
+The row read's support join first asked `PRAGMA table_info` on every read (5,000 reads 32–40
+→ 123–143 ms, re-review of #575); the v14 column is now asked once per store
+(`reads-memories.ts#hasBirthRoute`), back to 31–37 ms, recount 0.38 ms p50, and a test counts
+the PRAGMAs so it cannot quietly return. A supporting memory the owner has made dark still
+counts until the chase removes it (minor, left as is).

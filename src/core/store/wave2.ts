@@ -12,6 +12,9 @@
 import type { Db } from "./db.js";
 import type { BeliefSupportRow, FolderProjectRow, RecallTurnRow, TagMergeRow } from "./operational.js";
 import type { Store } from "./index.js";
+import { emotionalIntensity, supportCredit, supportedPhysics } from "../physics/index.js";
+import type { SupportFiling } from "../physics/index.js";
+import { rowToPhysics } from "./operational.js";
 
 /**
  * A tag as stored: trimmed, lowercased, inner whitespace one space. The one
@@ -174,6 +177,8 @@ export interface SupportRead {
 
 export function fileSupport(store: Store, input: SupportInput, at: number): boolean {
   if (!has(store, "belief_support") || input.beliefId === input.memoryId) return false;
+  // Only the two stances (review of #575): a word like "against" is no stance.
+  if (input.stance !== "support" && input.stance !== "contrary") return false;
   ops(store).run(
     `INSERT OR IGNORE INTO belief_support (belief_id, memory_id, stance, route, day, weight, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -222,6 +227,64 @@ export function supportOf(store: Store, beliefId: string): SupportRead[] {
 export function supportGivenBy(store: Store, memoryId: string): SupportRead[] {
   if (!has(store, "belief_support")) return [];
   return ops(store).all<SupportJoin>(`${SUPPORT_JOIN} WHERE s.memory_id = ? ORDER BY s.belief_id`, memoryId).map(supportRead);
+}
+
+/**
+ * Where a belief's counted support is kept (lane C, physics §5.13): a box-2
+ * meta row per belief, `{ sum, days }`, read beside the row
+ * (`reads-memories.ts#row`) into `MemoryPhysics.support` / `supportDays`.
+ * Its own place, not `uses`: a use credited by any door is never support.
+ * No column for it: v14 was the wave's one bump.
+ */
+export const BELIEF_SUPPORT_META_PREFIX = "belief.support.";
+
+/**
+ * THE BELIEF'S SUPPORT, COUNTED AGAIN (lane C, physics §5.13): every row's
+ * weight from the whole table, in filing order (`physics#supportCredit`), and
+ * the belief's support, its support days and its anchor written from that
+ * count (`physics#supportedPhysics`). Run inside every filing and unfiling,
+ * so the belief, the table and the weights it shows never disagree. Each
+ * counted memory's feeling is its strongest felt at the time
+ * (`feeling_peak_lived`): a feeling a reflection records later does not make
+ * its memory count more. Returns each memory's weight; empty when the table
+ * or the belief is not there. ~0.3 ms a filing at 2,000 beliefs x 20 supports.
+ */
+export function recountSupport(store: Store, beliefId: string): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!has(store, "belief_support")) return out;
+  const belief = store.row(beliefId);
+  if (belief === undefined) return out;
+  // Filing order: the day, the moment, then the order the rows went in (two in one moment keep theirs).
+  const rows = ops(store).all<SupportJoin>(`${SUPPORT_JOIN} WHERE s.belief_id = ? ORDER BY s.day, s.created_at, s.rowid`, beliefId);
+  const filings: SupportFiling[] = rows.map((r) => {
+    const m = store.row(r.memory_id);
+    const feeling = m === undefined ? 0 : emotionalIntensity({ salience: rowToPhysics(m).salience, feelingPeak: m.feeling_peak_lived ?? m.feeling_peak ?? null });
+    return {
+      memoryId: r.memory_id,
+      stance: r.stance === "contrary" ? "contrary" : "support",
+      route: r.route,
+      day: r.day,
+      bornDay: r.born_day,
+      session: r.origin_session,
+      scope: r.origin_scope,
+      feeling,
+    };
+  });
+  const credit = supportCredit(filings);
+  const write = ops(store).prepare("UPDATE belief_support SET weight = ? WHERE belief_id = ? AND memory_id = ?");
+  filings.forEach((f, i) => {
+    const w = credit.weights[i] ?? 0;
+    write.run(w, beliefId, f.memoryId);
+    out.set(f.memoryId, w);
+  });
+  const next = supportedPhysics(rowToPhysics(belief), credit);
+  ops(store).run(
+    "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+    `${BELIEF_SUPPORT_META_PREFIX}${beliefId}`,
+    JSON.stringify({ sum: next.support ?? 0, days: next.supportDays ?? 0 }),
+  );
+  ops(store).run("UPDATE memories SET last_used_day = ? WHERE id = ?", next.lastUsedDay, beliefId);
+  return out;
 }
 
 // ── folders and projects ───────────────────────────────────────────────────

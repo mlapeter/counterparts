@@ -613,6 +613,9 @@ describe("SEAMS K — the box-2 events table replaces the in-memory rings that m
       day: 0,
     }).id as string;
     const beliefId = schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
@@ -1012,6 +1015,9 @@ describe("SEAMS E — a supersede retargets the edges, so the successor is not b
       day: 0,
     }).id as string;
     const beliefId = schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
@@ -1089,6 +1095,9 @@ describe("SEAMS E — a supersede retargets the edges, so the successor is not b
       day: 0,
     }).id as string;
     const beliefId = schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: 0,
@@ -1989,6 +1998,9 @@ describe("MemorySource is TOTAL — every member has a live writer that lands it
       day: 0,
     }).id as string;
     const belief = sch.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId: ent,
       statement: "Ada prefers async review over meetings",
       day: 0,
@@ -2372,6 +2384,9 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
       day: c.store.livedDay(),
     }).id as string;
     const beliefId = c.schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada prefers async review",
       day: c.store.livedDay(),
@@ -2502,6 +2517,9 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
       day: c.store.livedDay(),
     }).id as string;
     const beliefId = c.schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Bansai is the live instance and stays primary",
       day: c.store.livedDay(),
@@ -2734,6 +2752,9 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
     const c = brain();
     const { entityId } = personBelief(c);
     const protectedId = c.schemas.addBelief({
+      // Lane C: a born belief starts weak; the strength this test needs is a migrated one's.
+      birthRoute: "migrated",
+      channel: "migrated",
       entityId,
       statement: "Ada is the owner of this store, and that never gets revised away",
       day: c.store.livedDay(),

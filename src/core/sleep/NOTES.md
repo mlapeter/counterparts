@@ -1036,3 +1036,13 @@ earlier state's uses). That crossing rests on reading a NULL session as one per 
 session, nothing on the copy crosses by the slow lane. After that, nothing: with no activity, the
 trailing window empties. No 60-day flag fires before lived day 70. The wake shows one flagged member
 at a time at the top of "Still open" (`RECONSIDERING_MAX`), the rest counted with "more still open".
+
+## 2026-10-21 — beliefs stay out of the core lanes, for now (wave 2 lane C)
+
+The night's reflection starts writing beliefs (lane C), and a belief about us on a person
+card has kind `person`, a core kind: with the mark it would pass `identityBlock` and could
+cross by the fast or slow lane. That is lane F's to open, behind its own switch, after a
+compare and Mike's read. So `runConsolidate` refuses a belief row by its role
+(`types.ts#isBeliefRow`, counted `promotion:a-belief`) right after the page guard — by role,
+not kind, because the self subject's kind (`fact`) is A's choice for now and lane F may
+change it. The identity core is still not exempted, as before.
