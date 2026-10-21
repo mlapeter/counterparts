@@ -167,6 +167,12 @@ shape the whole contract is built on.
 
 ## 6. The adapter — the lock, the watchdog, and detachment (OUT OF SCOPE, DECLARED)
 
+**The lock is built, and here — 2026-10-21.** No adapter ever took it, and two
+workers' cycles ran side by side (NOTES, "one cycle at a time"). `runCycle` now
+takes a fenced lease in box 2 (`lease.ts`), so every caller holds it. The
+watchdog and detachment below are still the adapter's. The text below is the
+gap as filed.
+
 CONTRACT §3 and scars E4/E5 require: detached execution, a single writer with an
 ATOMIC stale-lease reclaim, two watchdog levels, and the spawner pinning the
 environment LAST. **None of it is in this module, deliberately** — `sleep/` is

@@ -88,6 +88,14 @@ export interface SleepStore {
   // writes
   advanceClock(date: string): number;
   setMeta(key: string, value: string): void;
+  /**
+   * One meta row read, changed and written in ONE transaction (`Store#updateMeta`),
+   * OPTIONAL: the cycle's lease is taken through it (`lease.ts`, 2026-10-21). A
+   * port without it runs its cycle unleased, and says so in the ring.
+   */
+  updateMeta?(key: string, fn: (current: string | undefined) => string | null | undefined): string | null | undefined;
+  /** The store's clock, ms (OPTIONAL; the lease falls back to `Date.now()`). */
+  now?(): number;
   archive(id: string, reason: string): void;
   updatePhysics(id: string, patch: Partial<MemoryPhysics>): void;
   setBand(id: string, band: Band, day: number): void;
@@ -534,6 +542,13 @@ export interface CycleReport {
   /** A kind with a zero exit count after bake-in is a defect (§5 G13). */
   readonly census: Readonly<Record<Kind, KindCensus>>;
   readonly events: readonly SleepEvent[];
+  /**
+   * PRESENT ONLY WHEN THIS CYCLE STOOD ASIDE (2026-10-21, `lease.ts`): another
+   * cycle held the store's lease, so no phase ran — `order` and `phases` are
+   * empty, `symmetry` was not computed, and `census` is today's births read as
+   * they stand. Who held it and since when.
+   */
+  readonly held?: { readonly owner: string; readonly pid: number | null; readonly since: number; readonly until: number };
 }
 
 export function phaseReport(report: CycleReport, phase: Phase): PhaseReport {

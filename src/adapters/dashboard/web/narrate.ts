@@ -599,6 +599,15 @@ export const NARRATORS = {
     }
     return notable(`I slept: ${promoted} promoted, ${pruned} let go, ${merged} merged.`);
   },
+
+  /**
+   * A BOUNDARY THAT STOOD ASIDE (2026-10-21, `sleep/lease.ts`): another cycle
+   * was already running on this store. Calm: it is the ordinary case of a
+   * session's two closing hooks, and the other cycle's own row says what ran.
+   */
+  "sleep.cycle.held": () => {
+    return calm("Another sleep was already running, so I left it to that one.");
+  },
   /**
    * THE WAKE RENDER'S ROW (U9). Neutral by rule: a trim is the budget working,
    * not a fault — the wake is SUPPOSED to be smaller than everything it knows,
@@ -1259,6 +1268,7 @@ export const REF_KIND = {
   // Neither U9 row points at a memory: one describes a RUN, the other the wake
   // BUNDLE. The ids they do carry (the trimmed elements) ride in the payload.
   "sleep.cycle": "none",
+  "sleep.cycle.held": "none",
   "self.briefing": "none",
   // The revision points at the PAGE's own row, which is a real id in the store
   // and resolves like any other; a refusal wrote nothing, so it points at

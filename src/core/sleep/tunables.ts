@@ -114,6 +114,17 @@ export const TUNABLES = {
     briefing: 1,
     log: 1,
   } as const satisfies Record<Phase, number>,
+
+  /**
+   * How long a cycle's lease holds before another cycle may reclaim it
+   * (`lease.ts`, 2026-10-21). A cycle takes seconds; this is only how long a
+   * DEAD holder keeps the next one waiting. Not shorter than `remember/`'s
+   * `STALE_CLAIM_MS`, which `adapters/spawn.ts` already holds every worker's
+   * watchdog under, so a worker's own watchdog fires before its lease can be
+   * reclaimed — a test pins the inequality. A wedged holder is the fence's
+   * job, not this number's.
+   */
+  CYCLE_LEASE_MS: 10 * 60_000,
 } as const;
 
 /** A marker that has never been written. Reads as "due", which is forward-safe. */

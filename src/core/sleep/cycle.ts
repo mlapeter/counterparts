@@ -44,6 +44,8 @@ import type { TagsFn } from "./tags.js";
 import type { DedupCandidateSource } from "./dedup.js";
 import { runLogSweep } from "./log.js";
 import { advanceMarker, budgetFor, cadenceFor, markerDue, readMarker } from "./markers.js";
+import { CYCLE_LEASE_KEY, CycleLeaseLost, holdsLease, readLease, releaseLease, takeLease } from "./lease.js";
+import type { LeaseStore } from "./lease.js";
 import { runPrune } from "./prune.js";
 import { sqliteStrengthCache, storeRankingCache, supportsRanking } from "./strength-cache.js";
 import type { StrengthCache } from "./strength-cache.js";
@@ -159,6 +161,60 @@ export function runCycle(opts: SleepOptions): CycleReport {
   const faded: string[] = [];
   const bandTransitions: BandTransition[] = [];
 
+  // ONE CYCLE AT A TIME, PER STORE (`lease.ts`, 2026-10-21). Taken before
+  // anything else this cycle does; held elsewhere, the cycle stands aside at
+  // once and reports who holds it. Never under observer: a lease is a write.
+  let leaseOwner: string | null = null;
+  if (!observer) {
+    const leaseStore = store.updateMeta === undefined ? null : (store as SleepStore & LeaseStore);
+    if (leaseStore === null) {
+      emit("sleep.lease.unavailable", undefined, { date });
+    } else {
+      const owner = globalThis.crypto.randomUUID();
+      const now = store.now?.() ?? Date.now();
+      const took = takeLease(leaseStore, { owner, now, pid: process.pid });
+      if (!took.taken) {
+        emit("sleep.cycle.held", undefined, {
+          date,
+          holderPid: took.holder.pid,
+          heldMs: Math.max(0, now - took.holder.at),
+          untilMs: Math.max(0, took.holder.until - now),
+        });
+        const day = store.livedDay();
+        return {
+          day,
+          date,
+          observer,
+          order: [],
+          phases: [],
+          promoted: [],
+          pruned: [],
+          merged: [],
+          faded: [],
+          bandTransitions: [],
+          symmetry: [],
+          census: census(store, day, [], [], []),
+          events,
+          held: { owner: took.holder.owner, pid: took.holder.pid, since: took.holder.at, until: took.holder.until },
+        };
+      }
+      leaseOwner = owner;
+      if (took.reclaimed !== null || took.torn) {
+        emit("sleep.lease.reclaimed", undefined, {
+          date,
+          torn: took.torn,
+          priorPid: took.reclaimed?.pid ?? null,
+          overdueMs: took.reclaimed === null ? null : Math.max(0, now - took.reclaimed.until),
+        });
+      }
+    }
+  }
+  /** The fence: before every phase, the lease is still this cycle's, or it stops. */
+  const fence = (phase: Phase): void => {
+    if (leaseOwner === null || holdsLease(store, leaseOwner)) return;
+    throw new CycleLeaseLost(phase, readLease(store.getMeta(CYCLE_LEASE_KEY)));
+  };
+
   // The ranking cache is opened LAZILY by the decay phase, and never at all
   // under observer: a created file is a mutation.
   const injectedCache = opts.strengthCache;
@@ -194,6 +250,7 @@ export function runCycle(opts: SleepOptions): CycleReport {
       collect?: (result: T) => void,
       precheck?: () => PhaseReason | null,
     ): void => {
+      fence(phase);
       const before = readMarker(store, phase);
       if (before.health === "torn") {
         // A torn marker is LOUD (§3, v1 §11 G9) and repairs forward only.
@@ -437,11 +494,22 @@ export function runCycle(opts: SleepOptions): CycleReport {
   } finally {
     // Only a cache this cycle created is this cycle's to close.
     if (injectedCache === undefined) cache?.close();
+    // Only a lease that is still this cycle's is given back (`releaseLease`
+    // checks the owner): a reclaimer's row is never deleted. A release that
+    // cannot write costs the next cycle one lease's wait, never this one.
+    if (leaseOwner !== null) {
+      try {
+        releaseLease(store as SleepStore & LeaseStore, leaseOwner);
+      } catch {
+        emit("sleep.lease.release.failed", undefined, { date });
+      }
+    }
   }
 
   // ── the clock phase, inline: it produces the day everything else gates on ──
   function runClock(): number {
     const phase: Phase = "clock";
+    fence(phase);
     const before = readMarker(store, phase);
     const budget = budgetFor(phase, opts.budgets);
     const skeleton = { phase, budget, markerBefore: before.day, markerAfter: before.day };

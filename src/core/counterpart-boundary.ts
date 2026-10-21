@@ -39,6 +39,7 @@ import {
   nonzero,
   CLOCK_PHASE,
   SLEEP_CYCLE_EVENT,
+  SLEEP_CYCLE_HELD_EVENT,
   numberField,
   renderedEvent,
   TRIMMED_FIELD,
@@ -207,8 +208,15 @@ export async function sessionEnd(cp: Counterpart, input: SessionEndInput = {}): 
     throw err;
   }
   const briefingEvents = cp["takeBriefingEvents"]();
-  cp["recordSleepCycle"](cycle, date, briefingEvents, null);
-  cp["recordSelfBriefing"](briefingEvents, date);
+  if (cycle.held !== undefined) {
+    // ANOTHER CYCLE HOLDS THE STORE (`sleep/lease.ts`): this boundary's flush
+    // ran above, and no phase did. Neither cycle row nor briefing row — nothing
+    // ran or rendered — but its own row, so the stand-aside is countable.
+    recordCycleHeld(cp, cycle, date);
+  } else {
+    cp["recordSleepCycle"](cycle, date, briefingEvents, null);
+    cp["recordSelfBriefing"](briefingEvents, date);
+  }
   if (briefingEvents.some((e) => e.name === BRIEFING_PUBLISHED_EVENT)) {
     if (behind !== null) noteWakeCaught(cp.store, behind.raw);
     noteWakeBuild(cp.store, cp["build"]);
@@ -223,8 +231,32 @@ export async function sessionEnd(cp: Counterpart, input: SessionEndInput = {}): 
     budgetBytes,
     observer: cycle.observer,
     episodesIngested: episodes.ingested + episodes.regrown,
+    held: cycle.held !== undefined,
   });
   return { sweeps, edges, contiguity, carried, cycle, budgetBytes, episodes };
+}
+
+/** `SLEEP_CYCLE_HELD_EVENT`'s row. Guarded as `recordSleepCycle` is: a failed append costs the row, never the boundary. */
+function recordCycleHeld(cp: Counterpart, cycle: CycleReport, date: string): void {
+  const held = cycle.held;
+  if (cp.observer || held === undefined) return;
+  try {
+    const now = cp.store.now();
+    cp.store.appendEvent({
+      name: SLEEP_CYCLE_HELD_EVENT,
+      day: cp.store.livedDay(),
+      payload: {
+        reason: "held-elsewhere",
+        date,
+        day: cycle.day,
+        holderPid: held.pid,
+        heldMs: Math.max(0, now - held.since),
+        untilMs: Math.max(0, held.until - now),
+      },
+    });
+  } catch (err) {
+    cp["emit"]("counterpart.sleep.cycle.held.failed", undefined, { code: errCode(err) });
+  }
 }
 
 export function contiguityPass(cp: Counterpart): ContiguityPass {
