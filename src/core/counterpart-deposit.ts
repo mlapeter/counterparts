@@ -29,6 +29,7 @@ import type {
   DepositReason,
   SentFacts,
   DepositFacts,
+  DepositTags,
   FactField,
   ThreadRefusal,
   ReminderCarryPlan,
@@ -208,7 +209,13 @@ export async function deposit(
   // on the memory that says X was done reads as still open.
   const closes = (carry.from !== null && carry.proposal.eventDate === null) || ctx.facts?.status === "done";
   const titled = carryTitle(cp, withFacts, closes);
-  const proposal: Proposal = titled.carried === undefined ? withFacts : { ...withFacts, title: titled.carried.title };
+  const titledProposal: Proposal = titled.carried === undefined ? withFacts : { ...withFacts, title: titled.carried.title };
+  // v14, lane B: its tags, a revision's carried over when none were sent.
+  const tags = carryTags(cp, carry.proposal, ctx.tags);
+  const proposal: Proposal =
+    tags === null || tags.tags.length === 0
+      ? titledProposal
+      : { ...titledProposal, tags: tags.tags, tagsVia: tags.from === null ? "write" : "carried" };
   // What it is about, a revision's carried over when none was sent (2026-10-11).
   const about = cp["carryAbout"](carry.proposal, ctx.about);
   const mint = mintProposal(cp.store, proposal, {
@@ -295,6 +302,7 @@ export async function deposit(
     ...(held === null ? {} : { held }),
     ...(thread === null ? {} : { thread }),
     ...(facts === null ? {} : { facts }),
+    ...(tags === null ? {} : { tags }),
     ...(about === null ? {} : { aboutCarried: { mark: about.about, from: about.from } }),
     ...(titled.carried === undefined ? {} : { titleCarried: titled.carried }),
     ...(titled.asked ? { titleAsked: true as const } : {}),
@@ -556,6 +564,27 @@ export function carryFacts(cp: Counterpart, p: Proposal, sent: SentFacts | undef
     return sent === undefined || Object.keys(sent).length === 0 ? null : { occurredOn, saidBy, status, inherited, from: null };
   }
   return { occurredOn, saidBy, status, inherited, from: inherited.length > 0 ? (target as string) : null };
+}
+
+/**
+ * A NEW MEMORY'S TAGS (v14, lane B, 2026-10-21): what the writer sent, or —
+ * for a revision of a memory the author addressed by `updates:` (declared and
+ * resolved, as `carryFacts` reads it) and sent no tags — the tags of the
+ * memory it revises, every one whatever found it (as `about` is carried).
+ * Sent as `null` or empty: none, nothing carried. Nothing MOVES: the old
+ * memory keeps its own. Null when nothing was sent and nothing carried.
+ */
+export function carryTags(cp: Counterpart, p: Proposal, sent: readonly string[] | null | undefined): DepositTags | null {
+  if (sent !== undefined) return sent === null ? { tags: [], from: null } : { tags: [...sent], from: null };
+  const target = p.updates?.method === "declared" ? p.updates.resolved : null;
+  if (target === null) return null;
+  let prior: string[];
+  try {
+    prior = cp.store.tagsOf(target).map((t) => t.tag);
+  } catch {
+    return null;
+  }
+  return prior.length === 0 ? null : { tags: prior, from: target };
 }
 
 /**

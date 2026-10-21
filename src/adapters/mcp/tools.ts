@@ -464,6 +464,19 @@ const STATUS_PROPERTY = {
     'Optional: what kind of thing it is — "done" (it happened; with `updates` at a repeating reminder, this occurrence is done and the repeat stays), "planned" (decided, not done yet), "proposed" (put forward, not decided), "asked" (a question or request still open).',
 } as const;
 
+/**
+ * v14, lane B (2026-10-21): a few TAGS on a `remember` or a `session_end`
+ * entry — what the memory is about, in words the night can promote into a
+ * subject. Plain data: no privilege row, since nothing the model reads
+ * changes with them yet (recall does not read tags; lane E).
+ */
+const TAGS_PROPERTY = {
+  type: ["array", "null"],
+  items: { type: "string" },
+  description:
+    'Optional: 3-5 short tags for what this is about — a topic ("taxes", "backups"), a person, a project, a place; one to three words each, lowercase. Not a date, not a feeling, not "memory" or "note". Revising a memory with `updates`: its tags carry over unless you send your own (null: none).',
+} as const;
+
 /** The privilege `remember` and `session_end` share for the three fields (v12). */
 const WRITE_FACTS_PRIVILEGE: Privilege = {
   claim:
@@ -737,6 +750,7 @@ const REMEMBER: ToolSpec = {
       occurredOn: OCCURRED_ON_PROPERTY,
       saidBy: SAID_BY_PROPERTY,
       status: STATUS_PROPERTY,
+      tags: TAGS_PROPERTY,
       feelings: FEELINGS_PROPERTY,
       about: ABOUT_PROPERTY,
       unresolved: UNRESOLVED_PROPERTY,
@@ -1177,6 +1191,7 @@ const SESSION_END: ToolSpec = {
             occurredOn: OCCURRED_ON_PROPERTY,
             saidBy: SAID_BY_PROPERTY,
             status: STATUS_PROPERTY,
+            tags: TAGS_PROPERTY,
             feelings: FEELINGS_PROPERTY,
             about: ABOUT_PROPERTY,
             unresolved: UNRESOLVED_PROPERTY,

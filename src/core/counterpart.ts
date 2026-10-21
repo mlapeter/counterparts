@@ -337,6 +337,7 @@ export type {
   SentFacts,
   FactField,
   DepositFacts,
+  DepositTags,
   DepositContext,
   SessionEndDepositContext,
   DepositReason,
@@ -3686,6 +3687,7 @@ export class Counterpart {
       ...(ctx.ownSpanHash === undefined ? {} : { ownSpanHash: ctx.ownSpanHash }),
       ...(ctx.model === undefined ? {} : { model: ctx.model }),
       ...(ctx.facts === undefined ? {} : { facts: ctx.facts }),
+      ...(ctx.tags === undefined ? {} : { tags: ctx.tags }),
       ...(ctx.about === undefined ? {} : { about: ctx.about }),
     });
   }

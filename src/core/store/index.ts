@@ -5389,6 +5389,11 @@ export class Store {
     // write-up, the sweep, a chapter copy, a dream's merge or gist, a
     // reflection's entry), so no door can forget. Memories only.
     if (input.type === "memory") this.relinkSubjects(id, doc.title ?? null, doc.body, "write");
+    // v14, lane B: ITS TAGS, in the same transaction for the same reason —
+    // a row that lands has its tags, and one refused leaves none behind.
+    if (input.type === "memory" && input.tags !== undefined && input.tags.length > 0) {
+      wave2.tagMemory(this, id, input.tags, input.tagsVia ?? "write", at);
+    }
     return doc;
   }
 

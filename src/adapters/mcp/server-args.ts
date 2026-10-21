@@ -1,10 +1,12 @@
-/** The MCP tools' argument readers — kinds, dimensions, reminders, feelings, traits, facts, `about` — and the echoes that say back what was read (moved out of `server.ts`, 2026-10-11). */
+/** The MCP tools' argument readers — kinds, dimensions, reminders, feelings, traits, facts, tags, `about` — and the echoes that say back what was read (moved out of `server.ts`, 2026-10-11). */
 import type { DepositResult, SentFacts } from "../../core/counterpart.js";
 import { isRecurrence, occurrenceOnOrAfter, parseCalendarDate, readableDate, readableRecurrence } from "../../core/time.js";
 import type { Recurrence } from "../../core/time.js";
 import { AUTHOR_DIMENSIONS } from "../../core/remember/index.js";
+import { redactSecrets } from "../../core/encode/index.js";
 import {
   ABOUT_MARKS,
+  normalizeTag,
   SAID_BY,
   STATUSES,
   checkFeelings,
@@ -490,6 +492,78 @@ export function factsEcho(deposit: DepositResult, read: FactsRead): Record<strin
       ...(f === undefined || f.inherited.length === 0 ? {} : { carriedOver: [...f.inherited], from: f.from }),
       ...dropped,
       ...(read.notes.length === 0 ? {} : { note: read.notes.join(" ") }),
+    },
+  };
+}
+
+/**
+ * v14, lane B (2026-10-21): A MEMORY'S TAGS off a `remember` or a
+ * `session_end` entry — a few words for what it is about. LOOSE FIRST, as the
+ * three fields: nothing here refuses the memory. Each is normalized
+ * (`normalizeTag`: trimmed, lowercased, one space); one that is not text, is
+ * empty, is longer than `TAG_MAX_CHARS`, or carries a secret (the battery's
+ * `redactSecrets` would change the words as sent) is dropped and said; past
+ * `TAGS_PER_MEMORY` the rest are dropped and said. A comma-separated string
+ * is read as its parts. `null` (or an empty list) is sent as none: a revision
+ * carries nothing over; absent — or every one dropped — is not sent. Not stemmed here — the stored
+ * word is the word as written; stems are the night's merge key (lane B's
+ * second PR), so the stemming experiment can be reverted without touching a
+ * stored tag.
+ */
+export interface TagsRead {
+  /** Absent: not sent. Null: sent as none. */
+  readonly sent?: readonly string[] | null;
+  readonly dropped: readonly string[];
+}
+
+/** Loose limits (lightly held): a tag is a few words, and a memory has a few. */
+export const TAG_MAX_CHARS = 48;
+export const TAGS_PER_MEMORY = 8;
+
+export function readTags(rec: Record<string, unknown>): TagsRead {
+  const raw = rec["tags"];
+  if (raw === undefined) return { dropped: [] };
+  if (raw === null) return { sent: null, dropped: [] };
+  const items: unknown[] = typeof raw === "string" ? raw.split(",") : Array.isArray(raw) ? raw : [raw];
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const item of items) {
+    if (typeof item !== "string") {
+      dropped.push("a tag that was not text");
+      continue;
+    }
+    // The secret screen first, on the words AS SENT: lowercasing hides some
+    // keys from the battery, and nothing of a secret is echoed back.
+    if (redactSecrets(item) !== item) {
+      dropped.push("a tag that looked like a secret");
+      continue;
+    }
+    const t = normalizeTag(item);
+    if (t.length === 0) continue;
+    if (t.length > TAG_MAX_CHARS) dropped.push(`"${t.slice(0, 24)}…" (longer than ${String(TAG_MAX_CHARS)} characters; a tag is a few words)`);
+    else if (!kept.includes(t)) kept.push(t);
+  }
+  if (kept.length > TAGS_PER_MEMORY) {
+    dropped.push(`${kept.slice(TAGS_PER_MEMORY).map((t) => `"${t}"`).join(", ")} (past ${String(TAGS_PER_MEMORY)} tags)`);
+    kept.length = TAGS_PER_MEMORY;
+  }
+  // Every one dropped: read as not sent, so a revision still carries its memory's.
+  if (kept.length === 0) return dropped.length === 0 ? { sent: null, dropped } : { dropped };
+  return { sent: kept, dropped };
+}
+
+/** The tags' half of a deposit's answer (v14, lane B): what was recorded — after a revision's carry-over — and what was dropped. Nothing when nothing was sent, dropped or carried. */
+export function tagsEcho(deposit: DepositResult, read: TagsRead): Record<string, unknown> {
+  if (read.sent === undefined && read.dropped.length === 0 && deposit.tags === undefined) return {};
+  const dropped = read.dropped.length === 0 ? {} : { dropped: [...read.dropped] };
+  if (!deposit.deposited) return { tags: { stored: false, ...dropped } };
+  const t = deposit.tags;
+  return {
+    tags: {
+      stored: true,
+      tags: t === undefined ? [] : [...t.tags],
+      ...(t === undefined || t.from === null ? {} : { carriedFrom: t.from }),
+      ...dropped,
     },
   };
 }
