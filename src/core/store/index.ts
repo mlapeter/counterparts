@@ -598,6 +598,12 @@ function verdictData(v: EmbedderVerdict): Record<string, string | number | boole
   }
 }
 
+/**
+ * The lived day a skill was first learned, carried across its revisions
+ * (`Store#carryCraftBorn`); `self/work.ts` reads it for craft's start.
+ */
+export const CRAFT_BORN_META = "craftBornDay";
+
 export class Store {
   readonly dir: string;
   readonly observer: boolean;
@@ -1494,7 +1500,8 @@ export class Store {
       // the successor was given its own — a revision is still the same memory.
       carryAboutMark(this.ops, oldId, created.id);
       carryWriteFacts(this.ops, oldId, created.id);
-      return { doc: created, newId: created.id };
+      const carried = this.carryCraftBorn(row, created);
+      return { doc: carried, newId: created.id };
     });
     this.indexOne(doc);
     // The head leaves box 3 as the successor enters it. Box 2 keeps the row,
@@ -5424,6 +5431,28 @@ export class Store {
    * produces and which is worth a loud, named refusal rather than an empty
    * memory that reads as if it said nothing.
    */
+  /**
+   * A REVISED SKILL KEEPS THE DAY IT WAS FIRST LEARNED, for craft's rule
+   * (2026-10-21, re-review of #572): `self/work.ts#craftSince` grandfathers the
+   * unmarked skills born before craft started travelling, and a revision's
+   * successor is born today — so a reworded old skill would start travelling
+   * without anyone choosing that. The successor's meta carries
+   * `CRAFT_BORN_META` (the predecessor's own, else its birth day) when that is
+   * earlier than its own birth. Only between skills; a dream's merge takes the
+   * earliest birth day already. Inside the caller's transaction.
+   */
+  private carryCraftBorn(old: MemoryRow, created: ProseDoc): ProseDoc {
+    if (old.kind !== "skill") return created;
+    const row = this.ops.get<MemoryRow>("SELECT * FROM memories WHERE id = ?", created.id);
+    if (row === undefined || row.kind !== "skill") return created;
+    const fromMeta = this.docOf(old).meta[CRAFT_BORN_META];
+    const born = typeof fromMeta === "number" && Number.isFinite(fromMeta) ? Math.min(fromMeta, old.birth_day) : old.birth_day;
+    if (!(born < row.birth_day)) return created;
+    const meta = { ...created.meta, [CRAFT_BORN_META]: born };
+    this.ops.run("UPDATE memories SET meta = ? WHERE id = ?", serializeMeta(meta, created.id), created.id);
+    return { ...created, meta };
+  }
+
   private docOf(row: MemoryRow): ProseDoc {
     if (row.body.length === 0) {
       throw new StoreError("MEMORY_BODY_MISSING", {

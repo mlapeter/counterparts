@@ -61,6 +61,7 @@
  */
 import type { Kind, MemoryPhysics } from "../types.js";
 import { belowReach, strength } from "../physics/index.js";
+import { CRAFT_BORN_META } from "../store/index.js";
 import type { ProseDoc, Store } from "../store/index.js";
 import { datePrefix, flatten } from "./briefing.js";
 
@@ -135,6 +136,13 @@ export function isCraft(m: WorkFacts, rule: WorkRule = {}): boolean {
  * read of one — no skill travels yet.
  */
 export const CRAFT_SINCE_KEY = "projects.craft.since";
+
+/** A skill's birth for craft's rule: the day it was first learned, across
+ *  revisions (`CRAFT_BORN_META`), else its own. */
+export function craftBornDay(meta: Readonly<Record<string, unknown>>, bornDay: number): number {
+  const carried = meta[CRAFT_BORN_META];
+  return typeof carried === "number" && Number.isFinite(carried) ? Math.min(carried, bornDay) : bornDay;
+}
 
 export function craftSince(store: Pick<Store, "getMeta">): number {
   try {
@@ -338,7 +346,7 @@ export function workHere(
     // `REACH` is not offered here; deliberate recall still finds it.
     if (belowReach(physics, opts.day)) return null;
     const journal = typeof doc.meta["episodeId"] === "string";
-    if (!accept({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay: row.birth_day })) return null;
+    if (!accept({ about: row.about ?? null, kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay: craftBornDay(doc.meta, row.birth_day) })) return null;
     if (flatten(doc.body).length === 0) return null;
     return {
       id,

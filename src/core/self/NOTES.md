@@ -2494,3 +2494,9 @@ learned in one folder stayed there. One switch, `PROJECTS_TRAVEL` (on):
   boundary is the fix if it shows in the worker's time.
 - Off is byte-identical with or without folder rows (`test/projects-travel.test.ts`, and the
   reviewer's probe: base vs off, IDENTICAL).
+- **A revision keeps the grandfathering** (re-review of #572): a successor is born today, so a
+  reworded old unmarked skill would have started travelling unasked. `Store#supersede` now
+  carries the day a skill was first learned in the successor's meta (`craftBornDay`,
+  `CRAFT_BORN_META`) when it is earlier, and the craft rule reads that (`craftBornDay`). Meta
+  rather than a carried `work` mark, which nobody gave. A dream's merge already takes the
+  earliest birth day.

@@ -22,7 +22,7 @@ import type { Band, Kind, MemoryPhysics } from "../types.js";
 import { strength } from "../physics/index.js";
 import type { ProseDoc, ReadOnlyStore, Store, WakeDisplayRow } from "../store/index.js";
 import type { SelfTunables } from "./tunables.js";
-import { isCraft, isWorkMemory } from "./work.js";
+import { craftBornDay, isCraft, isWorkMemory } from "./work.js";
 import { TUNABLES as SLEEP_TUNABLES } from "../sleep/tunables.js";
 
 export type LaneName = "identity" | "craft" | "threads" | "hints" | "horizon";
@@ -550,7 +550,7 @@ export function rankLanes(
         kind: s.kind,
         originScope: s.originScope ?? null,
         journal: typeof s.doc.meta["episodeId"] === "string",
-        bornDay: s.doc.bornDay,
+        bornDay: craftBornDay(s.doc.meta, s.doc.bornDay),
       };
       // Craft travels (`PROJECTS_TRAVEL`, 2026-10-21): it is delivered as a
       // work line too, in any folder, so it is in no stored lane — unless the

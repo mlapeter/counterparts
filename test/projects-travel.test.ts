@@ -384,6 +384,37 @@ describe("craft travels", () => {
     expect(under(wake(c, BUILD), WORK_HERE_HEADING)).toContain(old);
   });
 
+  test("a revision of a grandfathered skill stays grandfathered: the successor keeps the day it was first learned", () => {
+    const c = counterpart();
+    const today = c.store.livedDay();
+    c.store.setMeta(CRAFT_SINCE_KEY, String(today));
+    const old = c.store.put({
+      type: "memory",
+      kind: "skill",
+      body: "Tiny Castles: don't share a save file between two builds.",
+      salience: { relevance: 0.9, emotional: 0.6, predictive: 0.8 },
+      origin: { scope: BUILD },
+      physics: { birthDay: today - 3, lastUsedDay: today - 3 },
+    });
+    const next = c.store.supersede(old, {
+      type: "memory",
+      kind: "skill",
+      body: "Tiny Castles: never share one save file between two builds.",
+      salience: { relevance: 0.9, emotional: 0.6, predictive: 0.8 },
+      origin: { scope: BUILD },
+    });
+    expect(c.store.row(next)?.birth_day).toBe(today);
+    expect(c.store.readProse(next).meta["craftBornDay"]).toBe(today - 3);
+    expect(under(wake(c, GARDEN), WORK_HERE_HEADING)).not.toContain(next);
+    expect(under(wake(c, BUILD), WORK_HERE_HEADING)).toContain(next);
+    // A skill learned today and revised today travels as before.
+    clock = NOW - 86_400_000;
+    const fresh = put(c, "I name the branch after the brief.", { kind: "skill", scope: BUILD });
+    const freshNext = c.store.supersede(fresh, { type: "memory", kind: "skill", body: "I name each branch after its brief.", salience: { relevance: 0.9, emotional: 0.6, predictive: 0.8 }, origin: { scope: BUILD } });
+    expect(c.store.readProse(freshNext).meta["craftBornDay"]).toBeUndefined();
+    expect(under(wake(c, GARDEN), WORK_HERE_HEADING)).toContain(freshNext);
+  });
+
   test("the first writable open with the switch on records the day craft started travelling, once", () => {
     const c = counterpart();
     const day = c.store.getMeta(CRAFT_SINCE_KEY);
