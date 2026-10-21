@@ -162,6 +162,8 @@ export const OWNER_WEEK: readonly ScriptedDay[] = [
  * Two moments are strongly felt (the night before the surgery, the launch);
  * the rest is meaning without much emotion, which is the question
  * (Mike, 2026-10-21: what a core can form from when the talk is work-shaped).
+ * Not strictly the plain week plus meaning: a few lines differ (the parking-lot
+ * tears, day 7's second firing), so its feelings don't compare one to one.
  */
 export const OWNER_WEEK_MEANINGFUL: readonly ScriptedDay[] = [
   {

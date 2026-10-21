@@ -219,7 +219,7 @@ typed as people type to an assistant. It took about 20 minutes, ended with 59 me
 - each came back once, through the next night's reflection (a gap of 1), never in a session;
 - in the moment, feelings sat at their words' defaults.
 
-On replay, letting facts count plus a 1-day gap promotes 2; adding a 0.5 feeling bar promotes 4.
+On replay, letting facts count plus a 1-day gap promotes 2; adding a 0.5 feeling bar promotes at least 4. That's a floor: the replay ends before one more consolidation. The bar is also a crude stand-in, because it lets unweighed default feelings through.
 All of them come in on the reflection alone.
 
 ## Safety

@@ -116,9 +116,10 @@ async function main(argv: readonly string[]): Promise<number> {
   if (cmd === "week") {
     const days = flag(args, "--days");
     const scriptName = flag(args, "--script");
-    if (scriptName !== undefined && scriptName !== "plain" && scriptName !== "meaningful") throw new Error(`UNKNOWN_SCRIPT: ${scriptName} (plain or meaningful)`);
+    // A bare --script is refused too: a paid run of the wrong week costs more than an error.
+    if (args.includes("--script") && scriptName !== "plain" && scriptName !== "meaningful") throw new Error(`UNKNOWN_SCRIPT: ${scriptName ?? "(none)"} (plain or meaningful)`);
     const record = await runWeek({
-      ...(scriptName === "meaningful" ? { script: OWNER_WEEK_MEANINGFUL } : {}),
+      ...(scriptName === "meaningful" ? { script: OWNER_WEEK_MEANINGFUL, scriptName } : {}),
       ...(days === undefined ? {} : { days: Number(days) }),
       ...(args.includes("--no-nights") ? { nights: false } : {}),
       ...(flag(args, "--out") === undefined ? {} : { out: flag(args, "--out")! }),
@@ -129,7 +130,7 @@ async function main(argv: readonly string[]): Promise<number> {
       keep: args.includes("--keep"),
       onProgress: (line) => process.stderr.write(`${line}\n`),
     });
-    const out: string[] = [`${record.owner}'s first week · ${String(record.days)} days · ${(record.elapsedMs / 60_000).toFixed(1)} min`];
+    const out: string[] = [`${record.owner}'s first week (${record.script}) · ${String(record.days)} days · ${(record.elapsedMs / 60_000).toFixed(1)} min`];
     for (const x of record.sessions) {
       out.push(`  day ${String(x.day)} ${x.scope}: ${String(x.turns)} turns · footnotes ${String(x.footnotes)} · asks ${String(x.asks)} · failed ${String(x.failedTurns)} · memories after ${String(x.memoriesAfter)}${x.init === null ? "" : ` · plugins ${String(x.init.plugins.length)}, servers ${x.init.servers.map((v) => `${v.name}:${v.status}`).join(",")}`}`);
     }
