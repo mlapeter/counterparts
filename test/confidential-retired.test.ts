@@ -177,7 +177,7 @@ describe("the one-time count of rows still marked", () => {
         prompt: async (): Promise<string> => id,
         tty: { stdin: true, stdout: true },
       };
-      const code = await run(["remove", id, "--confirm", "--dir", dir], { io });
+      const code = await run(["remove", id, "--confirm", "--dir", dir], { io, env: {} });
       expect({ code, said: said.join("\n") }).toMatchObject({ code: 0 });
     };
     await remove(marked[0] as string);
@@ -239,7 +239,7 @@ describe("an upgraded store's marked rows (the column still 1) on the adapters' 
     const id = oldMarked();
     const target = join(root, "tree");
     const c = console_();
-    expect(await run(["export", "--dir", dir, "--out", target, "--markdown", "--plaintext"], { io: c.io })).toBe(0);
+    expect(await run(["export", "--dir", dir, "--out", target, "--markdown", "--plaintext"], { io: c.io, env: {} })).toBe(0);
     const { readFileSync } = await import("node:fs");
     expect(readFileSync(join(target, "memories", "fact", `${id}.md`), "utf8")).toContain("ZQOLDMARK");
     // (The temp path itself holds the word "confidential", so the check is for the old sentences.)
@@ -251,7 +251,9 @@ describe("an upgraded store's marked rows (the column still 1) on the adapters' 
     const id = oldMarked();
     const c = console_();
     const io = { ...c.io, prompt: async (): Promise<string> => "n", tty: { stdin: true, stdout: true } };
-    await run(["remove", "--dir", dir, "ZQOLDMARK"], { io });
+    // `env: {}`, never the runner's own: with `CI` set (GitHub Actions sets it)
+    // the console is not interactive and `remove` reads the words as an id.
+    await run(["remove", "--dir", dir, "ZQOLDMARK"], { io, env: {} });
     const printed = c.out.join("\n");
     expect(printed).toContain(id);
     expect(printed).toContain("ZQOLDMARK");
