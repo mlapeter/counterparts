@@ -211,6 +211,17 @@ By the product's own verdict, the candidates (self, marked `us`, from the meetin
 return gap (2 days) but not the feeling: 0.0 and 0.2, where 0.6 is needed. The `us` memories
 felt at 0.5–0.6 were facts, and a fact isn't a core kind.
 
+`--script meaningful` (2026-10-21) is the same week with meaning between owner and counterpart:
+trust given, two tone corrections, firsts, callbacks, credit, and two strongly felt moments,
+typed as people type to an assistant. It took about 20 minutes, ended with 59 memories, and gave
+**core 0 every day.** The counterpart did write the relationship down as `us` memories, but:
+- every one was a fact;
+- each came back once, through the next night's reflection (a gap of 1), never in a session;
+- in the moment, feelings sat at their words' defaults.
+
+On replay, letting facts count plus a 1-day gap promotes 2; adding a 0.5 feeling bar promotes 4.
+All of them come in on the reflection alone.
+
 ## Safety
 
 - The source is opened read-only, and the harness refuses any path under `~/.counterparts`.
