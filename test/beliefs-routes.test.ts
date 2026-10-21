@@ -200,6 +200,23 @@ describe("the owner's correction", () => {
     expect(c.store.row(out.memoryId as string)?.said_by).toBe("owner");
   });
 
+  test("the nightly run's own writing never corrects a belief at once, the owner's words or not", async () => {
+    const c = brain();
+    const day = nextDay(c);
+    const me = c.schemas.ensureSelfSubject();
+    const b = c.schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day, birthRoute: "reflection", about: "us" }).id as string;
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    const night = openServer({ dir, session: SESSION, scope: "/work", env: { COUNTERPARTS_NIGHT_RUN: "nrn_test" } });
+    try {
+      const r = await night.call("remember", { text: "Mike said we don't work best at dawn after all.", saidBy: "owner", updates: b });
+      expect(r.structuredContent["stored"]).toBe(true);
+      expect(night.counterpart.store.row(b)?.archived).toBe(0);
+    } finally {
+      night.counterpart.close();
+    }
+  });
+
   test("a session's own update of a belief (not the owner's words) is pressure, not a correction", async () => {
     const c = brain();
     const day = nextDay(c);

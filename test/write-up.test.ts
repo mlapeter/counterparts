@@ -850,6 +850,34 @@ describe("the door: `session_end` with `writeUp`", () => {
     expect(o.counterpart.spans.writeUps(PROJ)).toEqual([]);
   });
 
+  test("a write-up is the night retelling, not the owner now: its owner-said update of a belief presses, it never corrects at once; the same words awake do (lane C3)", async () => {
+    seeded();
+    // A belief about us, well backed, made before the sessions below.
+    const w = Counterpart.open({ dir: storeDir });
+    const me = w.schemas.ensureSelfSubject();
+    const day = w.store.livedDay();
+    const b = w.schemas.addBelief({ entityId: me, statement: "We do our best work at dawn.", day, birthRoute: "reflection", about: "us" }).id as string;
+    for (const n of [1, 2, 3]) {
+      const m = w.store.put({ type: "memory", kind: "fact", body: `Mike: dawn work went well again, ${String(n)}.`, saidBy: "owner", physics: { birthDay: day, lastUsedDay: day } });
+      w.schemas.fileSupport({ beliefId: b, memoryId: m, stance: "support", day });
+    }
+    w.close();
+    const { s } = await pointAndFetch("new-1");
+    const said = { content: "Mike said we do not do our best work at dawn after all; late nights are when the work goes best.", kind: "fact", saidBy: "owner", updates: b };
+    const out = payload(await s.call("session_end", { session: "new-1", writeUp: "old-1", part: 1, memories: [said] }));
+    expect(out).toMatchObject({ reason: "written-up", deposited: 1 });
+    expect(s.counterpart.store.row(b)?.archived).toBe(0);
+    // His words written awake, in the writing session's own answer: corrected at once.
+    const awake = payload(
+      await s.call("session_end", {
+        session: "new-1",
+        memories: [{ ...said, content: "Mike, today: dawn is not when we do our best work; it is the late nights." }],
+      }),
+    );
+    expect(awake["deposited"]).toBe(1);
+    expect(s.counterpart.store.row(b)?.archived).toBe(1);
+  });
+
   test("an answer mints authored memories through the WRITING session, filed as the OLD one's, second-hand and dated the day it was lived; marks it; a second is refused", async () => {
     seeded();
     const { s } = await pointAndFetch("new-1");

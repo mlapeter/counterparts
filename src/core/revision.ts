@@ -150,9 +150,11 @@ export interface RevisionInput {
   /** The writing session, for the settle's trail. */
   session?: string | null;
   /**
-   * Written AWAKE (a session's note or write-up; lane C3, 2026-10-21) — not
-   * the crash-fallback sweep's retelling. The owner's correction of a belief
-   * is at once only from an awake write.
+   * Written AWAKE (lane C3, 2026-10-21): a session's own note or answer — not
+   * the crash-fallback sweep's retelling, a write-up of an ended session, or
+   * anything the nightly run writes (the coordinator's ruling: the night
+   * neither makes nor unmakes beliefs on its own say-so). The owner's
+   * correction of a belief is at once only from an awake write.
    */
   awake?: boolean;
 }

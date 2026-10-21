@@ -265,7 +265,11 @@ export async function deposit(
   // The day the write is about: a write-up's own day, else the door's clock (review of #540).
   const doneOn = ctx.writeUp?.happenedOn ?? ctx.at;
   const occurrence = carry.occurrence === undefined ? null : closeOccurrenceFor(cp, carry.occurrence, mint.id, doneOn);
-  const revision = occurrence !== null ? null : cp["applyDeclaredRevision"](proposal, mint, source, ctx.session);
+  // AWAKE (lane C3): a write-up or anything the nightly run writes is the
+  // night retelling, not the owner speaking now — it presses a belief, it
+  // never corrects one at once.
+  const awake = ctx.writeUp === undefined && ctx.night !== true;
+  const revision = occurrence !== null ? null : cp["applyDeclaredRevision"](proposal, mint, source, ctx.session, awake);
   // THE MEMORY THE REMINDER LEFT STEPS BACK (2026-10-11, Group 2b; review 07
   // §4.3): after the declared revision, so the writer's own settle (its
   // `how`, its words) comes first; a row of its own only when the two are not
@@ -372,7 +376,7 @@ export async function guardUpdate(cp: Counterpart, p: Proposal, ctx: DepositCont
     // THE OWNER'S CORRECTION OF A BELIEF, BY ITS ID (lane C3, 2026-10-21):
     // "that's wrong" need share no word with the belief it answers, and it is
     // the at-once door (`revision.ts`). Anyone else's update of one is read.
-    if (isBeliefRow(row) && ctx.facts?.saidBy === "owner") return null;
+    if (isBeliefRow(row) && ctx.facts?.saidBy === "owner" && (ctx as SessionEndDepositContext).writeUp === undefined && ctx.night !== true) return null;
   } catch {
     return null;
   }

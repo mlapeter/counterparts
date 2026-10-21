@@ -1663,6 +1663,8 @@ export class McpServer {
     const deposit = await this.counterpart.submitJot(draft, {
       session,
       scope: this.scope,
+      // The nightly run's own writing (lane C3): it never corrects a belief at once.
+      ...(this.nightRun() ? { night: true } : {}),
       // The day this server reads, for a done that closes one occurrence (2026-10-20).
       at: this.today(),
       ownSpanHash,
@@ -3274,6 +3276,14 @@ export class McpServer {
    * candidate), so a core mark on one is stored as asked, with a note
    * (2026-09-28: it was refused `skill-is-how-i-work`).
    */
+  /**
+   * Is this server the nightly run's — a child's (`NIGHT_CHILD_ENV`) or its
+   * catch-up's (`NIGHT_RUN_ENV`)? The same two marks `remark` reads.
+   */
+  private nightRun(): boolean {
+    return (this.env[NIGHT_CHILD_ENV] ?? "").trim().length > 0 || (this.env[NIGHT_RUN_ENV] ?? "").trim().length > 0;
+  }
+
   /** `remember`'s `belief` (lane C3, 2026-10-21): born beside the memory, or said why not. */
   private recordBelief(deposit: DepositResult, arg: unknown): Record<string, unknown> {
     if (arg === undefined) return {};

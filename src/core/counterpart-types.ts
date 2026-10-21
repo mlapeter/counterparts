@@ -521,6 +521,13 @@ export interface DepositContext {
    * review of #284 M1).
    */
   siblings?: readonly string[];
+  /**
+   * Written by the nightly run — its dream, writer or reflection child, or its
+   * catch-up (`NIGHT_CHILD_ENV` / `NIGHT_RUN_ENV` on the door's server; lane
+   * C3, 2026-10-21). The night retells; it is not the owner speaking now, so
+   * its words never correct a belief at once (`revision.ts`).
+   */
+  night?: boolean;
 }
 
 /**

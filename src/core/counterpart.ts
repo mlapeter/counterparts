@@ -3867,6 +3867,7 @@ export class Counterpart {
       ...(ctx.facts === undefined ? {} : { facts: ctx.facts }),
       ...(ctx.tags === undefined ? {} : { tags: ctx.tags }),
       ...(ctx.about === undefined ? {} : { about: ctx.about }),
+      ...(ctx.night === true ? { night: true } : {}),
     });
   }
 
@@ -4899,8 +4900,9 @@ export class Counterpart {
     mint: MintResult,
     door: string,
     session?: string | null,
+    awake?: boolean,
   ): RevisionApplication | null {
-    return sweepPart.applyDeclaredRevision(this, proposal, mint, door, session);
+    return sweepPart.applyDeclaredRevision(this, proposal, mint, door, session, awake);
   }
 
   private resolveUpdatesFor(scope: string, declared: string | null, content: string): Promise<UpdatesResolution> {
