@@ -4733,7 +4733,9 @@ export class Store {
    * belief's support does not count as attached for the fade, `schemas#fadeVerdict`).
    * Recall does NOT leave belief rows out by kind or role today (it leaves out
    * the card itself, `role: entity`); that gate is lane C's. Lightly held:
-   * the lane that lets beliefs about me reach the core re-decides the kind.
+   * lane F (2026-10-22), which lets beliefs about me reach the core, keeps
+   * `fact` — it reads the core as a view (`self/measures.ts#coreFromBeliefs`)
+   * and never promotes a belief, so the core lanes' kinds never apply.
    */
   ensureSelfSubject(): string {
     const out = this.mutate("ensureSelfSubject", (): { id: string; doc: ProseDoc | null; minted: boolean } => {
