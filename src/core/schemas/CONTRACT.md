@@ -257,9 +257,15 @@ name/alias resolution; birth and death telemetry.
     wrote is learned on a miss by id, and every unseen one before a subject's beliefs are
     read — its meta only; a card another process named reaches this process's alias index
     at its next open, as before, for now.
-    **Invisible for now**:
-    recall's candidates, facts mode and the core lanes leave belief rows out by role
-    (`meta.role: belief`) until lanes E and F, each behind its own switch.
+    **Where they are seen** (lane E, 2026-10-22): recall's candidates, facts mode
+    and the core lanes still leave belief rows out by role (`meta.role: belief`);
+    a turn that names a subject (a card through the alias index, a topic by its
+    word) shows its strongest beliefs in recall's own beliefs slot
+    (`beliefsNamedIn`, recall `BELIEFS_IN_RECALL`), and a project's folder shows
+    its project's at the wake (`self.WAKE_PROJECT_LINE`). A rating of the slot is
+    a use of the belief (`Store#reinforce`'s `beliefSlot`), once a lived day,
+    never support, nothing for a belief about me or us (`aboutMeBelief`). The
+    core stays lane F's, behind its own switch.
 
 ## 6. Scars honored
 

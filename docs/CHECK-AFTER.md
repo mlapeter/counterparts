@@ -33,6 +33,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Facts title tail (the next 20 matches as title · id · date lines after the 10 bodies; credits nothing) + soft time words ("lately" ranks recent first, doesn't filter); from the benchmark loss read | in review 10-20, unreleased | ~10-27 on the live store: how often a tail title gets opened, whether the tail is noise | "Due ~2026-10-27 (the facts title tail …)" below; `docs/decisions.d/feat-facts-title-tail-1020.md` |
 | Core questions that waited a week: the reflection is offered up to 3 core memories waiting 7+ lived days on keep-or-retire (with their unsettled pair) and decides where it can, said in the share with the way back; the wake leads with one, both labels shown | not released, 10-20 | ~10-27 | "Due ~2026-10-27 (core questions)" below; `docs/decisions.d/feat-core-questions-waited-1020.md` |
 | Another project's work faces a slightly higher bar in ambient recall (`CROSS_PROJECT_BAR_LIFT` 1.25; the hard filter `RECALL_BY_PROJECT` built, off) | not released, 10-21 (Mike's "a slightly higher bar, and review after a week") | ~2026-10-29: footnote ratings home vs crossing, ~/counterparts ↔ ~/random apart; `crossProjectLifted` per turn | "Due ~2026-10-29 (a higher bar for another project's work)" below |
+| Beliefs shown (wave 2 lane E): the beliefs slot in ambient recall (`recall.BELIEFS_IN_RECALL`), tags as a priming partner source — **priming changed again** (`recall.TAGS_PRIME`), the wake's project line (`self.WAKE_PROJECT_LINE`); plus per-footnote priming flags (`primed.by`, `top`, `tag`) | not released, 10-22 (ships in the first release after the 10-22 read of 0.3.27) | ~2026-10-29, with the cross-project bar and the re-read of the four 0.3.27 experiments | "Due ~2026-10-29 (beliefs shown, and priming changed again)" below |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -772,3 +773,39 @@ page past the room with a short version shows that in the wake. Revert: `PAGE_HE
   a night's held page was kept at the run's end most nights (the resend isn't happening: look at the words the
   writer is sent back with), or the hold keeps firing every night by a few bytes (the room may be too tight for
   this page).
+
+## Due ~2026-10-29 (beliefs shown, and priming changed again — wave 2 lane E, 2026-10-22, experiments)
+
+**What we're trying.** Beliefs (lane C) reach a session for the first time, and priming gains a source.
+
+- **The beliefs slot** (`recall.BELIEFS_IN_RECALL`, on): a turn that names a subject (a card, or a topic by its
+  word) shows its strongest beliefs above 0.3, at most 3, in their own block after the footnotes, each with a
+  strength word, its support count and its id, once a session. Footnotes stay belief-free. A rating of a belief
+  line is a use of it (once a lived day), never support, and nothing for a belief about me or us.
+- **Tags prime — PRIMING CHANGED AGAIN** (`recall.TAGS_PRIME`, on): a source's tags are a partner source beside
+  its links, at 0.1 a shared tag and 0.05 through a concept edge. This lands after the 10-22 read of #530's
+  context priming, so the re-read on this date sees both; read tag-primed footnotes apart (`primed.by: "tag"`).
+- **The wake's project line** (`self.WAKE_PROJECT_LINE`, on, an experiment that has to earn its room): in a
+  project's folder, its strongest beliefs (at most 3, 480 bytes), spliced last, the first thing a full wake drops.
+- **Per-footnote priming flags** (the 10-22 read's ask): each shown row's `primed` now carries `by` (link, tag or
+  train), `top` (the source id that gave most) and `tag`, beside `lifted`.
+
+**What to look at.** On `recall.decision` rows: `beliefs` (null off; `shown` non-empty = the slot fired; `bytes`
+per turn) — fire rate per turn and per session. On `recall.rated` rows: ratings with `lane: "beliefs"` against the
+footnote baseline (10-19: 47% noise, 18% useful), and `notCredited["belief-about-me"]`. Priming: `primed.byTag` on
+the decision rows, and footnote ratings joined per row on `primed.lifted` / `primed.by` / `primed.top` (tunnel
+vision: the longest run of one `top` across consecutive turns of a session). The project line: ring events
+`counterpart.project.shown` / `.noroom` (bytes), and whether its ids are opened or rated later; and (review of
+#588) how often the line takes the head tag's room — `tagged` false in project folders, 216 of 430 ceilings in the
+reviewer's scan — and whether `adapter.injection.overbudget` rows follow (the host's ~60-byte tag sits outside the
+ceiling; self NOTES). And the design's
+new eval: how often a session repeats something already corrected or re-raises something settled — the slot
+should not raise it.
+
+**What would change it.** Belief lines rated as noise as often as footnotes or more → raise the floor or the
+strength a belief needs (`BELIEFS_SLOT_FLOOR`), or show fewer (`BELIEFS_SLOT_MAX`). Tag-primed footnotes rated no
+better than unprimed → lower `TAGS_PRIME_WEIGHT` or turn `TAGS_PRIME` off. The project line dropped for room most
+wakes, or its ids never drawn on → turn it off.
+
+**Revert.** Each switch false: `recall.BELIEFS_IN_RECALL`, `recall.TAGS_PRIME`, `self.WAKE_PROJECT_LINE` (each off
+is the build without it, byte for byte); or revert the PR. Compare first with `harness compare --set …=false`.

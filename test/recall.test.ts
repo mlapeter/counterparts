@@ -853,8 +853,8 @@ describe("the bounded injection", () => {
     }
   });
 
-  test("the trim order is explicit: footnotes go before gists, the affect flag goes last", () => {
-    expect(TRIM_ORDER).toEqual(["footnote", "surfaced", "affect"]);
+  test("the trim order is explicit: beliefs first (lane E), footnotes before gists, the affect flag goes last", () => {
+    expect(TRIM_ORDER).toEqual(["belief", "footnote", "surfaced", "affect"]);
     const res = render(
       {
         turn: 1,

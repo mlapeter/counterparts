@@ -1313,6 +1313,8 @@ const PRIVATE_HELPERS = new Set([
   "load",
   // Lane C (2026-10-21): is a belief about me or us (which `use` does not back)? A read.
   "aboutMe",
+  // Lane E (2026-10-22): a subject's name as a belief line says it (a read).
+  "subjectName",
   // Lane C: a belief past its bar is marked contested (a write behind challengeBelief, not a verb).
   "contest",
   // Lane C: the force credited against a belief on one day (a read behind challengeBelief).

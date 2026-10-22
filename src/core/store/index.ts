@@ -1652,16 +1652,26 @@ export class Store {
        * return row, so another session's open lifts it too.
        */
       upgradeFrom?: UseTier;
+      /**
+       * A RATING OF THE BELIEFS SLOT (wave 2 lane E, 2026-10-22): the one door
+       * by which a belief is credited a USE — once a lived day, as any memory
+       * — and never support (the support arm reads `support`, not `uses`).
+       * Never a belief about me or us: one marked so is refused here; the
+       * self subject is the caller's check (`Schemas#aboutMeBelief`). Absent:
+       * a belief is credited nothing, as before.
+       */
+      beliefSlot?: boolean;
     } = {},
   ): CreditOutcome & { ret: ReturnOutcome | null } {
     const outcome = this.mutate("reinforce", () => {
       const row = this.requireRow(id);
       let physics = rowToPhysics(row);
       // A BELIEF IS EARNED BY SUPPORT ALONE (lane C, physics §5.13): shown,
-      // opened, rated or drawn on, it is credited nothing — the shown → used →
-      // stronger loop. Lane E may let a slot's rating be a plain use; it would
-      // still never reach the support arm, which reads `support`, not `uses`.
-      if (physics.belief === true) {
+      // opened, quoted or drawn on, it is credited nothing — the shown → used →
+      // stronger loop. Since lane E a RATING of the beliefs slot is a plain use
+      // (`beliefSlot`), never for a belief about me or us; it still never
+      // reaches the support arm, which reads `support`, not `uses`.
+      if (physics.belief === true && (opts.beliefSlot !== true || row.about === "me" || row.about === "us")) {
         const unchanged = { uses: physics.uses, lastUsedDay: physics.lastUsedDay, reinforcedDays: physics.reinforcedDays ?? 0 };
         return { credited: false, reason: "a-belief" as const, w: 0, next: unchanged, ret: null };
       }
