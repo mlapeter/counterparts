@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.3.31 — 2026-10-22
+
+This release changes the store's format (v13 to v14), so **after installing, quit the dashboard and every open Claude Code session, then start them again**: one left running from before the update keeps the old code against the upgraded store and stops working on it (the dashboard answers with errors) until it is restarted; an older version that opens the store afresh refuses it plainly. The first open saves a copy of your store before upgrading it, and doctor gains one green line saying what the upgrade did. Going back to 0.3.30 is `counterparts rollback` (it puts that copy back; anything written since is set aside, not deleted), then 0.3.30's install and `counterparts connect` as it prints. What you will see: the dashboard has a subjects tab, a page for every person, project, place and topic your memories name, under a tag cloud. Memories can carry a few tags, and each night tidies them and, in a short separate step on a small model, tags memories that have none and sorts cards into person, project, place or topic. The night's reflection and dream start forming beliefs from real memories; nothing shows them in sessions, the wake or the core yet. Related folders can be one project (`counterparts project join`, or a yes when the morning share asks), and craft learned in one folder takes turns in every folder's "Work here"; work from another project needs a slightly stronger match to come up while you talk. Two fixes: one nightly cycle at a time per store, and a name no longer gets two cards (cards already doubled stay doubled for now). The night's tag work and the beliefs are each one switch in the tunables (`schemas.TAGS_NIGHT`, `schemas.BELIEFS_BIRTH`), both on. Store v14, cache v7 unchanged; no wiring change, so `counterparts connect` is not needed after upgrading.
+
+- **The store moves to schema v14, room for what comes next.** The first open after the
+  upgrade saves a copy of your store first, as every upgrade does, then adds empty places
+  for tags, beliefs and what supports them, which project a folder belongs to, and what
+  each recall showed; nothing uses them yet. People and places among your cards are marked
+  as such, and so are new ones as they are made. The old confidential column is removed,
+  after the memories still marked are counted (the count `counterparts doctor` already
+  shows). Doctor has one green line saying what the upgrade did.
+- **Restart what was left running across this update.** An older version refuses the
+  upgraded store when it opens it, but one that already had it open does not: a dashboard
+  or a Claude Code session started before the update stops working on it (the dashboard
+  answers with errors) until it is restarted. The way back to the older version is the
+  saved copy (`counterparts rollback`).
+- **Memories can carry a few tags.** `remember` and each `session_end` entry take an
+  optional `tags` list — a few words for what the memory is about (a topic, a person, a
+  project). They are stored with the memory; a revision keeps its memory's tags unless it
+  sends its own. Nothing about recall changes yet: the tags are the start of topics that
+  grow into subjects.
+- **A subjects tab on the dashboard.** Every person, project, place and topic your memories
+  name has a page: its kind, name and other names, what I believe about it (each belief with
+  how strongly it is held, how many memories hold it up and those memories, one tap away),
+  what it often comes up with, and the newest memories that mention it. `#subjects/me` is the
+  page of what I believe about myself and about us, linked from the self tab. Above them, an
+  old-school tag cloud: subjects in bright type (tap to open the page), tags beside them (tap
+  to see their memories), each sized by the memories behind it; point at a word to light up
+  the words it comes up with. Until memories carry tags, the cloud is the subjects alone. A
+  memory card for a subject, or a belief about one, links to the page. Nothing here writes.
+- **Beliefs can be earned.** A belief now starts weak, whoever writes it, and grows only
+  as lived memories back it: your own words about it, my real choices, use at work, and
+  older memories a reflection connects (a little less, until life echoes them). Each memory
+  counts once per belief, and memories from the same day, conversation or folder count less.
+  A memory that goes against a belief presses on it the way a correction always has. Nothing
+  writes beliefs yet, and none are shown anywhere: not in recall, not in the wake, not in
+  the core.
+- **Folders can be one project, and craft follows you.** `counterparts project join <folder>
+  <project>` puts related folders (say a product and its website) in one project, and each
+  one's wake then shows the work of all of them under "Work here" — the folder you are in
+  keeps at least half the lines; a folder set off or paused shares nothing. A skill written
+  from now on with no mark (or marked world) is craft: a couple of places in every folder's
+  "Work here" take turns showing craft learned elsewhere, saying where, from folders whose
+  setting is on. Skills written before keep their folder. `counterparts project list` and `leave` read
+  and undo it. Off: `PROJECTS_TRAVEL` in the self tunables.
+- **The night tidies tags and grows topics from them.** Each night, memories linked to a
+  person's or project's card carry its name as a tag; tags that are the same word in another
+  form are merged; and a short separate step on a small model tags memories that have none,
+  asks whether two look-alike tags are one topic, and sorts cards into person, project,
+  place or topic. A tag that keeps coming up — on several days, in several sessions, more
+  so when it was used or felt — becomes a topic of its own. Recall and the wake don't use
+  tags or topics yet.
+- **Another project's work comes to mind a little less readily.** While you talk, a memory
+  that is work from a folder outside this folder's project needs a slightly stronger match
+  to come up (`CROSS_PROJECT_BAR_LIFT`, 1.25; 1 turns it off). Personal things and craft
+  are not affected, and a folder joined to this one's project counts as here. The recall
+  record counts what the higher bar held back, for a review after a week. A stricter
+  switch that leaves such work out entirely (`RECALL_BY_PROJECT`) is built and off.
+- **The night may ask whether two folders are one project.** When two folders were worked
+  in on the same days and their memories name the same things, the morning share asks once
+  whether to treat them as one project; a yes joins them (as `counterparts project join`
+  would), a no is left alone for a week. Off: `PROJECT_JOIN_ASK` in the dream tunables.
+- **The night's reflection starts forming beliefs.** After a dream, the reflection is shown
+  what I hold about the people and things in play, and about me and us, and may back a
+  belief with a memory that fits, note a memory that goes against one, or write a few new
+  ones, each resting on real memories and starting weak. A belief that met more against
+  it than for it can be let go. Beliefs are still not shown in sessions, the wake or the
+  core. The owner can turn this off with one setting.
+- **Beliefs from the dream, from the moment, and the owner's word.** The dream may now
+  suggest a belief it sees across several memories; it never makes one, and the morning's
+  reflection keeps it or lets it go. A session can write one in the moment, rarely, from
+  the owner's own words, a real choice, or a strongly felt moment. And when the owner says
+  a belief is wrong, it is let go at once, its history kept. Beliefs are still not shown in
+  sessions, the wake or the core.
+- **One nightly cycle at a time.** When a session closed, its two end-of-session workers
+  could both run the night's cycle at once: the card births ran twice (the doubled cards)
+  and the wake was rendered twice. The cycle now holds the memory while it runs, and a
+  second worker that arrives meanwhile still saves its associations, then leaves the cycle
+  to the first, at once, and says so in the log. A worker that died mid-cycle gives way
+  after ten minutes, and the next cycle finishes its work.
+- **A name no longer gets two cards.** When a session closed, its two end-of-session
+  workers could both run the night's card births at once, and each gave the same names a
+  card of its own: Google and Google, Bash and Bash, all with the same birth day. A card is
+  now born only after checking, with the store locked, that no other process has just made
+  it. Cards already doubled stay doubled for now; merging them comes separately.
+
 ## 0.3.30 — 2026-10-21
 
 Nothing is held back from your sessions any more. Confidential memories are gone: nothing in Counterparts could set that mark, so on most stores nothing changes on screen; a memory marked that way through the store directly now reads like any other everywhere, and doctor shows one amber line with how many remain only if your store had any. The split between your sessions and guest ones is gone too: any session, a Claude Desktop chat and the nightly run included, can close a thread or a reminder by its id from any folder (a protected memory still never closes), and every session gets its folder's "Last said here"; observer stays read-only. The nightly run no longer leaves a Claude Code transcript under `~/.claude/projects/`; transcripts from earlier nights are left to Claude Code's own cleanup, or you can delete the folder named after your memory store. The `owner` line in your configuration is now ignored and doctor names it under "Old settings" (you may delete it); `export --include-confidential`, the memory server's `--owner` and `COUNTERPARTS_OWNER` are accepted and ignored for this release. Code that embeds Counterparts loses the confidential fields and options listed below. No store-format change (store v13, cache v7) and no wiring change: nothing to run after upgrading from 0.3.29, and `counterparts connect` is not needed.
