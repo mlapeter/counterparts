@@ -90,6 +90,28 @@ export interface SelfTunables {
    *  the host lets be named elsewhere — taking turns by lived day among the
    *  newest. 0: craft from elsewhere is in no wake. CAL. */
   WORK_HERE_CRAFT_MAX: number;
+  /**
+   * THE WAKE'S PROJECT LINE (wave 2 lane E, 2026-10-22; design §7, AN
+   * EXPERIMENT — it has to earn its room; check 2026-10-28): in a folder whose
+   * project (lane G) has beliefs, a short block of its strongest, each with
+   * its strength word and support count. Composed at delivery, LAST — after
+   * the handoff, "Last here" and the work lines, before the head's fields —
+   * so it takes only the room everything else left, and it is the first thing
+   * a wake past its room goes without (a ring event says so). Off: the wake
+   * is byte for byte what it was. Read from the copy `withTunables` makes when
+   * `Self` opens; `harness compare --set self.WAKE_PROJECT_LINE=false`.
+   */
+  WAKE_PROJECT_LINE: boolean;
+  /** At most this many project beliefs on the line. Why 3: the design's "2–3 lines". CAL. */
+  WAKE_PROJECT_LINE_MAX: number;
+  /** The line's own byte budget, header included, under whatever room the
+   *  wake has left. Why 480: three one-claim lines (recall's
+   *  `BELIEF_LINE_BYTES` 200 clips each to fit) with their words and ids,
+   *  about a tenth of a typical page. CAL. */
+  WAKE_PROJECT_LINE_BYTES: number;
+  /** A project belief shows only ABOVE this strength, as recall's slot
+   *  (`BELIEFS_SLOT_FLOOR`). Why 0.3: born at 0.3, so only one life backed shows. CAL. */
+  WAKE_PROJECT_LINE_FLOOR: number;
   /** Most open threads considered. CAL. [v1 threads lane: count-capped at 12;
    *  5 since 2026-10-01, when a session could first set the flag — kept small] */
   THREADS_MAX: number;
@@ -358,6 +380,10 @@ export const SELF_TUNABLES: SelfTunables = {
   WORK_HERE_EXCERPT: 60,
   PROJECTS_TRAVEL: true,
   WORK_HERE_CRAFT_MAX: 2,
+  WAKE_PROJECT_LINE: true,
+  WAKE_PROJECT_LINE_MAX: 3,
+  WAKE_PROJECT_LINE_BYTES: 480,
+  WAKE_PROJECT_LINE_FLOOR: 0.3,
   THREADS_MAX: 5,
   RECONSIDERING_MAX: 1,
   STILL_OPEN_STALE_DAYS: 14,

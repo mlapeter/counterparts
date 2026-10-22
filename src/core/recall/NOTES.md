@@ -1317,3 +1317,39 @@ is outside that folder's project — as the wake leaves it out of that folder's 
 is not work, wake and recall alike.) `crossProjectLifted` counts what the lift kept below the bar; one of those might
 still have lost to the footnote cap or the trim, and a loud→footnote demotion is not counted. Lift 1 is the same
 turn as no check at all (`recall-by-project.test.ts`).
+
+## 2026-10-22 — beliefs shown, and tags prime (wave 2 lane E)
+
+What moved, all behind switches read at use (`harness compare --set`), each off a clean revert:
+
+- **The beliefs slot** (`BELIEFS_IN_RECALL`, on; contract G23). A turn naming a subject shows its
+  strongest beliefs above 0.3 in their own block after the footnotes. Kept out of `surfaced` on
+  purpose: its showings are gate records of their own kind (`belief`), so the credit pass, rating
+  coverage, habituation and the 47% / 18% footnote baseline of 10-19 read exactly what they read
+  before. The decision row's `beliefs` (offered, shown, bytes) is what a read counts: how often
+  it fires (`shown` non-empty), its bytes per turn, and, with the `recall.rated` rows' `beliefs`
+  lane, how it is rated. `probe.ts` files those ratings under their own lane, so they never count
+  as an `opened` one; its shown count is only what was rated (the showings are on the decision rows).
+- **The loop, guarded.** The store refused every use of a belief (lane C, `a-belief`). It now opens
+  one door, `Store#reinforce`'s `beliefSlot`, which only `Counterpart#useRatings` passes, for a
+  `beliefs`-lane rating: a use at the rating's tier, once a lived day, as any memory. It never
+  reaches support (the support arm reads `support`, not `uses`), and a belief about me or us is
+  refused twice — by `Schemas#aboutMeBelief` before (`belief-about-me` on the row) and by the
+  store on its `about` mark. Unrated, a shown belief is no glimpse; a belief is never in the
+  co-used set or a shown-together pair (associations are a use's side effect for memories, not
+  for beliefs).
+- **Tags prime** (`TAGS_PRIME`, on). A second partner source through the link channel, at 0.1 a
+  shared tag, half that through a concept edge. Every priming limit holds (it is the same channel).
+- **Per-footnote priming flags** (the 0.3.27 read's ask). Each shown row's `primed` carries `tag`,
+  `by` (the channel that gave most) and `top` (the source id that gave most along links or tags),
+  beside the `lifted` flag it already had, so primed footnotes join to their ratings one by one
+  and tunnel vision can be read by id. `primed.byTag` on the summary.
+
+Judgment calls, lightly held: the slot gives way first under budget pressure (it is the experiment
+measured against the footnotes); a belief shows once a session (as a footnote does); the self
+subject is never named by a turn (it has no name; the page is the wake's); a contested belief shows,
+labelled `contested`; `drewOn` naming a belief is still refused `not-shown` (rating is its door).
+Not run: a model night. What would be: two `harness compare` runs over Mike's 30 days and Dana's
+meaningful week, `--set recall.BELIEFS_IN_RECALL=false` and `--set recall.TAGS_PRIME=false`
+against the defaults, reading the slot's fire rate and bytes, the beliefs lane's ratings, and
+`primed.byTag` with its footnotes' ratings.

@@ -800,3 +800,18 @@ is sometimes the earlier one), so the two ran at once, not one after the other.
   walked, so a card archived when it loaded and brought back by another process since was
   invisible to it. It now reads the live cards the index does not hold (`unseenCards`), and
   `adopt` registers them.
+
+## 2026-10-22 — beliefs reach a session (wave 2 lane E)
+
+Three reads for recall and one for the wake, no writes: `beliefsNamedIn` (the live cards a text
+names by the alias index's one rule, plus the topics it names by their word —
+`tags.ts#topicsNamedIn`, every word of the tag in order, stemmed as the index stems — and each
+subject's `beliefStanding` with its name; never the self subject, which no turn names);
+`tagPartnersOf` over `tags.ts#tagPartners` (a source's tags through the merges at 1, its concept
+edges' top neighbours at 0.5; stop tags and tags on more than recall's cap skipped); and
+`aboutMeBelief`, the check the slot's rating makes before a use. The wake's project line reads
+`beliefStanding` on the folder's project card (lane G's `projectOf`). G15's "invisible for now" is
+amended in the contract: beliefs are still never a recall candidate, a fact or a core element;
+they are seen only in the slot and the project line. The store's `reinforce` now credits a belief
+a use through one door (`beliefSlot`, a rating of the slot), refused for a belief marked about me
+or us; support is untouched by it — the shown → used → stronger loop stays closed at support.

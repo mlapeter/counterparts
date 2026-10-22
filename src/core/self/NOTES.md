@@ -2623,3 +2623,16 @@ Brief F (`counterparts-notes/2026-10-21-briefs/F-self-on-beliefs.md`). Default O
    Worth a `--set self.CORE_BELIEF_STRENGTH=0.4` variant only if step 1 on real beliefs agrees.
 
 Then Mike reads the two pages side by side; on by default only on his word.
+
+## 2026-10-22 — the wake's project line (wave 2 lane E, an experiment)
+
+In a folder that belongs to a project (lane G) whose card has beliefs above
+`WAKE_PROJECT_LINE_FLOOR` (0.3), the delivery carries "This project (Name), as I hold it:" and at
+most `WAKE_PROJECT_LINE_MAX` (3) of them, each with its strength word, support count and id
+(`Counterpart#withProjectLine`, the heading `work.ts#projectLineHeading`). It has to earn its room:
+it is spliced LAST, after the handoff, "Last here" and the work lines and before the head's
+fields, widest first inside its own `WAKE_PROJECT_LINE_BYTES` (480) and the reported ceiling, so a
+wake past its room simply goes without it (ring `counterpart.project.noroom`; shown:
+`counterpart.project.shown` with its lines and bytes). Off (`self.WAKE_PROJECT_LINE`): the wake is
+byte for byte what it was. Whether sessions draw on it is the check (2026-10-28): its bytes from
+the ring, and whether its ids come back opened or named.

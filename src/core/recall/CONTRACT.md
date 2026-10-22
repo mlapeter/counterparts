@@ -547,6 +547,47 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     cosine the train's head start had to beat, primed / lifted / by channel among what
     was shown) and each shown row its `primed` part; `null` when
     priming did not run. Tests: `context-priming.test.ts`.
+    **Amended 2026-10-22 (wave 2 lane E; an experiment, check 2026-10-29): TAGS PRIME
+    TOO** (`TAGS_PRIME`, on; revert by setting it false). A source's tags are a second
+    partner source beside its links (`PrimeInput.tagPartners`, bound by the
+    composition root from `schemas/tags.ts#tagPartners`): memories carrying one of its
+    tags through the merges, and memories carrying one of the `TAGS_PRIME_NEIGHBOURS`
+    tags most often on the same memories (B's concept edges, sharing at least two) at
+    half, all scaled by `TAGS_PRIME_WEIGHT` (0.1, under one co-use link). A stop tag and
+    a tag on more than `TAGS_PRIME_MAX_TAG_MEMORIES` live memories prime nothing. Through
+    the same link channel, so every limit above holds unchanged. Off, the tag source is
+    never asked. And each shown row's `primed` now says, per footnote, the part of
+    `link` that came through tags (`tag`), the channel that gave the most (`by`: `link`,
+    `tag` or `train`) and the source id that gave the most along links or tags (`top`),
+    beside `lifted` — so a read can join primed footnotes to their ratings and read
+    tunnel vision by id (the 0.3.27 read's two asks); the summary counts `byTag`. Tests:
+    `beliefs-shown.test.ts`.
+
+23. **[M]** **Beliefs in their own slot** (wave 2 lane E, 2026-10-22; design §7; an
+    experiment, `BELIEFS_IN_RECALL`, on; check 2026-10-28; revert by setting it false).
+    When a turn's words name a subject — a card through the alias index
+    (`Schemas#subjectsIn`), a topic by its word (`tags.ts#topicsNamedIn`), never the
+    self subject — its live beliefs are offered (`Schemas#beliefsNamedIn`, bound as
+    `Turn.beliefs` by the composition root; ambient only). The slot shows those
+    STRICTLY above `BELIEFS_SLOT_FLOOR` (0.3: a belief born at the ceiling with nothing
+    behind it does not show), not shown earlier this session, strongest first, at most
+    `BELIEFS_SLOT_MAX` (3), each as `Subject: statement (strength word; N memories)
+    [id]` under its own header, after the footnotes — IN ADDITION to them; the
+    footnotes stay belief-free (`isBeliefRow`, unchanged). A subject named is enough:
+    a turn with no memory to show still carries the slot (its reason stays the
+    memories'). In the trim order the slot gives way FIRST, weakest belief first, so it
+    never takes a footnote's room. The sentinel adds `beliefs=N` only when it carried
+    one. What it showed is its own gate record (kind `belief`, never `surfaced`: the
+    footnote numbers, the credit pass and rating coverage do not see it) and the
+    decision row's `beliefs` (offered, shown, bytes; null when it did not run). A shown
+    belief is RATEABLE (`rated.ts`, lane `beliefs`): a rating is a USE of it at its tier
+    — once a lived day, through the store's one door for it (`Store#reinforce`'s
+    `beliefSlot`) — NEVER a support filing; for a belief about me or us
+    (`Schemas#aboutMeBelief`) it counts nothing at all (`belief-about-me`); a belief
+    left unrated is no glimpse; a belief is never co-used or linked as shown together.
+    Every other door (an open, a quote, `drewOn`) still credits a belief nothing. Off:
+    the lookup is never asked and the turn is byte for byte the turn it was. Tests:
+    `beliefs-shown.test.ts`.
 
 ## 6. Scars honored
 

@@ -45,7 +45,8 @@ import type { Background, CandidateVerdict, Verdict } from "./gate.js";
 import { NO_MOOD, currentMood } from "./mood.js";
 import { loadGateState, saveGateState } from "./session.js";
 import type { GateState, SemanticSource } from "./session.js";
-import { render } from "./render.js";
+import { beliefLine, render } from "./render.js";
+import type { BeliefLine } from "./render.js";
 import { headOf, standingOf } from "./standing.js";
 import type { RenderResult, Resolve, Resolved } from "./render.js";
 import { withTunables } from "./tunables.js";
@@ -67,6 +68,7 @@ const NO_PRIME: PrimeSummary = {
   lifted: 0,
   byLink: 0,
   byTrain: 0,
+  byTag: 0,
 };
 
 export * from "./cues.js";
@@ -82,7 +84,7 @@ export * from "./standing.js";
 export * from "./recency-ask.js";
 export * from "./time-ask.js";
 export * from "./tunables.js";
-export { activate, isBeliefRow, isHandoff, isSelfPage, gatedSal, primeOf, recordedIdentity, salienceRank } from "./activate.js";
+export { activate, isBeliefRow, isHandoff, isSelfPage, gatedSal, primeChannel, primeOf, recordedIdentity, salienceRank } from "./activate.js";
 export type { CandidatePrime, FeelingLane, PrimeStats, SpreadFn, SpreadStats } from "./activate.js";
 export type { Candidate, ActivationResult } from "./activate.js";
 import type { ActivationResult } from "./activate.js";
@@ -190,6 +192,41 @@ export interface Turn {
    * nothing on the deliberate path. Absent: priming does not run.
    */
   prime?: PrimeInput;
+  /**
+   * THE BELIEFS SLOT'S LOOKUP (wave 2 lane E, 2026-10-22): the current
+   * beliefs about the subjects this turn's words name, bound by the
+   * composition root from `schemas/` (`Schemas#beliefsNamedIn`). Ambient
+   * only. Absent, or `BELIEFS_IN_RECALL` off: no slot, and the turn is what it was.
+   */
+  beliefs?: BeliefsFn;
+}
+
+/** One belief the lookup offers the slot (lane E). Reads only. */
+export interface BeliefOffer {
+  readonly id: string;
+  /** The subject's name as the slot says it ("" for a nameless one). */
+  readonly subject: string;
+  readonly statement: string;
+  /** Physics' strength today. */
+  readonly strength: number;
+  /** Memories counted for it. */
+  readonly support: number;
+  readonly contested: boolean;
+}
+
+/** Text (stripped of host boilerplate) and the lived day → the beliefs on the subjects it names. */
+export type BeliefsFn = (text: string, day: number) => readonly BeliefOffer[];
+
+/**
+ * What the beliefs slot did on one turn (lane E), on the durable decision row:
+ * how many beliefs the subjects named offered, which the turn showed (after
+ * the floor, the session's dedup, the cap and the render's trim), and their
+ * bytes. Null when the slot did not run (off, no lookup, a quiet turn).
+ */
+export interface BeliefSlotSummary {
+  readonly offered: number;
+  readonly shown: readonly string[];
+  readonly bytes: number;
 }
 
 /**
@@ -217,6 +254,9 @@ export interface PrimeSummary {
   readonly lifted: number;
   readonly byLink: number;
   readonly byTrain: number;
+  /** Of the shown, how many a source's TAGS primed (lane E, `TAGS_PRIME`;
+   *  part of `byLink`, whose channel tag partners ride). */
+  readonly byTag: number;
 }
 
 export type DecisionReason =
@@ -300,6 +340,8 @@ export interface RecallDecision {
   readonly crossProjectLifted: number;
   /** What context priming did this turn (2026-10-19, `PrimeSummary`); null when it did not run. */
   readonly primed: PrimeSummary | null;
+  /** What the beliefs slot did this turn (lane E, `BeliefSlotSummary`); null when it did not run. */
+  readonly beliefs: BeliefSlotSummary | null;
   /**
    * What spreading did this turn (association build 1, 2026-09-28): seeds,
    * nodes expanded, where and why it stopped, contributions computed and how
@@ -492,6 +534,7 @@ export class Recall {
         projectSkipped: 0,
         crossProjectLifted: 0,
         primed: plan === null ? null : { ...NO_PRIME, sources: plan.sources, train: plan.activation.train !== null },
+        beliefs: null,
         spread: null,
         dropped: 0,
         bytes: 0,
@@ -510,6 +553,11 @@ export class Recall {
     });
 
     if (text.trim().length === 0) return quiet("empty-turn");
+
+    // THE BELIEFS SLOT (wave 2 lane E): a subject this turn names is enough —
+    // read once, before the memories, and shown whatever the footnotes do.
+    const beliefPicks = this.pickBeliefs(turn, text, day, state);
+    const withBeliefs = (out: BuildOutput): BuildOutput => this.beliefsOnly(out, beliefPicks, turnNo, budgetBytes);
 
     // Cold start is STRICTER, not looser: below a minimum store size the variance
     // estimate is meaningless and small stores over-surface (§9 G13).
@@ -565,7 +613,7 @@ export class Recall {
     };
 
     if (act.candidates.length === 0) {
-      return { ...quiet("no-candidates", cueStats), carry };
+      return withBeliefs({ ...quiet("no-candidates", cueStats), carry });
     }
 
     // THE CHAIN HEAD WINS (2026-10-11, Group 2): an earlier version the turn
@@ -625,6 +673,7 @@ export class Recall {
         affectFlag: gated.affectFlag,
         surfaced: gated.surfaced.map((c) => c.id),
         footnotes: gated.footnotes.map((c) => c.id),
+        ...(beliefPicks === null || beliefPicks.lines.length === 0 ? {} : { beliefs: beliefPicks.lines }),
         budgetBytes,
         gistBytes: this.tunables.GIST_BYTES,
         titleBytes: this.tunables.FOOTNOTE_TITLE_BYTES,
@@ -663,6 +712,7 @@ export class Recall {
             lifted: shownPrimed.filter((v) => v.primed?.lifted === true).length,
             byLink: shownPrimed.filter((v) => (v.primed?.link ?? 0) > 0).length,
             byTrain: shownPrimed.filter((v) => (v.primed?.train ?? 0) > 0).length,
+            byTag: shownPrimed.filter((v) => (v.primed?.tag ?? 0) > 0).length,
           };
     const decision: RecallDecision = {
       sessionId: turn.sessionId,
@@ -693,6 +743,7 @@ export class Recall {
       projectSkipped: gated.verdicts.filter((v) => v.verdict === "project-skipped").length,
       crossProjectLifted: gated.crossLifted.length,
       primed,
+      beliefs: beliefPicks === null ? null : { offered: beliefPicks.offered, shown: rendered.beliefs, bytes: rendered.beliefBytes },
       // What the gate SHOWED of the pointers activation handed it, after the
       // render's trim: the pointer lane's last number (2026-09-28).
       spread:
@@ -768,6 +819,13 @@ export class Recall {
         ...(via === "link" ? { via } : {}),
       };
     }
+    // THE BELIEFS THE SLOT SHOWED (lane E): their own records, so the slot
+    // does not show one twice in a session and a rating may name it.
+    if (d.beliefs !== null && d.beliefs.shown.length > 0) {
+      const beliefs: Record<string, number> = { ...(next.beliefs ?? {}) };
+      for (const id of d.beliefs.shown) beliefs[id] = d.turn;
+      next.beliefs = beliefs;
+    }
     // WHICH JOURNAL ROWS A SHOWN CHAPTER ABSORBED (2026-10-15): a chapter's
     // use credits these and no others (`creditCopies`) — the summaries of the
     // chapters the turn's cues actually reached, not every chapter's.
@@ -806,6 +864,76 @@ export class Recall {
   }
 
   /**
+   * THE BELIEFS SLOT'S PICK (wave 2 lane E, 2026-10-22): what the turn's
+   * subjects offer, above `BELIEFS_SLOT_FLOOR` (strictly: a belief born at
+   * the ceiling with nothing behind it does not show), not shown earlier this
+   * session, strongest first, at most `BELIEFS_SLOT_MAX`, each composed as
+   * its line. Null when the slot does not run (off, or no lookup bound). A
+   * lookup that throws offers nothing. Reads only.
+   */
+  private pickBeliefs(turn: Turn, text: string, day: number, state: GateState): { offered: number; lines: BeliefLine[] } | null {
+    if (!this.tunables.BELIEFS_IN_RECALL || turn.beliefs === undefined) return null;
+    let offers: readonly BeliefOffer[] = [];
+    try {
+      offers = turn.beliefs(text, day);
+    } catch {
+      offers = [];
+    }
+    const seen = state.beliefs ?? {};
+    const byId = new Map<string, BeliefOffer>();
+    for (const b of offers) if (!byId.has(b.id)) byId.set(b.id, b);
+    const picked = [...byId.values()]
+      .filter((b) => b.strength > this.tunables.BELIEFS_SLOT_FLOOR && seen[b.id] === undefined)
+      .sort((a, b) => b.strength - a.strength || (a.id < b.id ? -1 : 1))
+      .slice(0, Math.max(0, Math.floor(this.tunables.BELIEFS_SLOT_MAX)));
+    return {
+      offered: byId.size,
+      lines: picked.map((b) => ({ id: b.id, text: beliefLine(b, this.tunables.BELIEF_LINE_BYTES) })),
+    };
+  }
+
+  /**
+   * A TURN WITH NO MEMORY TO SHOW, AND BELIEFS (lane E): the slot alone,
+   * rendered under the same budget and sentinel. The turn's reason stays the
+   * memories' ("no-candidates"); `beliefs` on the row says what the slot did.
+   */
+  private beliefsOnly(
+    out: BuildOutput,
+    picks: { offered: number; lines: BeliefLine[] } | null,
+    turnNo: number,
+    budgetBytes: number,
+  ): BuildOutput {
+    if (picks === null) return out;
+    if (picks.lines.length === 0) return { ...out, decision: { ...out.decision, beliefs: { offered: picks.offered, shown: [], bytes: 0 } } };
+    const rendered = render(
+      {
+        turn: turnNo,
+        affectFlag: false,
+        surfaced: [],
+        footnotes: [],
+        beliefs: picks.lines,
+        budgetBytes,
+        gistBytes: this.tunables.GIST_BYTES,
+        titleBytes: this.tunables.FOOTNOTE_TITLE_BYTES,
+        pressureRatio: this.tunables.BUDGET_PRESSURE,
+      },
+      () => ({ title: "", gist: "" }),
+    );
+    return {
+      ...out,
+      injection: rendered.text,
+      render: rendered,
+      decision: {
+        ...out.decision,
+        bytes: rendered.bytes,
+        sentinel: rendered.sentinel,
+        trimmed: rendered.trimmed.map((x) => ({ lane: x.lane, id: x.id })),
+        beliefs: { offered: picks.offered, shown: rendered.beliefs, bytes: rendered.beliefBytes },
+      },
+    };
+  }
+
+  /**
    * Retrospective reinforcement. Which memories the reply actually USED is the
    * caller's judgment (§9.2 owns that rule and its precision bias); this method
    * routes a decided tier to physics through the store seam and applies the two
@@ -816,7 +944,7 @@ export class Recall {
    * so "the ignorable tier trains nothing" is proved by the seam that would have
    * trained it, not by an early return that never asked.
    */
-  resolveUse(sessionId: string, memoryId: string, tier: UseTier, opts: { cued?: boolean } = {}): CreditResult {
+  resolveUse(sessionId: string, memoryId: string, tier: UseTier, opts: { cued?: boolean; beliefSlot?: boolean } = {}): CreditResult {
     const w = USE_TIER_WEIGHT[tier];
     // Checked FIRST, before any other work (contract §5 G11, scar E7).
     if (this.observer) {
@@ -868,6 +996,8 @@ export class Recall {
     const outcome = this.store.reinforce(memoryId, today, tier, {
       ...(cued ? { cued: true } : {}),
       ...(upgradeFrom === undefined ? {} : { upgradeFrom }),
+      // A rating of the beliefs slot (lane E): the one use a belief takes.
+      ...(opts.beliefSlot === true ? { beliefSlot: true } : {}),
       // The session it came back in (2026-10-11): the core's recurrence lane counts sessions.
       session: sessionId,
     });
