@@ -13,11 +13,14 @@ interface, a model in the seat, a scripted new owner) build on it.
 ## Run it
 
 ```sh
-# Copy a snapshot out of ~/.counterparts first. The harness refuses anything under it.
-mkdir -p ~/counterparts-backups/<date>-corpus
-cp ~/.counterparts/snapshots/<snapshot>/counterparts.sqlite ~/counterparts-backups/<date>-corpus/
+# Copy a snapshot out of ~/.counterparts first. The replay refuses anything under it.
+bun tools/harness/cli.ts corpus
+#   --from <snapshot folder>   a named snapshot instead of the newest
+#   --snapshots <dir>          another snapshots folder (default ~/.counterparts/snapshots)
+#   --out <dir>                where the corpus folder goes (default ~/counterparts-backups)
+#   --json <file>              write the record (path, schema, build, counts)
 
-bun tools/harness/cli.ts replay --source ~/counterparts-backups/<date>-corpus/counterparts.sqlite
+bun tools/harness/cli.ts replay --source ~/counterparts-backups/<date>-corpus-v<schema>-<build>/counterparts.sqlite
 #   --returns derived|recorded   derive awake returns from the uses (default), or pin the recorded ones
 #   --through-day N              stop after lived day N (skips the fidelity block)
 #   --early-days N               how many days the early-core table covers (default 10)
@@ -26,6 +29,33 @@ bun tools/harness/cli.ts replay --source ~/counterparts-backups/<date>-corpus/co
 ```
 
 On a 29-day, 2,000-memory record a run takes about 15 seconds.
+
+## A corpus (`corpus`)
+
+`corpus` copies the newest snapshot (or the one `--from` names) out of
+`~/.counterparts/snapshots/` into `~/counterparts-backups/<date>-corpus-v<schema>-<build>/`.
+"Newest" goes by the instant in the folder's name. When a daily copy and a pre-migration copy
+share an instant, it picks the pre-migration copy.
+
+The name carries the snapshot's date, the schema, and the newest build in the store's build log.
+A store that keeps no build log gets no build in the name.
+
+Under `~/.counterparts` it lists `snapshots/` and copies one file. It opens nothing there as a
+database and writes nothing there. It refuses:
+- a source that isn't a snapshot folder directly inside the snapshots folder, such as a
+  half copy (`.partial-…`) or the live store's own file;
+- a source with a `-wal`, `-shm` or `-journal` file beside it;
+- a target or a `--json` record under `~/.counterparts`;
+- a corpus folder that's already there.
+
+The copy is made under a temp name, checked byte for byte against the source, made read-only,
+and then renamed into place. It prints the counts that say whether the copy is worth replaying:
+- memories, live and archived;
+- beliefs and their support rows (v14);
+- tag rows and distinct tags (v14);
+- subject links, and the cards with a subject kind (v14).
+
+A v13 snapshot reads as having no tables for these.
 
 ## What it does
 
@@ -263,6 +293,54 @@ A key that some reader copies at load (the use-tier weights, the recurrence weig
 prospective holds; `settings.ts#CAPTURED`) is refused, since setting it would change only some
 of its readers. A compare stopped with Ctrl-C can leave a `harness-compare-*` worktree; remove
 it with `git worktree remove --force <dir>`, or `git worktree prune`.
+
+A replay's table shows these rows, beside the core:
+- the semantic band on the last day;
+- below reach on the last day (memories only), as that day's decay pass ranked them;
+- memories pruned so far.
+
+### Presets (`--preset`)
+
+`--preset <name>` (`--base-preset` for the base) is a named list of `--set`s
+(`settings.ts#PRESETS`). The list is expanded before anything runs and goes ahead of the
+side's own `--set`s, so each setting is checked and recorded on its own. A key set by both a
+preset and a `--set` is refused. The table's header names the preset, not its settings. `replay`,
+`night` and `week` take `--preset` too.
+
+**`physics-off`** is the "just files" side: the same record with the memory's arithmetic
+switched off, as far as the top-level tunables reach.
+
+| Part | Settings | Moves a replay? |
+|---|---|---|
+| decay, forgetting | `physics.S0=1e9` (the curve stays at 1), `physics.D_FLOOR_DAYS=1e9` (no prune), `physics.REACH=0` (everything in reach, as a file store) | yes |
+| salience and feeling as weights | `physics.EMO_LIFT=0` (height); `STABILITY_GAIN=0`, `EMO_Q=0` (the curve: inert under S0=1e9, kept so the preset says off) | yes |
+| reinforcement | `physics.REP_CAP=0`, `BETA=0`, `RETURN_GAIN=0`, `CONS_BONUS=0`, `BELIEF_SUPPORT_CAP=0`, and the dream, reflection and engaged return weights at 0 | yes |
+| the core | `sleep.CORE_MAX_PER_SLEEP=0` (no lane promotes) | yes |
+| learned association | `associate.HEBB_RATE`, `CO_USE_DEPOSIT`, `CONTIGUITY_RATE`, `SHOWN_TOGETHER_DEPOSIT`, `dream.LINK_WEIGHT`, `REPLAY_LINK_WEIGHT` at 0 | night and week only |
+| recall's lifts | `recall.HOP_CEILING=0` (spreading), `PRIME_LINK_UNITS=0`, `PRIME_TRAIN_SHARE=0`, `TAGS_PRIME=false` (priming), `HABITUATION_BAR_LIFT=0`, `SAL_BAR_WEIGHT=0`, `SAL_SORT_WEIGHT=0` | night and week only |
+
+S0 is set rather than `POWER_LAW_PSI=0`, because at ψ ≠ 1 the curve has no closed form for the
+prune's day and walks up to 100,000 days a memory. At 1e9 a memory loses about 3e-8 of its
+strength in 30 days. With the cap at 0 the core reads 0 by construction: that's the point.
+Under physics-off the "semantic" row is the recorded salience labelled against `THETA_SEM`, and
+nothing else: no recall reads the band differently once everything is in reach.
+
+What no top-level tunable can switch off, so `physics-off` leaves it on:
+- **salience as height**. A memory's height is still its recorded salience (`sal()`'s mean with
+  its floor, the claimed defaults). The band still reads that height against `THETA_SEM`. "Off"
+  would need flat salience, which is a row's value, not a tunable.
+- **the use tiers** (`W_*`), **the recurrence weights**, `PHI_PRUNE`, and `HOLD_*`. They're
+  captured at load (`CAPTURED`). With reinforcement's arms at 0, a use is still counted but adds
+  nothing.
+- `DECAY_SHAPE` and the per-kind table (`KINDS`), which aren't numbers or booleans.
+- **the core lanes' own rules**. Only the nightly cap gates them.
+- **revision and settles**: `CHANGED_FADE` and challenge pressure. These count as the record's
+  acts, not physics, so they're left on.
+- **beliefs** (`schemas.BELIEFS_BIRTH`, `recall.BELIEFS_IN_RECALL`). They're a model-written
+  layer. Only their support arm is arithmetic, and that one is off.
+
+A physics-only replay measures bands, promotions, reach and prunes. It doesn't measure whether
+an answer was better: that needs a model in the seat on both sides (`--mode night` or `week`).
 
 A side running a build from before `compare` ignores `--set`, and the table says so. Checked
 2026-10-21 against the 10-20 run: replaying Mike's record with the reflected-feeling door

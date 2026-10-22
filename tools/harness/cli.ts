@@ -17,7 +17,8 @@ import type { RunRecord } from "./replay.js";
 import { DEFAULT_CORPUS } from "./source.js";
 import { runCompare } from "./compare.js";
 import type { Mode } from "./compare.js";
-import { applySettings } from "./settings.js";
+import { applySettings, expandPreset } from "./settings.js";
+import { assertOutsideLive, makeCorpus, renderCorpus } from "./corpus.js";
 
 function flag(args: readonly string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -133,7 +134,7 @@ async function main(argv: readonly string[]): Promise<number> {
     const cut = all.indexOf("--");
     const own = cut < 0 ? all : all.slice(0, cut);
     const passthrough = cut < 0 ? [] : all.slice(cut + 1);
-    const KNOWN = ["--mode", "--base", "--branch", "--set", "--base-set", "--runs", "--pages"];
+    const KNOWN = ["--mode", "--base", "--branch", "--set", "--base-set", "--preset", "--base-preset", "--runs", "--pages"];
     own.forEach((a, i) => {
       if (a.startsWith("--") && !KNOWN.includes(a)) throw new Error(`compare has no ${a} (its own flags: ${KNOWN.join(" ")}; the mode's go after --)`);
       if (!a.startsWith("--") && (i === 0 || !KNOWN.includes(own[i - 1]!))) throw new Error(`compare doesn't take "${a}" here; the mode's flags go after --`);
@@ -147,6 +148,8 @@ async function main(argv: readonly string[]): Promise<number> {
       ...(flag(own, "--branch") === undefined ? {} : { branch: flag(own, "--branch")! }),
       set: flags(own, "--set"),
       baseSet: flags(own, "--base-set"),
+      preset: flags(own, "--preset"),
+      basePreset: flags(own, "--base-preset"),
       runs: runs === undefined ? 1 : /^\d+$/.test(runs) ? Number(runs) : NaN,
       passthrough,
       ...(flag(own, "--pages") === undefined ? {} : { pages: flag(own, "--pages")! }),
@@ -155,9 +158,28 @@ async function main(argv: readonly string[]): Promise<number> {
     process.stdout.write(text + "\n");
     return 0;
   }
+  if (cmd === "corpus") {
+    const own = ["--from", "--snapshots", "--out", "--json"];
+    all.forEach((a, i) => {
+      if (a.startsWith("--") && !own.includes(a)) throw new Error(`corpus has no ${a} (its flags: ${own.join(" ")})`);
+      if (!a.startsWith("--") && (i === 0 || !own.includes(all[i - 1]!))) throw new Error(`corpus doesn't take "${a}"`);
+    });
+    for (const f of own) if (all.includes(f) && (flag(all, f) === undefined || flag(all, f)!.startsWith("--"))) throw new Error(`${f} needs a value`);
+    // The record is a write too: refused under ~/.counterparts before anything is copied.
+    if (flag(all, "--json") !== undefined) assertOutsideLive(flag(all, "--json")!, "the --json record");
+    const record = makeCorpus({
+      ...(flag(all, "--from") === undefined ? {} : { from: flag(all, "--from")! }),
+      ...(flag(all, "--snapshots") === undefined ? {} : { snapshots: flag(all, "--snapshots")! }),
+      ...(flag(all, "--out") === undefined ? {} : { out: flag(all, "--out")! }),
+    });
+    process.stdout.write(renderCorpus(record) + "\n");
+    const json = flag(all, "--json");
+    if (json !== undefined) writeFileSync(json, JSON.stringify(record, null, 2));
+    return 0;
+  }
   const args = all;
-  // A SETTING FOR THIS RUN (`settings.ts`), set before anything reads it.
-  applySettings(flags(args, "--set"));
+  // A SETTING FOR THIS RUN (`settings.ts`), set before anything reads it; a preset is its settings, first.
+  applySettings([...flags(args, "--preset").flatMap(expandPreset), ...flags(args, "--set")]);
   if (cmd === "week") {
     const days = flag(args, "--days");
     const scriptName = flag(args, "--script");
@@ -222,8 +244,9 @@ async function main(argv: readonly string[]): Promise<number> {
   if (cmd !== "replay") {
     process.stderr.write(
       "usage: bun tools/harness/cli.ts replay [--source <copy>] [--returns derived|recorded] [--through-day N] [--early-days N] [--keep] [--json <out>]\n" +
-        "       bun tools/harness/cli.ts compare --mode replay|night|week [--branch <ref>] [--base <ref>] [--set module.KEY=V]… [--base-set …] [--runs N] [--pages <dir>] -- <the mode's own flags>\n" +
-        "       (replay, night and week also take --set module.KEY=V, and night and week --page-out <file>)\n" +
+        "       bun tools/harness/cli.ts compare --mode replay|night|week [--branch <ref>] [--base <ref>] [--set module.KEY=V]… [--base-set …] [--preset <name>] [--base-preset <name>] [--runs N] [--pages <dir>] -- <the mode's own flags>\n" +
+        "       (replay, night and week also take --set module.KEY=V and --preset <name>, and night and week --page-out <file>)\n" +
+        "       bun tools/harness/cli.ts corpus [--from <snapshot folder>] [--snapshots <dir>] [--out <dir>] [--json <out>]\n" +
         "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--model [<name>]] [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
     );
     return 2;
