@@ -13,17 +13,13 @@ Read-only on the owner's store: open it with `sqlite3 "file:$HOME/.counterparts/
 or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts doctor --config …`,
 `counterparts claims-era --dir …`). Anything heavier runs on a snapshot copy, never the live store.
 
-## Index (updated 2026-10-20)
+## Index (updated 2026-10-22)
 
 **Open: being built, or live and waiting for a check**
 
 | Experiment | Started | Check | Section / source |
 |---|---|---|---|
-| Feedback loop, upward (#525): graded use credit, drewOn as a full use, strong co-use links, light habituation; glimpses restart the fade clock | 0.3.27, 10-19 | ~2 lived days after install | "Due ~2026-10-22 … Builder 1" below |
-| Feedback loop (#523): no footnotes from this session (echo), the dream replays the day, no footnotes in the nightly run's sessions | 0.3.27, 10-19 | ~2 lived days after install | "Due ~2026-10-22 … Builder 2" below |
 | Head wins (#526): the newer memory stands in with the earlier one's bar (or its own); the earlier one is held back whenever a head stands in | 0.3.27, 10-19 | ~2 lived days after install: settled-over memories shown alone → ~0 | `docs/decisions.d/fix-head-wins-gap-1019.md` |
-| Stemmed word index (cache v7) + everyday words weigh less in cues, ambient and facts | 0.3.27, 10-19 (#529) | ~10-22; revert by 11-02 | "Due ~2026-10-22" below; `docs/decisions.d/feat-stemming-everyday-words-1019.md` |
-| Context priming (#530, the downward direction): what the session used/wrote and the folder's open threads warm neighbours, along links and a centred train-of-thought vector; handoffs age 0.7/lived day | 0.3.27, 10-19 | ~2 lived days after install: ratings of primed vs unprimed footnotes, tunnel vision | "Due ~2026-10-22 (context priming)" below |
 | Association: no links written when a memory is stored (`WRITE_LINK_MAX` 0, was 4); contiguity kept, old ones fade | 0.3.27, 10-19 (#528) | ~2 lived days after install: pointers and links per node from co-use alone; revert if the graph starves | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | Slot detector flags only: no provisional fade (`SLOT_FADE` 1, was 0.8); the fade comes with the dream's or the writer's confirmation | 0.3.27, 10-19 (#528) | ~2 lived days after install: proposals' `faded: false`, the dream's same true/false, confirmed ones at the full fade | `docs/decisions.d/chore-write-links-slot-flag-1019.md` |
 | The reflection closes open threads that are plainly done (`closeNow`, a why each, said in the share; `reopen` undoes), and still asks about the unsure ones | merged 10-20, unreleased | ~10-24: how many it closed itself (`reflections.detail.selfClosed`, `reflection.finished`'s `selfClosed`) (any folder, by Mike's 10-20 exception) and how many it asked instead, reopened (`closeAskedInstead`; confidential ones too until 10-21), whether any was wrong (`detail.reopened`, `reflection.reopened`), how the wake's Still open count moves from 58; revert by putting back the 10-16 `close` line in the prompt | `docs/decisions.d/feat-reflection-closes-done-threads-1020.md` |
@@ -48,7 +44,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | Head wins: hold back a settled-over memory whenever its head was brought in for it (gate.ts ~L452) | 36 footnotes since 10-12 showed an earlier memory while its head didn't (21 ids) | done: #526 |
 | Slot detector: a proposal flags only, no provisional fade until the dream confirms | 4 of 7 right by hand-read, under the ~3-in-4 bar; the dream said "not the same" on 3 of 4; raising SLOT_COSINE doesn't separate them | done: #528 (`SLOT_FADE` 1), in 0.3.27 |
 
-**Checked** (kept below for the record): 10-12 first new-curve pass; 10-14 check-in; 10-18 wake trims, exit at 7
+**Checked** (kept below for the record): **10-22 the four 0.3.27 reads** (feedback loop builders 1 and 2, stemming, context priming: nothing reverted; two asks for Mike; all re-read ~10-29 with the cross-project bar, see "Checked 2026-10-22" below and `~/counterparts-notes/2026-10-22-0327-read.md`); 10-12 first new-curve pass; 10-14 check-in; 10-18 wake trims, exit at 7
 vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost (1.75x the estimate, caps fine),
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
@@ -95,6 +91,44 @@ changes a decision.
   curve over days 21–23, which memories left reach, whether any core or owner/us memory moved.
 - **Changes a decision if:** a memory Mike would miss left reach, or routine work notes are still in reach
   after ~3 lived days.
+
+## Checked 2026-10-22 (lived day 31, on 0.3.30: 0.3.27's experiments two lived days after the 10-19 install)
+
+Read-only on the live store (sqlite `?mode=ro`, doctor, probe-oq4, mechanisms). The two lived days were heavy build
+days (372 and 317 memories written against ~100 a day the week before; ~430 recall turns a day, many from
+background agents), which colours every per-turn number. Full read with the per-day tables:
+`~/counterparts-notes/2026-10-22-0327-read.md`. **Nothing reverted.**
+
+- **Ratings (probe-oq4):** noise 43% / useful 19% on 10-20, 47% / 22% on 10-21, against 47% / 18% before. No
+  direction yet; no jump toward 2–3 right after install. Coverage 85% of ambient showings.
+- **Builder 1, A credits:** ~40% of rated showings now credit something (was ~3%): 7 days, 179 uses credited (32
+  glimpses, 109 rated 1, 37 rated 2, 1 rated 3), 242 not (mostly birth-day). drewOn named 7–9 a day, never at the cap
+  of 3 in a call. The one core promotion since install (mem_8412e26dc04e, cards form from strength) was earned
+  awake (rated 3 after an expansion, then drewOn + 3), not by glimpses; no never-used ruling crossed. Below reach
+  1,145 (753 on 10-18): up, with writes tripled, so glimpses aren't keeping noise alive at the population level.
+- **Builder 1, B links — the trigger is met, kept on purpose:** the graph's first signal ever: 6 quiet pointers
+  shown in two days (none in ~9,500 links before 10-19), 1 later expanded, **5 of 5 rated were 0**. 45 links at or
+  above 0.40. Four memories sit at the 4.0 outgoing bound, all Reddit memories, nearly all of it co-use weight since
+  10-19. Mike's 10-19 call was "error on too strong, so we can see what it looks like": this is what it looks
+  like, so the cap/deposit change is his call (asked 10-22). Link-primed footnotes were rated 20% noise against 45%
+  (n 40). Support measure keeps its links column.
+- **Builder 1, D habituation:** 97 habituated now, 23 got through anyway; 3 were later rated 2–3 while habituated,
+  none twice; a dozen hand-read are stale work notes. Kept.
+- **Builder 2:** C echo skip removed 87 and 139 showings a day (of ~400), nothing recorded as missed; E the dream
+  replays 20 `today` memories a night (11 dreamed), `replayed` 8→25; `waiting` 374→610 tracks writes a day tripling
+  with intake flat at 44–46, not the replay; F holds by time window (no session but the parent had a recall row
+  inside the 10-20/21/22 nights) — the store holds no child session id, follow-up in WORKLIST.
+- **Stemming (#529):** re-stem landed (terms = light-1). Items shown per turn fell from 1.4–2.0 to 0.85–0.94 (1.15
+  with echo-skipped showings added back): the revert trigger as written, but four changes landed together and the
+  turns were agent-heavy; ratings did not fall. Not reverted; re-read ~10-29; Mike asked whether his own opening
+  questions found what he meant.
+- **Context priming (#530):** 250 and 228 primed showings a day, 63 and 56 lifted past the bar (train mostly, link
+  25–32), a lift on ~11% of turns. Rated: neither 45% noise / 17% useful (n 455), train 45% / 21% (328), link 20% /
+  22% (40). Longest same-source run across turns: 2. Gap: `lifted` is a per-turn count, not a per-footnote flag, so
+  lifted ones can't be rated (handed to the TAGS_PRIME lane).
+- Page writer: the restored "grows out of many ordinary memories" line survived into page v51, reworded. Lists in
+  bodies (10-15 decision): no non-chapter body over 3 KB since; keep holds.
+- **Re-read all four ~2026-10-29**, with the cross-project bar's check.
 
 ## Checked 2026-10-18 (lived day 27, on 0.3.25)
 
@@ -609,7 +643,7 @@ how many new trails use would confirm.
 - **Changes a decision if:** the era's archives include memories Mike would miss → `counterparts claims-era
   --off` reads claims as stored again (archives already made stay archived, readable by id).
 
-## Due ~2026-10-22, two lived days after install: the feedback loop, Builder 1 (an experiment — docs/decisions.d/feat-feedback-loop-credit-1019.md)
+## Checked 2026-10-22 (see "Checked 2026-10-22" above), was due ~2026-10-22, two lived days after install: the feedback loop, Builder 1 (an experiment — docs/decisions.d/feat-feedback-loop-credit-1019.md)
 
 Trying ratings as use (A), strong co-use links (B) and light habituation (D) to see whether the day starts
 teaching the system. Read-only on the owner's store: `counterparts doctor --config …` (the **Feedback loop**
@@ -665,7 +699,7 @@ rows' `credited` / `notCredited` / `coUse` / `together` fields. Each entry names
   after habituating) more than once → the lift is too strong or two sessions too few; if none ever
   habituates while noise stays near half → the lift is too light. Revert: `HABITUATION_BAR_LIFT` 0.
 
-## Due ~2026-10-22, two lived days after install: the feedback loop, Builder 2 (an experiment — docs/decisions.d/feat-feedback-loop-gate-dream-1019.md)
+## Checked 2026-10-22 (see "Checked 2026-10-22" above), was due ~2026-10-22, two lived days after install: the feedback loop, Builder 2 (an experiment — docs/decisions.d/feat-feedback-loop-gate-dream-1019.md)
 
 Trying three things together to see whether the day teaches the system (#523): footnotes skip what this session
 wrote (C), the dream replays what the day used (E), and the nightly run's own sessions get no footnotes (F). Revert
@@ -682,7 +716,7 @@ by the paths in the fragment.
 - **F, the nightly run:** night children's sessions have no `recall.decision` rows after install, and their
   `recall.credit` rows read `shownFootnotes: 0`.
 
-## Due ~2026-10-22 (stemming + everyday-word weights, 2026-10-19, an experiment — docs/decisions.d/feat-stemming-everyday-words-1019.md)
+## Checked 2026-10-22 (see "Checked 2026-10-22" above), was due ~2026-10-22 (stemming + everyday-word weights, 2026-10-19, an experiment — docs/decisions.d/feat-stemming-everyday-words-1019.md)
 
 - **Trying:** the word index stores light stems (bake/bakes/baked/baking are one word), and a cue word's
   rarity is scaled down when the embedder's table says it is everyday English ("any", "what", "you"), to see
@@ -702,7 +736,7 @@ by the paths in the fragment.
   `counterparts verify --rebuild --keep-vectors` on that build (deleting alone leaves word recall empty).
   `counterparts rollback` does not cover a cache-only change.
 
-## Due ~2026-10-22 (context priming, 2026-10-19, an experiment — docs/decisions.d/feat-context-priming-1019.md)
+## Checked 2026-10-22 (see "Checked 2026-10-22" above), was due ~2026-10-22 (context priming, 2026-10-19, an experiment — docs/decisions.d/feat-context-priming-1019.md)
 
 Trying a downward direction for recall (#530): what the session used and wrote, and the folder's open threads and
 handoffs, give their linked partners and memories near a centred train-of-thought vector a head start; it can lift
