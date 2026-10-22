@@ -523,7 +523,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   rollback: ["config", "to", "undo", "upgrade-again", "dry-run", "yes"],
   // `--config` for the embedder knob only, as on `ask`: a note is embedded on
   // write with the table the configuration turns on.
-  note: ["kind", "title", "salience", "config"],
+  note: ["kind", "title", "salience", "tags", "config"],
   // Two names, ONE row each and the same one: a flag that worked under `recall`
   // and not under `ask` would be the rename leaking into behaviour.
   ask: ["id", "json", "full", "page", "mode", "config", "voiced"],
@@ -758,6 +758,7 @@ const FLAG_HELP: Record<string, string> = {
   kind: "self, person, entity, skill, place or fact",
   title: "a title for the memory, instead of one taken from its first line",
   salience: "0..1 — how much this one matters",
+  tags: "a few words for what it is about, comma-separated (--tags garden,katie): a topic, a person, a project or a place",
   id: "one memory, by id, instead of a question",
   full: "the whole facts answer, as the model reads it: a count header and every result's labeled lines (who said it, its status, when it happened and was learned, whether it still holds) — not just the top five, one line each",
   page: "which page of the answer (ten results a page; in meaning mode, eight entries of the arc), with --full or --json",
@@ -1102,6 +1103,7 @@ const VALUED_FLAGS: readonly string[] = [
   "kind",
   "title",
   "salience",
+  "tags",
   "id",
   "budget",
   "batch",
