@@ -457,6 +457,8 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
           traits: Array.isArray(args["traits"]) ? (args["traits"] as never) : [],
           close: ids(args["close"]),
           closeNow: Array.isArray(args["closeNow"]) ? (args["closeNow"] as never) : [],
+          // Beliefs (lane C, 2026-10-21): checked item by item in the core.
+          ...(args["beliefs"] !== null && typeof args["beliefs"] === "object" && !Array.isArray(args["beliefs"]) ? { beliefs: args["beliefs"] as never } : {}),
           scope: server.scope,
           model: model ?? null,
         });
@@ -485,6 +487,7 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
             feelings: o.feelings,
             about: o.about,
             ...(o.traits.length > 0 ? { traits: o.traits } : {}),
+            ...(o.beliefs.births.length + o.beliefs.filings.length + o.beliefs.retire.length > 0 ? { beliefs: o.beliefs } : {}),
             ...(o.refusedCites.length > 0 ? { refusedCites: o.refusedCites } : {}),
             ...(o.close.proposed.length > 0 || o.close.closed.length > 0 || o.close.refused.length > 0 ? { close: o.close } : {}),
             // WHAT WAS NOT WRITTEN, and that it can be sent again (2026-09-28).

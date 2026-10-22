@@ -119,4 +119,49 @@ export const TUNABLES = {
    *  lineage must be able to tell a bar that was climbed from a fact that simply
    *  changed (scar §2.4). */
   REPLACED_REASON: "replaced-by-declaration" as const,
+
+  // --- beliefs' producers (wave 2 lane C, 2026-10-21) ---
+  //
+  // Starting points, lightly held; check 2026-10-26 on live numbers. Each is
+  // top-level so `harness compare --set schemas.KEY=…` can move it, and read
+  // at use. Support's own arithmetic is physics §5.13.
+  /**
+   * THE SWITCH. On (the default): the night's reflection is shown the beliefs
+   * on the subjects in play and asked to file support or birth a few; the
+   * dream proposes candidates (C3). Off: neither is asked, and what either
+   * sends is refused `beliefs-off`. Belief rows already written stay, inert,
+   * fading like any memory. `compare --set schemas.BELIEFS_BIRTH=false`.
+   */
+  BELIEFS_BIRTH: true,
+  /** Births a reflection may make, across its finishes (design "still open" 5 named 5). */
+  BELIEF_BIRTHS_PER_REFLECTION: 3,
+  /**
+   * CAL. A birth this close to a live belief on the same subject (token
+   * cosine, `remember/updates.ts#similarity`) is refused with that belief's
+   * id, to file to instead. v1's dedup bar was 0.6 (behavioral-spec §14).
+   */
+  BELIEF_NEAR_DUPLICATE: 0.6,
+  /** Subjects shown to a reflection: the self subject, then the cards its memories name most. */
+  BELIEF_SUBJECTS_SHOWN: 6,
+  /** Beliefs shown per subject, strongest first; the rest are counted. */
+  BELIEFS_SHOWN_PER_SUBJECT: 5,
+  /**
+   * CAL. A birth this close to the body of one of its own cites (token
+   * cosine) is a memory pasted in as a belief, not a claim drawn from it, and
+   * is refused (review of #577). The review suggested ~0.8; a one-line claim
+   * drawn from a short memory already reads ~0.8 ("I keep the hard problems
+   * for dawn" from "I chose to keep the dawn slot for the hard problems",
+   * 0.82), so 0.9 for now.
+   */
+  BELIEF_PASTED: 0.9,
+  /**
+   * CAL. A birth that `replaces` a contested belief and says it this nearly
+   * again (token cosine) is refused: it would reissue the claim with what went
+   * against it no longer counted (review of #577). Not the near-duplicate
+   * bar (0.6): a real revision keeps the frame — "We work best late at night"
+   * for "We work best at dawn" reads 0.73 — while the claim again reads ~1
+   * ("…at dawn!" 1.00). A negation added or removed ("We don't work best at
+   * dawn.", 0.91) is a replacement whatever it reads (`reflect.ts#negationDiffers`).
+   */
+  BELIEF_SAME_CLAIM: 0.9,
 } as const;

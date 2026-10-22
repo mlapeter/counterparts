@@ -261,6 +261,19 @@ export type SupportFileReason =
   | "link-not-a-belief"
   | "link-too-weak";
 
+/** One belief as it stands on a subject (`Schemas#beliefStanding`). */
+export interface BeliefStanding {
+  id: string;
+  statement: string;
+  about: "me" | "us" | null;
+  strength: number;
+  /** Memories counted for it, and against it. */
+  support: number;
+  against: number;
+  /** Contrary pressure crossed its bar (physics §5.13): its text stands, waiting to be revised or retired. */
+  contested: boolean;
+}
+
 export interface SupportFileOutcome {
   ok: boolean;
   reason: SupportFileReason;

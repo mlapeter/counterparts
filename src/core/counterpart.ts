@@ -713,6 +713,9 @@ export class Counterpart {
             : { ok: false, reason: written.reason, note };
       },
       emit: (name, ref, data) => this.emit(name, ref, data),
+      // BELIEFS (wave 2 lane C, 2026-10-21): what it is shown on the subjects
+      // in play, and the doors it births, files and retires through.
+      schemas: this.schemas,
     });
 
     if (opts.identity !== undefined) this.self.ensureIdentityCore(opts.identity);

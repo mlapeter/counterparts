@@ -1716,6 +1716,11 @@ const REFLECT: ToolSpec = {
     },
     {
       claim:
+        "It may file support only from memories it was shown and lived, to beliefs it was shown or bore; it births at most a few a night, each born weak and backed by its lived cites, a near-duplicate refused with the belief to file to; it lets go only a contested belief, through the settle door. A belief's id is never citable, feelable or markable. Off when the owner's switch says so.",
+      mechanizedBy: "src/core/dream/reflect.ts#Reflections.finishBeliefs -> src/core/schemas/index.ts#Schemas.fileSupport + #Schemas.addBelief + src/core/reconsolidation.ts#settle",
+    },
+    {
+      claim:
         "Every word it writes is scanned for credentials first; its hand-back carries the mark capture refuses, so the share is told in the session's own words rather than filed from the tool's.",
       mechanizedBy: "src/core/dream/reflect.ts#Reflections.words + src/core/dream/mark.ts#DREAM_MARK -> src/core/remember/spans.ts#enters",
     },
@@ -1844,6 +1849,50 @@ const REFLECT: ToolSpec = {
             carried_by: { type: "string" },
           },
           required: ["id", "axis", "toward", "strength"],
+        },
+      },
+      beliefs: {
+        type: "object",
+        description:
+          "`finish`, optional: beliefs on the subjects in the bundle's beliefs.subjects. A belief is a claim life has to back: it starts weak and grows only as lived memories back it, each counted once — so filing support for one already held beats writing a new one. Most nights need few or none.",
+        properties: {
+          filings: {
+            type: "array",
+            description: "A lived memory you were shown, counted for (support) or against (contrary) a belief shown in beliefs.subjects. One counted before adds nothing.",
+            items: {
+              type: "object",
+              properties: {
+                belief: { type: "string" },
+                memory: { type: "string" },
+                stance: { type: "string", enum: ["support", "contrary"] },
+              },
+              required: ["belief", "memory", "stance"],
+            },
+          },
+          births: {
+            type: "array",
+            description: "A few new beliefs (the bundle says how many): subject is \"me\" (for me or us) or a subject's id; statement one short claim in your own words; about \"me\" or \"us\" on me; cites the lived memories it rests on (each is filed as its support); replaces, the id of a contested belief it says better. One that says what a belief already says is refused with that belief's id.",
+            items: {
+              type: "object",
+              properties: {
+                subject: { type: "string" },
+                statement: { type: "string" },
+                about: { type: "string", enum: ["me", "us"] },
+                cites: { type: "array", items: { type: "string" } },
+                replaces: { type: "string" },
+              },
+              required: ["subject", "statement", "cites"],
+            },
+          },
+          retire: {
+            type: "array",
+            description: "A belief marked contested that you let go, with why: it leaves through the settle door, the memory that contested it holding over it.",
+            items: {
+              type: "object",
+              properties: { belief: { type: "string" }, why: { type: "string" } },
+              required: ["belief", "why"],
+            },
+          },
         },
       },
     },

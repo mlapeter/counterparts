@@ -1023,3 +1023,32 @@ co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.t
   also block the owner's own yes in the same session. It is the trust model `close` has
   today. What would close it later: a yes carried by the owner's typed turn (the host's
   record of what the person typed), checked at `join`.
+
+
+## 2026-10-21 — the reflection writes and files beliefs (wave 2 lane C2)
+
+- **Shown, not citable.** The beliefs section lives beside the memories, and its ids are kept
+  on the row's detail (`beliefSelf`, `beliefSubjects`, `beliefsShown`, `beliefsContested`),
+  never in `shown`: a belief cannot be cited (which would count as a return), felt or marked.
+  "Cited again by the reflection" so adds nothing by construction.
+- **Subjects in play** are read off the memories the night may show (`subjectsOf` over the
+  fit's candidates), not only the ones that fit, so a subject is there when its memories
+  are in a later part.
+- **Births need a lived cite.** A belief with nothing lived behind it is a guess; one cite
+  is the floor. Cites that are not shown or not lived are left out of its support and said.
+- **Near-duplicates** use `remember/updates.ts#similarity` (token cosine) at v1's 0.6, the
+  belief a birth `replaces` excepted (a better wording is close by design).
+- **Retire** goes through `reconsolidation.ts#settle` as the reflection (actor
+  `reflection`), held over by the memory that contested the belief, `corrected`: archived,
+  its words and support on the record, undoable like any settle.
+- **What I'd run** (not run here: no model nights from this lane): one model night on a
+  temp copy of the corpus store, `harness compare --set schemas.BELIEFS_BIRTH=false` against
+  the default (~1.8M tokens), to read how many beliefs a night births and files and whether
+  the near-duplicate bar holds; then Dana's meaningful week once, after C3.
+- **A replacement rests on the evidence** (review of #577, the coordinator's call): a
+  `replaces` birth must cite at least one of the contested belief's contrary memories
+  (`replaces-without-the-evidence` otherwise), and those memories are shown with the belief
+  (`contestedBy`). The same-claim check (`BELIEF_SAME_CLAIM` 0.9, negations exempt) stays,
+  but word overlap cannot fully stop a reworded restatement: "We work best at dawn, not at
+  night." (0.85), "No doubt: we work best at dawn." (0.85) and "…nothing else comes close."
+  (0.75) pass it. Citing the evidence is what a restatement lacks. On the 10-26 check list.
