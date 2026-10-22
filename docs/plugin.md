@@ -339,7 +339,7 @@ Homebrew, `/usr/local`). Last run: 27/27 on 2.1.296 (2026-10-11).
 ## Two plugins (2026-10-20, our own marketplace; lightly held)
 
 Our marketplace lists two plugins from the split release on (`FIRST_SPLIT_RELEASE` in
-`tools/plugin-bundle/build.ts`, 0.3.29 for now; it moves if the split slips, and the
+`tools/plugin-bundle/build.ts`, 0.3.32 for now; it moves if the split slips, and the
 release commit adds the sidebar's entry, [RELEASING.md](RELEASING.md)):
 
 - `counterparts`: memory alone (the five hooks, the MCP server, the commands), built with

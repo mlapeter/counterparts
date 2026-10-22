@@ -113,7 +113,7 @@ export const SIDEBAR_DIR = "hooks/sidebar";
  * cut without the split raises it first), and test/plugin.test.ts wants the
  * marketplace's sidebar entry exactly from this version on.
  */
-export const FIRST_SPLIT_RELEASE = "0.3.29";
+export const FIRST_SPLIT_RELEASE = "0.3.32";
 
 /** The `full` flavor at the split's release or later: the refusal, else null. Pure. */
 export function splitTripwire(version: string, flavor: Flavor): string | null {
