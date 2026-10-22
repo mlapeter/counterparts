@@ -1322,6 +1322,16 @@ const PRIVATE_HELPERS = new Set([
   "catchUp",
   // A subject's beliefs without the catch-up (slices catches up once).
   "beliefsKnown",
+  // The card twins (2026-10-21): one row into the index the way `load` reads it,
+  // the rows another process wrote since, and `settle`'s name gates asked of
+  // them under the write lock. Reads and the index; no new operation. And the
+  // look-back a card killed mid-birth never had (review of #578), which is
+  // the birth's own linking, run again.
+  "take",
+  "adopt",
+  "unseenCards",
+  "heldUnseen",
+  "relinkUnlinked",
   // SEAMS item K: story() reads the DURABLE increments out of box 2's events
   // table and unions this session's ring on top. A read helper, no new operation.
   "storyIncrements",

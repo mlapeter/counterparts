@@ -176,6 +176,12 @@ const NAME_SOURCE_MEMORIES = 20;
 const REMOVED_COVER = 0.8;
 
 /**
+ * A card that has looked back for its memories once (`relinkUnlinked`, review of #578): one
+ * meta row per card, so a card that truly names no memory is not scanned for again every night.
+ */
+export const RELINKED_PREFIX = "schema.relinked.";
+
+/**
  * A tallied name's kind, from what its memories are ABOUT: the person, place
  * or entity memories that carry the name in their title. A person when those
  * say person at least as often as anything else, then a place, else an entity —
@@ -236,6 +242,8 @@ export class Schemas {
   private readonly ring: SchemaEvent[] = [];
   /** What `load` left out, by whether the store could account for it. */
   private readonly skips = { removed: 0, unaccounted: [] as string[] };
+  /** Every schema id `load` or `adopt` has looked at, taken or skipped. */
+  private readonly walked = new Set<string>();
   private readonly onEvent: ((e: SchemaEvent) => void) | undefined;
   private readonly retarget: ((oldId: string, newId: string, day: number) => void) | undefined;
 
@@ -273,6 +281,7 @@ export class Schemas {
   private load(): void {
     const denied = new Set(this.store.deniedIds());
     for (const id of this.store.list({ type: "schema" })) {
+      this.walked.add(id);
       const row = this.store.row(id);
       if (row === undefined) continue;
       if (denied.has(id)) {
@@ -283,15 +292,7 @@ export class Schemas {
         this.skips.unaccounted.push(id);
         continue;
       }
-      const doc = readProseWalking(this.store, id, row);
-      const rec = toMetaRecord(doc.meta);
-      if (rec === null) continue;
-      this.remember(id, rec);
-      if (rec.role === "entity" && row.archived === 0) {
-        this.index.register(id, rec.name ?? "", rec.aliases ?? []);
-      } else if (rec.role === "entity" && row.archived_reason === TUNABLES.FADE_REASON) {
-        this.faded.register(id, rec.name ?? "", rec.aliases ?? []);
-      }
+      this.take(id, row);
     }
   }
 
@@ -343,6 +344,132 @@ export class Schemas {
   private readonly notElements = new Set<string>();
   /** Schema rows `catchUp` passed as not beliefs (a card another process made, the identity core). */
   private readonly notBeliefs = new Set<string>();
+
+  /** One schema row into the index, as `load` reads it. */
+  private take(id: string, row: MemoryRow): void {
+    const doc = readProseWalking(this.store, id, row);
+    const rec = toMetaRecord(doc.meta);
+    if (rec === null) return;
+    this.remember(id, rec);
+    if (rec.role === "entity" && row.archived === 0) {
+      this.index.register(id, rec.name ?? "", rec.aliases ?? []);
+    } else if (rec.role === "entity" && row.archived_reason === TUNABLES.FADE_REASON) {
+      this.faded.register(id, rec.name ?? "", rec.aliases ?? []);
+    }
+  }
+
+  /**
+   * THE ROWS ANOTHER PROCESS WROTE SINCE `load` (2026-10-21, the card twins).
+   * `load` reads the store once, at open, so a card born since in another
+   * process is a row this index has never seen, and the name it holds reads as
+   * free here. That is how one name got two cards (NOTES, "Card twins"): two
+   * workers ran the births phase at once, each against its own index.
+   *
+   * Two passes. The rows neither `load` nor an earlier call has walked (ids
+   * this process minted are already in `meta`), taken the way `load` takes
+   * them, removed and blanked rows skipped (not counted: `loadSkips` is what
+   * the OPEN left out). Then the live cards still missing from the index — one
+   * archived when `load` read it and brought back by another process since
+   * (review of #578) — registered as live. Returns the ids it put in the index.
+   */
+  private adopt(): string[] {
+    const added: string[] = [];
+    let denied: Set<string> | undefined;
+    const unwalked = this.store.list({ type: "schema" }).filter((id) => !this.walked.has(id) && !this.meta.has(id));
+    for (const id of unwalked) {
+      this.walked.add(id);
+      const row = this.store.row(id);
+      if (row === undefined || rowTombstoned(row)) continue;
+      if ((denied ??= new Set(this.store.deniedIds())).has(id)) continue;
+      this.take(id, row);
+      if (this.index.has(id)) added.push(id);
+    }
+    for (const { id, rec } of this.unseenCards()) {
+      this.remember(id, rec);
+      this.faded.unregister(id);
+      this.index.register(id, rec.name ?? "", rec.aliases ?? []);
+      added.push(id);
+    }
+    return added;
+  }
+
+  /**
+   * THE LIVE CARDS THIS INDEX DOES NOT HOLD: live schema rows not in the index,
+   * less the ones it knows are not cards. A row it has never read is read here
+   * (and not remembered: this is a read, asked inside a write transaction);
+   * removed and blanked rows are skipped.
+   */
+  private unseenCards(): { id: string; rec: MetaRecord }[] {
+    const out: { id: string; rec: MetaRecord }[] = [];
+    let denied: Set<string> | undefined;
+    for (const id of this.store.list({ type: "schema", archived: false })) {
+      if (this.index.has(id)) continue;
+      const known = this.meta.get(id);
+      if (known !== undefined && known.role !== "entity") continue;
+      // Walked and still unknown: `load` skipped it, or it carries no record.
+      if (known === undefined && this.walked.has(id)) continue;
+      const row = this.store.row(id);
+      if (row === undefined || row.archived !== 0 || rowTombstoned(row)) continue;
+      if ((denied ??= new Set(this.store.deniedIds())).has(id)) continue;
+      const rec = known ?? toMetaRecord(readProseWalking(this.store, id, row).meta);
+      if (rec === null || rec.role !== "entity") continue;
+      out.push({ id, rec });
+    }
+    return out;
+  }
+
+  /**
+   * A CARD BORN WITHOUT ITS LOOK-BACK (review of #578). A birth commits the
+   * card, then links the memories already naming it (`linkNamingMemories`); a
+   * process killed between the two leaves a card nothing links, and nothing
+   * would ever link them: the tally skips the name the card holds. So before
+   * the night's tally, a live card with no `birth` link at all looks back — one
+   * read finds them, and this runs outside any write lock. A births card always
+   * has some (its name was in at least `MIN_MEMORIES` memories). One that truly
+   * names none would be scanned for again every night, a full pass over the
+   * memories each time, so a card looks back ONCE: a look-back that ran (found
+   * something or nothing) leaves `RELINKED_PREFIX<id>`, and a card with that row
+   * is not asked again. A look-back that failed leaves none and is retried. The
+   * identity core is not born here and is left alone, and so is a topic card
+   * (wave 2): it has no name to look back by, and its memories are its tags.
+   */
+  private relinkUnlinked(day: number): number {
+    const linked = new Set(this.store.subjectsLinkedVia("birth"));
+    let relinked = 0;
+    for (const [id, rec] of this.meta) {
+      if (rec.role !== "entity" || linked.has(id) || !this.index.has(id)) continue;
+      if ((rec.name ?? "").length === 0) continue;
+      const row = this.store.row(id);
+      if (row === undefined || row.archived !== 0 || row.kind === "self") continue;
+      if (this.store.getMeta(`${RELINKED_PREFIX}${id}`) !== undefined) continue;
+      const links = this.linkNamingMemories(id);
+      if (links !== null) this.store.setMeta(`${RELINKED_PREFIX}${id}`, String(day));
+      this.emit("schema.subjects.relinked", id, { day, links: links ?? 0, failed: links === null });
+      relinked += 1;
+    }
+    return relinked;
+  }
+
+  /**
+   * `settle`'s three name gates — an exact holder, a near collision, an alias
+   * held — asked of the live cards this index does not hold (2026-10-21, the
+   * card twins). Reads only, so it is safe inside the write transaction
+   * `Schemas#birth` asks it in, and the index changes only when the answer is
+   * yes and `birth` adopts what it found.
+   */
+  private heldUnseen(name: string, aliases: readonly string[]): boolean {
+    const unseen = new AliasIndex();
+    const terms: string[] = [];
+    for (const { id, rec } of this.unseenCards()) {
+      unseen.register(id, rec.name ?? "", rec.aliases ?? []);
+      terms.push(rec.name ?? "", ...(rec.aliases ?? []));
+    }
+    return (
+      unseen.lookup(name).length > 0 ||
+      terms.some((t) => collision(name, t) === "near") ||
+      aliases.some((alias) => unseen.lookup(alias).length > 0)
+    );
+  }
 
   private remember(id: string, rec: MetaRecord): void {
     this.meta.set(id, rec);
@@ -701,15 +828,33 @@ export class Schemas {
     }
 
     const seam = clampSalienceAtSeam({ novelty: null, ...ZERO_DIMS }, null);
-    const id = this.store.put({
-      type: "schema",
-      kind,
-      title: name,
-      body: stubBody(name, kept, input.day),
-      meta: { role: "entity", name, aliases: kept },
-      salience: seam.salience,
-      physics: { birthDay: input.day, lastUsedDay: input.day },
-    });
+    // ASKED AGAIN UNDER THE WRITE LOCK (2026-10-21, the card twins). Everything
+    // above judged this index, read at open; another process may have given the
+    // name a card since. The same gates `settle` applied are asked of the cards
+    // this index has not seen, inside the transaction that would write this
+    // one, so of two processes minting one name, the second sees the first's.
+    const id = this.store.putUnless(
+      {
+        type: "schema",
+        kind,
+        title: name,
+        body: stubBody(name, kept, input.day),
+        meta: { role: "entity", name, aliases: kept },
+        salience: seam.salience,
+        physics: { birthDay: input.day, lastUsedDay: input.day },
+      },
+      () => this.heldUnseen(name, kept),
+    );
+    if (id === null) {
+      // Taken in, and judged again against the index as it now stands: the
+      // other card, a collision, or a birth without the aliases it took. That
+      // second birth asks again too; only a card born meanwhile can refuse it,
+      // since what was found is in the index now. The per-chunk cap was
+      // already passed, and nothing was spent from it.
+      this.adopt();
+      this.emit("schema.birth.raced", input.chunkRef, { nameHash, kind, day: input.day });
+      return this.settle(name, kind, input, nameHash, false);
+    }
     this.remember(id, { role: "entity", name, aliases: kept });
     this.index.register(id, name, kept);
     this.birthsPerChunk.set(input.chunkRef, (this.birthsPerChunk.get(input.chunkRef) ?? 0) + 1);
@@ -1758,10 +1903,19 @@ export class Schemas {
    * already there when it faded. Each name is its own chunk, so the per-chunk
    * birth cap does not bind; `limit` (sleep's nightly budget) does, and the
    * names past it are counted and offered again the next night.
+   *
+   * Two processes can run this at once (a session's Stop and SessionEnd
+   * workers both run the cycle; NOTES, "Card twins"). The index takes in the
+   * cards other processes made before the tally (`adopt`), and each birth asks
+   * again under the write lock, so a name gets one card whichever runs first.
    */
   birthsFromNames(day: number, opts: NameBirthOptions = {}): NameBirthReport {
     const dryRun = opts.dryRun === true;
     const limit = opts.limit ?? Number.POSITIVE_INFINITY;
+    // The cards other processes made since this index was read (the card
+    // twins, 2026-10-21): a name one of them holds is not offered.
+    this.adopt();
+    if (!dryRun) this.relinkUnlinked(day);
     const denied = new Set(this.store.deniedIds());
     const texts = this.store.liveMemoryTexts().filter((m) => !denied.has(m.id));
     const tally = tallyNames(texts, {
@@ -1814,6 +1968,12 @@ export class Schemas {
         born.push(out.id);
       } else {
         refused[out.reason] = (refused[out.reason] ?? 0) + 1;
+        // A name offered as free that came back held was given its card by
+        // another process running this phase at the same time. It spends
+        // tonight's budget here too, so two workers that tally together birth
+        // one night's worth between them, not one each (one that tallies after
+        // the other has born some can still overshoot; NOTES, "Card twins").
+        if (out.reason === "existing") attempts += 1;
       }
     });
     this.emit("schema.births.sweep", undefined, {
@@ -2178,9 +2338,10 @@ export class Schemas {
    * A card's birth looks back (v12): every memory already written whose title
    * or body names it — by its own unambiguous terms — is linked to it, `via:
    * birth`. One read of the memories' words and one regex per term. Fail-open:
-   * the card is born whatever this does, and an event says so when it fails.
+   * the card is born whatever this does, and an event says so when it fails —
+   * and the count is null then, so a caller can tell a failure from "none".
    */
-  private linkNamingMemories(cardId: string): number {
+  private linkNamingMemories(cardId: string): number | null {
     try {
       const terms = this.index.termsFor(cardId);
       if (terms === undefined) return 0;
@@ -2202,7 +2363,7 @@ export class Schemas {
       return added;
     } catch (err) {
       this.emit("schema.subjects.failed", cardId, { via: "birth", reason: String((err as { code?: string }).code ?? "UNKNOWN") });
-      return 0;
+      return null;
     }
   }
 

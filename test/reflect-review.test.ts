@@ -756,10 +756,12 @@ describe("owner rulings on the review's decisions", () => {
     const felt = mem(c, "I felt proud when Mike said the dashboard finally reads like a person.", { kind: "self", about: "me" });
     const kept = mem(c, "We shipped the dashboard.");
     // v12: a card the entry's words name, so the entry carries a subject link.
-    const mike = c.schemas.mention({ name: "Mike", kind: "person", source: "Mike", chunkRef: "card-mike", day: c.store.livedDay() }).id as string;
-    const { bundle, outcome } = reflect(c, [felt, kept], { entry: "Looking back, Mike and I finished what we started." });
+    // Not the owner's name: the identity core holds it, and a birth refuses it
+    // even from an index read before the core was written (the card twins).
+    const priya = c.schemas.mention({ name: "Priya", kind: "person", source: "Priya", chunkRef: "card-priya", day: c.store.livedDay() }).id as string;
+    const { bundle, outcome } = reflect(c, [felt, kept], { entry: "Looking back, Priya and I finished what we started." });
     const entry = outcome.entryId as string;
-    expect(c.store.subjectsOf(entry)).toEqual([mike]);
+    expect(c.store.subjectsOf(entry)).toEqual([priya]);
     c.store.appendRemovalRecord({ memoryId: felt, stage: "requested", actor: "owner", reason: "test" });
     c.store.appendRemovalRecord({ memoryId: felt, stage: "dark", actor: "owner", reason: "test" });
     const { chaseRemoved } = await import("../src/core/store/owner-op-seam.js");

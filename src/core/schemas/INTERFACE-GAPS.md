@@ -68,6 +68,11 @@ moment two adapters open the store concurrently it is stale-cache territory.
 **Real fix:** either a `meta_index` table (key, value, memory_id) box 2 maintains
 on write, or first-class `schema_element` columns. A `Store.listByMeta(key,
 value)` is the smallest useful shape.
+**Partly closed for births (2026-10-21, NOTES "Card twins").** Two workers at once
+gave 40 names two cards. A birth now asks its name gates again, under the write
+lock, of the cards this index has not seen (`Store#putUnless`), and the births
+phase takes in other processes' cards before its tally. Every other read and write
+here (aliases, beliefs, the fade) still trusts the index read at open.
 
 ## 3. `recall/` should take its alias map from here — SEAMS §6 wiring — CLOSED 2026-08-25 (noted 2026-10-09)
 

@@ -4869,6 +4869,15 @@ export class Store {
   }
 
   /**
+   * The cards that hold at least one link found `via` this route (`birth`,
+   * `write`, `backfill`), in one read (2026-10-21: a card whose birth committed
+   * and whose look-back never ran is one with no `birth` link).
+   */
+  subjectsLinkedVia(via: string): string[] {
+    return markReads.subjectsLinkedVia(this, via);
+  }
+
+  /**
    * EVERY LIVE ROW deliberate recall's facts mode can answer with (Release B,
    * 2026-10-03), in one read: memories, episodes and schemas that are not
    * archived, not superseded and not a tombstone, with the columns facts mode

@@ -772,10 +772,11 @@ describe("SEAMS C — recall's alias map comes from schemas, and the safety half
 
   /**
    * A genuinely ambiguous handle. `schemas/` refuses to MINT one through a single
-   * instance (`alias-resolves-elsewhere`), so the honest fixture is the one its
-   * own INTERFACE-GAPS.md §2 declares: two instances over one store do not see
-   * each other's writes, so two concurrent births can each claim the handle, and
-   * the next open reads both. That is exactly the case recall's §9 G5 exists for.
+   * instance (`alias-resolves-elsewhere`), and since 2026-10-21 across processes
+   * too: a birth asks again under the write lock (the card twins). A store can
+   * still hold one from before that — two births that each claimed the handle —
+   * so the second card is written as those races left them, and the next open
+   * reads both. That is exactly the case recall's §9 G5 exists for.
    */
   function ambiguous(): { s: Store; schemas: Schemas; ids: string[] } {
     const s = store();
@@ -784,7 +785,6 @@ describe("SEAMS C — recall's alias map comes from schemas, and the safety half
     // recall candidates (2026-10-11, Group 3 part D), so a memory saying it is.
     s.put({ type: "memory", kind: "fact", body: "Robin climbs; Robin belays Robin.", salience: { claimed: 0.8 } });
     const first = Schemas.open({ store: s });
-    const second = Schemas.open({ store: s });
     const one = first.mention({
       name: "Robin Fielding",
       kind: "person",
@@ -793,14 +793,13 @@ describe("SEAMS C — recall's alias map comes from schemas, and the safety half
       day: 0,
       aliases: ["Robin"],
     }).id as string;
-    const two = second.mention({
-      name: "Robin Chen",
+    const two = s.put({
+      type: "schema",
       kind: "person",
-      source: "Robin Chen handles the quarterly invoices",
-      chunkRef: "c2",
-      day: 0,
-      aliases: ["Robin"],
-    }).id as string;
+      title: "Robin Chen",
+      body: "Robin Chen handles the quarterly invoices",
+      meta: { role: "entity", name: "Robin Chen", aliases: ["Robin"] },
+    });
     // One handle, two live people: "a name pointing at two people retrieves
     // neither well and must not teach the graph either" (recall §9 G5).
     return { s, schemas: Schemas.open({ store: s }), ids: [one, two] };

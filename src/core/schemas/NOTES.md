@@ -735,3 +735,68 @@ Design §1 (`counterparts-notes/2026-10-21-beliefs-design.md`), brief B items 2,
   is refused inside `recordTagMerge`'s own transaction (`store/wave2.ts`).
 - Both births report `attempts`, what a night would try within each door's own limit, and the
   observer's report reads it: min(names, 10) + min(topics, 5), not min(names + topics, 10).
+
+## Card twins: one name, two cards, from two workers at once (2026-10-21)
+
+**What the corpus showed.** The 10-20 corpus copy has 40 pairs of live entity cards with the
+same name (Google/Google, Bash/Bash…): 80 of its 131 live cards. Each pair has one birth day and
+one stub body, and they come in tens: exactly 10 pairs on each of lived days 23, 25, 26 and 27,
+the births phase's whole nightly budget, twice. No triplets. Days 21, 22, 24, 28 and 29 have
+none.
+
+**Why.** A session closing fires Stop and then SessionEnd, and each spawns a worker that runs
+the sleep cycle. On day 23 the two `sleep.cycle` rows are 94 ms apart: in the second, decay,
+prune, dedup, versions and log all say `already-done-today`, and births says `ran`. The marker
+gate works for every fast phase and not for the slow one: births took ~1.3–1.9 s on the corpus
+copy, and the second worker read its marker as due while the first was still minting. Each
+worker then judged every name against its own index, read at open (INTERFACE-GAPS §2), so each
+gave every name a card. The twins' `created_at`s interleave within a pair (the second-born id
+is sometimes the earlier one), so the two ran at once, not one after the other.
+
+**The fix, in `Schemas`.**
+- A birth asks again under the write lock. `Store#putUnless` runs a check inside the
+  `BEGIN IMMEDIATE` that would insert the card, and `birth` asks there `settle`'s three name
+  gates — an exact holder, a near collision, an alias held — of the live cards this index has
+  not taken in (`heldUnseen`). A yes stages nothing; the index then takes in those cards
+  (`adopt`), and the mention is judged again, which ends at the other card (`existing`, the
+  name reinforced as a re-mention would be), a refusal, or a birth without the alias it lost.
+  `schema.birth.raced` counts it. The check reads only, so a birth with no race changes nothing
+  else in the index.
+- `birthsFromNames` takes in other processes' cards before the tally, so a name one of them
+  holds is not offered at all. This covers a long-lived process whose index predates a card;
+  it does NOT cover the corpus case alone (both workers read before either wrote), which is why
+  the check under the lock is the fix and this the shortcut.
+- A name offered as free that comes back `existing` spends the night's budget, as a birth
+  would. On a copy of the corpus with two workers released together: 5 born each, 10 in all,
+  no twin. Master on the same copy: 10 each, 20 in all, 10 new twins.
+
+**Not done here.**
+- The marker itself. Making the due read and the marker write one transaction means claiming
+  the phase before its work, and property 2 of `sleep/cycle.ts` is that a marker advances only
+  after the work: a worker killed mid-phase would skip the day. A claim that keeps that needs
+  its own key with a lease (a wall clock in `sleep/`) and a new phase reason. With the check
+  above, a second worker's births phase costs a tally and finds the names taken; what is left
+  is the budget, which the two can still overshoot when one tallies after the other has born
+  some (each counts from its own list). The briefing renders twice too, the same bytes.
+- Merging the 40 existing pairs. Both cards of a pair ran `linkNamingMemories`, so a merge
+  has to move or dedupe subject links, not only archive one card. Its own mechanism; until
+  then each pair is an ambiguous handle, which recall already refuses to train on (SEAMS C).
+- The identity core, minted by `self/` after this index loads on a store's first open, is now
+  taken in by a birth that names it, which refuses it (`second-self-refused`) instead of
+  giving the owner's name a person card.
+
+**Review of #578, two fixes.**
+- *A card killed between its birth and its look-back.* The birth commits the card, then
+  `linkNamingMemories` links the memories already naming it. A process killed between the two
+  left a card nothing links, and nothing would: the tally skips a name a card holds. Now, before
+  the night's tally, a live card with no `birth` link looks back (`relinkUnlinked`, one read to
+  find them, outside any write lock; `schema.subjects.relinked`). A births card always has some.
+  On the corpus copy the only live card without one is the identity core, which is left alone, so
+  nothing on it looks back at all. A card looks back ONCE: a look-back that ran leaves
+  `schema.relinked.<id>` in meta (a card that truly names no memory would otherwise cost a full
+  regex pass over every memory every night, ~80 ms at 2.5k memories); one that failed leaves
+  none and is tried again.
+- *"Unseen" meant never walked.* The check under the lock read only ids this index had never
+  walked, so a card archived when it loaded and brought back by another process since was
+  invisible to it. It now reads the live cards the index does not hold (`unseenCards`), and
+  `adopt` registers them.
