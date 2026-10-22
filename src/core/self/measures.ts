@@ -220,10 +220,37 @@ export interface CoreBelief {
   readonly strength: number;
   /** Memories counted for it (`belief_support`, stance support, not a `link`). */
   readonly memories: number;
-  /** Lived days its support comes from, as C's resistance counts them (`physics#supportCredit`). */
+  /** LIVED days its support comes from (`livedSupportDays`): an un-echoed find adds none. */
   readonly days: number;
   /** Contrary pressure crossed its bar: it waits on a revision, and is not settled. */
   readonly contested: boolean;
+}
+
+/** The routes that are life itself speaking (`physics#supportCredit`'s lived routes). */
+const LIVED_SUPPORT_ROUTES: ReadonlySet<string> = new Set(["testimony", "choice", "use"]);
+
+/**
+ * THE LIVED DAYS A BELIEF'S SUPPORT COMES FROM, as the core's floor reads them
+ * (lane F; review of #587): the distinct days the memories counted FOR it were
+ * born, over the lived filings (testimony, choice, use) and the finds life has
+ * echoed — a `found` filing whose memory was born before the latest lived
+ * filing's memory (`physics#supportCredit`'s echo rule). An un-echoed find
+ * adds NO day, and a `link` none. Not C's `supportDays`, which gives an
+ * un-echoed find its FILING day: right for resistance (one night of finds is
+ * one day of hardness), wrong for this floor, where a filing day is not a day
+ * anyone lived — through the reflect tool, one owner's line and four felt
+ * finds from one evening read 2 days there and passed the default floors. Pure.
+ */
+export function livedSupportDays(rows: readonly { stance: string; route: string; bornDay: number | null }[]): number {
+  const support = rows.filter((r) => r.stance === "support" && r.bornDay !== null);
+  let lastLivedBorn = Number.NEGATIVE_INFINITY;
+  for (const r of support) if (LIVED_SUPPORT_ROUTES.has(r.route)) lastLivedBorn = Math.max(lastLivedBorn, r.bornDay as number);
+  const days = new Set<number>();
+  for (const r of support) {
+    const born = r.bornDay as number;
+    if (LIVED_SUPPORT_ROUTES.has(r.route) || (r.route === "found" && born < lastLivedBorn)) days.add(born);
+  }
+  return days.size;
 }
 
 /** The floors a belief passes to be in the core; `max` is the cap. */
@@ -274,10 +301,14 @@ export function beliefCoreCandidates(store: ReadsBeliefCore, day: number): CoreB
       if (meta["role"] !== "belief" || meta["entityId"] !== me) continue;
       const p = store.physicsOf(id);
       let memories = 0;
+      let days = 0;
       try {
-        memories = store.supportOf(id).filter((r) => r.stance === "support" && r.route !== "link").length;
+        const rows = store.supportOf(id);
+        memories = rows.filter((r) => r.stance === "support" && r.route !== "link").length;
+        days = livedSupportDays(rows);
       } catch {
         memories = 0;
+        days = 0;
       }
       out.push({
         id,
@@ -285,7 +316,7 @@ export function beliefCoreCandidates(store: ReadsBeliefCore, day: number): CoreB
         about: row.about === "me" ? "me" : row.about === "us" ? "us" : null,
         strength: strength(p, day),
         memories,
-        days: p.supportDays ?? 0,
+        days,
         contested: meta["contested"] !== undefined,
       });
     }
@@ -317,7 +348,7 @@ export interface CoreFromBeliefs {
  * THE CORE FROM BELIEFS (wave 2 lane F, design §6; `self.CORE_FROM_BELIEFS`):
  * the strongest current beliefs about me and us on the self subject that pass
  * the floors — strength, memories for it, lived days of support (an
- * un-echoed find counts its filing day) — and are not contested, at most
+ * un-echoed find counts none, `livedSupportDays`) — and are not contested, at most
  * `floors.max`. A VIEW, read when asked: nothing is promoted or written, so a
  * belief leaves it as it weakens, is contested or retired, and the switch off
  * leaves nothing behind. Not `promoted_identity`: a promoted row reads

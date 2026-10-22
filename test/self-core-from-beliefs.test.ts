@@ -21,7 +21,7 @@ import { dirname, join } from "node:path";
 import { applySettings, restoreSettings } from "../tools/harness/settings.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
-import { Counterpart, coreBeliefFloors, coreBeliefMiss, coreFromBeliefs } from "../src/core/counterpart.js";
+import { Counterpart, beliefCoreCandidates, coreBeliefFloors, coreBeliefMiss, coreFromBeliefs, livedSupportDays } from "../src/core/counterpart.js";
 import type { CoreBelief } from "../src/core/counterpart.js";
 import type { ReflectBundle } from "../src/core/dream/reflect.js";
 import { pageTrace } from "../src/core/self/measures.js";
@@ -432,6 +432,73 @@ describe("the core from beliefs: the night's reflection, through the reflect too
     expect(bundleOf(begin).spine).toEqual([]);
     expect(String(begin.structuredContent["how"])).toContain("No belief about me or us has earned the core yet");
   });
+
+  test("on: one evening is one lived day — an owner's line and four felt finds from it, filed the next night, stay out of the core however strong (review of #587)", async () => {
+    on();
+    memN = 400;
+    const c = brain();
+    const day = nextDay(c);
+    const felt = { relevance: 0.6, emotional: 0.9, predictive: 0.6 };
+    const evening = [
+      mem(c, "Mike: tonight was the best session we've had.", { saidBy: "owner", about: "us", salience: felt, origin: { session: "sess-e0", scope: "/e0" } }),
+      ...["We fixed the release script together, laughing at the old bug.", "We stayed late on the migration and it finally clicked.", "We sketched the next week's plan side by side.", "We wrote the notes for the launch together."].map((body, i) =>
+        mem(c, body, { about: "us", salience: felt, origin: { session: `sess-e${String(i + 1)}`, scope: `/e${String(i + 1)}` } }),
+      ),
+    ];
+    const me = c.schemas.ensureSelfSubject();
+    const belief = c.schemas.addBelief({ entityId: me, statement: "Our evenings together are when the work comes alive.", day, birthRoute: "reflection", about: "us" }).id as string;
+    nextDay(c);
+    const s = server(c);
+    const b = bundleOf(await s.call("reflect", { phase: "begin", session: SESSION }));
+    for (const m of evening) expect(b.memories[m]).toBeDefined();
+    const fin = await s.call("reflect", {
+      phase: "finish",
+      session: SESSION,
+      reflection: b.reflection,
+      entry: "That evening stands out.",
+      cites: evening,
+      beliefs: { filings: evening.map((m) => ({ belief, memory: m, stance: "support" })) },
+    });
+    expect(fin.isError ?? false).toBe(false);
+    expect(c.store.supportOf(belief).map((r) => r.route).sort()).toEqual(["found", "found", "found", "found", "testimony"]);
+    // C's resistance counts the finds' filing day: 2 days. The core's floor does not.
+    expect(c.store.physicsOf(belief).supportDays).toBe(2);
+    const cand = beliefCoreCandidates(c.store, c.store.livedDay()).find((x) => x.id === belief) as CoreBelief;
+    expect(cand.strength).toBeGreaterThanOrEqual(SELF.CORE_BELIEF_STRENGTH);
+    expect(cand.memories).toBe(5);
+    expect(cand.days).toBe(1);
+    const read = coreFromBeliefs(c.store, c.store.livedDay());
+    expect(read.elements).toEqual([]);
+    expect(read.held.days).toBe(1);
+  });
+
+  test("lived days: lived filings by their memory's day, finds only once life echoes them later, links never", () => {
+    const r = (route: string, bornDay: number | null, stance = "support") => ({ route, bornDay, stance });
+    expect(livedSupportDays([r("found", 1), r("found", 3)])).toBe(0);
+    expect(livedSupportDays([r("testimony", 2), r("found", 2)])).toBe(1);
+    expect(livedSupportDays([r("testimony", 5), r("found", 1), r("found", 3)])).toBe(3);
+    expect(livedSupportDays([r("choice", 1), r("use", 4), r("link", 9), r("testimony", 6, "contrary")])).toBe(2);
+  });
+
+  for (const switched of [false, true]) {
+    test(`${switched ? "on" : "off"}: the night's page writer, through the dream tool — ${switched ? "leaves ## Core to tonight's reflection, one author a night" : "its words as they were"}`, async () => {
+      if (switched) on();
+      const { c } = dawnWorld();
+      mem(c, "Today we paired on the queue.", { about: "us" });
+      nextDay(c);
+      const w = await server(c).call("dream", { phase: "writer", session: SESSION });
+      expect(w.structuredContent["writer"]).toBe(true);
+      const text = JSON.stringify(w.structuredContent);
+      expect(text).not.toContain("spine");
+      if (switched) {
+        expect(text).toContain("leave `## Core` exactly as it stands — tonight's reflection writes it");
+        expect(text).not.toContain("for what holds steady");
+      } else {
+        expect(text).toContain("`## Core` for what holds steady — it may honestly say it is still forming");
+        expect(text).not.toContain("tonight's reflection writes it");
+      }
+    });
+  }
 
   test("on: one night's finds are one lived day — the belief waits for life to echo them (≥2 days, as C's resistance counts)", async () => {
     // Strength and memories out of the way, so the days floor alone decides.

@@ -6,9 +6,9 @@
  * copies a store to a temp dir, reads every belief on the self subject and its
  * filings (`belief_support`), and for each lived day rebuilds what each belief
  * stood on as of that day — the filings made by then, counted by
- * `physics#supportCredit` exactly as C counts them (an un-echoed find counts
- * the day it was filed until a later lived filing echoes it), its strength on
- * that day by `physics#strength` — then asks `self/measures.ts#coreBeliefMiss`
+ * `physics#supportCredit` exactly as C counts them, its strength on that day
+ * by `physics#strength`, its lived days as the floor counts them
+ * (`self/measures.ts#livedSupportDays`: an un-echoed find adds none) — then asks `self/measures.ts#coreBeliefMiss`
  * whether it passes each combination of floors. Contested is read as it
  * stands now (the history of a contest is not rebuilt).
  *
@@ -29,7 +29,7 @@ import { join, resolve } from "node:path";
 
 import { underLiveRoot } from "./harness/source.js";
 
-import { Counterpart, coreBeliefMiss } from "../src/core/counterpart.js";
+import { Counterpart, coreBeliefMiss, livedSupportDays } from "../src/core/counterpart.js";
 import type { CoreBelief, CoreBeliefFloors } from "../src/core/counterpart.js";
 import { emotionalIntensity, strength, supportCredit } from "../src/core/physics/index.js";
 import type { SupportFiling } from "../src/core/physics/index.js";
@@ -133,7 +133,8 @@ function asOf(c: Counterpart, day: number): AsOf[] {
         about: row.about === "me" ? "me" : row.about === "us" ? "us" : null,
         strength: strength(p, day),
         memories: filings.filter((f) => f.stance === "support" && f.route !== "link").length,
-        days: credit.days,
+        // Lived days as the core's floor counts them (an un-echoed find adds none).
+        days: livedSupportDays(filings.map((f) => ({ stance: f.stance, route: f.route, bornDay: f.bornDay }))),
         contested: doc.meta["contested"] !== undefined,
       },
     });

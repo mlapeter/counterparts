@@ -289,6 +289,14 @@ export interface SelfTunables {
    * pins it byte for byte). Read at use from this object, never from a
    * `withTunables` copy, so `harness compare --set
    * self.CORE_FROM_BELIEFS=true` reaches every reader.
+   *
+   * ON A STORE WITH NO EARNED BELIEF THE SPINE IS EMPTY, and the reflection
+   * is told the core is still forming: it HOLLOWS OUT "## Core" (the lanes'
+   * core memories are said as lived or forming, not as who I am). On purpose,
+   * no fallback (review of #587): a fallback would read as off on exactly the
+   * young stores the compare needs. Turning it off writes nothing back: the
+   * page stays hollow until a reflection rewrites "## Core". With it on, the
+   * nightly page WRITER leaves "## Core" to the reflection (`writer.ts`).
    */
   CORE_FROM_BELIEFS: boolean;
   /** On: a belief's strength (physics, on the day read) at least this. CAL. */
@@ -297,11 +305,12 @@ export interface SelfTunables {
    *  support; another belief lent by `link` is not a memory). CAL. */
   CORE_BELIEF_MEMORIES: number;
   /**
-   * On: its support from at least this many lived days, counted as C's
-   * resistance counts them (`physics#supportCredit`'s `days`): a lived
-   * filing counts its memory's own day, an un-echoed `found` filing the day
-   * it was FILED — so one reflection's finds cannot put a belief in the core
-   * before life echoes them. CAL.
+   * On: its support from at least this many LIVED days
+   * (`measures.ts#livedSupportDays`): the days its memories were born, over
+   * lived filings and the finds life has echoed. An un-echoed `found` filing
+   * adds no day — so one reflection's finds cannot put a belief in the core
+   * before life echoes them. (Not C's `supportDays`, which counts such a find's
+   * filing day, for resistance; review of #587.) CAL.
    */
   CORE_BELIEF_DAYS: number;
 
