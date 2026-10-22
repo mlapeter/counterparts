@@ -2634,5 +2634,5 @@ it is spliced LAST, after the handoff, "Last here" and the work lines and before
 fields, widest first inside its own `WAKE_PROJECT_LINE_BYTES` (480) and the reported ceiling, so a
 wake past its room simply goes without it (ring `counterpart.project.noroom`; shown:
 `counterpart.project.shown` with its lines and bytes). Off (`self.WAKE_PROJECT_LINE`): the wake is
-byte for byte what it was. Whether sessions draw on it is the check (2026-10-28): its bytes from
+byte for byte what it was. Whether sessions draw on it is the check (2026-10-29): its bytes from
 the ring, and whether its ids come back opened or named.

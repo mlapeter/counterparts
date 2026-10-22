@@ -882,8 +882,12 @@ export class Recall {
     const seen = state.beliefs ?? {};
     const byId = new Map<string, BeliefOffer>();
     for (const b of offers) if (!byId.has(b.id)) byId.set(b.id, b);
+    // HABITUATION (2026-10-19), for belief lines too: one rated 0 in enough
+    // recent sessions rests, as a footnote's raised bar would — the slot has
+    // no bar to raise, so it is left out until a later 2 or 3 or the week passes.
+    const habituated = byId.size === 0 || !(this.tunables.HABITUATION_BAR_LIFT > 0) ? new Map<string, number>() : habituatedIds(this.store, day, this.tunables);
     const picked = [...byId.values()]
-      .filter((b) => b.strength > this.tunables.BELIEFS_SLOT_FLOOR && seen[b.id] === undefined)
+      .filter((b) => b.strength > this.tunables.BELIEFS_SLOT_FLOOR && seen[b.id] === undefined && !habituated.has(b.id))
       .sort((a, b) => b.strength - a.strength || (a.id < b.id ? -1 : 1))
       .slice(0, Math.max(0, Math.floor(this.tunables.BELIEFS_SLOT_MAX)));
     return {

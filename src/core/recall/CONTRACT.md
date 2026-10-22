@@ -564,13 +564,13 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     `beliefs-shown.test.ts`.
 
 23. **[M]** **Beliefs in their own slot** (wave 2 lane E, 2026-10-22; design §7; an
-    experiment, `BELIEFS_IN_RECALL`, on; check 2026-10-28; revert by setting it false).
+    experiment, `BELIEFS_IN_RECALL`, on; check 2026-10-29; revert by setting it false).
     When a turn's words name a subject — a card through the alias index
     (`Schemas#subjectsIn`), a topic by its word (`tags.ts#topicsNamedIn`), never the
     self subject — its live beliefs are offered (`Schemas#beliefsNamedIn`, bound as
     `Turn.beliefs` by the composition root; ambient only). The slot shows those
     STRICTLY above `BELIEFS_SLOT_FLOOR` (0.3: a belief born at the ceiling with nothing
-    behind it does not show), not shown earlier this session, strongest first, at most
+    behind it does not show), not shown earlier this session nor habituated (rated 0 in two sessions; off with `HABITUATION_BAR_LIFT` 0), strongest first, at most
     `BELIEFS_SLOT_MAX` (3), each as `Subject: statement (strength word; N memories)
     [id]` under its own header, after the footnotes — IN ADDITION to them; the
     footnotes stay belief-free (`isBeliefRow`, unchanged). A subject named is enough:

@@ -92,7 +92,7 @@ export interface SelfTunables {
   WORK_HERE_CRAFT_MAX: number;
   /**
    * THE WAKE'S PROJECT LINE (wave 2 lane E, 2026-10-22; design §7, AN
-   * EXPERIMENT — it has to earn its room; check 2026-10-28): in a folder whose
+   * EXPERIMENT — it has to earn its room; check 2026-10-29): in a folder whose
    * project (lane G) has beliefs, a short block of its strongest, each with
    * its strength word and support count. Composed at delivery, LAST — after
    * the handoff, "Last here" and the work lines, before the head's fields —

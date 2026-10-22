@@ -1345,7 +1345,7 @@ What moved, all behind switches read at use (`harness compare --set`), each off 
   beside the `lifted` flag it already had, so primed footnotes join to their ratings one by one
   and tunnel vision can be read by id. `primed.byTag` on the summary.
 
-Judgment calls, lightly held: the slot gives way first under budget pressure (it is the experiment
+Judgment calls, lightly held: a habituated belief (rated 0 in two sessions) rests from the slot; the slot gives way first under budget pressure (it is the experiment
 measured against the footnotes); a belief shows once a session (as a footnote does); the self
 subject is never named by a turn (it has no name; the page is the wake's); a contested belief shows,
 labelled `contested`; `drewOn` naming a belief is still refused `not-shown` (rating is its door).

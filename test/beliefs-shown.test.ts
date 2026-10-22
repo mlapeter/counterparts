@@ -364,6 +364,19 @@ describe("the loop, guarded: a rating of the slot is a use, never support (MCP s
     expect(both.together).toEqual([]);
   });
 
+  test("a belief line rated 0 (noise) in two sessions rests, as a habituated footnote does", async () => {
+    const c = brain();
+    const { belief } = wrenWorld(c);
+    for (const s of ["s-noise-1", "s-noise-2"]) {
+      expect(turn(c, s).decision.beliefs?.shown).toEqual([belief]);
+      await rate(c, s, [{ id: belief, score: 0 }]);
+    }
+    expect(turn(c, "s-noise-3").decision.beliefs?.shown).toEqual([]);
+    // Habituation off (its revert): it shows again.
+    setRecall(c, "HABITUATION_BAR_LIFT", 0);
+    expect(turn(c, "s-noise-4").decision.beliefs?.shown).toEqual([belief]);
+  });
+
   test("ANY OTHER DOOR still credits a belief nothing (an open, a quote, drewOn): only the slot's rating is a use", () => {
     const c = brain();
     const { belief } = wrenWorld(c);

@@ -326,7 +326,7 @@ export interface RecallTunables {
 
   // ── the beliefs slot (wave 2 lane E, 2026-10-22; design §7) ─────────────
   /**
-   * BELIEFS IN THEIR OWN SLOT (an experiment, check 2026-10-28): when a
+   * BELIEFS IN THEIR OWN SLOT (an experiment, check 2026-10-29): when a
    * turn's words name a subject — a card through the alias index, a topic
    * through its tag — its strongest current beliefs are shown in a labelled
    * slot of their own, IN ADDITION to the footnotes, which stay belief-free.
