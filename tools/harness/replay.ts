@@ -55,6 +55,12 @@ export interface DayLine {
   /** Live memories in the replay at the end of the day: the pool a recall drew from. */
   readonly alive: number;
   readonly identity: number;
+  /** Live memories in the semantic band at the end of the day (2026-10-22: what decay and use move, beside the core). */
+  readonly semantic?: number;
+  /** Memories the replay's own nights have pruned, so far. */
+  readonly pruned?: number;
+  /** Live memories below reach (out of every ambient channel) as the day's decay pass ranked them. */
+  readonly belowReach?: number;
   readonly births: number;
   readonly uses: { readonly fed: number; readonly credited: number; readonly returns: number };
   readonly nightReturns: { readonly fed: number; readonly counted: number };
@@ -224,6 +230,9 @@ async function replayInto(
         date: rec.date,
         alive: count(peek, "SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND archived = 0"),
         identity: count(peek, "SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND archived = 0 AND band = 'identity'"),
+        semantic: count(peek, "SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND archived = 0 AND band = 'semantic'"),
+        pruned: count(peek, "SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND archived = 1 AND archived_reason = 'pruned'"),
+        belowReach: c.store.belowReachCount(),
         births: tally.births,
         uses: { fed: tally.usesFed, credited: tally.credited, returns: tally.returns },
         nightReturns: { fed: tally.nightFed, counted: tally.nightCounted },

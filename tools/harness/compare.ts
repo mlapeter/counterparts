@@ -22,7 +22,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync }
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { parseSetting } from "./settings.js";
+import { expandPreset, parseSetting } from "./settings.js";
 
 export type Mode = "replay" | "night" | "week";
 
@@ -36,6 +36,10 @@ export interface CompareOptions {
   readonly set: readonly string[];
   /** Settings for the base side, when it isn't the build as it is. */
   readonly baseSet: readonly string[];
+  /** Named sets of settings (`settings.ts#PRESETS`) for the variant, expanded ahead of `set`. */
+  readonly preset?: readonly string[];
+  /** The same for the base, ahead of `baseSet`. */
+  readonly basePreset?: readonly string[];
   readonly runs: number;
   /** Passed to the mode as given. */
   readonly passthrough: readonly string[];
@@ -50,7 +54,10 @@ export interface SidePlan {
   readonly name: "base" | "variant";
   /** A ref to check out, or null for the current checkout. */
   readonly ref: string | null;
+  /** Every setting, a preset's expanded first. */
   readonly set: readonly string[];
+  /** The presets it came from, by name (the table's header names these, not their settings). */
+  readonly presets?: readonly string[];
 }
 
 export class CompareError extends Error {
@@ -70,14 +77,26 @@ export function absolutePaths(passthrough: readonly string[], cwd: string): stri
 }
 
 /** Flags the compare owns: passing one through would split a side from its record. */
-const OWNED = ["--json", "--set", "--page-out", "--keep", "--out"];
+const OWNED = ["--json", "--set", "--preset", "--page-out", "--keep", "--out"];
 
 /** The two sides, refusing a compare where nothing differs. Pure. */
-export function planSides(o: Pick<CompareOptions, "base" | "branch" | "set" | "baseSet" | "runs" | "passthrough" | "mode">): readonly [SidePlan, SidePlan] {
+export function planSides(o: Pick<CompareOptions, "base" | "branch" | "set" | "baseSet" | "preset" | "basePreset" | "runs" | "passthrough" | "mode">): readonly [SidePlan, SidePlan] {
   for (const f of OWNED) if (o.passthrough.includes(f)) throw new CompareError("COMPARE_OWNS_FLAG", `${f} is set by compare itself; leave it out after --`);
   if (!Number.isInteger(o.runs) || o.runs < 1) throw new CompareError("COMPARE_RUNS", `--runs takes a whole number from 1, not ${String(o.runs)}`);
-  const base: SidePlan = { name: "base", ref: o.base ?? null, set: o.baseSet };
-  const variant: SidePlan = { name: "variant", ref: o.branch ?? o.base ?? null, set: o.set };
+  // A preset is its settings, ahead of the side's own: each is checked and recorded one by one,
+  // and a --set naming one of its keys is refused as set twice.
+  const basePresets = o.basePreset ?? [];
+  const presets = o.preset ?? [];
+  const base: SidePlan = { name: "base", ref: o.base ?? null, set: [...basePresets.flatMap(expandPreset), ...o.baseSet], presets: basePresets };
+  const variant: SidePlan = { name: "variant", ref: o.branch ?? o.base ?? null, set: [...presets.flatMap(expandPreset), ...o.set], presets };
+  for (const side of [base, variant]) {
+    const seen = new Set<string>();
+    for (const t of side.set) {
+      const key = t.trim().split("=")[0]!;
+      if (seen.has(key)) throw new CompareError("COMPARE_SET_TWICE", `${key} is set twice on the ${side.name} (a preset and a --set, or two presets)`);
+      seen.add(key);
+    }
+  }
   const same = base.ref === variant.ref && base.set.join(";") === variant.set.join(";");
   // The same build twice is a noise check: worth it only with repeats.
   if (same && o.runs < 2) throw new CompareError("COMPARE_NOTHING_DIFFERS", "the sides are the same build and settings; name --branch or --set, or --runs 2+ for a noise check");
@@ -175,6 +194,10 @@ export function readRecord(mode: Mode, rec: Record<string, unknown>, pageText: s
     rows["promoted, all days"] = days.reduce((a, d) => a + (num(d["promoted"]) ?? 0), 0);
     rows["early promotions"] = Array.isArray(rec["early"]) ? (rec["early"] as unknown[]).length : null;
     rows["alive, last day"] = last === undefined ? null : num(last["alive"]);
+    // What decay, use and the prune move (2026-10-22); null from a build before these fields.
+    rows["semantic, last day"] = last === undefined ? null : num(last["semantic"]);
+    rows["below reach, last day"] = last === undefined ? null : num(last["belowReach"]);
+    rows["pruned, through the last day"] = last === undefined ? null : num(last["pruned"]);
   } else if (mode === "night") {
     const night = obj(rec["night"]);
     rows["night"] = typeof night["state"] === "string" ? night["state"] : null;
@@ -269,7 +292,13 @@ export interface SideResult {
 export function renderCompare(mode: Mode, sides: readonly [SideResult, SideResult]): string {
   const [base, variant] = sides;
   const out: string[] = [];
-  const name = (s: SideResult): string => `${s.plan.ref ?? "checkout"} ${s.sha.slice(0, 8)}${s.dirty ? " (uncommitted changes)" : ""}${s.plan.set.length === 0 ? "" : ` · ${s.plan.set.join(", ")}`}`;
+  const name = (s: SideResult): string => {
+    // A preset is named, not listed: its settings are in each run's record.
+    const presets = s.plan.presets ?? [];
+    const own = s.plan.set.slice(presets.reduce((a, p) => a + expandPreset(p).length, 0));
+    const said = [...presets.map((p) => `preset ${p} (${String(expandPreset(p).length)} settings)`), ...own];
+    return `${s.plan.ref ?? "checkout"} ${s.sha.slice(0, 8)}${s.dirty ? " (uncommitted changes)" : ""}${said.length === 0 ? "" : ` · ${said.join(", ")}`}`;
+  };
   out.push(`harness compare · ${mode} · ${String(base.runs.length)} run${base.runs.length === 1 ? "" : "s"} a side`);
   out.push(`  base:    ${name(base)}`);
   out.push(`  variant: ${name(variant)}`);
