@@ -288,8 +288,9 @@ where they differ:
   memories it cites, claims with no cite behind them. The compare diffs the words in its
   scratch and removes them; `--pages <dir>` keeps them for a human read. On the owner's
   snapshot they are his counterpart's page, so keep them out of any repo.
-- **Settled things** (every mode, 2026-10-22): `settled pairs`, `settled repeated`, `settled
-  re-raised` and `settled shown only`, read from the run's store over its whole record by
+- **Settled things** (every mode, 2026-10-22): `settled pairs`, `settled drawn on again`,
+  `settled came up again`, `settled: the winner in a newer pair` (beside, not in, came up again)
+  and `settled shown only`, read from the run's store over its whole record by
   the same function as `counterparts mechanisms`' line (`settled.ts`, which calls
   `src/adapters/cli/mechanisms.ts#settledReading`): every pair settled changed or corrected,
   and what happened to it after its settle day. In a physics-only replay these mostly read 0:

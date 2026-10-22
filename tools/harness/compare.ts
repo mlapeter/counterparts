@@ -232,8 +232,10 @@ export function readRecord(mode: Mode, rec: Record<string, unknown>, pageText: s
   if (rec["settled"] !== undefined) {
     const s = rec["settled"] === null ? null : obj(rec["settled"]);
     rows["settled pairs"] = s === null ? "unread" : num(s["pairs"]);
-    rows["settled repeated"] = s === null ? null : num(s["repeats"]);
-    rows["settled re-raised"] = s === null ? null : num(s["reraised"]);
+    rows["settled drawn on again"] = s === null ? null : num(s["repeats"]);
+    rows["settled came up again"] = s === null ? null : num(s["reraised"]);
+    // Beside it, not in it (review of #596); absent from a record before the split.
+    rows["settled: the winner in a newer pair"] = s === null ? null : num(s["viaWinner"]);
     rows["settled shown only"] = s === null ? null : num(s["shownOnly"]);
   }
   const settings = Array.isArray(rec["settings"]) ? (rec["settings"] as Record<string, unknown>[]).map((s) => `${String(s["module"])}.${String(s["key"])}=${String(s["value"])}`) : [];

@@ -25,7 +25,7 @@ import type { SettledReading } from "../src/adapters/cli/mechanisms.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { freshGateState, loadGateState, saveGateState } from "../src/core/recall/index.js";
 import type { GateState } from "../src/core/recall/index.js";
-import { runningBuild } from "../src/core/store/index.js";
+import { Store, runningBuild } from "../src/core/store/index.js";
 import { readRecord } from "../tools/harness/compare.js";
 import { settledOf } from "../tools/harness/settled.js";
 
@@ -131,8 +131,10 @@ async function laterWeek(w: Awaited<ReturnType<typeof world>>): Promise<void> {
   }
 }
 
-describe("settled things repeated — the ratings and recall's own showing", () => {
-  test("a loser rated 3 is a repeat, one rated 1 is shown only, and one recall footnoted is shown only", async () => {
+const HEADLINE = "Settled things drawn on again:";
+
+describe("settled things drawn on again — the ratings and recall's own showing", () => {
+  test("a loser rated 3 is drawn on (and alone: its winner was not rated with it), one rated 1 is shown only, one recall footnoted is shown only", async () => {
     const c = brain();
     let rated: string;
     let low: string;
@@ -167,12 +169,25 @@ describe("settled things repeated — the ratings and recall's own showing", () 
     expect(st.examples.repeats.map((e) => e.over)).toEqual([rated]);
     expect(st.shownOnly).toBe(2);
     expect(st.examples.shownOnly.map((e) => e.over).sort()).toEqual([low, footnoted].sort());
-    expect(st.byBuild).toEqual([{ build: runningBuild(), repeats: 1, reraised: 0, shownOnly: 2, turns: 1, days: 1 }]);
+    expect(st.byHow.changed).toEqual({ pairs: 3, repeats: 1, reraised: 0, viaWinner: 0, shownOnly: 2, alone: 1 });
+    expect(st.byHow.corrected).toEqual({ pairs: 0, repeats: 0, reraised: 0, viaWinner: 0, shownOnly: 0 });
+    expect(st.byBuild).toEqual([
+      {
+        build: runningBuild(),
+        repeats: 1,
+        reraised: 0,
+        viaWinner: 0,
+        shownOnly: 2,
+        byHow: { changed: { repeats: 1, reraised: 0, viaWinner: 0, shownOnly: 2 }, corrected: { repeats: 0, reraised: 0, viaWinner: 0, shownOnly: 0 } },
+        turns: 1,
+        days: 1,
+      },
+    ]);
   });
 });
 
-describe("settled things repeated — `counterparts mechanisms`", () => {
-  test("the line counts a repeat, a re-raise and a restatement, and leaves an undone settle out", async () => {
+describe("settled things drawn on again — `counterparts mechanisms`", () => {
+  test("the line counts a drawn-on loser, a re-raise and a restatement, split by kind, and leaves an undone settle out", async () => {
     const w = await world();
     {
       clock = noon("2026-10-04");
@@ -183,10 +198,13 @@ describe("settled things repeated — `counterparts mechanisms`", () => {
     clock = noon("2026-10-12");
     const { code, out } = await cli(["mechanisms"]);
     expect(code).toBe(0);
-    const line = out.find((l) => l.startsWith("Settled things repeated:"));
-    expect(line).toBe("Settled things repeated: 2 of 2 pairs this week (re-raised 2; shown only 0)");
-    const split = out.find((l) => l.startsWith("  by build:"));
-    expect(split).toContain(`${runningBuild()} 2 repeated, 2 re-raised, 0 shown only`);
+    expect(out.find((l) => l.startsWith(HEADLINE))).toBe(
+      "Settled things drawn on again: 2 of 2 pairs this week (changed 1 of 1, corrected 1 of 1 — a corrected one is archived, so only a drewOn, a cite or a restatement can reach it); came up again 2; shown only 0",
+    );
+    expect(out).toContain("  beside it: the winner in a newer pair 0; changed ones drawn on without their winner in the same row 1");
+    expect(out.find((l) => l.startsWith("  by build"))).toBe(
+      `  by build (drawn on / came up again / shown only): ${runningBuild()} changed 1/1/0, corrected 1/1/0 (0 turns on 0 lived days)`,
+    );
 
     const j = await cli(["mechanisms", "--json"]);
     expect(j.code).toBe(0);
@@ -197,7 +215,7 @@ describe("settled things repeated — `counterparts mechanisms`", () => {
     expect(st.to).toBe("2026-10-12");
     expect(st.pairs).toBe(2);
     expect(st.repeatVia).toEqual({ drewOn: 2, quoted: 0, rated: 0, cited: 0 });
-    expect(st.reraisedVia).toEqual({ loser: 1, winner: 0, restated: 1 });
+    expect(st.reraisedVia).toEqual({ loser: 1, restated: 1, winner: 0 });
     expect(st.examples.repeats.map((e) => e.pair).sort()).toEqual([w.build, w.deploy].sort());
     expect(st.examples.reraised.map((e) => e.pair).sort()).toEqual([w.build, w.deploy].sort());
     // Ids only: no example carries a body.
@@ -206,14 +224,89 @@ describe("settled things repeated — `counterparts mechanisms`", () => {
     expect(JSON.stringify(st)).not.toContain(w.undone);
   });
 
+  test("saying the WINNER again is the settle holding: it does not come up again", async () => {
+    const c = brain();
+    try {
+      const s = server(c);
+      for (const d of ["2026-10-01", "2026-10-02", "2026-10-03"]) day(c, d);
+      const old = idOf(await remember(s, { text: "The weekly sync with the design team is on Monday." }));
+      day(c, "2026-10-04");
+      await remember(s, { text: "The weekly sync with the design team is on Tuesday.", updates: old, how: "changed" });
+      for (const d of ["2026-10-08", "2026-10-12"]) day(c, d);
+      await remember(s, { text: "Reminder: the weekly sync with the design team is on Tuesday." });
+    } finally {
+      c.close();
+    }
+    const { out } = await cli(["mechanisms", "--json"]);
+    const st = (JSON.parse(out.join("\n")) as { settled: SettledReading }).settled;
+    expect(st.pairs).toBe(1);
+    expect(st.reraised).toBe(0);
+    expect(st.reraisedVia.restated).toBe(0);
+  });
+
+  test("a flip-back through the owner's door undoes the old settle, so the old pair is gone", async () => {
+    const c = brain();
+    let old: string;
+    let neu: string;
+    let first: string;
+    try {
+      const s = server(c);
+      for (const d of ["2026-10-01", "2026-10-02", "2026-10-03"]) day(c, d);
+      old = idOf(await remember(s, { text: "The release train leaves every second Wednesday." }));
+      day(c, "2026-10-04");
+      neu = idOf(await remember(s, { text: "The release train now leaves every Thursday, weekly.", updates: old, how: "changed" }));
+      first = pairOver(c, old);
+      day(c, "2026-10-05");
+    } finally {
+      c.close();
+    }
+    clock = noon("2026-10-05");
+    const flip = await cli(["settle", "--holds", old, "--against", neu, "--how", "changed", "--why", "it went back"]);
+    expect(flip.code).toBe(0);
+    clock = noon("2026-10-12");
+    const { out } = await cli(["mechanisms", "--json"]);
+    const st = (JSON.parse(out.join("\n")) as { settled: SettledReading }).settled;
+    expect(JSON.stringify(st)).not.toContain(first);
+  });
+
+  test("a flip-back kept as a second pair ends the first from that moment", () => {
+    clock = noon("2026-10-01");
+    const store = Store.open({ dir, now: () => clock, timeZone: "UTC" });
+    try {
+      for (const d of ["2026-10-01", "2026-10-02", "2026-10-03"]) {
+        clock = noon(d);
+        store.advanceClock(d);
+      }
+      const put = (body: string): string =>
+        store.put({ type: "memory", kind: "fact", body, salience: { relevance: 0.6, emotional: 0.2, predictive: 0.6 }, physics: { birthDay: store.livedDay(), lastUsedDay: store.livedDay() } });
+      const a = put("The release train leaves every second Wednesday.");
+      const b = put("The release train now leaves every Thursday, weekly.");
+      clock = noon("2026-10-04");
+      store.advanceClock("2026-10-04");
+      store.settleContradiction({ newId: "ctr_first0000001", x: a, y: b, how: "changed", holds: b, over: a, actor: "session", actorId: null, why: null, day: store.livedDay() });
+      clock = noon("2026-10-05");
+      store.advanceClock("2026-10-05");
+      store.settleContradiction({ newId: "ctr_second000001", x: b, y: a, how: "changed", holds: a, over: b, actor: "dream", actorId: null, why: null, day: store.livedDay() });
+      const week = settledReading(store, "2026-10-12");
+      expect(week.flippedBack).toBe(1);
+      expect(week.pairs).toBe(1);
+      // Read over the whole record, both stand: the first until the flip.
+      expect(settledReading(store, "2026-10-12", "all").pairs).toBe(2);
+    } finally {
+      store.close();
+    }
+  });
+
   test("a pair settled inside the week is not yet one of them, and a quiet week reads 0 of N", async () => {
     const w = await world();
     clock = noon("2026-10-11");
     const quiet = await cli(["mechanisms"]);
-    expect(quiet.out).toContain("Settled things repeated: 0 of 3 pairs this week (re-raised 0; shown only 0)");
+    expect(quiet.out.find((l) => l.startsWith(HEADLINE))).toBe(
+      "Settled things drawn on again: 0 of 3 pairs this week (changed 0 of 2, corrected 0 of 1 — a corrected one is archived, so only a drewOn, a cite or a restatement can reach it); came up again 0; shown only 0",
+    );
     clock = noon("2026-10-10");
     const early = await cli(["mechanisms"]);
-    expect(early.out.find((l) => l.startsWith("Settled things repeated:"))).toBe("Settled things repeated: nothing was settled before this week, so nothing to read yet.");
+    expect(early.out.find((l) => l.startsWith(HEADLINE))).toBe("Settled things drawn on again: nothing was settled before this week, so nothing to read yet.");
     expect(w.build.length).toBeGreaterThan(0);
   });
 
@@ -228,31 +321,37 @@ describe("settled things repeated — `counterparts mechanisms`", () => {
     expect(all?.repeats).toBe(3);
     const rows = readRecord("replay", { settled: all, days: [] }, null).rows;
     expect(rows["settled pairs"]).toBe(3);
-    expect(rows["settled repeated"]).toBe(3);
-    expect(rows["settled re-raised"]).toBe(all?.reraised ?? -1);
+    expect(rows["settled drawn on again"]).toBe(3);
+    expect(rows["settled came up again"]).toBe(all?.reraised ?? -1);
+    expect(rows["settled: the winner in a newer pair"]).toBe(all?.viaWinner ?? -1);
     expect(readRecord("replay", { days: [] }, null).rows["settled pairs"]).toBeUndefined();
   });
 
-  test("a row from before the build stamp falls in its own bucket", () => {
+  test("the line and the split by build, from a reading", () => {
+    const zero = { repeats: 0, reraised: 0, viaWinner: 0, shownOnly: 0 };
     const r: SettledReading = {
       from: "2026-10-16",
       to: "2026-10-22",
       pairs: 231,
       repeats: 2,
       reraised: 0,
+      viaWinner: 3,
       shownOnly: 14,
+      byHow: { changed: { pairs: 210, repeats: 2, reraised: 0, viaWinner: 3, shownOnly: 14, alone: 1 }, corrected: { pairs: 21, ...zero } },
       repeatVia: { drewOn: 1, quoted: 0, rated: 2, cited: 0 },
-      reraisedVia: { loser: 0, winner: 0, restated: 0 },
+      reraisedVia: { loser: 0, restated: 0, winner: 3 },
       opened: 0,
+      flippedBack: 0,
       byBuild: [
-        { build: PRE_STAMP, repeats: 2, reraised: 0, shownOnly: 14, turns: 900, days: 6 },
-        { build: "0.3.32", repeats: 0, reraised: 0, shownOnly: 0, turns: 1, days: 1 },
+        { build: PRE_STAMP, repeats: 2, reraised: 0, viaWinner: 3, shownOnly: 14, byHow: { changed: { repeats: 2, reraised: 0, viaWinner: 3, shownOnly: 14 }, corrected: zero }, turns: 900, days: 6 },
+        { build: "0.3.32", ...zero, byHow: { changed: zero, corrected: zero }, turns: 1, days: 1 },
       ],
-      examples: { repeats: [], reraised: [], shownOnly: [] },
+      examples: { repeats: [], reraised: [], viaWinner: [], shownOnly: [] },
     };
     expect(settledLines(r)).toEqual([
-      "Settled things repeated: 2 of 231 pairs this week (re-raised 0; shown only 14)",
-      "  by build: pre-stamp 2 repeated, 0 re-raised, 14 shown only (900 turns on 6 lived days); 0.3.32 0 repeated, 0 re-raised, 0 shown only (1 turn on 1 lived day)",
+      "Settled things drawn on again: 2 of 231 pairs this week (changed 2 of 210, corrected 0 of 21 — a corrected one is archived, so only a drewOn, a cite or a restatement can reach it); came up again 0; shown only 14",
+      "  beside it: the winner in a newer pair 3; changed ones drawn on without their winner in the same row 1",
+      "  by build (drawn on / came up again / shown only): pre-stamp changed 2/0/14, corrected 0/0/0 (900 turns on 6 lived days); 0.3.32 changed 0/0/0, corrected 0/0/0 (1 turn on 1 lived day)",
     ]);
     expect(typeof settledReading).toBe("function");
   });
