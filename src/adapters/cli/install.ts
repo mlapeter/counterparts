@@ -885,7 +885,7 @@ export function readHost(
       projectEnv: [...row.projectEnv].sort(),
     })),
     plugin: pluginInstall({ home, env, cwd }),
-    sidebarPlugin: sidebarPluginRecorded({ home, env }),
+    sidebarPlugin: sidebarPluginRecorded({ home, env, cwd }),
   };
 }
 

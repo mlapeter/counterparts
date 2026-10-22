@@ -174,7 +174,7 @@ export function pluginOrigin(input: {
   const configDir = moved.length > 0 ? moved : join(input.home, ".claude");
   const cacheRoot = (input.env["CLAUDE_CODE_PLUGIN_CACHE_DIR"] ?? "").trim();
   const pluginsRoot = realOrResolved(cacheRoot.length > 0 ? cacheRoot : join(configDir, "plugins")).replace(/\/+$/, "");
-  const sidebar = (): { sidebar?: true } => (sidebarPluginRecorded({ home: input.home, env: input.env }) ? { sidebar: true } : {});
+  const sidebar = (): { sidebar?: true } => (sidebarPluginRecorded({ home: input.home, env: input.env, cwd: input.cwd ?? null }) ? { sidebar: true } : {});
   if (root === pluginsRoot || root.startsWith(`${pluginsRoot}/`)) {
     const parts = root.slice(pluginsRoot.length + 1).split("/");
     const id = parts[0] === "cache" && (parts[1] ?? "").length > 0 && (parts[2] ?? "").length > 0 ? `${parts[2] ?? ""}@${parts[1] ?? ""}` : null;

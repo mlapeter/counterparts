@@ -100,28 +100,44 @@ function localNoon(day: string): number {
 const SERVER_NOW = localNoon(DAY1);
 
 function server(over: Parameters<typeof openServer>[0] = {}): McpServer {
-  const s = openServer({ dir: storeDir, session: "sess-meet-1", scope: proj, scopesFile, now: () => SERVER_NOW, ...over });
+  // HERMETIC: the meet's finish reads Claude Code's plugin record (whether a
+  // sidebar is here), so every server here reads a configuration under the
+  // temp root, never the real ~/.claude, and no plugin root it was not given.
+  const base: Record<string, string | undefined> = over.env === undefined ? { ...process.env, CLAUDE_PLUGIN_ROOT: undefined, CLAUDE_CODE_PLUGIN_CACHE_DIR: undefined } : { ...over.env };
+  const env = { ...base, CLAUDE_CONFIG_DIR: base["CLAUDE_CONFIG_DIR"] ?? join(root, "claude-config-none") };
+  if (!String(env.CLAUDE_CONFIG_DIR).startsWith(root) || (env.CLAUDE_CODE_PLUGIN_CACHE_DIR !== undefined && !env.CLAUDE_CODE_PLUGIN_CACHE_DIR.startsWith(root))) {
+    throw new Error(`a test server would read Claude Code's configuration outside the temp root: ${env.CLAUDE_CONFIG_DIR}`);
+  }
+  const s = openServer({ dir: storeDir, session: "sess-meet-1", scope: proj, scopesFile, now: () => SERVER_NOW, ...over, env });
   open.push(s);
   return s;
 }
 
 /**
  * A plugin's environment, hermetic: Claude Code's configuration under the
- * temp root (so the real `~/.claude` is never read), the plugin loaded from a
- * temp folder whose hooks.json names the sidebar's module only with `modules`
- * (the one plugin before the split), and a `counterparts-sidebar` install
- * recorded only with `sidebarRecorded`.
+ * temp root (so the real `~/.claude` is never read), the `counterparts` plugin
+ * recorded at a temp folder whose hooks.json names the sidebar's module only
+ * with `modules` (the one plugin before the split), and a
+ * `counterparts-sidebar` install recorded only with `sidebarRecorded`: its
+ * copy depends on `counterparts >=0.3.32`, met by core at `coreVersion`
+ * (default 0.3.32), and `sidebarDisabled` turns it off in the user settings.
+ * `npm`: the npm server's environment (no CLAUDE_PLUGIN_ROOT).
  */
-function pluginEnv(opts: { sidebarRecorded?: boolean; modules?: boolean }): Record<string, string> {
+function pluginEnv(opts: { sidebarRecorded?: boolean; modules?: boolean; sidebarDisabled?: boolean; coreVersion?: string; npm?: boolean }): Record<string, string> {
   const configDir = join(root, "claude-config");
   const pluginRoot = join(root, "plugin-root");
+  const sidebarRoot = join(root, "sb");
+  rmSync(configDir, { recursive: true, force: true });
   mkdirSync(join(configDir, "plugins"), { recursive: true });
   mkdirSync(join(pluginRoot, "hooks"), { recursive: true });
-  const plugins: Record<string, unknown> = { "counterparts@counterparts": [{ scope: "user", installPath: pluginRoot, version: "0.3.32" }] };
-  if (opts.sidebarRecorded === true) plugins["counterparts-sidebar@counterparts"] = [{ scope: "user", installPath: join(root, "sb"), version: "0.3.32" }];
+  mkdirSync(join(sidebarRoot, ".claude-plugin"), { recursive: true });
+  writeFileSync(join(sidebarRoot, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "counterparts-sidebar", dependencies: [{ name: "counterparts", version: ">=0.3.32" }] }));
+  const plugins: Record<string, unknown> = { "counterparts@counterparts": [{ scope: "user", installPath: pluginRoot, version: opts.coreVersion ?? "0.3.32" }] };
+  if (opts.sidebarRecorded === true) plugins["counterparts-sidebar@counterparts"] = [{ scope: "user", installPath: sidebarRoot, version: "0.3.32" }];
   writeFileSync(join(configDir, "plugins", "installed_plugins.json"), JSON.stringify({ version: 2, plugins }));
+  if (opts.sidebarDisabled === true) writeFileSync(join(configDir, "settings.json"), JSON.stringify({ enabledPlugins: { "counterparts-sidebar@counterparts": false } }));
   writeFileSync(join(pluginRoot, "hooks", "hooks.json"), JSON.stringify(opts.modules === true ? { hooks: {}, modules: ["./sidebar/hooks/full.tsx"] } : { hooks: {} }));
-  return { CLAUDE_CONFIG_DIR: configDir, CLAUDE_PLUGIN_ROOT: pluginRoot };
+  return opts.npm === true ? { CLAUDE_CONFIG_DIR: configDir } : { CLAUDE_CONFIG_DIR: configDir, CLAUDE_PLUGIN_ROOT: pluginRoot };
 }
 
 function adapter(): ClaudeCodeAdapter {
@@ -330,12 +346,32 @@ describe("the meet tool", () => {
     expect(recorded).not.toContain('"Ask me anything');
     // The one plugin from before the split: its hooks.json names the sidebar's module.
     expect(await close(pluginEnv({ modules: true }))).toContain(sidebarLine);
-    // Not a plugin install: never, whatever is recorded.
-    rmSync(storeDir, { recursive: true, force: true });
-    newInstallStore();
-    const npm = server({ install: "npm", env: pluginEnv({ sidebarRecorded: true }) });
-    await npm.call("meet", {});
-    expect(String((await npm.call("meet", { step: "done" })).structuredContent["next"])).not.toContain(sidebarLine);
+    // A sidebar recorded but turned off, or refused (its dependency's floor
+    // above the core recorded beside it, as split.sh 4b leaves it): none here.
+    expect(await close(pluginEnv({ sidebarRecorded: true, sidebarDisabled: true }))).not.toContain(sidebarLine);
+    expect(await close(pluginEnv({ sidebarRecorded: true, coreVersion: "0.3.30" }))).not.toContain(sidebarLine);
+  });
+
+  test("the npm install's close names /counterparts beside the sidebar plugin, and not alone", async () => {
+    const close = async (env: Record<string, string>): Promise<string> => {
+      rmSync(storeDir, { recursive: true, force: true });
+      newInstallStore();
+      const s = server({ install: "npm", env });
+      await s.call("meet", {});
+      const next = String((await s.call("meet", { step: "done" })).structuredContent["next"]);
+      s.counterpart.close();
+      open.splice(open.indexOf(s), 1);
+      return next;
+    };
+    const sidebarLine = "/counterparts shows the memory sidebar";
+    expect(await close(pluginEnv({ npm: true, sidebarRecorded: true }))).toContain(sidebarLine);
+    // The pre-split plugin beside the npm install draws its own sidebar (standing down for memory).
+    expect(await close(pluginEnv({ npm: true, modules: true }))).toContain(sidebarLine);
+    const alone = await close({ CLAUDE_CONFIG_DIR: join(root, "claude-config-none") });
+    expect(alone).not.toContain(sidebarLine);
+    expect(alone).toContain('   "Ask me anything about Counterparts, any time.');
+    // Core alone beside it: no sidebar.
+    expect(await close(pluginEnv({ npm: true }))).not.toContain(sidebarLine);
   });
 
   test("the close names the plugin's route, and a known name is not asked", async () => {
