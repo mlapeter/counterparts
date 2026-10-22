@@ -172,6 +172,8 @@ export interface BeliefInput {
   birthRoute: BirthRoute;
   /** A belief about me, or about us (lane C): the row's `about` mark. Absent: about its subject. */
   about?: "me" | "us";
+  /** The dream's candidate it was adopted from (`<dream id>#<seq>`, lane C3): kept in its meta. */
+  fromCandidate?: string;
 }
 
 export type BeliefAddReason =

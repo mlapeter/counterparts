@@ -724,6 +724,16 @@ const REMEMBER: ToolSpec = {
       },
       how: HOW_PROPERTY,
       settle: SETTLE_PROPERTY,
+      belief: {
+        type: "object",
+        description:
+          "Rare, optional: a belief about me or about us this memory plainly shows — the owner's own words (saidBy owner), my real choice (saidBy self), or a strongly felt moment. One short claim; it starts weak and grows only as life backs it. Most memories carry none: the night's reflection draws beliefs from them. One that says what a belief already says is refused with that belief's id; the memory stands, and the night's reflection may count it there.",
+        properties: {
+          statement: { type: "string" },
+          about: { type: "string", enum: ["me", "us"] },
+        },
+        required: ["statement"],
+      },
       salience: { type: "number", minimum: 0, maximum: 1, description: SALIENCE_TEXT },
       relevance: { type: "number", minimum: 0, maximum: 1, description: RELEVANCE_TEXT },
       emotional: {
@@ -1591,13 +1601,13 @@ const DREAM: ToolSpec = {
       changes: {
         type: "array",
         description:
-          "`propose`: the changes, each an object with `action` — `merge` (ids: two or more near-copies, text: the one memory in better words, title?), `link` (a, b), `replayed` (id), `gist` (text, sources: ids, title?, kind?, occurredOn?: when what it draws on happened, saidBy?: owner|self|inferred, status?: done|planned|proposed|asked, fold?: true when it says what two or more of them add up to — the parts fade under it), `contradiction` (a, b), `settle` (holds, over, how: changed|corrected|open, why — only when the reason is plain; flag otherwise), `slot` (pair, same: true|false, why — an on-mind to-confirm pair: is the newer the later state of the same thing?), `feeling-now` (id, core, emotion: ONE word, strength, carried_by: the nuance in your own words), `nominate-core` (id, why). Usually far fewer changes than the limits; none is fine.",
+          "`propose`: the changes, each an object with `action` — `merge` (ids: two or more near-copies, text: the one memory in better words, title?), `link` (a, b), `replayed` (id), `gist` (text, sources: ids, title?, kind?, occurredOn?: when what it draws on happened, saidBy?: owner|self|inferred, status?: done|planned|proposed|asked, fold?: true when it says what two or more of them add up to — the parts fade under it), `contradiction` (a, b), `settle` (holds, over, how: changed|corrected|open, why — only when the reason is plain; flag otherwise), `slot` (pair, same: true|false, why — an on-mind to-confirm pair: is the newer the later state of the same thing?), `feeling-now` (id, core, emotion: ONE word, strength, carried_by: the nuance in your own words), `nominate-core` (id, why), `belief-candidate` (subject: \"me\", \"us\" or a name, text: one short claim, sources: ids — a belief proposed for the reflection to adopt, never made by the dream). Usually far fewer changes than the limits; none is fine.",
         items: {
           type: "object",
           properties: {
             action: {
               type: "string",
-              enum: ["merge", "link", "replayed", "gist", "contradiction", "settle", "slot", "feeling-now", "nominate-core"],
+              enum: ["merge", "link", "replayed", "gist", "contradiction", "settle", "slot", "feeling-now", "nominate-core", "belief-candidate"],
             },
             ids: { type: "array", items: { type: "string" } },
             id: { type: "string" },
@@ -1620,6 +1630,7 @@ const DREAM: ToolSpec = {
             over: { type: "string", description: "`settle`: the memory it changes, corrects or disagrees with." },
             how: { type: "string", enum: ["changed", "corrected", "open"] },
             pair: { type: "string", description: "`slot`: the to-confirm pair's id (ctr_…)." },
+            subject: { type: "string", description: "`belief-candidate`: who or what it is about — \"me\", \"us\", or a name." },
             same: { type: "boolean", description: "`slot`: true when the newer is the later state of the same thing; false when they are two things." },
           },
           required: ["action"],
@@ -1891,6 +1902,15 @@ const REFLECT: ToolSpec = {
               type: "object",
               properties: { belief: { type: "string" }, why: { type: "string" } },
               required: ["belief", "why"],
+            },
+          },
+          adopt: {
+            type: "array",
+            description: "A belief tonight's dream proposed (beliefs.candidates) that rings true: adopted, it starts weak, its lived sources its first support; subject and statement may say it better. The rest are let go.",
+            items: {
+              type: "object",
+              properties: { candidate: { type: "string" }, subject: { type: "string" }, statement: { type: "string" } },
+              required: ["candidate"],
             },
           },
         },

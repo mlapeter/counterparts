@@ -413,6 +413,12 @@ export interface ReflectBeliefs {
   }[];
   /** New beliefs tonight may birth. */
   readonly births: number;
+  /**
+   * What tonight's dream proposed (lane C3): each a belief it saw across
+   * memories, never made — adopt it (`beliefs.adopt`) or let it go. Absent
+   * when there is no dream, or it proposed none.
+   */
+  readonly candidates?: readonly { readonly id: string; readonly subject: string; readonly statement: string; readonly sources: readonly string[] }[];
 }
 
 /**
@@ -553,6 +559,8 @@ export interface ReflectFinish {
     readonly births?: readonly { readonly subject?: string; readonly statement?: string; readonly about?: string; readonly cites?: readonly string[]; readonly replaces?: string }[];
     readonly filings?: readonly { readonly belief?: string; readonly memory?: string; readonly stance?: string }[];
     readonly retire?: readonly { readonly belief?: string; readonly why?: string }[];
+    /** A candidate tonight's dream proposed, adopted as a belief (route `dream`); `subject` and `statement` may say it better. */
+    readonly adopt?: readonly { readonly candidate?: string; readonly subject?: string; readonly statement?: string }[];
   } | null;
 }
 
@@ -605,7 +613,7 @@ export interface ReflectOutcome {
   readonly core: readonly PartResult[];
   readonly traits: readonly PartResult[];
   /** Beliefs (lane C, 2026-10-21): what was born, filed and retired, each on its own. */
-  readonly beliefs: { readonly births: readonly PartResult[]; readonly filings: readonly PartResult[]; readonly retire: readonly PartResult[] };
+  readonly beliefs: { readonly births: readonly PartResult[]; readonly filings: readonly PartResult[]; readonly retire: readonly PartResult[]; readonly adopt: readonly PartResult[] };
   readonly refusedCites: readonly string[];
   /**
    * Open threads (2026-10-16): what was proposed (asked), what it closed itself
@@ -1764,7 +1772,7 @@ export class Reflections {
     let selfClosed = [...priorSelfClosed, ...planned];
 
     // ── (i) beliefs (wave 2 lane C, 2026-10-21) — each on its own ─────────
-    const beliefParts = this.finishBeliefs(input, { row, shown, day, session, used, again });
+    const { adopted: candidatesAdopted, tried: candidatesTried, ...beliefParts } = this.finishBeliefs(input, { row, shown, day, session, used, again });
 
     // A page a first finish wrote STANDS when a second one's is refused
     // (review of #268): the hand-back and the counts say so.
@@ -1795,6 +1803,7 @@ export class Reflections {
       beliefBirths: used("beliefBirths") + beliefParts.births.filter((x) => x.ok && x.reason === "born").length,
       beliefFilings: used("beliefFilings") + beliefParts.filings.filter((x) => x.ok && x.reason === "filed").length,
       beliefRetired: used("beliefRetired") + beliefParts.retire.filter((x) => x.ok).length,
+      beliefAdopted: used("beliefAdopted") + beliefParts.adopt.filter((x) => x.ok).length,
     };
     detail["counts"] = counts;
     const allRefused = [...(Array.isArray(prior["refusedCites"]) ? (prior["refusedCites"] as string[]) : []), ...refusedCites];
@@ -1846,6 +1855,25 @@ export class Reflections {
     const bornEarlier = stringIds(parseDetail(row.detail)["beliefsBorn"]);
     const bornAll = [...bornEarlier, ...beliefParts.births.filter((x) => x.ok && x.reason === "born" && x.id !== null).map((x) => x.id as string)];
     if (bornAll.length > 0) detail["beliefsBorn"] = bornAll;
+    // Adopted from the dream (lane C3): filed to like tonight's births, outside their budget.
+    const adoptedAll = [
+      ...stringIds(parseDetail(row.detail)["beliefsAdopted"]),
+      ...beliefParts.births.filter((x) => x.ok && x.reason === "adopted-from-dream" && x.id !== null).map((x) => x.id as string),
+    ];
+    if (adoptedAll.length > 0) detail["beliefsAdopted"] = adoptedAll;
+    // WHAT BECAME OF THE DREAM'S CANDIDATES (review of #583): each adopted
+    // (its belief's id) or, as a finish that answered beliefs closes
+    // untouched, let go — one tried and refused stays open for the next
+    // finish, and so does every one when this finish sent no `beliefs` (a
+    // first finish refused for its page; the retry it invites may adopt).
+    const candidatesNow = new Map(decidedPairs(parseDetail(row.detail)["candidatesDecided"]));
+    for (const [cid, bid] of candidatesAdopted) candidatesNow.set(cid, bid);
+    if (input.beliefs !== undefined && input.beliefs !== null && this.ctx.schemas !== undefined && SCHEMAS_TUNABLES.BELIEFS_BIRTH) {
+      for (const [cid] of stringIdsPairs(parseDetail(row.detail)["beliefCandidates"])) {
+        if (!candidatesNow.has(cid) && !candidatesTried.has(cid)) candidatesNow.set(cid, "let-go");
+      }
+    }
+    if (candidatesNow.size > 0) detail["candidatesDecided"] = [...candidatesNow];
     if (again) detail["finishes"] = (typeof prior["finishes"] === "number" ? prior["finishes"] : 1) + 1;
     this.store.updateReflection(row.id, {
       ...(again ? {} : { state: "reflected" as const }),
@@ -1912,7 +1940,7 @@ export class Reflections {
     if (pageRefused) missed.push(`page — ${page.reason}${page.detail !== undefined ? `: ${page.detail}` : ""}`);
     if (shareMiss !== null) missed.push(`share — ${shareMiss}`);
     for (const c of closeRefused) missed.push(`close (${c.id}) — ${c.reason}`);
-    for (const [part, list] of [["feelings", feelings], ["about", about], ["core", coreDecisions], ["traits", traits], ["beliefs.births", beliefParts.births], ["beliefs.filings", beliefParts.filings], ["beliefs.retire", beliefParts.retire]] as const) {
+    for (const [part, list] of [["feelings", feelings], ["about", about], ["core", coreDecisions], ["traits", traits], ["beliefs.births", beliefParts.births], ["beliefs.filings", beliefParts.filings], ["beliefs.retire", beliefParts.retire], ["beliefs.adopt", beliefParts.adopt]] as const) {
       list.forEach((x, i) => {
         if (!x.ok) missed.push(`${part}[${String(i)}]${x.id === null ? "" : ` (${x.id})`} — ${x.reason}${x.detail !== undefined ? `: ${x.detail}` : ""}`);
       });
@@ -1968,7 +1996,16 @@ export class Reflections {
    * its strongest beliefs (`BELIEFS_SHOWN_PER_SUBJECT`) and the rest counted.
    * Null when beliefs are off or `schemas/` is not wired. Read at begin.
    */
-  private beliefsInPlay(day: number, memoryIds: readonly string[]): ReflectBeliefs | null {
+  /** What every reflection of this dream decided of its candidates (review of #583): the first word on each stands. */
+  private candidatesDecided(dreamId: string): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const r of this.store.reflections({ dreamId, limit: 50 })) {
+      for (const [cid, v] of decidedPairs(parseDetail(r.detail)["candidatesDecided"])) if (!out.has(cid)) out.set(cid, v);
+    }
+    return out;
+  }
+
+  private beliefsInPlay(day: number, memoryIds: readonly string[], dreamId: string | null = null): ReflectBeliefs | null {
     const schemas = this.ctx.schemas;
     if (schemas === undefined || !SCHEMAS_TUNABLES.BELIEFS_BIRTH) return null;
     const me = schemas.ensureSelfSubject();
@@ -2015,13 +2052,33 @@ export class Reflections {
         more: all.length - shownNow.length,
       };
     });
+    // WHAT TONIGHT'S DREAM PROPOSED (lane C3): its standing candidates — not
+    // one a reflection of the same dream already adopted or let go.
+    const decided = dreamId === null ? new Map<string, string>() : this.candidatesDecided(dreamId);
+    const candidates =
+      dreamId === null
+        ? []
+        : this.store
+            .dreamChanges(dreamId)
+            .filter((c) => c.action === "belief-candidate" && c.undone === 0)
+            .map((c) => {
+              const d = parseDetail(c.detail);
+              return {
+                id: `${dreamId}#${String(c.seq)}`,
+                subject: typeof d["subject"] === "string" ? d["subject"] : "me",
+                statement: typeof d["statement"] === "string" ? clipWire(d["statement"], REFLECT_TUNABLES.BELIEF_SHOWN_CHARS) : "",
+                sources: stringIds(d["sources"]),
+              };
+            })
+            .filter((c) => c.statement.length > 0 && !decided.has(c.id));
     // HELD TO ITS SHARE OF THE ROOM, ROUND-ROBIN (review of #577): the subject
     // showing the most gives up its weakest belief to `more`, until the
     // section fits — every subject keeping `BELIEFS_KEPT_PER_SUBJECT` while
     // that is enough, me and us (first) the last to give any up: they are the
     // spine, and read weaker than a person's beliefs only for being younger.
     const room = REFLECT_TUNABLES.ROOM_CHARS * REFLECT_TUNABLES.BELIEF_SHARE;
-    const section = { subjects, births: SCHEMAS_TUNABLES.BELIEF_BIRTHS_PER_REFLECTION };
+    // (The dream's few candidates stay whole.)
+    const section = { subjects, births: SCHEMAS_TUNABLES.BELIEF_BIRTHS_PER_REFLECTION, ...(candidates.length > 0 ? { candidates } : {}) };
     const keep = REFLECT_TUNABLES.BELIEFS_KEPT_PER_SUBJECT;
     const pick = (floor: number, withMe: boolean): number => {
       let at = -1;
@@ -2064,8 +2121,8 @@ export class Reflections {
   private finishBeliefs(
     input: ReflectFinish,
     ctx: { row: ReflectionRow; shown: ReadonlySet<string>; day: number; session: string; used: (k: string) => number; again: boolean },
-  ): { births: PartResult[]; filings: PartResult[]; retire: PartResult[] } {
-    const out = { births: [] as PartResult[], filings: [] as PartResult[], retire: [] as PartResult[] };
+  ): { births: PartResult[]; filings: PartResult[]; retire: PartResult[]; adopt: PartResult[]; adopted: Map<string, string>; tried: Set<string> } {
+    const out = { births: [] as PartResult[], filings: [] as PartResult[], retire: [] as PartResult[], adopt: [] as PartResult[], adopted: new Map<string, string>(), tried: new Set<string>() };
     const sent = input.beliefs ?? null;
     if (sent === null) return out;
     const schemas = this.ctx.schemas;
@@ -2077,7 +2134,7 @@ export class Reflections {
     const shownBeliefs = new Set(shownDetail.beliefsShown ?? []);
     const contestedShown = new Set(shownDetail.beliefsContested ?? []);
     // What this reflection bore, in this finish or an earlier one: filed to like what it was shown.
-    const born = new Set<string>(stringIds(parseDetail(ctx.row.detail)["beliefsBorn"]));
+    const born = new Set<string>([...stringIds(parseDetail(ctx.row.detail)["beliefsBorn"]), ...stringIds(parseDetail(ctx.row.detail)["beliefsAdopted"])]);
     const lived = (id: unknown): string | null => {
       if (typeof id !== "string" || !ctx.shown.has(id)) return "not-shown-or-gone";
       const r = this.store.row(id);
@@ -2245,6 +2302,78 @@ export class Reflections {
             }
           : { id: beliefId, ok: false, reason: r.reason },
       );
+    }
+
+    // ADOPTED FROM THE DREAM (lane C3): a candidate it was shown, born weak by
+    // the route `dream`, its lived sources its first support; the reflection
+    // may say it better and name its subject. What is not adopted is let go.
+    // ONE CANDIDATE, ONE BELIEF (review of #583): what became of each is
+    // kept on the reflection's row (`candidatesDecided`), so a second finish,
+    // or a later reflection of the same dream, cannot adopt it again; a
+    // refused attempt leaves it open (`tried`) for the next finish to say better.
+    const offered = new Map(stringIdsPairs(parseDetail(ctx.row.detail)["beliefCandidates"]));
+    const decidedBefore = ctx.row.dream_id === null ? new Map<string, string>() : this.candidatesDecided(ctx.row.dream_id);
+    for (const a of (sent.adopt ?? []).slice(0, 10)) {
+      const cid = typeof a.candidate === "string" ? a.candidate : null;
+      if (off) {
+        out.adopt.push(offPart(cid));
+        continue;
+      }
+      const sch = schemas as Schemas;
+      const cand = cid === null ? undefined : offered.get(cid);
+      if (cid === null || cand === undefined) {
+        out.adopt.push({ id: cid, ok: false, reason: "candidate-not-shown", detail: "candidate is an id from beliefs.candidates (tonight's dream's)." });
+        continue;
+      }
+      const was = out.adopted.get(cid) ?? decidedBefore.get(cid);
+      if (was !== undefined) {
+        out.adopt.push(
+          was === "let-go"
+            ? { id: cid, ok: false, reason: "let-go", detail: `${cid} was let go when an earlier finish closed without adopting it.` }
+            : { id: cid, ok: false, reason: "already-adopted", detail: `${cid} was adopted already, as ${was}: file to that belief in beliefs.filings instead.` },
+        );
+        continue;
+      }
+      out.tried.add(cid);
+      const asked = (typeof a.subject === "string" && a.subject.trim().length > 0 ? a.subject : cand.subject).trim();
+      const byName = [...subjects].find((sid) => sch.entity(sid)?.name.toLowerCase() === asked.toLowerCase());
+      const subject = asked === "me" || asked === "us" || (me !== null && asked === me) ? me : subjects.has(asked) ? asked : (byName ?? null);
+      if (subject === null) {
+        out.adopt.push({ id: cid, ok: false, reason: "subject-not-shown", detail: `"${asked}" is not a subject shown in beliefs.subjects: name one ("me", "us", or a subject's id) in subject.` });
+        continue;
+      }
+      const w = this.words(oneLine(typeof a.statement === "string" && a.statement.trim().length > 0 ? a.statement : cand.statement), ctx.session, REFLECT_TUNABLES.MAX_BELIEF_CHARS);
+      if (!w.ok || w.text.length === 0) {
+        out.adopt.push({ id: cid, ok: false, reason: "statement-required", detail: w.ok ? "The belief is one short claim." : w.detail });
+        continue;
+      }
+      const good = cand.sources.filter((c) => lived(c) === null);
+      const pastedFrom = good.find((c) => similarity(w.ok ? w.text : "", this.store.row(c)?.body ?? "") > SCHEMAS_TUNABLES.BELIEF_PASTED);
+      if (pastedFrom !== undefined) {
+        out.adopt.push({ id: cid, ok: false, reason: "pasted-from-memory", detail: `It is ${pastedFrom}'s own words: adopt it with a statement of your own.` });
+        continue;
+      }
+      if (good.length === 0) {
+        out.adopt.push({ id: cid, ok: false, reason: "needs-a-lived-cite", detail: "None of its sources is a lived memory still standing: nothing would back it." });
+        continue;
+      }
+      const near = sch.nearestBelief(subject, w.text);
+      if (near !== null) {
+        out.adopt.push({ id: near.id, ok: false, reason: "near-duplicate", detail: `It says what ${near.id} says ("${clipWire(near.statement, 120)}"): file its sources to that one in beliefs.filings instead.` });
+        continue;
+      }
+      const about: "me" | "us" | undefined = subject === me ? (asked === "us" ? "us" : "me") : undefined;
+      const made = sch.addBelief({ entityId: subject, statement: w.text, day: ctx.day, birthRoute: "dream", channel: "authored", groundedIn: good, fromCandidate: cid, ...(about === undefined ? {} : { about }) });
+      if (!made.ok || made.id === null) {
+        out.adopt.push({ id: cid, ok: false, reason: made.reason });
+        continue;
+      }
+      born.add(made.id);
+      out.adopted.set(cid, made.id);
+      out.tried.delete(cid);
+      for (const c of good) sch.fileSupport({ beliefId: made.id, memoryId: c, stance: "support", day: ctx.day });
+      out.adopt.push({ id: cid, ok: true, reason: "adopted", note: `Born weak as ${made.id}, backed by ${String(good.length)} of its sources.` });
+      out.births.push({ id: made.id, ok: true, reason: "adopted-from-dream" });
     }
 
     for (const x of (sent.retire ?? []).slice(0, 20)) {
@@ -2759,7 +2888,7 @@ export class Reflections {
     const chaptersFit = this.recentChapters(day, T.ROOM_CHARS * T.CHAPTER_SHARE);
     // BELIEFS ON THE SUBJECTS IN PLAY (lane C): the self subject, then the
     // cards the memories tonight may show name most.
-    const beliefs = this.beliefsInPlay(day, [...priority.keys()]);
+    const beliefs = this.beliefsInPlay(day, [...priority.keys()], dreamId);
     // What contested a belief shown is shown too (review of #577): a
     // replacement must cite it, so the reflection must be able to.
     for (const s of beliefs?.subjects ?? []) for (const x of s.beliefs) for (const m of x.contestedBy ?? []) take(5)(m);
@@ -3386,7 +3515,7 @@ interface BeliefsShownDetail {
   beliefsContested?: string[];
 }
 
-function beliefsDetail(b: ReflectBeliefs | null): BeliefsShownDetail {
+function beliefsDetail(b: ReflectBeliefs | null): BeliefsShownDetail & { beliefCandidates?: [string, { subject: string; statement: string; sources: readonly string[] }][] } {
   if (b === null || b.subjects.length === 0) return {};
   const all = b.subjects.flatMap((s) => s.beliefs);
   return {
@@ -3394,7 +3523,28 @@ function beliefsDetail(b: ReflectBeliefs | null): BeliefsShownDetail {
     beliefSubjects: b.subjects.map((s) => s.id),
     beliefsShown: all.map((x) => x.id),
     beliefsContested: all.filter((x) => x.contested === true).map((x) => x.id),
+    ...(b.candidates === undefined || b.candidates.length === 0
+      ? {}
+      : { beliefCandidates: b.candidates.map((c): [string, { subject: string; statement: string; sources: readonly string[] }] => [c.id, { subject: c.subject, statement: c.statement, sources: c.sources }]) }),
   };
+}
+
+/** The dream's candidates as the begin kept them: `[id, {subject, statement, sources}]` pairs. */
+function stringIdsPairs(v: unknown): [string, { subject: string; statement: string; sources: string[] }][] {
+  if (!Array.isArray(v)) return [];
+  const out: [string, { subject: string; statement: string; sources: string[] }][] = [];
+  for (const p of v) {
+    if (!Array.isArray(p) || typeof p[0] !== "string" || !isRecord(p[1])) continue;
+    const d = p[1];
+    out.push([p[0], { subject: typeof d["subject"] === "string" ? d["subject"] : "me", statement: typeof d["statement"] === "string" ? d["statement"] : "", sources: stringIds(d["sources"]) }]);
+  }
+  return out;
+}
+
+/** What became of the dream's candidates: `[candidate id, belief id or "let-go"]` pairs. */
+function decidedPairs(v: unknown): [string, string][] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((p): p is [string, string] => Array.isArray(p) && typeof p[0] === "string" && typeof p[1] === "string");
 }
 
 function beliefsDetailOf(d: Record<string, unknown>): BeliefsShownDetail {
@@ -3404,6 +3554,7 @@ function beliefsDetailOf(d: Record<string, unknown>): BeliefsShownDetail {
     const ids = stringIds(d[k]);
     if (ids.length > 0) out[k] = ids;
   }
+  if (Array.isArray(d["beliefCandidates"])) (out as Record<string, unknown>)["beliefCandidates"] = d["beliefCandidates"];
   return out;
 }
 
@@ -3417,6 +3568,11 @@ function beliefLines(b: ReflectBeliefs, filings: number): string[] {
     `- beliefs (optional; most nights need few or none): beliefs.subjects is what I hold about the subjects in play tonight — each belief with its strength, and how many memories back it (support) or go against it. A belief is a claim life has to back: it starts weak and grows only as lived memories back it, each counted once. Filing support for a belief already here beats writing a new one.`,
     `  filings (at most ${String(filings)}): {belief, memory, stance: "support" or "contrary"} — a lived memory you were shown that backs a belief here, or goes against it. One counted before adds nothing.`,
     `  births (at most ${String(b.births)} new beliefs; most nights need none): {subject: "me" (for me or us) or a subject's id, statement: one short claim in your own words — not a memory's words, cites: the lived memories it rests on, about: "me" or "us" on me}. One that says what a belief here already says is refused with that belief's id: file to it instead.`,
+    ...(b.candidates !== undefined && b.candidates.length > 0
+      ? [
+          `  candidates: tonight's dream proposed ${b.candidates.length === 1 ? "a belief" : `${String(b.candidates.length)} beliefs`} — a dream suggests, you decide. adopt: {candidate, subject?, statement?} for one that rings true (you may say it better); the rest are let go. An adopted one starts weak, its lived sources its first support.`,
+        ]
+      : []),
     ...(contested
       ? [
           `  contested: a belief marked contested met more against it than its support holds. Read what went against it; then either let it go — retire: {belief, why} — or say it better as a birth with replaces: its id, citing what went against it (contestedBy; the new one starts weak). Leave it if you are not sure.`,

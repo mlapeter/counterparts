@@ -323,6 +323,8 @@ export async function depositEntries(
         ...(cover === undefined ? {} : { cover }),
         ...(model === undefined ? {} : { model }),
         ...(writeUp === undefined ? {} : { writeUp }),
+        // The nightly run's own writing (lane C3): it never corrects a belief at once.
+        ...(server["nightRun"]() ? { night: true } : {}),
       });
     } catch (err) {
       // Isolation, not a lost dump: this entry failed, the rest still run.

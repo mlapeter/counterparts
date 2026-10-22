@@ -178,7 +178,19 @@ export const DREAM_TUNABLES = {
     slot: 4,
     "feeling-now": 10,
     "nominate-core": 3,
+    // 2026-10-21 (wave 2 lane C3): a belief proposed, never made. Its ceiling
+    // is `BELIEF_CANDIDATES` (below, top-level so a compare can set it); this
+    // entry names the action.
+    "belief-candidate": 2,
   },
+  /**
+   * BELIEF CANDIDATES A NIGHT (wave 2 lane C3, 2026-10-21; design §3, Mike's
+   * "try it"): a pattern the dream sees across memories may be proposed as a
+   * belief — never minted by the dream ("the interpreter flags; the engine
+   * mints", v1). The next reflection adopts it (route `dream`) or lets it go.
+   * Read at use; off with `schemas.BELIEFS_BIRTH`. CAL.
+   */
+  BELIEF_CANDIDATES: 2,
   /**
    * FOLDS A NIGHT (2026-10-11, Group 3 part B; review 11 D5): a fold is a
    * `gist` flagged `fold: true` — not an action of its own — so it has its own
