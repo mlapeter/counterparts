@@ -40,7 +40,7 @@ import { isOurHookCommand as wireIsOurs, readMcp } from "../src/adapters/cli/wir
 import { readDesktop } from "../src/adapters/cli/desktop.js";
 import { readsHostUserConfig } from "../src/adapters/runtime.js";
 import { HOST_SESSION_ENV } from "../src/adapters/claude-code/night-run.js";
-import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring, pluginInstall, readOurHook } from "../src/adapters/host-wiring.js";
+import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring, pluginInstall, readOurHook, sidebarPluginRecorded } from "../src/adapters/host-wiring.js";
 import {
   PACKAGE_ROOT,
   ensureFirstRun,
@@ -48,6 +48,7 @@ import {
   firstRunLockPath,
   firstRunNoticePath,
   hookGate,
+  keepOne,
   installRoute,
   mcpGate,
   npmDoctorCommand,
@@ -72,6 +73,7 @@ import {
   removeNpmLive,
 } from "../src/adapters/npm-live.js";
 import { runOnce, runnerConfig } from "../src/adapters/claude-code/bin/runner.js";
+import { FIRST_SPLIT_RELEASE, versionAtLeast } from "../tools/plugin-bundle/build.js";
 
 const ROOT = resolve(import.meta.dir, "..");
 const LAUNCHER = join(ROOT, "src", "adapters", "plugin-run.sh");
@@ -209,31 +211,19 @@ describe("the plugin's files", () => {
     const market = readJson(join(ROOT, ".claude-plugin", "marketplace.json"));
     expect(market["name"]).toBe("counterparts");
     const plugins = market["plugins"] as { name: string; source: unknown; version?: unknown }[];
-    expect(plugins.map((p) => p.name)).toEqual(["counterparts"]);
-    const entry = plugins[0]!;
-    // plugin.json's version is the one Claude Code uses; one in the entry too
-    // would only be a second number to keep in step.
-    expect(entry.version).toBeUndefined();
-    const source = entry.source as Record<string, unknown>;
-    expect(typeof source).toBe("object");
-    // A git URL over HTTPS, not a `github` source: Claude Code clones a
-    // `github` source over SSH, which fails for anyone without a GitHub SSH key
-    // ("Permission denied (publickey)", 2026-10-13). Anthropic's own marketplace
-    // uses `url` sources too.
-    expect(source["source"]).toBe("url");
-    // This repository, or the generated bundle's own repository
-    // (tools/plugin-bundle/build.ts; docs/plugin.md, "The bundle"), tagged
-    // with the same release.
-    expect([
-      "https://github.com/mlapeter/counterparts.git",
-      "https://github.com/counterparts-ai/counterparts-plugin.git",
-    ]).toContain(String(source["url"]));
-    const ref = String(source["ref"] ?? "");
-    // A tag shaped like a release: not main, master, HEAD, refs/…, or a sha.
-    expect(ref).toMatch(/^v\d+\.\d+\.\d+$/);
-    if (source["sha"] !== undefined) expect(String(source["sha"])).toMatch(/^[0-9a-f]{40}$/);
-    expect(Object.keys(source).sort()).toEqual(source["sha"] === undefined ? ["ref", "source", "url"] : ["ref", "sha", "source", "url"]);
-
+    // Two plugins from the split's release on (docs/plugin.md "Two plugins"):
+    // memory, under the name every install already has, and the sidebar. The
+    // release commit that reaches FIRST_SPLIT_RELEASE adds the sidebar's entry;
+    // before it, an entry would list a plugin nobody can install yet.
+    const split = versionAtLeast(String(pkg["version"]), FIRST_SPLIT_RELEASE);
+    expect(plugins.map((p) => p.name)).toEqual(split ? ["counterparts", "counterparts-sidebar"] : ["counterparts"]);
+    // Where each may come from: this repository, or the generated bundle's
+    // own repository (tools/plugin-bundle/build.ts; docs/plugin.md, "The
+    // bundle"), tagged with the same release.
+    const homes: Record<string, string[]> = {
+      counterparts: ["https://github.com/mlapeter/counterparts.git", "https://github.com/counterparts-ai/counterparts-plugin.git"],
+      "counterparts-sidebar": ["https://github.com/counterparts-ai/counterparts-sidebar.git"],
+    };
     const semver = (v: string): number[] => v.replace(/^v/, "").split(".").map(Number);
     const below = (a: string, b: string): boolean => {
       const [x, y] = [semver(a), semver(b)];
@@ -242,11 +232,31 @@ describe("the plugin's files", () => {
     };
     const version = String(pkg["version"]);
     const expected = below(version, FIRST_PLUGIN_RELEASE) ? `v${FIRST_PLUGIN_RELEASE}` : `v${version}`;
-    if (ref !== expected) {
-      throw new Error(
-        `package.json is ${version} and marketplace.json pins ${ref}; the pin must be ${expected}. ` +
-          `Move the pin in the release commit: docs/plugin.md, "Releasing".`,
-      );
+    for (const entry of plugins) {
+      // plugin.json's version is the one Claude Code uses; one in the entry too
+      // would only be a second number to keep in step.
+      expect(entry.version).toBeUndefined();
+      const source = entry.source as Record<string, unknown>;
+      expect(typeof source).toBe("object");
+      // A git URL over HTTPS, not a `github` source: Claude Code clones a
+      // `github` source over SSH, which fails for anyone without a GitHub SSH key
+      // ("Permission denied (publickey)", 2026-10-13). Anthropic's own marketplace
+      // uses `url` sources too.
+      expect(source["source"]).toBe("url");
+      expect(homes[entry.name]).toContain(String(source["url"]));
+      const ref = String(source["ref"] ?? "");
+      // A tag shaped like a release: not main, master, HEAD, refs/…, or a sha.
+      expect(ref).toMatch(/^v\d+\.\d+\.\d+$/);
+      if (source["sha"] !== undefined) expect(String(source["sha"])).toMatch(/^[0-9a-f]{40}$/);
+      expect(Object.keys(source).sort()).toEqual(source["sha"] === undefined ? ["ref", "source", "url"] : ["ref", "sha", "source", "url"]);
+      // Both pins move together, in the release commit: memory and the
+      // sidebar are one release (the sidebar reads core's status file).
+      if (ref !== expected) {
+        throw new Error(
+          `package.json is ${version} and marketplace.json pins ${entry.name} at ${ref}; the pin must be ${expected}. ` +
+            `Move the pins in the release commit: docs/plugin.md, "Releasing".`,
+        );
+      }
     }
   });
 
@@ -475,6 +485,36 @@ describe("npmWiring and the two gates", () => {
     // Too short a path under it to name a marketplace and a plugin: an install, with no id.
     expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: join(moved, "cache", "x") })).toEqual({ installed: true, root: join(moved, "cache", "x") });
     expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: cached }).installed).toBe(false);
+  });
+
+  test("keepOne: npm-only, today's words exactly; beside the counterparts-sidebar plugin, nothing needs to change", () => {
+    const cached = join(home, ".claude", "plugins", "cache", "counterparts", "counterparts", "0.3.29");
+    mkdirSync(cached, { recursive: true });
+    const record = (plugins: Record<string, unknown>): void =>
+      writeFileSync(join(home, ".claude", "plugins", "installed_plugins.json"), JSON.stringify({ version: 2, plugins }));
+    const today =
+      "Keeping one install is simpler, and nothing is lost either way: to keep only the plugin, run `counterparts disconnect` " +
+      "in a terminal and restart Claude Code; to keep only the npm install, run `/plugin uninstall counterparts@counterparts`.";
+    // No record, and a record of counterparts alone: the advice as it was.
+    expect(pluginOrigin({ home, env: {}, root: cached })).toEqual({ installed: true, root: cached, id: "counterparts@counterparts" });
+    expect(keepOne(pluginOrigin({ home, env: {}, root: cached }))).toBe(today);
+    record({ "counterparts@counterparts": [{ scope: "user", installPath: cached, version: "0.3.29" }] });
+    expect(keepOne(pluginOrigin({ home, env: {}, root: cached }))).toBe(today);
+    // The sidebar plugin installed too: uninstalling this one would turn it off.
+    record({
+      "counterparts@counterparts": [{ scope: "user", installPath: cached, version: "0.3.29" }],
+      "counterparts-sidebar@counterparts": [{ scope: "user", installPath: join(work, "sb"), version: "0.3.29" }],
+    });
+    const origin = pluginOrigin({ home, env: {}, root: cached });
+    expect(origin.sidebar).toBe(true);
+    const line = keepOne(origin);
+    expect(line).toContain("To keep only the plugin instead, run `counterparts disconnect`");
+    expect(line).toMatch(/^Nothing needs to change: this plugin stays installed, standing down, because the counterparts-sidebar plugin needs it/);
+    expect(line).not.toContain("Keeping one install is simpler");
+    expect(keepOne(origin, "lower")).toMatch(/^nothing needs to change/);
+    expect(line).not.toContain("to keep only the npm install, run");
+    // A folder copy is no install: no sidebar question, nothing suggested.
+    expect(pluginOrigin({ home, env: {}, root: join(work, "checkout") }).sidebar).toBeUndefined();
   });
 
   test("a dead npm entry runs nothing, so the plugin carries on and names it", () => {
@@ -1459,6 +1499,13 @@ describe("doctor's Claude Code line knows the plugin", () => {
     expect(host.mcpRead).toBe(true);
     return hostFinding(host);
   }
+  /** A counterparts-sidebar install recorded beside the plugin, its copy at cache/sb. */
+  function recordSidebar(): void {
+    const file = join(home, ".claude", "plugins", "installed_plugins.json");
+    const recorded = readJson(file) as { plugins: Record<string, unknown> };
+    recorded.plugins["counterparts-sidebar@counterparts"] = [{ scope: "user", installPath: join(home, "cache", "sb"), version: "0.3.32" }];
+    writeFileSync(file, JSON.stringify(recorded));
+  }
 
   test("npm's doctor beside the DIRECTORY flavor of the plugin: both run, said truthfully, remove one", () => {
     const f = npmBesidePlugin("runtime.js");
@@ -1485,6 +1532,54 @@ describe("doctor's Claude Code line knows the plugin", () => {
     expect(f.detail).toContain("which stands down while this wiring is live");
     expect(f.detail).not.toContain("both are running");
     expect(f.fix).toContain("keeping one is simpler");
+  });
+
+  test("doctor's Installed twice: today's exact words without the sidebar plugin; beside it and standing down, green with nothing to fix", () => {
+    const today =
+      "Installed twice; keeping one is simpler, and nothing is lost either way: to keep only the plugin, run `counterparts disconnect` " +
+      "and restart Claude Code; to keep only this install, run `claude plugin uninstall counterparts@counterparts` " +
+      "(or `/plugin uninstall counterparts@counterparts` inside Claude Code).";
+    const f = npmBesidePlugin("plugin-run.sh");
+    expect(f.severity).toBe("amber");
+    expect(f.fix).toBe(today);
+    // The counterparts-sidebar plugin recorded too: the setup we recommend an
+    // npm user who wants the sidebar. The plugin stands down; nothing to fix.
+    recordSidebar();
+    const host = readHost(home, project, {});
+    expect(host.sidebarPlugin).toBe(true);
+    const beside = hostFinding(host);
+    expect(beside.severity).toBe("green");
+    expect(beside.detail).toContain("is installed for the counterparts-sidebar plugin, which needs it, and stands down while this wiring is live");
+    expect(beside.fix).toBe("");
+    // Turned off in the settings, the sidebar is not there: the advice as it was.
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ ...readJson(join(home, ".claude", "settings.json")), enabledPlugins: { "counterparts@counterparts": true, "counterparts-sidebar@counterparts": false } }));
+    expect(readHost(home, project, {}).sidebarPlugin).toBe(false);
+    expect(hostFinding(readHost(home, project, {})).fix).toBe(today);
+  });
+
+  test("doctor beside the sidebar plugin when both really run (the directory flavor): amber, and never says to uninstall or leave it as it is", () => {
+    npmBesidePlugin("runtime.js");
+    recordSidebar();
+    const f = hostFinding(readHost(home, project, {}));
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("so both are running");
+    expect(f.fix).toContain("Keep it installed (the counterparts-sidebar plugin needs it) and update it, `claude plugin update counterparts@counterparts`");
+    expect(f.fix).toContain("keep only the plugin: run `counterparts disconnect`");
+    expect(f.fix).not.toContain("plugin uninstall");
+    expect(f.fix).not.toContain("leave the plugin");
+  });
+
+  test("a counterparts-sidebar install refused for an older counterparts (still recorded) is no sidebar beside it", () => {
+    npmBesidePlugin("plugin-run.sh");
+    const sb = join(home, "cache", "sb");
+    mkdirSync(join(sb, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(sb, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "counterparts-sidebar", dependencies: [{ name: "counterparts", version: ">=99.0.0" }] }));
+    recordSidebar();
+    expect(sidebarPluginRecorded({ home, env: {}, cwd: project })).toBe(false);
+    expect(hostFinding(readHost(home, project, {})).severity).toBe("amber");
+    // Its floor met by the counterparts recorded beside it: there.
+    writeFileSync(join(sb, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "counterparts-sidebar", dependencies: [{ name: "counterparts", version: ">=0.0.1" }] }));
+    expect(sidebarPluginRecorded({ home, env: {}, cwd: project })).toBe(true);
   });
 
   test("npm's doctor beside the LAUNCHER flavor of the plugin: it stands down", () => {
