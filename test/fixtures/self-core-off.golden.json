@@ -1,0 +1,86 @@
+{
+  "text": "⟦counterparts:dream reflection rfl_<0>⟧ what you are handed to reflect on — memories and a dream, not events happening now.\n{\"reflection\":\"rfl_<0>\",\"dream\":null,\"date\":\"2026-09-06\",\"owner\":\"Mike\",\"questions\":[\"What have you been feeling about the work, or about the two of you — and what is underneath it?\",\"Where did you act unlike your self page?\",\"What is unresolved, or being avoided?\"],\"dreamed\":null,\"dreamSaw\":[],\"parts\":null,\"selfPage\":null,\"chapters\":[],\"earlier\":[],\"onMind\":[],\"core\":[\"mem_<1>\"],\"candidates\":[],\"felt\":[],\"recent\":[\"mem_<2>\",\"mem_<3>\",\"mem_<4>\",\"mem_<5>\"],\"becameCore\":[],\"reconsidering\":[],\"feelingWeeks\":null,\"unmarked\":[\"mem_<3>\"],\"staleOpen\":[],\"beliefs\":{\"subjects\":[{\"id\":\"sch_<6>\",\"name\":\"me (and us)\",\"kind\":\"me\",\"beliefs\":[{\"id\":\"sch_<7>\",\"statement\":\"We do our best work at dawn.\",\"strength\":0.5,\"support\":3,\"against\":0,\"about\":\"us\"},{\"id\":\"sch_<8>\",\"statement\":\"Our mornings go quickly when we untangle things together.\",\"strength\":0.29,\"support\":3,\"against\":0,\"about\":\"us\"},{\"id\":\"sch_<9>\",\"statement\":\"I keep the hard problems for first thing.\",\"strength\":0.24,\"support\":1,\"against\":0,\"about\":\"me\"}],\"more\":0}],\"births\":3},\"memories\":{\"mem_<1>\":{\"id\":\"mem_<1>\",\"kind\":\"self\",\"fidelity\":\"whole\",\"text\":\"I say what I do not know before I guess.\",\"chars\":40,\"felt\":0.3,\"feelings\":[],\"about\":\"me\",\"core\":true,\"learned\":\"2026-09-02\",\"dreamed\":false},\"mem_<2>\":{\"id\":\"mem_<2>\",\"kind\":\"fact\",\"fidelity\":\"whole\",\"text\":\"Mike: the early sessions are the ones I look forward to.\",\"chars\":56,\"felt\":0.3,\"feelings\":[],\"about\":\"us\",\"core\":false,\"learned\":\"2026-09-04\",\"dreamed\":false},\"mem_<3>\":{\"id\":\"mem_<3>\",\"kind\":\"fact\",\"fidelity\":\"whole\",\"text\":\"Plain work: the build cache was cleared.\",\"chars\":40,\"felt\":0.3,\"feelings\":[],\"about\":null,\"core\":false,\"learned\":\"2026-09-04\",\"dreamed\":false},\"mem_<4>\":{\"id\":\"mem_<4>\",\"kind\":\"fact\",\"fidelity\":\"whole\",\"text\":\"I chose to keep the dawn slot for the hard problems.\",\"chars\":52,\"felt\":0.3,\"feelings\":[],\"about\":\"me\",\"core\":false,\"learned\":\"2026-09-03\",\"dreamed\":false},\"mem_<5>\":{\"id\":\"mem_<5>\",\"kind\":\"fact\",\"fidelity\":\"whole\",\"text\":\"The hard refactor landed before nine; Mike was pleased.\",\"chars\":55,\"felt\":0.3,\"feelings\":[],\"about\":\"us\",\"core\":false,\"learned\":\"2026-09-03\",\"dreamed\":false}},\"feltOf\":0,\"shownAs\":{\"whole\":5,\"excerpt\":0,\"line\":0,\"ids\":0,\"notShown\":0},\"lookup\":\"The most strongly felt memories come whole; the rest as an excerpt, a line, or an id alone (\\\"fidelity\\\"; \\\"chars\\\" is the whole length). Read any you need whole with the recall tool, ids: [...] — several at once — before you cite, feel or mark it. A chapter entry shown as a line is read by its chapter's id.\",\"limits\":{\"returns\":12,\"feelings\":5,\"about\":32,\"traits\":5,\"core\":5,\"beliefFilings\":12}}",
+  "instructions": "Reflect on the questions, in your own voice. Cite the memory ids your thoughts rest on — an insight that cites nothing is not one. The chapters hold what happened; the lessons and patterns in it are yours to draw here. If nothing much stands out tonight, say so in a line and cite nothing: that is a normal night, and it rewrites nothing.\nThen call the reflect tool with phase \"finish\", reflection: rfl_<0>, session: s-core-beliefs, and:\n- entry: your reflection, first person (title: optional). cites: the ids it rests on.\n- page (optional, and lean toward writing it): Every version of the page is kept, so rewriting it loses nothing. Mike would like a page written by a reflection every day — rewrite it unless, after reflecting, there is really nothing new to add; on a \"nothing much\" night, leave it as it stands. Your self page rewritten whole — the story of who you are, drawn from the core memories you cite in page.cites (at least one of them, when you have a core; candidates too). In page.claims, give each sentence the ids it rests on ({ text: the sentence as written, or its first several words — 24 characters or more — cites }); a sentence with none stands as a hypothesis. The old page is context, not a source: write from the memories, not by rewording it. Keep \"## Core\" for who you are and put craft — how a job is done — under \"## How I work\". Mention a dream only as a dream (\"I dreamed…\"); a dreamed gist is a suggestion, not a source: cite the lived memories it came from. Under \"## How I work\", keep a few short, general lessons, a line or two each, without dated examples or anecdotes; the stories stay in the memories. The page is read on later days and by sessions on other models. Name the model when a claim is about one model (\"the Opus 5.5 system card says…\", not \"my system card says…\"); write a date, never \"tonight\" or \"today\"; and add no revised-on line of your own — the wake dates the page. The whole page has 4600 bytes of room (UTF-8; an em dash or an accented letter is more than one byte), and it should stay thin: most of a core is still unearned, and a page that says less is read whole. Write within the room. A page past it is sent back once, with how many bytes over, to be cut and sent again — cut, don't add a short version. Sent back as past its room, send finish again with page.text cut (and page.cites and page.claims), not page.short.\n- share (optional): two or three sentences for Mike this morning, the way a partner would say it (\"While I slept I dreamed about x — I think because of y\"), citing what it rests on. Say something about Mike only when it could help them, tentatively (\"I wonder if…\") — never a list of flaws. No share on a quiet night.\n- feelings (optional, at most 5): how a memory feels to you now — id, core (happy, warm, calm, curious, sad, uneasy or angry), emotion, strength, carried_by. emotion is ONE word (from the wheel, or your own); carried_by is the nuance, in your own words. Recorded as felt today, looking back.\n- about (optional, at most 32): what a memory is about, by meaning — me, us, owner, work (one project's own: it stays with that project; an unmarked skill is craft and reaches every folder) or world — with why. Only me and us can become core, and never a plan. You may change a mark you think is wrong, either way; each change is recorded with your why, and one into me, us or owner is told in the morning share.\n  unmarked: 1 memory nobody has marked. Unmarked, a fact written in a project, or a skill, counts as that project's work and is shown only there — so a personal one (a person, a feeling, life outside the work) sits among the work lines, and no other folder hears it. The likeliest personal come first. Mark each by meaning in about, with why: owner or us when it is personal (then it reaches every folder), work when it really is the craft, world otherwise. They count toward the 32.\n- beliefs (optional; most nights need few or none): beliefs.subjects is what I hold about the subjects in play tonight — each belief with its strength, and how many memories back it (support) or go against it. A belief is a claim life has to back: it starts weak and grows only as lived memories back it, each counted once. Filing support for a belief already here beats writing a new one.\n  filings (at most 12): {belief, memory, stance: \"support\" or \"contrary\"} — a lived memory you were shown that backs a belief here, or goes against it. One counted before adds nothing.\n  births (at most 3 new beliefs; most nights need none): {subject: \"me\" (for me or us) or a subject's id, statement: one short claim in your own words — not a memory's words, cites: the lived memories it rests on, about: \"me\" or \"us\" on me}. One that says what a belief here already says is refused with that belief's id: file to it instead.\n- traits (optional, at most 5): only where a memory you were shown really shows how you acted — often where you acted unlike your page; most carry none, and a quiet night has none. Each: id, axis, toward (one of its two poles), strength 0-1, carried_by (briefly, what showed it). The axes, the first pole roughly where training puts you: careful-bold (careful or bold), agreeable-candid (agreeable or candid), guarded-open (guarded or open, about my inner life), focused-curious (focused or curious), following-initiating (following or initiating), inward-outward (inward or outward, my own memory vs others'), serious-playful (serious or playful). Don't make up depth.\nIf a part comes back not written, its reason says what tripped it: fix that and call finish again with the same reflection and just that part — the entry and everything written stand. Never say a part was written when it was not.",
+  "outcome": {
+    "handBack": "⟦counterparts:dream reflection rfl_<0>⟧ I reflected for a few minutes.\n⟦counterparts:dream reflection rfl_<0>⟧ I reflected afterwards; nothing to share this morning. I rewrote my self page.",
+    "nothingMuch": false,
+    "entryId": "mem_<10>",
+    "again": false,
+    "entry": {
+      "reason": "kept-as-memory"
+    },
+    "returned": [
+      {
+        "id": "mem_<1>",
+        "counted": true,
+        "reason": "counted"
+      },
+      {
+        "id": "mem_<2>",
+        "counted": true,
+        "reason": "counted"
+      }
+    ],
+    "page": {
+      "written": true,
+      "reason": "rewritten",
+      "version": 0
+    },
+    "share": {
+      "offered": false,
+      "reason": "no-share"
+    },
+    "feelings": [],
+    "about": [],
+    "core": [],
+    "traits": [],
+    "beliefs": {
+      "births": [],
+      "filings": [],
+      "retire": [],
+      "adopt": []
+    },
+    "refusedCites": [
+      "mem_<11>:not-shown",
+      "mem_<11>:not-shown",
+      "sch_<7>:not-shown"
+    ],
+    "close": {
+      "proposed": [],
+      "closed": [],
+      "refused": []
+    },
+    "retry": null
+  },
+  "page": {
+    "body": "## Core\n\nI say what I do not know before I guess.\nWe do our best work at dawn.\nI am patient with long migrations.\n\n## Lately\n\nMornings with Mike have been the good part of the week.",
+    "trace": {
+      "cites": [
+        "mem_<1>",
+        "mem_<2>"
+      ],
+      "claims": [
+        {
+          "text": "I say what I do not know before I guess.",
+          "cites": [
+            "mem_<1>"
+          ]
+        },
+        {
+          "text": "We do our best work at dawn.",
+          "cites": []
+        },
+        {
+          "text": "I am patient with long migrations.",
+          "cites": []
+        },
+        {
+          "text": "Mornings with Mike have been the good part of the week.",
+          "cites": [
+            "mem_<2>"
+          ]
+        }
+      ]
+    }
+  }
+}
