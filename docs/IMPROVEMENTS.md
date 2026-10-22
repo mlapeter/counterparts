@@ -3264,6 +3264,162 @@ titles useful or noise?
   phase could before the lease; births was the one where that left lasting damage.
   Revisit if a store is ever shared across machines or pid namespaces.
 
+### Decided by the store-v14 builder, 2026-10-21, lightly held (store v14, #569)
+
+- Decided by the store-v14 builder, 2026-10-21, lightly held: one upgrade (v13 to v14)
+  makes room for everything wave 2 needs (tags and tag merges, subject kinds, belief routes
+  and support, folder projects, recall turns, `birth_salience`) and drops the inert
+  `confidential` column after counting any rows still marked. Why: Mike's rule of one
+  batched store-format change, not a bump per lane.
+- Support has its own table, one row per belief and memory, not `derivations`. Why: "each
+  memory counted once" is then a key rather than a convention; `derivations` stays provenance.
+- Concept edges are derived at read time (`tagNeighbours`); no edge table is kept. Why: fast
+  enough when measured, and a removal or an undone merge stays correct with no extra work.
+- The upgrade fills in only the subject kinds that need no judgement (person and place
+  cards, and the identity core as a person); the rest wait for the night. The "me" subject
+  is made lazily, as an ordinary card, so it is never read as the identity core.
+  `OBSERVER_READ_FLOOR` stays 11: a v13 file still reads correctly.
+
+### Decided by the tags-write builder, 2026-10-21, lightly held (tags at the write, #570)
+
+- Decided by the tags-write builder, 2026-10-21, lightly held: tags are their own optional
+  field on `remember` and `session_end`, not a fourth fact. Up to eight, each up to 48
+  characters, normalized; one that is too long, past the eighth or looks like a secret is
+  dropped and named in the answer, and the memory lands anyway. Why: loose first.
+- Tags are not stemmed at the write; a stem is only the night's merge key. Why: the stemming
+  experiment has a revert date, and reverting it would orphan stored tags.
+- A revision keeps its memory's tags unless it sends its own. Nothing in recall or the wake
+  reads tags yet.
+
+### Decided by the projects builder and the coordinator, 2026-10-21, lightly held (projects and craft that travels, #572)
+
+- Decided by the projects builder, 2026-10-21, lightly held: a folder with no row is its own
+  project and nothing is written to say so. A project is a card marked `project`, minted at
+  the first join; a person, place or topic card is never taken over.
+- Craft travels: a skill unmarked or marked `world` takes turns, by lived day, in up to
+  `WORK_HERE_CRAFT_MAX` (2) places of every folder's "Work here"; the folder you are in keeps
+  at least half of its lines; craft only leaves a folder whose setting is on. Switch
+  `self.PROJECTS_TRAVEL`, on; off gives the old wake exactly. Why it lands in "Work here":
+  with craft kept out of the wake (10-16), an unmarked skill would otherwise have vanished
+  from every wake.
+- Decided by the coordinator in review, 2026-10-21, lightly held: skills written before the
+  switch first ran on a store are grandfathered as their folder's work. Why: they were
+  written under the old rule, and many are project-specific. A joined folder set off or
+  paused shares nothing.
+
+### Decided by the dashboard builder, 2026-10-21, lightly held (subjects and the tag cloud, #573)
+
+- Decided by the dashboard builder, 2026-10-21, lightly held: subjects get their own tab,
+  and a memory card and the self tab link to it rather than repeat it (Mike's one-page rule).
+  Every live card gets a page; cards with no kind yet are grouped as "not sorted yet".
+- The cloud is tags with subjects emphasized, falling back to subjects alone until memories
+  carry tags. Two cards with one name are one word in the cloud and two entries in the list.
+- Beliefs are read from the store's rows, not from the open `Schemas`. Why: a long-running
+  dashboard would otherwise miss beliefs born that night.
+- Deliberately not shipped in 0.3.31: the "this is wrong" button. The tab only reads.
+
+### Decided by Mike and the beliefs builder, 2026-10-21, lightly held (beliefs born weak, C1, #575)
+
+- Decided by Mike, 2026-10-21, lightly held (the beliefs design): every belief is born weak,
+  whoever writes it, and grows only as lived memories back it, each counted once. Beliefs are
+  shown nowhere (recall, the wake, the core) until later lanes decide how.
+- Decided by the C1 builder, 2026-10-21, lightly held, all compare-settable: births capped at
+  0.3; support weights testimony 1, choice 1, use 0.5 (not for beliefs about me or us), a
+  reflection's find 0.7 until a later lived memory echoes it, links 0.25 each and 0.5 in all;
+  spread takes the smallest of same session 0.25, same day 0.5, same folder 0.75; feeling
+  multiplies by 1 + 0.5 × the strongest felt.
+- Resistance grows with support over weeks, not with the kind: thin on one day, about 0.7
+  after a week of support, near 1 when mature; a day's pressure is capped. Why: young beliefs
+  are cheap and harden as life backs them, and the self page's 0.5 floor is reachable at
+  about four full supports.
+- Past its bar a belief is contested, never rewritten: one cut, marked for the reflection to
+  revise or retire. Decided in review: the owner's correction settles a belief at once; a
+  dream never does; a reflection only when the belief is contested. Reinforcement, replay and
+  reflection returns don't lift a belief; only support does.
+
+### Decided by the tags-night builder, 2026-10-21, lightly held (tags at night and the Haiku child, #576)
+
+- Decided by the tags-night builder, 2026-10-21, lightly held: a `tags` sleep phase after
+  births writes a linked card's name as a tag (500 a night, never the identity core's name)
+  and merges tags whose stems match. Merges apply on read and never rewrite stored tags.
+- A tag becomes a topic when its memories weigh 5 (a memory used awake or felt counts a half
+  more), over 3 lived days and 2 sessions, at most 5 a night; dates, words with digits and
+  names a card holds stay tags. Topic cards stay out of the alias index for now. Why: Mike's
+  "importance is earned, not just counted", and no recall change in this release.
+- The model asks (tags for 40 untagged memories, 10 look-alike pairs, 10 card kinds) go to a
+  third night child on a small model (`NIGHT_TAGS_MODEL`, haiku, 8 turns, 5 minutes), not to
+  the reflection. Why: small-model work, kept out of the reflection's lane. It may answer only
+  about what its ask showed, and a night's tags can be undone.
+- Switch `schemas.TAGS_NIGHT` (a code tunable), on; off, the phase does nothing, no child
+  starts and no topic is born. Left open: a kind the upgrade set wrong is never asked again.
+
+### Decided by the C2 builder and its reviewer, 2026-10-21, lightly held (the reflection writes beliefs, #577)
+
+- Decided by the C2 builder, 2026-10-21, lightly held: switch `schemas.BELIEFS_BIRTH` (a code
+  tunable, read at use), on; off, the reflection is shown no beliefs and asked for none, and
+  rows already written stay, inert.
+- Shown: up to 6 subjects (me and us first), 5 beliefs each, held to 6% of the room and
+  trimmed round-robin. Belief ids are never citable, so citing a belief can't strengthen it.
+- At most 3 new beliefs per reflection and 12 filings. A birth needs a lived memory behind
+  it; one close to a live belief on the subject (0.6) is refused with that belief's id to file
+  to instead; one that repeats a cited memory's own words is refused.
+- Decided in review: the reflection retires only a contested belief it was shown. A
+  replacement must name a contested belief on the same subject, cite at least one of the
+  memories against it, and not say the same thing again (a negation counts as different).
+
+### Decided by the card-twins builder, 2026-10-21, lightly held (one name, one card, #578)
+
+- Decided by the card-twins builder, 2026-10-21, lightly held: a card's birth checks for the
+  name again inside the write transaction (`Store#putUnless`) and takes in the other
+  process's card when it finds one. A name offered as free that comes back taken still spends
+  the night's budget. Why: one session's two closing workers ran births at once.
+- Not done, on purpose: claiming the phase marker before the work, which would break "a
+  marker moves only after the work" (the lease in #581 took that up instead). The existing
+  doubled cards are left for a separate merge.
+- Decided in review: a card cut off between its birth and its links is relinked once, the
+  next night.
+
+### Decided by Mike, 2026-10-21 (a higher bar for another project's work, #579)
+
+- Decided by Mike, 2026-10-21: "we could try a slightly higher bar, and review after a week."
+  So work from a folder outside this one's project faces `recall.CROSS_PROJECT_BAR_LIFT` 1.25,
+  on, on both the admit and loud bars (habituation's lift the precedent); 1 turns it off. The
+  review is in CHECK-AFTER, due ~2026-10-29.
+- Decided by the builder, 2026-10-21, lightly held: the hard filter (`recall.RECALL_BY_PROJECT`)
+  stays built and off. Personal memories, craft, memories with no folder, joined folders and
+  deliberate recall are never lifted. What the lift alone held back is counted, so the week's
+  read sees this change and nothing else.
+- Recall doesn't ask the host's folder setting: a joined folder set off counts as this
+  project for recall (the wake gates it separately).
+
+### Decided by the project-proposal builder and its reviewer, 2026-10-21, lightly held (the night proposes a project, #580)
+
+- Decided by the project-proposal builder, 2026-10-21, lightly held: the proposal is a
+  mechanical rule, no model; the owner's yes is the judgement. At most one a night, from the
+  last 14 lived days: 3 shared days (and half the quieter folder's), 3 shared subjects that
+  tell them apart, at 0.4 overlap. A pair asked rests 7 reflections; a no is not recorded.
+  Switch `dream.PROJECT_JOIN_ASK`, on.
+- Decided in review: a folder is proposed only while alone in its project; a folder used on
+  the same days as 3 or more others counts as general and is never proposed; a yes lapses
+  after 3 days or if either project changed; the nightly run can't say yes, and nothing joins
+  before the share was told.
+- On the corpus copy nothing is proposed, so joining into the busiest folder stays
+  `counterparts project join`.
+
+### Decided by Mike, the C3 builder and the coordinator, 2026-10-21, lightly held (beliefs from the dream, the moment and the owner, #583)
+
+- Decided by Mike, 2026-10-21 (the beliefs design, "agreed to try it"): the dream may suggest
+  beliefs; it never makes one. At most 2 a night (`dream.BELIEF_CANDIDATES`), from lived
+  memories it was shown; the next reflection adopts one (born weak) or lets it go.
+- Decided by the C3 builder, 2026-10-21, lightly held: a session may write one only from the
+  owner's words, my own choice, or a moment felt at 0.6 or more at the time, at most 2 a lived
+  day. A repeat is refused and files nothing. Why: one voice repeating itself is one voice.
+- The owner's correction is not behind `BELIEFS_BIRTH` (it only removes): his update of a
+  belief settles it at once, history and support kept.
+- Decided by the coordinator, 2026-10-21, lightly held: only an awake write corrects at once.
+  A write-up of an ended session and anything the nightly run writes press like anyone else's.
+  Why: the night neither makes nor unmakes a belief on its own say-so.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

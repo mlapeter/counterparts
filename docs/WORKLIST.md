@@ -1,6 +1,6 @@
 # Worklist
 
-*The details behind the roadmap's "To do" list. Started 2026-10-20, updated 10-22 09:45. One entry per thing still to do: what it is,
+*The details behind the roadmap's "To do" list. Started 2026-10-20, updated 10-22 11:30. One entry per thing still to do: what it is,
 why, where it stands. Close an entry by moving it to "Done" with the date and the PR; drop it after a release.
 Experiments with a date to check live in [CHECK-AFTER](CHECK-AFTER.md); this file points there rather than
 repeating them.*
@@ -15,6 +15,12 @@ repeating them.*
   line, the night's write-ups). Watch at ~10-23: with four sessions in one folder only about one title fits.
 
 ## Follow-ups found today (not started)
+
+- **Refresh the harness corpus copy after each release** (Mike, 10-22). The replay corpus is a copy from 10-20,
+  older than beliefs and tags, so the 10-22 replays saw none of either. After each release, copy the corpus from
+  that night's snapshot, so replays read a store the release has actually run on.
+- **Model harness runs: once per release** (Mike, 10-22). One night compare for each switch whose default changed
+  in the release, spent by the coordinator at cut time, rather than runs per lane or per PR.
 
 - **Night children's session ids** (from the 10-22 read): `dream.night`, `dreams.session` and `reflections.session`
   all hold the parent session, so "the nightly run's sessions get no footnotes" (#523 F) can only be checked by time
