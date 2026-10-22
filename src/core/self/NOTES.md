@@ -2636,3 +2636,10 @@ wake past its room simply goes without it (ring `counterpart.project.noroom`; sh
 `counterpart.project.shown` with its lines and bytes). Off (`self.WAKE_PROJECT_LINE`): the wake is
 byte for byte what it was. Whether sessions draw on it is the check (2026-10-29): its bytes from
 the ring, and whether its ids come back opened or named.
+
+**Review of #588, for the 10-29 read (no code yet).** The reviewer scanned 430 ceilings: at 216 of
+them the project line takes the room the head tag's fields would have had (`tagged` flips from true
+to false), and the host then carries those fields in a tag of its own — about 60 bytes that sit
+outside the ceiling, which can make an `adapter.injection.overbudget` row. The 10-29 read looks at
+how often `tagged` is false in project folders against other folders, and whether overbudget rows
+appear there; if they do, the line goes after the head's fields (it would then yield to them too).

@@ -5,8 +5,11 @@
 - A belief shows only strictly above 0.3, once a session, and rests while habituated (rated 0 in
   two sessions this week), as a footnote does. The self subject is never named by a turn (it has
   no name; the page is the wake's). A contested belief shows, labelled `contested`.
-- A turn with no memory to show still carries the slot when it names a subject; its reason stays
-  the memories' (`no-candidates`), and the decision row's `beliefs` says what the slot did.
+- A turn with no memory to show still carries the slot when it names a subject. A turn that hands
+  bytes over is `rendered` whatever carried them (review of #588), and the readers of the
+  reason (`fired.ts`, the ring's `recall.quiet`) and of the arrays (the dashboard's narrators, the
+  `adapter.recall` row) read the slot's count; the decision row's `beliefs` says what it did.
+- The slot's use door (`beliefSlot`) opens only for a belief this session's slot showed.
 - A rating of a belief line is a use at its tier, once a lived day (`Store#reinforce`'s
   `beliefSlot`), never support, nothing for a belief about me or us, never co-used or linked as
   shown together; unrated it is no glimpse. Every other door (open, quote, `drewOn`) still credits

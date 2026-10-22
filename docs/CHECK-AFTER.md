@@ -795,7 +795,10 @@ per turn) — fire rate per turn and per session. On `recall.rated` rows: rating
 footnote baseline (10-19: 47% noise, 18% useful), and `notCredited["belief-about-me"]`. Priming: `primed.byTag` on
 the decision rows, and footnote ratings joined per row on `primed.lifted` / `primed.by` / `primed.top` (tunnel
 vision: the longest run of one `top` across consecutive turns of a session). The project line: ring events
-`counterpart.project.shown` / `.noroom` (bytes), and whether its ids are opened or rated later. And the design's
+`counterpart.project.shown` / `.noroom` (bytes), and whether its ids are opened or rated later; and (review of
+#588) how often the line takes the head tag's room — `tagged` false in project folders, 216 of 430 ceilings in the
+reviewer's scan — and whether `adapter.injection.overbudget` rows follow (the host's ~60-byte tag sits outside the
+ceiling; self NOTES). And the design's
 new eval: how often a session repeats something already corrected or re-raises something settled — the slot
 should not raise it.
 

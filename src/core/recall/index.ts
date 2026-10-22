@@ -684,11 +684,17 @@ export class Recall {
 
     const nothingAdmitted =
       gated.surfaced.length === 0 && gated.footnotes.length === 0 && !gated.affectFlag;
-    const reason: DecisionReason = nothingAdmitted
-      ? "all-gated"
-      : rendered.text === ""
-        ? "budget-quiet"
-        : "rendered";
+    // A turn that handed over only the beliefs slot (lane E) RENDERED: bytes
+    // went out, and every reader of `reason` (fired.ts, the narrators, the
+    // ring's `recall.quiet`) must not count it as a quiet turn (review of #588).
+    const reason: DecisionReason =
+      rendered.text !== "" && rendered.beliefs.length > 0
+        ? "rendered"
+        : nothingAdmitted
+          ? "all-gated"
+          : rendered.text === ""
+            ? "budget-quiet"
+            : "rendered";
 
     // The admitted memories the mood lifted, by id (2026-10-14): `moodMatched`
     // counts them all, `moodMatchedIds` names the first MOOD_MATCHED_IDS_CAP.
@@ -898,8 +904,9 @@ export class Recall {
 
   /**
    * A TURN WITH NO MEMORY TO SHOW, AND BELIEFS (lane E): the slot alone,
-   * rendered under the same budget and sentinel. The turn's reason stays the
-   * memories' ("no-candidates"); `beliefs` on the row says what the slot did.
+   * rendered under the same budget and sentinel. When it hands bytes over the
+   * turn's reason is `rendered` (review of #588: a reader of the reason must
+   * not count it as a quiet turn); `beliefs` on the row says it was the slot.
    */
   private beliefsOnly(
     out: BuildOutput,
@@ -932,6 +939,8 @@ export class Recall {
         bytes: rendered.bytes,
         sentinel: rendered.sentinel,
         trimmed: rendered.trimmed.map((x) => ({ lane: x.lane, id: x.id })),
+        // Bytes went out, so the turn RENDERED (review of #588): the slot alone.
+        ...(rendered.text === "" ? {} : { reason: "rendered" as const }),
         beliefs: { offered: picks.offered, shown: rendered.beliefs, bytes: rendered.beliefBytes },
       },
     };
@@ -1000,8 +1009,10 @@ export class Recall {
     const outcome = this.store.reinforce(memoryId, today, tier, {
       ...(cued ? { cued: true } : {}),
       ...(upgradeFrom === undefined ? {} : { upgradeFrom }),
-      // A rating of the beliefs slot (lane E): the one use a belief takes.
-      ...(opts.beliefSlot === true ? { beliefSlot: true } : {}),
+      // A rating of the beliefs slot (lane E): the one use a belief takes —
+      // and only for a belief THIS SESSION'S SLOT SHOWED (review of #588, S1:
+      // the public door must not credit a belief no session was shown).
+      ...(opts.beliefSlot === true && state.beliefs?.[memoryId] !== undefined ? { beliefSlot: true } : {}),
       // The session it came back in (2026-10-11): the core's recurrence lane counts sessions.
       session: sessionId,
     });
@@ -1177,6 +1188,8 @@ export class Recall {
         bytes: d.bytes,
         budget: d.budgetBytes,
         ids: [...d.surfaced, ...d.footnotes].join(","),
+        // The beliefs slot's lines (lane E): a turn may render with these alone.
+        beliefs: d.beliefs?.shown.length ?? 0,
         elapsedMs: d.elapsedMs,
       });
       if (r?.pressure === true) {

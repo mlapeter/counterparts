@@ -574,8 +574,11 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     `BELIEFS_SLOT_MAX` (3), each as `Subject: statement (strength word; N memories)
     [id]` under its own header, after the footnotes — IN ADDITION to them; the
     footnotes stay belief-free (`isBeliefRow`, unchanged). A subject named is enough:
-    a turn with no memory to show still carries the slot (its reason stays the
-    memories'). In the trim order the slot gives way FIRST, weakest belief first, so it
+    a turn with no memory to show still carries the slot, and a turn that hands bytes
+    over is `rendered` whatever carried them (review of #588: `fired.ts`, the narrators
+    and the ring's `recall.quiet` read the reason; the narrators and the `adapter.recall`
+    row read the slot's count too). The slot's door for a use opens only for a belief
+    this session's slot showed (`Recall#resolveUse` checks `GateState.beliefs`). In the trim order the slot gives way FIRST, weakest belief first, so it
     never takes a footnote's room. The sentinel adds `beliefs=N` only when it carried
     one. What it showed is its own gate record (kind `belief`, never `surfaced`: the
     footnote numbers, the credit pass and rating coverage do not see it) and the

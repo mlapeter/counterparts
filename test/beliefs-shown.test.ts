@@ -19,6 +19,8 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { NARRATORS } from "../src/adapters/dashboard/web/narrate.js";
+import { firedReport } from "../src/adapters/fired.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { RECALL_DECISION_EVENT, RECALL_DECISION_FIELDS } from "../src/core/counterpart-events.js";
@@ -98,7 +100,7 @@ function lived(c: Counterpart, body: string, day: number, i: number): string {
  * owner's words on four later days; the clock left on Oct 6. `about` marks
  * the belief about me or us.
  */
-function wrenWorld(c: Counterpart, opts: { about?: "us"; supports?: number; statement?: string } = {}): { wren: string; belief: string } {
+function wrenWorld(c: Counterpart, opts: { about?: "us"; supports?: number; statement?: string; who?: string } = {}): { wren: string; belief: string } {
   const d0 = onDay(c, "2026-10-01");
   for (const body of FILLER) c.store.put({ type: "memory", kind: "fact", body, physics: { birthDay: d0, lastUsedDay: d0 } });
   const wren = c.schemas.mention({ name: "Wren", kind: "person", source: "Wren", chunkRef: "t", day: d0 }).id as string;
@@ -114,7 +116,7 @@ function wrenWorld(c: Counterpart, opts: { about?: "us"; supports?: number; stat
   const n = opts.supports ?? 4;
   for (let i = 0; i < n; i++) {
     const d = onDay(c, `2026-10-0${String(2 + i)}`);
-    const m = lived(c, `Wren said she took the ${String(6 + i)} o'clock ferry again and loved the quiet crossing.`, d, i);
+    const m = lived(c, `${opts.who ?? "Wren"} said she took the ${String(6 + i)} o'clock ferry again and loved the quiet crossing.`, d, i);
     const filed = c.schemas.fileSupport({ beliefId: belief, memoryId: m, stance: "support", day: d });
     if (!filed.ok) throw new Error(filed.reason);
   }
@@ -200,6 +202,34 @@ describe("the beliefs slot in ambient recall (Counterpart#recallForTurn)", () =>
     expect(out.decision.beliefs?.shown).toEqual([belief]);
     expect(out.injection).toContain(`[${belief}]`);
     expect(out.decision.bytes).toBe(new TextEncoder().encode(out.injection).length);
+  });
+
+  test("review of #588 (S2): a turn that hands over only beliefs RENDERED — no recall.quiet, no refusal, and the readers say what went", () => {
+    const events: { name: string }[] = [];
+    const c = Counterpart.open({ dir: join(root, "store"), now: () => clock, timeZone: "UTC", onEvent: (e) => events.push(e) });
+    findable(c.store);
+    open.push(c);
+    const { belief } = wrenWorld(c, { who: "She" });
+    events.splice(0);
+    const out = turn(c, "s-only", "Wren?");
+    expect(out.decision.surfaced).toEqual([]);
+    expect(out.decision.footnotes).toEqual([]);
+    expect(out.decision.beliefs?.shown).toEqual([belief]);
+    expect(out.decision.reason).toBe("rendered");
+    expect(events.some((e) => e.name === "recall.quiet")).toBe(false);
+    expect(events.some((e) => e.name === "recall.rendered")).toBe(true);
+    // fired.ts counts a recall.decision row whose reason is not `rendered` as a refusal.
+    const row = JSON.parse(c.store.eventLog({ name: RECALL_DECISION_EVENT, ref: "s-only" })[0]?.payload ?? "{}") as Record<string, unknown>;
+    expect(row["reason"]).toBe("rendered");
+    const fired = firedReport(c.store, "2026-10-06").rows.find((r) => r.id === "recall-decision");
+    expect(fired?.refusedInWindow ?? 0).toBe(0);
+    // The narrators key on the arrays and the bytes, and now on the slot too.
+    const said = NARRATORS["recall.decision"]({ store: null as never, row: {} as never, p: row }).text;
+    expect(said).not.toContain("I said nothing");
+    expect(said).toContain("beliefs about");
+    const adapterSaid = NARRATORS["adapter.recall"]({ store: null as never, row: {} as never, p: { reason: "rendered", surfaced: 0, footnotes: 0, beliefs: 1, bytes: out.decision.bytes } }).text;
+    expect(adapterSaid).not.toContain("came to nothing");
+    expect(adapterSaid).toContain("one belief");
   });
 
   test("a topic a turn names (a promoted tag) brings its beliefs, under the topic's word", () => {
@@ -375,6 +405,22 @@ describe("the loop, guarded: a rating of the slot is a use, never support (MCP s
     // Habituation off (its revert): it shows again.
     setRecall(c, "HABITUATION_BAR_LIFT", 0);
     expect(turn(c, "s-noise-4").decision.beliefs?.shown).toEqual([belief]);
+  });
+
+  test("review of #588 (S1): the slot's door opens only for a belief this session's slot showed", () => {
+    const c = brain();
+    const { belief } = wrenWorld(c);
+    const before = JSON.stringify(c.store.row(belief));
+    // Never shown to this session: the flag is not honoured, nothing moves.
+    const blind = c.resolveUse("s-never-shown", belief, "useful", { beliefSlot: true });
+    expect(blind.credited).toBe(false);
+    expect(JSON.stringify(c.store.row(belief))).toBe(before);
+    // Shown to another session does not open it here either.
+    expect(turn(c, "s-shown-elsewhere").decision.beliefs?.shown).toEqual([belief]);
+    expect(c.resolveUse("s-never-shown", belief, "useful", { beliefSlot: true }).credited).toBe(false);
+    expect(JSON.stringify(c.store.row(belief))).toBe(before);
+    // Shown to this session: it is the one use a belief takes.
+    expect(c.resolveUse("s-shown-elsewhere", belief, "useful", { beliefSlot: true }).credited).toBe(true);
   });
 
   test("ANY OTHER DOOR still credits a belief nothing (an open, a quote, drewOn): only the slot's rating is a use", () => {
