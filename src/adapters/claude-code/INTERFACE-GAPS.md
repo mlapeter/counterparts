@@ -903,3 +903,23 @@ read the child's transcript under `~/.claude/projects`). Three things it owes:
 3. **Not read:** the morning catch-up's child (its write-up parts are far under any line)
    and ordinary sessions. A cut in a session someone watches is in front of them; one in a
    session nobody watches (a GitHub action) is not seen by anything.
+
+## 19. A second host could not deliver a turn as this one does (2026-10-20, lane 1 handoff) — CLOSED 2026-10-22 (lane L)
+
+The harness (`tools/harness/`) is held to the package's public exports
+(`test/harness-imports.test.ts`), and two things it needed were not there: what a hook
+prints and claims on a turn (`bin/hook.ts#deliverTurn`), and the recall ids a turn's
+transcript expands (`transcript.ts#expansionIdsOf`). `harness week` copied both by hand.
+
+- **`expansionIdsOf`** is exported from `index.ts` beside the other transcript readers;
+  `harness week` reads its model's recall calls through it.
+- **`deliverTurn`**, with `hostDelivery`, `Delivery`, `UpdateNoticeDoors`, `HOST_STOP` and
+  `fieldsFit`, moved unchanged from `bin/hook.ts` into `envelope.ts`, and `index.ts`
+  exports them. Not re-exported from `bin/hook.ts` directly: that file is the hook's entry
+  script, does work at load (its config path, its sibling scripts) and imports `index.ts`
+  itself. `bin/hook.ts` imports them back and re-exports them, so tests and the
+  `bin/hook.ts#deliverTurn` references still hold. A test pins that the public entry's
+  import graph reaches no `bin/` file.
+- **Not done:** `harness week`'s own `claim` still claims whatever a hook offers without
+  asking whether the envelope had room. Moving it onto `deliverTurn` would change what
+  `harness week` reports on a full-wake day; that is its own change, with a compare.

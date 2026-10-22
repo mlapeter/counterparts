@@ -43,7 +43,7 @@ import { resultFindings } from "../src/adapters/claude-code/doctor.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart, MCP_PART_EVENT, MCP_SPILLED_EVENT } from "../src/core/counterpart.js";
 import { TUNABLES as SCHEMAS_TUNABLES } from "../src/core/schemas/index.js";
-import { nightRunOf } from "../src/core/dream/index.js";
+import { NIGHT_RUN_KEY, nightChildSessions, nightRunOf } from "../src/core/dream/index.js";
 import type { NightRun } from "../src/core/dream/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
@@ -555,6 +555,122 @@ describe("the run reads its child's transcript once it exits", () => {
     const out = await runNight({ ...night(child(null)), start: async () => ({ code: null, timedOut: false, error: "Error", spawnCode: "ENOENT" }) });
     expect(out.state).toBe("could-not-start");
     expect(out.transcript).toBeUndefined();
+  });
+});
+
+describe("2026-10-22, lane L: the night's row names each child's own session id", () => {
+  /** A dream child and a reflection child, each doing its own part, each id it ran under kept. */
+  function twoChildren(seen: { child: string; id: string }[]) {
+    return async (plan: ChildPlan) => {
+      const at = plan.args.indexOf("--session-id");
+      const id = at < 0 ? "" : (plan.args[at + 1] ?? "");
+      const reflection = plan.stdin.includes("reflection launch⟧");
+      seen.push({ child: reflection ? "reflection" : "dream", id });
+      const c = openNightCounterpart(config());
+      try {
+        if (reflection) {
+          const d = c.store.dreams({ limit: 1 })[0]?.id ?? "";
+          const r = c.reflections.begin({ session: "s1", dream: d });
+          if (!r.ok) throw new Error(r.reason);
+          c.reflections.finish({ reflection: r.bundle.reflection, session: "s1", entry: "Nothing much tonight." });
+        } else {
+          const d = c.dreams.begin({ session: "s1" });
+          if (!d.ok) throw new Error(d.reason);
+          c.dreams.journal({ dream: d.bundle.dream, session: "s1", title: "Boot order", text: "A dream." });
+        }
+      } finally {
+        c.close();
+      }
+      return { code: 0, timedOut: false, error: null };
+    };
+  }
+
+  const doneRow = (c: Counterpart): Record<string, unknown> | undefined =>
+    c.store
+      .eventLog({ name: "dream.night" })
+      .map((e) => JSON.parse(e.payload ?? "{}") as Record<string, unknown>)
+      .find((p) => p["state"] === "done");
+
+  test("each child's --session-id is on the run, on the row read back, and on the event row", async () => {
+    lived(openNight());
+    const seen: { child: string; id: string }[] = [];
+    const out = await runNight({ ...night(twoChildren(seen)) });
+    expect(out.state).toBe("done");
+    expect(seen.map((s) => s.child)).toEqual(["dream", "reflection"]);
+    for (const s of seen) expect(s.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(seen[0]?.id).not.toBe(seen[1]?.id);
+    expect(out.children?.map((c) => [c.child, c.hostSession])).toEqual(seen.map((s) => [s.child, s.id]));
+    const c = openNight();
+    expect(nightRunOf(c.store)?.children?.map((x) => x.hostSession)).toEqual(seen.map((s) => s.id));
+    const done = doneRow(c);
+    expect(done?.["childSessions"]).toBe(seen.map((s) => `${s.child}:${s.id}`).join(","));
+    // The words the log and the dashboard show are unchanged.
+    expect(done?.["children"]).toBe("dream:0,reflection:0");
+  });
+
+  test("a child retried without --session-id records none: its host chose the id, and this process never learns it", async () => {
+    lived(openNight());
+    const out = await runNight({
+      ...night(child(null)),
+      start: async (plan: ChildPlan) => {
+        if (plan.args.includes("--session-id")) return { code: 1, timedOut: false, error: null };
+        dreamAndReflect();
+        return { code: 0, timedOut: false, error: null };
+      },
+    });
+    expect(out.state).toBe("done");
+    expect(out.children?.[0]?.child).toBe("dream");
+    expect(out.children?.[0]?.hostSession).toBeUndefined();
+    const done = doneRow(openNight());
+    expect(done).toBeDefined();
+    expect(done?.["childSessions"]).toBeUndefined();
+  });
+
+  test("the tagging child is kept on the row read back from meta, with its own session id", async () => {
+    (SCHEMAS_TUNABLES as { TAGS_NIGHT: boolean }).TAGS_NIGHT = true;
+    lived(openNight());
+    const seen: { child: string; id: string }[] = [];
+    const two = twoChildren(seen);
+    const tags: string[] = [];
+    const out = await runNight({
+      ...night(two),
+      start: async (plan: ChildPlan) => {
+        if (plan.stdin.includes("You are tidying the tags")) {
+          const at = plan.args.indexOf("--session-id");
+          tags.push(at < 0 ? "" : (plan.args[at + 1] ?? ""));
+          return { code: 0, timedOut: false, error: null };
+        }
+        return two(plan);
+      },
+    });
+    expect(out.state).toBe("done");
+    expect(tags).toHaveLength(1);
+    expect(tags[0]).toMatch(/^[0-9a-f-]{36}$/);
+    const ids = [...seen.map((s) => [s.child, s.id]), ["tags", tags[0]]];
+    expect(out.children?.map((c) => [c.child, c.hostSession])).toEqual(ids);
+    const c = openNight();
+    expect(nightRunOf(c.store)?.children?.map((x) => [x.child, x.code, x.hostSession])).toEqual(ids.map(([child, id]) => [child, 0, id]));
+    expect(doneRow(c)?.["childSessions"]).toBe(ids.map(([child, id]) => `${child}:${id}`).join(","));
+  });
+
+  test("a row written by 0.3.31, with no hostSession, reads back as before", () => {
+    const c = openNight();
+    c.store.setMeta(
+      NIGHT_RUN_KEY,
+      '{"run":"nrn_old","date":"2026-10-21","kind":"night","session":"s1","startedAt":1,"timeoutMs":2,"state":"done","endedAt":3,"dream":"drm_000000000001","reflection":"rfl_000000000001","reason":null,"detail":null,"code":0,"parts":["writer","dream","reflection"],"children":[{"child":"dream","code":0,"ms":10},{"child":"reflection","code":0,"ms":20},{"child":"tags","code":0,"ms":5}]}',
+    );
+    expect(nightRunOf(c.store)?.children).toEqual([
+      { child: "dream", code: 0, ms: 10 },
+      { child: "reflection", code: 0, ms: 20 },
+      { child: "tags", code: 0, ms: 5 },
+    ]);
+    expect(nightChildSessions(nightRunOf(c.store)?.children ?? [])).toBeNull();
+  });
+
+  test("a child that never started records no session", async () => {
+    const out = await runNight({ ...night(child(null)), start: async () => ({ code: null, timedOut: false, error: "Error", spawnCode: "ENOENT" }) });
+    expect(out.state).toBe("could-not-start");
+    expect(out.children?.[0]?.hostSession).toBeUndefined();
   });
 });
 

@@ -2646,3 +2646,23 @@ running both, found confusing. The npm install now leaves `npm-live.json` beside
   folder under `~/.claude/projects` for its directory.
 - `tools/harness/week.ts` drops the flag for its scripted person's turns, which
   `--resume` the session and whose hooks read its transcript.
+
+## 2026-10-22 — the night's row names each child's session; the turn's delivery is public (lane L)
+
+- **Each child's `--session-id` is on the row** (`NightChildRun.hostSession`, set by
+  `runNightChild` and carried by `NightAnswer.hostSession`), and on the `dream.night` event
+  as `childSessions` (`dream:<id>,reflection:<id>`). No store change: the row is JSON in
+  meta and in the event's payload. Recorded only when the child that ran is the one named:
+  a plain retry (a host that refused the flag) ran under an id its host chose, and a child
+  that never started has none. `children`, the words the log and the dashboard show, is
+  unchanged.
+- **The harness matches by name first**: `tools/harness/night.ts#nightRowFor` finds the
+  row naming a transcript's `sessionId` and takes the night's reflection by id; a row from
+  before (or a transcript from elsewhere) falls back to the time window, and the record
+  says which (`matchedBy`).
+- **`deliverTurn` and its envelope moved to `envelope.ts`**, unchanged, so `index.ts`
+  exports them without loading the hook's entry script (INTERFACE-GAPS §19).
+- Fixed on the way: `core/dream#childRunOf` read back only `dream` and `reflection`
+  children, so a `tags` child (10-21) was dropped from a row read back from meta (the
+  run's own return and the event's `children` words kept it). It now keeps `tags`, with
+  its `hostSession`.

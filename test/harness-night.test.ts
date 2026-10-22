@@ -20,7 +20,7 @@ import { runNight } from "../src/adapters/claude-code/night-run.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { runningBuild } from "../src/core/store/operational.js";
-import { learnIds, readChild, recordedSeat, replayNight, withIds } from "../tools/harness/night.js";
+import { learnIds, nightRowFor, readChild, recordedSeat, replayNight, withIds } from "../tools/harness/night.js";
 
 let root: string;
 let dir: string;
@@ -47,12 +47,14 @@ function snapshotOf(from: string, to: string): void {
 const use = (id: string, name: string, input: unknown): unknown => ({ type: "tool_use", id, name, input });
 const result = (id: string, text: string): unknown => ({ type: "tool_result", tool_use_id: id, content: [{ type: "text", text }] });
 
-function transcript(path: string, calls: { name: string; input: unknown; answer: unknown }[]): void {
-  const lines: string[] = [line({ type: "user", timestamp: "2026-03-10T07:00:00.000Z", message: { role: "user", content: "THE LAUNCH PROMPT" } })];
+/** A transcript as the host writes one; `sessionId` on every line when given, as Claude Code writes it. */
+function transcript(path: string, calls: { name: string; input: unknown; answer: unknown }[], sessionId?: string): void {
+  const s = sessionId === undefined ? {} : { sessionId };
+  const lines: string[] = [line({ type: "user", ...s, timestamp: "2026-03-10T07:00:00.000Z", message: { role: "user", content: "THE LAUNCH PROMPT" } })];
   calls.forEach((c, i) => {
     const at = new Date(Date.parse("2026-03-10T07:00:00.000Z") + (i + 1) * 1_000).toISOString();
-    lines.push(line({ type: "assistant", timestamp: at, message: { role: "assistant", content: [use(`t${String(i)}`, c.name, c.input)] } }));
-    lines.push(line({ type: "user", timestamp: at, message: { role: "user", content: [result(`t${String(i)}`, typeof c.answer === "string" ? c.answer : JSON.stringify(c.answer))] } }));
+    lines.push(line({ type: "assistant", ...s, timestamp: at, message: { role: "assistant", content: [use(`t${String(i)}`, c.name, c.input)] } }));
+    lines.push(line({ type: "user", ...s, timestamp: at, message: { role: "user", content: [result(`t${String(i)}`, typeof c.answer === "string" ? c.answer : JSON.stringify(c.answer))] } }));
   });
   writeFileSync(path, lines.join("\n") + "\n");
 }
@@ -214,6 +216,109 @@ test("a scripted night, recorded and replayed on a copy of the store before it, 
   const text = JSON.stringify(r);
   for (const words of ["relief valve", "Valves and loops", "Dreamt of"]) expect(text).not.toContain(words);
   expect(readdirSync(work)).toEqual([]);
+});
+
+test("2026-10-22, lane L: the night's reflection is found by the children's session ids on its row, and by time when the row names none", async () => {
+  let clock = Date.parse("2026-03-10T07:00:00.000Z");
+  const open = (): Counterpart => Counterpart.open({ dir, now: () => clock, timeZone: "UTC" });
+  const c = open();
+  for (const body of ["The relief valve is seated before the pump runs.", "Loop two loses pressure when the valve is late."]) {
+    c.store.put({ type: "memory", kind: "fact", body, salience: { novelty: null, relevance: 0.7, emotional: 0.3, predictive: 0.6 } });
+  }
+  c.close();
+  const source = join(root, "pre-night.sqlite");
+  snapshotOf(join(dir, "counterparts.sqlite"), source);
+
+  const session = "ses-night";
+  const calls: { name: string; input: Record<string, unknown>; answer: unknown }[] = [];
+  const live = open();
+  const server = new McpServer({ counterpart: live, session, scope: root, env: { COUNTERPARTS_NIGHT_CHILD: "dream", COUNTERPARTS_NIGHT_RUN: "nrn_real" }, now: () => clock });
+  const call = async (tool: string, input: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    clock += 1_000;
+    const out = (await server.call(tool, input)).structuredContent;
+    calls.push({ name: `mcp__counterparts__${tool}`, input, answer: out });
+    return out;
+  };
+  const dreamId = (await call("dream", { phase: "begin", session }))["dream"] as string;
+  await call("dream", { phase: "journal", dream: dreamId, session, title: "Valves and loops", text: `Dreamt of ${dreamId}.` });
+  // THE REFLECTION, three hours on: outside the transcripts' time window, so only its row's names find it.
+  clock += 3 * 3_600_000;
+  const r = live.reflections.begin({ session, dream: dreamId });
+  if (!r.ok) throw new Error(r.reason);
+  live.reflections.finish({ reflection: r.bundle.reflection, session, entry: "Nothing much tonight." });
+  const DREAM_CHILD = "11111111-1111-4111-8111-111111111111";
+  const REFLECTION_CHILD = "22222222-2222-4222-8222-222222222222";
+  const row = { run: "nrn_real", date: "2026-03-10", kind: "night" as const, session, startedAt: Date.parse("2026-03-10T07:00:00.000Z"), reason: null, detail: null, code: 0 };
+  live.dreams.recordNightRun({ ...row, state: "started", endedAt: null, dream: null, reflection: null, children: [{ child: "dream", code: null, ms: 0, hostSession: DREAM_CHILD }] });
+  live.dreams.recordNightRun({
+    ...row,
+    state: "done",
+    endedAt: clock,
+    dream: dreamId,
+    reflection: r.bundle.reflection,
+    children: [
+      { child: "dream", code: 0, ms: 1, hostSession: DREAM_CHILD },
+      { child: "reflection", code: 0, ms: 1, hostSession: REFLECTION_CHILD },
+    ],
+  });
+  live.close();
+  const outcome = join(root, "after.sqlite");
+  snapshotOf(join(dir, "counterparts.sqlite"), outcome);
+
+  const replay = async (sessions: [string | undefined, string | undefined], from = outcome) => {
+    const dreamT = join(root, "dream.jsonl");
+    transcript(dreamT, calls, sessions[0]);
+    const reflectionT = join(root, "reflection.jsonl");
+    transcript(reflectionT, [], sessions[1]);
+    return replayNight({ source, outcome: from, dreamTranscript: dreamT, reflectionTranscript: reflectionT, workRoot: join(root, "work"), timeZone: "UTC", embed: false, env: { HOME: join(root, "home") } });
+  };
+
+  // A ROW THAT NAMES NO DREAM, whose reflection is on another (here: none):
+  // the by-id path checks the reflection's own dream and falls back to time.
+  const otherOutcome = join(root, "after-other.sqlite");
+  copyFileSync(outcome, otherOutcome);
+  const OTHER_CHILD = "55555555-5555-4555-8555-555555555555";
+  const o = new Database(otherOutcome);
+  o.run("UPDATE reflections SET dream_id = NULL WHERE id = ?", [r.bundle.reflection]);
+  o.run("INSERT INTO events (at, day, name, ref, payload) VALUES (?, 0, 'dream.night', 'nrn_other', ?)", [
+    clock,
+    JSON.stringify({ state: "done", dream: null, reflection: r.bundle.reflection, childSessions: `reflection:${OTHER_CHILD}` }),
+  ]);
+  o.close();
+  const noDream = await replay([undefined, OTHER_CHILD], otherOutcome);
+  expect(noDream.matchedBy).toBe("time");
+  expect(noDream.reflection).toBeNull();
+
+  // The reflection child's id alone is enough; and so is the dream child's.
+  const byReflection = await replay([undefined, REFLECTION_CHILD]);
+  expect(byReflection.matchedBy).toBe("session");
+  expect(byReflection.reflection?.state.recorded).toBe("reflected");
+  const byDream = await replay([DREAM_CHILD, undefined]);
+  expect(byDream.matchedBy).toBe("session");
+  expect(byDream.reflection?.state.recorded).toBe("reflected");
+  // No ids in the transcripts, or ids no row names: by time, which misses a reflection three hours on.
+  for (const ids of [[undefined, undefined], ["33333333-3333-4333-8333-333333333333", undefined]] as [string | undefined, string | undefined][]) {
+    const byTime = await replay(ids);
+    expect(byTime.matchedBy).toBe("time");
+    expect(byTime.reflection).toBeNull();
+  }
+  // The row read straight: the `started` row (no outcome yet) is passed over for the run's later one.
+  const db = new Database(outcome, { readonly: true });
+  try {
+    expect(nightRowFor(db, [DREAM_CHILD])).toEqual({ run: "nrn_real", dream: dreamId, reflection: r.bundle.reflection });
+    expect(nightRowFor(db, [null])).toBeNull();
+  } finally {
+    db.close();
+  }
+});
+
+test("a transcript's own session id is read off its lines; none, null", () => {
+  const withId = join(root, "with.jsonl");
+  transcript(withId, [], "44444444-4444-4444-8444-444444444444");
+  expect(readChild(withId).session).toBe("44444444-4444-4444-8444-444444444444");
+  const without = join(root, "without.jsonl");
+  transcript(without, []);
+  expect(readChild(without).session).toBeNull();
 });
 
 test("a replay refuses a live source, a preset data dir, and a dream transcript that never began a dream", async () => {
