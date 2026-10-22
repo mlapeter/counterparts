@@ -172,7 +172,8 @@ export const TUNABLES = {
   BELIEF_SESSION_BIRTHS_PER_DAY: 2,
   /**
    * …and only from the owner's words, my own choice, or a vivid moment: a
-   * memory felt at the time at least this strongly. CAL.
+   * memory felt at the time at least this strongly (its recorded feelings'
+   * peak, not a caller's `emotional` score). CAL.
    */
   BELIEF_SESSION_VIVID: 0.6,
 } as const;

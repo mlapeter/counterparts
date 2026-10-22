@@ -246,11 +246,17 @@ name/alias resolution; birth and death telemetry.
     passing no bar; a dream's never, a reflection's only once the belief is contested.
     **Other births and the correction** (lane C3): a session may write one in the moment
     (`Counterpart#sessionBelief`, `remember`'s `belief`) — from the owner's words, my own
-    choice or a strongly felt moment only, on the self subject, route `session`, at most
-    `BELIEF_SESSION_BIRTHS_PER_DAY` a lived day, a repeat filed to the belief it repeats.
-    The owner's words that a belief is wrong (`Counterpart#correctBelief`, lane D's button;
-    or an awake write `said_by` owner that `updates` it) settle it `corrected` at once
-    (`revision.ts`), past the update guard, which reads anyone else's update of one.
+    choice or a moment felt strongly at the time (its recorded feelings) only, on the self
+    subject, route `session`, at most `BELIEF_SESSION_BIRTHS_PER_DAY` a lived day, kept to
+    `MAX_BELIEF_CHARS`; a repeat is refused `near-duplicate` and files nothing (the
+    reflection files what fits, once). The owner's words that a belief is wrong
+    (`Counterpart#correctBelief`, lane D's button — a bare "That's wrong." is enough; or an
+    awake write `said_by` owner that `updates` it) settle it `corrected` at once, the
+    owner's settle (`revision.ts`, reading the row, not the index), past the update guard,
+    which reads anyone else's update of one. **Across processes**: a belief another process
+    wrote is learned on a miss by id, and every unseen one before a subject's beliefs are
+    read — its meta only; a card another process named reaches this process's alias index
+    at its next open, as before, for now.
     **Invisible for now**:
     recall's candidates, facts mode and the core lanes leave belief rows out by role
     (`meta.role: belief`) until lanes E and F, each behind its own switch.

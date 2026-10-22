@@ -727,7 +727,7 @@ const REMEMBER: ToolSpec = {
       belief: {
         type: "object",
         description:
-          "Rare, optional: a belief about me or about us this memory plainly shows — the owner's own words (saidBy owner), my real choice (saidBy self), or a strongly felt moment. One short claim; it starts weak and grows only as life backs it. Most memories carry none: the night's reflection draws beliefs from them. One that says what a belief already says is counted for that belief instead.",
+          "Rare, optional: a belief about me or about us this memory plainly shows — the owner's own words (saidBy owner), my real choice (saidBy self), or a strongly felt moment. One short claim; it starts weak and grows only as life backs it. Most memories carry none: the night's reflection draws beliefs from them. One that says what a belief already says is refused with that belief's id; the memory stands, and the night's reflection may count it there.",
         properties: {
           statement: { type: "string" },
           about: { type: "string", enum: ["me", "us"] },

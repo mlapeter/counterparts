@@ -308,7 +308,13 @@ export class Schemas {
   private learn(id: string): boolean {
     if (this.notElements.has(id)) return false;
     const row = this.store.row(id);
-    if (row === undefined || row.type !== "schema" || rowTombstoned(row) || this.store.deniedIds().includes(id)) return false;
+    if (row === undefined) return false;
+    // A memory never becomes a schema row: asked once (an update's target), not read again.
+    if (row.type !== "schema") {
+      this.notElements.add(id);
+      return false;
+    }
+    if (rowTombstoned(row) || this.store.deniedIds().includes(id)) return false;
     let rec: MetaRecord | null;
     try {
       rec = toMetaRecord(readProseWalking(this.store, id, row).meta);

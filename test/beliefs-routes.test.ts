@@ -257,6 +257,17 @@ describe("two processes on one store", () => {
     expect(out.deposited).toBe(true);
     expect(b.store.row(bid)?.archived).toBe(1);
   });
+
+  test("corrected in the other before it read any belief at all", async () => {
+    const a = brain();
+    const b = brain();
+    nextDay(a);
+    const me = a.schemas.ensureSelfSubject();
+    const bid = a.schemas.addBelief({ entityId: me, statement: "We work best at dawn.", day: a.store.livedDay(), birthRoute: "reflection", about: "us" }).id as string;
+    const out = await b.correctBelief({ beliefId: bid, text: "That's wrong.", session: SESSION, scope: "/work" });
+    expect(out.deposited).toBe(true);
+    expect(b.store.row(bid)?.archived).toBe(1);
+  });
 });
 
 describe("through the remember tool", () => {
