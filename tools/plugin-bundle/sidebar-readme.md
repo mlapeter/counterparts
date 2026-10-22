@@ -74,7 +74,9 @@ memory, never in a `claude -p` run, a paused folder, or after you've typed).
   variables (`TERM_PROGRAM`, `TERM`, `KITTY_WINDOW_ID`, `WEZTERM_EXECUTABLE`, `HOME`,
   `USERPROFILE`, `CLAUDE_CONFIG_DIR`, `COUNTERPARTS_CONFIG`, `COUNTERPARTS_SIDEBAR_SESSION`);
   the text hooks add to the session, to find Counterparts' own markers; the name of each tool
-  call, and for Counterparts' own the arguments and the result.
+  call, and for Counterparts' own the arguments and the result; when each of Claude's turns
+  in the main session starts, takes a step and ends, so the fox is at work while a turn runs
+  (nothing of the turn's content).
 - **Runs.** No process, no command, no tool call. The one message above, and on a click a
   command put in your empty prompt box.
 - **Sends.** Nothing over the network.
