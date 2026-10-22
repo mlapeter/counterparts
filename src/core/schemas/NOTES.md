@@ -843,15 +843,28 @@ identity core), unsorted 160 after. The ask takes 10 a night, most-linked first:
 Counterparts, Claude and Anthropic on night 1, Katie on night 2, and the last of them (the two
 Allex twins) on night 13.
 
-**The twins: not merged here.** The brief asked to merge the existing twin cards (50 pairs on the
-copy, not 40: ten more were born on lived day 31, before #578 reached live) through the dream's
-merge path. That path can't take a card. `Dreams.showable` refuses any row that isn't
-`type: memory` (dream CONTRACT §3: "no ... schema row"). The merge mints a new `type: memory` row
-from the originals. The settle door it goes through (`reconsolidation.ts#doorRefusal`) refuses an
-entity as `not-a-memory`. Its record (`dreams` + `dream_changes`, `Dreams.undo`) could carry a
-change with no schema change only under a `dreams` row, and every reader of that table takes such
-a row for a night's dream: `lastDream`, the night run's "began anything since", the dashboard and
-doctor. So it was stopped and reported. On the copy every pair has identical
-`memory_subjects` sets, no aliases, no beliefs, no folders and the same birth day. A merge
-there is "archive one card with a reason of its own, record the card it stands under, undo =
-un-archive", with nothing to move.
+**The twins: not through the dream's path, then built on their own.** The brief asked to merge
+the existing twin cards (50 pairs on the copy, not 40: ten more were born on lived day 31, before
+#578 reached live) through the dream's merge path. That path can't take a card. `Dreams.showable`
+refuses any row that isn't `type: memory` (dream CONTRACT §3: "no ... schema row"). The merge
+mints a new `type: memory` row from the originals. The settle door it goes through
+(`reconsolidation.ts#doorRefusal`) refuses an entity as `not-a-memory`. Its record (`dreams` +
+`dream_changes`, `Dreams.undo`) could carry a change with no schema change only under a `dreams`
+row, and every reader of that table takes such a row for a night's dream: `lastDream`, the night
+run's "began anything since", the dashboard and doctor. The roadmap session's ruling: reuse was
+only ever about being recorded and undoable, so build that directly.
+
+`mergeTwinCards` runs first in the `births` phase, once per store, behind `TWINS_MERGE`. Its
+record (`schemas.twins.merged`: the pairs and what was skipped) is written first, and its
+presence is the once. For each pair that differs in nothing a merge could lose, it records
+`schemas.twin.<gone>` (`{keep, day, at}`) and archives the second-born under `card-twin`. Its
+own reason means the dedup door (`unarchiveMerged`) can't reach it, and the twin door
+(`owner-op-seam#unarchiveTwin`, `counterparts dream --undo-twins`) can reach nothing else.
+Nothing moves, because the elder already holds the same links, aliases and kind. The archived
+card goes out of the alias index and not into the faded one: the elder holds the name live. An
+undone twin comes back to a long-lived index at its next `adopt`, and the pass doesn't run
+again. It merges no physics: the twin's uses stay on the twin, as two races' credits were
+never one card's. Skipped and counted: three or more cards, and links, aliases, a belief or
+current state, a folder, protection or the identity core, or kinds that differ. On the copy
+every pair has identical `memory_subjects` sets, no aliases, no beliefs, no folders and the same
+birth day.

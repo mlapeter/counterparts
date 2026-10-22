@@ -169,6 +169,15 @@ name/alias resolution; birth and death telemetry.
    untouched; its tag and merged words are `meta.topic` / `meta.topicAliases`, its
    `subject_kind` is `topic`, and its memories are the tagged ones (no `memory_subjects`
    rows). Behind `TAGS_NIGHT`. Lightly held, check 2026-10-26.
+   **Since 2026-10-22, one name has one live card again** (`Schemas#mergeTwinCards`, first
+   in the `births` phase, once per store, behind `TWINS_MERGE`): the pairs the race #578
+   closed are merged by archiving the second-born under `TWIN_REASON` (`card-twin`, never the
+   dedup pass's `merged`) and recording the card it stands under (`schemas.twin.<id>`), so
+   nothing moves and the owner's undo is un-archiving (`store/owner-op-seam.ts#unarchiveTwin`,
+   `counterparts dream --undo-twins`). A group of three or more, or a pair whose links,
+   aliases, beliefs, folders, protection or kinds differ, is left alone and counted.
+   A card's kind of SUBJECT is the night's to judge, not its birth kind's (`store/`
+   CONTRACT; `tags.ts#repairBirthKindSubjects`).
 4. **[M] Exact and near name collisions refuse, loudly**, and the refusal is a distinct
    record from "not proposed" (scar §2.4 — v1's zero births were ambiguous precisely
    because the two were indistinguishable). **The proposal is logged, not only the

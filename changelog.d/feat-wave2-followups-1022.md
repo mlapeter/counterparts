@@ -1,3 +1,7 @@
+- **One name, one card again.** Once, the night merges the pairs of cards that share a name (from a
+  race fixed in 0.3.31): the younger card of each pair is archived under the older one and nothing
+  else changes. A pair that differs in any way is left alone. `counterparts dream --undo-twins` puts
+  them back.
 - **A card is no longer called a person or a place just because of how it was born.** "Counterparts"
   had been filed as a place and "Anthropic" as a person, from a single memory each. Only your own
   card is a person without anyone judging it now. Once, the night hands the cards the upgrade sorted

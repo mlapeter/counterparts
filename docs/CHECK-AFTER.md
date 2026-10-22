@@ -880,21 +880,26 @@ wakes, or its ids never drawn on → turn it off.
 **Revert.** Each switch false: `recall.BELIEFS_IN_RECALL`, `recall.TAGS_PRIME`, `self.WAKE_PROJECT_LINE` (each off
 is the build without it, byte for byte); or revert the PR. Compare first with `harness compare --set …=false`.
 
-## Due ~2026-10-29 (card kinds back to the night; twin cards still standing — wave 2 follow-ups, 2026-10-22)
+## Due ~2026-10-29 (card kinds back to the night; twin cards merged once — wave 2 follow-ups, 2026-10-22)
 
 **What changed.** A card's birth kind no longer counts as its kind of subject. Only the identity core is a person
 without a judgement. Once per store, the night's tags phase gives the rows the old rule wrote back to the kinds
 ask (`schemas.kinds.repaired` holds each id and what it was). On the 10-22 corpus copy that was 10 cards:
 Counterparts (place), and Anthropic, Claude, Katie, Montaigne, Clark, Jason, Ellis and the two Allex cards (person).
-The 50 same-name twin card pairs were NOT merged: the dream's merge path can't take a card (PR body).
+The same-name twin cards are merged once per store by the births phase (`schemas.TWINS_MERGE`, on):
+the younger card of each pair is archived `card-twin` under the elder (`schemas.twin.<id>`, the run in
+`schemas.twins.merged`). On the copy that was all 50 pairs, none skipped; live cards 161 → 111.
 
 **What to look at, on the 10-29 snapshot (a copy).** The kind distribution of live entity cards:
 `SELECT coalesce(subject_kind,'NULL'), COUNT(*) FROM memories WHERE type='schema' AND json_extract(meta,'$.role')='entity' AND archived=0 AND body != '' GROUP BY 1`,
 and who set each kind (`meta` keys `schemas.subjectKind.%`, `by`). Did the ask call Counterparts a project and
 Anthropic not a person? Twin pairs still live:
 `SELECT lower(json_extract(meta,'$.name')) n, COUNT(*) c FROM memories WHERE type='schema' AND json_extract(meta,'$.role')='entity' AND archived=0 AND body != '' AND coalesce(json_extract(meta,'$.name'),'') != '' GROUP BY n HAVING c > 1`
-(50 on the 10-22 copy; any rise means a new race).
+(50 on the 10-22 copy, 0 expected after the first night; any above 0 is a pair the pass skipped,
+counted in `schemas.twins.merged`'s `skipped`, or a new race).
 
 **What would change it.** The ask sorting people wrongly, or too slowly (10 a night) → raise `TAGS_KINDS_PER_NIGHT`,
-or bring back the person rule for cards the ask has not reached. **Revert.** Revert the commit; the repaired rows
-stay NULL until the ask sorts them (the record lists what each was).
+or bring back the person rule for cards the ask has not reached. A twin the owner wants back →
+`counterparts dream --undo-twins [card]`. **Revert.** `schemas.TWINS_MERGE=false` before the pass runs (it runs
+once; after it, the undo door); revert the commits for the rest. The repaired kinds stay NULL until the ask
+sorts them (the record lists what each was).
