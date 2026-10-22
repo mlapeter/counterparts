@@ -831,7 +831,14 @@ export function unarchiveTwin(store: Store, id: string): UntwinReport {
       rec = {};
     }
     const keep = typeof rec["keep"] === "string" ? rec["keep"] : null;
-    if (row.archived === 0) return { id, keep, noop: true };
+    // ALREADY LIVE: nothing to un-archive, but the owner's undo still stands
+    // on the record (review of #593), so the twin pass never archives it again.
+    if (row.archived === 0) {
+      if (raw !== undefined && typeof rec["undone"] !== "string") {
+        db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, JSON.stringify({ ...rec, undone: store.today() }));
+      }
+      return { id, keep, noop: true };
+    }
     db.run("UPDATE memories SET archived = 0, archived_reason = NULL, updated_at = ? WHERE id = ?", store.now(), id);
     db.run("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", key, JSON.stringify({ ...rec, undone: store.today() }));
     return { id, keep, noop: false };

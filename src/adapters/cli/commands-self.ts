@@ -84,7 +84,10 @@ export function dreamCommand(dir: string, io: Io, parsed: Parsed, observer: bool
           io.err(`  ${t.id}: not put back (${String((err as { code?: unknown }).code ?? err)})`);
         }
       }
-      io.out(`Put back ${String(back)} twin ${back === 1 ? "card" : "cards"}. Each one's name is held twice again; the record is kept, marked undone, and the night does not merge them again.`);
+      io.out(`Put back ${String(back)} twin ${back === 1 ? "card" : "cards"}; each record is kept, marked undone.`);
+      // The cost, said plainly (review of #593), and what stays.
+      io.out("  The cost: each name is held by two cards again, so a new memory naming it links to neither, and the night will not merge them again.");
+      io.out("  The links the night gave the older card (memories that named it while the twins lived) stay: they are true.");
       return EXIT.ok;
     } finally {
       counterpart.close();

@@ -18,7 +18,8 @@ import { leftAs } from "../src/core/leaving.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { TUNABLES as SCHEMAS, TWINS_MERGED_KEY, TWIN_PREFIX } from "../src/core/schemas/index.js";
 import { phaseReport } from "../src/core/sleep/index.js";
-import { Store } from "../src/core/store/index.js";
+import { Store, V14_UPGRADE_KEY } from "../src/core/store/index.js";
+import { upgradeV14Findings } from "../src/adapters/claude-code/doctor.js";
 import { CARD_TWIN_ARCHIVE_REASON, TWIN_RECORD_PREFIX, unarchiveTwin } from "../src/core/store/owner-op-seam.js";
 
 let root: string;
@@ -112,7 +113,7 @@ describe("the twin pass, through the night", () => {
     for (const id of [t.inesOld, t.inesNew, t.bram1, t.bram2, t.bram3, t.tomasOld, t.tomasNew]) expect(archived(c.store, id as string)).toBeNull();
     expect(JSON.parse(c.store.getMeta(`${TWIN_PREFIX}${t.wrenNew}`) ?? "{}")).toMatchObject({ keep: t.wrenOld });
     const record = JSON.parse(c.store.getMeta(TWINS_MERGED_KEY) ?? "{}") as { merged: unknown[]; skipped: Record<string, number> };
-    expect(record.merged).toEqual([{ keep: t.wrenOld, gone: t.wrenNew }]);
+    expect(record.merged).toEqual([{ keep: t.wrenOld, gone: t.wrenNew, name: "Wren" }]);
     expect(record.skipped).toEqual({ "links-differ": 1, "not-a-pair": 1, "aliases-differ": 1 });
     // The elder holds the name alone now; the twin left as "replaced".
     expect(c.schemas.subjectsIn("Wren came by again.")).toEqual([t.wrenOld]);
@@ -165,6 +166,91 @@ describe("the twin pass, through the night", () => {
   });
 });
 
+describe("review of #593", () => {
+  test("a memory written while the twins lived — linked to neither — is linked to the keeper after the night", async () => {
+    const c = brain();
+    const t = twins(c);
+    // Written between the twin births and the merge: two live cards hold "Wren", so neither takes it.
+    const between = (
+      await c.submitJot({ content: "Wren dropped off the spare gate key this morning on the way to work." }, { session: "s2", scope: "/proj/one" })
+    ).memoryId as string;
+    expect(c.store.subjectsOf(between)).toEqual([]);
+    // As an upgraded store's record reads, so doctor's v14 line shows (a store born at v14 has none).
+    c.store.setMeta(V14_UPGRADE_KEY, JSON.stringify({ from: "13", day: 3, confidentialDropped: true, confidentialCounted: 0, subjects: {} }));
+    expect(upgradeV14Findings(c.store)[0]?.detail).not.toContain("twin");
+    c.wake(9_000);
+    await c.sessionEnd({ date: "2026-10-21" });
+    expect(archived(c.store, t.wrenNew)).toBe(CARD_TWIN_ARCHIVE_REASON);
+    expect(c.store.subjectsOf(between)).toEqual([t.wrenOld]);
+    expect(c.store.subjectLinksOf(between)[0]?.via).toBe("birth");
+    // Doctor says what the pass came to, and the way back.
+    expect(upgradeV14Findings(c.store)[0]?.detail).toContain(
+      "On 2026-10-21 the night merged 1 twin card (one name, two cards) into the older card of each pair, which gained the links of 1 memory written while the twins lived; counterparts dream --undo-twins puts them back.",
+    );
+    // A write after the merge links to the keeper at once.
+    const after = (await c.submitJot({ content: "Wren came back for the ladder he lent us last spring." }, { session: "s3", scope: "/proj/one" })).memoryId as string;
+    expect(c.store.subjectsOf(after)).toEqual([t.wrenOld]);
+  });
+
+  test("an archive that throws on the second pair: the plan stands, the next night finishes it, and nothing is recorded for a twin still live", async () => {
+    const c = brain();
+    const m1 = mem(c, "Sol and Uma painted the porch.");
+    const sol1 = card(c, "Sol", [m1]);
+    const sol2 = card(c, "Sol", [m1]);
+    const uma1 = card(c, "Uma", [m1]);
+    const uma2 = card(c, "Uma", [m1]);
+    const real = c.store.archive.bind(c.store);
+    let calls = 0;
+    c.store.archive = (id: string, reason: string): void => {
+      if (reason === CARD_TWIN_ARCHIVE_REASON && ++calls === 2) throw new Error("disk full");
+      real(id, reason);
+    };
+    const first = c.schemas.mergeTwinCards(0);
+    // Whichever pair came first went; the second's archive threw.
+    expect(first.merged).toHaveLength(1);
+    const went = first.merged[0]?.gone as string;
+    const stuck = went === sol2 ? uma2 : sol2;
+    expect([archived(c.store, went), archived(c.store, stuck)]).toEqual([CARD_TWIN_ARCHIVE_REASON, null]);
+    expect(c.store.getMeta(`${TWIN_PREFIX}${stuck}`)).toBeUndefined();
+    // The undo door has nothing to say about a twin the pass never archived.
+    expect(() => unarchiveTwin(c.store, stuck)).toThrow(/UNTWIN_NOT_A_TWIN/);
+    c.store.archive = real;
+    // A racing worker's empty plan does not stand over the first's.
+    const plan = c.store.getMeta(TWINS_MERGED_KEY);
+    expect((JSON.parse(plan ?? "{}") as { merged: unknown[] }).merged).toHaveLength(2);
+    // The next night finishes the job, through the night entry.
+    c.wake(9_000);
+    await c.sessionEnd({ date: "2026-10-21" });
+    expect([archived(c.store, sol1), archived(c.store, sol2), archived(c.store, uma1), archived(c.store, uma2)]).toEqual([null, CARD_TWIN_ARCHIVE_REASON, null, CARD_TWIN_ARCHIVE_REASON]);
+    expect(JSON.parse(c.store.getMeta(`${TWIN_PREFIX}${stuck}`) ?? "{}")).toMatchObject({ keep: stuck === uma2 ? uma1 : sol1 });
+    const after = JSON.parse(c.store.getMeta(TWINS_MERGED_KEY) ?? "{}") as { merged: unknown[]; archived: number };
+    expect(after.merged).toEqual((JSON.parse(plan ?? "{}") as { merged: unknown[] }).merged);
+    expect(after.archived).toBe(2);
+    expect(c.schemas.mergeTwinCards(1).ran).toBe(false);
+  });
+
+  test("undo on a planned twin still live (a record the first build wrote before its archive) marks the record, so the pass never takes it", () => {
+    const c = brain();
+    const m = mem(c, "Vic fixed the bike.");
+    const vic1 = card(c, "Vic", [m]);
+    const vic2 = card(c, "Vic", [m]);
+    const real = c.store.archive.bind(c.store);
+    c.store.archive = (): void => {
+      throw new Error("disk full");
+    };
+    c.schemas.mergeTwinCards(0);
+    c.store.archive = real;
+    expect(archived(c.store, vic2)).toBeNull();
+    // What the first version of this PR left: the twin's record, written before an archive that failed.
+    c.store.setMeta(`${TWIN_PREFIX}${vic2}`, JSON.stringify({ keep: vic1, day: 0, at: 0 }));
+    const out = unarchiveTwin(c.store, vic2);
+    expect(out).toEqual({ id: vic2, keep: vic1, noop: true });
+    expect(JSON.parse(c.store.getMeta(`${TWIN_PREFIX}${vic2}`) ?? "{}")).toHaveProperty("undone");
+    expect(c.schemas.mergeTwinCards(1).ran).toBe(false);
+    expect(archived(c.store, vic2)).toBeNull();
+  });
+});
+
 describe("the undo door", () => {
   async function cli(argv: readonly string[]): Promise<{ code: number; out: string[]; err: string[] }> {
     const out: string[] = [];
@@ -173,12 +259,14 @@ describe("the undo door", () => {
     return { code, out, err };
   }
 
-  test("counterparts dream --undo-twins puts the twin back, marks its record, and the night does not merge it again", async () => {
+  test("counterparts dream --undo-twins puts the twin back, marks its record, keeps the elder's backlinks, says the cost, and the night does not merge it again", async () => {
     const c = brain();
     const t = twins(c);
+    const between = (await c.submitJot({ content: "Wren dropped off the spare gate key this morning on the way to work." }, { session: "s2", scope: "/proj/one" })).memoryId as string;
     c.wake(9_000);
     await c.sessionEnd({ date: "2026-10-21" });
     expect(archived(c.store, t.wrenNew)).toBe(CARD_TWIN_ARCHIVE_REASON);
+    expect(c.store.subjectsOf(between)).toEqual([t.wrenOld]);
     for (const x of open.splice(0)) x.close();
 
     expect((await cli(["dream", "--undo-twins", "--observer"])).code).toBe(2);
@@ -187,13 +275,17 @@ describe("the undo door", () => {
     const back = await cli(["dream", "--undo-twins"]);
     expect(back.code).toBe(0);
     expect(back.out).toContain(`  ${t.wrenNew as string} (stood under ${t.wrenOld as string}) is back`);
-    expect(back.out.at(-1)).toStartWith("Put back 1 twin card.");
+    expect(back.out).toContain("Put back 1 twin card; each record is kept, marked undone.");
+    expect(back.out.join("\n")).toContain("a new memory naming it links to neither");
+    expect(back.out.join("\n")).toContain("stay: they are true");
     const again = await cli(["dream", "--undo-twins"]);
     expect(again.code).toBe(2);
 
     const c2 = brain();
     expect(archived(c2.store, t.wrenNew)).toBeNull();
     expect(JSON.parse(c2.store.getMeta(`${TWIN_RECORD_PREFIX}${t.wrenNew}`) ?? "{}")).toMatchObject({ keep: t.wrenOld, undone: expect.any(String) });
+    // The backlinks the pass added stay on the elder: they are true links.
+    expect(c2.store.subjectsOf(between)).toEqual([t.wrenOld]);
     clock += 86_400_000;
     await c2.sessionEnd({ date: "2026-10-22" });
     expect(archived(c2.store, t.wrenNew)).toBeNull();

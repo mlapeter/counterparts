@@ -1994,16 +1994,28 @@ export class Schemas {
    * (`aliases-differ`); a belief or current state on either
    * (`has-beliefs`); a folder on either (`has-folders`); either protected or
    * the identity core (`protected`); birth or subject kinds that differ
-   * (`kinds-differ`). Once per store: the record `TWINS_MERGED_KEY` is
-   * written first, so a second run (or a second worker) finds it and does
-   * nothing. `TWINS_MERGE` off: no pass, no record. A dry run (an observer)
-   * reports what it would do and writes nothing.
+   * (`kinds-differ`).
+   *
+   * THE KEEPER LOOKS BACK (review of #593): while the twins lived, a name two
+   * live cards held linked to neither (`subjectsIn`), so the memories written
+   * then name the keeper and are linked to no card. Once its twin is out of
+   * the index, each keeper links every memory naming it (`linkNamingMemories`'
+   * rule, one pass for all keepers, `via: birth`, an existing link left as it
+   * is; fail-open). The owner's undo leaves those links: they are true.
+   *
+   * Once per store, and FINISHED if interrupted (review of #593): the plan
+   * (`TWINS_MERGED_KEY`) is written first, only if no other worker wrote one
+   * (theirs is then the plan), and its presence means the pass is not planned
+   * again. While a planned twin is still live and its record is not `undone`,
+   * each night finishes it: archive first, then its record (`TWIN_PREFIX`), so
+   * a record never names a card that is still live. `TWINS_MERGE` off: nothing
+   * at all. A dry run (an observer) reports what it would do and writes nothing.
    */
   mergeTwinCards(day: number, opts: { dryRun?: boolean } = {}): TwinMergeReport {
     const dryRun = opts.dryRun === true;
-    if (!TUNABLES.TWINS_MERGE || this.store.getMeta(TWINS_MERGED_KEY) !== undefined) {
-      return { ran: false, dryRun, groups: 0, merged: [], skipped: {} };
-    }
+    if (!TUNABLES.TWINS_MERGE) return { ran: false, dryRun, groups: 0, merged: [], skipped: {}, linked: 0 };
+    const prior = this.twinPlan();
+    if (prior !== null) return this.finishTwins(prior, day, dryRun, { groups: 0, skipped: {} });
     this.adopt();
     this.catchUp();
     const groups = new Map<string, { id: string; row: MemoryRow; rec: MetaRecord }[]>();
@@ -2045,26 +2057,78 @@ export class Schemas {
       else if (!same(this.store.memoriesNaming(keep.id, { archived: true }), this.store.memoriesNaming(gone.id, { archived: true }))) skip("links-differ");
       else merged.push({ keep: keep.id, gone: gone.id, name: keep.rec.name ?? "" });
     }
-    if (dryRun) return { ran: true, dryRun, groups: found, merged, skipped };
-    // Recorded first, the whole plan, as the prune and the dedup record theirs:
-    // an archive nobody could account for is a silent loss of a card.
-    const at = this.store.now();
-    this.store.setMeta(TWINS_MERGED_KEY, JSON.stringify({ at, date: this.store.today(), day, merged: merged.map((m) => ({ keep: m.keep, gone: m.gone })), skipped }));
-    const done: TwinMerge[] = [];
-    for (const m of merged) {
+    if (dryRun) return this.finishTwins(merged, day, true, { groups: found, skipped });
+    // The plan first, and only if no other worker wrote one: an archive nobody
+    // could account for is a silent loss of a card, and a second worker's
+    // empty plan must not stand over the first's.
+    const plan = JSON.stringify({ at: this.store.now(), date: this.store.today(), day, merged: merged.map((m) => ({ keep: m.keep, gone: m.gone, name: m.name })), skipped });
+    this.store.updateMeta(TWINS_MERGED_KEY, (cur) => (cur === undefined ? plan : undefined));
+    return this.finishTwins(this.twinPlan() ?? merged, day, false, { groups: found, skipped });
+  }
+
+  /** The twin pass's plan on record, or null before it ran. An unreadable record is an empty plan (it ran). */
+  private twinPlan(): TwinMerge[] | null {
+    const raw = this.store.getMeta(TWINS_MERGED_KEY);
+    if (raw === undefined) return null;
+    try {
+      const rec = JSON.parse(raw) as { merged?: unknown };
+      const list = Array.isArray(rec.merged) ? (rec.merged as Record<string, unknown>[]) : [];
+      return list.flatMap((m) => (typeof m["keep"] === "string" && typeof m["gone"] === "string" ? [{ keep: m["keep"], gone: m["gone"], name: typeof m["name"] === "string" ? m["name"] : "" }] : []));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * THE PLAN CARRIED OUT, or finished: each planned twin still live whose
+   * record is not `undone` is archived, then recorded; then every keeper of a
+   * twin archived under the plan looks back for the memories naming it. A
+   * twin that cannot be archived (a throw) is left for the next night.
+   */
+  private finishTwins(plan: readonly TwinMerge[], day: number, dryRun: boolean, found: { groups: number; skipped: Record<string, number> }): TwinMergeReport {
+    const undone = (gone: string): boolean => {
       try {
-        if (this.store.row(m.gone)?.archived !== 0) continue;
-        this.store.setMeta(`${TWIN_PREFIX}${m.gone}`, JSON.stringify({ keep: m.keep, day, at }));
+        return typeof (JSON.parse(this.store.getMeta(`${TWIN_PREFIX}${gone}`) ?? "{}") as Record<string, unknown>)["undone"] === "string";
+      } catch {
+        return false;
+      }
+    };
+    const todo = plan.filter((m) => this.store.row(m.gone)?.archived === 0 && !undone(m.gone));
+    // A twin archived by a pass a kill cut short before its record: recorded now.
+    const unrecorded = plan.filter((m) => this.store.row(m.gone)?.archived_reason === TUNABLES.TWIN_REASON && this.store.getMeta(`${TWIN_PREFIX}${m.gone}`) === undefined);
+    if (todo.length === 0 && unrecorded.length === 0 && found.groups === 0) return { ran: false, dryRun, groups: 0, merged: [], skipped: {}, linked: 0 };
+    if (dryRun) return { ran: true, dryRun, groups: found.groups, merged: todo, skipped: found.skipped, linked: 0 };
+    const at = this.store.now();
+    const record = (m: TwinMerge): void => this.store.setMeta(`${TWIN_PREFIX}${m.gone}`, JSON.stringify({ keep: m.keep, day, at }));
+    for (const m of unrecorded) record(m);
+    const done: TwinMerge[] = [];
+    for (const m of todo) {
+      try {
         this.store.archive(m.gone, TUNABLES.TWIN_REASON);
+        record(m);
         this.index.unregister(m.gone);
         this.emit("schema.twin.merged", m.gone, { keep: m.keep, day });
         done.push(m);
       } catch {
-        /* removed since, or another worker took it: the record says what was planned */
+        /* removed since, or the write failed: still planned, the next night finishes it */
       }
     }
-    this.emit("schema.twins.sweep", undefined, { day, groups: found, merged: done.length, skipped: Object.values(skipped).reduce((n, v) => n + v, 0) });
-    return { ran: true, dryRun, groups: found, merged: done, skipped };
+    const keepers = [...new Set([...done, ...unrecorded].map((m) => m.keep))];
+    const linked = this.linkNamingMemoriesOf(keepers);
+    // What it came to, on the plan's own record (doctor's v14 line reads it):
+    // how many of the planned twins stand archived, and the links gained.
+    try {
+      const archivedNow = plan.filter((m) => this.store.row(m.gone)?.archived_reason === TUNABLES.TWIN_REASON).length;
+      this.store.updateMeta(TWINS_MERGED_KEY, (cur) => {
+        if (cur === undefined) return undefined;
+        const rec = JSON.parse(cur) as Record<string, unknown>;
+        return JSON.stringify({ ...rec, archived: archivedNow, linked: (typeof rec["linked"] === "number" ? rec["linked"] : 0) + linked });
+      });
+    } catch {
+      /* the counts are a courtesy; the twins' own records stand */
+    }
+    this.emit("schema.twins.sweep", undefined, { day, groups: found.groups, merged: done.length, linked, skipped: Object.values(found.skipped).reduce((n, v) => n + v, 0) });
+    return { ran: true, dryRun, groups: found.groups, merged: done, skipped: found.skipped, linked };
   }
 
   /**
@@ -2523,6 +2587,56 @@ export class Schemas {
    * the card is born whatever this does, and an event says so when it fails —
    * and the count is null then, so a caller can tell a failure from "none".
    */
+  /**
+   * `linkNamingMemories` for several cards in ONE pass over the memories (the
+   * twin pass's keepers, review of #593): the same rule per card — its name
+   * and aliases, only those it alone holds live — and the same fail-open
+   * (a card that fails links nothing, said). Returns the links added in all.
+   */
+  private linkNamingMemoriesOf(cardIds: readonly string[]): number {
+    // Each term with its lower-cased words: the whole-name regex is slow
+    // (~0.6 ms a test on the owner's corpus), so it runs only on a text that
+    // holds the term's letters at all — a cheap superset check.
+    const cards: { id: string; terms: { re: RegExp; lower: string }[] }[] = [];
+    for (const cardId of cardIds) {
+      const terms = this.index.termsFor(cardId);
+      if (terms === undefined) continue;
+      const kept = [terms.name, ...terms.aliases]
+        .filter((t) => handleKey(t).length >= TUNABLES.NAME_MIN_CHARS)
+        .filter((t) => {
+          const live = this.liveHolders(t);
+          return live.length === 1 && live[0] === cardId;
+        })
+        .map((t) => ({ re: nameRegex(t), lower: t.trim().toLowerCase() }));
+      if (kept.length > 0) cards.push({ id: cardId, terms: kept });
+    }
+    if (cards.length === 0) return 0;
+    const links = new Map<string, { memoryId: string; subjectId: string }[]>();
+    try {
+      for (const m of this.store.memoryTexts()) {
+        const text = m.title === null || m.title.length === 0 ? m.body : `${m.title}\n${m.body}`;
+        const lower = text.toLowerCase();
+        for (const c of cards) {
+          if (c.terms.some((t) => lower.includes(t.lower) && t.re.test(text))) links.set(c.id, [...(links.get(c.id) ?? []), { memoryId: m.id, subjectId: c.id }]);
+        }
+      }
+    } catch (err) {
+      this.emit("schema.subjects.failed", undefined, { via: "birth", reason: String((err as { code?: string }).code ?? "UNKNOWN") });
+      return 0;
+    }
+    let total = 0;
+    for (const [cardId, list] of links) {
+      try {
+        const added = this.store.linkSubjects(list, "birth");
+        if (added > 0) this.emit("schema.subjects.linked", cardId, { via: "birth", links: added });
+        total += added;
+      } catch (err) {
+        this.emit("schema.subjects.failed", cardId, { via: "birth", reason: String((err as { code?: string }).code ?? "UNKNOWN") });
+      }
+    }
+    return total;
+  }
+
   private linkNamingMemories(cardId: string): number | null {
     try {
       const terms = this.index.termsFor(cardId);

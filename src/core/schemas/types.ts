@@ -465,6 +465,8 @@ export interface TwinMergeReport {
   readonly merged: readonly TwinMerge[];
   /** Groups left alone, by why (`not-a-pair`, `links-differ`, `aliases-differ`, `has-beliefs`, `has-folders`, `protected`, `kinds-differ`). */
   readonly skipped: Readonly<Record<string, number>>;
+  /** Memories naming a keeper that it linked once its twin was gone (written while the twins lived, they were linked to neither). */
+  readonly linked: number;
 }
 
 export interface NameBirthOptions {

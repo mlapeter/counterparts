@@ -943,7 +943,7 @@ const DREAM_FLAG_HELP: Record<string, string> = {
   "undo-tags":
     "take back the night's tagging: the newest night's, or the run named after the flag and every night since — the tags it wrote, the tag merges it made and the card kinds it set (one changed since stays). Its \"not the same\" answers stay",
   "undo-twins":
-    "put back the twin cards the night archived (two live cards with one name, merged once into the elder): every one, or the card named after the flag. Each record is kept, marked undone",
+    "put back the twin cards the night archived (two live cards with one name, merged once into the elder): every one, or the card named after the flag. Each record is kept, marked undone, and the links the night gave the elder stay. The cost: the name is held twice again, so a new memory naming it links to neither card, and the night will not merge them again",
   setting:
     "auto, ask or off — the nightly run (page writer, dream, reflection). ask (the default): the first session of a day shows you the question in the terminal and waits for you to say \"dream\" (or \"dream on your own\", which turns on auto); auto: the first session of a day starts it by itself, in a separate windowless claude -p in the background, and says so in one line; off: no dreams. `counterparts dream` prints the setting.",
 };

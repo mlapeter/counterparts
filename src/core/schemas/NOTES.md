@@ -868,3 +868,21 @@ never one card's. Skipped and counted: three or more cards, and links, aliases, 
 current state, a folder, protection or the identity core, or kinds that differ. On the copy
 every pair has identical `memory_subjects` sets, no aliases, no beliefs, no folders and the same
 birth day.
+
+**Review of #593, two fixes.**
+- *The keeper looks back.* While two live cards held a name, `subjectsIn` gave it to neither, so the
+  memories written while the twins lived were linked to no card. Each keeper now links every memory
+  naming it once its twin is out of the index. It uses `linkNamingMemories`' rule, `via: birth`,
+  fail-open, in one pass for all keepers. A lower-cased substring check gates the whole-name regex,
+  which costs ~0.6 ms a test on the owner's corpus. On a copy of the 10-22 snapshot that came to 287
+  links on 224 memories across 23 cards: 262 links on 208 live memories, LoCoMo 99, Google 35,
+  Vercel 34, OpenRouter 24. The pass took 378 ms (3.9 s without the check). The owner's undo
+  leaves those links, because they are true. Its cost is said in the CLI and help: the name is held
+  twice again, so new memories naming it link to neither card.
+- *An interrupted pass finishes.* The plan was written first and an archive failure was swallowed,
+  so the next night returned `ran: false` and the pair stayed twins for good. Now the plan
+  is written only if none exists (`updateMeta`), so a racing worker's empty plan never stands over
+  the first's. While a planned twin is still live and its record isn't `undone`, each night
+  finishes it: the archive first, then its record. A twin archived without its record (a kill
+  between the two) is recorded on the next run. `unarchiveTwin` marks the record `undone` on its
+  no-op path too. Doctor's v14 line reads the plan's `archived` and `linked` counts.

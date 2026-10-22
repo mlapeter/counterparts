@@ -62,7 +62,7 @@ export function repairBirthKindSubjects(store: Store, apply: boolean): number {
   if (!apply) return fixed.length;
   // Recorded first, as the prune and the merge record theirs: a kind taken
   // back that nobody could account for is worse than one a kill left as it was.
-  store.setMeta(KINDS_REPAIR_KEY, JSON.stringify({ at: Date.now(), date: store.today(), ids: fixed }));
+  store.setMeta(KINDS_REPAIR_KEY, JSON.stringify({ at: store.now(), date: store.today(), ids: fixed }));
   for (const f of fixed) store.setSubjectKind(f.id, null);
   return fixed.length;
 }

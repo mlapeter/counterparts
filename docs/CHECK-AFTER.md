@@ -888,7 +888,8 @@ ask (`schemas.kinds.repaired` holds each id and what it was). On the 10-22 corpu
 Counterparts (place), and Anthropic, Claude, Katie, Montaigne, Clark, Jason, Ellis and the two Allex cards (person).
 The same-name twin cards are merged once per store by the births phase (`schemas.TWINS_MERGE`, on):
 the younger card of each pair is archived `card-twin` under the elder (`schemas.twin.<id>`, the run in
-`schemas.twins.merged`). On the copy that was all 50 pairs, none skipped; live cards 161 → 111.
+`schemas.twins.merged`). On the copy that was all 50 pairs, none skipped; live cards 161 → 111; the keepers gained 287
+links on 224 memories (23 cards) that named them while the twins lived (`linked` on the record; doctor's v14 line says both).
 
 **What to look at, on the 10-29 snapshot (a copy).** The kind distribution of live entity cards:
 `SELECT coalesce(subject_kind,'NULL'), COUNT(*) FROM memories WHERE type='schema' AND json_extract(meta,'$.role')='entity' AND archived=0 AND body != '' GROUP BY 1`,
