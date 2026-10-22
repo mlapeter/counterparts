@@ -104,9 +104,10 @@ function server(over: Parameters<typeof openServer>[0] = {}): McpServer {
   // sidebar is here), so every server here reads a configuration under the
   // temp root, never the real ~/.claude, and no plugin root it was not given.
   const base: Record<string, string | undefined> = over.env === undefined ? { ...process.env, CLAUDE_PLUGIN_ROOT: undefined, CLAUDE_CODE_PLUGIN_CACHE_DIR: undefined } : { ...over.env };
-  const env = { ...base, CLAUDE_CONFIG_DIR: base["CLAUDE_CONFIG_DIR"] ?? join(root, "claude-config-none") };
-  if (!String(env.CLAUDE_CONFIG_DIR).startsWith(root) || (env.CLAUDE_CODE_PLUGIN_CACHE_DIR !== undefined && !env.CLAUDE_CODE_PLUGIN_CACHE_DIR.startsWith(root))) {
-    throw new Error(`a test server would read Claude Code's configuration outside the temp root: ${env.CLAUDE_CONFIG_DIR}`);
+  const env: Record<string, string | undefined> = { ...base, CLAUDE_CONFIG_DIR: base["CLAUDE_CONFIG_DIR"] ?? join(root, "claude-config-none") };
+  const cache = env["CLAUDE_CODE_PLUGIN_CACHE_DIR"];
+  if (!String(env["CLAUDE_CONFIG_DIR"]).startsWith(root) || (cache !== undefined && !cache.startsWith(root))) {
+    throw new Error(`a test server would read Claude Code's configuration outside the temp root: ${String(env["CLAUDE_CONFIG_DIR"])}`);
   }
   const s = openServer({ dir: storeDir, session: "sess-meet-1", scope: proj, scopesFile, now: () => SERVER_NOW, ...over, env });
   open.push(s);
