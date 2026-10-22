@@ -331,6 +331,28 @@ describe("delta review of #593: the finish path asks again", () => {
   });
 });
 
+describe("approval nit on #593", () => {
+  test("a look-back that throws is owed: the record says so, and the next night links the keeper", async () => {
+    const c = brain();
+    const t = twins(c);
+    const between = (await c.submitJot({ content: "Wren dropped off the spare gate key this morning on the way to work." }, { session: "s2", scope: "/proj/one" })).memoryId as string;
+    const texts = c.store.memoryTexts.bind(c.store);
+    c.store.memoryTexts = () => {
+      throw new Error("read failed");
+    };
+    c.schemas.mergeTwinCards(0);
+    c.store.memoryTexts = texts;
+    expect(archived(c.store, t.wrenNew)).toBe(CARD_TWIN_ARCHIVE_REASON);
+    expect(c.store.subjectsOf(between)).toEqual([]);
+    expect(JSON.parse(c.store.getMeta(TWINS_MERGED_KEY) ?? "{}")).toMatchObject({ linked: 0, lookBackOwed: true });
+    c.wake(9_000);
+    await c.sessionEnd({ date: "2026-10-21" });
+    expect(c.store.subjectsOf(between)).toEqual([t.wrenOld]);
+    expect(JSON.parse(c.store.getMeta(TWINS_MERGED_KEY) ?? "{}")).toMatchObject({ linked: 1, linkedMemories: 1, lookBackOwed: false });
+    expect(c.schemas.mergeTwinCards(1).ran).toBe(false);
+  });
+});
+
 describe("the undo door", () => {
   async function cli(argv: readonly string[]): Promise<{ code: number; out: string[]; err: string[] }> {
     const out: string[] = [];

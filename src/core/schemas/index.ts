@@ -2121,7 +2121,8 @@ export class Schemas {
     // record has no `linked` yet, so every keeper of a merged twin looks back.
     const lookedBack = (() => {
       try {
-        return (JSON.parse(this.store.getMeta(TWINS_MERGED_KEY) ?? "{}") as Record<string, unknown>)["linked"] !== undefined;
+        const rec = JSON.parse(this.store.getMeta(TWINS_MERGED_KEY) ?? "{}") as Record<string, unknown>;
+        return rec["linked"] !== undefined && rec["lookBackOwed"] !== true;
       } catch {
         return true;
       }
@@ -2179,15 +2180,18 @@ export class Schemas {
           merged: list.map((m) => (typeof m["gone"] === "string" && dropped.has(m["gone"]) ? { ...m, dropped: dropped.get(m["gone"]) } : m)),
           skipped: was,
           archived: archivedNow,
-          linked: num("linked") + look.links,
-          linkedMemories: num("linkedMemories") + look.memories,
+          linked: num("linked") + (look?.links ?? 0),
+          linkedMemories: num("linkedMemories") + (look?.memories ?? 0),
+          // A look-back that threw is owed (approval nit on #593): the next
+          // night looks back for every keeper again, the counts kept.
+          lookBackOwed: look === null,
         });
       });
     } catch {
       /* the counts are a courtesy; the twins' own records stand */
     }
-    this.emit("schema.twins.sweep", undefined, { day, groups: found.groups, merged: done.length, linked: look.links, dropped: dropped.size });
-    return { ran: true, dryRun, groups: found.groups, merged: done, skipped, linked: look.links };
+    this.emit("schema.twins.sweep", undefined, { day, groups: found.groups, merged: done.length, linked: look?.links ?? 0, lookBackOwed: look === null, dropped: dropped.size });
+    return { ran: true, dryRun, groups: found.groups, merged: done, skipped, linked: look?.links ?? 0 };
   }
 
   /**
@@ -2650,9 +2654,10 @@ export class Schemas {
    * `linkNamingMemories` for several cards in ONE pass over the memories (the
    * twin pass's keepers, review of #593): the same rule per card — its name
    * and aliases, only those it alone holds live — and the same fail-open
-   * (a card that fails links nothing, said). Returns the links added in all.
+   * (a card that fails links nothing, said). Returns the links added and the
+   * distinct live memories they are on, or null when the scan itself threw.
    */
-  private linkNamingMemoriesOf(cardIds: readonly string[]): { links: number; memories: number } {
+  private linkNamingMemoriesOf(cardIds: readonly string[]): { links: number; memories: number } | null {
     // Each term with its lower-cased words: the whole-name regex is slow
     // (~0.6 ms a test on the owner's corpus), so it runs only on a text that
     // holds the term's letters at all — a cheap superset check.
@@ -2683,7 +2688,7 @@ export class Schemas {
       }
     } catch (err) {
       this.emit("schema.subjects.failed", undefined, { via: "birth", reason: String((err as { code?: string }).code ?? "UNKNOWN") });
-      return { links: 0, memories: 0 };
+      return null;
     }
     let total = 0;
     const onLive = new Set<string>();
