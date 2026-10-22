@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.3.32 — 2026-10-22
+
+The sidebar is now a plugin of its own, `counterparts-sidebar`, and `counterparts` is the memory alone. If you use the plugin, the update (`/plugin marketplace update counterparts`) removes the sidebar; `/plugin install counterparts-sidebar@counterparts` brings it back, starting from the default view, theme and avatar. With the npm install beside both plugins, doctor's Claude Code line is green: the plugin stays installed for the sidebar and stands down. Open threads change meaning: an item is open only when someone owes an answer (a question to you, a check with a date, a promise), and one nobody has touched in 21 lived days, with no date and not a question you were asked, stops being carried in the wake and offered to the reflection; it is not closed, and using or revising it carries it again. **The first morning after upgrading counts the whole untouched backlog at once**, so that morning's share may say a large number left; it says the number once, never the list. Beliefs now show: the strongest two or three about a person, project or topic a message names come up beside the footnotes, and a project's folder may open with a short line of them. Doctor gains a Builds line. The core from beliefs is built and off (`self.CORE_FROM_BELIEFS`). No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
+
+- **The sidebar is a plugin of its own: `counterparts-sidebar`.** `counterparts` is now the
+  memory alone (hooks, memory server, commands); the pane beside the chat comes with
+  `/plugin install counterparts-sidebar@counterparts`, which installs `counterparts` too
+  if it isn't there. If you already have the plugin, `claude plugin update
+  counterparts@counterparts` moves you to memory alone and the sidebar goes until you
+  install it; installing the sidebar before that update stops and tells you to run it, so
+  you never get two panes. The sidebar starts with the default view, theme and avatar.
+  With the npm install, adding the sidebar plugin gives one pane and every memory tool
+  once, as before.
+- **Doctor beside the sidebar plugin.** With the npm install, the `counterparts` plugin and
+  the `counterparts-sidebar` plugin (the way to get the sidebar with the npm install), doctor's
+  Claude Code line is green now: it says the plugin is installed for the sidebar, which needs
+  it, and stands down. It is amber only when both installs really run (a plugin build that
+  doesn't stand down), and then it says to update the plugin, never to uninstall it. The
+  plugin's one session-start line there says the same: nothing needs to change.
+- **The first meeting's close** names `/counterparts` only where a sidebar answers it: with
+  the sidebar plugin (installed, on, and with a `counterparts` it accepts), or a
+  `counterparts` plugin from before the split. That now includes the npm install beside
+  the sidebar plugin.
+- **"Open" now means someone owes an answer.** A memory is marked open only for a question to
+  you, a check with a date, or a promise; a bug note, a design note or a fact is kept without
+  the open flag. The end-of-session ask says so too.
+- **The end-of-session ask names that session's own open items**, by title, up to five, so
+  closing one is a glance at a line rather than a search. A session with nothing open sees the
+  ask as before.
+- **Open items nobody has touched in three weeks stop being carried** (an experiment). One with
+  no date and not a question you were asked, untouched for 21 lived days, leaves the wake's
+  "Still open" and its count, and the nightly reflection stops being offered it. It is not
+  closed: recall still finds it, and using it (rating it, drawing on it) or revising it carries
+  it again; only seeing it again in a footnote does not. The morning share says how many left,
+  once, never the list.
+- **What I believe about something comes up when you mention it.** When a message names a person,
+  project or topic I hold beliefs about, the strongest two or three appear in their own short
+  block beside the usual footnotes, each with how sure I am and how many memories back it. Rating
+  one counts as using it, never as evidence for it.
+- **A project's folder opens with what I hold about the project** (an experiment): a short line of
+  its strongest beliefs at the foot of the wake, only when there is room left.
+- **Tags help warm up related memories.** Memories sharing a tag with what a session is using get
+  a small head start in recall, beside the links that already do.
+- **Doctor names the builds this store has run.** Each new version, the first time it
+  opens the store, notes the day it arrived, and what it writes (memories, the night's
+  rows, the log) carries its version, so a later look can say which build did what.
+  Doctor's new green Builds line lists the last three. Nothing else changes; a `"build"`
+  key now shows wherever a row is printed raw (`--json`, exports, the dashboard's raw rows).
+- **The core from beliefs, built and off.** With `self.CORE_FROM_BELIEFS` on, the night's
+  reflection would state as settled in the core only what a well-backed belief about me or
+  us says. It is off (a code tunable, not a setting), so nothing about the core changes in
+  this release.
+
 ## 0.3.31 — 2026-10-22
 
 This release changes the store's format (v13 to v14), so **after installing, quit the dashboard and every open Claude Code session, then start them again**: one left running from before the update keeps the old code against the upgraded store and stops working on it (the dashboard answers with errors) until it is restarted; an older version that opens the store afresh refuses it plainly. The first open saves a copy of your store before upgrading it, and doctor gains one green line saying what the upgrade did. Going back to 0.3.30 is `counterparts rollback` (it puts that copy back; anything written since is set aside, not deleted), then 0.3.30's install and `counterparts connect` as it prints. What you will see: the dashboard has a subjects tab, a page for every person, project, place and topic your memories name, under a tag cloud. Memories can carry a few tags, and each night tidies them and, in a short separate step on a small model, tags memories that have none and sorts cards into person, project, place or topic. The night's reflection and dream start forming beliefs from real memories; nothing shows them in sessions, the wake or the core yet. Related folders can be one project (`counterparts project join`, or a yes when the morning share asks), and craft learned in one folder takes turns in every folder's "Work here"; work from another project needs a slightly stronger match to come up while you talk. Two fixes: one nightly cycle at a time per store, and a name no longer gets two cards (cards already doubled stay doubled for now). The night's tag work and the beliefs are each one switch in the tunables (`schemas.TAGS_NIGHT`, `schemas.BELIEFS_BIRTH`), both on. Store v14, cache v7 unchanged; no wiring change, so `counterparts connect` is not needed after upgrading.
