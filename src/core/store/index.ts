@@ -66,6 +66,7 @@ import { isObserver } from "../observer.js";
 import type { Stance } from "../observer.js";
 import {
   BIRTH_ROUTES,
+  BUILD_LOG_PREFIX,
   CLAIMS_ERA_CUTOFF_KEY,
   CLAIMS_ERA_RECORDED_KEY,
   CONFIDENTIAL_RETIRED_IDS,
@@ -74,12 +75,18 @@ import {
   RECURRING_META,
   SCHEMA_VERSION,
   SUBJECT_KINDS,
+  buildLogKeys,
   deterministicSubjectKind,
   olderFirst,
   openOperational,
+  parseBuildLog,
   rowToPhysics,
   rowTombstoned,
+  runningBuild,
+  settingsInForce,
+  withBuild,
 } from "./operational.js";
+import type { BuildLogLine } from "./operational.js";
 import type {
   ContradictionRow,
   CoreEventRow,
@@ -332,7 +339,7 @@ export type { RollbackHold } from "./rollback-hold.js";
 export { normalizeTag } from "./wave2.js";
 export type { CardLink, TagUse, UnkindedCard, UntaggedMemory } from "./tag-reads.js";
 export type { RecallTurnInput, SupportInput, SupportRead } from "./wave2.js";
-export type { ChapterSummaryKind } from "./operational.js";
+export type { BuildLogLine, ChapterSummaryKind, SettingInForce } from "./operational.js";
 export {
   PRE_MIGRATION_NAME_RE,
   PRE_MIGRATION_TAG,
@@ -364,6 +371,16 @@ export {
   CLAIMS_ERA_CUTOFF_KEY,
   CLAIMS_ERA_RECORDED_KEY,
   CONFIDENTIAL_RETIRED_KEY,
+  BUILD_LOG_PREFIX,
+  BUILD_UNKNOWN,
+  buildLogKeys,
+  parseBuildLog,
+  readBuildFrom,
+  runningBuild,
+  setRunningBuild,
+  settingsInForce,
+  setSettingsInForce,
+  withBuild,
   CLAIMED_DEFAULT_SPELLED,
   ERA_WRITTEN_AT_META,
   backfillRecordedDays,
@@ -911,6 +928,26 @@ export class Store {
                     .map((r) => r.id);
             const record = { count, ids, at: this.nowFn(), day: this.today() };
             this.ops.run("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", CONFIDENTIAL_RETIRED_KEY, JSON.stringify(record));
+          });
+        }
+      } catch (err) {
+        if (!isLocked(err)) throw err;
+      }
+    }
+    // THE BUILD LOG (2026-10-22, `operational.ts#BUILD_LOG_PREFIX`): the
+    // first writable open by a build this store has not seen records the
+    // lived day it arrived and the settings it ran with — once per build,
+    // never rewritten. Read first, written only when absent, asked again
+    // under the write lock, as the claims era above. A lost lock costs the
+    // record for this open, never the open: the next writable open records it.
+    if (!this.observer) {
+      try {
+        const keys = buildLogKeys(runningBuild());
+        if (this.ops.get("SELECT 1 FROM meta WHERE key = ?", keys.since) === undefined) {
+          this.ops.transaction(() => {
+            if (this.ops.get("SELECT 1 FROM meta WHERE key = ?", keys.since) !== undefined) return;
+            this.ops.run("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", keys.since, String(this.livedDay()));
+            this.ops.run("INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)", keys.settings, JSON.stringify(settingsInForce()));
           });
         }
       } catch (err) {
@@ -2238,8 +2275,8 @@ export class Store {
   }): void {
     this.mutate("openReflection", () => {
       this.ops.run(
-        `INSERT INTO reflections (id, dream_id, session, scope, day, date, state, started_at, model, questions, shown)
-         VALUES (?, ?, ?, ?, ?, ?, 'begun', ?, ?, ?, ?)`,
+        `INSERT INTO reflections (id, dream_id, session, scope, day, date, state, started_at, model, questions, shown, detail)
+         VALUES (?, ?, ?, ?, ?, ?, 'begun', ?, ?, ?, ?, ?)`,
         input.id,
         input.dreamId ?? null,
         input.session ?? null,
@@ -2250,6 +2287,8 @@ export class Store {
         modelOrNull(input.model ?? undefined),
         JSON.stringify(input.questions),
         JSON.stringify(input.shown),
+        // The build that opened it (2026-10-22); every later `detail` keeps one.
+        JSON.stringify(withBuild({})),
       );
     });
     this.emit("store.reflection", input.id, { state: "begun", day: input.day });
@@ -2302,7 +2341,8 @@ export class Store {
         patch.shareState === undefined || patch.shareState === row.share_state ? row.share_at : at,
         patch.shareSession === undefined ? row.share_session : patch.shareSession,
         patch.pageVersion === undefined ? row.page_version : patch.pageVersion,
-        patch.detail === undefined ? row.detail : JSON.stringify(patch.detail),
+        // A new `detail` replaces the old whole, so it carries the build that wrote it (2026-10-22).
+        patch.detail === undefined ? row.detail : JSON.stringify(withBuild(patch.detail)),
         id,
         ...(patch.ifShareState === undefined ? [] : [patch.ifShareState]),
       );
@@ -2911,7 +2951,8 @@ export class Store {
         change.action,
         change.ref ?? null,
         change.ref2 ?? null,
-        JSON.stringify(change.detail ?? {}),
+        // The build that made the change (2026-10-22, `operational.ts#withBuild`).
+        JSON.stringify(withBuild(change.detail ?? {})),
         this.nowFn(),
       );
       return next;
@@ -3557,9 +3598,11 @@ export class Store {
         input.name,
         input.ref ?? null,
         input.dedupKey ?? null,
+        // A payload that is a JSON object carries the build that wrote it
+        // (2026-10-22, `operational.ts#withBuild`); none stays none.
         input.payload === undefined || input.payload === null
           ? null
-          : JSON.stringify(input.payload),
+          : JSON.stringify(withBuild(input.payload)),
       );
       const row = this.ops.get<{ n: number }>("SELECT changes() AS n");
       if ((row?.n ?? 0) === 0) return 0;
@@ -4190,6 +4233,19 @@ export class Store {
    */
   unembeddedCount(): number {
     return this.missingVectors(Number.MAX_SAFE_INTEGER).length;
+  }
+
+  /**
+   * THE BUILD LOG (2026-10-22), oldest first: each build that opened this
+   * store for writing, the lived day it arrived, the settings it ran with.
+   * A read; nothing is created. In the order the rows went in where two
+   * builds arrived on one lived day.
+   */
+  buildLog(): BuildLogLine[] {
+    const pattern = `${BUILD_LOG_PREFIX.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    return parseBuildLog(
+      this.ops.all<{ key: string; value: string }>(`SELECT key, value FROM meta WHERE key LIKE ? ESCAPE '\\' ORDER BY rowid`, pattern),
+    );
   }
 
   /**
@@ -5447,6 +5503,10 @@ export class Store {
       if (input.origin.spanHash !== undefined) origin["spanHash"] = input.origin.spanHash;
       if (Object.keys(origin).length > 0) meta["origin"] = origin;
     }
+    // THE BUILD THAT WROTE IT (2026-10-22, `operational.ts#BUILD_LOG_PREFIX`),
+    // at birth only: a revise merges meta and keeps it, and the version row
+    // keeps the meta it replaced. A writer's own `build` (a handoff's) stands.
+    if (meta["build"] === undefined) meta["build"] = runningBuild();
     const eventDate = input.eventDate === undefined ? undefined : assertEventDate(input.eventDate, id);
     // ONE MOMENT for the row, and `learned_on` is its local date unless the
     // caller dated the memory itself (mint dates a deposit by its own instant).

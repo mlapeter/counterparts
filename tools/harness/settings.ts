@@ -22,6 +22,10 @@ import { TUNABLES as REMEMBER } from "../../src/core/remember/tunables.js";
 import { TUNABLES as SCHEMAS } from "../../src/core/schemas/tunables.js";
 import { SELF_TUNABLES as SELF } from "../../src/core/self/tunables.js";
 import { TUNABLES as SLEEP } from "../../src/core/sleep/tunables.js";
+import { setSettingsInForce } from "../../src/core/store/index.js";
+
+/** The build a run ran (`package.json#version`, or "unknown"), for its record beside its settings (2026-10-22). */
+export { runningBuild } from "../../src/core/store/index.js";
 
 /** The variable that carries the settings to a child's server, as `module.KEY=VALUE` joined by `;`. */
 export const SETTINGS_ENV = "HARNESS_SET";
@@ -113,6 +117,9 @@ export function applySettings(texts: readonly string[]): readonly Setting[] {
   }
   for (const s of parsed) MODULES[s.module]![s.key] = s.value;
   applied = [...applied, ...parsed];
+  // Mirrored into core, so the build log of a store this process opens next
+  // names them (`build.<version>.settings`, 2026-10-22).
+  setSettingsInForce(applied);
   return parsed;
 }
 
@@ -120,6 +127,7 @@ export function applySettings(texts: readonly string[]): readonly Setting[] {
 export function restoreSettings(): void {
   for (const s of [...applied].reverse()) MODULES[s.module]![s.key] = s.was;
   applied = [];
+  setSettingsInForce([]);
 }
 
 /** What this process set, for the run's record. */

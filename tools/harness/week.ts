@@ -44,7 +44,7 @@ import type { ScriptedDay } from "./owner-week.js";
 import { SERVE_AT_ENV } from "./serve-at.js";
 import { pageReading } from "./page.js";
 import type { PageReading } from "./page.js";
-import { SETTINGS_ENV, appliedSettings, settingsForChild } from "./settings.js";
+import { SETTINGS_ENV, appliedSettings, runningBuild, settingsForChild } from "./settings.js";
 import type { Setting } from "./settings.js";
 import { recordUsage, usageTally } from "./usage.js";
 import type { UsageTally } from "./usage.js";
@@ -124,6 +124,8 @@ export interface WeekRecord {
   readonly owner: string;
   /** Which script ran ("plain" unless named). */
   readonly script: string;
+  /** The build that ran (`package.json#version`, or "unknown"). */
+  readonly build: string;
   /** Tunables this run set from outside (`settings.ts`); empty for the build as it is. */
   readonly settings: readonly Setting[];
   /** The model children's tokens, all turns and nights. */
@@ -501,6 +503,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     harness: "owner-week",
     owner: OWNER_NAME,
     script: opts.scriptName ?? "plain",
+    build: runningBuild(),
     settings: appliedSettings(),
     usage: usageTally(),
     page,

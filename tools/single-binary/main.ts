@@ -72,4 +72,12 @@ if (load === undefined) {
   process.exit(2);
 }
 process.argv.splice(2, 1);
+// THE BUILD STAMP (2026-10-22): core reads its version from the manifest
+// beside its own file, which a module in here does not have, so it is handed
+// the embedded one before any entry opens a store.
+{
+  const { packagePath } = await import("../../src/adapters/runtime.js");
+  const { readBuildFrom, setRunningBuild } = await import("../../src/core/store/operational.js");
+  setRunningBuild(readBuildFrom(packagePath("package.json")));
+}
 await (await load()).start();

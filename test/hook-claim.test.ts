@@ -118,7 +118,7 @@ describe("claimDelivery", () => {
       expect(claimDelivery(cp, { ...base, key: "k1", side: "plugin", started: t0 + 2, now: t0 + 140 })).toEqual({ outcome: "lost", heldBy: "settings" });
       const rows = cp.store.eventLog({ name: HOOK_CLAIM_LOST_EVENT });
       expect(rows).toHaveLength(1);
-      expect(JSON.parse(rows[0]?.payload ?? "{}")).toEqual({ hook: "user-prompt-submit", session: "s1", lost: "plugin", won: "settings" });
+      expect(JSON.parse(rows[0]?.payload ?? "{}")).toEqual({ hook: "user-prompt-submit", session: "s1", lost: "plugin", won: "settings", build: expect.any(String) });
       // Prunable telemetry: no latch, so retention sweeps it.
       expect(rows[0]?.dedup_key).toBeNull();
       // The holder finishes; a twin that STARTED before that still loses, however late it claims.

@@ -13,6 +13,20 @@ Read-only on the owner's store: open it with `sqlite3 "file:$HOME/.counterparts/
 or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts doctor --config …`,
 `counterparts claims-era --dir …`). Anything heavier runs on a snapshot copy, never the live store.
 
+**How to read by build (since 2026-10-22).** Split a number by the build that wrote the rows instead of by date.
+Rows that carry JSON say it at write time: `memories.meta`, every event `payload` that is an object (`recall.decision`,
+`dream.*`, `adapter.*`, …), `reflections.detail` and `dream_changes.detail` have `build` (the package version, or
+`unknown`); rows written before the stamp have none (NULL). Rows with no JSON column (edges, `belief_support`,
+`core_events`) join the build log on their lived day: `meta` has `build.<version>.since` (the lived day that build first
+opened the store for writing) and `build.<version>.settings` (tunables set from outside, `[]` on Mike's store), and
+`counterparts doctor` prints the last three as its Builds line. For example, footnotes per turn by build:
+
+```sql
+SELECT json_extract(payload, '$.build') AS build, COUNT(*) AS turns,
+       ROUND(AVG(json_extract(payload, '$.footnoteCount')), 2) AS footnotes_per_turn
+FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
+```
+
 ## Index (updated 2026-10-22)
 
 **Open: being built, or live and waiting for a check**

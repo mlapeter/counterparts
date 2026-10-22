@@ -17,7 +17,7 @@
  * The record it returns holds ids, counts and days. Never a body, a title, a
  * feeling's words.
  */
-import { appliedSettings } from "./settings.js";
+import { appliedSettings, runningBuild } from "./settings.js";
 import type { Setting } from "./settings.js";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -95,6 +95,8 @@ export interface Fidelity {
 
 export interface RunRecord {
   readonly harness: "physics-only";
+  /** The build that ran (`package.json#version`, or "unknown"). */
+  readonly build: string;
   /** Tunables this run set from outside (`settings.ts`); empty for the build as it is. */
   readonly settings: readonly Setting[];
   readonly ranAt: string;
@@ -247,6 +249,7 @@ async function replayInto(
 
   return {
     harness: "physics-only",
+    build: runningBuild(),
     settings: appliedSettings(),
     ranAt: new Date(started).toISOString(),
     elapsedMs: Date.now() - started,

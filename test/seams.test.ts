@@ -2608,6 +2608,7 @@ describe("O. a declared updates: reaches the engine — by door, and by target k
     expect(log[0]?.ref).toBe(identityId);
     expect(Object.keys(JSON.parse(log[0]?.payload as string)).sort()).toEqual([
       "bar",
+      "build",
       "challengerId",
       "day",
       "force",

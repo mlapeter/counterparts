@@ -35,7 +35,7 @@ import type { Seat, SeatAsk, SeatTool } from "../../src/core/counterpart.js";
 
 import { pageReading } from "./page.js";
 import type { PageReading } from "./page.js";
-import { appliedSettings } from "./settings.js";
+import { appliedSettings, runningBuild } from "./settings.js";
 import type { Setting } from "./settings.js";
 import { usageTally } from "./usage.js";
 import type { UsageTally } from "./usage.js";
@@ -305,6 +305,8 @@ export interface Compared<T> {
 
 export interface NightReplayRecord {
   readonly harness: "recorded-night";
+  /** The build that ran (`package.json#version`, or "unknown"). */
+  readonly build: string;
   readonly ranAt: string;
   readonly elapsedMs: number;
   readonly night: { readonly state: string; readonly reason: string | null; readonly detail: string | null; readonly parts: readonly string[]; readonly children: readonly string[] };
@@ -540,6 +542,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
       };
       return {
         harness: "recorded-night",
+        build: runningBuild(),
         ranAt: new Date(startedAt).toISOString(),
         elapsedMs: Date.now() - startedAt,
         night: {

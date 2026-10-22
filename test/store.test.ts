@@ -617,16 +617,17 @@ describe("the read shape, and markdown as an export", () => {
       empty: "",
     };
     const id = s.put(mem("a body", { meta }));
-    expect(s.readProse(id).meta).toEqual(meta);
+    // Plus the build that wrote it (2026-10-22, the build stamp).
+    expect(s.readProse(id).meta).toEqual({ ...meta, build: expect.any(String) });
     // …and across a revision that patches ONE key.
     s.revise(id, { meta: { tier: 3 } });
-    expect(s.readProse(id).meta).toEqual({ ...meta, tier: 3 });
+    expect(s.readProse(id).meta).toEqual({ ...meta, tier: 3, build: expect.any(String) });
     // …and out of the ARCHIVED version, which carries its own copy.
-    expect(s.readVersion(id, 1).meta).toEqual(meta);
+    expect(s.readVersion(id, 1).meta).toEqual({ ...meta, build: expect.any(String) });
     // …and after a reopen, so nothing depended on an in-process object.
     s.close();
     open.length = 0;
-    expect(store().readProse(id).meta).toEqual({ ...meta, tier: 3 });
+    expect(store().readProse(id).meta).toEqual({ ...meta, tier: 3, build: expect.any(String) });
   });
 
   test("a body that opens with a fence is just a body", () => {
@@ -1304,7 +1305,7 @@ describe("event log reads: newest first, counted by name", () => {
     const newest = s.eventLog({ name: "sleep.cycle", order: "desc", limit: 1 });
     expect(newest.length).toBe(1);
     expect(newest[0]?.seq).toBe(seqs[6]);
-    expect(JSON.parse(newest[0]?.payload ?? "{}")).toEqual({ i: 6 });
+    expect(JSON.parse(newest[0]?.payload ?? "{}")).toEqual({ i: 6, build: expect.any(String) });
     // The other filters compose with it; the default is unchanged.
     expect(s.eventLog({ name: "sleep.cycle", sinceDay: 5, order: "desc" }).map((r) => r.day)).toEqual([6, 5]);
     expect(s.eventLog({ order: "asc", limit: 2 }).map((r) => r.seq)).toEqual(seqs.slice(0, 2));

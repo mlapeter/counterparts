@@ -2308,3 +2308,26 @@ their own store methods (`wave2.ts`, delegates on `Store`).
   (copy + migration + cache) took 0.87 s; doctor's new line reads "Upgrade to v14: … the
   retired confidential column dropped (0 marked memories counted first); 10 cards marked a
   person, 1 a place; the rest wait for the night".
+
+## 2026-10-22 — the build stamp (provenance, no schema bump)
+
+- **Why.** Rows said who wrote them, not which build. With four releases in three days a read
+  after one split its numbers by date and had to remember what shipped when.
+- **The log.** The first writable open by a build the store has not seen writes
+  `build.<version>.since` (the lived day) and `build.<version>.settings` (what the harness set,
+  `[]` otherwise) — read first, written under the write lock if still absent, a lost lock costs
+  the record for that open, as the claims era. Never rewritten, so a downgrade and back logs
+  nothing new, and a same-version run with other settings keeps the first open's settings (the
+  harness's run record carries each run's own). `Store#buildLog` reads it; doctor's Builds line
+  shows the last three.
+- **The stamp.** `build: <version>` at write time: a memory's meta at birth (`insertOne`; a
+  revise merges meta and keeps it), every event payload that is a JSON object (`appendEvent`,
+  `withBuild`; null and arrays as they came; a payload's own `build` stands), a reflection's
+  `detail` (opened with one, and every replacing `detail` stamped), a dream change's `detail`.
+  `dreams` and `belief_support` have no object JSON column: the dream's own rows are its
+  `dream.*` events and changes, and support rows join the log on `day`.
+- **The version** is `package.json#version` read beside `operational.ts` (three directories
+  under the package root in the repo, the tarball and the transpiled tree), or `unknown`; the
+  single binary's entry hands it in (`setRunningBuild`). Not added to `RECALL_DECISION_FIELDS`:
+  the stamp is the store's envelope, not the surface set, so `tools/parallel`'s hash is unmoved.
+- **Revert.** Stop writing the field; the log rows are inert.

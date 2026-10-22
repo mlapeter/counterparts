@@ -4128,7 +4128,8 @@ describe("repair-merged-beliefs — putting back the beliefs dedup ate", () => {
     // entity's name so the owner can decide; the DURABLE record carries neither,
     // and this is the assertion that keeps those two facts apart.
     expect(Object.keys(payload).sort()).toEqual(
-      ["candidateId", "day", "event", "mergedOnDay", "originalId", "usesDelta"],
+      // `build`: the version that wrote the row (2026-10-22), not memory text.
+      ["build", "candidateId", "day", "event", "mergedOnDay", "originalId", "usesDelta"],
     );
     expect(logged[0]?.payload ?? "").not.toContain("Ada");
     expect(logged[0]?.payload ?? "").not.toContain("async review");

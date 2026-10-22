@@ -387,7 +387,7 @@ describe("BLOCKER 1 of the review: the steady state takes no lock", () => {
       const id = s.put(mem("written while deferred"));
       expect(s.embedOne(id).vector).toBe(false);
       const row = s.eventLog({ name: EMBEDDER_RECONCILED_EVENT }).at(-1);
-      expect(JSON.parse(row?.payload ?? "{}")).toEqual({ kind: "deferred", reason: "locked" });
+      expect(JSON.parse(row?.payload ?? "{}")).toEqual({ kind: "deferred", reason: "locked", build: expect.any(String) });
       closeAll();
       // The next open decides again, and settles it.
       expect(store(embedder(STATIC_A, 4)).embedderVerdict).toEqual({ kind: "tagged", tag: "static-a@4", adopted: 0 });
