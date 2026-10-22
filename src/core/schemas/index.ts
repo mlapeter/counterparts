@@ -113,7 +113,7 @@ export * from "./types.js";
 export { AliasIndex, collision, handleKey, nameTokens } from "./aliases.js";
 export type { AliasHit, CollisionKind } from "./aliases.js";
 export { TUNABLES } from "./tunables.js";
-export { clearsTopicBar, isStopTag, lookAlikePairs, mergeMap, nightTagWork, notSameKey, NOT_SAME_PREFIX, resolveTag, stemKey, tagPartners, tallyTags, topicsNamedIn } from "./tags.js";
+export { clearsTopicBar, isStopTag, KINDS_REPAIR_KEY, lookAlikePairs, mergeMap, nightTagWork, notSameKey, NOT_SAME_PREFIX, repairBirthKindSubjects, resolveTag, stemKey, SUBJECT_KIND_BY_PREFIX, tagPartners, tallyTags, topicsNamedIn } from "./tags.js";
 export type { LookAlike, TagTally, TagsNightInput, TagsNightOutcome } from "./tags.js";
 
 /**
@@ -194,13 +194,17 @@ export const RELINKED_PREFIX = "schema.relinked.";
  * a name only ever mentioned in passing is a thing until a memory is about it.
  * A skill is never inferred from a name. The kind is fixed at birth
  * (types.ts), and for now it decides little beyond how slowly the card fades.
+ * A TIE WITH ENTITY IS AN ENTITY (2026-10-22): one place memory beside one
+ * entity memory made "Counterparts" a place. It is not the card's kind of
+ * subject either (`store/operational.ts#deterministicSubjectKind`): the
+ * night's kinds ask sorts that, shown this kind as a hint.
  */
 function kindForName(n: NameCount): BirthKind {
   const person = n.titledKinds["person"] ?? 0;
   const place = n.titledKinds["place"] ?? 0;
   const entity = n.titledKinds["entity"] ?? 0;
-  if (person > 0 && person >= place && person >= entity) return "person";
-  if (place > 0 && place >= entity) return "place";
+  if (person > 0 && person >= place && person > entity) return "person";
+  if (place > 0 && place > entity) return "place";
   return "entity";
 }
 

@@ -21,7 +21,7 @@
  * Here and not in the reflection's finish: the asks are small work for a
  * small model, and a child of their own keeps the reflection's file to lane C.
  */
-import { lookAlikePairs, notSameKey, resolveTag, mergeMap, TUNABLES as SCHEMAS } from "../schemas/index.js";
+import { lookAlikePairs, notSameKey, resolveTag, mergeMap, SUBJECT_KIND_BY_PREFIX, TUNABLES as SCHEMAS } from "../schemas/index.js";
 import type { LookAlike } from "../schemas/index.js";
 import { normalizeTag, SUBJECT_KINDS } from "../store/index.js";
 import type { Store, SubjectKind } from "../store/index.js";
@@ -36,8 +36,8 @@ export const TAGS_VOCABULARY = 60;
 /** The kinds a card may be given at night. `self` is the one subject that is me, never asked. */
 export const NIGHT_CARD_KINDS: readonly SubjectKind[] = SUBJECT_KINDS.filter((k) => k !== "self");
 
-/** Who set a card's subject kind, and when: `schemas.subjectKind.<id>` → `{by, at, run?}`. */
-export const SUBJECT_KIND_BY_PREFIX = "schemas.subjectKind.";
+/** Who set a card's subject kind, and when: `schemas.subjectKind.<id>` → `{by, at, run?}`. Spelled in `schemas/tags.ts`, whose repair reads it too. */
+export { SUBJECT_KIND_BY_PREFIX };
 /** One night's tagging, recorded: `tags.night.<run>` → counts and when. */
 export const TAGS_NIGHT_PREFIX = "tags.night.";
 /** What one night's ask SHOWED (review of #576): `tags.ask.<run>` → the memory ids, pairs and card ids an answer may touch. */

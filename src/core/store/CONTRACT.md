@@ -527,8 +527,11 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     `folder_projects` (one project card per folder) and `recall_turns` (what a recall turn
     showed against how many candidates). `memories` gains `subject_kind`, `birth_route`,
     `confidence` and `birth_salience` (`sal()` of the salience a row was written with,
-    written by every insert since). The upgrade gives entity cards of kind person or place,
-    and the identity core, their subject kind — every insert since applies the same rule —
+    written by every insert since). The upgrade gives the identity core its subject kind,
+    a person — every insert since applies the same rule; until 2026-10-22 it also read an
+    entity card's birth kind (person, place) as its subject kind, a vote that was wrong for
+    "Counterparts" and "Anthropic", and the night's tags phase gives those rows back to the
+    night's kinds ask once (`schemas/tags.ts#repairBirthKindSubjects`) —
     and DROPS `memories.confidential` (above);
     nothing else is rewritten. Concept edges are read off `memory_tags` (`tagNeighbours`),
     not kept. The owner's removal deletes a removed memory's tags, its support rows on

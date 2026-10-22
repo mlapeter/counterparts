@@ -815,3 +815,43 @@ amended in the contract: beliefs are still never a recall candidate, a fact or a
 they are seen only in the slot and the project line. The store's `reinforce` now credits a belief
 a use through one door (`beliefSlot`, a rating of the slot), refused for a belief marked about me
 or us; support is untouched by it — the shown → used → stronger loop stays closed at support.
+
+## 2026-10-22 — a card's birth kind is not its kind of subject (wave 2 follow-ups)
+
+**What was wrong.** The v14 upgrade, and every insert since, read an entity card's birth kind as
+its kind of subject: kind `person` a person, `place` a place. The birth kind is `kindForName`'s
+vote over the kinds of the memories whose titles carry the name, and a memory of kind `person` is
+about a person (usually the owner), not about the name in its title. On a copy of the 10-22
+snapshot one such title made "Anthropic" a person, and one place memory beside one entity memory
+made "Counterparts" a place. Katie, Clark, Jason, Ellis and Claude were also persons on one
+title each. No threshold fixes that vote: "Counterparts" re-tallied today reads person 3, place 1,
+entity 1.
+
+**The fix.** `store/operational.ts#deterministicSubjectKind` now marks only the identity core
+(a person, the owner). Every other card waits for the night's kinds ask, which a model answers
+and which is shown the birth kind and titles as hints. `kindForName` breaks a tie with entity
+toward entity ("a thing until a memory is about it"); that only moves how slowly a future card
+fades. The night's tags phase gives the old rule's rows back once per store
+(`tags.ts#repairBirthKindSubjects`): a row whose kind is the old rule's for its birth kind,
+that nobody is recorded as setting (`schemas.subjectKind.<id>`), and that today's rule doesn't
+give the same kind, goes back to NULL. The repair is recorded first in `schemas.kinds.repaired`,
+with each id and what it was. It sits behind `TAGS_NIGHT`, because with the switch off nobody
+would sort the cards it hands back.
+
+**On the copy.** Live entity cards: person 10, place 1, unsorted 150 before; person 1 (the
+identity core), unsorted 160 after. The ask takes 10 a night, most-linked first:
+Counterparts, Claude and Anthropic on night 1, Katie on night 2, and the last of them (the two
+Allex twins) on night 13.
+
+**The twins: not merged here.** The brief asked to merge the existing twin cards (50 pairs on the
+copy, not 40: ten more were born on lived day 31, before #578 reached live) through the dream's
+merge path. That path can't take a card. `Dreams.showable` refuses any row that isn't
+`type: memory` (dream CONTRACT §3: "no ... schema row"). The merge mints a new `type: memory` row
+from the originals. The settle door it goes through (`reconsolidation.ts#doorRefusal`) refuses an
+entity as `not-a-memory`. Its record (`dreams` + `dream_changes`, `Dreams.undo`) could carry a
+change with no schema change only under a `dreams` row, and every reader of that table takes such
+a row for a night's dream: `lastDream`, the night run's "began anything since", the dashboard and
+doctor. So it was stopped and reported. On the copy every pair has identical
+`memory_subjects` sets, no aliases, no beliefs, no folders and the same birth day. A merge
+there is "archive one card with a reason of its own, record the card it stands under, undo =
+un-archive", with nothing to move.

@@ -367,6 +367,8 @@ export {
   SUBJECT_KINDS,
   BIRTH_ROUTES,
   backfillSubjectKinds,
+  birthKindSubjectKind,
+  deterministicSubjectKind,
   retireConfidentialColumn,
   CLAIMS_ERA_CUTOFF_KEY,
   CLAIMS_ERA_RECORDED_KEY,
