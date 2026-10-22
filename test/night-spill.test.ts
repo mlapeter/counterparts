@@ -43,7 +43,7 @@ import { resultFindings } from "../src/adapters/claude-code/doctor.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart, MCP_PART_EVENT, MCP_SPILLED_EVENT } from "../src/core/counterpart.js";
 import { TUNABLES as SCHEMAS_TUNABLES } from "../src/core/schemas/index.js";
-import { nightRunOf } from "../src/core/dream/index.js";
+import { NIGHT_RUN_KEY, nightChildSessions, nightRunOf } from "../src/core/dream/index.js";
 import type { NightRun } from "../src/core/dream/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
@@ -651,6 +651,20 @@ describe("2026-10-22, lane L: the night's row names each child's own session id"
     const c = openNight();
     expect(nightRunOf(c.store)?.children?.map((x) => [x.child, x.code, x.hostSession])).toEqual(ids.map(([child, id]) => [child, 0, id]));
     expect(doneRow(c)?.["childSessions"]).toBe(ids.map(([child, id]) => `${child}:${id}`).join(","));
+  });
+
+  test("a row written by 0.3.31, with no hostSession, reads back as before", () => {
+    const c = openNight();
+    c.store.setMeta(
+      NIGHT_RUN_KEY,
+      '{"run":"nrn_old","date":"2026-10-21","kind":"night","session":"s1","startedAt":1,"timeoutMs":2,"state":"done","endedAt":3,"dream":"drm_000000000001","reflection":"rfl_000000000001","reason":null,"detail":null,"code":0,"parts":["writer","dream","reflection"],"children":[{"child":"dream","code":0,"ms":10},{"child":"reflection","code":0,"ms":20},{"child":"tags","code":0,"ms":5}]}',
+    );
+    expect(nightRunOf(c.store)?.children).toEqual([
+      { child: "dream", code: 0, ms: 10 },
+      { child: "reflection", code: 0, ms: 20 },
+      { child: "tags", code: 0, ms: 5 },
+    ]);
+    expect(nightChildSessions(nightRunOf(c.store)?.children ?? [])).toBeNull();
   });
 
   test("a child that never started records no session", async () => {

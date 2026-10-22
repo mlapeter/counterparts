@@ -265,13 +265,29 @@ test("2026-10-22, lane L: the night's reflection is found by the children's sess
   const outcome = join(root, "after.sqlite");
   snapshotOf(join(dir, "counterparts.sqlite"), outcome);
 
-  const replay = async (sessions: [string | undefined, string | undefined]) => {
+  const replay = async (sessions: [string | undefined, string | undefined], from = outcome) => {
     const dreamT = join(root, "dream.jsonl");
     transcript(dreamT, calls, sessions[0]);
     const reflectionT = join(root, "reflection.jsonl");
     transcript(reflectionT, [], sessions[1]);
-    return replayNight({ source, outcome, dreamTranscript: dreamT, reflectionTranscript: reflectionT, workRoot: join(root, "work"), timeZone: "UTC", embed: false, env: { HOME: join(root, "home") } });
+    return replayNight({ source, outcome: from, dreamTranscript: dreamT, reflectionTranscript: reflectionT, workRoot: join(root, "work"), timeZone: "UTC", embed: false, env: { HOME: join(root, "home") } });
   };
+
+  // A ROW THAT NAMES NO DREAM, whose reflection is on another (here: none):
+  // the by-id path checks the reflection's own dream and falls back to time.
+  const otherOutcome = join(root, "after-other.sqlite");
+  copyFileSync(outcome, otherOutcome);
+  const OTHER_CHILD = "55555555-5555-4555-8555-555555555555";
+  const o = new Database(otherOutcome);
+  o.run("UPDATE reflections SET dream_id = NULL WHERE id = ?", [r.bundle.reflection]);
+  o.run("INSERT INTO events (at, day, name, ref, payload) VALUES (?, 0, 'dream.night', 'nrn_other', ?)", [
+    clock,
+    JSON.stringify({ state: "done", dream: null, reflection: r.bundle.reflection, childSessions: `reflection:${OTHER_CHILD}` }),
+  ]);
+  o.close();
+  const noDream = await replay([undefined, OTHER_CHILD], otherOutcome);
+  expect(noDream.matchedBy).toBe("time");
+  expect(noDream.reflection).toBeNull();
 
   // The reflection child's id alone is enough; and so is the dream child's.
   const byReflection = await replay([undefined, REFLECTION_CHILD]);

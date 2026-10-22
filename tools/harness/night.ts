@@ -574,11 +574,13 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
         );
       const lastCall = Math.max(...[...dream.calls, ...reflection.calls].map((c) => c.at ?? 0), dream.startedAt ?? 0);
       // BY NAME FIRST: the night's row names its children's sessions; a row
-      // for this dream with a reflection gives the reflection by id. Else by time.
+      // for this dream with a reflection gives the reflection by id, and only
+      // one on this dream (a row that names no dream is checked on the
+      // reflection's own). Else by time.
       const byName = nightRowFor(rec, [dream.session, reflection.session]);
       const named =
         byName !== null && byName.reflection !== null && (byName.dream === null || byName.dream === recordedDream)
-          ? one<{ id: string; state: string; page_version: number | null; cites: string; day: number }>(rec, "SELECT id, state, page_version, cites, day FROM reflections WHERE id = ?", byName.reflection)
+          ? one<{ id: string; state: string; page_version: number | null; cites: string; day: number }>(rec, "SELECT id, state, page_version, cites, day FROM reflections WHERE id = ? AND dream_id = ?", byName.reflection, recordedDream)
           : null;
       const recR = named ?? reflectionRow(rec, recordedDream, (dream.startedAt ?? 0) - 60_000, lastCall + 60_000);
       const repR = reflectionRow(rep, replayedDream, replayStart - 60_000, now() + 60_000);
