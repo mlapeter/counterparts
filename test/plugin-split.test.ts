@@ -29,6 +29,7 @@ import {
   writeBundle,
   type Plan,
 } from "../tools/plugin-bundle/build.js";
+import { sidebarBeside } from "../src/adapters/host-wiring.js";
 
 const repoJson = (rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(REPO, rel), "utf8")) as Record<string, unknown>;
 const json = (p: Plan, f: string): Record<string, unknown> => JSON.parse(p.generated[f]!) as Record<string, unknown>;
@@ -83,6 +84,7 @@ describe("core", () => {
     expect(readme).toContain("counterparts-sidebar@counterparts");
     expect(readme).not.toContain("What the sidebar does");
     expect(readme).not.toContain("hooks/sidebar/");
+    expect(readme).not.toContain("fox");
     expect(readme).toContain("COUNTERPARTS_BINARY_DOWNLOAD=off");
     expect(readme).not.toMatch(/<!--|flavor:/);
   });
@@ -134,6 +136,9 @@ describe("the sidebar", () => {
     expect(readme).toContain("/plugin install counterparts-sidebar@counterparts");
     expect(readme).toContain("dependencies");
     expect(readme).toContain("sidebar.json");
+    // The turn hooks (#549) are said, as the full flavor's README says them.
+    expect(readme).toContain("takes a step and ends, so the fox is at work while a turn runs");
+    expect(sidebar.generated["hooks/register.tsx"]).toContain("on('turn.start'");
     expect(readme).not.toMatch(/<!--|flavor:/);
   });
 });
@@ -196,8 +201,14 @@ describe("written", () => {
     expect(() => writeBundle(sidebar, coreOut)).toThrow(/holds the counterparts plugin/);
     expect(() => writeBundle(core, out)).toThrow(/holds the counterparts-sidebar plugin/);
     expect(existsSync(join(coreOut, "src/adapters/plugin-run.sh"))).toBe(true);
+    // The first meeting's close names /counterparts beside a sidebar only
+    // (host-wiring.ts#sidebarBeside): none in core, the full flavor's own.
+    const noRecord = { CLAUDE_CONFIG_DIR: join(work, "claude-config") };
+    expect(sidebarBeside({ home: work, env: noRecord, pluginRoot: coreOut })).toBe(false);
     writeBundle(planBundle(REPO, "full"), coreOut);
+    expect(sidebarBeside({ home: work, env: noRecord, pluginRoot: coreOut })).toBe(true);
     writeBundle(core, coreOut);
+    expect(sidebarBeside({ home: work, env: noRecord, pluginRoot: coreOut })).toBe(false);
     expect(existsSync(join(coreOut, "hooks/sidebar"))).toBe(false);
   });
 

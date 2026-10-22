@@ -9,7 +9,7 @@
  * dashboard's `{ meet, where, style }`; doctor's dreaming line.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -103,6 +103,25 @@ function server(over: Parameters<typeof openServer>[0] = {}): McpServer {
   const s = openServer({ dir: storeDir, session: "sess-meet-1", scope: proj, scopesFile, now: () => SERVER_NOW, ...over });
   open.push(s);
   return s;
+}
+
+/**
+ * A plugin's environment, hermetic: Claude Code's configuration under the
+ * temp root (so the real `~/.claude` is never read), the plugin loaded from a
+ * temp folder whose hooks.json names the sidebar's module only with `modules`
+ * (the one plugin before the split), and a `counterparts-sidebar` install
+ * recorded only with `sidebarRecorded`.
+ */
+function pluginEnv(opts: { sidebarRecorded?: boolean; modules?: boolean }): Record<string, string> {
+  const configDir = join(root, "claude-config");
+  const pluginRoot = join(root, "plugin-root");
+  mkdirSync(join(configDir, "plugins"), { recursive: true });
+  mkdirSync(join(pluginRoot, "hooks"), { recursive: true });
+  const plugins: Record<string, unknown> = { "counterparts@counterparts": [{ scope: "user", installPath: pluginRoot, version: "0.3.32" }] };
+  if (opts.sidebarRecorded === true) plugins["counterparts-sidebar@counterparts"] = [{ scope: "user", installPath: join(root, "sb"), version: "0.3.32" }];
+  writeFileSync(join(configDir, "plugins", "installed_plugins.json"), JSON.stringify({ version: 2, plugins }));
+  writeFileSync(join(pluginRoot, "hooks", "hooks.json"), JSON.stringify(opts.modules === true ? { hooks: {}, modules: ["./sidebar/hooks/full.tsx"] } : { hooks: {} }));
+  return { CLAUDE_CONFIG_DIR: configDir, CLAUDE_PLUGIN_ROOT: pluginRoot };
 }
 
 function adapter(): ClaudeCodeAdapter {
@@ -270,7 +289,7 @@ describe("the meet tool", () => {
 
   test("the finish hands over the write-up, a few lines that show memory working, and a close that says what next", async () => {
     newInstallStore();
-    const s = server({ install: "plugin", session: "s-fin" });
+    const s = server({ install: "plugin", session: "s-fin", env: pluginEnv({ sidebarRecorded: true }) });
     await s.call("meet", {});
     await s.call("meet", { step: "name", answer: "Ada" });
     const r = await s.call("meet", { step: "done" });
@@ -286,6 +305,37 @@ describe("the meet tool", () => {
     expect(next).toContain("Next time you're here on another day, I'll have my first dream");
     expect(next).not.toContain("counterparts dream");
     expect(next).not.toContain("days at most");
+  });
+
+  test("the close names /counterparts only where a sidebar answers it: the sidebar plugin, or the one plugin before the split", async () => {
+    const close = async (env: Record<string, string>): Promise<string> => {
+      rmSync(storeDir, { recursive: true, force: true });
+      newInstallStore();
+      const s = server({ install: "plugin", env });
+      await s.call("meet", {});
+      const next = String((await s.call("meet", { step: "done" })).structuredContent["next"]);
+      s.counterpart.close();
+      open.splice(open.indexOf(s), 1);
+      return next;
+    };
+    const sidebarLine = "/counterparts shows the memory sidebar";
+    // Core alone (the split's `counterparts`, no sidebar recorded): no such line, and the close still opens its quote.
+    const core = await close(pluginEnv({}));
+    expect(core).not.toContain(sidebarLine);
+    expect(core).toContain('   "Ask me anything about Counterparts, any time.');
+    // The counterparts-sidebar plugin recorded beside it.
+    const recorded = await close(pluginEnv({ sidebarRecorded: true }));
+    expect(recorded).toContain(sidebarLine);
+    expect(recorded).toContain("   Ask me anything about Counterparts, any time.");
+    expect(recorded).not.toContain('"Ask me anything');
+    // The one plugin from before the split: its hooks.json names the sidebar's module.
+    expect(await close(pluginEnv({ modules: true }))).toContain(sidebarLine);
+    // Not a plugin install: never, whatever is recorded.
+    rmSync(storeDir, { recursive: true, force: true });
+    newInstallStore();
+    const npm = server({ install: "npm", env: pluginEnv({ sidebarRecorded: true }) });
+    await npm.call("meet", {});
+    expect(String((await npm.call("meet", { step: "done" })).structuredContent["next"])).not.toContain(sidebarLine);
   });
 
   test("the close names the plugin's route, and a known name is not asked", async () => {

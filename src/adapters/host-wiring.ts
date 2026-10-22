@@ -420,6 +420,31 @@ export function sidebarPluginRecorded(input: { readonly home: string; readonly e
 }
 
 /**
+ * Is the sidebar beside the `counterparts` plugin loaded from `pluginRoot`?
+ * Either Claude Code records the `counterparts-sidebar` plugin
+ * ({@link sidebarPluginRecorded}), or this plugin draws it itself, as the one
+ * plugin did before the split: its `hooks/hooks.json` names a hooks module (the
+ * full flavor's, and the repository's own for `--plugin-dir`; core's build
+ * drops `modules`). For the first meeting's close, which names `/counterparts`
+ * only where there is a sidebar to open (2026-10-22). READ-ONLY; never throws.
+ */
+export function sidebarBeside(input: {
+  readonly home: string;
+  readonly env: Record<string, string | undefined>;
+  readonly pluginRoot: string | null;
+}): boolean {
+  try {
+    if (sidebarPluginRecorded({ home: input.home, env: input.env })) return true;
+    const root = (input.pluginRoot ?? "").trim();
+    if (root.length === 0) return false;
+    const modules = readObject(join(root, "hooks", "hooks.json"))?.["modules"];
+    return Array.isArray(modules) && modules.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The npm install's wiring as Claude Code will see it for a session in `cwd`:
  * our hook entries in the user, project and local settings files, and a
  * server registered as `counterparts` in the user scope (`~/.claude.json`) or
