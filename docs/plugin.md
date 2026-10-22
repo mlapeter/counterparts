@@ -382,9 +382,10 @@ git tag satisfying"). For someone with the sidebar, core then follows the highes
 core-flavor commit. A bare dependency is a one-line change back (`SIDEBAR_DEPENDENCIES`).
 
 **Uninstalling.** The sidebar plugin needs this one: uninstalling `counterparts` with the
-sidebar installed leaves the sidebar unable to load. So the "installed twice" line
-(`plugin.ts#keepOne`) tells someone with the sidebar plugin to leave `counterparts`
-installed beside the npm install (it stands down), and `/counterparts:uninstall` says to
+sidebar installed leaves the sidebar unable to load. So for someone with the sidebar
+plugin, the "installed twice" line (`plugin.ts#keepOne`) says nothing needs to change:
+`counterparts` stays installed beside the npm install and stands down, and doctor is green
+there (2026-10-22). `/counterparts:uninstall` says to
 remove the sidebar first. Uninstalling the sidebar may bring Claude Code's offer to prune
 dependencies, which would take memory with it; the sidebar's README says not to, and points
 at `/counterparts quiet` for hiding the pane.

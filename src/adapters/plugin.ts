@@ -198,13 +198,13 @@ const INSTALLED: PluginOrigin = { installed: true, root: "" };
 export function keepOne(origin: PluginOrigin, start: "upper" | "lower" = "upper"): string {
   const lead = start === "upper" ? "Keeping one install is simpler" : "keeping one install is simpler";
   // THE SIDEBAR PLUGIN NEEDS THIS ONE (2026-10-20): uninstalling it would turn
-  // the sidebar off ("Dependency not installed"), so the npm way out is to
-  // leave it, standing down, as it is.
+  // the sidebar off ("Dependency not installed"), so npm + both plugins is a
+  // setup to keep, not to slim down (2026-10-22, matching doctor's green).
   if (origin.sidebar === true) {
     return (
-      `${lead}, and nothing is lost either way: to keep only the plugin, run \`counterparts disconnect\` in a terminal ` +
-      "and restart Claude Code; to keep the npm install, leave this plugin installed, since it stands down here and " +
-      `the counterparts-sidebar plugin needs it (\`/plugin uninstall ${origin.id ?? DEFAULT_PLUGIN_ID}\` would turn the sidebar off too).`
+      `${start === "upper" ? "Nothing" : "nothing"} needs to change: this plugin stays installed, standing down, because the counterparts-sidebar plugin needs it ` +
+      `(\`/plugin uninstall ${origin.id ?? DEFAULT_PLUGIN_ID}\` would turn the sidebar off too). To keep only the plugin instead, ` +
+      "run `counterparts disconnect` in a terminal and restart Claude Code."
     );
   }
   return (

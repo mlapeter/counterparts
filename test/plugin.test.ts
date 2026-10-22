@@ -487,7 +487,7 @@ describe("npmWiring and the two gates", () => {
     expect(pluginOrigin({ home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: moved }, root: cached }).installed).toBe(false);
   });
 
-  test("keepOne: npm-only, today's words exactly; beside the counterparts-sidebar plugin, it says to leave this plugin installed", () => {
+  test("keepOne: npm-only, today's words exactly; beside the counterparts-sidebar plugin, nothing needs to change", () => {
     const cached = join(home, ".claude", "plugins", "cache", "counterparts", "counterparts", "0.3.29");
     mkdirSync(cached, { recursive: true });
     const record = (plugins: Record<string, unknown>): void =>
@@ -508,8 +508,10 @@ describe("npmWiring and the two gates", () => {
     const origin = pluginOrigin({ home, env: {}, root: cached });
     expect(origin.sidebar).toBe(true);
     const line = keepOne(origin);
-    expect(line).toContain("to keep only the plugin, run `counterparts disconnect`");
-    expect(line).toContain("leave this plugin installed, since it stands down here and the counterparts-sidebar plugin needs it");
+    expect(line).toContain("To keep only the plugin instead, run `counterparts disconnect`");
+    expect(line).toMatch(/^Nothing needs to change: this plugin stays installed, standing down, because the counterparts-sidebar plugin needs it/);
+    expect(line).not.toContain("Keeping one install is simpler");
+    expect(keepOne(origin, "lower")).toMatch(/^nothing needs to change/);
     expect(line).not.toContain("to keep only the npm install, run");
     // A folder copy is no install: no sidebar question, nothing suggested.
     expect(pluginOrigin({ home, env: {}, root: join(work, "checkout") }).sidebar).toBeUndefined();
