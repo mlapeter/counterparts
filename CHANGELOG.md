@@ -85,6 +85,10 @@ This release changes the store's format (v13 to v14), so **after installing, qui
   card of its own: Google and Google, Bash and Bash, all with the same birth day. A card is
   now born only after checking, with the store locked, that no other process has just made
   it. Cards already doubled stay doubled for now; merging them comes separately.
+- **For code that embeds Counterparts:** new exports, nothing removed. `counterparts`
+  adds `SLEEP_CYCLE_HELD_EVENT`; `counterparts/store` adds `BIRTH_ROUTES`,
+  `CRAFT_BORN_META`, `SUBJECT_KINDS`, `V14_UPGRADE_KEY`, `backfillSubjectKinds`,
+  `normalizeTag` and `retireConfidentialColumn`.
 
 ## 0.3.30 — 2026-10-21
 
