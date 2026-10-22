@@ -74,6 +74,7 @@ import { Lifecycle, codeOf, plainContextLine, plainLine } from "../lifecycle.js"
 import type { LifecycleOptions, PlainLines, SessionInput } from "../lifecycle.js";
 
 import { localDate } from "../../core/time.js";
+import { UNRESOLVED_META_KEY } from "../../core/mint.js";
 import { TUNABLES } from "../config.js";
 import { TUNABLES as RECALL_TUNABLES } from "../../core/recall/tunables.js";
 import { SESSION_NOTICE_BUDGET_MS, checkoutIsGraded, doctorFindings, noticeMessage, readCheckout } from "./doctor.js";
@@ -521,10 +522,37 @@ export const PAGE_WRITER_TOOL = "counterparts self_page";
  */
 export const RATE_CLAUSE = "`rated` 0–3 each footnote shown since you last wrote, and each `drewOn` id";
 
-export function stopAsk(sessionId: string, chapter: number): string {
+/**
+ * WHAT OPEN MEANS, IN THE ASK (2026-10-22, the open-threads brief): the same
+ * narrowing as the `unresolved` field's own text (`mcp/tools.ts#UNRESOLVED_PROPERTY`).
+ */
+export const OPEN_MEANS = "`unresolved` only when someone owes an answer (a question to them, a check with a date, a promise)";
+
+/** How long one open item's title may run in the ask's last line (2026-10-22). */
+const OPEN_TITLE_CHARS = 60;
+
+/**
+ * THE ASK NAMES THIS SESSION'S OWN OPEN ITEMS (2026-10-22, the open-threads
+ * brief): the open memories it wrote or touched (`Store#openThreadsOfSession`),
+ * at most `TUNABLES.STOP_OPEN_MAX`, by title and id — so closing one is an
+ * `updates` on a line it can see, not a search. A third line, unnumbered, and
+ * only when there is one: with none the ask is its two lines, as before.
+ */
+export function openHereLine(open: readonly { readonly id: string; readonly title: string }[]): string | null {
+  if (open.length === 0) return null;
+  const clip = (t: string): string => {
+    const one = t.replace(/\s+/g, " ").trim();
+    return one.length <= OPEN_TITLE_CHARS ? one : `${one.slice(0, OPEN_TITLE_CHARS - 1).trimEnd()}…`;
+  };
+  return `Still open from this session — close any now answered with \`updates\` and \`unresolved: false\`: ${open.map((o) => `"${clip(o.title)}" (${o.id})`).join("; ")}.`;
+}
+
+export function stopAsk(sessionId: string, chapter: number, open: readonly { readonly id: string; readonly title: string }[] = []): string {
+  const here = openHereLine(open);
   return [
-    `${STOP_ASK_OPENER} 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: ${sessionId}. \`handoff\` only if work here is unfinished; \`retireHandoff\` any now done; \`updates\` anything dated or open now done; ${RATE_CLAUSE}. ${PRONOUN_RULE}`,
+    `${STOP_ASK_OPENER} 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: ${sessionId}. \`handoff\` only if work here is unfinished; \`retireHandoff\` any now done; \`updates\` anything dated or open now done; ${OPEN_MEANS}; ${RATE_CLAUSE}. ${PRONOUN_RULE}`,
     `2) Write chapter ${String(chapter)} with the counterparts chapter tool, session: ${sessionId}.`,
+    ...(here === null ? [] : [here]),
   ].join("\n");
 }
 
@@ -1612,7 +1640,29 @@ export class ClaudeCodeAdapter extends Lifecycle {
     // server binds itself with, so an ask that omitted it would be an
     // invitation the model has no way to accept on this host — and the
     // chapter number is the STORE's, one past what was written.
-    return chapter === null ? null : stopAsk(input.sessionId, chapter);
+    return chapter === null ? null : stopAsk(input.sessionId, chapter, this.openHere(input.sessionId));
+  }
+
+  /**
+   * This session's own open items, for the ask's last line (2026-10-22,
+   * `openHereLine`): what the store says it wrote or touched, the flag
+   * confirmed on the prose. Never fails the Stop: none on any error.
+   */
+  private openHere(sessionId: string): { id: string; title: string }[] {
+    const max = TUNABLES.STOP_OPEN_MAX;
+    if (!(max > 0)) return [];
+    try {
+      const store = this.counterpart.store;
+      return store.openThreadsOfSession(sessionId, max).filter((o) => {
+        try {
+          return store.readProse(o.id).meta[UNRESOLVED_META_KEY] === true;
+        } catch {
+          return false;
+        }
+      });
+    } catch {
+      return [];
+    }
   }
 
   /**

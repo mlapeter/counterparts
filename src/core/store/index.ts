@@ -5191,6 +5191,21 @@ export class Store {
       .map((r) => r.id);
   }
 
+  /** The open memories with the lived day each was last TOUCHED (born, used,
+   *  revised — never a dream's or a reflection's return) and whether it is
+   *  dated or `asked` (2026-10-22, `reads-memories.ts#openThreadTouches`):
+   *  what the carry rule reads (`self/identity.ts#openCarry`). */
+  openThreadTouches(): { id: string; touchedDay: number; dated: boolean; asked: boolean }[] {
+    return memoryReads.openThreadTouches(this);
+  }
+
+  /** The open memories ONE session wrote or touched, newest first, at most
+   *  `limit` (2026-10-22, `reads-memories.ts#openThreadsOfSession`): what
+   *  the end-of-session ask names. */
+  openThreadsOfSession(session: string, limit: number): { id: string; title: string }[] {
+    return memoryReads.openThreadsOfSession(this, session, limit);
+  }
+
   /** The same rows for ONE session, in write order — the neighbours a newly
    *  written memory sits beside (2026-09-28). The nightly run's rows are left
    *  out, so a note made after the dream sits next to the note made before

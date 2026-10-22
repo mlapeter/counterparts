@@ -489,8 +489,11 @@ describe("at production scale, 9,000 bytes", () => {
       // reserves — what "Work here", the handoffs and "Last here" leave it.
       return me.build({ budgetBytes: COMPOSE, day: 25, at: TODAY, horizon: horizon.slice(0, 2), horizonMore: horizon.slice(2).map((h) => h.id), horizonMoreItems: horizon.slice(2) });
     };
-    const before = build(5_525, { CRAFT_IN_WAKE: true, COMING_UP_TODAY_ONLY: false });
-    const after = build(4_600, {});
+    // The open items are born on lived day 0 and read on day 25: past
+    // `OPEN_CARRY_DAYS` (2026-10-22), so the carry is held off here — this
+    // measures the trims, not the carry (`open-threads-carry.test.ts`).
+    const before = build(5_525, { CRAFT_IN_WAKE: true, COMING_UP_TODAY_ONLY: false, OPEN_CARRY_DAYS: Number.POSITIVE_INFINITY });
+    const after = build(4_600, { OPEN_CARRY_DAYS: Number.POSITIVE_INFINITY });
     for (const out of [before, after]) {
       expect(readSentinel(out.text).intact).toBe(true);
       expect(out.bytes).toBeLessThanOrEqual(COMPOSE);

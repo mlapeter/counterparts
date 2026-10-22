@@ -50,7 +50,8 @@ export interface Ranked {
   /**
    * Threads only (2026-10-18): the lived day it was last TOUCHED — born or
    * used, whichever is later (`physics.lastUsedDay`), as #489 D's
-   * `staleOpen` reads "untouched". Absent: its born day.
+   * `staleOpen` reads "untouched". Absent: its born day. (Whether it is
+   * carried at all reads a revision as a touch too: `openCarry`.)
    */
   readonly touchedDay?: number;
   /** Threads only (2026-10-18): it would show as "Unsettled — may be out of
@@ -221,6 +222,48 @@ export function waitingIds(store: Store, day: number): Set<string> {
   } catch {
     return new Set();
   }
+}
+
+/**
+ * WHICH OPEN THREADS ARE STILL CARRIED (2026-10-22, the open-threads brief;
+ * the one place the rule lives — the wake's "Still open", built and
+ * assembled, and the reflection's `staleOpen` all read it). An open memory
+ * with no `eventDate`, not `asked`, untouched for `days` lived days or more
+ * (`SelfTunables.OPEN_CARRY_DAYS`) is NOT carried: the wake shows it in no
+ * lane ("Nearby" would read as carried still). It is not closed: the flag
+ * stays, it stays in the store, recall shows it, and a touch — a use, a
+ * revision (`Store#openThreadTouches` says what counts) — carries it again.
+ * Being listed under "Still open" or in the reflection's bundle writes none
+ * of what counts, so being shown cannot keep it carried.
+ *
+ * `touched`: every open id → the lived day it was last touched. Fail-open: a
+ * store that cannot answer leaves both maps empty, and everything is carried
+ * as before. `days` not finite (the revert): nothing stops being carried.
+ */
+export interface OpenCarry {
+  readonly touched: ReadonlyMap<string, number>;
+  /** Open ids no longer carried → lived days untouched. */
+  readonly notCarried: ReadonlyMap<string, number>;
+}
+
+/** The rule itself, on one thread's facts (see `openCarry`). */
+export function carriesOpen(f: { readonly touchedDay: number; readonly dated: boolean; readonly asked: boolean }, day: number, days: number): boolean {
+  if (f.dated || f.asked || !Number.isFinite(days)) return true;
+  return day - f.touchedDay < days;
+}
+
+export function openCarry(store: Pick<Store, "openThreadTouches">, day: number, days: number): OpenCarry {
+  const touched = new Map<string, number>();
+  const notCarried = new Map<string, number>();
+  try {
+    for (const f of store.openThreadTouches()) {
+      touched.set(f.id, f.touchedDay);
+      if (!carriesOpen(f, day, days)) notCarried.set(f.id, day - f.touchedDay);
+    }
+  } catch {
+    return { touched: new Map(), notCarried: new Map() };
+  }
+  return { touched, notCarried };
 }
 
 /**
@@ -511,6 +554,11 @@ export function rankLanes(
      *  a decision (`sleep/tunables.ts#CORE_WAITING_DAYS`, 2026-10-20): they
      *  take "Still open"'s first slot. */
     readonly waiting?: ReadonlySet<string>;
+    /** Which open threads are carried (`openCarry`, 2026-10-22): one not
+     *  carried is in no lane of the wake (recall shows it). Absent: every
+     *  open thread carried. The lane's own ageing (the weeks-old count)
+     *  still reads born-or-used, as before. */
+    readonly carry?: OpenCarry;
   } = {},
 ): Lanes {
   const identity: Ranked[] = [];
@@ -524,6 +572,7 @@ export function rankLanes(
   const arriving = new Set(horizon.map((h) => h.id));
   const later = new Set(opts.later ?? []);
   const unsettled = opts.unsettled ?? new Set<string>();
+  const notCarried = opts.carry?.notCarried;
   const asThread = (s: Scanned): Ranked => {
     const r = rankedAs(s, "threads");
     return unsettled.has(s.id) ? { ...r, unsettled: true } : r;
@@ -540,8 +589,11 @@ export function rankLanes(
       continue;
     }
     if (arriving.has(s.id) || later.has(s.id) || settledOver.has(s.id)) continue;
+    // An open thread nobody touched in `OPEN_CARRY_DAYS` (2026-10-22) is not
+    // carried: in no lane of the wake — not "Nearby" either, where it would
+    // read as carried still. Recall shows it; a touch carries it again.
     if (s.unresolved) {
-      threads.push(asThread(s));
+      if (notCarried?.has(s.id) !== true) threads.push(asThread(s));
       continue;
     }
     if (opts.workAtDelivery === true) {

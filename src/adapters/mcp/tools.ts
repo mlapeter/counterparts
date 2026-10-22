@@ -285,11 +285,17 @@ const CORE_DECISION_PROPERTY = {
  * set it, so the lane never fired. Closed by a later write that `updates` the
  * memory and says `unresolved: false` (`counterpart.ts#closeThread`), or by
  * `how: "changed"` with the resolution.
+ *
+ * NARROWED (2026-10-22, the open-threads brief; Mike agreed the shape): open
+ * means SOMEONE OWES AN ANSWER — a question to the owner, a check with a
+ * date, a promise. Sessions had marked whatever felt unfinished (a bug note,
+ * a design note, a fact), and the wake carried 88 of them. The Stop ask says
+ * the same (`claude-code/hooks.ts#OPEN_MEANS`). Revert: the text before.
  */
-const UNRESOLVED_PROPERTY = {
+export const UNRESOLVED_PROPERTY = {
   type: "boolean",
   description:
-    'Optional: true for an open question or a promise still pending — it stays under "Still open" in the wake until closed. To close one: `updates` its id with `unresolved: false` (or `how: "changed"` and the answer).',
+    'Optional: true only when someone owes an answer — a question to the owner, a check with a date, a promise. A bug observation, a design note or a fact is a memory with no open flag. It stays under "Still open" in the wake until closed. To close one: `updates` its id with `unresolved: false` (or `how: "changed"` and the answer).',
 };
 
 /**

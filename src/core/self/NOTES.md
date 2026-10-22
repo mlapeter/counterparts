@@ -2643,3 +2643,31 @@ to false), and the host then carries those fields in a tag of its own — about 
 outside the ceiling, which can make an `adapter.injection.overbudget` row. The 10-29 read looks at
 how often `tagged` is false in project folders against other folders, and whether overbudget rows
 appear there; if they do, the line goes after the head's fields (it would then yield to them too).
+
+## 2026-10-22 — open threads mean someone owes an answer (the open-threads brief; lightly held)
+
+The wake carried 88 "still open" items on 10-22, the store held 129, and almost nothing closed:
+sessions flagged whatever felt unfinished, and nobody writes "done" as a memory. Three changes,
+check 2026-11-05 (first look 10-29):
+
+- `unresolved`'s description and the Stop ask say open means someone owes an answer — a question
+  to the owner, a check with a date, a promise (`mcp/tools.ts#UNRESOLVED_PROPERTY`,
+  `claude-code/hooks.ts#OPEN_MEANS`).
+- The Stop ask's last line names this session's own open items, title and id, at most
+  `STOP_OPEN_MAX` (5) (`Store#openThreadsOfSession`: the ones it wrote, or used with a return).
+- `openCarry` (`identity.ts`) is the one rule the wake (built and assembled) and the reflection's
+  `staleOpen` read: an open item with no eventDate, not `asked`, untouched for `OPEN_CARRY_DAYS`
+  (21) lived days is not carried — in no lane of the wake, not offered to the reflection. Not
+  closed; a touch carries it again. TOUCHED (`Store#openThreadTouches`) is born, used
+  (`last_used_day`: a credited use of any tier, which every awake return is) or revised
+  (`versions.version_day`: an `updates` that keeps it open, a reopen). Not a dream's replay or a
+  reflection's return — a share that asks about a stale thread cites it, and that would carry it
+  forever — and not being listed: the wake's "Still open" and the reflection's bundle write none
+  of these. Being shown a recall answer is not a touch either; using it (`drewOn`, a rating of 1–3,
+  a quote) is. The lane's own ageing (the weeks-old count) and `staleOpen`'s "untouched" still
+  read born-or-used, so a reopened thread is offered the next night as before.
+- The reflection's bundle carries `noLongerCarried`, a count of what stopped being carried since
+  the last finished reflection (its full set is on the row's `detail.notCarried`), and the share
+  says it once, never the list.
+
+Revert: `OPEN_CARRY_DAYS` `Infinity`; the description and `OPEN_MEANS` back; `STOP_OPEN_MAX` 0.
