@@ -186,6 +186,8 @@ export function readRecord(mode: Mode, rec: Record<string, unknown>, pageText: s
   } else {
     const daily = Array.isArray(rec["daily"]) ? (rec["daily"] as Record<string, unknown>[]) : [];
     for (const d of daily) rows[`core, end of day ${String(num(d["day"]))}`] = num(d["core"]);
+    // Lane F: the core from beliefs (`week.ts#beliefCoreNow`), when the record has it.
+    for (const d of daily) if (d["beliefCore"] !== undefined) rows[`core from beliefs, end of day ${String(num(d["day"]))}`] = num(d["beliefCore"]);
     const last = daily[daily.length - 1];
     rows["memories, last day"] = last === undefined ? null : num(last["alive"]);
     const nights = Array.isArray(rec["nights"]) ? (rec["nights"] as Record<string, unknown>[]) : [];

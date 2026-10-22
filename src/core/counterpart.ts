@@ -379,6 +379,11 @@ export { ROW_IDS_MAX, boundedIds } from "./types.js";
 export { SEAT_TOOLS, seatAsk } from "./seat.js";
 export type { Seat, SeatAct, SeatAnswer, SeatAsk, SeatTool } from "./seat.js";
 
+// The core from beliefs (wave 2 lane F, 2026-10-22, `self.CORE_FROM_BELIEFS`):
+// a reading, here so a host (the harness's compare) reaches it through the package entry.
+export { beliefCoreCandidates, coreBeliefFloors, coreBeliefMiss, coreFromBeliefs } from "./self/measures.js";
+export type { CoreBelief, CoreBeliefFloors, CoreFromBeliefs } from "./self/measures.js";
+
 const EVENT_RING = REMEMBER.CONSUMED_LEDGER_MAX;
 
 /**

@@ -34,7 +34,7 @@ import { ClaudeCodeAdapter, NIGHT_KIND_ENV, NIGHT_RUN_ENV, openEmbedder, planNig
 import type { ChildPlan, ChildResult, HookInput, NightStarter, SpawnPlan } from "../../src/adapters/claude-code/index.js";
 import type { TurnExpansion } from "../../src/adapters/lifecycle.js";
 import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
-import { Counterpart } from "../../src/core/counterpart.js";
+import { Counterpart, coreFromBeliefs } from "../../src/core/counterpart.js";
 import type { PlainReminder } from "../../src/core/counterpart.js";
 
 import { childInit, modelSeat, SERVE_AT_SCRIPT } from "./model-seat.js";
@@ -138,8 +138,13 @@ export interface WeekRecord {
   readonly nights: readonly { readonly day: number; readonly state: string; readonly kind: string; readonly parts: readonly string[] }[];
   /** Worker boundaries the product asked for (each Stop and session end), run by the harness. */
   readonly boundaries: number;
-  /** Live memories at the end of each day, and the core's size. */
-  readonly daily: readonly { readonly day: number; readonly date: string; readonly alive: number; readonly core: number }[];
+  /**
+   * Live memories at the end of each day, and the core's size: the lanes'
+   * (`band = 'identity'`), and lane F's from beliefs — beliefs about me and
+   * us passing `self`'s floors as set for the run (`self/measures.ts#coreFromBeliefs`),
+   * counted whether or not `self.CORE_FROM_BELIEFS` is on, of `beliefs` on the self subject.
+   */
+  readonly daily: readonly { readonly day: number; readonly date: string; readonly alive: number; readonly core: number; readonly beliefCore: number; readonly beliefs: number }[];
   /** The week's store as one file, when `out` asked. */
   readonly out: string | null;
   readonly keptAt: string | null;
@@ -391,7 +396,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   };
 
   const sessions: SessionLine[] = [];
-  const daily: { day: number; date: string; alive: number; core: number }[] = [];
+  const daily: { day: number; date: string; alive: number; core: number; beliefCore: number; beliefs: number }[] = [];
   try {
     // The script's days, then one more morning: its first session start is where the last night runs.
     for (let d = 0; d <= script.length; d++) {
@@ -475,6 +480,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
           date,
           alive: count(dir, "SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND type = 'memory'"),
           core: count(dir, "SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND band = 'identity'"),
+          ...beliefCoreNow(counterpart),
         });
       }
     }
@@ -517,4 +523,10 @@ function count(dir: string, sql: string): number {
   } finally {
     db.close();
   }
+}
+
+/** Lane F's core from beliefs on the store now, and the self subject's beliefs it read. */
+function beliefCoreNow(c: Counterpart): { beliefCore: number; beliefs: number } {
+  const r = coreFromBeliefs(c.store, c.store.livedDay());
+  return { beliefCore: r.elements.length, beliefs: r.considered };
 }

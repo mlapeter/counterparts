@@ -18,9 +18,11 @@
  * but the page's own sentences. Never throws.
  */
 import { derivedFrom } from "../fit/index.js";
+import { strength } from "../physics/index.js";
 import type { ReadOnlyStore } from "../store/index.js";
 import { pageClaims } from "./page.js";
 import type { SelfPage } from "./page.js";
+import { SELF_TUNABLES } from "./tunables.js";
 
 /** Where a cited memory stands now. */
 export type CitedState = "live" | "archived" | "missing";
@@ -205,4 +207,132 @@ export function coreSupport(store: Pick<ReadOnlyStore, "row" | "list" | "allEdge
     /* what was read stands */
   }
   return { elements, oneEpisode: elements.filter((e) => e.days <= 1).length };
+}
+
+// ── the core from beliefs (wave 2 lane F, 2026-10-22; design §6, lightly held) ──
+
+/** One belief about me or us on the self subject, as the core reads it. */
+export interface CoreBelief {
+  readonly id: string;
+  readonly statement: string;
+  readonly about: "me" | "us" | null;
+  /** Its strength on the day read (physics: its support arm, decayed like any memory). */
+  readonly strength: number;
+  /** Memories counted for it (`belief_support`, stance support, not a `link`). */
+  readonly memories: number;
+  /** Lived days its support comes from, as C's resistance counts them (`physics#supportCredit`). */
+  readonly days: number;
+  /** Contrary pressure crossed its bar: it waits on a revision, and is not settled. */
+  readonly contested: boolean;
+}
+
+/** The floors a belief passes to be in the core; `max` is the cap. */
+export interface CoreBeliefFloors {
+  readonly strength: number;
+  readonly memories: number;
+  readonly days: number;
+  readonly max: number;
+}
+
+/** The floors as set now: read at use from `SELF_TUNABLES`, so a run's `--set` reaches them. */
+export function coreBeliefFloors(): CoreBeliefFloors {
+  return {
+    strength: SELF_TUNABLES.CORE_BELIEF_STRENGTH,
+    memories: SELF_TUNABLES.CORE_BELIEF_MEMORIES,
+    days: SELF_TUNABLES.CORE_BELIEF_DAYS,
+    // "Capped as today's core": the most identity elements the wake ever considers.
+    max: SELF_TUNABLES.IDENTITY_MAX,
+  };
+}
+
+/** What `beliefCoreCandidates` reads. */
+export type ReadsBeliefCore = Pick<ReadOnlyStore, "selfSubject" | "list" | "row" | "readProse" | "supportOf" | "physicsOf">;
+
+/**
+ * EVERY LIVE BELIEF ON THE SELF SUBJECT, with what the core's floors read:
+ * strength on `day`, memories for it, lived days of support, contested.
+ * Not archived, not superseded. Strongest first. A read; [] before the self
+ * subject exists. Never throws.
+ */
+export function beliefCoreCandidates(store: ReadsBeliefCore, day: number): CoreBelief[] {
+  const out: CoreBelief[] = [];
+  try {
+    const me = store.selfSubject();
+    if (me === null) return out;
+    for (const id of store.list({ type: "schema", archived: false })) {
+      const row = store.row(id);
+      if (row === undefined || row.archived === 1 || row.superseded_by !== null || !row.meta.includes('"belief"')) continue;
+      let meta: Record<string, unknown>;
+      let statement: string;
+      try {
+        const doc = store.readProse(id);
+        meta = doc.meta;
+        statement = doc.body;
+      } catch {
+        continue;
+      }
+      if (meta["role"] !== "belief" || meta["entityId"] !== me) continue;
+      const p = store.physicsOf(id);
+      let memories = 0;
+      try {
+        memories = store.supportOf(id).filter((r) => r.stance === "support" && r.route !== "link").length;
+      } catch {
+        memories = 0;
+      }
+      out.push({
+        id,
+        statement,
+        about: row.about === "me" ? "me" : row.about === "us" ? "us" : null,
+        strength: strength(p, day),
+        memories,
+        days: p.supportDays ?? 0,
+        contested: meta["contested"] !== undefined,
+      });
+    }
+  } catch {
+    /* what was read stands */
+  }
+  return out.sort((a, b) => b.strength - a.strength || (a.id < b.id ? -1 : 1));
+}
+
+/** Which floor a belief missed first, or null when it passes all of them. Pure. */
+export function coreBeliefMiss(b: CoreBelief, floors: CoreBeliefFloors): "contested" | "strength" | "memories" | "days" | null {
+  if (b.contested) return "contested";
+  if (b.strength < floors.strength) return "strength";
+  if (b.memories < floors.memories) return "memories";
+  if (b.days < floors.days) return "days";
+  return null;
+}
+
+/** The core as beliefs, and what was held back by which floor. */
+export interface CoreFromBeliefs {
+  /** Passing every floor, strongest first, at most `floors.max`. */
+  readonly elements: readonly CoreBelief[];
+  /** Beliefs on the self subject read, and those held back by the first floor each missed (and the cap). */
+  readonly considered: number;
+  readonly held: Readonly<Record<"contested" | "strength" | "memories" | "days" | "cap", number>>;
+}
+
+/**
+ * THE CORE FROM BELIEFS (wave 2 lane F, design §6; `self.CORE_FROM_BELIEFS`):
+ * the strongest current beliefs about me and us on the self subject that pass
+ * the floors — strength, memories for it, lived days of support (an
+ * un-echoed find counts its filing day) — and are not contested, at most
+ * `floors.max`. A VIEW, read when asked: nothing is promoted or written, so a
+ * belief leaves it as it weakens, is contested or retired, and the switch off
+ * leaves nothing behind. Not `promoted_identity`: a promoted row reads
+ * strength 1 for ever (`physics#strength`), which would stop a belief from
+ * fading and a contest from cutting it (design §2, §5). Never throws.
+ */
+export function coreFromBeliefs(store: ReadsBeliefCore, day: number, floors: CoreBeliefFloors = coreBeliefFloors()): CoreFromBeliefs {
+  const all = beliefCoreCandidates(store, day);
+  const held = { contested: 0, strength: 0, memories: 0, days: 0, cap: 0 };
+  const elements: CoreBelief[] = [];
+  for (const b of all) {
+    const miss = coreBeliefMiss(b, floors);
+    if (miss !== null) held[miss] += 1;
+    else if (elements.length >= floors.max) held.cap += 1;
+    else elements.push(b);
+  }
+  return { elements, considered: all.length, held };
 }
