@@ -1,6 +1,6 @@
 # Worklist
 
-*The details behind the roadmap's "To do" list. Started 2026-10-20, updated 10-21 09:45. One entry per thing still to do: what it is,
+*The details behind the roadmap's "To do" list. Started 2026-10-20, updated 10-22 09:45. One entry per thing still to do: what it is,
 why, where it stands. Close an entry by moving it to "Done" with the date and the PR; drop it after a release.
 Experiments with a date to check live in [CHECK-AFTER](CHECK-AFTER.md); this file points there rather than
 repeating them.*
@@ -16,6 +16,13 @@ repeating them.*
 
 ## Follow-ups found today (not started)
 
+- **Night children's session ids** (from the 10-22 read): `dream.night`, `dreams.session` and `reflections.session`
+  all hold the parent session, so "the nightly run's sessions get no footnotes" (#523 F) can only be checked by time
+  window. Record each child's own session id on `dream.night`.
+- **Per-footnote `lifted` flag** (10-22 read): priming's `lifted` is a count on the decision row, so lifted footnotes
+  can't be joined to ratings. Add it to each shown row (the TAGS_PRIME lane may fold it in).
+- **submitJot doesn't forward `ctx.at`** to deposit, so remember's `at: today` is dropped (found 10-21).
+- **Doctor's Old settings line says "ignored — ignored"** (doctor.ts join), a nit for 0.3.31.
 - **Folders kept out of Counterparts: set their scope `off` explicitly.** They stay out today only because no hooks run there;
   an unset scope reads as `on`, so a memory filed from one could be named elsewhere by F4. Mike runs
   `counterparts scope off <path>`.
