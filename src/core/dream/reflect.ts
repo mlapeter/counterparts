@@ -1862,11 +1862,13 @@ export class Reflections {
     ];
     if (adoptedAll.length > 0) detail["beliefsAdopted"] = adoptedAll;
     // WHAT BECAME OF THE DREAM'S CANDIDATES (review of #583): each adopted
-    // (its belief's id) or, as the finish closes untouched, let go — one
-    // tried and refused stays open for the next finish.
+    // (its belief's id) or, as a finish that answered beliefs closes
+    // untouched, let go — one tried and refused stays open for the next
+    // finish, and so does every one when this finish sent no `beliefs` (a
+    // first finish refused for its page; the retry it invites may adopt).
     const candidatesNow = new Map(decidedPairs(parseDetail(row.detail)["candidatesDecided"]));
     for (const [cid, bid] of candidatesAdopted) candidatesNow.set(cid, bid);
-    if (this.ctx.schemas !== undefined && SCHEMAS_TUNABLES.BELIEFS_BIRTH) {
+    if (input.beliefs !== undefined && input.beliefs !== null && this.ctx.schemas !== undefined && SCHEMAS_TUNABLES.BELIEFS_BIRTH) {
       for (const [cid] of stringIdsPairs(parseDetail(row.detail)["beliefCandidates"])) {
         if (!candidatesNow.has(cid) && !candidatesTried.has(cid)) candidatesNow.set(cid, "let-go");
       }

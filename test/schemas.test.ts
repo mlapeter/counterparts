@@ -1320,6 +1320,8 @@ const PRIVATE_HELPERS = new Set([
   // Review of #583: a row another process wrote, learned on a miss; and every one not seen yet.
   "learn",
   "catchUp",
+  // A subject's beliefs without the catch-up (slices catches up once).
+  "beliefsKnown",
   // SEAMS item K: story() reads the DURABLE increments out of box 2's events
   // table and unions this session's ring on top. A read helper, no new operation.
   "storyIncrements",

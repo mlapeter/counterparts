@@ -531,8 +531,9 @@ dream having run.
     the one it says better. `adopt` (lane C3) takes a candidate tonight's dream proposed
     (shown as `beliefs.candidates`), born weak by the route `dream`, its lived sources its
     first support, its subject and words the reflection's to sharpen, the candidate's id in
-    its meta (`fromCandidate`); what is not adopted is let go as the finish closes (one
-    tried and refused stays open for the next finish), each fate kept on the row
+    its meta (`fromCandidate`); what is not adopted is let go as a finish that sent
+    `beliefs` closes (one tried and refused stays open for the next finish, and all stay
+    open after a finish that sent none), each fate kept on the row
     (`candidatesDecided`), so no later finish or reflection of the dream adopts it again;
     and an adopted belief stays when the dream is undone (it was decided awake). **[M]** a belief's id is never in `shown`: it cannot be cited,
     felt or marked; filings and births take only memories it was shown and lived. Off:

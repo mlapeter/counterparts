@@ -2041,6 +2041,11 @@ export class Schemas {
 
   beliefs(entityId: string): ElementView[] {
     this.catchUp();
+    return this.beliefsKnown(entityId);
+  }
+
+  /** A subject's beliefs as this index knows them, no catch-up: `slices()` catches up once for every card (review of #583). */
+  private beliefsKnown(entityId: string): ElementView[] {
     return this.liveElementIds(entityId, "belief")
       .map((id) => this.element(id))
       .filter((e): e is ElementView => e !== undefined);
@@ -2116,6 +2121,7 @@ export class Schemas {
    * prompt cards and the gate slices, so the two surfaces cannot drift.
    */
   slices(opts: { excludeProtected?: boolean } = {}): SchemaSliceOut[] {
+    this.catchUp();
     return this.entities().map((e) => {
       let elided = 0;
       const keep = (v: ElementView): boolean => {
@@ -2125,7 +2131,7 @@ export class Schemas {
         }
         return true;
       };
-      const beliefs = this.beliefs(e.id)
+      const beliefs = this.beliefsKnown(e.id)
         .filter(keep)
         .map((b) => ({ id: b.id, statement: b.statement }));
       const currentState = this.currentState(e.id)

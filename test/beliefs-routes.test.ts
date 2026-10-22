@@ -138,6 +138,20 @@ describe("the dream proposes; the reflection adopts or lets go", () => {
     expect(c.store.list({ type: "schema" }).filter((id) => c.store.row(id)?.birth_route === "dream")).toEqual([bid]);
   });
 
+  test("a finish that sent no beliefs lets nothing go: the next finish may still adopt", () => {
+    const c = brain();
+    const d = dream(c, ({ a, b }) => [{ action: "belief-candidate", subject: "us", text: "We decide best late at night.", sources: [a, b] }]);
+    const begun = c.reflections.begin({ session: SESSION, dream: d.dream });
+    if (!begun.ok) throw new Error(begun.reason);
+    const cid = begun.bundle.beliefs?.candidates?.[0]?.id as string;
+    const first = c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, entry: "Late nights.", cites: [] });
+    if (!first.ok) throw new Error(first.reason);
+    expect(c.store.reflection(begun.bundle.reflection)?.detail ?? "").not.toContain("candidatesDecided");
+    const again = c.reflections.finish({ reflection: begun.bundle.reflection, session: SESSION, beliefs: { adopt: [{ candidate: cid }] } });
+    if (!again.ok) throw new Error(again.reason);
+    expect(again.outcome.beliefs.adopt[0]?.reason).toBe("adopted");
+  });
+
   test("a refused adoption stays open for the next finish to say better", () => {
     const c = brain();
     const d = dream(c, ({ a }) => [{ action: "belief-candidate", subject: "us", text: "We decide best late at night.", sources: [a] }]);
