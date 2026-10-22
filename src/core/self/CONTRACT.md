@@ -149,6 +149,11 @@ counted by doctor, and said in the next morning share).
   through the ordinary rarity-weighted name channel. [v1 §9.2]
 - **Lived salience is the only legitimate identity input.** [v1 §14.2, earned 2026-08-24]
   For now, the reflection is the one other route into the core: deviation §2(d).
+  *Behind `CORE_FROM_BELIEFS` (wave 2 lane F, 2026-10-22, default off, an experiment): the
+  core the page rests on is read as the strongest beliefs about me and us that life backed
+  (`measures.ts#coreFromBeliefs`: strength, memories and lived days of support, uncontested)
+  — a view, never a promotion — and the reflection writes "## Core" from them (NOTES,
+  2026-10-22).*
 - **Freeze, but keep counting** — the frozen arm runs the identical walk with identical
   guards, mutates nothing, and emits the same per-occasion event with a frozen marker.
   *The event IS the measurement; the movement is what is withheld.* [v1 earned-mechanism #8]
@@ -748,6 +753,8 @@ of them a budget. The composed budget is the caller's and lives nowhere in this 
 | `PAGE_WRITER_ASKS_PER_DAY` | 2 | How many SESSIONS may be offered one day's writing in session mode. A count, not a pacer (G19): the first session of a morning may be deep in something else, and two makes that survivable without asking all day. |
 | `FIRST_ASK_TURNS` / `FIRST_ASK_TEXT_BYTES` | 6 / 24,000 | The first ask: turns the person typed, OR bytes of conversation text from both roles, whichever comes first — so a one-prompt agentic session still journals. |
 | `REASK_TURNS` / `REASK_TEXT_BYTES` | 8 / 24,000 | A later ask: typed turns OR text bytes since the last ask, whichever comes first. A third way since 2026-09-30, on the first ask and every later one: what the session has not written up — three pieces, half an hour after the later of the first of them and the last ask (`due-unwritten`). Its numbers are `core/coverage/tunables.ts`'s, handed in as `PaceOptions.unwritten`; `self/` imports neither `remember/` nor `coverage/`. |
+| `CORE_FROM_BELIEFS` | false | The core as beliefs (wave 2 lane F, 2026-10-22, design §6, an experiment): on, the strongest current beliefs about me and us on the self subject that pass the floors below, at most `IDENTITY_MAX`, are the page's spine — shown to the reflection, citable on the page, the only things "## Core" states as settled; the nightly page writer then leaves "## Core" to the reflection. On a store with no earned belief the spine is empty and "## Core" is hollowed to "still forming" (no fallback, on purpose). A view: nothing is promoted or written, the lanes run alongside unchanged, so off is exactly as before (a golden test). Read at use, so `harness compare --set self.CORE_FROM_BELIEFS=true` sets it. |
+| `CORE_BELIEF_STRENGTH` / `CORE_BELIEF_MEMORIES` / `CORE_BELIEF_DAYS` | 0.5 / 3 / 2 | The floors: strength on the day read; memories counted for it; LIVED days of support (`measures.ts#livedSupportDays`: the days its memories were born, over lived filings and echoed finds; an un-echoed find adds none). CAL; step 1 of the compare (NOTES, 2026-10-22) found strength the binding one. |
 | `MAX_ASKS_PER_SESSION` | 12 | Asks ONE SESSION may raise ON ONE CALENDAR DAY, its own count and nobody else's. A backstop on the total, not the cadence. |
 
 `PAGE_FLOOR_RESERVE_BYTES` (512) is **not** tunable, for the reason `PREFACE_RESERVE_BYTES`

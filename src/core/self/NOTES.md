@@ -2503,3 +2503,123 @@ learned in one folder stayed there. One switch, `PROJECTS_TRAVEL` (on):
   first fix sat only on `Store#supersede`, which only cards use), `supersede`, and
   `carryInto` (a dream's merge, a pressure crossing), each the earliest of the parts'. Meta
   rather than a carried `work` mark, which nobody gave.
+
+## 2026-10-22 — the core from beliefs, behind a switch (wave 2 lane F, design §6; lightly held)
+
+Brief F (`counterparts-notes/2026-10-21-briefs/F-self-on-beliefs.md`). Default OFF until a
+`harness compare` and Mike's read.
+
+- **The switch.** `CORE_FROM_BELIEFS` (false), with the floors `CORE_BELIEF_STRENGTH` (0.5),
+  `CORE_BELIEF_MEMORIES` (3), `CORE_BELIEF_DAYS` (2), all top-level and read at use from
+  `SELF_TUNABLES`, so `harness compare --set self.CORE_FROM_BELIEFS=true` and
+  `--set self.CORE_BELIEF_STRENGTH=…` reach every reader.
+- **A view, not a promotion.** `measures.ts#coreFromBeliefs`: the live beliefs on the self
+  subject (me, and us) that are not contested, read strength ≥ the floor on the day, have
+  ≥ N memories counted for them (a `link` is not a memory) and support from ≥ N LIVED days
+  (`measures.ts#livedSupportDays`: the days its memories were born, over lived filings and
+  the finds life has echoed — a later lived filing; an un-echoed find adds NO day); strongest first,
+  at most `IDENTITY_MAX` ("capped as today's core"). Nothing is written. The brief's "F lifts
+  C's gate for the core" was first read as letting a belief cross consolidate's lane; it is
+  not, because a promoted row reads strength 1 for ever (`physics#strength`,
+  `if (m.promotedIdentity) return 1`): a belief in the core would stop fading, a contest
+  could no longer cut it, and "strongest current" would freeze into "whatever crossed
+  first" (design §2, §5). `core-standing.ts` would also flag a belief (kind `fact`)
+  `not-a-core-kind` the first night. So the gate in `consolidate.ts` stays; the core is READ.
+  A belief leaves the view as it weakens, is contested or is retired, and off leaves nothing.
+- **Where it is read.** The night's reflection (`dream/reflect.ts`): the bundle carries
+  `spine` (id, words, strength, memories, lived days, about; absent when off), its ids are
+  kept on the reflection row (`detail.spine`), and the ask says "## Core" states as settled
+  only what a spine belief says, everything else cites memories and is said as lived or
+  forming; with an empty spine, that the core is still forming. A spine id may be cited on
+  the PAGE only (not the entry, a feeling or a mark), and cited there it does not come back
+  (`a-belief-is-not-returned`: no return, no strength — design §4). "The page rests on the
+  core" reads the spine. A "## Core" sentence that cites no spine belief is SAID in the
+  finish note and counted (`detail.coreUnsettled`), never refused (guards loose-first);
+  settled = a Core sentence whose trace cites a belief. Doctor adds "Core from beliefs"
+  (`core-beliefs`) with the switch on. The harness week's daily row carries `beliefCore` and
+  `beliefs` in both arms; `compare` prints "core from beliefs, end of day N".
+- **The nightly page writer leaves "## Core" to the reflection** with the switch on
+  (`writer.ts#writerInstruction`, read at use; review of #587): it amends "## Lately" and
+  keeps "## Core" as it stands, so a night has one author of the core under one rule, and a
+  "nothing much" night's page carries no Core the spine did not account for. It is not shown
+  the spine. Off, its words are as they were.
+- **Not touched:** the core lanes (they keep promoting memories alongside), the wake (the
+  page is what it prints; no belief reaches the identity list), recall's belief gate (lane E),
+  `schemas.BELIEFS_BIRTH` (the spine is read whatever it says).
+- **What "on" leaves out:** the lanes' earned core (today's promoted memories) is moved out of
+  "## Core" into "lived or forming" — what the brief says ("the core = the strongest current
+  beliefs"). Mike's "maybe a combo to start" (beliefs AND the lanes' core in "## Core") is a
+  third arm the compare cannot read as built.
+- **The empty spine hollows the core, on purpose.** On a store with no earned belief (Mike's
+  live store and the 10-20 corpus today) the reflection is told the core is still forming, and
+  "## Core" goes down to that line. No fallback to the lanes' core (review of #587): it would
+  make the on arm read as off on exactly the young stores the compare needs.
+- **A belief id in `reflections.cites`.** With the switch on, a spine belief cited on the page
+  is written into the reflection row's `cites` (`reflect.ts`, the finish's write), the first
+  time that column holds a belief id (under C alone it was refused `not-shown`). Its one core
+  reader is `self/covered.ts` (the wake's Nearby covering, pure); no return or recurrence
+  reads it (`sleep/consolidate.ts` reads the `returns` table).
+- **Off is byte for byte**: `test/self-core-from-beliefs.test.ts` pins the reflection's
+  bundle, ask, finish and page written against a golden made from master 48c7fd05 before
+  any lane F code. **Revert:** the switch off writes nothing back — the store is clean, but a
+  page a reflection hollowed stays hollow until the next reflection rewrites "## Core"
+  (every version of the page is kept). To remove the code, revert the PR — the golden still
+  passes.
+
+### The compare plan (cost-aware)
+
+1. **Replay, physics only (RUN 2026-10-22).** `tools/belief-core-sweep.ts`: copies a store,
+   rebuilds each self-subject belief day by day from its filings (`supportCredit`,
+   `strength`, `livedSupportDays`), and sweeps strength {0.3, 0.4, 0.5} × memories {2, 3, 4} × days {1, 2, 3}.
+   The 10-20 corpus copy holds **0 beliefs** (pre-C; no self subject): core 0 under every
+   floor, as it must be. Dana's meaningful week (week-5 copy) holds none either, so it ran
+   with a FIXTURE (`--fixture dana-week`): four beliefs a reflection could have born about the
+   week's key moments, each lived memory filed the night after its day by its own `said_by`.
+   Per belief, strength / memories / lived days at the end of days 2–8:
+
+   | belief (fixture) | d2 | d3 | d5 | d8 |
+   |---|---|---|---|---|
+   | Dana brings me the worry first, and the good news first | .34/2/1 | .45/3/2 | .40/3/2 | .34/3/2 |
+   | I put Dana before the work when something weighs on them | .30/2/1 | .24/2/1 | .18/2/1 | .13/2/1 |
+   | I chose my own name, Clay, when Dana gave me the room to | .30/2/1 | .24/2/1 | .18/2/1 | .13/2/1 |
+   | Building the shop together matters to both of us | .30/1/1 | .35/2/2 | .46/3/3 | .58/4/4 |
+
+   | floors (strength / memories / days) | core, end of days 1–8 | first entry |
+   |---|---|---|
+   | 0.5 / 3 / 2 (default) | 0 0 0 0 0 0 0 1 | shop: day 8 |
+   | 0.5 / 2 / 1 | 0 0 0 0 0 0 0 1 | shop: day 8 |
+   | 0.4 / 3 / 2 | 0 0 1 1 2 1 1 1 | worry-first: 3 (out again by 6); shop: 5 |
+   | 0.3 / 3 / 2 | 0 0 1 1 2 2 2 2 | worry-first: 3; shop: 5 |
+   | 0.3 / 2 / 2 | 0 0 2 1 2 2 2 2 | worry-first: 3; shop: 3 |
+   | 0.3 / 2 / 1 | 0 3 2 1 2 2 2 2 | all four from day 2–3 |
+
+   **What it says.** With the default floors Dana's week ends with a core of one belief (the
+   shop, on day 8), not 0 — but the floor that binds is STRENGTH, not the counts: the
+   support arm is `0.9·(1−e^(−s/4))`, so 3 full-weight memories read 0.475 on the night they
+   are filed and decay after; 0.5 needs s ≥ 3.24 (four unfelt lived memories, or three felt
+   near 1.0), and the belief falls back under as days pass without a filing. The days floor
+   binds only one-day beliefs (the Clay-night and the Biscuit-night beliefs). Below 0.5 the
+   membership FLICKERS (worry-first in on day 3, out on day 6 at 0.4) — no hysteresis yet; a
+   page that changes its core as a belief decays is a stability cost the compare should read.
+   (First run, with C's `supportDays`, read the Clay belief at 2 days from one evening: an
+   un-echoed find of a same-day memory added its filing day. The floor now counts lived days
+   itself, and it reads 1 — review of #587.) For Mike's on-hold developmental mode: a young
+   store's beliefs are thin by design; in this fixture the floor, not the design, keeps
+   Dana's core near 0. **C's echo rule, logged:** one LATER lived memory echoes every older
+   find to full weight and its own day (design §4 allows it: "older memories it connects for
+   the first time"), so the days floor is one lived memory deep — an owner's line on day D
+   and two finds from D−5 and D−3, filed on night D+1, read 3 days and ~0.52, in the core
+   from one night. The reflection can only file what its bundle showed, which bounds it.
+2. **One night compare on a store that holds beliefs** (not yet run; ~1.8M tokens). The 10-20
+   corpus has none, so its spine would be empty and the "on" page would be told the core is
+   still forming — a real effect, but not the one to read. After C has run real nights
+   (0.3.31 on live), copy a fresh snapshot, re-run step 1 on it (free) to pick the floors, then
+   `bun tools/harness/cli.ts compare --mode night --set self.CORE_FROM_BELIEFS=true -- --dir <night folder from that snapshot> --model`.
+3. **One meaningful week, on vs off** (not yet run; rough: ~7 nights × ~0.9M plus ~46 turns
+   a week, ~7–9M per arm, ~15M+ for the pair, from week 5's shape, not measured):
+   `bun tools/harness/cli.ts compare --mode week --set self.CORE_FROM_BELIEFS=true -- --script meaningful`
+   (both arms birth beliefs: `schemas.BELIEFS_BIRTH` is on). Reads: "core from beliefs, end
+   of day N", the page's claims and how many of its Core lines cite a belief, page bytes.
+   Worth a `--set self.CORE_BELIEF_STRENGTH=0.4` variant only if step 1 on real beliefs agrees.
+
+Then Mike reads the two pages side by side; on by default only on his word.

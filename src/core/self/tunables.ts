@@ -275,6 +275,45 @@ export interface SelfTunables {
    */
   WAKE_LINE_BYTES: number;
 
+  // ── the core from beliefs (wave 2 lane F, 2026-10-22; design §6) ─────────
+  /**
+   * THE SWITCH (lightly held; default off until a `harness compare` and
+   * Mike's read). On: the core the page rests on is the strongest current
+   * beliefs about me and us on the self subject that pass the floors below
+   * (`measures.ts#coreFromBeliefs`), at most `IDENTITY_MAX` of them — and
+   * the night's reflection is shown them as the page's SPINE: it may phrase
+   * and connect them, cite them on the page, and state as settled under
+   * "## Core" only what one of them says (`dream/reflect.ts`). The core lanes
+   * keep promoting memories alongside, unchanged; nothing is written for the
+   * switch, so off is exactly as before (`test/self-core-from-beliefs.test.ts`
+   * pins it byte for byte). Read at use from this object, never from a
+   * `withTunables` copy, so `harness compare --set
+   * self.CORE_FROM_BELIEFS=true` reaches every reader.
+   *
+   * ON A STORE WITH NO EARNED BELIEF THE SPINE IS EMPTY, and the reflection
+   * is told the core is still forming: it HOLLOWS OUT "## Core" (the lanes'
+   * core memories are said as lived or forming, not as who I am). On purpose,
+   * no fallback (review of #587): a fallback would read as off on exactly the
+   * young stores the compare needs. Turning it off writes nothing back: the
+   * page stays hollow until a reflection rewrites "## Core". With it on, the
+   * nightly page WRITER leaves "## Core" to the reflection (`writer.ts`).
+   */
+  CORE_FROM_BELIEFS: boolean;
+  /** On: a belief's strength (physics, on the day read) at least this. CAL. */
+  CORE_BELIEF_STRENGTH: number;
+  /** On: at least this many memories counted FOR it (`belief_support`, stance
+   *  support; another belief lent by `link` is not a memory). CAL. */
+  CORE_BELIEF_MEMORIES: number;
+  /**
+   * On: its support from at least this many LIVED days
+   * (`measures.ts#livedSupportDays`): the days its memories were born, over
+   * lived filings and the finds life has echoed. An un-echoed `found` filing
+   * adds no day — so one reflection's finds cannot put a belief in the core
+   * before life echoes them. (Not C's `supportDays`, which counts such a find's
+   * filing day, for resistance; review of #587.) CAL.
+   */
+  CORE_BELIEF_DAYS: number;
+
   // ── budget telemetry ──────────────────────────────────────────────────────
   /** Fraction of the budget at which the render reports pressure. A budget gets
    *  an event when APPROACHED and one when crossed (scar §2.4). [v1: 0.9] */
@@ -344,6 +383,11 @@ export const SELF_TUNABLES: SelfTunables = {
   PAGE_WRITER_ASKS_PER_DAY: 2,
 
   WAKE_LINE_BYTES: 240,
+
+  CORE_FROM_BELIEFS: false,
+  CORE_BELIEF_STRENGTH: 0.5,
+  CORE_BELIEF_MEMORIES: 3,
+  CORE_BELIEF_DAYS: 2,
 
   BUDGET_PRESSURE: 0.9,
 
