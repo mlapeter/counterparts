@@ -490,7 +490,9 @@ export function mechanismsLines(report: FiredReport, verdicts: readonly Verdict[
  * BY BUILD: a row that carries JSON says its build at write time (#591):
  * event payloads and `memories.meta`; a row from before the stamp says none
  * (`pre-stamp`). A pair (no JSON column) and a `recall_turns` row take the
- * build that had the store on their lived day, from the build log.
+ * build that had the store on their lived day, from the build log. Each build
+ * carries its exposure beside its counts — its recall turns in the window and
+ * the lived days they fell on — so two builds' numbers can be read side by side.
  *
  * Ids only, never a body. Read-only: no row is written.
  */
@@ -507,6 +509,9 @@ export interface SettledBucket {
   readonly repeats: number;
   readonly reraised: number;
   readonly shownOnly: number;
+  /** The build's exposure in the window: its recall turns (`recall.decision` rows), and the lived days they fell on. */
+  readonly turns: number;
+  readonly days: number;
 }
 
 export interface SettledReading {
@@ -645,6 +650,7 @@ export function settledReading(store: SettledStore, today: string, window: numbe
   type HitKind = "repeat" | "reraise" | "shown";
   type Via = "drewOn" | "quoted" | "rated" | "cited" | "loser" | "winner" | "restated" | "opened";
   const hits: Record<HitKind, Map<string, { build: string; by: string }[]>> = { repeat: new Map(), reraise: new Map(), shown: new Map() };
+  const exposure = new Map<string, { turns: number; days: Set<number> }>();
   const via: Record<Via, Set<string>> = {
     drewOn: new Set(),
     quoted: new Set(),
@@ -700,7 +706,13 @@ export function settledReading(store: SettledStore, today: string, window: numbe
     }
     for (const e of events("recall.decision")) {
       const p = jsonObject(e.payload);
-      for (const id of [...idList(p["surfaced"]), ...idList(p["footnotes"])]) loserHit("shown", id, e.day, buildOf(p["build"]), `ev:${String(e.seq)}`);
+      const build = buildOf(p["build"]);
+      // Each build's exposure: its recall turns in the window, and the lived days they fell on.
+      const x = exposure.get(build) ?? { turns: 0, days: new Set<number>() };
+      x.turns += 1;
+      x.days.add(e.day);
+      exposure.set(build, x);
+      for (const id of [...idList(p["surfaced"]), ...idList(p["footnotes"])]) loserHit("shown", id, e.day, build, `ev:${String(e.seq)}`);
     }
     try {
       for (const t of store.recallTurns({ sinceDay })) {
@@ -776,13 +788,21 @@ export function settledReading(store: SettledStore, today: string, window: numbe
     }
     return s;
   };
+  for (const b of exposure.keys()) bucket(b);
   for (const [pair, xs] of hits.repeat) for (const x of xs) bucket(x.build).repeats.add(pair);
   for (const [pair, xs] of hits.reraise) for (const x of xs) bucket(x.build).reraised.add(pair);
   for (const [pair, xs] of hits.shown) if (shownOnly.has(pair)) for (const x of xs) bucket(x.build).shown.add(pair);
   const rank = (b: string): number => (order.includes(b) ? order.indexOf(b) : order.length);
   const byBuild = [...buckets.entries()]
     .sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]))
-    .map(([build, s]) => ({ build, repeats: s.repeats.size, reraised: s.reraised.size, shownOnly: s.shown.size }));
+    .map(([build, s]) => ({
+      build,
+      repeats: s.repeats.size,
+      reraised: s.reraised.size,
+      shownOnly: s.shown.size,
+      turns: exposure.get(build)?.turns ?? 0,
+      days: exposure.get(build)?.days.size ?? 0,
+    }));
   const loserOf = new Map(pairs.map((p) => [p.id, p.over]));
   const examples = (kind: HitKind, keep: (id: string) => boolean): SettledExample[] =>
     [...hits[kind].entries()]
@@ -816,7 +836,9 @@ export function settledLines(r: SettledReading): string[] {
   const span = r.from === null ? "in the record" : "this week";
   const lines = [`Settled things repeated: ${String(r.repeats)} of ${plural(r.pairs, "pair")} ${span} (re-raised ${String(r.reraised)}; shown only ${String(r.shownOnly)})`];
   if (r.byBuild.length > 0) {
-    lines.push(`  by build: ${r.byBuild.map((b) => `${b.build} ${String(b.repeats)} repeated, ${String(b.reraised)} re-raised, ${String(b.shownOnly)} shown only`).join("; ")}`);
+    lines.push(
+      `  by build: ${r.byBuild.map((b) => `${b.build} ${String(b.repeats)} repeated, ${String(b.reraised)} re-raised, ${String(b.shownOnly)} shown only (${plural(b.turns, "turn")} on ${plural(b.days, "lived day")})`).join("; ")}`,
+    );
   }
   return lines;
 }

@@ -865,8 +865,9 @@ should not raise it. Read it with `counterparts mechanisms --dir ~/.counterparts
 repeated: N of M pairs this week (re-raised R; shown only S)" and its "by build" split) or
 `counterparts mechanisms --dir ~/.counterparts/store --json | jq .settled` (counts by way in, per build, example
 ids). Compare the pre-0.3.32 bucket (`pre-stamp`, or 0.3.31) with 0.3.32's. Baseline, the 10-22 snapshot copy
-(window 10-16..10-22, all pre-stamp): 2 of 231 pairs repeated (both rated 3 by a session; one also named in
-`drewOn` and refused), 0 re-raised, 14 shown only. The definition, and where it departs from the brief:
+(window 10-16..10-22, all pre-stamp, 1,254 recall turns on 8 lived days): 2 of 231 pairs repeated (both rated
+3 by a session; one also named in `drewOn` and refused), 0 re-raised, 14 shown only. Read each build's counts
+beside its turns and lived days. The definition, and where it departs from the brief:
 `docs/decisions.d/feat-repeat-reraise-eval-1022.md`.
 
 **What would change it.** Belief lines rated as noise as often as footnotes or more → raise the floor or the

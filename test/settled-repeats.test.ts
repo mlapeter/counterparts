@@ -5,7 +5,10 @@
  * `counterparts settle --undo`, a later `drewOn` on `session_end` naming the
  * losing side (credited when it was shown, refused when it was archived — the
  * session said it drew on it either way), a later `updates … how: open` that
- * names a loser again, and a new memory that says a corrected thing again.
+ * names a loser again, a new memory that says a corrected thing again, and
+ * `session_end`'s `rated` (3 a repeat, 1 shown only). The one row written in
+ * shape rather than through its door is a `recall.decision` footnote: a fresh
+ * store's recall finds no candidates until the boundary worker indexes it.
  * The harness column reads the same function over the whole record.
  *
  * Hermetic: a fresh temp dir per test, removed after it.
@@ -128,6 +131,46 @@ async function laterWeek(w: Awaited<ReturnType<typeof world>>): Promise<void> {
   }
 }
 
+describe("settled things repeated — the ratings and recall's own showing", () => {
+  test("a loser rated 3 is a repeat, one rated 1 is shown only, and one recall footnoted is shown only", async () => {
+    const c = brain();
+    let rated: string;
+    let low: string;
+    let footnoted: string;
+    try {
+      const s = server(c);
+      for (const d of ["2026-10-01", "2026-10-02", "2026-10-03"]) day(c, d);
+      rated = idOf(await remember(s, { text: "The team lunch is at the Thai place on Thursdays." }));
+      low = idOf(await remember(s, { text: "The printer on the second floor needs a code to print." }));
+      footnoted = idOf(await remember(s, { text: "Quarterly planning for the harbour ferry timetable happens in the Lisbon office." }));
+      day(c, "2026-10-04");
+      await remember(s, { text: "The team lunch moved from the Thai place to the noodle bar, still on Thursdays.", updates: rated, how: "changed" });
+      await remember(s, { text: "The printer on the second floor prints without a code now.", updates: low, how: "changed" });
+      await remember(s, { text: "Quarterly planning for the harbour ferry timetable moved from Lisbon to the Porto office.", updates: footnoted, how: "changed" });
+      for (const d of ["2026-10-08", "2026-10-12"]) day(c, d);
+      shown(c, 1, [rated, low]);
+      const end = (await s.call("session_end", { session: SESSION, memories: [], rated: [{ id: rated, score: 3 }, { id: low, score: 1 }] })).structuredContent;
+      expect((end["rated"] as Record<string, unknown>)["rated"]).toBe(2);
+      // Recall's own showing: a `recall.decision` row footnoting the old ferry planning memory, in the
+      // shape `Counterpart#recallForTurn` writes it (its loud lines and footnotes as `{ id, … }`). Written
+      // here rather than through a turn: a fresh store's candidates come from the text index the boundary
+      // worker builds, so a turn on this store finds none.
+      c.store.appendEvent({ name: "recall.decision", day: c.store.livedDay(), payload: { session: "sess_other", turn: 1, date: "2026-10-12", reason: "shown", surfaced: [], footnotes: [{ id: footnoted, sal: 0.5 }] } });
+    } finally {
+      c.close();
+    }
+    const { out } = await cli(["mechanisms", "--json"]);
+    const st = (JSON.parse(out.join("\n")) as { settled: SettledReading }).settled;
+    expect(st.pairs).toBe(3);
+    expect(st.repeats).toBe(1);
+    expect(st.repeatVia.rated).toBe(1);
+    expect(st.examples.repeats.map((e) => e.over)).toEqual([rated]);
+    expect(st.shownOnly).toBe(2);
+    expect(st.examples.shownOnly.map((e) => e.over).sort()).toEqual([low, footnoted].sort());
+    expect(st.byBuild).toEqual([{ build: runningBuild(), repeats: 1, reraised: 0, shownOnly: 2, turns: 1, days: 1 }]);
+  });
+});
+
 describe("settled things repeated — `counterparts mechanisms`", () => {
   test("the line counts a repeat, a re-raise and a restatement, and leaves an undone settle out", async () => {
     const w = await world();
@@ -201,12 +244,15 @@ describe("settled things repeated — `counterparts mechanisms`", () => {
       repeatVia: { drewOn: 1, quoted: 0, rated: 2, cited: 0 },
       reraisedVia: { loser: 0, winner: 0, restated: 0 },
       opened: 0,
-      byBuild: [{ build: PRE_STAMP, repeats: 2, reraised: 0, shownOnly: 14 }],
+      byBuild: [
+        { build: PRE_STAMP, repeats: 2, reraised: 0, shownOnly: 14, turns: 900, days: 6 },
+        { build: "0.3.32", repeats: 0, reraised: 0, shownOnly: 0, turns: 1, days: 1 },
+      ],
       examples: { repeats: [], reraised: [], shownOnly: [] },
     };
     expect(settledLines(r)).toEqual([
       "Settled things repeated: 2 of 231 pairs this week (re-raised 0; shown only 14)",
-      "  by build: pre-stamp 2 repeated, 0 re-raised, 14 shown only",
+      "  by build: pre-stamp 2 repeated, 0 re-raised, 14 shown only (900 turns on 6 lived days); 0.3.32 0 repeated, 0 re-raised, 0 shown only (1 turn on 1 lived day)",
     ]);
     expect(typeof settledReading).toBe("function");
   });

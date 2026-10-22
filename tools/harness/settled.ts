@@ -23,7 +23,9 @@ export function settledOf(dir: string): SettledReading | null {
   }
   try {
     // `today` only names the reading's end: the whole record is read.
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: store.zone() }).format(Date.now());
+    const parts = new Intl.DateTimeFormat("en-US", { timeZone: store.zone(), year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(Date.now());
+    const part = (t: string): string => parts.find((p) => p.type === t)?.value ?? "";
+    const today = `${part("year")}-${part("month")}-${part("day")}`;
     return settledReading(store, today, "all");
   } catch {
     return null;
