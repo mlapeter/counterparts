@@ -52,6 +52,11 @@ The sidebar is now a plugin of its own, `counterparts-sidebar`, and `counterpart
   reflection would state as settled in the core only what a well-backed belief about me or
   us says. It is off (a code tunable, not a setting), so nothing about the core changes in
   this release.
+- **For code that embeds Counterparts:** new exports, nothing removed. `counterparts`
+  adds `beliefCoreCandidates`, `coreBeliefFloors`, `coreBeliefMiss`, `coreFromBeliefs` and
+  `livedSupportDays`; `counterparts/store` adds `BUILD_LOG_PREFIX`, `BUILD_UNKNOWN`,
+  `buildLogKeys`, `parseBuildLog`, `readBuildFrom`, `runningBuild`, `setRunningBuild`,
+  `setSettingsInForce`, `settingsInForce` and `withBuild`.
 
 ## 0.3.31 — 2026-10-22
 
