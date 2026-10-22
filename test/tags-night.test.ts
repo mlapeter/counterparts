@@ -36,7 +36,9 @@ import type { Seat, SeatAsk } from "../src/core/counterpart.js";
 import { applyTagsAnswer, askTags, renderTagsBundle, tagsBundle, undoNightTags, TAGS_NIGHT_PREFIX } from "../src/core/dream/index.js";
 import { KINDS_REPAIR_KEY, SUBJECT_KIND_BY_PREFIX, TUNABLES as SCHEMAS, isStopTag, nightTagWork, stemKey, tallyTags } from "../src/core/schemas/index.js";
 import { PHASES, phaseReport, runBirths } from "../src/core/sleep/index.js";
+import { V14_UPGRADE_KEY } from "../src/core/store/index.js";
 import type { Store } from "../src/core/store/index.js";
+import { upgradeV14Findings } from "../src/adapters/claude-code/doctor.js";
 
 let root: string;
 let clock = Date.parse("2026-10-21T09:00:00Z");
@@ -692,6 +694,21 @@ describe("the kinds a card's birth kind gave go back to the night (2026-10-22)",
     await c.sessionEnd({ date: "2026-10-22" });
     expect(s.row(late)?.subject_kind).toBe("place");
     expect(nightTagWork(s, { day: 3, apply: true, budget: 10 }).kindsRepaired).toBe(0);
+  });
+
+  test("doctor's v14 line says the night took the kinds back, instead of claiming them still", async () => {
+    const c = brain();
+    const katie = oldCard(c.store, "person", "Katie");
+    oldCard(c.store, "place", "Counterparts");
+    // As an upgraded store's record reads (a store born at v14 has none).
+    c.store.setMeta(V14_UPGRADE_KEY, JSON.stringify({ from: "13", day: 3, confidentialDropped: true, confidentialCounted: 0, subjects: { person: 2, place: 1 } }));
+    expect(upgradeV14Findings(c.store)[0]?.detail).toContain("2 cards marked a person, 1 a place; the rest wait for the night");
+    c.wake(9_000);
+    await c.sessionEnd({ date: "2026-10-21" });
+    expect(c.store.row(katie)?.subject_kind).toBeNull();
+    const line = upgradeV14Findings(c.store)[0];
+    expect(line?.severity).toBe("green");
+    expect(line?.detail).toContain("2 cards marked a person, 1 a place; on 2026-10-21 the night took back 2 kinds a card's birth kind had given (1 person, 1 place) to sort them itself; the rest wait for the night");
   });
 
   test("switched off: no repair, so nothing is handed to an ask that will not run", async () => {
