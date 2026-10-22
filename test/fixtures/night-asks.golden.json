@@ -118,12 +118,14 @@
         {
           "child": "dream",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         },
         {
           "child": "reflection",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         }
       ],
       "dream": null,
@@ -318,7 +320,8 @@
         {
           "child": "reflection",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         }
       ],
       "dream": null,
@@ -462,12 +465,14 @@
           "child": "dream",
           "code": null,
           "ms": 1000,
-          "timedOut": true
+          "timedOut": true,
+          "hostSession": "<uuid>"
         },
         {
           "child": "reflection",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         }
       ],
       "transcript": "absent",
@@ -928,7 +933,8 @@
         {
           "child": "dream",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         },
         {
           "child": "reflection",
@@ -1099,12 +1105,14 @@
         {
           "child": "dream",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         },
         {
           "child": "reflection",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         }
       ],
       "dream": null,
@@ -1281,12 +1289,14 @@
         {
           "child": "dream",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         },
         {
           "child": "reflection",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         }
       ],
       "dream": null,
@@ -1463,12 +1473,14 @@
         {
           "child": "dream",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         },
         {
           "child": "reflection",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         }
       ],
       "dream": null,
@@ -1646,12 +1658,14 @@
         {
           "child": "dream",
           "code": 1,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         },
         {
           "child": "reflection",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         }
       ],
       "transcript": "absent",
@@ -1832,12 +1846,14 @@
         {
           "child": "dream",
           "code": 1,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         },
         {
           "child": "reflection",
           "code": 0,
-          "ms": 1000
+          "ms": 1000,
+          "hostSession": "<uuid>"
         }
       ],
       "transcript": "absent",

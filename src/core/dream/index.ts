@@ -542,6 +542,21 @@ export interface NightChildRun {
    * could not be started).
    */
   readonly skipped?: string;
+  /**
+   * THE CHILD'S OWN SESSION ID, as its host named it (2026-10-22, lane L):
+   * Claude Code's `--session-id`, chosen by the night before the child
+   * starts. What ties a child's transcript (or its output) to this row by
+   * name rather than by time. Absent when the host chose the id itself (a
+   * child retried without the flag), for a child not started, and on rows
+   * from before.
+   */
+  readonly hostSession?: string;
+}
+
+/** `dream:<id>,reflection:<id>`: the children that carry their own session id, for the event row; null when none does. */
+export function nightChildSessions(children: readonly NightChildRun[]): string | null {
+  const named = children.filter((c) => c.hostSession !== undefined && c.hostSession.length > 0);
+  return named.length === 0 ? null : named.map((c) => `${c.child}:${c.hostSession as string}`).join(",");
 }
 
 /** `dream:0,reflection:skipped-reflected-today` — a run's children in one line, for its event row. */
@@ -634,6 +649,7 @@ function childRunOf(raw: unknown): NightChildRun[] {
       ms: typeof v.ms === "number" ? v.ms : 0,
       ...(v.timedOut === true ? { timedOut: true as const } : {}),
       ...(typeof v.skipped === "string" ? { skipped: v.skipped } : {}),
+      ...(typeof v.hostSession === "string" && v.hostSession.length > 0 ? { hostSession: v.hostSession } : {}),
     },
   ];
 }
@@ -1007,6 +1023,7 @@ export class Dreams {
           reflection: run.reflection,
           parts: run.parts === undefined ? null : run.parts.join(","),
           ...(run.children === undefined ? {} : { children: nightChildrenWords(run.children) }),
+          ...(run.children === undefined || nightChildSessions(run.children) === null ? {} : { childSessions: nightChildSessions(run.children) }),
           ms: run.endedAt === null ? null : run.endedAt - run.startedAt,
           ...(run.transcript === undefined ? {} : { transcript: run.transcript }),
           ...(run.spills === undefined ? {} : { spills: run.spills }),

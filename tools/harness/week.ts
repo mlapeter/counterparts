@@ -30,7 +30,7 @@ import { join, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
 
-import { ClaudeCodeAdapter, NIGHT_KIND_ENV, NIGHT_RUN_ENV, openEmbedder, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
+import { ClaudeCodeAdapter, NIGHT_KIND_ENV, NIGHT_RUN_ENV, expansionIdsOf, openEmbedder, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
 import type { ChildPlan, ChildResult, HookInput, NightStarter, SpawnPlan } from "../../src/adapters/claude-code/index.js";
 import type { TurnExpansion } from "../../src/adapters/lifecycle.js";
 import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
@@ -190,12 +190,9 @@ export function recalledIds(output: string | undefined): string[] {
       if (o.type !== "assistant" || !Array.isArray(o.message?.content)) continue;
       for (const b of o.message.content as { type?: string; name?: string; input?: Record<string, unknown> }[]) {
         if (b.type !== "tool_use" || b.name !== "mcp__counterparts__recall") continue;
-        // As live reads them (`transcript.ts#expansionIdsOf`): the handle, then every id, unfiltered;
+        // As live reads them, through the same public seam: the handle, then every id, unfiltered;
         // a handle or title is resolved at the boundary through the server's resolution log.
-        const handle = b.input?.["handle"];
-        if (typeof handle === "string") out.push(handle);
-        const ids = b.input?.["ids"];
-        if (Array.isArray(ids)) for (const id of ids) if (typeof id === "string") out.push(id);
+        out.push(...expansionIdsOf(b.input));
       }
     } catch {
       continue;

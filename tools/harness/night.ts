@@ -66,6 +66,8 @@ export interface RecordedChild {
   readonly prompt: string;
   readonly calls: readonly RecordedCall[];
   readonly startedAt: number | null;
+  /** The child's own session id, as its transcript's lines carry it (`sessionId`); null when none does. */
+  readonly session: string | null;
 }
 
 type Row = Record<string, unknown>;
@@ -83,6 +85,7 @@ export function readChild(path: string): RecordedChild {
   const hostRefused = new Set<string>();
   let prompt = "";
   let startedAt: number | null = null;
+  let session: string | null = null;
   let lastAt: number | null = null;
   for (const line of readFileSync(path, "utf8").split("\n")) {
     if (line.trim().length === 0) continue;
@@ -97,6 +100,7 @@ export function readChild(path: string): RecordedChild {
       lastAt = stamp;
       startedAt ??= stamp;
     }
+    if (typeof o["sessionId"] === "string" && o["sessionId"].length > 0) session ??= o["sessionId"];
     // MESSAGE LINES ONLY: Claude Code also writes lines (an API request's
     // blob) that repeat earlier blocks with no time of their own.
     if (o["type"] !== "user" && o["type"] !== "assistant") continue;
@@ -130,7 +134,7 @@ export function readChild(path: string): RecordedChild {
     }
   }
   const calls = [...uses.entries()].map(([id, u]) => ({ ...u, result: results.get(id) ?? null, ...(hostRefused.has(id) ? { hostRefused: true as const } : {}) }));
-  return { prompt, calls, startedAt };
+  return { prompt, calls, startedAt, session };
 }
 
 /**
@@ -324,6 +328,12 @@ export interface NightReplayRecord {
   readonly page: PageReading | { readonly error: string } | null;
   readonly calls: Readonly<Record<string, CallTally>>;
   readonly idsMapped: number;
+  /**
+   * How the recorded night's reflection was found in the outcome store: by
+   * the children's own session ids on the night's row (`nightRowFor`), or,
+   * when the row names none of them, by the transcripts' time window.
+   */
+  readonly matchedBy: "session" | "time";
   readonly dream: {
     readonly state: Compared<string | null>;
     readonly titleSame: boolean;
@@ -337,6 +347,42 @@ export interface NightReplayRecord {
     readonly cites: Compared<number>;
   } | null;
   readonly keptAt: string | null;
+}
+
+/** What a night's row says it did: its dream and its reflection. */
+export interface NightRowMatch {
+  readonly run: string | null;
+  readonly dream: string | null;
+  readonly reflection: string | null;
+}
+
+/**
+ * THE NIGHT ROW A CHILD RAN UNDER, BY ITS OWN SESSION ID (2026-10-22, lane L):
+ * the latest `dream.night` row whose `childSessions` names one of `sessions`
+ * and says what the night did. Null when no row names any of them (a night
+ * from before the rows carried the ids, or a transcript from elsewhere): the
+ * caller falls back to matching by time.
+ */
+export function nightRowFor(db: Database, sessions: readonly (string | null)[]): NightRowMatch | null {
+  const wanted = new Set(sessions.filter((s): s is string => s !== null && s.length > 0));
+  if (wanted.size === 0) return null;
+  const rows = db.query("SELECT ref, payload FROM events WHERE name = 'dream.night' ORDER BY seq DESC").all() as { ref: string | null; payload: string | null }[];
+  for (const r of rows) {
+    let p: Row;
+    try {
+      p = JSON.parse(r.payload ?? "{}") as Row;
+    } catch {
+      continue;
+    }
+    const named = typeof p["childSessions"] === "string" ? (p["childSessions"] as string).split(",").map((x) => x.slice(x.indexOf(":") + 1)) : [];
+    if (!named.some((s) => wanted.has(s))) continue;
+    const dream = typeof p["dream"] === "string" ? (p["dream"] as string) : null;
+    const reflection = typeof p["reflection"] === "string" ? (p["reflection"] as string) : null;
+    // A `started` row names no outcome yet: the run's later row does.
+    if (dream === null && reflection === null) continue;
+    return { run: r.ref, dream, reflection };
+  }
+  return null;
 }
 
 export class NightReplayError extends Error {
@@ -527,7 +573,14 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
           to,
         );
       const lastCall = Math.max(...[...dream.calls, ...reflection.calls].map((c) => c.at ?? 0), dream.startedAt ?? 0);
-      const recR = reflectionRow(rec, recordedDream, (dream.startedAt ?? 0) - 60_000, lastCall + 60_000);
+      // BY NAME FIRST: the night's row names its children's sessions; a row
+      // for this dream with a reflection gives the reflection by id. Else by time.
+      const byName = nightRowFor(rec, [dream.session, reflection.session]);
+      const named =
+        byName !== null && byName.reflection !== null && (byName.dream === null || byName.dream === recordedDream)
+          ? one<{ id: string; state: string; page_version: number | null; cites: string; day: number }>(rec, "SELECT id, state, page_version, cites, day FROM reflections WHERE id = ?", byName.reflection)
+          : null;
+      const recR = named ?? reflectionRow(rec, recordedDream, (dream.startedAt ?? 0) - 60_000, lastCall + 60_000);
       const repR = reflectionRow(rep, replayedDream, replayStart - 60_000, now() + 60_000);
       // A reflection's returns carry its id as their session (`Store#reflectReturn`).
       const reflectionReturns = (db: Database, r: { id: string; day: number } | null): number =>
@@ -563,6 +616,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
         page: pageReading(dir, opts.pageOut),
         calls: seat.tallies,
         idsMapped: seat.ids.size,
+        matchedBy: named !== null ? "session" : "time",
         dream:
           recD === null
             ? null

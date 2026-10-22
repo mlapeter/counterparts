@@ -116,7 +116,7 @@ export function renderNight(r: NightReplayRecord): string {
     out.push(`  changes ${v(r.dream.changes)}`);
   }
   if (r.reflection !== null) {
-    out.push(`reflection: state ${v(r.reflection.state)}; page version ${v(r.reflection.pageVersion)}; returns ${v(r.reflection.returns)}; cites ${v(r.reflection.cites)}`);
+    out.push(`reflection (found by ${r.matchedBy}): state ${v(r.reflection.state)}; page version ${v(r.reflection.pageVersion)}; returns ${v(r.reflection.returns)}; cites ${v(r.reflection.cites)}`);
   }
   for (const [act, init] of Object.entries(r.childInits ?? {})) {
     if (init === null) out.push(`${act} child: said no init line (its output was not read)`);

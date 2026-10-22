@@ -11,6 +11,9 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 
+import type { UpdateNoticeDoors, deliverTurn as DeliverTurn } from "../src/adapters/claude-code/index.js";
+import type { PlainReminder } from "../src/core/counterpart.js";
+
 const REPO = resolve(import.meta.dir, "..");
 const HARNESS = join(REPO, "tools", "harness");
 
@@ -91,6 +94,59 @@ test("the specifier scan catches the forms it claims to", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+/**
+ * THE TWO SEAMS A SECOND HOST WAS STILL MISSING (2026-10-22, lane L; closed in
+ * `src/adapters/claude-code/INTERFACE-GAPS.md` §19): what a hook prints and
+ * claims on a turn (`deliverTurn`, with `hostDelivery` and its doors), and the
+ * recall ids a turn's transcript expands (`expansionIdsOf`) — through the
+ * package's `./claude-code` export, the door a host outside this repo has.
+ */
+test("deliverTurn and expansionIdsOf are public seams, through the package's own export", async () => {
+  const pkg = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8")) as { exports: Record<string, string> };
+  const door = pkg.exports["./claude-code"];
+  expect(door).toBeDefined();
+  const m = (await import(resolve(REPO, door as string))) as Record<string, unknown>;
+  for (const name of ["deliverTurn", "hostDelivery", "expansionIdsOf"]) expect(typeof m[name]).toBe("function");
+  const expansionIdsOf = m["expansionIdsOf"] as (input: unknown) => string[];
+  expect(expansionIdsOf({ handle: "h1", ids: ["mem_a", 7, "mem_b"] })).toEqual(["h1", "mem_a", "mem_b"]);
+  expect(expansionIdsOf(null)).toEqual([]);
+  // A turn delivered through it: a plain reminder is shown only once claimed, and the claim is made.
+  const deliverTurn = m["deliverTurn"] as typeof DeliverTurn;
+  const claimed: PlainReminder[][] = [];
+  const doors: UpdateNoticeDoors = {
+    updateNotice: () => null,
+    markUpdateNotice: () => false,
+    claimPlain: (_i, due) => {
+      claimed.push([...due]);
+      return due;
+    },
+  };
+  const due: PlainReminder = { memoryId: "mem_r", windowKey: "w", eventDate: "2026-10-22", precision: "day", beat: "day", firstDay: "2026-10-22", lastDay: "2026-10-22", what: "call the plumber" };
+  const d = deliverTurn("user-prompt-submit", { injection: "the recall", ask: null, plain: [due] }, {}, null, doors, { sessionId: "s", scope: "/x" });
+  expect(claimed).toHaveLength(1);
+  expect(d.dropped).toBeNull();
+  const out = JSON.parse(d.stdout) as { systemMessage: string; hookSpecificOutput: { additionalContext: string } };
+  expect(out.hookSpecificOutput.additionalContext).toContain("the recall");
+  expect(out.systemMessage).toContain("call the plumber");
+});
+
+test("the public entry never imports the hook's entry script", () => {
+  // `bin/hook.ts` does work at load (its config path, its sibling scripts) and
+  // imports the public entry itself; the seams live in `envelope.ts` for that.
+  const seen = new Set<string>();
+  const walk = (file: string): void => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    for (const spec of importsOf(file)) {
+      if (!spec.startsWith(".")) continue;
+      const target = resolve(dirname(file), spec).replace(/\.js$/, ".ts");
+      if (target.endsWith(".ts")) walk(target);
+    }
+  };
+  walk(join(REPO, "src", "adapters", "claude-code", "index.ts"));
+  expect([...seen].filter((f) => relative(REPO, f).includes("/bin/")).map((f) => relative(REPO, f))).toEqual([]);
 });
 
 test("the harness is not in the published package", () => {

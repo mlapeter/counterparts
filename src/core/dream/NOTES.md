@@ -1069,3 +1069,11 @@ co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.t
 - **The owner's correction** goes through the update guard by id (his "that's wrong" need
   share no word with the belief) and settles at once; another writer's update of a belief
   is read by the guard and, if it goes on, presses.
+
+## 2026-10-22 — a night's child carries its own session id (lane L)
+
+`NightChildRun.hostSession`: the id the host ran the child under, when the night chose it
+(`--session-id`). Optional, read back forgivingly, absent on rows from before; the event
+row carries the named ones as `childSessions` (`nightChildSessions`). No schema change.
+What it is for: a child's transcript or output is matched to its row by name, not time
+(`tools/harness/night.ts#nightRowFor`).
