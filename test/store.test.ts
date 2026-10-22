@@ -530,17 +530,25 @@ describe("no deletion surface (contract §5 G2, §16 G1)", () => {
     // duplicate and refuses every OTHER archive reason by name, which is what
     // keeps it from being the general resurrection verb the store does not
     // have; `MERGED_ARCHIVE_REASON` is the one reason it undoes and
-    // `UNMERGE_EVENT` the durable name it appends.
+    // `UNMERGE_EVENT` the durable name it appends. Added 2026-10-22:
+    // `unarchiveTwin`, the second such repair — it puts back a card the
+    // night's twin pass archived and refuses every other reason by name;
+    // `CARD_TWIN_ARCHIVE_REASON` is its one reason and `TWIN_RECORD_PREFIX`
+    // where the pass recorded the card each twin stands under.
     expect(Object.keys(mod).filter((k) => k !== "default").sort()).toEqual([
+      "CARD_TWIN_ARCHIVE_REASON",
       "MERGED_ARCHIVE_REASON",
       "REMOVED_REASON",
+      "TWIN_RECORD_PREFIX",
       "UNMERGE_EVENT",
       "chaseRemoved",
       "grantOwnerOps",
       "unarchiveMerged",
+      "unarchiveTwin",
     ]);
     expect(typeof mod["chaseRemoved"]).toBe("function");
     expect(typeof mod["unarchiveMerged"]).toBe("function");
+    expect(typeof mod["unarchiveTwin"]).toBe("function");
   });
 
   test("the seam's merge reason is the word `sleep/` actually writes", async () => {

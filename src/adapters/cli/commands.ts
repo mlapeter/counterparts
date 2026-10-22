@@ -586,7 +586,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // line is a page in shell history, and prose that is injected into every
   // session does not belong there.
   "self-page": ["write", "file", "stdin", "short", "reason", "versions", "version", "restore", "clear", "if-version"],
-  dream: ["list", "show", "undo", "all", "setting", "undo-tags"],
+  dream: ["list", "show", "undo", "all", "setting", "undo-tags", "undo-twins"],
   night: ["all"],
   core: ["list", "demote", "reaffirm", "reason", "reflected-feeling"],
   settle: ["list", "pair", "holds", "against", "how", "why", "undo"],
@@ -934,7 +934,7 @@ const START_FRESH_FLAG_HELP: Record<string, string> = {
  * and it is the one the hooks and the memory tools open. Printing the shared
  * sentence would describe a resolution this command does not use.
  */
-/** `dream`'s own six: `--list` and `--undo` mean something else on other pages. */
+/** `dream`'s own seven: `--list` and `--undo` mean something else on other pages. */
 const DREAM_FLAG_HELP: Record<string, string> = {
   list: "the recent dreams, newest first — the default",
   all: "with --list: every dream the store holds, not only the newest 20",
@@ -942,6 +942,8 @@ const DREAM_FLAG_HELP: Record<string, string> = {
   undo: "reverse one dream's whole batch, by id (the id follows the flag); its journal is kept, marked undone",
   "undo-tags":
     "take back the night's tagging: the newest night's, or the run named after the flag and every night since — the tags it wrote, the tag merges it made and the card kinds it set (one changed since stays). Its \"not the same\" answers stay",
+  "undo-twins":
+    "put back the twin cards the night archived (two live cards with one name, merged once into the elder): every one, or the card named after the flag. Each record is kept, marked undone",
   setting:
     "auto, ask or off — the nightly run (page writer, dream, reflection). ask (the default): the first session of a day shows you the question in the terminal and waits for you to say \"dream\" (or \"dream on your own\", which turns on auto); auto: the first session of a day starts it by itself, in a separate windowless claude -p in the background, and says so in one line; off: no dreams. `counterparts dream` prints the setting.",
 };

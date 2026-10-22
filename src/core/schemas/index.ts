@@ -94,6 +94,8 @@ import type {
   NameBirthOptions,
   NameBirthReport,
   TopicBirthReport,
+  TwinMerge,
+  TwinMergeReport,
   PlacementOutcome,
   PlacementReason,
   PressureIncrement,
@@ -135,6 +137,8 @@ export const PUBLIC_SURFACE = [
   "challengeBelief",
   "replaceCurrentState",
   "fadeSweep",
+  // 2026-10-22 (wave 2 follow-ups): the twin cards #578 stopped, merged once.
+  "mergeTwinCards",
   // 2026-10-11 (Group 3 part D): the night's name tally offers names to `mention`.
   "birthsFromNames",
   // store v14 (2026-10-21): the card my beliefs about me and us attach to (lane C).
@@ -186,6 +190,11 @@ const REMOVED_COVER = 0.8;
  * meta row per card, so a card that truly names no memory is not scanned for again every night.
  */
 export const RELINKED_PREFIX = "schema.relinked.";
+
+/** The twin pass ran on this store (`Schemas#mergeTwinCards`): `{at, date, day, merged, skipped}`. Its presence is the once. */
+export const TWINS_MERGED_KEY = "schemas.twins.merged";
+/** One merged twin: `schemas.twin.<gone>` → `{keep, name, day, at}`, and `undone` once the owner put it back. `store/owner-op-seam.ts` spells the prefix too. */
+export const TWIN_PREFIX = "schemas.twin.";
 
 /**
  * A tallied name's kind, from what its memories are ABOUT: the person, place
@@ -1966,6 +1975,96 @@ export class Schemas {
       dryRun,
     });
     return { day, date, dryRun, examined, faded, blocked, anchored, skippedForLimit };
+  }
+
+  /**
+   * THE TWIN CARDS, MERGED ONCE PER STORE (2026-10-22, wave 2 follow-ups).
+   * Two workers' births phases ran at once until #578, and each gave a name
+   * its own card (NOTES, "Card twins"): two live cards, one name, which recall
+   * reads as an ambiguous handle and trains on neither. This pass finds each
+   * group of live entity cards whose names are one word (case and spacing
+   * aside) and, for a PAIR the two of which differ in nothing a merge could
+   * lose, archives the second-born (`TWIN_REASON`) and records the card it
+   * stands under (`TWIN_PREFIX` + its id), so the owner's undo
+   * (`store/owner-op-seam.ts#unarchiveTwin`) is un-archiving it. Nothing
+   * moves: the keeper already holds every link, alias and kind the twin had.
+   *
+   * Left alone and counted: three or more cards (`not-a-pair`); linked
+   * memories that differ (`links-differ`); aliases that differ
+   * (`aliases-differ`); a belief or current state on either
+   * (`has-beliefs`); a folder on either (`has-folders`); either protected or
+   * the identity core (`protected`); birth or subject kinds that differ
+   * (`kinds-differ`). Once per store: the record `TWINS_MERGED_KEY` is
+   * written first, so a second run (or a second worker) finds it and does
+   * nothing. `TWINS_MERGE` off: no pass, no record. A dry run (an observer)
+   * reports what it would do and writes nothing.
+   */
+  mergeTwinCards(day: number, opts: { dryRun?: boolean } = {}): TwinMergeReport {
+    const dryRun = opts.dryRun === true;
+    if (!TUNABLES.TWINS_MERGE || this.store.getMeta(TWINS_MERGED_KEY) !== undefined) {
+      return { ran: false, dryRun, groups: 0, merged: [], skipped: {} };
+    }
+    this.adopt();
+    this.catchUp();
+    const groups = new Map<string, { id: string; row: MemoryRow; rec: MetaRecord }[]>();
+    for (const [id, rec] of this.meta) {
+      if (rec.role !== "entity") continue;
+      const key = (rec.name ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+      if (key.length === 0) continue;
+      const row = this.store.row(id);
+      if (row === undefined || row.archived === 1 || row.body === "" || rowTombstoned(row)) continue;
+      groups.set(key, [...(groups.get(key) ?? []), { id, row, rec }]);
+    }
+    const merged: TwinMerge[] = [];
+    const skipped: Record<string, number> = {};
+    const skip = (why: string): void => {
+      skipped[why] = (skipped[why] ?? 0) + 1;
+    };
+    const same = (a: readonly string[], b: readonly string[]): boolean => {
+      const x = [...new Set(a)].sort();
+      const y = [...new Set(b)].sort();
+      return x.length === y.length && x.every((v, i) => v === y[i]);
+    };
+    let found = 0;
+    for (const cards of groups.values()) {
+      if (cards.length < 2) continue;
+      found += 1;
+      if (cards.length > 2) {
+        skip("not-a-pair");
+        continue;
+      }
+      const [keep, gone] = [...cards].sort((a, b) => (a.row.created_at ?? 0) - (b.row.created_at ?? 0) || (a.id < b.id ? -1 : 1)) as [
+        (typeof cards)[number],
+        (typeof cards)[number],
+      ];
+      if (keep.row.protected === 1 || gone.row.protected === 1 || keep.row.kind === "self" || gone.row.kind === "self") skip("protected");
+      else if (keep.row.kind !== gone.row.kind || (keep.row.subject_kind ?? null) !== (gone.row.subject_kind ?? null)) skip("kinds-differ");
+      else if (!same(keep.rec.aliases ?? [], gone.rec.aliases ?? [])) skip("aliases-differ");
+      else if (this.liveElementIds(keep.id).length > 0 || this.liveElementIds(gone.id).length > 0) skip("has-beliefs");
+      else if (this.store.foldersOfProject(keep.id).length > 0 || this.store.foldersOfProject(gone.id).length > 0) skip("has-folders");
+      else if (!same(this.store.memoriesNaming(keep.id, { archived: true }), this.store.memoriesNaming(gone.id, { archived: true }))) skip("links-differ");
+      else merged.push({ keep: keep.id, gone: gone.id, name: keep.rec.name ?? "" });
+    }
+    if (dryRun) return { ran: true, dryRun, groups: found, merged, skipped };
+    // Recorded first, the whole plan, as the prune and the dedup record theirs:
+    // an archive nobody could account for is a silent loss of a card.
+    const at = this.store.now();
+    this.store.setMeta(TWINS_MERGED_KEY, JSON.stringify({ at, date: this.store.today(), day, merged: merged.map((m) => ({ keep: m.keep, gone: m.gone })), skipped }));
+    const done: TwinMerge[] = [];
+    for (const m of merged) {
+      try {
+        if (this.store.row(m.gone)?.archived !== 0) continue;
+        this.store.setMeta(`${TWIN_PREFIX}${m.gone}`, JSON.stringify({ keep: m.keep, day, at }));
+        this.store.archive(m.gone, TUNABLES.TWIN_REASON);
+        this.index.unregister(m.gone);
+        this.emit("schema.twin.merged", m.gone, { keep: m.keep, day });
+        done.push(m);
+      } catch {
+        /* removed since, or another worker took it: the record says what was planned */
+      }
+    }
+    this.emit("schema.twins.sweep", undefined, { day, groups: found, merged: done.length, skipped: Object.values(skipped).reduce((n, v) => n + v, 0) });
+    return { ran: true, dryRun, groups: found, merged: done, skipped };
   }
 
   /**
