@@ -123,7 +123,11 @@ export const PRESETS: Readonly<Record<string, readonly string[]>> = {
     // floor ever ends (PHI_PRUNE is captured at load).
     "physics.S0=1000000000",
     "physics.D_FLOOR_DAYS=1000000000",
-    // Salience and feeling as weights on the curve and on height.
+    // Every memory in reach, as a plain file store keeps every file to hand.
+    "physics.REACH=0",
+    // Salience and feeling as weights. STABILITY_GAIN and EMO_Q only shape the
+    // curve, so under S0=1e9 they are inert; kept so the preset still says
+    // "off" if S0 is ever set back on its own. EMO_LIFT moves height and works.
     "physics.STABILITY_GAIN=0",
     "physics.EMO_Q=0",
     "physics.EMO_LIFT=0",
@@ -158,6 +162,11 @@ export const PRESETS: Readonly<Record<string, readonly string[]>> = {
     "recall.SAL_SORT_WEIGHT=0",
   ],
 };
+
+/** Physics' reach as this run has it (a setting included), for the replay's below-reach count. */
+export function reachInForce(): number {
+  return PHYSICS.REACH as number;
+}
 
 /** The settings a preset names; an unknown name is refused before anything runs. */
 export function expandPreset(name: string): readonly string[] {

@@ -51,6 +51,8 @@ function makeStore(dir: string, date: string): void {
   db.run("PRAGMA wal_checkpoint(TRUNCATE)");
   db.run("PRAGMA journal_mode = DELETE");
   db.close();
+  // A leftover shared-memory file from the store's own WAL connection: a real snapshot has none.
+  rmSync(join(dir, "counterparts.sqlite-shm"), { force: true });
 }
 
 function hash(path: string): string {
@@ -147,10 +149,36 @@ test("the live store, a folder outside the snapshots, a half copy, and a target 
     "CORPUS_NOT_A_SNAPSHOT",
     "CORPUS_NOT_A_SNAPSHOT",
     "CORPUS_NOT_A_SNAPSHOT",
-    "CORPUS_OUT_IS_LIVE",
+    "CORPUS_WRITES_LIVE",
     "CORPUS_NO_SNAPSHOTS",
     "corpus has no --keep (its flags: --from --snapshots --out --json)",
   ]);
+  expect(existsSync(out)).toBe(false);
+});
+
+test("a --json record aimed under ~/.counterparts is refused before anything is copied, and the live file is left as it was", () => {
+  const live = join(home, ".counterparts", "store", "counterparts.sqlite");
+  const out = join(root, "backups");
+  for (const target of [live, join(home, ".counterparts", "record.json")]) {
+    const r = corpus(["--json", target, "--out", out]);
+    expect(r.status).toBe(1);
+    expect(r.err).toContain("CORPUS_WRITES_LIVE");
+  }
+  expect(readFileSync(live, "utf8")).toBe("live");
+  expect(existsSync(join(home, ".counterparts", "record.json"))).toBe(false);
+  expect(existsSync(out)).toBe(false);
+});
+
+test("a snapshot with a -wal, -shm or -journal file beside it is not one file, and is refused", () => {
+  const out = join(root, "backups");
+  for (const side of ["-wal", "-shm", "-journal"]) {
+    const sidecar = join(snapshots, NEWER, `counterparts.sqlite${side}`);
+    writeFileSync(sidecar, "x");
+    const r = corpus(["--out", out]);
+    expect(r.status).toBe(1);
+    expect(r.err).toContain("CORPUS_NOT_ONE_FILE");
+    rmSync(sidecar);
+  }
   expect(existsSync(out)).toBe(false);
 });
 
@@ -194,6 +222,9 @@ test("every setting of every preset is one this build can set, each key once", (
     expect(expandPreset(name)).toBe(settings);
   }
   expect(() => expandPreset("nope")).toThrow(SettingError);
+  // physics-off: 28 settings, every memory in reach.
+  expect(PRESETS["physics-off"]).toHaveLength(28);
+  expect(PRESETS["physics-off"]).toContain("physics.REACH=0");
 });
 
 test("a preset is planned as its settings ahead of the side's own, named in the header, and a key set twice is refused", () => {
@@ -226,7 +257,9 @@ test("a replay compared with physics off: the variant's record lists every setti
   expect(variant.runs[0]!.ok).toBe(true);
   expect(base.runs[0]!.settings).toEqual([]);
   expect(variant.runs[0]!.settings).toEqual([...PRESETS["physics-off"]!]);
-  expect(text).toContain("preset physics-off (");
+  expect(text).toContain("preset physics-off (28 settings)");
+  // Everything in reach under physics off.
+  expect(text).toMatch(/below reach, last day\s+\S+\s+0\b/);
   expect(text).toContain("below reach, last day");
   expect(text).not.toContain("FAILED");
 });

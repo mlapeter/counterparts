@@ -18,7 +18,7 @@ import { DEFAULT_CORPUS } from "./source.js";
 import { runCompare } from "./compare.js";
 import type { Mode } from "./compare.js";
 import { applySettings, expandPreset } from "./settings.js";
-import { makeCorpus, renderCorpus } from "./corpus.js";
+import { assertOutsideLive, makeCorpus, renderCorpus } from "./corpus.js";
 
 function flag(args: readonly string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -165,6 +165,8 @@ async function main(argv: readonly string[]): Promise<number> {
       if (!a.startsWith("--") && (i === 0 || !own.includes(all[i - 1]!))) throw new Error(`corpus doesn't take "${a}"`);
     });
     for (const f of own) if (all.includes(f) && (flag(all, f) === undefined || flag(all, f)!.startsWith("--"))) throw new Error(`${f} needs a value`);
+    // The record is a write too: refused under ~/.counterparts before anything is copied.
+    if (flag(all, "--json") !== undefined) assertOutsideLive(flag(all, "--json")!, "the --json record");
     const record = makeCorpus({
       ...(flag(all, "--from") === undefined ? {} : { from: flag(all, "--from")! }),
       ...(flag(all, "--snapshots") === undefined ? {} : { snapshots: flag(all, "--snapshots")! }),

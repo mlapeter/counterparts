@@ -17,7 +17,7 @@
  * The record it returns holds ids, counts and days. Never a body, a title, a
  * feeling's words.
  */
-import { appliedSettings, runningBuild } from "./settings.js";
+import { appliedSettings, reachInForce, runningBuild } from "./settings.js";
 import type { Setting } from "./settings.js";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -232,7 +232,7 @@ async function replayInto(
         identity: count(peek, "SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND archived = 0 AND band = 'identity'"),
         semantic: count(peek, "SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND archived = 0 AND band = 'semantic'"),
         pruned: count(peek, "SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND archived = 1 AND archived_reason = 'pruned'"),
-        belowReach: c.store.belowReachCount(),
+        belowReach: belowReachMemories(c, peek),
         births: tally.births,
         uses: { fed: tally.usesFed, credited: tally.credited, returns: tally.returns },
         nightReturns: { fed: tally.nightFed, counted: tally.nightCounted },
@@ -394,6 +394,23 @@ function apply(
 
 function count(db: Database, sql: string): number {
   return Number((db.query(sql).get() as { n: number } | null)?.n ?? 0);
+}
+
+/**
+ * Live memories (`type = 'memory'`, the rows `alive` counts) below reach, as
+ * the last decay pass ranked them, outside the core. `store.belowReachCount()`
+ * counts schema rows too, so it is not used here. A replay feeds no chapter
+ * copies, so none of these is reach-exempt.
+ */
+function belowReachMemories(c: Counterpart, peek: Database): number {
+  const ranking = c.store.rankingAll();
+  const reach = reachInForce();
+  let n = 0;
+  for (const r of peek.query("SELECT id FROM memories WHERE type = 'memory' AND archived = 0").all() as { id: string }[]) {
+    const rk = ranking.get(r.id);
+    if (rk !== undefined && rk.band !== "identity" && rk.strength < reach) n += 1;
+  }
+  return n;
 }
 
 function earlyTable(

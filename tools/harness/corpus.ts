@@ -120,8 +120,17 @@ export function resolveSource(o: CorpusOptions): { readonly folder: string; read
   // One folder directly inside the snapshots folder, named as a snapshot is named.
   if (dirname(folder) !== snapshots || !SNAPSHOT_NAME_RE.test(basename(folder))) throw new CorpusError("CORPUS_NOT_A_SNAPSHOT", `${folder} is not a snapshot folder of ${snapshots}`);
   if (!existsSync(file)) throw new CorpusError("CORPUS_MISSING", file);
-  if (existsSync(`${file}-wal`)) throw new CorpusError("CORPUS_WAL", `${file} has a write-ahead log beside it; a snapshot is one file`);
+  for (const side of ["-wal", "-shm", "-journal"]) {
+    if (existsSync(`${file}${side}`)) throw new CorpusError("CORPUS_NOT_ONE_FILE", `${file} has a ${side.slice(1)} file beside it; a snapshot is one file`);
+  }
   return { folder, file };
+}
+
+/** Refuse a path the corpus would write (its folder, its record) under the live root. */
+export function assertOutsideLive(path: string, what: string, env: NodeJS.ProcessEnv = process.env): void {
+  const target = real(path);
+  const root = real(liveRoot(env));
+  if (target === root || inside(target, root)) throw new CorpusError("CORPUS_WRITES_LIVE", `${what} goes outside ~/.counterparts (${target})`);
 }
 
 function hashOf(path: string): string {
@@ -169,8 +178,7 @@ export function makeCorpus(o: CorpusOptions = {}): CorpusRecord {
   const env = o.env ?? process.env;
   const { folder, file } = resolveSource(o);
   const outRoot = real(o.out ?? join(env["HOME"] ?? homedir(), "counterparts-backups"));
-  const root = real(liveRoot(env));
-  if (outRoot === root || inside(outRoot, root)) throw new CorpusError("CORPUS_OUT_IS_LIVE", "the corpus goes outside ~/.counterparts");
+  assertOutsideLive(outRoot, "the corpus", env);
   mkdirSync(outRoot, { recursive: true });
   const temp = join(outRoot, `.partial-corpus-${String(process.pid)}-${String(Date.now())}`);
   mkdirSync(temp);
