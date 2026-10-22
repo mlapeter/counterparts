@@ -10,7 +10,7 @@
 # Prototype (2026-10-09). Companion to tools/install-loop/run.sh, which proves
 # the npm install; this one proves the plugin.
 #
-# Usage:  tools/plugin-loop/run.sh [--bundle | --bundle=directory] [workdir]
+# Usage:  tools/plugin-loop/run.sh [--bundle | --bundle=core | --bundle=directory] [workdir]
 # Default workdir: a fresh `plugin-loop-<pid>` under $TMPDIR.
 # Env:    CLAUDE_BIN  the Claude Code executable (default: `claude` on PATH)
 #
@@ -19,6 +19,13 @@
 # tree. The pin still comes from this repository's marketplace.json; the
 # installed copy must also stay inside the directory's file limit and carry no
 # test or module doc. Everything after the install is the same loop.
+#
+# --bundle=core: the same, for the CORE flavor, the `counterparts` plugin our
+# marketplace ships from the split on (FIRST_SPLIT_RELEASE, docs/plugin.md "Two
+# plugins"): memory alone, the same launcher, so every launcher step (binary
+# download, Node fallback, dependency install, stand-down) runs against it; it
+# loads no hooks module, which the sidebar's step checks instead. `--bundle`
+# (the full flavor) is refused by build.ts from the split on; use this then.
 #
 # --bundle=directory: the same, for the bundle's DIRECTORY flavor (the sources
 # transpiled to .js, no launcher): every step runs the entries by their own
@@ -63,6 +70,11 @@ FLAVOR=full
 case "${1:-}" in
   --bundle | --bundle=full)
     BUNDLE=1
+    shift
+    ;;
+  --bundle=core)
+    BUNDLE=1
+    FLAVOR=core
     shift
     ;;
   --bundle=directory)
@@ -459,6 +471,15 @@ else
   no "no first-run wake in the debug log" "$(grep -iE 'hook|counterparts' "$WORK/debug-wake.log" | tail -20)"
 fi
 
+if [ "$FLAVOR" = core ]; then
+  step "core flavor: no hooks module loads (the sidebar is the counterparts-sidebar plugin's)"
+  MODULE=$(grep -E 'hooks module [^ ]+ loaded' "$WORK/debug-wake.log" | grep -v '@builtin loaded' | head -1 || true)
+  if [ -z "$MODULE" ] && [ ! -e "$INSTALL_PATH/hooks/sidebar" ] && ! grep -q '"modules"' "$INSTALL_PATH/hooks/hooks.json"; then
+    ok
+  else
+    no "core loads or carries a hooks module" "${MODULE:-$(ls "$INSTALL_PATH/hooks" 2>&1)}"
+  fi
+else
 step "the sidebar mod loads: Claude Code registers the plugin's hooks module"
 MODULE=$(grep -E 'hooks module counterparts@counterparts-loop loaded' "$WORK/debug-wake.log" | head -1 || true)
 if [ -n "$MODULE" ] && grep -q 'ui.render' <<<"$MODULE"; then
@@ -466,6 +487,7 @@ if [ -n "$MODULE" ] && grep -q 'ui.render' <<<"$MODULE"; then
   sed 's/^.*\(hooks module counterparts\)/      \1/' <<<"$MODULE" | cut -c1-160
 else
   no "no 'hooks module counterparts@… loaded' line in the debug log" "$(grep -iE 'hooks module|modules' "$WORK/debug-wake.log" | tail -10)"
+fi
 fi
 
 step "/counterparts:doctor is registered (its command is run for real under 'doctor' below)"

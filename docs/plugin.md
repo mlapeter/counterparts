@@ -329,8 +329,9 @@ on 2.1.296 (2026-10-11).
 
 It never logs in. A model turn needs a login, and the loop copies no credential.
 
-`tools/plugin-loop/run.sh --bundle [workdir]` runs the same loop on the generated bundle
-(below) instead of the working tree, with npm on its PATH for the bundle's lockfile. It
+`tools/plugin-loop/run.sh --bundle [workdir]` (`--bundle=core` for the core flavor, the
+`counterparts` plugin from the split on, when `--bundle` is refused) runs the same loop on
+the generated bundle (below) instead of the working tree, with npm on its PATH for the bundle's lockfile. It
 also checks that the installed copy stays inside the directory's file limit with no tests
 or module docs, that Bun finds the table npm installed, and what happens when the
 dependency install didn't run (below). It needs a Node 22.15+ somewhere it looks (nvm,

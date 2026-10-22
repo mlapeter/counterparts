@@ -22,8 +22,14 @@
 #   5. core's repository without the counterparts--v<version> tag the range
 #      resolves against: the sidebar does not install.
 #
-# Usage:  tools/plugin-loop/split.sh [workdir]
+# Usage:  tools/plugin-loop/split.sh [workdir] [old-version]
 # Env:    CLAUDE_BIN  the Claude Code executable (default: `claude` on PATH)
+#         SPLIT_OLD   the release before the split that scenario 4 upgrades
+#                     from (same as old-version; default below, "the bundles")
+#
+# It runs before the split release, on the split's release commit and on every
+# release after it: the versions it labels the bundles with are worked out
+# below, and the pre-split plugin is always this checkout built as `full`.
 #
 # A pane is drawn only in an interactive terminal, so "one sidebar" is read
 # from Claude Code's debug log of a `--init-only` start: the hooks modules it
@@ -116,25 +122,54 @@ install_path() { # install_path <id>
 
 # ── the bundles and their repositories ───────────────────────────────────────
 
-# OLD: this checkout's version, built as the one plugin (`full`), standing for
-# the last release before the split. NEW: the split's release (build.ts
-# FIRST_SPLIT_RELEASE, the floor of the sidebar's dependency).
-OLD="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$REPO/package.json")"
-NEW="$("$BUN_BIN" -e 'console.log((await import(process.argv[1])).FIRST_SPLIT_RELEASE)' "$REPO/tools/plugin-bundle/build.ts")"
-if [ "$("$BUN_BIN" -e 'const v=(s)=>s.split(".").map(Number); const [a,b]=[v(process.argv[1]),v(process.argv[2])]; console.log(a[0]*1e6+a[1]*1e3+a[2] < b[0]*1e6+b[1]*1e3+b[2])' "$OLD" "$NEW")" != true ]; then
-  echo "REFUSED: package.json is $OLD and the split's release is $NEW: this loop stands $OLD for the release before the split"
+# FLOOR: the split's release (build.ts FIRST_SPLIT_RELEASE), the floor of the
+# sidebar's dependency. NEW: the release under test, as core and sidebar are
+# labelled: package.json's version once it reaches the floor (the split's
+# release commit and every release after it); before that, the floor itself.
+# OLD: the release before the split, which the one plugin (`full`) stands for:
+# SPLIT_OLD or the second argument, else the newest v* tag below the floor,
+# else package.json's version if it is below the floor, else the floor's
+# patch less one. Whatever OLD is, the bundle is THIS checkout's sources built
+# as the full flavor (planBundle, which the command's tripwire does not stop),
+# labelled v$OLD: the one plugin that draws the sidebar itself, so scenario 4
+# proves the upgrade from it at any version.
+vnum() { "$BUN_BIN" -e 'const [a,b,c]=process.argv[1].split("-")[0].split(".").map(Number); console.log(a*1e6+b*1e3+c)' "$1"; }
+PKG="$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$REPO/package.json")"
+FLOOR="$("$BUN_BIN" -e 'console.log((await import(process.argv[1])).FIRST_SPLIT_RELEASE)' "$REPO/tools/plugin-bundle/build.ts")"
+if [ "$(vnum "$PKG")" -ge "$(vnum "$FLOOR")" ]; then NEW="$PKG"; else NEW="$FLOOR"; fi
+OLD="${SPLIT_OLD:-${2:-}}"
+if [ -z "$OLD" ]; then
+  for tag in $("$GIT_BIN" -C "$REPO" tag -l 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -t. -k1,1n -k2,2n -k3,3n); do
+    [ "$(vnum "$tag")" -lt "$(vnum "$FLOOR")" ] && OLD="$tag"
+  done
+fi
+if [ -z "$OLD" ] && [ "$(vnum "$PKG")" -lt "$(vnum "$FLOOR")" ]; then OLD="$PKG"; fi
+if [ -z "$OLD" ]; then OLD="$(sed -E 's/^([0-9]+\.[0-9]+)\.([0-9]+)$/\1.\2/' <<<"$FLOOR" | awk -F. '{ print $1"."$2"."($3-1) }')"; fi
+if ! [[ "$OLD" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [ "$(vnum "$OLD")" -ge "$(vnum "$FLOOR")" ]; then
+  echo "REFUSED: the release before the split ($OLD) must be a version below the split's ($FLOOR)"
   exit 1
 fi
 B="$WORK/bundles"
 rm -rf "$B"
-echo "building: full (as released, v$OLD), core and sidebar (as the split release, v$NEW)"
-for f in full core sidebar; do
+echo "building: full (standing for v$OLD, the one plugin before the split), core and sidebar (v$NEW; the split's floor is v$FLOOR)"
+# full through planBundle: from the split on, the command refuses it (the tripwire).
+"$BUN_BIN" -e '
+  const { planBundle, writeBundle, bundlePaths } = await import(process.argv[1]);
+  const plan = planBundle(undefined, "full");
+  writeBundle(plan, process.argv[2]);
+  console.log(`wrote the full flavor: ${bundlePaths(plan).length} files`);
+' "$REPO/tools/plugin-bundle/build.ts" "$B/full" | head -1 | sed 's/^/      /'
+for f in core sidebar; do
   "$BUN_BIN" "$REPO/tools/plugin-bundle/build.ts" --flavor "$f" "$B/$f" | head -1 | sed 's/^/      /'
 done
-# The split is a later release: its manifests say so (a release bumps package.json).
-for f in core sidebar; do
-  sed -i.bak "s/\"version\": \"$OLD\"/\"version\": \"$NEW\"/" "$B/$f/.claude-plugin/plugin.json" && rm "$B/$f/.claude-plugin/plugin.json.bak"
-done
+# Each manifest says the release it stands for (a release bumps package.json).
+relabel() { # relabel <bundle> <version>
+  [ "$2" = "$PKG" ] && return 0
+  sed -i.bak "s/\"version\": \"$PKG\"/\"version\": \"$2\"/" "$B/$1/.claude-plugin/plugin.json" && rm "$B/$1/.claude-plugin/plugin.json.bak"
+}
+relabel full "$OLD"
+relabel core "$NEW"
+relabel sidebar "$NEW"
 # 4c's sidebar: the same with a bare dependency (no version range), for the record.
 cp -R "$B/sidebar" "$B/sidebar-bare"
 "$BUN_BIN" -e '
@@ -349,7 +384,7 @@ say "\$ claude plugin install counterparts-sidebar@counterparts" && sed 's/^/   
 start after
 MODS=$(modules_loaded "$LOGS/after.log")
 say "installed: $(installed | tr '\n' ' ') modules: $(tr '\n' ' ' <<<"${MODS:-none}")"
-if grep -q "does not satisfy: >=$NEW" "$LOGS/install-sidebar.txt" && [ "$MODS" = "counterparts@counterparts" ]; then
+if grep -q "does not satisfy: >=$FLOOR" "$LOGS/install-sidebar.txt" && [ "$MODS" = "counterparts@counterparts" ]; then
   ok "4b. refused, naming the update to run; the old counterparts keeps its one pane"
 else
   no "4b. expected a refusal and the old pane alone (modules: ${MODS:-none})" "$(cat "$LOGS/install-sidebar.txt")"

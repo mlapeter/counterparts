@@ -135,18 +135,26 @@ bun tools/plugin-bundle/build.ts --flavor sidebar <clone of counterparts-sidebar
 - The directory flavor master builds already differs from the held directory submission
   (v0.3.23, under review), and #547 adds to that: `commands/uninstall.md`,
   `src/adapters/host-wiring.js`, `src/adapters/plugin.js`, `src/adapters/cli/install.js`
-  and `src/adapters/claude-code/doctor-host.js` (the keep-one advice beside the sidebar
-  plugin). Nobody pushes the `directory` branch while that submission is under review.
+  and `src/adapters/claude-code/doctor-host.js` (the keep-one advice and doctor's line
+  beside the sidebar plugin), `src/adapters/mcp/server.js` and `src/core/onboarding.js`
+  (the first meeting's close names `/counterparts` only beside a sidebar); its README is
+  unchanged (compared 2026-10-22, master 35642c54 against #547's directory plan). Nobody pushes the `directory` branch while that submission is under review.
   Whoever next touches it rebuilds it on purpose, from the master of that day.
 - `claude plugin validate <sidebar clone>` is required, every split release:
   `test/plugin-split.test.ts`'s check that runs Claude Code is skipped where `claude` isn't
   installed (CI).
-- `tools/plugin-loop/run.sh --bundle` builds the full flavor, so from the split release on
-  `tools/plugin-loop/split.sh` is the install check.
+- The install checks, from the split release on: `tools/plugin-loop/run.sh --bundle=core`
+  (the launcher steps: binary download, Node fallback, dependency install, stand-down,
+  against the `counterparts` plugin that ships; `--bundle`, the full flavor, is refused by
+  the tripwire then), and `tools/plugin-loop/split.sh` (the two plugins together, and the
+  upgrade from the one plugin). split.sh labels core and sidebar with this release's
+  version and stands this checkout's full flavor for the release before the split: by
+  default the newest `v*` tag below `FIRST_SPLIT_RELEASE` (`SPLIT_OLD=<version>`, or a
+  second argument, names another). Before the split release, `--bundle` and split.sh.
 
 Each empties its clone (keeping `.git`) and writes the bundle. Check each with
-`claude plugin validate <clone>`, `tools/plugin-loop/run.sh --bundle` (and
-`--bundle=directory`), and `build.ts [--flavor directory] --check <clone>` against a
+`claude plugin validate <clone>`, `tools/plugin-loop/run.sh --bundle` (`--bundle=core`
+from the split on; and `--bundle=directory`), and `build.ts [--flavor directory] --check <clone>` against a
 second build (the directory flavor's bytes depend on the Bun version), then commit them
 there. When the sidebar changed, compare `validate`'s hooks, calls and env lines with the
 README's "What it can reach" (`tools/plugin-bundle/bundle-readme.md`, one block per
