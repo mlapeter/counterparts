@@ -142,6 +142,9 @@ import { scopeCommand, rebriefCommand } from "./commands-scope.js";
 export { EXIT, parse, openCounterpart, snapshotsDirBeside } from "./commands-shared.js";
 export type { Io, RunOptions } from "./commands-shared.js";
 export { logEntryLine, firedLines, DOCTOR_RED_EXIT } from "./commands-readings.js";
+// The settled-things measure, public for a host's own reading (the harness's compare column).
+export { settledReading, settledLines } from "./mechanisms.js";
+export type { SettledReading } from "./mechanisms.js";
 export { carryForward, KNOWN_HOSTS } from "./commands-install.js";
 export { DASHBOARD_DEFAULT_PORT, dashboardLine } from "./commands-dashboard.js";
 export type { RunningView, DashboardSeam } from "./commands-dashboard.js";
@@ -561,8 +564,8 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   rebrief: ["budget", "config"],
   // Read-only, like `status`: rows in, a table out.
   "probe-oq4": [],
-  mechanisms: ["all"],
-  fired: ["all"],
+  mechanisms: ["all", "json"],
+  fired: ["all", "json"],
   log: ["date"],
   // `doctor` takes `--config` for the same reason `rebrief` does: it reports on
   // the host configuration, and on a machine with two of them the reading is
@@ -653,9 +656,9 @@ export const COMMAND_BLURB: Record<Command, string> = {
   "probe-oq4":
     "The OQ4 probe: footnotes delivered vs. later expanded, by calendar date, from recall.decision and recall.credit rows, then recall's hit rate — of what it showed, how much a reply expanded or quoted, loud, footnoted and pointer. Read-only.",
   mechanisms:
-    "Is each memory mechanism working? One line per mechanism, with a light (● working this week, ◐ built but not firing, ○ not built yet) and the count from the store behind it, then the plumbing in one line that names only what is failing. --all prints the full report: every part, silent first, when it last fired, how often in the last 7 days, what it turned away, and why the store cannot tell for the ones nothing records. Read-only.",
+    "Is each memory mechanism working? One line per mechanism, with a light (● working this week, ◐ built but not firing, ○ not built yet) and the count from the store behind it, then the plumbing in one line that names only what is failing, then how many settled things (a memory changed or corrected) a session drew on again this week, how many came up again, and how many were only shown, split by the build that wrote the rows. --all prints the full report: every part, silent first, when it last fired, how often in the last 7 days, what it turned away, and why the store cannot tell for the ones nothing records. --json prints the short view as one JSON object, the settled reading with its example ids included. Read-only.",
   fired:
-    "The older name of `mechanisms` — the same command, the same output. --all prints the full report. Read-only.",
+    "The older name of `mechanisms` — the same command, the same output. --all prints the full report; --json the short view as JSON. Read-only.",
   log: "What happened today, in order: one line per thing the hooks, the background worker, the nightly run and the memory tools did — failures, stand-downs, each turn's end, write-ups, the nightly run, the wake. Kept 7 days. Read-only.",
   doctor:
     "Is the background half alive? The config, the two clocks, the newest sweep, sleep, backfill and credit rows, the spawn refusals and the vector coverage — worst first, each with the line that fixes it. Read-only; exit 1 if anything is red.",
@@ -1690,6 +1693,7 @@ export async function run(argv: readonly string[], opts: RunOptions): Promise<nu
           typeof parsed.flags["dir"] === "string",
           now,
           parsed.flags["all"] === true,
+          parsed.flags["json"] === true,
         );
       case "log":
         return await logCommand(dir, io, parsed.flags["date"], now);

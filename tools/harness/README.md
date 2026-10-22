@@ -288,6 +288,13 @@ where they differ:
   memories it cites, claims with no cite behind them. The compare diffs the words in its
   scratch and removes them; `--pages <dir>` keeps them for a human read. On the owner's
   snapshot they are his counterpart's page, so keep them out of any repo.
+- **Settled things** (every mode, 2026-10-22): `settled pairs`, `settled repeated`, `settled
+  re-raised` and `settled shown only`, read from the run's store over its whole record by
+  the same function as `counterparts mechanisms`' line (`settled.ts`, which calls
+  `src/adapters/cli/mechanisms.ts#settledReading`): every pair settled changed or corrected,
+  and what happened to it after its settle day. In a physics-only replay these mostly read 0:
+  no session draws on anything there and no dream flags anything new. They earn their keep in
+  model-seat runs (`night --model`, `week`), where sessions and dreams write fresh rows.
 
 A key that some reader copies at load (the use-tier weights, the recurrence weights, the
 prospective holds; `settings.ts#CAPTURED`) is refused, since setting it would change only some

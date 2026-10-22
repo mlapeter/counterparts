@@ -19,6 +19,14 @@
  * The truth per mechanism is `docs/research/mechanism-audit-2026-09-24.md`.
  */
 import type { EventRow, ReadOnlyStore } from "../../core/store/index.js";
+// The settled-things measure's three borrowed rules: one reader of what a row
+// was made from, the token cosine `updates` and the reflection use, and the
+// reflection's negation test beside its same-claim bar.
+import { derivedFrom } from "../../core/fit/index.js";
+import { tokenize } from "../../core/store/cache.js";
+import { negationDiffers } from "../../core/dream/reflect.js";
+import { TUNABLES as SCHEMAS_TUNABLES } from "../../core/schemas/tunables.js";
+import { addDays, startOfLocalDay } from "../../core/time.js";
 import { FIRED_DAYS, daysBefore, rowDate } from "../fired.js";
 import type { FiredReport, FiredRow } from "../fired.js";
 import { mechanismEvidence, payloadOf } from "../mechanism-evidence.js";
@@ -422,8 +430,9 @@ export function plumbingLine(report: FiredReport): string {
 }
 
 /** The whole short view, as plain lines: one per mechanism in the site's four
- *  groups and order, then the plumbing in one line. */
-export function mechanismsLines(report: FiredReport, verdicts: readonly Verdict[]): string[] {
+ *  groups and order, then the plumbing in one line, then — when it was read —
+ *  the settled-things line (`settledReading`). */
+export function mechanismsLines(report: FiredReport, verdicts: readonly Verdict[], settled?: SettledReading): string[] {
   const byId = new Map(report.rows.map((r) => [r.id, r]));
   const rows: Rows = (id) => byId.get(id);
   const width = Math.max(...MEMORY_MECHANISMS.map((m) => m.name.length)) + 2;
@@ -439,7 +448,375 @@ export function mechanismsLines(report: FiredReport, verdicts: readonly Verdict[
     "",
     `${LIGHT.working} working this week  ${LIGHT.idle} built, not firing  ${LIGHT.notBuilt} not built yet`,
     plumbingLine(report),
+    ...(settled === undefined ? [] : settledLines(settled)),
     "Every detail: counterparts mechanisms --all",
   );
+  return lines;
+}
+
+// ── settled things: repeated, re-raised, shown ─────────────────────────────
+
+/**
+ * SETTLED THINGS REPEATED (2026-10-22, lane R; a measure, lightly held): how
+ * often a session draws on what was already corrected or changed, or a
+ * settled question comes up again. Anthropic's suggestion for an eval that
+ * does not saturate; read per window and per build, so a release that shows
+ * beliefs in recall (wave 2 E) can be checked against the one before.
+ *
+ * THE PAIRS (the denominator): every pair standing as settled `changed` or
+ * `corrected` with both sides named (`holds`, `over`), whose standing settle
+ * (a trail row not undone) happened before the window opened. An undone
+ * settle leaves the pair unsettled, so it is not one of them.
+ *
+ * Each pair is read for what happened inside the window, on a lived day
+ * after its settle day:
+ * - REPEATED — the losing memory (`over`) drawn on: a `recall.credit` id
+ *   earned `drewOn` or `quoted`; an id a session named in `drewOn` that was
+ *   refused (it said it drew on it, whatever the credit made of that); a
+ *   `recall.rated` score of 3 or `drewOn: true` (a rating is a use since
+ *   2026-10-19); or a memory a session wrote (`source = 'authored'`) that
+ *   cites it or is grounded in it (`fit/index.ts#derivedFrom`).
+ * - RE-RAISED — a newer pair (not withdrawn) flagged on a later lived day
+ *   that names the loser, or names the winner where the winner is not the
+ *   side that loses (the winner revised in turn — X, then Y, then Z — is the
+ *   ordinary revision chain, not the question coming back); or a memory born
+ *   after the settle that says the loser again: token cosine at or above
+ *   `BELIEF_SAME_CLAIM` (0.9, the reflection's same-claim bar) with no
+ *   negation added or removed, and not made from the loser by its meta.
+ * - SHOWN ONLY — the loser shown (a `recall.decision` loud line or footnote,
+ *   a `recall_turns` row, a rating below 3) or opened (an `expanded` credit),
+ *   and not repeated. What a session saw is not what it said.
+ *
+ * BY BUILD: a row that carries JSON says its build at write time (#591):
+ * event payloads and `memories.meta`; a row from before the stamp says none
+ * (`pre-stamp`). A pair (no JSON column) and a `recall_turns` row take the
+ * build that had the store on their lived day, from the build log.
+ *
+ * Ids only, never a body. Read-only: no row is written.
+ */
+export interface SettledExample {
+  readonly pair: string;
+  /** The losing memory. */
+  readonly over: string;
+  /** What showed it: an event (`ev:<seq>`), a recall turn, a memory id or a pair id. */
+  readonly by: string;
+}
+
+export interface SettledBucket {
+  readonly build: string;
+  readonly repeats: number;
+  readonly reraised: number;
+  readonly shownOnly: number;
+}
+
+export interface SettledReading {
+  /** The window's first and last calendar day; `from` null when the whole record was read. */
+  readonly from: string | null;
+  readonly to: string;
+  readonly pairs: number;
+  readonly repeats: number;
+  readonly reraised: number;
+  readonly shownOnly: number;
+  /** Pairs counted by each way in (one pair may be counted under several). */
+  readonly repeatVia: { readonly drewOn: number; readonly quoted: number; readonly rated: number; readonly cited: number };
+  readonly reraisedVia: { readonly loser: number; readonly winner: number; readonly restated: number };
+  /** Of `shownOnly`, the pairs whose loser was opened (an `expanded` credit). */
+  readonly opened: number;
+  readonly byBuild: readonly SettledBucket[];
+  readonly examples: { readonly repeats: readonly SettledExample[]; readonly reraised: readonly SettledExample[]; readonly shownOnly: readonly SettledExample[] };
+}
+
+/** The bucket of a row with no build of its own: written before the stamp (#591). */
+export const PRE_STAMP = "pre-stamp";
+const SETTLED_EXAMPLES = 5;
+
+type SettledStore = Pick<
+  ReadOnlyStore,
+  "contradictions" | "contradictionSettles" | "eventLog" | "list" | "row" | "recallTurns" | "buildLog" | "livedDay" | "zone"
+>;
+
+interface SettledPair {
+  readonly id: string;
+  readonly holds: string;
+  readonly over: string;
+  readonly settledDay: number;
+}
+
+function jsonObject(text: string | null | undefined): Record<string, unknown> {
+  if (text === null || text === undefined) return {};
+  try {
+    const v: unknown = JSON.parse(text);
+    return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Ids from a list of ids or of `{ id }` objects (a decision's loud lines and footnotes). */
+function idList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const x of v) {
+    if (typeof x === "string" && x.length > 0) out.push(x);
+    else if (x !== null && typeof x === "object" && typeof (x as Record<string, unknown>)["id"] === "string") out.push((x as Record<string, string>)["id"] as string);
+  }
+  return out;
+}
+
+/**
+ * `remember/updates.ts#similarity` — cosine over token counts, the store's one
+ * tokenizer — with each text tokenized ONCE: the measure compares every memory
+ * born in the window with every loser (1,498 × 231 on Mike's week), and
+ * tokenizing both sides per pair took six seconds. Same numbers, same rule.
+ */
+function tokenCounts(text: string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const t of tokenize(text)) m.set(t, (m.get(t) ?? 0) + 1);
+  return m;
+}
+
+function countsCosine(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>): number {
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (const [t, n] of a) {
+    na += n * n;
+    dot += n * (b.get(t) ?? 0);
+  }
+  for (const n of b.values()) nb += n * n;
+  return na === 0 || nb === 0 ? 0 : dot / Math.sqrt(na * nb);
+}
+
+/**
+ * Read the measure. `window` is calendar days ending `today` in the store's
+ * zone (the console's seven); `"all"` reads the whole record — the harness:
+ * every settled pair, everything after its settle day.
+ */
+export function settledReading(store: SettledStore, today: string, window: number | "all" = FIRED_DAYS): SettledReading {
+  const all = window === "all";
+  const from = all ? null : daysBefore(today, window - 1);
+  const zone = store.zone();
+  const startAt = from === null ? Number.NEGATIVE_INFINITY : startOfLocalDay(from, zone);
+  const endAt = all ? Number.POSITIVE_INFINITY : startOfLocalDay(addDays(today, 1), zone);
+  let livedNow = 0;
+  try {
+    livedNow = store.livedDay();
+  } catch {
+    livedNow = 0;
+  }
+  // A lived day is never shorter than a calendar day: this bound only keeps the reads cheap.
+  const sinceDay = all ? 0 : Math.max(0, livedNow - (window + 1));
+  const inWindow = (at: number | null | undefined): boolean => typeof at === "number" && at >= startAt && at < endAt;
+
+  // THE PAIRS: settled changed|corrected, both sides named, standing settle before the window.
+  const standing = new Map<string, number>();
+  for (const s of store.contradictionSettles({ limit: Number.MAX_SAFE_INTEGER })) {
+    if (s.action === "settle" && s.undone === 0) standing.set(s.pair_id, s.at);
+  }
+  const pairs: SettledPair[] = [];
+  for (const c of store.contradictions({ state: "settled", limit: Number.MAX_SAFE_INTEGER })) {
+    if ((c.how !== "changed" && c.how !== "corrected") || c.holds === null || c.over === null || c.settled_day === null) continue;
+    const at = standing.get(c.id);
+    // The whole record reads every standing pair; a window, those standing when it opened.
+    if (at === undefined || (!all && at >= startAt)) continue;
+    pairs.push({ id: c.id, holds: c.holds, over: c.over, settledDay: c.settled_day });
+  }
+  const byLoser = new Map<string, SettledPair[]>();
+  const byMember = new Map<string, SettledPair[]>();
+  for (const p of pairs) {
+    byLoser.set(p.over, [...(byLoser.get(p.over) ?? []), p]);
+    for (const m of [p.holds, p.over]) byMember.set(m, [...(byMember.get(m) ?? []), p]);
+  }
+
+  // The build that had the store on a lived day, for rows with no JSON of their own.
+  let log: { build: string; since: number }[] = [];
+  try {
+    log = store.buildLog().flatMap((l) => (l.since === null ? [] : [{ build: l.build, since: l.since }]));
+  } catch {
+    log = [];
+  }
+  const buildOnDay = (day: number): string => {
+    let b = PRE_STAMP;
+    for (const l of log) if (l.since <= day) b = l.build;
+    return b;
+  };
+  const buildOf = (said: unknown): string => (typeof said === "string" && said.length > 0 ? said : PRE_STAMP);
+
+  type HitKind = "repeat" | "reraise" | "shown";
+  type Via = "drewOn" | "quoted" | "rated" | "cited" | "loser" | "winner" | "restated" | "opened";
+  const hits: Record<HitKind, Map<string, { build: string; by: string }[]>> = { repeat: new Map(), reraise: new Map(), shown: new Map() };
+  const via: Record<Via, Set<string>> = {
+    drewOn: new Set(),
+    quoted: new Set(),
+    rated: new Set(),
+    cited: new Set(),
+    loser: new Set(),
+    winner: new Set(),
+    restated: new Set(),
+    opened: new Set(),
+  };
+  const hit = (kind: HitKind, p: SettledPair, build: string, by: string, how?: Via): void => {
+    const m = hits[kind];
+    m.set(p.id, [...(m.get(p.id) ?? []), { build, by }]);
+    if (how !== undefined) via[how].add(p.id);
+  };
+  const loserHit = (kind: HitKind, id: string, day: number, build: string, by: string, how?: Via): void => {
+    for (const p of byLoser.get(id) ?? []) if (day > p.settledDay) hit(kind, p, build, by, how);
+  };
+  const events = (name: string): EventRow[] => {
+    try {
+      return store.eventLog({ name, sinceDay, limit: Number.MAX_SAFE_INTEGER }).filter((e) => inWindow(e.at));
+    } catch {
+      return [];
+    }
+  };
+
+  if (pairs.length > 0) {
+    for (const e of events("recall.credit")) {
+      const p = jsonObject(e.payload);
+      const build = buildOf(p["build"]);
+      const by = `ev:${String(e.seq)}`;
+      const how = Array.isArray(p["how"]) ? (p["how"] as unknown[]) : [];
+      const drewOnRow = p["source"] === "drewOn";
+      idList(p["ids"]).forEach((id, i) => {
+        const h = drewOnRow ? "drewOn" : how[i];
+        if (h === "drewOn") loserHit("repeat", id, e.day, build, by, "drewOn");
+        else if (h === "quoted") loserHit("repeat", id, e.day, build, by, "quoted");
+        else loserHit("shown", id, e.day, build, by, "opened");
+      });
+      if (drewOnRow) for (const id of idList(p["refusedIds"])) loserHit("repeat", id, e.day, build, by, "drewOn");
+    }
+    for (const e of events("recall.rated")) {
+      const p = jsonObject(e.payload);
+      const build = buildOf(p["build"]);
+      for (const r of Array.isArray(p["ratings"]) ? (p["ratings"] as unknown[]) : []) {
+        if (r === null || typeof r !== "object") continue;
+        const o = r as Record<string, unknown>;
+        const id = o["id"];
+        if (typeof id !== "string") continue;
+        if (o["score"] === 3 || o["drewOn"] === true) loserHit("repeat", id, e.day, build, `ev:${String(e.seq)}`, "rated");
+        else loserHit("shown", id, e.day, build, `ev:${String(e.seq)}`);
+      }
+    }
+    for (const e of events("recall.decision")) {
+      const p = jsonObject(e.payload);
+      for (const id of [...idList(p["surfaced"]), ...idList(p["footnotes"])]) loserHit("shown", id, e.day, buildOf(p["build"]), `ev:${String(e.seq)}`);
+    }
+    try {
+      for (const t of store.recallTurns({ sinceDay })) {
+        if (!inWindow(t.at)) continue;
+        let shown: unknown = [];
+        try {
+          shown = JSON.parse(t.shown);
+        } catch {
+          shown = [];
+        }
+        for (const id of idList(shown)) loserHit("shown", id, t.day, buildOnDay(t.day), `turn:${t.session_id}#${String(t.turn)}`);
+      }
+    } catch {
+      /* a store before v14 keeps no per-turn rows: the decision rows above stand */
+    }
+
+    // Newer pairs naming either side.
+    for (const n of store.contradictions({ limit: Number.MAX_SAFE_INTEGER })) {
+      if (n.state === "withdrawn" || !inWindow(n.created_at)) continue;
+      const seen = new Set<string>();
+      for (const m of [n.a, n.b]) {
+        for (const p of byMember.get(m) ?? []) {
+          if (p.id === n.id || seen.has(p.id) || n.flagged_day <= p.settledDay) continue;
+          const loser = n.a === p.over || n.b === p.over;
+          // The winner revised in turn is the chain going on, not the question back.
+          if (!loser && n.over === p.holds) continue;
+          seen.add(p.id);
+          hit("reraise", p, buildOnDay(n.flagged_day), n.id, loser ? "loser" : "winner");
+        }
+      }
+    }
+
+    // Memories born in the window: a session citing a loser, or a loser said again.
+    const losers: { id: string; body: string; counts: Map<string, number> }[] = [];
+    for (const id of byLoser.keys()) {
+      const row = store.row(id);
+      if (row !== undefined && row.body.length > 0) losers.push({ id, body: row.body, counts: tokenCounts(row.body) });
+    }
+    let born: string[] = [];
+    try {
+      born = store.list({ bornFromDay: sinceDay });
+    } catch {
+      born = [];
+    }
+    for (const id of born) {
+      const row = store.row(id);
+      if (row === undefined || !inWindow(row.created_at) || row.type === "episode" || row.source === "episode") continue;
+      const build = buildOf(jsonObject(row.meta)["build"]);
+      const made = derivedFrom(row);
+      const madeFrom = new Set(made.map((d) => d.id));
+      if (row.source === "authored") {
+        for (const d of made) if (d.how === "cites" || d.how === "grounded-in") loserHit("repeat", d.id, row.birth_day, build, id, "cited");
+      }
+      if (row.body.length === 0) continue;
+      const counts = tokenCounts(row.body);
+      for (const l of losers) {
+        if (l.id === id || madeFrom.has(l.id)) continue;
+        if (countsCosine(counts, l.counts) < SCHEMAS_TUNABLES.BELIEF_SAME_CLAIM || negationDiffers(row.body, l.body)) continue;
+        for (const p of byLoser.get(l.id) ?? []) if (row.birth_day > p.settledDay && p.holds !== id) hit("reraise", p, build, id, "restated");
+      }
+    }
+  }
+
+  const repeated = new Set(hits.repeat.keys());
+  const shownOnly = new Set([...hits.shown.keys()].filter((id) => !repeated.has(id)));
+  const order = [PRE_STAMP, ...log.map((l) => l.build)];
+  const buckets = new Map<string, { repeats: Set<string>; reraised: Set<string>; shown: Set<string> }>();
+  const bucket = (b: string): { repeats: Set<string>; reraised: Set<string>; shown: Set<string> } => {
+    let s = buckets.get(b);
+    if (s === undefined) {
+      s = { repeats: new Set(), reraised: new Set(), shown: new Set() };
+      buckets.set(b, s);
+    }
+    return s;
+  };
+  for (const [pair, xs] of hits.repeat) for (const x of xs) bucket(x.build).repeats.add(pair);
+  for (const [pair, xs] of hits.reraise) for (const x of xs) bucket(x.build).reraised.add(pair);
+  for (const [pair, xs] of hits.shown) if (shownOnly.has(pair)) for (const x of xs) bucket(x.build).shown.add(pair);
+  const rank = (b: string): number => (order.includes(b) ? order.indexOf(b) : order.length);
+  const byBuild = [...buckets.entries()]
+    .sort((a, b) => rank(a[0]) - rank(b[0]) || a[0].localeCompare(b[0]))
+    .map(([build, s]) => ({ build, repeats: s.repeats.size, reraised: s.reraised.size, shownOnly: s.shown.size }));
+  const loserOf = new Map(pairs.map((p) => [p.id, p.over]));
+  const examples = (kind: HitKind, keep: (id: string) => boolean): SettledExample[] =>
+    [...hits[kind].entries()]
+      .filter(([id]) => keep(id))
+      .slice(0, SETTLED_EXAMPLES)
+      .map(([pair, xs]) => ({ pair, over: loserOf.get(pair) ?? "", by: xs[0]?.by ?? "" }));
+  return {
+    from,
+    to: today,
+    pairs: pairs.length,
+    repeats: repeated.size,
+    reraised: hits.reraise.size,
+    shownOnly: shownOnly.size,
+    repeatVia: { drewOn: via.drewOn.size, quoted: via.quoted.size, rated: via.rated.size, cited: via.cited.size },
+    reraisedVia: { loser: via.loser.size, winner: via.winner.size, restated: via.restated.size },
+    opened: [...via.opened].filter((id) => shownOnly.has(id)).length,
+    byBuild,
+    examples: {
+      repeats: examples("repeat", () => true),
+      reraised: examples("reraise", () => true),
+      shownOnly: examples("shown", (id) => shownOnly.has(id)),
+    },
+  };
+}
+
+/** The console's line, and the split by build when any build said anything. Pure. */
+export function settledLines(r: SettledReading): string[] {
+  if (r.pairs === 0) {
+    return [`Settled things repeated: nothing was settled before ${r.from === null ? "the record ended" : "this week"}, so nothing to read yet.`];
+  }
+  const span = r.from === null ? "in the record" : "this week";
+  const lines = [`Settled things repeated: ${String(r.repeats)} of ${plural(r.pairs, "pair")} ${span} (re-raised ${String(r.reraised)}; shown only ${String(r.shownOnly)})`];
+  if (r.byBuild.length > 0) {
+    lines.push(`  by build: ${r.byBuild.map((b) => `${b.build} ${String(b.repeats)} repeated, ${String(b.reraised)} re-raised, ${String(b.shownOnly)} shown only`).join("; ")}`);
+  }
   return lines;
 }

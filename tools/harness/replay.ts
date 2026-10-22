@@ -19,6 +19,8 @@
  */
 import { appliedSettings, reachInForce, runningBuild } from "./settings.js";
 import type { Setting } from "./settings.js";
+import { settledOf } from "./settled.js";
+import type { SettledReading } from "../../src/adapters/cli/commands.js";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -116,6 +118,8 @@ export interface RunRecord {
   readonly early: readonly EarlyPromotion[];
   /** Only meaningful when the replay ran to the source's last day. */
   readonly fidelity: Fidelity | null;
+  /** Settled things repeated, re-raised, shown, over the replayed store's whole record (`settled.ts`); null if it would not open. */
+  readonly settled: SettledReading | null;
   /** Where the replayed store was kept, when `keep` asked. */
   readonly keptAt: string | null;
 }
@@ -274,6 +278,7 @@ async function replayInto(
     days,
     early,
     fidelity,
+    settled: settledOf(dir),
     keptAt: opts.keep === true ? dir : null,
   };
 }

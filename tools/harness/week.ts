@@ -46,6 +46,8 @@ import { pageReading } from "./page.js";
 import type { PageReading } from "./page.js";
 import { SETTINGS_ENV, appliedSettings, runningBuild, settingsForChild } from "./settings.js";
 import type { Setting } from "./settings.js";
+import { settledOf } from "./settled.js";
+import type { SettledReading } from "../../src/adapters/cli/commands.js";
 import { recordUsage, usageTally } from "./usage.js";
 import type { UsageTally } from "./usage.js";
 import { underLiveRoot } from "./source.js";
@@ -149,6 +151,8 @@ export interface WeekRecord {
   readonly daily: readonly { readonly day: number; readonly date: string; readonly alive: number; readonly core: number; readonly beliefCore: number; readonly beliefs: number }[];
   /** The week's store as one file, when `out` asked. */
   readonly out: string | null;
+  /** Settled things repeated, re-raised, shown, over the week's whole record (`settled.ts`). */
+  readonly settled: SettledReading | null;
   readonly keptAt: string | null;
 }
 
@@ -512,6 +516,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     boundaries,
     daily,
     out,
+    settled: settledOf(dir),
     keptAt: opts.keep === true ? work : null,
   };
 }
