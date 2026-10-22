@@ -40,7 +40,7 @@ import { isOurHookCommand as wireIsOurs, readMcp } from "../src/adapters/cli/wir
 import { readDesktop } from "../src/adapters/cli/desktop.js";
 import { readsHostUserConfig } from "../src/adapters/runtime.js";
 import { HOST_SESSION_ENV } from "../src/adapters/claude-code/night-run.js";
-import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring, pluginInstall, readOurHook } from "../src/adapters/host-wiring.js";
+import { NPM_MCP_NAME, claudeUserFiles, isOurHookCommand, npmWiring, pluginInstall, readOurHook, sidebarPluginRecorded } from "../src/adapters/host-wiring.js";
 import {
   PACKAGE_ROOT,
   ensureFirstRun,
@@ -1497,6 +1497,13 @@ describe("doctor's Claude Code line knows the plugin", () => {
     expect(host.mcpRead).toBe(true);
     return hostFinding(host);
   }
+  /** A counterparts-sidebar install recorded beside the plugin, its copy at cache/sb. */
+  function recordSidebar(): void {
+    const file = join(home, ".claude", "plugins", "installed_plugins.json");
+    const recorded = readJson(file) as { plugins: Record<string, unknown> };
+    recorded.plugins["counterparts-sidebar@counterparts"] = [{ scope: "user", installPath: join(home, "cache", "sb"), version: "0.3.32" }];
+    writeFileSync(file, JSON.stringify(recorded));
+  }
 
   test("npm's doctor beside the DIRECTORY flavor of the plugin: both run, said truthfully, remove one", () => {
     const f = npmBesidePlugin("runtime.js");
@@ -1525,24 +1532,52 @@ describe("doctor's Claude Code line knows the plugin", () => {
     expect(f.fix).toContain("keeping one is simpler");
   });
 
-  test("doctor's Installed twice fix: today's exact words without the sidebar plugin; beside it, leave the plugin installed", () => {
+  test("doctor's Installed twice: today's exact words without the sidebar plugin; beside it and standing down, green with nothing to fix", () => {
     const today =
       "Installed twice; keeping one is simpler, and nothing is lost either way: to keep only the plugin, run `counterparts disconnect` " +
       "and restart Claude Code; to keep only this install, run `claude plugin uninstall counterparts@counterparts` " +
       "(or `/plugin uninstall counterparts@counterparts` inside Claude Code).";
     const f = npmBesidePlugin("plugin-run.sh");
+    expect(f.severity).toBe("amber");
     expect(f.fix).toBe(today);
-    // The counterparts-sidebar plugin recorded too: never advise uninstalling counterparts.
-    const file = join(home, ".claude", "plugins", "installed_plugins.json");
-    const recorded = readJson(file) as { plugins: Record<string, unknown> };
-    recorded.plugins["counterparts-sidebar@counterparts"] = [{ scope: "user", installPath: join(home, "cache", "sb"), version: "0.3.29" }];
-    writeFileSync(file, JSON.stringify(recorded));
+    // The counterparts-sidebar plugin recorded too: the setup we recommend an
+    // npm user who wants the sidebar. The plugin stands down; nothing to fix.
+    recordSidebar();
     const host = readHost(home, project, {});
     expect(host.sidebarPlugin).toBe(true);
     const beside = hostFinding(host);
-    expect(beside.fix).toContain("to keep only the plugin, run `counterparts disconnect`");
-    expect(beside.fix).toContain("leave the plugin (counterparts@counterparts) installed, since the counterparts-sidebar plugin needs it");
-    expect(beside.fix).not.toContain("plugin uninstall");
+    expect(beside.severity).toBe("green");
+    expect(beside.detail).toContain("is installed for the counterparts-sidebar plugin, which needs it, and stands down while this wiring is live");
+    expect(beside.fix).toBe("");
+    // Turned off in the settings, the sidebar is not there: the advice as it was.
+    writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify({ ...readJson(join(home, ".claude", "settings.json")), enabledPlugins: { "counterparts@counterparts": true, "counterparts-sidebar@counterparts": false } }));
+    expect(readHost(home, project, {}).sidebarPlugin).toBe(false);
+    expect(hostFinding(readHost(home, project, {})).fix).toBe(today);
+  });
+
+  test("doctor beside the sidebar plugin when both really run (the directory flavor): amber, and never says to uninstall or leave it as it is", () => {
+    npmBesidePlugin("runtime.js");
+    recordSidebar();
+    const f = hostFinding(readHost(home, project, {}));
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("so both are running");
+    expect(f.fix).toContain("Keep it installed (the counterparts-sidebar plugin needs it) and update it, `claude plugin update counterparts@counterparts`");
+    expect(f.fix).toContain("keep only the plugin: run `counterparts disconnect`");
+    expect(f.fix).not.toContain("plugin uninstall");
+    expect(f.fix).not.toContain("leave the plugin");
+  });
+
+  test("a counterparts-sidebar install refused for an older counterparts (still recorded) is no sidebar beside it", () => {
+    npmBesidePlugin("plugin-run.sh");
+    const sb = join(home, "cache", "sb");
+    mkdirSync(join(sb, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(sb, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "counterparts-sidebar", dependencies: [{ name: "counterparts", version: ">=99.0.0" }] }));
+    recordSidebar();
+    expect(sidebarPluginRecorded({ home, env: {}, cwd: project })).toBe(false);
+    expect(hostFinding(readHost(home, project, {})).severity).toBe("amber");
+    // Its floor met by the counterparts recorded beside it: there.
+    writeFileSync(join(sb, ".claude-plugin", "plugin.json"), JSON.stringify({ name: "counterparts-sidebar", dependencies: [{ name: "counterparts", version: ">=0.0.1" }] }));
+    expect(sidebarPluginRecorded({ home, env: {}, cwd: project })).toBe(true);
   });
 
   test("npm's doctor beside the LAUNCHER flavor of the plugin: it stands down", () => {
