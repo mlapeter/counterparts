@@ -105,7 +105,7 @@ import {
 import { TUNABLES, resolveEmbedder, retentionClocks, withEmbedderDefault } from "../config.js";
 import type { EmbedderSource } from "../config.js";
 import { MODEL_FILE, STATIC_WEIGHTS_ENV, STATIC_WEIGHTS_PACKAGE, resolveStaticWeights } from "../../core/embed/static.js";
-import { DATABASE_FILE, heldExits, readRollbackHold, rollbackHeld } from "../../core/store/index.js";
+import { DATABASE_FILE, heldExits, readRollbackHold, rollbackHeld, runningBuild } from "../../core/store/index.js";
 // Retention's own reading and its own week, so the Raw transcripts line cannot
 // promise a different number from the job that does the deleting. READ-ONLY:
 // `remember/index.ts` re-exports the plan and the readers, never the deleter.
@@ -2028,8 +2028,14 @@ export function writeFieldFindings(store: Store): Finding[] {
  * each with the lived day it arrived and any settings it ran with
  * (`Store#buildLog`). A read after a release splits its rows by these.
  * Silent on a store no build has logged yet.
+ *
+ * The line leads with the build RUNNING now (`runningBuild`), not the newest
+ * in the log: the log keeps one row per version, so a downgrade to a build it
+ * already holds adds nothing (review of #591: 0.3.30 → 0.3.31 → 0.3.30 left
+ * 0.3.31 newest while new rows were stamped 0.3.30). When the two differ the
+ * line says so.
  */
-export function buildLogFindings(store: Store): Finding[] {
+export function buildLogFindings(store: Store, running: string = runningBuild()): Finding[] {
   let log: ReturnType<Store["buildLog"]>;
   try {
     log = store.buildLog();
@@ -2044,10 +2050,12 @@ export function buildLogFindings(store: Store): Finding[] {
     return `${l.build} since lived day ${l.since === null ? "?" : String(l.since)}${set}`;
   });
   const earlier = log.length - newest.length;
+  const lead = running === head.build ? `running ${running}` : `running ${running}, newest logged ${head.build}`;
   return [
-    finding("build-log", "green", "Builds", `${words.join("; ")}${earlier > 0 ? `; ${String(earlier)} earlier` : ""}`, "", {
+    finding("build-log", "green", "Builds", `${lead}: ${words.join("; ")}${earlier > 0 ? `; ${String(earlier)} earlier` : ""}`, "", {
       builds: log.length,
-      current: head.build,
+      running,
+      newest: head.build,
       since: head.since,
     }),
   ];

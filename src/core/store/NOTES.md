@@ -2319,7 +2319,9 @@ their own store methods (`wave2.ts`, delegates on `Store`).
   the record for that open, as the claims era. Never rewritten, so a downgrade and back logs
   nothing new, and a same-version run with other settings keeps the first open's settings (the
   harness's run record carries each run's own). `Store#buildLog` reads it; doctor's Builds line
-  shows the last three.
+  leads with the build running and says when it is not the newest logged (a downgrade adds no
+  row; review of #591), then the last three. So the stamped field is authoritative, and a join
+  of an unstamped row to the log by lived day is approximate (an arrival day is shared).
 - **The stamp.** `build: <version>` at write time: a memory's meta at birth (`insertOne`; a
   revise merges meta and keeps it), every event payload that is a JSON object (`appendEvent`,
   `withBuild`; null and arrays as they came; a payload's own `build` stands), a reflection's

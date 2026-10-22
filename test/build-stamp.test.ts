@@ -21,6 +21,8 @@ import { join } from "node:path";
 
 import { buildLogFindings } from "../src/adapters/claude-code/doctor.js";
 import { run } from "../src/adapters/cli/index.js";
+import { Dashboard } from "../src/adapters/dashboard/index.js";
+import { renderActivity } from "../src/adapters/dashboard/activity.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
@@ -276,7 +278,7 @@ describe("the stamp on what the mechanisms write", () => {
     expect(doc?.meta["build"]).toBe(BUILD_UNKNOWN);
     c.recallForTurn({ sessionId: "s1", text: "a note about its own version" }, { at: "2026-01-02" });
     expect(payloads(c, "recall.decision")[0]!["build"]).toBe(BUILD_UNKNOWN);
-    expect(buildLogFindings(c.store)[0]?.detail).toBe("unknown since lived day 0");
+    expect(buildLogFindings(c.store)[0]?.detail).toBe("running unknown: unknown since lived day 0");
   });
 });
 
@@ -299,11 +301,56 @@ describe("the readers", () => {
     await run(["doctor", `--config=${configPath}`, "--json"], { io: json.io, env: {}, home: root });
     const report = JSON.parse(json.out.join("\n")) as { findings: { key: string; detail: string; data: Record<string, unknown> }[] };
     const line = report.findings.find((f) => f.key === "build-log");
-    expect(line?.detail).toBe("9.8.4 since lived day 3; 9.8.3 since lived day 2; 9.8.2 since lived day 1; 1 earlier");
-    expect(line?.data).toEqual({ builds: 4, current: "9.8.4", since: 3 });
+    expect(line?.detail).toBe("running 9.8.4: 9.8.4 since lived day 3; 9.8.3 since lived day 2; 9.8.2 since lived day 1; 1 earlier");
+    expect(line?.data).toEqual({ builds: 4, running: "9.8.4", newest: "9.8.4", since: 3 });
     const plain = capture();
     await run(["doctor", `--config=${configPath}`], { io: plain.io, env: {}, home: root });
-    expect(plain.out.join("\n")).toContain("9.8.4 since lived day 3; 9.8.3 since lived day 2; 9.8.2 since lived day 1");
+    expect(plain.out.join("\n")).toContain("running 9.8.4: 9.8.4 since lived day 3; 9.8.3 since lived day 2; 9.8.2 since lived day 1");
+  });
+
+  test("after a downgrade doctor names the build running, not the newest logged (review of #591: 0.3.30 → 0.3.31 → 0.3.30)", async () => {
+    for (const [v, date] of [
+      ["0.3.30", "2026-09-10"],
+      ["0.3.31", "2026-09-11"],
+      ["0.3.30", "2026-09-12"],
+    ] as const) {
+      setRunningBuild(v);
+      const c = brain();
+      c.store.advanceClock(date);
+      shut(c);
+    }
+    // The third open logged nothing (one row per version), but what it writes is stamped 0.3.30.
+    const c = brain();
+    const id = mem(c, "Written after the downgrade.");
+    expect(c.store.read(id).doc.meta["build"]).toBe("0.3.30");
+    expect(c.store.buildLog().map((l) => l.build)).toEqual(["0.3.30", "0.3.31"]);
+    shut(c);
+    const configPath = join(root, "claude-code.json");
+    writeFileSync(configPath, JSON.stringify({ dataDir: dir, injectionBudgetBytes: 9000, embedder: { enabled: false } }));
+    const json = capture();
+    await run(["doctor", `--config=${configPath}`, "--json"], { io: json.io, env: {}, home: root });
+    const report = JSON.parse(json.out.join("\n")) as { findings: { key: string; detail: string; data: Record<string, unknown> }[] };
+    const line = report.findings.find((f) => f.key === "build-log");
+    expect(line?.detail).toBe("running 0.3.30, newest logged 0.3.31: 0.3.31 since lived day 1; 0.3.30 since lived day 0");
+    expect(line?.data).toEqual({ builds: 2, running: "0.3.30", newest: "0.3.31", since: 1 });
+  });
+
+  test("the dashboard's activity line leaves the build out; the row keeps it", () => {
+    setRunningBuild("9.7.1");
+    const c = brain();
+    c.store.appendEvent({ name: "sleep.cycle", day: 0, payload: { promoted: 2 } });
+    shut(c);
+    const dash = Dashboard.open({ dir });
+    try {
+      const out = renderActivity(dash.source, { name: "sleep.cycle", limit: 5 });
+      const line = out.split("\n").find((l) => l.includes("promoted 2"));
+      expect(line?.trim()).toBe("↳ promoted 2");
+      expect(out).not.toContain("9.7.1");
+      const row = dash.source.store.eventLog({ name: "sleep.cycle", order: "desc", limit: 1 })[0];
+      expect(JSON.parse(row?.payload ?? "{}")["build"]).toBe("9.7.1");
+    } finally {
+      dash.close();
+    }
   });
 
   test("a compare names each side's build in its table; a record from before the stamp shows none", () => {
