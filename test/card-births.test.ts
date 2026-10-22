@@ -539,6 +539,22 @@ describe("one name, one card, whichever process runs first (the card twins, 2026
     expect(s.getMeta(`${RELINKED_PREFIX}${named}`)).toBe("9");
   });
 
+  test("a topic card (no name, its memories are its tags) never looks back", () => {
+    const s = store();
+    spouse(s);
+    const topic = s.put({
+      type: "schema",
+      kind: "entity",
+      title: "ferry",
+      body: "ferry: a topic — the memories tagged with it.",
+      meta: { role: "entity", name: "", aliases: [], topic: "ferry", topicAliases: [] },
+    });
+    const schemas = Schemas.open({ store: s });
+    schemas.birthsFromNames(5, { limit: 0 });
+    expect(schemas.events("schema.subjects.relinked").map((e) => e.ref)).not.toContain(topic);
+    expect(s.getMeta(`${RELINKED_PREFIX}${topic}`)).toBeUndefined();
+  });
+
   test("a card archived when this index loaded and brought back elsewhere since is seen under the lock", () => {
     // Review of #578: "unseen" meant ids never walked, so a card that was
     // archived at load and un-archived by another process was invisible.

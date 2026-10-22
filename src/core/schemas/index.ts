@@ -430,13 +430,15 @@ export class Schemas {
    * memories each time, so a card looks back ONCE: a look-back that ran (found
    * something or nothing) leaves `RELINKED_PREFIX<id>`, and a card with that row
    * is not asked again. A look-back that failed leaves none and is retried. The
-   * identity core is not born here and is left alone.
+   * identity core is not born here and is left alone, and so is a topic card
+   * (wave 2): it has no name to look back by, and its memories are its tags.
    */
   private relinkUnlinked(day: number): number {
     const linked = new Set(this.store.subjectsLinkedVia("birth"));
     let relinked = 0;
     for (const [id, rec] of this.meta) {
       if (rec.role !== "entity" || linked.has(id) || !this.index.has(id)) continue;
+      if ((rec.name ?? "").length === 0) continue;
       const row = this.store.row(id);
       if (row === undefined || row.archived !== 0 || row.kind === "self") continue;
       if (this.store.getMeta(`${RELINKED_PREFIX}${id}`) !== undefined) continue;
