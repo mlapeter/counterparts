@@ -1,8 +1,8 @@
 /** `McpServer`'s `dream`, `reflect` and `self_page` tools, and the page writer's binding (bodies moved out of `server.ts`, 2026-10-11; the class keeps a delegate for each). */
-import { NIGHT_CHILD_ENV } from "../spawn.js";
+import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV } from "../spawn.js";
 import { readSession } from "../sessions.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
-import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, nightNext, nightOrder } from "../../core/dream/index.js";
+import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, applyTagsAnswer, askTags, nightNext, nightOrder, renderTagsBundle } from "../../core/dream/index.js";
 import type { DreamingSetting, NightPart } from "../../core/dream/index.js";
 import {
   NIGHT_WRITER_TOOL,
@@ -35,6 +35,13 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
   // The headless night's dream child stops before the reflection
   // (2026-10-11): the reflection runs after it, in a child of its own.
   const dreamChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "dream";
+  // THE TAGGING CHILD, BOTH WAYS (review of #576): its `tags` phase is
+  // served only to it, and it is served only that phase — it reads memory
+  // text it did not write, and must not reach the dream's setting, launch or
+  // begin. Any other session asking for `tags` is refused.
+  const tagsChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "tags";
+  if (tagsChild && phase !== "tags") return refused("tags-child", "This is the nightly run's tagging child: only phase \"tags\" is served here.");
+  if (!tagsChild && phase === "tags") return refused("night-run-only", "The tags phase is the nightly run's tagging child's alone.");
   const nextAfter = (part: NightPart, dream: string | null): string | null => {
     const next = nightNext(part);
     if (dreamChild && next === "reflection") return null;
@@ -273,8 +280,45 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
           false,
         );
       }
+      case "tags": {
+        // THE NIGHT'S TAGGING (2026-10-21, wave 2 lane B; `core/dream/tags.ts`):
+        // without answers, what to tag, merge and sort; with them, written as
+        // the night's (`via: night`), each item refused by name when it
+        // cannot be taken. The run's id names the night in every record.
+        const run = (server["env"][NIGHT_RUN_ENV] ?? "").trim() || `session:${session}:${at}`;
+        const answered = args["tagged"] !== undefined || args["merges"] !== undefined || args["kinds"] !== undefined;
+        if (!answered) {
+          const b = askTags(server.counterpart.store, run);
+          server["emit"]("mcp.dream", undefined, { phase: "tags", on: b.on, memories: b.memories.length, untagged: b.untagged, pairs: b.pairs.length, cards: b.cards.length });
+          return server["result"](
+            {
+              phase,
+              read: renderTagsBundle(b),
+              how: b.on
+                ? `Answer in one call: the dream tool with phase "tags", session: ${session}, and \`tagged\`, \`merges\` and \`kinds\` as the lines ask. Leave out what you cannot judge.`
+                : "Nothing to do tonight.",
+            },
+            false,
+          );
+        }
+        const out = applyTagsAnswer(server.counterpart.store, { tagged: args["tagged"], merges: args["merges"], kinds: args["kinds"] }, { run });
+        server["emit"]("mcp.dream", undefined, { phase: "tags", memories: out.memories, tags: out.tags, merged: out.merged, notSame: out.notSame, kinds: out.kinds, refused: out.refused.length });
+        return server["result"](
+          {
+            phase,
+            tagged: out.memories,
+            tags: out.tags,
+            merged: out.merged,
+            keptApart: out.notSame,
+            kinds: out.kinds,
+            ...(out.refused.length === 0 ? {} : { refused: out.refused.slice(0, 20) }),
+            said: out.on ? "Recorded. That is all tonight." : "Tagging is switched off tonight; nothing was written.",
+          },
+          !out.on,
+        );
+      }
       default:
-        return refused("phase-unknown", "phase is one of launch, begin, part, propose, journal, writer, decline, setting.");
+        return refused("phase-unknown", "phase is one of launch, begin, part, propose, journal, writer, decline, setting, tags.");
     }
   } catch (err) {
     return refused("threw", String((err as Error).message ?? err));

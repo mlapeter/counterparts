@@ -203,7 +203,8 @@ test("night --model end to end: the night runs with the model's seat on the copy
   };
   const work = join(root, "work");
   const r = await replayNight({ source, outcome, dreamTranscript: transcript, reflectionTranscript: empty, seat: "model", start, workRoot: work, timeZone: "UTC", embed: false, env: { HOME: join(root, "home"), PATH: process.env["PATH"] ?? "" } });
-  expect(asked).toEqual(["dream", "reflection"]);
+  // A model night is a whole night: the tagging child (wave 2 lane B) runs after the reflection.
+  expect(asked).toEqual(["dream", "reflection", "tags"]);
   expect(r.seat).toBe("harness:model");
   expect(r.dream?.state.same).toBe(true);
   expect(r.dream?.titleSame).toBe(true);

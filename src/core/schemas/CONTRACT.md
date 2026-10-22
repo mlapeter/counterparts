@@ -158,6 +158,17 @@ name/alias resolution; birth and death telemetry.
    title door (`counterpart.ts#mentionFromProposal`, an authored title passed as the name)
    is gone: it refused every authored write `name-not-in-source` (review 12 §3a). A write
    still credits the cards it names and brings a faded one back (G14, NOTES §15).
+   **Since 2026-10-21 (wave 2 lane B) a second door, for TOPICS** (`Schemas#birthsFromTags`,
+   in the same `births` phase): a tag (through its merges) on memories weighing
+   `TOPIC_MIN_MEMORIES` (5; each used awake counts `TOPIC_USED_WEIGHT` more, each felt
+   `TOPIC_FELT_WEIGHT` more) on `TOPIC_MIN_DAYS` (3) lived days in `TOPIC_MIN_SESSIONS` (2)
+   sessions becomes a topic card, `TOPIC_BIRTHS_PER_NIGHT` (5) a night — not a stop word
+   (`tags.ts#isStopTag`: a date word, a word with a digit), not a word a card already holds
+   as a name, not a topic already born. A topic card has NO name and no aliases (the
+   `ensureSelfSubject` shape), so the alias index, recall's aliases and a write's credit are
+   untouched; its tag and merged words are `meta.topic` / `meta.topicAliases`, its
+   `subject_kind` is `topic`, and its memories are the tagged ones (no `memory_subjects`
+   rows). Behind `TAGS_NIGHT`. Lightly held, check 2026-10-26.
 4. **[M] Exact and near name collisions refuse, loudly**, and the refusal is a distinct
    record from "not proposed" (scar §2.4 — v1's zero births were ambiguous precisely
    because the two were indistinguishable). **The proposal is logged, not only the

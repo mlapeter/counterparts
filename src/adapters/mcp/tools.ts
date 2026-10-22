@@ -1567,8 +1567,8 @@ const DREAM: ToolSpec = {
     properties: {
       phase: {
         type: "string",
-        enum: ["launch", "begin", "part", "propose", "journal", "writer", "decline", "setting", "undo"],
-        description: "Which step: launch, begin, part (the rest of a bundle that came in parts), propose, journal, writer, decline, setting, or undo (only when the owner asks to undo a dream; pass `dream`).",
+        enum: ["launch", "begin", "part", "propose", "journal", "writer", "decline", "setting", "undo", "tags"],
+        description: "Which step: launch, begin, part (the rest of a bundle that came in parts), propose, journal, writer, decline, setting, undo (only when the owner asks to undo a dream; pass `dream`), or tags (the nightly run's tagging child only).",
       },
       session: {
         type: "string",
@@ -1632,6 +1632,21 @@ const DREAM: ToolSpec = {
       text: {
         type: "string",
         description: "`journal`: the dream journal entry, first person — what you dreamed and what you noticed.",
+      },
+      tagged: {
+        type: "array",
+        items: { type: "object", properties: { id: { type: "string" }, tags: { type: "array", items: { type: "string" } } }, required: ["id", "tags"] },
+        description: "`tags` (the tagging child): a memory with no tags and the 3-5 tags it gets.",
+      },
+      merges: {
+        type: "array",
+        items: { type: "object", properties: { a: { type: "string" }, b: { type: "string" }, same: { type: "boolean" } }, required: ["a", "b", "same"] },
+        description: "`tags`: two tags that look alike, and whether they are one topic.",
+      },
+      kinds: {
+        type: "array",
+        items: { type: "object", properties: { id: { type: "string" }, kind: { type: "string", enum: ["person", "project", "place", "topic"] } }, required: ["id", "kind"] },
+        description: "`tags`: a card with no kind, and its kind.",
       },
     },
     required: ["phase"],

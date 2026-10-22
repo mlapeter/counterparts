@@ -468,6 +468,7 @@ describe("SEAMS A — the observer predicate is hoisted, and stand-down totality
       setNextChangeDays: [[{ id: seedId, day: 1 }]],
       clearNextChangeDays: [],
       setCacheNote: ["habituation", "{}"],
+      putUnless: [{ type: "memory", kind: "fact", body: "x" }, () => false],
       // v14 (2026-10-21, wave 2's one bump): pre-provisioned, no caller yet.
       tagMemory: [seedId, ["tag"], "write"],
       untagMemory: [seedId],

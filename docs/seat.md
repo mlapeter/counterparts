@@ -20,6 +20,7 @@ did is read from the store**, where the tools wrote it, never from the answer.
 | `catch-up` | the owed parts of sessions that ended unwritten (`night-catch-up.ts#catchUpPrompt`) | `session_end` (its `writeUp` field) | everything else | write-ups, filed as each owed session's own |
 | `dream` | the night's launch prompt (`Dreams#launchPrompt`, without the reflection) | `dream` (its phases, the page writer's first), `self_page`, `recall` | `reflect` | the page writer's revision, a journaled dream, its changes |
 | `reflection` | the reflection's launch prompt (`Reflections#launchPrompt`), on tonight's dream or the last few days | `dream`, `reflect`, `self_page`, `recall` | nothing listed | a finished reflection, its returns, page revisions |
+| `tags` | the tagging prompt (`dream/tags.ts#tagsPrompt`): untagged memories, look-alike tags, cards with no kind | `dream` (its `tags` phase) | `reflect`, `self_page` | tags `via: night`, merges, card kinds, a row per run |
 
 The tools are the memory's own, and a host names them its own way (Claude Code:
 `mcp__counterparts__<tool>`). Lookups inside an answer are tool calls: `recall` reads a
@@ -42,7 +43,9 @@ A night's order (`adapters/claude-code/night-run.ts#runNight`):
 1. the catch-up, batch by batch;
 2. the dream;
 3. the reflection, unless the dream exited at once having begun nothing, or a reflection
-   already finished today.
+   already finished today;
+4. the tagging (2026-10-21), on the host's fastest model, unless `schemas.TAGS_NIGHT` is off
+   or there is nothing to ask. Its exit is never the run's.
 
 ## In-session acts: the host's model drives
 

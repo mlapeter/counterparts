@@ -120,6 +120,17 @@ export function recordTagMerge(store: Store, alias: string, tag: string, via: st
   const a = normalizeTag(alias);
   const t = normalizeTag(tag);
   if (a.length === 0 || t.length === 0 || a === t) return false;
+  // NO CYCLE (lane B, review of #576): a merge whose tag already reads, through
+  // the merges, as the alias would close a loop. Asked inside the write's own
+  // transaction, so two nights merging the pair both ways cannot both land.
+  const seen = new Set<string>([t]);
+  for (let next = t; ; ) {
+    const row = ops(store).get<{ tag: string }>("SELECT tag FROM tag_merges WHERE alias = ?", next);
+    if (row === undefined || seen.has(row.tag)) break;
+    if (row.tag === a) return false;
+    seen.add(row.tag);
+    next = row.tag;
+  }
   ops(store).run("INSERT OR REPLACE INTO tag_merges (alias, tag, via, created_at) VALUES (?, ?, ?, ?)", a, t, via, at);
   return true;
 }

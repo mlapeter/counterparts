@@ -679,3 +679,59 @@ first, a way to be earned (C1). What C1 decided, each lightly held:
   migrated.
 - **The self subject** is `ensureSelfSubject` above (lane A's door). C1 only reads it: a
   belief on it, or marked me/us, is "about me" for `use`.
+
+## 2026-10-21 — tags at night, and topics (wave 2 lane B, second PR)
+
+Design §1 (`counterparts-notes/2026-10-21-beliefs-design.md`), brief B items 2, 4–7.
+
+- **`tags.ts`** is the arithmetic: the stop list, the merge map (`resolveTag` follows a chain,
+  a cycle stops where it closes), the tally the topic bar reads, the look-alike pairs the
+  night asks about (one's words inside the other's, or a letter apart on words of five or
+  more, two on eight or more — two on five asked "denver" / "enter" on the corpus copy; a "not the same" answer kept under `schemas.tags.notSame.<a>|<b>` so it is not asked
+  again), and `nightTagWork`, the tags phase's body: card names as tags (`via: card`), stem
+  merges (`via: stem`, the alias the less-carried word), and a merge whose alias AND tag are
+  on no memory at all let go (review of #569). Merges are applied on read, never by
+  rewriting `memory_tags`, so undoing one is one row.
+- **A name is a tag already promoted**: the night writes a linked card's name onto its
+  memories, and a tag that a card holds as a name (or alias, live or faded) is never born a
+  topic. The identity core's name is not written: the owner on everything about him says
+  nothing.
+- **Topic cards stay out of the alias index** for now (no name, like the self subject), which
+  is what keeps lane B's promise that no recall result or wake line changes. Lane E decides
+  how topics reach recall; lane D shows them. The fade sweep reads them like any card: no
+  use credits a topic yet, so one fades on the calendar floor (180 days) — lane E's credit
+  will change that.
+- **Stems at night only.** The stored tag is the word as written; `stemKey` (store/stem.ts)
+  is the merge key. If the stemming experiment is reverted, the `via: stem` merges stay
+  recorded and undoable; nothing stored depends on the stemmer.
+- **Measured on a copy of the 10-20 corpus**: 90 distinct tags after the card-name backlog
+  (all names: the corpus has no writer tags yet), 75 of them over the topic bar and all 75
+  refused `a-name-already` — so no topic is born from the corpus today; topics come from
+  writer and night tags. 120 named cards have no subject kind (10 a night asked: 12 nights).
+- **The journal's own rows are not tagged** (review of #573): a chapter's copy or summary
+  (`source = 'episode'`) retells memories tagged on their own, and tagging it would count
+  one moment twice in `tagCounts`, the cloud's weight. The night skips them in both the
+  card-name pass and the tagging ask (`tag-reads.ts#NOT_JOURNAL`); `tagCounts` is left as A
+  wrote it.
+- **Known gaps, held for later:** a topic card the owner removes can be born again from the
+  same tag (the tombstone keeps no `meta.topic`; lane D's "this is wrong" is the likelier
+  door); a faded topic is not born again (`topicCards` reads archived ones too); TWIN
+  entity cards of one name (40 pairs on the corpus copy, each pair born the same day with
+  the same body) are not merged here. Their cause is a stale index: `Schemas` loads its
+  cards once, at open, so two processes whose boundaries both run the births phase on one
+  lived day each birth a name the other just did (reproduced: two `Counterpart`s on one
+  store, each `sessionEnd`, two cards). The fix and a one-time twin merge are their own
+  change; the night writes a twin pair's shared name once per memory. A card kind the v14
+  upgrade got wrong (a project card of kind `place`) is never asked again: the kinds ask
+  reads only cards with none.
+
+## 2026-10-21 — review of #576: topics under the write lock, honest counts
+
+- A topic birth asks "does a topic already hold any of these words?" again inside its own
+  insert (`Store#putUnless`, the same method #578 adds for name births — identical text, so
+  the two land as one), so two processes' cycles on one day cannot mint a twin; the loser is
+  counted `a-topic-already`. `topicCards` maps a topic's merged words too.
+- A merge that would close a loop (its tag already reads, through the merges, as the alias)
+  is refused inside `recordTagMerge`'s own transaction (`store/wave2.ts`).
+- Both births report `attempts`, what a night would try within each door's own limit, and the
+  observer's report reads it: min(names, 10) + min(topics, 5), not min(names + topics, 10).

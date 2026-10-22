@@ -16,6 +16,7 @@ import {
 } from "./self/index.js";
 import type { WakeTrigger } from "./self/index.js";
 import { runCycle, cyclePartial } from "./sleep/index.js";
+import { nightTagWork, TUNABLES as SCHEMAS_TUNABLES } from "./schemas/index.js";
 import type { CycleReport, CyclePartial } from "./sleep/index.js";
 import { boundedIds, isKnownSession } from "./types.js";
 import type {
@@ -170,7 +171,26 @@ export async function sessionEnd(cp: Counterpart, input: SessionEndInput = {}): 
         cp.schemas.fadeSweep(f.day, { date: f.date, dryRun: !f.apply, limit: f.budget }),
       // Cards are born where names are (2026-10-11, Group 3 part D): the
       // night's name tally, judged by `mention()`, a nightly budget at most.
-      births: (b) => cp.schemas.birthsFromNames(b.day, { dryRun: !b.apply, limit: b.budget }),
+      // And where tags are (2026-10-21, wave 2 lane B): a tag that matters
+      // becomes a topic card, `TOPIC_BIRTHS_PER_NIGHT` at most, beside the names.
+      births: (b) => {
+        const names = cp.schemas.birthsFromNames(b.day, { dryRun: !b.apply, limit: b.budget });
+        const topics = cp.schemas.birthsFromTags(b.day, { dryRun: !b.apply, limit: SCHEMAS_TUNABLES.TOPIC_BIRTHS_PER_NIGHT });
+        const refused = { ...names.refused };
+        for (const [reason, n] of Object.entries(topics.refused)) refused[`topic-${reason}`] = n;
+        return {
+          memories: names.memories,
+          offered: names.offered + topics.offered,
+          born: [...names.born, ...topics.born],
+          refused,
+          skippedForLimit: names.skippedForLimit + topics.skippedForLimit,
+          // Each door's own limit (review of #576): min(names, budget) + min(topics, 5).
+          attempts: names.attempts + topics.attempts,
+        };
+      },
+      // The night's tag work with no model (wave 2 lane B): card names as
+      // tags, stem merges, dead merges let go — behind `TAGS_NIGHT`.
+      tags: (t) => nightTagWork(cp.store, t),
       date,
       ...(composeBudget === null ? {} : { budgetBytes: composeBudget }),
       onEvent: (e) => cp["relay"]("sleep", e),

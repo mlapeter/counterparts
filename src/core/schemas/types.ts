@@ -456,6 +456,26 @@ export interface NameBirthReport {
   skippedForLimit: number;
   /** Names that met the bar but read as English words (the case test). */
   lowerCase: number;
+  /** Births tried within the limit — on a dry run, what a night would try (review of #576). */
+  attempts: number;
+}
+
+/** What one night's topic births did (`Schemas#birthsFromTags`, wave 2 lane B). */
+export interface TopicBirthReport {
+  day: number;
+  dryRun: boolean;
+  /** False when `TAGS_NIGHT` is off: nothing was read. */
+  on: boolean;
+  /** Tags over the bar that no card holds, heaviest first. */
+  offered: number;
+  /** Born this night (topic cards). Empty on a dry run. */
+  born: string[];
+  /** Tags over the bar held back, by reason: a stop word, a name a card already holds. */
+  refused: Record<string, number>;
+  /** Tags over the night's limit, left for the next night. */
+  skippedForLimit: number;
+  /** Births tried within the limit — on a dry run, what a night would try. */
+  attempts: number;
 }
 
 // ---------------------------------------------------------------------------

@@ -199,6 +199,9 @@ export interface SleepStore {
  *   - `births` runs right after `fade` (2026-10-11): a name whose card faded
  *     tonight is a faded card's name, so the tally leaves it to come back the
  *     way a faded card does — when a new memory names it.
+ *   - `tags` runs right after `births` (2026-10-21, wave 2 lane B): a card
+ *     born tonight lends its name as a tag tonight. The topic births are part
+ *     of `births` and read the merges this phase left, a night later.
  *   - `briefing` is the cycle's final CONTENT write. `log` runs after it and
  *     writes no content: it deletes telemetry rows past the retention window
  *     (§5 G16), and it is last so "what the cycle forgot" and "what the log
@@ -212,6 +215,7 @@ export const PHASES = [
   "prune",
   "fade",
   "births",
+  "tags",
   "dedup",
   "versions",
   "briefing",
@@ -232,6 +236,7 @@ export type PhaseReason =
   | "no-render-fn"
   | "no-fade-fn"
   | "no-births-fn"
+  | "no-tags-fn"
   | "no-durable-event-log"
   | "failed";
 

@@ -193,6 +193,24 @@ dreamer is the model (a background agent the session launches), outside this pro
   (`launchPrompt({ reflect: false })`): its first child ends at the dream's journal, and
   the reflection runs after it as a child of its own, from `Reflections#launchPrompt`
   with tonight's dream id, reading the dream from the store with a fresh context.
+- THE NIGHT'S TAGGING (2026-10-21, wave 2 lane B; `tags.ts`, lightly held): a third child of
+  the headless night, after the reflection, on a small model and NOT in the dream's room (its
+  intake is the night's narrowest pipe). It answers through the dream tool's `tags` phase:
+  untagged memories (`TAGS_BACKFILL_PER_NIGHT`, recent and strong first, the store's words
+  shown for reuse), look-alike tag pairs (`TAGS_MERGE_ASKS_PER_NIGHT`; "unsure is false"), and
+  cards with no subject kind (`TAGS_KINDS_PER_NIGHT`). What it writes is the night's: tags
+  `via: night` only on a live memory with none, merges `via: night`, a kind only on a named
+  card with none, with who set it (`schemas.subjectKind.<id>`), and a row per run
+  (`tags.night.<run>`); every item it cannot take is refused by name. `undoNightTags(sinceAt)`
+  takes a night back. Not started when `TAGS_NIGHT` is off or there is nothing to ask.
+  *Review of #576:* the `tags` phase is served to the tagging child alone
+  (`COUNTERPARTS_NIGHT_CHILD=tags`), and that child is served nothing else of the dream tool.
+  The answer is bounded by the ask: reading it records what it showed (`tags.ask.<run>`), and
+  only those memories, pairs and cards are taken — nothing without a recorded ask. A memory
+  is "untagged" when it has no tag of its own (`write`, `carried`, `night`); a card's name
+  alone does not count. Titles and names are flattened to one line in the bundle. Undo
+  follows a carried copy through the revisions that declared it (`meta.updates`), and
+  clears only a kind still as the night set it.
 - `begin` refuses under observer, when a dream was journaled this CALENDAR day, while
   another session's run is busy (`dreaming-now`), and when nothing is new. A dream LEFT
   BEHIND — begun, never journaled, quiet for `ABANDONED_AFTER_MS` — is RESUMED when it

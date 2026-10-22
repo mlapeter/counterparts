@@ -19,7 +19,7 @@
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
-import { NIGHT_MCP_SERVER, hostToolName, planNightChild, readNightSpills, startChild } from "../../src/adapters/claude-code/index.js";
+import { NIGHT_MCP_SERVER, TUNABLES, hostToolName, planNightChild, readNightSpills, startChild } from "../../src/adapters/claude-code/index.js";
 import type { ChildPlan, ChildResult, NightAnswer, NightStarter } from "../../src/adapters/claude-code/index.js";
 import type { Seat, SeatAsk } from "../../src/core/counterpart.js";
 
@@ -108,6 +108,8 @@ export function planModelChild(input: ModelSeatInput, ask: SeatAsk, hostSession:
     tools: ask.tools.map(hostToolName),
     ...(ask.withhold.length === 0 ? {} : { deny: ask.withhold.map(hostToolName) }),
     ...(ask.act === "catch-up" ? {} : { child: ask.act }),
+    // The tagging child on its own small model, as Claude Code's seat runs it.
+    ...(ask.act === "tags" ? { model: TUNABLES.NIGHT_TAGS_MODEL } : {}),
     ...(ask.limits?.turns === undefined ? {} : { maxTurns: ask.limits.turns }),
     ...(ask.limits?.ms === undefined ? {} : { timeoutMs: ask.limits.ms }),
     configPath: input.configPath,

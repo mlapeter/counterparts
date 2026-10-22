@@ -65,6 +65,7 @@ import type {
   RenderFn,
   FadeFn,
   BirthsFn,
+  TagsFn,
   SleepEvent,
   SleepStore,
 } from "../src/core/sleep/index.js";
@@ -75,6 +76,8 @@ const SLEEP_SRC = fileURLToPath(new URL("../src/core/sleep/", import.meta.url));
 const NO_FADE: FadeFn = () => ({ examined: 0, faded: [], blocked: {}, anchored: 0, skippedForLimit: 0 });
 /** A name tally that offers nothing — likewise, for the cycle's shape. */
 const NO_BIRTHS: BirthsFn = () => ({ memories: 0, offered: 0, born: [], refused: {}, skippedForLimit: 0 });
+/** The tags phase's work, nothing to do (wave 2 lane B, 2026-10-21). */
+const NO_TAGS: TagsFn = () => ({ on: true, cardOffered: 0, cardTagged: 0, skippedForLimit: 0, stemMerged: 0, mergesPruned: 0 });
 const ENV = "COUNTERPARTS_DATA_DIR";
 
 /** Store write events that move CONTENT. Meta/marker rows are bookkeeping. */
@@ -255,7 +258,7 @@ describe("phase order and completion markers", () => {
   test("every phase that ran advanced its marker to the cycle's day, and only forward", () => {
     const s = store();
     put(s);
-    const report = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 1 }), fade: NO_FADE, births: NO_BIRTHS });
+    const report = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 1 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS });
 
     for (const phase of PHASES) {
       const pr = phaseReport(report, phase);
@@ -1219,6 +1222,10 @@ describe("observer mode", () => {
         if (b.apply) throw new Error("an observer's births must be a dry run");
         return NO_BIRTHS(b);
       },
+      tags: (t) => {
+        if (t.apply) throw new Error("an observer's tags must be a dry run");
+        return NO_TAGS(t);
+      },
     });
 
     // An instrument that attempted and caught a refusal would be relying on the
@@ -1254,12 +1261,12 @@ describe("idempotence under replay", () => {
     put(s, { body: "twinned", physics: { birthDay: 0, lastUsedDay: 0 } });
     put(s, { body: "twinned", physics: { birthDay: 1, lastUsedDay: 0 } });
 
-    const first = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS });
+    const first = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS });
     expect(first.pruned.length).toBe(1);
     expect(first.merged.length).toBe(1);
 
     const before = snapshot(dir);
-    const second = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS });
+    const second = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS });
     const after = snapshot(dir);
 
     expect(diff(before, after)).toEqual([]);
@@ -1395,6 +1402,7 @@ describe("structural guarantees", () => {
       "prune",
       "fade",
       "births",
+      "tags",
       "dedup",
       "versions",
       "briefing",

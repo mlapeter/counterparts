@@ -216,9 +216,10 @@ export function recordedSeat(input: RecordedSeatInput): Seat<NightAnswer> & { re
     ids,
     async answer(ask: SeatAsk): Promise<NightAnswer> {
       const started = input.now();
-      if (ask.act === "catch-up") {
-        const was = tallies["catch-up"];
-        tallies["catch-up"] = { calls: (was?.calls ?? 0) + 1, refused: (was?.refused ?? 0) + 1, same: 0, skipped: 0, byPhase: {} };
+      // A write-up owed, and the night's tagging (2026-10-21, newer than any record), are not in it.
+      if (ask.act === "catch-up" || ask.act === "tags") {
+        const was = tallies[ask.act];
+        tallies[ask.act] = { calls: (was?.calls ?? 0) + 1, refused: (was?.refused ?? 0) + 1, same: 0, skipped: 0, byPhase: {} };
         return { refused: "not-recorded", started: false, code: null, timedOut: false, error: null, ms: 0 };
       }
       const child = ask.act === "dream" ? input.dream : input.reflection;

@@ -930,3 +930,38 @@ reflection was offered five a night.
   only, so `close` (the owner's yes) also reaches a thread written in another folder,
   as the self-close and `reopen` already did. The night run no longer launches with
   `COUNTERPARTS_OWNER=0`.
+
+## 2026-10-21 — the night's tagging ask (wave 2 lane B)
+
+- Its own child, not the reflection's finish (the brief said "likely the reflection, like
+  `core-ask.ts`"): labels, "same?" and "which kind?" are small-model work, and a child of its
+  own leaves `reflect.ts` to lane C. It is the dream tool's `tags` phase (the page writer's
+  `writer` phase is the precedent), two calls: the bundle, then the answers.
+- The dream's intake is unchanged with tags present: on a copy of the 10-20 corpus, the
+  dream's `fresh` set is the same 146 memories with the card-name backlog written and
+  without (and `test/tags-night.test.ts` holds it on a fixture).
+- Its size on the corpus copy: 40 memories, 2 pairs, 10 cards — 20,124 characters, about
+  5k tokens of bundle and prompt. With `claude -p`'s own system prompt and tool list and three
+  turns, about 60–80k input tokens a night (mostly cache reads) and 2–3k out, on the small
+  model (`NIGHT_TAGS_MODEL`). Not measured on a model: no model nights from this lane.
+- The backlog on the corpus: 813 memories with no tag after the card names (of 2,138 live):
+  about 20 nights at 40. Card kinds: 120 waiting, 12 nights at 10.
+
+## 2026-10-21 — review of #576: the tagging ask, bounded
+
+- Both ways at the door (`server-self-tools.ts`): a plain session asking for `tags` is refused
+  `night-run-only`; the tagging child asking for any other phase is refused `tags-child`. It
+  reads memory text it did not write, so it holds the one phase and nothing of the dream's
+  setting, launch or begin.
+- `askTags` records the ask under the run; `applyTagsAnswer` takes only what it lists, each
+  memory once, and re-checks at write time (live, not the journal's row, no tag of its own).
+  A pair never shown ("castle" / "taxes") and a card never asked about are refused by name.
+- "Untagged" counts only the hands that say what a memory is about (`OWN_TAG_VIAS`); a
+  card's name alone would otherwise mark ~1,300 corpus memories tagged with names only,
+  and no topic word would ever reach them.
+- Undo: a revision that carried a night tag on (`via: carried`) loses it too, and so do its
+  own revisions after it, followed by where the carried tag came from: the memory each
+  revision declared (`meta.updates`, `Store#revisionsOf`). Not `superseded_by`:
+  `remember … updates` with the default `changed` leaves it NULL on both rows (re-review
+  of #576; lane G met the same trap). A kind changed since the night is left as it is.
+- One ask record is kept (`tags.ask.<run>`): a new run's read removes the last run's.

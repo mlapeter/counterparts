@@ -1046,3 +1046,15 @@ compare and Mike's read. So `runConsolidate` refuses a belief row by its role
 (`types.ts#isBeliefRow`, counted `promotion:a-belief`) right after the page guard — by role,
 not kind, because the self subject's kind (`fact`) is A's choice for now and lane F may
 change it. The identity core is still not exempted, as before.
+
+## 2026-10-21 — the `tags` phase (wave 2 lane B)
+
+- After `births`, so a card born tonight lends its name as a tag tonight. The work is
+  `schemas/`' (`nightTagWork`); this module owns only the cadence (every lived day) and the
+  budget (`BUDGETS.tags`, 500 card-name tags a night, CAL). A missing fn is `no-tags-fn`;
+  `TAGS_NIGHT` off is a run that did nothing, counted `switched-off`, so the marker still
+  moves and turning it back on does not replay a backlog of days.
+- Measured on a copy of the 10-20 corpus (2,138 live memories, 3,164 links to named cards):
+  the backlog took seven nights at 500 (489, 425, 442, 410, 417, 429, 135 written; fewer
+  than 500 where two cards of one name link the same memory), 30–70 ms a night; a quiet
+  night 10 ms. Before the join order was pinned (`tag-reads.ts#cardLinks`) one read took 2 s.

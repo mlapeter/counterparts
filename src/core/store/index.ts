@@ -206,6 +206,8 @@ import * as memoryReads from "./reads-memories.js";
 import * as markReads from "./reads-marks.js";
 import * as historyReads from "./reads-history.js";
 import * as wave2 from "./wave2.js";
+import * as tagReads from "./tag-reads.js";
+import type { CardLink, TagUse, UnkindedCard, UntaggedMemory } from "./tag-reads.js";
 
 /** A belief gains no return of any kind (lane C, physics §5.13): the refusal, its fields unchanged. */
 function beliefReturnRefused(source: "dream" | "reflection"): ReturnOutcome {
@@ -328,6 +330,7 @@ export {
 } from "./rollback-hold.js";
 export type { RollbackHold } from "./rollback-hold.js";
 export { normalizeTag } from "./wave2.js";
+export type { CardLink, TagUse, UnkindedCard, UntaggedMemory } from "./tag-reads.js";
 export type { RecallTurnInput, SupportInput, SupportRead } from "./wave2.js";
 export type { ChapterSummaryKind } from "./operational.js";
 export {
@@ -531,6 +534,8 @@ export const WRITE_METHODS = [
   "clearNextChangeDays",
   // 2026-10-19 (the feedback loop): a derived note in box 3 (recall's habituation).
   "setCacheNote",
+  // 2026-10-21 (the card twins): a put whose precondition is asked under the write lock.
+  "putUnless",
   // v14 (2026-10-21, wave 2's one bump): pre-provisioned, no caller yet.
   "tagMemory",
   "untagMemory",
@@ -1226,6 +1231,26 @@ export class Store {
 
   put(input: PutInput): string {
     const doc = this.mutate("put", () => this.insertOne(input));
+    this.indexOne(doc);
+    this.emit("store.put", doc.id, { type: doc.type, kind: input.kind, hash: hashText(doc.body) });
+    return doc.id;
+  }
+
+  /**
+   * A PUT WHOSE PRECONDITION IS ASKED UNDER THE WRITE LOCK (2026-10-21, the card
+   * twins). `unless` runs INSIDE the write transaction — `BEGIN IMMEDIATE`, so a
+   * second process doing the same waits on the busy timeout and then reads what
+   * the first committed — and the row is inserted only if it returned false.
+   * True stages nothing and returns null.
+   *
+   * For a row two processes may mint at once from one stale view: an entity
+   * card, which `Schemas` judges against an index read at open
+   * (`Schemas#birth`). A check made before the transaction can still race; this
+   * one cannot. `unless` reads through this store and must not write.
+   */
+  putUnless(input: PutInput, unless: () => boolean): string | null {
+    const doc = this.mutate("putUnless", () => (unless() ? null : this.insertOne(input)));
+    if (doc === null) return null;
     this.indexOne(doc);
     this.emit("store.put", doc.id, { type: doc.type, kind: input.kind, hash: hashText(doc.body) });
     return doc.id;
@@ -4614,6 +4639,48 @@ export class Store {
   /** Every recorded merge, by alias. */
   tagMerges(): TagMergeRow[] {
     return wave2.tagMerges(this);
+  }
+
+  // ── the night's tag reads (lane B, 2026-10-21; `tag-reads.ts`) ──────────
+
+  /** Live memories' links to live named cards (not the core), with the card's name, newest memory first. */
+  cardLinks(): CardLink[] {
+    return tagReads.cardLinks(this);
+  }
+
+  /** Every tag on every live memory, with the memory's day, session, use and feeling (the topic bar's read). */
+  tagUses(): TagUse[] {
+    return tagReads.tagUses(this);
+  }
+
+  /** Whether any memory — live or not — carries the tag. */
+  tagInUse(tag: string): boolean {
+    return tagReads.tagInUse(this, tag);
+  }
+
+  /** Live memories with no tag of their own (a card name alone does not count), recent and strong first, and how many there are. */
+  untaggedMemories(limit: number): { memories: UntaggedMemory[]; total: number } {
+    return tagReads.untaggedMemories(this, limit);
+  }
+
+  /** Live named cards with no subject kind, most-linked first, with a few titles each, and how many there are. */
+  unkindedCards(limit: number, titles?: number): { cards: UnkindedCard[]; total: number } {
+    return tagReads.unkindedCards(this, limit, titles);
+  }
+
+  /** The topic cards, by the tag each was promoted from (archived ones too). */
+  topicCards(): Map<string, string> {
+    return tagReads.topicCards(this);
+  }
+
+  /** The memories that declared themselves a revision of `id` (`meta.updates`), whether or not they superseded it. */
+  revisionsOf(id: string): string[] {
+    return tagReads.revisionsOf(this, id);
+  }
+
+  /** The tags one hand (`via`) wrote at or after `sinceAt`, epoch ms. */
+  tagsWrittenVia(via: string, sinceAt: number): { memoryId: string; tag: string }[] {
+    return tagReads.tagsWrittenVia(this, via, sinceAt);
   }
 
   /** Sets (or, with null, clears) a card's kind of subject (`SUBJECT_KINDS`); an unknown word is refused. */
