@@ -14,7 +14,7 @@
  * Hermetic: a fresh temp dir per test, removed after it.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,6 +38,9 @@ const noon = (date: string): number => Date.parse(`${date}T12:00:00Z`);
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "counterparts-settled-"));
   dir = join(root, "store");
+  // The console reads the store's zone from the host configuration beside it. The stores here are
+  // written in UTC (`brain()`), so the console is told UTC too, whatever the machine's TZ.
+  writeFileSync(join(root, "claude-code.json"), JSON.stringify({ timeZone: "UTC" }));
 });
 
 afterEach(() => {
