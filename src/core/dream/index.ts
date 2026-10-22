@@ -641,7 +641,9 @@ export function nightRunOf(store: Pick<Store, "getMeta">): NightRun | null {
 function childRunOf(raw: unknown): NightChildRun[] {
   if (raw === null || typeof raw !== "object") return [];
   const v = raw as Partial<Record<keyof NightChildRun, unknown>>;
-  if (v.child !== "dream" && v.child !== "reflection") return [];
+  // `tags` too (2026-10-22): the tagging child (10-21) was dropped here, so a
+  // row read back from meta lost it though the run and the event kept it.
+  if (v.child !== "dream" && v.child !== "reflection" && v.child !== "tags") return [];
   return [
     {
       child: v.child,

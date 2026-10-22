@@ -626,6 +626,33 @@ describe("2026-10-22, lane L: the night's row names each child's own session id"
     expect(done?.["childSessions"]).toBeUndefined();
   });
 
+  test("the tagging child is kept on the row read back from meta, with its own session id", async () => {
+    (SCHEMAS_TUNABLES as { TAGS_NIGHT: boolean }).TAGS_NIGHT = true;
+    lived(openNight());
+    const seen: { child: string; id: string }[] = [];
+    const two = twoChildren(seen);
+    const tags: string[] = [];
+    const out = await runNight({
+      ...night(two),
+      start: async (plan: ChildPlan) => {
+        if (plan.stdin.includes("You are tidying the tags")) {
+          const at = plan.args.indexOf("--session-id");
+          tags.push(at < 0 ? "" : (plan.args[at + 1] ?? ""));
+          return { code: 0, timedOut: false, error: null };
+        }
+        return two(plan);
+      },
+    });
+    expect(out.state).toBe("done");
+    expect(tags).toHaveLength(1);
+    expect(tags[0]).toMatch(/^[0-9a-f-]{36}$/);
+    const ids = [...seen.map((s) => [s.child, s.id]), ["tags", tags[0]]];
+    expect(out.children?.map((c) => [c.child, c.hostSession])).toEqual(ids);
+    const c = openNight();
+    expect(nightRunOf(c.store)?.children?.map((x) => [x.child, x.code, x.hostSession])).toEqual(ids.map(([child, id]) => [child, 0, id]));
+    expect(doneRow(c)?.["childSessions"]).toBe(ids.map(([child, id]) => `${child}:${id}`).join(","));
+  });
+
   test("a child that never started records no session", async () => {
     const out = await runNight({ ...night(child(null)), start: async () => ({ code: null, timedOut: false, error: "Error", spawnCode: "ENOENT" }) });
     expect(out.state).toBe("could-not-start");

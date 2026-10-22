@@ -2662,6 +2662,7 @@ running both, found confusing. The npm install now leaves `npm-live.json` beside
   says which (`matchedBy`).
 - **`deliverTurn` and its envelope moved to `envelope.ts`**, unchanged, so `index.ts`
   exports them without loading the hook's entry script (INTERFACE-GAPS §19).
-- Seen, not fixed: `core/dream#childRunOf` reads back only `dream` and `reflection`
-  children, so a `tags` child (10-21) is dropped from a row read back from meta. The run's
-  own return and the event's `children` words keep it.
+- Fixed on the way: `core/dream#childRunOf` read back only `dream` and `reflection`
+  children, so a `tags` child (10-21) was dropped from a row read back from meta (the
+  run's own return and the event's `children` words kept it). It now keeps `tags`, with
+  its `hostSession`.
