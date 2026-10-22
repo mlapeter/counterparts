@@ -407,6 +407,40 @@ describe("the loop, guarded: a rating of the slot is a use, never support (MCP s
     expect(turn(c, "s-noise-4").decision.beliefs?.shown).toEqual([belief]);
   });
 
+  test("co-use links never land on a belief: rated 3 beside two memories rated 3, the memories link and the belief has no edge either way, so it reaches priming's link channel from nowhere", async () => {
+    const c = brain();
+    const { belief } = wrenWorld(c);
+    const out = turn(c, "s-couse");
+    expect(out.decision.beliefs?.shown).toEqual([belief]);
+    // Two memories this session was shown: this turn's, and the next turns' if it showed one.
+    const seen = [...out.decision.surfaced, ...out.decision.footnotes];
+    for (const text of ["The garage door opener and the smoke alarm batteries", "the library on Sundays and the kitchen tap"]) {
+      const more = turn(c, "s-couse", text).decision;
+      for (const id of [...more.surfaced, ...more.footnotes]) if (!seen.includes(id)) seen.push(id);
+    }
+    const [m1, m2] = seen as [string, string];
+    expect(m2).toBeDefined();
+    const got = await rate(c, "s-couse", [
+      { id: belief, score: 3 },
+      { id: m1, score: 3 },
+      { id: m2, score: 2 },
+    ]);
+    expect(got["rated"]).toBe(3);
+    const row = JSON.parse(c.store.eventLog({ name: "recall.rated", ref: "s-couse" })[0]?.payload ?? "{}") as { coUse: { ids: string[]; pairs: number } };
+    expect(row.coUse.ids.sort()).toEqual([m1, m2].sort());
+    expect(row.coUse.pairs).toBe(1);
+    c.applyPendingAssociations({ session: "s-couse" });
+    // The two memories are linked; the belief is in no edge, from it or to it.
+    expect(c.associate.weightAt(m1, m2)).toBeGreaterThan(0);
+    expect(c.store.edgesFrom(belief)).toEqual([]);
+    const all = c.store.list({});
+    for (const id of all) expect(c.store.edgesFrom(id).some((e) => e.dst === belief)).toBe(false);
+    // Priming's link channel: the belief is nobody's partner and has none of its own.
+    const partners = c.associate.partnersOf([m1, m2, belief]);
+    expect(partners.has(belief)).toBe(false);
+    for (const ps of partners.values()) expect(ps.some((p) => p.id === belief)).toBe(false);
+  });
+
   test("review of #588 (S1): the slot's door opens only for a belief this session's slot showed", () => {
     const c = brain();
     const { belief } = wrenWorld(c);
