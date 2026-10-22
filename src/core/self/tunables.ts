@@ -133,6 +133,29 @@ export interface SelfTunables {
    * at most 5 a night, so it does not count what this counts. CAL.
    */
   STILL_OPEN_STALE_DAYS: number;
+  /**
+   * AN UNTOUCHED, OWNERLESS OPEN ITEM STOPS BEING CARRIED (2026-10-22, the
+   * open-threads brief; Mike agreed the shape, the number is a starting
+   * point, check 2026-11-05). An `unresolved` memory with no `eventDate`, not
+   * `asked`, untouched — not born, used beyond a glimpse, or revised; a
+   * footnote left unrated, a dream's or a reflection's return is not a touch
+   * (`Store#openThreadTouches`) — for this
+   * many lived days or more is not carried: it leaves "Still open" and its
+   * count, and the reflection's `staleOpen`. It is NOT closed: the flag stays,
+   * the memory stays in the store (in no lane of the wake), recall shows it, and any touch carries it
+   * again (`identity.ts#openCarry`, the one place the rule lives). Revert:
+   * very large (`Infinity` carries everything, as before). CAL.
+   */
+  OPEN_CARRY_DAYS: number;
+  /**
+   * DOES A GLIMPSE CARRY AN OPEN THREAD (2026-10-22, the coordinator's call
+   * on the review of #592, lightly held, for Mike): false — an ambient
+   * footnote left unrated (the store's glimpse, a use since 10-19 that
+   * restarts the memory's fade) is NOT a touch for the carry, since "shown
+   * again and again, never answered" is the loop the carry breaks. True is
+   * the revert: every credited use carries it (`Store#openThreadTouches`).
+   */
+  OPEN_CARRY_GLIMPSE_TOUCH: boolean;
   /** Most warm-shelf hints considered. CAL. */
   HINTS_MAX: number;
   /** Most arriving occasions considered. CAL. */
@@ -387,6 +410,8 @@ export const SELF_TUNABLES: SelfTunables = {
   THREADS_MAX: 5,
   RECONSIDERING_MAX: 1,
   STILL_OPEN_STALE_DAYS: 14,
+  OPEN_CARRY_DAYS: 21,
+  OPEN_CARRY_GLIMPSE_TOUCH: false,
   HINTS_MAX: 8,
   HORIZON_MAX: 6,
   COMING_UP_TODAY_ONLY: true,

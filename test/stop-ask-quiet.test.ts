@@ -553,9 +553,10 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
   test("PINNED: the model's ask, word for word — it may not grow without this test changing", () => {
     // 01 C1's text, verbatim (2026-10-10, Group 1c): what caught your
     // attention, one idea each, not what is "worth keeping". The ratings
-    // clause since 2026-10-14 (Mike's call, tracking only).
+    // clause since 2026-10-14 (Mike's call, tracking only). What open means
+    // since 2026-10-22 (the open-threads brief: someone owes an answer).
     expect(stopAsk("SID", 3)).toBe(
-      "Counterparts, before this session closes: 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: SID. `handoff` only if work here is unfinished; `retireHandoff` any now done; `updates` anything dated or open now done; `rated` 0–3 each footnote shown since you last wrote, and each `drewOn` id. Until they say their pronouns, use their name or \"they\".\n" +
+      "Counterparts, before this session closes: 1) hand back what caught your attention since you last wrote, one idea each — what you read, what they said, what happened — with the counterparts session_end tool, session: SID. `handoff` only if work here is unfinished; `retireHandoff` any now done; `updates` anything dated or open now done; `unresolved` only when someone owes an answer (a question to them, a check with a date, a promise); `rated` 0–3 each footnote shown since you last wrote, and each `drewOn` id. Until they say their pronouns, use their name or \"they\".\n" +
         "2) Write chapter 3 with the counterparts chapter tool, session: SID.",
     );
   });
@@ -597,8 +598,9 @@ describe("the person reads one line, the model reads two (decision 1)", () => {
     // attention ask, with a real id; a four-digit chapter is measured below).
     // 535 since 2026-10-12: the pronoun rule (onboarding round 1, E; Mike).
     // 610 since 2026-10-14: the ratings clause (Mike's call, tracking only).
-    expect(text.length).toBeLessThanOrEqual(610);
-    expect(stopAsk(UUID, 1234).length).toBeLessThanOrEqual(610);
+    // 720 since 2026-10-22: what open means (`OPEN_MEANS`, the open-threads brief).
+    expect(text.length).toBeLessThanOrEqual(720);
+    expect(stopAsk(UUID, 1234).length).toBeLessThanOrEqual(720);
   });
 
   test("the chapter number is the store's, on every chapter including the first", () => {

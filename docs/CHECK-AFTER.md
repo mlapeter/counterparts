@@ -52,6 +52,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Core questions that waited a week: the reflection is offered up to 3 core memories waiting 7+ lived days on keep-or-retire (with their unsettled pair) and decides where it can, said in the share with the way back; the wake leads with one, both labels shown | not released, 10-20 | ~10-27 | "Due ~2026-10-27 (core questions)" below; `docs/decisions.d/feat-core-questions-waited-1020.md` |
 | Another project's work faces a slightly higher bar in ambient recall (`CROSS_PROJECT_BAR_LIFT` 1.25; the hard filter `RECALL_BY_PROJECT` built, off) | not released, 10-21 (Mike's "a slightly higher bar, and review after a week") | ~2026-10-29: footnote ratings home vs crossing, ~/counterparts ↔ ~/random apart; `crossProjectLifted` per turn | "Due ~2026-10-29 (a higher bar for another project's work)" below |
 | Beliefs shown (wave 2 lane E): the beliefs slot in ambient recall (`recall.BELIEFS_IN_RECALL`), tags as a priming partner source — **priming changed again** (`recall.TAGS_PRIME`), the wake's project line (`self.WAKE_PROJECT_LINE`); plus per-footnote priming flags (`primed.by`, `top`, `tag`) | not released, 10-22 (ships in the first release after the 10-22 read of 0.3.27) | ~2026-10-29, with the cross-project bar and the re-read of the four 0.3.27 experiments | "Due ~2026-10-29 (beliefs shown, and priming changed again)" below |
+| Open threads mean someone owes an answer: the narrower `unresolved` text and Stop ask, the Stop ask naming the session's own open items (`STOP_OPEN_MAX` 5), and an untouched ownerless open item no longer carried after `OPEN_CARRY_DAYS` (21) lived days — out of Still open, its count and `staleOpen`; the share says the count once | not released, 10-22 | first look ~2026-10-29; the real check 2026-11-05 | "Due ~2026-10-29 (open threads mean someone owes an answer)" below; `docs/decisions.d/feat-open-threads-carry-1022.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -429,6 +430,48 @@ join ~/random to the Counterparts project (`counterparts project join ~/random ~
 lift there.
 
 **Revert.** `recall.CROSS_PROJECT_BAR_LIFT` to 1.
+
+## Due ~2026-10-29 (open threads mean someone owes an answer, 2026-10-22, shape agreed by Mike, an experiment — docs/decisions.d/feat-open-threads-carry-1022.md; the real check 2026-11-05)
+
+**What we're trying.** Three changes upstream of the reflection, which already saw every stale item twice a week and
+closed almost nothing (10-17..10-22: 5 shown a night, 1 closed in six nights; the stale list ~20 deep):
+
+- **Write time.** `unresolved`'s description on `remember` and `session_end`, and the Stop ask, say open means
+  someone owes an answer — a question to the owner, a check with a date, a promise; a bug note, a design note or a
+  fact gets no flag.
+- **Close time.** The Stop ask's last line names THIS session's own open items (wrote, or used with a return), title
+  and id, at most `STOP_OPEN_MAX` (5); none, no line.
+- **Carry.** An open item with no eventDate, not `asked`, untouched (born, used beyond a glimpse, revised — not a
+  footnote left unrated, not a dream's or a reflection's return, not being listed) for `self.OPEN_CARRY_DAYS` (21)
+  lived days is no longer carried: out of the wake's Still open and its count (both wakes), and the reflection's
+  `staleOpen`. Not closed. "Used" is `meta.usedDay`, written at every credited use but the glimpse. The
+  reflection's bundle says `noLongerCarried` (what no share already holds) and the share says it once. A glimpse
+  not being a touch is the coordinator's call (10-22, lightly held, for Mike); it still restarts the memory's fade
+  (Mike's 10-19 ruling); `self.OPEN_CARRY_GLIMPSE_TOUCH` true reverts that rule alone.
+  `STALE_OPEN` stays 5.
+
+**Baseline** (live store, read-only, 10-22, lived day 31): 88 open in the wake (10 untouched 2+ weeks), 129
+`unresolved` memories in the store; the reflection's closed/proposed per night above. Two items born on lived days 11
+and 12, untouched since, should stop being carried on lived days 32 and 33.
+
+**What to look at.** The wake's Still open count (its "N more still open" line) against 88, and the store's open
+count against 129; new open items per day (`memories` with `"unresolved":true` by `birth_day`) before and after the
+narrower text; closures per `session_end` (`counterpart.thread.closed` ring events) and whether sessions close the
+items the Stop ask named; items no longer carried per night (`reflections.detail.notCarried`, length and the
+difference night to night) and whether the share said the count once; the reflection's closed/proposed per night
+(`detail.selfClosed`, `detail.closeProposed`) — should stay or rise, since what it sees is now real threads. Spot-read
+a few no-longer-carried items: is any one a real debt someone still waits on — and was it one the conversation kept
+surfacing as footnotes (`returns` rows `shown`), the case the glimpse rule deliberately lets go? Whether the Stop
+ask's list ever names another folder's item (it should not: only what the session wrote or used).
+
+**What would change it.** A real debt dropped → lengthen `OPEN_CARRY_DAYS` (28? 35?), or carry `said_by: owner` too;
+one dropped while the conversation kept glimpsing it → count glimpses as touches again (Mike's call:
+`self.OPEN_CARRY_GLIMPSE_TOUCH` true). Still open
+still near 88 after two weeks → look at what keeps them touched or narrow the write-time text further. Sessions never close the named items → change the line's wording, or drop it (`STOP_OPEN_MAX` 0).
+
+**Revert.** `self.OPEN_CARRY_DAYS` very large (`Infinity`: carries everything, as before); the `unresolved`
+description and the Stop ask's `OPEN_MEANS` clause back to the 10-21 text; `STOP_OPEN_MAX` 0 (the ask as before, two
+lines); the glimpse rule alone: `self.OPEN_CARRY_GLIMPSE_TOUCH` true.
 
 ## Due at the first live catch-up (the nightly run's or `counterparts catch-up`)
 

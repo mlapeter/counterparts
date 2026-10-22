@@ -2643,3 +2643,49 @@ to false), and the host then carries those fields in a tag of its own — about 
 outside the ceiling, which can make an `adapter.injection.overbudget` row. The 10-29 read looks at
 how often `tagged` is false in project folders against other folders, and whether overbudget rows
 appear there; if they do, the line goes after the head's fields (it would then yield to them too).
+
+## 2026-10-22 — open threads mean someone owes an answer (the open-threads brief; lightly held)
+
+The wake carried 88 "still open" items on 10-22, the store held 129, and almost nothing closed:
+sessions flagged whatever felt unfinished, and nobody writes "done" as a memory. Three changes,
+check 2026-11-05 (first look 10-29):
+
+- `unresolved`'s description and the Stop ask say open means someone owes an answer — a question
+  to the owner, a check with a date, a promise (`mcp/tools.ts#UNRESOLVED_PROPERTY`,
+  `claude-code/hooks.ts#OPEN_MEANS`).
+- The Stop ask's last line names this session's own open items, title and id, at most
+  `STOP_OPEN_MAX` (5) (`Store#openThreadsOfSession`: the ones it wrote, or used here with an
+  `awake` or `engaged` return — a rating of 2–3, a quote, `drewOn`; never one it was only shown, or
+  rated 0–1, so another folder's open item glimpsed here is not offered as this session's), less
+  what is not a thread (`openThread`: dreamed, settled over, the flag not on the prose). The line
+  is held to `OPEN_LINE_MAX_CHARS` (520), so the whole ask stays under ~1,250 characters.
+- `openCarry` (`identity.ts`) is the one rule the wake (built and assembled) and the reflection's
+  `staleOpen` read: an open item with no eventDate, not `asked`, untouched for `OPEN_CARRY_DAYS`
+  (21) lived days is not carried — in no lane of the wake, not offered to the reflection. Not
+  closed; a touch carries it again. What a thread is at all is one test, `openThread` (not dreamed,
+  not settled over — `headOf` — not a core memory, the flag confirmed on the prose), shared by the
+  carry, its count and the Stop ask (the review of #592). TOUCHED (`Store#openThreadTouches`) is
+  born, used beyond a glimpse, or revised (`versions.version_day`: an `updates` that keeps it open,
+  a reopen). USED is `meta.usedDay`: `Store#reinforce` writes the lived day of every credited use
+  but the glimpse (a rating of 1–3, `drewOn`, a quote, a claim, an expansion) into an open
+  memory's meta. The returns table alone could not say it (the re-review, G1): a real use on the
+  day a reflection's cite already counted a return is refused one of its own, and a glimpse the
+  next day hid it. For history before `usedDay`, the returns-based read stands beside it:
+  `last_used_day`, read back to the newest `awake` / `engaged` / `ontopic` return when that day's
+  credit was a glimpse (a `shown` row that day). So a rating of 1–3, a quote, `drewOn`, a claim
+  carry it; a glimpse, a rating of 0 and a recall answer only shown do not. The coordinator's call
+  (10-22, lightly held, for Mike): the loop the carry breaks is "shown again and again, never
+  answered", and a glimpse is exactly that. The glimpse still restarts the memory's FADE (Mike's
+  10-19 ruling) — only the carry ignores it; `OPEN_CARRY_GLIMPSE_TOUCH` true reverts it. Not a dream's replay or a reflection's return — a share that asks
+  about a stale thread cites it, and that would carry it forever — and not being listed: the wake's
+  "Still open" and the reflection's bundle write none of these. The lane's own ageing (the
+  weeks-old count) and `staleOpen`'s "untouched" still read born-or-used, so a reopened thread is
+  offered the next night as before.
+- The reflection's bundle carries `noLongerCarried`, a count of what stopped being carried that no
+  share already holds — the `detail.notCarried` of every row with a share (offered, carried, told),
+  back to and including the last one that reached a session — and the share says it once ("…
+  nobody touched in 21 lived days …"), never the list. An offered share will still be carried, so
+  it keeps its count; a night with no share spends nothing. Each leaving lands in one share.
+
+Revert: `OPEN_CARRY_DAYS` `Infinity`; the description and `OPEN_MEANS` back; `STOP_OPEN_MAX` 0;
+the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.

@@ -87,6 +87,7 @@ import { ownerNames } from "../sleep/index.js";
 import { CLAIM_PREFIX_MIN_CHARS, PAGE_CORE_HEADING, claimKey, pageClaims, pageSections, traceFor } from "../self/page.js";
 import { coreFromBeliefs } from "../self/measures.js";
 import { SELF_TUNABLES } from "../self/tunables.js";
+import { openCarry } from "../self/identity.js";
 import { PAGE_WRITING_RULE } from "../self/writer.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { feelingWeeks } from "./feeling-weeks.js";
@@ -378,6 +379,14 @@ export interface ReflectBundle {
    * only be asked about. Empty when none.
    */
   readonly staleOpen: readonly { readonly id: string; readonly text: string; readonly untouched: number; readonly reopened?: true }[];
+  /**
+   * NO LONGER CARRIED (2026-10-22, the open-threads brief): how many open
+   * threads stopped being carried since the last reflection whose share reached a session —
+   * untouched for `SELF_TUNABLES.OPEN_CARRY_DAYS`, so out of "Still open"
+   * and `staleOpen` (`self/identity.ts#openCarry`). A count, never the list:
+   * the share says it once. Absent when none.
+   */
+  readonly noLongerCarried?: number;
   /**
    * BELIEFS (wave 2 lane C, 2026-10-21): what I hold about the subjects in
    * play tonight — me (and us) first, then the cards tonight's memories name
@@ -803,7 +812,7 @@ export class Reflections {
     const s = composed.shownAs;
     const fitRecord = { whole: s.whole, excerpt: s.excerpt, lined: s.line, ids: s.ids, notShown: s.notShown, offered: offeredInPart(fitted), parts: packed.later.length + 1 };
     this.store.updateReflection(id, {
-      detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, ...beliefsDetail(composed.beliefs ?? null), ...(composed.spine === undefined ? {} : { spine: composed.spine.map((b) => b.id) }), ...(composed.unmarked.length > 0 ? { unmarked: composed.unmarked } : {}), ...(composed.staleOpen.length > 0 ? { staleOpen: composed.staleOpen.map((x) => x.id) } : {}), ...(composed.reconsidering.length > 0 ? { coreOffered: composed.reconsidering.map((x) => x.id) } : {}) },
+      detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, ...beliefsDetail(composed.beliefs ?? null), ...(composed.spine === undefined ? {} : { spine: composed.spine.map((b) => b.id) }), ...(composed.unmarked.length > 0 ? { unmarked: composed.unmarked } : {}), ...(composed.staleOpen.length > 0 ? { staleOpen: composed.staleOpen.map((x) => x.id) } : {}), ...(fitted.notCarried.length > 0 ? { notCarried: fitted.notCarried } : {}), ...(composed.reconsidering.length > 0 ? { coreOffered: composed.reconsidering.map((x) => x.id) } : {}) },
     });
     writeIndex(this.store, "reflection", { ref: id, at: this.store.now(), offered: fitted.offered, looked: [], lineCap: fitted.lineCap });
     this.record("reflection.begun", id, { dream: dreamId, shown: shown.length, ...fitRecord });
@@ -1049,6 +1058,12 @@ export class Reflections {
             `- closeNow and close (optional, ids from staleOpen only): staleOpen lists ${String(bundle.staleOpen.length)} open ${bundle.staleOpen.length === 1 ? "thread" : "threads"} nobody has touched for a while (untouched: lived days). Most are open only because nobody closed them. Read one whole with recall first if its line is not enough.`,
             `  closeNow: the ones a memory you have read plainly shows finished — each {id, why: what shows it done, in a line, shows: the id of the memory that shows it}. They close tonight; your share says which, and ${who} can have one reopened.`,
             `  close: the ones that look done but you are not sure of — ids only. Nothing closes: your share asks ${who}, and a yes closes them. When in doubt, ask rather than close; never close one just because it is old, and leave out one you have no view on.${bundle.staleOpen.some((x) => x.reopened === true) ? ` One marked reopened was reopened by ${who} after a reflection closed it: ask, never close.` : ""}`,
+          ]
+        : []),
+      // NO LONGER CARRIED (2026-10-22, the open-threads brief): the count, once, never the list.
+      ...(bundle.noLongerCarried !== undefined && bundle.noLongerCarried > 0
+        ? [
+            `- noLongerCarried: ${String(bundle.noLongerCarried)}. Your share says it once, as a count and never a list: "${String(bundle.noLongerCarried)} open ${bundle.noLongerCarried === 1 ? "item nobody touched in" : "items nobody touched in"} ${String(SELF_TUNABLES.OPEN_CARRY_DAYS)} lived days ${bundle.noLongerCarried === 1 ? "is" : "are"} no longer carried; recall shows them." They are not closed: a touch carries one again.`,
           ]
         : []),
       ...(bundle.feelingWeeks !== null
@@ -1900,6 +1915,9 @@ export class Reflections {
     // The stale open list it was shown, and what it proposed closing (2026-10-16).
     const offeredStaleList = parseDetail(row.detail)["staleOpen"];
     if (Array.isArray(offeredStaleList)) detail["staleOpen"] = offeredStaleList;
+    // The open threads not carried that night (2026-10-22): the next night counts only what is new.
+    const notCarriedList = parseDetail(row.detail)["notCarried"];
+    if (Array.isArray(notCarriedList)) detail["notCarried"] = notCarriedList;
     // The share that stands is the one that asks: when another session took it
     // mid-finish, the earlier proposals stand with it (review, 2026-10-16).
     const keptProposed = shareStands ? proposed : priorProposed;
@@ -2935,6 +2953,7 @@ export class Reflections {
     // `STALE_OPEN_DAYS` lived days, the longest untouched first, rotated like
     // the unmarked offer — a line each, offered to be proposed closed.
     const staleOpen = this.staleOpen(id, day, see);
+    const uncarried = this.noLongerCarried(id, day);
     // THE OFFER'S OWN ROOM (2026-10-11, the about-marks review): exactly what
     // the offered ids cost as lines, held back from the shared room — so a
     // full night, whose ids alone fill the room before priority 2 is reached,
@@ -3060,6 +3079,7 @@ export class Reflections {
       feelingWeeks: weeks === null ? null : { ...weeks, restsOn: weeksRest.filter(kept) },
       unmarked: unmarkedIds.filter(kept),
       staleOpen,
+      ...(uncarried.fresh > 0 ? { noLongerCarried: uncarried.fresh } : {}),
       // Off, the bundle is as it was before beliefs: no key at all.
       ...(beliefs === null ? {} : { beliefs }),
       memories,
@@ -3075,7 +3095,7 @@ export class Reflections {
       limits: beliefs === null ? limitsWithoutBeliefs(T.LIMITS) : { ...T.LIMITS },
     };
     noteMindShown(this.store, bundle.onMind, day);
-    return { bundle, offered, lineCap: chaptersFit.summaryBytes };
+    return { bundle, offered, lineCap: chaptersFit.summaryBytes, notCarried: uncarried.all };
   }
 
   /**
@@ -3264,6 +3284,37 @@ export class Reflections {
 
   /** A memory's short handle for a sentence: its title, else its first line. */
   /**
+   * THE OPEN THREADS NO LONGER CARRIED (2026-10-22, the open-threads brief):
+   * every open thread `openCarry` leaves out tonight (`all`, recorded on the
+   * row as `notCarried`), and how many of them no share already holds
+   * (`fresh`). What a share holds: the `notCarried` of every row with a share
+   * — offered, carried or told — from the newest back to and including the
+   * last one that REACHED A SESSION (`told`, or `carried` into a waking
+   * session with the ask to tell it). An offered share not yet carried still
+   * will be (`pendingShare` finds the older ones too), so its count is its
+   * own and the next share does not say it again; a night with no share
+   * (quiet, never finished) holds nothing, so the next share says it. Each
+   * leaving lands in exactly one share (the review of #592, F5 and G2). A
+   * first night after this shipped counts them all.
+   */
+  private noLongerCarried(id: string, day: number): { all: string[]; fresh: number } {
+    const all = [...openCarry(this.store, day, SELF_TUNABLES.OPEN_CARRY_DAYS, SELF_TUNABLES.OPEN_CARRY_GLIMPSE_TOUCH).notCarried.keys()].sort();
+    if (all.length === 0) return { all, fresh: 0 };
+    const before = new Set<string>();
+    try {
+      for (const r of this.store.reflections({ limit: 60 })) {
+        if (r.id === id || r.share === null) continue;
+        if (r.share_state !== "offered" && r.share_state !== "carried" && r.share_state !== "told") continue;
+        for (const x of stringIds(parseDetail(r.detail)["notCarried"])) before.add(x);
+        if (r.share_state === "carried" || r.share_state === "told") break;
+      }
+    } catch {
+      /* unreadable: count them all, once more */
+    }
+    return { all, fresh: all.filter((x) => !before.has(x)).length };
+  }
+
+  /**
    * THE STALE OPEN THREADS (2026-10-16, #489 D): live memories still flagged
    * `unresolved` (confirmed on the prose, as the wake does), showable here,
    * neither born nor used for `STALE_OPEN_DAYS` lived days. The longest
@@ -3277,25 +3328,22 @@ export class Reflections {
   ): { id: string; text: string; untouched: number; reopened?: true }[] {
     const T = REFLECT_TUNABLES;
     const found: { id: string; text: string; untouched: number; reopened?: true }[] = [];
-    let ids: string[] = [];
-    try {
-      ids = this.store.openThreadIds();
-    } catch {
-      return [];
-    }
-    for (const mid of ids) {
+    // Only the open threads still carried (2026-10-22, `self/identity.ts#openCarry`,
+    // the wake's own rule and its one test of what a thread is — not dreamed,
+    // not settled over, the flag confirmed on the prose): one nobody touched
+    // in `OPEN_CARRY_DAYS` is not offered. Being offered here is not a touch.
+    // The offer's own ageing is as before (born or used), so a reopened thread
+    // is offered the next night.
+    const carry = openCarry(this.store, day, SELF_TUNABLES.OPEN_CARRY_DAYS, SELF_TUNABLES.OPEN_CARRY_GLIMPSE_TOUCH);
+    for (const mid of carry.carried) {
       const v = see(mid);
-      if (v === null || v.row.source === "dreamed") continue;
-      // Settled over by a later memory: that one carries it now.
-      if (headOf(this.store, mid) !== null) continue;
+      if (v === null) continue;
       const untouched = day - Math.max(v.row.birth_day, v.row.last_used_day);
       if (untouched < T.STALE_OPEN_DAYS) continue;
       let reopened = false;
       try {
-        const meta = this.store.readProse(mid).meta;
-        if (meta[UNRESOLVED_META_KEY] !== true) continue;
         // Reopened by the owner after a reflection closed it (2026-10-20): it may only be asked about.
-        reopened = typeof meta[THREAD_REOPENED_BY_META_KEY] === "string";
+        reopened = typeof this.store.readProse(mid).meta[THREAD_REOPENED_BY_META_KEY] === "string";
       } catch {
         continue;
       }
@@ -3807,6 +3855,8 @@ interface Composed {
   readonly offered: { whole: string[]; excerpt: string[]; line: string[]; id: string[] };
   /** The longest a chapter's summary was as a line (2026-10-15), so `part` renders what the fit measured. */
   readonly lineCap: number;
+  /** Every open thread not carried tonight (`noLongerCarried`), recorded on the row; never in the bundle. */
+  readonly notCarried: readonly string[];
 }
 
 /** The bundle's other furniture, reserved from the room: ids, lists, the questions, the limits. */
