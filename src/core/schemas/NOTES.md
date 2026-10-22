@@ -886,3 +886,15 @@ birth day.
   finishes it: the archive first, then its record. A twin archived without its record (a kill
   between the two) is recorded on the next run. `unarchiveTwin` marks the record `undone` on its
   no-op path too. Doctor's v14 line reads the plan's `archived` and `linked` counts.
+
+**Delta review of #593.**
+- *The finish path asks again.* A pair finished a night later could have drifted: its keeper had
+  faded, which would leave the name with no live card, or a memory was linked only to the twin,
+  which the archive would orphan. Before each archive, the first pass's checks run again
+  (`twinBlocker`). The keeper must be live, then protection, kinds, aliases, beliefs, folders, and
+  one set of linked memories. A pair that fails is dropped from the plan: its entry is marked
+  `dropped`, so no later night retries it, and it is counted in the record's `skipped`.
+- *Memories, not links.* The record keeps `linked` (links) and `linkedMemories` (distinct live
+  memories that gained one). Doctor prints both: on the corpus copy, 287 links on 208 memories.
+- *A kill before the look-back.* A plan record with no `linked` field means the look-back never
+  finished, so the next night runs it for every keeper of a merged twin.

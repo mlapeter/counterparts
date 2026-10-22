@@ -2032,11 +2032,6 @@ export class Schemas {
     const skip = (why: string): void => {
       skipped[why] = (skipped[why] ?? 0) + 1;
     };
-    const same = (a: readonly string[], b: readonly string[]): boolean => {
-      const x = [...new Set(a)].sort();
-      const y = [...new Set(b)].sort();
-      return x.length === y.length && x.every((v, i) => v === y[i]);
-    };
     let found = 0;
     for (const cards of groups.values()) {
       if (cards.length < 2) continue;
@@ -2049,12 +2044,8 @@ export class Schemas {
         (typeof cards)[number],
         (typeof cards)[number],
       ];
-      if (keep.row.protected === 1 || gone.row.protected === 1 || keep.row.kind === "self" || gone.row.kind === "self") skip("protected");
-      else if (keep.row.kind !== gone.row.kind || (keep.row.subject_kind ?? null) !== (gone.row.subject_kind ?? null)) skip("kinds-differ");
-      else if (!same(keep.rec.aliases ?? [], gone.rec.aliases ?? [])) skip("aliases-differ");
-      else if (this.liveElementIds(keep.id).length > 0 || this.liveElementIds(gone.id).length > 0) skip("has-beliefs");
-      else if (this.store.foldersOfProject(keep.id).length > 0 || this.store.foldersOfProject(gone.id).length > 0) skip("has-folders");
-      else if (!same(this.store.memoriesNaming(keep.id, { archived: true }), this.store.memoriesNaming(gone.id, { archived: true }))) skip("links-differ");
+      const blocked = this.twinBlocker(keep.id, gone.id);
+      if (blocked !== null) skip(blocked);
       else merged.push({ keep: keep.id, gone: gone.id, name: keep.rec.name ?? "" });
     }
     if (dryRun) return this.finishTwins(merged, day, true, { groups: found, skipped });
@@ -2073,10 +2064,39 @@ export class Schemas {
     try {
       const rec = JSON.parse(raw) as { merged?: unknown };
       const list = Array.isArray(rec.merged) ? (rec.merged as Record<string, unknown>[]) : [];
-      return list.flatMap((m) => (typeof m["keep"] === "string" && typeof m["gone"] === "string" ? [{ keep: m["keep"], gone: m["gone"], name: typeof m["name"] === "string" ? m["name"] : "" }] : []));
+      return list.flatMap((m) =>
+        typeof m["keep"] === "string" && typeof m["gone"] === "string" && m["dropped"] === undefined ? [{ keep: m["keep"], gone: m["gone"], name: typeof m["name"] === "string" ? m["name"] : "" }] : [],
+      );
     } catch {
       return [];
     }
+  }
+
+  /**
+   * WHY TWO SAME-NAME CARDS MAY NOT BE MERGED, or null when they may — asked
+   * by the first pass and again before every archive (delta review of #593:
+   * a pair finished a night later may have drifted apart, or its keeper
+   * faded). The keeper must be live; then, in order: protection or the
+   * identity core, kinds, aliases, a belief or current state, a folder, and
+   * the memories each is linked to (archived ones too), which must be one set.
+   */
+  private twinBlocker(keepId: string, goneId: string): string | null {
+    const keep = this.store.row(keepId);
+    const gone = this.store.row(goneId);
+    if (keep === undefined || keep.archived === 1 || keep.body === "" || rowTombstoned(keep)) return "keeper-gone";
+    if (gone === undefined || rowTombstoned(gone)) return "twin-gone";
+    const same = (a: readonly string[], b: readonly string[]): boolean => {
+      const x = [...new Set(a)].sort();
+      const y = [...new Set(b)].sort();
+      return x.length === y.length && x.every((v, i) => v === y[i]);
+    };
+    if (keep.protected === 1 || gone.protected === 1 || keep.kind === "self" || gone.kind === "self") return "protected";
+    if (keep.kind !== gone.kind || (keep.subject_kind ?? null) !== (gone.subject_kind ?? null)) return "kinds-differ";
+    if (!same(this.meta.get(keepId)?.aliases ?? [], this.meta.get(goneId)?.aliases ?? [])) return "aliases-differ";
+    if (this.liveElementIds(keepId).length > 0 || this.liveElementIds(goneId).length > 0) return "has-beliefs";
+    if (this.store.foldersOfProject(keepId).length > 0 || this.store.foldersOfProject(goneId).length > 0) return "has-folders";
+    if (!same(this.store.memoriesNaming(keepId, { archived: true }), this.store.memoriesNaming(goneId, { archived: true }))) return "links-differ";
+    return null;
   }
 
   /**
@@ -2093,11 +2113,38 @@ export class Schemas {
         return false;
       }
     };
-    const todo = plan.filter((m) => this.store.row(m.gone)?.archived === 0 && !undone(m.gone));
+    const merged = (m: TwinMerge): boolean => this.store.row(m.gone)?.archived_reason === TUNABLES.TWIN_REASON && !undone(m.gone);
+    let todo = plan.filter((m) => this.store.row(m.gone)?.archived === 0 && !undone(m.gone));
     // A twin archived by a pass a kill cut short before its record: recorded now.
     const unrecorded = plan.filter((m) => this.store.row(m.gone)?.archived_reason === TUNABLES.TWIN_REASON && this.store.getMeta(`${TWIN_PREFIX}${m.gone}`) === undefined);
-    if (todo.length === 0 && unrecorded.length === 0 && found.groups === 0) return { ran: false, dryRun, groups: 0, merged: [], skipped: {}, linked: 0 };
-    if (dryRun) return { ran: true, dryRun, groups: found.groups, merged: todo, skipped: found.skipped, linked: 0 };
+    // A pass a kill cut short before its look-back (delta review of #593): the
+    // record has no `linked` yet, so every keeper of a merged twin looks back.
+    const lookedBack = (() => {
+      try {
+        return (JSON.parse(this.store.getMeta(TWINS_MERGED_KEY) ?? "{}") as Record<string, unknown>)["linked"] !== undefined;
+      } catch {
+        return true;
+      }
+    })();
+    const owed = !lookedBack && this.store.getMeta(TWINS_MERGED_KEY) !== undefined ? plan.filter(merged) : [];
+    if (todo.length === 0 && unrecorded.length === 0 && owed.length === 0 && found.groups === 0) return { ran: false, dryRun, groups: 0, merged: [], skipped: {}, linked: 0 };
+    // ASKED AGAIN BEFORE EVERY ARCHIVE (delta review of #593): the keeper must
+    // still be live and the pair still one card's worth — a pair finished a
+    // night later may have drifted. One that fails is dropped from the plan,
+    // marked on its entry so no later night retries it, and counted.
+    const dropped = new Map<string, string>();
+    if (todo.length > 0) {
+      this.adopt();
+      this.catchUp();
+      for (const m of todo) {
+        const why = this.twinBlocker(m.keep, m.gone);
+        if (why !== null) dropped.set(m.gone, why);
+      }
+      todo = todo.filter((m) => !dropped.has(m.gone));
+    }
+    const skipped: Record<string, number> = { ...found.skipped };
+    for (const why of dropped.values()) skipped[why] = (skipped[why] ?? 0) + 1;
+    if (dryRun) return { ran: true, dryRun, groups: found.groups, merged: todo, skipped, linked: 0 };
     const at = this.store.now();
     const record = (m: TwinMerge): void => this.store.setMeta(`${TWIN_PREFIX}${m.gone}`, JSON.stringify({ keep: m.keep, day, at }));
     for (const m of unrecorded) record(m);
@@ -2113,22 +2160,34 @@ export class Schemas {
         /* removed since, or the write failed: still planned, the next night finishes it */
       }
     }
-    const keepers = [...new Set([...done, ...unrecorded].map((m) => m.keep))];
-    const linked = this.linkNamingMemoriesOf(keepers);
+    const keepers = [...new Set([...done, ...unrecorded, ...owed].map((m) => m.keep))];
+    const look = this.linkNamingMemoriesOf(keepers);
     // What it came to, on the plan's own record (doctor's v14 line reads it):
-    // how many of the planned twins stand archived, and the links gained.
+    // how many of the planned twins stand archived, the links gained and the
+    // distinct live memories they are on, and the pairs dropped since.
     try {
-      const archivedNow = plan.filter((m) => this.store.row(m.gone)?.archived_reason === TUNABLES.TWIN_REASON).length;
+      const archivedNow = plan.filter(merged).length;
       this.store.updateMeta(TWINS_MERGED_KEY, (cur) => {
         if (cur === undefined) return undefined;
         const rec = JSON.parse(cur) as Record<string, unknown>;
-        return JSON.stringify({ ...rec, archived: archivedNow, linked: (typeof rec["linked"] === "number" ? rec["linked"] : 0) + linked });
+        const num = (k: string): number => (typeof rec[k] === "number" ? (rec[k] as number) : 0);
+        const was = (rec["skipped"] ?? {}) as Record<string, number>;
+        for (const why of dropped.values()) was[why] = (was[why] ?? 0) + 1;
+        const list = Array.isArray(rec["merged"]) ? (rec["merged"] as Record<string, unknown>[]) : [];
+        return JSON.stringify({
+          ...rec,
+          merged: list.map((m) => (typeof m["gone"] === "string" && dropped.has(m["gone"]) ? { ...m, dropped: dropped.get(m["gone"]) } : m)),
+          skipped: was,
+          archived: archivedNow,
+          linked: num("linked") + look.links,
+          linkedMemories: num("linkedMemories") + look.memories,
+        });
       });
     } catch {
       /* the counts are a courtesy; the twins' own records stand */
     }
-    this.emit("schema.twins.sweep", undefined, { day, groups: found.groups, merged: done.length, linked, skipped: Object.values(found.skipped).reduce((n, v) => n + v, 0) });
-    return { ran: true, dryRun, groups: found.groups, merged: done, skipped: found.skipped, linked };
+    this.emit("schema.twins.sweep", undefined, { day, groups: found.groups, merged: done.length, linked: look.links, dropped: dropped.size });
+    return { ran: true, dryRun, groups: found.groups, merged: done, skipped, linked: look.links };
   }
 
   /**
@@ -2593,7 +2652,7 @@ export class Schemas {
    * and aliases, only those it alone holds live — and the same fail-open
    * (a card that fails links nothing, said). Returns the links added in all.
    */
-  private linkNamingMemoriesOf(cardIds: readonly string[]): number {
+  private linkNamingMemoriesOf(cardIds: readonly string[]): { links: number; memories: number } {
     // Each term with its lower-cased words: the whole-name regex is slow
     // (~0.6 ms a test on the owner's corpus), so it runs only on a text that
     // holds the term's letters at all — a cheap superset check.
@@ -2610,31 +2669,35 @@ export class Schemas {
         .map((t) => ({ re: nameRegex(t), lower: t.trim().toLowerCase() }));
       if (kept.length > 0) cards.push({ id: cardId, terms: kept });
     }
-    if (cards.length === 0) return 0;
+    if (cards.length === 0) return { links: 0, memories: 0 };
     const links = new Map<string, { memoryId: string; subjectId: string }[]>();
     try {
       for (const m of this.store.memoryTexts()) {
         const text = m.title === null || m.title.length === 0 ? m.body : `${m.title}\n${m.body}`;
         const lower = text.toLowerCase();
         for (const c of cards) {
-          if (c.terms.some((t) => lower.includes(t.lower) && t.re.test(text))) links.set(c.id, [...(links.get(c.id) ?? []), { memoryId: m.id, subjectId: c.id }]);
+          if (c.terms.some((t) => lower.includes(t.lower) && t.re.test(text)) && !this.store.subjectsOf(m.id).includes(c.id)) {
+            links.set(c.id, [...(links.get(c.id) ?? []), { memoryId: m.id, subjectId: c.id }]);
+          }
         }
       }
     } catch (err) {
       this.emit("schema.subjects.failed", undefined, { via: "birth", reason: String((err as { code?: string }).code ?? "UNKNOWN") });
-      return 0;
+      return { links: 0, memories: 0 };
     }
     let total = 0;
+    const onLive = new Set<string>();
     for (const [cardId, list] of links) {
       try {
         const added = this.store.linkSubjects(list, "birth");
         if (added > 0) this.emit("schema.subjects.linked", cardId, { via: "birth", links: added });
         total += added;
+        for (const l of list) if (this.store.row(l.memoryId)?.archived === 0) onLive.add(l.memoryId);
       } catch (err) {
         this.emit("schema.subjects.failed", cardId, { via: "birth", reason: String((err as { code?: string }).code ?? "UNKNOWN") });
       }
     }
-    return total;
+    return { links: total, memories: onLive.size };
   }
 
   private linkNamingMemories(cardId: string): number | null {

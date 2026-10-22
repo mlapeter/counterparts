@@ -185,7 +185,7 @@ describe("review of #593", () => {
     expect(c.store.subjectLinksOf(between)[0]?.via).toBe("birth");
     // Doctor says what the pass came to, and the way back.
     expect(upgradeV14Findings(c.store)[0]?.detail).toContain(
-      "On 2026-10-21 the night merged 1 twin card (one name, two cards) into the older card of each pair, which gained the links of 1 memory written while the twins lived; counterparts dream --undo-twins puts them back.",
+      "On 2026-10-21 the night merged 1 twin card (one name, two cards) into the older card of each pair, and those older cards gained 1 link on 1 memory written while the twins lived; counterparts dream --undo-twins puts them back.",
     );
     // A write after the merge links to the keeper at once.
     const after = (await c.submitJot({ content: "Wren came back for the ladder he lent us last spring." }, { session: "s3", scope: "/proj/one" })).memoryId as string;
@@ -248,6 +248,86 @@ describe("review of #593", () => {
     expect(JSON.parse(c.store.getMeta(`${TWIN_PREFIX}${vic2}`) ?? "{}")).toHaveProperty("undone");
     expect(c.schemas.mergeTwinCards(1).ran).toBe(false);
     expect(archived(c.store, vic2)).toBeNull();
+  });
+});
+
+describe("delta review of #593: the finish path asks again", () => {
+  /** A first night whose archives all throw: the plan stands, every twin still live. */
+  function interrupted(c: Counterpart): void {
+    const real = c.store.archive.bind(c.store);
+    c.store.archive = (): void => {
+      throw new Error("disk full");
+    };
+    c.schemas.mergeTwinCards(0);
+    c.store.archive = real;
+  }
+
+  const planEntry = (c: Counterpart, gone: string): Record<string, unknown> | undefined =>
+    (JSON.parse(c.store.getMeta(TWINS_MERGED_KEY) ?? "{}") as { merged: Record<string, unknown>[] }).merged.find((m) => m["gone"] === gone);
+
+  test("a keeper that faded before the next night: its twin is not archived, so the name keeps a live card; dropped and counted", async () => {
+    const c = brain();
+    const m = mem(c, "Wynn fixed the gutter.");
+    const keep = card(c, "Wynn", [m]);
+    const gone = card(c, "Wynn", [m]);
+    interrupted(c);
+    c.store.archive(keep, SCHEMAS.FADE_REASON);
+    c.wake(9_000);
+    await c.sessionEnd({ date: "2026-10-21" });
+    expect(archived(c.store, gone)).toBeNull();
+    expect(planEntry(c, gone)?.["dropped"]).toBe("keeper-gone");
+    expect((JSON.parse(c.store.getMeta(TWINS_MERGED_KEY) ?? "{}") as { skipped: Record<string, number> }).skipped["keeper-gone"]).toBe(1);
+    // Dropped for good: a later night does not count it again.
+    clock += 86_400_000;
+    await c.sessionEnd({ date: "2026-10-22" });
+    expect((JSON.parse(c.store.getMeta(TWINS_MERGED_KEY) ?? "{}") as { skipped: Record<string, number> }).skipped["keeper-gone"]).toBe(1);
+  });
+
+  test("twins that drifted apart — a memory linked only to the twin, or a kind set on one — are not archived, so no memory is orphaned", async () => {
+    const c = brain();
+    const m = mem(c, "Xan and Yul raked the leaves.");
+    const xanKeep = card(c, "Xan", [m]);
+    const xanGone = card(c, "Xan", [m]);
+    const yulKeep = card(c, "Yul", [m]);
+    const yulGone = card(c, "Yul", [m]);
+    interrupted(c);
+    const only = mem(c, "Xan left his rake by the shed.");
+    c.store.linkSubjects([{ memoryId: only, subjectId: xanGone }], "write");
+    c.store.setSubjectKind(yulGone, "person");
+    c.wake(9_000);
+    await c.sessionEnd({ date: "2026-10-21" });
+    expect([archived(c.store, xanGone), archived(c.store, yulGone)]).toEqual([null, null]);
+    expect(c.store.subjectsOf(only)).toEqual([xanGone]);
+    expect([planEntry(c, xanGone)?.["dropped"], planEntry(c, yulGone)?.["dropped"]]).toEqual(["links-differ", "kinds-differ"]);
+    expect([archived(c.store, xanKeep), archived(c.store, yulKeep)]).toEqual([null, null]);
+  });
+
+  test("a pass killed after its archives, before the look-back: the next night looks back for every keeper", async () => {
+    const c = brain();
+    const t = twins(c);
+    const between = (await c.submitJot({ content: "Wren dropped off the spare gate key this morning on the way to work." }, { session: "s2", scope: "/proj/one" })).memoryId as string;
+    // The kill: the look-back reads nothing, and the counts never reach the record.
+    const texts = c.store.memoryTexts.bind(c.store);
+    const update = c.store.updateMeta.bind(c.store);
+    let updates = 0;
+    c.store.memoryTexts = () => {
+      throw new Error("killed");
+    };
+    c.store.updateMeta = ((key: string, fn: (cur: string | undefined) => string | null | undefined) => {
+      if (key === TWINS_MERGED_KEY && ++updates > 1) throw new Error("killed");
+      return update(key, fn);
+    }) as typeof c.store.updateMeta;
+    c.schemas.mergeTwinCards(0);
+    c.store.memoryTexts = texts;
+    c.store.updateMeta = update;
+    expect(archived(c.store, t.wrenNew)).toBe(CARD_TWIN_ARCHIVE_REASON);
+    expect(c.store.subjectsOf(between)).toEqual([]);
+    expect(JSON.parse(c.store.getMeta(TWINS_MERGED_KEY) ?? "{}")).not.toHaveProperty("linked");
+    c.wake(9_000);
+    await c.sessionEnd({ date: "2026-10-21" });
+    expect(c.store.subjectsOf(between)).toEqual([t.wrenOld]);
+    expect(JSON.parse(c.store.getMeta(TWINS_MERGED_KEY) ?? "{}")).toMatchObject({ linked: 1, linkedMemories: 1, archived: 1 });
+    expect(c.schemas.mergeTwinCards(1).ran).toBe(false);
   });
 });
 

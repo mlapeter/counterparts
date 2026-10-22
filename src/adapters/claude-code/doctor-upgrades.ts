@@ -279,10 +279,12 @@ export function upgradeV14Findings(store: Store): Finding[] {
   const twins = metaJson(store, TWINS_MERGED_KEY);
   const merged = twins === null ? 0 : metaNum(twins["archived"]);
   const linkedBack = twins === null ? 0 : metaNum(twins["linked"]);
+  // Distinct live memories, not links (delta review of #593): one memory can name two keepers.
+  const linkedOn = twins === null ? 0 : metaNum(twins["linkedMemories"]);
   const twinWords =
     twins === null || merged === 0
       ? ""
-      : ` On ${typeof twins["date"] === "string" ? twins["date"] : "a night since"} the night merged ${String(merged)} twin ${merged === 1 ? "card" : "cards"} (one name, two cards) into the older card of each pair, which gained the links of ${String(linkedBack)} ${linkedBack === 1 ? "memory" : "memories"} written while the twins lived; counterparts dream --undo-twins puts them back.`;
+      : ` On ${typeof twins["date"] === "string" ? twins["date"] : "a night since"} the night merged ${String(merged)} twin ${merged === 1 ? "card" : "cards"} (one name, two cards) into the older card of each pair, and those older cards gained ${String(linkedBack)} ${linkedBack === 1 ? "link" : "links"} on ${String(linkedOn)} ${linkedOn === 1 ? "memory" : "memories"} written while the twins lived; counterparts dream --undo-twins puts them back.`;
   const column = dropped
     ? `the retired confidential column dropped${counted === null ? "" : ` (${String(counted)} marked ${counted === 1 ? "memory" : "memories"} counted first)`}`
     : "no confidential column to drop";
@@ -293,7 +295,7 @@ export function upgradeV14Findings(store: Store): Finding[] {
       "Upgrade",
       `Upgrade to v14: room for tags, beliefs and their support, projects and what recall showed (empty until they are used) — ${column}; ${given}.${twinWords}`,
       "",
-      { confidentialDropped: dropped, confidentialCounted: counted ?? -1, people, places, kindsTakenBack: repaired, twinsMerged: merged, twinLinks: linkedBack },
+      { confidentialDropped: dropped, confidentialCounted: counted ?? -1, people, places, kindsTakenBack: repaired, twinsMerged: merged, twinLinks: linkedBack, twinLinkedMemories: linkedOn },
     ),
   ];
 }
