@@ -368,28 +368,47 @@ export function memoryTitlesByScopeSince(
 }
 
 /**
- * THE OPEN THREADS AND WHEN EACH WAS LAST TOUCHED (2026-10-22, open threads
- * mean someone owes an answer): every live memory the loose `unresolved`
- * match finds (`openThreadIds`'s match, answered by `memories_open`), with
- * the lived day it was last touched and the two facts the carry rule reads
- * (`self/identity.ts#openCarry`). TOUCHED is the latest of: its birth; its
- * last credited USE (`last_used_day` — a recall open, `drewOn`, a footnote's
- * rating of 1–3 or a glimpse, a claim in a reply, a schedule's occurrence;
- * every awake return is a credited use the same day, so returns ride in it);
- * and its last REVISION (`versions.version_day` — any `revise`: an `updates`
- * that leaves it open, a reopen). Not a dream's replay and not a
- * reflection's return (`last_return_day` counts those): a reflection that
- * asks about a stale thread cites it, and that must not keep it carried. Not
- * being listed under "Still open" or in the reflection's `staleOpen`: neither
- * writes any of these. Versions are kept 90 lived days, longer than any
- * carry window. The caller confirms the flag on the prose.
+ * WHEN AN OPEN THREAD WAS LAST TOUCHED, as SQL over `memories m` (2026-10-22,
+ * open threads mean someone owes an answer; the review of #592, F4). The
+ * latest of:
+ *
+ *   - its BIRTH;
+ *   - its last credited USE that was more than a glimpse. `last_used_day` is
+ *     every credited use, and since 2026-10-19 an ambient footnote left
+ *     unrated is one too (a glimpse, `shown`) — which is exactly the loop the
+ *     carry breaks: shown again and again, never answered. So when the use on
+ *     `last_used_day` was a glimpse (a `shown` return row on that day — a
+ *     glimpse writes one whenever it is credited, and a fuller use the same
+ *     day lifts it away, `Store#reinforce`), the use read is the newest
+ *     return row of a fuller use instead: `awake` (a rating of 2–3, a quote,
+ *     an open used, a claim), `engaged` (`drewOn`) or `ontopic` (a rating of
+ *     1). A rating of 0 credits nothing. The glimpse still restarts the
+ *     memory's FADE (Mike, 10-19); only the carry ignores it;
+ *   - its last REVISION (`versions.version_day` — any `revise`: an `updates`
+ *     that leaves it open, a reopen; kept 90 lived days, longer than any
+ *     carry window).
+ *
+ * Not a dream's replay and not a reflection's return (a reflection that asks
+ * about a stale thread cites it). Being listed under "Still open" or in the
+ * reflection's `staleOpen` writes none of these.
+ */
+const OPEN_TOUCHED_SQL = `MAX(m.birth_day,
+      CASE WHEN EXISTS (SELECT 1 FROM returns g WHERE g.memory_id = m.id AND g.day = m.last_used_day AND g.source = 'shown')
+           THEN COALESCE((SELECT MAX(u.day) FROM returns u WHERE u.memory_id = m.id AND u.source IN ('awake', 'engaged', 'ontopic')), m.birth_day)
+           ELSE m.last_used_day END,
+      COALESCE((SELECT MAX(v.version_day) FROM versions v WHERE v.memory_id = m.id), m.birth_day))`;
+
+/**
+ * THE OPEN THREADS AND WHEN EACH WAS LAST TOUCHED (2026-10-22): every live
+ * memory the loose `unresolved` match finds (`openThreadIds`'s match,
+ * answered by `memories_open`), with the lived day it was last touched
+ * (`OPEN_TOUCHED_SQL`) and the two facts the carry rule reads
+ * (`self/identity.ts#openCarry`, which also decides which are threads at all).
  */
 export function openThreadTouches(store: Store): { id: string; touchedDay: number; dated: boolean; asked: boolean }[] {
   return store["ops"]
     .all<{ id: string; touched: number; event_date: string | null; status: string | null }>(
-      `SELECT m.id AS id, m.event_date AS event_date, m.status AS status,
-              MAX(m.birth_day, m.last_used_day,
-                  COALESCE((SELECT MAX(v.version_day) FROM versions v WHERE v.memory_id = m.id), m.birth_day)) AS touched
+      `SELECT m.id AS id, m.event_date AS event_date, m.status AS status, ${OPEN_TOUCHED_SQL} AS touched
          FROM memories m
         WHERE m.type = 'memory' AND m.archived = 0 AND m.meta LIKE '%"unresolved":true%'
         ORDER BY m.birth_day, m.id`,
@@ -398,12 +417,14 @@ export function openThreadTouches(store: Store): { id: string; touchedDay: numbe
 }
 
 /**
- * THIS SESSION'S OWN OPEN THREADS (2026-10-22): the open memories it WROTE
- * (`origin_session`) or TOUCHED — a use credited to it that counted as a
- * return (`returns.session`; the night's sources and `legacy` left out) — the
- * newest first, for the end-of-session ask to name. A memory a later one has
- * settled over or replaced is not one. Title, else its first line. The caller
- * confirms the flag on the prose.
+ * THIS SESSION'S OWN OPEN THREADS (2026-10-22; the review of #592, F1): the
+ * open memories it WROTE (`origin_session`) or USED — a return credited to
+ * it of a real use, `awake` (a rating of 2–3, a quote, an open used, a
+ * claim) or `engaged` (`drewOn`). Not a glimpse (`shown`, a footnote left
+ * unrated) nor a rating of 1 (`ontopic`, "not needed"): another folder's open
+ * item only shown here is not this session's to close. The most recently
+ * touched first (`OPEN_TOUCHED_SQL`), at most `limit`. Title, else its first
+ * line. The caller decides which are threads (`self/identity.ts#openThread`).
  */
 export function openThreadsOfSession(store: Store, session: string, limit: number): { id: string; title: string }[] {
   if (session.length === 0 || !(limit > 0)) return [];
@@ -414,9 +435,8 @@ export function openThreadsOfSession(store: Store, session: string, limit: numbe
         WHERE m.type = 'memory' AND m.archived = 0 AND m.superseded_by IS NULL
           AND m.meta LIKE '%"unresolved":true%' AND NOT ${NIGHTLY_SQL}
           AND (m.origin_session = ?
-               OR m.id IN (SELECT r.memory_id FROM returns r
-                            WHERE r.session = ? AND r.source NOT IN ('dream', 'reflection', 'legacy')))
-        ORDER BY MAX(m.birth_day, m.last_used_day) DESC, COALESCE(m.created_at, 0) DESC, m.id
+               OR m.id IN (SELECT r.memory_id FROM returns r WHERE r.session = ? AND r.source IN ('awake', 'engaged')))
+        ORDER BY ${OPEN_TOUCHED_SQL} DESC, COALESCE(m.created_at, 0) DESC, m.id
         LIMIT ?`,
       session,
       session,

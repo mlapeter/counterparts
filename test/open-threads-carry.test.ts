@@ -29,7 +29,10 @@ import { TUNABLES as ADAPTER_TUNABLES } from "../src/adapters/config.js";
 import { openAdapter, stopAsk } from "../src/adapters/claude-code/index.js";
 import type { HookInput } from "../src/adapters/claude-code/index.js";
 import { STOP_ASK_OPENER, parseTranscript } from "../src/adapters/claude-code/transcript.js";
-import { FRAMING, SELF_TUNABLES } from "../src/core/self/index.js";
+import { OPEN_LINE_MAX_CHARS } from "../src/adapters/claude-code/hooks.js";
+import { FRAMING, SELF_TUNABLES, openCarry } from "../src/core/self/index.js";
+import { freshGateState, loadGateState, saveGateState } from "../src/core/recall/index.js";
+import type { GateState } from "../src/core/recall/index.js";
 import { REFLECT_TUNABLES } from "../src/core/dream/index.js";
 import { addDays, localDate } from "../src/core/time.js";
 
@@ -237,18 +240,19 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("3b. the reflection: out of staleOpen, and the count told once", () => {
-  test("staleOpen drops it; noLongerCarried counts only what is new since the last finished reflection; a share citing one does not carry it", async () => {
+  test("staleOpen drops it; noLongerCarried counts only what a told share has not said; a share citing one does not carry it", async () => {
     const s = server("s-writer");
+    const c = s.counterpart;
     toDay(s, 1);
     const a = await remember(s, { text: "Open: is the old deploy key still on the build box?", unresolved: true });
     toDay(s, 3);
     const b = await remember(s, { text: "Open: talk through the chapter numbering later.", unresolved: true });
     toDay(s, 21);
-    const night21 = s.counterpart.reflections.begin({ session: "s-night" });
+    const night21 = c.reflections.begin({ session: "s-night" });
     if (!night21.ok) throw new Error(night21.reason);
     expect(night21.bundle.staleOpen.map((x) => x.id)).toEqual(expect.arrayContaining([a, b]));
     // The share asks about one, citing it: a reflection's return, not a touch.
-    const fin21 = s.counterpart.reflections.finish({
+    const fin21 = c.reflections.finish({
       reflection: night21.bundle.reflection,
       session: "s-night",
       entry: "A look back.",
@@ -257,27 +261,57 @@ describe("3b. the reflection: out of staleOpen, and the count told once", () => 
     });
     if (!fin21.ok) throw new Error(fin21.reason);
     // The cite came back as a reflection's return (physics §5.11) — which the carry does not read.
-    expect(s.counterpart.store.returnsOf(a).some((r) => r.source === "reflection" && r.day === 21)).toBe(true);
+    expect(c.store.returnsOf(a).some((r) => r.source === "reflection" && r.day === 21)).toBe(true);
+    expect(c.reflections.told({ reflection: night21.bundle.reflection, session: "s-morning" }).ok).toBe(true);
 
     toDay(s, 22);
-    const night22 = s.counterpart.reflections.begin({ session: "s-night" });
+    const night22 = c.reflections.begin({ session: "s-night" });
     if (!night22.ok) throw new Error(night22.reason);
     expect(night22.bundle.staleOpen.map((x) => x.id)).not.toContain(a);
     expect(night22.bundle.staleOpen.map((x) => x.id)).toContain(b);
     expect(night22.bundle.noLongerCarried).toBe(1);
-    expect(night22.instructions).toContain('"1 open item nobody touched in three weeks is no longer carried; recall shows them."');
+    expect(night22.instructions).toContain('"1 open item nobody touched in 21 lived days is no longer carried; recall shows them."');
     expect(night22.instructions).not.toContain(a);
-    const fin22 = s.counterpart.reflections.finish({ reflection: night22.bundle.reflection, session: "s-night", entry: "Another look back." });
+    // A quiet night: no share, so nothing is spent.
+    const fin22 = c.reflections.finish({ reflection: night22.bundle.reflection, session: "s-night", entry: "Another look back." });
     if (!fin22.ok) throw new Error(fin22.reason);
-    expect(JSON.parse(s.counterpart.store.reflection(night22.bundle.reflection)?.detail ?? "{}")["notCarried"]).toEqual([a]);
+    expect(JSON.parse(c.store.reflection(night22.bundle.reflection)?.detail ?? "{}")["notCarried"]).toEqual([a]);
 
-    // Day 24: b leaves too; only b is new to tell.
+    // Day 24: b leaves too. a went untold on 22, so the count says both.
     toDay(s, 24);
-    const night24 = s.counterpart.reflections.begin({ session: "s-night" });
+    const night24 = c.reflections.begin({ session: "s-night" });
     if (!night24.ok) throw new Error(night24.reason);
     expect(night24.bundle.staleOpen.map((x) => x.id)).not.toContain(b);
-    expect(night24.bundle.noLongerCarried).toBe(1);
+    expect(night24.bundle.noLongerCarried).toBe(2);
+    const fin24 = c.reflections.finish({ reflection: night24.bundle.reflection, session: "s-night", entry: "A third look.", share: { text: "Two open items went quiet; the chapter numbering one among them.", cites: [b] } });
+    if (!fin24.ok) throw new Error(fin24.reason);
+    expect(c.reflections.told({ reflection: night24.bundle.reflection, session: "s-morning-2" }).ok).toBe(true);
+
+    // Told: the next night has nothing new to say.
+    toDay(s, 25);
+    const night25 = c.reflections.begin({ session: "s-night" });
+    if (!night25.ok) throw new Error(night25.reason);
+    expect(night25.bundle.noLongerCarried).toBeUndefined();
     expect(REFLECT_TUNABLES.STALE_OPEN).toBe(5);
+  });
+
+  test("the count is of threads the wake carried: a dreamed one and a settled-over one are never 'no longer carried'", async () => {
+    const s = server("s-writer");
+    const c = s.counterpart;
+    toDay(s, 1);
+    const dreamed = c.store.put({ type: "memory", kind: "fact", body: "Open: a dreamed thread about the ferry timetable.", source: "dreamed", meta: { unresolved: true } });
+    const old = await remember(s, { text: "Open: which day does the store move to the new shelf?", title: "Store move day", unresolved: true });
+    await remember(s, { text: "The store moves to the new shelf on Tuesday.", updates: old, how: "changed" });
+    expect(c.store.readProse(old).meta["unresolved"]).toBe(true);
+    toDay(s, 25);
+    const w = wakes(s);
+    for (const text of [w.built, w.assembled]) for (const id of [dreamed, old]) expect(inStillOpen(text, id)).toBe(false);
+    const night = c.reflections.begin({ session: "s-night" });
+    if (!night.ok) throw new Error(night.reason);
+    expect(night.bundle.noLongerCarried).toBeUndefined();
+    const touches = openCarry(c.store, 25, SELF_TUNABLES.OPEN_CARRY_DAYS);
+    expect(touches.touched.has(dreamed)).toBe(false);
+    expect(touches.touched.has(old)).toBe(false);
   });
 });
 
@@ -349,5 +383,158 @@ describe("2. the Stop ask names this session's own open items", () => {
       T.STOP_OPEN_MAX = 5;
     }
     expect(ids.length).toBe(7);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The review of #592: a glimpse is not a touch, nor makes a thread this
+// session's own; settled-over threads stay out of the Stop ask; the ask's
+// whole length is bounded.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Ambient footnote showings to a session, as recall's own save records them. */
+function footnoted(c: Counterpart, sessionId: string, turn: number, ids: readonly string[]): void {
+  const prior = loadGateState(c.store, sessionId).state;
+  const surfaced: GateState["surfaced"] = { ...prior.surfaced };
+  for (const id of ids) surfaced[id] = { turn, tier: "footnoted", trains: true };
+  saveGateState(c.store, { ...freshGateState(sessionId), ...prior, turn, lastDay: c.store.livedDay(), surfaced }, 200);
+}
+
+const BIG = Array.from({ length: 14 }, (_, i) => ({
+  role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+  text: `Turn ${String(i)}: ${"a real exchange with enough substance in it to pace a ritual honestly, said at the length people actually work at. ".repeat(3)}`,
+}));
+
+function stopAt(session: string): string {
+  const a = openAdapter({ dataDir: dir, injectionBudgetBytes: BUDGET }, { command: "/bin/true", args: ["runner"], spawner: () => ({ pid: 4242 }) });
+  opened.push(a.counterpart);
+  recordSession(dir, { sessionId: session, scope: SCOPE, phase: "start" });
+  const out = a.stop({ sessionId: session, scope: SCOPE, turns: BIG, at: "2026-09-01" });
+  a.counterpart.close();
+  opened.splice(opened.indexOf(a.counterpart), 1);
+  return out.ask ?? "";
+}
+
+function shut(c: Counterpart): void {
+  c.close();
+  opened.splice(opened.indexOf(c), 1);
+}
+
+describe("review of #592 — F4: a glimpse is not a touch for the carry; a rating of 1–3 or drewOn is", () => {
+  test("shown as a footnote and left unrated: still not carried (the glimpse still counts as a use)", async () => {
+    const s = server("s-writer");
+    const c = s.counterpart;
+    toDay(s, 1);
+    const stale = await remember(s, { text: "Open: the Desktop chat footnote bug seen on the second.", unresolved: true });
+    const other = await remember(s, { text: "The kiln fires at cone six for the stoneware glaze." });
+    toDay(s, 30);
+    expect(inStillOpen(wakes(s).built, stale)).toBe(false);
+    const here = as(c, "s-here");
+    footnoted(c, "s-here", 1, [stale, other]);
+    const r = await here.call("session_end", { session: "s-here", memories: [], rated: [{ id: other, score: 2 }] });
+    expect(r.isError ?? false).toBe(false);
+    // The glimpse was credited — a use, and its fade restarts — …
+    expect(c.store.row(stale)?.last_used_day).toBe(30);
+    expect(c.store.returnsOf(stale).map((x) => x.source)).toEqual(["shown"]);
+    // … but shown again is not answered: still not carried.
+    const w = wakes(s);
+    for (const text of [w.built, w.assembled]) expect(inStillOpen(text, stale)).toBe(false);
+  });
+
+  test("rated 0 is not a touch; rated 1 is, the same day, at both wakes", async () => {
+    const s = server("s-writer");
+    const c = s.counterpart;
+    toDay(s, 1);
+    const stale = await remember(s, { text: "Open: should the glaze order get a second supplier this spring?", unresolved: true });
+    toDay(s, 30);
+    const h1 = as(c, "s-here");
+    footnoted(c, "s-here", 1, [stale]);
+    await h1.call("session_end", { session: "s-here", memories: [], rated: [{ id: stale, score: 0 }] });
+    let w = wakes(s);
+    for (const text of [w.built, w.assembled]) expect(inStillOpen(text, stale)).toBe(false);
+    const h2 = as(c, "s-here-2");
+    footnoted(c, "s-here-2", 1, [stale]);
+    await h2.call("session_end", { session: "s-here-2", memories: [], rated: [{ id: stale, score: 1 }] });
+    w = wakes(s);
+    for (const text of [w.built, w.assembled]) expect(inStillOpen(text, stale)).toBe(true);
+  });
+});
+
+describe("review of #592 — F1/F2/F5: the Stop ask's own items", () => {
+  test("another folder's open item only glimpsed, or rated 1 or 0, here is not this session's; one it drew on is", async () => {
+    const c = Counterpart.open({ dir, now, timeZone: "UTC" });
+    opened.push(c);
+    recordSession(dir, { sessionId: "s-personal", scope: "/Users/me/personal", phase: "start" });
+    const w = new McpServer({ counterpart: c, session: "s-personal", scope: "/Users/me/personal", registryDir: dir, now });
+    toDay(w, 1);
+    const glimpsed = await remember(w, { text: "Open: will Robin say yes to the house offer by Friday?", title: "Robin house offer", unresolved: true });
+    const ontopic = await remember(w, { text: "Open: does the car need its winter tyres before the trip?", title: "Winter tyres", unresolved: true });
+    const noise = await remember(w, { text: "Open: should the garden shed be painted green or left?", title: "Shed paint", unresolved: true });
+    const drawn = await remember(w, { text: "Open: is the plumber coming Thursday or Friday next week?", title: "Plumber day", unresolved: true });
+    const filler = await remember(w, { text: "The kiln fires at cone six for the stoneware glaze." });
+    toDay(w, 3);
+    const code = as(c, "s-code");
+    footnoted(c, "s-code", 1, [glimpsed, ontopic, noise, drawn, filler]);
+    const r = await code.call("session_end", {
+      session: "s-code",
+      memories: [],
+      rated: [
+        { id: filler, score: 2 },
+        { id: ontopic, score: 1 },
+        { id: noise, score: 0 },
+      ],
+      drewOn: [drawn],
+    });
+    expect(r.isError ?? false).toBe(false);
+    expect(c.store.returnsOf(glimpsed).map((x) => [x.source, x.session])).toEqual([["shown", "s-code"]]);
+    shut(c);
+    const ask = stopAt("s-code");
+    for (const t of ["Robin house offer", "Winter tyres", "Shed paint"]) expect(ask).not.toContain(t);
+    expect(ask).toContain(`"Plumber day" (${drawn})`);
+  });
+
+  test("a thread settled over (updates, how: changed) is not named; the rest are", async () => {
+    const s = server("s-here");
+    toDay(s, 1);
+    const q = await remember(s, { text: "Open: will Mike approve the sidebar split before Friday?", title: "Sidebar split approval", unresolved: true });
+    const old = await remember(s, { text: "Open: which day does the store move to the new shelf?", title: "Store move day", unresolved: true });
+    await remember(s, { text: "The store moves to the new shelf on Tuesday.", updates: old, how: "changed" });
+    expect(s.counterpart.store.readProse(old).meta["unresolved"]).toBe(true);
+    shut(s.counterpart);
+    const ask = stopAt("s-here");
+    expect(ask).toContain(`"Sidebar split approval" (${q})`);
+    expect(ask).not.toContain("Store move day");
+    expect(ask).not.toContain(old);
+  });
+
+  test("the most recently touched first, by the carry's own touch", async () => {
+    const s = server("s-here");
+    toDay(s, 1);
+    const first = await remember(s, { text: "Open: is the old deploy key still on the build box today?", title: "Deploy key", unresolved: true });
+    toDay(s, 2);
+    const second = await remember(s, { text: "Open: will the sidebar split land before the Friday release?", title: "Sidebar split", unresolved: true });
+    toDay(s, 3);
+    await s.call("recall", { question: "old deploy key build box", mode: "facts" });
+    const drew = await s.call("session_end", { session: "s-here", memories: [], drewOn: [first] });
+    expect(drew.structuredContent["drewOn"]).toEqual({ credited: [first] });
+    shut(s.counterpart);
+    const last = stopAt("s-here").split("\n")[2] ?? "";
+    expect(last.indexOf(first)).toBeGreaterThan(-1);
+    expect(last.indexOf(first)).toBeLessThan(last.indexOf(second));
+  });
+
+  test("the whole ask is bounded: a UUID session, five long titles", async () => {
+    const SID = "7c973b1c-d40a-47e5-92bb-8cdb1823a06d";
+    const s = server(SID);
+    toDay(s, 1);
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i += 1) ids.push(await remember(s, { text: `Open: ${"a long open question about the release plan and its order ".repeat(3)} ${String(i)}`, unresolved: true }));
+    shut(s.counterpart);
+    const ask = stopAt(SID);
+    const lines = ask.split("\n");
+    expect(lines.length).toBe(3);
+    expect(lines[2]?.length ?? 0).toBeLessThanOrEqual(OPEN_LINE_MAX_CHARS);
+    expect(lines[2]?.match(/mem_[0-9a-f]+/g)?.length).toBe(5);
+    expect(ask.length).toBeLessThanOrEqual(1_250);
   });
 });

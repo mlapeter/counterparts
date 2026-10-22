@@ -74,7 +74,7 @@ import { Lifecycle, codeOf, plainContextLine, plainLine } from "../lifecycle.js"
 import type { LifecycleOptions, PlainLines, SessionInput } from "../lifecycle.js";
 
 import { localDate } from "../../core/time.js";
-import { UNRESOLVED_META_KEY } from "../../core/mint.js";
+import { openThread } from "../../core/self/identity.js";
 import { TUNABLES } from "../config.js";
 import { TUNABLES as RECALL_TUNABLES } from "../../core/recall/tunables.js";
 import { SESSION_NOTICE_BUDGET_MS, checkoutIsGraded, doctorFindings, noticeMessage, readCheckout } from "./doctor.js";
@@ -532,6 +532,14 @@ export const OPEN_MEANS = "`unresolved` only when someone owes an answer (a ques
 const OPEN_TITLE_CHARS = 60;
 
 /**
+ * The most the ask's open line may run, whole (the review of #592, F5): a
+ * title is clipped at `OPEN_TITLE_CHARS` and an id is 16 characters, so five
+ * items fit; an item past it is left out, never cut. With the two lines'
+ * own pin (720) the whole ask stays under ~1,250 characters.
+ */
+export const OPEN_LINE_MAX_CHARS = 520;
+
+/**
  * THE ASK NAMES THIS SESSION'S OWN OPEN ITEMS (2026-10-22, the open-threads
  * brief): the open memories it wrote or touched (`Store#openThreadsOfSession`),
  * at most `TUNABLES.STOP_OPEN_MAX`, by title and id — so closing one is an
@@ -544,7 +552,14 @@ export function openHereLine(open: readonly { readonly id: string; readonly titl
     const one = t.replace(/\s+/g, " ").trim();
     return one.length <= OPEN_TITLE_CHARS ? one : `${one.slice(0, OPEN_TITLE_CHARS - 1).trimEnd()}…`;
   };
-  return `Still open from this session — close any now answered with \`updates\` and \`unresolved: false\`: ${open.map((o) => `"${clip(o.title)}" (${o.id})`).join("; ")}.`;
+  const head = "Still open from this session — close any now answered with `updates` and `unresolved: false`: ";
+  const items: string[] = [];
+  for (const o of open) {
+    const item = `"${clip(o.title)}" (${o.id})`;
+    if (items.length > 0 && head.length + [...items, item].join("; ").length + 1 > OPEN_LINE_MAX_CHARS) break;
+    items.push(item);
+  }
+  return `${head}${items.join("; ")}.`;
 }
 
 export function stopAsk(sessionId: string, chapter: number, open: readonly { readonly id: string; readonly title: string }[] = []): string {
@@ -1653,13 +1668,13 @@ export class ClaudeCodeAdapter extends Lifecycle {
     if (!(max > 0)) return [];
     try {
       const store = this.counterpart.store;
-      return store.openThreadsOfSession(sessionId, max).filter((o) => {
-        try {
-          return store.readProse(o.id).meta[UNRESOLVED_META_KEY] === true;
-        } catch {
-          return false;
-        }
-      });
+      // What a thread is, the carry's own test (`openThread`: not dreamed, not
+      // settled over, the flag on the prose — the review of #592, F2), asked
+      // of a few more than the cap so one left out does not shorten the list.
+      return store
+        .openThreadsOfSession(sessionId, max * 4)
+        .filter((o) => openThread(store, o.id))
+        .slice(0, max);
     } catch {
       return [];
     }

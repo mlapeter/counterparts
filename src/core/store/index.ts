@@ -5191,7 +5191,7 @@ export class Store {
       .map((r) => r.id);
   }
 
-  /** The open memories with the lived day each was last TOUCHED (born, used,
+  /** The open memories with the lived day each was last TOUCHED (born, used beyond a glimpse,
    *  revised — never a dream's or a reflection's return) and whether it is
    *  dated or `asked` (2026-10-22, `reads-memories.ts#openThreadTouches`):
    *  what the carry rule reads (`self/identity.ts#openCarry`). */
@@ -5199,7 +5199,7 @@ export class Store {
     return memoryReads.openThreadTouches(this);
   }
 
-  /** The open memories ONE session wrote or touched, newest first, at most
+  /** The open memories ONE session wrote or used (awake, engaged — not a glimpse), most recently touched first, at most
    *  `limit` (2026-10-22, `reads-memories.ts#openThreadsOfSession`): what
    *  the end-of-session ask names. */
   openThreadsOfSession(session: string, limit: number): { id: string; title: string }[] {

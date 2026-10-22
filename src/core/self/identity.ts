@@ -23,6 +23,7 @@ import { strength } from "../physics/index.js";
 import type { ProseDoc, ReadOnlyStore, Store, WakeDisplayRow } from "../store/index.js";
 import type { SelfTunables } from "./tunables.js";
 import { craftBornDay, isCraft, isWorkMemory } from "./work.js";
+import { headOf } from "../recall/standing.js";
 import { TUNABLES as SLEEP_TUNABLES } from "../sleep/tunables.js";
 
 export type LaneName = "identity" | "craft" | "threads" | "hints" | "horizon";
@@ -225,24 +226,48 @@ export function waitingIds(store: Store, day: number): Set<string> {
 }
 
 /**
+ * IS IT AN OPEN THREAD AT ALL (the review of #592, F2/F3): the one
+ * eligibility test the carry, its count and the Stop ask's list share — the
+ * same `staleOpen` used. A live memory, not one the night wrote (`dreamed`),
+ * not settled over or replaced by a later one (`recall/standing.ts#headOf`:
+ * that one carries it now, and every lane hides this one), whose prose says
+ * `unresolved: true` (the SQL match is loose). Never throws: unreadable is
+ * not a thread.
+ */
+export function openThread(store: Store, id: string): boolean {
+  try {
+    const row = store.row(id);
+    if (row === undefined || row.archived !== 0 || row.type !== "memory" || row.source === "dreamed") return false;
+    if (headOf(store, id) !== null) return false;
+    return store.readProse(id).meta["unresolved"] === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * WHICH OPEN THREADS ARE STILL CARRIED (2026-10-22, the open-threads brief;
  * the one place the rule lives — the wake's "Still open", built and
- * assembled, and the reflection's `staleOpen` all read it). An open memory
- * with no `eventDate`, not `asked`, untouched for `days` lived days or more
+ * assembled, the reflection's `staleOpen` and its `noLongerCarried` count
+ * all read it). Of the open threads (`openThread`), one with no `eventDate`,
+ * not `asked`, untouched for `days` lived days or more
  * (`SelfTunables.OPEN_CARRY_DAYS`) is NOT carried: the wake shows it in no
  * lane ("Nearby" would read as carried still). It is not closed: the flag
- * stays, it stays in the store, recall shows it, and a touch — a use, a
- * revision (`Store#openThreadTouches` says what counts) — carries it again.
- * Being listed under "Still open" or in the reflection's bundle writes none
- * of what counts, so being shown cannot keep it carried.
+ * stays, it stays in the store, recall shows it, and a touch — a use beyond a
+ * glimpse, a revision (`Store#openThreadTouches` says what counts) — carries
+ * it again. Being listed under "Still open", offered in the reflection's
+ * bundle or glimpsed as a footnote writes none of what counts, so being shown
+ * cannot keep it carried.
  *
- * `touched`: every open id → the lived day it was last touched. Fail-open: a
- * store that cannot answer leaves both maps empty, and everything is carried
- * as before. `days` not finite (the revert): nothing stops being carried.
+ * `touched`: every open thread → the lived day it was last touched;
+ * `carried` the ones still carried, in the store's order (oldest born first).
+ * Fail-open for the wake: a store that cannot answer leaves all empty, and
+ * nothing is left out. `days` not finite (the revert): every thread carried.
  */
 export interface OpenCarry {
   readonly touched: ReadonlyMap<string, number>;
-  /** Open ids no longer carried → lived days untouched. */
+  readonly carried: readonly string[];
+  /** Open threads no longer carried → lived days untouched. */
   readonly notCarried: ReadonlyMap<string, number>;
 }
 
@@ -252,18 +277,21 @@ export function carriesOpen(f: { readonly touchedDay: number; readonly dated: bo
   return day - f.touchedDay < days;
 }
 
-export function openCarry(store: Pick<Store, "openThreadTouches">, day: number, days: number): OpenCarry {
+export function openCarry(store: Store, day: number, days: number): OpenCarry {
   const touched = new Map<string, number>();
+  const carried: string[] = [];
   const notCarried = new Map<string, number>();
   try {
     for (const f of store.openThreadTouches()) {
+      if (!openThread(store, f.id)) continue;
       touched.set(f.id, f.touchedDay);
-      if (!carriesOpen(f, day, days)) notCarried.set(f.id, day - f.touchedDay);
+      if (carriesOpen(f, day, days)) carried.push(f.id);
+      else notCarried.set(f.id, day - f.touchedDay);
     }
   } catch {
-    return { touched: new Map(), notCarried: new Map() };
+    return { touched: new Map(), carried: [], notCarried: new Map() };
   }
-  return { touched, notCarried };
+  return { touched, carried, notCarried };
 }
 
 /**

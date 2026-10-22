@@ -2654,20 +2654,34 @@ check 2026-11-05 (first look 10-29):
   to the owner, a check with a date, a promise (`mcp/tools.ts#UNRESOLVED_PROPERTY`,
   `claude-code/hooks.ts#OPEN_MEANS`).
 - The Stop ask's last line names this session's own open items, title and id, at most
-  `STOP_OPEN_MAX` (5) (`Store#openThreadsOfSession`: the ones it wrote, or used with a return).
+  `STOP_OPEN_MAX` (5) (`Store#openThreadsOfSession`: the ones it wrote, or used here with an
+  `awake` or `engaged` return — a rating of 2–3, a quote, `drewOn`; never one it was only shown, or
+  rated 0–1, so another folder's open item glimpsed here is not offered as this session's), less
+  what is not a thread (`openThread`: dreamed, settled over, the flag not on the prose). The line
+  is held to `OPEN_LINE_MAX_CHARS` (520), so the whole ask stays under ~1,250 characters.
 - `openCarry` (`identity.ts`) is the one rule the wake (built and assembled) and the reflection's
   `staleOpen` read: an open item with no eventDate, not `asked`, untouched for `OPEN_CARRY_DAYS`
   (21) lived days is not carried — in no lane of the wake, not offered to the reflection. Not
-  closed; a touch carries it again. TOUCHED (`Store#openThreadTouches`) is born, used
-  (`last_used_day`: a credited use of any tier, which every awake return is) or revised
-  (`versions.version_day`: an `updates` that keeps it open, a reopen). Not a dream's replay or a
-  reflection's return — a share that asks about a stale thread cites it, and that would carry it
-  forever — and not being listed: the wake's "Still open" and the reflection's bundle write none
-  of these. Being shown a recall answer is not a touch either; using it (`drewOn`, a rating of 1–3,
-  a quote) is. The lane's own ageing (the weeks-old count) and `staleOpen`'s "untouched" still
-  read born-or-used, so a reopened thread is offered the next night as before.
+  closed; a touch carries it again. What a thread is at all is one test, `openThread` (not dreamed,
+  not settled over — `headOf` — the flag confirmed on the prose), shared by the carry, its count and
+  the Stop ask (the review of #592). TOUCHED (`Store#openThreadTouches`) is born, used beyond a
+  glimpse, or revised (`versions.version_day`: an `updates` that keeps it open, a reopen).
+  `last_used_day` is every credited use, a glimpse included (an ambient footnote left unrated,
+  since 10-19); when the use on that day was a glimpse (a `shown` return row that day — written
+  whenever a glimpse is credited, and lifted away by a fuller use the same day) the read falls back
+  to the newest `awake` / `engaged` / `ontopic` return. So a rating of 1–3, a quote, `drewOn`, a
+  claim carry it; a glimpse, a rating of 0 and a recall answer only shown do not. The coordinator's
+  call (10-22, lightly held, for Mike): the loop the carry breaks is "shown again and again, never
+  answered", and a glimpse is exactly that. The glimpse still restarts the memory's FADE (Mike's
+  10-19 ruling) — only the carry ignores it. A use whose return was refused on that same glimpse
+  day is lost to the carry (rare). Not a dream's replay or a reflection's return — a share that asks
+  about a stale thread cites it, and that would carry it forever — and not being listed: the wake's
+  "Still open" and the reflection's bundle write none of these. The lane's own ageing (the
+  weeks-old count) and `staleOpen`'s "untouched" still read born-or-used, so a reopened thread is
+  offered the next night as before.
 - The reflection's bundle carries `noLongerCarried`, a count of what stopped being carried since
-  the last finished reflection (its full set is on the row's `detail.notCarried`), and the share
-  says it once, never the list.
+  the last reflection whose share reached a session (`told`, or `carried` into a waking session;
+  each row's full set is on `detail.notCarried`), and the share says it once ("… nobody touched in
+  21 lived days …"), never the list. A night whose share never went out spends nothing.
 
 Revert: `OPEN_CARRY_DAYS` `Infinity`; the description and `OPEN_MEANS` back; `STOP_OPEN_MAX` 0.

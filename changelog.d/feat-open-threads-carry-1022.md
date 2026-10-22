@@ -7,5 +7,6 @@
 - **Open items nobody has touched in three weeks stop being carried** (an experiment). One with
   no date and not a question you were asked, untouched for 21 lived days, leaves the wake's
   "Still open" and its count, and the nightly reflection stops being offered it. It is not
-  closed: recall still finds it, and using or revising it carries it again. The morning share
-  says how many left, once, never the list.
+  closed: recall still finds it, and using it (rating it, drawing on it) or revising it carries
+  it again; only seeing it again in a footnote does not. The morning share says how many left,
+  once, never the list.

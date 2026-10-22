@@ -381,7 +381,7 @@ export interface ReflectBundle {
   readonly staleOpen: readonly { readonly id: string; readonly text: string; readonly untouched: number; readonly reopened?: true }[];
   /**
    * NO LONGER CARRIED (2026-10-22, the open-threads brief): how many open
-   * threads stopped being carried since the last finished reflection —
+   * threads stopped being carried since the last reflection whose share reached a session —
    * untouched for `SELF_TUNABLES.OPEN_CARRY_DAYS`, so out of "Still open"
    * and `staleOpen` (`self/identity.ts#openCarry`). A count, never the list:
    * the share says it once. Absent when none.
@@ -1063,7 +1063,7 @@ export class Reflections {
       // NO LONGER CARRIED (2026-10-22, the open-threads brief): the count, once, never the list.
       ...(bundle.noLongerCarried !== undefined && bundle.noLongerCarried > 0
         ? [
-            `- noLongerCarried: ${String(bundle.noLongerCarried)}. Your share says it once, as a count and never a list: "${String(bundle.noLongerCarried)} open ${bundle.noLongerCarried === 1 ? "item nobody touched in" : "items nobody touched in"} ${carryWindowWords(SELF_TUNABLES.OPEN_CARRY_DAYS)} ${bundle.noLongerCarried === 1 ? "is" : "are"} no longer carried; recall shows them." They are not closed: a touch carries one again.`,
+            `- noLongerCarried: ${String(bundle.noLongerCarried)}. Your share says it once, as a count and never a list: "${String(bundle.noLongerCarried)} open ${bundle.noLongerCarried === 1 ? "item nobody touched in" : "items nobody touched in"} ${String(SELF_TUNABLES.OPEN_CARRY_DAYS)} lived days ${bundle.noLongerCarried === 1 ? "is" : "are"} no longer carried; recall shows them." They are not closed: a touch carries one again.`,
           ]
         : []),
       ...(bundle.feelingWeeks !== null
@@ -3286,16 +3286,22 @@ export class Reflections {
   /**
    * THE OPEN THREADS NO LONGER CARRIED (2026-10-22, the open-threads brief):
    * every open thread `openCarry` leaves out tonight (`all`, recorded on the
-   * row as `notCarried`), and how many of them the last FINISHED reflection
-   * did not already record (`fresh`) — so the share says each one's leaving
-   * once, as a count. A first night after this shipped counts them all.
+   * row as `notCarried`), and how many of them the last reflection whose
+   * SHARE REACHED A SESSION — `told`, or `carried` into a waking session with
+   * the ask to tell it — did not already record (`fresh`). So the share says
+   * each one's leaving once, as a count, and a night whose share never went
+   * out (none written, never carried, never finished) spends nothing: the
+   * next told share says it (the review of #592, F5). A first night after
+   * this shipped counts them all.
    */
   private noLongerCarried(id: string, day: number): { all: string[]; fresh: number } {
     const all = [...openCarry(this.store, day, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried.keys()].sort();
     if (all.length === 0) return { all, fresh: 0 };
     let before = new Set<string>();
     try {
-      const prior = this.store.reflections({ limit: 8 }).find((r) => r.id !== id && r.finished_at !== null);
+      const prior = this.store
+        .reflections({ limit: 60 })
+        .find((r) => r.id !== id && (r.share_state === "told" || r.share_state === "carried"));
       if (prior !== undefined) before = new Set(stringIds(parseDetail(prior.detail)["notCarried"]));
     } catch {
       /* unreadable: count them all, once more */
@@ -3317,31 +3323,22 @@ export class Reflections {
   ): { id: string; text: string; untouched: number; reopened?: true }[] {
     const T = REFLECT_TUNABLES;
     const found: { id: string; text: string; untouched: number; reopened?: true }[] = [];
-    let ids: string[] = [];
-    try {
-      ids = this.store.openThreadIds();
-    } catch {
-      return [];
-    }
-    // Only the threads still carried (2026-10-22, `self/identity.ts#openCarry`,
-    // the wake's own rule): one nobody touched in `OPEN_CARRY_DAYS` is not
-    // offered. Being offered here is not a touch. The offer's own ageing is
-    // as before (born or used), so a reopened thread is offered the next night.
+    // Only the open threads still carried (2026-10-22, `self/identity.ts#openCarry`,
+    // the wake's own rule and its one test of what a thread is — not dreamed,
+    // not settled over, the flag confirmed on the prose): one nobody touched
+    // in `OPEN_CARRY_DAYS` is not offered. Being offered here is not a touch.
+    // The offer's own ageing is as before (born or used), so a reopened thread
+    // is offered the next night.
     const carry = openCarry(this.store, day, SELF_TUNABLES.OPEN_CARRY_DAYS);
-    for (const mid of ids) {
-      if (carry.notCarried.has(mid)) continue;
+    for (const mid of carry.carried) {
       const v = see(mid);
-      if (v === null || v.row.source === "dreamed") continue;
-      // Settled over by a later memory: that one carries it now.
-      if (headOf(this.store, mid) !== null) continue;
+      if (v === null) continue;
       const untouched = day - Math.max(v.row.birth_day, v.row.last_used_day);
       if (untouched < T.STALE_OPEN_DAYS) continue;
       let reopened = false;
       try {
-        const meta = this.store.readProse(mid).meta;
-        if (meta[UNRESOLVED_META_KEY] !== true) continue;
         // Reopened by the owner after a reflection closed it (2026-10-20): it may only be asked about.
-        reopened = typeof meta[THREAD_REOPENED_BY_META_KEY] === "string";
+        reopened = typeof this.store.readProse(mid).meta[THREAD_REOPENED_BY_META_KEY] === "string";
       } catch {
         continue;
       }
@@ -3859,13 +3856,6 @@ interface Composed {
 
 /** The bundle's other furniture, reserved from the room: ids, lists, the questions, the limits. */
 const REFLECT_FURNITURE = 4_000;
-
-/** `OPEN_CARRY_DAYS` in words for the share (2026-10-22): "three weeks", else "N lived days". */
-export function carryWindowWords(days: number): string {
-  const weeks = ["", "a week", "two weeks", "three weeks", "four weeks", "five weeks", "six weeks"];
-  if (days % 7 === 0 && days / 7 < weeks.length && days > 0) return weeks[days / 7] as string;
-  return `${String(days)} lived days`;
-}
 
 /** Was this row on that calendar day? Its date, else (a row with none) its lived day. */
 function onDay(row: { date: string | null; day: number }, at: string, day: number): boolean {

@@ -441,10 +441,12 @@ closed almost nothing (10-17..10-22: 5 shown a night, 1 closed in six nights; th
   fact gets no flag.
 - **Close time.** The Stop ask's last line names THIS session's own open items (wrote, or used with a return), title
   and id, at most `STOP_OPEN_MAX` (5); none, no line.
-- **Carry.** An open item with no eventDate, not `asked`, untouched (born, used, revised — not a dream's or a
-  reflection's return, not being listed) for `self.OPEN_CARRY_DAYS` (21) lived days is no longer carried: out of the
-  wake's Still open and its count (both wakes), and the reflection's `staleOpen`. Not closed. The reflection's
-  bundle says `noLongerCarried` (new since the last finished reflection) and the share says it once.
+- **Carry.** An open item with no eventDate, not `asked`, untouched (born, used beyond a glimpse, revised — not a
+  footnote left unrated, not a dream's or a reflection's return, not being listed) for `self.OPEN_CARRY_DAYS` (21)
+  lived days is no longer carried: out of the wake's Still open and its count (both wakes), and the reflection's
+  `staleOpen`. Not closed. The reflection's bundle says `noLongerCarried` (new since the last share that reached a
+  session) and the share says it once. A glimpse not being a touch is the coordinator's call (10-22, lightly held,
+  for Mike); it still restarts the memory's fade (Mike's 10-19 ruling).
   `STALE_OPEN` stays 5.
 
 **Baseline** (live store, read-only, 10-22, lived day 31): 88 open in the wake (10 untouched 2+ weeks), 129
@@ -457,12 +459,13 @@ narrower text; closures per `session_end` (`counterpart.thread.closed` ring even
 items the Stop ask named; items no longer carried per night (`reflections.detail.notCarried`, length and the
 difference night to night) and whether the share said the count once; the reflection's closed/proposed per night
 (`detail.selfClosed`, `detail.closeProposed`) — should stay or rise, since what it sees is now real threads. Spot-read
-a few no-longer-carried items: is any one a real debt someone still waits on? And is an old item kept alive only by
-ambient glimpses (`returns` rows `shown` on it, no other use)?
+a few no-longer-carried items: is any one a real debt someone still waits on — and was it one the conversation kept
+surfacing as footnotes (`returns` rows `shown`), the case the glimpse rule deliberately lets go? Whether the Stop
+ask's list ever names another folder's item (it should not: only what the session wrote or used).
 
-**What would change it.** A real debt dropped → lengthen `OPEN_CARRY_DAYS` (28? 35?), or carry `said_by: owner` too.
-Still open still near 88 after two weeks → look at what keeps them touched (glimpses?) or narrow the write-time text
-further. Sessions never close the named items → change the line's wording, or drop it (`STOP_OPEN_MAX` 0).
+**What would change it.** A real debt dropped → lengthen `OPEN_CARRY_DAYS` (28? 35?), or carry `said_by: owner` too;
+one dropped while the conversation kept glimpsing it → count glimpses as touches again (Mike's call). Still open
+still near 88 after two weeks → look at what keeps them touched or narrow the write-time text further. Sessions never close the named items → change the line's wording, or drop it (`STOP_OPEN_MAX` 0).
 
 **Revert.** `self.OPEN_CARRY_DAYS` very large (`Infinity`: carries everything, as before); the `unresolved`
 description and the Stop ask's `OPEN_MEANS` clause back to the 10-21 text; `STOP_OPEN_MAX` 0 (the ask as before, two

@@ -137,8 +137,9 @@ export interface SelfTunables {
    * AN UNTOUCHED, OWNERLESS OPEN ITEM STOPS BEING CARRIED (2026-10-22, the
    * open-threads brief; Mike agreed the shape, the number is a starting
    * point, check 2026-11-05). An `unresolved` memory with no `eventDate`, not
-   * `asked`, untouched — not born, used or revised; a dream's or a
-   * reflection's return is not a touch (`Store#openThreadTouches`) — for this
+   * `asked`, untouched — not born, used beyond a glimpse, or revised; a
+   * footnote left unrated, a dream's or a reflection's return is not a touch
+   * (`Store#openThreadTouches`) — for this
    * many lived days or more is not carried: it leaves "Still open" and its
    * count, and the reflection's `staleOpen`. It is NOT closed: the flag stays,
    * the memory stays in the store (in no lane of the wake), recall shows it, and any touch carries it
