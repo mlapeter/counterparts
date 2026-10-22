@@ -1276,3 +1276,44 @@ call (`ref` the session) and touches nothing else. What the build chose:
 - `Candidate.confidential`, `isConfidential` and the `confidential-withheld` verdict are
   gone. An old `mcp.recall` row may still carry the string in `blockedBy`; its readers
   take any verdict name.
+
+## 2026-10-21 — a project filter for ambient recall, built and OFF (wave 2 lane G, item 4)
+
+Nothing in recall read `origin_scope`, so a footnote could show another folder's work. Design
+§8 says work stays in its project, but that came from the wake's rule, and Mike has not said
+anything about footnotes yet; the coordinator is asking him. So the filter is built behind
+`RECALL_BY_PROJECT`, default off (CONTRACT §5 G21).
+
+Measured on a copy of the 2026-10-20 corpus, from its recorded `recall.decision` rows (3,081
+ambient turns that showed something; the session's folder is the one its own memories were
+written in, known for 2,914):
+
+- On, it would have removed 1,373 of 5,958 footnotes (23%) and 14 of 78 surfaced items,
+  and 1,001 turns would have lost at least one.
+- With ~/counterparts-site joined to ~/counterparts: 1,152 footnotes (19%), 11 surfaced.
+- The largest crossings are ~/counterparts → ~/random (352) and ~/random → ~/counterparts
+  (187). ~/random is the owner's notes folder about the same work, so a folder filter would
+  cut that cross-talk unless ~/random joins the project. That is the fact to put in front of
+  him with the question.
+
+### 2026-10-21, later — Mike ruled: a slightly higher bar, reviewed after a week
+
+"We could try a slightly higher bar, and review after a week." So the default is a lift, not a filter:
+`CROSS_PROJECT_BAR_LIFT` 1.25 multiplies another project's work's admit and loud bars, after the floor, the way
+`HABITUATION_BAR_LIFT` does (and the two multiply when both apply). The hard filter stays built and off.
+
+Why the lift is plausible, from the corpus copy's footnote ratings (0–3): home work mean 0.94 (n=163), crossing work
+from other folders 0.37 (n=38), crossing work between ~/counterparts and ~/random 0.70 (n=37), crossing
+personal/craft 0.51 (n=111). Recorded decisions keep each footnote's activation but not its bar, so how many the lift
+would have kept back can't be read off them; the decision row's `crossProjectLifted` says it from now on.
+
+Known gap: the turn's project here does not ask the host's folder setting (recall has none to ask), so a joined
+folder set off counts as this project's — the lift then does not apply to it. The wake gates it (self NOTES).
+
+After review of #579: the crossing check is the wake's rule exactly — meta read once, a journal copy by
+`meta.episodeId` as `workHere` reads it, the mark through `aboutMarkOf`, a revised skill's `craftBornDay`. So a
+Desktop-chat memory marked `work` (its scope `claude-desktop:`, not a folder) is lifted in a folder's turn when it
+is outside that folder's project — as the wake leaves it out of that folder's "Work here". (An unmarked Desktop fact
+is not work, wake and recall alike.) `crossProjectLifted` counts what the lift kept below the bar; one of those might
+still have lost to the footnote cap or the trim, and a loud→footnote demotion is not counted. Lift 1 is the same
+turn as no check at all (`recall-by-project.test.ts`).

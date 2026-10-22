@@ -36,6 +36,7 @@ or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts d
 | The elsewhere lines name what was written: "Today, elsewhere" and "Since you started" carry up to two memory titles a folder (work in progress first), gated like the chapters, and "Here, also open:" the other live sessions in this folder with theirs, within the same 300 bytes | in review 10-20, unreleased | ~10-23 | "Due ~2026-10-23 (the elsewhere lines' titles)" below; `docs/decisions.d/feat-elsewhere-titles-1020.md` |
 | Facts title tail (the next 20 matches as title · id · date lines after the 10 bodies; credits nothing) + soft time words ("lately" ranks recent first, doesn't filter); from the benchmark loss read | in review 10-20, unreleased | ~10-27 on the live store: how often a tail title gets opened, whether the tail is noise | "Due ~2026-10-27 (the facts title tail …)" below; `docs/decisions.d/feat-facts-title-tail-1020.md` |
 | Core questions that waited a week: the reflection is offered up to 3 core memories waiting 7+ lived days on keep-or-retire (with their unsettled pair) and decides where it can, said in the share with the way back; the wake leads with one, both labels shown | not released, 10-20 | ~10-27 | "Due ~2026-10-27 (core questions)" below; `docs/decisions.d/feat-core-questions-waited-1020.md` |
+| Another project's work faces a slightly higher bar in ambient recall (`CROSS_PROJECT_BAR_LIFT` 1.25; the hard filter `RECALL_BY_PROJECT` built, off) | not released, 10-21 (Mike's "a slightly higher bar, and review after a week") | ~2026-10-29: footnote ratings home vs crossing, ~/counterparts ↔ ~/random apart; `crossProjectLifted` per turn | "Due ~2026-10-29 (a higher bar for another project's work)" below |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -350,6 +351,31 @@ it does not move that read.
 - **Changes a decision if:** "recently" questions start answering with old matches first
   (raise `FACTS_SOFT_RECENT_BONUS` from 0.25, or filter again with a fallback past the window).
 - **Revert:** drop `{ soft: true }` from the soft branch in `src/core/recall/time-ask.ts`.
+
+## Due ~2026-10-29 (a higher bar for another project's work, 2026-10-21, Mike's ruling on lane G item 4, an experiment)
+
+**What we're trying.** In ambient recall, a memory that is ANOTHER project's work (written in a folder outside the
+turn's folder's project, `folder_projects`; work by `self/work.ts#isWorkMemory`) faces bars ×1.25
+(`recall.CROSS_PROJECT_BAR_LIFT`, the way habituation's ×1.5 lift works). Personal memories and craft are never lifted.
+The hard filter (`recall.RECALL_BY_PROJECT`) is built and off.
+
+**Baseline** (the 2026-10-20 corpus copy, `recall.rated` footnote ratings 0–3, a session's folder taken from its own
+memories): home work n=163 mean 0.94; home personal/craft n=124 mean 0.81; crossing work, other folders n=38 mean
+0.37; crossing work, ~/counterparts ↔ ~/random n=37 mean 0.70; crossing personal/craft n=111 mean 0.51.
+
+**What to look at.** Re-measure the same split on the live store with a week more ratings (the script is lane G's
+`ratings.ts`; the same joins in SQL work). Also `recall.decision`'s `crossProjectLifted` per turn: how many a day the
+lift kept below the bar, and in which folder pairs. Read it as "kept below the bar", not "would have shown": one it
+counts might still have lost to the footnote cap or the budget's trim, and a loud item the lift demoted to a footnote
+is not counted.
+
+**What would change it.** Crossing work still rated well under home work → raise the lift (1.5?), or turn on the
+hard filter for pairs other than ~/counterparts ↔ ~/random (or join ~/random to the project). Crossing ratings rise
+toward home ones and no complaint of missing context → keep. ~/counterparts ↔ ~/random footnotes the owner misses →
+join ~/random to the Counterparts project (`counterparts project join ~/random ~/counterparts`), which removes the
+lift there.
+
+**Revert.** `recall.CROSS_PROJECT_BAR_LIFT` to 1.
 
 ## Due at the first live catch-up (the nightly run's or `counterparts catch-up`)
 

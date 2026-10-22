@@ -499,6 +499,17 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     `Turn.echo`. Known gap: a memory a server wrote before it knew its session
     (`UNBOUND_SESSION`) can still echo. Revert by no longer setting `Turn.echo` in
     `recallForTurn`. Tests: `echo-skip.test.ts`.
+    **Another project's work faces a slightly higher bar** (2026-10-21, wave 2 lane G; Mike:
+    "we could try a slightly higher bar, and review after a week" — an experiment, CHECK-AFTER
+    ~10-29). `recallForTurn` binds `Turn.elsewhere` for a turn in a folder: work
+    (`self/work.ts#isWorkMemory`) written in a folder outside this one's project
+    (`folder_projects`). Its admit and loud bars are multiplied by `CROSS_PROJECT_BAR_LIFT`
+    (1.25), after the floor, as habituation's lift is; the decision row's
+    `crossProjectLifted` counts what the lift alone kept back. The hard filter
+    (`RECALL_BY_PROJECT`, off) instead turns it away as `project-skipped` at the echo skip's
+    two places (`projectSkipped`). Craft, personal marks, a memory with no folder and a joined
+    folder's work are never another project's; deliberate recall never sets it. Lift 1 and
+    the filter off: nothing is bound. Tests: `recall-by-project.test.ts`.
 22. **[M]** **Context priming: what the session is doing gives its neighbours a head start**
     (an experiment started 2026-10-19, `prime.ts`: trying it to see whether primed
     footnotes are rated more useful than unprimed ones without one cluster winning turn

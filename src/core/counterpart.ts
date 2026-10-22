@@ -168,7 +168,9 @@ import {
   projectFolders,
   projectFolder,
   craftSince,
+  craftBornDay,
   CRAFT_SINCE_KEY,
+  isDirectoryScope,
 } from "./self/index.js";
 import type {
   BriefingResult,
@@ -195,7 +197,7 @@ import { dayJournal } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
 import type { CoreDecision, CoreDecisionActor } from "./sleep/index.js";
 import type { CyclePartial, CycleReport } from "./sleep/index.js";
-import { ABOUT_MARKS, CORE_ABOUT_MARKS, Store, assertSafeDataDir, rowTombstoned, hashText, indexTextOf } from "./store/index.js";
+import { ABOUT_MARKS, CORE_ABOUT_MARKS, Store, aboutMarkOf, assertSafeDataDir, rowTombstoned, hashText, indexTextOf } from "./store/index.js";
 import type {
   AboutMark,
   AddFeelingsResult,
@@ -2221,7 +2223,8 @@ export class Counterpart {
     const cued: RecallTurn =
       arrived === null ? turn : { ...turn, temporal: arrived.map((a) => ({ id: a.memoryId, weight: a.cueWeight })) };
     const echo = turn.echo ?? this.echoOf(turn.sessionId, opts.echoSince, opts.sessionFrom);
-    const withCues: RecallTurn = echo.size === 0 ? cued : { ...cued, echo };
+    const echoed: RecallTurn = echo.size === 0 ? cued : { ...cued, echo };
+    const withCues: RecallTurn = turn.elsewhere !== undefined ? echoed : this.withElsewhere(echoed, opts.scope);
     const result = recallTurn(this.recall, this.withPrime(this.withSemantic(withCues), opts.scope), {
       schemas: this.schemas,
       prospective: this.prospective,
@@ -2231,6 +2234,44 @@ export class Counterpart {
     this.recordDecision(result.decision, opts.at ?? null);
     if (arrived !== null && opts.at !== undefined) this.spendArrivals(arrived, result.decision, opts.at);
     return result;
+  }
+
+  /**
+   * ANOTHER PROJECT'S WORK, FOR AMBIENT RECALL (2026-10-21, wave 2 lane G;
+   * `recall/tunables.ts#CROSS_PROJECT_BAR_LIFT`, on at 1.25 — Mike's "a
+   * slightly higher bar" — and the hard filter `RECALL_BY_PROJECT`, off):
+   * with either on and a folder to read, the turn carries a check the gate
+   * asks of what it would show — a memory that is work (`self/work.ts#isWorkMemory`, craft
+   * travelling as `PROJECTS_TRAVEL` says) written in a folder outside this
+   * one's project (`projectFolders`). A memory with no folder, personal, or
+   * craft is never another project's. Off, or with no folder: the turn as it
+   * was. Reads only.
+   */
+  private withElsewhere(turn: RecallTurn, scope: string | undefined): RecallTurn {
+    const t = this.recall.tunables;
+    if (!(t.RECALL_BY_PROJECT || t.CROSS_PROJECT_BAR_LIFT > 1) || scope === undefined || !isDirectoryScope(scope)) return turn;
+    const travels = this.self.tunables.PROJECTS_TRAVEL;
+    const ours = new Set(projectFolders(this.store, scope, travels));
+    const since = craftSince(this.store);
+    const elsewhere = (id: string): boolean => {
+      const row = this.store.row(id);
+      if (row === undefined || row.origin_scope === null) return false;
+      const origin = projectFolder(row.origin_scope);
+      if (origin.length === 0 || ours.has(origin)) return false;
+      // THE WAKE'S OWN RULE, EXACTLY (review of #579): the meta read once, a
+      // journal copy as `workHere` tells one (`meta.episodeId`), the mark
+      // through `aboutMarkOf`, and a revised skill's first-learned day.
+      let meta: Readonly<Record<string, unknown>>;
+      try {
+        meta = this.store.readProse(id).meta;
+      } catch {
+        return false;
+      }
+      const journal = typeof meta["episodeId"] === "string";
+      const bornDay = row.kind === "skill" ? craftBornDay(meta, row.birth_day) : row.birth_day;
+      return isWorkMemory({ about: aboutMarkOf(row.about), kind: row.kind as Kind, originScope: row.origin_scope, journal, bornDay }, { craftTravels: travels, craftSince: since });
+    };
+    return { ...turn, elsewhere };
   }
 
   /**
