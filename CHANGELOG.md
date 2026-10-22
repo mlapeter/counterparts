@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.3.30 — 2026-10-21
+
+Nothing is held back from your sessions any more. Confidential memories are gone: nothing in Counterparts could set that mark, so on most stores nothing changes on screen; a memory marked that way through the store directly now reads like any other everywhere, and doctor shows one amber line with how many remain only if your store had any. The split between your sessions and guest ones is gone too: any session, a Claude Desktop chat and the nightly run included, can close a thread or a reminder by its id from any folder (a protected memory still never closes), and every session gets its folder's "Last said here"; observer stays read-only. The nightly run no longer leaves a Claude Code transcript under `~/.claude/projects/`; transcripts from earlier nights are left to Claude Code's own cleanup, or you can delete the folder named after your memory store. The `owner` line in your configuration is now ignored and doctor names it under "Old settings" (you may delete it); `export --include-confidential`, the memory server's `--owner` and `COUNTERPARTS_OWNER` are accepted and ignored for this release. Code that embeds Counterparts loses the confidential fields and options listed below. No store-format change (store v13, cache v7) and no wiring change: nothing to run after upgrading from 0.3.29, and `counterparts connect` is not needed.
+
+- **Confidential memories are gone: nothing is held back as confidential any more.** No
+  part of Counterparts could mark a memory confidential; only code calling the store
+  directly with a `confidential` meta key could. A memory marked that way is now recalled,
+  named, dreamed on, reflected on and written up like any other, in every session: the
+  owner's, a Claude Desktop chat, the night run and an observer. If your store had any,
+  they are counted once, at the first open after the upgrade, and `counterparts doctor`
+  shows one amber line with how many are still there (the ids are in `doctor --json`)
+  for as long as any remain, so you can remove any you don't want with
+  `counterparts remove <id>`. A store with none shows nothing.
+- **A night may count a few more memories as new** on a store that had confidential
+  memories, since the dream's queue no longer leaves them out. The recall tool's
+  description no longer mentions confidentiality.
+- **The dashboard, the sidebar and the console show every memory's words.** A memory
+  that carried the old confidential key reads like any other on every page (the card,
+  the list, search, Today, traits, the journal and the dreams), in the sidebar, in the
+  `remove` list and in `dream`, `night` and `core --list`, where the `[confidential]`
+  marker is gone.
+- **`export --markdown` carries everything.** Every live memory, earlier wording,
+  dream and reflection is in the tree, and the manifest no longer has an "omitted"
+  line. `--include-confidential` is still accepted for one release, does nothing, and
+  says so in one line; it goes in the release after. Without `--markdown` it is still
+  refused by name, as before.
+- **Doctor's mechanism census has one row fewer**: the "confidentiality" row is gone,
+  with the gate it counted.
+- **Every session can close what it finds, from any folder.** A thread or a reminder
+  is closed by its id from whichever folder you are in, from any session: Claude Code,
+  a Claude Desktop chat, the nightly run's write-ups, and the reflection's `close`. A
+  protected memory is still never closed. Until now a session that was not "yours"
+  (a Desktop chat, the night run) could not close something written in another folder.
+- **"Last said here" in every session.** Any session that opens in a folder gets the
+  wake's "Last said here" line and can recall "last exchange", a Desktop chat and the
+  night run included. Under observer it is still not given.
+- **No more "owner".** `status` no longer reports `owner`, `ownerFrom` or `ownerMeans`;
+  doctor's Mode line just says "remembering" (or the observer line). `install` no
+  longer writes `"owner": true`; an existing configuration's `owner` is ignored and
+  named under doctor's "Old settings" (you may delete it). `COUNTERPARTS_OWNER` does
+  nothing now, and the memory server's `--owner` flag is accepted and ignored for one
+  release.
+- **For code that embeds Counterparts: the confidential leftovers are gone from the
+  API.** `confidentialByMeta`, `isConfidential`, `StoredMemory.confidential`,
+  `TraitRead.confidential` / `withheld`, the `includeConfidential` option on the trait
+  reads and `{ confidential }` on `memoryCountsByScopeSince` / `planCandidates`, the
+  `confidential` member of `copiesOf` and `coreList()`, `MemoryRow.confidential` and
+  `RecallRow.confidential`, `WriterJournal.omitted`, the `confidential` member of the
+  page writer's `omit` predicate, and the verdict and refusal
+  names `confidential-withheld`, `handle-confidential-withheld`, `confidential` and
+  `other-directory` no longer exist; the dashboard's JSON rows no longer carry a
+  `confidential` field (nor the traits view a `withheld` one). Nothing changes on screen. `export --include-confidential` is
+  still accepted, and ignored, this release. With the yours/guest split, `OWNER_FALSE_NOTE` is
+  gone from `counterparts/mcp` (written at release from #568's diff).
+- **The nightly run no longer leaves a Claude Code transcript behind.** Each night child
+  (the dream, the reflection, a write-up owed) used to be saved by Claude Code under
+  `~/.claude/projects/`, with the memories it read and the conversation it wrote up,
+  kept there until Claude Code's own cleanup (30 days by default) and out of reach of
+  Counterparts' own retention. It now runs with `--no-session-persistence`, so nothing is
+  saved there. Transcripts from earlier nights are not touched; Claude Code's cleanup
+  removes them in time, or you can delete the folder named after your memory store.
+
 ## 0.3.29 — 2026-10-21
 
 Personal news now travels between your folders: each night the reflection looks at up to 24 memories nobody marked (it was 5), the personal-looking ones first, and marks the ones about you or the two of you so every folder's wake can show them, while work notes stay in the folder they came from; the morning share names what it re-marked and how to have one marked back, and nothing written in a folder you set off or paused is offered or carried out. In the plugin's sidebar the fox goes to work while Claude's turn runs and sits back down when it ends. The self page now keeps which memories each sentence rests on, doctor gains two reading-only lines ("Self page claims" and "Core"), and the dashboard's Self page shows the page in layers across its kept versions. The mechanism counts now include a dream's folds and band rises, so Consolidation and Interference read higher and Reconsolidation lower than before. Most of these are experiments, to be checked in a few days. Update the plugin with this release for the working fox and for sidebar mechanism counts that match the dashboard's; a 0.3.28 plugin keeps working beside this core, with the older counts. No store-format change (store v13, cache v7) and no wiring change: nothing to run after upgrading from 0.3.28, and `counterparts connect` is not needed.
