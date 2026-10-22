@@ -3286,23 +3286,28 @@ export class Reflections {
   /**
    * THE OPEN THREADS NO LONGER CARRIED (2026-10-22, the open-threads brief):
    * every open thread `openCarry` leaves out tonight (`all`, recorded on the
-   * row as `notCarried`), and how many of them the last reflection whose
-   * SHARE REACHED A SESSION — `told`, or `carried` into a waking session with
-   * the ask to tell it — did not already record (`fresh`). So the share says
-   * each one's leaving once, as a count, and a night whose share never went
-   * out (none written, never carried, never finished) spends nothing: the
-   * next told share says it (the review of #592, F5). A first night after
-   * this shipped counts them all.
+   * row as `notCarried`), and how many of them no share already holds
+   * (`fresh`). What a share holds: the `notCarried` of every row with a share
+   * — offered, carried or told — from the newest back to and including the
+   * last one that REACHED A SESSION (`told`, or `carried` into a waking
+   * session with the ask to tell it). An offered share not yet carried still
+   * will be (`pendingShare` finds the older ones too), so its count is its
+   * own and the next share does not say it again; a night with no share
+   * (quiet, never finished) holds nothing, so the next share says it. Each
+   * leaving lands in exactly one share (the review of #592, F5 and G2). A
+   * first night after this shipped counts them all.
    */
   private noLongerCarried(id: string, day: number): { all: string[]; fresh: number } {
-    const all = [...openCarry(this.store, day, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried.keys()].sort();
+    const all = [...openCarry(this.store, day, SELF_TUNABLES.OPEN_CARRY_DAYS, SELF_TUNABLES.OPEN_CARRY_GLIMPSE_TOUCH).notCarried.keys()].sort();
     if (all.length === 0) return { all, fresh: 0 };
-    let before = new Set<string>();
+    const before = new Set<string>();
     try {
-      const prior = this.store
-        .reflections({ limit: 60 })
-        .find((r) => r.id !== id && (r.share_state === "told" || r.share_state === "carried"));
-      if (prior !== undefined) before = new Set(stringIds(parseDetail(prior.detail)["notCarried"]));
+      for (const r of this.store.reflections({ limit: 60 })) {
+        if (r.id === id || r.share === null) continue;
+        if (r.share_state !== "offered" && r.share_state !== "carried" && r.share_state !== "told") continue;
+        for (const x of stringIds(parseDetail(r.detail)["notCarried"])) before.add(x);
+        if (r.share_state === "carried" || r.share_state === "told") break;
+      }
     } catch {
       /* unreadable: count them all, once more */
     }
@@ -3329,7 +3334,7 @@ export class Reflections {
     // in `OPEN_CARRY_DAYS` is not offered. Being offered here is not a touch.
     // The offer's own ageing is as before (born or used), so a reopened thread
     // is offered the next night.
-    const carry = openCarry(this.store, day, SELF_TUNABLES.OPEN_CARRY_DAYS);
+    const carry = openCarry(this.store, day, SELF_TUNABLES.OPEN_CARRY_DAYS, SELF_TUNABLES.OPEN_CARRY_GLIMPSE_TOUCH);
     for (const mid of carry.carried) {
       const v = see(mid);
       if (v === null) continue;

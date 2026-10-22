@@ -1052,7 +1052,7 @@ export class Self {
     const lanes: Lanes = {
       ...rankLanes(scanned, horizon, this.tunables, {
         // Which open threads are still carried (2026-10-22, `openCarry`).
-        carry: openCarry(this.store, req.day, this.tunables.OPEN_CARRY_DAYS),
+        carry: openCarry(this.store, req.day, this.tunables.OPEN_CARRY_DAYS, this.tunables.OPEN_CARRY_GLIMPSE_TOUCH),
         settledOver: settledOver(this.store),
         // "Still open"'s unsettled ones rank after the rest (2026-10-18): one
         // read of the pairs, for the open candidates only.
@@ -1138,7 +1138,7 @@ export class Self {
     const flagged = reconsideringIds(this.store);
     // Only the threads still carried (2026-10-22, `openCarry`): one nobody
     // touched in `OPEN_CARRY_DAYS` is in no lane here, as at the turn-end.
-    const carry = openCarry(this.store, day, this.tunables.OPEN_CARRY_DAYS);
+    const carry = openCarry(this.store, day, this.tunables.OPEN_CARRY_DAYS, this.tunables.OPEN_CARRY_GLIMPSE_TOUCH);
     const openIds = [...new Set([...this.store.openThreadIds().filter((id) => !carry.notCarried.has(id)), ...flagged])];
     const open: Scanned[] = [];
     for (const id of openIds) {

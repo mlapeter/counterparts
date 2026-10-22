@@ -147,6 +147,15 @@ export interface SelfTunables {
    * very large (`Infinity` carries everything, as before). CAL.
    */
   OPEN_CARRY_DAYS: number;
+  /**
+   * DOES A GLIMPSE CARRY AN OPEN THREAD (2026-10-22, the coordinator's call
+   * on the review of #592, lightly held, for Mike): false — an ambient
+   * footnote left unrated (the store's glimpse, a use since 10-19 that
+   * restarts the memory's fade) is NOT a touch for the carry, since "shown
+   * again and again, never answered" is the loop the carry breaks. True is
+   * the revert: every credited use carries it (`Store#openThreadTouches`).
+   */
+  OPEN_CARRY_GLIMPSE_TOUCH: boolean;
   /** Most warm-shelf hints considered. CAL. */
   HINTS_MAX: number;
   /** Most arriving occasions considered. CAL. */
@@ -402,6 +411,7 @@ export const SELF_TUNABLES: SelfTunables = {
   RECONSIDERING_MAX: 1,
   STILL_OPEN_STALE_DAYS: 14,
   OPEN_CARRY_DAYS: 21,
+  OPEN_CARRY_GLIMPSE_TOUCH: false,
   HINTS_MAX: 8,
   HORIZON_MAX: 6,
   COMING_UP_TODAY_ONLY: true,

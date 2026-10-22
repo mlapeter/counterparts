@@ -538,3 +538,187 @@ describe("review of #592 — F1/F2/F5: the Stop ask's own items", () => {
     expect(ask.length).toBeLessThanOrEqual(1_250);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The re-review of #592: a real use counts in every order, even on the day a
+// reflection cited it (G1); each leaving is said in exactly one share (G2);
+// the glimpse rule's revert; a core memory is never a thread here.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe("re-review of #592 — G1: a real use is a touch in every order; a glimpse never is", () => {
+  function onDay(c: Counterpart, n: number): void {
+    while (c.store.livedDay() < n) {
+      dateN += 1;
+      c.store.advanceClock(today());
+    }
+    expect(c.store.livedDay()).toBe(n);
+  }
+  async function stale(): Promise<{ c: Counterpart; x: string; filler: string }> {
+    const s = server("s-writer");
+    onDay(s.counterpart, 1);
+    const x = await remember(s, { text: "Open: should the glaze order get a second supplier this spring?", unresolved: true });
+    const filler = await remember(s, { text: "The kiln fires at cone six for the stoneware glaze." });
+    return { c: s.counterpart, x, filler };
+  }
+  const touched = (c: Counterpart, id: string): number | undefined => c.store.openThreadTouches().find((t) => t.id === id)?.touchedDay;
+  async function glimpse(c: Counterpart, session: string, x: string, filler: string): Promise<void> {
+    const s = as(c, session);
+    footnoted(c, session, 1, [x, filler]);
+    const r = await s.call("session_end", { session, memories: [], rated: [{ id: filler, score: 2 }] });
+    expect(r.isError ?? false).toBe(false);
+  }
+  async function rate(c: Counterpart, session: string, x: string, score: number): Promise<void> {
+    const s = as(c, session);
+    const read = await s.call("recall", { question: "glaze order second supplier spring", mode: "facts" });
+    expect(read.structuredContent["ids"]).toContain(x);
+    const r = await s.call("session_end", { session, memories: [], rated: [{ id: x, score }] });
+    expect(r.isError ?? false).toBe(false);
+  }
+
+  test("a glimpse alone is not a touch", async () => {
+    const { c, x, filler } = await stale();
+    onDay(c, 10);
+    await glimpse(c, "sA", x, filler);
+    expect(c.store.row(x)?.last_used_day).toBe(10);
+    expect(touched(c, x)).toBe(1);
+  });
+
+  for (const score of [1, 2, 3]) {
+    test(`a glimpse then rating ${String(score)} the same day, then a glimpse days later: touched on the rating's day`, async () => {
+      const { c, x, filler } = await stale();
+      onDay(c, 10);
+      await glimpse(c, "sA", x, filler);
+      await rate(c, "sB", x, score);
+      expect(touched(c, x)).toBe(10);
+      onDay(c, 15);
+      await glimpse(c, "sC", x, filler);
+      expect(touched(c, x)).toBe(10);
+    });
+    test(`rating ${String(score)} then a glimpse the same day: touched`, async () => {
+      const { c, x, filler } = await stale();
+      onDay(c, 10);
+      await rate(c, "sB", x, score);
+      await glimpse(c, "sA", x, filler);
+      expect(touched(c, x)).toBe(10);
+    });
+  }
+
+  test("two glimpses by two sessions the same day, then a rating 2 by a third: touched", async () => {
+    const { c, x, filler } = await stale();
+    onDay(c, 10);
+    await glimpse(c, "sA", x, filler);
+    await glimpse(c, "sB", x, filler);
+    await rate(c, "sC", x, 2);
+    expect(touched(c, x)).toBe(10);
+  });
+
+  test("used on its birth day (refused a credit), glimpsed the next: touched = birth", async () => {
+    const { c, x, filler } = await stale();
+    await rate(c, "sB", x, 3);
+    onDay(c, 2);
+    await glimpse(c, "sA", x, filler);
+    expect(touched(c, x)).toBe(1);
+  });
+
+  for (const how of ["rated 3", "drewOn"] as const) {
+    test(`${how} on the day the reflection cited it, then a glimpse the next day: the use still counts, through both wakes`, async () => {
+      const { c, x, filler } = await stale();
+      onDay(c, 10);
+      const night = c.reflections.begin({ session: "s-night" });
+      if (!night.ok) throw new Error(night.reason);
+      const fin = c.reflections.finish({ reflection: night.bundle.reflection, session: "s-night", entry: "A look back.", share: { text: "Did the glaze order get a second supplier?", cites: [x] }, close: [x] });
+      if (!fin.ok) throw new Error(fin.reason);
+      expect(c.store.returnsOf(x).some((r) => r.source === "reflection" && r.day === 10)).toBe(true);
+      if (how === "rated 3") await rate(c, "sB", x, 3);
+      else {
+        const s = as(c, "sB");
+        await s.call("recall", { question: "glaze order second supplier spring", mode: "facts" });
+        const d = await s.call("session_end", { session: "sB", memories: [], drewOn: [x] });
+        expect(d.structuredContent["drewOn"]).toEqual({ credited: [x] });
+      }
+      // The use was refused a return of its own (the reflection's counted that day).
+      expect(c.store.returnsOf(x).some((r) => r.day === 10 && r.source !== "reflection")).toBe(false);
+      expect(c.store.readProse(x).meta["usedDay"]).toBe(10);
+      onDay(c, 11);
+      await glimpse(c, "sA", x, filler);
+      expect(touched(c, x)).toBe(10);
+      onDay(c, 30);
+      const w = wakes({ counterpart: c } as McpServer);
+      for (const text of [w.built, w.assembled]) expect(inStillOpen(text, x)).toBe(true);
+      onDay(c, 31);
+      const w2 = wakes({ counterpart: c } as McpServer);
+      for (const text of [w2.built, w2.assembled]) expect(inStillOpen(text, x)).toBe(false);
+    });
+  }
+
+  test("OPEN_CARRY_GLIMPSE_TOUCH true (the revert): a glimpse carries it again", async () => {
+    expect(SELF_TUNABLES.OPEN_CARRY_GLIMPSE_TOUCH).toBe(false);
+    const { c, x, filler } = await stale();
+    onDay(c, 30);
+    await glimpse(c, "sA", x, filler);
+    expect(openCarry(c.store, 30, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried.has(x)).toBe(true);
+    expect(openCarry(c.store, 30, SELF_TUNABLES.OPEN_CARRY_DAYS, true).notCarried.has(x)).toBe(false);
+    const T = SELF_TUNABLES as { OPEN_CARRY_GLIMPSE_TOUCH: boolean };
+    T.OPEN_CARRY_GLIMPSE_TOUCH = true;
+    try {
+      // (The wake reads its own copy of the tunables, taken at open; the reflection reads these.)
+      const night = c.reflections.begin({ session: "s-night" });
+      if (!night.ok) throw new Error(night.reason);
+      expect(night.bundle.noLongerCarried).toBeUndefined();
+    } finally {
+      T.OPEN_CARRY_GLIMPSE_TOUCH = false;
+    }
+  });
+});
+
+describe("re-review of #592 — G2 and the nits", () => {
+  test("each leaving is said in exactly one share: an offered share holds its count until it is carried", async () => {
+    const s = server("s-writer");
+    const c = s.counterpart;
+    toDay(s, 1);
+    await remember(s, { text: "Open: is the old deploy key still on the build box?", unresolved: true });
+    await remember(s, { text: "Open: talk through the chapter numbering later.", unresolved: true });
+    toDay(s, 24);
+    const cite = await remember(s, { text: "Mike finished the kiln shelf inventory today." });
+    const SAY = "2 open items nobody touched in 21 lived days are no longer carried; recall shows them.";
+    toDay(s, 25);
+    const n1 = c.reflections.begin({ session: "s-night" });
+    if (!n1.ok) throw new Error(n1.reason);
+    expect(n1.bundle.noLongerCarried).toBe(2);
+    const f1 = c.reflections.finish({ reflection: n1.bundle.reflection, session: "s-night", entry: "A look back.", share: { text: SAY, cites: [cite] } });
+    if (!f1.ok) throw new Error(f1.reason);
+    // Night 2, the first share still only offered: it holds the count, so this one does not say it.
+    toDay(s, 26);
+    const n2 = c.reflections.begin({ session: "s-night" });
+    if (!n2.ok) throw new Error(n2.reason);
+    expect(n2.bundle.noLongerCarried).toBeUndefined();
+    const f2 = c.reflections.finish({ reflection: n2.bundle.reflection, session: "s-night", entry: "Again.", share: { text: "The kiln shelf inventory is done.", cites: [cite] } });
+    if (!f2.ok) throw new Error(f2.reason);
+    // Both shares go out, newest first; only the older one carries the count.
+    expect(c.reflections.pendingShare({ session: "s-morning" })?.id).toBe(n2.bundle.reflection);
+    expect(c.reflections.carryLine({ session: "s-morning", reflection: n2.bundle.reflection })).not.toBe(null);
+    expect(c.reflections.pendingShare({ session: "s-morning-2" })?.id).toBe(n1.bundle.reflection);
+    toDay(s, 27);
+    const n3 = c.reflections.begin({ session: "s-night" });
+    if (!n3.ok) throw new Error(n3.reason);
+    expect(n3.bundle.noLongerCarried).toBeUndefined();
+    // The build stamp (#591) and the not-carried record live side by side on the row.
+    const detail = JSON.parse(c.store.reflection(n1.bundle.reflection)?.detail ?? "{}") as Record<string, unknown>;
+    expect(detail["notCarried"]).toHaveLength(2);
+    expect(typeof detail["build"]).toBe("string");
+  });
+
+  test("a core memory flagged open is never a thread here: not counted as no longer carried", async () => {
+    const s = server("s-writer");
+    const c = s.counterpart;
+    toDay(s, 1);
+    const core = c.store.put({ type: "memory", kind: "person", body: "Robin keeps the glaze ledger and asks before reordering.", band: "identity", meta: { unresolved: true }, physics: { birthDay: 1, promotedIdentity: true } });
+    toDay(s, 25);
+    const carry = openCarry(c.store, 25, SELF_TUNABLES.OPEN_CARRY_DAYS);
+    expect(carry.touched.has(core)).toBe(false);
+    expect(carry.notCarried.has(core)).toBe(false);
+    const night = c.reflections.begin({ session: "s-night" });
+    if (!night.ok) throw new Error(night.reason);
+    expect(night.bundle.noLongerCarried).toBeUndefined();
+  });
+});

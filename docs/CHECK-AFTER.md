@@ -444,9 +444,10 @@ closed almost nothing (10-17..10-22: 5 shown a night, 1 closed in six nights; th
 - **Carry.** An open item with no eventDate, not `asked`, untouched (born, used beyond a glimpse, revised — not a
   footnote left unrated, not a dream's or a reflection's return, not being listed) for `self.OPEN_CARRY_DAYS` (21)
   lived days is no longer carried: out of the wake's Still open and its count (both wakes), and the reflection's
-  `staleOpen`. Not closed. The reflection's bundle says `noLongerCarried` (new since the last share that reached a
-  session) and the share says it once. A glimpse not being a touch is the coordinator's call (10-22, lightly held,
-  for Mike); it still restarts the memory's fade (Mike's 10-19 ruling).
+  `staleOpen`. Not closed. "Used" is `meta.usedDay`, written at every credited use but the glimpse. The
+  reflection's bundle says `noLongerCarried` (what no share already holds) and the share says it once. A glimpse
+  not being a touch is the coordinator's call (10-22, lightly held, for Mike); it still restarts the memory's fade
+  (Mike's 10-19 ruling); `self.OPEN_CARRY_GLIMPSE_TOUCH` true reverts that rule alone.
   `STALE_OPEN` stays 5.
 
 **Baseline** (live store, read-only, 10-22, lived day 31): 88 open in the wake (10 untouched 2+ weeks), 129
@@ -464,12 +465,13 @@ surfacing as footnotes (`returns` rows `shown`), the case the glimpse rule delib
 ask's list ever names another folder's item (it should not: only what the session wrote or used).
 
 **What would change it.** A real debt dropped → lengthen `OPEN_CARRY_DAYS` (28? 35?), or carry `said_by: owner` too;
-one dropped while the conversation kept glimpsing it → count glimpses as touches again (Mike's call). Still open
+one dropped while the conversation kept glimpsing it → count glimpses as touches again (Mike's call:
+`self.OPEN_CARRY_GLIMPSE_TOUCH` true). Still open
 still near 88 after two weeks → look at what keeps them touched or narrow the write-time text further. Sessions never close the named items → change the line's wording, or drop it (`STOP_OPEN_MAX` 0).
 
 **Revert.** `self.OPEN_CARRY_DAYS` very large (`Infinity`: carries everything, as before); the `unresolved`
 description and the Stop ask's `OPEN_MEANS` clause back to the 10-21 text; `STOP_OPEN_MAX` 0 (the ask as before, two
-lines).
+lines); the glimpse rule alone: `self.OPEN_CARRY_GLIMPSE_TOUCH` true.
 
 ## Due at the first live catch-up (the nightly run's or `counterparts catch-up`)
 

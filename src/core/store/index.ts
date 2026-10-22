@@ -1725,6 +1725,20 @@ export class Store {
           verdict.next.reinforcedDays,
           id,
         );
+        // AN OPEN THREAD'S LAST REAL USE (2026-10-22, the review of #592, G1):
+        // every credited use but the glimpse writes its lived day into an
+        // open memory's meta (`reads-memories.ts#OPEN_USED_DAY_META`), which
+        // the carry reads — the returns table cannot, when a reflection's
+        // return earlier that day refused this use one of its own. Meta is
+        // JSON: no schema bump, no version row (a use is not a revision).
+        if (tier !== "shown") {
+          this.ops.run(
+            `UPDATE memories SET meta = json_set(meta, '$.${memoryReads.OPEN_USED_DAY_META}', ?)
+              WHERE id = ? AND meta LIKE '%"unresolved":true%' AND json_valid(meta)`,
+            day,
+            id,
+          );
+        }
         // A PARTIAL USE (2026-10-11 engaged; 2026-10-19 a glimpse, a rating
         // of 1) is a return of its own source, outside the core lanes. A use
         // that LIFTS today's partial credit takes that return back first, so
@@ -5195,8 +5209,8 @@ export class Store {
    *  revised — never a dream's or a reflection's return) and whether it is
    *  dated or `asked` (2026-10-22, `reads-memories.ts#openThreadTouches`):
    *  what the carry rule reads (`self/identity.ts#openCarry`). */
-  openThreadTouches(): { id: string; touchedDay: number; dated: boolean; asked: boolean }[] {
-    return memoryReads.openThreadTouches(this);
+  openThreadTouches(opts: { glimpses?: boolean } = {}): { id: string; touchedDay: number; dated: boolean; asked: boolean }[] {
+    return memoryReads.openThreadTouches(this, opts);
   }
 
   /** The open memories ONE session wrote or used (awake, engaged — not a glimpse), most recently touched first, at most

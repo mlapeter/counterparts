@@ -2663,25 +2663,29 @@ check 2026-11-05 (first look 10-29):
   `staleOpen` read: an open item with no eventDate, not `asked`, untouched for `OPEN_CARRY_DAYS`
   (21) lived days is not carried — in no lane of the wake, not offered to the reflection. Not
   closed; a touch carries it again. What a thread is at all is one test, `openThread` (not dreamed,
-  not settled over — `headOf` — the flag confirmed on the prose), shared by the carry, its count and
-  the Stop ask (the review of #592). TOUCHED (`Store#openThreadTouches`) is born, used beyond a
-  glimpse, or revised (`versions.version_day`: an `updates` that keeps it open, a reopen).
-  `last_used_day` is every credited use, a glimpse included (an ambient footnote left unrated,
-  since 10-19); when the use on that day was a glimpse (a `shown` return row that day — written
-  whenever a glimpse is credited, and lifted away by a fuller use the same day) the read falls back
-  to the newest `awake` / `engaged` / `ontopic` return. So a rating of 1–3, a quote, `drewOn`, a
-  claim carry it; a glimpse, a rating of 0 and a recall answer only shown do not. The coordinator's
-  call (10-22, lightly held, for Mike): the loop the carry breaks is "shown again and again, never
+  not settled over — `headOf` — not a core memory, the flag confirmed on the prose), shared by the
+  carry, its count and the Stop ask (the review of #592). TOUCHED (`Store#openThreadTouches`) is
+  born, used beyond a glimpse, or revised (`versions.version_day`: an `updates` that keeps it open,
+  a reopen). USED is `meta.usedDay`: `Store#reinforce` writes the lived day of every credited use
+  but the glimpse (a rating of 1–3, `drewOn`, a quote, a claim, an expansion) into an open
+  memory's meta. The returns table alone could not say it (the re-review, G1): a real use on the
+  day a reflection's cite already counted a return is refused one of its own, and a glimpse the
+  next day hid it. For history before `usedDay`, the returns-based read stands beside it:
+  `last_used_day`, read back to the newest `awake` / `engaged` / `ontopic` return when that day's
+  credit was a glimpse (a `shown` row that day). So a rating of 1–3, a quote, `drewOn`, a claim
+  carry it; a glimpse, a rating of 0 and a recall answer only shown do not. The coordinator's call
+  (10-22, lightly held, for Mike): the loop the carry breaks is "shown again and again, never
   answered", and a glimpse is exactly that. The glimpse still restarts the memory's FADE (Mike's
-  10-19 ruling) — only the carry ignores it. A use whose return was refused on that same glimpse
-  day is lost to the carry (rare). Not a dream's replay or a reflection's return — a share that asks
+  10-19 ruling) — only the carry ignores it; `OPEN_CARRY_GLIMPSE_TOUCH` true reverts it. Not a dream's replay or a reflection's return — a share that asks
   about a stale thread cites it, and that would carry it forever — and not being listed: the wake's
   "Still open" and the reflection's bundle write none of these. The lane's own ageing (the
   weeks-old count) and `staleOpen`'s "untouched" still read born-or-used, so a reopened thread is
   offered the next night as before.
-- The reflection's bundle carries `noLongerCarried`, a count of what stopped being carried since
-  the last reflection whose share reached a session (`told`, or `carried` into a waking session;
-  each row's full set is on `detail.notCarried`), and the share says it once ("… nobody touched in
-  21 lived days …"), never the list. A night whose share never went out spends nothing.
+- The reflection's bundle carries `noLongerCarried`, a count of what stopped being carried that no
+  share already holds — the `detail.notCarried` of every row with a share (offered, carried, told),
+  back to and including the last one that reached a session — and the share says it once ("…
+  nobody touched in 21 lived days …"), never the list. An offered share will still be carried, so
+  it keeps its count; a night with no share spends nothing. Each leaving lands in one share.
 
-Revert: `OPEN_CARRY_DAYS` `Infinity`; the description and `OPEN_MEANS` back; `STOP_OPEN_MAX` 0.
+Revert: `OPEN_CARRY_DAYS` `Infinity`; the description and `OPEN_MEANS` back; `STOP_OPEN_MAX` 0;
+the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.

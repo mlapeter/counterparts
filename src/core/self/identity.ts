@@ -231,13 +231,15 @@ export function waitingIds(store: Store, day: number): Set<string> {
  * same `staleOpen` used. A live memory, not one the night wrote (`dreamed`),
  * not settled over or replaced by a later one (`recall/standing.ts#headOf`:
  * that one carries it now, and every lane hides this one), whose prose says
- * `unresolved: true` (the SQL match is loose). Never throws: unreadable is
+ * `unresolved: true` (the SQL match is loose). Not a core memory either
+ * (identity band, the re-review of #592): it shows under "Who I am" whatever
+ * its flag, so it is never "no longer carried". Never throws: unreadable is
  * not a thread.
  */
 export function openThread(store: Store, id: string): boolean {
   try {
     const row = store.row(id);
-    if (row === undefined || row.archived !== 0 || row.type !== "memory" || row.source === "dreamed") return false;
+    if (row === undefined || row.archived !== 0 || row.type !== "memory" || row.source === "dreamed" || row.band === "identity") return false;
     if (headOf(store, id) !== null) return false;
     return store.readProse(id).meta["unresolved"] === true;
   } catch {
@@ -277,12 +279,14 @@ export function carriesOpen(f: { readonly touchedDay: number; readonly dated: bo
   return day - f.touchedDay < days;
 }
 
-export function openCarry(store: Store, day: number, days: number): OpenCarry {
+/** `glimpses`: `SelfTunables.OPEN_CARRY_GLIMPSE_TOUCH` — true counts an
+ *  unrated footnote as a touch again (the revert of the 10-22 call). */
+export function openCarry(store: Store, day: number, days: number, glimpses = false): OpenCarry {
   const touched = new Map<string, number>();
   const carried: string[] = [];
   const notCarried = new Map<string, number>();
   try {
-    for (const f of store.openThreadTouches()) {
+    for (const f of store.openThreadTouches({ glimpses })) {
       if (!openThread(store, f.id)) continue;
       touched.set(f.id, f.touchedDay);
       if (carriesOpen(f, day, days)) carried.push(f.id);

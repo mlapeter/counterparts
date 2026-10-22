@@ -368,22 +368,33 @@ export function memoryTitlesByScopeSince(
 }
 
 /**
+ * The meta key `Store#reinforce` writes on an OPEN memory at every credited
+ * use that is not a glimpse (2026-10-22, the review of #592, G1): the lived
+ * day of its last real use — a rating of 1–3, `drewOn`, a quote, a claim, an
+ * expansion. Not a column: meta is JSON, so no schema bump (as #591's
+ * `build`). Read by `openTouchedSql`.
+ */
+export const OPEN_USED_DAY_META = "usedDay";
+
+/**
  * WHEN AN OPEN THREAD WAS LAST TOUCHED, as SQL over `memories m` (2026-10-22,
- * open threads mean someone owes an answer; the review of #592, F4). The
- * latest of:
+ * open threads mean someone owes an answer; the review of #592, F4 and G1).
+ * The latest of:
  *
  *   - its BIRTH;
- *   - its last credited USE that was more than a glimpse. `last_used_day` is
- *     every credited use, and since 2026-10-19 an ambient footnote left
- *     unrated is one too (a glimpse, `shown`) — which is exactly the loop the
- *     carry breaks: shown again and again, never answered. So when the use on
- *     `last_used_day` was a glimpse (a `shown` return row on that day — a
- *     glimpse writes one whenever it is credited, and a fuller use the same
- *     day lifts it away, `Store#reinforce`), the use read is the newest
- *     return row of a fuller use instead: `awake` (a rating of 2–3, a quote,
- *     an open used, a claim), `engaged` (`drewOn`) or `ontopic` (a rating of
- *     1). A rating of 0 credits nothing. The glimpse still restarts the
- *     memory's FADE (Mike, 10-19); only the carry ignores it;
+ *   - its last credited USE that was more than a glimpse: `meta.usedDay`
+ *     (`OPEN_USED_DAY_META`, written at the one place a use is credited,
+ *     `Store#reinforce`, for every use but the `shown` glimpse). The returns
+ *     table alone cannot say it: a real use on a day a reflection's return
+ *     already counted is refused a return of its own, so a glimpse the next
+ *     day would hide it. For the history before `usedDay` was written, the
+ *     returns-based read stands beside it: `last_used_day`, unless that day's
+ *     credit was a glimpse (a `shown` return row that day), then the newest
+ *     `awake` / `engaged` / `ontopic` return. A rating of 0 credits nothing.
+ *     The glimpse still restarts the memory's FADE (Mike, 10-19); only the
+ *     carry ignores it (the coordinator's call, 10-22, lightly held). With
+ *     `glimpses` (`SELF_TUNABLES.OPEN_CARRY_GLIMPSE_TOUCH`, the revert) every
+ *     credited use counts: `last_used_day` as it is;
  *   - its last REVISION (`versions.version_day` — any `revise`: an `updates`
  *     that leaves it open, a reopen; kept 90 lived days, longer than any
  *     carry window).
@@ -392,23 +403,29 @@ export function memoryTitlesByScopeSince(
  * about a stale thread cites it). Being listed under "Still open" or in the
  * reflection's `staleOpen` writes none of these.
  */
-const OPEN_TOUCHED_SQL = `MAX(m.birth_day,
-      CASE WHEN EXISTS (SELECT 1 FROM returns g WHERE g.memory_id = m.id AND g.day = m.last_used_day AND g.source = 'shown')
+function openTouchedSql(glimpses: boolean): string {
+  const used = glimpses
+    ? "m.last_used_day"
+    : `CASE WHEN EXISTS (SELECT 1 FROM returns g WHERE g.memory_id = m.id AND g.day = m.last_used_day AND g.source = 'shown')
            THEN COALESCE((SELECT MAX(u.day) FROM returns u WHERE u.memory_id = m.id AND u.source IN ('awake', 'engaged', 'ontopic')), m.birth_day)
-           ELSE m.last_used_day END,
+           ELSE m.last_used_day END`;
+  return `MAX(m.birth_day,
+      ${used},
+      COALESCE(CASE WHEN json_valid(m.meta) THEN CAST(json_extract(m.meta, '$.${OPEN_USED_DAY_META}') AS INTEGER) END, m.birth_day),
       COALESCE((SELECT MAX(v.version_day) FROM versions v WHERE v.memory_id = m.id), m.birth_day))`;
+}
 
 /**
  * THE OPEN THREADS AND WHEN EACH WAS LAST TOUCHED (2026-10-22): every live
  * memory the loose `unresolved` match finds (`openThreadIds`'s match,
  * answered by `memories_open`), with the lived day it was last touched
- * (`OPEN_TOUCHED_SQL`) and the two facts the carry rule reads
+ * (`openTouchedSql`) and the two facts the carry rule reads
  * (`self/identity.ts#openCarry`, which also decides which are threads at all).
  */
-export function openThreadTouches(store: Store): { id: string; touchedDay: number; dated: boolean; asked: boolean }[] {
+export function openThreadTouches(store: Store, opts: { glimpses?: boolean } = {}): { id: string; touchedDay: number; dated: boolean; asked: boolean }[] {
   return store["ops"]
     .all<{ id: string; touched: number; event_date: string | null; status: string | null }>(
-      `SELECT m.id AS id, m.event_date AS event_date, m.status AS status, ${OPEN_TOUCHED_SQL} AS touched
+      `SELECT m.id AS id, m.event_date AS event_date, m.status AS status, ${openTouchedSql(opts.glimpses === true)} AS touched
          FROM memories m
         WHERE m.type = 'memory' AND m.archived = 0 AND m.meta LIKE '%"unresolved":true%'
         ORDER BY m.birth_day, m.id`,
@@ -423,7 +440,7 @@ export function openThreadTouches(store: Store): { id: string; touchedDay: numbe
  * claim) or `engaged` (`drewOn`). Not a glimpse (`shown`, a footnote left
  * unrated) nor a rating of 1 (`ontopic`, "not needed"): another folder's open
  * item only shown here is not this session's to close. The most recently
- * touched first (`OPEN_TOUCHED_SQL`), at most `limit`. Title, else its first
+ * touched first (`openTouchedSql`), at most `limit`. Title, else its first
  * line. The caller decides which are threads (`self/identity.ts#openThread`).
  */
 export function openThreadsOfSession(store: Store, session: string, limit: number): { id: string; title: string }[] {
@@ -436,7 +453,7 @@ export function openThreadsOfSession(store: Store, session: string, limit: numbe
           AND m.meta LIKE '%"unresolved":true%' AND NOT ${NIGHTLY_SQL}
           AND (m.origin_session = ?
                OR m.id IN (SELECT r.memory_id FROM returns r WHERE r.session = ? AND r.source IN ('awake', 'engaged')))
-        ORDER BY ${OPEN_TOUCHED_SQL} DESC, COALESCE(m.created_at, 0) DESC, m.id
+        ORDER BY ${openTouchedSql(false)} DESC, COALESCE(m.created_at, 0) DESC, m.id
         LIMIT ?`,
       session,
       session,
