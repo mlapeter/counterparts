@@ -1,6 +1,7 @@
 /** `McpServer`'s `dream`, `reflect` and `self_page` tools, and the page writer's binding (bodies moved out of `server.ts`, 2026-10-11; the class keeps a delegate for each). */
 import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV } from "../spawn.js";
 import { readSession } from "../sessions.js";
+import { joinStillStands } from "../../core/dream/project-ask.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
 import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, applyTagsAnswer, askTags, nightNext, nightOrder, renderTagsBundle } from "../../core/dream/index.js";
 import type { DreamingSetting, NightPart } from "../../core/dream/index.js";
@@ -557,8 +558,31 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
         server["emit"]("mcp.reflect", reflection ?? undefined, { phase: "reopen", reopened: out.reopened.length, refused: out.refused.length });
         return server["result"]({ phase, ...(reflection === null ? {} : { reflection }), reopened: out.reopened, ...(out.already.length > 0 ? { alreadyOpen: out.already } : {}), ...(out.refused.length > 0 ? { refused: out.refused } : {}) }, out.reopened.length === 0 && out.already.length === 0);
       }
+      case "join": {
+        // A YES TO THE SHARE'S PROJECT QUESTION (2026-10-21, wave 2 lane G):
+        // the two folders it named become one project, joined by the night.
+        // Only the owner's yes, in an awake session, after he heard the
+        // question (review of #580): never the nightly run, never a share not
+        // yet told, never a proposal that no longer stands.
+        if ((server["env"][NIGHT_CHILD_ENV] ?? "").trim().length > 0 || (server["env"][NIGHT_RUN_ENV] ?? "").trim().length > 0) return refused("night-run", "This is the nightly run: only the owner's yes joins two folders.");
+        const reflection = args["reflection"];
+        if (typeof reflection !== "string") return refused("reflection-required", "Pass `reflection`: the id the share named.");
+        const asked = reflections.joinProposal(reflection);
+        if (asked === null) return refused("nothing-proposed", "That reflection asked to join no folders, or the owner's yes is already recorded.");
+        if (server.counterpart.store.reflection(reflection)?.share_state !== "told") {
+          return refused("share-not-told", "Tell the share first and mark it told (phase \"told\"); the yes must follow the owner hearing the question.");
+        }
+        const folderOn = server["folderOn"]();
+        const stale = joinStillStands(server.counterpart.store, asked, { day: server.counterpart.store.livedDay(), ...(folderOn === undefined ? {} : { folderOn }) });
+        if (stale !== null) return refused(stale.reason, `${stale.detail} Nothing was joined.`);
+        const out = server.counterpart.joinProject({ folder: asked.folder, project: asked.into, by: "night" });
+        if (!out.ok) return refused(out.reason, `${out.detail} Nothing was joined.`);
+        reflections.recordJoined(reflection, out.project.id, session);
+        server["emit"]("mcp.reflect", reflection, { phase: "join", changed: out.changed });
+        return server["result"]({ phase, reflection, joined: out.folder, project: { id: out.project.id, name: out.project.name, folders: out.project.folders.map((f) => f.folder) }, changed: out.changed }, false);
+      }
       default:
-        return refused("phase-unknown", "phase is one of launch, begin, part, finish, settle, told, close, reopen.");
+        return refused("phase-unknown", "phase is one of launch, begin, part, finish, settle, told, close, reopen, join.");
     }
   } catch (err) {
     return refused("threw", String((err as Error).message ?? err));

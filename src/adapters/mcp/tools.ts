@@ -1725,8 +1725,8 @@ const REFLECT: ToolSpec = {
     properties: {
       phase: {
         type: "string",
-        enum: ["launch", "begin", "part", "finish", "settle", "told", "close", "reopen"],
-        description: "Which step: launch, begin, part, finish, settle, told, close, or reopen.",
+        enum: ["launch", "begin", "part", "finish", "settle", "told", "close", "reopen", "join"],
+        description: "Which step: launch, begin, part, finish, settle, told, close, reopen, or join (the owner said yes to the share's question about two folders being one project).",
       },
       close: {
         type: "array",

@@ -196,6 +196,22 @@ export function craftCandidates(store: Store, limit: number, sinceDay: number): 
     .map((r) => r.id);
 }
 
+/**
+ * CO-USE, for the night's project proposal (2026-10-21, lane G): for each
+ * memory born on or after lived day `sinceDay` in a directory, its folder,
+ * its lived birth day, and each subject it names (`memory_subjects`; null
+ * when none). Archived rows count: what was written there that day is the
+ * evidence, not whether it is still held. Columns only.
+ */
+export function folderCoUse(store: Store, sinceDay: number): { id: string; scope: string; day: number; subject: string | null }[] {
+  return store["ops"].all<{ id: string; scope: string; day: number; subject: string | null }>(
+    `SELECT m.id AS id, m.origin_scope AS scope, m.birth_day AS day, s.subject_id AS subject
+       FROM memories m LEFT JOIN memory_subjects s ON s.memory_id = m.id
+      WHERE m.type = 'memory' AND m.origin_scope LIKE '/%' AND m.birth_day >= ? AND m.body != ''`,
+    Math.floor(sinceDay),
+  );
+}
+
 export function planCandidates(store: Store, input: {
   readonly scopes: readonly string[];
   readonly after: number;

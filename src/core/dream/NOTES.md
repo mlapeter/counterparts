@@ -965,3 +965,61 @@ reflection was offered five a night.
   `remember … updates` with the default `changed` leaves it NULL on both rows (re-review
   of #576; lane G met the same trap). A kind changed since the night is left as it is.
 - One ask record is kept (`tags.ask.<run>`): a new run's read removes the last run's.
+
+## 2026-10-21 — the night proposes a project (wave 2 lane G, design §8; lightly held)
+
+Design §8: related folders join one project on Mike's word, "or the night proposes it from
+co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.ts` is):
+
+- **Mechanical, no model.** Over the last `PROJECT_JOIN_WINDOW` (14) lived days, two folders
+  are proposed when both were written in on at least `PROJECT_JOIN_DAYS` (3) of the same days,
+  at least half the less-used folder's days, AND their memories name at least
+  `PROJECT_JOIN_SUBJECTS` (3) of the same subjects (cards, by name), at least
+  `PROJECT_JOIN_OVERLAP` (0.4) of the telling subjects of the folder that names fewer.
+  A subject named in more than half the active folders is not telling.
+- **Why those two gates**, measured on the 10-20 corpus copy: by days and raw subjects alone
+  every busy folder paired with every other ("Mike, Counterparts, Claude"); the spread rule
+  left ~/pwntastic pairing with both busy folders on Apple/Gmail/Google; the overlap rule
+  leaves one pair, ~/random → ~/counterparts (10 shared days, overlap 0.64; every other pair
+  0.25 or under). ~/counterparts-site never qualifies (its memories name only what every
+  folder names): Mike joins it himself.
+- **One pair a night**, in the reflection's finish: a generated line in the share
+  (`joinSentence`), `detail.joinProposed` and `joinLine` kept on the row like the core line,
+  and the hand-back (and a carried share) says how to act: the reflect tool's phase "join",
+  on the owner's yes only, which joins them `by: night` and records `detail.joined` and a
+  `reflection.project.joined` row. A no, or no answer, changes nothing; the pair rests
+  `PROJECT_JOIN_REST` (7) reflections.
+- Never proposed: folders already one project; a folder the host keeps home (`folderOn`);
+  the store's own folder (the nightly run's) or one inside it.
+- `PROJECT_JOIN_ASK` (on) stops it; every number is compare-settable (`dream.*`).
+
+### 2026-10-21, after review of #580
+
+- **A stale yes cannot pull a folder out of its project.** The folder that would join is
+  proposed only when it is alone in its project, and the proposal keeps its lived day and both
+  folders' projects. At `join` (`joinStillStands`), the yes is refused when the proposal is
+  older than `PROJECT_JOIN_EXPIRE_DAYS` (3), when either folder's project changed since, or
+  when the host now keeps either folder home.
+- **Who may say yes.** `join` is refused in the nightly run (`NIGHT_CHILD_ENV` or
+  `NIGHT_RUN_ENV`, as a dream's undo is) and until the share was marked told, so the yes can
+  only follow the owner hearing the question.
+- **Harder for a general folder** (the coordinator's call): a folder used on the same days as
+  `PROJECT_JOIN_GENERAL` (3) others or more is never proposed, and the shared subjects must be
+  at least `PROJECT_JOIN_OVERLAP_MAX` (0.25) of the telling subjects of the folder that names
+  more, too. The question now says plainly that all of each folder's work would show in the
+  other's wake. Folder and subject names in the share are flattened and capped.
+- `written` counts distinct memories, not a row per subject.
+- **Re-measured on the corpus copy: nothing is proposed.** ~/counterparts is a general folder
+  now (used on the same days as ~/random, ~/general, ~/pwntastic and ~/counterparts-site), so
+  ~/random → ~/counterparts no longer qualifies; with the general gate lifted it still would
+  (the 0.25 floor passes: 21 shared of 46). A folder's busiest project is the one most often
+  "general", so the night will rarely propose joining INTO it; the owner's
+  `counterparts project join` remains the door for that.
+- A silent night with a proposal now offers a share whose only content is the question
+  (`share.reason` `join-proposed`). Intended.
+- **Accepted risk (the coordinator, after review of #580):** a reflection launched from an
+  awake session runs as a background agent in that session, with no night env, so in
+  principle it could call `told` and then `join` itself. Every stronger check offered would
+  also block the owner's own yes in the same session. It is the trust model `close` has
+  today. What would close it later: a yes carried by the owner's typed turn (the host's
+  record of what the person typed), checked at `join`.
