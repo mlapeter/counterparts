@@ -16,6 +16,7 @@ import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
 import { run } from "../src/adapters/cli/index.js";
 import { MECHANISMS, firedReport } from "../src/adapters/fired.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { applyTagsAnswer, askTags } from "../src/core/dream/index.js";
 import { Store } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
@@ -136,6 +137,73 @@ describe("counterparts dream", () => {
     const stood = await cli(["dream", "--undo", d.id, "--observer"]);
     expect(stood.code).toBe(2);
     expect(stood.err[0]).toContain("observer");
+  });
+
+  /** Two nights' tagging, through the night's own ask and answer: each tags one memory and sorts one card. */
+  function taggedTwice(): { first: string; second: string; card1: string; card2: string; mine: string } {
+    let clock = Date.parse("2026-10-20T03:00:00Z");
+    const c = Counterpart.open({ dir, now: () => clock });
+    try {
+      const card = (name: string): string => {
+        const m = mem(c, `${name} came round to fix the boiler on the landing.`);
+        c.schemas.mention({ name, kind: "person", source: `${name} came round to fix the boiler on the landing.`, chunkRef: `t:${name}`, day: 0 });
+        expect(c.store.subjectsOf(m).length).toBe(1);
+        return c.store.subjectsOf(m)[0] as string;
+      };
+      const card1 = card("Wren");
+      const first = mem(c, "The garden beds were dug over before the frost.");
+      const mine = mem(c, "The castle visit was the best day of the trip.", { tags: ["castle"] });
+      askTags(c.store, "night-1");
+      expect(applyTagsAnswer(c.store, { tagged: [{ id: first, tags: ["garden"] }], kinds: [{ id: card1, kind: "person" }] }, { run: "night-1" }).tags).toBe(1);
+      clock += 86_400_000;
+      const card2 = card("Ines");
+      const second = mem(c, "The boiler was serviced and the pressure holds now.");
+      askTags(c.store, "night-2");
+      expect(applyTagsAnswer(c.store, { tagged: [{ id: second, tags: ["boiler"] }], kinds: [{ id: card2, kind: "person" }] }, { run: "night-2" }).tags).toBe(1);
+      return { first, second, card1, card2, mine };
+    } finally {
+      c.close();
+    }
+  }
+
+  test("--undo-tags takes back the newest night's tagging, then a named night and every one since", async () => {
+    const t = taggedTwice();
+    const read = <T,>(fn: (s: Store) => T): T => {
+      const s = Store.open({ dir, observer: true });
+      try {
+        return fn(s);
+      } finally {
+        s.close();
+      }
+    };
+    const newest = await cli(["dream", "--undo-tags"]);
+    expect(newest.code).toBe(0);
+    expect(newest.out[0]).toBe("Took back the tagging of night night-2: 1 tag, 0 merges, 1 card kind.");
+    read((s) => {
+      expect(s.tagsOf(t.second)).toEqual([]);
+      expect(s.row(t.card2)?.subject_kind).toBeNull();
+      // The night before stands, and the writer's own tag is never the night's.
+      expect(s.tagsOf(t.first).map((x) => x.tag)).toEqual(["garden"]);
+      expect(s.row(t.card1)?.subject_kind).toBe("person");
+      expect(s.tagsOf(t.mine).map((x) => `${x.tag}:${x.via}`)).toEqual(["castle:write"]);
+    });
+    const named = await cli(["dream", "--undo-tags", "night-1"]);
+    expect(named.code).toBe(0);
+    expect(named.out[0]).toBe("Took back the tagging of 2 nights, from night-1 on: 1 tag, 0 merges, 1 card kind.");
+    read((s) => {
+      expect(s.tagsOf(t.first)).toEqual([]);
+      expect(s.row(t.card1)?.subject_kind).toBeNull();
+      expect(s.tagsOf(t.mine).map((x) => `${x.tag}:${x.via}`)).toEqual(["castle:write"]);
+    });
+    // Both taken back: nothing left by default; an unknown night by name; an observer; two modes.
+    const none = await cli(["dream", "--undo-tags"]);
+    expect(none.code).toBe(2);
+    expect(none.err[0]).toContain("not been taken back already");
+    expect((await cli(["dream", "--undo-tags", "night-9"])).err[0]).toContain("no night's tagging night-9");
+    const stood = await cli(["dream", "--undo-tags", "--observer"]);
+    expect(stood.code).toBe(2);
+    expect(stood.err[0]).toContain("observer");
+    expect((await cli(["dream", "--undo-tags", "--list"])).code).toBe(1);
   });
 });
 

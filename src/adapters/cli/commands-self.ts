@@ -18,7 +18,7 @@ import { bodyFrom, writeLines, versionLines, NO_PAGE_LINES, pageLines } from "./
 import { dreamingSettingWords, dreamShowLines, dreamListLines, coreListLines } from "./dream-core.js";
 import { settleListLines } from "./settle.js";
 import { reoweCommand, catchUpCommand } from "./catch-up.js";
-import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES } from "../../core/dream/index.js";
+import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, undoTagNight } from "../../core/dream/index.js";
 import { EXIT, openCounterpart, openRefusalLine, hostConfigFor } from "./commands-shared.js";
 import type { Io, Parsed, RunOptions } from "./commands-shared.js";
 
@@ -40,6 +40,37 @@ export function dreamCommand(dir: string, io: Io, parsed: Parsed, observer: bool
   if (typeof show === "string" && undo) {
     io.err("refused: --show and --undo are two different things to do. Pass one.");
     return EXIT.usage;
+  }
+  if (parsed.flags["undo-tags"] !== undefined) {
+    // A NIGHT'S TAGGING TAKEN BACK (2026-10-22): the night's tags, merges and
+    // card kinds (`dream/tags.ts#undoTagNight`), the newest night by default.
+    if (typeof show === "string" || undo || setting !== undefined || parsed.flags["list"] === true || parsed.flags["all"] === true) {
+      io.err("refused: --undo-tags is one thing to do on its own. Pass it alone.");
+      return EXIT.usage;
+    }
+    if (observer) {
+      io.err("refused: this console is an observer; it reads and changes nothing. Nothing was undone.");
+      return EXIT.refused;
+    }
+    const named = typeof parsed.flags["undo-tags"] === "string" ? parsed.flags["undo-tags"] : parsed.positional[0];
+    const counterpart = openCounterpart(dir, observer);
+    try {
+      const out = undoTagNight(counterpart.store, named);
+      if (out === null) {
+        io.err(
+          named === undefined
+            ? "refused: no night's tagging is on record that has not been taken back already. Nothing was undone."
+            : `refused: no night's tagging ${named} in this store. Nothing was undone.`,
+        );
+        return EXIT.refused;
+      }
+      const which = out.nights.length === 1 ? `night ${out.nights[0] as string}` : `${String(out.nights.length)} nights, from ${out.nights[0] as string} on`;
+      io.out(`Took back the tagging of ${which}: ${String(out.tags)} ${out.tags === 1 ? "tag" : "tags"}, ${String(out.merges)} ${out.merges === 1 ? "merge" : "merges"}, ${String(out.kinds)} card ${out.kinds === 1 ? "kind" : "kinds"}.`);
+      io.out("  Your own tags and kinds set since are untouched; its \"not the same\" answers stay, so those pairs are not asked again.");
+      return EXIT.ok;
+    } finally {
+      counterpart.close();
+    }
   }
   if (setting !== undefined) {
     // THE OWNER'S SETTING (2026-09-28): the same value the dream tool's
