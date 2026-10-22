@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { Counterpart } from "../src/core/counterpart.js";
+import { runningBuild } from "../src/core/store/operational.js";
 import { runPhysicsReplay } from "../tools/harness/replay.js";
 import { extract, parseAboutReason } from "../tools/harness/source.js";
 
@@ -128,6 +129,7 @@ test("the record reads as lived days of acts, the gaps counted", () => {
 
 test("the replay lands every act on its day, and the record carries no memory text", async () => {
   const r = await runPhysicsReplay({ source, workRoot: work, env });
+  expect(r.build).toBe(runningBuild());
   expect(r.days.map((d) => d.births)).toEqual([2, 1, 1, 0, 0]);
   expect(r.days[2]!.uses.credited).toBe(2);
   expect(r.days[2]!.settles).toEqual({ fed: 1, ok: 1 });

@@ -398,7 +398,7 @@ describe("the run reads its child's transcript once it exits", () => {
     expect(nightRunOf(c.store)).toMatchObject({ requeued: 4 });
     const journaled = c.store.dreams({ limit: 1 })[0];
     expect(JSON.parse(journaled?.shown ?? "[]")).toEqual([]);
-    expect(rows(c)).toEqual([{ run: "nrn_spill", tool: DREAM, phase: "begin", shape: "persisted", said: "51.5KB" }]);
+    expect(rows(c)).toEqual([{ run: "nrn_spill", tool: DREAM, phase: "begin", shape: "persisted", said: "51.5KB", build: expect.any(String) }]);
     expect(nightRunOf(c.store)).toMatchObject({ state: "done", transcript: "read", spills: 1 });
     const done = c.store.eventLog({ name: "dream.night" }).map((e) => JSON.parse(e.payload ?? "{}") as Record<string, unknown>).find((p) => p["state"] === "done");
     expect(done).toMatchObject({ transcript: "read", spills: 1 });

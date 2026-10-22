@@ -168,6 +168,7 @@ describe("a copy before the schema changes", () => {
       snapshot: copies[0],
       reused: false,
       dir: snapsDir,
+      build: expect.any(String),
     });
     // No partial left behind.
     expect(readdirSync(snapsDir).filter((n) => n.startsWith(".partial-"))).toEqual([]);

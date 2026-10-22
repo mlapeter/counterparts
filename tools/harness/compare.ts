@@ -156,6 +156,8 @@ const obj = (x: unknown): Record<string, unknown> => (x !== null && typeof x ===
 /** The rows a record gives, by mode. Pure. */
 export function readRecord(mode: Mode, rec: Record<string, unknown>, pageText: string | null): Reading {
   const rows: Record<string, number | string | null> = {};
+  // The build the run ran, first (2026-10-22): `package.json#version`, or "unknown"; null from a build before the stamp.
+  rows["build"] = typeof rec["build"] === "string" ? rec["build"] : null;
   const usage = obj(rec["usage"]);
   const tokens = rec["usage"] === undefined ? null : ["input", "output", "cacheRead", "cacheCreate"].reduce((a, k) => a + (num(usage[k]) ?? 0), 0);
   const page = rec["page"] === undefined ? undefined : rec["page"] === null ? null : obj(rec["page"]);

@@ -30,6 +30,7 @@ import { Lifecycle } from "../src/adapters/lifecycle.js";
 import { McpServer } from "../src/adapters/mcp/server.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import { recordSession } from "../src/adapters/sessions.js";
+import { BUILD_UNKNOWN, setRunningBuild } from "../src/core/store/operational.js";
 
 const MIN = 60_000;
 const ZONE = "UTC";
@@ -454,7 +455,15 @@ describe("a handoff says when it may be out of date (item 1)", () => {
   test("a row from before the stamp falls back to the release its session opened with", () => {
     const k = afternoon();
     k.set(at(18, 45));
-    k.c.writeHandoff("Waiting on the release.", { scope: HERE, session: C });
+    // A row from before the stamp: since 2026-10-22 the store stamps every new
+    // memory with the build that wrote it, so this one is written by a build
+    // that cannot name its version.
+    setRunningBuild(BUILD_UNKNOWN);
+    try {
+      k.c.writeHandoff("Waiting on the release.", { scope: HERE, session: C });
+    } finally {
+      setRunningBuild(undefined);
+    }
     k.c.rebrief({ budgetBytes: 9_000, at: "2026-09-30" });
     const text = k.c.wake(9_000, { date: "2026-09-30" }, here("0.3.10", (s) => (s === C ? "0.3.9" : null))).text;
     expect(pointer(text)).toContain("by session c9cacbcc \u2014 written on 0.3.9, 0.3.10 now");

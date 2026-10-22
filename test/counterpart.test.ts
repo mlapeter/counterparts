@@ -1130,7 +1130,8 @@ describe("the surfacing decision is DURABLE — one row per turn, content-by-ref
     for (const row of log) {
       // The field NAMES are the schema `tools/parallel` hashes (§5 G12): a record
       // that grew or lost a field is a different surface set and must say so.
-      expect(Object.keys(row.payload)).toEqual([...surfaceSetFields()]);
+      // Plus `build`, the store's stamp on every payload (2026-10-22): provenance, not the surface set.
+      expect(Object.keys(row.payload)).toEqual([...surfaceSetFields(), "build"]);
       expect(row.ref).toBe("s1");
       expect(row.payload["session"]).toBe("s1");
       expect(row.payload["date"]).toBe("2026-01-02");

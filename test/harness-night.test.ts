@@ -19,6 +19,7 @@ import { Database } from "bun:sqlite";
 import { runNight } from "../src/adapters/claude-code/night-run.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { runningBuild } from "../src/core/store/operational.js";
 import { learnIds, readChild, recordedSeat, replayNight, withIds } from "../tools/harness/night.js";
 
 let root: string;
@@ -203,6 +204,7 @@ test("a scripted night, recorded and replayed on a copy of the store before it, 
   const work = join(root, "work");
   const r = await replayNight({ source, outcome, dreamTranscript: dreamT, reflectionTranscript: reflectionT, workRoot: work, timeZone: "UTC", embed: false, env: { HOME: join(root, "home") } });
   expect(r.night.parts).toContain("dream");
+  expect(r.build).toBe(runningBuild());
   expect(r.calls["dream"]).toMatchObject({ calls: 2, skipped: 0, refused: 0 });
   expect(r.idsMapped).toBeGreaterThanOrEqual(1);
   expect(r.dream?.state.same).toBe(true);

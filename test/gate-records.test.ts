@@ -157,7 +157,7 @@ describe("the chunk gate's record reaches the DURABLE log", () => {
     await sweepOnce(c, [GOOD]);
     const [first] = records(c);
     expect(first).toBeDefined();
-    expect(Object.keys(first?.payload ?? {}).sort()).toEqual([...GATE_CHUNK_FIELDS].sort());
+    expect(Object.keys(first?.payload ?? {}).sort()).toEqual([...GATE_CHUNK_FIELDS, "build"].sort());
   });
 
   test("a swept chunk writes one `gate.chunk` row, addressed by a content key", async () => {
@@ -704,7 +704,7 @@ describe("the authored door's gate record reaches the DURABLE log", () => {
     const c = brain();
     await c.submitJot({ content: "too short", kind: "fact" }, JOT_CTX);
     const p = deposits(c)[0]?.payload ?? {};
-    expect(Object.keys(p).sort()).toEqual([...GATE_DEPOSIT_FIELDS].sort());
+    expect(Object.keys(p).sort()).toEqual([...GATE_DEPOSIT_FIELDS, "build"].sort());
   });
 
   test("a gate that ACTED on an accepted deposit is counted — a fire is not a refusal", async () => {

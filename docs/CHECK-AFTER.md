@@ -13,6 +13,24 @@ Read-only on the owner's store: open it with `sqlite3 "file:$HOME/.counterparts/
 or the CLI's read commands (`counterparts mechanisms --dir …`, `counterparts doctor --config …`,
 `counterparts claims-era --dir …`). Anything heavier runs on a snapshot copy, never the live store.
 
+**How to read by build (since 2026-10-22).** Split a number by the build that wrote the rows instead of by date.
+Rows that carry JSON say it at write time: `memories.meta`, every event `payload` that is an object (`recall.decision`,
+`dream.*`, `adapter.*`, …), `reflections.detail` and `dream_changes.detail` have `build` (the package version, or
+`unknown`); rows written before the stamp have none (NULL). **The stamped field is authoritative**: read it wherever
+a row has one. The build log in `meta` has `build.<version>.since` (the lived day that build first opened the store
+for writing) and `build.<version>.settings` (tunables set from outside, `[]` on Mike's store), and `counterparts
+doctor` prints the build running and the last three logged as its Builds line. Rows with no JSON column (edges,
+`belief_support`, `core_events`) can only be joined to the log by lived day, and **that join is approximate**: the
+old and the new build share the day one arrives (a row from that day could be either), and the log keeps one row
+per version, so a downgrade to a build already logged adds no row and its days read as the newer build's. Trust the
+day join only between arrival days, and only when no downgrade happened. For example, footnotes per turn by build:
+
+```sql
+SELECT json_extract(payload, '$.build') AS build, COUNT(*) AS turns,
+       ROUND(AVG(json_extract(payload, '$.footnoteCount')), 2) AS footnotes_per_turn
+FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
+```
+
 ## Index (updated 2026-10-22)
 
 **Open: being built, or live and waiting for a check**

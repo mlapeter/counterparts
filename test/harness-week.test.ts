@@ -19,6 +19,7 @@ import { Database } from "bun:sqlite";
 import type { ChildPlan, ChildResult } from "../src/adapters/claude-code/child.js";
 import { beginNewInstall } from "../src/core/onboarding.js";
 import { Store } from "../src/core/store/index.js";
+import { runningBuild } from "../src/core/store/operational.js";
 import { NEW_INSTALL_META, planTurn, recalledIds, replyOf, runWeek } from "../tools/harness/week.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import type { ScriptedDay } from "../tools/harness/owner-week.js";
@@ -63,6 +64,8 @@ test("the week drives the product's adapter on its clock, one child per turn, an
   // Without the meeting: the night's gate waits while one is pending, and a stub never holds one.
   const r = await runWeek({ script: SCRIPT, start, install: "without-meeting", workRoot: join(root, "work"), out, env: { HOME: join(root, "home"), PATH: process.env["PATH"] ?? "" } });
   expect(r.days).toBe(3);
+  // The build the run ran, beside its settings (2026-10-22).
+  expect(r.build).toBe(runningBuild());
   expect(r.sessions.map((x) => [x.day, x.scope, x.turns, x.failedTurns])).toEqual([
     [1, "shop", 3, 0],
     [2, "notes", 3, 0],

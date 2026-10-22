@@ -171,7 +171,7 @@ const replayRecord = (cores: number[]): Record<string, unknown> => ({
 
 test("a replay reads as the core on day 1, each seventh day and the last, with its promotions", () => {
   const r = readRecord("replay", replayRecord([0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 3]), null);
-  expect(r.rows).toEqual({ "core, day 1": 0, "core, day 7": 1, "core, day 14": 2, "core, day 15": 3, "promoted, all days": 3, "early promotions": 1, "alive, last day": 115 });
+  expect(r.rows).toEqual({ build: null, "core, day 1": 0, "core, day 7": 1, "core, day 14": 2, "core, day 15": 3, "promoted, all days": 3, "early promotions": 1, "alive, last day": 115 });
   expect(r.tokens).toBeNull();
 });
 
