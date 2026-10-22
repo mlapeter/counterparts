@@ -104,8 +104,8 @@ export { CORE_MENTIONED_PREFIX, REFLECT_QUESTIONS, REFLECT_TUNABLES, Reflections
 export { coreAsks, coreWaiting } from "./core-ask.js";
 export type { CoreAsk, CoreDecided } from "./core-ask.js";
 // Wave 2 lane B (2026-10-21): the night's tagging ask, a child of its own.
-export { applyTagsAnswer, askTags, renderTagsBundle, tagsBundle, tagsPrompt, undoNightTags, NIGHT_CARD_KINDS, OWN_TAG_VIAS, SUBJECT_KIND_BY_PREFIX, TAGS_ASK_PREFIX, TAGS_NIGHT_PREFIX } from "./tags.js";
-export type { TagsAnswer, TagsApplied, TagsBundle } from "./tags.js";
+export { applyTagsAnswer, askTags, renderTagsBundle, tagNights, tagsBundle, tagsPrompt, undoNightTags, undoTagNight, NIGHT_CARD_KINDS, OWN_TAG_VIAS, SUBJECT_KIND_BY_PREFIX, TAGS_ASK_PREFIX, TAGS_NIGHT_PREFIX } from "./tags.js";
+export type { TagNight, TagsAnswer, TagsApplied, TagsBundle } from "./tags.js";
 export { FEELING_WEEKS_TUNABLES, awakeFeelingCounts, feelingWeeks } from "./feeling-weeks.js";
 export type { FeelingWeeks } from "./feeling-weeks.js";
 export type { ReflectBundle, ReflectContext, ReflectFinish, ReflectItem, ReflectOutcome, ReflectRefusal } from "./reflect.js";

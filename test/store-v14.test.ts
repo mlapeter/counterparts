@@ -149,10 +149,12 @@ describe("store v14 — wave 2's one bump", () => {
     expect(retired["count"]).toBe(1);
     expect(retired["ids"]).toEqual([ids.secret]);
     const up = JSON.parse(s.getMeta(V14_UPGRADE_KEY) ?? "{}") as Record<string, unknown>;
-    expect(up).toMatchObject({ from: "13", confidentialDropped: true, confidentialCounted: 1, subjects: { person: 2, place: 1 } });
-    // Subject kinds: people and places, and the identity core (the owner's card) a person; the rest wait.
-    expect(s.row(ids.person)?.subject_kind).toBe("person");
-    expect(s.row(ids.place)?.subject_kind).toBe("place");
+    expect(up).toMatchObject({ from: "13", confidentialDropped: true, confidentialCounted: 1, subjects: { person: 1 } });
+    // Subject kinds: the identity core (the owner's card) a person; the rest
+    // wait for the night's kinds ask — a card's birth kind is a vote, not a
+    // kind of subject (2026-10-22).
+    expect(s.row(ids.person)?.subject_kind).toBeNull();
+    expect(s.row(ids.place)?.subject_kind).toBeNull();
     expect(s.row(ids.core)?.subject_kind).toBe("person");
     expect(s.row(ids.project)?.subject_kind).toBeNull();
     expect(s.row(ids.page)?.subject_kind).toBeNull();
@@ -327,7 +329,7 @@ describe("store v14 — the new columns and tables, round trip", () => {
     expect(late.ensureSelfSubject()).toBe(me);
   });
 
-  test("a card born after v14 gets its deterministic subject kind, as an upgraded one did", () => {
+  test("a card born after v14 gets its deterministic subject kind, as an upgraded one did: only the identity core's", () => {
     const s = store();
     const person = card(s, "person", "Katie");
     const place = card(s, "place", "Lisbon");
@@ -337,8 +339,8 @@ describe("store v14 — the new columns and tables, round trip", () => {
     const handoff = s.put({ type: "schema", kind: "place", body: "A handoff.", meta: { role: "handoff" } });
     const given = s.put({ type: "schema", kind: "person", title: "Ana", body: "Ana", meta: { role: "entity", name: "Ana" }, subjectKind: "topic" });
     expect([person, place, project, core, page, handoff, given].map((id) => s.row(id)?.subject_kind)).toEqual([
-      "person",
-      "place",
+      null,
+      null,
       null,
       "person",
       null,

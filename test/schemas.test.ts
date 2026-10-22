@@ -1334,6 +1334,13 @@ const PRIVATE_HELPERS = new Set([
   "unseenCards",
   "heldUnseen",
   "relinkUnlinked",
+  // The twin pass's plan read back, its carrying out (or finishing), and the
+  // keepers' look-back in one pass — the birth's own linking, for several
+  // cards (2026-10-22, review of #593). No new operation: `mergeTwinCards` is.
+  "twinPlan",
+  "finishTwins",
+  "twinBlocker",
+  "linkNamingMemoriesOf",
   // SEAMS item K: story() reads the DURABLE increments out of box 2's events
   // table and unions this session's ring on top. A read helper, no new operation.
   "storyIncrements",

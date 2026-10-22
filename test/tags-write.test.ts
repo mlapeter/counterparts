@@ -23,6 +23,7 @@ import { join } from "node:path";
 import { TOOLS, openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/index.js";
 import { readTags, TAGS_PER_MEMORY } from "../src/adapters/mcp/server-args.js";
+import { run } from "../src/adapters/cli/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { UNRESOLVED_META_KEY } from "../src/core/mint.js";
 import { StoreError } from "../src/core/store/index.js";
@@ -326,5 +327,33 @@ describe("nothing reads tags yet (lane E)", () => {
     const meant = await mean(taggedServer);
     expect(meant.length).toBeGreaterThan(0);
     expect(meant).toEqual(await mean(plainServer));
+  });
+});
+
+describe("counterparts note takes tags (2026-10-22)", () => {
+  test("--tags a,b lands through the same read and write path a session's remember uses; a secret is left off and said", async () => {
+    const dir = join(root, "console");
+    Counterpart.open({ dir, snapshotsDir: join(root, "console-snaps") }).close();
+    const out: string[] = [];
+    const err: string[] = [];
+    const io = { out: (l: string) => out.push(l), err: (l: string) => err.push(l) };
+    const env = { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+    const code = await run(["note", "Katie planted the garlic in the raised bed by the shed.", "--tags", "Garden, katie,AKIAIOSFODNN7EXAMPLE", "--dir", dir], { io, env, home: join(root, "home") });
+    expect(err).toEqual([]);
+    expect(code).toBe(0);
+    const id = /^Remembered (mem_\S+) /.exec(out.find((l) => l.startsWith("Remembered ")) ?? "")?.[1] as string;
+    expect(out).toContain("  Tags: garden, katie.");
+    expect(out.find((l) => l.startsWith("  Tags left off: "))).toContain("secret");
+    expect(out.join("\n")).not.toContain("AKIA");
+    const c = Counterpart.open({ dir, snapshotsDir: join(root, "console-snaps") });
+    open.push(c);
+    expect(c.store.tagsOf(id).map((t) => `${t.tag}:${t.via}`)).toEqual(["garden:write", "katie:write"]);
+
+    // Without the flag, no tags, as before.
+    const plain: string[] = [];
+    expect(await run(["note", "The shed roof needs new felt before the winter rains.", "--dir", dir], { io: { out: (l) => plain.push(l), err: () => undefined }, env, home: join(root, "home") })).toBe(0);
+    const other = /^Remembered (mem_\S+) /.exec(plain.find((l) => l.startsWith("Remembered ")) ?? "")?.[1] as string;
+    expect(plain.some((l) => l.includes("Tags"))).toBe(false);
+    expect(c.store.tagsOf(other)).toEqual([]);
   });
 });

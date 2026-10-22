@@ -523,7 +523,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   rollback: ["config", "to", "undo", "upgrade-again", "dry-run", "yes"],
   // `--config` for the embedder knob only, as on `ask`: a note is embedded on
   // write with the table the configuration turns on.
-  note: ["kind", "title", "salience", "config"],
+  note: ["kind", "title", "salience", "tags", "config"],
   // Two names, ONE row each and the same one: a flag that worked under `recall`
   // and not under `ask` would be the rename leaking into behaviour.
   ask: ["id", "json", "full", "page", "mode", "config", "voiced"],
@@ -586,7 +586,7 @@ export const COMMAND_FLAGS: Record<Command, readonly string[]> = {
   // line is a page in shell history, and prose that is injected into every
   // session does not belong there.
   "self-page": ["write", "file", "stdin", "short", "reason", "versions", "version", "restore", "clear", "if-version"],
-  dream: ["list", "show", "undo", "all", "setting"],
+  dream: ["list", "show", "undo", "all", "setting", "undo-tags", "undo-twins"],
   night: ["all"],
   core: ["list", "demote", "reaffirm", "reason", "reflected-feeling"],
   settle: ["list", "pair", "holds", "against", "how", "why", "undo"],
@@ -758,6 +758,7 @@ const FLAG_HELP: Record<string, string> = {
   kind: "self, person, entity, skill, place or fact",
   title: "a title for the memory, instead of one taken from its first line",
   salience: "0..1 — how much this one matters",
+  tags: "a few words for what it is about, comma-separated (--tags garden,katie): a topic, a person, a project or a place",
   id: "one memory, by id, instead of a question",
   full: "the whole facts answer, as the model reads it: a count header and every result's labeled lines (who said it, its status, when it happened and was learned, whether it still holds) — not just the top five, one line each",
   page: "which page of the answer (ten results a page; in meaning mode, eight entries of the arc), with --full or --json",
@@ -933,12 +934,16 @@ const START_FRESH_FLAG_HELP: Record<string, string> = {
  * and it is the one the hooks and the memory tools open. Printing the shared
  * sentence would describe a resolution this command does not use.
  */
-/** `dream`'s own four: `--list` and `--undo` mean something else on other pages. */
+/** `dream`'s own seven: `--list` and `--undo` mean something else on other pages. */
 const DREAM_FLAG_HELP: Record<string, string> = {
   list: "the recent dreams, newest first — the default",
   all: "with --list: every dream the store holds, not only the newest 20",
   show: "one dream, by id: its journal and every change it made",
   undo: "reverse one dream's whole batch, by id (the id follows the flag); its journal is kept, marked undone",
+  "undo-tags":
+    "take back the night's tagging: the newest night's, or the run named after the flag and every night since — the tags it wrote, the tag merges it made and the card kinds it set (one changed since stays). Its \"not the same\" answers stay",
+  "undo-twins":
+    "put back the twin cards the night archived (two live cards with one name, merged once into the elder): every one, or the card named after the flag. Each record is kept, marked undone, and the links the night gave the elder stay. The cost: the name is held twice again, so a new memory naming it links to neither card, and the night will not merge them again",
   setting:
     "auto, ask or off — the nightly run (page writer, dream, reflection). ask (the default): the first session of a day shows you the question in the terminal and waits for you to say \"dream\" (or \"dream on your own\", which turns on auto); auto: the first session of a day starts it by itself, in a separate windowless claude -p in the background, and says so in one line; off: no dreams. `counterparts dream` prints the setting.",
 };
@@ -1100,6 +1105,7 @@ const VALUED_FLAGS: readonly string[] = [
   "kind",
   "title",
   "salience",
+  "tags",
   "id",
   "budget",
   "batch",

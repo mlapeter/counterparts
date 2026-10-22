@@ -34,9 +34,11 @@ import { TUNABLES as ADAPTER } from "../src/adapters/config.js";
 import { Counterpart, SEAT_TOOLS } from "../src/core/counterpart.js";
 import type { Seat, SeatAsk } from "../src/core/counterpart.js";
 import { applyTagsAnswer, askTags, renderTagsBundle, tagsBundle, undoNightTags, TAGS_NIGHT_PREFIX } from "../src/core/dream/index.js";
-import { TUNABLES as SCHEMAS, isStopTag, nightTagWork, stemKey, tallyTags } from "../src/core/schemas/index.js";
+import { KINDS_REPAIR_KEY, SUBJECT_KIND_BY_PREFIX, TUNABLES as SCHEMAS, isStopTag, nightTagWork, stemKey, tallyTags } from "../src/core/schemas/index.js";
 import { PHASES, phaseReport, runBirths } from "../src/core/sleep/index.js";
+import { V14_UPGRADE_KEY } from "../src/core/store/index.js";
 import type { Store } from "../src/core/store/index.js";
+import { upgradeV14Findings } from "../src/adapters/claude-code/doctor.js";
 
 let root: string;
 let clock = Date.parse("2026-10-21T09:00:00Z");
@@ -635,5 +637,87 @@ describe("nothing reads tags yet, with a topic born", () => {
     const facts = (c: Counterpart): string[] => titles(c, factsRecall({ counterpart: c, sessionId: "s9", vector: null, semantic: "embedder-off" }, "the photo library restore").memories.map((m) => m.id));
     expect(facts(plain).length).toBeGreaterThan(0);
     expect(facts(topic)).toEqual(facts(plain));
+  });
+});
+
+describe("the kinds a card's birth kind gave go back to the night (2026-10-22)", () => {
+  /** A card as the old rule left it: its birth kind read as its kind of subject (the v14 upgrade, and inserts until 10-22). */
+  function oldCard(s: Store, kind: "person" | "place", name: string): string {
+    return s.put({ type: "schema", kind, title: name, body: name, meta: { role: "entity", name, aliases: [] }, subjectKind: kind });
+  }
+
+  test("a card born now waits for the night's ask, whatever its birth kind; the identity core is a person", () => {
+    const c = brain();
+    mem(c.store, "Wren fixed the gate hinge on Saturday.");
+    const born = c.schemas.mention({ name: "Wren", kind: "person", source: "Wren fixed the gate hinge on Saturday.", chunkRef: "t:1", day: 0 });
+    const id = (born as { id?: string }).id as string;
+    expect(c.store.row(id)?.kind).toBe("person");
+    expect(c.store.row(id)?.subject_kind).toBeNull();
+    expect(tagsBundle(c.store).cards.map((k) => k.id)).toContain(id);
+    const core = c.store.put({ type: "schema", kind: "self", title: "Mike", body: "Mike", meta: { role: "entity", name: "Mike", aliases: [] } });
+    expect(c.store.row(core)?.subject_kind).toBe("person");
+  });
+
+  test("through the night: the old rule's rows go back to NULL, once, recorded; the night's, the core's and a project's stay", async () => {
+    const c = brain();
+    const s = c.store;
+    const katie = oldCard(s, "person", "Katie");
+    const place = oldCard(s, "place", "Counterparts");
+    const faded = oldCard(s, "person", "Anthropic");
+    s.archive(faded, "faded");
+    // The night's ask set this one: someone's judgement, never repaired.
+    const judged = oldCard(s, "person", "Wren");
+    s.setMeta(`${SUBJECT_KIND_BY_PREFIX}${judged}`, JSON.stringify({ by: "night", run: "r1", at: "2026-10-20", kind: "person" }));
+    // Not the old rule's: a person card given another kind by whoever made it, and a project card.
+    const topic = s.put({ type: "schema", kind: "person", title: "Ana", body: "Ana", meta: { role: "entity", name: "Ana", aliases: [] }, subjectKind: "topic" });
+    const project = s.put({ type: "schema", kind: "entity", title: "Garden", body: "Garden: a project.", meta: { role: "entity", name: "", aliases: [] }, subjectKind: "project" });
+    const core = s.put({ type: "schema", kind: "self", title: "Mike", body: "Mike", meta: { role: "entity", name: "Mike", aliases: [] } });
+
+    // An observer counts and writes nothing.
+    expect(nightTagWork(s, { day: 1, apply: false, budget: 10 }).kindsRepaired).toBe(3);
+    expect(s.row(katie)?.subject_kind).toBe("person");
+    expect(s.getMeta(KINDS_REPAIR_KEY)).toBeUndefined();
+
+    c.wake(9_000);
+    const report = await c.sessionEnd({ date: "2026-10-21" });
+    expect(phaseReport(report.cycle, "tags").status).toBe("ran");
+    expect([katie, place, faded].map((id) => s.row(id)?.subject_kind)).toEqual([null, null, null]);
+    expect([judged, topic, project, core].map((id) => s.row(id)?.subject_kind)).toEqual(["person", "topic", "project", "person"]);
+    const record = JSON.parse(s.getMeta(KINDS_REPAIR_KEY) ?? "{}") as { ids: { id: string; was: string }[] };
+    expect(record.ids.map((r) => `${r.id}:${r.was}`).sort()).toEqual([`${katie}:person`, `${place}:place`, `${faded}:person`].sort());
+    // The live ones are the ask's now.
+    expect(tagsBundle(s).cards.map((k) => k.id)).toEqual(expect.arrayContaining([katie, place]));
+
+    // Once per store: nothing is looked for again.
+    const late = oldCard(s, "place", "Lisbon");
+    clock += 86_400_000;
+    await c.sessionEnd({ date: "2026-10-22" });
+    expect(s.row(late)?.subject_kind).toBe("place");
+    expect(nightTagWork(s, { day: 3, apply: true, budget: 10 }).kindsRepaired).toBe(0);
+  });
+
+  test("doctor's v14 line says the night took the kinds back, instead of claiming them still", async () => {
+    const c = brain();
+    const katie = oldCard(c.store, "person", "Katie");
+    oldCard(c.store, "place", "Counterparts");
+    // As an upgraded store's record reads (a store born at v14 has none).
+    c.store.setMeta(V14_UPGRADE_KEY, JSON.stringify({ from: "13", day: 3, confidentialDropped: true, confidentialCounted: 0, subjects: { person: 2, place: 1 } }));
+    expect(upgradeV14Findings(c.store)[0]?.detail).toContain("2 cards marked a person, 1 a place; the rest wait for the night");
+    c.wake(9_000);
+    await c.sessionEnd({ date: "2026-10-21" });
+    expect(c.store.row(katie)?.subject_kind).toBeNull();
+    const line = upgradeV14Findings(c.store)[0];
+    expect(line?.severity).toBe("green");
+    expect(line?.detail).toContain("2 cards marked a person, 1 a place; on 2026-10-21 the night took back 2 kinds a card's birth kind had given (1 person, 1 place) to sort them itself; the rest wait for the night");
+  });
+
+  test("switched off: no repair, so nothing is handed to an ask that will not run", async () => {
+    const c = brain();
+    const katie = oldCard(c.store, "person", "Katie");
+    set("TAGS_NIGHT", false);
+    c.wake(9_000);
+    await c.sessionEnd({ date: "2026-10-21" });
+    expect(c.store.row(katie)?.subject_kind).toBe("person");
+    expect(c.store.getMeta(KINDS_REPAIR_KEY)).toBeUndefined();
   });
 });

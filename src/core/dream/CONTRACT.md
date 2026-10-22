@@ -211,6 +211,14 @@ dreamer is the model (a background agent the session launches), outside this pro
   alone does not count. Titles and names are flattened to one line in the bundle. Undo
   follows a carried copy through the revisions that declared it (`meta.updates`), and
   clears only a kind still as the night set it.
+  *2026-10-22 (wave 2 follow-ups):* the owner's door is `counterparts dream --undo-tags
+  [run]` (`undoTagNight`): the newest night not yet taken back, or the named night and every
+  one after it. Its undo starts just after the previous night's record (a night's writes
+  follow the previous answer), and `undoNightTags` takes `runs` so a kind is cleared only
+  when one of those runs set it — an earlier night on the same date keeps its own. Each
+  night reached is marked `undone` on its record, whose `at` is on the store's clock (the
+  one its tags' `created_at` read). The cards the night sorts now include the ones the old
+  birth-kind rule had marked: the tags phase gives those back once (`sleep/` CONTRACT).
 - `begin` refuses under observer, when a dream was journaled this CALENDAR day, while
   another session's run is busy (`dreaming-now`), and when nothing is new. A dream LEFT
   BEHIND — begun, never journaled, quiet for `ABANDONED_AFTER_MS` — is RESUMED when it

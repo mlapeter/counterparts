@@ -438,3 +438,22 @@ describe("F6b: drewOn credits a memory this session itself replaced", () => {
     expect(r.replacedHere).toBeUndefined();
   });
 });
+
+describe("remember's day reaches the jot door (2026-10-22)", () => {
+  test("a done through remember closes the occurrence open on the SERVER's day, not the store's", async () => {
+    // The store's clock a day behind the server's: Monday 19 Oct is in 20 Oct's
+    // lead days, where the store's own day would close the overdue 13 Oct.
+    let storeClock = Date.parse("2026-10-13T09:00:00Z");
+    let serverClock = storeClock;
+    const counterpart = Counterpart.open({ dir, now: () => storeClock, timeZone: "UTC" });
+    open.push(counterpart);
+    const s = new McpServer({ counterpart, session: SESSION, scope: "/scope/one", now: () => serverClock });
+    counterpart.store.advanceClock("2026-10-13");
+    const id = (await remember(s, { title: "Weekly backup", text: BACKUP, eventDate: "2026-10-06", recurring: "weekly", remind: "plain" }))["id"] as string;
+    storeClock = Date.parse("2026-10-19T09:00:00Z");
+    counterpart.store.advanceClock("2026-10-19");
+    serverClock = Date.parse("2026-10-20T09:00:00Z");
+    const done = await remember(s, { text: "Ran the weekly Counterparts store backup this Tuesday.", updates: id, status: "done" });
+    expect(done["reminder"]).toMatchObject({ occurrenceClosed: true, occurrence: "2026-10-20", next: "2026-10-27" });
+  });
+});

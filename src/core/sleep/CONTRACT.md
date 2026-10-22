@@ -56,7 +56,15 @@ alone.
   #nightTagWork` handed in as `tags.ts#TagsFn`: a linked card's name written as a tag
   (`BUDGETS.tags` a night), stem merges, and merges no memory carries let go. Behind
   `schemas.TAGS_NIGHT`; off, the phase runs and counts `switched-off`. The topic births ride
-  the `births` phase, a night after the merges they read.)*
+  the `births` phase, a night after the merges they read.)* *(2026-10-22, wave 2 follow-ups:
+  the `tags` phase also gives back, once per store, the subject kinds the old birth-kind rule
+  wrote — `schemas/tags.ts#repairBirthKindSubjects`, recorded first in
+  `schemas.kinds.repaired`, counted in `kindsRepaired` and the phase's `changed` — so the
+  night's kinds question sorts those cards; behind the same switch, since off nobody would.
+  And the `births` phase first merges the twin cards, once per store
+  (`Schemas#mergeTwinCards`, behind `schemas.TWINS_MERGE`, recorded in
+  `schemas.twins.merged`), before the tally, so a name with two cards reads as held once;
+  under observer it counts and writes nothing.)*
 - **Degrade, don't abort** — index rebuild, embedding refresh, horizon computation, backup,
   and every prune each fail without failing the cycle. [v1 §5 G6]
 - **The claim is truncated only after results are applied AND persisted.** [v1 §5 G7, E6]

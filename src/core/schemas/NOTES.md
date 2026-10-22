@@ -815,3 +815,86 @@ amended in the contract: beliefs are still never a recall candidate, a fact or a
 they are seen only in the slot and the project line. The store's `reinforce` now credits a belief
 a use through one door (`beliefSlot`, a rating of the slot), refused for a belief marked about me
 or us; support is untouched by it — the shown → used → stronger loop stays closed at support.
+
+## 2026-10-22 — a card's birth kind is not its kind of subject (wave 2 follow-ups)
+
+**What was wrong.** The v14 upgrade, and every insert since, read an entity card's birth kind as
+its kind of subject: kind `person` a person, `place` a place. The birth kind is `kindForName`'s
+vote over the kinds of the memories whose titles carry the name, and a memory of kind `person` is
+about a person (usually the owner), not about the name in its title. On a copy of the 10-22
+snapshot one such title made "Anthropic" a person, and one place memory beside one entity memory
+made "Counterparts" a place. Katie, Clark, Jason, Ellis and Claude were also persons on one
+title each. No threshold fixes that vote: "Counterparts" re-tallied today reads person 3, place 1,
+entity 1.
+
+**The fix.** `store/operational.ts#deterministicSubjectKind` now marks only the identity core
+(a person, the owner). Every other card waits for the night's kinds ask, which a model answers
+and which is shown the birth kind and titles as hints. `kindForName` breaks a tie with entity
+toward entity ("a thing until a memory is about it"); that only moves how slowly a future card
+fades. The night's tags phase gives the old rule's rows back once per store
+(`tags.ts#repairBirthKindSubjects`): a row whose kind is the old rule's for its birth kind,
+that nobody is recorded as setting (`schemas.subjectKind.<id>`), and that today's rule doesn't
+give the same kind, goes back to NULL. The repair is recorded first in `schemas.kinds.repaired`,
+with each id and what it was. It sits behind `TAGS_NIGHT`, because with the switch off nobody
+would sort the cards it hands back.
+
+**On the copy.** Live entity cards: person 10, place 1, unsorted 150 before; person 1 (the
+identity core), unsorted 160 after. The ask takes 10 a night, most-linked first:
+Counterparts, Claude and Anthropic on night 1, Katie on night 2, and the last of them (the two
+Allex twins) on night 13.
+
+**The twins: not through the dream's path, then built on their own.** The brief asked to merge
+the existing twin cards (50 pairs on the copy, not 40: ten more were born on lived day 31, before
+#578 reached live) through the dream's merge path. That path can't take a card. `Dreams.showable`
+refuses any row that isn't `type: memory` (dream CONTRACT §3: "no ... schema row"). The merge
+mints a new `type: memory` row from the originals. The settle door it goes through
+(`reconsolidation.ts#doorRefusal`) refuses an entity as `not-a-memory`. Its record (`dreams` +
+`dream_changes`, `Dreams.undo`) could carry a change with no schema change only under a `dreams`
+row, and every reader of that table takes such a row for a night's dream: `lastDream`, the night
+run's "began anything since", the dashboard and doctor. The roadmap session's ruling: reuse was
+only ever about being recorded and undoable, so build that directly.
+
+`mergeTwinCards` runs first in the `births` phase, once per store, behind `TWINS_MERGE`. Its
+record (`schemas.twins.merged`: the pairs and what was skipped) is written first, and its
+presence is the once. For each pair that differs in nothing a merge could lose, it records
+`schemas.twin.<gone>` (`{keep, day, at}`) and archives the second-born under `card-twin`. Its
+own reason means the dedup door (`unarchiveMerged`) can't reach it, and the twin door
+(`owner-op-seam#unarchiveTwin`, `counterparts dream --undo-twins`) can reach nothing else.
+Nothing moves, because the elder already holds the same links, aliases and kind. The archived
+card goes out of the alias index and not into the faded one: the elder holds the name live. An
+undone twin comes back to a long-lived index at its next `adopt`, and the pass doesn't run
+again. It merges no physics: the twin's uses stay on the twin, as two races' credits were
+never one card's. Skipped and counted: three or more cards, and links, aliases, a belief or
+current state, a folder, protection or the identity core, or kinds that differ. On the copy
+every pair has identical `memory_subjects` sets, no aliases, no beliefs, no folders and the same
+birth day.
+
+**Review of #593, two fixes.**
+- *The keeper looks back.* While two live cards held a name, `subjectsIn` gave it to neither, so the
+  memories written while the twins lived were linked to no card. Each keeper now links every memory
+  naming it once its twin is out of the index. It uses `linkNamingMemories`' rule, `via: birth`,
+  fail-open, in one pass for all keepers. A lower-cased substring check gates the whole-name regex,
+  which costs ~0.6 ms a test on the owner's corpus. On a copy of the 10-22 snapshot that came to 287
+  links on 224 memories across 23 cards: 262 links on 208 live memories, LoCoMo 99, Google 35,
+  Vercel 34, OpenRouter 24. The pass took 378 ms (3.9 s without the check). The owner's undo
+  leaves those links, because they are true. Its cost is said in the CLI and help: the name is held
+  twice again, so new memories naming it link to neither card.
+- *An interrupted pass finishes.* The plan was written first and an archive failure was swallowed,
+  so the next night returned `ran: false` and the pair stayed twins for good. Now the plan
+  is written only if none exists (`updateMeta`), so a racing worker's empty plan never stands over
+  the first's. While a planned twin is still live and its record isn't `undone`, each night
+  finishes it: the archive first, then its record. A twin archived without its record (a kill
+  between the two) is recorded on the next run. `unarchiveTwin` marks the record `undone` on its
+  no-op path too. Doctor's v14 line reads the plan's `archived` and `linked` counts.
+
+**Delta review of #593.**
+- *The finish path asks again.* A pair finished a night later could have drifted: its keeper had
+  faded, which would leave the name with no live card, or a memory was linked only to the twin,
+  which the archive would orphan. Before each archive, the first pass's checks run again
+  (`twinBlocker`). The keeper must be live, then protection, kinds, aliases, beliefs, folders, and
+  one set of linked memories. A pair that fails is dropped from the plan: its entry is marked
+  `dropped`, so no later night retries it, and it is counted in the record's `skipped`.
+- *Memories, not links.* The record keeps `linked` (links) and `linkedMemories` (distinct live
+  memories that gained one). Doctor prints both: on the corpus copy, 287 links on 208 memories.
+- *A kill before the look-back.* A plan record with no `linked` field means the look-back never
+  finished, so the next night runs it for every keeper of a merged twin.
