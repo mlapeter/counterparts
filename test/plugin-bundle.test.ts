@@ -19,6 +19,7 @@ import {
   DIRECTORY_ENTRIES,
   DIRECTORY_SHEBANG,
   EXTRA_KEYWORDS,
+  FIRST_SPLIT_RELEASE,
   LISTING,
   MAX_FILES,
   MAX_INSPECTED_BYTES,
@@ -35,6 +36,7 @@ import {
   traceFiles,
   transpileSource,
   transpiledPath,
+  versionAtLeast,
   writeBundle,
 } from "../tools/plugin-bundle/build.js";
 import { embeddedFiles } from "../tools/single-binary/build.js";
@@ -48,7 +50,8 @@ const paths = bundlePaths(plan);
  *  that adds files fails here before a release fails the directory.
  *  510 for full and directory (2026-10-21): full was 503 before wave 2, 509
  *  after. Both still carry the sidebar: full is the one plugin before the split
- *  (the tripwire refuses it from FIRST_SPLIT_RELEASE on), directory the held
+ *  (the tripwire refuses it from FIRST_SPLIT_RELEASE on, and its margin binds
+ *  only below that version), directory the held
  *  submission. From the split (#547, 0.3.32) our marketplace ships core and
  *  sidebar instead: core was 451 and sidebar 63 on 2026-10-22. Core keeps 480,
  *  room for a wave or two of new modules (wave 2 added ~7) that still leaves
@@ -127,9 +130,14 @@ describe("the file set", () => {
     for (const f of frames) expect(paths).toContain(`hooks/sidebar/art/fox/${f}`);
   });
 
-  test(`stays within the ${FILE_MARGIN}-file margin under the directory's ${MAX_FILES}`, () => {
-    withinMargin("full", paths.length);
-    expect(paths.length).toBeLessThanOrEqual(MAX_FILES);
+  test(`stays within the ${FILE_MARGIN}-file margin under the directory's ${MAX_FILES}, while it is what ships`, () => {
+    // From the split on nothing ships the full flavor (build.ts refuses it; the
+    // directory flavor and core are measured on their own), so neither its
+    // margin nor the limit binds it then: it is the set core is cut from.
+    if (!versionAtLeast(plan.version, FIRST_SPLIT_RELEASE)) {
+      withinMargin("full", paths.length);
+      expect(paths.length).toBeLessThanOrEqual(MAX_FILES);
+    }
     // The builder says, without refusing, when the full flavor nears the limit; nothing else.
     expect(plan.warnings.filter((w) => !/^\d+ files, near the directory's \d+$/.test(w))).toEqual([]);
     expect(paths.length).toBeGreaterThan(100);

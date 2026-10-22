@@ -65,6 +65,20 @@ beforeEach(() => {
   }
 });
 
+/**
+ * Why `floor` can't be the sidebar's dependency floor, given CHANGELOG.md, or
+ * null. Released before the floor = drew the sidebar itself, so the floor must
+ * be past the newest release, unless the floor is released: then it is the
+ * split's release, and its own section names the counterparts-sidebar plugin.
+ */
+function floorProblem(floor: string, changelog: string): string | null {
+  const sections = [...changelog.matchAll(/^## (\d+\.\d+\.\d+)\b[^\n]*\n([\s\S]*?)(?=^## |(?![\s\S]))/gm)].map((m) => ({ v: m[1]!, body: m[2]! }));
+  const at = sections.find((x) => x.v === floor);
+  if (at !== undefined) return at.body.includes("counterparts-sidebar") ? null : `${floor} is released and its changelog does not name counterparts-sidebar`;
+  const newest = sections.map((x) => x.v).sort((x, y) => (versionAtLeast(x, y) ? -1 : 1))[0] ?? "0.0.0";
+  return versionAtLeast(newest, floor) ? `${floor} is not past ${newest}, the newest release, which drew the sidebar itself` : null;
+}
+
 describe("core", () => {
   test("is the full flavor less the sidebar: same name, no module, no contract, nothing of hooks/sidebar/", () => {
     expect(corePaths).toEqual(plans.fullPaths().filter((p) => !p.startsWith(`${SIDEBAR_DIR}/`)));
@@ -124,11 +138,21 @@ describe("the sidebar", () => {
     expect(sidebar.generated["hooks/words.ts"]).toContain("/counterparts:meet");
   });
 
-  test("its dependency's floor is past every release that drew the sidebar itself (0.3.27 the last released)", () => {
+  test("its dependency's floor is past every release that drew the sidebar itself (read off CHANGELOG.md)", () => {
     // A release at or past the floor that still drew the sidebar would meet the
     // range and give two panes: if the split slips a release, raise the floor.
-    const [a, b, c] = FIRST_SPLIT_RELEASE.split(".").map(Number) as [number, number, number];
-    expect(a * 1e6 + b * 1e3 + c).toBeGreaterThan(3 * 1e3 + 27);
+    const changelog = readFileSync(join(REPO, "CHANGELOG.md"), "utf8");
+    expect(floorProblem(FIRST_SPLIT_RELEASE, changelog)).toBeNull();
+    // 0.3.30 is released and drew the sidebar itself: a floor at or below it is
+    // refused (and so is one at 0.3.31 once that is in the changelog).
+    expect(floorProblem("0.3.28", changelog)).not.toBeNull();
+    expect(floorProblem("0.3.30", changelog)).not.toBeNull();
+    expect(floorProblem("0.3.31", `## 0.3.31 — 2026-10-22\n\nNo split.\n\n${changelog}`)).not.toBeNull();
+    expect(floorProblem("0.3.32", `## 0.3.31 — 2026-10-22\n\nNo split.\n\n${changelog}`)).toBeNull();
+    // Once the split's release is in the changelog, its own section names the sidebar plugin.
+    const released = `## 9.9.9 — 2099-01-01\n\nThe sidebar is counterparts-sidebar now.\n\n${changelog}`;
+    expect(floorProblem("9.9.9", released)).toBeNull();
+    expect(floorProblem("9.9.9", `## 9.9.9 — 2099-01-01\n\nNothing of the split.\n\n${changelog}`)).toContain("does not name");
   });
 
   test("its README says how to install it and that it brings counterparts", () => {
