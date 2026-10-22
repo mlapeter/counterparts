@@ -24,6 +24,7 @@ import {
   planBundle,
   sidebarLeftover,
   sidebarText,
+  fileLimitApplies,
   splitTripwire,
   versionAtLeast,
   writeBundle,
@@ -297,6 +298,11 @@ describe("written", () => {
     expect(splitTripwire(FIRST_SPLIT_RELEASE, "full")).toContain("Raise FIRST_SPLIT_RELEASE first");
     expect(splitTripwire("0.3.27", "full")).toBeNull();
     for (const f of ["core", "sidebar", "directory"] as const) expect(splitTripwire(FIRST_SPLIT_RELEASE, f)).toBeNull();
+    // The 512-file limit: off for full from the split on (it ships nowhere; split.sh still
+    // builds it as the one plugin it upgrades from), on for every flavor that ships.
+    expect(fileLimitApplies("full", FIRST_SPLIT_RELEASE)).toBe(false);
+    expect(fileLimitApplies("full", "0.3.27")).toBe(true);
+    for (const f of ["core", "sidebar", "directory"] as const) expect(fileLimitApplies(f, FIRST_SPLIT_RELEASE)).toBe(true);
     // Today: the version is before the split, so the full flavor still builds.
     const version = String(repoJson("package.json")["version"]);
     const listed = (repoJson(".claude-plugin/marketplace.json")["plugins"] as { name: string }[]).some((p) => p.name === SIDEBAR_PLUGIN);

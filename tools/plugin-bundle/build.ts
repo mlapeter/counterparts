@@ -124,6 +124,13 @@ export function splitTripwire(version: string, flavor: Flavor): string | null {
   );
 }
 
+/** Whether the directory's MAX_FILES binds a flavor's build. From the split on,
+ *  full ships nowhere (only split.sh builds it, as the one plugin it upgrades
+ *  from), so the limit is core's and the directory flavor's. Pure. */
+export function fileLimitApplies(flavor: Flavor, version: string): boolean {
+  return !(flavor === "full" && versionAtLeast(version, FIRST_SPLIT_RELEASE));
+}
+
 /** a >= b, for x.y.z versions. Pure. */
 export function versionAtLeast(a: string, b: string): boolean {
   const [x, y] = [a, b].map((v) => v.split(/[.-]/).slice(0, 3).map(Number)) as [number[], number[]];
@@ -812,7 +819,7 @@ function finishPlan(repo: string, plan: Plan, problems: string[]): Plan {
     }
   }
   const count = new Set(all).size;
-  if (count > MAX_FILES) problems.push(`${count} files, over the directory's ${MAX_FILES}`);
+  if (count > MAX_FILES && fileLimitApplies(flavor, plan.version)) problems.push(`${count} files, over the directory's ${MAX_FILES}`);
   else if (flavor === "directory" && count >= WARN_FILES) warnings.push(`${count} files, near the directory's ${MAX_FILES}`);
 
   if (problems.length > 0) throw new Error(`plugin bundle refused:\n  ${problems.join("\n  ")}`);

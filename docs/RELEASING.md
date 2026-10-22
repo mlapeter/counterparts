@@ -32,7 +32,10 @@ later:
   sidebar's entry in the marketplace.
 - **The split release:** the release commit also adds the second marketplace entry,
   `counterparts-sidebar`, a `url` source at
-  `https://github.com/counterparts-ai/counterparts-sidebar.git`, `"ref": "v<version>"`.
+  `https://github.com/counterparts-ai/counterparts-sidebar.git`, `"ref": "v<version>"`,
+  with `"description": "A pane beside the chat that shows what your counterpart's memory is
+  doing, with a fox. Installs counterparts with it."` and `"category": "memory"` (the words
+  `tools/plugin-loop/split.sh`'s `market()` tests with).
   `test/plugin.test.ts` requires that entry exactly from `FIRST_SPLIT_RELEASE` on, with
   both pins at `v<version>`.
 
@@ -103,24 +106,29 @@ these ones. Any later change to `src/` means building again. Details:
 The plugin as a folder of its own, for the bundle repository
 (`counterparts-ai/counterparts-plugin`) and Anthropic's directory
 ([plugin.md, "The bundle"](plugin.md#the-bundle-for-anthropics-directory)). Since 0.3.22
-the marketplace installs from it. Generate both flavors after `binaries.json` is
+the marketplace installs from it. Generate the bundles after `binaries.json` is
 committed, since the build copies that file and refuses one that names another version;
-it takes its version from `package.json`:
-
-```sh
-bun tools/plugin-bundle/build.ts <clone of the bundle repository>                     # full: main
-bun tools/plugin-bundle/build.ts --flavor directory <clone, directory branch>         # directory branch
-```
+it takes its version from `package.json`.
 
 From the split release on (`FIRST_SPLIT_RELEASE`, [plugin.md, "Two
 plugins"](plugin.md#two-plugins-2026-10-20-our-own-marketplace-lightly-held)), `main` of
-the bundle repository takes `--flavor core` instead of the full flavor, and the sidebar
-gets a repository of its own (`counterparts-ai/counterparts-sidebar`):
+the bundle repository takes `--flavor core`, and the sidebar has a repository of its own
+(`counterparts-ai/counterparts-sidebar`). The full flavor ships nowhere then, and
+`build.ts --flavor full` refuses:
 
 ```sh
 bun tools/plugin-bundle/build.ts --flavor core <clone of counterparts-plugin, main>
 bun tools/plugin-bundle/build.ts --flavor sidebar <clone of counterparts-sidebar, main>
 ```
+
+Before the split release, `main` took the full flavor:
+
+```sh
+bun tools/plugin-bundle/build.ts <clone of the bundle repository>                     # full: main
+```
+
+The directory flavor (`--flavor directory`, the `directory` branch) is built only when
+the directory steps say so; see the list below.
 
 - Create `counterparts-ai/counterparts-sidebar` **empty** (no README, no licence): the
   build refuses a folder that holds anything but a previous bundle and `.git`.
@@ -144,7 +152,7 @@ bun tools/plugin-bundle/build.ts --flavor sidebar <clone of counterparts-sidebar
   `test/plugin-split.test.ts`'s check that runs Claude Code is skipped where `claude` isn't
   installed (CI).
 - The install checks, from the split release on: `tools/plugin-loop/run.sh --bundle=core`
-  (the launcher steps: binary download, Node fallback, dependency install, stand-down,
+  (the launcher steps: Node fallback, dependency install, stand-down,
   against the `counterparts` plugin that ships; `--bundle`, the full flavor, is refused by
   the tripwire then), and `tools/plugin-loop/split.sh` (the two plugins together, and the
   upgrade from the one plugin). split.sh labels core and sidebar with this release's
@@ -158,9 +166,11 @@ from the split on; and `--bundle=directory`), and `build.ts [--flavor directory]
 second build (the directory flavor's bytes depend on the Bun version), then commit them
 there. When the sidebar changed, compare `validate`'s hooks, calls and env lines with the
 README's "What it can reach" (`tools/plugin-bundle/bundle-readme.md`, one block per
-flavor) and update both. At publish, push the full flavor to `main` and tag it `v<version>`, and push the
-directory flavor to the `directory` branch. The tag must be on GitHub before the release
-PR merges: master's marketplace is read live, and it names that tag.
+flavor; `tools/plugin-bundle/sidebar-readme.md` for the sidebar plugin) and update both. At
+publish, push core (the full flavor before the split) to `main` and tag it `v<version>`, and
+the sidebar bundle to its repository's `main`, tagged `v<version>` (section 5, step 3). The
+`directory` branch is not pushed while a submission is under review. The tags must be on
+GitHub before the release PR merges: master's marketplace is read live, and it names them.
 
 ## 4. Pack
 
@@ -209,7 +219,11 @@ same hash. Then open the release PR.
    `CLAUDE_CONFIG_DIR` set to a new directory):
    `claude plugin marketplace add mlapeter/counterparts`,
    `claude plugin install counterparts@counterparts`, and `claude plugin list` shows the
-   new version.
+   new version. From the split release on, also, in a second throwaway home:
+   `claude plugin install counterparts-sidebar@counterparts` installs both plugins, and
+   `claude plugin list` shows the sidebar at the new version and counterparts at
+   `<version>-<sha>`. A missing `counterparts--v<version>` tag shows here as "has no git tag
+   satisfying" (split.sh scenario 5).
 
 ## Upgrade and rollback, tested before publish
 
@@ -224,6 +238,11 @@ servers driven over stdio:
    memory server that were already open do across the upgrade.
 3. Roll back, and use the same store on the older version: it opens, recalls and runs
    doctor without error.
+
+**The plugin, from the split release on.** Sidebar users' core follows the highest
+`counterparts--v*` tag on core's repository, not the marketplace's pin. Rolling the plugin
+back for them means deleting the bad release's `counterparts--v<version>` tag there (and
+moving the marketplace pins back); they get the previous tag on their next update.
 
 Since 0.3.14 the rollback is **disconnect → reinstall → connect**: the newer version's
 `counterparts disconnect`, then the older tarball, then the older version's
