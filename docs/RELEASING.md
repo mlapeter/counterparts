@@ -162,8 +162,10 @@ the directory steps say so; see the list below.
 
 Each empties its clone (keeping `.git`) and writes the bundle. Check each with
 `claude plugin validate <clone>`, `tools/plugin-loop/run.sh --bundle` (`--bundle=core`
-from the split on; and `--bundle=directory`), and `build.ts [--flavor directory] --check <clone>` against a
-second build (the directory flavor's bytes depend on the Bun version), then commit them
+from the split on; and `--bundle=directory`), and `build.ts --check <clone>` against a
+second build, with the flavor written there: `--flavor core` and `--flavor sidebar` from
+the split on (no flavor means full, which the tripwire refuses then), no flavor before it,
+and `--flavor directory` only when the directory steps call for it (the directory flavor's bytes depend on the Bun version), then commit them
 there. When the sidebar changed, compare `validate`'s hooks, calls and env lines with the
 README's "What it can reach" (`tools/plugin-bundle/bundle-readme.md`, one block per
 flavor; `tools/plugin-bundle/sidebar-readme.md` for the sidebar plugin) and update both. At
@@ -220,6 +222,7 @@ same hash. Then open the release PR.
    `claude plugin marketplace add mlapeter/counterparts`,
    `claude plugin install counterparts@counterparts`, and `claude plugin list` shows the
    new version. From the split release on, also, in a second throwaway home:
+   `claude plugin marketplace add mlapeter/counterparts`, then
    `claude plugin install counterparts-sidebar@counterparts` installs both plugins, and
    `claude plugin list` shows the sidebar at the new version and counterparts at
    `<version>-<sha>`. A missing `counterparts--v<version>` tag shows here as "has no git tag
@@ -240,9 +243,13 @@ servers driven over stdio:
    doctor without error.
 
 **The plugin, from the split release on.** Sidebar users' core follows the highest
-`counterparts--v*` tag on core's repository, not the marketplace's pin. Rolling the plugin
-back for them means deleting the bad release's `counterparts--v<version>` tag there (and
-moving the marketplace pins back); they get the previous tag on their next update.
+`counterparts--v*` tag on core's repository, not the marketplace's pin. To stop a bad
+release reaching more of them, delete its `counterparts--v<version>` tag there and move the
+marketplace pins back. Whether `claude plugin update` then takes an installed
+`<version>-<sha>` back to the previous tag is unmeasured. For the split release itself
+there is no earlier tag that meets `>=FIRST_SPLIT_RELEASE` and no earlier sidebar pin:
+rolling it back means taking the sidebar's marketplace entry out (the one plugin comes back
+with the previous release's pin), not deleting a tag.
 
 Since 0.3.14 the rollback is **disconnect → reinstall → connect**: the newer version's
 `counterparts disconnect`, then the older tarball, then the older version's
