@@ -861,7 +861,16 @@ vision: the longest run of one `top` across consecutive turns of a session). The
 reviewer's scan — and whether `adapter.injection.overbudget` rows follow (the host's ~60-byte tag sits outside the
 ceiling; self NOTES). And the design's
 new eval: how often a session repeats something already corrected or re-raises something settled — the slot
-should not raise it.
+should not raise it. Read it with `counterparts mechanisms --dir ~/.counterparts/store` (the line "Settled things
+drawn on again: N of M pairs this week (changed a of b, corrected c of d — …); came up again R; shown only S", the
+"beside it" line and the "by build" split by kind) or
+`counterparts mechanisms --dir ~/.counterparts/store --json | jq '.settled | {pairs, repeats, reraised, viaWinner, shownOnly, byHow, byBuild}'`
+(counts by kind, by way in, per build, example ids). Compare the pre-0.3.32 bucket (`pre-stamp`, or 0.3.31) with
+0.3.32's, each beside its turns and lived days. Baseline, the 10-22 snapshot copy (window 10-16..10-22, all
+pre-stamp, 1,254 recall turns on 8 lived days): drawn on again 2 of 231 (changed 2 of 210 — both rated 3 by a
+session, one also named in `drewOn` and refused, 1 without its winner in the same row; corrected 0 of 21), came up
+again 0, the winner in a newer pair 0, shown only 14. The definition, and where it departs from the brief:
+`docs/decisions.d/feat-repeat-reraise-eval-1022.md`.
 
 **What would change it.** Belief lines rated as noise as often as footnotes or more → raise the floor or the
 strength a belief needs (`BELIEFS_SLOT_FLOOR`), or show fewer (`BELIEFS_SLOT_MAX`). Tag-primed footnotes rated no

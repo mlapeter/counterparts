@@ -36,6 +36,8 @@ import type { Seat, SeatAsk, SeatTool } from "../../src/core/counterpart.js";
 import { pageReading } from "./page.js";
 import type { PageReading } from "./page.js";
 import { appliedSettings, runningBuild } from "./settings.js";
+import { settledOf } from "./settled.js";
+import type { SettledReading } from "../../src/adapters/cli/commands.js";
 import type { Setting } from "./settings.js";
 import { usageTally } from "./usage.js";
 import type { UsageTally } from "./usage.js";
@@ -346,6 +348,8 @@ export interface NightReplayRecord {
     readonly returns: Compared<number>;
     readonly cites: Compared<number>;
   } | null;
+  /** Settled things repeated, re-raised, shown, over the replayed store's whole record (`settled.ts`). */
+  readonly settled: SettledReading | null;
   readonly keptAt: string | null;
 }
 
@@ -637,6 +641,7 @@ export async function replayNight(opts: NightReplayOptions): Promise<NightReplay
                 returns: compared(reflectionReturns(rec, recR), reflectionReturns(rep, repR)),
                 cites: compared(count(recR.cites), count(repR?.cites)),
               },
+        settled: settledOf(dir),
         keptAt: opts.keep === true ? work : null,
       };
     } finally {
