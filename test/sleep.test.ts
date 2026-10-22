@@ -13,6 +13,7 @@
  * the test v1 shipped.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -211,6 +212,21 @@ function snapshot(root: string): Map<string, string> {
     }
   };
   walk(root, "");
+  return out;
+}
+
+/** Every row of every table in every database file under `root`, read through a fresh connection. */
+function contents(root: string): Record<string, unknown[]> {
+  const out: Record<string, unknown[]> = {};
+  for (const name of readdirSync(root).filter((f) => f.endsWith(".sqlite")).sort()) {
+    const db = new Database(join(root, name), { readonly: true });
+    try {
+      const tables = db.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[];
+      for (const t of tables) out[`${name}/${t.name}`] = db.query(`SELECT * FROM "${t.name}" ORDER BY rowid`).all();
+    } finally {
+      db.close();
+    }
+  }
   return out;
 }
 
@@ -1254,7 +1270,7 @@ describe("observer mode", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("idempotence under replay", () => {
-  test("the whole cycle replayed on the same lived day changes not one byte", () => {
+  test("the whole cycle replayed on the same lived day changes not one row", () => {
     const s = store();
     prunable(s);
     put(s, { salience: { claimed: 0.8 }, physics: { birthDay: -3, lastUsedDay: 0 } });
@@ -1266,10 +1282,14 @@ describe("idempotence under replay", () => {
     expect(first.merged.length).toBe(1);
 
     const before = snapshot(dir);
+    const rowsBefore = contents(dir);
     const second = runCycle({ store: s, date: "2026-01-02", render: () => ({ bytes: 64 }), fade: NO_FADE, births: NO_BIRTHS, tags: NO_TAGS });
     const after = snapshot(dir);
 
-    expect(diff(before, after)).toEqual([]);
+    // The cycle's lease (`sleep/lease.ts`, 2026-10-21) is taken and given back,
+    // so the write-ahead log moves; every row in every database is where it was.
+    expect(diff(before, after).filter((f) => !/-(wal|shm)$/.test(f))).toEqual([]);
+    expect(contents(dir)).toEqual(rowsBefore);
     expect(phaseReport(second, "clock").reason).toBe("nothing-to-do");
     for (const phase of PHASES.filter((p) => p !== "clock")) {
       expect(phaseReport(second, phase).reason).toBe("already-done-today");

@@ -163,6 +163,19 @@ export const SWEEP_WAKE_EVENT = "sweep.wake";
 export const SLEEP_CYCLE_EVENT = "sleep.cycle";
 
 /**
+ * A CYCLE THAT STOOD ASIDE (2026-10-21, `sleep/lease.ts`): another cycle held
+ * the store's lease, so this boundary ran its flush and no phase (`reason:
+ * held-elsewhere`) — or its lease was taken over part-way and the fence stopped
+ * it (`reason: lease-lost`, with `lostAt` and `phasesDone`). Its own row,
+ * not a `sleep.cycle` with another reason: that row means a cycle ran, and the
+ * readers of it (doctor, the dashboard's health line) read anything but `ran`
+ * as a night that did not happen. Unlatched, so the stand-asides are countable;
+ * the holder's pid, how long it had held and how long it had left. Ids and
+ * numbers, never text.
+ */
+export const SLEEP_CYCLE_HELD_EVENT = "sleep.cycle.held";
+
+/**
  * THE WAKE RENDER'S OWN RECORD — one row per briefing render at a boundary.
  *
  * The other half of U9: `self.briefing.trim` fires once per trimmed element and

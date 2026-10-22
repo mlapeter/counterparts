@@ -1058,3 +1058,82 @@ change it. The identity core is still not exempted, as before.
   the backlog took seven nights at 500 (489, 425, 442, 410, 417, 429, 135 written; fewer
   than 500 where two cards of one name link the same memory), 30–70 ms a night; a quiet
   night 10 ms. Before the join order was pinned (`tag-reads.ts#cardLinks`) one read took 2 s.
+
+## 2026-10-21 — one cycle at a time, per store (the lease)
+
+**What happened.** A closing session fires Stop and then SessionEnd, and each spawns a worker
+that runs the cycle. On the 10-20 corpus the two cycles ran side by side, ~94 ms apart, on four
+nights: the fast phases' markers kept the second one out, but births (~1.5 s on that store)
+read "due" in both, and 40 names got two cards (`schemas/NOTES.md`, "Card twins"). The
+briefing rendered twice too, and two sessions closing together would do the same.
+
+**What changed.** `runCycle` takes a lease before anything else (`lease.ts`): one meta row,
+`sleep.lease`, `{ owner, pid, at, until }`, taken in one `BEGIN IMMEDIATE` read-change-write
+(`Store#updateMeta`). Held by another owner and not expired, the cycle stands aside at once:
+no phase, no marker, a report with `held` and empty `order`/`phases`, and `sleep.cycle.held`
+in the ring. The boundary writes its own `sleep.cycle.held` row instead of `sleep.cycle` and
+`self.briefing` (doctor and the health line read any `sleep.cycle` reason but `ran` as a night
+that did not happen). Both workers still spawn and both still flush: the flush runs before the
+cycle, outside the lease. The holder gives the lease back in `finally`, only if it is still its
+own.
+
+- **Never waits.** The second worker blocks only on the write lock of one statement, not on the
+  other cycle. On a copy of the corpus with both workers released together: one `sleep.cycle`
+  row and one `sleep.cycle.held` row per date; the stand-aside returned in 42–71 ms while the
+  cycle took ~1.8 s; births ran once and made no twin. Master on the same copy: two
+  `sleep.cycle` rows per date, births ran in both, 10 new twins.
+- **A dead holder** leaves its row; it is reclaimed once `until` passes
+  (`TUNABLES.CYCLE_LEASE_MS`, 10 min, not shorter than `remember/`'s `STALE_CLAIM_MS`, which
+  `adapters/spawn.ts` already holds every worker's watchdog under). The markers then do what they
+  did: the phases it finished are done, the one it died in runs. `sleep.lease.reclaimed` says so.
+- **A wedged holder** is what a lease alone gets wrong, and the watchdog cannot be counted on for
+  it: the spawn's `timeout` is a timer in the hook that already exited, and the worker's own
+  timer cannot fire while it is stuck in synchronous work. So the lease is FENCED: before the
+  clock and every phase the cycle reads the row, and stops with `CycleLeaseLost` once it is not
+  the owner; after the last phase its release is that check. A wedged cycle finishes at most
+  the phase it was stuck in. (How it is graded: the review entry below.)
+- **An observer** takes no lease and is not stopped by one: it writes nothing.
+- A port without `updateMeta` runs unleased and says so (`sleep.lease.unavailable`).
+
+INTERFACE-GAPS §6 put the lock in the adapter. It is here instead, because every caller — the
+worker, the night run, the harness and the tools, through `Counterpart#sessionEnd` or directly —
+runs the cycle through `runCycle`, and a lock only one of them took would not be one. The
+idempotent-replay test now compares rows, not bytes: the lease's take and release move the
+write-ahead log.
+
+**Review of #581 (2026-10-21).** Five holes, closed:
+- *No fence after the last phase.* A holder wedged inside `log` and taken over finished its
+  sweep, failed its release without a word, and the boundary wrote a second `sleep.cycle ran`
+  row, a second `self.briefing` and the wake's caught-up marks. The release after the last
+  phase is now the last fence: false (the row is another's) stops it like any fence, and a
+  release that cannot write says `sleep.lease.release.failed`.
+- *A fenced cycle graded as a missed night.* `CycleLeaseLost` went out as a throw: a
+  `sleep.cycle threw` row (doctor red, health "not completing") and a runner failure. Now
+  `runCycle` catches it and returns the cycle as one that stood aside part-way (`held.lostAt`,
+  the phases it finished); the boundary writes `sleep.cycle.held` with reason `lease-lost` and
+  nothing else, and the runner sees a normal return. The night is the reclaimer's.
+- *A backward clock jump stalled cycles for the size of the jump* (~24 h in the probe). A row
+  taken "in the future", or running out further ahead than a lease lasts, is now taken over
+  (`leaseStale`), and so is a row whose pid names no process. That also means a crashed
+  worker's lease is taken over at the next boundary rather than after ten minutes, and a tool on
+  a frozen clock (`tools/wake-dump.ts`, `tools/sim/`, `tools/harness/replay.ts`) cannot leave a
+  lease that never expires: the row it leaves names a pid that is gone. A live holder misjudged
+  by the clock rules is stopped by the fence.
+- *Doctor was blind to a stuck lease.* The Sleep line goes amber when a boundary stood aside
+  after the newest cycle row and the lease it stood aside for no longer holds (run out, holder
+  gone, clock).
+- *The briefing still rendered twice*: the runner's `refreshWake` ran outside the lease. A
+  worker whose cycle stood aside now skips it (`runner.wake` reason `held-elsewhere`).
+- Minor: the cache opens inside the `try`, so a throw there gives the lease back; a stand-aside
+  row carries one day, the lived day its report read, in the column and the payload alike.
+
+**The known residual, accepted** (2026-10-21, with the day coordinator; the decision is in
+`docs/decisions.d/fix-sleep-single-flight-1021.md` until release). The take-over rules can
+misjudge a LIVE holder: by its clock (a row that looks taken in the future, or ends too far
+ahead), or by `kill(pid, 0)` reporting it dead when it is not — another pid namespace, a store
+synced to another machine. That holder runs on until its next fence, so the two cycles overlap
+for at most one phase. Births in that window still make one card per name: the re-check under
+the write lock (`Schemas#birth`, #578) sees the other cycle's cards, and the trial merge of
+#569, #578 and #581 made no twin. Another phase may run twice in that window, as any phase
+could before the lease; births was the one where that left lasting damage. Revisit if a store
+is ever shared across machines or pid namespaces.

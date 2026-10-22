@@ -56,6 +56,7 @@ import {
   RUNNER_FAILED_EVENT,
   SELF_BRIEFING_EVENT,
   SLEEP_CYCLE_EVENT,
+  SLEEP_CYCLE_HELD_EVENT,
   SNAPSHOT_FAILED_EVENT,
   SNAPSHOT_TAKEN_EVENT,
   SPAWN_FAILED_EVENT,
@@ -74,7 +75,7 @@ import {
 } from "../../core/store/index.js";
 import { heldCorrections } from "../../core/reconsolidation.js";
 import { bundledModelDir } from "../runtime.js";
-import { TUNABLES as SLEEP_TUNABLES, acceptsReflectedFeeling, laterFeelingWasAwake, laterFeelingWasReflections, selfRelevantFeeling } from "../../core/sleep/index.js";
+import { CYCLE_LEASE_KEY, leaseStale, readLease, TUNABLES as SLEEP_TUNABLES, acceptsReflectedFeeling, laterFeelingWasAwake, laterFeelingWasReflections, selfRelevantFeeling } from "../../core/sleep/index.js";
 import { TUNABLES as ASSOCIATE_TUNABLES, isDead, pairKey } from "../../core/associate/index.js";
 import type { EventRow } from "../../core/store/index.js";
 // The ask allowance the amber hint names, read rather than retyped: a number in
@@ -1006,6 +1007,22 @@ function boundaryAge(store: Store, today: string): "never" | "today" | "earlier"
     : "today";
 }
 
+/**
+ * A CYCLE LEASE THAT IS STUCK (review of #581, `sleep/lease.ts`): a boundary
+ * stood aside after the newest cycle row (its `sleep.cycle.held` row is newer),
+ * and the lease it stood aside for no longer holds — run out, its holder's pid
+ * gone, or taken "in the future" / further ahead than a lease lasts (a clock that
+ * jumped). The next cycle takes such a lease over by itself; this says that one
+ * is due. Null: nothing stuck, or nothing to tell.
+ */
+function stuckLease(store: Store, livedDay: number, cycle: EventRow): string | null {
+  const held = newestRows(store, SLEEP_CYCLE_HELD_EVENT, 1, livedDay).rows[0];
+  if (held === undefined || held.seq < cycle.seq) return null;
+  const lease = readLease(store.getMeta(CYCLE_LEASE_KEY));
+  if (lease === null) return null;
+  return leaseStale(lease, store.now());
+}
+
 /** The newest row of each family the background half leaves behind. */
 function rowFindings(input: DoctorInput, store: Store): Finding[] {
   const livedDay = store.livedDay();
@@ -1099,12 +1116,22 @@ function rowFindings(input: DoctorInput, store: Store): Finding[] {
     // `reason` is "ran" | "clock-failed" | "threw" (`counterpart.ts#recordSleepCycle`),
     // so anything but "ran" is a night that did not happen, not a cadence.
     const data = { reason, failed, date: rowDate(cycle), budgetTruncated: truncated.length };
+    const stuck = reason === "ran" && failed === 0 ? stuckLease(store, livedDay, cycle) : null;
     out.push(
       reason !== "ran"
         ? finding("sleep", "red", "Sleep", detail, "The nightly cycle is not completing — decay, prune, dedup and consolidate are not running.", data)
         : failed > 0
           ? finding("sleep", "amber", "Sleep", detail, "A phase failed; the row names it.", data)
-          : finding("sleep", "green", "Sleep", detail, "", data),
+          : stuck !== null
+            ? finding(
+                "sleep",
+                "amber",
+                "Sleep",
+                `${detail}; since then a cycle stood aside for a lease that no longer holds (${stuck})`,
+                "The next cycle takes a stale lease over by itself; if this stays, the store's sleep.lease row is what is stuck.",
+                { ...data, lease: stuck },
+              )
+            : finding("sleep", "green", "Sleep", detail, "", data),
     );
   }
 

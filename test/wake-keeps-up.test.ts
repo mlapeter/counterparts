@@ -51,6 +51,7 @@ import {
 } from "../src/core/self/index.js";
 import type { SelfTunables } from "../src/core/self/index.js";
 import { Store } from "../src/core/store/index.js";
+import { CYCLE_LEASE_KEY } from "../src/core/sleep/index.js";
 import type { WakeDisplayRow } from "../src/core/store/index.js";
 
 const BUDGET = 9_000;
@@ -598,6 +599,32 @@ describe("a wake another build published is re-rendered at the next worker", () 
     expect(events).toContain("runner.wake:version");
     await runOnce({ config: config(), date: "2026-09-29", embedder: null, build: "0.3.11" });
     expect(briefingRows().length).toBe(2);
+  });
+
+  test("a worker whose cycle stood aside leaves the wake to the cycle holding the store (review of #581)", async () => {
+    const c = counterpart();
+    warm(c.store, "Something warm enough to render.");
+    c.close();
+    expect((await runOnce({ config: config(), date: "2026-09-29", embedder: null, build: "0.3.10" })).ran).toBe(true);
+    expect(briefingRows().length).toBe(1);
+    // Another worker holds the store's cycle; this one comes in on a new build,
+    // which would otherwise re-render the wake under `version`.
+    const s = Store.open({ dir });
+    s.setMeta(CYCLE_LEASE_KEY, JSON.stringify({ owner: "other", pid: process.pid, at: Date.now() - 1_000, until: Date.now() + 60_000 }));
+    s.close();
+    const wakes: Record<string, unknown>[] = [];
+    await runOnce({
+      config: config(),
+      date: "2026-09-29",
+      embedder: null,
+      build: "0.3.11",
+      onEvent: (n, d) => {
+        if (n === "runner.wake") wakes.push(d);
+      },
+    });
+    expect(wakes).toEqual([{ reason: "held-elsewhere", triggers: "", bytes: 0 }]);
+    expect(briefingRows().length).toBe(1);
+    expect(stamp()).toBe("0.3.10");
   });
 
   test("a bundle published before the stamp existed is another build's; a pending mark and `version` render once together", async () => {

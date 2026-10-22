@@ -88,6 +88,14 @@ export interface SleepStore {
   // writes
   advanceClock(date: string): number;
   setMeta(key: string, value: string): void;
+  /**
+   * One meta row read, changed and written in ONE transaction (`Store#updateMeta`),
+   * OPTIONAL: the cycle's lease is taken through it (`lease.ts`, 2026-10-21). A
+   * port without it runs its cycle unleased, and says so in the ring.
+   */
+  updateMeta?(key: string, fn: (current: string | undefined) => string | null | undefined): string | null | undefined;
+  /** The store's clock, ms (OPTIONAL; the lease falls back to `Date.now()`). */
+  now?(): number;
   archive(id: string, reason: string): void;
   updatePhysics(id: string, patch: Partial<MemoryPhysics>): void;
   setBand(id: string, band: Band, day: number): void;
@@ -534,6 +542,23 @@ export interface CycleReport {
   /** A kind with a zero exit count after bake-in is a defect (§5 G13). */
   readonly census: Readonly<Record<Kind, KindCensus>>;
   readonly events: readonly SleepEvent[];
+  /**
+   * PRESENT ONLY WHEN THIS CYCLE STOOD ASIDE (2026-10-21, `lease.ts`): another
+   * cycle held the store's lease. Found held at the start, no phase ran and
+   * `order`/`phases` are empty. Taken over while it ran (`lostAt`, the fence,
+   * review of #581), they are the phases it finished before it stopped, and the
+   * night is the other cycle's. `symmetry` was not computed; `census` is the
+   * day's births read as they stand. Who holds it, as far as the row says (all
+   * null when the row was gone by the time it looked).
+   */
+  readonly held?: {
+    readonly owner: string | null;
+    readonly pid: number | null;
+    readonly since: number | null;
+    readonly until: number | null;
+    /** The phase the fence stopped it before (or after, for the last); absent when it never started. */
+    readonly lostAt?: Phase;
+  };
 }
 
 export function phaseReport(report: CycleReport, phase: Phase): PhaseReport {
