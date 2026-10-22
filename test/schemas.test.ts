@@ -1339,6 +1339,7 @@ const PRIVATE_HELPERS = new Set([
   // cards (2026-10-22, review of #593). No new operation: `mergeTwinCards` is.
   "twinPlan",
   "finishTwins",
+  "twinBlocker",
   "linkNamingMemoriesOf",
   // SEAMS item K: story() reads the DURABLE increments out of box 2's events
   // table and unions this session's ring on top. A read helper, no new operation.
