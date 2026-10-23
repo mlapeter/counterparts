@@ -349,8 +349,10 @@ describe("a folder the owner set off or paused: its unmarked memories are not of
         const detail = JSON.parse(s.counterpart.store.reflection(rid)?.detail ?? "{}") as { unmarked?: string[] };
         if (mark.length === 0) return { unmarked: detail.unmarked ?? [], about: [] };
         const f = await s.call("reflect", { phase: "finish", session, reflection: rid, entry: "A quiet night.", about: mark.map((id) => ({ id, about: "owner", why: "Hers." })) });
-        const about = (f.structuredContent["about"] ?? (f.structuredContent["outcome"] as Record<string, unknown> | undefined)?.["about"] ?? []) as { reason: string }[];
-        return { unmarked: detail.unmarked ?? [], about: about.map((a) => a.reason) };
+        // Lean (2026-10-23): the short answer — what was not written, by its
+        // reason, and how many were; each written one reads "marked".
+        const about = f.structuredContent["about"] as { written: number; notWritten?: { reason: string }[] };
+        return { unmarked: detail.unmarked ?? [], about: [...(about.notWritten ?? []).map((a) => a.reason), ...Array.from({ length: about.written }, () => "marked")] };
       } finally {
         s.counterpart.close();
       }

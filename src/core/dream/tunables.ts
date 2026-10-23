@@ -80,6 +80,30 @@ export const DREAM_TUNABLES = {
    * (new memories) or is counted (the rest). CAL.
    */
   NIGHT_CHARS: 100_000,
+  /**
+   * A ROOM THAT SCALES WITH THE DAY (2026-10-23, lean bundles; Mike's go 10-23):
+   * the memories' share of tonight's room is at most this base plus
+   * `NIGHT_ROOM_PER_NEW` for each memory in the queue, and never more than
+   * `NIGHT_CHARS` gives — so a quiet day spends less on whole texts, and a busy
+   * store (the owner's: hundreds a day) sees no change. Never below what every
+   * memory shown costs as a line: a memory the full room would show is shown.
+   * Set the base to `NIGHT_CHARS` to turn it off. CAL.
+   */
+  NIGHT_ROOM_BASE: 40_000,
+  NIGHT_ROOM_PER_NEW: 1_500,
+  /**
+   * LEAN NIGHT BUNDLES (2026-10-23, Mike's go 10-23; held lightly, an
+   * experiment): the dream's and the reflection's bundles go out as plain
+   * lines — a memory a line, its fields in a fixed order under a legend, ids
+   * short for the run (`m1…`, `c1…`; `fit/AliasMap`), no JSON inside the
+   * result's JSON — the dream's journal as its chapters' summaries with their
+   * addresses, and `propose` and `finish` answer with counts and the
+   * failures. Every door (dream, reflect, recall) reads a short id back to
+   * its real one for the life of the run; real ids are still taken. Off: the
+   * bundles and the answers are as they were, so a test night can compare
+   * both. Read at use; a run keeps the shape it began with.
+   */
+  LEAN_BUNDLE: true as boolean,
   /** The share of tonight's room tonight's new memories and their neighbours may take as lines. CAL. */
   FRESH_SHARE: 0.5,
   /** The share for the journal's new entries. CAL. */

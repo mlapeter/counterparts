@@ -541,7 +541,8 @@ describe("review of #408: the marks stay inside each result's ceiling", () => {
     };
     const begin = await s.call("dream", { phase: "begin", session: SESSION });
     fits(begin);
-    expect(JSON.stringify(begin.structuredContent)).toContain("earlier (now ");
+    // Lean (2026-10-23): the mark names the head by its short id.
+    expect(JSON.stringify(begin.structuredContent)).toMatch(/earlier, now m\d+/);
     const dreamId = begin.structuredContent["dream"] as string;
     const of = (begin.structuredContent["parts"] as { of: number } | undefined)?.of ?? 1;
     for (let k = 2; k <= of; k += 1) fits(await s.call("dream", { phase: "part", session: SESSION, dream: dreamId, part: k }));
