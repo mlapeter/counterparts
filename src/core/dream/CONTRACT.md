@@ -261,6 +261,25 @@ dreamer is the model (a background agent the session launches), outside this pro
   important whole. A bundle longer than one tool result — measured as the MCP server sends
   it — comes in parts (phase `part`). A merge or a gist records the fidelity it was made
   from (`detail.fidelity`: whole, excerpt, line — or whole, looked up since).
+- **Lean bundles — an experiment, started 2026-10-23 (Mike's go; `LEAN_BUNDLE`, on).** The
+  dream's and the reflection's bundles go out as plain lines under a legend said once —
+  a memory a line, its fields in a fixed order, a field at its usual value left out —
+  never as JSON inside the tool result's JSON, and with SHORT IDS for the run: `m1…`
+  for memories, `c1…` for journals (`c2#3`, a chapter). The map is kept on the run's fit
+  index (`fit/AliasMap`), append-only: a resume extends it, a later part and a recall
+  read it, and a reflection's starts as its dream's, so one number is one memory all
+  night. The doors (`dream` propose, `reflect` finish and settle, `recall` ids and handle)
+  read a short id back to its real one on the keys that carry ids (`fit/ID_KEYS`), never
+  on words; a real id is still taken; a short id the run never handed out is refused by
+  name where it is used. Everything stored names real ids. The dream's journal comes as
+  each chapter's summary (written, else its opening as an automatic summary keeps it)
+  with its address and whole length, never its whole words: a lookup reads the chapter.
+  `propose` and `finish` answer with counts, what was made, notes, and every refusal
+  whole. Off: the bundles and the answers are as they were; a run keeps the shape it
+  began with. THE ROOM SCALES WITH THE DAY (same date): the memories' share of tonight's
+  room is at most `NIGHT_ROOM_BASE` + `NIGHT_ROOM_PER_NEW` × the queue, never more than
+  `NIGHT_CHARS` gives and never less than every candidate's line — a quiet night spends
+  less on whole words and shows the same memories; a busy store is unchanged.
 - **The day's replay — an experiment, started 2026-10-19 (feedback-loop build, part E;
   check on ~10-22, two lived days after install).** Trying this to see whether the day's
   own use, fed back into the night, changes what the dream replays and links. `day.ts#readDay`

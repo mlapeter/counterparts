@@ -81,8 +81,8 @@ import {
 } from "../store/index.js";
 import type { AboutMark, FeelingInput, MemoryRow, ProseDoc, ReflectionRow, Store } from "../store/index.js";
 import type { Kind } from "../types.js";
-import { FIT_TUNABLES, TOOL_RESULT_CEILING, clipWire, fit, lineOf, offeredInPart, offeredOf, readIndex, wireChars, writeIndex } from "../fit/index.js";
-import type { Fidelity, FitCandidate, FitOutcome, Placed } from "../fit/index.js";
+import { AliasMap, FIT_TUNABLES, TOOL_RESULT_CEILING, clipWire, fit, leanNumber, lineOf, offeredInPart, offeredOf, plainValue, readIndex, wireChars, writeIndex } from "../fit/index.js";
+import type { Fidelity, FitCandidate, FitOutcome, NightAliases, Placed } from "../fit/index.js";
 import { ownerNames } from "../sleep/index.js";
 import { CLAIM_PREFIX_MIN_CHARS, PAGE_CORE_HEADING, claimKey, pageClaims, pageSections, traceFor } from "../self/page.js";
 import { coreFromBeliefs } from "../self/measures.js";
@@ -95,7 +95,7 @@ import type { FeelingWeeks } from "./feeling-weeks.js";
 import { isWorkMemory } from "../self/work.js";
 import { orderUnmarked, personNames } from "./unmarked.js";
 import type { UnmarkedCandidate } from "./unmarked.js";
-import { chapterEntries, entryKey, entryLine, fitEpisodes, shownEntry, summarized, withSummaries } from "./slices.js";
+import { chapterEntries, entryKey, entryLine, fitEpisodes, leanChapterHead, leanDate, leanEntry, shownEntry, summarized, withSummaries } from "./slices.js";
 import { chapterSummaries } from "../self/summaries.js";
 import type { ChapterEntry, EpisodeInView, EpisodesFit, ShownChapter } from "./slices.js";
 import { DREAM_TUNABLES } from "./tunables.js";
@@ -792,7 +792,14 @@ export class Reflections {
     // chapters, what the dream saw) go on in order, as far as the room allows,
     // and the rest `PART_CHARS` at a time through phase `part`. The result
     // says how many parts there are and how to fetch them.
-    const packed = this.pack(id, input.session, composed, questions);
+    // LEAN (2026-10-23): plain lines and short ids — the dream's own numbers
+    // first, so m14 is the same memory all night (its journal, what it saw),
+    // then this bundle's. Read at use.
+    // Begun without its dream's id in the dream's own session (review of
+    // #602), it still starts from that dream's numbers: one context, one m1.
+    const base = dreamId !== null ? this.dreamAliases(dreamId) : this.sessionDreamAliases(input.session);
+    const aliases = DREAM_TUNABLES.LEAN_BUNDLE ? new AliasMap(base).extend(reflectBundleIds(composed)) : null;
+    const packed = this.pack(id, input.session, composed, questions, aliases);
     const bundle = packed.bundle;
     const shown = [...new Set([...Object.keys(composed.memories), ...saw.map((x) => x.id)])];
     this.store.openReflection({
@@ -814,10 +821,38 @@ export class Reflections {
     this.store.updateReflection(id, {
       detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, ...beliefsDetail(composed.beliefs ?? null), ...(composed.spine === undefined ? {} : { spine: composed.spine.map((b) => b.id) }), ...(composed.unmarked.length > 0 ? { unmarked: composed.unmarked } : {}), ...(composed.staleOpen.length > 0 ? { staleOpen: composed.staleOpen.map((x) => x.id) } : {}), ...(fitted.notCarried.length > 0 ? { notCarried: fitted.notCarried } : {}), ...(composed.reconsidering.length > 0 ? { coreOffered: composed.reconsidering.map((x) => x.id) } : {}) },
     });
-    writeIndex(this.store, "reflection", { ref: id, at: this.store.now(), offered: fitted.offered, looked: [], lineCap: fitted.lineCap });
+    writeIndex(this.store, "reflection", { ref: id, at: this.store.now(), offered: fitted.offered, looked: [], lineCap: fitted.lineCap, ...(aliases === null ? {} : { aliases: aliases.toJSON() }) });
     this.record("reflection.begun", id, { dream: dreamId, shown: shown.length, ...fitRecord });
-    const instructions = this.instructions(id, input.session, bundle);
-    return { ok: true, bundle, text: render(id, bundle), instructions };
+    const instructions = this.how(id, input.session, bundle, aliases);
+    return { ok: true, bundle, text: render(id, bundle, aliases), instructions };
+  }
+
+  /** The newest dream's short ids, when that dream ran in this session (2026-10-23). */
+  private sessionDreamAliases(session: string): NightAliases | null {
+    const index = readIndex(this.store, "dream");
+    if (index === null || index.aliases === undefined) return null;
+    return this.store.dream(index.ref)?.session === session ? index.aliases : null;
+  }
+
+  /** The dream's short ids, when its index still holds them (2026-10-23). */
+  private dreamAliases(dreamId: string): NightAliases | null {
+    const index = readIndex(this.store, "dream");
+    return index !== null && index.ref === dreamId ? (index.aliases ?? null) : null;
+  }
+
+  /**
+   * THE RUN'S SHORT IDS (2026-10-23), as its index keeps them, or null — a
+   * reflection that went out with real ids, or one a newer one replaced.
+   */
+  aliasesOf(reflectionId: string): AliasMap | null {
+    const index = readIndex(this.store, "reflection");
+    return index !== null && index.ref === reflectionId && index.aliases !== undefined ? new AliasMap(index.aliases) : null;
+  }
+
+  /** The instructions, their ids put short when the bundle went out lean. */
+  private how(id: string, session: string, bundle: ReflectBundle, aliases: AliasMap | null): string {
+    const text = this.instructions(id, session, bundle);
+    return aliases === null ? text : aliases.inText(text);
   }
 
   /**
@@ -825,27 +860,37 @@ export class Reflections {
    * `RESULT_CHARS`; otherwise the long lists are carried in order as far as
    * the room allows, and the remainder packed `PART_CHARS` a part.
    */
-  private pack(id: string, session: string, composed: ReflectBundle, questions: readonly string[]): { bundle: ReflectBundle; later: LaterPart[] } {
+  private pack(id: string, session: string, composed: ReflectBundle, questions: readonly string[], aliases: AliasMap | null = null): { bundle: ReflectBundle; later: LaterPart[] } {
     const T = REFLECT_TUNABLES;
     // MEASURED AS IT LEAVES (2026-09-28, review of #271): the tool result is
     // the bundle's text re-escaped as a JSON string, beside the instructions
     // and the questions — not the bundle alone. `resultChars` is that size.
-    const how = this.instructions(id, session, composed);
+    const how = this.how(id, session, composed, aliases);
     // With its margin (2026-10-02): the result's id, phase and session ride beside it.
-    if (resultChars(render(id, composed), how, questions) + PACK_MARGIN <= T.RESULT_CHARS) return { bundle: composed, later: [] };
-    // A piece's cost as it leaves: its JSON, escaped once more inside the string.
+    if (resultChars(render(id, composed, aliases), how, questions) + PACK_MARGIN <= T.RESULT_CHARS) return { bundle: composed, later: [] };
+    // A piece's cost as it leaves: its JSON, escaped once more inside the
+    // string — or, lean (2026-10-23), its lines escaped once.
     const cost = (v: unknown): number => wireChars(JSON.stringify(JSON.stringify(v)));
-    const pieces: { kind: "m" | "c" | "s"; id: string; size: number }[] = [
-      ...Object.entries(composed.memories).map(([k, v]) => ({ kind: "m" as const, id: k, size: cost({ [k]: v }) })),
-      ...composed.chapters.map((c) => ({ kind: "c" as const, id: c.id, size: cost(c) })),
-      ...composed.dreamSaw.map((x) => ({ kind: "s" as const, id: x.id, size: cost(x) })),
-    ];
+    const year = composed.date.slice(0, 4);
+    const lines = (ls: readonly string[]): number => ls.reduce((n, l) => n + wireChars(JSON.stringify(l)), 0);
+    const pieces: { kind: "m" | "c" | "s"; id: string; size: number }[] =
+      aliases === null
+        ? [
+            ...Object.entries(composed.memories).map(([k, v]) => ({ kind: "m" as const, id: k, size: cost({ [k]: v }) })),
+            ...composed.chapters.map((c) => ({ kind: "c" as const, id: c.id, size: cost(c) })),
+            ...composed.dreamSaw.map((x) => ({ kind: "s" as const, id: x.id, size: cost(x) })),
+          ]
+        : [
+            ...Object.entries(composed.memories).map(([k, v]) => ({ kind: "m" as const, id: k, size: lines([leanReflectItem(v, aliases, year, k)]) })),
+            ...composed.chapters.map((c) => ({ kind: "c" as const, id: c.id, size: lines([leanChapterHead(c, aliases), ...c.entries.map((e) => leanEntry(e, c.id, aliases, "fit"))]) })),
+            ...composed.dreamSaw.map((x) => ({ kind: "s" as const, id: x.id, size: lines([leanSaw(x, aliases)]) })),
+          ];
     // The furniture: everything else, with the parts note and a margin — and
     // the instructions as they ship in parts, with their "read every part"
     // line (2026-10-09).
     const note = { part: 1, of: 99, next: "x".repeat(420) };
-    const howInParts = this.instructions(id, session, { ...composed, parts: note });
-    const fixed = resultChars(render(id, { ...composed, memories: {}, chapters: [], dreamSaw: [], parts: note }), howInParts, questions) + PACK_MARGIN;
+    const howInParts = this.how(id, session, { ...composed, parts: note }, aliases);
+    const fixed = resultChars(render(id, { ...composed, memories: {}, chapters: [], dreamSaw: [], parts: note }, aliases), howInParts, questions) + PACK_MARGIN;
     const parts: (typeof pieces)[] = [[]];
     let room = Math.max(0, T.RESULT_CHARS - fixed);
     let used = 0;
@@ -970,8 +1015,12 @@ export class Reflections {
       return { id: cid, title: r.title, entries, earlier: all.length - entries.length };
     });
     const dreamSaw = ids.s.map((sid) => this.sawLine(sid, denied) ?? { id: sid, text: gone });
+    const opener = `${reflectionOpener(row.id)} part ${String(input.part)} of ${String(of)} of what you are handed to reflect on — memories, not events happening now.`;
+    // The shape `begin` sent (2026-10-23): lean, with its own short ids, when its index keeps them.
+    const aliases = index !== null && index.ref === row.id && index.aliases !== undefined ? new AliasMap(index.aliases) : null;
+    if (aliases !== null) return { ok: true, part: input.part, of, text: [opener, ...leanReflectBody(memories, chapters, dreamSaw, aliases, (row.date ?? this.ctx.today()).slice(0, 4))].join("\n") };
     const body = { reflection: row.id, part: input.part, of, memories, chapters, dreamSaw };
-    const text = `${reflectionOpener(row.id)} part ${String(input.part)} of ${String(of)} of what you are handed to reflect on — memories, not events happening now.\n${JSON.stringify(body)}`;
+    const text = `${opener}\n${JSON.stringify(body)}`;
     return { ok: true, part: input.part, of, text };
   }
 
@@ -3916,8 +3965,134 @@ function countWord(n: number): string {
   return ["two", "three", "four", "five"][n - 2] ?? String(n);
 }
 
-function render(id: string, bundle: ReflectBundle): string {
-  return `${reflectionOpener(id)} what you are handed to reflect on — memories and a dream, not events happening now.\n${JSON.stringify(bundle)}`;
+function render(id: string, bundle: ReflectBundle, aliases: AliasMap | null = null): string {
+  const opener = `${reflectionOpener(id)} what you are handed to reflect on — memories and a dream, not events happening now.`;
+  if (aliases !== null) return [opener, ...leanReflectLines(bundle, aliases)].join("\n");
+  return `${opener}\n${JSON.stringify(bundle)}`;
+}
+
+// ── the lean bundle (2026-10-23, Mike's go 10-23) ────────────────────────────
+
+/** How to read the lean reflection bundle, said once at its top. */
+export const REFLECT_LEAN_LEGEND =
+  "Short ids: m1… are memories and c1… journals (c2#3 is journal c2's chapter 3) — the same numbers the dream used tonight, then more. The reflect and recall tools take them, and real ids too; in anything you write — the entry, the share, the page, a why, how a memory feels — name memories in words (a short id means nothing after tonight), and cite them by id.\n" +
+  "A memory line: id · kind (left out: fact) · about (left out: none) · how strongly felt · learned · core (left out: not) · dreamed (a dream wrote it: a suggestion, not lived) · feelings: whose, the word, strength, who recorded it and when, if later — and what carried it · earlier, now mX (when a later memory settled over it) · its words. " +
+  "Words shown in part end with the whole length in parentheses: (1005) is a line, (excerpt of 5000) an excerpt, (id only; 1005) no words; no parentheses: whole. " +
+  "Read any you need whole with the recall tool, ids: [...] — several at once — before you cite, feel or mark it. A chapter shown in part is read by its address, ids: [\"c2#3\"], or its journal's id.";
+
+/** One memory as one lean line. */
+export function leanReflectItem(item: ReflectItem | string, aliases: AliasMap, year: string, id?: string): string {
+  if (typeof item === "string") return `${aliases.short(id ?? "")} · ${item}`;
+  const f: string[] = [aliases.short(item.id)];
+  if (item.kind !== "fact") f.push(item.kind);
+  if (item.about !== null) f.push(item.about);
+  f.push(`felt ${leanNumber(item.felt)}`);
+  f.push(`learned ${leanDate(item.learned, year)}`);
+  if (item.core) f.push("core");
+  if (item.dreamed) f.push("dreamed");
+  if (item.feelings.length > 0) {
+    f.push(
+      `feelings: ${item.feelings
+        .map((x) => `${x.whose} ${x.emotion} ${leanNumber(x.strength)}${x.by === null ? "" : ` by ${x.by}`}${x.later === null ? "" : ` later ${x.later}`}${x.carried_by.length === 0 ? "" : `, carried by ${x.carried_by}`}`)
+        .join(" | ")}`,
+    );
+  }
+  if (item.standing !== undefined) f.push(aliases.inText(item.standing).replace(/^earlier \(now (.+)\)$/, "earlier, now $1"));
+  const tail = item.fidelity === "whole" ? "" : item.fidelity === "excerpt" ? ` (excerpt of ${String(item.chars)})` : item.fidelity === "id" ? ` (id only; ${String(item.chars)})` : ` (${String(item.chars)})`;
+  return `${f.join(" · ")} · ${item.text}${tail}`;
+}
+
+/** A line of what the dream saw: its short id and words, a settled-over mark put short. */
+export function leanSaw(s: { readonly id: string; readonly text: string }, aliases: AliasMap): string {
+  return `${aliases.short(s.id)} · ${s.text.replace(/^earlier \(now ([^)]+)\)/, (_m, head: string) => `earlier, now ${aliases.short(head)}`)}`;
+}
+
+/** The memories, chapters and lines of what the dream saw a bundle or a part carries, as lean lines. */
+export function leanReflectBody(
+  memories: Readonly<Record<string, ReflectItem | string>>,
+  chapters: readonly ShownChapter[],
+  dreamSaw: readonly { readonly id: string; readonly text: string }[],
+  aliases: AliasMap,
+  year: string,
+): string[] {
+  const out: string[] = [];
+  if (dreamSaw.length > 0) out.push("## dreamSaw: what the dream saw and made tonight, a line each", ...dreamSaw.map((s) => leanSaw(s, aliases)));
+  if (chapters.length > 0) {
+    out.push("## chapters: the last few days");
+    for (const c of chapters) out.push(leanChapterHead(c, aliases), ...c.entries.map((e) => leanEntry(e, c.id, aliases, "fit")));
+  }
+  const ms = Object.entries(memories);
+  if (ms.length > 0) out.push("## memories", ...ms.map(([k, v]) => leanReflectItem(v, aliases, year, k)));
+  return out;
+}
+
+/** The whole bundle (or its first part) as lean lines, after the opener. */
+function leanReflectLines(b: ReflectBundle, aliases: AliasMap): string[] {
+  const s = (id: string): string => aliases.short(id);
+  const list = (ids: readonly string[]): string => (ids.length === 0 ? "none" : ids.map(s).join(" "));
+  const year = b.date.slice(0, 4);
+  const out: string[] = [];
+  out.push(`reflection ${b.reflection} · ${b.date} · ${b.dream === null ? "no dream tonight" : `after dream ${b.dream}`} · owner ${b.owner ?? "not named"}`);
+  if (b.parts !== null) out.push(`parts: part ${String(b.parts.part)} of ${String(b.parts.of)}. ${b.parts.next}`);
+  out.push("questions:", ...b.questions.map((q, i) => `${String(i + 1)}. ${q}`));
+  out.push(`shown: ${plainValue(b.shownAs, aliases)}`);
+  out.push(`limits: ${plainValue(b.limits, aliases)}`);
+  out.push(REFLECT_LEAN_LEGEND);
+  if (b.dreamed !== null) {
+    out.push(`## dreamed: ${b.dreamed.title ?? "(untitled)"}`, b.dreamed.journal ?? "(no journal)");
+    out.push(`gists: ${list(b.dreamed.gists)}`);
+    out.push(`nominations: ${b.dreamed.nominations.length === 0 ? "none" : b.dreamed.nominations.map((n) => `${s(n.id)}${n.why === null ? "" : ` (${n.why})`}`).join(" · ")}`);
+  }
+  out.push("## selfPage", b.selfPage ?? "none");
+  out.push("## earlier: your last reflections");
+  if (b.earlier.length === 0) out.push("none");
+  for (const e of b.earlier) out.push(`- ${e.date ?? "undated"}: ${e.entry}`);
+  out.push(`## onMind: what's on my mind${(b.onMindMore ?? 0) > 0 ? ` (onMindMore ${String(b.onMindMore)})` : ""}`);
+  if (b.onMind.length === 0) out.push("none");
+  for (const m of b.onMind) out.push(`- ${[m.kind, ...(m.date === undefined ? [] : [m.date]), ...(m.pair === undefined ? [] : [m.pair]), m.ids.map(s).join(" ")].filter((x) => x.length > 0).join(" · ")} · ${m.text}`);
+  out.push(`core: ${list(b.core)}`);
+  if (b.spine !== undefined) {
+    out.push("## spine");
+    if (b.spine.length === 0) out.push("none");
+    for (const x of b.spine) out.push(`- ${plainValue(x, aliases)}`);
+  }
+  out.push(`candidates: ${list(b.candidates)}`);
+  out.push(`felt (of ${String(b.feltOf)}): ${list(b.felt)}`);
+  out.push(`recent: ${list(b.recent)}`);
+  out.push(`becameCore: ${list(b.becameCore)}`);
+  out.push(`reconsidering: ${b.reconsidering.length === 0 ? "none" : b.reconsidering.map((r) => `(${plainValue(r, aliases)})`).join(" ")}`);
+  out.push(`feelingWeeks: ${b.feelingWeeks === null ? "none" : plainValue(b.feelingWeeks, aliases)}`);
+  out.push(`unmarked: ${list(b.unmarked)}`);
+  out.push("## staleOpen");
+  if (b.staleOpen.length === 0) out.push("none");
+  for (const x of b.staleOpen) out.push(`- ${s(x.id)} · untouched ${String(x.untouched)}${x.reopened === true ? " · reopened" : ""} · ${x.text}`);
+  if (b.noLongerCarried !== undefined) out.push(`noLongerCarried: ${String(b.noLongerCarried)}`);
+  if (b.beliefs !== undefined && b.beliefs !== null) {
+    out.push(`## beliefs (births ${String(b.beliefs.births)})`);
+    for (const sub of b.beliefs.subjects) {
+      out.push(`- ${sub.id} · ${sub.name} · ${sub.kind}${sub.more > 0 ? ` · ${String(sub.more)} more` : ""}`);
+      for (const x of sub.beliefs) out.push(`  - ${plainValue(x, aliases)}`);
+    }
+    if (b.beliefs.candidates !== undefined) for (const c of b.beliefs.candidates) out.push(`- candidate ${plainValue(c, aliases)}`);
+  }
+  out.push(...leanReflectBody(b.memories, b.chapters, b.dreamSaw, aliases, year));
+  return out;
+}
+
+/**
+ * THE IDS A LEAN REFLECTION NUMBERS, after its dream's: what the dream saw
+ * and made, then the memories, then the journals.
+ */
+export function reflectBundleIds(b: ReflectBundle): string[] {
+  return [
+    ...b.dreamSaw.map((x) => x.id),
+    ...(b.dreamed?.gists ?? []),
+    ...Object.keys(b.memories),
+    // Named outside `memories`: the open threads offered to close, and what a dream's belief candidate cites.
+    ...b.staleOpen.map((x) => x.id),
+    ...(b.beliefs?.candidates ?? []).flatMap((c) => c.sources),
+    ...b.chapters.map((c) => c.id),
+  ];
 }
 
 /** Slack for the result's other fields (phase, session, ids, parts) beside the three measured. */

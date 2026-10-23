@@ -217,7 +217,8 @@ describe("the reflect tool's close phase", () => {
       const id = begin.structuredContent["reflection"] as string;
       const finish = await s.call("reflect", { phase: "finish", session: SESSION, reflection: id, entry: "A look back.", close: [w.stale] });
       expect(finish.isError ?? false).toBe(false);
-      expect((finish.structuredContent["close"] as { proposed: string[] }).proposed).toEqual([w.stale]);
+      // Lean (2026-10-23): the answer names it as the reflection knows it.
+      expect((finish.structuredContent["close"] as { proposed: string[] }).proposed).toEqual([s.counterpart.reflections.aliasesOf(id)?.short(w.stale) ?? w.stale]);
       expect(s.counterpart.store.readProse(w.stale).meta["unresolved"]).toBe(true);
 
       const none = await s.call("reflect", { phase: "close", session: SESSION, reflection: id });
@@ -604,7 +605,7 @@ describe("the reflect tool's closeNow and reopen", () => {
         closeNow: [{ id: w.stale, why: "Signed on the 12th." }],
       });
       expect(finish.isError ?? false).toBe(false);
-      expect((finish.structuredContent["close"] as { closed: { id: string }[] }).closed.map((x) => x.id)).toEqual([w.stale]);
+      expect((finish.structuredContent["close"] as { closed: { id: string }[] }).closed.map((x) => x.id)).toEqual([s.counterpart.reflections.aliasesOf(id)?.short(w.stale) ?? w.stale]);
       expect(s.counterpart.store.readProse(w.stale).meta["unresolved"]).toBe(false);
       expect(finish.structuredContent["handBack"] as string).toContain('phase "reopen"');
 
