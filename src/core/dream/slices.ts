@@ -464,6 +464,8 @@ export function leanChapterHead(ch: Pick<ShownChapter, "id" | "title"> & Partial
  */
 export function leanEntry(e: ShownEntry, chapterId: string, aliases: AliasMap, mode: "summaries" | "fit" = "summaries"): string {
   const c = aliases.short(chapterId);
+  // An entry gone since begin says only that (review of #602).
+  if (e.chars === 0 && e.text.startsWith("(gone")) return `  ${c} · ${e.text}`;
   const f = [e.chapter === null ? `${c} (before its first chapter)` : `${c}#${String(e.chapter)}`];
   if (e.day !== null) f.push(`d${String(e.day)}`);
   if (e.summaryId !== undefined && aliases.has(e.summaryId)) f.push(`summary ${aliases.short(e.summaryId)}`);

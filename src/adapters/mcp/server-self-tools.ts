@@ -344,6 +344,8 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
   // as they came, and words are never touched.
   const aliases = typeof sent["reflection"] === "string" && (phase === "finish" || phase === "settle") ? reflections.aliasesOf(sent["reflection"]) : null;
   const args = aliases === null ? sent : (aliases.resolveIn(sent, ID_KEYS) as Record<string, unknown>);
+  // …and the answer names them short, as the reflection knows them (review of #602).
+  const asShort = <T>(v: T): T => (aliases === null ? v : (JSON.parse(aliases.inText(JSON.stringify(v))) as T));
   const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
   const part = (v: unknown): { text?: string; cites?: string[]; short?: string; claims?: { text: string; cites: string[] }[] } | null => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
@@ -507,10 +509,10 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
                     ? { beliefs: { births: briefParts(o.beliefs.births, aliases), filings: briefParts(o.beliefs.filings, aliases), retire: briefParts(o.beliefs.retire, aliases), adopt: briefParts(o.beliefs.adopt, aliases) } }
                     : {}),
                 }),
-            ...(o.refusedCites.length > 0 ? { refusedCites: o.refusedCites } : {}),
-            ...(o.close.proposed.length > 0 || o.close.closed.length > 0 || o.close.refused.length > 0 ? { close: o.close } : {}),
+            ...(o.refusedCites.length > 0 ? { refusedCites: asShort(o.refusedCites) } : {}),
+            ...(o.close.proposed.length > 0 || o.close.closed.length > 0 || o.close.refused.length > 0 ? { close: asShort(o.close) } : {}),
             // WHAT WAS NOT WRITTEN, and that it can be sent again (2026-09-28).
-            ...(o.retry === null ? {} : { again: o.retry }),
+            ...(o.retry === null ? {} : { again: asShort(o.retry) }),
             say:
               o.retry === null
                 ? "Return `handBack` as your final message, unchanged."
@@ -539,7 +541,7 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
           why: typeof args["why"] === "string" ? args["why"] : "",
         });
         server["emit"]("mcp.reflect", reflection, { phase: "settle", ok: out.ok });
-        return server["result"]({ phase, reflection, settle: { ...out } }, !out.ok);
+        return server["result"]({ phase, reflection, settle: asShort({ ...out }) }, !out.ok);
       }
       case "told": {
         const reflection = args["reflection"];

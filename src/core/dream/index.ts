@@ -3755,7 +3755,7 @@ export function renderDream(id: string, bundle: DreamBundle, lead: string, alias
  * out, and the legend says which those are.
  */
 export const DREAM_LEAN_LEGEND =
-  "Short ids: m1… are memories and c1… journals (c2#3 is journal c2's chapter 3), for this dream only. The dream and recall tools take them, and real ids too; in your journal, name memories in words.\n" +
+  "Short ids: m1… are memories and c1… journals (c2#3 is journal c2's chapter 3), for this dream only. The dream and recall tools take them, and real ids too. In anything you write — the journal, a gist's or a merge's text, a why, how a memory feels — name memories in words: a short id means nothing after tonight.\n" +
   "A memory line: id · why it is here · kind (left out: fact) · about (left out: none) · strength · lived day and the date learned (lived: when lived on another day) · strongest feeling and how strongly felt (left out: none) · core (left out: not) · earlier, now mX (when a later memory settled over it) · its words. " +
   "Words shown in part (fidelity line or excerpt) end with the whole length (chars) in parentheses — (1005) is a line of a 1,005-character memory, (excerpt of 5000) an excerpt; no parentheses: whole. " +
   "Read any shown in part with the recall tool, ids: [...] — several at once — before you merge, gist or feel it. " +

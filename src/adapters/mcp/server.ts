@@ -2143,8 +2143,10 @@ export class McpServer {
     };
     const dream = mine("dream");
     const reflection = mine("reflection");
-    const child = (this.env[NIGHT_CHILD_ENV] ?? "").trim();
-    const pick = child === "dream" ? dream : reflection !== null && (dream === null || reflection.at >= dream.at) ? reflection : dream;
+    // The newer of the two (review of #602: not the child's kind — a dream
+    // child that went on to reflect holds the newer map, and the dream's is
+    // a prefix of it).
+    const pick = reflection !== null && (dream === null || reflection.at >= dream.at) ? reflection : dream;
     return pick === null || pick.aliases === undefined ? null : new AliasMap(pick.aliases);
   }
 

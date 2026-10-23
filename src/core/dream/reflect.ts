@@ -795,7 +795,10 @@ export class Reflections {
     // LEAN (2026-10-23): plain lines and short ids — the dream's own numbers
     // first, so m14 is the same memory all night (its journal, what it saw),
     // then this bundle's. Read at use.
-    const aliases = DREAM_TUNABLES.LEAN_BUNDLE ? new AliasMap(dreamId === null ? null : (this.dreamAliases(dreamId) ?? null)).extend(reflectBundleIds(composed)) : null;
+    // Begun without its dream's id in the dream's own session (review of
+    // #602), it still starts from that dream's numbers: one context, one m1.
+    const base = dreamId !== null ? this.dreamAliases(dreamId) : this.sessionDreamAliases(input.session);
+    const aliases = DREAM_TUNABLES.LEAN_BUNDLE ? new AliasMap(base).extend(reflectBundleIds(composed)) : null;
     const packed = this.pack(id, input.session, composed, questions, aliases);
     const bundle = packed.bundle;
     const shown = [...new Set([...Object.keys(composed.memories), ...saw.map((x) => x.id)])];
@@ -822,6 +825,13 @@ export class Reflections {
     this.record("reflection.begun", id, { dream: dreamId, shown: shown.length, ...fitRecord });
     const instructions = this.how(id, input.session, bundle, aliases);
     return { ok: true, bundle, text: render(id, bundle, aliases), instructions };
+  }
+
+  /** The newest dream's short ids, when that dream ran in this session (2026-10-23). */
+  private sessionDreamAliases(session: string): NightAliases | null {
+    const index = readIndex(this.store, "dream");
+    if (index === null || index.aliases === undefined) return null;
+    return this.store.dream(index.ref)?.session === session ? index.aliases : null;
   }
 
   /** The dream's short ids, when its index still holds them (2026-10-23). */
@@ -3965,7 +3975,7 @@ function render(id: string, bundle: ReflectBundle, aliases: AliasMap | null = nu
 
 /** How to read the lean reflection bundle, said once at its top. */
 export const REFLECT_LEAN_LEGEND =
-  "Short ids: m1… are memories and c1… journals (c2#3 is journal c2's chapter 3) — the same numbers the dream used tonight, then more. The reflect and recall tools take them, and real ids too; in your entry, share and page, name memories in words and cite them by id.\n" +
+  "Short ids: m1… are memories and c1… journals (c2#3 is journal c2's chapter 3) — the same numbers the dream used tonight, then more. The reflect and recall tools take them, and real ids too; in anything you write — the entry, the share, the page, a why, how a memory feels — name memories in words (a short id means nothing after tonight), and cite them by id.\n" +
   "A memory line: id · kind (left out: fact) · about (left out: none) · how strongly felt · learned · core (left out: not) · dreamed (a dream wrote it: a suggestion, not lived) · feelings: whose, the word, strength, who recorded it and when, if later — and what carried it · earlier, now mX (when a later memory settled over it) · its words. " +
   "Words shown in part end with the whole length in parentheses: (1005) is a line, (excerpt of 5000) an excerpt, (id only; 1005) no words; no parentheses: whole. " +
   "Read any you need whole with the recall tool, ids: [...] — several at once — before you cite, feel or mark it. A chapter shown in part is read by its address, ids: [\"c2#3\"], or its journal's id.";

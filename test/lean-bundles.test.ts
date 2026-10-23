@@ -333,7 +333,59 @@ describe("the reflection after a lean dream", () => {
     expect(felt?.carried_by).toContain("m2 felt the same");
     // Settle by short ids: the pair is the real one.
     const settled = sc(await s.call("reflect", { phase: "settle", session: "s-night", reflection: rid, holds: "m1", over: "m2", how: "corrected", why: "m1 says it plainly." }));
-    expect(settled["settle"]).toMatchObject({ ok: true, holds: m1, over: m2 });
+    // The answer names them as the reflection does; the store, by their real ids.
+    expect(settled["settle"]).toMatchObject({ ok: true, holds: "m1", over: "m2", archived: "m2" });
+    expect(c.store.row(m2)?.archived).toBe(1);
+    expect(c.store.row(m1)?.archived).toBe(0);
+  });
+});
+
+describe("review of #602: one session, one set of numbers", () => {
+  test("a reflection begun without its dream's id, in the dream's session, still starts from the dream's numbers", async () => {
+    const c = brain();
+    lived(c);
+    const s = server(c, "s-night");
+    const begin = await s.call("dream", { phase: "begin", session: "s-night" });
+    const dreamId = String(sc(begin)["dream"]);
+    const dreamMap = (c.dreams.aliasesOf(dreamId) as AliasMap).toJSON();
+    await s.call("dream", { phase: "journal", session: "s-night", dream: dreamId, text: "A short dream." });
+    const rb = await s.call("reflect", { phase: "begin", session: "s-night" });
+    expect(rb.isError ?? false).toBe(false);
+    const map = (c.reflections.aliasesOf(String(sc(rb)["reflection"])) as AliasMap).toJSON();
+    expect(map.m.slice(0, dreamMap.m.length)).toEqual([...dreamMap.m]);
+  });
+
+  test("a dream child that goes on to reflect: recall reads the newer map, whatever the child's kind", async () => {
+    const c = brain();
+    lived(c);
+    const s = server(c, "s-night", { COUNTERPARTS_NIGHT_CHILD: "dream" });
+    const begin = await s.call("dream", { phase: "begin", session: "s-night" });
+    const dreamId = String(sc(begin)["dream"]);
+    const dreamSize = (c.dreams.aliasesOf(dreamId) as AliasMap).toJSON().m.length;
+    await s.call("dream", { phase: "journal", session: "s-night", dream: dreamId, text: "A short dream." });
+    const rb = await s.call("reflect", { phase: "begin", session: "s-night", dream: dreamId });
+    const map = c.reflections.aliasesOf(String(sc(rb)["reflection"])) as AliasMap;
+    const extra = map.toJSON().m.length > dreamSize ? `m${String(dreamSize + 1)}` : "m1";
+    const r = await s.call("recall", { ids: [extra] });
+    expect((sc(r)["memories"] as { id: string }[]).map((m) => m.id)).toEqual([map.resolve(extra) as string]);
+  });
+
+  test("the finish answer names a refused cite by the short id the reflection sent", async () => {
+    const c = brain();
+    lived(c);
+    const s = server(c, "s-night");
+    const begin = await s.call("dream", { phase: "begin", session: "s-night" });
+    const dreamId = String(sc(begin)["dream"]);
+    await s.call("dream", { phase: "journal", session: "s-night", dream: dreamId, text: "A short dream." });
+    const rb = await s.call("reflect", { phase: "begin", session: "s-night", dream: dreamId });
+    const rid = String(sc(rb)["reflection"]);
+    const map = c.reflections.aliasesOf(rid) as AliasMap;
+    c.store.archive(map.resolve("m2") as string, "test");
+    const fin = sc(await s.call("reflect", { phase: "finish", session: "s-night", reflection: rid, entry: "A quiet night.", cites: ["m1", "m2"] }));
+    const refusedCites = (fin["refusedCites"] as string[] | undefined) ?? [];
+    expect(refusedCites.length).toBeGreaterThan(0);
+    expect(refusedCites.join(" ")).toContain("m2");
+    expect(refusedCites.join(" ")).not.toContain(map.resolve("m2") as string);
   });
 });
 
