@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.3.33 — 2026-10-23
+
+On the first new lived day after upgrading (when the first turn or session ends on a new day; if today's card pass already ran, tomorrow), the card pass merges once the pairs of cards that share a name (a race fixed in 0.3.31 left them; the author's store had 50 pairs): the younger card of each pair is archived under the older one, which gains the links neither had while both were live. `counterparts dream --undo-twins` puts the cards back if you want them. The same night hands cards that were filed as a person or a place only by how they were born back to its kinds question. The dream takes in more of the day's new memories a night (a 16,000-character list, 4 neighbours each; an experiment, checked 10-29). `counterparts note --tags` and `counterparts dream --undo-tags` are new, and `counterparts mechanisms` says how often a settled thing comes back. No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
+
+- **One name, one card again.** Once, the night merges pairs of cards that share a name, left by a
+  race fixed in 0.3.31 (the author's store had 50 pairs). It archives the younger card of each pair
+  under the older one, and leaves alone any pair that differs in any way. While both cards were live,
+  a memory naming the name was linked to neither. The older card now gains those links: on a copy
+  of the author's store (10-23), 50 pairs merged, none left alone, and 239 memories gained 338 links.
+  - `counterparts doctor`'s v14 upgrade line says how many it merged and linked.
+  - `counterparts dream --undo-twins` puts the cards back. The links stay, because they are true. The
+    cost: the name is held twice again, so new memories naming it link to neither card, and the night
+    won't merge them again.
+- **A card is no longer called a person or a place just because of how it was born.** "Counterparts"
+  had been filed as a place and "Anthropic" as a person, from a single memory each. Only your own
+  card is a person without anyone judging it now. Once, the night hands the cards the upgrade sorted
+  that way back to its kinds question, which a model answers.
+- **A night's dream takes in more of the day's new memories.** The list of new memories the
+  dream is handed may run to 16,000 characters (was 12,000), and each new memory comes with its
+  4 nearest older memories (was 6). On the 10-22 night that is 64 new memories instead of 44,
+  for about 1,300 more tokens, with nothing else left out; fewer memories come with their whole text
+  (11 instead of 20). An experiment, checked 2026-10-29.
+- **`counterparts note` takes tags:** `--tags garden,katie`. They are kept the way a session's tags
+  are, and the console says which it kept and which it left off.
+- **`counterparts dream --undo-tags` takes back a night's tagging:** the newest night's by default,
+  or a named night and every night since. It removes the tags, tag merges and card kinds that night
+  set. Your own tags stay.
+- **Marking a weekly reminder done through `remember` closes this week's occurrence** on the day the
+  session sees, even when the store's clock is a day behind.
+- **`counterparts mechanisms` says how often a settled thing comes back.** A new line under the
+  mechanisms: of the memories changed or corrected before this week, how many a session drew on
+  the old side of again (changed and corrected apart: a corrected one is archived, so little can
+  reach it), how many came up again (a new disagreement, or a new memory saying the old thing),
+  and how many were only shown, split by the build that wrote them. `--json` prints the short
+  view as JSON, with example ids.
+- **For a host built on the package:** `counterparts/claude-code` now exports `deliverTurn`
+  (what a hook prints on a turn, and the reminders it claims only once they are certainly
+  shown), `hostDelivery`, and `expansionIdsOf` (the recall ids a turn's transcript expands).
+  With them come `envelopeJson`, `HOST_SESSION_START`, `HOST_USER_PROMPT_SUBMIT` and `HOST_STOP`
+  (`counterparts/claude-code`), `settledReading` and `settledLines` (`counterparts/cli`, the
+  mechanisms line above), and `birthKindSubjectKind` and `deterministicSubjectKind`
+  (`counterparts/store`). Nothing was removed.
+
 ## 0.3.32 — 2026-10-22
 
 The sidebar is now a plugin of its own, `counterparts-sidebar`, and `counterparts` is the memory alone. If you use the plugin, the update (`/plugin marketplace update counterparts`) removes the sidebar; `/plugin install counterparts-sidebar@counterparts` brings it back, starting from the default view, theme and avatar. With the npm install beside both plugins, doctor's Claude Code line is green: the plugin stays installed for the sidebar and stands down. Open threads change meaning: an item is open only when someone owes an answer (a question to you, a check with a date, a promise), and one nobody has touched in 21 lived days, with no date and not a question you were asked, stops being carried in the wake and offered to the reflection; it is not closed, and using or revising it carries it again. **The first morning after upgrading counts the whole untouched backlog at once**, so that morning's share may say a large number left; it says the number once, never the list. Beliefs now show: the strongest two or three about a person, project or topic a message names come up beside the footnotes, and a project's folder may open with a short line of them. Doctor gains a Builds line. The core from beliefs is built and off (`self.CORE_FROM_BELIEFS`). No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
