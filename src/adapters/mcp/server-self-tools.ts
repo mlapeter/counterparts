@@ -788,7 +788,9 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
         bytesAfter: written.written ? written.bytes : 0,
         // THE DAY SUMMARY rides on the night's own row (2026-10-23, lane D2),
         // with the session and run that told it, so the dream finds it.
-        ...(keep === null ? {} : summaryRow(server, claimedSession, keep)),
+        // Only on a page written (review of D2): a refused page's summary is
+        // sent again with the page, and kept then.
+        ...(keep === null || !written.written ? {} : summaryRow(server, claimedSession, keep)),
       });
     } catch {
       /* the page is written; the bookkeeping is not worth the answer */
@@ -806,7 +808,9 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
       ? notSent
       : keep === null || writerFor === null || typeof body !== "string"
         ? { summaryNotKept: notKept ?? "A day summary is kept with day's end's write only." }
-        : { summary: { kept: true, about: writerFor.about, chars: keep.text.length, cites: keep.cites.length }, ...(keep.refused.length === 0 ? {} : { refusedSummaryCites: keep.refused }) };
+        : !written.written
+          ? { summaryNotKept: "The page was not written, so neither was the summary: send it again with the page." }
+          : { summary: { kept: true, about: writerFor.about, chars: charCount(keep.text), cites: keep.cites.length }, ...(keep.refused.length === 0 ? {} : { refusedSummaryCites: keep.refused }) };
   if (!written.written) {
     // THE CEILING, IN NUMBERS (2026-10-09): a writer told only "past the
     // limit" guesses how much to take out; told both numbers, it tightens
@@ -876,9 +880,14 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
  */
 export function daySummaryHow(about: string, session: string): string {
   return (
-    `Then tell the day: in that same self_page call — or, if the page stands, in a self_page call with session: ${session} and no body — send \`summary\`: a few lines, first person, at most ${String(SELF_TUNABLES.DAY_SUMMARY_CHARS)} characters, about what ${about} was about and what is in motion, and \`summaryCites\`: the ids (mem_…) of the memories it rests on. ` +
+    `Then tell the day: in that same self_page call — or, only if you leave the page as it stands, in a self_page call with session: ${session} and no body, which answers the night — send \`summary\`: a few lines, first person, at most ${String(SELF_TUNABLES.DAY_SUMMARY_CHARS)} characters, about what ${about} was about and what is in motion, and \`summaryCites\`: the ids (mem_…) of the memories it rests on. ` +
     "Tonight's dream reads it first, and later reflections read it as that day's line. It is sent once, with the night's answer: a page written without one closes the night without one."
   );
+}
+
+/** Characters as a reader counts them: code points, so an emoji is one (review of D2). */
+function charCount(text: string): number {
+  return [...text].length;
 }
 
 /** A day summary as the door read it (2026-10-23, lane D2). */
@@ -898,8 +907,8 @@ interface DaySummaryArgs {
 /**
  * THE DAY SUMMARY, READ AT THE DOOR (2026-10-23, lane D2). Kept only from
  * day's end — this session's open night claim — with `self.DAY_SUMMARY` on;
- * otherwise named as not kept. Past `DAY_SUMMARY_CHARS` (characters, as
- * `.length` counts them) it is refused with the numbers, never cut. Its
+ * otherwise named as not kept. Past `DAY_SUMMARY_CHARS` (characters as a
+ * reader counts them: code points, so an emoji is one; review of D2) it is refused with the numbers, never cut. Its
  * cites are resolved as the page's are: a night's short id read back where
  * this session holds the night's map, an id kept when it names a memory
  * here, the rest named back. Never throws.
@@ -915,15 +924,16 @@ function daySummaryArgs(server: McpServer, sent: string, rawCites: unknown, from
   if (text.length === 0) {
     return { ...none, notKept: null, notKeptReason: "", refusal: { reason: "summary-empty", numbers: {}, detail: "The day summary was empty. Send a few lines — what the day was about and what is in motion — or leave `summary` out. Nothing was written." } };
   }
-  if (text.length > cap) {
+  const chars = charCount(text);
+  if (chars > cap) {
     return {
       ...none,
       notKept: null,
       notKeptReason: "",
       refusal: {
         reason: "summary-too-long",
-        numbers: { chars: text.length, cap, over: text.length - cap },
-        detail: `The day summary is ${String(text.length)} characters, ${String(text.length - cap)} over its ${String(cap)}. Cut it by that much or more and send the call again, the page with it if you sent one. Nothing was written.`,
+        numbers: { chars, cap, over: chars - cap },
+        detail: `The day summary is ${String(chars)} characters, ${String(chars - cap)} over its ${String(cap)}. Cut it by that much or more and send the call again, the page with it if you sent one. Nothing was written.`,
       },
     };
   }
@@ -1007,7 +1017,7 @@ function daysEndAlone(
       stored: false,
       answered: "nothing-to-say",
       about: input.writerFor.about,
-      summary: { kept: true, about: input.writerFor.about, chars: input.told.text.length, cites: input.told.cites.length },
+      summary: { kept: true, about: input.writerFor.about, chars: charCount(input.told.text), cites: input.told.cites.length },
       ...(input.told.refused.length === 0 ? {} : { refusedSummaryCites: input.told.refused }),
       said: `The page stands as it is, and ${input.writerFor.about} is told.`,
     },

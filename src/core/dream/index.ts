@@ -1763,7 +1763,7 @@ export class Dreams {
     const id = `drm_${randomBytes(6).toString("hex")}`;
     // LEAN (2026-10-23): read at use; the run keeps the shape it began with.
     const lean = DREAM_TUNABLES.LEAN_BUNDLE;
-    const composed = this.told(this.compose(id, q, prior, day, at, lean), input.session);
+    const composed = this.told(this.compose(id, q, prior, day, at, lean), input.session, prior);
     if (composed.bundle.fresh.length === 0) return { ok: false, reason: "nothing-new" };
     const aliases = lean ? new AliasMap().extend(dreamBundleIds(composed.bundle)) : null;
     const packed = this.pack(id, input.session, composed, "", aliases);
@@ -1797,11 +1797,11 @@ export class Dreams {
    * night's own date (`self/writer.ts#daySummaryFor`), put first. The bundle
    * is otherwise exactly as composed. Off, or none: unchanged.
    */
-  private told(c: Composed, session: string): Composed {
+  private told(c: Composed, session: string, prior: DreamRow | null): Composed {
     if (!SELF_TUNABLES.DAY_SUMMARY) return c;
     let s: DaySummary | null = null;
     try {
-      s = daySummaryFor(this.store, { session, about: pageWriterNight(this.store).about });
+      s = daySummaryFor(this.store, { session, about: pageWriterNight(this.store).about, ...(prior === null ? {} : { sinceAt: prior.started_at }) });
     } catch {
       s = null;
     }
@@ -1904,7 +1904,7 @@ export class Dreams {
     const prev = readIndex(this.store, "dream");
     const own = prev !== null && prev.ref === dream.id ? prev : null;
     const lean = own === null ? DREAM_TUNABLES.LEAN_BUNDLE : own.aliases !== undefined;
-    const composed = this.told(this.compose(dream.id, q, prior, day, at, lean), input.session);
+    const composed = this.told(this.compose(dream.id, q, prior, day, at, lean), input.session, prior);
     const said = Object.entries(made)
       .filter(([, n]) => n > 0)
       .map(([k, n]) => `${String(n)} ${k}`)
@@ -3954,11 +3954,12 @@ function leanDreamLines(b: DreamBundle, aliases: AliasMap): string[] {
 /**
  * THE DAY SUMMARY AS THE LEAN BUNDLE'S FIRST SECTION (2026-10-23, lane D2):
  * its date, the memories it rests on (short where tonight numbers them), and
- * its words as day's end wrote them.
+ * its words as day's end wrote them, each line indented (review of D2), so
+ * none of them can read as a section of the bundle.
  */
 export function daysEndLines(d: NonNullable<DreamBundle["daysEnd"]>, aliases: AliasMap): string[] {
   const rests = d.cites.length === 0 ? "" : ` · rests on ${d.cites.map((x) => aliases.short(x)).join(" ")}`;
-  return [`## today, as day's end told it (${d.about}${rests})`, d.text];
+  return [`## today, as day's end told it (${d.about}${rests})`, ...d.text.split("\n").map((l) => `  ${l}`)];
 }
 
 /**

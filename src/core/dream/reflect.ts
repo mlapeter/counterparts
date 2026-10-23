@@ -88,7 +88,7 @@ import { CLAIM_PREFIX_MIN_CHARS, PAGE_CORE_HEADING, claimKey, pageClaims, pageSe
 import { coreFromBeliefs } from "../self/measures.js";
 import { SELF_TUNABLES } from "../self/tunables.js";
 import { openCarry } from "../self/identity.js";
-import { PAGE_WRITING_RULE, daySummaries, daySummaryFor } from "../self/writer.js";
+import { PAGE_WRITING_RULE, daySummaries } from "../self/writer.js";
 import type { DaySummary } from "../self/writer.js";
 import { addDays, isDay, localDate, readableDate } from "../time.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
@@ -825,7 +825,7 @@ export class Reflections {
     }
     const id = `rfl_${randomBytes(6).toString("hex")}`;
     const questions = this.questionsFor(dreamId !== null);
-    const fitted = this.compose(id, dreamId, questions, day, at, input.folderOn, input.session);
+    const fitted = this.compose(id, dreamId, questions, day, at, input.folderOn);
     const composed = fitted.bundle;
     const saw = composed.dreamSaw;
     // IN PARTS, NEVER CUT (2026-09-28). A night's bundle — the page whole, what
@@ -2915,7 +2915,7 @@ export class Reflections {
    * alone past that. Nothing is cut by count; what the room could not take at
    * all is counted (`shownAs.notShown`).
    */
-  private compose(id: string, dreamId: string | null, questions: readonly string[], day: number, at: string, folderOn?: (scope: string) => boolean, session?: string): Composed {
+  private compose(id: string, dreamId: string | null, questions: readonly string[], day: number, at: string, folderOn?: (scope: string) => boolean): Composed {
     const T = REFLECT_TUNABLES;
     // THE ROOM REORDERED (2026-10-23, `dream.REFLECT_ROOM_ORDER`, read at use):
     // the long view first and always shown; off, every line below is as it was.
@@ -3153,7 +3153,7 @@ export class Reflections {
     // the last few weeks a line a day, beside the chapters, in the room's
     // third step — counted among the fixed parts, so the long view, held
     // back from the room, stays whole.
-    const timeline = order && SELF_TUNABLES.DAY_SUMMARY ? this.timeline(at, session ?? null) : undefined;
+    const timeline = order && SELF_TUNABLES.DAY_SUMMARY ? this.timeline(at, dreamId) : undefined;
     // BELIEFS ON THE SUBJECTS IN PLAY (lane C): the self subject, then the
     // cards the memories tonight may show name most.
     const beliefs = this.beliefsInPlay(day, [...priority.keys()], dreamId);
@@ -3442,25 +3442,30 @@ export class Reflections {
 
   /**
    * THE TIMELINE (2026-10-23, lane D2): the last `TIMELINE_DAYS` days, a
-   * line a day, through the day this night's day's end told (a night that
-   * crossed midnight still ends there), else the day before `at`. A day
+   * line a day, through the day its dream opened with (`dream.begun`'s
+   * `daysEnd`: a night that crossed midnight still ends there; review of D2,
+   * never a day an earlier night told), else the day before `at`. A day
    * day's end did not tell falls back to its chapters' summaries' first
    * lines; a day with neither is counted. One pass over the episodes. Never
    * throws: what will not read is a day without.
    */
-  private timeline(at: string, session: string | null): ReflectTimeline {
+  private timeline(at: string, dreamId: string | null): ReflectTimeline {
     const D = DREAM_TUNABLES;
     const days = Math.max(0, Math.floor(D.TIMELINE_DAYS));
     const cap = Math.max(1, Math.floor(D.TIMELINE_LINE_CHARS));
     let told: DaySummary[] = [];
-    let tonight: DaySummary | null = null;
+    let opened = "";
     try {
       told = daySummaries(this.store);
-      tonight = session === null ? null : daySummaryFor(this.store, { session, about: dayBeforeDate(at) });
+      if (dreamId !== null) {
+        const begun = this.store.eventLog({ name: "dream.begun", order: "desc", limit: 50 }).find((r) => r.ref === dreamId);
+        const d = (JSON.parse(begun?.payload ?? "{}") as Record<string, unknown>)["daysEnd"];
+        if (typeof d === "string" && isDay(d)) opened = d;
+      }
     } catch {
       told = [];
     }
-    const through = tonight?.about ?? dayBeforeDate(at);
+    const through = opened !== "" ? opened : dayBeforeDate(at);
     const dates: string[] = [];
     for (let i = 0; i < days && isDay(through); i += 1) dates.push(addDays(through, -i));
     const byDate = new Map(told.map((x) => [x.about, x]));

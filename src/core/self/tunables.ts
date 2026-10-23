@@ -321,7 +321,7 @@ export interface SelfTunables {
    * reflection's bundles are exactly as before. Read at use.
    */
   DAY_SUMMARY: boolean;
-  /** With `DAY_SUMMARY`: the most a day summary may be, in characters (UTF-16 code units, `.length`). Past it the call is refused with the numbers, never cut. CAL. */
+  /** With `DAY_SUMMARY`: the most a day summary may be, in characters (code points: an emoji is one). Past it the call is refused with the numbers, never cut. CAL. */
   DAY_SUMMARY_CHARS: number;
   /**
    * How many SESSIONS may be asked to do one day's writing, in session mode.

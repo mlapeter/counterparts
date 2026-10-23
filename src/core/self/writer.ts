@@ -522,6 +522,8 @@ export interface DaySummary {
 }
 
 function summaryOfRun(r: PageWriterRun): DaySummary | null {
+  // Only a row that answered the night (review of D2): never a refused page's.
+  if (r.outcome !== "revised" && r.outcome !== "nothing-to-say") return null;
   const text = r.summary.trim();
   if (text.length === 0) return null;
   return { about: r.about, text, cites: r.summaryCites, session: r.session, run: r.run, at: r.at, day: r.day };
@@ -547,12 +549,14 @@ export function daySummaries(store: Store, opts: { sinceDay?: number } = {}): Da
  * THE SUMMARY A NIGHT'S DREAM READS (2026-10-23, lane D2): the newest one
  * this session's day's end left — the night's children share its session, so
  * a night that crosses midnight between day's end and the dream still finds
- * it (about `about` or the day before; never an older one a long-lived
- * session left) — else the newest about `about` (the night's own date),
- * else null. Never throws.
+ * it (about `about` or the day before) — else the newest about `about` (the
+ * night's own date), else null. With `sinceAt` (when the dream before this
+ * one began; review of D2), only one told since: a long-lived session that
+ * ran last night's run too never hands tonight's dream last night's summary.
+ * Never throws.
  */
-export function daySummaryFor(store: Store, input: { session: string | null; about: string }): DaySummary | null {
-  const runs = pageWriterRuns(store);
+export function daySummaryFor(store: Store, input: { session: string | null; about: string; sinceAt?: number }): DaySummary | null {
+  const runs = pageWriterRuns(store).filter((r) => input.sinceAt === undefined || r.at > input.sinceAt);
   const floor = input.about === "" ? "" : dayBefore(input.about);
   if (input.session !== null && input.session.length > 0) {
     // The newest DAY this session told (one night tells one day; a run
