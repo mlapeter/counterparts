@@ -1077,3 +1077,30 @@ co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.t
 row carries the named ones as `childSessions` (`nightChildSessions`). No schema change.
 What it is for: a child's transcript or output is matched to its row by name, not time
 (`tools/harness/night.ts#nightRowFor`).
+
+## 2026-10-23 — lean night bundles (lane N2)
+
+- **Measured first, on copies of the owner's store, no model** (compose replay through the
+  MCP server; `harness`-style, the PR has the table): the dream's bundle was ~147k
+  characters in 4–5 parts, under half of it memory and chapter text; the rest was JSON
+  keys, quotes, the bundle's JSON escaped a second time inside the result's JSON, and
+  ~800 sixteen-character ids. Lean, the same night is ~82k in 3 parts with the same
+  memories shown, the same fresh and the wake in part 1. The reflection's falls ~13%: most
+  of it is what the dream saw, a line of words each.
+- **One escaping stays.** Claude Code hands the model `structuredContent`, serialized
+  (2026-09-29), so the bundle is a string field and its newlines and quotes are escaped
+  once. What went is the inner JSON layer.
+- **The short ids live on the fit index**, not a column: the index already lives exactly
+  as long as the run can be written to, `readIndex` now carries them (and `lineCap`, which
+  it dropped — so a later part rendered a summary line shorter than `begin` measured, and
+  a recall's ledger rewrite lost both), and no schema changes.
+- **Numbers are by appearance**: tonight's new first (m1 is the night's most important),
+  then their neighbours, the rest of the memories, then journals. The reflection appends
+  to its dream's map, so a "m14" in the dream's context is the reflection's m14 too, in
+  one session or two.
+- **Found, not changed — the reflection's room on a busy night.** On the owner's store
+  since ~10-21, what the dream saw (~300 lines of ~240 characters, counted with 30 each)
+  and the chapters fill the reflection's 80k room before any memory: on 10-21 and 10-22
+  the live reflection was shown NO memories (fit record: whole 0, lined 75 — the chapter
+  lines — notShown 649 and 868), so no core, no candidates, no unmarked offer. Lean wire
+  cost does not change the room's arithmetic, which counts words. Left for a decision.

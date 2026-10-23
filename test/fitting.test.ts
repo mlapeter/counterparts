@@ -299,8 +299,73 @@ describe("chapters as slices: the new entries since the last dream, a line each,
 // the begin result at the real limit
 // ---------------------------------------------------------------------------
 
+/**
+ * A LEAN BUNDLE'S MEMORIES (2026-10-23): the lines under each "## memories"
+ * heading, each opening with its short id — read back to the real one — and
+ * its words, ending with its whole length when shown in part.
+ */
+function leanMemories(text: string, c: Counterpart, dreamId: string): { id: string; line: string }[] {
+  const aliases = c.dreams.aliasesOf(dreamId);
+  if (aliases === null) throw new Error("no short ids for this dream");
+  const out: { id: string; line: string }[] = [];
+  let inMemories = false;
+  for (const line of text.split("\n")) {
+    if (line.startsWith("## ")) {
+      inMemories = line === "## memories";
+      continue;
+    }
+    if (!inMemories) continue;
+    const short = line.split(" · ")[0] ?? "";
+    out.push({ id: aliases.resolve(short) ?? short, line });
+  }
+  return out;
+}
+
 describe("the dream's begin result at the REAL limit, measured as the MCP server sends it", () => {
-  test("a busy night: begin under RESULT_CHARS, every part under PART_CHARS, every shown memory in exactly one part, and the lookup named", async () => {
+  afterEach(() => {
+    (DREAM_TUNABLES as { LEAN_BUNDLE: boolean }).LEAN_BUNDLE = true;
+  });
+  test("lean: a busy night: begin under RESULT_CHARS, every part under PART_CHARS, every shown memory in exactly one part, and the lookup named", async () => {
+    const c = brain();
+    c.store.advanceClock("2026-09-10");
+    const long = "\"said\" \"so\" \"plainly\" ".repeat(20);
+    for (let i = 0; i < 120; i += 1) mem(c, `Older memory ${String(i)} of a busy week: ${long}`, { kind: "fact" });
+    for (let d = 11; d <= 20; d += 1) c.store.advanceClock(`2026-09-${String(d)}`);
+    for (let i = 0; i < 90; i += 1) {
+      mem(c, `Memory ${String(i)} of a busy day: ${long}${"and more said at length. ".repeat(i % 7 === 0 ? 300 : 1)}`, { kind: i % 3 === 0 ? "person" : i % 3 === 1 ? "self" : "fact", about: i % 2 === 0 ? "us" : "me" });
+    }
+    const page = `## Core\n\n${"\"A\" \"quoted\" \"page\". ".repeat(700)}`;
+    expect(longPageWritten(c, page)).toBe(true);
+    const s = server(c);
+    const begin = await s.call("dream", { phase: "begin", session: SESSION });
+    expect(begin.isError ?? false).toBe(false);
+    expect(textOf(begin).length).toBeLessThanOrEqual(DREAM_TUNABLES.RESULT_CHARS);
+    const dreamId = begin.structuredContent["dream"] as string;
+    expect(begin.structuredContent["how"] as string).toContain(`up to ${String(RECALL_MAX_IDS)} at once`);
+    const parts = begin.structuredContent["parts"] as { of: number } | undefined;
+    expect(parts?.of ?? 1).toBeGreaterThan(1);
+    const first = leanMemories(begin.structuredContent["bundle"] as string, c, dreamId);
+    const seen = new Set(first.map((m) => m.id));
+    expect(seen.size).toBe(first.length);
+    for (let k = 2; k <= (parts?.of ?? 1); k += 1) {
+      const p = await s.call("dream", { phase: "part", session: SESSION, dream: dreamId, part: k });
+      expect(p.isError ?? false).toBe(false);
+      expect(textOf(p).length).toBeLessThanOrEqual(DREAM_TUNABLES.PART_CHARS);
+      for (const m of leanMemories(p.structuredContent["bundle"] as string, c, dreamId)) {
+        expect(seen.has(m.id)).toBe(false);
+        seen.add(m.id);
+      }
+    }
+    const shown = JSON.parse(c.store.dream(dreamId)?.shown ?? "[]") as string[];
+    expect([...seen].sort()).toEqual([...shown].sort());
+    // Nothing whole-cut silently: a line cut short says its whole length.
+    for (const m of first) if (/…$|… \(/.test(m.line)) expect(m.line).toMatch(/\((excerpt of )?\d+\)$/);
+    const none = await s.call("dream", { phase: "part", session: SESSION, dream: dreamId, part: (parts?.of ?? 1) + 1 });
+    expect(none.isError).toBe(true);
+  }, 60_000);
+
+  test("JSON (LEAN_BUNDLE off): a busy night: begin under RESULT_CHARS, every part under PART_CHARS, every shown memory in exactly one part, and the lookup named", async () => {
+    (DREAM_TUNABLES as { LEAN_BUNDLE: boolean }).LEAN_BUNDLE = false;
     const c = brain();
     c.store.advanceClock("2026-09-10");
     const long = "\"said\" \"so\" \"plainly\" ".repeat(20);

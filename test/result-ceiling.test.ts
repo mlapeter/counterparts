@@ -152,9 +152,13 @@ describe("a busy night reaches the model whole: under the ceiling by the caps, t
       expect(of).toBeGreaterThan(1);
       // Part 1 keeps the wake and the page on a busy night (review of #315,
       // item 10): they cannot be fetched in a later part; memories can.
-      const first = JSON.parse((begin.structuredContent["bundle"] as string).split("\n").slice(1).join("\n")) as { wake: unknown; selfPage: unknown };
-      expect(first.selfPage).not.toBeNull();
-      expect(first.wake).not.toBeNull();
+      // Lean (2026-10-23): each under its heading, never "none".
+      const lines = (begin.structuredContent["bundle"] as string).split("\n");
+      const under = (heading: string): string | undefined => lines[lines.findIndex((l) => l.startsWith(heading)) + 1];
+      expect(lines.some((l) => l.startsWith("## self page"))).toBe(true);
+      expect(under("## self page")).not.toBe("none");
+      expect(lines.some((l) => l.startsWith("## wake"))).toBe(true);
+      expect(under("## wake")).not.toBe("none");
       // THE TURN'S BUDGET (review of #315, item 6): the night model may fetch
       // every later part in one turn, and the host holds one turn's results to
       // 200,000 together — the whole bundle, begin included, stays well under.
