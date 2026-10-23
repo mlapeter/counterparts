@@ -3684,7 +3684,7 @@ export const DREAM_LOOKUP =
  */
 export const DREAM_LOOKUP_SPLIT = DREAM_LOOKUP.replace(
   'The self page is read whole with the self_page tool ("selfPageChars" is its length).',
-  'The self page is shown as far as it fits ("selfPageChars" is its whole length); tonight the page writer and the reflection write it, not the dream.',
+  'The self page is shown as far as it fits ("selfPageChars" is its length).',
 );
 
 /** The begin result's text: the opener, what it is, then the bundle. */
