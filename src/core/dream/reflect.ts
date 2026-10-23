@@ -88,7 +88,9 @@ import { CLAIM_PREFIX_MIN_CHARS, PAGE_CORE_HEADING, claimKey, pageClaims, pageSe
 import { coreFromBeliefs } from "../self/measures.js";
 import { SELF_TUNABLES } from "../self/tunables.js";
 import { openCarry } from "../self/identity.js";
-import { PAGE_WRITING_RULE } from "../self/writer.js";
+import { PAGE_WRITING_RULE, daySummaries } from "../self/writer.js";
+import type { DaySummary } from "../self/writer.js";
+import { addDays, isDay, localDate, readableDate } from "../time.js";
 import { DREAM_MARK, carriesDreamMark } from "./mark.js";
 import { feelingWeeks } from "./feeling-weeks.js";
 import type { FeelingWeeks } from "./feeling-weeks.js";
@@ -334,6 +336,13 @@ export interface ReflectBundle {
    * whole. Absent: the entries fitted as before.
    */
   readonly chaptersAs?: "summaries";
+  /**
+   * THE TIMELINE (2026-10-23, lane D2; `self.DAY_SUMMARY` with
+   * `dream.REFLECT_ROOM_ORDER`, absent otherwise): the last
+   * `TIMELINE_DAYS` days, a line a day, beside the chapters — what pattern
+   * keeps showing across weeks.
+   */
+  readonly timeline?: ReflectTimeline;
   readonly earlier: readonly { date: string | null; entry: string }[];
   readonly onMind: readonly MindItem[];
   /** Open things beyond the few shown, counted (they stay open). */
@@ -478,6 +487,22 @@ export const REFLECT_LOOKUP_ORDER =
   'Chapters are the last few days\' journal, each entry by its summary ("chaptersAs": "summaries"); read one whole with the recall tool by its address, ids: ["<journal id>#<chapter>"]. ' +
   "dreamSaw is what the dream changed tonight and the older memories it was shown, a line each; tonight's new memories are under recent. " +
   'The rest as an excerpt, a line, or an id alone ("fidelity"; "chars" is the whole length). Read any you need whole with the recall tool, ids: [...] — several at once — before you cite, feel or mark it.';
+
+/**
+ * THE LAST FEW WEEKS, A LINE A DAY (2026-10-23, lane D2): each day's line is
+ * day's end's summary of it (`from: "days-end"`) — whole when it is no
+ * longer than `TIMELINE_LINE_CHARS`, else its first line — or, for a day
+ * without one (before day's end told days, or a night it did not), its
+ * chapters' summaries' first lines joined (`from: "chapters"`). Newest first.
+ * A day with neither has no line and is counted in `without`.
+ */
+export interface ReflectTimeline {
+  readonly days: number;
+  /** The newest day it covers (the night's own day's end's, else the day before the reflection's date). */
+  readonly through: string;
+  readonly lines: readonly { readonly date: string; readonly from: "days-end" | "chapters"; readonly text: string; readonly chars: number; readonly chapters?: number }[];
+  readonly without: number;
+}
 
 export type ReflectRefusal =
   | "observer"
@@ -3124,6 +3149,11 @@ export class Reflections {
     // entry whole — in a room of their own (`REFLECT_CHAPTER_CHARS`), every
     // one shown (`recentChapters`); a recall of its address reads it whole.
     const chaptersFit = order ? this.recentChapters(day, DREAM_TUNABLES.REFLECT_CHAPTER_CHARS, true) : this.recentChapters(day, T.ROOM_CHARS * T.CHAPTER_SHARE);
+    // THE TIMELINE (2026-10-23, lane D2, `self.DAY_SUMMARY`, read at use):
+    // the last few weeks a line a day, beside the chapters, in the room's
+    // third step — counted among the fixed parts, so the long view, held
+    // back from the room, stays whole.
+    const timeline = order && SELF_TUNABLES.DAY_SUMMARY ? this.timeline(at, dreamId) : undefined;
     // BELIEFS ON THE SUBJECTS IN PLAY (lane C): the self subject, then the
     // cards the memories tonight may show name most.
     const beliefs = this.beliefsInPlay(day, [...priority.keys()], dreamId);
@@ -3151,6 +3181,7 @@ export class Reflections {
       .map((r) => ({ date: r.date, entry: clipWire(r.entry ?? "", T.EARLIER_CHARS) }));
     const spent =
       chaptersFit.used +
+      (timeline === undefined ? 0 : timelineChars(timeline)) +
       wireChars(page ?? "") +
       wireChars(dreamed?.journal ?? "") +
       earlier.reduce((n, e) => n + wireChars(e.entry), 0) +
@@ -3229,6 +3260,7 @@ export class Reflections {
       parts: null,
       // WHOLE (2026-09-28: was cut at 6,000 characters).
       selfPage: page,
+      ...(timeline === undefined ? {} : { timeline }),
       chapters: chaptersFit.chapters,
       ...(order ? { chaptersAs: "summaries" as const } : {}),
       earlier,
@@ -3406,6 +3438,101 @@ export class Reflections {
     const lineBytes = Math.max(T.CHAPTER_LINE_MIN_BYTES, Math.min(T.LINE_BYTES, Math.floor(room / Math.max(1, n)) - FIT_TUNABLES.OVERHEAD));
     const lines = withSum.reduce((k, ep) => k + ep.fresh.reduce((m, e) => m + FIT_TUNABLES.OVERHEAD + wireChars(entryLine(e, lineBytes, lineBytes)), 0), 0);
     return fitEpisodes(withSum, { room: Math.max(room, lines), owner: ownerNames(this.store), day, lineBytes, summaryBytes: lineBytes, entryChars: T.ENTRY_CHARS, summaries: true });
+  }
+
+  /**
+   * THE TIMELINE (2026-10-23, lane D2): the last `TIMELINE_DAYS` days, a
+   * line a day, through the day its dream opened with (`dream.begun`'s
+   * `daysEnd`: a night that crossed midnight still ends there; review of D2,
+   * never a day an earlier night told), else the day before `at`. A day
+   * day's end did not tell falls back to its chapters' summaries' first
+   * lines; a day with neither is counted. One pass over the episodes. Never
+   * throws: what will not read is a day without.
+   */
+  private timeline(at: string, dreamId: string | null): ReflectTimeline {
+    const D = DREAM_TUNABLES;
+    const days = Math.max(0, Math.floor(D.TIMELINE_DAYS));
+    const cap = Math.max(1, Math.floor(D.TIMELINE_LINE_CHARS));
+    let told: DaySummary[] = [];
+    let opened = "";
+    try {
+      told = daySummaries(this.store);
+      if (dreamId !== null) {
+        const begun = this.store.eventLog({ name: "dream.begun", order: "desc", limit: 50 }).find((r) => r.ref === dreamId);
+        const d = (JSON.parse(begun?.payload ?? "{}") as Record<string, unknown>)["daysEnd"];
+        if (typeof d === "string" && isDay(d)) opened = d;
+      }
+    } catch {
+      told = [];
+    }
+    const through = opened !== "" ? opened : dayBeforeDate(at);
+    const dates: string[] = [];
+    for (let i = 0; i < days && isDay(through); i += 1) dates.push(addDays(through, -i));
+    const byDate = new Map(told.map((x) => [x.about, x]));
+    const missing = dates.filter((d) => !byDate.has(d));
+    const fromChapters = missing.length === 0 ? new Map<string, string[]>() : this.chapterLinesByDate(missing);
+    const lines: { date: string; from: "days-end" | "chapters"; text: string; chars: number; chapters?: number }[] = [];
+    let without = 0;
+    for (const date of dates) {
+      const t = byDate.get(date);
+      if (t !== undefined) {
+        const flat = t.text.replace(/\s+/g, " ").trim();
+        const first = (t.text.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "").replace(/\s+/g, " ");
+        const text = flat.length <= cap ? flat : clipChars(first, cap);
+        lines.push({ date, from: "days-end", text, chars: flat.length });
+        continue;
+      }
+      const ch = fromChapters.get(date);
+      if (ch === undefined || ch.length === 0) {
+        without += 1;
+        continue;
+      }
+      // Each chapter's share of the line, so a busy day reads as its spread, not its first chapter.
+      const share = Math.max(TIMELINE_PIECE_MIN_CHARS, Math.floor(cap / ch.length) - 3);
+      const joined = ch.join(" · ");
+      lines.push({ date, from: "chapters", text: clipChars(ch.map((x) => clipChars(x, share)).join(" · "), cap), chars: joined.length, chapters: ch.length });
+    }
+    return { days, through, lines, without };
+  }
+
+  /**
+   * THE DAYS DAY'S END DID NOT TELL, BY THEIR CHAPTERS (2026-10-23, lane
+   * D2): for each date, the first line of each of that day's chapters'
+   * summaries — the session's own, else its opening — oldest chapter first.
+   * One pass over the episodes written to since the oldest date. Never throws.
+   */
+  private chapterLinesByDate(dates: readonly string[]): Map<string, string[]> {
+    const out = new Map<string, string[]>();
+    if (dates.length === 0) return out;
+    const oldest = [...dates].sort()[0] as string;
+    const said = new Map(dates.map((d) => [readableDate(d), d]));
+    try {
+      const zone = this.store.zone();
+      const episodes: EpisodeInView[] = [];
+      for (const id of this.store.list({ type: "episode", archived: false })) {
+        const row = this.store.row(id);
+        if (row === undefined || row.superseded_by !== null || row.body.length === 0) continue;
+        const at = row.updated_at ?? row.created_at;
+        if (at === null || localDate(at, zone) < oldest) continue;
+        const all = chapterEntries(row.body);
+        const fresh = all.filter((e) => e.date !== null && said.has(e.date));
+        if (fresh.length > 0) episodes.push({ row: { id, title: row.title }, at, fresh, earlier: all.length - fresh.length });
+      }
+      for (const ep of summarized(this.store, episodes).sort((a, b) => a.at - b.at)) {
+        for (const e of ep.fresh) {
+          const date = e.date === null ? undefined : said.get(e.date);
+          if (date === undefined) continue;
+          const first = (entrySummary(e).split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "").replace(/\s+/g, " ");
+          if (first.length === 0) continue;
+          const list = out.get(date) ?? [];
+          list.push(first);
+          out.set(date, list);
+        }
+      }
+    } catch {
+      return out;
+    }
+    return out;
   }
 
   /**
@@ -4144,6 +4271,43 @@ export const REFLECT_LEAN_LEGEND_ORDER =
   `${REFLECT_LEAN_LEGEND}\n` +
   "The room was filled in this order, the first three always shown: the page, your last reflections and what the dream put forward; the long view — core, candidates, felt — a line each at least, whole as far as the room went; the last few days' chapters, each by its summary (a recall of its address, ids: [\"c2#3\"], reads it whole). Then what the dream changed tonight and the older memories it saw (dreamSaw: tonight's new memories are under recent, not there), and the rest as far as the room went.";
 
+/**
+ * THE TIMELINE AS LEAN LINES (2026-10-23, lane D2): its head, then a line a
+ * day, newest first — a date, where it came from when not day's end, its
+ * words, and the whole length in parentheses when they are not whole.
+ */
+export function timelineLines(t: ReflectTimeline, year: string): string[] {
+  const without = t.without === 0 ? "" : `; ${String(t.without)} ${t.without === 1 ? "day" : "days"} without a summary or a chapter`;
+  const out = [`## timeline: the last ${String(t.days)} days through ${leanDate(t.through, year)}, a line a day — day's end's summary, or (chapters) that day's chapters' first lines${without}`];
+  for (const l of t.lines) {
+    const from = l.from === "chapters" ? ` (chapters${l.chapters === undefined ? "" : `; ${String(l.chapters)}`})` : "";
+    const tail = l.text.length >= l.chars && !l.text.endsWith("…") ? "" : ` (${String(l.chars)})`;
+    out.push(`${leanDate(l.date, year)}${from} · ${l.text}${tail}`);
+  }
+  return out;
+}
+
+/** A chapter's piece of a timeline line built from chapters, at the least, in characters (2026-10-23, lane D2). */
+const TIMELINE_PIECE_MIN_CHARS = 60;
+
+/** What the timeline spends of the room: its lines and their furniture. */
+function timelineChars(t: ReflectTimeline): number {
+  return 160 + t.lines.reduce((n, l) => n + wireChars(l.text) + 40, 0);
+}
+
+/** A text kept to `cap` characters, cut at a word with "…" when longer. */
+function clipChars(text: string, cap: number): string {
+  if (text.length <= cap) return text;
+  const cut = text.slice(0, Math.max(1, cap - 1));
+  const at = cut.lastIndexOf(" ");
+  return `${(at > cap * 0.6 ? cut.slice(0, at) : cut).trimEnd()}…`;
+}
+
+/** The calendar day before a `YYYY-MM-DD`, or "" when it does not read. */
+function dayBeforeDate(at: string): string {
+  return isDay(at) ? addDays(at, -1) : "";
+}
+
 /** One memory as one lean line. */
 export function leanReflectItem(item: ReflectItem | string, aliases: AliasMap, year: string, id?: string): string {
   if (typeof item === "string") return `${aliases.short(id ?? "")} · ${item}`;
@@ -4180,11 +4344,14 @@ export function leanReflectBody(
   year: string,
   /** The room reordered (2026-10-23, `REFLECT_ROOM_ORDER`): the memories first, the chapters by their summaries, what the dream changed and saw last. */
   ordered = false,
+  /** The timeline (2026-10-23, lane D2): part 1's, beside the chapters. */
+  timeline?: ReflectTimeline,
 ): string[] {
   const out: string[] = [];
   const ms = Object.entries(memories);
   if (ordered) {
     if (ms.length > 0) out.push("## memories", ...ms.map(([k, v]) => leanReflectItem(v, aliases, year, k)));
+    if (timeline !== undefined) out.push(...timelineLines(timeline, year));
     if (chapters.length > 0) {
       out.push("## chapters: the last few days, each chapter by its summary (its address reads it whole)");
       for (const c of chapters) out.push(leanChapterHead(c, aliases), ...c.entries.map((e) => leanEntry(e, c.id, aliases, "summaries")));
@@ -4250,7 +4417,7 @@ function leanReflectLines(b: ReflectBundle, aliases: AliasMap): string[] {
     }
     if (b.beliefs.candidates !== undefined) for (const c of b.beliefs.candidates) out.push(`- candidate ${plainValue(c, aliases)}`);
   }
-  out.push(...leanReflectBody(b.memories, b.chapters, b.dreamSaw, aliases, year, b.chaptersAs === "summaries"));
+  out.push(...leanReflectBody(b.memories, b.chapters, b.dreamSaw, aliases, year, b.chaptersAs === "summaries", b.timeline));
   return out;
 }
 

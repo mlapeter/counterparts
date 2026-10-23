@@ -112,6 +112,16 @@ export function dayWords(x) {
   return dayName(x) + " — " + (x.why || "not rewritten.");
 }
 
+/**
+ * The picked day's summary (2026-10-23, lane D2): what day's end told of the
+ * day that night, under its caption — the one place the dashboard shows it.
+ * Empty when the day has none. Pure.
+ */
+export function toldWords(x) {
+  if (!x || !x.told || !x.told.text) return "";
+  return '<span class="ps-told"><br>Day\'s end told ' + esc(dateWords(x.told.about) || x.told.about) + ": " + esc(x.told.text) + "</span>";
+}
+
 /** The caption when no day is picked or hovered: how often, and the newest. */
 export function stripSummary(list) {
   const written = list.filter((x) => x.seqs.length > 0);
@@ -193,7 +203,7 @@ function say(hover) {
     return;
   }
   box.className = "ps-say" + (x === picked ? " picked" : "");
-  box.innerHTML = esc(dayWords(x)) + (x === picked && x.more ? " " + q("pageday", x.more) : "");
+  box.innerHTML = esc(dayWords(x)) + (x === picked && x.more ? " " + q("pageday", x.more) : "") + toldWords(x === picked ? x : null);
   wireTips(box);
 }
 

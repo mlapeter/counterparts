@@ -2244,6 +2244,9 @@ export class Self {
     /** The nightly run's claim (2026-09-28): the session that claimed the night, and the run (its dream). */
     session?: string;
     run?: string;
+    /** Day's end's day summary (2026-10-23, lane D2), and the memory ids it rests on. */
+    summary?: string;
+    summaryCites?: readonly string[];
   }): boolean {
     const day = run.day ?? this.store.livedDay();
     const payload = {
@@ -2262,6 +2265,7 @@ export class Self {
       omitted: run.omitted ?? 0,
       ...(run.session === undefined || run.session.length === 0 ? {} : { session: run.session }),
       ...(run.run === undefined || run.run.length === 0 ? {} : { run: run.run }),
+      ...(run.summary === undefined || run.summary.trim().length === 0 ? {} : { summary: run.summary, summaryCites: [...(run.summaryCites ?? [])] }),
     };
     if (this.observer) {
       this.emit("self.observer.standdown", undefined, { site: "recordPageWriterRun" });

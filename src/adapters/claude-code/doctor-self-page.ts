@@ -26,6 +26,7 @@ import {
   lastPageWriterRun,
   pageWriterDue,
   pageWriterNight,
+  pageWriterRuns,
   pageWriterStatus,
 } from "../../core/self/writer.js";
 // The what-fired reading, shared with the console's `fired` command and the
@@ -92,6 +93,15 @@ export function dreamingFindings(input: DoctorInput, store: Store): Finding[] {
   ];
 }
 
+/** Did day's end leave a day summary during the run that started at `startedAt` (2026-10-23, lane D2)? Never throws. */
+function toldDuring(store: Store, startedAt: number): boolean {
+  try {
+    return pageWriterRuns(store, { limit: 50 }).some((r) => r.at >= startedAt && r.summary.trim().length > 0);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * THE NIGHTLY RUN, headless (2026-09-29): what became of the latest run the
  * host started itself (setting `auto`) — the store's one-row record
@@ -142,7 +152,8 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
   const writerNote = missed === null ? "" : `; day's end was missed (${missed})`;
   // WHAT THE NIGHT COST (2026-10-23), one clause, when its children said.
   const cost = nightTokensWords(run.usage);
-  const costNote = cost === null ? "" : `; ${cost}`;
+  // DAY'S END TOLD THE DAY (2026-10-23, lane D2): said when it did, nothing else.
+  const costNote = (cost === null ? "" : `; ${cost}`) + (toldDuring(store, run.startedAt) ? "; day summary: yes" : "");
   if (run.state === "done") {
     const ids = [run.dream, run.reflection].filter((x): x is string => x !== null).join(", ");
     return [

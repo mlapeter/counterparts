@@ -1520,6 +1520,15 @@ const SELF_PAGE: ToolSpec = {
           additionalProperties: false,
         },
       },
+      summary: {
+        type: "string",
+        description: "Only day's end's, with `session`, as its block asks: a few lines about the day it read, with the page or alone when the page stands. Past its cap it is refused, never cut.",
+      },
+      summaryCites: {
+        type: "array",
+        items: { type: "string" },
+        description: "With `summary`: the ids of the memories it rests on. An id that names no memory is left out and named back.",
+      },
     },
     required: [],
     additionalProperties: false,

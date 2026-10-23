@@ -56,6 +56,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The dream's fresh intake: the fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000), 4 neighbours a new memory (`dream.NEIGHBOURS`, was 6); 44 → ~64 new memories a night on the 10-22 compare | not released, 10-23 | ~2026-10-29: `dream.begun` queue fresh/waiting/agedOut by build; whether dreams got thinner (whole 20 → 11) | "Due ~2026-10-29 (the dream's fresh intake)" below; `docs/decisions.d/feat-dream-intake-1023.md` |
 | The page split by section (`self.PAGE_SPLIT`, N1 part 2): the page writer in its own child first, amending every section but `## Core`; the reflection writes `## Core` alone; kept sentences keep their cites | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after the page split" below |
 | Day's end (the page writer, renamed) reads the day as told: the chapters by their summaries and the 12 strongest memories with ids, citing them (`self.DAYS_END_INPUT`); the reflection's room long view first, `dreamSaw` cut to what the dream changed and 40 older (`dream.REFLECT_ROOM_ORDER`) | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after day's end" below; `docs/decisions.d/feat-days-end-reflection-room-1023.md` |
+| The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
@@ -94,6 +95,27 @@ Look at, per night since install (read-only):
 Changes it: Core drifting or empty, Lately stale, the writer missed most nights, or Mike preferring the old pages.
 Revert: `self.PAGE_SPLIT=false` (one switch: the writer back inside the dream's child, both rewriting the whole
 page, nothing carried), or revert the PR.
+
+## Due 7 nights after the day summary (2026-10-23, Mike's go 15:32, lightly held — `self.DAY_SUMMARY`)
+
+What: day's end leaves a few lines about the day (600 characters at most) with its closing `self_page` call, on the
+night's `self.page.writer.ran` row; the dream's bundle opens with it ("## today, as day's end told it"); the
+reflection reads the last 21 days a line a day (a day without one, by its chapters). Replay on the 10-23 corpus: the
+dream +~640 characters, the reflection +~5k (4 parts either way, the same memories shown).
+
+Look at, after 7 nights (read-only):
+- a summary every night: `SELECT json_extract(payload,'$.about'), json_extract(payload,'$.outcome'),
+  length(json_extract(payload,'$.summary')) FROM events WHERE name='self.page.writer.ran' AND
+  json_extract(payload,'$.summary') IS NOT NULL ORDER BY seq;` and the dream opened with it:
+  `SELECT json_extract(payload,'$.daysEnd') FROM events WHERE name='dream.begun' ORDER BY seq DESC LIMIT 7;`
+- read 3 dream journals (`counterparts night show <drm_…>`): do they open from the day summary's framing?
+- does the reflection's entry name a pattern across days it could not have seen before (one older than the 3 days of
+  chapters)?
+- Mike reads.
+
+Changes it: journals that only echo the summary, a reflection that reads the timeline as instructions, summaries
+past the cap night after night. Revert: `self.DAY_SUMMARY=false` (no summary asked for or kept; the dream's and the
+reflection's bundles exactly as before), or revert the PR.
 
 ## Due 3–4 nights after day's end (2026-10-23, Mike's go 15:32, lightly held — `self.DAYS_END_INPUT`, `dream.REFLECT_ROOM_ORDER`)
 

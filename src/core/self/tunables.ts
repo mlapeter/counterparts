@@ -309,6 +309,21 @@ export interface SelfTunables {
   /** With `DAYS_END_INPUT`: how many of the day's strongest memories day's end is handed, with their ids. CAL. */
   DAYS_END_MEMORIES: number;
   /**
+   * THE DAY SUMMARY (2026-10-23, lane D2; Mike's go 15:32, lightly held).
+   * Bedtime rehearsal shapes what sleep keeps: on, day's end also leaves a
+   * few lines, first person — what the day was about and what is in motion —
+   * with the memory ids they rest on, sent with its one closing `self_page`
+   * call (with the page, or alone when the page stands). Stored on that
+   * call's run row (`self.page.writer.ran`'s payload: no table, no
+   * migration). The dream reads it first, as a header over its bundle, and
+   * the reflection reads the last `dream.TIMELINE_DAYS` of them as a line a
+   * day. Off: no summary is asked for or kept, and the dream's and the
+   * reflection's bundles are exactly as before. Read at use.
+   */
+  DAY_SUMMARY: boolean;
+  /** With `DAY_SUMMARY`: the most a day summary may be, in characters (code points: an emoji is one). Past it the call is refused with the numbers, never cut. CAL. */
+  DAY_SUMMARY_CHARS: number;
+  /**
    * How many SESSIONS may be asked to do one day's writing, in session mode.
    *
    * Not a pacer — the scar this package carries about pacers is about the
@@ -461,6 +476,8 @@ export const SELF_TUNABLES: SelfTunables = {
   PAGE_WRITER_MEMORY_MAX: 40,
   DAYS_END_INPUT: true,
   DAYS_END_MEMORIES: 12,
+  DAY_SUMMARY: true,
+  DAY_SUMMARY_CHARS: 600,
   PAGE_WRITER_ASKS_PER_DAY: 2,
 
   WAKE_LINE_BYTES: 240,

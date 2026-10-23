@@ -4464,6 +4464,10 @@ export class Counterpart {
     omitted?: number;
     day?: number;
     dedupKey?: string;
+    session?: string;
+    run?: string;
+    summary?: string;
+    summaryCites?: readonly string[];
   }): boolean {
     return this.self.recordPageWriterRun(run);
   }

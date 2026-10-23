@@ -2757,3 +2757,23 @@ the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.
   (M through a later memory)"), only when its own memory is gone and the later one merged it
   (`meta.mergedFrom`): a correction is not followed. `self_page` names back any cite input
   that is not a memory's id. Test: `test/days-end.test.ts`.
+
+## 2026-10-23 — the day summary (lane D2, `self.DAY_SUMMARY`)
+
+- Day's end's few lines about the day ride on the night's own `self.page.writer.ran` row
+  (`summary`, `summaryCites` in its payload, with the session and run that told it): no
+  table, no migration. The log is append-only, so the summary goes with the one call that
+  answers the night — beside the page (on the `revised` row; a refused page's summary is
+  not kept, and is sent again with the page), or alone with no body (`nothing-to-say`,
+  "day's end left the page as it stands"). Only those two outcomes are read back.
+- At the door (`server-self-tools.ts#daySummaryArgs`): kept only from this session's open
+  night claim with the switch on; past `DAY_SUMMARY_CHARS` (characters counted as code
+  points, so an emoji is one) the call is refused before anything is written; cites
+  resolved as the page's are, the rest named back (`refusedSummaryCites`).
+- Readers: `writer.ts#daySummaryFor` (the dream's: the newest day this session told since
+  the dream before it began — a long-lived session can run two nights — else the night's
+  own date) and `#daySummaries` (one per date, the later telling standing). The
+  reflection's timeline ends at the date its dream opened with (`dream.begun.daysEnd`),
+  and `night show` reads that same date: never another night's summary.
+- The dream's header indents the summary's lines, so a `## ` line in it never reads as a
+  section of the bundle.
