@@ -263,6 +263,22 @@ describe("at the doors", () => {
     return s;
   }
 
+  test("the dream's begin, lean, through the dream child's door: the page shown, and nothing points at the page tool it is not given", async () => {
+    const c = brain();
+    c.store.advanceClock("2026-10-01");
+    c.revisePage(PAGE, { reason: "the page before", by: "owner" });
+    for (const d of ["02", "03"]) c.store.advanceClock(`2026-10-${d}`);
+    for (const b of ["Mira glazes on Thursdays.", "The kiln holds at 1,100 degrees.", "The zqbowl rims crawl when the glaze is thick."]) mem(c, b);
+    recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start", at: Date.now() });
+    const dreamSide = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir, env: { COUNTERPARTS_NIGHT_CHILD: "dream" } });
+    const begin = await dreamSide.call("dream", { phase: "begin", session: SESSION });
+    const said = JSON.stringify(begin);
+    expect(begin.isError).not.toBe(true);
+    expect(said).toContain("## self page");
+    expect(said).toContain("The self page is shown as far as it fits.");
+    expect(said).not.toContain("self_page");
+  });
+
   test("the writer's self_page write that changed Core: Core kept as it stood, the rest written, and the answer says so", async () => {
     const c = brain();
     const s = await nightWithPage(c);
