@@ -90,6 +90,7 @@ import { Counterpart, MCP_SPILLED_EVENT, seatAsk } from "../../core/counterpart.
 import type { CounterpartEvent, Seat, SeatAnswer, SeatAsk, SeatTool } from "../../core/counterpart.js";
 import { CATCH_UP_ONLY_REASONS, tagsBundle, tagsPrompt } from "../../core/dream/index.js";
 import { TUNABLES as SCHEMAS_TUNABLES } from "../../core/schemas/index.js";
+import { SELF_TUNABLES } from "../../core/self/tunables.js";
 import type { CatchUpOnlyReason, NightChildRun, NightPart, NightRun } from "../../core/dream/index.js";
 import { CONFIG_ENV as CONFIG_PATH_ENV } from "../config-path.js";
 import { entryScript, scriptArgs } from "../runtime.js";
@@ -349,7 +350,9 @@ export function nightChildrenTimeoutMs(config: AdapterConfig, kind: NightKind["k
   // A whole night's third child, the tagging (2026-10-21), under its own
   // short watchdog — only while the night's tag work is on (read at use).
   const tags = SCHEMAS_TUNABLES.TAGS_NIGHT ? TUNABLES.NIGHT_TAGS_MS + KILL_GRACE_MS + REAP_GRACE_MS : 0;
-  return 2 * one + KILL_GRACE_MS + REAP_GRACE_MS + tags;
+  // The page writer's own child, first (2026-10-23), while the page is split.
+  const writer = SELF_TUNABLES.PAGE_SPLIT ? TUNABLES.NIGHT_WRITER_MS + KILL_GRACE_MS + REAP_GRACE_MS : 0;
+  return 2 * one + KILL_GRACE_MS + REAP_GRACE_MS + tags + writer;
 }
 
 /**
@@ -604,6 +607,11 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   const startedAt = now();
   let date = input.date ?? "";
   let prompt = "";
+  // THE PAGE SPLIT BY SECTION (2026-10-23, `self.PAGE_SPLIT`, read once for
+  // the run): the page writer in a child of its own, first; the dream's
+  // child without it. Off: the writer inside the dream's child, as before.
+  const split = SELF_TUNABLES.PAGE_SPLIT && input.kind.kind === "night";
+  let writerPrompt = "";
   // THE MORNING CATCH-UP FIRST (2026-10-01, build 3): owed stretches in any
   // directory are written up before the page writer reads the day, by a short
   // child of their own (`night-catch-up.ts`). Its time is added to the run's
@@ -687,8 +695,9 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
       // (2026-10-11): the reflection is its own child, below.
       prompt =
         input.kind.kind === "night"
-          ? c.dreams.launchPrompt({ session: input.session, reflect: false })
+          ? c.dreams.launchPrompt({ session: input.session, reflect: false, ...(split ? { parts: ["dream"] as const } : {}) })
           : c.reflections.launchPrompt({ session: input.session, dream: input.kind.dream });
+      if (split) writerPrompt = c.dreams.launchPrompt({ session: input.session, reflect: false, parts: ["writer"] });
       // STARTED, by this process, before the child: the hook wrote `started`
       // when it launched this process; this row carries the same run on.
       c.dreams.recordNightRun({ ...base(c), state: "started", endedAt: null, reason: null, detail: null, code: null, dream: null, reflection: null });
@@ -702,6 +711,14 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   // is computed from the same two (`nightChildrenTimeoutMs`), whoever answers.
   const limits = { turns: nightMaxTurns(input.config), ms: nightTimeoutMs(input.config) };
   const askFor = (act: NightChild, text: string): SeatAsk => seatAsk(act, { prompt: text, run: input.run, session: input.session, scope: input.scope, limits });
+  // THE PAGE WRITER'S OWN CHILD, FIRST (2026-10-23, `self.PAGE_SPLIT`): out
+  // of the dream's, so the dream no longer carries the day it read. Its exit
+  // never becomes the run's, and a night it could not run goes on to the
+  // dream: the row's line for it says what became of it.
+  if (split) {
+    const w = await writerFirst(input, seat, writerPrompt);
+    if (w !== null) children.push(w);
+  }
   const firstAct: NightChild = input.kind.kind === "night" ? "dream" : "reflection";
   const ran: NightAnswer[] = [];
   let one: NightAnswer;
@@ -1108,6 +1125,46 @@ async function runNightChild(
   // Recorded only when the child that ran is the one named: a plain retry
   // ran under an id its host chose, which this process never learns.
   return { result, ms, neverStarted, spill, ...(named && !neverStarted ? { hostSession } : {}) };
+}
+
+/**
+ * THE PAGE WRITER'S CHILD (2026-10-23, `self.PAGE_SPLIT`), decided and run.
+ * Not started, and said on the row, when the writer has nothing to do
+ * tonight: the owner has it off (`pageWriter.mode`), or there is no day to
+ * read (`no-previous-day`, `no-memories`, `already-claimed`, `asks-spent`) —
+ * the claim records a night with nothing to read as the writer's phase
+ * would, so doctor reads it the same. Skipped when the store will not open.
+ * Otherwise one ask to the seat, on the night's model and turns, its own
+ * watchdog. Never throws; its exit is never the run's.
+ */
+async function writerFirst(input: NightRunInput, seat: Seat<NightAnswer>, prompt: string): Promise<NightChildRun | null> {
+  try {
+    const c = input.open();
+    try {
+      const open = c.nightClaimFor(input.session);
+      if (open === null) {
+        const due = c.pageWriterDue({ mode: input.config.pageWriter?.mode === "off" ? "off" : "session" });
+        if (!due.due) {
+          // The claim says why, and writes the `skipped` row a night with
+          // nothing to read leaves (as the writer's phase would).
+          const claim = c.claimNightWriter({ session: input.session, run: input.run });
+          if (!claim.claimed) return { child: "writer", code: null, ms: 0, skipped: claim.reason };
+        }
+      }
+    } finally {
+      c.close();
+    }
+  } catch {
+    return { child: "writer", code: null, ms: 0, skipped: "unread" };
+  }
+  try {
+    const out = await seat.answer(seatAsk("writer", { prompt, run: input.run, session: input.session, scope: input.scope, limits: { turns: TUNABLES.NIGHT_WRITER_MAX_TURNS, ms: TUNABLES.NIGHT_WRITER_MS } }));
+    if (out.refused !== null) return { child: "writer", code: null, ms: 0, skipped: out.refused };
+    if (!out.started) return { child: "writer", code: null, ms: 0, skipped: out.spawnCode === "ENOENT" ? "no-claude" : "spawn-failed" };
+    return childRunOf("writer", out);
+  } catch {
+    return { child: "writer", code: null, ms: 0, skipped: "spawn-failed" };
+  }
 }
 
 /**

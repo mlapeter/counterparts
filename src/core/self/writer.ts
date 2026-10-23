@@ -918,7 +918,12 @@ export function writerInstruction(
     // review of #587): with the switch on, "## Core" is written from the
     // beliefs, by tonight's reflection alone, so one night has one author of
     // it. Off: the words as they were.
-    SELF_TUNABLES.CORE_FROM_BELIEFS
+    // THE PAGE SPLIT BY SECTION (2026-10-23, `self.PAGE_SPLIT`, read at use):
+    // the same — "## Core" is the reflection's — with the day's own sections
+    // named, and held at the door (`Self#revisePage`).
+    SELF_TUNABLES.PAGE_SPLIT
+      ? `If something did move, call the \`${opts.tool}\` tool with the WHOLE page: leave \`## ${PAGE_CORE_HEADING}\` exactly as it stands — tonight's reflection writes it${SELF_TUNABLES.CORE_FROM_BELIEFS ? ", from the beliefs life has backed" : ""} (on a first page, one line saying it is still forming) — and amend the rest from the day: \`## ${PAGE_LATELY_HEADING}\` for what the last while has actually been like, \`## How I work\` for how you do things now, and any other section the day touched. Amend; do not start over. You are the same person continuing, so keep every sentence that still holds, word for word (a kept sentence keeps what it rested on), and change the part that moved.${session}`
+      : SELF_TUNABLES.CORE_FROM_BELIEFS
       ? `If something did move, call the \`${opts.tool}\` tool with the WHOLE page: leave \`## ${PAGE_CORE_HEADING}\` exactly as it stands — tonight's reflection writes it, from the beliefs life has backed (on a first page, one line saying it is still forming) — and amend \`## ${PAGE_LATELY_HEADING}\` for what the last while has actually been like. Amend it; do not start over. You are the same person continuing, so keep every sentence that still holds and change the part that moved.${session}`
       : `If something did move, call the \`${opts.tool}\` tool with the WHOLE page: \`## ${PAGE_CORE_HEADING}\` for what holds steady — it may honestly say it is still forming — and \`## ${PAGE_LATELY_HEADING}\` for what the last while has actually been like. Amend it; do not start over. You are the same person continuing, so keep every sentence that still holds and change the part that moved.${session}`,
     "",

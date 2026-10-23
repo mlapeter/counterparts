@@ -378,7 +378,7 @@ export { ROW_IDS_MAX, boundedIds } from "./types.js";
 
 // The seat (2026-10-20): the interface whoever answers the memory's own asks
 // implements (`seat.ts`), here so a host reaches it through the package entry.
-export { SEAT_TOOLS, seatAsk } from "./seat.js";
+export { SEAT_TOOLS, SPLIT_DREAM_TOOLS, seatAsk, seatTools } from "./seat.js";
 export type { Seat, SeatAct, SeatAnswer, SeatAsk, SeatTool } from "./seat.js";
 
 // The core from beliefs (wave 2 lane F, 2026-10-22, `self.CORE_FROM_BELIEFS`):

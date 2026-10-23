@@ -20,6 +20,7 @@ import { SELF_TUNABLES, carryTrace, claimKey, pageSections, pageWriterNight, spl
 import type { PutInput } from "../src/core/store/index.js";
 
 const SELF = SELF_TUNABLES as { PAGE_SPLIT: boolean };
+const SPLIT_WAS = SELF.PAGE_SPLIT;
 const SESSION = "s-split";
 let dir: string;
 const open: Counterpart[] = [];
@@ -30,7 +31,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  SELF.PAGE_SPLIT = true;
+  SELF.PAGE_SPLIT = SPLIT_WAS;
   for (const c of open.splice(0)) {
     try {
       c.close();

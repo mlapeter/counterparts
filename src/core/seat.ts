@@ -21,9 +21,10 @@
  * the next. No version field and no compatibility apparatus until a third
  * implementer exists.
  */
+import { SELF_TUNABLES } from "./self/tunables.js";
 
 /** What is asked: a write-up owed from a session that ended unwritten, the night's dream (with the page writer's phase), the reflection, or the night's tagging (wave 2 lane B, 2026-10-21). */
-export type SeatAct = "catch-up" | "dream" | "reflection" | "tags";
+export type SeatAct = "catch-up" | "writer" | "dream" | "reflection" | "tags";
 
 /** The memory's tools an answer goes through, by the memory's own names (a host prefixes them as it names tools). */
 export type SeatTool = "session_end" | "dream" | "reflect" | "self_page" | "recall";
@@ -36,6 +37,9 @@ export type SeatTool = "session_end" | "dream" | "reflect" | "self_page" | "reca
  */
 export const SEAT_TOOLS: Readonly<Record<SeatAct, { readonly tools: readonly SeatTool[]; readonly withhold: readonly SeatTool[] }>> = {
   "catch-up": { tools: ["session_end"], withhold: [] },
+  // The page writer in a child of its own, first (2026-10-23, `self.PAGE_SPLIT`):
+  // the dream tool's `writer` phase and the page, nothing else.
+  writer: { tools: ["dream", "self_page"], withhold: ["reflect"] },
   dream: { tools: ["dream", "self_page", "recall"], withhold: ["reflect"] },
   reflection: { tools: ["dream", "reflect", "self_page", "recall"], withhold: [] },
   // The tagging child answers through the dream tool's `tags` phase alone (`dream/tags.ts`).
@@ -86,10 +90,23 @@ export interface Seat<A extends SeatAnswer = SeatAnswer> {
   answer(ask: SeatAsk): Promise<A>;
 }
 
-/** An ask for an act, its tools from `SEAT_TOOLS`. */
+/**
+ * THE DREAM WITHOUT THE PAGE (2026-10-23, `self.PAGE_SPLIT`, read at use): with
+ * the page writer in a child of its own, the dream's child neither writes the
+ * page nor is offered the tool. Off: `SEAT_TOOLS` as it stands.
+ */
+export const SPLIT_DREAM_TOOLS: { readonly tools: readonly SeatTool[]; readonly withhold: readonly SeatTool[] } = { tools: ["dream", "recall"], withhold: ["reflect", "self_page"] };
+
+/** An act's tools tonight: `SEAT_TOOLS`, with the dream's as `SPLIT_DREAM_TOOLS` while the page is split. */
+export function seatTools(act: SeatAct): { readonly tools: readonly SeatTool[]; readonly withhold: readonly SeatTool[] } {
+  return act === "dream" && SELF_TUNABLES.PAGE_SPLIT ? SPLIT_DREAM_TOOLS : SEAT_TOOLS[act];
+}
+
+/** An ask for an act, its tools from `seatTools`. */
 export function seatAsk(
   act: SeatAct,
   fields: { readonly prompt: string; readonly run: string; readonly session: string; readonly scope: string; readonly limits?: SeatAsk["limits"] },
 ): SeatAsk {
-  return { act, tools: SEAT_TOOLS[act].tools, withhold: SEAT_TOOLS[act].withhold, ...fields };
+  const t = seatTools(act);
+  return { act, tools: t.tools, withhold: t.withhold, ...fields };
 }

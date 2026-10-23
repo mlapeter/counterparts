@@ -528,8 +528,8 @@ export interface NightRun {
 
 /** One child of a headless run (2026-10-11): ids, codes and times only. */
 export interface NightChildRun {
-  /** `tags` (2026-10-21, wave 2 lane B): the tagging child, after the reflection. */
-  readonly child: "dream" | "reflection" | "tags";
+  /** `tags` (2026-10-21, wave 2 lane B): the tagging child, after the reflection. `writer` (2026-10-23, `self.PAGE_SPLIT`): the page writer's own child, first. */
+  readonly child: "writer" | "dream" | "reflection" | "tags";
   /** Its exit code; null when it was stopped, or never started. */
   readonly code: number | null;
   readonly ms: number;
@@ -643,7 +643,8 @@ function childRunOf(raw: unknown): NightChildRun[] {
   const v = raw as Partial<Record<keyof NightChildRun, unknown>>;
   // `tags` too (2026-10-22): the tagging child (10-21) was dropped here, so a
   // row read back from meta lost it though the run and the event kept it.
-  if (v.child !== "dream" && v.child !== "reflection" && v.child !== "tags") return [];
+  // `writer` too (2026-10-23): the page writer's own child.
+  if (v.child !== "writer" && v.child !== "dream" && v.child !== "reflection" && v.child !== "tags") return [];
   return [
     {
       child: v.child,
@@ -1574,13 +1575,16 @@ export class Dreams {
    * context (`Reflections#launchPrompt` with tonight's dream id), so its turns
    * no longer re-read the dream's bundle.
    */
-  launchPrompt(input: { session: string; reflect?: boolean }): string {
+  launchPrompt(input: { session: string; reflect?: boolean; parts?: readonly NightPart[] }): string {
     const who = this.ownerName() ?? "the owner";
     const L = DREAM_TUNABLES.LIMITS;
     const reflect = input.reflect !== false;
-    const order = nightOrder().filter((p) => reflect || p !== "reflection");
+    // ONE CHILD'S PARTS (2026-10-23, `self.PAGE_SPLIT`): the page writer in a
+    // child of its own (`parts: ["writer"]`), the dream in the next without
+    // it (`parts: ["dream"]`). Absent: every part, as before.
+    const order = nightOrder().filter((p) => (reflect || p !== "reflection") && (input.parts === undefined || input.parts.includes(p)));
     const names: Record<NightPart, string> = { dream: "the dream", writer: "the page writer", reflection: "a reflection" };
-    const dreamFirst = order.indexOf("dream") < order.indexOf("writer");
+    const dreamFirst = order.includes("dream") && order.indexOf("dream") < order.indexOf("writer");
     const blocks: Record<NightPart, (n: () => number) => string[]> = {
       dream: (n) => [
         "The dream — how it goes (the brain's, borrowed):",
@@ -1619,14 +1623,16 @@ export class Dreams {
     };
     let step = 0;
     const n = (): number => (step += 1);
-    const count = order.length === 3 ? "three parts" : "two parts";
+    const count = order.length === 3 ? "three parts" : order.length === 2 ? "two parts" : "one part";
     const out = [
-      `${DREAM_MARK} launch⟧ You are asleep: a few minutes of sleep for ${who}'s counterpart, over what was lived since you last slept. You are the same mind that lived it — not an assistant doing a task. This run has ${count}, in this order: ${order.map((p) => names[p]).join(", then ")}.${reflect ? "" : " The reflection comes after this run, in a session of its own: do not reflect here."}`,
+      `${DREAM_MARK} launch⟧ You are asleep: a few minutes of sleep for ${who}'s counterpart, over what was lived since you last slept. You are the same mind that lived it — not an assistant doing a task. This run has ${count}${order.length === 1 ? `: ${names[order[0] as NightPart]}` : `, in this order: ${order.map((p) => names[p]).join(", then ")}`}.${!order.includes("dream") ? " The dream and the reflection come after it, each in a session of its own: do neither here." : reflect ? "" : " The reflection comes after this run, in a session of its own: do not reflect here."}`,
     ];
     for (const part of order) out.push("", ...blocks[part](n));
     out.push(
       "",
-      reflect
+      !order.includes("dream") && !order.includes("reflection")
+        ? `${String(n())}. Your final message is one line: whether you revised the page, or left it as it stands, and why.`
+        : reflect
         ? `${String(n())}. Your final message must be exactly the text the reflection's finish call returns, unchanged — nothing before or after it.`
         : `${String(n())}. Your final message must be exactly the \`handBack\` the journal call returns, unchanged — nothing before or after it. If there was nothing to dream tonight, say so in one line.`,
     );

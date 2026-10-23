@@ -18,7 +18,8 @@ did is read from the store**, where the tools wrote it, never from the answer.
 | Act | The words | Answers through | Must not reach | What lands in the store |
 |---|---|---|---|---|
 | `catch-up` | the owed parts of sessions that ended unwritten (`night-catch-up.ts#catchUpPrompt`) | `session_end` (its `writeUp` field) | everything else | write-ups, filed as each owed session's own |
-| `dream` | the night's launch prompt (`Dreams#launchPrompt`, without the reflection) | `dream` (its phases, the page writer's first), `self_page`, `recall` | `reflect` | the page writer's revision, a journaled dream, its changes |
+| `writer` | the launch prompt's page writer alone (`Dreams#launchPrompt`, `parts: ["writer"]`), first; only while `self.PAGE_SPLIT` is on | `dream` (its `writer` phase alone), `self_page` | `reflect` | the page writer's revision, every section but `## Core` |
+| `dream` | the night's launch prompt (`Dreams#launchPrompt`, without the reflection; with `self.PAGE_SPLIT` on, without the page writer too) | `dream` (its phases, the page writer's first while the page is not split), `self_page` (not while it is split), `recall` | `reflect` (and `self_page` while split) | the page writer's revision (not while split), a journaled dream, its changes |
 | `reflection` | the reflection's launch prompt (`Reflections#launchPrompt`), on tonight's dream or the last few days | `dream`, `reflect`, `self_page`, `recall` | nothing listed | a finished reflection, its returns, page revisions |
 | `tags` | the tagging prompt (`dream/tags.ts#tagsPrompt`): untagged memories, look-alike tags, cards with no kind | `dream` (its `tags` phase) | `reflect`, `self_page` | tags `via: night`, merges, card kinds, a row per run |
 

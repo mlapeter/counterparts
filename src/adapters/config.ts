@@ -88,6 +88,13 @@ export const TUNABLES = {
   NIGHT_TAGS_MAX_TURNS: 8,
   NIGHT_TAGS_MS: 5 * 60_000,
   /**
+   * THE PAGE WRITER'S OWN CHILD (2026-10-23, `self.PAGE_SPLIT`): first in the
+   * night, on the night's model. One read and one write, a resend past the
+   * room and a short version at most; the ceilings are generous for that.
+   */
+  NIGHT_WRITER_MAX_TURNS: 12,
+  NIGHT_WRITER_MS: 10 * 60_000,
+  /**
    * THE CATCH-UP (2026-10-01, build 3; unbounded 2026-10-11): before the page
    * writer, the nightly run writes up EVERYTHING owed in any directory, and
    * `counterparts catch-up` does the same on demand

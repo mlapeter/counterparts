@@ -58,6 +58,7 @@ const ROOM = PAGE_ROOM_BYTES;
 // whole page, so the page split by section is off here (`self.PAGE_SPLIT`);
 // the hold under the split is in `test/page-split.test.ts`.
 const SPLIT = SELF_TUNABLES as { PAGE_SPLIT: boolean };
+const SPLIT_WAS = SPLIT.PAGE_SPLIT;
 
 beforeEach(() => {
   dateN = 0;
@@ -66,7 +67,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  SPLIT.PAGE_SPLIT = true;
+  SPLIT.PAGE_SPLIT = SPLIT_WAS;
   for (const c of open.splice(0)) {
     try {
       c.close();

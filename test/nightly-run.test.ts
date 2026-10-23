@@ -723,11 +723,12 @@ function pageOfBytes(n: number): string {
 describe("a page writer that writes 6,200 bytes, past its room, through the real doors (2026-10-10)", () => {
   // The writer's whole page (the page split by section off, 2026-10-23): these
   // long pages are all "## Core"; the split's own are in `page-split.test.ts`.
+  const splitWas = SELF_TUNABLES.PAGE_SPLIT;
   beforeEach(() => {
     (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
   });
   afterEach(() => {
-    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = true;
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = splitWas;
   });
   const ROOM = PAGE_ROOM_BYTES;
   const STANDING = "## Core\n\nI say what I do not know before I guess.\n\n## Lately\n\nA steady week of migrations.";
