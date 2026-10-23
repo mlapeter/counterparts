@@ -18,6 +18,7 @@ import { join } from "node:path";
 import type { ChildPlan } from "../src/adapters/claude-code/child.js";
 import { DREAM_CHILD_DENIED, DREAM_CHILD_TOOLS, NIGHT_DENIED_TOOLS, NIGHT_SERVED_TOOLS, NIGHT_SYSTEM_PROMPT } from "../src/adapters/claude-code/night-run.js";
 import { seatAsk } from "../src/core/counterpart.js";
+import { SELF_TUNABLES } from "../src/core/self/index.js";
 import { Database } from "bun:sqlite";
 
 import { McpServer } from "../src/adapters/mcp/index.js";
@@ -54,9 +55,13 @@ test("the dream's child: Claude Code's own lockdown, the harness's server on the
   const plan = planModelChild({ dir, configPath: join(dir, "harness-config.json"), now: () => NOW, timeZone: "America/Denver", env: env() }, ask, "00000000-0000-4000-8000-000000000000");
   expect(plan.ok).toBe(true);
   const arg = (name: string): string => plan.args[plan.args.indexOf(name) + 1]!;
-  expect(arg("--allowedTools")).toBe(DREAM_CHILD_TOOLS.join(","));
+  // The dream's own tools as the seat asks them (with the page split, 2026-10-23, no `self_page`).
+  const granted = ask.tools.map((t) => `mcp__counterparts__${t}`);
+  expect(arg("--allowedTools")).toBe(granted.join(","));
+  if (!SELF_TUNABLES.PAGE_SPLIT) expect(granted).toEqual([...DREAM_CHILD_TOOLS]);
   // The slim child (2026-10-23): every tool of ours it is not granted is denied too, so not offered up front.
-  expect(arg("--disallowedTools")).toBe([...new Set([...NIGHT_DENIED_TOOLS, ...DREAM_CHILD_DENIED, ...NIGHT_SERVED_TOOLS.filter((t) => !(DREAM_CHILD_TOOLS as readonly string[]).includes(t))])].join(","));
+  expect(arg("--disallowedTools")).toBe([...new Set([...NIGHT_DENIED_TOOLS, ...ask.withhold.map((t) => `mcp__counterparts__${t}`), ...NIGHT_SERVED_TOOLS.filter((t) => !granted.includes(t))])].join(","));
+  expect(ask.withhold.map((t) => `mcp__counterparts__${t}`)).toContain(DREAM_CHILD_DENIED[0]);
   expect(arg("--tools")).toBe("");
   expect(arg("--system-prompt")).toBe(NIGHT_SYSTEM_PROMPT);
   expect(arg("--setting-sources")).toBe("project");

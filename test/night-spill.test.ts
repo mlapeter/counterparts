@@ -24,6 +24,7 @@
  * STDOUT. No test reads anything under the real `~/.claude`.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -559,6 +560,16 @@ describe("the run reads its child's transcript once it exits", () => {
 });
 
 describe("2026-10-22, lane L: the night's row names each child's own session id", () => {
+  // THE NIGHT AS IT RAN BEFORE THE PAGE SPLIT (2026-10-23): the writer inside
+  // the dream's child. These pin it with `self.PAGE_SPLIT` off; the split
+  // night is in `test/page-split.test.ts`.
+  const splitWas = SELF_TUNABLES.PAGE_SPLIT;
+  beforeEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
+  });
+  afterEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = splitWas;
+  });
   /** A dream child and a reflection child, each doing its own part, each id it ran under kept. */
   function twoChildren(seen: { child: string; id: string }[]) {
     return async (plan: ChildPlan) => {

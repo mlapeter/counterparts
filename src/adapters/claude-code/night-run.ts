@@ -1138,12 +1138,13 @@ async function runNightChild(
  * watchdog. Never throws; its exit is never the run's.
  */
 async function writerFirst(input: NightRunInput, seat: Seat<NightAnswer>, prompt: string): Promise<NightChildRun | null> {
+  if (input.config.pageWriter?.mode === "off") return { child: "writer", code: null, ms: 0, skipped: "off" };
   try {
     const c = input.open();
     try {
       const open = c.nightClaimFor(input.session);
       if (open === null) {
-        const due = c.pageWriterDue({ mode: input.config.pageWriter?.mode === "off" ? "off" : "session" });
+        const due = c.pageWriterDue({ mode: "session" });
         if (!due.due) {
           // The claim says why, and writes the `skipped` row a night with
           // nothing to read leaves (as the writer's phase would).

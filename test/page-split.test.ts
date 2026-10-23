@@ -13,6 +13,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { runNight } from "../src/adapters/claude-code/index.js";
+import type { AdapterConfig, NightAnswer } from "../src/adapters/claude-code/index.js";
+import { TUNABLES as ADAPTER } from "../src/adapters/config.js";
+import { nightRunFindings, writerMissed } from "../src/adapters/claude-code/doctor-self-page.js";
+import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
+import type { Seat, SeatAsk } from "../src/core/counterpart.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
@@ -73,6 +79,118 @@ const PAGE = [
 ].join("\n");
 
 const section = (body: string, name: string): string => pageSections(body).sections.find((s) => s.heading === name)?.body ?? "";
+
+describe("the night: the page writer's own child, first", () => {
+  const ok: NightAnswer = { refused: null, started: true, code: 0, timedOut: false, error: null, ms: 1 };
+  function scripted(asks: SeatAsk[], answer: (ask: SeatAsk) => NightAnswer = () => ok): Seat<NightAnswer> {
+    return {
+      name: "test",
+      answer(ask) {
+        asks.push(ask);
+        return Promise.resolve(answer(ask));
+      },
+    };
+  }
+  function night(seat: Seat<NightAnswer>, config: AdapterConfig = { dataDir: dir }): ReturnType<typeof runNight> {
+    return runNight({ open: () => Counterpart.open({ dir }), config, run: "nrn_split", session: SESSION, scope: "/proj", kind: { kind: "night" }, seat });
+  }
+  /** A day before tonight with something written on it: the writer has a day to read. */
+  function dayToRead(): void {
+    const c = brain();
+    c.store.put({ type: "memory", kind: "fact", body: "A placeholder thing noticed yesterday.", learnedOn: pageWriterNight(c.store).about, tags: ["night"] });
+    c.close();
+    open.splice(open.indexOf(c), 1);
+  }
+
+  test("writer, then dream, then reflection: the writer on the dream and page tools alone, the dream's child without the writer or the page", async () => {
+    dayToRead();
+    const asks: SeatAsk[] = [];
+    const out = await night(scripted(asks));
+    expect(asks.slice(0, 3).map((a) => a.act)).toEqual(["writer", "dream", "reflection"]);
+    const [writer, dream] = asks as [SeatAsk, SeatAsk];
+    expect(writer.tools).toEqual(["dream", "self_page"]);
+    expect(writer.withhold).toEqual(["reflect"]);
+    expect(writer.limits).toEqual({ turns: ADAPTER.NIGHT_WRITER_MAX_TURNS, ms: ADAPTER.NIGHT_WRITER_MS });
+    expect(writer.prompt).toContain('phase "writer"');
+    expect(writer.prompt).toContain("one part: the page writer");
+    expect(writer.prompt).not.toContain('phase "begin"');
+    expect(writer.prompt).not.toContain("dream: <id>");
+    expect(dream.tools).toEqual(["dream", "recall"]);
+    expect(dream.withhold).toEqual(["reflect", "self_page"]);
+    expect(dream.prompt).toContain('phase "begin"');
+    expect(dream.prompt).not.toContain('phase "writer"');
+    expect(out.children?.[0]).toEqual({ child: "writer", code: 0, ms: 1 });
+    expect(out.children?.slice(0, 3).map((c) => c.child)).toEqual(["writer", "dream", "reflection"]);
+  });
+
+  test("a writer child that failed, stopped or never started: the dream and the reflection still run, and the run's state is theirs", async () => {
+    dayToRead();
+    const clean = await night(scripted([]));
+    for (const bad of [
+      { refused: null, started: true, code: 3, timedOut: false, error: null, ms: 5 },
+      { refused: null, started: true, code: null, timedOut: true, error: "watchdog", ms: 5 },
+      { refused: null, started: false, code: null, timedOut: false, error: "spawn", ms: 0, spawnCode: "ENOENT" },
+    ] satisfies NightAnswer[]) {
+      const asks: SeatAsk[] = [];
+      const out = await night(scripted(asks, (a) => (a.act === "writer" ? bad : ok)));
+      expect(asks.slice(0, 3).map((a) => a.act)).toEqual(["writer", "dream", "reflection"]);
+      expect(out.state).toBe(clean.state);
+      expect(out.reason).toBe(clean.reason);
+      expect(out.code).toBe(clean.code);
+      expect(out.children?.[0]?.child).toBe("writer");
+      if (bad.started) expect(out.children?.[0]?.code ?? null).toBe(bad.code);
+      else expect(out.children?.[0]?.skipped).toBe("no-claude");
+    }
+    // Doctor says the writer was missed, on the night's own line.
+    const c = brain();
+    const line = nightRunFindings({ config: { dataDir: dir } } as unknown as DoctorInput, c.store)[0];
+    expect(line?.detail ?? "").toContain("the page writer was missed (could not start: no-claude)");
+    expect(writerMissed([{ child: "writer", code: 3, ms: 1 }])).toBe("exited 3");
+    expect(writerMissed([{ child: "writer", code: null, ms: 0, skipped: "no-memories" }])).toBeNull();
+    expect(writerMissed([{ child: "writer", code: 0, ms: 1 }])).toBeNull();
+  });
+
+  test("nothing for the writer tonight: not started, and the row says why — no day before, or the owner has it off", async () => {
+    const asks: SeatAsk[] = [];
+    const fresh = await night(scripted(asks));
+    expect(asks.map((a) => a.act)).not.toContain("writer");
+    expect(fresh.children?.[0]).toEqual({ child: "writer", code: null, ms: 0, skipped: "no-previous-day" });
+    dayToRead();
+    const off: SeatAsk[] = [];
+    const out = await night(scripted(off), { dataDir: dir, pageWriter: { mode: "off" } });
+    expect(off.map((a) => a.act)).not.toContain("writer");
+    expect(out.children?.[0]).toEqual({ child: "writer", code: null, ms: 0, skipped: "off" });
+  });
+
+  test("switched off: no writer child, and the dream's child carries the writer as before", async () => {
+    SELF.PAGE_SPLIT = false;
+    dayToRead();
+    const asks: SeatAsk[] = [];
+    const out = await night(scripted(asks));
+    expect(asks.slice(0, 2).map((a) => a.act)).toEqual(["dream", "reflection"]);
+    expect(asks[0]?.tools).toEqual(["dream", "self_page", "recall"]);
+    expect(asks[0]?.prompt).toContain('phase "writer"');
+    expect(out.children?.map((c) => c.child)).not.toContain("writer");
+  });
+
+  test("the server holds each child to its part: the writer's child is served the writer's phase alone; the dream's child is not served it while split", async () => {
+    dayToRead();
+    const c = brain();
+    recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start", at: Date.now() });
+    const writerSide = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir, env: { COUNTERPARTS_NIGHT_CHILD: "writer" } });
+    const begin = await writerSide.call("dream", { phase: "begin", session: SESSION });
+    expect(begin.isError).toBe(true);
+    expect(JSON.stringify(begin.structuredContent)).toContain("writer-child");
+    const w = await writerSide.call("dream", { phase: "writer", session: SESSION });
+    expect(w.structuredContent["writer"]).toBe(true);
+    // The writer's child is told to stop there: nothing points it on to the dream.
+    expect(w.structuredContent["next"]).toBeUndefined();
+    const dreamSide = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir, env: { COUNTERPARTS_NIGHT_CHILD: "dream" } });
+    const refused = await dreamSide.call("dream", { phase: "writer", session: SESSION });
+    expect(refused.isError).toBe(true);
+    expect(JSON.stringify(refused.structuredContent)).toContain("writer-child-only");
+  });
+});
 
 describe("splicePageLane: each lane's write, held to its lane", () => {
   test("the writer: Core as it stands, the rest as sent; a page with no Core yet keeps the writer's", () => {

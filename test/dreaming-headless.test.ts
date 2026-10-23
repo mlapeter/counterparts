@@ -48,7 +48,7 @@ import { McpServer, openServer } from "../src/adapters/mcp/index.js";
 import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
 import { toolDefinitions } from "../src/adapters/mcp/tools.js";
 import { dreamShowLines, nightRunLine } from "../src/adapters/cli/dream-core.js";
-import { pageWriterNight } from "../src/core/self/index.js";
+import { SELF_TUNABLES, pageWriterNight } from "../src/core/self/index.js";
 import { Counterpart as CounterpartClass, NIGHT_WRITE_UP_EVENT, SEAT_TOOLS, seatAsk } from "../src/core/counterpart.js";
 import type { Counterpart } from "../src/core/counterpart.js";
 import { DREAMING_DEFAULT, DREAM_MARK, DREAM_TUNABLES, RELAUNCHED_KEY, nightPartsWords, nightRunOf, nightRunWords } from "../src/core/dream/index.js";
@@ -240,6 +240,16 @@ describe("A. the day's ask is shown to the person, and claimed only when it leav
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("B. the headless run: the child's plan, and what becomes of a run", () => {
+  // THE NIGHT AS IT RAN BEFORE THE PAGE SPLIT (2026-10-23): the writer inside
+  // the dream's child. These pin it with `self.PAGE_SPLIT` off; the split
+  // night is in `test/page-split.test.ts`.
+  const splitWas = SELF_TUNABLES.PAGE_SPLIT;
+  beforeEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
+  });
+  afterEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = splitWas;
+  });
   let binDir: string;
   beforeEach(() => {
     binDir = mkdtempSync(join(tmpdir(), "counterparts-night-bin-"));
