@@ -17,7 +17,8 @@ import type { AdapterConfig } from "../src/adapters/config.js";
 import { CATCH_UP_TOOLS } from "../src/adapters/claude-code/night-catch-up.js";
 import { DREAM_CHILD_DENIED, DREAM_CHILD_TOOLS, NIGHT_TOOLS, hostToolName, nightMaxTurns, nightTimeoutMs, runNight } from "../src/adapters/claude-code/night-run.js";
 import type { NightAnswer } from "../src/adapters/claude-code/night-run.js";
-import { Counterpart, SEAT_TOOLS, seatAsk } from "../src/core/counterpart.js";
+import { Counterpart, SEAT_TOOLS, seatAsk, SPLIT_DREAM_TOOLS, seatTools } from "../src/core/counterpart.js";
+import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 import type { Seat, SeatAsk } from "../src/core/counterpart.js";
 
 let root: string;
@@ -77,7 +78,11 @@ test("each act's tools are Claude Code's own lists, by the memory's names", () =
   expect(SEAT_TOOLS.reflection.tools.map(hostToolName)).toEqual([...NIGHT_TOOLS]);
   expect(SEAT_TOOLS.reflection.withhold).toEqual([]);
   const ask = seatAsk("dream", { prompt: "p", run: "r", session: "s", scope: "/x" });
-  expect(ask).toEqual({ act: "dream", tools: SEAT_TOOLS.dream.tools, withhold: SEAT_TOOLS.dream.withhold, prompt: "p", run: "r", session: "s", scope: "/x" });
+  // While the page is split (2026-10-23) the dream's child is not given the page (`seatTools`).
+  const dream = SELF_TUNABLES.PAGE_SPLIT ? SPLIT_DREAM_TOOLS : SEAT_TOOLS.dream;
+  expect(ask).toEqual({ act: "dream", tools: dream.tools, withhold: dream.withhold, prompt: "p", run: "r", session: "s", scope: "/x" });
+  expect(SPLIT_DREAM_TOOLS).toEqual({ tools: ["dream", "recall"], withhold: ["reflect", "self_page"] });
+  expect(seatTools("writer")).toEqual({ tools: ["dream", "self_page"], withhold: ["reflect"] });
 });
 
 test("a night asks the seat for the dream, then the reflection, under the launching session", async () => {

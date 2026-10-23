@@ -1077,3 +1077,21 @@ co-use and asks". `project-ask.ts` (kept apart from `reflect.ts`, as `core-ask.t
 row carries the named ones as `childSessions` (`nightChildSessions`). No schema change.
 What it is for: a child's transcript or output is matched to its row by name, not time
 (`tools/harness/night.ts#nightRowFor`).
+
+## 2026-10-23 — the page writer's own child (lane N1 part 2, `self.PAGE_SPLIT`)
+
+- With the page split by section (self NOTES), the headless night runs the page writer as a
+  child of its own, first: writer, then dream, then reflection, the order as before. The
+  dream's child no longer carries the day the writer read (~38k characters on 10-21) nor
+  re-reads it on every later call, and it is not offered `self_page` (`seat.ts#seatTools`).
+- `launchPrompt({ parts })` composes one child's parts; the writer's alone ends with one
+  line saying whether it revised the page.
+- The writer's child is fenced at the server like the tagging child (only phase `writer`,
+  no `next`); the dream's child is refused the writer's phase while split.
+- Not started, and the row's line says why, when the owner has the writer off or there is
+  no day to read (the claim records a night with nothing to read as the phase would). Its
+  exit is never the run's; a missed writer is said on doctor's Nightly run line.
+- The row's watchdog adds the writer's (`NIGHT_WRITER_MS` 10 min) while split.
+- Cost: the writer's child is offered `dream` and `self_page` (~17k characters of tool
+  definitions, ~6k tokens with the slim base) plus its prompt and the day it reads; the
+  brief's 3–5k estimate was for the base alone.

@@ -150,16 +150,16 @@ describe("the night: the page writer's own child, first", () => {
     expect(writerMissed([{ child: "writer", code: 0, ms: 1 }])).toBeNull();
   });
 
-  test("nothing for the writer tonight: not started, and the row says why — no day before, or the owner has it off", async () => {
+  test("nothing for the writer tonight — no day before, or the owner has it off: no child and no line, the row as before", async () => {
     const asks: SeatAsk[] = [];
     const fresh = await night(scripted(asks));
     expect(asks.map((a) => a.act)).not.toContain("writer");
-    expect(fresh.children?.[0]).toEqual({ child: "writer", code: null, ms: 0, skipped: "no-previous-day" });
+    expect(fresh.children?.map((c) => c.child)).not.toContain("writer");
     dayToRead();
     const off: SeatAsk[] = [];
     const out = await night(scripted(off), { dataDir: dir, pageWriter: { mode: "off" } });
     expect(off.map((a) => a.act)).not.toContain("writer");
-    expect(out.children?.[0]).toEqual({ child: "writer", code: null, ms: 0, skipped: "off" });
+    expect(out.children?.map((c) => c.child)).not.toContain("writer");
   });
 
   test("switched off: no writer child, and the dream's child carries the writer as before", async () => {

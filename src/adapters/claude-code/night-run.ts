@@ -1129,16 +1129,19 @@ async function runNightChild(
 
 /**
  * THE PAGE WRITER'S CHILD (2026-10-23, `self.PAGE_SPLIT`), decided and run.
- * Not started, and said on the row, when the writer has nothing to do
+ * Not started, and no line on the row, when the writer has nothing to do
  * tonight: the owner has it off (`pageWriter.mode`), or there is no day to
  * read (`no-previous-day`, `no-memories`, `already-claimed`, `asks-spent`) —
  * the claim records a night with nothing to read as the writer's phase
- * would, so doctor reads it the same. Skipped when the store will not open.
+ * would, so doctor reads it the same. Skipped, and said, when the store will
+ * not open.
  * Otherwise one ask to the seat, on the night's model and turns, its own
  * watchdog. Never throws; its exit is never the run's.
  */
 async function writerFirst(input: NightRunInput, seat: Seat<NightAnswer>, prompt: string): Promise<NightChildRun | null> {
-  if (input.config.pageWriter?.mode === "off") return { child: "writer", code: null, ms: 0, skipped: "off" };
+  // Nothing for it tonight is no child and no line, as the tagging's: a
+  // night's row reads as it did before the writer had a child of its own.
+  if (input.config.pageWriter?.mode === "off") return null;
   try {
     const c = input.open();
     try {
@@ -1149,7 +1152,7 @@ async function writerFirst(input: NightRunInput, seat: Seat<NightAnswer>, prompt
           // The claim says why, and writes the `skipped` row a night with
           // nothing to read leaves (as the writer's phase would).
           const claim = c.claimNightWriter({ session: input.session, run: input.run });
-          if (!claim.claimed) return { child: "writer", code: null, ms: 0, skipped: claim.reason };
+          if (!claim.claimed) return null;
         }
       }
     } finally {

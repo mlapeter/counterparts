@@ -128,12 +128,6 @@
       "code": 0,
       "children": [
         {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
-        {
           "child": "dream",
           "code": 0,
           "ms": 1000,
@@ -500,12 +494,6 @@
       "parts": [],
       "children": [
         {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
-        {
           "child": "dream",
           "code": null,
           "ms": 1000,
@@ -662,12 +650,6 @@
       "detail": "ENOENT",
       "code": null,
       "children": [
-        {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
         {
           "child": "dream",
           "code": null,
@@ -828,12 +810,6 @@
       "detail": null,
       "code": 1,
       "children": [
-        {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
         {
           "child": "dream",
           "code": 1,
@@ -1019,12 +995,6 @@
       "code": 0,
       "children": [
         {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
-        {
           "child": "dream",
           "code": 0,
           "ms": 1000,
@@ -1208,12 +1178,6 @@
       "detail": null,
       "code": 0,
       "children": [
-        {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
         {
           "child": "dream",
           "code": 0,
@@ -1411,12 +1375,6 @@
       "code": 0,
       "children": [
         {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
-        {
           "child": "dream",
           "code": 0,
           "ms": 1000,
@@ -1612,12 +1570,6 @@
       "detail": null,
       "code": 0,
       "children": [
-        {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
         {
           "child": "dream",
           "code": 0,
@@ -1815,12 +1767,6 @@
       "code": 1,
       "parts": [],
       "children": [
-        {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
         {
           "child": "dream",
           "code": 1,
@@ -2022,12 +1968,6 @@
       ],
       "children": [
         {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        },
-        {
           "child": "dream",
           "code": 1,
           "ms": 1000,
@@ -2104,14 +2044,6 @@
       "reason": "refused",
       "detail": "OBSERVER",
       "code": null,
-      "children": [
-        {
-          "child": "writer",
-          "code": null,
-          "ms": 0,
-          "skipped": "no-previous-day"
-        }
-      ],
       "dream": null,
       "reflection": null,
       "date": "2026-03-11",

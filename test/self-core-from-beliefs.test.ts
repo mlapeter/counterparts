@@ -39,12 +39,19 @@ let dir: string;
 let dateN = 0;
 const open: Counterpart[] = [];
 
+// THE PAGE AS IT WAS WRITTEN BEFORE THE SPLIT (2026-10-23): lane F's pins are
+// byte for byte against the whole-page doors, so the split is off here; the
+// split with the core from beliefs is in `test/page-split.test.ts`.
+const SPLIT_WAS = (SELF as { PAGE_SPLIT: boolean }).PAGE_SPLIT;
+
 beforeEach(() => {
   dateN = 0;
   dir = mkdtempSync(join(tmpdir(), "counterparts-core-beliefs-"));
+  (SELF as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
 });
 
 afterEach(() => {
+  (SELF as { PAGE_SPLIT: boolean }).PAGE_SPLIT = SPLIT_WAS;
   (SELF as { CORE_FROM_BELIEFS: boolean }).CORE_FROM_BELIEFS = false;
   for (const c of open.splice(0)) {
     try {
