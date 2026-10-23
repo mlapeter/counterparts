@@ -2,13 +2,13 @@
 
 ## 0.3.33 — 2026-10-23
 
-On the first night after upgrading, the night merges once the pairs of cards that share a name (a race fixed in 0.3.31 left them; the author's store had 50 pairs): the younger card of each pair is archived under the older one, which gains the links neither had while both were live. `counterparts dream --undo-twins` puts the cards back if you want them. The same night hands cards that were filed as a person or a place only by how they were born back to its kinds question. The dream takes in more of the day's new memories a night (a 16,000-character list, 4 neighbours each; an experiment, checked 10-29). `counterparts note --tags` and `counterparts dream --undo-tags` are new, and `counterparts mechanisms` says how often a settled thing comes back. No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
+On the first new lived day after upgrading (when the first turn or session ends on a new day; if today's card pass already ran, tomorrow), the card pass merges once the pairs of cards that share a name (a race fixed in 0.3.31 left them; the author's store had 50 pairs): the younger card of each pair is archived under the older one, which gains the links neither had while both were live. `counterparts dream --undo-twins` puts the cards back if you want them. The same night hands cards that were filed as a person or a place only by how they were born back to its kinds question. The dream takes in more of the day's new memories a night (a 16,000-character list, 4 neighbours each; an experiment, checked 10-29). `counterparts note --tags` and `counterparts dream --undo-tags` are new, and `counterparts mechanisms` says how often a settled thing comes back. No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
 
 - **One name, one card again.** Once, the night merges pairs of cards that share a name, left by a
   race fixed in 0.3.31 (the author's store had 50 pairs). It archives the younger card of each pair
   under the older one, and leaves alone any pair that differs in any way. While both cards were live,
-  a memory naming the name was linked to neither. The older card now gains those links: on the
-  author's store, about 210 memories across 23 cards gained their card.
+  a memory naming the name was linked to neither. The older card now gains those links: on a copy
+  of the author's store (10-23), 50 pairs merged, none left alone, and 239 memories gained 338 links.
   - `counterparts doctor`'s v14 upgrade line says how many it merged and linked.
   - `counterparts dream --undo-twins` puts the cards back. The links stay, because they are true. The
     cost: the name is held twice again, so new memories naming it link to neither card, and the night
