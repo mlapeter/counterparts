@@ -147,5 +147,6 @@ test("the reflection alone is one ask", async () => {
   const asks: SeatAsk[] = [];
   await night(scripted(asks), { kind: "reflection", dream: "drm_0123456789ab" });
   expect(asks.map((a) => a.act)).toEqual(["reflection"]);
-  expect(asks[0]!.tools).toEqual(SEAT_TOOLS.reflection.tools);
+  expect(asks[0]!.tools).toEqual(seatTools("reflection").tools);
+  if (SELF_TUNABLES.PAGE_SPLIT) expect(asks[0]!.tools).not.toContain("self_page");
 });

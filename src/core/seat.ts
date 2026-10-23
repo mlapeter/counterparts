@@ -97,9 +97,17 @@ export interface Seat<A extends SeatAnswer = SeatAnswer> {
  */
 export const SPLIT_DREAM_TOOLS: { readonly tools: readonly SeatTool[]; readonly withhold: readonly SeatTool[] } = { tools: ["dream", "recall"], withhold: ["reflect", "self_page"] };
 
-/** An act's tools tonight: `SEAT_TOOLS`, with the dream's as `SPLIT_DREAM_TOOLS` while the page is split. */
+/**
+ * THE REFLECTION WITHOUT THE PAGE TOOL (2026-10-23, review of #603): while
+ * split, it writes "## Core" through its finish (held to its lane); a
+ * `self_page` write from its child was a session's, whole-page and unheld.
+ */
+export const SPLIT_REFLECTION_TOOLS: { readonly tools: readonly SeatTool[]; readonly withhold: readonly SeatTool[] } = { tools: ["dream", "reflect", "recall"], withhold: ["self_page"] };
+
+/** An act's tools tonight: `SEAT_TOOLS`, with the dream's and the reflection's without the page tool while the page is split. */
 export function seatTools(act: SeatAct): { readonly tools: readonly SeatTool[]; readonly withhold: readonly SeatTool[] } {
-  return act === "dream" && SELF_TUNABLES.PAGE_SPLIT ? SPLIT_DREAM_TOOLS : SEAT_TOOLS[act];
+  if (!SELF_TUNABLES.PAGE_SPLIT) return SEAT_TOOLS[act];
+  return act === "dream" ? SPLIT_DREAM_TOOLS : act === "reflection" ? SPLIT_REFLECTION_TOOLS : SEAT_TOOLS[act];
 }
 
 /** An ask for an act, its tools from `seatTools`. */

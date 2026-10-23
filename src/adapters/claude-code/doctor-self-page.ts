@@ -198,7 +198,10 @@ export function writerMissed(children: readonly NightChildRun[]): string | null 
   const w = children.find((c) => c.child === "writer");
   if (w === undefined) return null;
   if (w.timedOut === true) return "stopped by its watchdog";
-  if (w.skipped !== undefined) return ["no-claude", "spawn-failed", "unread"].includes(w.skipped) ? `could not start: ${w.skipped}` : null;
+  // Every skip on the row is a child that could not run (a writer with
+  // nothing to do leaves no line): no claude, a spawn that failed, a store
+  // unread, or a seat that refused it.
+  if (w.skipped !== undefined) return `could not start: ${w.skipped}`;
   if (w.code !== null && w.code !== 0) return `exited ${String(w.code)}`;
   return null;
 }

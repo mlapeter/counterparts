@@ -23,6 +23,7 @@ import { McpServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { SELF_TUNABLES, carryTrace, claimKey, pageSections, pageWriterNight, splicePageLane } from "../src/core/self/index.js";
+import { seatTools } from "../src/core/counterpart.js";
 import type { PutInput } from "../src/core/store/index.js";
 
 const SELF = SELF_TUNABLES as { PAGE_SPLIT: boolean };
@@ -146,7 +147,7 @@ describe("the night: the page writer's own child, first", () => {
     const line = nightRunFindings({ config: { dataDir: dir } } as unknown as DoctorInput, c.store)[0];
     expect(line?.detail ?? "").toContain("the page writer was missed (could not start: no-claude)");
     expect(writerMissed([{ child: "writer", code: 3, ms: 1 }])).toBe("exited 3");
-    expect(writerMissed([{ child: "writer", code: null, ms: 0, skipped: "no-memories" }])).toBeNull();
+    expect(writerMissed([{ child: "writer", code: null, ms: 0, skipped: "NO_COMMAND" }])).toBe("could not start: NO_COMMAND");
     expect(writerMissed([{ child: "writer", code: 0, ms: 1 }])).toBeNull();
   });
 
@@ -356,5 +357,116 @@ describe("at the doors", () => {
     expect(done.outcome.page.reason).toBe("lane-empty");
     expect(done.outcome.page.detail ?? "").toContain("## Core");
     expect(c.selfPage()?.version).toBe(before);
+  });
+});
+
+describe("review of #603: the awkward states", () => {
+  test("a level-1 Core ends at the next ## heading: a reflection's new Core keeps Lately and How I work; a #Core sent is stored as ## Core", () => {
+    const page = "# Core\n\nOld core.\n\n## Lately\n\nLately.\n\n## How I work\n\nCraft.";
+    const out = splicePageLane("#Core\nI am new.", page, "reflection");
+    expect(out.body).toBe("## Core\nI am new.\n\n## Lately\n\nLately.\n\n## How I work\n\nCraft.");
+    const writer = splicePageLane("# Core\n\nOld core.\n\n## Lately\n\nNew lately.\n\n## How I work\n\nCraft.", page, "writer");
+    expect(writer.kept).toEqual([]);
+    expect(section(writer.body, "Lately")).toBe("New lately.");
+  });
+
+  test("every Core the writer sends is held: a second ## Core further down does not get past", () => {
+    const sent = `${PAGE}\n\n## Core\n\nA second core, slipped in.`;
+    const out = splicePageLane(sent, PAGE, "writer");
+    expect(out.kept).toEqual(["Core"]);
+    expect(out.body).not.toContain("slipped in");
+    expect(section(out.body, "Core")).toBe("I say what I do not know before I guess.");
+    // A page with two Cores: the writer cannot edit the second one either.
+    const two = `${PAGE}\n\n## Core\n\nThe second core.`;
+    expect(splicePageLane(two.replace("The second core.", "Edited."), two, "writer").body).toContain("The second core.");
+    // The reflection's Core replaces both, once.
+    const refl = splicePageLane("## Core\n\nOne core.", two, "reflection");
+    expect(refl.body.match(/## Core/g)?.length).toBe(1);
+    expect(refl.body).toContain("Lately the work");
+  });
+
+  test("an empty ## Core from the reflection is nothing in its lane", () => {
+    expect(splicePageLane("## Core\n\n", PAGE, "reflection").empty).toBe(true);
+  });
+
+  test("the writer's child: a resend after its first write is still the writer's, held to its lane; the reflection's child is not given the page tool", async () => {
+    const c = brain();
+    c.revisePage(PAGE, { reason: "the page before", by: "owner" });
+    c.store.put({ type: "memory", kind: "fact", body: "A placeholder thing noticed yesterday.", learnedOn: pageWriterNight(c.store).about });
+    recordSession(dir, { sessionId: SESSION, scope: "/proj", phase: "start", at: Date.now() });
+    const s = new McpServer({ counterpart: c, scope: "/proj", registryDir: dir, env: { COUNTERPARTS_NIGHT_CHILD: "writer" } });
+    expect((await s.call("dream", { phase: "writer", session: SESSION })).structuredContent["writer"]).toBe(true);
+    const sent = PAGE.replace("I say what I do not know", "I always know");
+    await s.call("self_page", { body: sent, reason: "the night", session: SESSION });
+    const again = await s.call("self_page", { body: sent.replace("one at a time", "two at a time"), reason: "the night, again", session: SESSION });
+    expect(again.structuredContent["laneKept"]).toEqual(["Core"]);
+    expect(c.selfPage()?.by).toBe("writer");
+    expect(section(c.selfPage()?.body ?? "", "Core")).toBe("I say what I do not know before I guess.");
+    expect(seatTools("reflection")).toEqual({ tools: ["dream", "reflect", "recall"], withhold: ["self_page"] });
+  });
+
+  test("a dream child that stops at once on a night the writer had nothing to read: could not start, as with the switch off", async () => {
+    const quick = (): Seat<NightAnswer> => ({ name: "test", answer: () => Promise.resolve({ refused: null, started: true, code: 1, timedOut: false, error: null, ms: 1 }) });
+    const nightOf = (): ReturnType<typeof runNight> =>
+      runNight({ open: () => Counterpart.open({ dir }), config: { dataDir: dir }, run: "nrn_quick", session: SESSION, scope: "/proj", kind: { kind: "night" }, seat: quick() });
+    // A day before with nothing written on it: the writer's claim writes a `skipped` row.
+    const c = brain();
+    c.store.put({ type: "memory", kind: "fact", body: "Something from two days ago.", learnedOn: "2020-01-01" });
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    const on = await nightOf();
+    expect(on).toMatchObject({ state: "could-not-start", reason: "quick-exit" });
+    expect(on.children?.slice(0, 2).map((ch) => [ch.child, ch.skipped ?? null])).toEqual([
+      ["dream", null],
+      ["reflection", "quick-exit"],
+    ]);
+  });
+
+  test("a writer held past the room and never sent again: its page is kept before the reflection writes Core, so the day's update lands", async () => {
+    const c = brain();
+    const core = c.store.put({ type: "memory", kind: "self", body: "I say what I do not know before I guess.", salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 } });
+    c.revisePage(PAGE, { reason: "the page before", by: "owner" });
+    c.store.put({ type: "memory", kind: "fact", body: "A placeholder thing noticed yesterday.", learnedOn: pageWriterNight(c.store).about });
+    c.close();
+    open.splice(open.indexOf(c), 1);
+    const room = SELF_TUNABLES.PAGE_ROOM_BYTES;
+    const long = PAGE.replace("Lately the work has been the night's children, one at a time.", `Lately a long week. ${"Small things, one after another, every day. ".repeat(Math.ceil(room / 40))}`);
+    const seat: Seat<NightAnswer> = {
+      name: "test",
+      answer: (ask) => {
+        const me = Counterpart.open({ dir });
+        try {
+          if (ask.act === "writer") {
+            expect(me.claimNightWriter({ session: SESSION, run: "nrn_held" }).claimed).toBe(true);
+            expect(me.revisePage(long, { by: "writer", reason: "the night", session: SESSION }).reason).toBe("past-room");
+          }
+          if (ask.act === "reflection") {
+            const r = me.reflections.begin({ session: SESSION });
+            if (r.ok) me.reflections.finish({ reflection: r.bundle.reflection, session: SESSION, entry: "A night.", cites: [core], page: { text: "## Core\n\nI name what I don't know.", cites: [core] } });
+          }
+        } finally {
+          me.close();
+        }
+        return Promise.resolve({ refused: null, started: true, code: 0, timedOut: false, error: null, ms: 1 });
+      },
+    };
+    await runNight({ open: () => Counterpart.open({ dir }), config: { dataDir: dir }, run: "nrn_held", session: SESSION, scope: "/proj", kind: { kind: "night" }, seat });
+    const after = brain();
+    const body = after.selfPage()?.body ?? "";
+    expect(body).toContain("Lately a long week.");
+    expect(section(body, "Core")).toBe("I name what I don't know.");
+  });
+
+  test("the reflection is not held to the room for bytes in sections it cannot cut", () => {
+    const c = brain();
+    const room = SELF_TUNABLES.PAGE_ROOM_BYTES;
+    const long = PAGE.replace("Lately the work has been the night's children, one at a time.", "Small things, one after another, every day. ".repeat(Math.ceil(room / 40)));
+    expect(c.revisePage(long, { by: "owner", reason: "a long page" }).written).toBe(true);
+    const w = c.revisePage("## Core\n\nShort.", { by: "reflection", reason: "core", session: SESSION });
+    expect(w.reason).toBe("revised");
+    expect(section(c.selfPage()?.body ?? "", "Core")).toBe("Short.");
+    // Its Core grown past the room is still held.
+    const grown = c.revisePage(`## Core\n\n${"A longer core than it was. ".repeat(40)}`, { by: "reflection", reason: "core", session: SESSION });
+    expect(grown.reason).toBe("past-room");
   });
 });

@@ -2717,8 +2717,18 @@ the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.
 - The writer's ask names the sections it owns and says to keep sentences word for word
   (`writer.ts`, the Core-alone branch `CORE_FROM_BELIEFS` already had); the reflection's
   page line asks for `## Core` alone (`dream/reflect.ts`).
-- Known edge: a reflection held past the room can only cut Core, so the room may be spent
-  by the writer's sections; the hold's one-retry-then-keep bounds it (the second send is
-  kept). Watch the page's size on the check.
+- The room while split (review of #603): the reflection is held only when its Core grew
+  the page, never for bytes in sections it cannot cut; the writer is held as before (on the
+  spliced page, Core put back included). A writer held and never sent again is kept right
+  after its child, before the reflection's Core moves the version (`runNight`).
+- Review of #603, also: a `# Core` (level 1, or `#Core`) ends at the next `##`, and the
+  reflection's Core is stored as `## Core`; every Core block a write carries is held (a
+  second one slipped past); the writer's child's page writes are all the writer's
+  (`NIGHT_CHILD_ENV`), and the reflection's child is not given `self_page` while split.
+- The carry runs on every page write while the switch is on, the owner's and a restore
+  included: a restored version comes back with the ids its kept sentences had on the page
+  before, on purpose (a kept sentence keeps what it rested on, whoever kept it).
+- With a custom `dream.NIGHT_ORDER` that puts the dream first, the split still runs the
+  writer's child first: the writer reads the day before any merge archives it.
 - Not measured: whether a Core written apart from Lately reads well. Mike reads the pages
   on the check (docs/CHECK-AFTER.md).

@@ -670,11 +670,16 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
   // about 09-19 writes `writer` for that run and nothing else, and a stale
   // mark cannot relabel a write made two days later (`adapters/sessions.ts`).
   const writerFor = server["pageWriterMark"](claimedSession);
+  // THE PAGE WRITER'S OWN CHILD (2026-10-23, `self.PAGE_SPLIT`; review of
+  // #603): every page write it makes is the writer's, held to the writer's
+  // lane — its first write closes the night's claim, and a resend after it
+  // was labelled the session's and wrote the whole page.
+  const writerChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "writer";
   const model = server["sessionModel"]();
   const said = typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : null;
   const common = {
     ...(model === undefined ? {} : { model }),
-    by: writerFor === null ? ("session" as const) : ("writer" as const),
+    by: writerFor === null && !writerChild ? ("session" as const) : ("writer" as const),
     // WHICH SESSION, when this server has one. `remember` resolves it the same
     // way; null is recorded rather than a guess (adversarial review M3).
     session: server.session,

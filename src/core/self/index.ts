@@ -1963,11 +1963,16 @@ export class Self {
     // carries the page it held (the gate's text), which the run's end keeps
     // when it was never sent again (`keepHeldPage`). No night loses its
     // rewrite to this. A session's page and the owner's are not held.
+    // THE PAGE SPLIT (2026-10-23, review of #603): the reflection writes
+    // "## Core" alone, so it is held only when its Core grew the page — not
+    // for bytes in sections it cannot cut.
+    const coreOnlyHeldFree = laneKept !== null && opts.by === "reflection" && before !== null && bytes <= byteLength(before.body);
     if (
       this.tunables.PAGE_HELD_TO_ROOM &&
       opts.keepPastRoom !== true &&
       PAGE_HELD_DOORS.includes(opts.by) &&
       bytes > room &&
+      !coreOnlyHeldFree &&
       !this.heldTonight(opts.by, session)
     ) {
       const over = bytes - room;

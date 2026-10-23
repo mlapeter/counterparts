@@ -847,7 +847,10 @@ function laneBlocks(body: string): LaneBlock[] {
     const level = m === null ? 0 : (m[1] ?? "").length;
     if (m !== null && (inCore === 0 || level <= inCore)) {
       const heading = (m[2] ?? m[3] ?? "").trim();
-      inCore = heading.toLowerCase() === PAGE_CORE_HEADING.toLowerCase() ? level : 0;
+      // A "# Core" (or "#Core") ends at the next "##" too (review of #603):
+      // read to the next heading of its own level, it swallowed every
+      // section after it.
+      inCore = heading.toLowerCase() === PAGE_CORE_HEADING.toLowerCase() ? Math.max(2, level) : 0;
       out.push({ heading, lines: [line] });
       continue;
     }
@@ -896,18 +899,23 @@ function joinBlocks(bs: readonly LaneBlock[], brought: LaneBlock | null): string
 export function splicePageLane(sent: string, current: string | null, lane: PageLane): PageLaneSplice {
   if (current === null || current.trim().length === 0) return { body: sent, kept: [], empty: false };
   const now = laneBlocks(current);
-  const nowCore = now.find(isCoreBlock);
   const got = laneBlocks(sent);
+  const nowCore = coreGroup(now);
   if (lane === "writer") {
-    if (nowCore === undefined) return { body: sent, kept: [], empty: false };
-    const at = got.findIndex(isCoreBlock);
-    if (at >= 0 && blockText(got[at]) === blockText(nowCore)) return { body: sent, kept: [], empty: false };
-    const out = at < 0 ? [got[0] as LaneBlock, nowCore, ...got.slice(1)] : got.map((b, i) => (i === at ? nowCore : b));
-    return { body: joinBlocks(out, nowCore), kept: [PAGE_CORE_HEADING], empty: false };
+    if (nowCore === null) return { body: sent, kept: [], empty: false };
+    // Every "## Core" the write carries, as one (review of #603: a second
+    // one further down slipped past when only the first was compared).
+    const gotCore = coreGroup(got);
+    if (gotCore !== null && blockText(gotCore) === blockText(nowCore)) return { body: sent, kept: [], empty: false };
+    return { body: joinBlocks(withCore(got, nowCore), nowCore), kept: [PAGE_CORE_HEADING], empty: false };
   }
   const headed = got.length > 1;
-  const sentCore: LaneBlock | undefined = headed ? got.find(isCoreBlock) : { heading: PAGE_CORE_HEADING, lines: [`## ${PAGE_CORE_HEADING}`, "", sent.trim()] };
-  if (sentCore === undefined) return { body: current, kept: [], empty: true };
+  const sentCore = headed ? coreGroup(got) : { heading: PAGE_CORE_HEADING, lines: [`## ${PAGE_CORE_HEADING}`, "", sent.trim()] };
+  // Headings but no "## Core", or a "## Core" with nothing under it: nothing in its lane.
+  if (sentCore === null || sentCore.lines.slice(1).join("\n").trim().length === 0) return { body: current, kept: [], empty: true };
+  // Its heading as the page writes it (review of #603: a "#Core" sent once
+  // made a level-1 Core every night after).
+  const core: LaneBlock = { heading: PAGE_CORE_HEADING, lines: [`## ${PAGE_CORE_HEADING}`, ...sentCore.lines.slice(1)] };
   // What the write changed outside its lane: a section sent with other words
   // than the page has. One it left out is simply kept, and not named.
   const kept: string[] = [];
@@ -918,10 +926,30 @@ export function splicePageLane(sent: string, current: string | null, lane: PageL
       if (blockText(b) !== blockText(theirs)) kept.push(b.heading === "" ? "the words before the first heading" : b.heading);
     }
   }
-  const at = now.findIndex(isCoreBlock);
-  if (at >= 0 && blockText(now[at]) === blockText(sentCore)) return { body: current, kept, empty: false };
-  const out = at < 0 ? [now[0] as LaneBlock, sentCore, ...now.slice(1)] : now.map((b, i) => (i === at ? sentCore : b));
-  return { body: joinBlocks(out, sentCore), kept, empty: false };
+  if (nowCore !== null && now.filter(isCoreBlock).length === 1 && blockText(nowCore) === blockText(core)) return { body: current, kept, empty: false };
+  return { body: joinBlocks(withCore(now, core), core), kept, empty: false };
+}
+
+/** Every Core block of a page, as one block in order (blank-line apart); null for none. */
+function coreGroup(bs: readonly LaneBlock[]): LaneBlock | null {
+  const cs = bs.filter(isCoreBlock);
+  if (cs.length === 0) return null;
+  const lines: string[] = [];
+  for (const b of cs) {
+    const own = [...b.lines];
+    while (own.length > 0 && (own[own.length - 1] as string).trim().length === 0) own.pop();
+    if (lines.length > 0) lines.push("");
+    lines.push(...own);
+  }
+  return { heading: PAGE_CORE_HEADING, lines };
+}
+
+/** The page's blocks with every Core block taken out and `core` put where the first one stood (after the words before the first heading, when it had none). */
+function withCore(bs: readonly LaneBlock[], core: LaneBlock): LaneBlock[] {
+  const first = bs.findIndex(isCoreBlock);
+  const rest = bs.filter((b) => !isCoreBlock(b));
+  const at = first < 0 ? 1 : bs.slice(0, first).filter((b) => !isCoreBlock(b)).length;
+  return [...rest.slice(0, at), core, ...rest.slice(at)];
 }
 
 /**
