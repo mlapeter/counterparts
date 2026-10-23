@@ -2666,3 +2666,44 @@ running both, found confusing. The npm install now leaves `npm-live.json` beside
   children, so a `tags` child (10-21) was dropped from a row read back from meta (the
   run's own return and the event's `children` words kept it). It now keeps `tags`, with
   its `hostSession`.
+
+## 2026-10-23 — the slim night child (lane N1, step 1)
+
+- **Every child is slim**: `--tools ""` and `--system-prompt NIGHT_SYSTEM_PROMPT`, on the
+  dream, the reflection, the tagging child, the catch-up child and the plain retry
+  (`planNightChild`, the one place they are all planned). Owner, 10-23: "worth testing and
+  replacing system prompt, and removing unused tools as long as we're sure we don't need
+  them." Across every night transcript (Sept–10-21) the only built-in tool a child called
+  was `ToolSearch`, to load our deferred tools.
+- **Checked first, on 2.1.309, against a temp store** (one trivial `claude -p` each way,
+  `--setting-sources project` in a temp directory so no user setting or hook loaded):
+  master's child offered nine built-ins (`ToolSearch`, `CronDelete`, `CronList`,
+  `ScheduleWakeup`, `PushNotification`, `ListAgents`, `ExitWorktree`, `DesignSync`,
+  `ReportFindings` — none in `NIGHT_DENIED_TOOLS`) and our ten tools deferred; it called
+  `ToolSearch` to load `recall`, then `recall`. Its first call was 6,903 tokens, 9,253 after
+  the load. The slim child's `init` listed our ten tools and nothing else, and it called
+  `recall` on its first turn. Claude Code's docs say the same: with `ToolSearch` denied or
+  left out of `--tools`, MCP tools load up front.
+- **Up front means all of them**: the slim child offered all ten began at 29,842 tokens —
+  the ten definitions are ~84k characters (`remember` and `session_end` ~18k each). So a
+  child is now denied every tool of ours it is not granted (`NIGHT_SERVED_TOOLS`, pinned to
+  the server's `TOOL_NAMES` by a test rather than imported, so the hook does not load the
+  tool registry), and a denied tool is not offered. Per act, what is offered up front:
+  dream ~24k characters (dream, self_page, recall), reflection ~37k (+ reflect), tags ~10k
+  (dream), catch-up ~18k (session_end). The fat child paid for the same definitions once
+  `ToolSearch` loaded them, plus ~6.5k of host prompt and built-ins and a turn per load.
+- **The system prompt** says only where the child is and what holds whatever the act; the
+  act itself comes on stdin as before. Fixed words, so argv is fine. Nothing the host does
+  with an oversized result depends on the prompt: the cut is reported in the `stream-json`
+  output either way (`readNightSpills`), and the file a cut points to was never readable
+  (`Read` denied).
+- **The plain retry keeps both flags.** `--system-prompt` is in print mode since 1.0 and
+  `--tools` since before 2.1.0; no night has run on a host older than 2.1.284. A host that
+  refused them would end the night as `--no-session-persistence` would (a quick exit on the
+  row). Dropping them on the retry instead is one line, if a host ever does.
+- **`NIGHT_DENIED_TOOLS` stays, as the second fence**, with the eight unlisted built-ins
+  above added for a host that ignored `--tools`.
+- Not measured: the real night's base (user settings, plugins and the user's CLAUDE.md load
+  in a night child; the check above left them out), and whether `--system-prompt` changes
+  what of the user's CLAUDE.md reaches the child. A model night after release, or the
+  coordinator's `childUsage` per child, says.

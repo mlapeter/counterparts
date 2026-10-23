@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ChildPlan } from "../src/adapters/claude-code/child.js";
-import { DREAM_CHILD_DENIED, DREAM_CHILD_TOOLS, NIGHT_DENIED_TOOLS } from "../src/adapters/claude-code/night-run.js";
+import { DREAM_CHILD_DENIED, DREAM_CHILD_TOOLS, NIGHT_DENIED_TOOLS, NIGHT_SERVED_TOOLS, NIGHT_SYSTEM_PROMPT } from "../src/adapters/claude-code/night-run.js";
 import { seatAsk } from "../src/core/counterpart.js";
 import { Database } from "bun:sqlite";
 
@@ -55,7 +55,10 @@ test("the dream's child: Claude Code's own lockdown, the harness's server on the
   expect(plan.ok).toBe(true);
   const arg = (name: string): string => plan.args[plan.args.indexOf(name) + 1]!;
   expect(arg("--allowedTools")).toBe(DREAM_CHILD_TOOLS.join(","));
-  expect(arg("--disallowedTools")).toBe([...NIGHT_DENIED_TOOLS, ...DREAM_CHILD_DENIED].join(","));
+  // The slim child (2026-10-23): every tool of ours it is not granted is denied too, so not offered up front.
+  expect(arg("--disallowedTools")).toBe([...new Set([...NIGHT_DENIED_TOOLS, ...DREAM_CHILD_DENIED, ...NIGHT_SERVED_TOOLS.filter((t) => !(DREAM_CHILD_TOOLS as readonly string[]).includes(t))])].join(","));
+  expect(arg("--tools")).toBe("");
+  expect(arg("--system-prompt")).toBe(NIGHT_SYSTEM_PROMPT);
   expect(arg("--setting-sources")).toBe("project");
   expect(plan.args).toContain("--strict-mcp-config");
   expect(arg("--session-id")).toBe("00000000-0000-4000-8000-000000000000");
