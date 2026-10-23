@@ -2984,8 +2984,11 @@ export class Dreams {
     const freshRoom = T.NIGHT_CHARS * T.FRESH_SHARE;
     let freshUsed = 0;
     // The fresh LIST rides in part 1 whatever the parts (it names the night's
-    // structure), so it is bounded by what it costs on the wire, too.
+    // structure), so it is bounded by what it costs on the wire, too: its
+    // JSON, escaped twice — or, lean (2026-10-23), a line of short ids
+    // (`m14 ← m3 m7`, about five characters an id), escaped once.
     let listUsed = 0;
+    const listCost = (neighbours: readonly string[], fid: string): number => (lean ? 8 + 6 * neighbours.length : 2 * JSON.stringify({ id: fid, neighbours }).length);
     const freshOut: { id: string; neighbours: string[] }[] = [];
     const loose: string[] = [];
     // One reader for the whole night: stored neighbours, and the embedding
@@ -2998,7 +3001,7 @@ export class Dreams {
       // C1): an entry with no neighbours is the least a fresh line costs the
       // list; when even that does not fit, the full check below would refuse
       // it too — so it waits without paying a neighbour read first.
-      if (freshOut.length > 0 && listUsed + 2 * JSON.stringify({ id: fid, neighbours: [] }).length > T.FRESH_LIST_CHARS) continue;
+      if (freshOut.length > 0 && listUsed + listCost([], fid) > T.FRESH_LIST_CHARS) continue;
       const self = (see(fid) as { row: MemoryRow }).row;
       const neighbours: string[] = [];
       const near: string[] = [];
@@ -3013,7 +3016,7 @@ export class Dreams {
         if (neighbours.length < T.NEIGHBOURS) neighbours.push(nid);
       }
       const cost = own + neighbours.filter((n) => !role.has(n)).reduce((sum, n) => sum + lineCost(n), 0);
-      const listed = 2 * JSON.stringify({ id: fid, neighbours }).length;
+      const listed = listCost(neighbours, fid);
       if (freshOut.length > 0 && (freshUsed + cost > freshRoom || listUsed + listed > T.FRESH_LIST_CHARS)) continue;
       freshUsed += cost;
       listUsed += listed;
