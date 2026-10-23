@@ -10,11 +10,12 @@ import type { DreamingSetting, NightPart } from "../../core/dream/index.js";
 import {
   NIGHT_WRITER_TOOL,
   NO_PAGE_VERSION,
+  SELF_TUNABLES,
   pageSections,
   pageTooLargeDetail,
 } from "../../core/self/index.js";
 import type { ToolResult } from "./server-options.js";
-import { dreamHow, PAGE_REFUSAL_DETAIL, pageRoomAnswer } from "./server-words.js";
+import { dreamHow, PAGE_REFUSAL_DETAIL, pageLaneAnswer, pageRoomAnswer } from "./server-words.js";
 import type { McpServer } from "./server.js";
 
 /**
@@ -45,9 +46,18 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
   const tagsChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "tags";
   if (tagsChild && phase !== "tags") return refused("tags-child", "This is the nightly run's tagging child: only phase \"tags\" is served here.");
   if (!tagsChild && phase === "tags") return refused("night-run-only", "The tags phase is the nightly run's tagging child's alone.");
+  // THE PAGE WRITER'S OWN CHILD (2026-10-23, `self.PAGE_SPLIT`), fenced as the
+  // tagging child is: it holds the dream tool for its `writer` phase alone,
+  // and must not begin the dream. While the page is split the dream's child
+  // is not served the writer's phase: it ran first, in its own child.
+  const writerChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "writer";
+  if (writerChild && phase !== "writer") return refused("writer-child", "This is the nightly run's page-writer child: only phase \"writer\" is served here.");
+  if (dreamChild && phase === "writer" && SELF_TUNABLES.PAGE_SPLIT) return refused("writer-child-only", "Tonight the page writer runs in a child of its own, before the dream: go on with the dream.");
   const nextAfter = (part: NightPart, dream: string | null): string | null => {
     const next = nightNext(part);
+    if (writerChild) return null;
     if (dreamChild && next === "reflection") return null;
+    if (dreamChild && next === "writer" && SELF_TUNABLES.PAGE_SPLIT) return null;
     if (next === "writer") return `Next, the page writer: call the dream tool with phase "writer", session: ${session}${dream === null ? "" : `, dream: ${dream}`}.`;
     if (next === "reflection") return `Now wake and reflect: call the reflect tool with phase "begin", session: ${session}, dream: ${dream ?? "<the dream id>"}. Your final message is the text its "finish" call returns.`;
     if (next === "dream") return `Next, the dream: call the dream tool with phase "begin", session: ${session}.`;
@@ -681,11 +691,16 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
   // about 09-19 writes `writer` for that run and nothing else, and a stale
   // mark cannot relabel a write made two days later (`adapters/sessions.ts`).
   const writerFor = server["pageWriterMark"](claimedSession);
+  // THE PAGE WRITER'S OWN CHILD (2026-10-23, `self.PAGE_SPLIT`; review of
+  // #603): every page write it makes is the writer's, held to the writer's
+  // lane — its first write closes the night's claim, and a resend after it
+  // was labelled the session's and wrote the whole page.
+  const writerChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "writer";
   const model = server["sessionModel"]();
   const said = typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : null;
   const common = {
     ...(model === undefined ? {} : { model }),
-    by: writerFor === null ? ("session" as const) : ("writer" as const),
+    by: writerFor === null && !writerChild ? ("session" as const) : ("writer" as const),
     // WHICH SESSION, when this server has one. `remember` resolves it the same
     // way; null is recorded rather than a guess (adversarial review M3).
     session: server.session,
@@ -777,6 +792,8 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
       // on a day the wake cannot hold it — its short version, or, without
       // one, its outline, with the way to add one.
       ...pageRoomAnswer(written, server.counterpart.self.tunables.PAGE_ROOM_BYTES),
+      // HELD TO ITS LANE, SAID (2026-10-23, `self.PAGE_SPLIT`).
+      ...pageLaneAnswer(written),
       // WHEN IT WILL BE READ, precisely. The bundle every session wakes with
       // is composed by a worker and served unchanged until the next render,
       // so "it is live now" would be false for as long as this session lasts.

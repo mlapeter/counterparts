@@ -13,7 +13,7 @@ import {
   nightRunOf,
   nightRunWords,
 } from "../../core/dream/index.js";
-import type { DreamingSetting } from "../../core/dream/index.js";
+import type { DreamingSetting, NightChildRun } from "../../core/dream/index.js";
 // The page's own reader, so this line cannot drift from what the wake prints.
 import { clearedMarker, findPageRow, readSelfPage } from "../../core/self/page.js";
 import { coreBeliefFloors, coreFromBeliefs, coreSupport, pageTrace } from "../../core/self/measures.js";
@@ -132,9 +132,23 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
   const took = run.endedAt === null ? "" : ` after ${mins(run.endedAt - run.startedAt)}`;
   const skipped = dreamSkippedOf(run);
   const what = run.kind === "reflection" ? "the reflection alone" : skipped !== null ? `the catch-up alone; ${dreamSkippedWords(skipped)}` : "the whole night";
+  // THE PAGE WRITER'S OWN CHILD MISSED (2026-10-23, `self.PAGE_SPLIT`): its
+  // exit is never the run's, so a night can finish with the page unwritten
+  // by it; said here. A writer with nothing to do tonight is not missed.
+  const missed = writerMissed(run.children ?? []);
+  const writerNote = missed === null ? "" : `; the page writer was missed (${missed})`;
   if (run.state === "done") {
     const ids = [run.dream, run.reflection].filter((x): x is string => x !== null).join(", ");
-    return [finding("night-run", "green", "Nightly run", `${setting}; last run ${run.date} (${what}) finished${took}${ids.length > 0 ? ` — ${ids}` : ""}${caught}`, "", data)];
+    return [
+      finding(
+        "night-run",
+        missed !== null && setting === "auto" ? "amber" : "green",
+        "Nightly run",
+        `${setting}; last run ${run.date} (${what}) finished${took}${ids.length > 0 ? ` — ${ids}` : ""}${writerNote}${caught}`,
+        missed === null ? "" : "Nothing to do by hand: tomorrow's writer reads its own day. If it repeats, run claude -p once by hand in a terminal to see why it stops.",
+        { ...data, ...(missed === null ? {} : { writerMissed: missed }) },
+      ),
+    ];
   }
   if (run.state === "partial") {
     // PART OF THE RUN RAN (2026-09-29, owner): which parts, and — when the
@@ -145,7 +159,7 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
         "night-run",
         setting === "auto" ? "amber" : "green",
         "Nightly run",
-        `${setting}; the run of ${run.date} (${what}) was partial${took}: ${nightPartsWords(run)}${why}${caught}`,
+        `${setting}; the run of ${run.date} (${what}) was partial${took}: ${nightPartsWords(run)}${why}${writerNote}${caught}`,
         "Nothing to do by hand: a later session picks up what did not run — a dream cut off is resumed, a reflection cut off runs alone.",
         { ...data, parts: (run.parts ?? []).join(",") },
       ),
@@ -176,7 +190,20 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
         : run.reason === "nothing-ran"
           ? "The headless run needs the counterparts MCP server registered for claude at user scope (claude mcp list shows it); the server's own mcp.session rows say whether it refused the session."
           : "A later session starts it again, or asks when it cannot. counterparts dream --setting ask stops the headless runs.";
-  return [finding("night-run", setting === "auto" ? "amber" : "green", "Nightly run", `${setting}; the run of ${run.date} (${what}) ${ended}${took}: ${words}${caught}`, fix, data)];
+  return [finding("night-run", setting === "auto" ? "amber" : "green", "Nightly run", `${setting}; the run of ${run.date} (${what}) ${ended}${took}: ${words}${writerNote}${caught}`, fix, data)];
+}
+
+/** Why the night's page-writer child did not do its part, in a few words; null when it did, or had nothing to do. */
+export function writerMissed(children: readonly NightChildRun[]): string | null {
+  const w = children.find((c) => c.child === "writer");
+  if (w === undefined) return null;
+  if (w.timedOut === true) return "stopped by its watchdog";
+  // Every skip on the row is a child that could not run (a writer with
+  // nothing to do leaves no line): no claude, a spawn that failed, a store
+  // unread, or a seat that refused it.
+  if (w.skipped !== undefined) return `could not start: ${w.skipped}`;
+  if (w.code !== null && w.code !== 0) return `exited ${String(w.code)}`;
+  return null;
 }
 
 export function selfPageFindings(store: Store): Finding[] {

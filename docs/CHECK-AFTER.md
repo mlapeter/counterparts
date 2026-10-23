@@ -54,6 +54,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Beliefs shown (wave 2 lane E): the beliefs slot in ambient recall (`recall.BELIEFS_IN_RECALL`), tags as a priming partner source — **priming changed again** (`recall.TAGS_PRIME`), the wake's project line (`self.WAKE_PROJECT_LINE`); plus per-footnote priming flags (`primed.by`, `top`, `tag`) | not released, 10-22 (ships in the first release after the 10-22 read of 0.3.27) | ~2026-10-29, with the cross-project bar and the re-read of the four 0.3.27 experiments | "Due ~2026-10-29 (beliefs shown, and priming changed again)" below |
 | Open threads mean someone owes an answer: the narrower `unresolved` text and Stop ask, the Stop ask naming the session's own open items (`STOP_OPEN_MAX` 5), and an untouched ownerless open item no longer carried after `OPEN_CARRY_DAYS` (21) lived days — out of Still open, its count and `staleOpen`; the share says the count once | not released, 10-22 | first look ~2026-10-29; the real check 2026-11-05 | "Due ~2026-10-29 (open threads mean someone owes an answer)" below; `docs/decisions.d/feat-open-threads-carry-1022.md` |
 | The dream's fresh intake: the fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000), 4 neighbours a new memory (`dream.NEIGHBOURS`, was 6); 44 → ~64 new memories a night on the 10-22 compare | not released, 10-23 | ~2026-10-29: `dream.begun` queue fresh/waiting/agedOut by build; whether dreams got thinner (whole 20 → 11) | "Due ~2026-10-29 (the dream's fresh intake)" below; `docs/decisions.d/feat-dream-intake-1023.md` |
+| The page split by section (`self.PAGE_SPLIT`, N1 part 2): the page writer in its own child first, amending every section but `## Core`; the reflection writes `## Core` alone; kept sentences keep their cites | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after the page split" below |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -70,6 +71,27 @@ vs 14 days, Group 4 association; **10-19 the five overdue ones**: catch-up cost 
 reflection/dream child context (peak 127.5k of ~150k, creeping up from 114k: watch), verbatim trial (keep; barely
 exercised), Group 2/2b (fine, except head wins and the slot detector above), ongoing (head wins as above; the era's
 effect on archives folds into the late-October forgetting check). Details: `~/counterparts-notes/2026-10-19-overdue-checks.md`.
+
+## Due 3–4 nights after the page split (2026-10-23, Mike's go, very lightly held, an experiment — `self.PAGE_SPLIT`)
+
+What: the night writes the page in two lanes instead of two whole-page rewrites. The page writer, in a child of its
+own and first, amends every section but `## Core` from the day; the reflection writes `## Core` alone; each held at
+the door (what is outside a lane is kept as it stood, and said). A sentence kept word for word keeps its cites.
+
+Look at, per night since install (read-only):
+- one writer and one reflection version a night, each touching only its sections:
+  `SELECT json_extract(payload,'$.by') AS by, json_extract(payload,'$.laneKept') AS kept, COUNT(*) FROM events
+   WHERE name='self.page.revised' AND day >= <install day> GROUP BY 1, 2;`
+  (`laneKept` non-null means a write strayed and was held; a few is fine, every night is a prompt to fix);
+- `## Lately` current (it names the last few days), `## Core` stable night to night (Mike reads the pages);
+- cites kept: `claimsCarried` on the same rows, and the share of page sentences with a cite (5 of 62 on 10-23);
+- the dream child's context smaller (its `childUsage`, once logged), the writer child's own cost, and doctor's
+  Nightly run line for "the page writer was missed";
+- the page's size: the reflection can only cut Core when held past the room.
+
+Changes it: Core drifting or empty, Lately stale, the writer missed most nights, or Mike preferring the old pages.
+Revert: `self.PAGE_SPLIT=false` (one switch: the writer back inside the dream's child, both rewriting the whole
+page, nothing carried), or revert the PR.
 
 ## Checked 2026-10-12 (lived day 21, the first new-curve pass, on 0.3.18)
 

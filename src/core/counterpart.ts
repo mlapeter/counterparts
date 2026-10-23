@@ -378,7 +378,7 @@ export { ROW_IDS_MAX, boundedIds } from "./types.js";
 
 // The seat (2026-10-20): the interface whoever answers the memory's own asks
 // implements (`seat.ts`), here so a host reaches it through the package entry.
-export { SEAT_TOOLS, seatAsk } from "./seat.js";
+export { SEAT_TOOLS, SPLIT_DREAM_TOOLS, SPLIT_REFLECTION_TOOLS, seatAsk, seatTools } from "./seat.js";
 export type { Seat, SeatAct, SeatAnswer, SeatAsk, SeatTool } from "./seat.js";
 
 // The core from beliefs (wave 2 lane F, 2026-10-22, `self.CORE_FROM_BELIEFS`):
@@ -704,11 +704,19 @@ export class Counterpart {
                 ...(o.short === undefined ? {} : { short: o.short }),
                 ...(o.trace === undefined ? {} : { trace: o.trace }),
               });
-        const note = pageRoomNote(
+        const roomNote = pageRoomNote(
           written,
           this.self.tunables.PAGE_ROOM_BYTES,
           "call finish again with page.short alone (the entry and the page stand)",
         );
+        // HELD TO ITS LANE, SAID (2026-10-23, `self.PAGE_SPLIT`): the sections
+        // it sent that the page writer's, kept as they stood.
+        const kept = written.laneKept ?? [];
+        const laneNote =
+          kept.length === 0
+            ? null
+            : `Kept as it stood: ${kept.map((h) => (h.startsWith("the words") ? h : `"## ${h}"`)).join(", ")} — tonight the reflection writes "## Core" alone, and the page writer the rest.`;
+        const note = [roomNote, laneNote].filter((n): n is string => n !== null && n.length > 0).join(" ") || null;
         return written.written && written.version !== null
           ? { ok: true, version: written.version, note, ...(written.traced === undefined ? {} : { unmatched: written.traced.unmatched }) }
           : written.reason === "past-room"

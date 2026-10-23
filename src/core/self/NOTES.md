@@ -1278,6 +1278,8 @@ see the fresh page).
   the reflection writes as `reflection` (a new `SELF_PAGE_AUTHORS` value — the label lives
   in the page's own meta, so no schema), and it no longer records a page-writer run. After
   a few days the owner compares versions to see whether they overwrite each other.
+  (2026-10-23: they did — the page was rewritten whole twice a night. Now split by
+  section, below.)
 - `pageSections` reads ANY heading: "## Us" and "## How I work" fell out of every view
   that read the parts. Core and Lately are kept by name, as the convention.
 - The day survives a dream's merge (`isOfDay`, `hasDayBefore` counting archived rows) —
@@ -2689,3 +2691,44 @@ check 2026-11-05 (first look 10-29):
 
 Revert: `OPEN_CARRY_DAYS` `Infinity`; the description and `OPEN_MEANS` back; `STOP_OPEN_MAX` 0;
 the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.
+
+## 2026-10-23 — the page split by section (lane N1 part 2, `self.PAGE_SPLIT`, an experiment)
+
+- Mike, 10-23: the WRITER is the working self (what's going on lately, how I'm doing things
+  now), the DREAM mixes the day with older memories, the REFLECTION is the long view. Until
+  now both the writer and the reflection rewrote the whole page every night, ~3 minutes
+  apart. Now: the writer amends every section but `## Core`, the reflection writes `## Core`
+  alone. One switch, `self.PAGE_SPLIT` (default on), reverts all of it, read at use.
+- HELD AT THE DOOR, NOT REFUSED (guards loose-first): `Self#revisePage` splices a nightly
+  door's write into the page as it stands before anything measures it
+  (`page.ts#splicePageLane`). A writer's `## Core` comes from the page (put back first when
+  the write left it out; while the page has no Core, the writer's stands). A reflection's
+  write is the page as it stands with its `## Core` (added first when the page had none);
+  a write with no heading at all is read as Core's words; one with headings but no Core is
+  refused `lane-empty`. With no page yet, the write is the page. Sections the write changed
+  outside its lane are named in `PageRevision.laneKept` and said in each door's answer
+  (self_page's `laneNote`, the reflection's page note). A session's and the owner's writes
+  are not held. A page whose blocks did not move comes back byte for byte, so its trace and
+  short version still name it.
+- A KEPT SENTENCE KEEPS WHAT IT RESTED ON (`page.ts#carryTrace`): a sentence the new page
+  has word for word (`claimKey`) and the write did not cite carries the ids the page before
+  gave it. On 10-23 only 5 of 62 page sentences cited anything, because every rewrite
+  dropped the trace of what it kept. Under the same switch, on every write.
+- The writer's ask names the sections it owns and says to keep sentences word for word
+  (`writer.ts`, the Core-alone branch `CORE_FROM_BELIEFS` already had); the reflection's
+  page line asks for `## Core` alone (`dream/reflect.ts`).
+- The room while split (review of #603): the reflection is held only when its Core grew
+  the page, never for bytes in sections it cannot cut; the writer is held as before (on the
+  spliced page, Core put back included). A writer held and never sent again is kept right
+  after its child, before the reflection's Core moves the version (`runNight`).
+- Review of #603, also: a `# Core` (level 1, or `#Core`) ends at the next `##`, and the
+  reflection's Core is stored as `## Core`; every Core block a write carries is held (a
+  second one slipped past); the writer's child's page writes are all the writer's
+  (`NIGHT_CHILD_ENV`), and the reflection's child is not given `self_page` while split.
+- The carry runs on every page write while the switch is on, the owner's and a restore
+  included: a restored version comes back with the ids its kept sentences had on the page
+  before, on purpose (a kept sentence keeps what it rested on, whoever kept it).
+- With a custom `dream.NIGHT_ORDER` that puts the dream first, the split still runs the
+  writer's child first: the writer reads the day before any merge archives it.
+- Not measured: whether a Core written apart from Lately reads well. Mike reads the pages
+  on the check (docs/CHECK-AFTER.md).

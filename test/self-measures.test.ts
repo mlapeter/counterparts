@@ -19,6 +19,7 @@
  * Hermetic: a fresh temp data dir per test, removed afterwards.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -221,6 +222,10 @@ describe("2. the page's door keeps the trace beside the text", () => {
   test("a restore brings back the version's own trace; a version from before traces comes back untraced", () => {
     const s = store();
     const me = selfOn(s);
+    // The reflection's whole page, as written (the page split by section off, 2026-10-23).
+    const split = SELF_TUNABLES.PAGE_SPLIT;
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
+    try {
     me.revisePage("## Core\n\nAn old page, before traces.", { by: "session", reason: "old" });
     me.revisePage(PAGE, { by: "reflection", reason: "traced", trace: { cites: ["mem_a"], claims: [{ text: "Small steps, checked twice.", cites: ["mem_a"] }] } });
     me.revisePage("## Core\n\nSomething else.", { by: "owner", reason: "else" });
@@ -229,6 +234,9 @@ describe("2. the page's door keeps the trace beside the text", () => {
     expect(readSelfPage(s)?.trace?.claims?.find((c) => c.cites.length > 0)?.text).toBe("Small steps, checked twice.");
     me.restorePage(1);
     expect(readSelfPage(s)?.trace).toBeNull();
+    } finally {
+      (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = split;
+    }
   });
 
   test("a held page kept at the run's end keeps its trace (keys and ids only on the refusal row)", () => {

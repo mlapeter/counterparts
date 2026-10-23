@@ -19,6 +19,7 @@
  * topic numbers are set per test and put back.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -416,6 +417,16 @@ describe("the night's tagging ask", () => {
 });
 
 describe("the night's third child", () => {
+  // THE NIGHT AS IT RAN BEFORE THE PAGE SPLIT (2026-10-23): the writer inside
+  // the dream's child. These pin it with `self.PAGE_SPLIT` off; the split
+  // night is in `test/page-split.test.ts`.
+  const splitWas = SELF_TUNABLES.PAGE_SPLIT;
+  beforeEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
+  });
+  afterEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = splitWas;
+  });
   function scripted(asks: SeatAsk[]): Seat<NightAnswer> {
     return {
       name: "test",

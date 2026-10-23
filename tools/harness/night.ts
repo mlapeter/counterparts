@@ -228,7 +228,17 @@ export function recordedSeat(input: RecordedSeatInput): Seat<NightAnswer> & { re
         tallies[ask.act] = { calls: (was?.calls ?? 0) + 1, refused: (was?.refused ?? 0) + 1, same: 0, skipped: 0, byPhase: {} };
         return { refused: "not-recorded", started: false, code: null, timedOut: false, error: null, ms: 0 };
       }
-      const child = ask.act === "dream" ? input.dream : input.reflection;
+      // THE PAGE WRITER'S OWN CHILD (2026-10-23, `self.PAGE_SPLIT`): the
+      // recorded dream child's writer calls (its `writer` phase and its page
+      // writes) are the writer's ask, and the dream's ask replays the rest.
+      const writerCall = (call: RecordedCall): boolean => call.tool === "self_page" || (call.tool === "dream" && call.input["phase"] === "writer");
+      const recorded = ask.act === "reflection" ? input.reflection : input.dream;
+      const child: RecordedChild =
+        ask.act === "writer"
+          ? { ...recorded, calls: recorded.calls.filter(writerCall) }
+          : ask.act === "dream" && ask.withhold.includes("self_page")
+            ? { ...recorded, calls: recorded.calls.filter((call) => !writerCall(call)) }
+            : recorded;
       const counterpart = input.open();
       const server = new McpServer({
         counterpart,

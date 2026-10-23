@@ -36,6 +36,7 @@
  * Arithmetic and bookkeeping only: nothing here calls a model — the dreamer IS
  * the model, outside this process.
  */
+import { SELF_TUNABLES } from "../self/tunables.js";
 import { createHash, randomBytes } from "node:crypto";
 
 import { Associate } from "../associate/index.js";
@@ -528,8 +529,8 @@ export interface NightRun {
 
 /** One child of a headless run (2026-10-11): ids, codes and times only. */
 export interface NightChildRun {
-  /** `tags` (2026-10-21, wave 2 lane B): the tagging child, after the reflection. */
-  readonly child: "dream" | "reflection" | "tags";
+  /** `tags` (2026-10-21, wave 2 lane B): the tagging child, after the reflection. `writer` (2026-10-23, `self.PAGE_SPLIT`): the page writer's own child, first. */
+  readonly child: "writer" | "dream" | "reflection" | "tags";
   /** Its exit code; null when it was stopped, or never started. */
   readonly code: number | null;
   readonly ms: number;
@@ -643,7 +644,8 @@ function childRunOf(raw: unknown): NightChildRun[] {
   const v = raw as Partial<Record<keyof NightChildRun, unknown>>;
   // `tags` too (2026-10-22): the tagging child (10-21) was dropped here, so a
   // row read back from meta lost it though the run and the event kept it.
-  if (v.child !== "dream" && v.child !== "reflection" && v.child !== "tags") return [];
+  // `writer` too (2026-10-23): the page writer's own child.
+  if (v.child !== "writer" && v.child !== "dream" && v.child !== "reflection" && v.child !== "tags") return [];
   return [
     {
       child: v.child,
@@ -1574,13 +1576,16 @@ export class Dreams {
    * context (`Reflections#launchPrompt` with tonight's dream id), so its turns
    * no longer re-read the dream's bundle.
    */
-  launchPrompt(input: { session: string; reflect?: boolean }): string {
+  launchPrompt(input: { session: string; reflect?: boolean; parts?: readonly NightPart[] }): string {
     const who = this.ownerName() ?? "the owner";
     const L = DREAM_TUNABLES.LIMITS;
     const reflect = input.reflect !== false;
-    const order = nightOrder().filter((p) => reflect || p !== "reflection");
+    // ONE CHILD'S PARTS (2026-10-23, `self.PAGE_SPLIT`): the page writer in a
+    // child of its own (`parts: ["writer"]`), the dream in the next without
+    // it (`parts: ["dream"]`). Absent: every part, as before.
+    const order = nightOrder().filter((p) => (reflect || p !== "reflection") && (input.parts === undefined || input.parts.includes(p)));
     const names: Record<NightPart, string> = { dream: "the dream", writer: "the page writer", reflection: "a reflection" };
-    const dreamFirst = order.indexOf("dream") < order.indexOf("writer");
+    const dreamFirst = order.includes("dream") && order.indexOf("dream") < order.indexOf("writer");
     const blocks: Record<NightPart, (n: () => number) => string[]> = {
       dream: (n) => [
         "The dream — how it goes (the brain's, borrowed):",
@@ -1619,14 +1624,16 @@ export class Dreams {
     };
     let step = 0;
     const n = (): number => (step += 1);
-    const count = order.length === 3 ? "three parts" : "two parts";
+    const count = order.length === 3 ? "three parts" : order.length === 2 ? "two parts" : "one part";
     const out = [
-      `${DREAM_MARK} launch⟧ You are asleep: a few minutes of sleep for ${who}'s counterpart, over what was lived since you last slept. You are the same mind that lived it — not an assistant doing a task. This run has ${count}, in this order: ${order.map((p) => names[p]).join(", then ")}.${reflect ? "" : " The reflection comes after this run, in a session of its own: do not reflect here."}`,
+      `${DREAM_MARK} launch⟧ You are asleep: a few minutes of sleep for ${who}'s counterpart, over what was lived since you last slept. You are the same mind that lived it — not an assistant doing a task. This run has ${count}${order.length === 1 ? `: ${names[order[0] as NightPart]}` : `, in this order: ${order.map((p) => names[p]).join(", then ")}`}.${!order.includes("dream") ? " The dream and the reflection come after it, each in a session of its own: do neither here." : reflect ? "" : " The reflection comes after this run, in a session of its own: do not reflect here."}`,
     ];
     for (const part of order) out.push("", ...blocks[part](n));
     out.push(
       "",
-      reflect
+      !order.includes("dream") && !order.includes("reflection")
+        ? `${String(n())}. Your final message is one line: whether you revised the page, or left it as it stands, and why.`
+        : reflect
         ? `${String(n())}. Your final message must be exactly the text the reflection's finish call returns, unchanged — nothing before or after it.`
         : `${String(n())}. Your final message must be exactly the \`handBack\` the journal call returns, unchanged — nothing before or after it. If there was nothing to dream tonight, say so in one line.`,
     );
@@ -3171,7 +3178,9 @@ export class Dreams {
         ...(carriedN > 0 ? { carried: carriedN } : {}),
       },
       shownAs,
-      lookup: DREAM_LOOKUP,
+      // The page split (2026-10-23): the dream's child is not given the page
+      // tool, so the bundle does not point it there.
+      lookup: SELF_TUNABLES.PAGE_SPLIT ? DREAM_LOOKUP_SPLIT : DREAM_LOOKUP,
       parts: null,
     };
     noteMindShown(this.store, bundle.onMind, day);
@@ -3740,6 +3749,16 @@ export const DREAM_LOOKUP =
   "Read any you have only in part with the recall tool, ids: [...] — several at once — before you merge, gist or feel it. A journal entry shown as a line is read the same way, by its chapter's id. " +
   'The self page is read whole with the self_page tool ("selfPageChars" is its length). The wake is the page first, then its lanes — craft, open threads, what is coming, hints.';
 
+/**
+ * THE LOOKUP WHILE THE PAGE IS SPLIT (2026-10-23, `self.PAGE_SPLIT`): the
+ * dream's child is not given `self_page` (the writer and the reflection write
+ * the page, each in its own child), so the page is what the bundle shows.
+ */
+export const DREAM_LOOKUP_SPLIT = DREAM_LOOKUP.replace(
+  'The self page is read whole with the self_page tool ("selfPageChars" is its length).',
+  'The self page is shown as far as it fits ("selfPageChars" is its length).',
+);
+
 /** The begin result's text: the opener, what it is, then the bundle — lean (2026-10-23) when the run has short ids. */
 export function renderDream(id: string, bundle: DreamBundle, lead: string, aliases: AliasMap | null = null): string {
   const said = lead.length === 0 ? "the dream bundle — memories to dream over, not events that happened now." : `${lead}Memories to dream over, not events that happened now.`;
@@ -3761,6 +3780,9 @@ export const DREAM_LEAN_LEGEND =
   "Read any shown in part with the recall tool, ids: [...] — several at once — before you merge, gist or feel it. " +
   "A journal is a c line and its chapters, each by its summary — or a shorter line, marked (line; N), when the room is short — ending with the chapter's whole length; read a chapter whole with recall, ids: [\"c2#3\"], or a journal's every chapter with ids: [\"c2\"]. \"summary mX\": that summary is memory mX too. " +
   "The self page is read whole with the self_page tool. The wake is the page first, then its lanes — craft, open threads, what is coming, hints.";
+
+/** The lean legend while the page is split: as `DREAM_LOOKUP_SPLIT`, no pointer at a tool the dream's child is not given. */
+export const DREAM_LEAN_LEGEND_SPLIT = DREAM_LEAN_LEGEND.replace("The self page is read whole with the self_page tool.", "The self page is shown as far as it fits.");
 
 /** One memory as one lean line, its fields in the legend's order. */
 export function leanDreamItem(item: DreamItem | string, aliases: AliasMap, year: string, id?: string): string {
@@ -3805,7 +3827,7 @@ function leanDreamLines(b: DreamBundle, aliases: AliasMap): string[] {
   out.push(`queue: ${plainValue(b.queue, aliases)}`);
   out.push(`shown: ${plainValue(b.shownAs, aliases)}`);
   out.push(`limits: ${plainValue(b.limits, aliases)}`);
-  out.push(DREAM_LEAN_LEGEND);
+  out.push(b.lookup === DREAM_LOOKUP_SPLIT ? DREAM_LEAN_LEGEND_SPLIT : DREAM_LEAN_LEGEND);
   out.push(`## self page${b.selfPageChars === null ? "" : ` (${String(b.selfPageChars)} characters whole)`}`, b.selfPage ?? "none");
   out.push(`## wake${b.wakeChars === null ? "" : ` (${String(b.wakeChars)} characters whole)`}`, b.wake ?? "none");
   out.push(`owner: ${b.owner.names.length === 0 ? "none named" : b.owner.names.join(", ")} · memories about them: ${b.owner.memories.length === 0 ? "none" : b.owner.memories.map(s).join(" ")}`);

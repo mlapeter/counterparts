@@ -344,6 +344,21 @@ export interface SelfTunables {
    * nightly page WRITER leaves "## Core" to the reflection (`writer.ts`).
    */
   CORE_FROM_BELIEFS: boolean;
+
+  // ── the page split by section (lane N1 part 2, 2026-10-23) ───────────────
+  /**
+   * THE SWITCH (an experiment, very lightly held; Mike, 10-23). On, the night
+   * writes the page in two lanes instead of two whole-page rewrites: the page
+   * WRITER, in a child of its own and first, amends every section but
+   * "## Core" from the day just lived; the REFLECTION writes "## Core" alone.
+   * Held at the door (`Self#revisePage`): a writer's write takes "## Core"
+   * from the page as it stands, a reflection's takes every other section from
+   * it, and the answer says what was kept. A sentence kept word for word keeps
+   * the ids it rested on. Off: exactly as before — the writer inside the
+   * dream's child, both rewriting the whole page, no carrying. Read at use.
+   * Not `pageWriter.mode: off`, which silences the reflection's page too.
+   */
+  PAGE_SPLIT: boolean;
   /** On: a belief's strength (physics, on the day read) at least this. CAL. */
   CORE_BELIEF_STRENGTH: number;
   /** On: at least this many memories counted FOR it (`belief_support`, stance
@@ -436,6 +451,7 @@ export const SELF_TUNABLES: SelfTunables = {
   WAKE_LINE_BYTES: 240,
 
   CORE_FROM_BELIEFS: false,
+  PAGE_SPLIT: true,
   CORE_BELIEF_STRENGTH: 0.5,
   CORE_BELIEF_MEMORIES: 3,
   CORE_BELIEF_DAYS: 2,

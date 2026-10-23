@@ -187,8 +187,13 @@ dreamer is the model (a background agent the session launches), outside this pro
   reflection see the fresh page. Each phase's `next` follows the same list, so another
   order is one line. The writer is the dream tool's phase `writer` (self CONTRACT; it
   claims the night for this session and hands the day and the page whole through the
-  tool result); writer and reflection are DIFFERENT jobs and both may write the page
-  for now, with their own author labels (`writer`, `reflection`), every version kept.
+  tool result); writer and reflection are DIFFERENT jobs, with their own author labels
+  (`writer`, `reflection`), every version kept. Since 2026-10-23 (`self.PAGE_SPLIT`, Mike's
+  go, an experiment) they write DIFFERENT SECTIONS: the writer every section but `## Core`
+  from the day, the reflection `## Core` alone, held at the door (`Self#revisePage`), and
+  the headless night runs the writer as a child of its own, first (`launchPrompt({ parts:
+  ["writer"] })`), and the dream's child without it (`parts: ["dream"]`). Off: both
+  rewrite the whole page, the writer inside the dream's child, as before.
   The HEADLESS night (2026-10-11) asks for the prompt without the reflection
   (`launchPrompt({ reflect: false })`): its first child ends at the dream's journal, and
   the reflection runs after it as a child of its own, from `Reflections#launchPrompt`

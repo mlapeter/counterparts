@@ -23,7 +23,7 @@ import { NIGHT_CHILD_ENV } from "../src/adapters/spawn.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { DREAMING_SETTING_KEY, DREAM_TUNABLES, REFLECT_TUNABLES, RELAUNCHED_KEY, dreamingSetting, nightNext, nightOrder } from "../src/core/dream/index.js";
-import { PAGE_ROOM_BYTES, dayBefore, pageSections, pageTooLargeDetail, pageTopLine, pageWriterNight } from "../src/core/self/index.js";
+import { PAGE_ROOM_BYTES, SELF_TUNABLES, dayBefore, pageSections, pageTooLargeDetail, pageTopLine, pageWriterNight } from "../src/core/self/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
 /**
@@ -752,6 +752,15 @@ function pageOfBytes(n: number): string {
 }
 
 describe("a page writer that writes 6,200 bytes, past its room, through the real doors (2026-10-10)", () => {
+  // The writer's whole page (the page split by section off, 2026-10-23): these
+  // long pages are all "## Core"; the split's own are in `page-split.test.ts`.
+  const splitWas = SELF_TUNABLES.PAGE_SPLIT;
+  beforeEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
+  });
+  afterEach(() => {
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = splitWas;
+  });
   const ROOM = PAGE_ROOM_BYTES;
   const STANDING = "## Core\n\nI say what I do not know before I guess.\n\n## Lately\n\nA steady week of migrations.";
   const SHORT = "## Core\n\nI say what I do not know before I guess, and I keep the work's account.";
