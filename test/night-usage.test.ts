@@ -417,7 +417,10 @@ describe("through bin/nightly.ts, a stub claude first on PATH", () => {
     expect(row?.usage?.dream).toEqual({ input: 11, output: 22, cacheRead: 33, cacheCreate: 44, costUsd: 0.1 });
     expect(row?.usage?.reflection).toEqual({ input: 1, output: 2, cacheRead: 3, cacheCreate: 4, costUsd: 0.2 });
     expect(row?.usage?.total).toEqual({ input: 12, output: 24, cacheRead: 36, cacheCreate: 48, costUsd: 0.3 });
-    const day = join(base, "debug", localDate(Date.now()));
+    // The child process keeps its own clock zone (the runner's TZ is not passed): one date folder, whichever.
+    const days = readdirSync(join(base, "debug"));
+    expect(days.length).toBe(1);
+    const day = join(base, "debug", days[0] as string);
     expect(readdirSync(day)).toContain("dream-nrn_e2e.jsonl");
     expect(statSync(join(day, "dream-nrn_e2e.jsonl")).mode & 0o777).toBe(0o600);
   }, 30_000);
