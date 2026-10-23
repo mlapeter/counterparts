@@ -2757,3 +2757,18 @@ the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.
   (M through a later memory)"), only when its own memory is gone and the later one merged it
   (`meta.mergedFrom`): a correction is not followed. `self_page` names back any cite input
   that is not a memory's id. Test: `test/days-end.test.ts`.
+
+## 2026-10-23 — the day summary (lane D2, `self.DAY_SUMMARY`)
+
+- Day's end's few lines about the day ride on the night's own `self.page.writer.ran` row
+  (`summary`, `summaryCites` in its payload, with the session and run that told it): no
+  table, no migration. The log is append-only, so the summary goes with the one call that
+  answers the night — beside the page (`revised`, or `refused`: a resend carries it again),
+  or alone with no body (`nothing-to-say`, "day's end left the page as it stands").
+- At the door (`server-self-tools.ts#daySummaryArgs`): kept only from this session's open
+  night claim with the switch on; past `DAY_SUMMARY_CHARS` (characters, `.length`) the call
+  is refused before anything is written; cites resolved as the page's are, the rest named
+  back (`refusedSummaryCites`).
+- Readers: `writer.ts#daySummaryFor` (the dream's and `night show`'s: the newest day this
+  session told, else the night's own date) and `#daySummaries` (the reflection's timeline,
+  one per date, the later telling standing).
