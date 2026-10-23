@@ -399,14 +399,29 @@ describe("the reflection sees what the dream saw, and the whole page", () => {
     T.RESULT_CHARS = 24_000;
     T.PART_CHARS = 8_000;
     try {
-      await partsCase();
+      await partsCase(true);
     } finally {
       T.RESULT_CHARS = saved.RESULT_CHARS;
       T.PART_CHARS = saved.PART_CHARS;
     }
   });
 
-  async function partsCase(): Promise<void> {
+  test("the same in PARTS with the switch off (2026-10-23): the bundle as JSON, every memory in one part", async () => {
+    const T = REFLECT_TUNABLES as { RESULT_CHARS: number; PART_CHARS: number };
+    const saved = { RESULT_CHARS: T.RESULT_CHARS, PART_CHARS: T.PART_CHARS };
+    T.RESULT_CHARS = 24_000;
+    T.PART_CHARS = 8_000;
+    (DREAM_TUNABLES as { LEAN_BUNDLE: boolean }).LEAN_BUNDLE = false;
+    try {
+      await partsCase(false);
+    } finally {
+      (DREAM_TUNABLES as { LEAN_BUNDLE: boolean }).LEAN_BUNDLE = true;
+      T.RESULT_CHARS = saved.RESULT_CHARS;
+      T.PART_CHARS = saved.PART_CHARS;
+    }
+  });
+
+  async function partsCase(lean: boolean): Promise<void> {
     const c = brain();
     lived(c);
     const long = "a detail worth keeping in full, ".repeat(12);
@@ -425,31 +440,47 @@ describe("the reflection sees what the dream saw, and the whole page", () => {
     expect(parts?.next).toContain('phase "part"');
     expect(String((JSON.parse(textOf(begin)) as { bundle: string }).bundle).length).toBeLessThanOrEqual(REFLECT_TUNABLES.RESULT_CHARS);
     const rid = begin.structuredContent["reflection"] as string;
-    // Every memory the reflection was handed is in exactly one part.
-    const first = JSON.parse(String((JSON.parse(textOf(begin)) as { bundle: string }).bundle).split("\n").slice(1).join("\n")) as {
-      memories: Record<string, unknown>;
-      dreamSaw: { id: string }[];
+    // Every memory the reflection was handed is in exactly one part — read
+    // off the lean lines (2026-10-23) by their short ids, or off the JSON.
+    const read = (text: string): { memories: string[]; dreamSaw: string[] } => {
+      if (!lean) {
+        const body = JSON.parse(text.split("\n").slice(1).join("\n")) as { memories: Record<string, unknown>; dreamSaw: { id: string }[] };
+        return { memories: Object.keys(body.memories), dreamSaw: body.dreamSaw.map((x) => x.id) };
+      }
+      const out = { memories: [] as string[], dreamSaw: [] as string[] };
+      let into: string[] | null = null;
+      for (const line of text.split("\n")) {
+        if (line.startsWith("## ")) {
+          into = line === "## memories" ? out.memories : line.startsWith("## dreamSaw") ? out.dreamSaw : null;
+          continue;
+        }
+        if (into !== null) into.push(line.split(" · ")[0] as string);
+      }
+      return out;
     };
-    const seen = new Set<string>([...Object.keys(first.memories), ...first.dreamSaw.map((x) => `saw:${x.id}`)]);
+    const first = read(String((JSON.parse(textOf(begin)) as { bundle: string }).bundle));
+    const seen = new Set<string>([...first.memories, ...first.dreamSaw.map((x) => `saw:${x}`)]);
     let laterId: string | null = null;
     for (let k = 2; k <= (parts?.of ?? 1); k += 1) {
       const p = await s.call("reflect", { phase: "part", session: SESSION, reflection: rid, part: k });
       expect(p.isError ?? false).toBe(false);
       const text = String((JSON.parse(textOf(p)) as { bundle: string }).bundle);
       expect(text.length).toBeLessThanOrEqual(REFLECT_TUNABLES.PART_CHARS + 2_000);
-      const body = JSON.parse(text.split("\n").slice(1).join("\n")) as { memories: Record<string, unknown>; dreamSaw: { id: string }[] };
-      for (const id of Object.keys(body.memories)) {
+      const body = read(text);
+      for (const id of body.memories) {
         expect(seen.has(id)).toBe(false);
         seen.add(id);
         laterId ??= id;
       }
       for (const x of body.dreamSaw) {
-        expect(seen.has(`saw:${x.id}`)).toBe(false);
-        seen.add(`saw:${x.id}`);
-        laterId ??= x.id;
+        expect(seen.has(`saw:${x}`)).toBe(false);
+        seen.add(`saw:${x}`);
+        laterId ??= x;
       }
     }
     expect(laterId).not.toBeNull();
+    // Lean: what was read is a short id, and the reflect tool takes it.
+    if (lean) expect(laterId).toMatch(/^m\d+$/);
     const bad = await s.call("reflect", { phase: "part", session: SESSION, reflection: rid, part: (parts?.of ?? 1) + 1 });
     expect(bad.isError).toBe(true);
     // A memory handed in a later part can be cited like any other.
@@ -907,7 +938,8 @@ describe("undo that dream: the dream tool's undo phase", () => {
     const p = await s.call("dream", { phase: "propose", session: SESSION, dream: dreamId, changes: [{ action: "merge", ids: [a, b], text: "Migrations run before the container boots." }] });
     expect(p.isError).not.toBe(true);
     await s.call("dream", { phase: "journal", session: SESSION, dream: dreamId, title: "Boot order", text: "A short dream." });
-    const merged = String((p.structuredContent["results"] as { id?: string }[])[0]?.id);
+    // Lean (2026-10-23): the short answer names what a merge made.
+    const merged = String((p.structuredContent["made"] as { id?: string }[])[0]?.id);
     expect(c.store.row(merged)?.archived).toBe(0);
     // Not without an id, and not one this memory never dreamed.
     expect((await s.call("dream", { phase: "undo", session: SESSION })).structuredContent["reason"]).toBe("dream-required");

@@ -230,9 +230,10 @@ describe("1. the nightly reflection is offered the core questions that waited a 
     expect(begun.bundle.reconsidering).toEqual([{ id: core, reason: "not-about-me-or-us", waited: SLEEP.CORE_WAITING_DAYS, pair: { id: "ctr_corewait001", other: newer, older: true } }]);
     expect(begun.bundle.memories[core]).toBeDefined();
     expect(begun.bundle.memories[newer]).toBeDefined();
-    expect(begun.instructions).toContain(`unsettled with ${newer}`);
-    expect(begun.instructions).toContain("retire it in this finish first; then settle");
     const reflection = begun.bundle.reflection;
+    // Lean (2026-10-23): the ask names it by its short id, as the bundle does.
+    expect(begun.instructions).toContain(`unsettled with ${c.reflections.aliasesOf(reflection)?.short(newer) ?? newer}`);
+    expect(begun.instructions).toContain("retire it in this finish first; then settle");
     // Before the retire, the core takes pressure: no settle over it.
     const early = c.reflections.settle({ reflection, session: "s-r", holds: newer, over: core, how: "changed", why: "He moved the studio." });
     expect(early).toMatchObject({ ok: false, reason: "core-takes-pressure" });

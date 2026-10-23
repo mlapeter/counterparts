@@ -3594,6 +3594,84 @@ NEIGHBOURS 4 is under the owner's earlier 5–8; he okayed 4 for this experiment
 `NEIGHBOURS` is a different setting (`CONTRADICTION_TUNABLES`) and is unchanged. Revert: put both values back in
 `src/core/dream/tunables.ts`. Check: `docs/CHECK-AFTER.md`, "Due ~2026-10-29 (the dream's fresh intake)".
 
+### Decided by the wave 2 follow-ups builder (lane W), 2026-10-22, backfilled 2026-10-23, lightly held (PR #593: twin cards merged once, wrong subject kinds reset; the roadmap session's rulings, Mike's approval)
+
+Written after the merge: #593 carried no fragment, so this is the record from its body, its two review rounds and the
+roadmap handoff. Nothing here is new since.
+
+- **Decided by the roadmap session (design B), 2026-10-22:** the 50 same-name twin cards are merged by their own pass,
+  not through the dream's merge. Why: the dream's merge refuses cards in three places by contract (`Dreams.showable`
+  takes only memories; the merge mints a `type: memory` row; the settle door refuses an entity as `not-a-memory`), and
+  reusing a `dreams` row for the record and undo would have made `lastDream`, the night run's `begunSince`, the dashboard
+  and doctor read a card merge as a night's dream. The roadmap session ruled that reuse was only ever a way to get
+  "recorded and undoable".
+- **Decided by the lane builder, lightly held:** `Schemas#mergeTwinCards` runs first in the night's `births` phase, once
+  per store, behind `schemas.TWINS_MERGE` (default on, read at use). For a pair that differs in nothing a merge could
+  lose it archives the second-born under its own reason `card-twin` (never the dedup pass's `merged`), records the card
+  each twin stands under in `schemas.twin.<gone>`, and writes its whole plan first in `schemas.twins.merged` (that
+  record's presence is the "once"). Left alone and counted: three or more of a name, differing links or aliases, a
+  belief or folder on either card, a protected card or the identity core, differing kinds. No physics is merged.
+  After review (the reviewers each found a real bug): the keeper links every memory that named it while the twins
+  lived (`via: birth`, 287 links on 208 live memories across 23 cards on the copy; the first version left those
+  memories linked to no card); an interrupted pass finishes and asks the first pass's checks again before every archive
+  (a pair that drifted is dropped from the plan, `skipped`), and a pass killed before its look-back looks back the next
+  night.
+- **Decided by Mike, 2026-10-22 14:25 (as built, via the coordinator):** the pass and the kinds reset below, as the PR
+  stood at the first review. On his 10-22 snapshot copy: 161 live entity cards to 111, 50 same-name groups to 0, no pair
+  skipped, about 390 ms. The seam's undo (`store/owner-op-seam.ts#unarchiveTwin`) is as narrow as `unarchiveMerged`: it
+  takes back only `card-twin` and refuses any other reason by name (`UNTWIN_NOT_A_TWIN`).
+- **Decided by the lane builder, lightly held, and the one judgement the PR asked Mike about: the subject-kind reset goes
+  past the brief's example.** The brief named a place ("Counterparts"). The cause was not a tie: the v14 upgrade and
+  every insert since read a card's birth kind (`kindForName`'s vote over the kinds of memories whose titles carry the
+  name) as its kind of subject, and a memory of kind `person` is about a person (usually Mike), not about the name in
+  its title. One such title made "Anthropic" a person; Katie, Clark, Jason, Ellis and Claude were persons on one title
+  each; "Counterparts" became a place on a 1-1 tie. No threshold fixes that, so `deterministicSubjectKind` now marks only
+  the identity core, as a person, and every other card is left NULL for the night's kinds ask (a model answers, already
+  shown the birth kind and titles as hints; a NULL kind breaks nothing downstream, checked reader by reader). The repair
+  (`schemas/tags.ts#repairBirthKindSubjects`, the `tags` phase, once per store, behind `TAGS_NIGHT`) resets a row only
+  when its kind is what the old rule gives its birth kind, no `schemas.subjectKind.<id>` row records someone setting it,
+  and today's rule doesn't give the same kind. Why the people too: Anthropic's row is the reason. At the release the
+  note read "11 kinds" in the approval and 10 cards were handed back: the eleventh person card is the identity core, Mike's
+  own, which the rule keeps as a person (the copy: person 10 to 1, place 1 to 0, NULL 150 to 160). The ask takes 10 a
+  night, most-linked first, so the last of the 10 (the Allex twins) wait until night 13.
+- **Decided by the lane builder, lightly held (small, in the same PR):** `counterparts dream --undo-tags [run]` takes
+  back the newest night's tagging that hasn't been undone, or a named night and every night since (its tags, tag merges
+  and card kinds, matched by run, not by date); `counterparts note --tags a,b` uses the same screen and write path as the
+  `remember` door; `submitJot` forwards the door's day (`ctx.at`), so a `done` written through `remember` closes the
+  occurrence open on the store's day, not the server's (on master the test closed 13 Oct instead of 20 Oct).
+- **Revert:** twins: `schemas.TWINS_MERGE=false` before the pass runs; after it, `counterparts dream --undo-twins [card]`
+  (every merged twin, or the one named). The links the keepers gained stay, because they are true, so the name is held
+  twice again and a new memory naming it links to neither card; the night won't merge them again. Kinds: a revert
+  commit; the reset rows stay NULL until the ask sorts them, and `schemas.kinds.repaired` says what each was. The rest:
+  a revert commit per item. Check ~10-29 (`docs/CHECK-AFTER.md`): the kind distribution and who set each kind, plus the
+  twin-pair count.
+
+### Decided by the lane L builder, 2026-10-22, backfilled 2026-10-23 (PR #594: night rows name each child's session; two public seams)
+
+Written after the merge; #594 carried no fragment. Nothing here changes what a night or a turn does (the recorded-seat
+replay compare read 0 lines differing).
+
+- **Decided by the lane builder (small items from the lane-1 handoff):** the night's row records each child's own
+  `--session-id` (`NightChildRun.hostSession`; the `dream.night` event's `childSessions`, `dream:<uuid>,reflection:<uuid>,
+  tags:<uuid>`), only when the child that ran is the one named: a plain retry (a host that refused the flag) ran under an
+  id its host chose, and a child that never started has none. No schema change (JSON in meta and in the payload; store
+  version untouched). The harness (`tools/harness/night.ts#nightRowFor`) matches a night's transcripts to its row by those
+  ids and falls back to the time window for older rows, saying which ran (`matchedBy`).
+- **Decided by the lane builder, lightly held:** `deliverTurn` (with `hostDelivery`, `Delivery`, `UpdateNoticeDoors`,
+  `HOST_STOP`, `fieldsFit`) moved unchanged from `bin/hook.ts` into `envelope.ts`, and with `expansionIdsOf` is exported
+  from the `./claude-code` entry. Why not re-export from `bin/hook.ts`: it is the hook's entry script, does work at load
+  and imports `index.ts` itself. `bin/hook.ts` imports them back and re-exports them, so existing references hold. A test
+  pins that the public entry's import graph reaches no `bin/` file. Closes `claude-code/INTERFACE-GAPS.md` §19.
+- **A 10-21 bug fixed on the roadmap session's ask:** `core/dream#childRunOf` read back only `dream` and `reflection`
+  children, so the `tags` child was dropped from a night's row read back from meta; it now keeps `tags` with its
+  `hostSession`.
+- **Not done, on purpose:** `harness week`'s own `claim` helper still claims whatever a hook offers without checking the
+  envelope's room; moving it onto `deliverTurn` would change what it reports on a full-wake day, so it is its own change
+  with its own compare.
+- **Revert:** a revert commit; there is no switch. Check after the first live night on a build that carries this
+  (`events` where `name = 'dream.night'`, `childSessions` and `children`); no CHECK-AFTER row, since it is not an
+  experiment.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

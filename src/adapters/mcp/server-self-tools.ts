@@ -3,6 +3,8 @@ import { NIGHT_CHILD_ENV, NIGHT_RUN_ENV } from "../spawn.js";
 import { readSession } from "../sessions.js";
 import { joinStillStands } from "../../core/dream/project-ask.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
+import { ID_KEYS } from "../../core/fit/index.js";
+import type { AliasMap } from "../../core/fit/index.js";
 import { DREAMING_SETTINGS, NIGHT_RUN_FINISHES, applyTagsAnswer, askTags, nightNext, nightOrder, renderTagsBundle } from "../../core/dream/index.js";
 import type { DreamingSetting, NightPart } from "../../core/dream/index.js";
 import {
@@ -203,22 +205,21 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
         if (typeof dream !== "string" || !Array.isArray(changes)) {
           return refused("dream-and-changes-required", "Pass `dream` (the id `begin` returned) and `changes`, an array.");
         }
-        const out = dreams.propose({ dream, session, changes: changes as never });
+        // SHORT IDS READ BACK (2026-10-23): a lean dream's m1… are its own,
+        // for its life; real ids pass as they came.
+        const aliases = dreams.aliasesOf(dream);
+        const sent = aliases === null ? changes : (aliases.resolveIn(changes, ID_KEYS) as unknown[]);
+        const out = dreams.propose({ dream, session, changes: sent as never });
         if (!out.ok) return refused(out.reason, "That dream is not open for this session.");
         server["emit"]("mcp.dream", dream, { phase: "propose", applied: out.results.filter((r) => r.ok).length });
         const refusedN = out.results.filter((r) => !r.ok).length;
-        return server["result"](
-          {
-            phase,
-            dream,
-            results: out.results,
-            // Each refusal names what tripped it (`detail`); 2026-09-28.
-            ...(refusedN === 0
-              ? {}
-              : { again: `${String(refusedN)} change${refusedN === 1 ? " was" : "s were"} not applied (see each result's reason and detail). Fix those and propose just them again; the rest already landed.` }),
-          },
-          false,
-        );
+        // Each refusal names what tripped it (`detail`); 2026-09-28.
+        const again = refusedN === 0 ? {} : { again: `${String(refusedN)} change${refusedN === 1 ? " was" : "s were"} not applied (see each one's reason and detail). Fix those and propose just them again; the rest already landed.` };
+        // A SHORT ANSWER (2026-10-23, lean): counts of what landed, the
+        // memories it made, what was said about a landed one, and every
+        // refusal whole — the per-change "ok" lines carried nothing else.
+        if (aliases !== null) return server["result"]({ phase, dream, ...briefChanges(out.results, aliases), ...again }, false);
+        return server["result"]({ phase, dream, results: out.results, ...again }, false);
       }
       case "journal": {
         const dream = args["dream"];
@@ -340,14 +341,21 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
  * `reflect` — the waking self (`core/dream/reflect.ts`, 2026-09-27). Every
  * phase binds the session, as `dream` does; `launch` writes nothing.
  */
-export function reflectTool(server: McpServer, args: Record<string, unknown>): ToolResult {
-  const phase = args["phase"];
+export function reflectTool(server: McpServer, sent: Record<string, unknown>): ToolResult {
+  const phase = sent["phase"];
   if (server.observer) return server["standDown"]("reflect");
-  const bound = server["requireBoundSession"](args["session"], "reflect");
+  const bound = server["requireBoundSession"](sent["session"], "reflect");
   if (bound !== null) return bound;
   const session = server.session as string;
   const reflections = server.counterpart.reflections;
   const refused = (reason: string, detail: string): ToolResult => server["refuse"]("reflect", reason, { phase, detail });
+  // SHORT IDS READ BACK (2026-10-23): a lean reflection's m1… — its dream's
+  // numbers, then its own — for its life, in what it writes; real ids pass
+  // as they came, and words are never touched.
+  const aliases = typeof sent["reflection"] === "string" && (phase === "finish" || phase === "settle") ? reflections.aliasesOf(sent["reflection"]) : null;
+  const args = aliases === null ? sent : (aliases.resolveIn(sent, ID_KEYS) as Record<string, unknown>);
+  // …and the answer names them short, as the reflection knows them (review of #602).
+  const asShort = <T>(v: T): T => (aliases === null ? v : (JSON.parse(aliases.inText(JSON.stringify(v))) as T));
   const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
   const part = (v: unknown): { text?: string; cites?: string[]; short?: string; claims?: { text: string; cites: string[] }[] } | null => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return null;
@@ -493,15 +501,28 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
             entryNote: o.entry,
             page: o.page,
             share: o.share,
-            returned: o.returned,
-            feelings: o.feelings,
-            about: o.about,
-            ...(o.traits.length > 0 ? { traits: o.traits } : {}),
-            ...(o.beliefs.births.length + o.beliefs.filings.length + o.beliefs.retire.length > 0 ? { beliefs: o.beliefs } : {}),
-            ...(o.refusedCites.length > 0 ? { refusedCites: o.refusedCites } : {}),
-            ...(o.close.proposed.length > 0 || o.close.closed.length > 0 || o.close.refused.length > 0 ? { close: o.close } : {}),
+            // A SHORT ANSWER (2026-10-23, lean): counts, notes and what was not written, part by part.
+            ...(aliases === null
+              ? {
+                  returned: o.returned,
+                  feelings: o.feelings,
+                  about: o.about,
+                  ...(o.traits.length > 0 ? { traits: o.traits } : {}),
+                  ...(o.beliefs.births.length + o.beliefs.filings.length + o.beliefs.retire.length > 0 ? { beliefs: o.beliefs } : {}),
+                }
+              : {
+                  returned: briefParts(o.returned.map((r) => ({ id: r.id, ok: r.counted, reason: r.reason })), aliases),
+                  feelings: briefParts(o.feelings, aliases),
+                  about: briefParts(o.about, aliases),
+                  ...(o.traits.length > 0 ? { traits: briefParts(o.traits, aliases) } : {}),
+                  ...(o.beliefs.births.length + o.beliefs.filings.length + o.beliefs.retire.length + o.beliefs.adopt.length > 0
+                    ? { beliefs: { births: briefParts(o.beliefs.births, aliases), filings: briefParts(o.beliefs.filings, aliases), retire: briefParts(o.beliefs.retire, aliases), adopt: briefParts(o.beliefs.adopt, aliases) } }
+                    : {}),
+                }),
+            ...(o.refusedCites.length > 0 ? { refusedCites: asShort(o.refusedCites) } : {}),
+            ...(o.close.proposed.length > 0 || o.close.closed.length > 0 || o.close.refused.length > 0 ? { close: asShort(o.close) } : {}),
             // WHAT WAS NOT WRITTEN, and that it can be sent again (2026-09-28).
-            ...(o.retry === null ? {} : { again: o.retry }),
+            ...(o.retry === null ? {} : { again: asShort(o.retry) }),
             say:
               o.retry === null
                 ? "Return `handBack` as your final message, unchanged."
@@ -530,7 +551,7 @@ export function reflectTool(server: McpServer, args: Record<string, unknown>): T
           why: typeof args["why"] === "string" ? args["why"] : "",
         });
         server["emit"]("mcp.reflect", reflection, { phase: "settle", ok: out.ok });
-        return server["result"]({ phase, reflection, settle: { ...out } }, !out.ok);
+        return server["result"]({ phase, reflection, settle: asShort({ ...out }) }, !out.ok);
       }
       case "told": {
         const reflection = args["reflection"];
@@ -890,4 +911,49 @@ export function bindForPageWriter(server: McpServer, claimed: unknown): string |
     return null;
   }
   return claimed;
+}
+
+/**
+ * THE DREAM'S SHORT ANSWER TO `propose` (2026-10-23, lean bundles): what
+ * landed, counted by what happened to it (`linked`, `replayed`,
+ * `replayed-not-counted:…`); the memories a merge or a gist made; a note said
+ * about one that landed; and every refusal whole, with its place in the list.
+ * Ids the code wrote in a refusal or a note are put short, as the dream knows
+ * them.
+ */
+export function briefChanges(
+  results: readonly { readonly index: number; readonly action: string; readonly ok: boolean; readonly reason: string; readonly id?: string; readonly detail?: string; readonly note?: string }[],
+  aliases: AliasMap,
+): Record<string, unknown> {
+  const landed: Record<string, number> = {};
+  const made: { index: number; action: string; id: string }[] = [];
+  const notes: { index: number; action: string; note: string }[] = [];
+  const refused: { index: number; action: string; reason: string; detail?: string }[] = [];
+  for (const r of results) {
+    if (!r.ok) {
+      refused.push({ index: r.index, action: r.action, reason: r.reason, ...(r.detail === undefined ? {} : { detail: aliases.inText(r.detail) }) });
+      continue;
+    }
+    landed[r.reason] = (landed[r.reason] ?? 0) + 1;
+    if ((r.reason === "merged" || r.reason === "dreamed" || r.reason === "folded") && r.id !== undefined) made.push({ index: r.index, action: r.action, id: r.id });
+    if (r.note !== undefined) notes.push({ index: r.index, action: r.action, note: aliases.inText(r.note) });
+  }
+  return {
+    landed,
+    ...(made.length > 0 ? { made } : {}),
+    ...(notes.length > 0 ? { notes } : {}),
+    ...(refused.length > 0 ? { refused } : {}),
+  };
+}
+
+/**
+ * THE REFLECTION'S SHORT ANSWER, part by part (2026-10-23, lean bundles):
+ * how many were written, a note said about one that was, and every one not
+ * written whole. Ids the code wrote are put short.
+ */
+export function briefParts(results: readonly { readonly id: string | null; readonly ok: boolean; readonly reason: string; readonly detail?: string; readonly note?: string }[], aliases: AliasMap): Record<string, unknown> {
+  const short = (id: string | null): string | null => (id === null ? null : aliases.short(id));
+  const notes = results.filter((r) => r.ok && r.note !== undefined).map((r) => ({ id: short(r.id), note: aliases.inText(r.note as string) }));
+  const notWritten = results.filter((r) => !r.ok).map((r) => ({ id: short(r.id), reason: r.reason, ...(r.detail === undefined ? {} : { detail: aliases.inText(r.detail) }) }));
+  return { written: results.filter((r) => r.ok).length, ...(notes.length > 0 ? { notes } : {}), ...(notWritten.length > 0 ? { notWritten } : {}) };
 }

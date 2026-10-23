@@ -24,6 +24,7 @@ import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart, beliefCoreCandidates, coreBeliefFloors, coreBeliefMiss, coreFromBeliefs, livedSupportDays } from "../src/core/counterpart.js";
 import type { CoreBelief } from "../src/core/counterpart.js";
 import type { ReflectBundle } from "../src/core/dream/reflect.js";
+import { DREAM_TUNABLES as DREAM } from "../src/core/dream/tunables.js";
 import { pageTrace } from "../src/core/self/measures.js";
 import { pageClaims, pageSections } from "../src/core/self/page.js";
 import type { SelfPage } from "../src/core/self/page.js";
@@ -47,10 +48,15 @@ const SPLIT_WAS = (SELF as { PAGE_SPLIT: boolean }).PAGE_SPLIT;
 beforeEach(() => {
   dateN = 0;
   dir = mkdtempSync(join(tmpdir(), "counterparts-core-beliefs-"));
+  // The bundle as JSON (2026-10-23): these tests read the spine and the
+  // beliefs off it, and the golden is the pre-lean shape; the lean shape is
+  // test/lean-bundles.test.ts's.
+  (DREAM as { LEAN_BUNDLE: boolean }).LEAN_BUNDLE = false;
   (SELF as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
 });
 
 afterEach(() => {
+  (DREAM as { LEAN_BUNDLE: boolean }).LEAN_BUNDLE = true;
   (SELF as { PAGE_SPLIT: boolean }).PAGE_SPLIT = SPLIT_WAS;
   (SELF as { CORE_FROM_BELIEFS: boolean }).CORE_FROM_BELIEFS = false;
   for (const c of open.splice(0)) {

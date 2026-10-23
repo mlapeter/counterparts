@@ -485,7 +485,8 @@ describe("the open fast lane, end to end through the tool, sleep, doctor and the
         about: [{ id, about: "me", why: "someone asked to be remembered through me" }],
       });
       expect(finish.isError ?? false).toBe(false);
-      expect(finish.structuredContent["returned"]).toEqual([{ id, counted: true, reason: "counted" }]);
+      // Lean (2026-10-23): the short answer — one return counted, none refused.
+      expect(finish.structuredContent["returned"]).toEqual({ written: 1 });
     } finally {
       s.counterpart.close();
     }
