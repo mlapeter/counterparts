@@ -89,13 +89,12 @@
  */
 import { randomUUID } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, readdirSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 
 import { Counterpart, MCP_SPILLED_EVENT, seatAsk } from "../../core/counterpart.js";
 import type { CounterpartEvent, Seat, SeatAnswer, SeatAsk, SeatTool } from "../../core/counterpart.js";
 import { CATCH_UP_ONLY_REASONS, nightUsageOf, tagsBundle, tagsPrompt } from "../../core/dream/index.js";
 import type { NightTokens } from "../../core/dream/index.js";
-import { DEFAULT_STORE_SUBDIR } from "../../core/store/paths.js";
 import { addDays, isDay, localDate } from "../../core/time.js";
 import { TUNABLES as SCHEMAS_TUNABLES } from "../../core/schemas/index.js";
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
@@ -106,7 +105,7 @@ import { TOOL_RESULT_CEILING } from "../../core/fit/index.js";
 import { installedVersion } from "../sessions.js";
 import { OBSERVER_ENV } from "../stance-env.js";
 
-import { TUNABLES } from "../config.js";
+import { NIGHT_DEBUG_DIR, NIGHT_TRANSCRIPT_NAME, TUNABLES, nightDebugDir } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { DEFAULT_HOST_COMMAND, KILL_GRACE_MS, PERMISSION_MODE, REAP_GRACE_MS, startChild } from "./child.js";
 import { runCatchUp } from "./night-catch-up.js";
@@ -633,7 +632,7 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   const spent: { [child in NightChild]?: NightTokens | null } = {};
   // A WEEK OF DEBUG TRANSCRIPTS AT MOST (2026-10-23), pruned whether or not
   // the switch is on now, so turning it off leaves nothing behind for long.
-  pruneNightTranscripts(input.config.dataDir, localDate(startedAt, input.config.timeZone));
+  pruneNightTranscripts(input.config.dataDir, input.configPath, localDate(startedAt, input.config.timeZone));
   const base = (c: Counterpart | null): Omit<NightRun, "state" | "endedAt" | "reason" | "detail" | "code" | "dream" | "reflection"> => ({
     run: input.run,
     date: date.length > 0 ? date : (c?.store.today() ?? ""),
@@ -1188,7 +1187,7 @@ async function runNightChild(
   // ITS RAW OUTPUT, KEPT FOR A DEVELOPER (2026-10-23, `debug.nightTranscripts`,
   // off by default): never on a plain retry, which kept no output.
   if (childInput.config.debug?.nightTranscripts === true && childInput.child !== undefined && named) {
-    writeNightTranscript(childInput.config.dataDir, localDate(childAt, childInput.config.timeZone), childInput.child, input.run, result.output);
+    writeNightTranscript(childInput.config.dataDir, childInput.configPath, localDate(childAt, childInput.config.timeZone), childInput.child, input.run, result.output);
   }
   if (spill !== null) {
     input.onEvent?.({
@@ -1388,27 +1387,12 @@ function begunSince(open: () => Counterpart, at: number, session: string): boole
 // ── the developer's night transcripts (2026-10-23, `debug.nightTranscripts`) ──
 
 /**
- * WHERE A NIGHT CHILD'S RAW OUTPUT IS KEPT when a developer asks for it:
- * `<base>/debug/<date>/<child>-<run>.jsonl`, beside the store rather than in
- * it, so a snapshot (which copies the store's own backup set) never carries
- * it, and uninstall takes it with the rest of `<base>`. Only inside the layout
- * this package creates (`<base>/store`), as `defaultSnapshotsDir`: a store
- * somebody pointed at an arbitrary directory gets none, so nothing is written
- * or pruned in a parent nobody chose. Dev only: these files hold the night's
- * words (the memories it read, what it wrote), which nothing else keeps.
+ * Where it goes and what it may name live with the switch (`config.ts#
+ * nightDebugDir`), where uninstall reads them too; re-exported here.
  */
-export const NIGHT_DEBUG_DIR = "debug";
+export { NIGHT_DEBUG_DIR, NIGHT_TRANSCRIPT_NAME, nightDebugDir };
 /** Date folders older than this many days are pruned at each night's start. */
 export const NIGHT_TRANSCRIPT_DAYS = 7;
-/** The only names this feature writes, and so the only ones it deletes. */
-export const NIGHT_TRANSCRIPT_NAME = /^(writer|dream|reflection|tags)-nrn_[A-Za-z0-9_-]+\.jsonl$/;
-
-export function nightDebugDir(dataDir: string | undefined): string | null {
-  if (dataDir === undefined || dataDir.trim().length === 0) return null;
-  const store = resolve(dataDir);
-  if (basename(store) !== DEFAULT_STORE_SUBDIR) return null;
-  return join(dirname(store), NIGHT_DEBUG_DIR);
-}
 
 /** A directory of its own and not a link to one. */
 function realDir(path: string): boolean {
@@ -1442,9 +1426,9 @@ function ownDir(path: string): boolean {
  * the name (`wx`: a link planted there is not followed). Returns the path
  * written, or null. Never throws: the night never waits on its debug copy.
  */
-export function writeNightTranscript(dataDir: string | undefined, date: string, child: NightChild, run: string, output: string | undefined): string | null {
+export function writeNightTranscript(dataDir: string | undefined, configPath: string | undefined, date: string, child: NightChild, run: string, output: string | undefined): string | null {
   try {
-    const dir = nightDebugDir(dataDir);
+    const dir = nightDebugDir(dataDir, configPath);
     const name = `${child}-${run}.jsonl`;
     if (dir === null || !isDay(date) || output === undefined || output.length === 0 || !NIGHT_TRANSCRIPT_NAME.test(name)) return null;
     if (!ownDir(dir)) return null;
@@ -1465,10 +1449,10 @@ export function writeNightTranscript(dataDir: string | undefined, date: string, 
  * folder if that left it empty. Anything else — another name, a link, a
  * folder that is not a date — is left as it is. Returns how many went. Never throws.
  */
-export function pruneNightTranscripts(dataDir: string | undefined, today: string): number {
+export function pruneNightTranscripts(dataDir: string | undefined, configPath: string | undefined, today: string): number {
   let gone = 0;
   try {
-    const dir = nightDebugDir(dataDir);
+    const dir = nightDebugDir(dataDir, configPath);
     if (dir === null || !isDay(today) || !realDir(dir)) return 0;
     const oldest = addDays(today, -NIGHT_TRANSCRIPT_DAYS);
     for (const day of readdirSync(dir, { withFileTypes: true })) {

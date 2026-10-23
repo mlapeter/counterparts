@@ -12,7 +12,9 @@
   `claude-code/transcript.ts`, the module that reads the night's stream; the harness imports it.
 - Decided by the C1 builder: `debug: { nightTranscripts }` in `claude-code.json`, off by default,
   keeps each night child's raw output under `<base>/debug/<date>/` for 7 days (0600 files, 0700
-  folders), only beside a store in the package's own layout (`<base>/store`), as the default
-  snapshots folder is. Pruned by the date folder's name at every night's start, switch on or off,
-  only files named `<child>-nrn_….jsonl`; links and foreign files are left. Snapshots never carry it
-  (they copy the store); `uninstall` counts `debug` as ours. Documented in CONTRIBUTING.md only.
+  folders), only in the package's own layout (`<base>/store` with the configuration in the same
+  `<base>`, so uninstall always sees it). Pruned by the date folder's name at every night's start,
+  switch on or off, only files named `<child>-nrn_….jsonl`; links and foreign files are left.
+  Snapshots never carry it (they copy the store); `uninstall` counts `debug` as ours only while it
+  holds nothing but those files (review of C1: a `debug` folder with the owner's file in it must not
+  be deleted whole). Documented in CONTRIBUTING.md only.

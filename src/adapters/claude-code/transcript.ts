@@ -1250,6 +1250,9 @@ export function childUsage(output: string | undefined): NightTokens | null {
       if (o === null || typeof o !== "object" || o.type !== "result") continue;
       if (o.usage === null || typeof o.usage !== "object" || Array.isArray(o.usage)) continue;
       const u = o.usage as Record<string, unknown>;
+      // Usage with no count in it said nothing: null, never "0 tokens" (review of C1).
+      const counts = ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"];
+      if (!counts.some((k) => typeof u[k] === "number" && Number.isFinite(u[k]) && (u[k] as number) >= 0)) continue;
       return {
         input: n(u["input_tokens"]),
         output: n(u["output_tokens"]),

@@ -23,8 +23,9 @@
  * And one from observer-mode G5: an unreadable configuration resolves to
  * OBSERVER, never to "encode anyway". `loadConfig` never throws.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { DEFAULT_STORE_SUBDIR } from "../core/store/paths.js";
 
 import { isZone } from "../core/time.js";
 
@@ -668,6 +669,50 @@ export function loadConfig(raw: unknown): LoadedConfig {
   // own words plus, at most, the one path the owner wrote.
   if (retired.length > 0) out.retired = tidy(retired, RETIRED_LINE_CHARS);
   return { config: out, ok: true, reason: "loaded" };
+}
+
+/**
+ * WHERE A NIGHT CHILD'S RAW OUTPUT IS KEPT when a developer asks for it
+ * (`debug.nightTranscripts`, 2026-10-23): `<base>/debug/<date>/<child>-<run>.jsonl`,
+ * beside the store rather than in it, so a snapshot (which copies the store's
+ * own backup set) never carries it. Only in the layout `install` creates —
+ * the store is `<base>/store` AND the configuration sits in that same `<base>` —
+ * so uninstall, which reads the configuration's directory, always finds it,
+ * and nothing is written or pruned in a parent nobody chose. Null otherwise.
+ * Dev only: these files hold the night's words (the memories it read, what it
+ * wrote), which nothing else keeps.
+ */
+export const NIGHT_DEBUG_DIR = "debug";
+/** The only names the switch writes, and so the only ones anything deletes. */
+export const NIGHT_TRANSCRIPT_NAME = /^(writer|dream|reflection|tags)-nrn_[A-Za-z0-9_-]+\.jsonl$/;
+
+export function nightDebugDir(dataDir: string | undefined, configPath: string | undefined): string | null {
+  if (dataDir === undefined || dataDir.trim().length === 0 || !isAbsolute(dataDir)) return null;
+  if (configPath === undefined || configPath.trim().length === 0 || !isAbsolute(configPath)) return null;
+  const store = resolve(dataDir);
+  if (basename(store) !== DEFAULT_STORE_SUBDIR || dirname(store) !== dirname(resolve(configPath))) return null;
+  return join(dirname(store), NIGHT_DEBUG_DIR);
+}
+
+/**
+ * Is `path` a debug folder holding only what the switch writes — a real
+ * directory (not a link) of date folders, each of only regular files with its
+ * names? What uninstall may take as ours; anything else in it makes it the
+ * owner's. Never throws (an unreadable folder is not ours).
+ */
+export function onlyNightTranscripts(path: string): boolean {
+  try {
+    if (!lstatSync(path).isDirectory()) return false;
+    for (const day of readdirSync(path, { withFileTypes: true })) {
+      if (!day.isDirectory() || !/^\d{4}-\d{2}-\d{2}$/.test(day.name)) return false;
+      for (const f of readdirSync(join(path, day.name), { withFileTypes: true })) {
+        if (!f.isFile() || !NIGHT_TRANSCRIPT_NAME.test(f.name)) return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

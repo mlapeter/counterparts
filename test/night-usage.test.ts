@@ -20,7 +20,7 @@ import type { AdapterConfig } from "../src/adapters/claude-code/index.js";
 import { nightRunFindings } from "../src/adapters/claude-code/doctor.js";
 import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
 import { nightRunLine } from "../src/adapters/cli/dream-core.js";
-import { ownedKind, ownedNames } from "../src/adapters/cli/uninstall.js";
+import { ownedKind, ownedNames, planUninstall } from "../src/adapters/cli/uninstall.js";
 import { runSnapshot } from "../src/adapters/snapshots.js";
 import { NIGHT_RUN_EVENT } from "../src/core/dream/index.js";
 import { TUNABLES as SCHEMAS_TUNABLES } from "../src/core/schemas/index.js";
@@ -102,8 +102,11 @@ function config(over: Partial<AdapterConfig> = {}): AdapterConfig {
   return { dataDir: dir, identity: { name: "Mike" }, ...over };
 }
 
-function night(cfg: AdapterConfig, command: string, run = "nrn_usage"): ReturnType<typeof runNight> {
-  return runNight({ open: () => openNightCounterpart(cfg), config: cfg, run, session: "s1", scope: base, kind: { kind: "night" }, command });
+/** The configuration's path, as the night is handed it: beside the store, as `install` lays it out. */
+const configPathOf = (): string => join(base, "claude-code.json");
+
+function night(cfg: AdapterConfig, command: string, run = "nrn_usage", configPath: string = configPathOf()): ReturnType<typeof runNight> {
+  return runNight({ open: () => openNightCounterpart(cfg), config: cfg, run, session: "s1", scope: base, kind: { kind: "night" }, command, configPath });
 }
 
 /** A store with a day for the writer to read and memories nobody tagged: a night of four children. */
@@ -146,6 +149,8 @@ describe("(a) each night child's tokens on dream.night", () => {
     expect(childUsage(`${INIT}\n${resultLine(1, 1, 1, 1, 1).slice(0, 40)}`)).toBeNull();
     expect(childUsage(JSON.stringify({ type: "result", usage: { output_tokens: 3 } }))).toEqual({ input: 0, output: 3, cacheRead: 0, cacheCreate: 0, costUsd: 0 });
     expect(childUsage(JSON.stringify({ type: "result", usage: null }))).toBeNull();
+    expect(childUsage(JSON.stringify({ type: "result", usage: {} }))).toBeNull();
+    expect(childUsage(JSON.stringify({ type: "result", usage: { input_tokens: "5", output_tokens: -1 } }))).toBeNull();
   });
 
   test("writer, dream, reflection and tags through a stub claude: each child's tokens and the total on the row, the event, the night line and doctor", async () => {
@@ -321,9 +326,20 @@ describe("(b) debug.nightTranscripts", () => {
     await night(config({ debug: { nightTranscripts: true } }), stub([resultLine(1, 1, 1, 1, 0), resultLine(1, 1, 1, 1, 0)]));
     expect(readdirSync(target)).toEqual([]);
 
-    // A data dir not named `store`: no debug folder at all, so its parent is never written.
-    expect(nightDebugDir(join(base, "elsewhere"))).toBeNull();
-    expect(nightDebugDir(dir)).toBe(join(base, "debug"));
+    // A data dir not named `store`, or a configuration elsewhere: no debug folder at all.
+    expect(nightDebugDir(join(base, "elsewhere"), configPathOf())).toBeNull();
+    expect(nightDebugDir(dir, join(base, "cfg", "claude-code.json"))).toBeNull();
+    expect(nightDebugDir(dir, undefined)).toBeNull();
+    expect(nightDebugDir("store", "claude-code.json")).toBeNull();
+    expect(nightDebugDir(dir, configPathOf())).toBe(join(base, "debug"));
+  }, 30_000);
+
+  test("a store whose configuration lives in another folder (uninstall would not see it): nothing written beside it", async () => {
+    SELF.PAGE_SPLIT = false;
+    SCHEMAS.TAGS_NIGHT = false;
+    await night(config({ debug: { nightTranscripts: true } }), stub([resultLine(1, 1, 1, 1, 0), resultLine(1, 1, 1, 1, 0)]), "nrn_usage", join(base, "cfg", "claude-code.json"));
+    expect(started()).toBe(2);
+    expect(existsSync(join(base, "debug"))).toBe(false);
   }, 30_000);
 
   test("snapshots never carry it; uninstall counts it as ours", () => {
@@ -340,9 +356,35 @@ describe("(b) debug.nightTranscripts", () => {
     } finally {
       c.close();
     }
-    const owned = ownedNames(join(base, "claude-code.json"), config(), dir);
-    expect(ownedKind("debug", owned)).toBe("sidecar");
-    expect(ownedKind("debug", ownedNames(join(base, "claude-code.json"), config(), join(base, "mystore")))).toBeNull();
+    const owned = ownedNames(configPathOf(), config(), dir);
+    expect(ownedKind("debug", owned, base)).toBe("sidecar");
+    expect(ownedKind("debug", owned)).toBeNull();
+    expect(ownedKind("debug", ownedNames(configPathOf(), config(), join(base, "mystore")), base)).toBeNull();
+    // Anything of the owner's in it makes the folder theirs: uninstall never deletes it whole.
+    writeFileSync(join(base, "debug", "my-notes.txt"), "mine");
+    expect(ownedKind("debug", owned, base)).toBeNull();
+    rmSync(join(base, "debug", "my-notes.txt"));
+    symlinkSync(join(base, "store"), join(base, "debug", "2026-10-22"));
+    expect(ownedKind("debug", owned, base)).toBeNull();
+  });
+
+  test("uninstall's plan: a debug folder of ours goes with the whole directory; one holding the owner's file is named foreign and kept", () => {
+    const home = join(base, "home");
+    const cfgDir = join(home, ".counterparts");
+    const store = join(cfgDir, "store");
+    mkdirSync(cfgDir, { recursive: true });
+    openNightCounterpart({ dataDir: store }).close();
+    const cfg = join(cfgDir, "claude-code.json");
+    writeFileSync(cfg, JSON.stringify({ dataDir: store }), "utf8");
+    mkdirSync(join(cfgDir, "debug", "2026-10-23"), { recursive: true });
+    writeFileSync(join(cfgDir, "debug", "2026-10-23", "dream-nrn_x.jsonl"), "words");
+    const plan = (): ReturnType<typeof planUninstall> => planUninstall({ configPath: cfg, config: { dataDir: store }, home, verb: "delete" });
+    expect(plan().refusal).toBeNull();
+    expect(plan().foreign).toEqual([]);
+    expect(plan().wholeDirectory).toBe(true);
+    writeFileSync(join(cfgDir, "debug", "notes.md"), "mine");
+    expect(plan().foreign).toEqual(["debug"]);
+    expect(plan().wholeDirectory).toBe(false);
   });
 });
 

@@ -129,7 +129,7 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
     dream: run.dream,
     reflection: run.reflection,
     ...(cu === null ? {} : { catchUp: cu.state, writtenUp: cu.written, writeUpParts: cu.parts, leftOwed: cu.left }),
-    ...(run.usage?.total == null ? {} : { tokens: nightTokenCount(run.usage.total) }),
+    ...(run.usage?.total == null || !Number.isFinite(nightTokenCount(run.usage.total)) ? {} : { tokens: nightTokenCount(run.usage.total) }),
   };
   const mins = (ms: number): string => `${String(Math.max(1, Math.round(ms / 60_000)))} min`;
   const took = run.endedAt === null ? "" : ` after ${mins(run.endedAt - run.startedAt)}`;

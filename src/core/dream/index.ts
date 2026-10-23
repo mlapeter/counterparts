@@ -573,6 +573,7 @@ export function nightTokenCount(t: NightTokens): number {
 export function nightTokensWords(usage: NightUsage | undefined): string | null {
   if (usage === undefined || usage.total === null) return null;
   const n = nightTokenCount(usage.total);
+  if (!Number.isFinite(n)) return null;
   const words = n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${String(Math.round(n / 1_000))}k` : String(n);
   return `${words} tokens`;
 }
