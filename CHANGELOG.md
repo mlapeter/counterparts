@@ -38,6 +38,10 @@ On the first night after upgrading, the night merges once the pairs of cards tha
 - **For a host built on the package:** `counterparts/claude-code` now exports `deliverTurn`
   (what a hook prints on a turn, and the reminders it claims only once they are certainly
   shown), `hostDelivery`, and `expansionIdsOf` (the recall ids a turn's transcript expands).
+  With them come `envelopeJson`, `HOST_SESSION_START`, `HOST_USER_PROMPT_SUBMIT` and `HOST_STOP`
+  (`counterparts/claude-code`), `settledReading` and `settledLines` (`counterparts/cli`, the
+  mechanisms line above), and `birthKindSubjectKind` and `deterministicSubjectKind`
+  (`counterparts/store`). Nothing was removed.
 
 ## 0.3.32 — 2026-10-22
 
