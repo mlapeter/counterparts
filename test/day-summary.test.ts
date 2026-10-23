@@ -25,6 +25,7 @@ import type { DoctorInput } from "../src/adapters/claude-code/doctor.js";
 import { run as cliRun } from "../src/adapters/cli/index.js";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { mindView } from "../src/adapters/dashboard/web/views.js";
+// @ts-expect-error — a plain browser module, no declarations
 import { toldWords } from "../src/adapters/dashboard/web/pages/self/sections/page.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
@@ -36,14 +37,12 @@ import { AliasMap, readIndex } from "../src/core/fit/index.js";
 import { SELF_TUNABLES, pageWriterNight } from "../src/core/self/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 import { addDays } from "../src/core/time.js";
-import { daySummaryFor } from "../src/core/self/writer.js";
 
 const S = SELF_TUNABLES as { DAY_SUMMARY: boolean; DAY_SUMMARY_CHARS: number; DAYS_END_INPUT: boolean; PAGE_SPLIT: boolean };
 const WAS = { ...S };
 const D = DREAM_TUNABLES as unknown as Record<string, number | boolean>;
 const DWAS = { ...D };
 const SESSION = "s-day-summary";
-const DAY_MS = 86_400_000;
 const LIVED = "2026-10-22";
 const NIGHT_AT = Date.parse("2026-10-23T09:00:00Z");
 let root: string;
@@ -163,7 +162,7 @@ describe("day's end leaves a day summary — the night entry with a stubbed clau
     const out: Record<string, unknown>[] = [];
     const how: string[] = [];
     let dreamText = "";
-    let bundleFresh: string[] = [];
+    let bundleFresh: readonly string[] = [];
     await night(
       seat({
         writer: daysEnd({ summary: TOLD, cites: [y.hold, "mem_000000000000", 7], out, how }),
@@ -542,4 +541,3 @@ describe("the reflection's timeline — the last three weeks, a line a day", () 
   });
 });
 
-void DAY_MS;

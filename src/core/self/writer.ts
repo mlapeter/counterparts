@@ -555,11 +555,15 @@ export function daySummaryFor(store: Store, input: { session: string | null; abo
   const runs = pageWriterRuns(store);
   const floor = input.about === "" ? "" : dayBefore(input.about);
   if (input.session !== null && input.session.length > 0) {
+    // The newest DAY this session told (one night tells one day; a run
+    // started again tells it again, and the later telling stands).
+    let best: DaySummary | null = null;
     for (const r of runs) {
       if (r.session !== input.session || (floor !== "" && r.about < floor)) continue;
       const s = summaryOfRun(r);
-      if (s !== null) return s;
+      if (s !== null && (best === null || s.about > best.about)) best = s;
     }
+    if (best !== null) return best;
   }
   if (input.about === "") return null;
   for (const r of runs) {
