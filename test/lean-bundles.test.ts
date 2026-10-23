@@ -161,6 +161,11 @@ describe("the dream's bundle in plain lines, its short ids taken at every door",
     expect(read.isError ?? false).toBe(false);
     const got = (sc(read)["memories"] as { address?: string; excerpt?: string; body?: string }[])[0];
     expect(got?.address).toBe(`${episode}#1`);
+    // …and by ids, as the legend says, the journal's own id too.
+    const byIds = await s.call("recall", { ids: ["c1#1", "c1"] });
+    const ms = sc(byIds)["memories"] as { id: string; address?: string }[];
+    expect(ms.some((m) => m.address === `${episode}#1`)).toBe(true);
+    expect(ms.some((m) => m.id === episode && m.address === undefined)).toBe(true);
   });
 
   test("propose: short ids land on their memories, real ids still do, an unknown one is refused by name, words are never touched; the answer is short", async () => {
