@@ -704,11 +704,19 @@ export class Counterpart {
                 ...(o.short === undefined ? {} : { short: o.short }),
                 ...(o.trace === undefined ? {} : { trace: o.trace }),
               });
-        const note = pageRoomNote(
+        const roomNote = pageRoomNote(
           written,
           this.self.tunables.PAGE_ROOM_BYTES,
           "call finish again with page.short alone (the entry and the page stand)",
         );
+        // HELD TO ITS LANE, SAID (2026-10-23, `self.PAGE_SPLIT`): the sections
+        // it sent that the page writer's, kept as they stood.
+        const kept = written.laneKept ?? [];
+        const laneNote =
+          kept.length === 0
+            ? null
+            : `Kept as it stood: ${kept.map((h) => (h.startsWith("the words") ? h : `"## ${h}"`)).join(", ")} — tonight the reflection writes "## Core" alone, and the page writer the rest.`;
+        const note = [roomNote, laneNote].filter((n): n is string => n !== null && n.length > 0).join(" ") || null;
         return written.written && written.version !== null
           ? { ok: true, version: written.version, note, ...(written.traced === undefined ? {} : { unmatched: written.traced.unmatched }) }
           : written.reason === "past-room"

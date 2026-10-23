@@ -12,7 +12,7 @@ import {
   pageTooLargeDetail,
 } from "../../core/self/index.js";
 import type { ToolResult } from "./server-options.js";
-import { dreamHow, PAGE_REFUSAL_DETAIL, pageRoomAnswer } from "./server-words.js";
+import { dreamHow, PAGE_REFUSAL_DETAIL, pageLaneAnswer, pageRoomAnswer } from "./server-words.js";
 import type { McpServer } from "./server.js";
 
 /**
@@ -756,6 +756,8 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
       // on a day the wake cannot hold it — its short version, or, without
       // one, its outline, with the way to add one.
       ...pageRoomAnswer(written, server.counterpart.self.tunables.PAGE_ROOM_BYTES),
+      // HELD TO ITS LANE, SAID (2026-10-23, `self.PAGE_SPLIT`).
+      ...pageLaneAnswer(written),
       // WHEN IT WILL BE READ, precisely. The bundle every session wakes with
       // is composed by a worker and served unchanged until the next render,
       // so "it is live now" would be false for as long as this session lasts.

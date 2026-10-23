@@ -213,7 +213,15 @@ describe("the page's row", () => {
   test("every revision leaves a durable row naming who, why, and the version", () => {
     const s = store();
     self(s).revisePage(PAGE, { reason: "first", by: "session" });
-    self(s).revisePage(PAGE_TWO, { reason: "the nightly pass", by: "writer" });
+    // The writer's whole page, as written (the page split by section off:
+    // with it on the writer keeps "## Core" as it stood, `page-split.test.ts`).
+    const split = SELF_TUNABLES.PAGE_SPLIT;
+    (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = false;
+    try {
+      self(s).revisePage(PAGE_TWO, { reason: "the nightly pass", by: "writer" });
+    } finally {
+      (SELF_TUNABLES as { PAGE_SPLIT: boolean }).PAGE_SPLIT = split;
+    }
     const rows = s.eventLog({ name: SELF_PAGE_REVISED_EVENT });
     expect(rows).toHaveLength(2);
     const payloads = rows.map((r) => JSON.parse(r.payload ?? "{}") as Record<string, unknown>);

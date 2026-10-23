@@ -54,12 +54,19 @@ const open: { close(): void }[] = [];
 const SESSION = "s-held-1020";
 const ROOM = PAGE_ROOM_BYTES;
 
+// THE WHOLE-PAGE DOORS (2026-10-23): these pin the hold on writes of the
+// whole page, so the page split by section is off here (`self.PAGE_SPLIT`);
+// the hold under the split is in `test/page-split.test.ts`.
+const SPLIT = SELF_TUNABLES as { PAGE_SPLIT: boolean };
+
 beforeEach(() => {
   dateN = 0;
   dir = mkdtempSync(join(tmpdir(), "counterparts-page-held-"));
+  SPLIT.PAGE_SPLIT = false;
 });
 
 afterEach(() => {
+  SPLIT.PAGE_SPLIT = true;
   for (const c of open.splice(0)) {
     try {
       c.close();

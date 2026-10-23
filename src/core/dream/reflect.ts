@@ -1526,6 +1526,9 @@ export class Reflections {
             w.reason,
             `${w.note ?? `The page is ${String(w.bytes ?? 0)} bytes, past its ${String(w.limit ?? 0)}-byte room: cut it and send the page again — cut, don't add a short version.`} Call finish again with this reflection and just page (text, cites and claims).`,
           );
+        } else if (w.reason === "lane-empty") {
+          // THE PAGE SPLIT (2026-10-23, `self.PAGE_SPLIT`): headings, but no "## Core".
+          refuse(w.reason, `Tonight the reflection writes "## ${PAGE_CORE_HEADING}" alone, and page.text has headings but no "## ${PAGE_CORE_HEADING}": send that section (its heading and its words). Every other section stays as it stands.`);
         } else {
           refuse(w.reason, `The self page refused it (${w.reason}).`);
         }

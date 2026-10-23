@@ -132,7 +132,9 @@ import {
   outlineText,
   pageOutline,
   readSelfPage,
+  carryTrace,
   shortOf,
+  splicePageLane,
   storedTraceOf,
   stripRevisedLines,
   traceFor,
@@ -192,7 +194,7 @@ import {
 } from "./journal-file.js";
 import type { JournalCopyOutcome } from "./journal-file.js";
 import { lineOf } from "../fit/index.js";
-import { withTunables } from "./tunables.js";
+import { SELF_TUNABLES, withTunables } from "./tunables.js";
 import { craftSince } from "./work.js";
 import type { SelfTunables } from "./tunables.js";
 import { calendarDate } from "./calendar.js";
@@ -652,6 +654,9 @@ export type PageRefusal =
   // needed — the page is within its room — or not kept by its gates.
   | "short-not-needed"
   | "short-refused"
+  // THE PAGE SPLIT (2026-10-23): a reflection's write with headings but no
+  // "## Core", so nothing in its lane.
+  | "lane-empty"
   // A page past its room from a nightly door (the page writer, the
   // reflection), the first time in a night (2026-10-20, `PAGE_HELD_TO_ROOM`):
   // cut and sent again, it is written; sent again still past it, it is kept.
@@ -709,6 +714,14 @@ export interface PageRevision {
    * was written.
    */
   readonly traced?: { readonly claims: number; readonly cited: number; readonly unmatched: number };
+  /**
+   * THE PAGE SPLIT (2026-10-23, `self.PAGE_SPLIT`): sections this nightly
+   * door's write changed or dropped outside its lane, taken from the page as
+   * it stood instead, by heading. Absent when none was.
+   */
+  readonly laneKept?: readonly string[];
+  /** Claims whose ids came forward from the page before, kept word for word (`page.ts#carryTrace`). Absent when none. */
+  readonly carried?: number;
 }
 
 /**
@@ -1801,7 +1814,28 @@ export class Self {
     // carried one printed two. The revision row counts what went
     // (`datelines`), so a hand-written page edited here says so.
     const own = ownWords(body.replace(/\r\n/g, "\n").trim());
-    const draft = own.body;
+    let draft = own.body;
+    // THE PAGE SPLIT BY SECTION (2026-10-23, `self.PAGE_SPLIT`, read at use):
+    // a nightly door writes its own lane, and what is outside it is taken
+    // from the page as it stands (`page.ts#splicePageLane`) before anything
+    // below measures it — the writer every section but "## Core", the
+    // reflection "## Core" alone. Restored, never refused; the answer names
+    // what was kept (`PageRevision.laneKept`).
+    let laneKept: readonly string[] | null = null;
+    if (SELF_TUNABLES.PAGE_SPLIT && !this.observer && (opts.by === "writer" || opts.by === "reflection") && draft.length > 0) {
+      const lane = splicePageLane(draft, readSelfPage(this.store)?.body ?? null, opts.by);
+      if (lane.empty) {
+        this.emit("self.page.refused", undefined, { reason: "lane-empty", by: opts.by });
+        try {
+          this.store.appendEvent({ name: SELF_PAGE_REFUSED_EVENT, day: opts.day ?? this.store.livedDay(), payload: { reason: "lane-empty", by: opts.by, session: opts.session ?? null } });
+        } catch {
+          /* a refusal that cannot be recorded is still a refusal (§5 G7) */
+        }
+        return { id: null, version: null, gate: null, redacted: null, current: null, overRoom: null, short: null, written: false, reason: "lane-empty", bytes: byteLength(draft) };
+      }
+      draft = lane.body;
+      laneKept = lane.kept;
+    }
     let bytes = byteLength(draft);
     const session = opts.session ?? null;
     const none = {
@@ -2000,6 +2034,20 @@ export class Self {
         trace = null;
       }
     }
+    // A KEPT SENTENCE KEEPS WHAT IT RESTED ON (2026-10-23, `self.PAGE_SPLIT`):
+    // the ids the page before gave a sentence this write kept word for word
+    // and did not cite itself (`page.ts#carryTrace`). Off: as before.
+    let carried = 0;
+    if (SELF_TUNABLES.PAGE_SPLIT && existing !== null) {
+      try {
+        const prev = this.store.readProse(existing);
+        const out = carryTrace(stored, trace, storedTraceOf(prev.meta, prev.body));
+        trace = out.trace;
+        carried = out.carried;
+      } catch {
+        /* the page before unread: nothing carried */
+      }
+    }
     const meta: Record<string, unknown> = {
       role: SELF_PAGE_ROLE,
       [PAGE_META_BY]: opts.by,
@@ -2067,6 +2115,9 @@ export class Self {
         ...(own.framed === 0 ? {} : { frameLines: own.framed }),
         // How the trace sent with it landed (2026-10-20): claims, how many it named, and passages that named none.
         ...(traced === null ? {} : { claims: traced.claims, claimsCited: traced.cited, claimsUnmatched: traced.unmatched }),
+        // The split (2026-10-23): sections taken from the page as it stood, and claims whose ids were carried.
+        ...(laneKept === null || laneKept.length === 0 ? {} : { laneKept: [...laneKept] }),
+        ...(carried === 0 ? {} : { claimsCarried: carried }),
       },
     });
     this.emit("self.page.revised", id, {
@@ -2092,6 +2143,8 @@ export class Self {
       overRoom: bytes > room ? room : null,
       short: sent?.outcome ?? null,
       ...(traced === null ? {} : { traced: { claims: traced.claims, cited: traced.cited, unmatched: traced.unmatched } }),
+      ...(laneKept === null || laneKept.length === 0 ? {} : { laneKept }),
+      ...(carried === 0 ? {} : { carried }),
     };
   }
 
