@@ -11,7 +11,7 @@
 - The reflection's room is filled long view first (`dream.REFLECT_ROOM_ORDER`). `dreamSaw` gave every memory the
   dream was shown a line ahead of the core, and was not deduped against `recent`: on 10-21/10-22 it took the room
   and core, candidates and recent got nothing. It keeps only what the dream changed and 40 older ones it saw.
-- The order, not the size: `ROOM_CHARS` stays 80k. A busy night now spends about 87–89k across 4 parts (was ~105k).
+- The order, not the size: `ROOM_CHARS` stays 80k. A busy night now spends about 89–92k across 4 parts (was ~105k).
 - Decided by the D1 builder: the chapters' room (`REFLECT_CHAPTER_CHARS` 16k) shortens each line on a busy few days
   (to 80 bytes at least) and grows past that rather than drop one; the long view is guaranteed a line each even past
   the room (more parts), never dropped.

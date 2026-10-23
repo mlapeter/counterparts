@@ -2754,4 +2754,6 @@ the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.
   missing" though the merged memory stood. Never a hypothesis (the claim keeps its id),
   and nothing retargets the stored cite. Fixed at read: `measures.ts#pageTrace` follows
   `recall/standing.ts#headOf` and counts such a cite live, `throughLater` (doctor: "N live
-  (M through a later memory)"). Test: `test/days-end.test.ts`.
+  (M through a later memory)"), only when its own memory is gone and the later one merged it
+  (`meta.mergedFrom`): a correction is not followed. `self_page` names back any cite input
+  that is not a memory's id. Test: `test/days-end.test.ts`.

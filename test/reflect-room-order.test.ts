@@ -277,13 +277,38 @@ describe("a busy night: the long view first, and always", () => {
   test("a core bigger than the room: every core memory still a line, the bundle in more parts", async () => {
     const c = brain();
     const w = busy(c, { core: 260, candidates: 120 });
+    // A few unmarked skills: the offer keeps its own room, as before (review of D1).
+    const day = c.store.livedDay();
+    for (let i = 0; i < 4; i += 1) c.store.put({ type: "memory", kind: "skill", body: `How to wedge porcelain, step ${String(i)}: ${words(7000 + i)}`, salience: { relevance: 0.6, emotional: 0.2, predictive: 0.6 }, physics: { birthDay: day - 5, lastUsedDay: day - 5 }, origin: { scope: "/proj" } });
     const { texts, rid } = await reflectAll(c);
     const aliases = c.reflections.aliasesOf(rid) as AliasMap;
     const memLines = section(texts, "memories").map((l) => aliases.resolve(l.split(" · ")[0]?.trim() ?? "") ?? "");
     for (const id of [...w.core, ...w.candidates]) expect(memLines).toContain(id);
     const coreLine = (texts[0] as string).split("\n").find((l) => l.startsWith("core: ")) ?? "";
     expect(coreLine.slice("core: ".length).split(" ")).toHaveLength(w.core.length);
+    const unmarkedLine = (texts[0] as string).split("\n").find((l) => l.startsWith("unmarked: ")) ?? "";
+    expect(unmarkedLine).not.toBe("unmarked: none");
+    const sawLines = section(texts, "dreamSaw").map((l) => aliases.resolve(l.split(" · ")[0]?.trim() ?? "") ?? "");
+    for (const x of unmarkedLine.slice("unmarked: ".length).split(" ")) expect([...memLines, ...sawLines]).toContain(aliases.resolve(x) ?? x);
     expect(texts.length).toBeGreaterThan(1);
+  });
+
+  test("after missed nights, tonight's new from before the recent window are among the older the dream saw — shown, not lost", async () => {
+    const c = brain();
+    busy(c);
+    // Memories from a week back no dream has read: the first dream's new reach back a week.
+    const day = c.store.livedDay();
+    const old: string[] = [];
+    for (let i = 0; i < 12; i += 1) old.push(c.store.put({ type: "memory", kind: "fact", body: `A week back, ${String(i)}: zqweek${String(i)} ${words(8000 + i)}`, salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 }, physics: { birthDay: day - 6, lastUsedDay: day - 6 } }));
+    const { texts, rid, dreamId } = await reflectAll(c);
+    const index = readIndex(c.store, "dream");
+    expect(index?.ref).toBe(dreamId);
+    const inFresh = old.filter((id) => (index?.fresh ?? []).includes(id));
+    expect(inFresh.length).toBeGreaterThan(0);
+    const aliases = c.reflections.aliasesOf(rid) as AliasMap;
+    const real = (l: string): string => aliases.resolve(l.split(" · ")[0]?.trim() ?? "") ?? "";
+    const seen = new Set([...section(texts, "memories").map(real), ...section(texts, "dreamSaw").map(real)]);
+    for (const id of inFresh) expect(seen.has(id)).toBe(true);
   });
 
   test("with the spine on (`CORE_FROM_BELIEFS`), the long view is still first and whole", async () => {

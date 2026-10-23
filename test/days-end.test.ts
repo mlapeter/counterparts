@@ -235,6 +235,27 @@ describe("day's end reads the day as told — the night entry with a stubbed cla
   });
 });
 
+describe("self_page's cites and claims", () => {
+  test("what is not a memory's id is named back, never dropped unsaid; nothing usable keeps the trace there", async () => {
+    const y = yesterday(1);
+    const c = open();
+    try {
+      const s = new McpServer({ counterpart: c, session: SESSION, scope: "/proj", registryDir: dir });
+      const body = PAGE.replace("Lately the work has been the night's children, one at a time.", LATELY);
+      const first = sc(await s.call("self_page", { body, reason: "with a cite", claims: [{ text: LATELY, cites: [y.hold] }] }));
+      expect(first["stored"]).toBe(true);
+      const bad = sc(await s.call("self_page", { body: `${body}\n\nOne more line.`, reason: "bad cites", cites: "mem_x", claims: "nope" }));
+      expect(bad["stored"]).toBe(true);
+      expect(bad["refusedCites"]).toEqual(["mem_x", "nope"]);
+      const mixed = sc(await s.call("self_page", { body, reason: "mixed", cites: [7, "", y.episode, y.hold], claims: [{ text: LATELY, cites: [y.hold] }, "loose"] }));
+      expect(mixed["refusedCites"]).toEqual(["7", "", y.episode, "loose"]);
+      expect(c.selfPage()?.trace?.claims?.find((x) => x.text === LATELY)?.cites).toEqual([y.hold]);
+    } finally {
+      c.close();
+    }
+  });
+});
+
 describe("(d) a page's cite through a dream's merge", () => {
   test("day's end cites a memory, the dream merges it: the cite stays on its sentence (no retarget), reads live while the original is, and through the merged memory once it is archived — never a hypothesis", async () => {
     const y = yesterday(4);
@@ -273,7 +294,7 @@ describe("(d) a page's cite through a dream's merge", () => {
       expect(c.store.row(y.hold)?.archived).toBe(0);
       expect(headOf(c.store, y.hold)).toBe(merged);
       const before = pageTrace(c.store, page);
-      expect(before).toMatchObject({ cites: 1, live: 1, archivedOrMissing: 0, uncited: 2 });
+      expect(before).toMatchObject({ cites: 1, live: 1, archivedOrMissing: 0, throughLater: 0, uncited: 2 });
       expect(before.hypotheses).not.toContain(LATELY);
       // Its own curve archives the original later; here, now.
       c.store.archive(y.hold, "decay");

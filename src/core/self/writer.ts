@@ -972,7 +972,7 @@ export function writerInstruction(
   // with their ids, so a sentence written from one can say so.
   if (input.daysEnd === true) {
     lines.push(
-      `When you write, pass \`claims\` with it: each sentence you wrote or changed (as written, or its first ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more) and the ids of the memories below it rests on. A sentence with none stands as a hypothesis; one you keep word for word keeps what it rested on.`,
+      `When you write, pass \`claims\` with it: each sentence you wrote or changed (as written, or its first ${String(CLAIM_PREFIX_MIN_CHARS)} characters or more) and the ids (mem_…) of the memories below it rests on. A chapter's address is not a memory and cannot be cited: cite the memories. A sentence with none stands as a hypothesis; one you keep word for word keeps what it rested on.`,
       "",
     );
   }
@@ -1030,7 +1030,7 @@ export function writerInstruction(
       (input.omitted > 0 ? `, ${String(input.omitted)} held back` : "");
     lines.push(
       input.daysEnd === true
-        ? `The strongest of what was written down on ${input.about} (${String(input.memories.length)}${tail}), each with its id to cite:`
+        ? `The ${String(input.memories.length)} strongest of the ${String(input.memories.length + input.dropped)} things written down on ${input.about}${input.omitted > 0 ? ` (${String(input.omitted)} more held back)` : ""}, each with its id to cite (the day's chapters tell the rest):`
         : `What was written down on ${input.about} (${String(input.memories.length)}${tail}), most salient first:`,
       // THE FRAMING SITS WITH THE UNTRUSTED MATERIAL, not only at the top of the
       // block (S2 review, MAJOR-2). The lines below are model- and user-authored

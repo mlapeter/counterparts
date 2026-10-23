@@ -102,7 +102,7 @@ its address; the day's 12 strongest memories with ids, which Lately may cite). T
 view first: the page, its last reflections and the dream's own summary; the whole core, every candidate and the 10
 most felt, a line each at least; the last 3 days' chapters by their summaries; what the dream changed and at most
 40 older memories it saw (tonight's new ones only in `recent`); then the rest. Replay on 10-22/10-23: shownAs went
-from 0 core / 0 candidates (lined 75, all chapter lines) to every core memory and candidate lined, at 87–89k a night
+from 0 core / 0 candidates (lined 75, all chapter lines) to every core memory and candidate lined, at 89–92k a night
 across 4 parts (was ~105k).
 
 Look at, per night since install (read-only):

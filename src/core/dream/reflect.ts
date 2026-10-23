@@ -474,7 +474,7 @@ export const REFLECT_LOOKUP =
  * what the sections are, in the order they were filled.
  */
 export const REFLECT_LOOKUP_ORDER =
-  "The long view comes first and always: the core, every core candidate and the most strongly felt, a line each at least, the most strongly felt whole. " +
+  "The long view comes first and always: the core, every core candidate and the most strongly felt, a line each at least, whole as far as the room went. " +
   'Chapters are the last few days\' journal, each entry by its summary ("chaptersAs": "summaries"); read one whole with the recall tool by its address, ids: ["<journal id>#<chapter>"]. ' +
   "dreamSaw is what the dream changed tonight and the older memories it was shown, a line each; tonight's new memories are under recent. " +
   'The rest as an excerpt, a line, or an id alone ("fidelity"; "chars" is the whole length). Read any you need whole with the recall tool, ids: [...] — several at once — before you cite, feel or mark it.';
@@ -3176,9 +3176,10 @@ export class Reflections {
       // THE LONG VIEW, GUARANTEED (2026-10-23): its lines are held back from
       // the shared room — and NOT bounded by it, so a core bigger than the
       // room is still shown a line each (the bundle goes in more parts) —
-      // then the unmarked offer's, bounded as before by what is left.
+      // then the unmarked offer's, bounded as before by the room (review of
+      // D1: bounded by what the long view leaves, a big core took it away).
       const longRoom = longView.reduce((n, mid) => n + lineCost(mid), 0);
-      const offerReserve = Math.min(offerRoom, Math.max(0, avail - longRoom));
+      const offerReserve = Math.min(offerRoom, avail);
       const room = Math.max(0, avail - longRoom - offerReserve);
       const shared = fit(cands, { room, excerptChars: T.DETAIL_CHARS });
       const thin = thinIn(shared);
@@ -3415,12 +3416,16 @@ export class Reflections {
    */
   private dreamFresh(dreamId: string, dream: DreamRow | undefined, day: number): Set<string> {
     const index = readIndex(this.store, "dream");
-    if (index !== null && index.ref === dreamId && index.fresh !== undefined) return new Set(index.fresh);
-    const out = new Set<string>();
-    for (const mid of dream === undefined ? [] : parseIds(dream.shown)) {
+    // Only those `recent` carries (review of D1): after missed nights the
+    // dream's new reach back a week, and one older than the window shown
+    // nowhere else is one of the older it saw.
+    const inWindow = (mid: string): boolean => {
       const row = this.store.row(mid);
-      if (row !== undefined && row.birth_day >= day - REFLECT_TUNABLES.CHAPTER_DAYS) out.add(mid);
-    }
+      return row !== undefined && row.birth_day >= day - REFLECT_TUNABLES.CHAPTER_DAYS;
+    };
+    if (index !== null && index.ref === dreamId && index.fresh !== undefined) return new Set(index.fresh.filter(inWindow));
+    const out = new Set<string>();
+    for (const mid of dream === undefined ? [] : parseIds(dream.shown)) if (inWindow(mid)) out.add(mid);
     return out;
   }
 
@@ -4137,7 +4142,7 @@ export const REFLECT_LEAN_LEGEND =
  */
 export const REFLECT_LEAN_LEGEND_ORDER =
   `${REFLECT_LEAN_LEGEND}\n` +
-  "The room was filled in this order, the first three always shown: the page, your last reflections and what the dream put forward; the long view — core, candidates, felt — a line each at least, the most felt whole; the last few days' chapters, each by its summary (a recall of its address, ids: [\"c2#3\"], reads it whole). Then what the dream changed tonight and the older memories it saw (dreamSaw: tonight's new memories are under recent, not there), and the rest as far as the room went.";
+  "The room was filled in this order, the first three always shown: the page, your last reflections and what the dream put forward; the long view — core, candidates, felt — a line each at least, whole as far as the room went; the last few days' chapters, each by its summary (a recall of its address, ids: [\"c2#3\"], reads it whole). Then what the dream changed tonight and the older memories it saw (dreamSaw: tonight's new memories are under recent, not there), and the rest as far as the room went.";
 
 /** One memory as one lean line. */
 export function leanReflectItem(item: ReflectItem | string, aliases: AliasMap, year: string, id?: string): string {

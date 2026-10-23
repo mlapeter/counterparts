@@ -1140,11 +1140,12 @@ What it is for: a child's transcript or output is matched to its row by name, no
   by their summaries (`recentChapters(…, true)`); what the dream changed (`SAW_CHANGED`:
   merge, gist, link, settle, slot, contradiction, feeling-now — a line each while it
   stands) and its OLDER shown memories (shown minus `dreamFresh`, at most `SAW_OLDER`);
-  then the rest in what is left. The unmarked offer's reserve is bounded by what the long
-  view leaves, as it was by the room.
+  then the rest in what is left. The unmarked offer keeps its own reserve, bounded by the room
+  as before (review: bounded by what the long view left, a big core took it away).
 - **Tonight's new**, for the subtraction: the dream's index `fresh` while it is this
-  dream's (the reflection runs right after it), else shown memories born in the
-  `CHAPTER_DAYS` window. A memory in `dreamSaw` is left out of the shared fit, so no line
+  dream's (the reflection runs right after it), else what it was shown; either way only
+  those born in the `CHAPTER_DAYS` window `recent` reads (review: after missed nights the
+  dream's new reach back a week, and those were shown nowhere). A memory in `dreamSaw` is left out of the shared fit, so no line
   is paid twice; the lists (`recent` …) still name it.
 - **The chapters' line shrinks before anything is dropped**: in `REFLECT_CHAPTER_CHARS`
   (16k) spread over the entries, between `CHAPTER_LINE_MIN_BYTES` (80) and `LINE_BYTES`;
@@ -1152,8 +1153,9 @@ What it is for: a child's transcript or output is matched to its row by name, no
   days, ~17k. The brief's ~7k assumed far fewer entries. The line length the fit used is
   the index's `lineCap`, and `part` renders summaries by it (`detail.chaptersAs`).
 - Busy nights, replayed (composition only, a dream that changed nothing): long view
-  37–39k (core 15, candidates 124–131, felt 10, all lined, none whole), chapters 17k,
-  dreamSaw 10k (40 lines), fixed ~13k; 87–89k in 4 parts, was ~105k with no memory shown.
+  37–39k (core 15, candidates 124–131, felt 10, all lined), the unmarked offer and some
+  recent ~2–4k, chapters 17k, dreamSaw 10k (40 lines), fixed ~14k; 89–92k in 4 parts, was
+  ~105k with no memory shown.
   Off: the same composition as master (the 10-23 corpus, to the noise of a run).
 - Not measured: whether the reflection writes better from the long view and summaries
   than from the chapters' words. A model night would tell; none was run (token budget).

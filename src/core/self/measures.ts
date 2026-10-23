@@ -91,11 +91,17 @@ export function pageTrace(store: Pick<ReadOnlyStore, "row" | "reflection" | "con
   let live = 0;
   let throughLater = 0;
   for (const id of distinct) {
+    // Its own memory first; only one gone is read through what merged it
+    // (review of D1: not a correction's, which says the cite was wrong).
+    if (citedState(store, id) === "live") {
+      live += 1;
+      continue;
+    }
     const later = laterHead(store, id);
-    if (later !== null && citedState(store, later) === "live") {
+    if (later !== null && citedState(store, later) === "live" && mergedFrom(store, later, id)) {
       live += 1;
       throughLater += 1;
-    } else if (citedState(store, id) === "live") live += 1;
+    }
   }
   const perClaim = page.trace?.claims ?? null;
   const hypotheses = perClaim === null ? null : perClaim.filter((c) => c.cites.length === 0).map((c) => c.text);
@@ -117,6 +123,18 @@ function laterHead(store: Pick<ReadOnlyStore, "row" | "contradictionsOf">, id: s
     return headOf(store, id);
   } catch {
     return null;
+  }
+}
+
+/** Was `id` merged into `into`, through a few merges (`meta.mergedFrom`, as `writer.ts#isOfDay` follows it)? Never throws. */
+function mergedFrom(store: Pick<ReadOnlyStore, "row">, into: string, id: string, depth = 0): boolean {
+  if (depth >= 4) return false;
+  try {
+    const from = (JSON.parse(store.row(into)?.meta ?? "{}") as Record<string, unknown>)["mergedFrom"];
+    if (!Array.isArray(from)) return false;
+    return from.some((x) => typeof x === "string" && (x === id || mergedFrom(store, x, id, depth + 1)));
+  } catch {
+    return false;
   }
 }
 

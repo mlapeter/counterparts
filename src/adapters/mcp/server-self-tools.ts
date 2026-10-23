@@ -988,11 +988,23 @@ function pageTraceArgs(server: McpServer, args: Record<string, unknown>): { trac
       return false;
     }
   };
+  // What is not an id is named back too (review of D1), never dropped unsaid.
+  const named = (x: unknown): void => {
+    const s = typeof x === "string" ? x : JSON.stringify(x) ?? String(x);
+    if (!refused.includes(s)) refused.push(s);
+  };
   const ids = (v: unknown): string[] => {
-    if (!Array.isArray(v)) return [];
+    if (v === undefined) return [];
+    if (!Array.isArray(v)) {
+      named(v);
+      return [];
+    }
     const out: string[] = [];
     for (const x of v) {
-      if (typeof x !== "string" || x.trim().length === 0) continue;
+      if (typeof x !== "string" || x.trim().length === 0) {
+        named(x);
+        continue;
+      }
       const id = x.trim();
       if (known(id)) {
         if (!out.includes(id)) out.push(id);
@@ -1001,13 +1013,20 @@ function pageTraceArgs(server: McpServer, args: Record<string, unknown>): { trac
     return out;
   };
   const cites = ids(rawCites);
+  if (rawClaims !== undefined && !Array.isArray(rawClaims)) named(rawClaims);
   const claims = Array.isArray(rawClaims)
     ? rawClaims.flatMap((c): { text: string; cites: string[] }[] => {
-        if (typeof c !== "object" || c === null) return [];
-        const r = c as Record<string, unknown>;
-        const text = r["text"];
-        return typeof text === "string" && text.trim().length > 0 ? [{ text, cites: ids(r["cites"]) }] : [];
+        const r = typeof c === "object" && c !== null ? (c as Record<string, unknown>) : null;
+        const text = r?.["text"];
+        if (r === null || typeof text !== "string" || text.trim().length === 0) {
+          named(c);
+          return [];
+        }
+        return [{ text, cites: ids(r["cites"]) }];
       })
     : null;
+  // Nothing usable sent: the trace already there stands, as with none sent.
+  if (rawCites !== undefined && !Array.isArray(rawCites) && claims === null) return { trace: null, refused };
+  if (rawCites === undefined && claims === null) return { trace: null, refused };
   return { trace: { cites, claims }, refused };
 }
