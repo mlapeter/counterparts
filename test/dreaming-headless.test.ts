@@ -202,7 +202,7 @@ describe("A. the day's ask is shown to the person, and claimed only when it leav
     c.dreams.journal({ dream: d.bundle.dream, session: "s1", text: "A dream." });
     const r = c.reflections.begin({ session: "s1", dream: d.bundle.dream });
     if (!r.ok) throw new Error(r.reason);
-    expect(r.instructions).toContain(`The page writer revised your self page earlier in this run (version ${String(version)}, by the writer).`);
+    expect(r.instructions).toContain(`Day's end revised your self page earlier in this run (version ${String(version)}, by the writer).`);
     expect(r.instructions).toContain("Every version of the page is kept, so rewriting it loses nothing.");
     expect(r.instructions).toContain("Mike would like a page written by a reflection every day");
     expect(r.instructions).toContain('on a "nothing much" night, leave it as it stands');
@@ -832,11 +832,11 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
       ["reflection", 0, null],
     ]);
     expect(out.dream).toMatch(/^drm_/);
-    expect(nightPartsWords(out)).toBe("the page writer and the dream ran; the reflection did not");
-    expect(nightRunLine(out)).toContain("partial (the whole night) — the page writer and the dream ran; the reflection did not");
+    expect(nightPartsWords(out)).toBe("day's end and the dream ran; the reflection did not");
+    expect(nightRunLine(out)).toContain("partial (the whole night) — day's end and the dream ran; the reflection did not");
     const f = nightRunFindings({ today: AT, config: config() } as unknown as DoctorInput, openNight().store)[0];
     expect(f?.detail).toContain("was partial");
-    expect(f?.detail).toContain("the page writer and the dream ran; the reflection did not");
+    expect(f?.detail).toContain("day's end and the dream ran; the reflection did not");
     // And the dream's own `--show` names the run it was part of.
     expect((dreamShowLines(openNight(), out.dream ?? "") ?? []).join("\n")).toContain("Latest headless run:");
   });

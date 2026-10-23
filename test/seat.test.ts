@@ -82,7 +82,17 @@ test("each act's tools are Claude Code's own lists, by the memory's names", () =
   const dream = SELF_TUNABLES.PAGE_SPLIT ? SPLIT_DREAM_TOOLS : SEAT_TOOLS.dream;
   expect(ask).toEqual({ act: "dream", tools: dream.tools, withhold: dream.withhold, prompt: "p", run: "r", session: "s", scope: "/x" });
   expect(SPLIT_DREAM_TOOLS).toEqual({ tools: ["dream", "recall"], withhold: ["reflect", "self_page"] });
-  expect(seatTools("writer")).toEqual({ tools: ["dream", "self_page"], withhold: ["reflect"] });
+  // Day's end reads the day as told (2026-10-23, `self.DAYS_END_INPUT`): recall opens a chapter whole.
+  const S = SELF_TUNABLES as { DAYS_END_INPUT: boolean };
+  const was = S.DAYS_END_INPUT;
+  try {
+    S.DAYS_END_INPUT = true;
+    expect(seatTools("writer")).toEqual({ tools: ["dream", "self_page", "recall"], withhold: ["reflect"] });
+    S.DAYS_END_INPUT = false;
+    expect(seatTools("writer")).toEqual({ tools: ["dream", "self_page"], withhold: ["reflect"] });
+  } finally {
+    S.DAYS_END_INPUT = was;
+  }
 });
 
 test("a night asks the seat for the dream, then the reflection, under the launching session", async () => {

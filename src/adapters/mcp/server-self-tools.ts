@@ -14,6 +14,7 @@ import {
   pageSections,
   pageTooLargeDetail,
 } from "../../core/self/index.js";
+import type { TraceInput } from "../../core/self/page.js";
 import type { ToolResult } from "./server-options.js";
 import { dreamHow, PAGE_REFUSAL_DETAIL, pageLaneAnswer, pageRoomAnswer } from "./server-words.js";
 import type { McpServer } from "./server.js";
@@ -51,14 +52,14 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
   // and must not begin the dream. While the page is split the dream's child
   // is not served the writer's phase: it ran first, in its own child.
   const writerChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "writer";
-  if (writerChild && phase !== "writer") return refused("writer-child", "This is the nightly run's page-writer child: only phase \"writer\" is served here.");
-  if (dreamChild && phase === "writer" && SELF_TUNABLES.PAGE_SPLIT) return refused("writer-child-only", "Tonight the page writer runs in a child of its own, before the dream: go on with the dream.");
+  if (writerChild && phase !== "writer") return refused("writer-child", "This is the nightly run's day's end child: only phase \"writer\" is served here.");
+  if (dreamChild && phase === "writer" && SELF_TUNABLES.PAGE_SPLIT) return refused("writer-child-only", "Tonight day's end runs in a child of its own, before the dream: go on with the dream.");
   const nextAfter = (part: NightPart, dream: string | null): string | null => {
     const next = nightNext(part);
     if (writerChild) return null;
     if (dreamChild && next === "reflection") return null;
     if (dreamChild && next === "writer" && SELF_TUNABLES.PAGE_SPLIT) return null;
-    if (next === "writer") return `Next, the page writer: call the dream tool with phase "writer", session: ${session}${dream === null ? "" : `, dream: ${dream}`}.`;
+    if (next === "writer") return `Next, day's end: call the dream tool with phase "writer", session: ${session}${dream === null ? "" : `, dream: ${dream}`}.`;
     if (next === "reflection") return `Now wake and reflect: call the reflect tool with phase "begin", session: ${session}, dream: ${dream ?? "<the dream id>"}. Your final message is the text its "finish" call returns.`;
     if (next === "dream") return `Next, the dream: call the dream tool with phase "begin", session: ${session}.`;
     return null;
@@ -257,7 +258,7 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
         if (!out.ok) {
           server["emit"]("mcp.dream", dreamArg ?? undefined, { phase: "writer", writer: claim.reason });
           const why: Record<string, string> = {
-            off: "the owner has the page writer off",
+            off: "the owner has day's end off",
             "no-previous-day": "this store has no day before today yet",
             "no-memories": `nothing was written down on ${claim.about}`,
             "already-claimed": `${claim.about} was already written or answered`,
@@ -698,6 +699,12 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
   const writerChild = (server["env"][NIGHT_CHILD_ENV] ?? "").trim() === "writer";
   const model = server["sessionModel"]();
   const said = typeof reason === "string" && reason.trim().length > 0 ? reason.trim() : null;
+  // WHAT IT RESTS ON (2026-10-23, day's end): the memory ids the page, or
+  // each sentence of it, rests on — the trace the reflection's finish already
+  // sends. Only ids of memories in this store are kept; the rest are named
+  // back. None sent: the trace already there is kept for the same text, as
+  // before.
+  const cited = pageTraceArgs(server, args);
   const common = {
     ...(model === undefined ? {} : { model }),
     by: writerFor === null && !writerChild ? ("session" as const) : ("writer" as const),
@@ -710,7 +717,7 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
   // added to the page as it stands, as a revision of the same text.
   const written =
     typeof body === "string"
-      ? server.counterpart.revisePage(body, { ...common, reason: said ?? "amended", ...(short === undefined ? {} : { short }) })
+      ? server.counterpart.revisePage(body, { ...common, reason: said ?? "amended", ...(short === undefined ? {} : { short }), ...(cited.trace === null ? {} : { trace: cited.trace }) })
       : server.counterpart.addPageShort(short ?? "", { ...common, ...(said === null ? {} : { reason: said }) });
   server["emit"]("mcp.self_page", written.id ?? undefined, {
     stored: written.written,
@@ -794,6 +801,10 @@ export function selfPageTool(server: McpServer, args: Record<string, unknown>): 
       ...pageRoomAnswer(written, server.counterpart.self.tunables.PAGE_ROOM_BYTES),
       // HELD TO ITS LANE, SAID (2026-10-23, `self.PAGE_SPLIT`).
       ...pageLaneAnswer(written),
+      // WHAT IT RESTS ON, SAID (2026-10-23): how the claims sent landed, and
+      // the ids that name no memory here.
+      ...(written.traced === undefined ? {} : { traced: written.traced }),
+      ...(cited.refused.length === 0 ? {} : { refusedCites: cited.refused }),
       // WHEN IT WILL BE READ, precisely. The bundle every session wakes with
       // is composed by a worker and served unchanged until the next render,
       // so "it is live now" would be false for as long as this session lasts.
@@ -956,4 +967,47 @@ export function briefParts(results: readonly { readonly id: string | null; reado
   const notes = results.filter((r) => r.ok && r.note !== undefined).map((r) => ({ id: short(r.id), note: aliases.inText(r.note as string) }));
   const notWritten = results.filter((r) => !r.ok).map((r) => ({ id: short(r.id), reason: r.reason, ...(r.detail === undefined ? {} : { detail: aliases.inText(r.detail) }) }));
   return { written: results.filter((r) => r.ok).length, ...(notes.length > 0 ? { notes } : {}), ...(notWritten.length > 0 ? { notWritten } : {}) };
+}
+
+/**
+ * `self_page`'s `cites` and `claims` (2026-10-23, day's end): the trace the
+ * page's door stores (`self/page.ts#traceFor`), the shape the reflection's
+ * finish sends. An id is kept when it names a memory in this store (live or
+ * not: a cite is what the sentence rested on when written); the rest come
+ * back in `refused`. Null trace when neither was sent. Never throws.
+ */
+function pageTraceArgs(server: McpServer, args: Record<string, unknown>): { trace: TraceInput | null; refused: string[] } {
+  const rawCites = args["cites"];
+  const rawClaims = args["claims"];
+  if (rawCites === undefined && rawClaims === undefined) return { trace: null, refused: [] };
+  const refused: string[] = [];
+  const known = (id: string): boolean => {
+    try {
+      return server.counterpart.store.row(id)?.type === "memory";
+    } catch {
+      return false;
+    }
+  };
+  const ids = (v: unknown): string[] => {
+    if (!Array.isArray(v)) return [];
+    const out: string[] = [];
+    for (const x of v) {
+      if (typeof x !== "string" || x.trim().length === 0) continue;
+      const id = x.trim();
+      if (known(id)) {
+        if (!out.includes(id)) out.push(id);
+      } else if (!refused.includes(id)) refused.push(id);
+    }
+    return out;
+  };
+  const cites = ids(rawCites);
+  const claims = Array.isArray(rawClaims)
+    ? rawClaims.flatMap((c): { text: string; cites: string[] }[] => {
+        if (typeof c !== "object" || c === null) return [];
+        const r = c as Record<string, unknown>;
+        const text = r["text"];
+        return typeof text === "string" && text.trim().length > 0 ? [{ text, cites: ids(r["cites"]) }] : [];
+      })
+    : null;
+  return { trace: { cites, claims }, refused };
 }

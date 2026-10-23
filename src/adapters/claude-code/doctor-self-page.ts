@@ -139,7 +139,7 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
   // exit is never the run's, so a night can finish with the page unwritten
   // by it; said here. A writer with nothing to do tonight is not missed.
   const missed = writerMissed(run.children ?? []);
-  const writerNote = missed === null ? "" : `; the page writer was missed (${missed})`;
+  const writerNote = missed === null ? "" : `; day's end was missed (${missed})`;
   // WHAT THE NIGHT COST (2026-10-23), one clause, when its children said.
   const cost = nightTokensWords(run.usage);
   const costNote = cost === null ? "" : `; ${cost}`;
@@ -292,7 +292,7 @@ export function selfPageFindings(store: Store): Finding[] {
           "amber",
           "Self page",
           `${detail} — stale (over ${SELF_TUNABLES.PAGE_STALE_DAYS} days)`,
-          `Nothing has revised it lately: check the page writer, or amend it yourself with counterparts self-page --write.${fix === "" ? "" : ` ${fix}`}`,
+          `Nothing has revised it lately: check day's end, or amend it yourself with counterparts self-page --write.${fix === "" ? "" : ` ${fix}`}`,
           data,
         )
       : short
@@ -317,7 +317,7 @@ export function selfPageTraceFindings(store: Store): Finding[] {
   const cited =
     t.source === "none"
       ? `no cites kept with it (written by ${page.by ?? "an unrecorded door"})`
-      : `${t.source === "reflection" ? "its reflection's record cites" : "cites"} ${n(t.cites, "memory", "memories")}, ${String(t.live)} live, ${String(t.archivedOrMissing)} archived or missing`;
+      : `${t.source === "reflection" ? "its reflection's record cites" : "cites"} ${n(t.cites, "memory", "memories")}, ${String(t.live)} live${t.throughLater > 0 ? ` (${String(t.throughLater)} through a later memory)` : ""}, ${String(t.archivedOrMissing)} archived or missing`;
   const perClaim =
     t.uncited === null
       ? t.source === "none"
@@ -331,7 +331,7 @@ export function selfPageTraceFindings(store: Store): Finding[] {
       "Self page claims",
       `${n(t.claims, "claim", "claims")}; ${cited}${perClaim}`,
       "",
-      { claims: t.claims, source: t.source, cites: t.cites, live: t.live, archivedOrMissing: t.archivedOrMissing, uncited: t.uncited },
+      { claims: t.claims, source: t.source, cites: t.cites, live: t.live, archivedOrMissing: t.archivedOrMissing, throughLater: t.throughLater, uncited: t.uncited },
     ),
   ];
 }
@@ -491,7 +491,7 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
       finding(
         "page-writer",
         "amber",
-        "Page writer",
+        "Day's end",
         `${mode} mode; ${ignored.join("; ")}`,
         "Fix the pageWriter block in claude-code.json. Nothing else in the file was affected, and memory is unaffected.",
         { ...data, ignored: ignored.join(" | ") },
@@ -507,7 +507,7 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
       finding(
         "page-writer",
         "green",
-        "Page writer",
+        "Day's end",
         page === null
           ? "off — nothing writes the self page on its own, and nothing has been written by hand either"
           : "off — the page stands, and from here it changes only when somebody writes it",
@@ -525,7 +525,7 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
       finding(
         "page-writer",
         "green",
-        "Page writer",
+        "Day's end",
         young
           ? `${mode} mode; never run — this store has no day before ${today} yet`
           : `${mode} mode; never run — it is the first part of the next nightly run, before the dream (${about})${dreamingSetting(store) === "off" ? "; dreaming is off, so the nightly run does not start" : ""}`,
@@ -571,10 +571,10 @@ export function pageWriterFindings(store: Store, config: AdapterConfig): Finding
     finding(
       "page-writer",
       bad || overdue ? "amber" : "green",
-      "Page writer",
+      "Day's end",
       detail,
       bad || overdue
-        ? "counterparts mechanisms --all --dir <store> --observer shows the run's own row. The page writer is the first part of the nightly run, before the dream: counterparts dream shows whether the runs are happening and how each ended. counterparts self-page --write amends the page by hand meanwhile."
+        ? "counterparts mechanisms --all --dir <store> --observer shows the run's own row. Day's end is the first part of the nightly run, before the dream: counterparts dream shows whether the runs are happening and how each ended. counterparts self-page --write amends the page by hand meanwhile."
         : "",
       {
         ...data,

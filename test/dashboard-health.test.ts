@@ -428,7 +428,7 @@ describe("where archived memories went", () => {
     // What it cost, named, and amber.
     expect(at(8840, 8840, { page: { shown: 5800, whole: 7200, rung: "cut" }, handoffs: 2, lastHere: 0, work: 0, writerHeld: true })).toEqual({
       tone: "amber",
-      line: "The wake is full (8.8 KB of 8.8 KB), and it cost something: the self page was cut to fit (5.8 KB of 7.2 KB shown); 2 handoffs had no room at a session start; the page writer held back for lack of room",
+      line: "The wake is full (8.8 KB of 8.8 KB), and it cost something: the self page was cut to fit (5.8 KB of 7.2 KB shown); 2 handoffs had no room at a session start; day's end held back for lack of room",
     });
     expect(at(8840, 8840, { ...none, page: { shown: 0, whole: 7200, rung: "line" } }, 3).line).toBe(
       "The wake is full (8.8 KB of 8.8 KB), and it cost something: the self page was left out (7.2 KB)",

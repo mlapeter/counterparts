@@ -104,6 +104,33 @@ export const DREAM_TUNABLES = {
    * both. Read at use; a run keeps the shape it began with.
    */
   LEAN_BUNDLE: true as boolean,
+  /**
+   * THE REFLECTION'S ROOM, REORDERED (2026-10-23, lane D1; Mike's go 15:32,
+   * lightly held): the reflection is the morning's long view, so its room is
+   * filled in that order — the small fixed parts (the page, its last
+   * reflections, the dream's journal, gists and nominations), then the long
+   * view (the whole core, the spine when on, every core candidate, the most
+   * felt), then the last few days' chapters by their summaries, each a line
+   * with its address — those three always shown, a line each at least,
+   * whatever the room — then what the dream changed and the OLDER memories it
+   * saw (`SAW_OLDER` at most; the fresh ones come in through `recent`), then
+   * everything else in what is left. Was: the fixed parts, the chapters whole
+   * (up to 24k) and a line for every memory the dream was shown came first,
+   * and on a busy night the long view got no room at all. Off: exactly as
+   * before. Read at use (`dream/reflect.ts#compose`); a reflection keeps the
+   * shape it began with.
+   */
+  REFLECT_ROOM_ORDER: true as boolean,
+  /** With `REFLECT_ROOM_ORDER`: the most OLDER memories the dream saw (neighbours, mixing, lookback) the reflection is shown, a line each. CAL. */
+  SAW_OLDER: 40,
+  /**
+   * With `REFLECT_ROOM_ORDER`: the room the last few days' chapters aim for,
+   * by their summaries. Every chapter is shown, a line each at least: on a
+   * busy few days the lines get shorter (`REFLECT_TUNABLES.
+   * CHAPTER_LINE_MIN_BYTES` at the least) and past that the room grows; on a
+   * quiet few days the summaries come whole. CAL.
+   */
+  REFLECT_CHAPTER_CHARS: 16_000,
   /** The share of tonight's room tonight's new memories and their neighbours may take as lines. CAL. */
   FRESH_SHARE: 0.5,
   /** The share for the journal's new entries. CAL. */

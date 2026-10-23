@@ -362,7 +362,8 @@ export interface DayJournal {
  * dream and the reflection get them (`fitEpisodes`): a line for every one —
  * its summary when the session wrote one — and the most important whole, in
  * `room`. An episode last written before the day holds none of it and is not
- * read. Never throws.
+ * read. With `summaries` (day's end, 2026-10-23), each entry by its
+ * summary, never whole (`fitEpisodes`' `summaries`). Never throws.
  */
 export function dayJournal(
   store: ReadOnlyStore,
@@ -374,6 +375,7 @@ export function dayJournal(
     lineBytes: number;
     entryChars: number;
     zone?: string;
+    summaries?: boolean;
   },
 ): DayJournal {
   const empty: DayJournal = { chapters: [], entries: 0, notShown: 0, used: 0 };
@@ -411,6 +413,7 @@ export function dayJournal(
     day: opts.day,
     lineBytes: opts.lineBytes,
     entryChars: opts.entryChars,
+    ...(opts.summaries === true ? { summaries: true } : {}),
   });
   return { chapters: fitted.chapters, entries, notShown: fitted.notShown, used: fitted.used };
 }

@@ -212,7 +212,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
       // +18 on 2026-10-12 (onboarding round 1): the `undo` phase, said ("undo that dream").
       // dream −58 and reflect −16 on 2026-10-21 (confidential memories removed):
       // the bundle claim's and the self-close claim's confidentiality words.
-      dream: { total: 3729, beforeList: 1782 },
+      dream: { total: 3721, beforeList: 1774 },
       // reflect +382 on 2026-10-21 (lane C2): the beliefs claim, after the list's start.
       reflect: { total: 3699, beforeList: 1486 },
       // `meet` (2026-10-11): kept short on purpose — its script is its result.

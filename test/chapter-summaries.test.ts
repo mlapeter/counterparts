@@ -35,6 +35,7 @@ import { foldCredited } from "../src/core/recall/activate.js";
 import { isJournalCopy } from "../src/core/sleep/types.js";
 import { AUTO_SUMMARY_CHARS, automaticSummaryText, chapterSummaries, chaptersCoveredByCopies, summaryTitle } from "../src/core/self/summaries.js";
 import { writerInstruction } from "../src/core/self/writer.js";
+import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 import { chaptersOf } from "../src/core/handoff/last-here.js";
 import { Store, isStoreError, paths, reachExempt, rowToPhysics } from "../src/core/store/index.js";
 import { localDate } from "../src/core/time.js";
@@ -541,7 +542,17 @@ describe("whole-day views show a chapter's line as its summary", () => {
     expect(day.chapters[0]?.id).toBe(written.episodeId as string);
 
     clock += 24 * 3_600_000;
-    const input = c.pageWriterInput({ about });
+    // The journal fitted as it was before day's end read the day as told
+    // (`self.DAYS_END_INPUT` off; on: test/days-end.test.ts).
+    const S = SELF_TUNABLES as { DAYS_END_INPUT: boolean };
+    const was = S.DAYS_END_INPUT;
+    S.DAYS_END_INPUT = false;
+    let input: ReturnType<typeof c.pageWriterInput>;
+    try {
+      input = c.pageWriterInput({ about });
+    } finally {
+      S.DAYS_END_INPUT = was;
+    }
     expect(input.journal?.total).toBe(1);
     expect(input.journal?.entries[0]?.episode).toBe(written.episodeId as string);
     expect(input.memories.map((m) => m.id)).not.toContain(written.summary?.id);
