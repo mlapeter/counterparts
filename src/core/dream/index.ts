@@ -36,6 +36,7 @@
  * Arithmetic and bookkeeping only: nothing here calls a model — the dreamer IS
  * the model, outside this process.
  */
+import { SELF_TUNABLES } from "../self/tunables.js";
 import { createHash, randomBytes } from "node:crypto";
 
 import { Associate } from "../associate/index.js";
@@ -3135,7 +3136,9 @@ export class Dreams {
         ...(carriedN > 0 ? { carried: carriedN } : {}),
       },
       shownAs,
-      lookup: DREAM_LOOKUP,
+      // The page split (2026-10-23): the dream's child is not given the page
+      // tool, so the bundle does not point it there.
+      lookup: SELF_TUNABLES.PAGE_SPLIT ? DREAM_LOOKUP_SPLIT : DREAM_LOOKUP,
       parts: null,
     };
     noteMindShown(this.store, bundle.onMind, day);
@@ -3673,6 +3676,16 @@ export const DREAM_LOOKUP =
   'Every memory shown has a line at least; the most important come whole. "fidelity" says which: whole, excerpt or line; "chars" is the whole text\'s length. ' +
   "Read any you have only in part with the recall tool, ids: [...] — several at once — before you merge, gist or feel it. A journal entry shown as a line is read the same way, by its chapter's id. " +
   'The self page is read whole with the self_page tool ("selfPageChars" is its length). The wake is the page first, then its lanes — craft, open threads, what is coming, hints.';
+
+/**
+ * THE LOOKUP WHILE THE PAGE IS SPLIT (2026-10-23, `self.PAGE_SPLIT`): the
+ * dream's child is not given `self_page` (the writer and the reflection write
+ * the page, each in its own child), so the page is what the bundle shows.
+ */
+export const DREAM_LOOKUP_SPLIT = DREAM_LOOKUP.replace(
+  'The self page is read whole with the self_page tool ("selfPageChars" is its length).',
+  'The self page is shown as far as it fits ("selfPageChars" is its whole length); tonight the page writer and the reflection write it, not the dream.',
+);
 
 /** The begin result's text: the opener, what it is, then the bundle. */
 export function renderDream(id: string, bundle: DreamBundle, lead: string): string {

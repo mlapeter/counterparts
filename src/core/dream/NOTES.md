@@ -1095,3 +1095,10 @@ What it is for: a child's transcript or output is matched to its row by name, no
 - Cost: the writer's child is offered `dream` and `self_page` (~17k characters of tool
   definitions, ~6k tokens with the slim base) plus its prompt and the day it reads; the
   brief's 3–5k estimate was for the base alone.
+- Neither the dream's child nor the reflection's is given `self_page` while split (review of
+  #603): the dream's bundle shows the page as far as it fits and no longer points at the
+  tool (`DREAM_LOOKUP_SPLIT`); the reflection's bundle carries the page whole and it writes
+  `## Core` through its finish.
+- A claim already open for the session (a run started again the same day, or one that
+  crossed midnight) still wins, as before: the writer's child is started and its phase
+  answers `claimed-earlier` with that claim's day.

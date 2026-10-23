@@ -24,6 +24,7 @@ import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { SELF_TUNABLES, carryTrace, claimKey, pageSections, pageWriterNight, splicePageLane } from "../src/core/self/index.js";
 import { seatTools } from "../src/core/counterpart.js";
+import { DREAM_LOOKUP, DREAM_LOOKUP_SPLIT } from "../src/core/dream/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
 const SELF = SELF_TUNABLES as { PAGE_SPLIT: boolean };
@@ -403,6 +404,9 @@ describe("review of #603: the awkward states", () => {
     expect(c.selfPage()?.by).toBe("writer");
     expect(section(c.selfPage()?.body ?? "", "Core")).toBe("I say what I do not know before I guess.");
     expect(seatTools("reflection")).toEqual({ tools: ["dream", "reflect", "recall"], withhold: ["self_page"] });
+    // The dream's bundle does not point its child at a tool it is not given.
+    expect(DREAM_LOOKUP_SPLIT).not.toContain("self_page");
+    expect(DREAM_LOOKUP).toContain("self_page tool");
   });
 
   test("a dream child that stops at once on a night the writer had nothing to read: could not start, as with the switch off", async () => {
