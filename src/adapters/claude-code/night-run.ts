@@ -58,7 +58,10 @@
  *     memories it read and the conversation it wrote up — would otherwise
  *     sit there outside this package's retention, for as long as the host
  *     keeps old sessions. Nothing reads one: what the host cut is read from
- *     the child's own `stream-json` output (`readNightSpills`).
+ *     the child's own `stream-json` output (`readNightSpills`), and so is
+ *     what it spent (`childUsage`, on the row since 2026-10-23). Only a
+ *     developer's switch keeps that output, for a week, beside the store
+ *     (`debug.nightTranscripts`, `writeNightTranscript`).
  * What is left and not allowed stops at a prompt nobody can answer, which is
  * the direction this should fail in. The parent's stance variables are
  * removed from its environment; this package's own values are written last.
@@ -85,10 +88,14 @@
  * written in the PR, not claimed here.
  */
 import { randomUUID } from "node:crypto";
+import { chmodSync, lstatSync, mkdirSync, readdirSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { Counterpart, MCP_SPILLED_EVENT, seatAsk } from "../../core/counterpart.js";
 import type { CounterpartEvent, Seat, SeatAnswer, SeatAsk, SeatTool } from "../../core/counterpart.js";
-import { CATCH_UP_ONLY_REASONS, tagsBundle, tagsPrompt } from "../../core/dream/index.js";
+import { CATCH_UP_ONLY_REASONS, nightUsageOf, tagsBundle, tagsPrompt } from "../../core/dream/index.js";
+import type { NightTokens } from "../../core/dream/index.js";
+import { addDays, isDay, localDate } from "../../core/time.js";
 import { TUNABLES as SCHEMAS_TUNABLES } from "../../core/schemas/index.js";
 import { SELF_TUNABLES } from "../../core/self/tunables.js";
 import type { CatchUpOnlyReason, NightChildRun, NightPart, NightRun } from "../../core/dream/index.js";
@@ -98,12 +105,12 @@ import { TOOL_RESULT_CEILING } from "../../core/fit/index.js";
 import { installedVersion } from "../sessions.js";
 import { OBSERVER_ENV } from "../stance-env.js";
 
-import { TUNABLES } from "../config.js";
+import { NIGHT_DEBUG_DIR, NIGHT_TRANSCRIPT_NAME, TUNABLES, nightDebugDir } from "../config.js";
 import type { AdapterConfig } from "../config.js";
 import { DEFAULT_HOST_COMMAND, KILL_GRACE_MS, PERMISSION_MODE, REAP_GRACE_MS, startChild } from "./child.js";
 import { runCatchUp } from "./night-catch-up.js";
 import type { CatchUpReport } from "./night-catch-up.js";
-import { parseToolSpills } from "./transcript.js";
+import { childUsage, parseToolSpills } from "./transcript.js";
 import type { ToolSpills } from "./transcript.js";
 import type { ChildPlan, ChildResult } from "./child.js";
 import { DATA_DIR_ENV, NIGHT_CHILD_ENV, NIGHT_RUN_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV } from "../spawn.js";
@@ -620,6 +627,12 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
   let catchUpMs = 0;
   // WHICH CHILDREN RAN (2026-10-11), in order, on every row that ends the run.
   const children: NightChildRun[] = [];
+  // WHAT EACH CHILD SPENT (2026-10-23), as the seat said it: a key only for a
+  // child that ran and whose seat reports usage at all (Claude Code's does).
+  const spent: { [child in NightChild]?: NightTokens | null } = {};
+  // A WEEK OF DEBUG TRANSCRIPTS AT MOST (2026-10-23), pruned whether or not
+  // the switch is on now, so turning it off leaves nothing behind for long.
+  pruneNightTranscripts(input.config.dataDir, input.configPath, localDate(startedAt, input.config.timeZone));
   const base = (c: Counterpart | null): Omit<NightRun, "state" | "endedAt" | "reason" | "detail" | "code" | "dream" | "reflection"> => ({
     run: input.run,
     date: date.length > 0 ? date : (c?.store.today() ?? ""),
@@ -642,10 +655,18 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
     return run;
   };
   const ended = (fields: Pick<NightRun, "state" | "reason" | "detail" | "code"> & Partial<Pick<NightRun, "dream" | "reflection" | "parts" | "transcript" | "spills" | "requeued">>): NightRun =>
-    record({ ...base(null), endedAt: now(), dream: null, reflection: null, ...(children.length === 0 ? {} : { children: [...children] }), ...fields });
+    record({
+      ...base(null),
+      endedAt: now(),
+      dream: null,
+      reflection: null,
+      ...(children.length === 0 ? {} : { children: [...children] }),
+      ...(Object.keys(spent).length === 0 ? {} : { usage: nightUsageOf(spent) }),
+      ...fields,
+    });
 
   // WHO ANSWERS (2026-10-20): every child below is an ask to the seat.
-  const seat =
+  const asked: Seat<NightAnswer> =
     input.seat ??
     claudeCodeSeat({
       config: input.config,
@@ -658,6 +679,16 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
       ...(input.startCatchUp === undefined ? {} : { startCatchUp: input.startCatchUp }),
       ...(input.onEvent === undefined ? {} : { onEvent: input.onEvent }),
     });
+  // Every answer passes here on its way back, so what a child spent is kept
+  // whichever line of the row it ends on. The catch-up is not a night child.
+  const seat: Seat<NightAnswer> = {
+    name: asked.name,
+    async answer(ask: SeatAsk): Promise<NightAnswer> {
+      const out = await asked.answer(ask);
+      if (ask.act !== "catch-up" && out.refused === null && out.started && out.usage !== undefined) spent[ask.act as NightChild] = out.usage;
+      return out;
+    },
+  };
 
   if (input.kind.kind === "night") {
     const report = await runCatchUp({
@@ -961,6 +992,11 @@ export interface NightAnswer extends SeatAnswer {
   readonly spill?: ToolSpills | null;
   /** The child's own session id, when the seat named it (`NightChildRun.hostSession`). */
   readonly hostSession?: string;
+  /**
+   * What the child spent (2026-10-23, `transcript.ts#childUsage`): null when
+   * it said none; absent from a seat that does not report usage.
+   */
+  readonly usage?: NightTokens | null;
 }
 
 /**
@@ -1060,6 +1096,7 @@ export function claudeCodeSeat(input: ClaudeCodeSeatInput): Seat<ClaudeCodeAnswe
         ms: out.ms,
         ...(out.result.spawnCode === undefined ? {} : { spawnCode: out.result.spawnCode }),
         ...(out.hostSession === undefined ? {} : { hostSession: out.hostSession }),
+        usage: out.usage,
         result: out.result,
         spill: out.spill,
       };
@@ -1080,6 +1117,8 @@ interface NightChildOutcome {
   readonly spill: ToolSpills | null;
   /** The session id it ran under, when it ran under the one chosen for it. */
   readonly hostSession?: string;
+  /** What it spent, from its own `result` line; null when it said none. */
+  readonly usage: NightTokens | null;
 }
 
 /** The row's line for a child that ran. */
@@ -1142,6 +1181,14 @@ async function runNightChild(
   // `stream-json` output — the messages the model saw, not the child's prose.
   // A child that never started said nothing; one retried plain kept nothing.
   const spill: ToolSpills | null = neverStarted ? null : readNightSpills(result);
+  // WHAT IT SPENT (2026-10-23), from the same output: its last `result` line.
+  // A child stopped mid-stream, or retried plain, said none.
+  const usage = neverStarted ? null : childUsage(result.output);
+  // ITS RAW OUTPUT, KEPT FOR A DEVELOPER (2026-10-23, `debug.nightTranscripts`,
+  // off by default): never on a plain retry, which kept no output.
+  if (childInput.config.debug?.nightTranscripts === true && childInput.child !== undefined && named) {
+    writeNightTranscript(childInput.config.dataDir, childInput.configPath, localDate(childAt, childInput.config.timeZone), childInput.child, input.run, result.output);
+  }
   if (spill !== null) {
     input.onEvent?.({
       at: now(),
@@ -1152,7 +1199,7 @@ async function runNightChild(
   }
   // Recorded only when the child that ran is the one named: a plain retry
   // ran under an id its host chose, which this process never learns.
-  return { result, ms, neverStarted, spill, ...(named && !neverStarted ? { hostSession } : {}) };
+  return { result, ms, neverStarted, spill, usage, ...(named && !neverStarted ? { hostSession } : {}) };
 }
 
 /**
@@ -1335,6 +1382,107 @@ function begunSince(open: () => Counterpart, at: number, session: string): boole
   } catch {
     return true;
   }
+}
+
+// ── the developer's night transcripts (2026-10-23, `debug.nightTranscripts`) ──
+
+/**
+ * Where it goes and what it may name live with the switch (`config.ts#
+ * nightDebugDir`), where uninstall reads them too; re-exported here.
+ */
+export { NIGHT_DEBUG_DIR, NIGHT_TRANSCRIPT_NAME, nightDebugDir };
+/** Date folders older than this many days are pruned at each night's start. */
+export const NIGHT_TRANSCRIPT_DAYS = 7;
+
+/** A directory of its own and not a link to one. */
+function realDir(path: string): boolean {
+  try {
+    return lstatSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** Made 0700 when absent; true only when it is a real directory now (never a link). */
+function ownDir(path: string): boolean {
+  try {
+    mkdirSync(path, { mode: 0o700 });
+  } catch (err) {
+    if ((err as { code?: unknown }).code !== "EEXIST") return false;
+  }
+  if (!realDir(path)) return false;
+  try {
+    chmodSync(path, 0o700);
+  } catch {
+    /* it is ours to write in either way */
+  }
+  return true;
+}
+
+/**
+ * ONE CHILD'S RAW `stream-json` OUTPUT, KEPT (mode 0600, its folders 0700).
+ * Nothing written when there is no output, no debug folder for this store, a
+ * folder on the way that is a link or not a directory, or a file already at
+ * the name (`wx`: a link planted there is not followed). Returns the path
+ * written, or null. Never throws: the night never waits on its debug copy.
+ */
+export function writeNightTranscript(dataDir: string | undefined, configPath: string | undefined, date: string, child: NightChild, run: string, output: string | undefined): string | null {
+  try {
+    const dir = nightDebugDir(dataDir, configPath);
+    const name = `${child}-${run}.jsonl`;
+    if (dir === null || !isDay(date) || output === undefined || output.length === 0 || !NIGHT_TRANSCRIPT_NAME.test(name)) return null;
+    if (!ownDir(dir)) return null;
+    const day = join(dir, date);
+    if (!ownDir(day)) return null;
+    const path = join(day, name);
+    writeFileSync(path, output, { mode: 0o600, flag: "wx" });
+    return path;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * THE WEEK'S PRUNE, at the start of every night run, switch on or off: in each
+ * date folder older than `NIGHT_TRANSCRIPT_DAYS` before `today`, the regular
+ * files this feature names (`NIGHT_TRANSCRIPT_NAME`) are deleted, then the
+ * folder if that left it empty. Anything else — another name, a link, a
+ * folder that is not a date — is left as it is. Returns how many went. Never throws.
+ */
+export function pruneNightTranscripts(dataDir: string | undefined, configPath: string | undefined, today: string): number {
+  let gone = 0;
+  try {
+    const dir = nightDebugDir(dataDir, configPath);
+    if (dir === null || !isDay(today) || !realDir(dir)) return 0;
+    const oldest = addDays(today, -NIGHT_TRANSCRIPT_DAYS);
+    for (const day of readdirSync(dir, { withFileTypes: true })) {
+      if (!day.isDirectory() || !isDay(day.name) || day.name >= oldest) continue;
+      const path = join(dir, day.name);
+      let files;
+      try {
+        files = readdirSync(path, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const f of files) {
+        if (!f.isFile() || !NIGHT_TRANSCRIPT_NAME.test(f.name)) continue;
+        try {
+          unlinkSync(join(path, f.name));
+          gone += 1;
+        } catch {
+          /* left for the next night */
+        }
+      }
+      try {
+        rmdirSync(path);
+      } catch {
+        /* not empty: something not ours is in it */
+      }
+    }
+  } catch {
+    /* nothing pruned tonight */
+  }
+  return gone;
 }
 
 /** The store as the run's process opens it — the hook's options, no embedder.

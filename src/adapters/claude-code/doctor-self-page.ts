@@ -12,6 +12,8 @@ import {
   nightRunLost,
   nightRunOf,
   nightRunWords,
+  nightTokenCount,
+  nightTokensWords,
 } from "../../core/dream/index.js";
 import type { DreamingSetting, NightChildRun } from "../../core/dream/index.js";
 // The page's own reader, so this line cannot drift from what the wake prints.
@@ -127,6 +129,7 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
     dream: run.dream,
     reflection: run.reflection,
     ...(cu === null ? {} : { catchUp: cu.state, writtenUp: cu.written, writeUpParts: cu.parts, leftOwed: cu.left }),
+    ...(run.usage?.total == null || !Number.isFinite(nightTokenCount(run.usage.total)) ? {} : { tokens: nightTokenCount(run.usage.total) }),
   };
   const mins = (ms: number): string => `${String(Math.max(1, Math.round(ms / 60_000)))} min`;
   const took = run.endedAt === null ? "" : ` after ${mins(run.endedAt - run.startedAt)}`;
@@ -137,6 +140,9 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
   // by it; said here. A writer with nothing to do tonight is not missed.
   const missed = writerMissed(run.children ?? []);
   const writerNote = missed === null ? "" : `; the page writer was missed (${missed})`;
+  // WHAT THE NIGHT COST (2026-10-23), one clause, when its children said.
+  const cost = nightTokensWords(run.usage);
+  const costNote = cost === null ? "" : `; ${cost}`;
   if (run.state === "done") {
     const ids = [run.dream, run.reflection].filter((x): x is string => x !== null).join(", ");
     return [
@@ -144,7 +150,7 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
         "night-run",
         missed !== null && setting === "auto" ? "amber" : "green",
         "Nightly run",
-        `${setting}; last run ${run.date} (${what}) finished${took}${ids.length > 0 ? ` — ${ids}` : ""}${writerNote}${caught}`,
+        `${setting}; last run ${run.date} (${what}) finished${took}${ids.length > 0 ? ` — ${ids}` : ""}${costNote}${writerNote}${caught}`,
         missed === null ? "" : "Nothing to do by hand: tomorrow's writer reads its own day. If it repeats, run claude -p once by hand in a terminal to see why it stops.",
         { ...data, ...(missed === null ? {} : { writerMissed: missed }) },
       ),
@@ -159,7 +165,7 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
         "night-run",
         setting === "auto" ? "amber" : "green",
         "Nightly run",
-        `${setting}; the run of ${run.date} (${what}) was partial${took}: ${nightPartsWords(run)}${why}${writerNote}${caught}`,
+        `${setting}; the run of ${run.date} (${what}) was partial${took}: ${nightPartsWords(run)}${why}${costNote}${writerNote}${caught}`,
         "Nothing to do by hand: a later session picks up what did not run — a dream cut off is resumed, a reflection cut off runs alone.",
         { ...data, parts: (run.parts ?? []).join(",") },
       ),
@@ -190,7 +196,7 @@ export function nightRunFindings(input: DoctorInput, store: Store): Finding[] {
         : run.reason === "nothing-ran"
           ? "The headless run needs the counterparts MCP server registered for claude at user scope (claude mcp list shows it); the server's own mcp.session rows say whether it refused the session."
           : "A later session starts it again, or asks when it cannot. counterparts dream --setting ask stops the headless runs.";
-  return [finding("night-run", setting === "auto" ? "amber" : "green", "Nightly run", `${setting}; the run of ${run.date} (${what}) ${ended}${took}: ${words}${writerNote}${caught}`, fix, data)];
+  return [finding("night-run", setting === "auto" ? "amber" : "green", "Nightly run", `${setting}; the run of ${run.date} (${what}) ${ended}${took}: ${words}${costNote}${writerNote}${caught}`, fix, data)];
 }
 
 /** Why the night's page-writer child did not do its part, in a few words; null when it did, or had nothing to do. */
