@@ -504,7 +504,7 @@ const WRITER_REASON: Record<string, WriterReasonWords> = {
     why: "the session start had no room left to ask (the old way)",
     next: () => "It runs inside the nightly run now, where there is room.",
     more: () =>
-      "Until 2026-09-28 the page writer was asked at the start of a session, beside the wake, and only when the ask fitted what the host lets a session start with. " +
+      "Until 2026-09-28 day's end was asked at the start of a session, beside the wake, and only when the ask fitted what the host lets a session start with. " +
       "This night it did not fit, so it was held back rather than cut short. The writer runs inside the nightly run now, handed its day in a tool result, with no such limit.",
   },
   "scope-question": {
@@ -551,7 +551,7 @@ function writerNext(detail: string, lastNight: boolean): string | null {
 }
 
 const WRITER_IS =
-  "The page writer reads the day just gone, once a night — the first part of the nightly run, before the dream and the reflection — and rewrites the page when something about who I am moved.";
+  "Day's end reads the day just gone, once a night — the first part of the nightly run, before the dream and the reflection — and rewrites the page when something about who I am moved.";
 const WRITER_ABOUT = `${WRITER_IS} This is its newest night.`;
 
 /** "2026-07-09" → "Jul 9th" (the dashboard's one date style); anything else as it came. */
@@ -829,15 +829,15 @@ const WRITER_RUNS_READ = 500;
  */
 export function pageDayWords(w: Pick<WriterLine, "what" | "next">): string {
   const what = w.what;
-  const lead = /^(not |nothing )/.test(what) ? what.charAt(0).toUpperCase() + what.slice(1) : `The page writer ${what}`;
+  const lead = /^(not |nothing )/.test(what) ? what.charAt(0).toUpperCase() + what.slice(1) : `Day's end ${what}`;
   return `${lead}.` + (w.next === null ? "" : ` ${w.next}`);
 }
 
 /** The words for a lived day nothing in the record speaks for. Pure. */
 export function pageDayUnrecorded(today: boolean): { why: string; more: string } {
   return today
-    ? { why: "Not rewritten today; the page writer has not run yet.", more: `${WRITER_IS} It runs at most once a night, when a session starts.` }
-    : { why: "Not rewritten, and the page writer left no record that day.", more: `${WRITER_IS} Nothing in the record says it ran on this day of use.` };
+    ? { why: "Not rewritten today; day's end has not run yet.", more: `${WRITER_IS} It runs at most once a night, when a session starts.` }
+    : { why: "Not rewritten, and day's end left no record that day.", more: `${WRITER_IS} Nothing in the record says it ran on this day of use.` };
 }
 
 /**

@@ -84,7 +84,18 @@ beforeEach(() => {
   process.env[ENV] = dir;
 });
 
+/**
+ * The writer's input as it was before day's end read the day as told
+ * (2026-10-23, `self.DAYS_END_INPUT` off): the ranked list these tests pin.
+ * Day's end's own input is test/days-end.test.ts's.
+ */
+const DAYS_END_WAS = SELF_TUNABLES.DAYS_END_INPUT;
+function rankedList(): void {
+  (SELF_TUNABLES as { DAYS_END_INPUT: boolean }).DAYS_END_INPUT = false;
+}
+
 afterEach(() => {
+  (SELF_TUNABLES as { DAYS_END_INPUT: boolean }).DAYS_END_INPUT = DAYS_END_WAS;
   for (const c of open.splice(0)) {
     try {
       c.close();
@@ -379,6 +390,7 @@ describe("what the writer reads", () => {
   });
 
   test("SALIENCE FIRST, AND THE CUT IS DETERMINISTIC — nothing here claims 'newest'", () => {
+    rankedList();
     const c = counterpart();
     const about = pageWriterNight(c.store).about;
     // Within one calendar day every row ties on every clock the store has:
@@ -451,6 +463,7 @@ describe("what the writer reads", () => {
   });
 
   test("THE NIGHTLY RUN'S BLOCK CARRIES A BUSY DAY WHOLE, beside the page whole — no wake ceiling to size it to", () => {
+    rankedList();
     // The budget band the S2 review measured (a 260-byte band of ceilings
     // where the SessionStart block said the day was empty) belonged to the
     // ask beside the wake, retired 2026-09-28. The run's writer reads its day
@@ -560,6 +573,7 @@ describe("the instruction the writer reads", () => {
   });
 
   test("IT DOES NOT REPEAT THE PAGE — the wake already carries it — and names the version instead", () => {
+    rankedList();
     const c = counterpart();
     // A page big enough that repeating it would eat a realistic ceiling whole.
     const big = `## ${PAGE_CORE_HEADING}\n\n${"Placeholder core sentence that is long enough to matter. ".repeat(60)}\n\n## ${PAGE_LATELY_HEADING}\n\n${"Placeholder lately sentence. ".repeat(60)}`;

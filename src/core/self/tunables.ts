@@ -296,6 +296,19 @@ export interface SelfTunables {
    *  become a hundred bullets. CAL. */
   PAGE_WRITER_MEMORY_MAX: number;
   /**
+   * DAY'S END READS THE DAY AS TOLD (2026-10-23, lane D1; Mike's go, lightly
+   * held). On: the nightly writer (called day's end since that day) is handed
+   * every chapter of the day by its summary, a line each with its address
+   * (recall opens one whole), and the day's `DAYS_END_MEMORIES` strongest
+   * memories with their ids, so what it writes can cite them — the diary is
+   * written from the day as it was told, not from a ranked list. Off: the
+   * ranked list of the day's memories and the day's journal fitted as before,
+   * exactly. Read at use.
+   */
+  DAYS_END_INPUT: boolean;
+  /** With `DAYS_END_INPUT`: how many of the day's strongest memories day's end is handed, with their ids. CAL. */
+  DAYS_END_MEMORIES: number;
+  /**
    * How many SESSIONS may be asked to do one day's writing, in session mode.
    *
    * Not a pacer — the scar this package carries about pacers is about the
@@ -446,6 +459,8 @@ export const SELF_TUNABLES: SelfTunables = {
 
   PAGE_WRITER_MEMORY_BYTES: 8_192,
   PAGE_WRITER_MEMORY_MAX: 40,
+  DAYS_END_INPUT: true,
+  DAYS_END_MEMORIES: 12,
   PAGE_WRITER_ASKS_PER_DAY: 2,
 
   WAKE_LINE_BYTES: 240,

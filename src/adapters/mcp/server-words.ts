@@ -185,7 +185,7 @@ export function pageLaneAnswer(written: PageRevision): Record<string, unknown> {
   const names = kept.map((h) => (h.startsWith("the words") ? h : `\`## ${h}\``)).join(", ");
   return {
     laneKept: [...kept],
-    laneNote: `Kept as it stood: ${names}. Tonight the page writer amends every section but \`## Core\`, and the reflection writes \`## Core\` alone; the rest of what you sent was written.`,
+    laneNote: `Kept as it stood: ${names}. Tonight day's end amends every section but \`## Core\`, and the reflection writes \`## Core\` alone; the rest of what you sent was written.`,
   };
 }
 

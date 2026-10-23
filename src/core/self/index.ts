@@ -2196,6 +2196,8 @@ export class Self {
     omit?: (m: { id: string; protectedRow: boolean }) => boolean;
     /** The day's journal, composed by the caller (2026-10-15, `dream/slices.ts#dayJournal`). */
     journal?: WriterJournal;
+    /** Day's end's block (2026-10-23, `self.DAYS_END_INPUT`): the memories with their ids, the moment named. */
+    daysEnd?: boolean;
   }): WriterInput {
     const day = opts.day ?? this.store.livedDay();
     const picked = dayMemories(this.store, {
@@ -2214,6 +2216,7 @@ export class Self {
       omitted: picked.omitted,
       bytes: picked.bytes,
       ...(opts.journal === undefined ? {} : { journal: opts.journal }),
+      ...(opts.daysEnd === true ? { daysEnd: true } : {}),
     };
   }
 

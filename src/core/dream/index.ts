@@ -432,7 +432,7 @@ export function nightOrder(): NightPart[] {
 
 /** Tonight's run in a few words, in its order: "updates your self page, then dreams, then reflects". */
 export function nightSummary(): string {
-  const words: Record<NightPart, string> = { writer: "updates your self page", dream: "dreams", reflection: "reflects" };
+  const words: Record<NightPart, string> = { writer: "closes the day", dream: "dreams", reflection: "reflects" };
   return nightOrder()
     .map((p) => words[p])
     .join(", then ");
@@ -637,7 +637,7 @@ export function nightPartsWords(run: Pick<NightRun, "kind"> & Partial<Pick<Night
   // THE CATCH-UP ALONE (2026-10-11): nothing it was for went missing.
   const skipped = dreamSkippedOf(run);
   if (skipped !== null) return `the catch-up ran; the dream and the reflection were skipped (${dreamSkippedWords(skipped)})`;
-  const names: Record<NightPart, string> = { writer: "the page writer", dream: "the dream", reflection: "the reflection" };
+  const names: Record<NightPart, string> = { writer: "day's end", dream: "the dream", reflection: "the reflection" };
   const required: NightPart[] = run.kind === "reflection" ? ["reflection"] : ["dream", "reflection"];
   const ran = nightOrder().filter((p) => (run.parts ?? []).includes(p));
   const not = nightOrder().filter((p) => required.includes(p) && !ran.includes(p));
@@ -1657,7 +1657,7 @@ export class Dreams {
     // child of its own (`parts: ["writer"]`), the dream in the next without
     // it (`parts: ["dream"]`). Absent: every part, as before.
     const order = nightOrder().filter((p) => (reflect || p !== "reflection") && (input.parts === undefined || input.parts.includes(p)));
-    const names: Record<NightPart, string> = { dream: "the dream", writer: "the page writer", reflection: "a reflection" };
+    const names: Record<NightPart, string> = { dream: "the dream", writer: "day's end", reflection: "a reflection" };
     const dreamFirst = order.includes("dream") && order.indexOf("dream") < order.indexOf("writer");
     const blocks: Record<NightPart, (n: () => number) => string[]> = {
       dream: (n) => [
@@ -1686,7 +1686,7 @@ export class Dreams {
         "   In the dream you cannot delete anything, edit the self page, promote a memory, or rewrite one in place — the tool refuses. Nothing you write in the dream is a lived event.",
       ],
       writer: (n) => [
-        "The page writer — sleep's quiet self-update, a different job from reflecting: amend who you are from the day just lived, keeping every sentence that still holds.",
+        "Day's end — the diary of the day before sleep, a different job from reflecting: amend who you are from the day just lived, keeping every sentence that still holds.",
         `${String(n())}. Call the counterparts dream tool: phase "writer", session: ${input.session}${dreamFirst ? ", dream: <id>" : ""}. If it hands you a day to read, do what it says — rewrite your self page with the self_page tool, or leave it as it stands (that is an answer too). Keep the whole page within its room, in bytes: one past it is sent back once with how many bytes over — cut it and send it again, without a short version; if self_page's answer has a roomNote, do what it says before you go on. If it says there is no page writing tonight, go on.`,
       ],
       reflection: (n) => [

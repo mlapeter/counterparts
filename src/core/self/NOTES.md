@@ -2732,3 +2732,28 @@ the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.
   writer's child first: the writer reads the day before any merge archives it.
 - Not measured: whether a Core written apart from Lately reads well. Mike reads the pages
   on the check (docs/CHECK-AFTER.md).
+
+## 2026-10-23 — day's end reads the day as told (lane D1, `self.DAYS_END_INPUT`)
+
+- The page writer is called day's end wherever a person reads about it; every identifier
+  (`pageWriter*`, `self.page.writer.ran`, `pageWriter.mode`, the `page-writer` finding and
+  actor ids) keeps the old name. `PAGE_WRITER_OPEN` stays: the marker regex guards it.
+- With the switch on, `Counterpart#pageWriterInput` hands the day's chapters by their
+  summaries (`dayJournal(…, { summaries: true })`, 75% of the room, a line each with its
+  `epi_…#N` address) and the day's `DAYS_END_MEMORIES` (12) strongest with ids; the block
+  frames the moment as the diary of the day, before sleep, and asks for `claims`. The
+  writer's child gets `recall` (`seat.ts#DAYS_END_TOOLS`) to open a chapter whole.
+- `self_page` takes `cites` and `claims` (the reflection's finish shape); an id that names
+  no memory is dropped and named back (`refusedCites`). Without them a write keeps the
+  trace already there for the same text, as before.
+- NOT decided, left as it is: whether "## How I work" belongs to the reflection instead of
+  day's end (raised 10-23 with Mike). Day's end still amends Lately and How I work.
+- Check (d), a cite through a dream merge: since 2026-10-11 a merge leaves its original
+  live, faded and settled under the merged memory, so right after the merge the page's
+  cite still reads live; once its own curve archives it, the cite read "archived or
+  missing" though the merged memory stood. Never a hypothesis (the claim keeps its id),
+  and nothing retargets the stored cite. Fixed at read: `measures.ts#pageTrace` follows
+  `recall/standing.ts#headOf` and counts such a cite live, `throughLater` (doctor: "N live
+  (M through a later memory)"), only when its own memory is gone and the later one merged it
+  (`meta.mergedFrom`): a correction is not followed. `self_page` names back any cite input
+  that is not a memory's id. Test: `test/days-end.test.ts`.

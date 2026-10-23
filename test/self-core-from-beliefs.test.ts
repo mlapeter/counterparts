@@ -200,7 +200,17 @@ function night(w: World): Record<string, unknown> {
 
 describe("off, the night is what it was", () => {
   test("the reflection's bundle, its ask, its finish and the page written match the pre-lane-F golden byte for byte", () => {
-    const got = night(world());
+    // The golden is the room as it was filled before 2026-10-23: with
+    // `dream.REFLECT_ROOM_ORDER` off it is reproduced byte for byte too.
+    const D = DREAM as { REFLECT_ROOM_ORDER: boolean };
+    const was = D.REFLECT_ROOM_ORDER;
+    D.REFLECT_ROOM_ORDER = false;
+    let got: Record<string, unknown>;
+    try {
+      got = night(world());
+    } finally {
+      D.REFLECT_ROOM_ORDER = was;
+    }
     if (process.env["UPDATE_GOLDEN"] === "1" || !existsSync(GOLDEN)) {
       mkdirSync(dirname(GOLDEN), { recursive: true });
       writeFileSync(GOLDEN, `${JSON.stringify(got, null, 2)}\n`);

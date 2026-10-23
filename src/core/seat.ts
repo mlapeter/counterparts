@@ -104,8 +104,16 @@ export const SPLIT_DREAM_TOOLS: { readonly tools: readonly SeatTool[]; readonly 
  */
 export const SPLIT_REFLECTION_TOOLS: { readonly tools: readonly SeatTool[]; readonly withhold: readonly SeatTool[] } = { tools: ["dream", "reflect", "recall"], withhold: ["self_page"] };
 
-/** An act's tools tonight: `SEAT_TOOLS`, with the dream's and the reflection's without the page tool while the page is split. */
+/**
+ * DAY'S END WITH RECALL (2026-10-23, `self.DAYS_END_INPUT`, read at use): it
+ * reads the day's chapters by their summaries, and recall opens one whole by
+ * its address, as the dream's does since the lean bundles.
+ */
+export const DAYS_END_TOOLS: { readonly tools: readonly SeatTool[]; readonly withhold: readonly SeatTool[] } = { tools: ["dream", "self_page", "recall"], withhold: ["reflect"] };
+
+/** An act's tools tonight: `SEAT_TOOLS`, with the dream's and the reflection's without the page tool while the page is split, and day's end with recall while it reads the day as told. */
 export function seatTools(act: SeatAct): { readonly tools: readonly SeatTool[]; readonly withhold: readonly SeatTool[] } {
+  if (act === "writer" && SELF_TUNABLES.DAYS_END_INPUT) return DAYS_END_TOOLS;
   if (!SELF_TUNABLES.PAGE_SPLIT) return SEAT_TOOLS[act];
   return act === "dream" ? SPLIT_DREAM_TOOLS : act === "reflection" ? SPLIT_REFLECTION_TOOLS : SEAT_TOOLS[act];
 }

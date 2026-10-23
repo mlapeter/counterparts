@@ -604,10 +604,10 @@ export function loadConfig(raw: unknown): LoadedConfig {
     const w = pageWriter as Record<string, unknown> | null;
     if (typeof w === "object" && w !== null && !Array.isArray(w)) {
       if (w["command"] !== undefined) {
-        retired.push(`"pageWriter.command" is no longer used — the page writer runs inside the nightly run`);
+        retired.push(`"pageWriter.command" is no longer used — day's end runs inside the nightly run`);
       }
       if (w["mode"] === "host") {
-        retired.push(`"pageWriter.mode" "host" is no longer used — the page writer runs inside the nightly run (mode session)`);
+        retired.push(`"pageWriter.mode" "host" is no longer used — day's end runs inside the nightly run (mode session)`);
       }
       if (w["timeoutMs"] !== undefined) {
         retired.push(`"pageWriter.timeoutMs" is no longer used — the nightly run's watchdog is "dreaming.timeoutMs"`);

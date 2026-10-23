@@ -155,7 +155,7 @@ describe("dreaming: auto | ask | off, durable and reversible", () => {
     const line = takeLine(c, { at: c.store.today(), session: SESSION }) ?? "";
     expect(line).not.toContain('phase "launch"');
     expect(line).toContain("there is nothing for you to launch");
-    expect(line).toContain("it updates your self page, then dreams, then reflects");
+    expect(line).toContain("it closes the day, then dreams, then reflects");
     expect(line).toContain('phase "setting"');
     expect(c.store.dreamAsk(c.store.today())?.state).toBe("launched");
   });
@@ -381,7 +381,18 @@ describe("the reflection sees what the dream saw, and the whole page", () => {
     const d = c.dreams.begin({ session: SESSION });
     if (!d.ok) throw new Error(d.reason);
     c.dreams.journal({ dream: d.bundle.dream, session: SESSION, text: "A dream." });
-    const r = c.reflections.begin({ session: SESSION, dream: d.bundle.dream });
+    // Every memory the dream was shown, a line each: the room as it was
+    // filled before 2026-10-23 (`dream.REFLECT_ROOM_ORDER` off; on, only the
+    // older ones — test/reflect-room-order.test.ts).
+    const D = DREAM_TUNABLES as { REFLECT_ROOM_ORDER: boolean };
+    const was = D.REFLECT_ROOM_ORDER;
+    D.REFLECT_ROOM_ORDER = false;
+    let r: ReturnType<typeof c.reflections.begin>;
+    try {
+      r = c.reflections.begin({ session: SESSION, dream: d.bundle.dream });
+    } finally {
+      D.REFLECT_ROOM_ORDER = was;
+    }
     if (!r.ok) throw new Error(r.reason);
     expect(r.bundle.selfPage).toBe(page);
     const saw = r.bundle.dreamSaw.map((x) => x.id);

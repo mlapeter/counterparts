@@ -105,7 +105,7 @@ describe("the self tab, round 3b", () => {
     expect(d2?.why).toBe(pageDayWords(writerWords({ about: "2026-09-01", outcome: "skipped", derived: false, run: { detail: "no-room" } }, "")));
     expect(d2?.why).toMatch(/^Not rewritten — the session start had no room left to ask \(the old way\)\./);
     expect(d2?.more).toMatch(/runs inside the nightly run now/);
-    expect(d3?.why).toBe("The page writer read the day and kept it as is.");
+    expect(d3?.why).toBe("Day's end read the day and kept it as is.");
     expect(d5?.why).toBe(pageDayUnrecorded(d5?.today === true).why);
     expect(d5?.date).toBe("2026-09-05");
     expect(v.pageDaysUndated).toBe(0);
@@ -129,14 +129,14 @@ describe("the self tab, round 3b", () => {
     expect(dayWords({ ...filled, seqs: [1, 2, 3], by: "owner", reason: "owner edit" })).toMatch(/— rewritten 3 times, last by you, by hand\.$/);
     expect(dayWords({ ...filled, by: "owner", reason: "restored version 4" })).toMatch(/— rewritten by you, putting an earlier version back\.$/);
     expect(dayWords({ ...filled, by: "writer", reason: "the day moved how I hold the castle game (mem_cb6eea7a6b9f)" }))
-      .toMatch(/— rewritten by the page writer: “the day moved how I hold the castle game”$/);
+      .toMatch(/— rewritten by day's end: “the day moved how I hold the castle game”$/);
     expect(dayWords({ ...filled, by: "session", reason: "folded in drm_5c16061f0f96, as asked" }))
       .toMatch(/— rewritten by a session: “folded in, as asked”$/);
     expect(dayWords({ ...filled, by: null, reason: null })).toMatch(/— rewritten by someone unrecorded\.$/);
     for (const r of ["reflection rfl_06c7d252c3c7 after dream drm_5c16061f0f96", "x mem_cb6eea7a6b9f y"]) {
       expect(dayWords({ ...filled, by: "session", reason: r })).not.toMatch(/[a-z]{2,6}_[0-9a-f]{6,}/);
     }
-    expect(pageDayWords({ what: "rewrote it", next: null })).toBe("The page writer rewrote it.");
+    expect(pageDayWords({ what: "rewrote it", next: null })).toBe("Day's end rewrote it.");
     expect(pageDayWords({ what: "nothing ran, and nothing says why", next: null })).toBe("Nothing ran, and nothing says why.");
   });
 

@@ -110,11 +110,12 @@ describe("the night: the page writer's own child, first", () => {
     const out = await night(scripted(asks));
     expect(asks.slice(0, 3).map((a) => a.act)).toEqual(["writer", "dream", "reflection"]);
     const [writer, dream] = asks as [SeatAsk, SeatAsk];
-    expect(writer.tools).toEqual(["dream", "self_page"]);
+    // Recall too while day's end reads the day as told (2026-10-23, `self.DAYS_END_INPUT`): a chapter whole by its address.
+    expect(writer.tools).toEqual(SELF_TUNABLES.DAYS_END_INPUT ? ["dream", "self_page", "recall"] : ["dream", "self_page"]);
     expect(writer.withhold).toEqual(["reflect"]);
     expect(writer.limits).toEqual({ turns: ADAPTER.NIGHT_WRITER_MAX_TURNS, ms: ADAPTER.NIGHT_WRITER_MS });
     expect(writer.prompt).toContain('phase "writer"');
-    expect(writer.prompt).toContain("one part: the page writer");
+    expect(writer.prompt).toContain("one part: day's end");
     expect(writer.prompt).not.toContain('phase "begin"');
     expect(writer.prompt).not.toContain("dream: <id>");
     expect(dream.tools).toEqual(["dream", "recall"]);
@@ -146,7 +147,7 @@ describe("the night: the page writer's own child, first", () => {
     // Doctor says the writer was missed, on the night's own line.
     const c = brain();
     const line = nightRunFindings({ config: { dataDir: dir } } as unknown as DoctorInput, c.store)[0];
-    expect(line?.detail ?? "").toContain("the page writer was missed (could not start: no-claude)");
+    expect(line?.detail ?? "").toContain("day's end was missed (could not start: no-claude)");
     expect(writerMissed([{ child: "writer", code: 3, ms: 1 }])).toBe("exited 3");
     expect(writerMissed([{ child: "writer", code: null, ms: 0, skipped: "NO_COMMAND" }])).toBe("could not start: NO_COMMAND");
     expect(writerMissed([{ child: "writer", code: 0, ms: 1 }])).toBeNull();

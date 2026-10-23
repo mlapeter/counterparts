@@ -706,7 +706,7 @@ describe("owner rulings on the review's decisions", () => {
     const id = mem(c, "Mike and I finished the release together.", { kind: "person", about: "us" });
     const begun = c.reflections.begin({ session: SESSION });
     if (!begun.ok) throw new Error(begun.reason);
-    expect(begun.instructions).toContain("the owner has the page writer off");
+    expect(begun.instructions).toContain("the owner has day's end off");
     const done = c.reflections.finish({
       reflection: begun.bundle.reflection,
       session: SESSION,
