@@ -30,7 +30,7 @@ import { join, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
 
-import { ClaudeCodeAdapter, NIGHT_KIND_ENV, NIGHT_RUN_ENV, expansionIdsOf, openEmbedder, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
+import { ClaudeCodeAdapter, NIGHT_DENIED_TOOLS, NIGHT_KIND_ENV, NIGHT_RUN_ENV, expansionIdsOf, openEmbedder, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
 import type { ChildPlan, ChildResult, HookInput, NightStarter, SpawnPlan } from "../../src/adapters/claude-code/index.js";
 import type { TurnExpansion } from "../../src/adapters/lifecycle.js";
 import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
@@ -258,12 +258,15 @@ export function planTurn(opts: WeekOptions, t: TurnChild): ChildPlan & { ok: boo
   // `--resume`s this session and its hooks read its transcript.
   // Nor is it slim (2026-10-23): a person's session has the host's own
   // system prompt and its built-in set (still fenced by `--disallowedTools`),
-  // so `--tools ""` and the night's `--system-prompt` go, each with its value.
+  // so `--tools ""` and the night's `--system-prompt` go, each with its value,
+  // and its deny list is the built-ins alone: a real session is offered every
+  // tool of ours, granted or not (the night denies the ones it does not grant).
   const args = plan.args.filter((a) => a !== "--no-session-persistence");
   for (const flag of ["--tools", "--system-prompt"]) {
     const at = args.indexOf(flag);
     if (at >= 0) args.splice(at, 2);
   }
+  args[args.indexOf("--disallowedTools") + 1] = NIGHT_DENIED_TOOLS.join(",");
   const mcp = args.indexOf("--mcp-config");
   args[mcp + 1] = JSON.stringify({ mcpServers: { counterparts: server } });
   args.push("--setting-sources", "project", ...(t.first ? ["--session-id", t.session] : ["--resume", t.session]));
