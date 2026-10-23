@@ -55,6 +55,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Open threads mean someone owes an answer: the narrower `unresolved` text and Stop ask, the Stop ask naming the session's own open items (`STOP_OPEN_MAX` 5), and an untouched ownerless open item no longer carried after `OPEN_CARRY_DAYS` (21) lived days — out of Still open, its count and `staleOpen`; the share says the count once | not released, 10-22 | first look ~2026-10-29; the real check 2026-11-05 | "Due ~2026-10-29 (open threads mean someone owes an answer)" below; `docs/decisions.d/feat-open-threads-carry-1022.md` |
 | The dream's fresh intake: the fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000), 4 neighbours a new memory (`dream.NEIGHBOURS`, was 6); 44 → ~64 new memories a night on the 10-22 compare | not released, 10-23 | ~2026-10-29: `dream.begun` queue fresh/waiting/agedOut by build; whether dreams got thinner (whole 20 → 11) | "Due ~2026-10-29 (the dream's fresh intake)" below; `docs/decisions.d/feat-dream-intake-1023.md` |
 | The page split by section (`self.PAGE_SPLIT`, N1 part 2): the page writer in its own child first, amending every section but `## Core`; the reflection writes `## Core` alone; kept sentences keep their cites | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after the page split" below |
+| What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -92,6 +93,25 @@ Look at, per night since install (read-only):
 Changes it: Core drifting or empty, Lately stale, the writer missed most nights, or Mike preferring the old pages.
 Revert: `self.PAGE_SPLIT=false` (one switch: the writer back inside the dream's child, both rewriting the whole
 page, nothing carried), or revert the PR.
+
+## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
+
+What: every night's `dream.night` row now carries `usage`: each child's tokens from its own `result` line and the
+total. Read the tag child's real tokens over the nights since install, and the writer's and the dream's beside it:
+
+```sql
+SELECT json_extract(payload,'$.date') AS date,
+       json_extract(payload,'$.usage.tags.input') + json_extract(payload,'$.usage.tags.output')
+         + json_extract(payload,'$.usage.tags.cacheRead') + json_extract(payload,'$.usage.tags.cacheCreate') AS tags_tokens,
+       json_extract(payload,'$.usage.writer') AS writer, json_extract(payload,'$.usage.dream') AS dream,
+       json_extract(payload,'$.usage.total') AS total
+FROM events WHERE name = 'dream.night' AND json_extract(payload,'$.usage') IS NOT NULL ORDER BY seq;
+```
+
+`counterparts night` prints the latest night's total; doctor's Nightly run line too. Changes it: the tag child far
+past ~60–80k tokens a night → raise turning it off (`schemas.TAGS_NIGHT=false`). A child's `null` means it said no
+usage (stopped mid-stream); many of those is its own question. Revert of the record itself: revert the PR (nothing
+reads `usage` but the two lines above).
 
 ## Checked 2026-10-12 (lived day 21, the first new-curve pass, on 0.3.18)
 

@@ -59,6 +59,22 @@ bun run typecheck && bun tools/changelog/stitch.ts --check && TZ=America/Denver 
    shell. With it set, a store or config that was not named explicitly refuses to open,
    instead of opening your own `~/.counterparts`.
 
+## Developer switches
+
+Developer tools live in `tools/`, which does not ship. Only a switch that has to sit in
+shipped code goes under `debug` in `claude-code.json`; it is off by default, and it is
+documented here, not in the README or the user docs. Unknown `debug` keys are ignored.
+
+- `"debug": { "nightTranscripts": true }` keeps each night child's raw `stream-json` output
+  (the page writer, the dream, the reflection, the tagging) at
+  `<base>/debug/<date>/<child>-<run>.jsonl`, beside the store (`<base>/store`, the layout
+  `install` creates; a store anywhere else gets none). Files are mode 0600 in 0700 folders.
+  Date folders older than 7 days are pruned at the start of every night run, switch on or
+  off, and only the files this switch names. They hold the night's words (the memories it
+  read and what it wrote), so they stay out of backups: snapshots copy the store only, and
+  `uninstall` takes the folder with the rest. What a night cost needs no switch: it is on
+  the `dream.night` event (`usage`) and in `counterparts night`.
+
 ## Pull requests
 
 - Keep each pull request small: one change.

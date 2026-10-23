@@ -9,7 +9,7 @@
  * tests can check the words without a store.
  */
 import type { Counterpart } from "../../core/counterpart.js";
-import { dreamSkippedOf, nightPartsWords, nightRunWords } from "../../core/dream/index.js";
+import { dreamSkippedOf, nightPartsWords, nightRunWords, nightTokensWords } from "../../core/dream/index.js";
 import type { DreamingSetting, NightRun } from "../../core/dream/index.js";
 import { acceptsReflectedFeeling, reconsiderWords } from "../../core/sleep/index.js";
 import { coreSupport } from "../../core/self/measures.js";
@@ -55,7 +55,9 @@ export function nightRunLine(run: NightRun): string {
   const what = run.kind === "reflection" ? "the reflection alone" : dreamSkippedOf(run) !== null ? "the catch-up alone" : "the whole night";
   const parts = run.state === "done" || run.state === "partial" ? ` — ${nightPartsWords(run)}` : "";
   const why = run.state === "done" || run.state === "started" || (run.state === "partial" && run.reason === "unfinished") ? "" : `: ${nightRunWords(run)}`;
-  return `Latest headless run: ${run.run}  ${run.date}  ${run.state} (${what})${parts}${why}`;
+  // WHAT IT COST (2026-10-23): the children's tokens together, when they said.
+  const cost = nightTokensWords(run.usage);
+  return `Latest headless run: ${run.run}  ${run.date}  ${run.state} (${what})${parts}${why}${cost === null ? "" : `; ${cost}`}`;
 }
 
 /** How many dreams `dream --list` prints without `--all`. */

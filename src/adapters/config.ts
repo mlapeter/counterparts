@@ -381,6 +381,15 @@ export interface AdapterConfig {
     readonly ignored?: readonly string[];
   };
   /**
+   * DEVELOPER SWITCHES (2026-10-23), off by default and documented only in
+   * docs/DEVELOPING.md. `nightTranscripts`: each night child's raw
+   * `stream-json` output kept beside the store for a week
+   * (`night-run.ts#nightDebugDir`). Read leniently and quietly: only `true`
+   * switches one on; any other key or value is ignored, never refused, never
+   * an old setting.
+   */
+  readonly debug?: { readonly nightTranscripts?: boolean };
+  /**
    * SETTINGS THIS BUILD NO LONGER READS, phrased for a person — e.g.
    * `"credentialsFile" is no longer used …`. Present only when the file named
    * one. A REPORT, not a stance: the setting was ignored and nothing else
@@ -445,6 +454,7 @@ export function loadConfig(raw: unknown): LoadedConfig {
     pageWriter?: { mode: PageWriterMode; ignored?: string[] };
     dreaming?: { model?: string; timeoutMs?: number; maxTurns?: number; ignored?: string[] };
     retention?: { afterWriteUpDays?: number; maxDays?: number; ignored?: string[] };
+    debug?: { nightTranscripts?: boolean };
     retired?: string[];
     timeZone?: string;
     timeZoneUnknown?: string;
@@ -621,6 +631,12 @@ export function loadConfig(raw: unknown): LoadedConfig {
   const retention = rec["retention"];
   if (retention !== undefined) {
     out.retention = readRetention(retention);
+  }
+  // THE DEVELOPER BLOCK (2026-10-23): quiet as well as lenient — a switch
+  // only a developer sets, so nothing in it is reported, refused or retired.
+  const debug = rec["debug"];
+  if (typeof debug === "object" && debug !== null && !Array.isArray(debug)) {
+    out.debug = (debug as Record<string, unknown>)["nightTranscripts"] === true ? { nightTranscripts: true } : {};
   }
   const identity = rec["identity"];
   if (identity !== undefined) {

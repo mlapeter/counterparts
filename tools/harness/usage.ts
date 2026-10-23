@@ -5,44 +5,23 @@
  * side's run.
  */
 
-export interface UsageTally {
+import { childUsage } from "../../src/adapters/claude-code/index.js";
+
+/** The parser lives with the night that reads it (2026-10-23, `claude-code/transcript.ts`); re-exported for the harness. */
+export { childUsage };
+
+/** One child's tokens, as the night's own parser reads them. */
+type ChildTokens = NonNullable<ReturnType<typeof childUsage>>;
+
+export interface UsageTally extends ChildTokens {
   /** Children whose output carried a result line with usage. */
   readonly calls: number;
   /** Children that ran but said no usage (a crash, a timeout). */
   readonly unread: number;
-  readonly input: number;
-  readonly output: number;
-  readonly cacheRead: number;
-  readonly cacheCreate: number;
-  /** As the child reported it; on a subscription, a notional figure. */
-  readonly costUsd: number;
 }
 
 const ZERO: UsageTally = { calls: 0, unread: 0, input: 0, output: 0, cacheRead: 0, cacheCreate: 0, costUsd: 0 };
 let tally: UsageTally = ZERO;
-
-const n = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
-
-/** One child's usage from its stream-json output (the last `result` line); null when it said none. Pure. */
-export function childUsage(output: string | undefined): Omit<UsageTally, "calls" | "unread"> | null {
-  for (const line of (output ?? "").split("\n").reverse()) {
-    if (!line.includes('"result"')) continue;
-    try {
-      const o = JSON.parse(line) as { type?: string; usage?: Record<string, unknown>; total_cost_usd?: unknown };
-      if (o.type !== "result" || o.usage === undefined) continue;
-      return {
-        input: n(o.usage["input_tokens"]),
-        output: n(o.usage["output_tokens"]),
-        cacheRead: n(o.usage["cache_read_input_tokens"]),
-        cacheCreate: n(o.usage["cache_creation_input_tokens"]),
-        costUsd: n(o.total_cost_usd),
-      };
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
 
 /** Add one child's output to this process's tally. */
 export function recordUsage(output: string | undefined): void {

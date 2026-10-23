@@ -520,11 +520,61 @@ export interface NightRun {
    */
   readonly requeued?: number;
   /**
+   * WHAT THE NIGHT COST (2026-10-23): each child's tokens, as its own
+   * `stream-json` `result` line said them — `null` for a child that ran and
+   * said none (stopped mid-stream, or retried without the stream) — and their
+   * `total` (null when no child said any). Only children that ran have a key.
+   * Absent when the seat reports no usage, and on rows from before.
+   */
+  readonly usage?: NightUsage;
+  /**
    * When its hand-back was carried to a prompt (or found already carried) —
    * so the per-prompt path READS this and writes nothing once it is set.
    * Absent until then.
    */
   readonly handedAt?: number;
+}
+
+/** One child's tokens, from its `result` line (`claude-code/transcript.ts#childUsage`). Counts only. */
+export interface NightTokens {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheCreate: number;
+  /** As the child reported it; on a subscription, a notional figure. */
+  readonly costUsd: number;
+}
+
+/** A night's tokens, per child that ran, and their sum. */
+export type NightUsage = { readonly [child in NightChildRun["child"]]?: NightTokens | null } & { readonly total: NightTokens | null };
+
+/** The children's tokens summed; null when none said any. Pure. */
+export function nightUsageOf(per: { readonly [child in NightChildRun["child"]]?: NightTokens | null }): NightUsage {
+  const said = Object.values(per).filter((t): t is NightTokens => t !== null && t !== undefined);
+  const total =
+    said.length === 0
+      ? null
+      : {
+          input: said.reduce((n, t) => n + t.input, 0),
+          output: said.reduce((n, t) => n + t.output, 0),
+          cacheRead: said.reduce((n, t) => n + t.cacheRead, 0),
+          cacheCreate: said.reduce((n, t) => n + t.cacheCreate, 0),
+          costUsd: Math.round(said.reduce((n, t) => n + t.costUsd, 0) * 1e6) / 1e6,
+        };
+  return { ...per, total };
+}
+
+/** All the tokens read or written, cached or not. */
+export function nightTokenCount(t: NightTokens): number {
+  return t.input + t.output + t.cacheRead + t.cacheCreate;
+}
+
+/** `812k tokens`, `1.4M tokens`: a night's total in a few words; null when it said none. */
+export function nightTokensWords(usage: NightUsage | undefined): string | null {
+  if (usage === undefined || usage.total === null) return null;
+  const n = nightTokenCount(usage.total);
+  const words = n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${String(Math.round(n / 1_000))}k` : String(n);
+  return `${words} tokens`;
 }
 
 /** One child of a headless run (2026-10-11): ids, codes and times only. */
@@ -632,10 +682,30 @@ export function nightRunOf(store: Pick<Store, "getMeta">): NightRun | null {
       ...(v.transcript === "read" || v.transcript === "absent" || v.transcript === "unreadable" ? { transcript: v.transcript } : {}),
       ...(typeof v.spills === "number" ? { spills: v.spills } : {}),
       ...(typeof v.requeued === "number" ? { requeued: v.requeued } : {}),
+      ...(usageOf(v.usage) === null ? {} : { usage: usageOf(v.usage) as NightUsage }),
     };
   } catch {
     return null;
   }
+}
+
+/** A row's `usage` read back, forgiving: a child's tokens kept only when every count is a number; null when there is nothing to read. */
+function usageOf(raw: unknown): NightUsage | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const tokens = (t: unknown): NightTokens | null | undefined => {
+    if (t === null) return null;
+    if (typeof t !== "object" || Array.isArray(t)) return undefined;
+    const r = t as Record<string, unknown>;
+    const keys = ["input", "output", "cacheRead", "cacheCreate", "costUsd"] as const;
+    if (!keys.every((k) => typeof r[k] === "number" && Number.isFinite(r[k]))) return undefined;
+    return { input: r["input"] as number, output: r["output"] as number, cacheRead: r["cacheRead"] as number, cacheCreate: r["cacheCreate"] as number, costUsd: r["costUsd"] as number };
+  };
+  const per: { [child in NightChildRun["child"]]?: NightTokens | null } = {};
+  for (const child of ["writer", "dream", "reflection", "tags"] as const) {
+    const t = tokens((raw as Record<string, unknown>)[child]);
+    if (t !== undefined) per[child] = t;
+  }
+  return Object.keys(per).length === 0 ? null : nightUsageOf(per);
 }
 
 /** One child as a row carries it, forgiving: anything unreadable is left out. */
@@ -1032,6 +1102,8 @@ export class Dreams {
           ...(run.transcript === undefined ? {} : { transcript: run.transcript }),
           ...(run.spills === undefined ? {} : { spills: run.spills }),
           ...(run.requeued === undefined ? {} : { requeued: run.requeued }),
+          // Counts only, per child and the total (2026-10-23).
+          ...(run.usage === undefined ? {} : { usage: run.usage }),
         },
         dedupKey: `${NIGHT_RUN_EVENT}:${run.run}:${run.state}`,
       });

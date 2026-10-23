@@ -306,6 +306,9 @@ export function ownedKind(name: string, owned: OwnedNames): OwnedKind | null {
   if (owned.store !== null && name === owned.store) return "store";
   if (name === SIDEBAR_FILE_NAME || name === PLUGIN_PRESENCE_NAME || /^sidebar\.json\.\d+\.tmp$/.test(name)) return "sidecar";
   if (NPM_LIVE_NAME.test(name)) return "sidecar";
+  // A developer's night transcripts (2026-10-23, `debug.nightTranscripts`),
+  // beside a store this package laid out (`night-run.ts#nightDebugDir`).
+  if (owned.store === "store" && name === "debug") return "sidecar";
   const bases = [owned.config, owned.scopes, owned.snapshots, owned.store];
   for (const base of bases) {
     if (base === null || !name.startsWith(`${base}.`)) continue;
