@@ -53,6 +53,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Another project's work faces a slightly higher bar in ambient recall (`CROSS_PROJECT_BAR_LIFT` 1.25; the hard filter `RECALL_BY_PROJECT` built, off) | not released, 10-21 (Mike's "a slightly higher bar, and review after a week") | ~2026-10-29: footnote ratings home vs crossing, ~/counterparts ↔ ~/random apart; `crossProjectLifted` per turn | "Due ~2026-10-29 (a higher bar for another project's work)" below |
 | Beliefs shown (wave 2 lane E): the beliefs slot in ambient recall (`recall.BELIEFS_IN_RECALL`), tags as a priming partner source — **priming changed again** (`recall.TAGS_PRIME`), the wake's project line (`self.WAKE_PROJECT_LINE`); plus per-footnote priming flags (`primed.by`, `top`, `tag`) | not released, 10-22 (ships in the first release after the 10-22 read of 0.3.27) | ~2026-10-29, with the cross-project bar and the re-read of the four 0.3.27 experiments | "Due ~2026-10-29 (beliefs shown, and priming changed again)" below |
 | Open threads mean someone owes an answer: the narrower `unresolved` text and Stop ask, the Stop ask naming the session's own open items (`STOP_OPEN_MAX` 5), and an untouched ownerless open item no longer carried after `OPEN_CARRY_DAYS` (21) lived days — out of Still open, its count and `staleOpen`; the share says the count once | not released, 10-22 | first look ~2026-10-29; the real check 2026-11-05 | "Due ~2026-10-29 (open threads mean someone owes an answer)" below; `docs/decisions.d/feat-open-threads-carry-1022.md` |
+| The dream's fresh intake: the fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000), 4 neighbours a new memory (`dream.NEIGHBOURS`, was 6); 44 → ~64 new memories a night on the 10-22 compare | not released, 10-23 | ~2026-10-29: `dream.begun` queue fresh/waiting/agedOut by build; whether dreams got thinner (whole 20 → 11) | "Due ~2026-10-29 (the dream's fresh intake)" below; `docs/decisions.d/feat-dream-intake-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
@@ -904,3 +905,20 @@ or bring back the person rule for cards the ask has not reached. A twin the owne
 `counterparts dream --undo-twins [card]`. **Revert.** `schemas.TWINS_MERGE=false` before the pass runs (it runs
 once; after it, the undo door); revert the commits for the rest. The repaired kinds stay NULL until the ask
 sorts them (the record lists what each was).
+
+## Due ~2026-10-29 (the dream's fresh intake, 2026-10-23, Mike's go 10-22, an experiment — docs/decisions.d/feat-dream-intake-1023.md)
+
+**What changed.** The dream's fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000; Mike okayed 24k, see the decision) and each
+new memory carries 4 nearest older neighbours (`dream.NEIGHBOURS`, was 6). The composition compare on the 10-22
+snapshot read 44 → 64 fresh a night, nothing left out, whole texts 20 → 11, about +1.3k tokens.
+
+**What to look at (read-only).** The nights' intake from `dream.begun` events, split by build (0.3.33 on):
+`SELECT json_extract(payload,'$.build') b, date(at/1000,'unixepoch') d, json_extract(payload,'$.fresh') fresh, json_extract(payload,'$.queue') queue, json_extract(payload,'$.waiting') waiting, json_extract(payload,'$.agedOut') aged, json_extract(payload,'$.whole') whole, json_extract(payload,'$.parts') parts FROM events WHERE name='dream.begun' ORDER BY seq DESC LIMIT 12`
+— `fresh` (expect ~60, not ~44), `waiting`, `agedOut`, and `whole` (near 11, not 20). The last night on
+0.3.32 (10-23) read fresh 42, queue 671, waiting 629, agedOut 119, whole 19, 4 parts. Read one or two dream journal entries from before and after: did a
+dream with less whole text get thinner (fewer links made, shorter gists, fewer contradictions raised)?
+
+**What would change it.** Dreams noticeably thinner → NEIGHBOURS back to 6 (at 6 the fresh room binds before the list: ~51 fresh).
+Fresh still ~44 → a setting didn't take (check `build.<version>.settings` and the values in the shipped
+tunables). The queue still grows either way; draining it needs `FRESH_SHARE` or `NIGHT_CHARS`, which costs
+tokens and is Mike's call. **Revert.** Both values back in `src/core/dream/tunables.ts`.

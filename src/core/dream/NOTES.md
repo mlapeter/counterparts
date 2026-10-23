@@ -9,7 +9,7 @@ What the build learned, and every choice the brief left open (2026-09-26).
 | `MIN_NEW` | 3 | a dream with less than three new memories to replay is not worth the owner's minutes |
 | `FIRST_DREAM_DAYS` | 7 | a store that never dreamed treats the last week as "new" |
 | `MAX_NEW` | 40 | bounds the bundle: newest first |
-| `NEIGHBOURS` | 6 | the owner's "5–8" |
+| `NEIGHBOURS` | 4 | the owner's "5–8" (6 until 2026-10-23); 4 since, an experiment with `FRESH_LIST_CHARS` 16k to fit more new memories a night (docs/decisions.d/feat-dream-intake-1023.md) |
 | `MIXING` / `MIXING_FROM_RANK` / `MIXING_TO_RANK` | 5 / 12 / 40 | "loosely related": ranks 12–40 of a new memory's neighbourhood, picked at random (a seeded RNG, so a bundle is reproducible from its dream id) |
 | `LOOKBACK_DAYS` ± `LOOKBACK_SPREAD`, `LOOKBACK_COUNT` | 7 ± 2, 5 | "about a week back", the strongest-felt five |
 | `TEXT_CHARS`, `PAGE_CHARS`, `WAKE_CHARS`, `CHAPTER_CHARS`, `MAX_CHAPTERS` | 400, 6000, 6000, 3000, 6 | keep the bundle well under an MCP tool result's size |
