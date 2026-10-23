@@ -94,6 +94,8 @@ export {
   NIGHT_MCP_SCRIPT,
   NIGHT_MCP_SERVER,
   NIGHT_RUN_ENV,
+  NIGHT_SERVED_TOOLS,
+  NIGHT_SYSTEM_PROMPT,
   NIGHT_TOOLS,
   claudeCodeSeat,
   hostToolName,

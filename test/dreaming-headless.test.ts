@@ -21,6 +21,8 @@ import {
   NIGHT_KIND_ENV,
   NIGHT_MCP_SCRIPT,
   NIGHT_RUN_ENV,
+  NIGHT_SERVED_TOOLS,
+  NIGHT_SYSTEM_PROMPT,
   REAP_GRACE_MS,
   SCOPE_ASK_OPEN,
   loadConfig,
@@ -47,7 +49,7 @@ import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
 import { toolDefinitions } from "../src/adapters/mcp/tools.js";
 import { dreamShowLines, nightRunLine } from "../src/adapters/cli/dream-core.js";
 import { pageWriterNight } from "../src/core/self/index.js";
-import { Counterpart as CounterpartClass, NIGHT_WRITE_UP_EVENT } from "../src/core/counterpart.js";
+import { Counterpart as CounterpartClass, NIGHT_WRITE_UP_EVENT, SEAT_TOOLS, seatAsk } from "../src/core/counterpart.js";
 import type { Counterpart } from "../src/core/counterpart.js";
 import { DREAMING_DEFAULT, DREAM_MARK, DREAM_TUNABLES, RELAUNCHED_KEY, nightPartsWords, nightRunOf, nightRunWords } from "../src/core/dream/index.js";
 import type { PutInput } from "../src/core/store/index.js";
@@ -329,10 +331,61 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
     // dream: named + plain retry; reflection: named + plain retry; catch-up: one.
     expect(plans.length).toBe(5);
     for (const args of plans) expect(args).toContain("--no-session-persistence");
+    // The slim child (2026-10-23) on every one of them, the plain retry and the
+    // catch-up included: no built-in tool, our own system prompt, and every
+    // tool of ours but the one granted denied (so not offered up front).
+    for (const args of plans) {
+      expect(args[args.indexOf("--tools") + 1]).toBe("");
+      expect(args[args.indexOf("--system-prompt") + 1]).toBe(NIGHT_SYSTEM_PROMPT);
+      expect(args[args.indexOf("--allowedTools") + 1]).toBe("mcp__counterparts__recall");
+      const denied = (args[args.indexOf("--disallowedTools") + 1] ?? "").split(",");
+      expect(denied).toContain("Bash");
+      expect(denied).not.toContain("mcp__counterparts__recall");
+      for (const t of NIGHT_SERVED_TOOLS.filter((x) => x !== "mcp__counterparts__recall")) expect(denied).toContain(t);
+    }
     // The named children still pass their session id and read their own output.
     expect(plans[0]).toContain("--session-id");
     expect(plans[0]).toContain("stream-json");
     expect(plans[1]).not.toContain("--session-id");
+  });
+
+  test("the slim child, per act through the seat: each is offered exactly its own tools of ours, the rest denied, and the list of ours is the server's own", async () => {
+    // The pinned list is the server's whole `tools/list`, in its order.
+    expect(NIGHT_SERVED_TOOLS.map((t) => t.replace("mcp__counterparts__", ""))).toEqual(toolDefinitions().map((d) => String(d.name)));
+    const config: AdapterConfig = { dataDir: dir, injectionBudgetBytes: 20_000 };
+    CounterpartClass.open({ dir }).close();
+    const byAct = new Map<string, string[]>();
+    let current = "";
+    const record = async (plan: { args: readonly string[] }) => {
+      byAct.set(current, [...plan.args]);
+      return { code: 0, timedOut: false, error: null, output: "" };
+    };
+    const seat = claudeCodeSeat({
+      config,
+      open: () => {
+        const c = CounterpartClass.open({ dir });
+        open.push(c);
+        return c;
+      },
+      start: record,
+      startCatchUp: record,
+    });
+    for (const act of ["catch-up", "dream", "reflection", "tags"] as const) {
+      current = act;
+      await seat.answer(seatAsk(act, { prompt: "p", run: "nrn_t", session: "s-launch", scope: "/proj" }));
+    }
+    for (const act of ["catch-up", "dream", "reflection", "tags"] as const) {
+      const args = byAct.get(act) ?? [];
+      const granted = SEAT_TOOLS[act].tools.map((t) => `mcp__counterparts__${t}`);
+      expect(args[args.indexOf("--tools") + 1]).toBe("");
+      expect(args).toContain("--system-prompt");
+      expect(args[args.indexOf("--allowedTools") + 1]).toBe(granted.join(","));
+      const denied = (args[args.indexOf("--disallowedTools") + 1] ?? "").split(",");
+      // Every tool of ours is either granted or denied, never both, never neither.
+      for (const t of NIGHT_SERVED_TOOLS) expect(granted.includes(t) !== denied.includes(t)).toBe(true);
+      // No name twice (the dream's withheld `reflect` is also one it is not granted).
+      expect(new Set(denied).size).toBe(denied.length);
+    }
   });
 
   test("the child's plan, locked down: four tools, the built-ins denied, only counterparts' MCP server, a turn ceiling, a neutral directory, the prompt on stdin", () => {
@@ -362,11 +415,19 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
       "-p",
       // No Claude Code transcript of the child on disk (2026-10-21).
       "--no-session-persistence",
+      // The slim child (2026-10-23): no built-in tool, and our own system prompt.
+      "--tools",
+      "",
+      "--system-prompt",
+      NIGHT_SYSTEM_PROMPT,
       "--allowedTools",
       "mcp__counterparts__dream,mcp__counterparts__reflect,mcp__counterparts__self_page,mcp__counterparts__recall",
       // Deny beats allow: the user's own allow rules cannot reach these (review finding 3; owner B).
+      // Then every tool of ours this child is not granted, so it is not offered either.
       "--disallowedTools",
-      "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact",
+      "Bash,PowerShell,REPL,Read,Write,Edit,NotebookEdit,Glob,Grep,LSP,WebFetch,WebSearch,Task,Agent,Skill,Workflow,SendMessage,Monitor,TaskStop,EnterWorktree,CronCreate,RemoteTrigger,Artifact," +
+        "CronDelete,CronList,ScheduleWakeup,PushNotification,ListAgents,ExitWorktree,DesignSync,ReportFindings," +
+        "mcp__counterparts__remember,mcp__counterparts__status,mcp__counterparts__session_end,mcp__counterparts__chapter,mcp__counterparts__scope,mcp__counterparts__meet",
       "--permission-mode",
       "default",
       "--max-turns",
@@ -377,8 +438,11 @@ describe("B. the headless run: the child's plan, and what becomes of a run", () 
       "--model",
       "claude-opus-5-5",
     ]);
-    // ToolSearch stays: a host that defers MCP tools needs it to reach the four.
+    // ToolSearch is not denied by name (`--tools ""` already leaves it out).
     expect(plan.args.join(" ")).not.toContain("ToolSearch");
+    // The system prompt sits in argv: fixed words, no name, nothing from the store.
+    expect(NIGHT_SYSTEM_PROMPT).not.toContain("Mike");
+    expect(NIGHT_SYSTEM_PROMPT.length).toBeLessThan(1_000);
     // The one MCP server: counterparts, as the install registers it, with the run's session and scope pinned.
     const mcp = JSON.parse(plan.args[plan.args.indexOf("--mcp-config") + 1] ?? "{}") as { mcpServers: Record<string, { command: string; args: string[]; env: Record<string, string> }> };
     expect(Object.keys(mcp.mcpServers)).toEqual(["counterparts"]);
@@ -1316,6 +1380,11 @@ describe("gaps: bin/nightly.ts end to end, against a stub `claude` first on PATH
       expect(argv).toContain("--disallowedTools");
       expect(argv).toContain("--strict-mcp-config");
       expect(argv).toContain("--max-turns");
+      // The slim child through the real entry point: `--tools` with an empty
+      // value (one empty line in the stub's record), and our own system prompt.
+      const lines = argv.split("\n");
+      expect(lines[lines.indexOf("--tools") + 1]).toBe("");
+      expect(lines[lines.indexOf("--system-prompt") + 1]).toBe(NIGHT_SYSTEM_PROMPT.split("\n")[0]);
       expect(argv).not.toContain("session: s1");
       expect(readFileSync(join(bin, "stdin"), "utf8")).toContain("session: s1");
       const env = readFileSync(join(bin, "env"), "utf8");

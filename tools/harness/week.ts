@@ -256,7 +256,14 @@ export function planTurn(opts: WeekOptions, t: TurnChild): ChildPlan & { ok: boo
   // A PERSON'S SESSION IS KEPT (2026-10-21): the night child's
   // `--no-session-persistence` is dropped, because a turn after the first
   // `--resume`s this session and its hooks read its transcript.
+  // Nor is it slim (2026-10-23): a person's session has the host's own
+  // system prompt and its built-in set (still fenced by `--disallowedTools`),
+  // so `--tools ""` and the night's `--system-prompt` go, each with its value.
   const args = plan.args.filter((a) => a !== "--no-session-persistence");
+  for (const flag of ["--tools", "--system-prompt"]) {
+    const at = args.indexOf(flag);
+    if (at >= 0) args.splice(at, 2);
+  }
   const mcp = args.indexOf("--mcp-config");
   args[mcp + 1] = JSON.stringify({ mcpServers: { counterparts: server } });
   args.push("--setting-sources", "project", ...(t.first ? ["--session-id", t.session] : ["--resume", t.session]));

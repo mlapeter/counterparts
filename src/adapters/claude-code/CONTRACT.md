@@ -849,7 +849,13 @@ output is ignored. Every child, the plain retry included, also passes
 `--no-session-persistence` (2026-10-21; checked on 2.1.306 with `--session-id` and
 `stream-json`), so the host keeps no transcript of it under `~/.claude/projects`: its
 words — memories it read, the conversation it wrote up — do not outlive this package's own
-retention there. On a host too old to know the flag the night does not run. It
+retention there. On a host too old to know the flag the night does not run. Every child,
+the plain retry and the catch-up included, is also SLIM (2026-10-23): `--tools ""` (no
+built-in tool at all, `ToolSearch` included, so the host offers our tools up front instead
+of deferring them — measured on 2.1.309 and so documented), `--system-prompt` our own
+fixed words (`NIGHT_SYSTEM_PROMPT`) in place of the host's coding-assistant prompt, and
+every counterparts tool the child is not granted denied (`NIGHT_SERVED_TOOLS`), so it is not
+offered either; `NIGHT_DENIED_TOOLS` stays as the second fence. It
 starts in a NEUTRAL directory — the store's own — so no project's CLAUDE.md, hooks or MCP
 servers load. The parent's stance, `CLAUDE_PROJECT_DIR` and `CLAUDECODE` variables are
 removed; this package's values are written last.

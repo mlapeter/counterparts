@@ -129,6 +129,10 @@ test("a turn's plan keeps the night's lockdown and drops what would reach the li
   expect(plan.ok).toBe(true);
   expect(plan.args).toContain("--disallowedTools");
   expect(plan.args[plan.args.indexOf("--disallowedTools") + 1]).toContain("Bash");
+  // A person's session is not the slim night child: the host's own prompt and built-in set.
+  expect(plan.args).not.toContain("--tools");
+  expect(plan.args).not.toContain("--system-prompt");
+  expect(plan.args).not.toContain("");
   expect(plan.env["COUNTERPARTS_DATA_DIR"]).toBe(join(root, "store"));
   expect(plan.env["CLAUDE_PROJECT_DIR"]).toBeUndefined();
   expect(plan.env["ANTHROPIC_API_KEY"]).toBeUndefined();
