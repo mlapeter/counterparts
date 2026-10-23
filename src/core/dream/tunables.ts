@@ -131,6 +131,15 @@ export const DREAM_TUNABLES = {
    * quiet few days the summaries come whole. CAL.
    */
   REFLECT_CHAPTER_CHARS: 16_000,
+  /**
+   * THE TIMELINE (2026-10-23, lane D2, with `self.DAY_SUMMARY` and
+   * `REFLECT_ROOM_ORDER`): the reflection sees the last this-many days as a
+   * line a day — day's end's summary of each, or, for a day without one, its
+   * chapters' summaries' first lines — beside the last few days' chapters. CAL.
+   */
+  TIMELINE_DAYS: 21,
+  /** With `TIMELINE_DAYS`: a day's line, at most, in characters; a summary no longer comes whole, else its first line, cut with "…" and its whole length. CAL. */
+  TIMELINE_LINE_CHARS: 240,
   /** The share of tonight's room tonight's new memories and their neighbours may take as lines. CAL. */
   FRESH_SHARE: 0.5,
   /** The share for the journal's new entries. CAL. */

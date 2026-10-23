@@ -815,6 +815,8 @@ export interface PageDay {
   readonly why: string | null;
   /** The longer story behind `why`, for its `?`. */
   readonly more: string | null;
+  /** The day summary day's end left that night (2026-10-23, lane D2): the date it told, and its words. Absent when none. */
+  readonly told?: { readonly about: string; readonly text: string };
 }
 
 /** How many lived days the strip carries at most, the newest kept. */
@@ -883,6 +885,14 @@ function pageDays(src: DashboardSource, history: readonly PageStep[]): { pageDay
   }
   const newestRun = new Map<number, PageWriterRun>();
   for (const r of runs) if (!newestRun.has(r.day)) newestRun.set(r.day, r);
+  // THE DAY SUMMARY, under the night's dot (2026-10-23, lane D2): the newest
+  // one told on that day of use. Shown here, and only here, on the dashboard.
+  const toldOn = new Map<number, { about: string; text: string }>();
+  for (const r of runs) if (r.summary.trim().length > 0 && !toldOn.has(r.day)) toldOn.set(r.day, { about: r.about, text: r.summary.trim() });
+  const told = (d: number): { told?: { about: string; text: string } } => {
+    const t = toldOn.get(d);
+    return t === undefined ? {} : { told: t };
+  };
 
   const out: PageDay[] = [];
   for (let d = first; d <= Math.max(first, today); d += 1) {
@@ -901,6 +911,7 @@ function pageDays(src: DashboardSource, history: readonly PageStep[]): { pageDay
         reason: last.reason,
         why: null,
         more: null,
+        ...told(d),
       });
       continue;
     }
@@ -924,6 +935,7 @@ function pageDays(src: DashboardSource, history: readonly PageStep[]): { pageDay
       by: null,
       reason: null,
       ...words,
+      ...told(d),
     });
   }
   return { pageDays: out, pageDaysUndated: undated, pageDaysEarlier: first - Math.min(...dated.map((s) => s.day as number)) };

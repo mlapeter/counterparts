@@ -193,6 +193,14 @@ export interface PageWriterRun {
    */
   readonly session: string;
   readonly run: string;
+  /**
+   * THE DAY SUMMARY (2026-10-23, lane D2, `self.DAY_SUMMARY`): the few lines
+   * day's end left with its closing call — what the day was about and what
+   * is in motion — and the memory ids they rest on. "" and none on every
+   * other row, and on rows written before.
+   */
+  readonly summary: string;
+  readonly summaryCites: readonly string[];
   readonly at: number;
   /** The log's own order, which is the only TOTAL order these rows have: two
    *  rows written in one millisecond share an `at`, and "newest first" has to
@@ -381,6 +389,8 @@ export function pageWriterRuns(
       omitted: numberOr(payload["omitted"], 0),
       session: typeof payload["session"] === "string" ? payload["session"] : "",
       run: typeof payload["run"] === "string" ? payload["run"] : "",
+      summary: typeof payload["summary"] === "string" ? payload["summary"] : "",
+      summaryCites: Array.isArray(payload["summaryCites"]) ? payload["summaryCites"].filter((x): x is string => typeof x === "string") : [],
       at: row.at,
       seq: row.seq,
     });
@@ -493,6 +503,71 @@ export function nightClaimFor(store: Store, session: string, today: string): Pag
   const claim = pageWriterRuns(store).find((r) => r.outcome === "asked" && r.session === session && (r.on === "" || r.on >= today));
   if (claim === undefined || !pageWriterClaimOpen(store, claim.about, today)) return null;
   return claim;
+}
+
+/**
+ * A DAY SUMMARY, as the dream and the reflection read it (2026-10-23, lane
+ * D2): the date it is about, its words, the memory ids it rests on, and the
+ * session and run that wrote it.
+ */
+export interface DaySummary {
+  readonly about: string;
+  readonly text: string;
+  readonly cites: readonly string[];
+  readonly session: string;
+  readonly run: string;
+  readonly at: number;
+  /** The lived day it was written on. */
+  readonly day: number;
+}
+
+function summaryOfRun(r: PageWriterRun): DaySummary | null {
+  const text = r.summary.trim();
+  if (text.length === 0) return null;
+  return { about: r.about, text, cites: r.summaryCites, session: r.session, run: r.run, at: r.at, day: r.day };
+}
+
+/**
+ * EVERY DAY'S NEWEST SUMMARY in the window, by the date it is about, newest
+ * date first (2026-10-23, lane D2). One per date: when a date was told twice
+ * (a run started again the same night), the later telling stands. Never
+ * throws.
+ */
+export function daySummaries(store: Store, opts: { sinceDay?: number } = {}): DaySummary[] {
+  const byDate = new Map<string, DaySummary>();
+  for (const r of pageWriterRuns(store, opts.sinceDay === undefined ? {} : { sinceDay: opts.sinceDay })) {
+    const s = summaryOfRun(r);
+    if (s === null || s.about === "" || byDate.has(s.about)) continue;
+    byDate.set(s.about, s);
+  }
+  return [...byDate.values()].sort((a, b) => (a.about < b.about ? 1 : a.about > b.about ? -1 : 0));
+}
+
+/**
+ * THE SUMMARY A NIGHT'S DREAM READS (2026-10-23, lane D2): the newest one
+ * this session's day's end left — the night's children share its session, so
+ * a night that crosses midnight between day's end and the dream still finds
+ * it (about `about` or the day before; never an older one a long-lived
+ * session left) — else the newest about `about` (the night's own date),
+ * else null. Never throws.
+ */
+export function daySummaryFor(store: Store, input: { session: string | null; about: string }): DaySummary | null {
+  const runs = pageWriterRuns(store);
+  const floor = input.about === "" ? "" : dayBefore(input.about);
+  if (input.session !== null && input.session.length > 0) {
+    for (const r of runs) {
+      if (r.session !== input.session || (floor !== "" && r.about < floor)) continue;
+      const s = summaryOfRun(r);
+      if (s !== null) return s;
+    }
+  }
+  if (input.about === "") return null;
+  for (const r of runs) {
+    if (r.about !== input.about) continue;
+    const s = summaryOfRun(r);
+    if (s !== null) return s;
+  }
+  return null;
 }
 
 /** The newest attempt inside the window, whatever date it was about. Null if

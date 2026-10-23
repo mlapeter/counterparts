@@ -208,6 +208,10 @@ describe("a busy night: the long view first, and always", () => {
       expect(memLines).toContain(id);
     }
     expect(head).toContain(REFLECT_LEAN_LEGEND_ORDER.split("\n")[1] as string);
+    // The timeline is in the room too (lane D2, `self.DAY_SUMMARY` on by
+    // default): the three days of chapters as three lines, from their
+    // chapters, and the guarantees above hold beside it.
+    expect(section(texts, "timeline").filter((l) => / \(chapters; 3\) · /.test(l))).toHaveLength(3);
     expect(head).not.toContain("core: none");
     // The chapters, by their summaries, a line with its address — never the entry whole.
     const chapters = section(texts, "chapters");

@@ -37,6 +37,8 @@
  * the model, outside this process.
  */
 import { SELF_TUNABLES } from "../self/tunables.js";
+import { daySummaryFor, pageWriterNight } from "../self/writer.js";
+import type { DaySummary } from "../self/writer.js";
 import { createHash, randomBytes } from "node:crypto";
 
 import { Associate } from "../associate/index.js";
@@ -214,6 +216,13 @@ export interface DreamBundle {
   readonly date: string;
   readonly livedDay: number;
   readonly lastDreamed: string | null;
+  /**
+   * TODAY, AS DAY'S END TOLD IT (2026-10-23, lane D2, `self.DAY_SUMMARY`):
+   * the few lines day's end left about the day before this dream — read
+   * first, a header over the bundle, never in place of `fresh`, `today`,
+   * `mixing` or `lookback`. Absent when there is none, or the switch is off.
+   */
+  readonly daysEnd?: { readonly about: string; readonly text: string; readonly cites: readonly string[] };
   /** What one dream may change, by action — and `fold`, a gist flagged `fold` (its own ceiling, 2026-10-11). */
   readonly limits: Readonly<Record<DreamAction | "fold", number>>;
   readonly selfPage: string | null;
@@ -1754,7 +1763,7 @@ export class Dreams {
     const id = `drm_${randomBytes(6).toString("hex")}`;
     // LEAN (2026-10-23): read at use; the run keeps the shape it began with.
     const lean = DREAM_TUNABLES.LEAN_BUNDLE;
-    const composed = this.compose(id, q, prior, day, at, lean);
+    const composed = this.told(this.compose(id, q, prior, day, at, lean), input.session);
     if (composed.bundle.fresh.length === 0) return { ok: false, reason: "nothing-new" };
     const aliases = lean ? new AliasMap().extend(dreamBundleIds(composed.bundle)) : null;
     const packed = this.pack(id, input.session, composed, "", aliases);
@@ -1779,6 +1788,26 @@ export class Dreams {
       replayNoRoom: replay.noRoom,
     });
     return { ok: true, bundle: packed.bundle, text: renderDream(id, packed.bundle, "", aliases), resumed: false };
+  }
+
+  /**
+   * THE DAY, AS DAY'S END TOLD IT, OVER THE BUNDLE (2026-10-23, lane D2,
+   * `self.DAY_SUMMARY`, read at use): the summary this session's day's end
+   * left (the night's children share its session), else the one about the
+   * night's own date (`self/writer.ts#daySummaryFor`), put first. The bundle
+   * is otherwise exactly as composed. Off, or none: unchanged.
+   */
+  private told(c: Composed, session: string): Composed {
+    if (!SELF_TUNABLES.DAY_SUMMARY) return c;
+    let s: DaySummary | null = null;
+    try {
+      s = daySummaryFor(this.store, { session, about: pageWriterNight(this.store).about });
+    } catch {
+      s = null;
+    }
+    if (s === null) return c;
+    const { dream, date, livedDay, lastDreamed, ...rest } = c.bundle;
+    return { ...c, bundle: { dream, date, livedDay, lastDreamed, daysEnd: { about: s.about, text: s.text, cites: [...s.cites] }, ...rest } };
   }
 
   /**
@@ -1814,6 +1843,8 @@ export class Dreams {
       todayDreamed: Object.values(c.roles).filter((r) => r === "today").length,
       todayPairs: b.todayPairs.length,
       freshMarked: c.freshMarked,
+      // The day summary it opened with, by its date (2026-10-23, lane D2).
+      ...(b.daysEnd === undefined ? {} : { daysEnd: b.daysEnd.about }),
     };
   }
 
@@ -1873,7 +1904,7 @@ export class Dreams {
     const prev = readIndex(this.store, "dream");
     const own = prev !== null && prev.ref === dream.id ? prev : null;
     const lean = own === null ? DREAM_TUNABLES.LEAN_BUNDLE : own.aliases !== undefined;
-    const composed = this.compose(dream.id, q, prior, day, at, lean);
+    const composed = this.told(this.compose(dream.id, q, prior, day, at, lean), input.session);
     const said = Object.entries(made)
       .filter(([, n]) => n > 0)
       .map(([k, n]) => `${String(n)} ${k}`)
@@ -3901,6 +3932,8 @@ function leanDreamLines(b: DreamBundle, aliases: AliasMap): string[] {
   out.push(`shown: ${plainValue(b.shownAs, aliases)}`);
   out.push(`limits: ${plainValue(b.limits, aliases)}`);
   out.push(b.lookup === DREAM_LOOKUP_SPLIT ? DREAM_LEAN_LEGEND_SPLIT : DREAM_LEAN_LEGEND);
+  // TODAY, AS DAY'S END TOLD IT (2026-10-23, lane D2): first, a header.
+  if (b.daysEnd !== undefined) out.push(...daysEndLines(b.daysEnd, aliases));
   out.push(`## self page${b.selfPageChars === null ? "" : ` (${String(b.selfPageChars)} characters whole)`}`, b.selfPage ?? "none");
   out.push(`## wake${b.wakeChars === null ? "" : ` (${String(b.wakeChars)} characters whole)`}`, b.wake ?? "none");
   out.push(`owner: ${b.owner.names.length === 0 ? "none named" : b.owner.names.join(", ")} · memories about them: ${b.owner.memories.length === 0 ? "none" : b.owner.memories.map(s).join(" ")}`);
@@ -3916,6 +3949,16 @@ function leanDreamLines(b: DreamBundle, aliases: AliasMap): string[] {
   for (const m of b.onMind) out.push(`- ${[m.kind, ...(m.date === undefined ? [] : [m.date]), ...(m.pair === undefined ? [] : [m.pair]), m.ids.map(s).join(" ")].filter((x) => x.length > 0).join(" · ")} · ${m.text}`);
   out.push(...leanDreamBody(b.memories, b.chapters, aliases, year));
   return out;
+}
+
+/**
+ * THE DAY SUMMARY AS THE LEAN BUNDLE'S FIRST SECTION (2026-10-23, lane D2):
+ * its date, the memories it rests on (short where tonight numbers them), and
+ * its words as day's end wrote them.
+ */
+export function daysEndLines(d: NonNullable<DreamBundle["daysEnd"]>, aliases: AliasMap): string[] {
+  const rests = d.cites.length === 0 ? "" : ` · rests on ${d.cites.map((x) => aliases.short(x)).join(" ")}`;
+  return [`## today, as day's end told it (${d.about}${rests})`, d.text];
 }
 
 /**

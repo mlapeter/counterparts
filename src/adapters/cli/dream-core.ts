@@ -13,6 +13,7 @@ import { dreamSkippedOf, nightPartsWords, nightRunWords, nightTokensWords } from
 import type { DreamingSetting, NightRun } from "../../core/dream/index.js";
 import { acceptsReflectedFeeling, reconsiderWords } from "../../core/sleep/index.js";
 import { coreSupport } from "../../core/self/measures.js";
+import { dayBefore, daySummaryFor } from "../../core/self/writer.js";
 import type { DreamChangeRow, ReflectionRow, Store } from "../../core/store/index.js";
 
 /** How a memory id reads in a list: its first line, or why it is not shown.
@@ -212,6 +213,16 @@ export function dreamShowLines(counterpart: Counterpart, id: string): string[] |
     ...((): string[] => {
       const night = counterpart.dreams.nightRun();
       return night !== null && night.dream === dream.id ? [`  ${nightRunLine(night)}`] : [];
+    })(),
+    // WHAT IT OPENED WITH (2026-10-23, lane D2): the day, as day's end told it.
+    ...((): string[] => {
+      try {
+        const told = daySummaryFor(counterpart.store, { session: dream.session, about: dream.date === null ? "" : dayBefore(dream.date) });
+        if (told === null) return [];
+        return ["", `Day's end told ${told.about}${told.cites.length === 0 ? "" : ` (resting on ${told.cites.join(", ")})`}:`, ...told.text.split("\n").map((l) => `  ${l}`)];
+      } catch {
+        return [];
+      }
     })(),
     "",
     dream.title === null ? "Journal: (not written)" : `Journal: "${dream.title}"`,
