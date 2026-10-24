@@ -59,6 +59,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The reflection's core candidates capped at 30 a night, 10 of them rotated through the rest, the rest counted in one line (`REFLECT_TUNABLES.CANDIDATES`, switch `dream.REFLECT_CANDIDATES_CAP`); the per-lane shown counts kept on the reflection's row (`detail.lanes`), which with `chaptersAs` now survive the finish | 0.3.35, 10-24 | 3–4 nights after install, with day's end's check | "Due 3–4 nights after the candidates' cap" below; `docs/decisions.d/feat-reflect-candidates-cap-1024.md` |
 | Use credit refuses the memory's writing session on its birth day (`own-write`), not everyone: another session's use credits a newborn memory once that day; unknown/unbound writers keep the birth-day rule (switch `physics.OWN_WRITE_GATE`) | 0.3.35, 10-24 (R2) | ~7 nights after install: promotions and core growth | "Due ~7 nights after own-write" below; `docs/decisions.d/fix-own-write-not-birth-day.md` |
 | Consolidation every lived day (`sleep` `CADENCE.consolidate` 1, was 3): the core is decided at every night's sleep, still at most 3 a night (`CORE_MAX_PER_SLEEP`); read with 0.3.35's R2 (own-write), since both feed the core | not released, 10-24 (0.3.36) | ~7 nights after install | "Due ~7 nights after daily consolidation" below; `docs/decisions.d/feat-daily-consolidation.md` |
+| Cue learning (R3, store v15 `cue_edges`): the words of a turn that showed a memory, which was then used or rated, wire to it, and a learned pair reads as one more cue (`w × share × CUE_PAIR_UNITS`); switch `physics.CUE_LEARNING` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after cue learning" below; `docs/decisions.d/feat-cue-learning.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -218,6 +219,29 @@ What would change it: a core growing faster than ~3 a week for more than a week,
 (a memory demoted soon after). Revert: `CADENCE.consolidate` back to 3 in `src/core/sleep/tunables.ts` (one number;
 the dashboard and mechanisms read it).
 
+
+## Due ~7 lived days after cue learning (2026-10-24, R3, Mike's go 14:01, ships on its own store bump — `physics.CUE_LEARNING`)
+
+What: a credited use or a rating of a shown memory wires that turn's index words to it (`cue_edges`: token, memory_id,
+weight, last_day, source); a learned pair then reads as one more cue at the word's share of the turn, so a bare word
+can bring its memory back loud after a few credited uses (the ping → pong demo: 4th → 1st loud after 3 credits in the
+test). Bounded per pair (`CUE_W_CAP` 1), per word (`CUE_MAX_OUT` 1.5), fading with lived days (`S_CUE` 60). Only words
+already in the word index are learned; an owner erase deletes the memory's pairs.
+
+Look at (read-only):
+- growth and shape: `SELECT COUNT(*) AS pairs, COUNT(DISTINCT token) AS words, COUNT(DISTINCT memory_id) AS memories, ROUND(MAX(weight),2) AS top, ROUND(AVG(weight),3) AS mean FROM cue_edges;`
+  and the strongest: `SELECT token, memory_id, ROUND(weight,2), source, last_day FROM cue_edges ORDER BY weight DESC LIMIT 20;`
+  expect a few hundred pairs a week, a handful near the cap; a token with dozens of memories means a common word slipped through;
+- the demo, live: a bare "ping" in a fresh session brings the ping memory back first and loud;
+- footnote ratings (noise vs useful, mem_2d998d1c230c baseline 47% / 18%) by build, from `recall.rated`: learned pairs
+  should not raise noise.
+
+Not stored: how many memories a learned pair reached each turn (`learned` on the activation stats is reported, not
+recorded), so whether a footnote came by a learned pair can't be read from the store yet; adding it to
+`recall.decision` is a follow-up if the check needs it.
+
+Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
+word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 
 What: every night's `dream.night` row now carries `usage`: each child's tokens from its own `result` line and the
