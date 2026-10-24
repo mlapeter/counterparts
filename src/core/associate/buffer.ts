@@ -27,7 +27,7 @@
  * double-apply them. See index.ts.
  */
 import { pairKey } from "./edges.js";
-import type { PairDelta } from "./edges.js";
+import type { CueDelta, PairDelta } from "./edges.js";
 
 export class DeltaBuffer {
   private pairs = new Map<string, PairDelta>();
@@ -64,6 +64,42 @@ export class DeltaBuffer {
   drain(): PairDelta[] {
     const taken = this.pairs;
     this.pairs = new Map<string, PairDelta>();
+    return [...taken.values()];
+  }
+}
+
+/**
+ * The CUE half of the same exemption (2026-10-24, R3 cue learning): per-turn
+ * word-to-memory deltas, buffered and drained exactly as pair deltas are —
+ * declared here, beside them, because this file is the one place the
+ * exemption may be declared. Re-earnable by construction: the next credited
+ * use of the same memory from the same word earns it again. SIGNED, unlike
+ * pairs: a rating of 0 depresses (the pair floors at 0 in the flush), so it
+ * is not a `DeltaBuffer`, whose `add` drops anything at or below 0.
+ */
+export class CueBuffer {
+  private cues = new Map<string, CueDelta>();
+
+  add(token: string, id: string, delta: number): void {
+    if (!Number.isFinite(delta) || delta === 0 || token.length === 0 || id.length === 0) return;
+    const key = `${token}\u0000${id}`;
+    const next = (this.cues.get(key)?.delta ?? 0) + delta;
+    if (next === 0) this.cues.delete(key);
+    else this.cues.set(key, { token, id, delta: next });
+  }
+
+  get size(): number {
+    return this.cues.size;
+  }
+
+  pending(): CueDelta[] {
+    return [...this.cues.values()].map((c) => ({ ...c }));
+  }
+
+  /** Swap, as `DeltaBuffer#drain` does: what arrives during a flush survives to the next. */
+  drain(): CueDelta[] {
+    const taken = this.cues;
+    this.cues = new Map<string, CueDelta>();
     return [...taken.values()];
   }
 }

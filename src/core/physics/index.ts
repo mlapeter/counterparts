@@ -644,6 +644,22 @@ export const TUNABLES = {
    */
   OWN_WRITE_GATE: true,
 
+  // --- cue learning (2026-10-24, R3, an experiment) ---
+  /**
+   * THE WORDS THAT BROUGHT A MEMORY BACK, AND HELPED, WIRE TO IT. On, recall
+   * keeps each turn's informative cue words beside what the turn showed, a
+   * credited use of a memory (an open, a quote, `drewOn`, a rating) wires the
+   * words of the turn that showed it to the memory (`associate`'s `cue_edges`,
+   * bounded like association's edges), and a learned pair fetches its memory
+   * as one more cue (`recall/activate.ts`). Off: nothing is recorded, trained
+   * or read, and every bundle and recall is byte-identical to before. One
+   * switch for both modules, because both read physics.
+   * Decided by Mike, 2026-10-24, lightly held (R3; the ping/pong demo).
+   * Why: practising "ping → pong" should make the answer come faster, and
+   * until now talking about a habit only added competitors to it.
+   */
+  CUE_LEARNING: true,
+
   // --- §5.12 a changed fact fades once (2026-09-29, contradictions) ---
   /**
    * What a memory's DECAY is multiplied by, once, when it is settled as

@@ -201,6 +201,17 @@ export type SpreadFn = (
 };
 
 /**
+ * CUE LEARNING'S READ (2026-10-24, R3 — an experiment), structurally
+ * `Associate.learnedCues`: for each index term asked, the memories wired to
+ * it and each pair's weight, faded to `day` (0..`associate.CUE_W_CAP`).
+ * Injected, because `recall/` must not import `associate/`.
+ */
+export type LearnedCuesFn = (
+  terms: readonly string[],
+  day: number,
+) => ReadonlyMap<string, readonly { id: string; weight: number }[]>;
+
+/**
  * What spreading did on one turn — counts only (2026-09-28, association
  * build 1). `computed` is every memory the graph reached; `landed` is how many
  * of those were already candidates and so actually moved a number. Under hops
@@ -265,6 +276,8 @@ export interface ActivationInput {
    *  candidate modulates it; a contribution to anything else may become a quiet
    *  pointer (bounded, thresholded, footnote tier only — 2026-09-28). */
   readonly spread?: SpreadFn | undefined;
+  /** CUE LEARNING (R3): the learned pairs out of this turn's words. Absent: none read. */
+  readonly learned?: LearnedCuesFn | undefined;
   readonly day: number;
   /** Whether the turn stated a FIRST-PERSON feeling. Gates emotional salience. */
   readonly selfFelt: boolean;
@@ -333,6 +346,9 @@ export interface ActivationResult {
   /** Rows the exact recheck found BELOW REACH and left out (2026-10-10) —
    *  candidates and would-be pointers. Reported, not recorded. */
   readonly belowReach: number;
+  /** Memories a LEARNED pair reached this turn (R3), whether or not the cut
+   *  kept them. Reported, not recorded (`capped`'s reason). */
+  readonly learned: number;
   /**
    * The feeling lane (2026-09-30, U13), when the turn was a deliberate ask:
    * whether the question was about feeling, how many of its words named one,
@@ -632,6 +648,51 @@ export function activate(
       bestCue.set(id, Math.max(bestCue.get(id) ?? 0, add));
       matchCount.set(id, (matchCount.get(id) ?? 0) + 1);
       if (!cue.ambiguous) unambiguousMatch.add(id);
+    }
+  }
+
+  // ── learned pairs (2026-10-24, R3 cue learning — an experiment) ─────────
+  // A word that brought a memory back AND helped, enough times, is wired to
+  // it (`associate`'s `cue_edges`). Each of this turn's OWN words (never a
+  // carried one) that holds pairs adds `w × CUE_PAIR_UNITS × cueUnit` to its
+  // memory's cue — a fully learned pair worth `CUE_PAIR_UNITS` rare words
+  // whatever the word, NOT `cue.weight × w` (rarity would count twice). It IS
+  // cue: in `cueScore` (so `cueFraction` counts it and it can make a
+  // candidate alone — hard gate (a) unchanged, a learned pair is a cue), in
+  // `bestCue` (or a learned-only memory would be capped to zero below), and it
+  // trains (a pair is id-addressed, like a temporal cue) unless the word was
+  // an ambiguous handle, which fires at its reduced weight. A word too common
+  // to look up (`CUE_FETCH_MIN_IDF`) is never a route. Everything after —
+  // `recallable` (denied, archived, superseded, below reach), the doc cap,
+  // the gate — applies as to any cue. Absent reader: nothing here runs.
+  const learnedReached = new Set<string>();
+  if (input.learned !== undefined && t.CUE_PAIR_UNITS > 0) {
+    const pairUnit = t.CUE_PAIR_UNITS * informativeness(1, storeSize);
+    const own = cues.filter((c) => !c.carried && c.weight > 0);
+    const fetchable = own.filter((c) => {
+      const d = df.get(stemTerm(c.token));
+      return !(d !== undefined && informativeness(d, storeSize) < t.CUE_FETCH_MIN_IDF);
+    });
+    let routes: ReadonlyMap<string, readonly { id: string; weight: number }[]> = new Map();
+    if (fetchable.length > 0) {
+      try {
+        routes = input.learned([...new Set(fetchable.map((c) => stemTerm(c.token)))], input.day);
+      } catch {
+        routes = new Map();
+      }
+    }
+    for (const cue of fetchable) {
+      const byDoc = postings.get(cue.token);
+      for (const { id, weight } of routes.get(stemTerm(cue.token)) ?? []) {
+        const add = weight * pairUnit * (cue.ambiguous ? t.AMBIGUOUS_WEIGHT : 1);
+        if (!(add > 0)) continue;
+        cueScore.set(id, (cueScore.get(id) ?? 0) + add);
+        bestCue.set(id, Math.max(bestCue.get(id) ?? 0, add));
+        // One cue, one match: a word that also matched the text is not counted twice.
+        if (byDoc?.has(id) !== true) matchCount.set(id, (matchCount.get(id) ?? 0) + 1);
+        if (!cue.ambiguous) unambiguousMatch.add(id);
+        learnedReached.add(id);
+      }
     }
   }
 
@@ -1408,6 +1469,7 @@ export function activate(
     collapsed,
     folded: reachedFold,
     belowReach: belowReachCount,
+    learned: learnedReached.size,
     prime:
       primeRun === null
         ? null

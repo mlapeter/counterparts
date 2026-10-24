@@ -37,8 +37,8 @@
  */
 import { randomUUID } from "node:crypto";
 
-import { Associate, appendPendingDeltas, claimPending, releasePending } from "./associate/index.js";
-import type { CoactivateResult, Credited, FlushReport, PairDelta, PendingClaim } from "./associate/index.js";
+import { Associate, appendPendingCues, appendPendingDeltas, claimPending, releasePending } from "./associate/index.js";
+import type { CoactivateResult, CueDelta, CueFlushReport, Credited, FlushReport, PairDelta, PendingClaim } from "./associate/index.js";
 import { READ_TODAY_AT_START, horizonFor } from "./briefing.js";
 import { episodeGate } from "./bridge.js";
 import { Dreams, Reflections } from "./dream/index.js";
@@ -2721,7 +2721,50 @@ export class Counterpart {
 
   /** Retrospective reinforcement for ONE memory the reply actually used. */
   resolveUse(sessionId: string, memoryId: string, tier: UseTier, opts: { cued?: boolean; beliefSlot?: boolean } = {}): CreditResult {
-    return this.recall.resolveUse(sessionId, memoryId, tier, opts);
+    const r = this.recall.resolveUse(sessionId, memoryId, tier, opts);
+    // CUE LEARNING (R3): what the use earned for the words of the turn that
+    // showed it, to the pending file the worker applies (`publishCues`).
+    if (r.cues !== undefined && r.cues.length > 0) this.publishCues(r.cues);
+    return r;
+  }
+
+  /**
+   * CUE LEARNING'S HALF OF THE CREDIT PASS (R3, 2026-10-24 — an experiment):
+   * word-to-memory deltas, buffered and drained to the pending file exactly
+   * as `publishCoactivation` drains pairs — no database lock for association
+   * on the hook path (I38). The worker applies them at its next boundary
+   * (`applyPendingAssociations`), so the next turn in any session after that
+   * sees the learning. An observer writes nothing. Never throws. Returns how
+   * many deltas reached the file.
+   */
+  private publishCues(deltas: readonly CueDelta[]): number {
+    if (this.observer) {
+      this.emit("counterpart.associate.standdown", undefined, { site: "cues" });
+      return 0;
+    }
+    const started = this.store.now();
+    let drained: CueDelta[] = [];
+    let day = 0;
+    try {
+      day = this.store.livedDay();
+      this.associate.depositCues(deltas);
+      drained = this.associate.drainCues();
+    } catch (err) {
+      this.emit("counterpart.associate.cues.failed", undefined, { code: errCode(err) });
+      return 0;
+    }
+    if (drained.length === 0) return 0;
+    const append = appendPendingCues(this.store.dir, drained, { day, at: started });
+    this.emit("counterpart.associate.pending", undefined, {
+      day,
+      site: "cues",
+      pairs: drained.length,
+      written: append.pairs,
+      dropped: append.droppedPairs + (append.ok ? 0 : drained.length - append.pairs),
+      code: append.code,
+      elapsedMs: this.store.now() - started,
+    });
+    return append.pairs;
   }
 
   /**
@@ -2732,13 +2775,17 @@ export class Counterpart {
    * through the store's gate-record door, so an observer's store refuses it
    * (the caller swallows that, as it does every telemetry write).
    */
-  noteAsked(sessionId: string, ids: readonly string[]): void {
+  noteAsked(sessionId: string, ids: readonly string[], opts: { question?: string } = {}): void {
     if (ids.length === 0) return;
     const day = this.store.livedDay();
     const at = askedTurn(this.store.now());
     this.store.setGateRecords(
       [...new Set(ids)].map((id) => ({ sessionId, kind: ASKED_KIND, ref: id, turn: at, lastDay: day, tier: "asked", trains: true })),
     );
+    // THE QUESTION'S WORDS (R3 cue learning): kept beside what its answer
+    // showed, so opening one later wires them to it. The search itself
+    // trains nothing (recall CONTRACT item 8); the open after it does.
+    if (opts.question !== undefined) this.recall.noteQuestionCues(sessionId, opts.question, at);
   }
 
   /**
@@ -3367,6 +3414,17 @@ export class Counterpart {
         refuse(errCode(err));
       }
     }
+    // A RATING OF 0 depresses the cue pairs of the turn that showed it (R3):
+    // cue-specific habituation, through the same pending file.
+    for (const r of rated) {
+      if (r.score !== 0 || rowRefusal(r.id) !== null) continue;
+      try {
+        const down = this.recall.cueDepress(sessionId, r.id);
+        if (down.length > 0) this.publishCues(down);
+      } catch (err) {
+        this.emit("counterpart.associate.cues.failed", r.id, { code: errCode(err) });
+      }
+    }
     // What the stretch otherwise used was credited when it was used; it links if its row still may.
     for (const id of plan.coUse) {
       if (!linkable.has(id) && rowRefusal(id) === null && state.surfaced[id]?.trains !== false) linkable.add(id);
@@ -3629,6 +3687,7 @@ export class Counterpart {
     };
     let failure: string | null = null;
     const linked: string[] = [];
+    const cueOut = { deltas: 0, rows: 0, dropped: 0 };
     for (const claim of claims) {
       out.passes += claim.passes;
       out.pairs += claim.deltas.length;
@@ -3663,6 +3722,27 @@ export class Counterpart {
         out.dropped += threw === null ? 0 : claim.deltas.length;
         continue;
       }
+      // CUE PAIRS (R3), in the same unit of work and AFTER the claim's pairs
+      // landed: a claim whose pairs failed stays on disk with its cue deltas
+      // unapplied (nothing absorbed), and a cue write that fails here is
+      // dropped and counted rather than keeping the claim — keeping it would
+      // apply its pairs twice. At most once for both halves (G4).
+      if (claim.cues.length > 0) {
+        cueOut.deltas += claim.cues.length;
+        let cueReport: CueFlushReport | null = null;
+        try {
+          this.associate.absorbCues(claim.cues);
+          cueReport = this.associate.flushCues(claim.day ?? this.store.livedDay());
+        } catch (err) {
+          this.emit("counterpart.associate.cues.failed", undefined, { code: errCode(err), site: "apply" });
+        }
+        if (cueReport !== null && cueReport.reason === "flushed") cueOut.rows += cueReport.rows;
+        else {
+          cueOut.dropped += claim.cues.length;
+          // A busy flush left them buffered; this process ends soon, and the claim goes: drop them, counted.
+          this.associate.drainCues();
+        }
+      }
       const released = releasePending(claim);
       if (released.stuck) {
         // A claim that cannot be removed will be applied again by a later run:
@@ -3673,7 +3753,7 @@ export class Counterpart {
       }
     }
     if (failure !== null) out.reason = "failed";
-    else if (out.pairs === 0) out.reason = "nothing-buffered";
+    else if (out.pairs === 0 && cueOut.deltas === 0) out.reason = "nothing-buffered";
 
     // The lived day is a database read; a busy database must not lose the row
     // over it (second review, 2026-09-17), so the newest day a claim carried
@@ -3704,6 +3784,8 @@ export class Counterpart {
       // not `rows`, which counts both directions and every sibling a touched
       // node's decay rewrote. What the dashboard's "links made" sums.
       deposited: Math.max(0, out.pairs - out.blocked - out.dropped),
+      // CUE LEARNING (R3): word-to-memory deltas carried, pair rows written, deltas lost.
+      ...(cueOut.deltas === 0 ? {} : { cueDeltas: cueOut.deltas, cueRows: cueOut.rows, cueDropped: cueOut.dropped }),
       ...rowIds(linked),
       // The APPLYING session (2026-10-11): the boundary whose worker carried
       // these claims. A claim may hold lines several sessions credited.
@@ -3727,7 +3809,7 @@ export class Counterpart {
     } catch (err) {
       this.emit("counterpart.associate.flush.unrecorded", undefined, { code: errCode(err) });
     }
-    return out;
+    return cueOut.deltas === 0 ? out : { ...out, cues: cueOut };
   }
 
   /**
