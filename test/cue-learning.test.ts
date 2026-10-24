@@ -222,6 +222,46 @@ describe("R3 — cue learning", () => {
     expect(prompt(a, "sess-bare", "ping").surfaced).toEqual([ping]);
   });
 
+  test("step 0, a shape that fits the live row: by its word alone, a memory 'ping' shares with five others stays below even the UNLIFTED bar, fresh or mid-conversation (crossProjectLifted 0)", async () => {
+    // The 10-24 "one turn late" (session bf46ebbb turn 6, ~/random): the live
+    // decision row has crossProjectLifted 0 — the cross-project lift turned
+    // nothing away — and the ping memory was not shown; one turn later it
+    // came first at 27.25. A shape that fits that row without the lift: by
+    // the word alone, a memory whose word several others share (live: about
+    // six held "ping") sits below the bar itself, not between the bar and the
+    // lifted bar. What else carried it on turn 7 is not known from the rows
+    // (they keep counts and shown ids, not verdicts). The likeliest
+    // difference: mid-conversation the meaning channel is the LAGGED vector
+    // of the previous prompt (in-line meaning runs only on a first or stale
+    // turn), so on turn 6 it pointed at turn 5's subject and on turn 7 at
+    // turn 6's "ping". This test pins only the word's half. Learning lifts
+    // exactly this case: a practised "ping" reads at share 1 (carried words
+    // are not in the share).
+    (PHYSICS as { CUE_LEARNING: boolean }).CUE_LEARNING = false;
+    const a = adapter();
+    findable(a.counterpart.store);
+    const topics = ["library Sundays hours", "printer jams paper", "kitchen tap drips", "garage battery opener", "bus route minutes", "dentist cleaning booked"];
+    for (let i = 0; i < 120; i++) a.counterpart.store.put({ type: "memory", kind: "fact", body: `Note ${String(i)}: the ${topics[i % topics.length] as string} again, day ${String(i)}.` });
+    for (let i = 0; i < 300; i++) a.counterpart.store.put({ type: "memory", kind: "fact", body: `Unrelated record ${String(i)} about item${String(i)} and widget${String(i)}.` });
+    for (let i = 0; i < 5; i++) a.counterpart.store.put({ type: "memory", kind: "fact", body: `Talked about ping number ${String(i)} and whether to answer it.` });
+    const ping = await remember(a, "sess-other-writer", { text: PING });
+    // By the word alone, on a first turn: below the bar (the verdicts, built without recording).
+    const verdictOf = (session: string) => a.counterpart.recall.build({ sessionId: session, text: "ping" }).decision.verdicts.find((x) => x.id === ping);
+    const fresh = verdictOf("sess-fresh");
+    expect(fresh?.verdict).toBe("below-bar");
+    expect(fresh?.activation ?? 0).toBeLessThan(fresh?.bar ?? 0);
+    // Mid-conversation, after another subject: below the bar, and the row says the lift held nothing back.
+    prompt(a, "sess-mid", "what about the library on Sundays, and the printer that jams?");
+    const mid = verdictOf("sess-mid");
+    expect(mid?.verdict).toBe("below-bar");
+    const turn = prompt(a, "sess-mid", "ping");
+    expect([...turn.surfaced, ...turn.footnotes]).not.toContain(ping);
+    const row = a.counterpart.store.eventLog({ name: "recall.decision", ref: "sess-mid", order: "desc", limit: 1 })[0];
+    const d = JSON.parse(row?.payload ?? "{}") as { turn?: number; crossProjectLifted?: number };
+    expect(d.turn).toBe(2);
+    expect(d.crossProjectLifted).toBe(0);
+  });
+
   test("2. a competitor rated 0 for 'ping' drops for 'ping', and not for its own other words", async () => {
     const a = adapter();
     const { competitors } = await pingWorld(a);
@@ -452,13 +492,13 @@ describe("R3 — across processes (a long-lived server, per-turn hook processes)
     expect(next.injection).toContain(id);
   });
 
-  test("step 0, what it found: from ANOTHER folder the new memory is a candidate, and the cross-project bar lift turns it away in a background the previous turn's words made", async () => {
-    // The live case's shape: written in one project, asked for from ~/random
-    // on the turn after a different subject. Nothing is stale — the memory is
-    // found, scored and gated — but `CROSS_PROJECT_BAR_LIFT` (1.25, wave 2
-    // lane G) raises its bar, and the carried words of the previous turn give
-    // the turn a relative background it cannot clear by one word alone. The
-    // decision row says so: `crossProjectLifted` 1. Left for its own lane.
+  test("the cross-project bar lift, as a fact about the lift: a memory from another folder that one word reaches, in a background the previous turn's words made, can be held between its bar and the lifted bar (crossProjectLifted 1); a first turn shows it", async () => {
+    // Not the 10-24 live miss: that turn's row has crossProjectLifted 0 (see
+    // "step 0, a shape that fits the live row" above). What this pins is that
+    // nothing is stale across processes — the memory the long-lived server
+    // wrote is found, scored and gated by the next hook process — and what
+    // `CROSS_PROJECT_BAR_LIFT` (1.25, wave 2 lane G) does in this small store,
+    // where "ping" is in one memory: the lift alone turns it away.
     const s = liveServer(join(work2, "a"));
     for (const f of FILLER) await s.call("remember", { text: f });
     hook("sess-proc-B", "what about the library on Sundays, and the printer that jams?", join(work2, "random"));

@@ -1397,11 +1397,16 @@ against the defaults, reading the slot's fire rate and bytes, the beliefs lane's
 - **Lifetime.** Cue records: the newest `MAX_SESSION_RECORDS` turns per session (bounded every 50 turns, `boundTurnCues`, so the record step is one write: the cue row rides in `saveGateState`'s transaction), and
   `clearIdleCarries` drops them on the 14-day clock (they are typed words, reduced to terms).
 - **Step 0 (the 10-24 "one turn late").** Not a stale view: the jot's row, words and vector
-  are written before the tool returns, hooks are fresh processes, and the ranking prefilter
-  passes an unranked row. Reproduced hermetically (test/cue-learning.test.ts, "step 0, what it
-  found"): from another folder the new memory is a candidate, and `CROSS_PROJECT_BAR_LIFT`
-  (1.25) turns it away when the previous turn's carried words give the turn a relative
-  background (`crossProjectLifted` 1 on the row); a first turn, or the same folder, shows it.
-  One turn later the lagged meaning has caught up. Left for its own lane (it is lane G's
-  experiment, and whether a habit like ping/pong is "another project's work" is a
-  classification question).
+  are written before the tool returns, hooks are fresh processes, and the next hook process
+  finds the memory (test/cue-learning.test.ts, "step 0: a memory written in session A…"). The
+  builder first named `CROSS_PROJECT_BAR_LIFT` as the cause; the live row contradicts it
+  (review of #613): session bf46ebbb turn 6 has `crossProjectLifted` 0, so the ping memory was
+  below even the unlifted bar (or cut, or not reached). A shape that fits the row: by its word
+  alone, a memory whose word about six others share stays below the bar, fresh or
+  mid-conversation ("step 0, a shape that fits the live row"). The likeliest reason turn 7
+  differed: mid-conversation the meaning channel is the previous prompt's LAGGED vector
+  (in-line meaning runs only on a first or stale turn), so turn 6's meaning was about turn 5
+  and turn 7's about "ping". Unconfirmed: the durable row keeps no verdicts. What would
+  confirm it: the `adapter.recall` rows' `semanticSource` / `semanticFromTurn` for turns 6 and
+  7, and the two prompts. Not fixed here; cue learning lifts exactly this case (a practised
+  bare word reads its pair whole, carried words aside).
