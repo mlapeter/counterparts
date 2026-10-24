@@ -1656,7 +1656,8 @@ describe("an instrument does not write at open (live-verify 2026-08-25)", () => 
     // first and are empty until written, its columns are read `?? null`, and
     // no read names the column it dropped.
     // Raising SCHEMA_VERSION without touching this line still fails here.
-    expect({ version: SCHEMA_VERSION, floor: OBSERVER_READ_FLOOR }).toEqual({ version: 14, floor: 11 });
+    // v15 (2026-10-24, R3) the same: `cue_edges` is read `hasTable` first.
+    expect({ version: SCHEMA_VERSION, floor: OBSERVER_READ_FLOOR }).toEqual({ version: 15, floor: 11 });
   });
 
   test("a store below the floor refuses under observer — there is no floor below v6", () => {
@@ -1961,6 +1962,10 @@ describe("observer mode is enforced at the store seam", () => {
     setFolderProject: ["/work", "sch_x", "owner"],
     clearFolderProject: ["/work"],
     recordRecallTurn: [{ sessionId: "s1", turn: 1, day: 0, candidates: 0, shown: [] }],
+    // v15 (2026-10-24, R3 cue learning).
+    writeCueEdges: [[{ token: "ping", memoryId: "mem_000000000000", weight: 0.5, lastDay: 0, source: "use" }]],
+    sweepCueEdges: [{ staleOnOrBefore: 0 }, () => false],
+    dropGateRecords: ["cues", () => true],
   };
 
   function populated(): { id: string; snapshot: string } {

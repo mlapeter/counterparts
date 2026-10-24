@@ -2425,7 +2425,7 @@ export class McpServer {
     });
     this.noteRecall(row, 0, question, false, payload, ids, key);
     this.markSeen(ids, key);
-    this.noteAsked(ids, key);
+    this.noteAsked(ids, key, question);
     return this.result(payload, false);
   }
 
@@ -2439,12 +2439,12 @@ export class McpServer {
    * like the seen set (`seenKey`); nothing for a session nobody identified.
    * Never throws.
    */
-  private noteAsked(ids: readonly string[], key?: string): void {
+  private noteAsked(ids: readonly string[], key?: string, question?: string): void {
     if (ids.length === 0) return;
     const session = key ?? this.seenKey();
     if (session === UNBOUND_SESSION) return;
     this.telemetry(() => {
-      this.counterpart.noteAsked(session, ids);
+      this.counterpart.noteAsked(session, ids, question === undefined ? {} : { question });
     });
   }
 

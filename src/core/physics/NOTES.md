@@ -760,3 +760,9 @@ refused the writer on every day, and `test/settled-repeats.test.ts` caught it: o
 that wrote a memory on 10-03 and drew on it on 10-12 lost that credit. A session can run for
 days (a resumed conversation, a Desktop chat), and its later uses were always credited. Dream replays, reflections, schemas mentions and
 reminder occurrences pass no session, so they keep the birth-day rule.
+
+**R3, cue learning's switch (2026-10-24, an experiment).** `CUE_LEARNING` sits here beside
+`OWN_WRITE_GATE` because both modules it gates read physics: recall (recording a turn's cue
+words, training at credit, and the read) and associate (buffering, flushing, `learnedCues`).
+Training reuses `creditUse`'s verdict for the writer's birth-day session (`own-write`) rather
+than re-deriving it: recall trains on `credited` or `already-credited-today` only.

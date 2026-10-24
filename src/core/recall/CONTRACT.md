@@ -78,7 +78,14 @@ reply actually used reconsolidates, where in humans every retrieval does.
 - **Salience lowers the bar but never bypasses relevance**, via three hard gates salience
   cannot touch: an **uncued memory is dark** whatever its salience; an **absolute floor** is
   checked before any salience adjustment; the loud tier requires a **minimum fraction of
-  activation from cues**. [v1 §9 G7]
+  activation from cues**. [v1 §9 G7] *(2026-10-24, R3 cue learning — an experiment: unchanged.
+  A LEARNED word-to-memory pair IS a cue — one of this turn's own words, wired to the memory
+  by earlier credited uses — so it counts in the cue fraction and can make a candidate on its
+  own; a memory no word of the turn and no meaning reached is still dark. It is read at the
+  word's SHARE of the turn (its cue weight over the turn's own words' total, the split training
+  uses): a bare practised word reads the pair whole, one practised word inside a long prompt
+  about something else reads a sliver, so learning tips close races and does not override the
+  conversation.)*
 - **Ordering and admission use deliberately different keys** — salience blends into the
   surfaced *pick* only; admission, inhibition, and the footnote tier stay pure activation,
   preserving the footnote tier as the **recency discovery channel**. [v1 §9 G8,
@@ -316,7 +323,11 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
    as the owner's rule of 09-16 — exposure never strengthens, retrieval does). Opening a
    memory by id or title, or quoting the words a deliberate answer showed (`asked` gate
    records, read by `Counterpart#creditReferences`; never by the ambient gate), is credited
-   at the boundary like any use.
+   at the boundary like any use. *Narrowed 2026-10-24 (R3 cue learning, an experiment;
+   Mike's go): the SEARCH still trains nothing — the open after it does. The question's cue
+   words are kept beside the answer's `asked` records (a `cues` gate record, df > 0 words
+   only), and a credited use of a memory the answer showed wires those words to it, as an
+   ambient turn's words are wired to what it showed. Switch: `physics.CUE_LEARNING`.*
 9. **RETIRED 2026-10-21.** Confidentiality was enforced at the boundary of the ask — material
    marked confidential returned only in the owner's own session. Removed on Mike's call:
    nothing in the product set the mark, nobody used it, and it was never clear whom it

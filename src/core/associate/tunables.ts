@@ -211,6 +211,34 @@ export interface AssociateTunables {
    * CAL.
    */
   SHOWN_TOGETHER_DEPOSIT: number;
+
+  // ── cue learning (2026-10-24, R3 — an experiment; switch `physics.CUE_LEARNING`) ──
+  /**
+   * The ceiling a word-to-memory pair saturates toward. Bounds ONE pair: the
+   * update is `w ← w + Δ·(1 − w/CUE_W_CAP)`, never clipped, so each use adds
+   * less as the pair strengthens and none reaches the cap. Recall reads a pair
+   * as `w × CUE_PAIR_UNITS` cue units (`recall/tunables.ts`). CAL.
+   */
+  CUE_W_CAP: number;
+  /**
+   * The total learned weight one word may send out, over every memory wired to
+   * it. Bounds ONE TOKEN: past it, all its pairs scale down in proportion
+   * (synaptic scaling, as `MAX_OUT_WEIGHT` renormalizes a node's edges), so
+   * strengthening "ping" → pong weakens "ping" → the notes about ping. 1.5: a
+   * word can carry about one practised answer and half of another. CAL.
+   */
+  CUE_MAX_OUT: number;
+  /**
+   * How fast an unused pair fades, in LIVED days (exponential, the edges'
+   * curve shape, so the flush can write the decayed weight exactly). 60: twice
+   * an edge's `S_EDGE` — a cue that brought a memory back AND helped is
+   * stronger evidence than two memories used together. Bounds how long a habit
+   * that stopped being practised keeps routing. CAL.
+   */
+  S_CUE: number;
+  /** A pair at or below this weight carries nothing and is swept (the edges'
+   *  `EDGE_FLOOR`). CAL. */
+  CUE_FLOOR: number;
 }
 
 export const TUNABLES: AssociateTunables = {
@@ -245,6 +273,11 @@ export const TUNABLES: AssociateTunables = {
   CO_USE_DEPOSIT: 0.25,
   CO_USE_MAX_MEMBERS: 8,
   SHOWN_TOGETHER_DEPOSIT: 0.05,
+
+  CUE_W_CAP: 1.0,
+  CUE_MAX_OUT: 1.5,
+  S_CUE: 60,
+  CUE_FLOOR: 0.02,
 };
 
 export function withTunables(overrides: Partial<AssociateTunables> = {}): AssociateTunables {

@@ -434,6 +434,48 @@ export interface RecallTunables {
   /** Cap on remembered per-session surfacing records. The store has no meta
    *  expiry (INTERFACE-GAPS.md #1), so the row bounds itself. CAL. */
   MAX_SESSION_RECORDS: number;
+
+  // ── cue learning (2026-10-24, R3 — an experiment; switch `physics.CUE_LEARNING`) ──
+  /**
+   * What a learned word-to-memory pair is worth when the word is in the turn,
+   * in CUE UNITS (one maximally-rare word, `informativeness(1, N)`), times the
+   * pair's weight (0..`associate.CUE_W_CAP`) and the word's SHARE of the turn
+   * (its cue weight over the total of the turn's own unambiguous words — the
+   * split training uses; 1 for a bare word). Bounds how far learning can carry
+   * a memory: a fully learned pair in a one-word turn is worth this many rare
+   * words whatever the word, never `cue.weight × w` (that would count rarity
+   * twice); inside a long prompt, its share of that (review of #613: flat, a
+   * 39-word prompt about something else that said "ping" once brought the
+   * ping memory LOUD at 13.4; by share it stays below the bar). 6, not the
+   * brief's "about one rare word": the loud tier's floor is absolute
+   * (`FLOOR_STRONG_DEFAULT_UNITS` 4.5 units), and a bare one-word prompt brings
+   * at most ~1 unit of its own, so at 1 unit no amount of practice could ever
+   * make "ping" bring pong back LOUD — the brief's own bar for the demo. At 6,
+   * three uses (one found by a question, two by the bare word: w ≈ 0.79)
+   * clear it with a little room, measured (test/cue-learning.test.ts, 1.); at
+   * 5 they fell just short (4.36 units of 4.5). One use of a bare word (w 0.5)
+   * is 3 units: a footnote, not loud. A long prompt spreads each use thin
+   * (training is split by the words' weights) and reads each pair thin (the
+   * share), so a pair learned in passing stays a small lift and a practised
+   * word in someone else's subject tips a race at most. CAL.
+   */
+  CUE_PAIR_UNITS: number;
+  /**
+   * η: the delta one full use (opened, quoted, `drewOn`, rated 2–3) sends from
+   * the turn that showed the memory, SPLIT over the turn's cue words in
+   * proportion to their weights (Hebb with a fixed budget per event). With the
+   * saturating update a one-word cue goes 0 → 0.5 → 0.75 → 0.875 over three
+   * uses. Bounds how fast a habit forms. CAL.
+   */
+  CUE_TRAIN_RATE: number;
+  /** A rating of 1 (on topic, not used) trains this share of a full use. Small: it was the right subject. CAL. */
+  CUE_TRAIN_RATED_ONE: number;
+  /**
+   * A rating of 0 DEPRESSES the pairs its turn made, by this share of a full
+   * use (the weight floors at 0): cue-specific habituation, so a competitor
+   * called noise for "ping" drops for "ping" and nothing else. CAL.
+   */
+  CUE_TRAIN_RATED_ZERO: number;
 }
 
 export const TUNABLES: RecallTunables = {
@@ -701,6 +743,11 @@ export const TUNABLES: RecallTunables = {
   BUDGET_MS: 1200,
 
   MAX_SESSION_RECORDS: 200,
+
+  CUE_PAIR_UNITS: 6,
+  CUE_TRAIN_RATE: 0.5,
+  CUE_TRAIN_RATED_ONE: 0.25,
+  CUE_TRAIN_RATED_ZERO: 1,
 };
 
 export function withTunables(overrides: Partial<RecallTunables> = {}): RecallTunables {

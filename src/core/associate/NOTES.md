@@ -570,3 +570,21 @@ evaporation can do it.
   (42 through new trails); edges ≥ 0.4: none; the first flush swept ~2,040 inert rows. The
   reasons and the v14 column's cost are in `docs/IMPROVEMENTS.md` (Group 4); what to look at
   next is in `docs/CHECK-AFTER.md` (Group 4).
+
+## R3 — cue pairs (2026-10-24, an experiment; switch `physics.CUE_LEARNING`)
+
+- `cue_edges` (store v15): index term → memory, weight in [0, `CUE_W_CAP`], realized at
+  `last_day` with the edges' exponential curve at `S_CUE` (60 lived days), so writing the
+  decayed weight is exact. `planCueFlush` (edges.ts): per touched token, its pairs decayed,
+  deltas applied (`w + Δ·(1 − w/cap)`; a negative delta floors at 0 and never creates a pair),
+  then synaptic scaling to `CUE_MAX_OUT`, then ≤ `CUE_FLOOR` deleted.
+- One buffer per kind, both declared in `buffer.ts`: `CueBuffer` is signed (a 0 rating
+  depresses), so it is not a `DeltaBuffer`, whose `add` drops ≤ 0.
+- The pending file carries cue deltas as a `c` array per line (`appendPendingCues`); an older
+  reader ignores the key. `applyPendingAssociations` absorbs and flushes a claim's cue deltas
+  only AFTER its pairs landed; a cue write that fails is dropped and counted (`cueDropped` on
+  the `associate.flush` row) rather than keeping the claim, which would apply its pairs twice.
+- `learnedCues` (the read) returns nothing for an observer — stricter than `spreadFrom`, by
+  the brief (an instrument neither writes nor reads cue pairs).
+- The cue flush sweeps pairs into a memory no longer live (archived, superseded, gone, denied)
+  and faded ones; the owner's removal deletes a removed memory's pairs in the chase.
