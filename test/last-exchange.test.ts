@@ -62,6 +62,8 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const ZONE = "UTC";
 const BUDGET = 9_000;
+/** THERE's path length on every platform (beforeEach). */
+const THERE_CHARS = 64;
 const D = "2026-10-11";
 const D2 = "2026-10-12";
 const day = (ymd: string): number => Date.parse(`${ymd}T00:00:00Z`);
@@ -86,7 +88,10 @@ beforeEach(() => {
   root = realpathSync(mkdtempSync(join(existsSync("/tmp") ? "/tmp" : tmpdir(), "cp-lx-")));
   storeDir = join(root, "store");
   HERE = join(root, "garden");
-  THERE = join(root, "bakery");
+  // One length on every platform: THERE's path is printed in the wake ("Today,
+  // elsewhere"), and macOS's temp dir is 8 bytes longer than Linux's
+  // (/private/tmp against /tmp). See the room test's ownerMorning.
+  THERE = join(root, "bakery".padEnd(Math.max(6, THERE_CHARS - root.length - 1), "-"));
   PROJECT = join(root, "claude", "projects", HERE.replace(/[^a-zA-Z0-9]/g, "-"));
   for (const d of [HERE, THERE, PROJECT]) mkdirSync(d, { recursive: true });
 });
@@ -494,17 +499,36 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
       while (body.length < 230) body += ", or whether the thin coat holds for one more round";
       return `${body}.`;
     };
+    // THE SAME WAKE EVERY RUN, ON EVERY PLATFORM (the flake of 2026-10-23 on
+    // ubuntu CI). Which of these memories show turned on two things that
+    // change per run: ties in rank fall to the id (random), and the craft
+    // lines' rotation starts at a hash of this folder's path
+    // (`work.ts#folderTurn`; a random temp dir). "Craft 10" is longer than
+    // "Craft 9", so the wake's bytes moved by a few, and at this budget the
+    // line's wake is a few bytes from fitting a second open thread in place
+    // of its "Might be relevant" line, which the control's wake never does.
+    // On Linux, whose shorter temp path left 8 more bytes of room, the
+    // unlucky picks crossed it. Numbered in two digits, every pick is the same
+    // length; ids in birth order and handoffs a minute apart pin the rest; and
+    // THERE's path has one length everywhere (THERE_CHARS), chosen in the
+    // middle of the lengths that hold: measured on macOS, paths of 29 to 102
+    // characters hold and shorter or longer ones do not.
+    const two = (i: number): string => String(i).padStart(2, "0");
+    let n = 0;
+    const id = (type: "mem" | "epi"): string => `${type}_${(0xa000_0000_0000 + (n += 1)).toString(16)}`;
     for (let i = 0; i < 25; i += 1) {
-      c.store.put({ type: "memory", kind: "fact", body: long(`Open question ${String(i)}: whether bed ${String(i)} wants lime this autumn`), salience: { relevance: 0.7, emotional: 0.3, predictive: 0.5 }, meta: { unresolved: true } });
+      c.store.put({ id: id("mem"), type: "memory", kind: "fact", body: long(`Open question ${two(i)}: whether bed ${two(i)} wants lime this autumn`), salience: { relevance: 0.7, emotional: 0.3, predictive: 0.5 }, meta: { unresolved: true } });
     }
     for (let i = 0; i < 12; i += 1) {
-      c.store.put({ type: "memory", kind: "skill", body: long(`Craft ${String(i)}: the hose wants draining before a frost`), salience: { relevance: 0.6, emotional: 0.2, predictive: 0.6 } });
-      c.store.put({ type: "memory", kind: "fact", body: long(`Nearby ${String(i)}: the compost heap by the shed runs warm`), salience: { relevance: 0.6, emotional: 0.4, predictive: 0.4 } });
+      c.store.put({ id: id("mem"), type: "memory", kind: "skill", body: long(`Craft ${two(i)}: the hose wants draining before a frost`), salience: { relevance: 0.6, emotional: 0.2, predictive: 0.6 } });
+      c.store.put({ id: id("mem"), type: "memory", kind: "fact", body: long(`Nearby ${two(i)}: the compost heap by the shed runs warm`), salience: { relevance: 0.6, emotional: 0.4, predictive: 0.4 } });
     }
     for (let i = 0; i < 4; i += 1) {
+      w.set(at(18, i, "2026-10-10"));
       c.writeHandoff(`Handoff ${String(i)}: the seed trays on bench two need thinning. Then the watering log wants today's readings.`, { scope: HERE, session: `garden-bench-session-${String(i)}` });
     }
     c.store.put({
+      id: id("mem"),
       type: "memory",
       kind: "person",
       body: "Remind him today that the seed order closes at noon; the list is in the green folder.",
@@ -516,6 +540,7 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     // Last evening's session here: its words, and a chapter (Last here).
     new Session(w, A, HERE).add(typed("Tomorrow we finish the seed-tray ladder and then the watering log."), said("Agreed: the ladder first.")).stop(at(18, 30, "2026-10-10"));
     c.store.put({
+      id: id("epi"),
       type: "episode",
       kind: "self",
       title: "The seed-tray ladder",
@@ -527,7 +552,7 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     // Another folder at work this morning (the "Today, elsewhere" line).
     recordSession(storeDir, { sessionId: C, scope: THERE, phase: "start", at: at(8, 2) });
     w.set(at(8, 3));
-    c.store.put({ type: "memory", kind: "fact", body: "The bakery's flour arrived.", origin: { session: C, scope: THERE } });
+    c.store.put({ id: id("mem"), type: "memory", kind: "fact", body: "The bakery's flour arrived.", origin: { session: C, scope: THERE } });
     w.set(at(19, 0, "2026-10-10"));
     c.rebrief({ budgetBytes: budget, at: "2026-10-10" });
     return w;
