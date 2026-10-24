@@ -154,7 +154,8 @@ export function readCorpus(path: string): Omit<CorpusRecord, "snapshot" | "path"
       counts: {
         memories: n(`SELECT COUNT(*) AS n FROM memories WHERE ${LIVE}`),
         archived: n("SELECT COUNT(*) AS n FROM memories WHERE type = 'memory' AND archived = 1"),
-        beliefs: columns.has("birth_route") ? n(`SELECT COUNT(*) AS n FROM memories WHERE ${LIVE} AND birth_route IS NOT NULL`) : null,
+        // A belief is a schema row (`type = 'schema'`) with a birth route — counted whatever its type (10-24: `LIVE` read 0).
+        beliefs: columns.has("birth_route") ? n("SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND birth_route IS NOT NULL") : null,
         beliefSupport: tables.has("belief_support") ? n("SELECT COUNT(*) AS n FROM belief_support") : null,
         tags: tables.has("memory_tags") ? n("SELECT COUNT(*) AS n FROM memory_tags") : null,
         distinctTags: tables.has("memory_tags") ? n("SELECT COUNT(DISTINCT tag) AS n FROM memory_tags") : null,
