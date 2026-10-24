@@ -164,6 +164,12 @@ Look at, per night since install (read-only):
   candidates 30 while there are more than 30, not_shown about the backlog less 30, parts 3 where they were 4;
 - promotions keep coming (`core_events` `promoted` by day), from the tail as well as the head: a candidate promoted
   that was outside the night's first 20 says the rotation works.
+- the felt lane: the cut candidates join its pool (replay: felt of 24 → 50). Do its 10 slots fill with candidates the
+  cap cut instead of the other felt memories (people, moments)? `lanes.feltFromCut` counts the felt shown that were
+  cut candidates (recorded from 0.3.35's fix to this lane; absent on rows before it):
+  `SELECT date, state, json_extract(detail,'$.lanes.felt') AS felt, json_extract(detail,'$.lanes.feltFromCut') AS felt_from_cut FROM reflections WHERE json_extract(detail,'$.lanes.feltFromCut') IS NOT NULL ORDER BY started_at;`
+  a night or two at 0–3 of 10 is the pool doing its job; most nights at 7+ of 10 means felt has become a second
+  candidates lane, and `feltAll` should filter on every candidate, not the capped ones.
 
 Changes it: the core stops growing, or the reflection's entries or the page lose a thread they used to carry from an
 older candidate. Revert: `dream.REFLECT_CANDIDATES_CAP=false` (every candidate, exactly as before; the lane counts

@@ -9,5 +9,5 @@
   candidate again. Shown in any lane counts as shown, so a cut candidate the felt lane picks up waits its turn.
   Switch: `dream.REFLECT_CANDIDATES_CAP` (off: every candidate, exactly as before).
 - Decided by the R1 builder, 2026-10-24: the reflection's row keeps the lanes it was shown, `detail.lanes`
-  (`core`, `candidates`, `felt`, `candidatesNotShown`), beside `fit`, and the finish carries `lanes` and
+  (`core`, `candidates`, `felt`, `candidatesNotShown`, and `feltFromCut`: the felt shown that the cap cut from the candidates), beside `fit`, and the finish carries `lanes` and
   `chaptersAs` as it carries `fit` — the D1 check reads a finished row, and the finish dropped `chaptersAs`.

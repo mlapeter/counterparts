@@ -888,7 +888,7 @@ export class Reflections {
     // THE LANES SHOWN (2026-10-24, the D1 check): how many of the core, the
     // candidates and the felt the bundle named, and the candidates the cap
     // left out (R1) — kept beside `fit`, and carried through the finish.
-    const lanes = { core: composed.core.length, candidates: composed.candidates.length, felt: composed.felt.length, candidatesNotShown: composed.candidatesMore ?? 0 };
+    const lanes = { core: composed.core.length, candidates: composed.candidates.length, felt: composed.felt.length, candidatesNotShown: composed.candidatesMore ?? 0, feltFromCut: fitted.feltFromCut };
     this.store.updateReflection(id, {
       detail: { ...(packed.later.length > 0 ? { parts: packed.later } : {}), fit: fitRecord, lanes, ...(composed.chaptersAs === undefined ? {} : { chaptersAs: composed.chaptersAs }), ...beliefsDetail(composed.beliefs ?? null), ...(composed.spine === undefined ? {} : { spine: composed.spine.map((b) => b.id) }), ...(composed.unmarked.length > 0 ? { unmarked: composed.unmarked } : {}), ...(composed.staleOpen.length > 0 ? { staleOpen: composed.staleOpen.map((x) => x.id) } : {}), ...(fitted.notCarried.length > 0 ? { notCarried: fitted.notCarried } : {}), ...(composed.reconsidering.length > 0 ? { coreOffered: composed.reconsidering.map((x) => x.id) } : {}) },
     });
@@ -3331,7 +3331,11 @@ export class Reflections {
       limits: beliefs === null ? limitsWithoutBeliefs(T.LIMITS) : { ...T.LIMITS },
     };
     noteMindShown(this.store, bundle.onMind, day);
-    return { bundle, offered, lineCap: chaptersFit.summaryBytes, notCarried: uncarried.all };
+    // How many of the felt shown are candidates the cap cut (R1's check: do
+    // they crowd the felt lane's other memories out?).
+    const cut = new Set(candidatesAll.filter((x) => !candidateIds.includes(x)));
+    const feltFromCut = bundle.felt.filter((x) => cut.has(x)).length;
+    return { bundle, offered, lineCap: chaptersFit.summaryBytes, notCarried: uncarried.all, feltFromCut };
   }
 
   /**
@@ -3409,11 +3413,6 @@ export class Reflections {
   }
 
   /**
-   * Memories promoted on reflection alone that no share has named yet. A
-   * share of `mine` (the reflection finishing again) counts as not having
-   * named them: its share may be replaced, and the line must come with it.
-   */
-  /**
    * THE CANDIDATES A NIGHT SHOWS (R1, 2026-10-24): the first `CANDIDATES −
    * CANDIDATES_ROTATED` of the order (strongest felt, then newest), then
    * `CANDIDATES_ROTATED` of the rest, the least recently shown first — one
@@ -3443,6 +3442,11 @@ export class Reflections {
     return ranked.filter((x) => chosen.has(x));
   }
 
+  /**
+   * Memories promoted on reflection alone that no share has named yet. A
+   * share of `mine` (the reflection finishing again) counts as not having
+   * named them: its share may be replaced, and the line must come with it.
+   */
   private becameCoreUnsaid(mine?: string): string[] {
     const out: string[] = [];
     for (const e of this.store.coreEvents({ action: "promoted", limit: 50 })) {
@@ -4249,6 +4253,8 @@ interface Composed {
   readonly lineCap: number;
   /** Every open thread not carried tonight (`noLongerCarried`), recorded on the row; never in the bundle. */
   readonly notCarried: readonly string[];
+  /** The felt lane's memories the candidates' cap cut (R1's check): recorded on the row as `lanes.feltFromCut`; never in the bundle. */
+  readonly feltFromCut: number;
 }
 
 /** The bundle's other furniture, reserved from the room: ids, lists, the questions, the limits. */

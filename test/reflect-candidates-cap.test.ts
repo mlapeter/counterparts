@@ -155,7 +155,23 @@ describe("the reflection's core candidates, capped", () => {
     expect(new Set(all).size).toBe(all.length);
     // The per-lane shown counts, kept beside `fit` at begin.
     const lanes = detailOf(c, rid)["lanes"] as Record<string, number>;
-    expect(lanes).toEqual({ core: w.core.length, candidates: REFLECT_TUNABLES.CANDIDATES, felt: felt.length, candidatesNotShown: more });
+    expect(lanes).toEqual({ core: w.core.length, candidates: REFLECT_TUNABLES.CANDIDATES, felt: felt.length, candidatesNotShown: more, feltFromCut: felt.filter((x) => w.candidates.includes(x) && !shownCandidates.includes(x)).length });
+  });
+
+  test("felt candidates past the cap come into the felt lane, and the row counts them (lanes.feltFromCut)", async () => {
+    const c = brain();
+    const w = world(c);
+    // Every candidate felt, so the cut ones compete for felt's slots.
+    w.candidates.forEach((id, i) => c.store.addFeelings(id, [{ whose: "self", core: "warm", emotion: "proud", strength: 0.3 + i * 0.001 }]));
+    const { texts, rid, aliases } = await reflect(c);
+    const head = texts[0] as string;
+    const al = aliases as AliasMap;
+    const shownCandidates = lane(head, "candidates: ", al);
+    const felt = lane(head, "felt (of ", al);
+    const fromCut = felt.filter((x) => w.candidates.includes(x) && !shownCandidates.includes(x));
+    expect(fromCut.length).toBeGreaterThan(0);
+    for (const x of felt) expect(shownCandidates).not.toContain(x);
+    expect((detailOf(c, rid)["lanes"] as Record<string, number>)["feltFromCut"]).toBe(fromCut.length);
   });
 
   test("the lane counts and chaptersAs survive the finish, beside fit", async () => {
@@ -176,6 +192,12 @@ describe("the reflection's core candidates, capped", () => {
     expect(d.chaptersAs).toBe("summaries");
     expect(d.lanes?.candidates).toBe(REFLECT_TUNABLES.CANDIDATES);
     expect(d.lanes?.candidatesNotShown).toBe(30);
+    // A second finish (the reflection finishing again) keeps them too.
+    const again = await s.call("reflect", { phase: "finish", session: NIGHT, reflection: rid, entry: "A quiet night at the kiln, said again." });
+    expect(again.isError ?? false).toBe(false);
+    const twice = detailOf(c, rid);
+    expect(twice["lanes"]).toEqual(begun["lanes"]);
+    expect(twice["chaptersAs"]).toBe("summaries");
   });
 
   test("rotated: night after night the tail comes round, the least recently shown first, until every candidate was shown", async () => {
