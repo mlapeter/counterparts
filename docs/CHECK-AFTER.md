@@ -112,6 +112,12 @@ Look at, after 7 nights (read-only):
 - does the reflection's entry name a pattern across days it could not have seen before (one older than the 3 days of
   chapters)?
 - Mike reads.
+- the known misread (0.3.34): a night whose `self.page.writer.ran` row says `nothing-to-say` with a summary,
+  followed by a page version from day's end that same night, means it sent the summary alone and then wrote a page
+  anyway: the row misreads that night. Count how often: the nights from `SELECT json_extract(payload,'$.about')
+  FROM events WHERE name='self.page.writer.ran' AND json_extract(payload,'$.outcome')='nothing-to-say' AND
+  json_extract(payload,'$.summary') IS NOT NULL;`, each beside that night's page versions (`counterparts night
+  last` / the dashboard's page strip); a few is the prompt's slip, many is a fix.
 
 Changes it: journals that only echo the summary, a reflection that reads the timeline as instructions, summaries
 past the cap night after night. Revert: `self.DAY_SUMMARY=false` (no summary asked for or kept; the dream's and the
@@ -128,7 +134,8 @@ from 0 core / 0 candidates (lined 75, all chapter lines) to every core memory an
 across 4 parts (was ~105k).
 
 Look at, per night since install (read-only):
-- the reflection showed the long view every night: `reflections.detail` `fit` (`lined` and `whole` ≥ core +
+- the reflection showed the long view every night, core, candidates and felt each shown (0.3.34's release check:
+  the shownAs on a copy): `reflections.detail` `fit` (`lined` and `whole` ≥ core +
   candidates) and `chaptersAs = 'summaries'`:
   `SELECT date, json_extract(detail,'$.fit') FROM reflections WHERE json_extract(detail,'$.chaptersAs')='summaries';`
 - Lately reads as the day, and cites: the page's trace (`counterparts doctor`'s "Self page claims" line, claims with

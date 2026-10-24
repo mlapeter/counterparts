@@ -3672,6 +3672,105 @@ replay compare read 0 lines differing).
   (`events` where `name = 'dream.night'`, `childSessions` and `children`); no CHECK-AFTER row, since it is not an
   experiment.
 
+### Decided by the lean-bundles builder (lane N2), 2026-10-23, lightly held (an experiment, Mike's go 10-23)
+
+- Lean night bundles on by default (`dream.LEAN_BUNDLE`): plain lines, short ids kept on
+  the run's fit index, one JSON escaping instead of two. Why: on copies of the owner's
+  store half the dream's bundle was keys, quotes, escaping and ids. Check: the next model
+  test night compares both shapes on the same night (quality has not been measured).
+- The dream's journal by its chapters' summaries, never their whole words (Mike: "summaries,
+  with id in case dream wants to look up full chapter"). A chapter with no written summary
+  shows its opening, as an automatic summary keeps it.
+- `NIGHT_ROOM_BASE` 40,000 and `NIGHT_ROOM_PER_NEW` 1,500 (CAL): the memories' room on a
+  quiet night; never below a line for every memory shown. The reflection's room is left as
+  it is: what fills it is not the day's new memories (see the next line).
+- Found, not changed: on the owner's busy nights since ~10-21 the reflection's 80k room is
+  spent on what the dream saw and the chapters before any memory — the live reflections
+  of 10-21 and 10-22 were shown no core, candidates, recent or unmarked memories at all.
+  Needs a decision (count what the dream saw outside the room, shorten its lines, or grow
+  the room now that the wire is cheaper).
+
+### Decided by the N1 builder, 2026-10-23, very lightly held (the page split by section)
+
+- Mike's go, 10-23, an experiment: the page writer amends every section but `## Core`, the reflection
+  writes `## Core` alone, one switch (`self.PAGE_SPLIT`, default on) reverts both. Why: the page was
+  rewritten whole twice a night, three minutes apart; the writer is the working self, the reflection
+  the long view.
+- Decided by the N1 builder: a write outside its lane is RESTORED from the page as it stands, not
+  refused, and the answer names what was kept (guards loose-first: no turn spent on a resend).
+- Decided by the N1 builder: a sentence kept word for word carries the cites the page before gave it,
+  on every page write while the switch is on.
+- Decided by the N1 builder: the writer's child is skipped (and the row says why) when the writer is
+  off or has no day to read, so a quiet night spends no child on it; its failure never fails the
+  night; doctor names a missed writer.
+
+### Decided by the C1 builder, 2026-10-23, lightly held (what a night costs, and a debug switch)
+
+- Mike's go via the roadmap session, 10-23: each night child's tokens (`input`, `output`, `cacheRead`,
+  `cacheCreate`, `costUsd`) from its own `stream-json` `result` line go on the `dream.night` row and
+  event as `usage`, per child that ran (`writer`, `dream`, `reflection`, `tags`) plus a `total`. Why:
+  since `--no-session-persistence` (10-21) nothing showed what a night cost, and the Haiku tag child
+  was never measured.
+- Decided by the C1 builder: a child that ran and said no usage (stopped mid-stream, retried without
+  the stream) is `null`, not zeros; a child not started has no key; `total` is null when no child
+  said any. The catch-up's children are not counted (no stream is kept for them).
+- Decided by the C1 builder: the parser (`childUsage`) moved from `tools/harness/usage.ts` into
+  `claude-code/transcript.ts`, the module that reads the night's stream; the harness imports it.
+- Decided by the C1 builder: `debug: { nightTranscripts }` in `claude-code.json`, off by default,
+  keeps each night child's raw output under `<base>/debug/<date>/` for 7 days (0600 files, 0700
+  folders), only in the package's own layout (`<base>/store` with the configuration in the same
+  `<base>`, so uninstall always sees it). Pruned by the date folder's name at every night's start,
+  switch on or off, only files named `<child>-nrn_….jsonl`; links and foreign files are left.
+  Snapshots never carry it (they copy the store); `uninstall` counts `debug` as ours only while it
+  holds nothing but those files (review of C1: a `debug` folder with the owner's file in it must not
+  be deleted whole). Documented in CONTRIBUTING.md only.
+
+### Decided with Mike, 2026-10-23 (roadmap seat, 13:40–15:30; his go 15:32, lightly held): day's end and the reflection's room
+
+- The night laid against human memory: the DREAM is sleep (part 1, fresh memories with their neighbours, is
+  slow-wave consolidation; part 2, mixing, lookback and links, is REM). The REFLECTION is the morning's
+  autobiographical reasoning: patterns over weeks, the long-term self.
+- The page writer has one human equivalent, the bedtime diary: what is gone over before sleep is consolidated more.
+  So it stays first, in its own child, and is called **day's end** (Mike: "days end works as a name"). Identifiers,
+  the row and the `pageWriter.mode` key keep the old name: no store change, no config migration.
+- Day's end reads the day as told (`self.DAYS_END_INPUT`): every chapter by its summary with its address, and the
+  day's 12 strongest memories with ids, so Lately can cite (`self_page` takes `cites` and `claims` now).
+- The reflection's room is filled long view first (`dream.REFLECT_ROOM_ORDER`). `dreamSaw` gave every memory the
+  dream was shown a line ahead of the core, and was not deduped against `recent`: on 10-21/10-22 it took the room
+  and core, candidates and recent got nothing. It keeps only what the dream changed and 40 older ones it saw.
+- The order, not the size: `ROOM_CHARS` stays 80k. A busy night now spends about 89–92k across 4 parts (was ~105k).
+- Decided by the D1 builder: the chapters' room (`REFLECT_CHAPTER_CHARS` 16k) shortens each line on a busy few days
+  (to 80 bytes at least) and grows past that rather than drop one; the long view is guaranteed a line each even past
+  the room (more parts), never dropped.
+- Decided by the D1 builder: a page cite whose memory a dream merged reads through the merged memory at read time
+  (`measures.ts#pageTrace`, `throughLater`); the stored cite is never rewritten.
+
+### Decided with Mike, 2026-10-23 (roadmap seat; floated that morning, his go 15:32, lightly held): the day summary
+
+- Bedtime rehearsal: what is gone over before sleep is consolidated more. Day's end already reads the day as told; it
+  now also leaves a few lines (`self.DAY_SUMMARY_CHARS`, 600 characters, refused past it with the numbers, never cut),
+  first person, what the day was about and what is in motion, with the memory ids they rest on.
+- **A header, not a replacement.** The dream reads it first ("## today, as day's end told it", the bundle's first
+  section, `daysEnd` in the JSON form), above `fresh`, `today`, `mixing` and `lookback`, which stay exactly as they
+  were. The reflection gets the layer it was missing, general events: one line a day for `dream.TIMELINE_DAYS` (21),
+  beside the last 3 days of chapters, in D1's room order (step 3, counted among the fixed parts).
+- **A row, not a table.** No migration: the summary rides on the night's own `self.page.writer.ran` row (its JSON
+  payload gains `summary` and `summaryCites`; `PageWriterRun.detail` is a plain string, not JSON). Readable by date
+  (`self/writer.ts#daySummaries`).
+- Decided by the D2 builder: one call. Event rows are append-only, so the summary goes with day's end's one closing
+  `self_page` call: beside the page (on the `revised` row; a refused page's summary is not kept), or alone with no body when the page stands, which
+  answers the night as `nothing-to-say` on a row carrying it. A page written without one is told so; the night is
+  answered then, and its dream opens without a header.
+- Decided by the D2 builder: the dream finds tonight's summary by the night's session (its children share it), told
+  since the dream before it began (a long-lived session can run two nights), so a night that crosses midnight
+  between day's end and the dream still opens with it; else the one about the night's own date. The reflection's
+  timeline ends at the date its dream opened with.
+- Decided by the D2 builder: a day day's end did not tell (every day before this lane, and any night it was missed)
+  falls back to that day's chapters' summaries' first lines joined, marked `(chapters; N)`; a day with neither is
+  counted ("N days without a summary or a chapter"). Why: the check after 7 nights would otherwise read a timeline
+  of 7 lines and 14 gaps, and the chapters are the closest account the store has. Cost on the 10-23 corpus: ~5k
+  characters, reflection parts unchanged.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

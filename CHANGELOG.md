@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.3.34 — 2026-10-23
+
+The night is lighter and better organised. Its helpers start slim, with only the memory tools they use and a short prompt of their own, and the dream's and the reflection's reading goes out as plain lines with short ids (on a copy of the author's store the dream's bundle fell by 43–45%, the reflection's by about 13%, with the same memories shown). The nightly page writer is now called **day's end**: it runs first, in its own child, reads the day by its chapters' summaries and its strongest memories, writes Lately and How I work, and leaves a short account of the day that the dream reads first; the reflection writes Core. The reflection sees the long view again: on busy nights it had been shown no core memories at all, and now it reads them first, with the last three weeks as a line a day. `counterparts night last` and doctor say what a night cost in tokens. No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
+
+- **The nightly page writer is now called day's end: it closes the day before the dream.** It now reads the day
+  as it was told, each of the day's chapters by its summary, plus the day's 12 strongest memories, and can say which
+  memories a sentence on your page rests on. The setting keeps its old name (`pageWriter.mode` in `claude-code.json`).
+- **The night writes the self page in two lanes.** Day's end now runs first, on its own, and
+  amends the day's sections (Lately, How I work); the reflection writes Core, the long view. Each
+  keeps to its own sections, a sentence kept word for word keeps what it rested on, and the dream no
+  longer carries the day's page work. One setting turns it back (`self.PAGE_SPLIT`).
+- **Day's end leaves a short account of the day; the dream reads it first and the reflection sees the last three
+  weeks as a line a day.** With its one closing call each night (with the page, or alone when the page stands), day's
+  end writes a few lines about what the day was about and what is in motion, and the memories they rest on. The
+  dream opens with it, above everything it was going to read anyway, and the morning reflection gets a timeline of
+  the last 21 days, so it can see a pattern across weeks. `counterparts night last` and the dashboard's page strip
+  show it. Switch: `self.DAY_SUMMARY`.
+  - **A known misread:** if day's end sends its summary alone and then writes a page anyway, that night's row
+    reads "nothing-to-say" although the page changed. Day's end is told to send the summary alone only when the
+    page stands.
+- **The reflection reads the long view first.** On a busy night the morning reflection was handed the day's
+  chapters and a line for everything the dream saw before any of its core memories, and often never got to them
+  (on the author's 10-21 and 10-22 nights it was shown no core memories, candidates or strongly felt ones at all).
+  Now your core memories, the memories that may become core and the most strongly felt ones always come first,
+  then the last few days' chapters by their summaries, then what the dream changed.
+- **The night reads lighter.** The dream's and the reflection's bundles now go out as plain
+  lines with short ids for the night (m1, m2… for memories, c1… for journals) instead of
+  JSON inside JSON, and the dream reads each chapter by its summary with its address, a
+  lookup away from the whole. On a copy of the author's store the dream's bundle fell from
+  about 147k characters in 4–5 parts to about 82k in 3, the reflection's by about 13%,
+  with the same memories shown. Every tool the night uses takes the short ids, and real
+  ids still work. `propose` and the reflection's `finish` answer with counts and only what
+  went wrong. On a quiet day the dream's room shrinks, spending less on whole texts while
+  showing the same memories. `dream.LEAN_BUNDLE` off puts the old shape back.
+- **The night's helpers start lighter.** Each background run of the night (day's end, the dream, the
+  reflection, tagging, a write-up owed) now starts with only the memory tools it uses and a
+  short prompt of its own, instead of Claude Code's full coding setup, so it spends fewer
+  tokens before it begins.
+- **`counterparts night last` shows what a night cost in tokens.** The night's line says its
+  total, and `counterparts doctor`'s Nightly run line says it too.
+- **For a host built on the package:** `counterparts` now exports `SPLIT_DREAM_TOOLS`, `SPLIT_REFLECTION_TOOLS`
+  and `seatTools` (which memory tools each night child is served), and `counterparts/claude-code` exports
+  `NIGHT_SERVED_TOOLS`, `NIGHT_SYSTEM_PROMPT`, `childUsage` (a night child's tokens from its `result` line),
+  `NIGHT_DEBUG_DIR`, `NIGHT_TRANSCRIPT_DAYS`, `nightDebugDir`, `writeNightTranscript` and `pruneNightTranscripts`
+  (the dev-only `debug` switch, documented in CONTRIBUTING.md). Nothing was removed.
+
 ## 0.3.33 — 2026-10-23
 
 On the first new lived day after upgrading (when the first turn or session ends on a new day; if today's card pass already ran, tomorrow), the card pass merges once the pairs of cards that share a name (a race fixed in 0.3.31 left them; the author's store had 50 pairs): the younger card of each pair is archived under the older one, which gains the links neither had while both were live. `counterparts dream --undo-twins` puts the cards back if you want them. The same night hands cards that were filed as a person or a place only by how they were born back to its kinds question. The dream takes in more of the day's new memories a night (a 16,000-character list, 4 neighbours each; an experiment, checked 10-29). `counterparts note --tags` and `counterparts dream --undo-tags` are new, and `counterparts mechanisms` says how often a settled thing comes back. No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
