@@ -406,6 +406,51 @@ describe("R3 — cue learning", () => {
     expect(pairWeight(a, PING_TERM, ping)).toBeGreaterThan(0);
   });
 
+  test("5c. a memory erased after the turn that credited it, before the worker applies the deltas: no pair is written for it", async () => {
+    const a = adapter();
+    findable(a.counterpart.store);
+    for (const body of FILLER) a.counterpart.store.put({ type: "memory", kind: "fact", body });
+    const ping = await remember(a, WRITER, { text: PING });
+    const turn = prompt(a, "sess-mid-flush", "ping");
+    expect([...turn.surfaced, ...turn.footnotes]).toContain(ping);
+    await rate(a, "sess-mid-flush", [{ id: ping, score: 3 }]);
+    // The deltas are on disk; the owner removes the memory before the worker runs.
+    ownerRemoval(a.counterpart.store, { targetId: ping, actor: "owner", reason: "test", requestedAt: 0 });
+    const applied = work(a);
+    expect(applied.cues?.deltas ?? 0).toBeGreaterThan(0);
+    expect(applied.cues?.rows ?? 0).toBe(0);
+    expect(a.counterpart.store.cueEdgesOf(ping)).toEqual([]);
+    expect(a.counterpart.store.cueEdgesFor([PING_TERM])).toEqual([]);
+  });
+
+  test("5d. a long prompt with 40 cue words: the turn keeps at most MAX_CUES of them, a use splits thin over them, and the flush handles it", async () => {
+    const a = adapter();
+    findable(a.counterpart.store);
+    for (const body of FILLER) a.counterpart.store.put({ type: "memory", kind: "fact", body });
+    // Forty words, every one held by the memory the prompt is about and by no other.
+    const forty = [
+      "harpsichord", "tuner", "soundboard", "crack", "cyanoacrylate", "patience", "quill", "jack", "plectrum", "damper",
+      "register", "manual", "coupler", "temperament", "meantone", "pitch", "cents", "wrestplank", "pinblock", "bridge",
+      "nut", "rose", "lid", "lyre", "stand", "transposing", "keyboard", "naturals", "sharps", "ebony",
+      "boxwood", "bone", "felt", "leather", "delrin", "voicing", "regulation", "humidity", "season", "workshop",
+    ];
+    const target = await remember(a, WRITER, { text: `Harpsichord notes: ${forty.join(", ")}.` });
+    const turn = prompt(a, "sess-forty", forty.join(" "));
+    expect([...turn.surfaced, ...turn.footnotes]).toContain(target);
+    const record = a.counterpart.store.gateRecords("sess-forty").find((r) => r.kind === CUES_KIND);
+    const kept = (JSON.parse(record?.value ?? "{}") as { c?: unknown[] }).c ?? [];
+    expect(kept.length).toBe(24); // MAX_CUES
+    await rate(a, "sess-forty", [{ id: target, score: 3 }]);
+    const applied = work(a);
+    expect(applied.reason).toBe("flushed");
+    expect(applied.cues?.deltas).toBe(kept.length);
+    const pairs = a.counterpart.store.cueEdgesOf(target);
+    expect(pairs.length).toBe(kept.length);
+    // One full use, split: the pairs together hold one use's η, each a sliver.
+    expect(pairs.reduce((sum, r) => sum + r.weight, 0)).toBeCloseTo(0.5, 6);
+    for (const r of pairs) expect(r.weight).toBeLessThan(0.05);
+  });
+
   test("6. an observer writes no pair and reads none", async () => {
     const a = adapter();
     const { ping } = await pingWorld(a);
