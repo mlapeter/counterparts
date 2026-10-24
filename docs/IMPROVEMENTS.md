@@ -3771,6 +3771,36 @@ replay compare read 0 lines differing).
   of 7 lines and 14 gaps, and the chapters are the closest account the store has. Cost on the 10-23 corpus: ~5k
   characters, reflection parts unchanged.
 
+### Decided by the R1 builder, 2026-10-24, lightly held (the reflection's core candidates, capped)
+
+- Decided by the R1 builder, 2026-10-24, lightly held: the reflection is shown at most 30 core candidates a night
+  (`REFLECT_TUNABLES.CANDIDATES`), 20 by the old order (strongest felt, then newest) and 10 rotated through the rest
+  (`CANDIDATES_ROTATED`), the least recently shown first by the `shown` of the last 30 reflections
+  (`CANDIDATES_LOOKBACK`). Why rotate rather than cut: promotion runs in sleep, not through the reflection, so a cut
+  candidate is not shut out by rule, but the reflection's cites and recorded feelings are the core lanes' strongest
+  feed (physics `ReturnSource`: awake returns are rare), and a plain cut at 30 would never show an old, lightly felt
+  candidate again. Shown in any lane counts as shown, so a cut candidate the felt lane picks up waits its turn.
+  Switch: `dream.REFLECT_CANDIDATES_CAP` (off: every candidate, exactly as before).
+- Decided by the R1 builder, 2026-10-24: the reflection's row keeps the lanes it was shown, `detail.lanes`
+  (`core`, `candidates`, `felt`, `candidatesNotShown`, and `feltFromCut`: the felt shown that the cap cut from the candidates), beside `fit`, and the finish carries `lanes` and
+  `chaptersAs` as it carries `fit` — the D1 check reads a finished row, and the finish dropped `chaptersAs`.
+
+### Decided by Mike and the R2 builder, 2026-10-24, lightly held (credit refuses the writing session, not the birth day)
+
+- Decided by Mike, 2026-10-24, lightly held (R2): use credit refuses the session that wrote the
+  memory (`own-write`), not the memory's birth day. Why: v1 §10 G9's cause was the writing
+  session's boundary seeing the new memory's words in its own reply; the ping/pong memory was
+  used by two other sessions within minutes and kept `uses` 0. Unknown writer (no origin session,
+  or a credit with no session) keeps the birth-day refusal. Switch: `physics.OWN_WRITE_GATE` (off:
+  exactly as before).
+- Decided by the R2 builder, 2026-10-24: the store decides `ownWrite` from the row (origin
+  session, or the write-up's `writtenUpBy`), not each caller, since every credit path ends in
+  `Store#reinforce`. A revision is its reviser's: the session that wrote the original may credit
+  the revision, the revising session may not (on the birth day). `own-write` holds on the birth
+  day only: after it, the writing session credits its memory as before, since a session can run
+  for days. A birth-day return stays refused `birth-day` for everyone (spacing measures from
+  birth); only the use is credited.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
