@@ -325,6 +325,25 @@ describe("R3 — cue learning", () => {
     expect(total).toBeGreaterThan(ASSOCIATE.CUE_MAX_OUT - 0.05);
   });
 
+  test("3b. credits that reach the worker together (two sessions in the same second, or a backlog) train as the same uses one at a time would: the pair stays under its cap", async () => {
+    const a = adapter();
+    findable(a.counterpart.store);
+    for (const body of FILLER) a.counterpart.store.put({ type: "memory", kind: "fact", body });
+    const ping = await remember(a, WRITER, { text: PING });
+    // Three sessions, the same second (the clock does not move), each shown it for a bare "ping" and rating it 3.
+    for (const s of ["sess-same-1", "sess-same-2", "sess-same-3"]) {
+      const turn = prompt(a, s, "ping");
+      expect([...turn.surfaced, ...turn.footnotes]).toContain(ping);
+      await rate(a, s, [{ id: ping, score: 3 }]);
+    }
+    // One worker run carries all three.
+    expect(work(a).cues?.deltas).toBe(3);
+    const w = pairWeight(a, PING_TERM, ping);
+    expect(w).toBeLessThan(ASSOCIATE.CUE_W_CAP);
+    // 0 → 0.5 → 0.75 → 0.875: what three uses applied one at a time give.
+    expect(w).toBeCloseTo(0.875, 6);
+  });
+
   test("4. the writer's own birth-day session trains nothing; another session the same day trains", async () => {
     const a = adapter();
     findable(a.counterpart.store);

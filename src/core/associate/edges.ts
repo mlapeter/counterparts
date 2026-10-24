@@ -351,7 +351,9 @@ export interface CuePlan {
 
 /**
  * Plan one cue flush: per token, its pairs decayed to `day`, the deltas
- * applied (`cueStrengthen`), then synaptic scaling — a token sending out more
+ * applied ONE AT A TIME in arrival order (`cueStrengthen`; the buffer keeps
+ * them apart, so a batch trains as its uses would one by one and a pair stays
+ * under `CUE_W_CAP`), then synaptic scaling — a token sending out more
  * than `CUE_MAX_OUT` scales all its pairs down in proportion — then anything
  * at or below `CUE_FLOOR` written as 0 (deleted). A negative delta on a pair
  * that does not exist creates nothing. Pure.

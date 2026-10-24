@@ -76,30 +76,34 @@ export class DeltaBuffer {
  * use of the same memory from the same word earns it again. SIGNED, unlike
  * pairs: a rating of 0 depresses (the pair floors at 0 in the flush), so it
  * is not a `DeltaBuffer`, whose `add` drops anything at or below 0.
+ *
+ * KEPT ONE BY ONE, NOT SUMMED (review of #613): the flush's update saturates
+ * per use (`edges.ts#cueStrengthen`, `w + Δ(1 − w/CUE_W_CAP)`), which holds a
+ * pair under its cap only for a Δ no larger than the cap. Summed, three uses
+ * of a bare word that reached the worker together (Δ 0.5 each) arrived as one
+ * Δ of 1.5 and wrote a pair of 1.5, past `CUE_W_CAP` 1. Kept apart, the flush
+ * applies them in arrival order, as the same uses one at a time would be.
  */
 export class CueBuffer {
-  private cues = new Map<string, CueDelta>();
+  private cues: CueDelta[] = [];
 
   add(token: string, id: string, delta: number): void {
     if (!Number.isFinite(delta) || delta === 0 || token.length === 0 || id.length === 0) return;
-    const key = `${token}\u0000${id}`;
-    const next = (this.cues.get(key)?.delta ?? 0) + delta;
-    if (next === 0) this.cues.delete(key);
-    else this.cues.set(key, { token, id, delta: next });
+    this.cues.push({ token, id, delta });
   }
 
   get size(): number {
-    return this.cues.size;
+    return this.cues.length;
   }
 
   pending(): CueDelta[] {
-    return [...this.cues.values()].map((c) => ({ ...c }));
+    return this.cues.map((c) => ({ ...c }));
   }
 
   /** Swap, as `DeltaBuffer#drain` does: what arrives during a flush survives to the next. */
   drain(): CueDelta[] {
     const taken = this.cues;
-    this.cues = new Map<string, CueDelta>();
-    return [...taken.values()];
+    this.cues = [];
+    return taken;
   }
 }
