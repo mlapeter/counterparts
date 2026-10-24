@@ -9,7 +9,11 @@
 - Decided by the R3 builder, 2026-10-24: a fully learned pair is worth 6 rare words
   (`recall.CUE_PAIR_UNITS`), not the brief's "about one": the loud tier's floor is absolute
   (4.5 units) and a bare one-word prompt brings ~1, so at 1 the demo's bar (a bare "ping"
-  brings pong back loud) is unreachable. η 0.5 per full use split by the turn's word weights;
+  brings pong back loud) is unreachable. Read at the word's share of the turn (review of
+  #613, from the roadmap seat): `w × share × 6`, the share being the word's cue weight over
+  the turn's own words' total, the split training uses — a bare "ping" reads the pair whole,
+  one "ping" inside a long prompt about something else reads a sliver and does not surface
+  loud (flat, it did: 13.4, ahead of the prompt's own subject). η 0.5 per full use split by the turn's word weights;
   a rating of 1 trains a quarter, 0 depresses one full share; `CUE_W_CAP` 1, `CUE_MAX_OUT`
   1.5 per word, `S_CUE` 60 lived days. Each showing trains a memory at most once (up to its
   best share); cadence refusals still train (five sessions, five times); `own-write` and an

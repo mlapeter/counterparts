@@ -439,9 +439,14 @@ export interface RecallTunables {
   /**
    * What a learned word-to-memory pair is worth when the word is in the turn,
    * in CUE UNITS (one maximally-rare word, `informativeness(1, N)`), times the
-   * pair's weight (0..`associate.CUE_W_CAP`). Bounds how far learning can carry
-   * a memory: a fully learned pair is worth this many rare words whatever the
-   * word, never `cue.weight × w` (that would count rarity twice). 6, not the
+   * pair's weight (0..`associate.CUE_W_CAP`) and the word's SHARE of the turn
+   * (its cue weight over the total of the turn's own unambiguous words — the
+   * split training uses; 1 for a bare word). Bounds how far learning can carry
+   * a memory: a fully learned pair in a one-word turn is worth this many rare
+   * words whatever the word, never `cue.weight × w` (that would count rarity
+   * twice); inside a long prompt, its share of that (review of #613: flat, a
+   * 39-word prompt about something else that said "ping" once brought the
+   * ping memory LOUD at 13.4; by share it stays below the bar). 6, not the
    * brief's "about one rare word": the loud tier's floor is absolute
    * (`FLOOR_STRONG_DEFAULT_UNITS` 4.5 units), and a bare one-word prompt brings
    * at most ~1 unit of its own, so at 1 unit no amount of practice could ever
@@ -450,9 +455,9 @@ export interface RecallTunables {
    * clear it with a little room, measured (test/cue-learning.test.ts, 1.); at
    * 5 they fell just short (4.36 units of 4.5). One use of a bare word (w 0.5)
    * is 3 units: a footnote, not loud. A long prompt spreads each use thin
-   * (training is split by the words' weights), so a pair learned in passing
-   * stays a small lift. CAL — the number to revisit first if learning
-   * overrides the conversation.
+   * (training is split by the words' weights) and reads each pair thin (the
+   * share), so a pair learned in passing stays a small lift and a practised
+   * word in someone else's subject tips a race at most. CAL.
    */
   CUE_PAIR_UNITS: number;
   /**

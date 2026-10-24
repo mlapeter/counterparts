@@ -654,9 +654,18 @@ export function activate(
   // ── learned pairs (2026-10-24, R3 cue learning — an experiment) ─────────
   // A word that brought a memory back AND helped, enough times, is wired to
   // it (`associate`'s `cue_edges`). Each of this turn's OWN words (never a
-  // carried one) that holds pairs adds `w × CUE_PAIR_UNITS × cueUnit` to its
-  // memory's cue — a fully learned pair worth `CUE_PAIR_UNITS` rare words
-  // whatever the word, NOT `cue.weight × w` (rarity would count twice). It IS
+  // carried one) that holds pairs adds `w × share × CUE_PAIR_UNITS × cueUnit`
+  // to its memory's cue, where `share` is the word's part of the turn —
+  // `cue.weight / Σ` over the turn's own unambiguous words, the same split
+  // training uses (`index.ts#cueWordsOf`). Symmetric with the training: a
+  // bare "ping" (share 1) reads the pair whole, so a practised one-word habit
+  // can come back LOUD; one practised word inside a long prompt about
+  // something else reads a sliver, so learning tips a close race there and
+  // never overrides the conversation (review of #613: at a flat `w × 6` a
+  // 39-word prompt about the house that said "ping" once surfaced the ping
+  // memory loud at 13.4, ahead of the memories the prompt was about). The
+  // share is rarity's PROPORTION, not rarity again: `w × cue.weight` would
+  // count it twice, and the share is 1 for a lone word whatever it is. It IS
   // cue: in `cueScore` (so `cueFraction` counts it and it can make a
   // candidate alone — hard gate (a) unchanged, a learned pair is a cue), in
   // `bestCue` (or a learned-only memory would be capped to zero below), and it
@@ -669,6 +678,19 @@ export function activate(
   if (input.learned !== undefined && t.CUE_PAIR_UNITS > 0) {
     const pairUnit = t.CUE_PAIR_UNITS * informativeness(1, storeSize);
     const own = cues.filter((c) => !c.carried && c.weight > 0);
+    // The turn's weight, over the words training splits a use across: own,
+    // unambiguous, one per index term (`cueWordsOf`). An ambiguous word (it
+    // trains nothing, but may hold a pair learned while it was clear) takes
+    // the share it would have as a clear word, then fires at
+    // `AMBIGUOUS_WEIGHT` of it, as it did before the share.
+    const byTerm = new Map<string, number>();
+    for (const c of own) {
+      if (c.ambiguous) continue;
+      const term = stemTerm(c.token);
+      byTerm.set(term, Math.max(byTerm.get(term) ?? 0, c.weight));
+    }
+    let turnWeight = 0;
+    for (const w of byTerm.values()) turnWeight += w;
     const fetchable = own.filter((c) => {
       const d = df.get(stemTerm(c.token));
       return !(d !== undefined && informativeness(d, storeSize) < t.CUE_FETCH_MIN_IDF);
@@ -684,7 +706,10 @@ export function activate(
     for (const cue of fetchable) {
       const byDoc = postings.get(cue.token);
       for (const { id, weight } of routes.get(stemTerm(cue.token)) ?? []) {
-        const add = weight * pairUnit * (cue.ambiguous ? t.AMBIGUOUS_WEIGHT : 1);
+        const clear = cue.ambiguous ? (t.AMBIGUOUS_WEIGHT > 0 ? cue.weight / t.AMBIGUOUS_WEIGHT : 0) : cue.weight;
+        const whole = cue.ambiguous ? turnWeight + clear : turnWeight;
+        const share = whole > 0 ? Math.min(1, clear / whole) : 0;
+        const add = weight * share * pairUnit * (cue.ambiguous ? t.AMBIGUOUS_WEIGHT : 1);
         if (!(add > 0)) continue;
         cueScore.set(id, (cueScore.get(id) ?? 0) + add);
         bestCue.set(id, Math.max(bestCue.get(id) ?? 0, add));

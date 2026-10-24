@@ -81,7 +81,11 @@ reply actually used reconsolidates, where in humans every retrieval does.
   activation from cues**. [v1 §9 G7] *(2026-10-24, R3 cue learning — an experiment: unchanged.
   A LEARNED word-to-memory pair IS a cue — one of this turn's own words, wired to the memory
   by earlier credited uses — so it counts in the cue fraction and can make a candidate on its
-  own; a memory no word of the turn and no meaning reached is still dark.)*
+  own; a memory no word of the turn and no meaning reached is still dark. It is read at the
+  word's SHARE of the turn (its cue weight over the turn's own words' total, the split training
+  uses): a bare practised word reads the pair whole, one practised word inside a long prompt
+  about something else reads a sliver, so learning tips close races and does not override the
+  conversation.)*
 - **Ordering and admission use deliberately different keys** — salience blends into the
   surfaced *pick* only; admission, inhibition, and the footnote tier stay pure activation,
   preserving the footnote tier as the **recency discovery channel**. [v1 §9 G8,

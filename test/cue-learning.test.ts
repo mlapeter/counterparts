@@ -188,6 +188,40 @@ describe("R3 — cue learning", () => {
     for (const c of competitors) expect(pairWeight(a, PING_TERM, c)).toBe(0);
   });
 
+  test("1b. the read follows the word's share of the turn: after the same training, a long prompt about something else that says 'ping' once does not bring the ping memory LOUD", async () => {
+    // Review of #613: read at a flat `w × CUE_PAIR_UNITS`, this prompt brought
+    // the ping memory LOUD at 13.4 (cue fraction 1.0), first, ahead of the
+    // house memories it is about (7.1). Read at `w × share × CUE_PAIR_UNITS`,
+    // the share being "ping"'s part of the turn's cue weight (the split
+    // training uses), it is a sliver: below the bar, about 2.5.
+    const a = adapter();
+    const { ping } = await pingWorld(a);
+    await server(a, "sess-B").call("recall", { question: "what do I reply to a ping?", mode: "meaning" });
+    await rate(a, "sess-B", [{ id: ping, score: 3 }]);
+    work(a);
+    for (const s of ["sess-C", "sess-D"]) {
+      prompt(a, s, "ping");
+      await rate(a, s, [{ id: ping, score: 3 }]);
+      work(a);
+    }
+    expect(pairWeight(a, PING_TERM, ping)).toBeGreaterThan(0.75);
+
+    // About the house, ~35 words, every content word one the store holds, "ping" once.
+    const LONG =
+      "Before the dentist cleaning, remind me what is left at home: the printer jams on heavy paper, the kitchen tap drips, the garage opener battery is low, and ping the library about Sunday hours.";
+    const vs = weigh(a, "sess-long-probe", LONG);
+    const v = vs.find((x) => x.id === ping);
+    const top = [...vs].sort((x, y) => y.activation - x.activation)[0];
+    expect(top?.id).not.toBe(ping);
+    expect(v?.verdict).not.toBe("surfaced");
+    expect(v?.activation ?? 0).toBeLessThan(top?.activation ?? 0);
+    const turn = prompt(a, "sess-long", LONG);
+    expect(turn.surfaced).not.toContain(ping);
+
+    // The same store, a bare "ping": the whole pair, LOUD (the demo's bar still holds).
+    expect(prompt(a, "sess-bare", "ping").surfaced).toEqual([ping]);
+  });
+
   test("2. a competitor rated 0 for 'ping' drops for 'ping', and not for its own other words", async () => {
     const a = adapter();
     const { competitors } = await pingWorld(a);
