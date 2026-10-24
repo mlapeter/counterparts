@@ -362,6 +362,107 @@ describe("day's end leaves a day summary — the night entry with a stubbed clau
 });
 
 describe("review of D2: the awkward states", () => {
+  // THE SUMMARY ALONE, THEN A PAGE ANYWAY (the edge recorded at #606's
+  // merge). The alone call answered the night `nothing-to-say`, which closed
+  // the claim, so the page written seconds later in the same day's end left
+  // the night's row saying nothing changed. The two other shapes are pinned
+  // above: the page with its summary in one call ("asked for in the writer's
+  // how…") and the summary alone with no page ("the page standing…").
+  test("the summary alone, then the page in a later call of the same day's end: the night reads revised and keeps the summary", async () => {
+    const y = lived();
+    const out: Record<string, unknown>[] = [];
+    let dreamText = "";
+    const body = PAGE.replace("Lately the work has been the night's children.", "Lately the zqkiln's hold has been the steady part.");
+    await night(
+      seat({
+        writer: async (_ask, s) => {
+          const r = await s.call("dream", { phase: "writer", session: SESSION });
+          out.push(sc(await s.call("self_page", { session: SESSION, summary: TOLD, summaryCites: [y.hold] })));
+          out.push(sc(await s.call("self_page", { body, reason: "day's end", session: SESSION, ifVersion: sc(r)["ifVersion"] })));
+        },
+        dream: async (_ask, s) => {
+          dreamText = String(sc(await s.call("dream", { phase: "begin", session: SESSION }))["bundle"]);
+        },
+      }),
+    );
+    expect(out[0]).toMatchObject({ stored: false, answered: "nothing-to-say", summary: { kept: true } });
+    expect(out[1]?.["stored"]).toBe(true);
+    const c = open();
+    try {
+      expect(c.selfPage()?.body).toBe(body);
+      expect(c.selfPage()?.by).toBe("writer");
+      const runs = c.pageWriterRuns({ about: LIVED });
+      // Both answers stay in the log; the night reads what finally happened to the page.
+      expect(runs.filter((r) => r.outcome === "nothing-to-say")).toHaveLength(1);
+      const revised = runs.filter((r) => r.outcome === "revised");
+      expect(revised).toHaveLength(1);
+      expect(revised[0]?.summary).toBe(TOLD);
+      expect(revised[0]?.summaryCites).toEqual([y.hold]);
+      expect(revised[0]?.session).toBe(SESSION);
+      expect(revised[0]?.run).toBe(runs.find((r) => r.outcome === "nothing-to-say")?.run ?? "missing");
+      expect(revised[0]?.run).not.toBe("");
+      expect(revised[0]?.bytesAfter).toBe(Buffer.byteLength(body, "utf8"));
+      expect(c.pageWriterStatus(LIVED).outcome).toBe("revised");
+      const f = nightRunFindings({ today: "2026-10-23", config: { dataDir: dir } } as unknown as DoctorInput, c.store)[0];
+      expect(f?.detail).toContain("day summary: yes");
+    } finally {
+      c.close();
+    }
+    // Said back as the summary it sent earlier, never as "no summary came".
+    expect(out[1]?.["summaryNotSent"]).toBeUndefined();
+    expect(out[1]?.["summary"]).toMatchObject({ kept: true, about: LIVED, sentEarlier: true });
+    expect(dreamText.split("\n").find((l) => l.startsWith("## "))).toMatch(/^## today, as day's end told it \(2026-10-22/);
+    const lines: string[] = [];
+    await cliRun(["night", "last", "--dir", dir], { io: { out: (l: string) => lines.push(l), err: (l: string) => lines.push(l) } });
+    expect(lines.join("\n")).toContain(`Day's end told ${LIVED}`);
+  });
+
+  test("the summary alone, then a second call with its own summary and the page: the later telling stands", async () => {
+    lived();
+    const LATER = "Today was the kiln after all: the page moved too.";
+    const out: Record<string, unknown>[] = [];
+    await night(
+      seat({
+        writer: async (_ask, s) => {
+          const r = await s.call("dream", { phase: "writer", session: SESSION });
+          out.push(sc(await s.call("self_page", { session: SESSION, summary: TOLD })));
+          out.push(sc(await s.call("self_page", { body: PAGE.replace("children.", "children, and the kiln."), reason: "day's end", session: SESSION, ifVersion: sc(r)["ifVersion"], summary: LATER })));
+        },
+      }),
+    );
+    const c = open();
+    try {
+      expect(c.pageWriterStatus(LIVED).outcome).toBe("revised");
+      expect(c.pageWriterRuns({ about: LIVED }).find((r) => r.outcome === "revised")?.summary).toBe(LATER);
+    } finally {
+      c.close();
+    }
+    expect(out[1]?.["summary"]).toMatchObject({ kept: true, chars: LATER.length });
+  });
+
+  test("the summary alone, then a page written after the dream began: an ordinary amendment, and the night still reads nothing-to-say", async () => {
+    lived();
+    const out: Record<string, unknown>[] = [];
+    await night(
+      seat({
+        writer: daysEnd({ summary: TOLD, alone: true, out }),
+        dream: async (_ask, s) => {
+          expect((await s.call("dream", { phase: "begin", session: SESSION })).isError ?? false).toBe(false);
+          out.push(sc(await s.call("self_page", { body: PAGE.replace("children.", "children, and the dream."), reason: "a dream's thought", session: SESSION })));
+        },
+      }),
+    );
+    expect(out[1]?.["stored"]).toBe(true);
+    const c = open();
+    try {
+      expect(c.selfPage()?.by).toBe("session");
+      expect(c.pageWriterStatus(LIVED).outcome).toBe("nothing-to-say");
+      expect(c.pageWriterRuns({ about: LIVED }).filter((r) => r.outcome === "revised")).toHaveLength(0);
+    } finally {
+      c.close();
+    }
+  });
+
   test("one session, two nights: the second night's dream, reflection and `night show` never take the first night's summary", async () => {
     lived();
     const dreamOf: string[] = [];

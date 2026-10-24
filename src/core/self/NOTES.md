@@ -2777,3 +2777,10 @@ the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.
   and `night show` reads that same date: never another night's summary.
 - The dream's header indents the summary's lines, so a `## ` line in it never reads as a
   section of the bundle.
+- The summary alone, then a page anyway (recorded at #606's merge, fixed 10-24): the alone
+  call closed the claim, so the later page was written as day's end's but no row followed
+  and the night went on reading `nothing-to-say`. The door now finds that alone row
+  (`server-self-tools.ts#daysEndStood`: today, this call's session, the night's server, the
+  night's newest settled row, no dream begun since) and writes a `revised` row carrying the
+  summary over; a summary sent again with the page is the later telling and stands. After
+  the dream begins, a page write is an ordinary amendment, as with an open claim.
