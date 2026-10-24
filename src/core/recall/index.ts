@@ -44,7 +44,8 @@ import { planPrime, saveTrain } from "./prime.js";
 import type { PrimeInput, PrimePlan, TrainState } from "./prime.js";
 import type { Background, CandidateVerdict, Verdict } from "./gate.js";
 import { NO_MOOD, currentMood } from "./mood.js";
-import { ASKED_KIND, askedCueRef, loadCueTrained, loadGateState, loadTurnCues, saveCueTrained, saveGateState, saveTurnCues, turnCueRef } from "./session.js";
+import { ASKED_KIND, askedCueRef, boundTurnCues, loadCueTrained, loadGateState, loadTurnCues, saveCueTrained, saveGateState, saveTurnCues, turnCueRecord, turnCueRef } from "./session.js";
+import type { GateRecordInput } from "../store/index.js";
 import type { CueWord, GateState, SemanticSource } from "./session.js";
 import { beliefLine, render } from "./render.js";
 import type { BeliefLine } from "./render.js";
@@ -904,22 +905,19 @@ export class Recall {
       for (const id of [...d.surfaced, ...d.footnotes]) for (const row of built.folded.get(id) ?? []) folded[row] = id;
       next.folded = folded;
     }
-    this.persist(next, "recall");
     // THE TURN'S CUE WORDS, beside what it showed (R3 cue learning): only on
-    // a turn that showed a memory, never under observer. A lost write costs
-    // this turn's learning, never the recall.
-    if (PHYSICS.CUE_LEARNING && !this.observer && built.cueWords !== undefined && built.cueWords.length > 0 && d.surfaced.length + d.footnotes.length > 0) {
+    // a turn that showed a memory, never under observer — in the same write
+    // as the gate state, so the record step stays one transaction.
+    const cueRow: GateRecordInput[] =
+      PHYSICS.CUE_LEARNING && !this.observer && built.cueWords !== undefined && built.cueWords.length > 0 && d.surfaced.length + d.footnotes.length > 0
+        ? [turnCueRecord(this.store, { sessionId: turn.sessionId, ref: turnCueRef(d.turn), turn: d.turn, day: d.day, words: built.cueWords })]
+        : [];
+    this.persist(next, "recall", cueRow);
+    if (cueRow.length > 0) {
       try {
-        saveTurnCues(this.store, {
-          sessionId: turn.sessionId,
-          ref: turnCueRef(d.turn),
-          turn: d.turn,
-          day: d.day,
-          words: built.cueWords,
-          keepTurns: this.tunables.MAX_SESSION_RECORDS,
-        });
+        boundTurnCues(this.store, turn.sessionId, d.turn, this.tunables.MAX_SESSION_RECORDS);
       } catch (err) {
-        this.emit("recall.cues.save.failed", turn.sessionId, { code: err instanceof Error ? err.name : "unknown" });
+        this.emit("recall.cues.bound.failed", turn.sessionId, { code: err instanceof Error ? err.name : "unknown" });
       }
     }
     // The train of thought moves on with this turn (priming, 2026-10-19). An
@@ -1364,13 +1362,13 @@ export class Recall {
    * store seam is touched and keeps the state in-process instead: an instrument
    * deposits nothing, and every stand-down is observable (observer-mode.md G6).
    */
-  private persist(state: GateState, site: string): void {
+  private persist(state: GateState, site: string, extra: readonly GateRecordInput[] = []): void {
     if (this.observer) {
       this.volatile.set(state.sessionId, state);
       this.emit("recall.observer.standdown", state.sessionId, { site: `persist:${site}` });
       return;
     }
-    saveGateState(this.store, state, this.tunables.MAX_SESSION_RECORDS);
+    saveGateState(this.store, state, this.tunables.MAX_SESSION_RECORDS, extra);
   }
 
   private emitTelemetry(d: RecallDecision, r: RenderResult | null): void {

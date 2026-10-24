@@ -17,8 +17,7 @@ import { tmpdir } from "node:os";
 import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
 
-import { openAdapter, openEmbedder } from "../src/adapters/claude-code/index.js";
-import { withEmbedderDefault } from "../src/adapters/config.js";
+import { openAdapter } from "../src/adapters/claude-code/index.js";
 import { toHookInput } from "../src/adapters/claude-code/bin/hook.js";
 import { ownerRemoval } from "../src/adapters/cli/removal.js";
 import { McpServer, openServer } from "../src/adapters/mcp/index.js";
@@ -356,7 +355,9 @@ describe("R3 — across processes (a long-lived server, per-turn hook processes)
     mkdirSync(home, { recursive: true });
     store = join(work2, "store");
     configPath = join(work2, "claude-code.json");
-    writeFileSync(configPath, JSON.stringify({ dataDir: store, injectionBudgetBytes: 9_000 }), "utf8");
+    // No embedder anywhere: what these tests show is the words' path, and it
+    // must not depend on whether the machine has the static table's weights.
+    writeFileSync(configPath, JSON.stringify({ dataDir: store, injectionBudgetBytes: 9_000, embedder: { enabled: false } }), "utf8");
   });
 
   afterEach(() => {
@@ -373,24 +374,22 @@ describe("R3 — across processes (a long-lived server, per-turn hook processes)
     return { injection: r.stdout ?? "" };
   }
 
-  /** The server as `mcp/bin/serve.ts` opens it: the configuration's embedder, so every write carries its vector. */
-  function liveServer(withEmbedder: boolean, scope: string) {
-    const embedder = withEmbedder ? openEmbedder(withEmbedderDefault({ dataDir: store })) : null;
-    const s = openServer({ dir: store, session: "sess-proc-A", scope, ...(embedder === null ? {} : { embedder }) });
+  /** The long-lived server, in this process (the hooks are separate processes). */
+  function liveServer(scope: string) {
+    const s = openServer({ dir: store, session: "sess-proc-A", scope });
     closers.push(s.counterpart);
     return s;
   }
 
   test("step 0: a memory written in session A by the long-lived server is findable by session B's very next turn, in its own process", async () => {
     const folder = join(work2, "project");
-    const s = liveServer(true, folder);
+    const s = liveServer(folder);
     for (const f of FILLER) await s.call("remember", { text: f });
     // B is mid-conversation about something else: its next turn carries those words.
     hook("sess-proc-B", "what about the library on Sundays?", folder);
     const id = (await s.call("remember", { text: PING })).structuredContent["id"] as string;
     expect(typeof id).toBe("string");
-    // Written synchronously: the row, its words and its vector, before the tool returned.
-    expect(s.counterpart.store.vectorOf(id)).not.toBeNull();
+    // Written synchronously: the row and its words, before the tool returned.
     expect(s.counterpart.store.search("ping").map((h) => h.id)).toContain(id);
     const next = hook("sess-proc-B", "ping", folder);
     expect(next.injection).toContain(id);
@@ -403,9 +402,9 @@ describe("R3 — across processes (a long-lived server, per-turn hook processes)
     // lane G) raises its bar, and the carried words of the previous turn give
     // the turn a relative background it cannot clear by one word alone. The
     // decision row says so: `crossProjectLifted` 1. Left for its own lane.
-    const s = liveServer(true, join(work2, "a"));
+    const s = liveServer(join(work2, "a"));
     for (const f of FILLER) await s.call("remember", { text: f });
-    hook("sess-proc-B", "what about the library on Sundays?", join(work2, "random"));
+    hook("sess-proc-B", "what about the library on Sundays, and the printer that jams?", join(work2, "random"));
     const id = (await s.call("remember", { text: PING })).structuredContent["id"] as string;
     const next = hook("sess-proc-B", "ping", join(work2, "random"));
     expect(next.injection).not.toContain(id);

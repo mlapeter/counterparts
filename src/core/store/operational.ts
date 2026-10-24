@@ -245,6 +245,11 @@ export const SCHEMA_VERSION = 15;
  * lanes B–G write them, and every reader asks `hasTable` first, so a v13 file
  * reads as "none yet" — which is what it holds.
  */
+/*
+ * NOT raised with v15 (2026-10-24, R3 cue learning), for v14's reason: the one
+ * new table, `cue_edges`, is read `hasTable` first (`wave2.ts#has`), so an
+ * instrument reading a v14 file sees "nothing learned" — which is what it holds.
+ */
 export const OBSERVER_READ_FLOOR = 11;
 /** Retention for superseded-version rows, in LIVED days. TUNABLE (module-map ruling 2).
  *

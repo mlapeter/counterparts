@@ -306,7 +306,7 @@ function bound<T extends { turn: number }>(rows: Record<string, T>, max: number)
  * that case, and if a future caller does, the refusal is inherited rather than
  * remembered.
  */
-export function saveGateState(store: Store, state: GateState, max: number): void {
+export function saveGateState(store: Store, state: GateState, max: number, extra: readonly GateRecordInput[] = []): void {
   const rows: GateRecordInput[] = [
     {
       sessionId: state.sessionId,
@@ -357,6 +357,9 @@ export function saveGateState(store: Store, state: GateState, max: number): void
       tier: rec.tier,
     });
   }
+  // Rows another record rides with in the same transaction (R3: the turn's
+  // cue words), so the record step stays one write on the hook path.
+  rows.push(...extra);
   store.setGateRecords(rows);
 }
 
@@ -724,30 +727,37 @@ function cueRecordAt(value: string | null): number {
   }
 }
 
-/**
- * Save one turn's (or question's) cue words. Nothing for an empty list. An
- * ambient turn's save also drops this session's turn records older than the
- * newest `keepTurns` turns, so a long session's rows stay bounded. A gate
- * write: an observer's store refuses it (the caller never asks).
- */
-export function saveTurnCues(
+/** One turn's (or question's) cue words as a gate record, for the caller to write. */
+export function turnCueRecord(
   store: Store,
-  input: { sessionId: string; ref: string; turn: number; day: number; words: readonly CueWord[]; keepTurns?: number },
-): void {
-  if (input.words.length === 0) return;
+  input: { sessionId: string; ref: string; turn: number; day: number; words: readonly CueWord[] },
+): GateRecordInput {
   const payload: CueRecordPayload = {
     v: CUE_RECORD_VERSION,
     at: store.now(),
     c: input.words.map(([term, weight]) => [term, Math.round(weight * 10_000) / 10_000]),
   };
-  store.setGateRecords([
-    { sessionId: input.sessionId, kind: CUES_KIND, ref: input.ref, turn: input.turn, lastDay: input.day, value: JSON.stringify(payload) },
-  ]);
-  const keep = input.keepTurns;
-  if (keep !== undefined && input.ref.startsWith("t") && input.turn > keep) {
-    const floor = input.turn - keep;
-    store.dropGateRecords(CUES_KIND, (r) => r.ref.startsWith("t") && r.turn <= floor, input.sessionId);
-  }
+  return { sessionId: input.sessionId, kind: CUES_KIND, ref: input.ref, turn: input.turn, lastDay: input.day, value: JSON.stringify(payload) };
+}
+
+/** How often (in turns) an ambient turn's record step also drops the session's turn records past `keepTurns`. */
+export const CUE_RECORD_SWEEP_TURNS = 50;
+
+/**
+ * Bound one session's ambient cue records to the newest `keepTurns` turns.
+ * Asked every `CUE_RECORD_SWEEP_TURNS` turns, not every turn, so the record
+ * step stays one write on the hook path (I38). Returns how many went.
+ */
+export function boundTurnCues(store: Store, sessionId: string, turn: number, keepTurns: number): number {
+  if (turn <= keepTurns || turn % CUE_RECORD_SWEEP_TURNS !== 0) return 0;
+  const floor = turn - keepTurns;
+  return store.dropGateRecords(CUES_KIND, (r) => r.ref.startsWith("t") && r.turn <= floor, sessionId);
+}
+
+/** Save one question's cue words (the deliberate path). Nothing for an empty list. A gate write: an observer's store refuses it. */
+export function saveTurnCues(store: Store, input: { sessionId: string; ref: string; turn: number; day: number; words: readonly CueWord[] }): void {
+  if (input.words.length === 0) return;
+  store.setGateRecords([turnCueRecord(store, input)]);
 }
 
 /** One recorded turn's cue words, or null when none were kept (or the row will not read). */

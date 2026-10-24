@@ -1381,7 +1381,7 @@ against the defaults, reading the slot's fire rate and bytes, the beliefs lane's
   make "ping" loud — the brief's own bar. Measured on the demo fixture: after one use found by
   a question and two by the bare word (w 0.79), 5 units gave 4.36 units (footnote) and 6 gave
   5.1 (loud). Revisit first if learning overrides the conversation.
-- **Lifetime.** Cue records: the newest `MAX_SESSION_RECORDS` turns per session, and
+- **Lifetime.** Cue records: the newest `MAX_SESSION_RECORDS` turns per session (bounded every 50 turns, `boundTurnCues`, so the record step is one write: the cue row rides in `saveGateState`'s transaction), and
   `clearIdleCarries` drops them on the 14-day clock (they are typed words, reduced to terms).
 - **Step 0 (the 10-24 "one turn late").** Not a stale view: the jot's row, words and vector
   are written before the tool returns, hooks are fresh processes, and the ranking prefilter
