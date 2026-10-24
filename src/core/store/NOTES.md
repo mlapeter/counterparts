@@ -2339,5 +2339,7 @@ their own store methods (`wave2.ts`, delegates on `Store`).
   `(token, memory_id)`, index on `memory_id`), written only by `associate`'s cue flush
   (`writeCueEdges`, `sweepCueEdges`). A lone bump by Mike's call (R3 ships on its own). The
   read floor stays: readers ask `hasTable` first. The chase deletes a removed memory's rows
-  and reports `operational.cue_edges`. `dropGateRecords` is new beside `rewriteGateValues`:
+  and reports `operational.cue_edges`; after the cache rebuild the removal also sweeps every
+  pair out of one of its words the index no longer holds (`sweepCueEdges`'s `terms`, review of
+  #613), so a word wired to another memory does not outlive the only memory that held it. `dropGateRecords` is new beside `rewriteGateValues`:
   recall's per-turn cue records have their own lifetime inside the session's.

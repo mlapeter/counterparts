@@ -324,6 +324,29 @@ describe("R3 — cue learning", () => {
     expect(weigh(a, "sess-x-probe").map((v) => v.id)).not.toContain(ping);
   });
 
+  test("5b. a word whose only memory is removed does not live on as a learned cue to another memory", async () => {
+    // Review of #613: the guard (df > 0) held when the pair was learned, but
+    // a word wired to memory B and held only by memory A must leave with A.
+    const a = adapter();
+    findable(a.counterpart.store);
+    for (const body of FILLER) a.counterpart.store.put({ type: "memory", kind: "fact", body });
+    const ping = await remember(a, WRITER, { text: PING });
+    const secret = await remember(a, WRITER, { text: "Quillfeather is the codename for the surprise party." });
+    const word = stemTerm("quillfeather");
+    const turn = prompt(a, "sess-q-1", "ping pong quillfeather");
+    expect([...turn.surfaced, ...turn.footnotes]).toContain(ping);
+    await rate(a, "sess-q-1", [{ id: ping, score: 3 }]);
+    work(a);
+    expect(pairWeight(a, word, ping)).toBeGreaterThan(0);
+    expect(pairWeight(a, PING_TERM, ping)).toBeGreaterThan(0);
+
+    const outcome = ownerRemoval(a.counterpart.store, { targetId: secret, actor: "owner", reason: "test", requestedAt: 0 });
+    expect(JSON.stringify(outcome)).toContain("words no memory holds now");
+    expect(a.counterpart.store.cueEdgesFor([word])).toEqual([]);
+    // A word another memory still holds keeps its pair.
+    expect(pairWeight(a, PING_TERM, ping)).toBeGreaterThan(0);
+  });
+
   test("6. an observer writes no pair and reads none", async () => {
     const a = adapter();
     const { ping } = await pingWorld(a);

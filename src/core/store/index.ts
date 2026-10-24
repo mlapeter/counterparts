@@ -5010,9 +5010,21 @@ export class Store {
     return this.mutate("writeCueEdges", () => wave2.writeCueEdges(this, rows, this.nowFn()));
   }
 
-  /** Remove pairs into a memory that is not live any more, and pairs `dead` says faded below the floor (`wave2.ts#sweepCueEdges`). */
-  sweepCueEdges(opts: { staleOnOrBefore: number }, dead: (row: wave2.CueEdgeRow) => boolean): number {
-    return this.mutate("sweepCueEdges", () => wave2.sweepCueEdges(this, { ...opts, denied: this.deniedIds() }, dead));
+  /**
+   * Remove pairs into a memory that is not live any more, and pairs `dead`
+   * says faded below the floor (`wave2.ts#sweepCueEdges`). With `terms`
+   * (review of #613, the owner's removal): every pair out of any of those
+   * index terms the word index no longer holds — the privacy guard (df > 0)
+   * kept true after the fact, so a word whose only memory was removed does
+   * not live on as a cue to another memory. Ask it after the cache rebuild.
+   */
+  sweepCueEdges(opts: { staleOnOrBefore: number; terms?: readonly string[] }, dead: (row: wave2.CueEdgeRow) => boolean): number {
+    const asked = [...new Set(opts.terms ?? [])].filter((t) => t.length > 0);
+    const held = asked.length === 0 ? new Map<string, number>() : docFrequency(this.cache, asked);
+    const unheld = asked.filter((t) => !((held.get(t) ?? 0) > 0));
+    return this.mutate("sweepCueEdges", () =>
+      wave2.sweepCueEdges(this, { staleOnOrBefore: opts.staleOnOrBefore, denied: this.deniedIds(), unheld }, dead),
+    );
   }
 
   /**

@@ -54,7 +54,8 @@ metabolic limits.
   the hook path, applied by the worker in the same claim as the pairs and after them (at
   most once for both), skipped on busy, refused for a pinned or no-longer-live memory, and
   nothing at all under observer — written or read. Erasing a memory deletes its pairs (the
-  removal counts them); a pruned or merged one's are swept at the next cue flush.
+  removal counts them), and every pair out of one of its words that no memory holds after it
+  (the privacy guard, df > 0, kept true after the fact — review of #613); a pruned or merged one's are swept at the next cue flush.
 - **An erased or pruned id must stop conducting.** [v1] scar §2.2 — v1's erase deleted edge
   rows from the index and then `rebuild()` reloaded the edge file wholesale and
   **resurrected them**, so the erased id kept conducting activation between its former

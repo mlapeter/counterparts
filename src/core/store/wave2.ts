@@ -453,7 +453,7 @@ export function writeCueEdges(store: Store, rows: readonly CueEdgeWrite[], at: n
  */
 export function sweepCueEdges(
   store: Store,
-  opts: { staleOnOrBefore: number; denied: readonly string[] },
+  opts: { staleOnOrBefore: number; denied: readonly string[]; unheld?: readonly string[] },
   dead: (row: CueEdgeRow) => boolean,
 ): number {
   if (!has(store, "cue_edges")) return 0;
@@ -461,6 +461,11 @@ export function sweepCueEdges(
   const changes = (): number => db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0;
   db.run("DELETE FROM cue_edges WHERE memory_id NOT IN (SELECT id FROM memories WHERE archived = 0 AND superseded_by IS NULL)");
   let n = changes();
+  // Words the index no longer holds (the caller measured them): no pair keeps one.
+  for (const token of new Set(opts.unheld ?? [])) {
+    db.run("DELETE FROM cue_edges WHERE token = ?", token);
+    n += changes();
+  }
   for (const id of new Set(opts.denied)) {
     db.run("DELETE FROM cue_edges WHERE memory_id = ?", id);
     n += changes();
