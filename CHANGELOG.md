@@ -40,6 +40,11 @@ The night is lighter and better organised. Its helpers start slim, with only the
   tokens before it begins.
 - **`counterparts night last` shows what a night cost in tokens.** The night's line says its
   total, and `counterparts doctor`'s Nightly run line says it too.
+- **For a host built on the package:** `counterparts` now exports `SPLIT_DREAM_TOOLS`, `SPLIT_REFLECTION_TOOLS`
+  and `seatTools` (which memory tools each night child is served), and `counterparts/claude-code` exports
+  `NIGHT_SERVED_TOOLS`, `NIGHT_SYSTEM_PROMPT`, `childUsage` (a night child's tokens from its `result` line),
+  `NIGHT_DEBUG_DIR`, `NIGHT_TRANSCRIPT_DAYS`, `nightDebugDir`, `writeNightTranscript` and `pruneNightTranscripts`
+  (the dev-only `debug` switch, documented in CONTRIBUTING.md). Nothing was removed.
 
 ## 0.3.33 — 2026-10-23
 
