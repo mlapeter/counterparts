@@ -44,8 +44,9 @@ this host a directory is what a piece of work *is*.
 
 ## 4. Drops / simplifies
 
-- **No forgetting mechanism of its own.** The pointer stops showing after
-  `HANDOFF_LIFE_DAYS` lived days; the row is then let go by the ordinary prune, because it
+- **No forgetting mechanism for the row of its own.** The pointer stops showing after
+  `HANDOFF_LIFE_DAYS` lived days (an expiry of its own, which forgets the showing, not the
+  row; reworded 2026-10-24); the row is then let go by the ordinary prune, because it
   is born unprotected in the episodic band with nothing on any salience dimension. Adding a
   sweep for it would be a second forgetting for one row (constitution line 15).
 - **No archived row per revision.** A newer handoff from the same session for the same

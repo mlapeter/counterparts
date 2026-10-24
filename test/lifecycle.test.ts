@@ -206,6 +206,8 @@ describe("the lifecycle, through the adapter", () => {
     // first consolidate after that (`sleep/tunables.ts` cadence).
     let promotedOn: number | null = null;
     const consolidateRanOn: number[] = [];
+    // Every boundary whose consolidate pass ran at all, found something or not.
+    const consolidatePassOn: number[] = [];
     let day = 1;
     for (; day <= 7 && promotedOn === null; day++) {
       const date = `2026-01-0${day + 1}`;
@@ -226,6 +228,7 @@ describe("the lifecycle, through the adapter", () => {
       const report = await c.sessionEnd({ date, at: date });
       const consolidate = report.cycle.phases.find((p) => p.phase === "consolidate");
       if (consolidate?.status === "ran") consolidateRanOn.push(day);
+      if (consolidate?.status === "ran" || consolidate?.status === "ran-nothing-found") consolidatePassOn.push(day);
       if (c.store.physicsOf(id).promotedIdentity) {
         promotedOn = day;
         expect(consolidate?.status).toBe("ran");
@@ -237,6 +240,11 @@ describe("the lifecycle, through the adapter", () => {
     expect(promotedOn).not.toBe(null);
     const firstEligibleConsolidate = consolidateRanOn.find((d) => d >= PHYSICS.CORE_FAST_GAP_DAYS);
     expect(promotedOn).toBe(firstEligibleConsolidate as number);
+    // Consolidation runs at EVERY lived day's boundary (2026-10-24; every
+    // third before), so the crossing lands the day the lane opens, not up to
+    // two days after it.
+    expect(consolidatePassOn).toEqual(Array.from({ length: promotedOn as unknown as number }, (_, i) => i + 1));
+    expect(promotedOn).toBe(PHYSICS.CORE_FAST_GAP_DAYS);
     const physics = c.store.physicsOf(id);
     expect(physics.returnDays).toBe(promotedOn as number);
     expect(physics.promotedIdentity).toBe(true);

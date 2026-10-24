@@ -58,6 +58,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Day's end (the page writer, renamed) reads the day as told: the chapters by their summaries and the 12 strongest memories with ids, citing them (`self.DAYS_END_INPUT`); the reflection's room long view first, `dreamSaw` cut to what the dream changed and 40 older (`dream.REFLECT_ROOM_ORDER`) | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after day's end" below; `docs/decisions.d/feat-days-end-reflection-room-1023.md` |
 | The reflection's core candidates capped at 30 a night, 10 of them rotated through the rest, the rest counted in one line (`REFLECT_TUNABLES.CANDIDATES`, switch `dream.REFLECT_CANDIDATES_CAP`); the per-lane shown counts kept on the reflection's row (`detail.lanes`), which with `chaptersAs` now survive the finish | 0.3.35, 10-24 | 3–4 nights after install, with day's end's check | "Due 3–4 nights after the candidates' cap" below; `docs/decisions.d/feat-reflect-candidates-cap-1024.md` |
 | Use credit refuses the memory's writing session on its birth day (`own-write`), not everyone: another session's use credits a newborn memory once that day; unknown/unbound writers keep the birth-day rule (switch `physics.OWN_WRITE_GATE`) | 0.3.35, 10-24 (R2) | ~7 nights after install: promotions and core growth | "Due ~7 nights after own-write" below; `docs/decisions.d/fix-own-write-not-birth-day.md` |
+| Consolidation every lived day (`sleep` `CADENCE.consolidate` 1, was 3): the core is decided at every night's sleep, still at most 3 a night (`CORE_MAX_PER_SLEEP`); read with 0.3.35's R2 (own-write), since both feed the core | not released, 10-24 (0.3.36) | ~7 nights after install | "Due ~7 nights after daily consolidation" below; `docs/decisions.d/feat-daily-consolidation.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -191,6 +192,31 @@ Look at, over ~7 nights since install (read-only):
 
 Changes it: core growth that outruns the reflection's capacity to read it, or promotions of memories that were only
 glimpsed. Revert: `physics.OWN_WRITE_GATE=false` (exactly as before), or revert the PR.
+
+## Due ~7 nights after daily consolidation (2026-10-24, E1, Mike's go 14:19, lightly held — `sleep` `CADENCE.consolidate`)
+
+What: the consolidate phase, which decides the core, runs at every lived day's sleep instead of every third. The only
+reason given for 3 was v0's "every 3 days"; eligibility is arithmetic over rows written in real time, so waiting
+gained nothing. The cap stays at 3 a night (`CORE_MAX_PER_SLEEP`), now literally per night. Replay on the 10-24
+corpus: the same 12 core at the end and the same 12 promotions, landing earlier (the first three on day 8, not day
+10); at most 3 on any night (day 8: 3, day 9: 2). On the live record the last
+consolidation (lived day 31) had nothing waiting at the cap, so the first daily night should promote 0–3, not a burst.
+
+Read it together with R2's own-write entry (0.3.35: a memory can be credited the day it was written by any session
+but the writer's, so a newborn can earn a reinforced day at birth). R2's entry is just above; both
+feed the core, so split the nights by build: R2 alone from 0.3.35's arrival day, both from 0.3.36's (`meta`
+`build.<version>.since`; `counterparts doctor`'s Builds line).
+
+Look at, per night since install (read-only):
+- promotions per lived day, by lane: `SELECT day, COUNT(*) AS promoted, GROUP_CONCAT(lane) AS lanes FROM core_events WHERE action = 'promoted' GROUP BY day ORDER BY day DESC LIMIT 14;`
+  expect 0–3 most nights, where it was 0–3 every third night (live, lived days 10 → 31: 3, 3, 3, 3, 2, 1, 0, 1);
+- the consolidate pass every night, and what waited at the cap: `SELECT e.day, json_extract(e.payload,'$.promoted') AS promoted, json_extract(c.value,'$.skipped."promotion:cap"') AS cap_waiting, json_extract(c.value,'$.status') AS status FROM events e, json_each(e.payload,'$.phases') c WHERE e.name = 'sleep.cycle' AND json_extract(c.value,'$.phase') = 'consolidate' AND json_extract(c.value,'$.status') LIKE 'ran%' ORDER BY e.seq DESC LIMIT 14;`
+  one `ran` / `ran-nothing-found` row per lived day; `cap_waiting` empty or small;
+- the core's size (`counterparts core`, or the dashboard's Self page) against 0.3.35's.
+
+What would change it: a core growing faster than ~3 a week for more than a week, or promotions Mike reads as wrong
+(a memory demoted soon after). Revert: `CADENCE.consolidate` back to 3 in `src/core/sleep/tunables.ts` (one number;
+the dashboard and mechanisms read it).
 
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 
