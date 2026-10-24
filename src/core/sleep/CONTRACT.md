@@ -89,11 +89,14 @@ alone.
   an owner chore — *"I won't remember to run random scripts occasionally."* [v1 §7 G8]
 - **Over-budget is measured at full membership, not on the rendered output** — a renderer
   that demotes until it fits *by construction never reports being over budget*. [v1 §7]
-- **Auto-consolidation on a cycle** (v0: every 3 days) — the pass that links a memory to its
+- **Auto-consolidation on a cycle** (v0: every 3 days, kept here as lineage; every lived day
+  since 2026-10-24, `CADENCE.consolidate` 1) — the pass that links a memory to its
   schemas and sets the consolidation bonus in `physics/` §5.2. [v0] **Since 2026-09-26 the
   bonus is LEGACY** (rows born before schema v8 only; physics §5.11): a memory made since
   stays strong by returning, credited at the moment it returns, and this pass decides the
   CORE — by two lanes, for memories about me or about us, at most three a night (below).
+  *(Three per consolidation, `CORE_MAX_PER_SLEEP`; literally a night since 2026-10-24, when
+  consolidation went to every lived day. Before that it ran every third lived day.)*
 
 ## 4. Drops / simplifies
 
@@ -262,7 +265,7 @@ and their records; the next session's briefing, written last; a per-cycle summar
     identical failure — escalates on the *n*th occurrence instead of re-logging the same line
     forever, and its backlog depth is a reported metric (scar E4: v1's runner starved for two
     days on an inherited credential and drained only when someone noticed).
-12. **[A]** Cadences — consolidation every 3 lived days, backup daily, prune dwell — are
+12. **[A]** Cadences — consolidation every lived day (every 3 until 2026-10-24), backup daily, prune dwell — are
     knobs. That each has a completion marker and a tripwire is mechanized.
 13. **[M]** Created-versus-exited counts per kind are reported every cycle; a kind with a
     zero exit count after the bake-in window is a defect to investigate (scar §2.17).

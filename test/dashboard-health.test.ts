@@ -305,7 +305,9 @@ describe("where archived memories went", () => {
       for (const date of ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-05", "2026-09-06"]) w.advanceClock(date);
       const today = w.livedDay();
       for (const phase of PHASES) w.setMeta(markerKey(phase), String(today));
-      w.setMeta(markerKey("consolidate"), String(today - 1)); // every 3 lived days: not due at the last cycle
+      // `fade` runs every 3 lived days: not due at the last cycle. (This read
+      // `consolidate` until 2026-10-24, when consolidation went to every lived day.)
+      w.setMeta(markerKey("fade"), String(today - 1));
       w.setMeta(markerKey("prune"), String(today - 2)); // every lived day: it was due and did not run
     } finally {
       w.close();
@@ -314,8 +316,8 @@ describe("where archived memories went", () => {
     try {
       const h = healthView(dash.source);
       const by = new Map(h.cycle.phases.map((p) => [p.phase, p]));
-      expect(by.get("consolidate")?.state).toBe("waiting");
-      expect(by.get("consolidate")?.nextInDays).toBe(2);
+      expect(by.get("fade")?.state).toBe("waiting");
+      expect(by.get("fade")?.nextInDays).toBe(2);
       expect(by.get("prune")?.state).toBe("behind");
       expect(by.get("decay")?.state).toBe("ran");
       expect(h.cycle.waiting).toBe(1);

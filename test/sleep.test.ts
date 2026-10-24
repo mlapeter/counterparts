@@ -748,11 +748,20 @@ describe("consolidation and the identity crossing", () => {
     expect(report.events.some((e) => e.name === "sleep.consolidated" && e.ref === grown)).toBe(true);
   });
 
-  test("consolidation runs on its own cadence and reports 'not-due-this-cadence' in between", () => {
+  test("consolidation runs on consecutive lived days by default (2026-10-24; every third before)", () => {
     const s = store();
     put(s, { salience: { claimed: 0.8 }, physics: { birthDay: -3, lastUsedDay: 0 } });
-    runCycle({ store: s, date: "2026-01-02" });
-    const second = runCycle({ store: s, date: "2026-01-03" });
+    for (const date of ["2026-01-02", "2026-01-03", "2026-01-04"]) {
+      const report = runCycle({ store: s, date });
+      expect(["ran", "ran-nothing-found"]).toContain(phaseReport(report, "consolidate").status);
+    }
+  });
+
+  test("a consolidation cadence above 1 reports 'not-due-this-cadence' in between", () => {
+    const s = store();
+    put(s, { salience: { claimed: 0.8 }, physics: { birthDay: -3, lastUsedDay: 0 } });
+    runCycle({ store: s, date: "2026-01-02", cadence: { consolidate: 3 } });
+    const second = runCycle({ store: s, date: "2026-01-03", cadence: { consolidate: 3 } });
     expect(phaseReport(second, "consolidate").reason).toBe("not-due-this-cadence");
     expect(phaseReport(second, "decay").reason).not.toBe("not-due-this-cadence");
   });
