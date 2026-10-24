@@ -14,8 +14,10 @@ disuse, consolidation moving a trace from episodic to semantic. **Named deviatio
 (constitution line 12): (a) identity-band memories are decay-exempt — flashbulb memories
 *do* fade in humans, here they do not [v1 §11 G5]; (b) traces never blend — generalization
 is only an explicit, provenance-carrying revision, so there is no substrate confabulation
-[v1 §4.2 G9]; (c) only a retrieval the assistant actually *used* resets the curve, where in
-humans every retrieval reconsolidates [v1 §10 G1]; (d) a DREAM's replay counts as a
+[v1 §4.2 G9]; (c) only a CREDITED retrieval resets the curve, where in humans every
+retrieval reconsolidates [v1 §10 G1] — a use, or since 2026-10-19 a graded showing at a
+`rated` boundary (`shown`, `ontopic`, `useful`, §5.5); a footnote at a boundary with no
+rating resets nothing (was: "only a retrieval the assistant actually *used*"); (d) a DREAM's replay counts as a
 return worth half an awake one and toward no core lane (§5.11) — sleep replay does
 strengthen human memory, but here a dream is the model's own pass, so it is discounted and
 kept out of the door to identity.
@@ -31,9 +33,11 @@ that keeps coming back over weeks.
 ## 3. Keeps
 
 - **The strength formula's shape — encoding salience, repetition with a cap, a
-  consolidation bonus, a decay term.** [v0] `clamp01( mean(salience) + min(accessCount ×
-  0.12, 0.5) + (consolidated ? 0.2 : 0) − 0.015 × age_days )`, kept with the decay term
-  upgraded (§5.4). **The consolidation bonus is LEGACY since 2026-09-26**: kept, exactly,
+  consolidation bonus, a decay term.** [v0] v0's formula, as lineage: `clamp01(
+  mean(salience) + min(accessCount × 0.12, 0.5) + (consolidated ? 0.2 : 0) − 0.015 ×
+  age_days )`. The four parts are what is kept, not that arithmetic: salience and
+  repetition are a MAX (§5.2), the repetition arm saturates (`REP_SCALE_USES`, 2026-10-11),
+  and decay is a power law over lived days that multiplies (§5.4). **The consolidation bonus is LEGACY since 2026-09-26**: kept, exactly,
   for memories born before schema v8, and closed to everything made since (§5.2, §5.11).
 - **Durability from spaced returns** (§5.11, 2026-09-26). [Ebbinghaus; Bjork & Bjork 1992;
   the held #238's spacing curve, harvested with its penalty dropped] — each counted return
@@ -57,7 +61,7 @@ that keeps coming back over weeks.
 - **The `updates: <memory-id>` field, declared by the writer.** [v0] — the revision channel
   v0 already had, which v1 rebuilt as the ledger and the owner has now returned to v0's
   shape.
-- **Auto-consolidation on a cycle** (v0: every 3 days). [v0]
+- **Auto-consolidation on a cycle** (v0: every 3 days; every lived day since 2026-10-24). [v0]
 - **Every constant is TUNABLE; every similarity constant is calibration-required.**
   [v1 scar §2.8]
 
@@ -254,7 +258,8 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
   Emotion counts toward the core ON PURPOSE, through the fast lane (the `promotionBase`
   stopgap of #244 is retired); repetition counts through the slow lane, and only for
   memories about me or about us. A dream's replays count toward neither lane: a dream may
-  NOMINATE, only a lane promotes. `sleep/` caps the crossings at three a night, strongest
+  NOMINATE, only a lane promotes. `sleep/` caps the crossings at three a night (per
+  consolidation, which runs every lived day since 2026-10-24; every third before), strongest
   first; a demotion (`counterparts core --demote`, or mine since 2026-10-11) is sticky.
 
   *(Group 3 part A, 2026-10-11, working defaults; item 14, review 08 C1/C2/C4.)* A
@@ -274,7 +279,8 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
   emergent side effect (scar §2.4) — and **identity-band membership is enumerable on
   demand** beside the protected list: permanence and inspectability scale together
   (scar §2.19).
-- **Identity stays sticky by design**: decay-exempt (`D = 1`), demoted only by revision —
+- **Identity stays sticky by design**: decay-exempt (`D = 1`), demoted only by revision or
+  by a decision (`counterparts core --demote`, or mine since 2026-10-11, as above; sticky) —
   the named deviation of §2 stands. **Semantic/episodic are evaluated on decayed
   `strength`**: a faded semantic memory demotes to episodic and gains the prune exit —
   every band now names its way out (scar §2.17 restored), and G12's symmetry counter
@@ -397,7 +403,9 @@ not know. Known cost, on the watch list: a credited use re-anchors the curve
 
 At most one credited occasion per memory per lived day, and never on its birth day [v1 §10
 G9]. Credit is retrospective, resolved at the boundary when the reply is known [v1 §10 G1].
-The ignorable tier never trains. A credited use is ALSO asked, beside this and without
+The ignorable tier (`footnoted`, `W_FOOTNOTED` 0) never trains by that name; since
+2026-10-19 an unrated footnote at a `rated` boundary is credited as a `shown` glimpse
+(above), so in practice a showing can train there. A credited use is ALSO asked, beside this and without
 changing it, whether it is a RETURN (§5.11).
 
 *Amended 2026-10-24 — lightly held (R2, Mike's go): the scar is kept and the gate moved to
@@ -628,10 +636,15 @@ S(v)        = S_FEELING + |v| × (S_FEELING_NEGATIVE − S_FEELING)   for v < 0
   one; the fast lane's lived peak (`feeling_peak_lived`) is still the strongest felt at the time.
 - **Slope follows the same number.** "How long a memory lasts follows the strongest
   feeling on it." It changes decay on EXISTING stores — every row with an `emotional`
-  score or a recorded feeling — which is why the multiplier is modest (×1.45 at I = 0.9).
+  score or a recorded feeling. *(It was modest, ×1.45 at I = 0.9, under `EMO_SLOPE`; since
+  2026-10-10 feeling enters through q, ×11 at I = 0.6 — see the slope bullet below.)*
 - **The feeling softens faster than the fact.** A feeling's strength as it reads now is
-  the recorded strength softened over the lived days since its MEMORY was born.
-  `S_FEELING = 20 < S_BASE = 60`. *(Wheel v2, 2026-09-30.)* The clock depends on the
+  the recorded strength softened over the lived days since the feeling was RECORDED
+  (`feelings.recorded_day`, v13; see the approximation below for before). It was `S_FEELING
+  = 20 < S_BASE = 60`; `S_BASE` is gone (§5.4), so the comparison is with the memory's own
+  `S(m)` now, and it holds only where that S is longer than `S_FEELING`: a 0.6 feeling on a
+  0.25 fact gives q 0.55 and S ≈ 33, while a weakly felt, low-salience memory (S of a few
+  lived days) fades before its feeling softens. *(Reworded 2026-10-24.)* *(Wheel v2, 2026-09-30.)* The clock depends on the
   feeling's VALENCE `v` (the writer's, else its word's default): an unpleasant feeling
   softens faster than a pleasant one — the fading affect bias — from ~15.8 lived days at
   angry's −0.7 to ~25.6 at happy's +0.7; a feeling read without a valence keeps 20. The

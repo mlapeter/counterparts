@@ -60,10 +60,13 @@ export interface AssociateTunables {
   MAX_OUT_WEIGHT: number;
 
   // ── edge decay (physics family, own constants) ───────────────────────────
-  /** Edge stability, in LIVED days (scar E8). Shorter than memory's `S_BASE`
-   *  (60): an association that stops being used should fade faster than the
-   *  memories it joins, or the graph becomes a fossil record of every
-   *  coincidence. CAL, no ancestry. */
+  /** Edge stability, in LIVED days (scar E8). Set shorter than memory's old
+   *  `S_BASE` (60): an association that stops being used should fade faster
+   *  than the memories it joins, or the graph becomes a fossil record of every
+   *  coincidence. `S_BASE` is gone (physics §5.4, 2026-10-10): a memory's S
+   *  now runs from 0.4 to ~1,200 lived days by its q, ~3 for a default note,
+   *  so an edge outlives a weak endpoint and fades before a strong one. CAL,
+   *  no ancestry. */
   S_EDGE: number;
   /**
    * The curve shape for edges. PINNED to exponential, and that is load-bearing

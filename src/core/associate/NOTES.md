@@ -12,7 +12,9 @@ ruling literally in both directions — **all** the edge arithmetic lives in
 `edges.ts` (increment, cap, lived-day decay, count cap, renormalization), and
 `physics/` gains nothing. The one import across that line is `decayCurve`: edges
 decay on the same CURVE FAMILY as memories, with their own stability constant
-(`S_EDGE = 30` against memory's `S_BASE = 60`). That is what "a physics-family
+(`S_EDGE = 30` against memory's `S_BASE = 60` at the time; *2026-10-24: `S_BASE` is gone
+since 2026-10-10, a memory's S follows its q, ~3 lived days for a default note, so the
+comparison no longer holds for weak memories*). That is what "a physics-family
 curve, own constants" means, and it is why there is no second `Math.exp` in this
 directory.
 

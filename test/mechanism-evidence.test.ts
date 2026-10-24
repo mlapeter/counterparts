@@ -88,7 +88,7 @@ describe("one judgement, two surfaces", () => {
     expect(seen).toEqual(new Set(["●", "◐", "○"]));
   });
 
-  test("consolidation, not due: its phase ran on time, so both say waiting with the next run", () => {
+  test("consolidation ran on time yesterday: both say waiting, next run at the next session's end", () => {
     const dir = tempDir("counterparts-evidence-sched-");
     const TODAY = "2026-01-12";
     const c = Counterpart.open({ dir });
@@ -96,7 +96,8 @@ describe("one judgement, two surfaces", () => {
     try {
       for (let i = 1; i <= 12; i++) c.store.advanceClock(`2026-01-${String(i).padStart(2, "0")}`);
       day = c.store.livedDay();
-      // The consolidate phase last completed yesterday; it runs every 3 lived days.
+      // The consolidate phase last completed yesterday; it runs every lived day
+      // (2026-10-24; every 3 before), so it is due again at today's boundary.
       c.store.setMeta(markerKey("consolidate"), String(day - 1));
     } finally {
       c.close();
@@ -105,9 +106,9 @@ describe("one judgement, two surfaces", () => {
     try {
       const m = mechanismsView(dash.source).mechanisms.find((x) => x.id === "consolidation")!;
       expect(m.status).toBe("waiting");
-      expect(m.nextInDays).toBe(2);
+      expect(m.nextInDays).toBe(0);
       expect(m.evidence).toContain(`day ${day - 1} of use`);
-      expect(m.evidence).toContain("next run in 2 days of use");
+      expect(m.evidence).toContain("next run at the next session's end");
     } finally {
       dash.close();
     }
@@ -118,7 +119,7 @@ describe("one judgement, two surfaces", () => {
       const cons = MEMORY_MECHANISMS.find((m) => m.id === "consolidation")!;
       const line = readMechanism(cons, consoleVerdicts(s, TODAY), (id) => byId.get(id));
       expect(line.light).toBe("◐");
-      expect(line.says).toContain("next run in 2 days of use");
+      expect(line.says).toContain("next run at the next session's end");
     } finally {
       s.close();
     }

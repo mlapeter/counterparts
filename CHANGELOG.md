@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.35 — 2026-10-24
+
+The morning reflection reads a shorter list of the memories that may become core: at most 30 a night, the 20 strongest and 10 taking turns through the rest, with the others counted in one line (on a copy of the author's store, 132 candidates → 30 shown and "+102 more", the reflection's reading 85k characters in 4 parts → 74k in 3; a tail of about 100 comes round in about 10 nights). Day's end's known misread from 0.3.34 is fixed: a night that tells the day and then writes the page reads as a page revised. A memory written in one session now counts as used the first time another session draws on it, the same day. No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
+
+- **The morning reflection is shown at most 30 core candidates a night, not every one.** The 20 strongest felt and
+  newest come every night, and 10 more take turns through the rest, the ones it saw longest ago first, so each still
+  comes round. The rest are counted in one line. On a store with about 130 candidates the reflection's bundle is
+  about 11k characters shorter and one part fewer. Switch: `dream.REFLECT_CANDIDATES_CAP`.
+- **Day's end that tells the day first and then writes the page anyway is read as a page
+  written.** The night's row, doctor and the dashboard said "nothing to say" for that night
+  although the page had changed; now they say it was revised, and the day summary stays
+  with it.
+- **A memory can be credited on the day it was written, by any session but the one that wrote
+  it.** Until now no use counted on a memory's first day, so a note another session opened or
+  drew on within minutes stayed at zero uses. The rule's real cause was the writing session
+  seeing its own words in its reply, so that session is now the one refused that day. Switch:
+  `physics.OWN_WRITE_GATE`.
+
 ## 0.3.34 — 2026-10-23
 
 The night is lighter and better organised. Its helpers start slim, with only the memory tools they use and a short prompt of their own, and the dream's and the reflection's reading goes out as plain lines with short ids (on a copy of the author's store the dream's bundle fell by 43–45%, the reflection's by about 13%, with the same memories shown). The nightly page writer is now called **day's end**: it runs first, in its own child, reads the day by its chapters' summaries and its strongest memories, writes Lately and How I work, and leaves a short account of the day that the dream reads first; the reflection writes Core. The reflection sees the long view again: on busy nights it had been shown no core memories at all, and now it reads them first, with the last three weeks as a line a day. `counterparts night last` and doctor say what a night cost in tokens. No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.

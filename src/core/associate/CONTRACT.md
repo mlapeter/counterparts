@@ -12,11 +12,14 @@ valenced edge, and recall spreads activation across those edges.
 Hebbian plasticity — "cells that fire together wire together" — plus spreading activation
 through the resulting associative network. **Named deviations** (constitution line 12):
 (a) credit is **retrospective and graded** — full only when the reply actually used the
-memory, weak when it surfaced unused, **zero for the merely footnoted**, where in humans
-every retrieval trains *(reworded 2026-10-24, R3 cue learning — an experiment: a footnote
-SHOWN AND ACTED ON trains its cue pairs — the words of the turn that showed it, wired to
-it — through a rating (1 a little, 2–3 fully, 0 depresses) or `drewOn`; one merely shown
-and passed by still trains nothing)*; (b) homeostasis is enforced structurally (a per-node edge cap and
+memory, weak when it surfaced unused, and the footnoted tier's own credit factor zero, where
+in humans every retrieval trains. *Since 2026-10-19 (the feedback loop):* an unrated footnote
+is a `shown` glimpse today (a use at `W_SHOWN`, credited at a `rated` boundary), and memories
+shown on one turn there lay a faint edge (`SHOWN_TOGETHER_DEPOSIT`, G1 below); memory-to-memory
+pairs train only on credited use. (Was: "zero for the merely footnoted".) *Since 2026-10-24
+(R3 cue learning — an experiment):* a footnote SHOWN AND ACTED ON trains its cue pairs — the
+words of the turn that showed it, wired to it — through a rating (1 a little, 2–3 fully, 0
+depresses) or `drewOn`; one merely shown and passed by still trains no cue pair. (b) homeostasis is enforced structurally (a per-node edge cap and
 a bounded outgoing weight with proportional renormalization) rather than emerging from
 metabolic limits.
 
@@ -88,7 +91,10 @@ for `recall/`; telemetry by reference.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 
-1. **[M] Display never trains; engagement does — strength only.** *Reworded 2026-10-11 by
+1. **[M] Display trains nothing outside a rating; engagement does — strength only.**
+   *(Heading reworded 2026-10-24: it read "Display never trains", which the 2026-10-19
+   amendment below contradicts — at a `rated` boundary display leaves a faint trail.)*
+   *Reworded 2026-10-11 by
    the drewOn builder, from Mike's 10-10 direction, lightly held (wording from #371).* A
    memory shown and passed by (footnoted, surfaced, on the wake) trains nothing, in either
    direction. One the session NAMES in a `drewOn` field is credited at the `engaged` tier
