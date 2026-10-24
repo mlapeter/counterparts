@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { TUNABLES, USE_TIER_WEIGHT, creditReturn, creditUse } from "../src/core/physics/index.js";
+import { UNBOUND_SESSION } from "../src/core/types.js";
 import type { MemoryPhysics } from "../src/core/types.js";
 import { freshGateState, loadGateState, saveGateState } from "../src/core/recall/index.js";
 import type { GateState } from "../src/core/recall/index.js";
@@ -218,6 +219,74 @@ describe("R2 — credit refuses the writing session, not the birth day", () => {
     const byA = cb.creditReferences(A, { assistantTurns: [], expansions: [revision] });
     expect(byA.credited).toBe(1);
     expect(cb.store.row(revision)?.uses).toBe(USE_TIER_WEIGHT.referenced);
+  });
+});
+
+describe("R2 — the review's awkward states (review of #610)", () => {
+  /** Session `session` writes a memory that `updates` an id that resolves to nothing: a content re-encounter, a confirm. */
+  async function confirm(s: McpServer, text: string): Promise<void> {
+    await write(s, text, { updates: "mem_000000000000" });
+  }
+
+  test("the confirm path [v1 §10 G9]: another session's re-encounter credits the newborn once; the writer's is refused own-write", async () => {
+    const sa = server(A);
+    const original = await write(sa, PING);
+    sa.counterpart.close();
+    open.splice(0);
+    const sb = server(B);
+    await confirm(sb, "When someone says ping the answer is pong; the footnote says so, again.");
+    expect(sb.counterpart.store.row(original)).toMatchObject({ uses: USE_TIER_WEIGHT.referenced, reinforced_days: 1 });
+    // A second re-encounter the same day: once a lived day.
+    await confirm(sb, "Ping gets pong as the answer, and the footnote says so, once more.");
+    expect(sb.counterpart.store.row(original)?.uses).toBe(USE_TIER_WEIGHT.referenced);
+    sb.counterpart.close();
+    open.splice(0);
+
+    // The writing session re-encountering its own newborn memory: refused, by name.
+    const sa2 = server(A);
+    const mine = await write(sa2, "The orchard ladder has eleven rungs and the top one is cracked.");
+    await confirm(sa2, "The orchard ladder has eleven rungs; its top rung is cracked, still.");
+    expect(sa2.counterpart.store.row(mine)?.uses).toBe(0);
+    // The confirm resolved to it and reached the store, which refused it by name.
+    const asked = sa2.counterpart.store.events("store.reinforce").filter((e) => e.ref === mine);
+    expect(asked.map((e) => e.data?.["reason"])).toEqual(["own-write"]);
+  });
+
+  test("a write-up's writer (meta writtenUpBy) and its lived session are both refused own-write on the birth day; a third session credits it", async () => {
+    const s = server(C);
+    const c = s.counterpart;
+    const id = c.store.put({
+      type: "memory",
+      kind: "fact",
+      title: "A written-up stretch",
+      body: "The relief valve on the boiler was replaced, written up afterwards.",
+      salience: { novelty: null, relevance: 0.6, emotional: 0.4, predictive: 0.5 },
+      origin: { session: A },
+      meta: { secondHand: true, writtenUpBy: B },
+    });
+    const day = c.store.livedDay();
+    expect(c.store.reinforce(id, day, "referenced", { session: B }).reason).toBe("own-write");
+    expect(c.store.reinforce(id, day, "referenced", { session: A }).reason).toBe("own-write");
+    footnoted(c, C, 1, [id]);
+    expect(c.creditReferences(C, { assistantTurns: [], expansions: [id] }).credited).toBe(1);
+    expect(c.store.row(id)?.uses).toBe(USE_TIER_WEIGHT.referenced);
+  });
+
+  test("the unbound server's shared id names no session: a memory it wrote, or a credit it sends, keeps the birth-day rule", async () => {
+    const unbound = openServer({ dir, scope: "/scope/ownwrite" });
+    open.push(unbound.counterpart);
+    const c = unbound.counterpart;
+    const id = await write(unbound, PING);
+    expect(c.store.row(id)?.origin_session).toBe(UNBOUND_SESSION);
+    // The same conversation's hooks know its real id: that boundary may be the writer's own.
+    const out = quoteAndOpen(c, A, id);
+    expect(out.credited).toBe(0);
+    expect(out.refused["birth-day"]).toBeGreaterThan(0);
+    expect(c.store.row(id)?.uses).toBe(0);
+    // And a credit sent under the shared id, on a memory a bound session wrote.
+    const sa = server(A);
+    const mine = await write(sa, "The orchard ladder has eleven rungs and the top one is cracked.");
+    expect(sa.counterpart.store.reinforce(mine, sa.counterpart.store.livedDay(), "referenced", { session: UNBOUND_SESSION }).reason).toBe("birth-day");
   });
 });
 

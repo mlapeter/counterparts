@@ -41,7 +41,7 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Band, Kind, MemoryPhysics, Salience } from "../types.js";
-import { WRITTEN_UP_BY_META_KEY, isModelId } from "../types.js";
+import { WRITTEN_UP_BY_META_KEY, isKnownSession, isModelId } from "../types.js";
 import {
   daysBetween,
   isCalendarDate,
@@ -1854,10 +1854,13 @@ export class Store {
    * Whether `session` wrote this memory (physics `OWN_WRITE_GATE`, R2,
    * 2026-10-24): its origin session, or the writer of a write-up. Undefined
    * when it cannot be told — no crediting session, or no origin session on
-   * the row — and physics then keeps the old birth-day refusal.
+   * the row — and physics then keeps the old birth-day refusal. The unbound
+   * server's shared id (`UNBOUND_SESSION`, "mcp") names no session, on either
+   * side: a memory an unbound server wrote may be the crediting session's own
+   * (its hooks know the real id), so it is unknown too (review of #610).
    */
   private ownWrite(row: { origin_session: string | null; meta: string | null }, session: string | null): boolean | undefined {
-    if (session === null || session === "" || row.origin_session === null || row.origin_session === "") return undefined;
+    if (!isKnownSession(session) || !isKnownSession(row.origin_session)) return undefined;
     if (row.origin_session === session) return true;
     if (row.meta !== null && row.meta.includes(WRITTEN_UP_BY_META_KEY)) {
       try {
