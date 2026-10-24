@@ -109,8 +109,8 @@ function v13Store(counted = false): { secret: string; plain: string; person: str
 }
 
 describe("store v14 — wave 2's one bump", () => {
-  test("the version is 14 and the observer floor stays at 11", () => {
-    expect(SCHEMA_VERSION).toBe(14);
+  test("the version is 14 (or later) and the observer floor stays at 11", () => {
+    expect(SCHEMA_VERSION).toBeGreaterThanOrEqual(14);
     expect(OBSERVER_READ_FLOOR).toBe(11);
   });
 
@@ -142,8 +142,8 @@ describe("store v14 — wave 2's one bump", () => {
     closeAll();
 
     const s = store();
-    expect(s.getMeta("schemaVersion")).toBe("14");
-    expect(readdirSync(join(root, "snaps")).filter((n) => n.includes("pre-migration-v13-to-v14"))).toHaveLength(1);
+    expect(s.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
+    expect(readdirSync(join(root, "snaps")).filter((n) => n.includes(`pre-migration-v13-to-v${SCHEMA_VERSION}`))).toHaveLength(1);
     // The retirement was counted BEFORE the drop, once.
     const retired = JSON.parse(s.getMeta(CONFIDENTIAL_RETIRED_KEY) ?? "{}") as Record<string, unknown>;
     expect(retired["count"]).toBe(1);
@@ -198,7 +198,7 @@ describe("store v14 — wave 2's one bump", () => {
     db.run("UPDATE meta SET value = '12' WHERE key = 'schemaVersion'");
     db.close();
     const s = store();
-    expect(s.getMeta("schemaVersion")).toBe("14");
+    expect(s.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
     expect(JSON.parse(s.getMeta(V14_UPGRADE_KEY) ?? "{}")).toMatchObject({ from: "12", confidentialDropped: true });
     closeAll();
     // No column at all (a hand-lowered stamp on a v14 file): nothing to drop, and the open still migrates.
@@ -206,7 +206,7 @@ describe("store v14 — wave 2's one bump", () => {
     db.run("UPDATE meta SET value = '13' WHERE key = 'schemaVersion'");
     db.close();
     const again = store();
-    expect(again.getMeta("schemaVersion")).toBe("14");
+    expect(again.getMeta("schemaVersion")).toBe(String(SCHEMA_VERSION));
     expect(JSON.parse(again.getMeta(V14_UPGRADE_KEY) ?? "{}")).toMatchObject({ from: "13", confidentialDropped: false, confidentialCounted: null });
   });
 
@@ -215,7 +215,7 @@ describe("store v14 — wave 2's one bump", () => {
     const s = store();
     s.put({ type: "memory", kind: "fact", body: "Written after the upgrade." });
     closeAll();
-    const snap = readdirSync(join(root, "snaps")).find((n) => n.includes("pre-migration-v13-to-v14")) as string;
+    const snap = readdirSync(join(root, "snaps")).find((n) => n.includes(`pre-migration-v13-to-v${SCHEMA_VERSION}`)) as string;
     const live = paths.operational(dir);
     for (const extra of ["-wal", "-shm"]) rmSync(`${live}${extra}`, { force: true });
     copyFileSync(join(root, "snaps", snap, "counterparts.sqlite"), live);

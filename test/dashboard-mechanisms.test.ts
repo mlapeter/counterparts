@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { sourceOf } from "../src/adapters/dashboard/source.js";
@@ -145,11 +146,19 @@ describe("the lights, on a seeded store", () => {
     // and since 2026-09-28 the boundary writes an associate.flush row for that.
     // Since 2026-10-11 (Group 4) laying links is not enough for green: one must
     // reach recall in the window, or the light is amber and says so.
+    // Since 2026-10-24 (R3 cue learning) the seeder's credited uses also wire
+    // their turns' words, so its later turns reach other memories and a link
+    // brings one to mind: green, with the count. With the switch off: amber.
     const assoc = by["association"];
     expect(assoc?.events.length).toBeGreaterThan(0);
-    expect(assoc?.status).toBe("amber");
     expect(assoc?.evidence).toContain("links laid");
-    expect(assoc?.evidence).toContain("but no memory a link brought to mind");
+    if (PHYSICS.CUE_LEARNING) {
+      expect(assoc?.status).toBe("green");
+      expect(assoc?.evidence).toContain("links brought to mind");
+    } else {
+      expect(assoc?.status).toBe("amber");
+      expect(assoc?.evidence).toContain("but no memory a link brought to mind");
+    }
 
     const dash = Dashboard.open({ dir: richDir });
     try {

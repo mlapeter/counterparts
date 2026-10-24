@@ -684,15 +684,23 @@ describe("per-session gate state is PERSISTED (the ruling, and v1's dark behavio
     // The active session keeps talking; the quiet one passes the ceiling.
     now += 13 * DAY + 1;
     r.recall({ sessionId: "active", text: "the sourdough starter again" });
-    expect(clearIdleCarries(s, MAX)).toBe(1);
+    // A turn's cue words (R3 cue learning, 2026-10-24) leave on the same
+    // clock, row and all: every `cues` record saved before the ceiling goes
+    // with the quiet session's carry.
+    const cueRows = (id: string) => s.gateRecords(id).filter((x) => x.kind === "cues");
+    const staleCues = [...cueRows("quiet"), ...cueRows("active")].filter((x) => (JSON.parse(x.value ?? "{}") as { at?: number }).at! <= now - MAX).length;
+    expect(cueRows("quiet").length).toBeGreaterThan(0);
+    expect(clearIdleCarries(s, MAX)).toBe(1 + staleCues);
+    expect(cueRows("quiet")).toEqual([]);
     expect(r.gateState("quiet").carriedCues).toEqual([]);
     expect(JSON.stringify(s.gateRecords("quiet"))).not.toContain("sourdough");
-    // Only the carry: the rest of the quiet session's gate state is as it was.
+    // Only the carry and the cue words: the rest of the quiet session's gate state is as it was.
     const quietAfter = s.gateRecords("quiet");
+    const kept = (rows: typeof quietAfter) => rows.filter((x) => x.kind !== "cues");
     expect(quietAfter.map((x) => [x.kind, x.ref, x.turn, x.last_day])).toEqual(
-      quietBefore.map((x) => [x.kind, x.ref, x.turn, x.last_day]),
+      kept(quietBefore).map((x) => [x.kind, x.ref, x.turn, x.last_day]),
     );
-    expect(quietAfter.filter((x) => x.kind !== "scalar")).toEqual(quietBefore.filter((x) => x.kind !== "scalar"));
+    expect(quietAfter.filter((x) => x.kind !== "scalar")).toEqual(kept(quietBefore).filter((x) => x.kind !== "scalar"));
     // The active session still carries into its next turn.
     expect(r.gateState("active").carriedCues.length).toBeGreaterThan(0);
     expect(r.recall({ sessionId: "active", text: "what should I do now" }).decision.carriedCueCount).toBeGreaterThan(0);

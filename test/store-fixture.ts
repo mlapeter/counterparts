@@ -182,7 +182,18 @@ export const V14_COLUMNS = ["subject_kind", "birth_route", "confidence", "birth_
  * migrated store's `table_info` cannot match a fresh one's. The stamp is the
  * caller's to set.
  */
+/**
+ * TURN A CURRENT FILE BACK INTO A v14 ONE (2026-10-24, R3 cue learning): drop
+ * the one table v15 added, and its index. The stamp is the caller's to set.
+ */
+export function stripV15(db: { run(sql: string): unknown }): void {
+  db.run("DROP INDEX IF EXISTS cue_edges_memory");
+  db.run("DROP TABLE IF EXISTS cue_edges");
+}
+
 export function stripV14(db: { run(sql: string): unknown }): void {
+  // A current file is v15 (2026-10-24): back to v14 first.
+  stripV15(db);
   for (const i of V14_INDEXES) db.run(`DROP INDEX IF EXISTS ${i}`);
   for (const t of V14_TABLES) db.run(`DROP TABLE IF EXISTS ${t}`);
   for (const c of V14_COLUMNS) db.run(`ALTER TABLE memories DROP COLUMN ${c}`);

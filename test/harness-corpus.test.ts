@@ -19,7 +19,7 @@ import { join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { Counterpart } from "../src/core/counterpart.js";
-import { runningBuild } from "../src/core/store/operational.js";
+import { SCHEMA_VERSION, runningBuild } from "../src/core/store/operational.js";
 import { CompareError, planSides, runCompare } from "../tools/harness/compare.js";
 import { corpusName, readCorpus } from "../tools/harness/corpus.js";
 import { PRESETS, SettingError, applySettings, expandPreset, parseSetting, restoreSettings } from "../tools/harness/settings.js";
@@ -99,7 +99,7 @@ test("the newest snapshot is copied out, checked, named by date, schema and buil
   expect(r.err).toBe("");
   expect(r.status).toBe(0);
   // The default target is ~/counterparts-backups, under the HOME the CLI ran with.
-  const name = `2026-01-05-corpus-v14-${runningBuild()}`;
+  const name = `2026-01-05-corpus-v${SCHEMA_VERSION}-${runningBuild()}`;
   const copy = join(home, "counterparts-backups", name, "counterparts.sqlite");
   expect(existsSync(copy)).toBe(true);
   expect(hash(copy)).toBe(before.hash);
@@ -110,7 +110,7 @@ test("the newest snapshot is copied out, checked, named by date, schema and buil
   expect(readdirSync(join(home, "counterparts-backups"))).toEqual([name]);
   const rec = JSON.parse(readFileSync(json, "utf8")) as Record<string, unknown>;
   expect(rec["snapshot"]).toBe(NEWER);
-  expect(rec["schemaVersion"]).toBe(14);
+  expect(rec["schemaVersion"]).toBe(SCHEMA_VERSION);
   expect(rec["build"]).toBe(runningBuild());
   expect(rec["counts"]).toMatchObject({ memories: 2, beliefs: 1, beliefSupport: 0, tags: 2, distinctTags: 1, subjectLinks: 1 });
   expect(r.out).toContain(`corpus: ${copy}`);
@@ -142,11 +142,11 @@ test("a named snapshot is copied, and a second copy to the same place is refused
   const out = join(root, "backups");
   const first = corpus(["--from", join(snapshots, OLDER), "--out", out]);
   expect(first.status).toBe(0);
-  expect(readdirSync(out)).toEqual([`2026-01-04-corpus-v14-${runningBuild()}`]);
+  expect(readdirSync(out)).toEqual([`2026-01-04-corpus-v${SCHEMA_VERSION}-${runningBuild()}`]);
   const again = corpus(["--from", join(snapshots, OLDER, "counterparts.sqlite"), "--out", out]);
   expect(again.status).toBe(1);
   expect(again.err).toContain("CORPUS_EXISTS");
-  expect(readdirSync(out)).toEqual([`2026-01-04-corpus-v14-${runningBuild()}`]);
+  expect(readdirSync(out)).toEqual([`2026-01-04-corpus-v${SCHEMA_VERSION}-${runningBuild()}`]);
 });
 
 test("the live store, a folder outside the snapshots, a half copy, and a target under ~/.counterparts are refused by name", () => {

@@ -1353,3 +1353,42 @@ Not run: a model night. What would be: two `harness compare` runs over Mike's 30
 meaningful week, `--set recall.BELIEFS_IN_RECALL=false` and `--set recall.TAGS_PRIME=false`
 against the defaults, reading the slot's fire rate and bytes, the beliefs lane's ratings, and
 `primed.byTag` with its footnotes' ratings.
+
+## R3 — cue learning (2026-10-24, an experiment; switch `physics.CUE_LEARNING`)
+
+- **What it is.** A turn that showed something keeps its own cue words (index terms, weights,
+  df > 0 only — `buildCues` already drops a word the index lacks; never carried, never an
+  ambiguous handle) in a `cues` gate record. A credited use of a shown memory (`resolveUse`:
+  an open, a quote, `drewOn`, a rating 1–3) trains that showing's words to it, split by weight,
+  `CUE_TRAIN_RATE` per full use; a 0 rating depresses (`cueDepress`, called by the rating pass,
+  since a 0 never reaches `resolveUse`). The deltas ride back on `CreditResult.cues` and
+  `Counterpart` hands them to `associate/` (recall imports neither it nor its table). A
+  learned pair is read in `activate.ts` as one more cue: `w × CUE_PAIR_UNITS` cue units, in
+  `cueScore`, `bestCue` (or the doc cap zeroes a learned-only candidate) and `matchCount`,
+  marked as training (id-addressed), never for a carried word or one under
+  `CUE_FETCH_MIN_IDF`.
+- **Which credits train.** Credited, or refused only for cadence (`already-credited-today`,
+  recall's `already-credited-at-or-above`): five pings in five sessions train five times.
+  Never `own-write` (the writing session on the birth day, physics' gate, not re-derived),
+  `birth-day` (unknown writer), `ambiguous-handle-trains-nothing`, observer. Each showing
+  trains a memory at most to its best share (`cuetrain` record, ref = the memory so a removal
+  takes it): an open then a 3 trains once; a 0 after a 3 takes it back and depresses.
+- **The deliberate path.** The question's cue words are kept beside its `asked` records
+  (`noteQuestionCues`, ref `a<seconds>`); an open of an answered memory trains them. The
+  search itself trains nothing (CONTRACT item 8, narrowed).
+- **Why `CUE_PAIR_UNITS` is 6, not "about one rare word".** The loud tier's floor is absolute
+  (4.5 cue units) and a bare one-word prompt brings ~1 unit, so at 1 unit no practice could
+  make "ping" loud — the brief's own bar. Measured on the demo fixture: after one use found by
+  a question and two by the bare word (w 0.79), 5 units gave 4.36 units (footnote) and 6 gave
+  5.1 (loud). Revisit first if learning overrides the conversation.
+- **Lifetime.** Cue records: the newest `MAX_SESSION_RECORDS` turns per session, and
+  `clearIdleCarries` drops them on the 14-day clock (they are typed words, reduced to terms).
+- **Step 0 (the 10-24 "one turn late").** Not a stale view: the jot's row, words and vector
+  are written before the tool returns, hooks are fresh processes, and the ranking prefilter
+  passes an unranked row. Reproduced hermetically (test/cue-learning.test.ts, "step 0, what it
+  found"): from another folder the new memory is a candidate, and `CROSS_PROJECT_BAR_LIFT`
+  (1.25) turns it away when the previous turn's carried words give the turn a relative
+  background (`crossProjectLifted` 1 on the row); a first turn, or the same folder, shows it.
+  One turn later the lagged meaning has caught up. Left for its own lane (it is lane G's
+  experiment, and whether a habit like ping/pong is "another project's work" is a
+  classification question).

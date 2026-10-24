@@ -2333,3 +2333,11 @@ their own store methods (`wave2.ts`, delegates on `Store`).
   single binary's entry hands it in (`setRunningBuild`). Not added to `RECALL_DECISION_FIELDS`:
   the stamp is the store's envelope, not the surface set, so `tools/parallel`'s hash is unmoved.
 - **Revert.** Stop writing the field; the log rows are inert.
+
+- **v15 (2026-10-24, R3 cue learning — an experiment).** One additive table, `cue_edges`
+  (`token`, `memory_id`, `weight`, `last_day`, `created_at`, `updated_at`, `source`; PK
+  `(token, memory_id)`, index on `memory_id`), written only by `associate`'s cue flush
+  (`writeCueEdges`, `sweepCueEdges`). A lone bump by Mike's call (R3 ships on its own). The
+  read floor stays: readers ask `hasTable` first. The chase deletes a removed memory's rows
+  and reports `operational.cue_edges`. `dropGateRecords` is new beside `rewriteGateValues`:
+  recall's per-turn cue records have their own lifetime inside the session's.

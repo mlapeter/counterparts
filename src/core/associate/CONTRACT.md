@@ -13,7 +13,10 @@ Hebbian plasticity — "cells that fire together wire together" — plus spreadi
 through the resulting associative network. **Named deviations** (constitution line 12):
 (a) credit is **retrospective and graded** — full only when the reply actually used the
 memory, weak when it surfaced unused, **zero for the merely footnoted**, where in humans
-every retrieval trains; (b) homeostasis is enforced structurally (a per-node edge cap and
+every retrieval trains *(reworded 2026-10-24, R3 cue learning — an experiment: a footnote
+SHOWN AND ACTED ON trains its cue pairs — the words of the turn that showed it, wired to
+it — through a rating (1 a little, 2–3 fully, 0 depresses) or `drewOn`; one merely shown
+and passed by still trains nothing)*; (b) homeostasis is enforced structurally (a per-node edge cap and
 a bounded outgoing weight with proportional renormalization) rather than emerging from
 metabolic limits.
 
@@ -41,6 +44,17 @@ metabolic limits.
 - **Spreading activation is bounded**: a hop limit with per-hop decay, and fan
   normalization so a hub node does not flood. [v1] §9 TUNABLE (v1: 2 hops, hop decay 0.5,
   fan normalization on).
+- **Cue pairs, the same homeostasis** (2026-10-24, R3 cue learning — an experiment;
+  switch `physics.CUE_LEARNING`). The node Hebb was missing: the CUE WORD. A credited use
+  wires the words of the turn that showed the memory to it (`cue_edges`, index terms only),
+  split over the words by their weights. Bounded like edges and by the same machinery: a
+  saturating update per pair (`CUE_W_CAP`), synaptic scaling per word (`CUE_MAX_OUT`),
+  exponential fading with lived days (`S_CUE`) and a floor the flush sweeps; deltas
+  buffered (`buffer.ts#CueBuffer`, the declared exemption), drained to the pending file on
+  the hook path, applied by the worker in the same claim as the pairs and after them (at
+  most once for both), skipped on busy, refused for a pinned or no-longer-live memory, and
+  nothing at all under observer — written or read. Erasing a memory deletes its pairs (the
+  removal counts them); a pruned or merged one's are swept at the next cue flush.
 - **An erased or pruned id must stop conducting.** [v1] scar §2.2 — v1's erase deleted edge
   rows from the index and then `rebuild()` reloaded the edge file wholesale and
   **resurrected them**, so the erased id kept conducting activation between its former

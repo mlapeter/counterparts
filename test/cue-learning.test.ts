@@ -12,8 +12,9 @@
  */
 import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
 
 import { openAdapter, openEmbedder } from "../src/adapters/claude-code/index.js";
@@ -27,8 +28,8 @@ import { composeTurn } from "../src/core/retrieval.js";
 import { TUNABLES as PHYSICS } from "../src/core/physics/index.js";
 import { TUNABLES as ASSOCIATE } from "../src/core/associate/index.js";
 import { CUES_KIND } from "../src/core/recall/index.js";
-import { stemTerm } from "../src/core/store/index.js";
-import { findable } from "./store-fixture.js";
+import { SCHEMA_VERSION, Store, paths, stemTerm } from "../src/core/store/index.js";
+import { findable, stripV15 } from "./store-fixture.js";
 
 const SCOPE = "/work/cues";
 const ZONE = "America/Denver";
@@ -429,5 +430,52 @@ describe("R3 — across processes (a long-lived server, per-turn hook processes)
     const on = hook("sess-proc-on", "ping", join(work2, "random"));
     expect(on.injection).toContain("counterparts:recall");
     expect(s.counterpart.store.gateRecords("sess-proc-on").some((r) => r.kind === CUES_KIND)).toBe(true);
+  });
+});
+
+// ── the store format: v15 ───────────────────────────────────────────────────
+
+describe("R3 — store v15 (one additive table)", () => {
+  test("a v14 store reads as 'nothing learned' to an observer, and migrates after a copy; fresh and migrated converge", () => {
+    const root = mkdtempSync(join(tmpdir(), "counterparts-v15-"));
+    const at = join(root, "store");
+    const snaps = join(root, "snaps");
+    try {
+      const first = Store.open({ dir: at, snapshotsDir: snaps });
+      const id = first.put({ type: "memory", kind: "fact", body: "A v14 memory about ping." });
+      first.close();
+      const db = new Database(paths.operational(at));
+      stripV15(db);
+      db.run("UPDATE meta SET value = '14' WHERE key = 'schemaVersion'");
+      db.close();
+
+      const reader = Store.open({ dir: at, snapshotsDir: snaps, observer: true });
+      expect(reader.getMeta("schemaVersion")).toBe("14");
+      expect(reader.cueEdgesFor([PING_TERM])).toEqual([]);
+      expect(reader.cueEdgesOf(id)).toEqual([]);
+      reader.close();
+
+      const s = Store.open({ dir: at, snapshotsDir: snaps });
+      expect(SCHEMA_VERSION).toBe(15);
+      expect(s.getMeta("schemaVersion")).toBe("15");
+      expect(readdirSync(snaps).filter((n) => n.includes("pre-migration-v14-to-v15"))).toHaveLength(1);
+      s.writeCueEdges([{ token: PING_TERM, memoryId: id, weight: 0.5, lastDay: 0, source: "use" }]);
+      expect(s.cueEdgesOf(id).map((r) => r.weight)).toEqual([0.5]);
+      s.close();
+
+      const fresh = join(root, "fresh");
+      Store.open({ dir: fresh, snapshotsDir: snaps }).close();
+      const shape = (path: string): string => {
+        const d = new Database(path, { readonly: true });
+        try {
+          return JSON.stringify([d.query("PRAGMA table_info(cue_edges)").all(), d.query("PRAGMA index_list(cue_edges)").all()]);
+        } finally {
+          d.close();
+        }
+      };
+      expect(shape(paths.operational(at))).toBe(shape(paths.operational(fresh)));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
