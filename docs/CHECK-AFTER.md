@@ -56,7 +56,8 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The dream's fresh intake: the fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000), 4 neighbours a new memory (`dream.NEIGHBOURS`, was 6); 44 → ~64 new memories a night on the 10-22 compare | not released, 10-23 | ~2026-10-29: `dream.begun` queue fresh/waiting/agedOut by build; whether dreams got thinner (whole 20 → 11) | "Due ~2026-10-29 (the dream's fresh intake)" below; `docs/decisions.d/feat-dream-intake-1023.md` |
 | The page split by section (`self.PAGE_SPLIT`, N1 part 2): the page writer in its own child first, amending every section but `## Core`; the reflection writes `## Core` alone; kept sentences keep their cites | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after the page split" below |
 | Day's end (the page writer, renamed) reads the day as told: the chapters by their summaries and the 12 strongest memories with ids, citing them (`self.DAYS_END_INPUT`); the reflection's room long view first, `dreamSaw` cut to what the dream changed and 40 older (`dream.REFLECT_ROOM_ORDER`) | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after day's end" below; `docs/decisions.d/feat-days-end-reflection-room-1023.md` |
-| The reflection's core candidates capped at 30 a night, 10 of them rotated through the rest, the rest counted in one line (`REFLECT_TUNABLES.CANDIDATES`, switch `dream.REFLECT_CANDIDATES_CAP`); the per-lane shown counts kept on the reflection's row (`detail.lanes`), which with `chaptersAs` now survive the finish | not released, 10-24 | 3–4 nights after install, with day's end's check | "Due 3–4 nights after the candidates' cap" below; `docs/decisions.d/feat-reflect-candidates-cap-1024.md` |
+| The reflection's core candidates capped at 30 a night, 10 of them rotated through the rest, the rest counted in one line (`REFLECT_TUNABLES.CANDIDATES`, switch `dream.REFLECT_CANDIDATES_CAP`); the per-lane shown counts kept on the reflection's row (`detail.lanes`), which with `chaptersAs` now survive the finish | 0.3.35, 10-24 | 3–4 nights after install, with day's end's check | "Due 3–4 nights after the candidates' cap" below; `docs/decisions.d/feat-reflect-candidates-cap-1024.md` |
+| Use credit refuses the memory's writing session on its birth day (`own-write`), not everyone: another session's use credits a newborn memory once that day; unknown/unbound writers keep the birth-day rule (switch `physics.OWN_WRITE_GATE`) | 0.3.35, 10-24 (R2) | ~7 nights after install: promotions and core growth | "Due ~7 nights after own-write" below; `docs/decisions.d/fix-own-write-not-birth-day.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -113,7 +114,8 @@ Look at, after 7 nights (read-only):
 - does the reflection's entry name a pattern across days it could not have seen before (one older than the 3 days of
   chapters)?
 - Mike reads.
-- the known misread (0.3.34): a night whose `self.page.writer.ran` row says `nothing-to-say` with a summary,
+- ~~the known misread (0.3.34)~~ **fixed in 0.3.35 (#609)**: a summary sent alone and then a page now reads `revised`
+  and keeps the summary. For nights on 0.3.34 only, the old reading: a night whose `self.page.writer.ran` row says `nothing-to-say` with a summary,
   followed by a page version from day's end that same night, means it sent the summary alone and then wrote a page
   anyway: the row misreads that night. Count how often: the nights from `SELECT json_extract(payload,'$.about')
   FROM events WHERE name='self.page.writer.ran' AND json_extract(payload,'$.outcome')='nothing-to-say' AND
@@ -174,6 +176,21 @@ Look at, per night since install (read-only):
 Changes it: the core stops growing, or the reflection's entries or the page lose a thread they used to carry from an
 older candidate. Revert: `dream.REFLECT_CANDIDATES_CAP=false` (every candidate, exactly as before; the lane counts
 are still kept), or revert the PR.
+
+## Due ~7 nights after own-write (2026-10-24, R2, Mike's go, lightly held — `physics.OWN_WRITE_GATE`)
+
+What: use credit refuses the session that wrote a memory on its birth day (`own-write`), not every session. Another
+session that draws on a newborn memory credits it once that day (0.1, a glimpse); unknown or unbound writers ("mcp",
+a null origin) keep the old birth-day rule, and a return on the birth day is still refused for everyone. With
+parallel sessions, new memories will now routinely get a reinforced day at birth, which feeds promotion.
+
+Look at, over ~7 nights since install (read-only):
+- promotions by day (`core_events` `promoted`) and the core's size, against the week before: a clear jump with no
+  change in what is written says birth-day credit is pushing memories through;
+- how many memories got a use on their birth day from another session, and whether they are the ones being promoted.
+
+Changes it: core growth that outruns the reflection's capacity to read it, or promotions of memories that were only
+glimpsed. Revert: `physics.OWN_WRITE_GATE=false` (exactly as before), or revert the PR.
 
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 
