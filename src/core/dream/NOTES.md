@@ -1159,3 +1159,26 @@ What it is for: a child's transcript or output is matched to its row by name, no
   Off: the same composition as master (the 10-23 corpus, to the noise of a run).
 - Not measured: whether the reflection writes better from the long view and summaries
   than from the chapters' words. A model night would tell; none was run (token budget).
+
+## 2026-10-24 — the core candidates, capped and rotated (R1, `dream.REFLECT_CANDIDATES_CAP`)
+
+- **The risk check, answered.** Nothing gates promotion on the reflection: it runs in sleep
+  (`sleep/consolidate.ts#runConsolidate` → `physics#promote`). But a reflection's cites are
+  `reflection` returns and its feelings feed the fast lane, and physics says plainly that
+  without them the lanes starve (`ReturnSource`). `candidate-not-shown` is the belief
+  candidates, `coreAsks` and `becameCore` are about memories already core. So a plain cut
+  would not shut the tail out by rule, only in practice: sorted felt-then-newest, an old,
+  lightly felt candidate would never be shown again. Hence 20 by the order + 10 rotated.
+- **Shown is the row's `shown`**, every lane: a candidate cut from the candidates lane that
+  the felt lane picks up (the felt lane filters on the CAPPED list, so it can) counts as
+  shown and waits its turn. The test's first try counted only the candidates lane and
+  "lost" 4 candidates that had been shown in felt.
+- **Capped before `take`**: `take` writes the fit's priority, so a slice after it would
+  still have fitted the cut ones in as lines, just unnamed in the lane.
+- **The finish rebuilds `detail`** and copies only the keys it names; `chaptersAs` was not
+  one, so the D1 check's query (`chaptersAs = 'summaries'`) found no finished row. Now
+  `lanes` and `chaptersAs` are carried beside `fit`.
+- Replayed on the 10-24 corpus (composition only, a dream that changed nothing): candidates
+  132 → 30 (+102 counted), their lines 29.3k → 8.6k, the bundle 85.1k / 4 parts → 73.6k / 3.
+  The felt lane's count went 24 → 50 (the cut candidates join its pool). The brief's ~38k
+  for the candidates was an estimate; measured lines were 29k.
