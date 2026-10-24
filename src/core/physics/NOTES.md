@@ -746,3 +746,17 @@ The row read's support join first asked `PRAGMA table_info` on every read (5,000
 (`reads-memories.ts#hasBirthRoute`), back to 31–37 ms, recount 0.38 ms p50, and a test counts
 the PRAGMAs so it cannot quietly return. A supporting memory the owner has made dark still
 counts until the chase removes it (minor, left as is).
+
+**R2, the writing session, not the birth day (2026-10-24, lightly held).** `creditUse` and
+`creditReturn` take `ownWrite` from the caller; physics stays pure. `Store#reinforce` decides
+it from the row (origin session, or `meta.writtenUpBy` for a write-up), because every credit
+path ends there (recall's opens, quotes, drewOn and ratings, chapter copies, the self page's
+confirm) and the store already hands physics the one other row fact, the display. Three
+choices the brief left open: a non-writer's birth-day credit counts a reinforced day (the
+first credit is told apart by `reinforcedDays === 0` on a memory whose `lastUsedDay` is still
+its birth day); a return on the birth day stays `birth-day` for anyone but the writer, since
+spacing measures from birth; and `own-write` holds on the birth day only. The first build
+refused the writer on every day, and `test/settled-repeats.test.ts` caught it: one session
+that wrote a memory on 10-03 and drew on it on 10-12 lost that credit. A session can run for
+days (a resumed conversation, a Desktop chat), and its later uses were always credited. Dream replays, reflections, schemas mentions and
+reminder occurrences pass no session, so they keep the birth-day rule.

@@ -400,6 +400,22 @@ G9]. Credit is retrospective, resolved at the boundary when the reply is known [
 The ignorable tier never trains. A credited use is ALSO asked, beside this and without
 changing it, whether it is a RETURN (§5.11).
 
+*Amended 2026-10-24 — lightly held (R2, Mike's go): the scar is kept and the gate moved to
+its cause.* G9's cause was the WRITING session: its boundary sees the new memory's words in
+the reply it just produced, so a newborn memory double-dipped on its own creation. The day
+was only a proxy, and it refused other sessions too (the ping/pong memory, used by two other
+sessions within minutes of its birth, kept `uses` 0). Now the caller hands physics a fact,
+`ownWrite` (the crediting session is the memory's origin session, or the writer of a
+write-up; `Store#reinforce` reads it off the row): on the birth day, true refuses
+`own-write` and false lets another session credit it once like any other lived day. Later
+days are unchanged: the writing session credits its memory as before (a session can run for
+days, and its later uses are real). Unknown (no
+origin session, or a credit with no session: a schemas mention, a reminder's occurrence)
+keeps the birth-day refusal. A RETURN on the birth day is still refused `birth-day` for
+anyone but the writer: spacing measures from birth, and a return is a coming back.
+Untouched: once a lived day, spacing, `on-display`, the observer stance. Switch:
+`OWN_WRITE_GATE` (off: the birth day refuses everyone, exactly as before).
+
 ### 5.6 Revision — declared, pressure-accumulated, no second object
 
 *(Rewritten 2026-08-25 after adversarial review finding 1: the original single-shot
