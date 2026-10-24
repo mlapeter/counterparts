@@ -56,6 +56,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The dream's fresh intake: the fresh list may cost 16,000 characters (`dream.FRESH_LIST_CHARS`, was 12,000), 4 neighbours a new memory (`dream.NEIGHBOURS`, was 6); 44 → ~64 new memories a night on the 10-22 compare | not released, 10-23 | ~2026-10-29: `dream.begun` queue fresh/waiting/agedOut by build; whether dreams got thinner (whole 20 → 11) | "Due ~2026-10-29 (the dream's fresh intake)" below; `docs/decisions.d/feat-dream-intake-1023.md` |
 | The page split by section (`self.PAGE_SPLIT`, N1 part 2): the page writer in its own child first, amending every section but `## Core`; the reflection writes `## Core` alone; kept sentences keep their cites | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after the page split" below |
 | Day's end (the page writer, renamed) reads the day as told: the chapters by their summaries and the 12 strongest memories with ids, citing them (`self.DAYS_END_INPUT`); the reflection's room long view first, `dreamSaw` cut to what the dream changed and 40 older (`dream.REFLECT_ROOM_ORDER`) | not released, 10-23 | 3–4 nights after install | "Due 3–4 nights after day's end" below; `docs/decisions.d/feat-days-end-reflection-room-1023.md` |
+| The reflection's core candidates capped at 30 a night, 10 of them rotated through the rest, the rest counted in one line (`REFLECT_TUNABLES.CANDIDATES`, switch `dream.REFLECT_CANDIDATES_CAP`); the per-lane shown counts kept on the reflection's row (`detail.lanes`), which with `chaptersAs` now survive the finish | not released, 10-24 | 3–4 nights after install, with day's end's check | "Due 3–4 nights after the candidates' cap" below; `docs/decisions.d/feat-reflect-candidates-cap-1024.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -127,8 +128,8 @@ reflection's bundles exactly as before), or revert the PR.
 
 What: the page writer is called day's end and reads the day as told (each chapter of the day by its summary, with
 its address; the day's 12 strongest memories with ids, which Lately may cite). The reflection's room is filled long
-view first: the page, its last reflections and the dream's own summary; the whole core, every candidate and the 10
-most felt, a line each at least; the last 3 days' chapters by their summaries; what the dream changed and at most
+view first: the page, its last reflections and the dream's own summary; the whole core, the candidates (every one
+until 0.3.35's cap: 30 a night since) and the 10 most felt, a line each at least; the last 3 days' chapters by their summaries; what the dream changed and at most
 40 older memories it saw (tonight's new ones only in `recent`); then the rest. Replay on 10-22/10-23: shownAs went
 from 0 core / 0 candidates (lined 75, all chapter lines) to every core memory and candidate lined, at 89–92k a night
 across 4 parts (was ~105k).
@@ -136,8 +137,9 @@ across 4 parts (was ~105k).
 Look at, per night since install (read-only):
 - the reflection showed the long view every night, core, candidates and felt each shown (0.3.34's release check:
   the shownAs on a copy): `reflections.detail` `fit` (`lined` and `whole` ≥ core +
-  candidates) and `chaptersAs = 'summaries'`:
-  `SELECT date, json_extract(detail,'$.fit') FROM reflections WHERE json_extract(detail,'$.chaptersAs')='summaries';`
+  candidates) and `chaptersAs = 'summaries'`. Until 0.3.35 a finish dropped `chaptersAs`, so this finds only begun
+  rows on 0.3.34; from 0.3.35 a finished row keeps it, with the lanes shown (`detail.lanes`):
+  `SELECT date, state, json_extract(detail,'$.lanes'), json_extract(detail,'$.fit') FROM reflections WHERE json_extract(detail,'$.chaptersAs')='summaries';`
 - Lately reads as the day, and cites: the page's trace (`counterparts doctor`'s "Self page claims" line, claims with
   no memory behind them falling from 57 of 62);
 - one page version per child per night (with the page split's check above);
@@ -147,6 +149,25 @@ Changes it: Core or the reflection's entries getting worse without the chapters'
 its address: count recalls of `epi_…#N` in the reflection child), Lately thinner, or a night's parts going past 4.
 Revert: `dream.REFLECT_ROOM_ORDER=false` and/or `self.DAYS_END_INPUT=false` (each puts back exactly what was), or
 revert the PR. The name stays either way.
+
+## Due 3–4 nights after the candidates' cap (2026-10-24, R1, Mike's go 10:58, lightly held — `dream.REFLECT_CANDIDATES_CAP`)
+
+What: the reflection is shown at most 30 core candidates a night (`REFLECT_TUNABLES.CANDIDATES`): the 20 strongest
+felt and newest, and 10 rotated through the rest, the least recently shown first (by the `shown` of the last 30
+reflections), so every candidate still comes round to be cited, felt and marked — the reflection's cites and feelings
+are the core lanes' strongest feed. The rest are one line, "+N more candidates, not shown". Replay on the 10-24
+corpus (composition only): candidates 132 → 30, their lines ~29.3k → ~8.6k, the bundle 85.1k in 4 parts → 73.6k in 3.
+
+Look at, per night since install (read-only):
+- the counts every finished reflection keeps — core, candidates, felt shown and the candidates not shown:
+  `SELECT date, state, json_extract(detail,'$.lanes.core') AS core, json_extract(detail,'$.lanes.candidates') AS candidates, json_extract(detail,'$.lanes.felt') AS felt, json_extract(detail,'$.lanes.candidatesNotShown') AS not_shown, json_extract(detail,'$.fit.parts') AS parts FROM reflections WHERE json_extract(detail,'$.lanes') IS NOT NULL ORDER BY started_at;`
+  candidates 30 while there are more than 30, not_shown about the backlog less 30, parts 3 where they were 4;
+- promotions keep coming (`core_events` `promoted` by day), from the tail as well as the head: a candidate promoted
+  that was outside the night's first 20 says the rotation works.
+
+Changes it: the core stops growing, or the reflection's entries or the page lose a thread they used to carry from an
+older candidate. Revert: `dream.REFLECT_CANDIDATES_CAP=false` (every candidate, exactly as before; the lane counts
+are still kept), or revert the PR.
 
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 
