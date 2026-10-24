@@ -21,7 +21,7 @@ import { Database } from "bun:sqlite";
 import { Counterpart } from "../src/core/counterpart.js";
 import { runningBuild } from "../src/core/store/operational.js";
 import { CompareError, planSides, runCompare } from "../tools/harness/compare.js";
-import { corpusName } from "../tools/harness/corpus.js";
+import { corpusName, readCorpus } from "../tools/harness/corpus.js";
 import { PRESETS, SettingError, applySettings, expandPreset, parseSetting, restoreSettings } from "../tools/harness/settings.js";
 
 const CLI = resolve(import.meta.dir, "..", "tools", "harness", "cli.ts");
@@ -118,6 +118,24 @@ test("the newest snapshot is copied out, checked, named by date, schema and buil
   expect(r.out).toContain("tag rows 2 · distinct tags 1");
   // No memory's words in what it prints.
   expect(r.out).not.toContain("A fact");
+});
+
+test("beliefs are counted whatever their type: a belief is a schema row with a birth route, live (10-24: printed 0)", () => {
+  const dir = join(root, "beliefs-store");
+  const c = Counterpart.open({ dir, budgetBytes: 9_000, now: () => midday("2026-01-05"), timeZone: "UTC" });
+  for (const id of ["mem_bbbbbbbbbbb1", "mem_bbbbbbbbbbb2", "mem_bbbbbbbbbbb3", "mem_bbbbbbbbbbb4"]) {
+    c.store.put({ id, type: "memory", kind: "fact", body: `A fact, ${id}.`, salience: { novelty: null, relevance: 0.6, emotional: 0.2, predictive: 0.5 }, physics: { birthDay: 0, lastUsedDay: 0 }, source: "authored" });
+  }
+  c.close();
+  const db = new Database(join(dir, "counterparts.sqlite"));
+  // Two beliefs as the store keeps them (type 'schema', a birth route), one retired; a schema with no route is no belief.
+  db.run("UPDATE memories SET type = 'schema', birth_route = 'dream' WHERE id = 'mem_bbbbbbbbbbb2'");
+  db.run("UPDATE memories SET type = 'schema', birth_route = 'session' WHERE id = 'mem_bbbbbbbbbbb3'");
+  db.run("UPDATE memories SET type = 'schema', birth_route = 'reflection', archived = 1 WHERE id = 'mem_bbbbbbbbbbb4'");
+  db.close();
+  const rec = readCorpus(join(dir, "counterparts.sqlite"));
+  expect(rec.counts.beliefs).toBe(2);
+  expect(rec.counts.memories).toBe(1);
 });
 
 test("a named snapshot is copied, and a second copy to the same place is refused rather than overwritten", () => {

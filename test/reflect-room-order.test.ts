@@ -23,7 +23,7 @@ import type { ToolResult } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { DREAM_TUNABLES } from "../src/core/dream/index.js";
 import type { ReflectBundle } from "../src/core/dream/index.js";
-import { REFLECT_LEAN_LEGEND_ORDER, REFLECT_LOOKUP, REFLECT_LOOKUP_ORDER } from "../src/core/dream/reflect.js";
+import { REFLECT_LEAN_LEGEND_ORDER, REFLECT_LOOKUP, REFLECT_LOOKUP_ORDER_CAPPED, REFLECT_TUNABLES } from "../src/core/dream/reflect.js";
 import { AliasMap, readIndex } from "../src/core/fit/index.js";
 import { SELF_TUNABLES } from "../src/core/self/index.js";
 import type { PutInput } from "../src/core/store/index.js";
@@ -188,6 +188,15 @@ function section(texts: readonly string[], name: string): string[] {
   return out;
 }
 
+/** The candidates lane the head names (R1: at most `CANDIDATES`), as real ids — each one of the world's. */
+function candidatesShown(head: string, aliases: AliasMap, all: readonly string[]): string[] {
+  const line = head.split("\n").find((l) => l.startsWith("candidates: ")) ?? "";
+  const ids = line.slice("candidates: ".length).split(" ").map((x) => aliases.resolve(x) ?? x);
+  expect(ids).toHaveLength(Math.min(REFLECT_TUNABLES.CANDIDATES, all.length));
+  for (const id of ids) expect(all).toContain(id);
+  return ids;
+}
+
 describe("a busy night: the long view first, and always", () => {
   test("core, candidates and felt all shown; chapters by their summaries; dreamSaw only older and at most SAW_OLDER; tonight's new ones once, in recent", async () => {
     const c = brain();
@@ -197,9 +206,9 @@ describe("a busy night: the long view first, and always", () => {
     const aliases = c.reflections.aliasesOf(rid) as AliasMap;
     const real = (line: string): string => aliases.resolve(line.split(" · ")[0]?.trim() ?? "") ?? "";
     const memLines = section(texts, "memories").map(real);
-    // The long view, a line each at least: every core memory, every candidate, the most felt.
-    for (const id of [...w.core, ...w.candidates]) expect(memLines).toContain(id);
+    // The long view, a line each at least: every core memory, the candidates shown (R1), the most felt.
     const head = texts[0] as string;
+    for (const id of [...w.core, ...candidatesShown(head, aliases, w.candidates)]) expect(memLines).toContain(id);
     const feltLine = head.split("\n").find((l) => l.startsWith("felt (of ")) ?? "";
     const felt = feltLine.slice(feltLine.indexOf("): ") + 3).split(" ").map((x) => aliases.resolve(x) ?? x);
     expect(felt).toHaveLength(10);
@@ -241,7 +250,7 @@ describe("a busy night: the long view first, and always", () => {
     const detail = JSON.parse(c.store.reflection(rid)?.detail ?? "{}") as Record<string, unknown>;
     expect(detail["chaptersAs"]).toBe("summaries");
     const fitRec = detail["fit"] as { whole: number; excerpt: number; lined: number; notShown: number };
-    expect(fitRec.whole + fitRec.excerpt + fitRec.lined).toBeGreaterThanOrEqual(w.core.length + w.candidates.length + 9);
+    expect(fitRec.whole + fitRec.excerpt + fitRec.lined).toBeGreaterThanOrEqual(w.core.length + REFLECT_TUNABLES.CANDIDATES + 9);
   });
 
   test("what the dream changed comes first in dreamSaw, while it stands: a merge's new memory, a link's older end — never tonight's new ones", async () => {
@@ -287,7 +296,7 @@ describe("a busy night: the long view first, and always", () => {
     const { texts, rid } = await reflectAll(c);
     const aliases = c.reflections.aliasesOf(rid) as AliasMap;
     const memLines = section(texts, "memories").map((l) => aliases.resolve(l.split(" · ")[0]?.trim() ?? "") ?? "");
-    for (const id of [...w.core, ...w.candidates]) expect(memLines).toContain(id);
+    for (const id of [...w.core, ...candidatesShown(texts[0] as string, aliases, w.candidates)]) expect(memLines).toContain(id);
     const coreLine = (texts[0] as string).split("\n").find((l) => l.startsWith("core: ")) ?? "";
     expect(coreLine.slice("core: ".length).split(" ")).toHaveLength(w.core.length);
     const unmarkedLine = (texts[0] as string).split("\n").find((l) => l.startsWith("unmarked: ")) ?? "";
@@ -323,7 +332,18 @@ describe("a busy night: the long view first, and always", () => {
     expect(texts[0]).toContain("## spine");
     const aliases = c.reflections.aliasesOf(rid) as AliasMap;
     const memLines = section(texts, "memories").map((l) => aliases.resolve(l.split(" · ")[0]?.trim() ?? "") ?? "");
+    for (const id of [...w.core, ...candidatesShown(texts[0] as string, aliases, w.candidates)]) expect(memLines).toContain(id);
+  });
+
+  test("with the candidates' cap off (`REFLECT_CANDIDATES_CAP`), every candidate is a line, as before", async () => {
+    D["REFLECT_CANDIDATES_CAP"] = false;
+    const c = brain();
+    const w = busy(c);
+    const { texts, rid } = await reflectAll(c);
+    const aliases = c.reflections.aliasesOf(rid) as AliasMap;
+    const memLines = section(texts, "memories").map((l) => aliases.resolve(l.split(" · ")[0]?.trim() ?? "") ?? "");
     for (const id of [...w.core, ...w.candidates]) expect(memLines).toContain(id);
+    expect(texts[0]).not.toContain("more candidates, not shown");
   });
 
   test("JSON (the lean bundle off): the same order, said in the lookup; parts by their summaries", async () => {
@@ -333,7 +353,7 @@ describe("a busy night: the long view first, and always", () => {
     const { texts, bundle: b } = await reflectAll(c);
     const bundle = b as ReflectBundle;
     expect(bundle.chaptersAs).toBe("summaries");
-    expect(bundle.lookup).toBe(REFLECT_LOOKUP_ORDER);
+    expect(bundle.lookup).toBe(REFLECT_LOOKUP_ORDER_CAPPED);
     const json = texts.join("\n");
     for (const s of w.summaries) expect(json).toContain(s);
     expect(json).not.toContain("argued the hold time out loud. We went through");

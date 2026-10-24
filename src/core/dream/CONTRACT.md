@@ -453,7 +453,8 @@ dream having run.
   everything but the long lists, which go on in order as far as the room allows — and
   the result says so; phase `part` hands the rest, `PART_CHARS` at a time, each memory
   as it reads now (one gone since is said to be gone). The parts' ids are kept on the
-  row. **Fitted** (2026-09-28, build B; `fit/`): the WHOLE core, every core candidate and
+  row. **Fitted** (2026-09-28, build B; `fit/`): the WHOLE core, every core candidate (since
+  2026-10-24 at most `CANDIDATES`, part of them rotated, the rest counted: R1) and
   every memory of the last few days are handed (they were the 20, 12 and 12 most felt),
   plus a page of the most strongly felt with its full count (`feltOf`); the fitter gives
   the most felt their whole text (up to `DETAIL_CHARS`), a line to the rest, an id alone
