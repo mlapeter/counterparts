@@ -97,12 +97,12 @@ describe("R2 — credit refuses the writing session, not the birth day", () => {
     expect(out.refused["birth-day"]).toBeUndefined();
     expect(c.store.row(id)?.uses).toBe(0);
     expect(c.store.returnsOf(id)).toEqual([]);
-    // And on a later lived day the writing session still does not credit it.
+    // On a later lived day the writing session credits it, as before (a session can run for days).
     c.store.advanceClock("2099-01-02");
     footnoted(c, A, 5, []);
     const later = quoteAndOpen(c, A, id);
-    expect(later.refused["own-write"]).toBeGreaterThan(0);
-    expect(c.store.row(id)?.uses).toBe(0);
+    expect(later.credited).toBe(1);
+    expect(c.store.row(id)?.uses).toBe(USE_TIER_WEIGHT.referenced);
   });
 
   test("2. another session, the same lived day, footnoted it and opens it: credited, once", async () => {
@@ -232,9 +232,9 @@ describe("R2 — physics takes the caller's fact", () => {
     protected: false,
   } as MemoryPhysics;
 
-  test("ownWrite true refuses on any day; false credits the birth day once; left out keeps birth-day", () => {
+  test("ownWrite true refuses on the birth day only; false credits the birth day once; left out keeps birth-day", () => {
     expect(creditUse(born, 4, "referenced", { ownWrite: true }).reason).toBe("own-write");
-    expect(creditUse(born, 9, "referenced", { ownWrite: true }).reason).toBe("own-write");
+    expect(creditUse(born, 9, "referenced", { ownWrite: true }).credited).toBe(true);
     expect(creditUse(born, 4, "referenced").reason).toBe("birth-day");
     const first = creditUse(born, 4, "shown", { ownWrite: false });
     expect(first).toMatchObject({ credited: true, next: { uses: USE_TIER_WEIGHT.shown, lastUsedDay: 4, reinforcedDays: 1 } });

@@ -755,6 +755,8 @@ confirm) and the store already hands physics the one other row fact, the display
 choices the brief left open: a non-writer's birth-day credit counts a reinforced day (the
 first credit is told apart by `reinforcedDays === 0` on a memory whose `lastUsedDay` is still
 its birth day); a return on the birth day stays `birth-day` for anyone but the writer, since
-spacing measures from birth; and `own-write` holds on any day, not only the birth day, since a
-resumed session still carries its own words. Dream replays, reflections, schemas mentions and
+spacing measures from birth; and `own-write` holds on the birth day only. The first build
+refused the writer on every day, and `test/settled-repeats.test.ts` caught it: one session
+that wrote a memory on 10-03 and drew on it on 10-12 lost that credit. A session can run for
+days (a resumed conversation, a Desktop chat), and its later uses were always credited. Dream replays, reflections, schemas mentions and
 reminder occurrences pass no session, so they keep the birth-day rule.

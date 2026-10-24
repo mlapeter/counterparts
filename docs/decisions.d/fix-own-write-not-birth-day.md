@@ -9,6 +9,7 @@
 - Decided by the R2 builder, 2026-10-24: the store decides `ownWrite` from the row (origin
   session, or the write-up's `writtenUpBy`), not each caller, since every credit path ends in
   `Store#reinforce`. A revision is its reviser's: the session that wrote the original may credit
-  the revision, the revising session may not. `own-write` holds on any lived day, not only the
-  birth day. A birth-day return stays refused `birth-day` for everyone (spacing measures from
+  the revision, the revising session may not (on the birth day). `own-write` holds on the birth
+  day only: after it, the writing session credits its memory as before, since a session can run
+  for days. A birth-day return stays refused `birth-day` for everyone (spacing measures from
   birth); only the use is credited.

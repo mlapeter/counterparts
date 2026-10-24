@@ -406,8 +406,10 @@ the reply it just produced, so a newborn memory double-dipped on its own creatio
 was only a proxy, and it refused other sessions too (the ping/pong memory, used by two other
 sessions within minutes of its birth, kept `uses` 0). Now the caller hands physics a fact,
 `ownWrite` (the crediting session is the memory's origin session, or the writer of a
-write-up; `Store#reinforce` reads it off the row): true refuses `own-write` on any day,
-false lets another session credit the birth day once like any other lived day. Unknown (no
+write-up; `Store#reinforce` reads it off the row): on the birth day, true refuses
+`own-write` and false lets another session credit it once like any other lived day. Later
+days are unchanged: the writing session credits its memory as before (a session can run for
+days, and its later uses are real). Unknown (no
 origin session, or a credit with no session: a schemas mention, a reminder's occurrence)
 keeps the birth-day refusal. A RETURN on the birth day is still refused `birth-day` for
 anyone but the writer: spacing measures from birth, and a return is a coming back.
