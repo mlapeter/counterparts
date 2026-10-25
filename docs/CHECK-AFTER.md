@@ -256,7 +256,9 @@ chapter that day is from this folder or a scope-on folder, and (c) every folder 
 — archived and merged rows included, a memory lived that day included wherever it was written up, and a row with no
 folder failing it (review of #614). Otherwise the old chapter list. Corpus replay (10-24 corpus, 15:00 on 10-23, every folder's scope on): ~/counterparts
 8,799 → 8,941 bytes, ~/counterparts-phone 8,628 → 8,673; the new line cost 3 "Still open" items in each (Still open
-keeps its first item and its count); start time within noise (numbers in the PR).
+keeps its first item and its count); start time within noise (numbers in the PR). W1b (10-24, Mike 21:11, lightly
+held): the summaries now step down to titles before "Still open" drops an item — on the same replay Still open keeps
+2 items instead of 1 in both folders, and "Today so far" shows titles only.
 
 The wake writes no row, so read it where it lands (read-only):
 - two or three mid-day session starts, one in ~/counterparts and one in another folder: the SessionStart context in
@@ -265,7 +267,8 @@ The wake writes no row, so read it where it lands (read-only):
   then replay the next morning's wake on a copy of a nightly snapshot in a temp dir (never the live store) to see which
   gate held it back. Expect it to fall back on days with work in a scope-off folder, or with a cited work memory from
   another folder (only about-me cites cross);
-- whether the 3 Still-open items it costs in a full wake are missed (Mike's read).
+- whether the Still-open items it costs in a full wake are missed (Mike's read; since W1b it gives up its summaries
+  first, and its titles still cost Still open past its first item), and whether the summaries are missed when they go.
 
 Changes it: the summary almost never showing (then the gate's cite rule is what to revisit with Mike, not the
 chapter/folder rules), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false

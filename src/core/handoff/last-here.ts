@@ -654,9 +654,11 @@ export function todaySoFarLine(
 /**
  * "Today so far" and its shorter forms, widest first, each strictly
  * narrower: shorter summaries, then none, then one title fewer at a time
- * down to one. Empty when there is no line. The wake steps these down before
- * the Yesterday line's (`self/briefing.ts#ROOM_ORDER`'s `todaySoFar`), and
- * past the narrowest the line drops whole. Pure.
+ * down to one. Empty when there is no line. The forms with summaries give
+ * way before "Still open"'s items (`self/briefing.ts#ROOM_ORDER`'s
+ * `todaySoFarSummaries`, W1b); the title forms step down before the
+ * Yesterday line's (`todaySoFar`), and past the narrowest the line drops
+ * whole. Pure.
  */
 export function todaySoFarForms(chapters: readonly TodayChapter[]): string[] {
   const forms: (string | null)[] = [
@@ -665,6 +667,19 @@ export function todaySoFarForms(chapters: readonly TodayChapter[]): string[] {
   ];
   for (let n = TODAY_SO_FAR_SHOWN; n >= 1; n--) forms.push(todaySoFarLine(chapters, n, 0));
   return narrowing(forms.filter((f): f is string => f !== null));
+}
+
+/**
+ * WHICH OF `forms` (`todaySoFarForms(chapters)`) CARRY SUMMARIES (2026-10-24,
+ * W1b): every form wider than the titles-only line naming as many chapters.
+ * These give way before "Still open"'s items; the rest stay where
+ * "Today so far" sat (`self/briefing.ts#ROOM_ORDER`). Pure.
+ */
+export function todaySoFarSummaryForms(chapters: readonly TodayChapter[], forms: readonly string[]): string[] {
+  const titles = todaySoFarLine(chapters, TODAY_SO_FAR_SHOWN, 0);
+  if (titles === null) return [];
+  const bytes = Buffer.byteLength(titles, "utf8");
+  return forms.filter((f) => Buffer.byteLength(f, "utf8") > bytes);
 }
 
 /**
