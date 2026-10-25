@@ -830,7 +830,21 @@ export class Counterpart {
       this.yesterdayLeftOut = null;
       this.yesterdayKeepsNewest = false;
       let assembled = delivery === undefined ? null : this.assembleWake(delivery, here);
-      let result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text);
+      // THE PUBLISHED BUNDLE DELIVERED AS IT IS (P1, 2026-10-25) takes the
+      // same "Might be relevant" read as the assembly: a chapter's summary
+      // from a folder this reader may not be shown is taken out. A delivery
+      // that names no folder fails closed (`hintKeptOut` with nothing known).
+      const keptOut = (id: string): boolean => this.hintKeptOut(id, here ?? {});
+      // And its Yesterday line (review of P1; self INTERFACE-GAPS §14): the
+      // published one names every folder's chapters, for no reader; this
+      // reader's gated line takes its place (`yesterdayFor` with a reader, the
+      // assembly's gate), and a start with no date gets none. Asked by
+      // `Self#wake` only when it delivers the published bundle.
+      const dayForms = (): string[] => {
+        const y = this.yesterdayFor(delivery?.date, { here });
+        return y.yesterday === undefined ? [] : [y.yesterday, ...(y.yesterdayShorter ?? [])];
+      };
+      let result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text, keptOut, dayForms);
       this.deliveredThreads = assembled === null ? null : new Set(assembled.kept.threads);
       // AT LEAST ONCE (review of #536): the Yesterday line left its newest
       // episode to "Last here", but when the splice will carry no "Last here"
@@ -940,7 +954,9 @@ export class Counterpart {
           : { horizonMore: asked.more, horizonMoreItems: asked.moreItems.map((i) => (nearDue(i.due, at) ? { ...i, near: true } : i)) }),
         ...this.dayLinesFor(at, here),
         ...this.elsewhereFor(at, here),
-        ...(here === undefined ? {} : { hintKeptOut: (id: string) => this.hintKeptOut(id, here) }),
+        // Whoever reads: a delivery that names no folder keeps out every
+        // other folder's summary (P1: fail closed where the reader is unknown).
+        hintKeptOut: (id: string) => this.hintKeptOut(id, here ?? {}),
       });
       if (out === null) return null;
       this.emit("counterpart.wake.assembled", undefined, {
@@ -2139,7 +2155,11 @@ export class Counterpart {
    * observe was listed in every other folder's wake. Kept out: a chapter's
    * summary (`source` episode, written from a chapter) whose folder
    * (`memoryFolder`) is another folder whose scope setting is not on, or any
-   * other folder when the setting cannot be read (`exportsFrom` absent). One
+   * other folder when the setting cannot be read (`exportsFrom` absent) — and,
+   * for a reader that names no folder (`here.scope` absent), every summary
+   * that recorded one (P1: fail closed). Read on both roads to a wake's hints:
+   * the assembly (`Self#assemble`) and the published bundle delivered as it is
+   * (`Self#wake`, `briefing-delivery.ts#hintsForReader`). One
    * whose chapter recorded no folder (from before folders) is kept, as
    * before: there is no folder to ask about. Other hints are not this read's
    * (self INTERFACE-GAPS §14). A store that will not answer keeps it out.
