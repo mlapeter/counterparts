@@ -309,7 +309,10 @@ proposals and their archive; render and delivery telemetry.
    #358) — every rung whole text (2026-10-10). **What gives way to whom is ONE declared
    list** (2026-10-10, a working default, `briefing.ts#ROOM_ORDER`), first to give way to
    last: Nearby, craft, "Still open" past its first item (the trim loop's), "Work here"
-   (the delivery's room, `lendBytes`), "Still open"'s count beside items the trim kept, the
+   (the delivery's room, `lendBytes`), "Still open"'s count beside items the trim kept,
+   "Today so far here" (2026-10-24, lane W1, session start only, `self.TODAY_SO_FAR`:
+   shorter summaries, titles only, fewer titles, then none — it rides as a second line in
+   the Yesterday line's forms, `briefing.ts#withTodaySoFar`, so it gives way first), the
    Yesterday line's titles (a title at a time given way to its id), "Last here" and the
    handoffs (the delivery's room past the newest handoff's own block, `handoffLendBytes`),
    the "Today, elsewhere" line (session start only, at most 300 bytes; b2+f8, 2026-10-10,
@@ -356,7 +359,12 @@ proposals and their archive; render and delivery telemetry.
    its room inside the same budget — and it rides only while the floor fits with it: in
    its widest form that does (2026-10-10: a title at a time given way to its id), within
    the budget and what is left of "Work here"'s room, which it outranks; a composition
-   that passes `omit` never carries it. **Craft is the session's directory's work and Nearby is personal**
+   that passes `omit` never carries it. Since 2026-10-24 (lane W1, lightly held) the
+   furniture under the framing may be TWO lines at a session start: the Yesterday line,
+   which leads with day's end's summary when its privacy gate passes
+   (`self.YESTERDAY_FROM_SUMMARY`, handoff CONTRACT §12), and "Today so far here"
+   (`self.TODAY_SO_FAR`) — one value with one ladder of forms, the second line's steps
+   first (`withTodaySoFar`); both switches off, the wake is byte for byte as before. **Craft is the session's directory's work and Nearby is personal**
    (2026-10-01, a working default): a work memory (`work.ts#isWorkMemory` — marked
    `work`, or unmarked and a skill, or an unmarked fact, entity or place written in a
    directory — an absolute path, never a name scope like `claude-desktop:`; an unmarked

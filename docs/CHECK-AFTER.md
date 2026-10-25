@@ -60,6 +60,9 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Use credit refuses the memory's writing session on its birth day (`own-write`), not everyone: another session's use credits a newborn memory once that day; unknown/unbound writers keep the birth-day rule (switch `physics.OWN_WRITE_GATE`) | 0.3.35, 10-24 (R2) | ~7 nights after install: promotions and core growth | "Due ~7 nights after own-write" below; `docs/decisions.d/fix-own-write-not-birth-day.md` |
 | Consolidation every lived day (`sleep` `CADENCE.consolidate` 1, was 3): the core is decided at every night's sleep, still at most 3 a night (`CORE_MAX_PER_SLEEP`); read with 0.3.35's R2 (own-write), since both feed the core | not released, 10-24 (0.3.36) | ~7 nights after install | "Due ~7 nights after daily consolidation" below; `docs/decisions.d/feat-daily-consolidation.md` |
 | Cue learning (R3, store v15 `cue_edges`): the words of a turn that showed a memory, which was then used or rated, wire to it, and a learned pair reads as one more cue (`w × share × CUE_PAIR_UNITS`); switch `physics.CUE_LEARNING` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after cue learning" below; `docs/decisions.d/feat-cue-learning.md` |
+| "Today so far here" in a session start's wake (this folder's earlier chapters today, with their summaries; `self.TODAY_SO_FAR`) and the Yesterday line led by day's end's summary behind a privacy gate (`self.YESTERDAY_FROM_SUMMARY`) | not released, 10-24 (W1) | ~5 days after install: mid-day wakes in two folders | "Due ~5 days after Today so far" below; `docs/decisions.d/feat-today-so-far.md` |
+| An awake repeat counts (B1): a belief written in the moment that says what one already says is still refused `near-duplicate`, and its memory is filed as support for that belief, at most once per belief per session (unbound: once a lived day); events `schema.support.filed` with `via: awake-duplicate`; switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` | not released, 10-24 | 3–5 days after the release that carries it | "Due 3–5 days after awake belief support" below; `docs/decisions.d/feat-awake-belief-support.md` |
+| An unsettled pair competes (E3): when a turn reaches both members, the older counts at `1 − k·sim·fresh` (k 0.6, cosine over 0.8, 7 lived days) for the loud tier and the order, never admission; the label stays; switch `recall.UNSETTLED_COMPETES` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after unsettled competition" below; `docs/decisions.d/feat-unsettled-competes.md` |
 | The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`): a memory about me or us crosses when its support — real uses, its slot's re-encodings, reflection citations echoed by a later use — reaches `CORE_SUPPORT_LINE` 0.1005 over its lived days (the making the first, the day after it the same occasion); glimpses count nothing, a reflection alone never carries one in | not released, 10-24 (0.3.36) | ~7 nights after install | "Due ~7 nights after the support door" below; `docs/decisions.d/feat-core-door-support.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
@@ -243,6 +246,80 @@ recorded), so whether a footnote came by a learned pair can't be read from the s
 
 Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
 word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
+
+## Due ~5 days after Today so far (2026-10-24, W1, Mike's go 17:45, lightly held — `self.TODAY_SO_FAR`, `self.YESTERDAY_FROM_SUMMARY`)
+
+What: at a session start the wake carries "Today so far here:" under the Yesterday line: today's chapters written in
+this folder before the one "Last here" names (newest 4, each by time, title, id and its summary's first sentence cut
+at 120 bytes), and "Last here" no longer lists them as "Before it" / "+N more". The Yesterday line opens "Yesterday,
+in day's end's words:" with day's end's summary when (a) every memory it cites is nameable in this wake, (b) every
+chapter that day is from this folder or a scope-on folder, and (c) every folder that wrote a memory that day is too
+— archived and merged rows included, a memory lived that day included wherever it was written up, and a row with no
+folder failing it (review of #614). Otherwise the old chapter list. Corpus replay (10-24 corpus, 15:00 on 10-23, every folder's scope on): ~/counterparts
+8,799 → 8,941 bytes, ~/counterparts-phone 8,628 → 8,673; the new line cost 3 "Still open" items in each (Still open
+keeps its first item and its count); start time within noise (numbers in the PR).
+
+The wake writes no row, so read it where it lands (read-only):
+- two or three mid-day session starts, one in ~/counterparts and one in another folder: the SessionStart context in
+  each transcript. Each chapter named once; "Today so far" ≠ "Today, elsewhere"; nothing from a scope-off folder;
+- whether the summary ever shows. Day's end's summaries: `SELECT json_extract(payload,'$.about') AS about, json_array_length(json_extract(payload,'$.summaryCites')) AS cites FROM events WHERE name = 'self.page.writer.ran' AND json_extract(payload,'$.summary') IS NOT NULL ORDER BY seq DESC LIMIT 7;`
+  then replay the next morning's wake on a copy of a nightly snapshot in a temp dir (never the live store) to see which
+  gate held it back. Expect it to fall back on days with work in a scope-off folder, or with a cited work memory from
+  another folder (only about-me cites cross);
+- whether the 3 Still-open items it costs in a full wake are missed (Mike's read).
+
+Changes it: the summary almost never showing (then the gate's cite rule is what to revisit with Mike, not the
+chapter/folder rules), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false
+(both false: the wake byte for byte as before), or revert the PR.
+
+## Due 3–5 days after awake belief support (2026-10-24, B1, Mike's yes 18:04, lightly held — `schemas.AWAKE_SUPPORT_ON_DUPLICATE`)
+
+What: a session's belief that says what an existing belief says used to file nothing (review of #583: eight repeats
+had pumped one belief to 8 in a session). Now its memory counts as support for that belief, once per belief per
+session (the memory's `origin_session`; any support row from that session counts, the birth's included). An unbound
+session (`mcp`) falls back to once a lived day. Physics' spread still discounts a second session the same day (×0.5).
+
+Look at, per lived day since install (read-only). The awake door keeps its own row, `belief.support.awake` (`ref` the
+belief; payload memoryId, session, `filed` with route and weight, or `filed: false` with `reason`); `belief_support`
+holds every filing, the reflection's included:
+- awake filings and held repeats a day: `SELECT day, SUM(json_extract(payload,'$.filed')) AS filed, SUM(json_extract(payload,'$.filed') = 0) AS held, GROUP_CONCAT(DISTINCT json_extract(payload,'$.reason')) AS why_held FROM events WHERE name = 'belief.support.awake' GROUP BY day ORDER BY day DESC LIMIT 10;`
+  against all filings that day: `SELECT day, COUNT(*) AS filed FROM belief_support GROUP BY day ORDER BY day DESC LIMIT 10;`
+  (all minus awake = the reflection's plus a session birth's first support);
+- any belief whose support rose by more than one awake filing in a day: `SELECT day, ref AS belief, COUNT(*) AS n, GROUP_CONCAT(json_extract(payload,'$.session')) AS sessions, GROUP_CONCAT(ROUND(json_extract(payload,'$.weight'),2)) AS weights FROM events WHERE name = 'belief.support.awake' AND json_extract(payload,'$.filed') = 1 GROUP BY day, ref HAVING n > 1 ORDER BY n DESC;`
+  expect a few, each from a different session, the later ones at the same-day weight (×0.5); many from one session, or
+  a null session more than once a day, is a bug;
+- did an awake-filed belief cross a core or page threshold sooner than it would have: for each belief above, its rows
+  (`SELECT memory_id, route, day, ROUND(weight,2) FROM belief_support WHERE belief_id = ? ORDER BY day`) and whether it
+  reached the page or the core in those days; its support without the awake rows is what it would have had.
+
+What would change it: one belief climbing by several awake filings a day for days (sessions repeating a
+belief instead of noticing new things), or a belief reaching the page on awake repeats alone. Revert:
+`schemas.AWAKE_SUPPORT_ON_DUPLICATE=false` (the old reply, nothing filed; rows already filed stay, counted), or revert
+the PR. Step 2 of B1 (`supports:` on remember) is briefed from these numbers.
+
+## Due ~7 lived days after unsettled competition (2026-10-24, E3, Mike's go 14:47, lightly held — `recall.UNSETTLED_COMPETES`)
+
+What: when a turn reaches both members of a standing unsettled pair (the slot detector's "newer state of" proposal, or
+a dream's unsettled flag), the older one, already labelled "Unsettled — may be out of date", counts at
+`activation × (1 − k · sim · fresh)` for the loud tier and the order, never for admission: the newer wins a close race,
+the older still shows, labelled, when there's room. k 0.6; `sim` = cosine over 0.8, over 0.2; `fresh` falls to 0 over 7
+lived days. Only a newer past the absolute floor presses. Replay on the 10-24 corpus: in the 8 proposals' windows (≤ 1
+lived day each) 322 turns ran and none showed both members; the 3 the dream undid had 50 turns and neither member
+shown. So expect it to fire rarely: a same-day turn about something just rewritten.
+
+Look at (read-only):
+- how often it fires: `SELECT COUNT(*) AS turns, SUM(json_extract(payload,'$.pairsCompeted') > 0) AS competed FROM events WHERE name = 'recall.decision' AND json_extract(payload,'$.pairsCompeted') IS NOT NULL;`
+- the olders it weighed that still showed, with their newer and weight: `SELECT e.day, json_extract(f.value,'$.id') AS older, json_extract(f.value,'$.competed.with') AS newer, json_extract(f.value,'$.competed.factor') AS factor FROM events e, json_each(e.payload,'$.footnotes') f WHERE e.name = 'recall.decision' AND json_extract(f.value,'$.competed') IS NOT NULL ORDER BY e.seq DESC LIMIT 20;`
+  (and the same over `$.surfaced`);
+- the cost side: for pairs the dream WITHDREW since install (`SELECT pair_id, day FROM contradiction_settles WHERE action = 'withdraw' AND actor = 'dream'`),
+  any turn above with that pair's older — a wrong newer that won a race; Mike reads whether any mattered.
+
+Not stored: an older the weight pushed out of a full tier (`capped`) appears only in the count, not by id.
+
+Changes it: Mike reading a true memory pushed below a wrong "newer" more than once a week, or an outdated fact still shown
+first beside its newer. Revert: `recall.UNSETTLED_COMPETES=false` in `src/core/recall/tunables.ts` (nothing read; the
+turn and its row exactly as before), or revert the PR.
+
 ## Due ~7 nights after the support door (2026-10-24, E2, Mike's go 14:36, lightly held — `physics.CORE_DOOR_SUPPORT`)
 
 What: the core's door is one support arc in place of the fast and slow lanes. A memory about me or us crosses when

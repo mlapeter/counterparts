@@ -1410,3 +1410,54 @@ against the defaults, reading the slot's fire rate and bytes, the beliefs lane's
   confirm it: the `adapter.recall` rows' `semanticSource` / `semanticFromTurn` for turns 6 and
   7, and the two prompts. Not fixed here; cue learning lifts exactly this case (a practised
   bare word reads its pair whole, carried words aside).
+
+## E3 — an unsettled pair competes (2026-10-24, an experiment; switch `recall.UNSETTLED_COMPETES`)
+
+Retroactive interference, in real time (elegance check §4, Mike's go 14:47). The older of a
+standing unsettled pair — the one `standing.ts` labels "Unsettled — may be out of date" — counts
+at `activation × (1 − k · sim · fresh)` in a turn that also reached its newer.
+
+- **Where in the gate, and why there.** After the floor AND the admission bar, before the loud
+  tier: the loud checks and both rankings see the scaled number; admission does not. First
+  built after the floor only (habituation's place), the reviewer's wrong pair — Ben's sister
+  proposed as the newer state of Anna's — dropped Anna's below its bar (3.53 → 2.16 against
+  2.20): a wrong proposal hid a true memory for the day, which is a filter, not a tie-break.
+  So competition moves order and the loud slot, and a capped place when the tier is full ("A
+  still shows when there's room"), never admission. Not in `index.ts` before the gate (like
+  `headsWin`): scaling there moves the turn's background and every other candidate's bar.
+- **Its bars are read at its own reach.** `barsFor` is leave-one-out over the raw sample, so
+  the scaled candidate is substituted only after the bars are read.
+- **Near-duplicates by words.** Two texts that differ by a word or two are a `NEAR_DUPLICATE`
+  pair, and the gate always showed only the stronger. Measured on the test's one-word pair
+  (blue card / green card): off, the older was the stronger and showed, the newer `inhibited`
+  as its copy. First built, on, the reverse: the older did not show at all. The review's wrong
+  pair one name apart (Anna's renewal / Ben's) showed that is a filter: a turn about Anna
+  reached hers at 5.04 against Ben's 3.60, the full weight (0.4) took it to 2.02, and it was
+  inhibited as Ben's copy. So while they compete the two members are exempt from the
+  near-duplicate rule between themselves: both show, the newer first, the older labelled.
+  Off, unchanged.
+- **Tiers are not reordered across.** The weight orders within a tier and can cost the loud
+  slot; an older that still clears the loud checks at its weight stays loud and renders
+  before a footnoted newer, even when its scaled activation is below the newer's (review,
+  Hartwell probe with the strong floor lowered: 5.74 → 4.42, loud, beside a 4.58 footnoted
+  newer). Its label names the newer. A newer that clears the floor but not its own bar
+  still presses, so the older can be weighed with no newer shown; the label still names it.
+- **The newer must be really reached.** A stray common word reaches nearly every memory (the
+  test fixture's common words reach nearly every memory at 0.16–0.25, under its floor), so a newer under the absolute
+  floor presses nothing; a link-only pointer neither (`unsettledCompetition`).
+- **`sim` floor 0.8, not the brief's 0.85.** The 10-24 corpus's eight proposals sit at cosine
+  0.851–0.982, six at ≤ 0.88; from 0.85 those six would press by 0.4–12%, from the
+  detector's own lower bar (`SLOT_LINEAGE_COSINE`, which every proposal clears) by 15–33% at
+  k 0.6, and 55% for the 0.98 pair. `sim` is read from the two stored vectors, so it covers a
+  dream's unsettled flag too (the same label); no vectors, no press.
+- **k 0.6, fresh linear over 7 lived days.** Unmeasurable on the corpus (below), so the
+  brief's middle. Lived days, the detector's own window unit.
+- **Measured (the 10-24 corpus, read-only and a scratch copy).** In the eight proposals'
+  unsettled windows (proposal → the night's answer, ≤ 1 lived day each, the vote pair closed
+  through another settle) 322 turns ran; none SHOWED both members (the older alone once, the
+  newer alone once). The three the dream undid: 50 turns in their windows, neither member
+  shown — no turn where a wrong newer could have won. A probe replay on a copy (pairs put back
+  to unsettled, each pair's titles and both together as turns, words only): both members
+  admitted in 1 of 24 probes, the newer already first; no order changed at k 0.5, 0.6 or 0.7.
+  The corpus keeps no turn texts or candidate lists, and by its end most members are faded out
+  of reach, so this bounds the effect rather than measures it: on this store, rare and small.

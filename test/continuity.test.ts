@@ -41,6 +41,7 @@ import {
 } from "../src/core/handoff/last-here.js";
 import type { LastHere } from "../src/core/handoff/last-here.js";
 import { readRecencyAsk } from "../src/core/recall/index.js";
+import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 import { PREFACE_RESERVE_BYTES, WORK_HERE_HEADING, readSentinel } from "../src/core/self/index.js";
 import { McpServer } from "../src/adapters/mcp/server.js";
 import { recordSession } from "../src/adapters/sessions.js";
@@ -254,11 +255,26 @@ describe("the next session here is told who was last here", () => {
       const ch = await s.call("chapter", { session: sess, text: `Session ${String(i)} did its part of the work and wrote it down here.`, title: `Part ${String(i)}` });
       ids.push((ch.structuredContent as Record<string, unknown>)["episodeId"] as string);
     }
-    const text = wake(k.c, B);
+    // "Today so far here" (2026-10-24, lane W1) off: "Last here"'s own block.
+    const S = SELF_TUNABLES as { TODAY_SO_FAR: boolean };
+    const was = S.TODAY_SO_FAR;
+    S.TODAY_SO_FAR = false;
+    let text: string;
+    try {
+      text = wake(k.c, B);
+    } finally {
+      S.TODAY_SO_FAR = was;
+    }
     const lines = text.split("\n");
     expect(lines.find((l) => l.startsWith("Last here:"))).toContain(`"Part 3" (${ids[3] as string}). Session 3 did its part`);
     expect(lines.find((l) => l.startsWith("Before it:"))).toBe(`Before it: session 33333333, Sep 30 12:00–12:30 — "Part 2" (${ids[2] as string}).`);
     expect(lines.find((l) => l.startsWith("+2 more here on Sep 30:"))).toBe(`+2 more here on Sep 30: ${ids[1] as string}, ${ids[0] as string}.`);
+    // On (the default): the earlier three move to their own line, and the block repeats none of them.
+    const on = wake(k.c, B).split("\n");
+    expect(on.find((l) => l.startsWith("Last here:"))).toContain(ids[3] as string);
+    const today = on.find((l) => l.startsWith("Today so far here: ")) ?? "";
+    for (const id of ids.slice(0, 3)) expect(today).toContain(id as string);
+    expect(on.some((l) => l.startsWith("Before it:") || l.startsWith("+2 more here"))).toBe(false);
   });
 });
 
