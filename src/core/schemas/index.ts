@@ -125,6 +125,11 @@ export type { LookAlike, TagTally, TagsNightInput, TagsNightOutcome } from "./ta
  * is that no such verb exists (§5 G1, scar §2.17's "write paths ship, curation
  * paths starve" read in reverse).
  */
+/** A support weight as a reply says it: two decimals at most (B1's note). */
+export function supportWeightText(w: number): string {
+  return String(Math.round(w * 100) / 100);
+}
+
 export const PUBLIC_SURFACE = [
   // writes
   "mention",

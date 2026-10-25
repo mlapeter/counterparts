@@ -124,7 +124,7 @@ import {
   writeNeighbours,
 } from "./reconsolidation.js";
 import type { HeldUpdate, Neighbour, SettleInput, SettleOutcome, SlotOutcome, UndoOutcome } from "./reconsolidation.js";
-import { Schemas } from "./schemas/index.js";
+import { Schemas, supportWeightText } from "./schemas/index.js";
 import {
   HANDOFF_CLEARED_EVENT,
   HANDOFF_SHOWN_EVENT,
@@ -4059,8 +4059,7 @@ export class Counterpart {
     if (!filed.ok) {
       return { note: `It says what ${beliefId} says. The memory stands; it was not counted (${filed.reason}); ${later}`, support: { filed: false, reason: filed.reason } };
     }
-    const w = Math.round(filed.weight * 100) / 100;
-    return { note: `It says what ${beliefId} says; this memory now counts for it (${String(filed.route)}, ${String(w)}).`, support: { filed: true, route: filed.route, weight: filed.weight } };
+    return { note: `It says what ${beliefId} says; this memory now counts for it (${String(filed.route)}, ${supportWeightText(filed.weight)}).`, support: { filed: true, route: filed.route, weight: filed.weight } };
   }
 
   /**
