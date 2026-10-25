@@ -538,4 +538,75 @@ describe("an awake repeat counts, once a session (B1)", () => {
     expect(c.sessionBelief({ memoryId: three, statement: STATEMENT, about: "us" }).support).toMatchObject({ filed: true });
     expect(c.store.supportOf(bid)).toHaveLength(2);
   });
+
+  // Review of #616: pumping, attacked through the remember tool.
+  test("many sessions in one day: one filing each, every one after the first at the same-day weight, all one support day", async () => {
+    let bid = "";
+    for (let i = 0; i < 6; i += 1) {
+      const s = openServer({ dir, session: `s-pump-${String(i)}`, scope: "/work" });
+      try {
+        if (i === 0) bid = existingBelief(s.counterpart);
+        for (let k = 0; k < 3; k += 1) await s.call("remember", said(`q${String(i)}-${String(k)}`));
+      } finally {
+        s.counterpart.close();
+      }
+    }
+    const s = openServer({ dir, session: "s-pump-read", scope: "/work" });
+    try {
+      // In filing order (supportOf reads by day, then memory id).
+      const rows = s.counterpart.store.supportOf(bid).sort((x, y) => x.createdAt - y.createdAt || (x.session ?? "").localeCompare(y.session ?? ""));
+      expect(rows).toHaveLength(6);
+      expect(rows.map((r) => r.session)).toEqual([0, 1, 2, 3, 4, 5].map((i) => `s-pump-${String(i)}`));
+      expect(rows[0]?.weight).toBeCloseTo(PHYSICS.SUPPORT_TESTIMONY, 6);
+      for (const r of rows.slice(1)) expect(r.weight).toBeCloseTo(PHYSICS.SUPPORT_TESTIMONY * PHYSICS.SUPPORT_SAME_DAY, 6);
+      const p = s.counterpart.store.physicsOf(bid);
+      expect(p.support).toBeCloseTo(PHYSICS.SUPPORT_TESTIMONY * (1 + 5 * PHYSICS.SUPPORT_SAME_DAY), 6);
+      expect(p.supportDays).toBe(1);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("revisions (updates:) are no way around the cap: the same session's is held, another session's files once", async () => {
+    const a = openServer({ dir, session: "s-rev-a", scope: "/work" });
+    let bid = "";
+    let first = "";
+    try {
+      bid = existingBelief(a.counterpart);
+      const r = await a.call("remember", said("naming"));
+      first = r.structuredContent["id"] as string;
+      const rev = await a.call("remember", { ...said("naming, revised"), updates: first });
+      expect(rev.structuredContent["stored"]).toBe(true);
+      expect((rev.structuredContent["belief"] as Record<string, unknown>)["support"]).toEqual({ filed: false, reason: "counted-this-session" });
+    } finally {
+      a.counterpart.close();
+    }
+    const b = openServer({ dir, session: "s-rev-b", scope: "/work" });
+    try {
+      const one = await b.call("remember", { ...said("naming, revised again"), updates: first });
+      expect((one.structuredContent["belief"] as Record<string, unknown>)["support"]).toMatchObject({ filed: true });
+      const two = await b.call("remember", { ...said("naming, once more"), updates: one.structuredContent["id"] });
+      expect((two.structuredContent["belief"] as Record<string, unknown>)["support"]).toEqual({ filed: false, reason: "counted-this-session" });
+      expect(b.counterpart.store.supportOf(bid).map((r) => r.session).sort()).toEqual(["s-rev-a", "s-rev-b"]);
+    } finally {
+      b.counterpart.close();
+    }
+  });
+
+  test("an unbound server through remember (origin mcp): once a lived day, its rows naming no session", async () => {
+    const a = openServer({ dir, scope: "/work" });
+    let bid = "";
+    try {
+      bid = existingBelief(a.counterpart);
+      const one = await a.call("remember", said("naming"));
+      expect(a.counterpart.store.row(one.structuredContent["id"] as string)?.origin_session).toBe("mcp");
+      expect((one.structuredContent["belief"] as Record<string, unknown>)["support"]).toMatchObject({ filed: true });
+      const two = await a.call("remember", said("pricing"));
+      expect((two.structuredContent["belief"] as Record<string, unknown>)["support"]).toEqual({ filed: false, reason: "counted-today" });
+      const kept = a.counterpart.store.eventLog({ name: "belief.support.awake", ref: bid }).map((e) => JSON.parse(e.payload ?? "{}") as Record<string, unknown>);
+      expect(kept.map((p) => p["session"])).toEqual([null, null]);
+    } finally {
+      a.counterpart.close();
+    }
+  });
 });
