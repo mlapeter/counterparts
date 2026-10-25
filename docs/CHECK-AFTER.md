@@ -43,7 +43,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The reflection closes open threads that are plainly done (`closeNow`, a why each, said in the share; `reopen` undoes), and still asks about the unsure ones | merged 10-20, unreleased | ~10-24: how many it closed itself (`reflections.detail.selfClosed`, `reflection.finished`'s `selfClosed`) (any folder, by Mike's 10-20 exception) and how many it asked instead, reopened (`closeAskedInstead`; confidential ones too until 10-21), whether any was wrong (`detail.reopened`, `reflection.reopened`), how the wake's Still open count moves from 58; revert by putting back the 10-16 `close` line in the prompt | `docs/decisions.d/feat-reflection-closes-done-threads-1020.md` |
 | Personal news flows across folders: the reflection is offered 24 unmarked memories a night (was 5), the personal-looking first, and marks the personal ones owner or us; the `about` field says what a mark does | in review 10-20, unreleased | ~10-24: how many it marked owner/us, any Mike reverses, whether personal news reaches other folders | "Due ~2026-10-24 (personal news across folders)" below; `docs/decisions.d/feat-unmarked-personal-marks-1020.md` |
 | The nightly writers held to the page's 4,600-byte room: the night's first page past it is sent back to be cut; a second try is kept; one never sent again is kept at the run's end. A page past the room with a short version shows it in the wake | built 10-20, unreleased | ~10-23 (three mornings after install): the page's bytes each morning, `past-room` holds and how each night ended, the wake's `elements=` and the page's rung | "Due ~2026-10-23 (the nightly writers held…)" below; `docs/decisions.d/feat-page-held-to-room-1020.md` |
-| Meaning computed in line whenever no fresh cue is ready (#521) | 0.3.27, 10-19 | ~2 lived days after install: share of turns `in-line`, footnote ratings | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
+| Meaning computed in line whenever no fresh cue is ready (#521) | 0.3.27, 10-19 | ~2 lived days after install: share of turns `in-line`, footnote ratings (from the build carrying `SEMANTIC_THIS_TURN`, `in-line` is ~every turn by design: read this one on earlier builds only) | `docs/decisions.d/fix-first-prompt-meaning-1019.md` |
 | Wake polish (#517) + the ~/random session's 10-19 notes (one session named four times, a today-dated item under Still open in another folder's wake, three tags at the top) | 0.3.26, 10-18 | ~10-20 | "Due ~2026-10-20" below |
 | Wake without repeats (fix/wake-dedupe-1020): each episode once, no bare ids in Yesterday, ONE tag at the top, about-me line says its folder first, a plain reminder due tomorrow counted at a session start, every Coming up item with its own id, one snapshot a day | in review 10-20, unreleased | the first two mornings after install | "Due ~2 mornings after install (the wake without repeats)" below; `docs/decisions.d/fix-wake-dedupe-1020.md` |
 | A weekly reminder done for this week (`status: "done"` at its id closes this occurrence only; F6b: drewOn credits a memory this session replaced) | not released, 10-20 | ~10-27, the next Tuesday | "Due ~2026-10-27" below; `docs/decisions.d/feat-reminder-done-this-week.md` |
@@ -66,6 +66,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The unmarked offer on the record (D1, a fix): every reflection row says what it was offered to mark (`detail.unmarked`, an empty list too) and which it marked (`detail.unmarkedMarked`, `counts.unmarkedOffered`/`unmarkedMarked`); the offer keeps its lines when the fixed parts fill the room (with `dream.REFLECT_ROOM_ORDER`) | 0.3.36, 10-24 | 3 nights after install | "Due 3 nights after the unmarked offer's record" below |
 | The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | 0.3.36, 10-24 | a week of 0.3.36 shadow rows, then Mike decides on, off or tune | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
 | Wake polish 10-25 (random-5b's wake): a "Last night:" line (`self.NIGHT_LINE`), "Still open"'s tail one calm count with no ids, "quiet since HH:MM" for a session idle two hours (`ELSEWHERE_QUIET_MS`), a handoff's staleness in two clauses | not released, 10-25 | ~3 mornings after install | "Due ~3 mornings after the wake polish of 10-25" below |
+| Ambient recall's meaning reads THIS turn (S1): every ambient turn embeds its own prompt and ranks it in line, fresh lag row or not, on the `inline` calibration; past the in-line count guard the worker's fresh lag row is used, recorded `lagged`; switch `recall.SEMANTIC_THIS_TURN` | not released, 10-25 | ~1 week after install (~2026-11-01): footnote ratings and items shown per Mike-typed turn vs 10-22..24; short-prompt complaints | "Due ~1 week after this-turn meaning" below; `docs/decisions.d/feat-this-turn-meaning.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -297,6 +298,13 @@ The wake writes no row, so read it where it lands (read-only):
   another folder (only about-me cites cross);
 - whether the Still-open items it costs in a full wake are missed (Mike's read; since W1b it gives up its summaries
   first, and its titles still cost Still open past its first item), and whether the summaries are missed when they go.
+- **Y1 (2026-10-25, fix):** in 0.3.36 the summary never showed: every chapter's summary memory was born with no
+  folder (42/42 on 10-24), and a memory with none fails the gate. Now a chapter's summary records its chapter's
+  folder, and one written before is read in its chapter's folder. After the release that carries it: new summary
+  memories have `origin_scope` (`SELECT COUNT(*), COUNT(origin_scope) FROM memories WHERE type='memory' AND
+  source='episode' AND created_at > <install ms>;` equal counts), and the snapshot replay above names the check that
+  still holds a day back. On the 10-25 snapshot copy, 10-24 (the one day with a summary) still fell back in
+  ~/counterparts even with every folder's scope on: day's end cited a ~/motelier memory marked `work`.
 
 Changes it: the summary almost never showing (then the gate's cite rule is what to revisit with Mike, not the
 chapter/folder rules), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false
@@ -371,6 +379,32 @@ Not stored: an older the weight pushed out of a full tier (`capped`) appears onl
 Changes it: Mike reading a true memory pushed below a wrong "newer" more than once a week, or an outdated fact still shown
 first beside its newer. Revert: `recall.UNSETTLED_COMPETES=false` in `src/core/recall/tunables.ts` (nothing read; the
 turn and its row exactly as before), or revert the PR.
+
+## Due ~1 week after this-turn meaning (2026-10-25, S1, Mike's "switch on", lightly held — `recall.SEMANTIC_THIS_TURN`)
+
+What: the meaning lookup on an ambient turn is the turn's own prompt, embedded and ranked in line, instead of the
+worker's rank of the previous exchange (which 77% of ambient turns used before). Past `SEMANTIC_INLINE_MAX_VECTORS`
+(50,000) the worker's fresh row is still used. The ranking now runs on the `inline` profile (potion: floor 0.15,
+weight 6, measured on deliberate questions) where lagged turns had floor 0.05, weight 1. The replay (1,782 real
+turns, `~/counterparts-notes/2026-10-25-0327-reread.md`, "Semantic lag A/B, gate cleared") was a wash: 16% of
+lagged turns differ by ~1.3 items, credited lost 10 / gained 8, ≤3-word prompts lost 1 credited of 28, +4–7 ms p50.
+
+Look at (read-only, split by build, human-typed turns as the re-read classes them):
+- the switch took: `SELECT json_extract(payload,'$.build') AS build, json_extract(payload,'$.semantic') AS source, COUNT(*) FROM events WHERE name = 'adapter.recall' GROUP BY build, source ORDER BY MIN(seq);`
+  — on the new build `in-line` should be ~all, `lagged` ~0 (any `lagged` there means past the guard or no sync
+  embedder), `in-line-skipped` 0 at the live store's size. The #521 row's "share of turns `in-line`" is no longer a
+  signal from this build on.
+- items shown per Mike-typed turn against 10-22..24 (1.19 / 1.61 / 1.28; first prompts ~2.0), the re-read's §2 split;
+- footnote ratings on Mike-typed turns against 10-22..24 (noise 38 / 30 / 29%, useful 23 / 21 / 22%), the re-read's §1;
+- the cost: `elapsedMs` p50/p95 on `recall.decision` by build (the replay said +4–7 ms p50);
+- short prompts (≤3 words: "yes", "go ahead", "and the tests?"): any complaint that a terse follow-up lost the
+  thread, and their items shown against the same days. That is where the lagged cue carried the subject.
+- the lag writer still runs: `adapter.semantic.lag` rows a day, `stored: true` (`counterparts mechanisms`' `semantic-lag` row).
+
+Changes it: useful ratings falling, or noise rising, on Mike-typed turns beyond the 10-22..24 range; a short-prompt
+complaint more than once; p95 cost past ~50 ms. Then try off, or tune the ambient profile apart from the deliberate
+one before reverting. Revert: `recall.SEMANTIC_THIS_TURN=false` in `src/core/recall/tunables.ts` (a fresh lag row
+wins again, exactly the 0.3.36 behaviour), or revert the PR. If it stays: retiring the lag writer is the follow-up.
 
 ## Due a week after the support door's shadow (2026-10-24, E2, Mike's go 14:36 and his yes 20:59 to merge in shadow, lightly held — `physics.CORE_DOOR_SUPPORT`)
 
