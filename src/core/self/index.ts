@@ -79,6 +79,7 @@ import type {
   IdentityCoreSpec,
   LaneName,
   Lanes,
+  OpenCarry,
   Ranked,
   Scanned,
   SchemaBytesReport,
@@ -334,6 +335,22 @@ export function wakeShown(store: Pick<Store, "getMeta">): WakeShown | null {
     return null;
   }
 }
+
+/** One item the `still open` handle lists (`Self#stillOpen`, 2026-10-25). */
+export interface StillOpenItem {
+  readonly id: string;
+  /** Its title, else its first line, on one line, at most `STILL_OPEN_TITLE_CHARS`. */
+  readonly title: string;
+  /** Lived days (days the memory was in use) since it was last touched, as the carry rule reads a touch (`openCarry`). */
+  readonly livedDaysSinceTouched: number;
+  /** A core memory being reconsidered, which waits on a keep-or-retire decision. */
+  readonly reconsidering?: true;
+  /** Its date, when it has one (the wake lists such a thread under "Coming up"). */
+  readonly date?: string;
+}
+
+/** The most characters of a title the `still open` handle gives. */
+export const STILL_OPEN_TITLE_CHARS = 160;
 
 /**
  * WHAT A SESSION START HANDS `Self#assemble` (2026-10-10): what the turn-end
@@ -1093,6 +1110,71 @@ export class Self {
   }
 
   /**
+   * "STILL OPEN"'S CANDIDATES, as the wake assembled at session start reads
+   * them (2026-10-10; lifted out 2026-10-25 so the `still open` handle reads
+   * the same): the open threads still carried (`openCarry`, 2026-10-22) and
+   * the core memories being reconsidered, each read once (`scanOne`). Reads
+   * only.
+   */
+  private openScanned(day: number): { open: Scanned[]; carry: OpenCarry; flagged: Set<string> } {
+    const flagged = reconsideringIds(this.store);
+    // Only the threads still carried (2026-10-22, `openCarry`): one nobody
+    // touched in `OPEN_CARRY_DAYS` is in no lane here, as at the turn-end.
+    const carry = openCarry(this.store, day, this.tunables.OPEN_CARRY_DAYS, this.tunables.OPEN_CARRY_GLIMPSE_TOUCH);
+    const openIds = [...new Set([...this.store.openThreadIds().filter((id) => !carry.notCarried.has(id)), ...flagged])];
+    const open: Scanned[] = [];
+    for (const id of openIds) {
+      const s = scanOne(this.store, id, day);
+      if (s === null) continue;
+      if (s.band === "identity" && flagged.has(id)) open.push({ ...s, reconsidering: true });
+      else if (s.unresolved && s.band !== "identity") open.push(s);
+    }
+    return { open, carry, flagged };
+  }
+
+  /**
+   * EVERYTHING "STILL OPEN" CARRIES, IN ITS ORDER (2026-10-25, the O1
+   * builder; roadmap 10-25, lightly held): what the `still open` recall
+   * handle lists. The same candidates the wake assembled at session start
+   * reads (`openScanned`: the carry rule, the core memories being
+   * reconsidered) and the same ranking (`rankLanes`, with what is settled
+   * over left out and the unsettled ones after) — the lane's listed items,
+   * then what its tail counts, in one list. One difference, said: no
+   * horizon is passed, so an open thread with a date, which the wake lists
+   * under "Coming up" instead, is here too, where the ranking puts it. Reads
+   * only: no stamp, no return, no seen set — being listed is not a touch
+   * (`openCarry`), so the handle cannot keep a thread carried.
+   */
+  stillOpen(day: number): StillOpenItem[] {
+    const { open, carry } = this.openScanned(day);
+    const settled = settledOver(this.store);
+    const lanes = rankLanes(open, [], this.tunables, {
+      carry,
+      settledOver: settled,
+      unsettled: unsettledAmong(this.store, open.map((s) => s.id)),
+      waiting: waitingIds(this.store, day),
+    });
+    const byId = new Map(open.map((s) => [s.id, s] as const));
+    const out: StillOpenItem[] = [];
+    for (const id of [...lanes.threads.map((r) => r.id), ...(lanes.overflow?.threads ?? [])]) {
+      const s = byId.get(id);
+      if (s === undefined) continue;
+      const first = s.doc.body.split("\n").find((l) => l.trim().length > 0) ?? "";
+      const whole = flatten((s.doc.title ?? "").trim() || first);
+      const title = whole.length <= STILL_OPEN_TITLE_CHARS ? whole : `${whole.slice(0, STILL_OPEN_TITLE_CHARS - 1).trimEnd()}…`;
+      const touched = carry.touched.get(id) ?? Math.max(s.doc.bornDay, s.physics.lastUsedDay);
+      out.push({
+        id,
+        title,
+        livedDaysSinceTouched: Math.max(0, day - touched),
+        ...(s.reconsidering === true ? { reconsidering: true } : {}),
+        ...(s.doc.eventDate === undefined ? {} : { date: s.doc.eventDate }),
+      });
+    }
+    return out;
+  }
+
+  /**
    * THE WAKE, ASSEMBLED AT SESSION START (2026-10-10), from reads only: no
    * scan of the store, no model, no embedding, and no write — not even the
    * rotation's stamps or Nearby's showing, which stay the turn-end's (self
@@ -1148,18 +1230,8 @@ export class Self {
     ];
     // Still open, from the open memories — and the core memories being
     // reconsidered, which wait on a decision (2026-10-11).
-    const flagged = reconsideringIds(this.store);
-    // Only the threads still carried (2026-10-22, `openCarry`): one nobody
-    // touched in `OPEN_CARRY_DAYS` is in no lane here, as at the turn-end.
-    const carry = openCarry(this.store, day, this.tunables.OPEN_CARRY_DAYS, this.tunables.OPEN_CARRY_GLIMPSE_TOUCH);
-    const openIds = [...new Set([...this.store.openThreadIds().filter((id) => !carry.notCarried.has(id)), ...flagged])];
-    const open: Scanned[] = [];
-    for (const id of openIds) {
-      const s = scanOne(this.store, id, day);
-      if (s === null) continue;
-      if (s.band === "identity" && flagged.has(id)) open.push(note({ ...s, reconsidering: true }));
-      else if (s.unresolved && s.band !== "identity") open.push(note(s));
-    }
+    const { open: openRead, carry, flagged } = this.openScanned(day);
+    const open = openRead.map(note);
     const fresh = rankLanes(open, horizon, this.tunables, {
       carry,
       settledOver: settled,

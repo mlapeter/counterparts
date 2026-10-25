@@ -2831,3 +2831,36 @@ random-5b's wake on 0.3.35 (8,981 B) had four rough spots; each is now a smaller
 - **The Yesterday line's titles** (`YESTERDAY_TITLE_BYTES` 60) were checked on the 0.3.36
   snapshot copy: every cut was at a word boundary ("…prompt, me…" was "me vs Gemini"),
   so `excerpt` was left as it is.
+
+## 2026-10-25 (later) — a door that lists Still open; the night before, dated (O1, L1; lightly held)
+
+- **`recall({ handle: "still open" })`** (`Self#stillOpen`, `Counterpart#stillOpen`,
+  `mcp/server.ts#stillOpenTool`): what "Still open" carries, in its order — the candidates
+  the session-start wake reads (`Self#openScanned`, lifted out of `assemble` so both read
+  one function: the carry, the core memories being reconsidered) ranked by the same
+  `rankLanes` (settled-over out, unsettled after) — the lane's listed items then its
+  tail's, ids, titles, lived days since touched, 20 a page. One difference: no horizon is
+  passed, so a dated open thread the wake lists under "Coming up" is in the list too, with
+  its date. On the 10-25 snapshot copy (wake at 10-26 07:00): the wake listed 5 and counted
+  94; the handle listed 100 (the one more: an item due that day, under "Coming up") and
+  counted 9 the carry let go. It writes nothing — a ring event, no recall row, no seen set —
+  so listing cannot keep a thread carried (`openCarry`). The facts questions that ask for
+  exactly the list ("what's still open", "open threads", …: `mcp/server.ts#asksStillOpen`)
+  are answered by it; they matched none of the 156 open threads by content. The tail names
+  it: `(94 more open, kept quietly; recall "still open" lists them)`, 6 bytes shorter than
+  #623's words, which `countedLanes` still reads.
+- **The night line before the day's run** (`dream/night-line.ts#nightLine`, `nightOf`): the
+  latest FINISHED night — a journaled dream, a reflected reflection, or a run that finished
+  with nothing new to dream on — under the date it READ, the day before its stamp, as the
+  dashboard's "The night of Jul 9" and the reflection's timeline name a night:
+  `The night of Oct 24: dream drm_a25f1d3312d9 made 11 links, 1 feeling and 1 fold;
+  reflection rfl_9c85406823e6 rewrote the page.` (the snapshot copy, 10-26 07:00; master
+  read "Last night: none yet today (last: Oct 25)."). Older than `NIGHT_LINE_STALE_DAYS`
+  (3): `The night of Oct 19 was the last to run: …`. The caller reads the newest 7 dreams
+  and reflections, so an abandoned dream in front of the finished one does not hide it.
+  Under way, did not finish, dreaming off, never dreamed: as #623 left them; "none yet
+  today" only when none of what is read finished. The new head is the night line too
+  (`briefing.ts#isNightLine`), so the review of #623's rescue still takes it out:
+  `still-open-and-night.test.ts`'s sweep (1,600–3,000 B, 1 and 50 open, the night before
+  and today's) keeps the item due today and Still open's first item at every budget, and
+  fails at 1,600 B with the rescue reading only "Last night:".

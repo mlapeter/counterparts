@@ -66,6 +66,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | The unmarked offer on the record (D1, a fix): every reflection row says what it was offered to mark (`detail.unmarked`, an empty list too) and which it marked (`detail.unmarkedMarked`, `counts.unmarkedOffered`/`unmarkedMarked`); the offer keeps its lines when the fixed parts fill the room (with `dream.REFLECT_ROOM_ORDER`) | 0.3.36, 10-24 | 3 nights after install | "Due 3 nights after the unmarked offer's record" below |
 | The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | 0.3.36, 10-24 | a week of 0.3.36 shadow rows, then Mike decides on, off or tune | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
 | Wake polish 10-25 (random-5b's wake): a "Last night:" line (`self.NIGHT_LINE`), "Still open"'s tail one calm count with no ids, "quiet since HH:MM" for a session idle two hours (`ELSEWHERE_QUIET_MS`), a handoff's staleness in two clauses | not released, 10-25 | ~3 mornings after install | "Due ~3 mornings after the wake polish of 10-25" below |
+| A `still open` recall handle that lists what "Still open" carries (and the facts questions asking for that list), named in the wake's tail (O1); before the day's run the night line names the latest finished night, dated (L1) | not released, 10-25 | ~3 mornings after install | "Due ~3 mornings after the still open handle and the dated night" below |
 | Ambient recall's meaning reads THIS turn (S1): every ambient turn embeds its own prompt and ranks it in line, fresh lag row or not, on the `inline` calibration; past the in-line count guard the worker's fresh lag row is used, recorded `lagged`; switch `recall.SEMANTIC_THIS_TURN` | not released, 10-25 | ~1 week after install (~2026-11-01): footnote ratings and items shown per Mike-typed turn vs 10-22..24; short-prompt complaints | "Due ~1 week after this-turn meaning" below; `docs/decisions.d/feat-this-turn-meaning.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
@@ -334,6 +335,33 @@ chapter/folder rules), a repeat across lanes, or Still open losing items Mike wa
   by folder, or the newest one's id).
 - **Revert:** `self.NIGHT_LINE` false; `ELSEWHERE_QUIET_MS` `Infinity`; `moreLine`'s generic form for `threads`
   (`OPEN_TAIL_WORDS`); `staleWords`' three clauses.
+- **2026-10-25, later (O1, L1):** the "show the latest night with its date instead" trigger above was taken
+  before install — see "Due ~3 mornings after the still open handle and the dated night" below.
+
+## Due ~3 mornings after the still open handle and the dated night (2026-10-25, O1 + L1, roadmap 10-25, lightly held — `mcp/server.ts#stillOpenTool`, `self/briefing.ts#OPEN_TAIL_WORDS`, `dream/night-line.ts#nightOf`, `NIGHT_LINE_STALE_DAYS`)
+
+- **Trying:** (1) `recall({ handle: "still open" })` lists everything "Still open" carries, in the wake's order
+  (ids, titles, lived days since touched, 20 a page), and the facts questions "what's still open" / "open
+  threads" / … are answered by it; the wake's tail reads `(N more open, kept quietly; recall "still open" lists
+  them)`. (2) Before the day's run, the night line names the latest FINISHED night by the day it read
+  (`The night of Oct 24: dream … made …; reflection … rewrote the page.`), not "Last night: none yet today";
+  more than 3 days back, `… was the last to run`.
+- **Look at:** `mcp.recall.stillopen` in the server's ring (or a transcript): does a session ever call the
+  handle, from the tail or a "what's still open" question, and does it then do anything with an item (a
+  recall by id, a close)? Is its total the wake's listed + counted, give or take the dated items "Coming up"
+  shows? Three first-of-the-day wakes: does the night line name the night `counterparts night` lists (same
+  ids), dated the day before the run's date? Does the day's second wake switch to "Last night: …" for the run
+  that just finished?
+- **Changes a decision if:** the handle is never called in a week → the tail's words are not doing it, or
+  nobody wants the list (drop the facts routing first, keep the handle); a session calls it and then recalls
+  nothing from it → the list needs more than titles (a first line, the folder); the night named by "the day
+  before its stamp" reads wrong to Mike (a late-evening run by hand, a run after a gap of days) → name it by
+  the stamp, or by the day's-end summary's `about`; the "was the last to run" form showing on an ordinary
+  morning → `NIGHT_LINE_STALE_DAYS` up; a tight wake losing a dated item or Still open's first item to the
+  longer line (the sweep in `still-open-and-night.test.ts` says it does not) → `briefing-room.ts#takeRoom`.
+- **Revert:** `OPEN_TAIL_WORDS` back to `OPEN_TAIL_WORDS_BEFORE`; drop the handle and `asksStillOpen` in
+  `recallTool` (nothing is stored by either); in `nightLine`, drop the `latestFinished` branch (the line reads
+  "none yet today" again).
 
 ## Due 3–5 days after awake belief support (2026-10-24, B1, Mike's yes 18:04, lightly held — `schemas.AWAKE_SUPPORT_ON_DUPLICATE`)
 

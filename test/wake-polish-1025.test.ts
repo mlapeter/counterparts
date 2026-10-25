@@ -9,7 +9,8 @@
  *   2. a session open in another folder with no turn for `ELSEWHERE_QUIET_MS`
  *      reads "open since …, quiet since HH:MM", not "(live)";
  *   3. "Last night:" says what the night did, that it was quiet, that none
- *      ran yet, that the run is under way — or nothing, for a store that has
+ *      ran yet (since L1, 2026-10-25: the latest finished night, dated —
+ *      `still-open-and-night.test.ts`), that the run is under way — or nothing, for a store that has
  *      never had a night — and is the last of the day furniture to give way;
  *   4. a handoff's staleness reads in two clauses (`continuity-round2`'s).
  *
@@ -26,7 +27,7 @@ import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import type { ScopeVerdict } from "../src/adapters/scopes.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { NIGHT_LINE_HEAD, nightLine } from "../src/core/dream/index.js";
+import { NIGHT_LINE_HEAD, NIGHT_OF_HEAD, nightLine } from "../src/core/dream/index.js";
 import type { NightFacts, NightRun } from "../src/core/dream/index.js";
 import { ELSEWHERE_QUIET_MS, YESTERDAY_SUMMARY_WORDS, todayElsewhereLines } from "../src/core/handoff/last-here.js";
 import { FRAMING, OPEN_TAIL_WORDS, SELF_TUNABLES, countedLanes, withNightLine } from "../src/core/self/index.js";
@@ -230,10 +231,11 @@ describe("3. Last night", () => {
     expect(lineOf(wake(w), NIGHT_LINE_HEAD)).toBe("Last night: a quiet night — too little new to dream on.");
   });
 
-  test("none yet today, the last one yesterday; an older one says no night ran, and says when dreaming is off", () => {
+  test("before today's run, the latest finished night by the day it read (L1, 2026-10-25); an older one with dreaming off says no night ran, and that dreaming is off", () => {
     const w = world(at(D2, 9));
     dream(w, "drm_00000000a003", D1, { link: 2 });
-    expect(lineOf(wake(w), NIGHT_LINE_HEAD)).toBe("Last night: none yet today (last: Oct 24).");
+    // Was "Last night: none yet today (last: Oct 24)." until L1: the run stamped Oct 24 read Oct 23.
+    expect(lineOf(wake(w), NIGHT_OF_HEAD)).toBe("The night of Oct 23: dream drm_00000000a003 made 2 links.");
     const v = world(at(D2, 9));
     v.c.store.openDream({ id: "drm_00000000a004", day: 1, date: "2026-10-20" });
     v.c.store.updateDream("drm_00000000a004", { state: "journaled" });
@@ -379,7 +381,9 @@ describe("3. Last night", () => {
     const prior: NightFacts["dream"] = { id: "drm_x", date: D1, state: "journaled", counts: { link: 1 } };
     expect(nightLine({ ...base, dream: prior, run: lost })).toBe("Last night: the nightly run did not finish (no word from it).");
     expect(nightLine({ ...base, dream: prior, run: { ...lost, startedAt: at(D2, 8, 50) } })).toBe("Last night: the nightly run is under way.");
-    expect(nightLine({ ...base, dream: prior })).toBe("Last night: none yet today (last: Oct 24).");
+    // L1: before today's run, the latest finished night, named by the day it read; "none yet today" only with none finished.
+    expect(nightLine({ ...base, dream: prior })).toBe("The night of Oct 23: dream drm_x made 1 link.");
+    expect(nightLine({ ...base, dream: { ...prior, state: "begun" } })).toBe("Last night: none yet today (last: Oct 24).");
     expect(nightLine({ ...base, dream: prior, setting: "off" })).toBe("Last night: no night ran (last: Oct 24); dreaming is off.");
   });
 });
