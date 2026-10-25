@@ -60,6 +60,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Use credit refuses the memory's writing session on its birth day (`own-write`), not everyone: another session's use credits a newborn memory once that day; unknown/unbound writers keep the birth-day rule (switch `physics.OWN_WRITE_GATE`) | 0.3.35, 10-24 (R2) | ~7 nights after install: promotions and core growth | "Due ~7 nights after own-write" below; `docs/decisions.d/fix-own-write-not-birth-day.md` |
 | Consolidation every lived day (`sleep` `CADENCE.consolidate` 1, was 3): the core is decided at every night's sleep, still at most 3 a night (`CORE_MAX_PER_SLEEP`); read with 0.3.35's R2 (own-write), since both feed the core | not released, 10-24 (0.3.36) | ~7 nights after install | "Due ~7 nights after daily consolidation" below; `docs/decisions.d/feat-daily-consolidation.md` |
 | Cue learning (R3, store v15 `cue_edges`): the words of a turn that showed a memory, which was then used or rated, wire to it, and a learned pair reads as one more cue (`w × share × CUE_PAIR_UNITS`); switch `physics.CUE_LEARNING` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after cue learning" below; `docs/decisions.d/feat-cue-learning.md` |
+| The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`): a memory about me or us crosses when its support — real uses, its slot's re-encodings, reflection citations echoed by a later use — reaches `CORE_SUPPORT_LINE` 0.0615 over its lived days; glimpses count nothing, a reflection alone never carries one in | not released, 10-24 (0.3.36) | ~7 nights after install | "Due ~7 nights after the support door" below; `docs/decisions.d/feat-core-door-support.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -242,6 +243,40 @@ recorded), so whether a footnote came by a learned pair can't be read from the s
 
 Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
 word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
+## Due ~7 nights after the support door (2026-10-24, E2, Mike's go 14:36, lightly held — `physics.CORE_DOOR_SUPPORT`)
+
+What: the core's door is one support arc in place of the fast and slow lanes. A memory about me or us crosses when
+its support — the belief's arithmetic (`supportCredit`) over its real uses (opened, quoted, drawn on, rated 2–3),
+its slot's re-encodings and the reflection's citations (found filings, full once a later use echoes them) — reaches
+`CORE_SUPPORT_LINE` (0.0615) as height × days factor over its LIVED days. Glimpses and ratings of 1 count nothing; a
+reflection alone gives no lived day and never carries a memory in; one real use felt at 0.5 or more is in, an
+unfelt one needs a second lived day. The record (`meta` `sleep.promoted.<id>`, `band.promoted`) names lane `support`,
+the level, the line, the sum, the lived days and every filing.
+
+Harness (10-24 and 10-23 corpora, identical answers; off byte-identical to master): 9 core at the end where the lanes
+made 12. The 7 that leave all came in by the fast lane on a reflection's citation alone; every fast-lane memory with
+a real use still crosses (3 of 3); 4 enter that the lanes left out (two on one use at intensity 0.5, one find echoed
+by a use, one slot re-encoded twice in a day); 0 enter on citations alone. The first promotion lands on day 7
+(the lanes' on day 8), then nothing until day 19, where the lanes had promoted 6 by then.
+
+Read it with E1 (daily consolidation) and R2 (own-write), which also feed the core: split the nights by build.
+
+Look at, over ~7 nights since install (read-only):
+- promotions per lived day and their lanes: `SELECT day, COUNT(*), GROUP_CONCAT(lane) FROM core_events WHERE action = 'promoted' GROUP BY day ORDER BY day DESC LIMIT 14;`
+  expect fewer than the lanes made (the reflection-only crossings are gone), `support` from the install on;
+- what carried each: `SELECT key, json_extract(value,'$.support.level') AS level, json_extract(value,'$.support.days') AS days, json_extract(value,'$.support.filings') AS filings FROM meta WHERE key LIKE 'sleep.promoted.%' AND json_extract(value,'$.lane') = 'support' ORDER BY json_extract(value,'$.day') DESC;`
+  each filing is `return`, `reencoded` or `found`; a crossing whose filings are mostly `found` (echoed) is the
+  reflection being backed by life, which is the point; one whose only `return` sits a day after birth is the case
+  the lanes refused (no gap of 2 here);
+- whether the core starves: none for a week while real uses of memories about me happen means the line is high (the
+  one-use bar is a feeling of 0.5); a promotion Mike reads as wrong, or demotes soon, means it is low.
+
+Not stored: the support of memories that did not cross (computed at each consolidation, not written); the memory
+card shows how far along one is, the Self page's "closest to the core" still ranks by the lanes' progress.
+
+Changes it: the core starving, or promotions Mike reads as wrong. Revert: `physics.CORE_DOOR_SUPPORT=false` (the two
+lanes, exactly; nothing to undo in the store), or revert the PR.
+
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 
 What: every night's `dream.night` row now carries `usage`: each child's tokens from its own `result` line and the

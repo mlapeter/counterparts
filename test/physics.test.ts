@@ -55,6 +55,7 @@ import {
   type Challenge,
 } from "../src/core/physics/index.js";
 import type { Kind, MemoryPhysics, Salience } from "../src/core/types.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 // ---------------------------------------------------------------------------
 // fixtures
@@ -437,6 +438,8 @@ describe("[M] guarantee 4 — repetition alone makes nothing identity but a memo
 });
 
 describe("regression 4 — repetition alone never promotes a skill", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("100 lived days of use: base caps, and the core is not for a skill", () => {
     const drilled = mem({
       kind: "skill",
@@ -503,6 +506,8 @@ describe("§5.11 returns — durability from coming back", () => {
 });
 
 describe("§5.3 the core lanes", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("fast: strongly felt AND back at least once after a gap", () => {
     const felt = mem({ kind: "self", birthDay: 0, feelingPeak: 0.7 });
     expect(promotionEligibility(felt, { aboutMe: true }).reason).toBe("no-lane-yet");
@@ -652,6 +657,8 @@ describe("§5.3 bands", () => {
 });
 
 describe("regression 3 — nothing is born into identity", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   const born = mem({
     kind: "self",
     salience: { ...S(1), claimed: 1 },

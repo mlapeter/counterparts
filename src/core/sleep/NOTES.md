@@ -1137,3 +1137,13 @@ the write lock (`Schemas#birth`, #578) sees the other cycle's cards, and the tri
 #569, #578 and #581 made no twin. Another phase may run twice in that window, as any phase
 could before the lease; births was the one where that left lasting damage. Revisit if a store
 is ever shared across machines or pid namespaces.
+
+## 2026-10-24 — the support door reads the slot's walk (E2)
+
+`coreRecurrence`'s walk over the slot (members, the fold cut, re-encodings, `earlier`) is now
+`slotEvidence`, read by both `coreRecurrence` (unchanged numbers: the lanes, `weighCore`'s
+`lastEver`) and `coreSupportFor` (the support door's filings). The walk returns every source; each
+reader picks its own, so a glimpse can be a tenth of a recurrence day for the lanes and nothing
+for the door. `coreContextFor` counts support only while `physics.CORE_DOOR_SUPPORT` is on and
+only for a candidate, so the switch off adds no read and no key to the context. The closed-door
+check behind `feelingRecordedLater` counts the same support with the lived feelings only.

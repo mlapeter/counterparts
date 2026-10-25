@@ -94,7 +94,8 @@ alone.
   schemas and sets the consolidation bonus in `physics/` §5.2. [v0] **Since 2026-09-26 the
   bonus is LEGACY** (rows born before schema v8 only; physics §5.11): a memory made since
   stays strong by returning, credited at the moment it returns, and this pass decides the
-  CORE — by two lanes, for memories about me or about us, at most three a night (below).
+  CORE — for memories about me or about us, at most three a night (below): by one support
+  arc since 2026-10-24 (`physics.CORE_DOOR_SUPPORT`, E2), by two lanes before it.
   *(Three per consolidation, `CORE_MAX_PER_SLEEP`; literally a night since 2026-10-24, when
   consolidation went to every lived day. Before that it ran every third lived day.)*
 
@@ -174,7 +175,20 @@ reflection's `demoted` restores it (`keepCore` → `restored`: a `promoted` row,
 then the keep). An owner's or a session's retire on top of a reflection's is recorded as
 theirs (`retireCore` → `confirmed`, nothing else moves), and a session's keep cannot undo it.
 The owner's keep restores any retired memory, his own retires included (review of #542).
-Every other retire stays sticky. The legacy
+Every other retire stays sticky. *(Amended 2026-10-24, E2 — Mike's go, lightly held, an
+experiment behind `physics.CORE_DOOR_SUPPORT`; physics §5.3.)* THE DOOR IS ONE SUPPORT ARC:
+for a candidate (about me, or recognised) this phase also counts its CORE SUPPORT
+(`consolidate.ts#coreSupportFor`, read by `coreContextFor` into `CoreContext.support`) — over
+the slot `coreRecurrence` walks (one walk, `slotEvidence`, both read), each real use a
+`return` filing, each session's re-encoding `reencoded`, each reflection's citation `found`,
+a glimpse, a rating of 1 and a dream's replay nothing — and physics crosses it at
+`CORE_SUPPORT_LINE`. The lanes' recurrence count is still made, for the core's own weighing
+(`weighCore` reads `lastEver`) and the readers that show lane progress; only the door stops
+reading it. The crossing's record names lane `support`, its level, the line, the sum, its
+lived days and every filing (ids and numbers only). The closed-door check behind
+`feelingRecordedLater` counts the same support with the lived feelings only. The cap, the
+order (strongest first) and every other gate are unchanged. Off: the two lanes, exactly.
+The legacy
 consolidation marking runs first, for legacy rows only; a post-upgrade row is counted
 `not-legacy`. The first decay pass after the v8 upgrade runs a one-time census
 (`upgrade.ts`): every live row's band and projected prune day, old arithmetic vs new, into

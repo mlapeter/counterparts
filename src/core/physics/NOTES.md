@@ -766,3 +766,46 @@ reminder occurrences pass no session, so they keep the birth-day rule.
 words, training at credit, and the read) and associate (buffering, flushing, `learnedCues`).
 Training reuses `creditUse`'s verdict for the writer's birth-day session (`own-write`) rather
 than re-deriving it: recall trains on `credited` or `already-credited-today` only.
+
+## 2026-10-24 — the core door is one support arc (E2, an experiment, `CORE_DOOR_SUPPORT`)
+
+**What the arithmetic forced.** The `returns` table keeps one row per memory, lived day and
+source, and `creditReturn` refuses a second awake-class return the same day, so "three uses in
+one session on one day" is one filing before the spread discounts are ever asked; a reflection
+returns at most weekly, so "five nights of citations" is one filing unless the nights are a week
+apart. With the belief's own numbers (cap 0.9, scale 4, fourteen days) one lived day's factor is
+0.256, and the only thing that tells "one strongly felt use" (in) from "one plain use" (out) is
+the feeling multiplier: 0.0618 at 0.5, 0.051 unfelt. That sliver is where the line sits, and it
+is the honest shape of "one strongly felt return gets most of the way": the second occasion on
+another lived day, not a higher threshold, is what an unfelt memory needs (0.129).
+
+**Lived days, not filing days.** The belief's `days` gives an un-echoed find its filing day (one
+night of finds, one day of hardness). Here each citation is its own week, so that reading let two
+weekly citations of a never-used memory cross (0.097 at the first line) — the reflection carrying
+a memory alone. `SupportCredit.livedDays` leaves an un-echoed find's day out (lane F's
+`livedSupportDays` already reads it so), and the door reads it: a reflection alone has no lived
+day and level 0, by arithmetic rather than a rule; a later real use echoes every earlier find,
+which then counts full on its own day. Additive: no belief reads it.
+
+**A filing's own day as its "born" day.** `supportCredit` decides echo and same-day spread by the
+counted memory's birth day. For a memory's own evidence the occasion is the return, so each
+filing's day stands there; with the memory's birth day instead, every filing after the first
+would take SAME_DAY and no find could ever be echoed. Returns keep no folder, so every filing
+shares the unknown one and takes SAME_FOLDER after the first: a constant 0.75 until a return
+records its folder.
+
+**The harness (10-24 and 10-23 corpora, the same life a day apart; identical answers).** Off is
+byte-identical to master (JSON equal but the run's instant, its settings line and the random ids
+of contradiction pairs). On: 9 core at the end against 12; the first promotion on day 7 (the
+lanes' first on day 8), then none until day 19, by when the lanes had 6. Of the lanes' 12, 5
+cross on too (both slow-lane ones, one of them ten days sooner, by a re-encoding and a use); 7 do
+not, every one a fast-lane memory that came in on a reflection's citation alone (its finds still
+un-echoed at the end). Every fast-lane memory that had a real use still crosses (3 of 3). 4
+enter that the lanes left out: one use at intensity 0.5 (two), a find echoed by a later use (one;
+that use, felt at 0.5, would have carried it alone), two same-day re-encodings of its slot (one).
+The memories glimpsed and never used (211 on 10-24) file nothing from their glimpses: 159 have no
+other evidence in their slot (level 0), 52 carry their slot's real uses or re-encodings.
+
+A second-order effect to know: what is core changes what the wake shows in its hints lane, and a
+use while shown there is not a return. One memory's day-18 use was a return with the door off
+and on display with it on.

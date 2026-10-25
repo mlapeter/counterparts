@@ -29,6 +29,7 @@ import type { UpgradeCensus } from "../src/core/sleep/index.js";
 import { Store, V8_UPGRADE_KEY } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 import { stripToV7 } from "./v7-fixture.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 let dir: string;
 const open: { close(): void }[] = [];
@@ -128,6 +129,8 @@ describe("Q1 — the upgrade credits a legacy row's reinforcement days as return
 });
 
 describe("Q2 — the slow lane needs the semantic floor on the day it promotes", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("a faint self memory back on five days over three weeks is not core; a strong one is", () => {
     const lane = { returnDays: 5, firstReturnDay: 2, lastReturnDay: 30, returns: 2, lastUsedDay: 30 };
     const faint = phys({

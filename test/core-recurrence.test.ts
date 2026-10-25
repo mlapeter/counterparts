@@ -23,6 +23,7 @@ import { Counterpart } from "../src/core/counterpart.js";
 import { TUNABLES as PHYSICS, partialSourceOf, promotionEligibility } from "../src/core/physics/index.js";
 import { TUNABLES as SLEEP, coreContextFor, coreRecurrence, identityBlock, runCycle, slotOf, weighCore } from "../src/core/sleep/index.js";
 import type { PutInput } from "../src/core/store/index.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -84,6 +85,8 @@ function makeCore(c: Counterpart, id: string): void {
 }
 
 describe("the recurrence lane counts the slot, the sessions and the window", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("a use, a newer state written into the slot and that one's use are three days of one slot; a fourth carries the current state across by the slow lane", () => {
     const c = brain();
     nextDay(c);

@@ -11,6 +11,7 @@
 import type { Counterpart } from "../../core/counterpart.js";
 import { dreamSkippedOf, nightPartsWords, nightRunWords, nightTokensWords } from "../../core/dream/index.js";
 import type { DreamingSetting, NightRun } from "../../core/dream/index.js";
+import { TUNABLES as PHYSICS } from "../../core/physics/index.js";
 import { acceptsReflectedFeeling, reconsiderWords } from "../../core/sleep/index.js";
 import { coreSupport } from "../../core/self/measures.js";
 import { daySummaries } from "../../core/self/writer.js";
@@ -279,12 +280,25 @@ export function coreListLines(counterpart: Counterpart): string[] {
     "",
     "Only a memory about me or about us becomes core — what it is about is marked by meaning, by the",
     "writer or by a reflection (owner, work and world are not candidates, nor a fact, a skill or a plan).",
-    "Then: strongly felt and back after a gap (fast lane), or it and its earlier and later states kept",
-    "coming back — on several days, in several sessions, over a week or more inside a month (slow lane).",
-    "A reflection that cites a memory counts as it coming back. At most a few a night.",
-    acceptsReflectedFeeling(counterpart.store)
-      ? "Open to reflection alone: a feeling a reflection records later and a reflection citing a memory count toward the fast lane, and a reflection may re-label either way (counterparts core --reflected-feeling off to close it)."
-      : "Closed to reflection alone: the fast lane needs a feeling felt at the time and an ordinary use after a gap, and a reflection may only move a memory toward work or world (counterparts core --reflected-feeling on to open it).",
+    ...(PHYSICS.CORE_DOOR_SUPPORT
+      ? [
+          // The support door (2026-10-24, E2).
+          "Then: life has to back it enough — real uses of it (or its earlier and later states) from separate",
+          "moments and lived days, feeling making each count more; a glimpse counts nothing, and a reflection",
+          "that cites it counts a little until a later use echoes it, never alone. At most a few a night.",
+        ]
+      : [
+          "Then: strongly felt and back after a gap (fast lane), or it and its earlier and later states kept",
+          "coming back — on several days, in several sessions, over a week or more inside a month (slow lane).",
+          "A reflection that cites a memory counts as it coming back. At most a few a night.",
+        ]),
+    PHYSICS.CORE_DOOR_SUPPORT
+      ? acceptsReflectedFeeling(counterpart.store)
+        ? "Open to later feelings: a feeling a reflection records later makes its memory's uses count more, and a reflection may re-label either way (counterparts core --reflected-feeling off to close it)."
+        : "Closed to later feelings: only a feeling felt at the time makes a memory's uses count more, and a reflection may only move a memory toward work or world (counterparts core --reflected-feeling on to open it)."
+      : acceptsReflectedFeeling(counterpart.store)
+        ? "Open to reflection alone: a feeling a reflection records later and a reflection citing a memory count toward the fast lane, and a reflection may re-label either way (counterparts core --reflected-feeling off to close it)."
+        : "Closed to reflection alone: the fast lane needs a feeling felt at the time and an ordinary use after a gap, and a reflection may only move a memory toward work or world (counterparts core --reflected-feeling on to open it).",
   );
   if (nominated.length > 0) {
     out.push("", "Nominated by a dream (a lane still has to promote it):");

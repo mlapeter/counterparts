@@ -24,6 +24,7 @@ import { TUNABLES as PHYSICS, promotionEligibility } from "../src/core/physics/i
 import { REFLECTED_FEELING_KEY, aboutMe, promotionRecordKey, runCycle } from "../src/core/sleep/index.js";
 import { SCHEMA_VERSION, V9_UPGRADE_KEY, paths } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -261,6 +262,8 @@ describe("the v9 upgrade carries today's rule, and says so", () => {
 // ---------------------------------------------------------------------------
 
 describe("a reflection's citation is a return", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("it satisfies the fast lane's 'came back after a gap'; the promotion record says it was reflection alone", () => {
     dateN = 0;
     const c = brain();
@@ -381,6 +384,8 @@ function dreamed(c: Counterpart): { dream: string; felt: string; gist: string; p
 }
 
 describe("reflect: dream → journal → reflect", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("begin hands it the dream (as dreamed), the page, the candidates and the felt — with questions, and no lane arithmetic", () => {
     const c = brain();
     const d = dreamed(c);
@@ -720,6 +725,8 @@ describe("the reflect tool, and the carried share through the hook", () => {
 // ---------------------------------------------------------------------------
 
 describe("the owner can read it", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("doctor's Reflection line: last reflected, the share, returns by source, promoted on reflection alone", async () => {
     const { reflectionFindings, upgradeV9Findings } = await import("../src/adapters/claude-code/doctor.js");
     dateN = 0;

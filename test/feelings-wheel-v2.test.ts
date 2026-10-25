@@ -42,6 +42,7 @@ import {
 } from "../src/core/store/index.js";
 import type { StoreOptions } from "../src/core/store/index.js";
 import { stripV13 } from "./store-fixture.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 let root: string;
 let dir: string;
@@ -455,6 +456,8 @@ describe("schema v11: the one migration", () => {
 // the mechanism
 // ═══════════════════════════════════════════════════════════════════════════
 describe("the mechanism", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("an unpleasant feeling softens faster than a pleasant one; a neutral one on the old clock", () => {
     expect(feelingSofteningDays(0)).toBe(TUNABLES.S_FEELING);
     expect(feelingSofteningDays(undefined)).toBe(TUNABLES.S_FEELING);

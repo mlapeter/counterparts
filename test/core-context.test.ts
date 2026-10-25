@@ -23,6 +23,7 @@ import { REFLECTED_FEELING_KEY, coreContextFor, runConsolidate } from "../src/co
 import type { ReadsCoreContext } from "../src/core/sleep/index.js";
 import type { PutInput, ReadOnlyStore, Store } from "../src/core/store/index.js";
 import { rowToPhysics } from "../src/core/store/operational.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -118,6 +119,8 @@ function helperPromotes(store: ReadsCoreContext & Pick<Store, "row">, id: string
 }
 
 describe("the helper and consolidation agree", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("door closed and open: row by row, the helper's context reaches consolidation's verdict", () => {
     const c = brain();
     const m = scene(c);

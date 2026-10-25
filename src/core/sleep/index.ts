@@ -78,6 +78,8 @@ export {
   acceptsReflectedFeeling,
   coreContextFor,
   coreRecurrence,
+  coreSupportFor,
+  coreSupportOf,
   identityBlock,
   laterFeelingCarriers,
   laterFeelingWasAwake,

@@ -32,6 +32,7 @@ import { isChapterMemory } from "../src/adapters/dashboard/web/views/memory-word
 import * as cardWordsJs from "../src/adapters/dashboard/web/shared/memory-card-words.js";
 import type { FactsResult } from "../src/adapters/mcp/facts.js";
 import { seedDemo } from "../tools/demo/seed.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 // The browser modules' shapes, as this file uses them.
 type Step = MemoryDetail["timeline"][number];
@@ -122,6 +123,8 @@ function canonical(root: string): Map<string, string> {
 }
 
 describe("M1 — the card's road to the core names the lane that applies", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("strongly felt and about me: one real return makes it core, not the slow lane's day count", () => {
     withSrc((src) => {
       const d = card(src, ids.felt);

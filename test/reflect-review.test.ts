@@ -21,6 +21,7 @@ import { TUNABLES as PHYSICS_TUNABLES } from "../src/core/physics/index.js";
 import { V9_UPGRADE_KEY, paths } from "../src/core/store/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 import { PAGE_WRITING_RULE } from "../src/core/self/index.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -461,6 +462,8 @@ describe("S5: carrying a share is a claim, not a read then a write", () => {
 // ---------------------------------------------------------------------------
 
 describe("the open fast lane, end to end through the tool, sleep, doctor and the console", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("reflect (MCP) → sleep promotes on reflection alone → doctor counts it → the next share names it once → told", async () => {
     const { reflectionFindings } = await import("../src/adapters/claude-code/doctor.js");
     const c = brain();
@@ -590,6 +593,8 @@ describe("observer stance, every phase", () => {
 });
 
 describe("lanes: a reflection and an organic use on one lived day", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("reflection first, then the use: one lane day, and the use is refused as a return (the record reads reflection alone)", () => {
     const c = brain();
     nextDay(c);
@@ -611,6 +616,8 @@ describe("lanes: a reflection and an organic use on one lived day", () => {
 // ---------------------------------------------------------------------------
 
 describe("owner rulings on the review's decisions", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("the page line says how the page is worded, the same rule the page writer is given (2026-10-01)", () => {
     const c = brain();
     nextDay(c);
