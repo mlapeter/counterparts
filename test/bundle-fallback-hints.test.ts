@@ -332,7 +332,7 @@ describe("hintsForReader: every shape of the lane's lines", () => {
     const old = wrap(["", "Nearby, if it helps:", "- a", "(2 more nearby; recall ids: mem_d, mem_e)"]);
     const r = hintsForReader(old, ["mem_a"], no(["mem_d"]));
     expect(r.text).toContain("(1 more nearby; recall ids: mem_e)");
-    const page = wrap(["", "Who I am:", "", "Might be relevant:", "- from the page", "-- end of page --", "", "Still open:", "- x"]);
+    const page = wrap(["", "Who I am:", "", "Might be relevant:", "- from the page", "(End of my page.)", "", "Still open:", "- x"]);
     expect(hintsForReader(page, null, () => true).text).toBe(page);
   });
 

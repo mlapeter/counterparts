@@ -16,6 +16,7 @@ import {
   LEGACY_FRAMING,
   LEGACY_MORE_NOUN,
   MORE_NOUN,
+  PAGE_END_LINES,
   collapsedLane,
   fixedPointTotal,
   headingsOf,
@@ -495,7 +496,6 @@ export function hintsForReader(text: string, listed: readonly string[] | null, k
   const heads = headingsOf("hints");
   const nouns = [MORE_NOUN.hints, LEGACY_MORE_NOUN.hints].filter((n): n is string => n !== undefined);
   const nounRe = `(${nouns.map(escapeRe).join("|")})`;
-  const horizonHeads = headingsOf("horizon");
   const out = (id: string): boolean => {
     try {
       return keptOut(id);
@@ -519,10 +519,18 @@ export function hintsForReader(text: string, listed: readonly string[] | null, k
     `${n > named.length ? `recall ids (the first ${String(named.length)})` : "recall ids"}: ${named.join(", ")}`;
 
   // THE LANE: the last line, after a blank one, that is its heading or its
-  // collapsed line — the lane sits below the page, so a page line that reads
-  // like the heading is above it — with nothing but "Coming up" below it.
+  // collapsed line, below the page's end line when a page is printed — a
+  // page's own words can read like the heading, and the page never carries an
+  // end line of its own (`isPageFrameLine`). Only "Coming up" is composed
+  // below the lane, and none of its lines reads like it; what a delivery
+  // splices at the foot comes after this read.
+  const pageEnds = new Set<string>(Object.values(PAGE_END_LINES));
+  let floor = 0;
+  lines.forEach((l, i) => {
+    if (pageEnds.has(l)) floor = i;
+  });
   let h = -1;
-  for (let i = lines.length - 2; i > 0; i--) {
+  for (let i = lines.length - 2; i > floor; i--) {
     const l = lines[i] ?? "";
     if (lines[i - 1] === "" && (heads.includes(l) || collapsedLane(l) === "hints")) {
       h = i;
@@ -532,66 +540,59 @@ export function hintsForReader(text: string, listed: readonly string[] | null, k
   if (h > 0) {
     let end = h + 1;
     while (end < lines.length && lines[end] !== "") end++;
-    const below = lines.slice(end, -1);
-    const onlyHorizon = below.every(
-      (l) => l === "" || l.startsWith("- ") || l.startsWith("(") || horizonHeads.includes(l) || collapsedLane(l) === "horizon",
-    );
-    if (!onlyHorizon) h = -1;
-    else {
-      const head = lines[h] ?? "";
-      const collapsedRe = (heading: string): RegExp => new RegExp(`^${escapeRe(heading)} (\\d+) — (.+?); ${RECALL_IDS_RE}: (.+)$`);
-      if (collapsedLane(head) === "hints") {
-        const heading = heads.find((x) => head.startsWith(`${x} `)) ?? FRAMING.hints;
-        const m = collapsedRe(heading).exec(head);
-        const got = m === null ? null : less(Number(m[1]), (m[3] ?? "").split(", "));
+    const head = lines[h] ?? "";
+    const collapsedRe = (heading: string): RegExp => new RegExp(`^${escapeRe(heading)} (\\d+) — (.+?); ${RECALL_IDS_RE}: (.+)$`);
+    if (collapsedLane(head) === "hints") {
+      const heading = heads.find((x) => head.startsWith(`${x} `)) ?? FRAMING.hints;
+      const m = collapsedRe(heading).exec(head);
+      const got = m === null ? null : less(Number(m[1]), (m[3] ?? "").split(", "));
+      if (m === null) {
+        blind = true;
+        drop.add(h - 1).add(h);
+      } else if (got !== null) {
+        if (got.named.length === 0 || got.n <= 0) drop.add(h - 1).add(h);
+        else put.set(h, `${heading} ${String(got.n)} — ${m[2] ?? COLLAPSED_WORDS}; ${recallWords(got.n, got.named)}`);
+      }
+    } else {
+      const bullets: number[] = [];
+      const counts: number[] = [];
+      for (let i = h + 1; i < end; i++) ((lines[i] ?? "").startsWith("- ") ? bullets : counts).push(i);
+      const known = listed !== null && listed.length === bullets.length ? listed : null;
+      if (known === null && bullets.length > 0) blind = true;
+      let kept = 0;
+      bullets.forEach((i, k) => {
+        const id = known?.[k];
+        if (id === undefined || out(id)) {
+          drop.add(i);
+          gone += 1;
+        } else kept += 1;
+      });
+      // The lane's "N more" line, under its items.
+      const moreRe = new RegExp(`^\\((\\d+) more ${nounRe}; ${RECALL_IDS_RE}: (.+)\\)$`);
+      let more: { n: number; named: string[]; noun: string } | null = null;
+      for (const i of counts) {
+        const m = moreRe.exec(lines[i] ?? "");
         if (m === null) {
           blind = true;
-          drop.add(h - 1).add(h);
-        } else if (got !== null) {
-          if (got.named.length === 0 || got.n <= 0) drop.add(h - 1).add(h);
-          else put.set(h, `${heading} ${String(got.n)} — ${m[2] ?? COLLAPSED_WORDS}; ${recallWords(got.n, got.named)}`);
+          drop.add(i);
+          continue;
         }
-      } else {
-        const bullets: number[] = [];
-        const counts: number[] = [];
-        for (let i = h + 1; i < end; i++) ((lines[i] ?? "").startsWith("- ") ? bullets : counts).push(i);
-        const known = listed !== null && listed.length === bullets.length ? listed : null;
-        if (known === null && bullets.length > 0) blind = true;
-        let kept = 0;
-        bullets.forEach((i, k) => {
-          const id = known?.[k];
-          if (id === undefined || out(id)) {
-            drop.add(i);
-            gone += 1;
-          } else kept += 1;
-        });
-        // The lane's "N more" line, under its items.
-        const moreRe = new RegExp(`^\\((\\d+) more ${nounRe}; ${RECALL_IDS_RE}: (.+)\\)$`);
-        let more: { n: number; named: string[]; noun: string } | null = null;
-        for (const i of counts) {
-          const m = moreRe.exec(lines[i] ?? "");
-          if (m === null) {
-            blind = true;
-            drop.add(i);
-            continue;
-          }
-          const named = (m[3] ?? "").split(", ");
-          const got = less(Number(m[1]), named);
-          more = { n: got?.n ?? Number(m[1]), named: got?.named ?? named, noun: m[2] ?? MORE_NOUN.hints };
-          if (more.named.length === 0 || more.n <= 0) {
-            drop.add(i);
-            more = null;
-          } else if (got !== null) put.set(i, `(${String(more.n)} more ${more.noun}; ${recallWords(more.n, more.named)})`);
-          if (more !== null && kept === 0 && bullets.length > 0) drop.add(i);
-        }
-        if (kept === 0 && bullets.length > 0) {
-          // Nothing listed: the lane is its one collapsed line, or nothing.
-          drop.add(h - 1).add(h);
-          if (more !== null) {
-            drop.delete(h - 1);
-            drop.delete(h);
-            put.set(h, `${head} ${String(more.n)} — ${COLLAPSED_WORDS}; ${recallWords(more.n, more.named)}`);
-          }
+        const named = (m[3] ?? "").split(", ");
+        const got = less(Number(m[1]), named);
+        more = { n: got?.n ?? Number(m[1]), named: got?.named ?? named, noun: m[2] ?? MORE_NOUN.hints };
+        if (more.named.length === 0 || more.n <= 0) {
+          drop.add(i);
+          more = null;
+        } else if (got !== null) put.set(i, `(${String(more.n)} more ${more.noun}; ${recallWords(more.n, more.named)})`);
+        if (more !== null && kept === 0 && bullets.length > 0) drop.add(i);
+      }
+      if (kept === 0 && bullets.length > 0) {
+        // Nothing listed: the lane is its one collapsed line, or nothing.
+        drop.add(h - 1).add(h);
+        if (more !== null) {
+          drop.delete(h - 1);
+          drop.delete(h);
+          put.set(h, `${head} ${String(more.n)} — ${COLLAPSED_WORDS}; ${recallWords(more.n, more.named)}`);
         }
       }
     }
