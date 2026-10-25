@@ -9,7 +9,7 @@ import type { LaneName, Ranked } from "./identity.js";
 import { byteLength } from "./identity.js";
 import { addDays, isDay } from "../time.js";
 import { TODAY_ELSEWHERE_MAX_BYTES } from "../handoff/last-here.js";
-import { LANE_ORDER, NIGHT_LINE_HEAD, ROOM_ORDER, collapsedLine, compose, flatten, foldedLine, moreLine } from "./briefing.js";
+import { LANE_ORDER, ROOM_ORDER, collapsedLine, compose, flatten, foldedLine, isNightLine, moreLine } from "./briefing.js";
 import type { BriefingRequest, Composed, HorizonCounted, IdentityBlock, Resolve, RoomLane, TrimEvent } from "./briefing.js";
 
 
@@ -358,10 +358,10 @@ export function takeRoom(
   return got;
 }
 
-/** The day furniture with its "Last night:" line taken out; undefined when that was all of it. */
+/** The day furniture with its night line ("Last night:", "The night of …:") taken out; undefined when that was all of it. */
 export function withoutNightLine(y: string): string | undefined {
   const lines = y.split("\n");
-  const kept = lines.filter((l) => !l.startsWith(NIGHT_LINE_HEAD));
+  const kept = lines.filter((l) => !isNightLine(l));
   if (kept.length === lines.length) return y;
   const out = kept.join("\n");
   return out.trim().length === 0 ? undefined : out;

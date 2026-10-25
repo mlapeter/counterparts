@@ -41,7 +41,7 @@ import { Associate, appendPendingCues, appendPendingDeltas, claimPending, releas
 import type { CoactivateResult, CueDelta, CueFlushReport, Credited, FlushReport, PairDelta, PendingClaim } from "./associate/index.js";
 import { READ_TODAY_AT_START, horizonFor } from "./briefing.js";
 import { episodeGate } from "./bridge.js";
-import { Dreams, Reflections, nightLine } from "./dream/index.js";
+import { Dreams, NIGHT_LINE_READ, Reflections, nightLine } from "./dream/index.js";
 import { meetingDay } from "./onboarding.js";
 import type { VectorSource } from "./bridge.js";
 import type { MintResult } from "./mint.js";
@@ -192,6 +192,7 @@ import type {
   PageWriterRun,
   PageWriterStatus,
   SelfPage,
+  StillOpenItem,
   WakeDelivery,
   WakeResult,
   WakeTrigger,
@@ -1505,6 +1506,23 @@ export class Counterpart {
     });
   }
 
+  /**
+   * EVERYTHING "STILL OPEN" CARRIES, today (2026-10-25, the O1 builder;
+   * `Self#stillOpen`): what the `still open` recall handle lists — the open
+   * threads the carry rule keeps (`self/identity.ts#openCarry`) and the core
+   * memories being reconsidered, in the wake's order; and how many open
+   * threads the carry no longer keeps (`notCarried`), counted, not listed.
+   * Reads only: nothing it lists is touched, so listing cannot keep a thread
+   * carried. Empty on a store that cannot answer; never throws.
+   */
+  stillOpen(): { items: StillOpenItem[]; notCarried: number } {
+    try {
+      return this.self.stillOpen(this.store.livedDay());
+    } catch {
+      return { items: [], notCarried: 0 };
+    }
+  }
+
   /** The wake's "Last said here" line for `here`, or null. Never throws. Any
    *  session in the folder gets it — except under observer, whose wake must
    *  not point at a handle that stands down (review of #392). */
@@ -1896,17 +1914,35 @@ export class Counterpart {
    * newest dream and its change counts, the newest reflection, the latest
    * headless run's row and the dreaming setting. Reads only, four indexed
    * reads; no journal, no model. Null when there is nothing to say or
-   * anything throws.
+   * anything throws. The newest `NIGHT_LINE_READ` dreams and reflections,
+   * not one (L1, 2026-10-25): before the day's run the line names the latest
+   * FINISHED night, which an abandoned dream may sit in front of.
    */
   private nightLineFor(at: string): string | null {
     try {
-      const d = this.dreams.list(1)[0];
-      const r = this.reflections.list(1)[0];
+      // Each dream's changes counted only when the line names it (review of
+      // #626): `Dreams#counts` reads every change row, and a session start
+      // would otherwise read them for all `NIGHT_LINE_READ` dreams.
+      const counter = this.dreams;
+      const dreams = this.store.dreams({ limit: NIGHT_LINE_READ }).map((d) => {
+        let counts: Record<string, number> | null = null;
+        return {
+          id: d.id,
+          date: d.date,
+          state: d.state,
+          get counts(): Record<string, number> {
+            return (counts ??= counter.counts(d.id));
+          },
+        };
+      });
+      const reflections = this.reflections.list(NIGHT_LINE_READ).map((r) => ({ id: r.id, date: r.date, state: r.state, entry_id: r.entry_id, page_version: r.page_version }));
       return nightLine({
         today: at,
         now: this.nowFn(),
-        dream: d === undefined ? null : { id: d.dream.id, date: d.dream.date, state: d.dream.state, counts: d.counts },
-        reflection: r === undefined ? null : { id: r.id, date: r.date, state: r.state, entry_id: r.entry_id, page_version: r.page_version },
+        dream: dreams[0] ?? null,
+        reflection: reflections[0] ?? null,
+        dreams,
+        reflections,
         run: this.dreams.nightRun(),
         setting: this.dreams.setting(),
       });

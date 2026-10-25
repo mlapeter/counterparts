@@ -321,6 +321,18 @@ export function withTodaySoFar(
 export const NIGHT_LINE_HEAD = "Last night:";
 
 /**
+ * The night line's other head (2026-10-25, the L1 builder): before the day's
+ * run, the line describes the latest finished night, by its date —
+ * `The night of Oct 23: dream drm_… made …` (`dream/night-line.ts#nightLine`).
+ */
+export const NIGHT_OF_HEAD = "The night of ";
+
+/** True for the night line, under either head: what the room takes out (`briefing-room.ts#withoutNightLine`). */
+export function isNightLine(line: string): boolean {
+  return line.startsWith(NIGHT_LINE_HEAD) || line.startsWith(NIGHT_OF_HEAD);
+}
+
+/**
  * "LAST NIGHT:" IN THE SAME PIECE OF FURNITURE (2026-10-25, the wake-polish
  * builder; `self.NIGHT_LINE`, lightly held). The night line rides in every
  * form of the Yesterday line's ladder (`withTodaySoFar`'s), between the
@@ -500,6 +512,9 @@ export const OVERDUE_WORD = "overdue";
  */
 export const STALE_OPEN_WORDS = "untouched for 2+ weeks";
 
+/** The recall handle that lists what "Still open" carries (`Counterpart#stillOpen`, 2026-10-25). Exact, trimmed, case-folded, like `last exchange`. */
+export const STILL_OPEN_HANDLE = "still open";
+
 /**
  * "STILL OPEN"'S TAIL, CALM AND WITHOUT IDS (2026-10-25, the wake-polish
  * builder from random-5b's 10-25 wake; Mike's go, lightly held):
@@ -518,8 +533,19 @@ export const STALE_OPEN_WORDS = "untouched for 2+ weeks";
  * every open thread. A facts question about the thing itself reaches any
  * memory sharing a content word with it, open or not. Revert: the generic
  * form below for `threads` too.
+ *
+ * THE TAIL NAMES THE DOOR THAT LISTS THEM (2026-10-25, the O1 builder;
+ * roadmap 10-25, lightly held): `(96 more open, kept quietly; recall "still
+ * open" lists them)` — the `still open` handle (`STILL_OPEN_HANDLE`) lists
+ * every item "Still open" carries, in its order, so the count points at its
+ * list the way "Last said here" points at `last exchange`. Six bytes shorter
+ * than the words it replaces (`OPEN_TAIL_WORDS_BEFORE`), which `countedLanes`
+ * still reads off a bundle stored with them. Revert: those words here.
  */
-export const OPEN_TAIL_WORDS = "kept quietly; recall finds one by what it's about";
+export const OPEN_TAIL_WORDS = `kept quietly; recall "${STILL_OPEN_HANDLE}" lists them`;
+
+/** "Still open"'s tail words from #623 (2026-10-25, morning), read back off a bundle stored with them. */
+export const OPEN_TAIL_WORDS_BEFORE = "kept quietly; recall finds one by what it's about";
 
 /** `(3 more might be relevant; recall ids: mem_…, mem_…, mem_…)`; for "Still
  *  open" `(56 more open, kept quietly; …)` (`OPEN_TAIL_WORDS`); for "Coming up"
@@ -586,8 +612,10 @@ export function countedLanes(text: string): Partial<Record<LaneName, number>> {
       out[collapsed] = Number(/^\D*(\d+) — /.exec(line.slice(heading.length))?.[1] ?? 0);
       continue;
     }
-    // "Still open"'s calm tail (2026-10-25): `(96 more open, kept quietly; …)`.
-    const calm = new RegExp(`^\\((\\d+) more open, ${OPEN_TAIL_WORDS.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`).exec(line);
+    // "Still open"'s calm tail (2026-10-25): `(96 more open, kept quietly; …)`,
+    // in today's words or #623's (`OPEN_TAIL_WORDS_BEFORE`).
+    const tails = [OPEN_TAIL_WORDS, OPEN_TAIL_WORDS_BEFORE].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    const calm = new RegExp(`^\\((\\d+) more open, (?:${tails})\\)`).exec(line);
     if (calm !== null) {
       out.threads = Number(calm[1]);
       continue;
