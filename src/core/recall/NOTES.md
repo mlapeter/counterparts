@@ -1461,3 +1461,38 @@ at `activation × (1 − k · sim · fresh)` in a turn that also reached its new
   admitted in 1 of 24 probes, the newer already first; no order changed at k 0.5, 0.6 or 0.7.
   The corpus keeps no turn texts or candidate lists, and by its end most members are faded out
   of reach, so this bounds the effect rather than measures it: on this store, rare and small.
+
+## N1 — what stopped a memory, counted (2026-10-25, observation only; switch `recall.STOP_COUNTS`)
+
+Shown per Mike-typed turn fell (~1.9 → 1.2–1.6) and the decision row said what showed, not what
+each mechanism stopped; only the echo skip was attributable. Each `recall.decision` row now
+carries, beside `echoSkipped`/`projectSkipped`/`crossProjectLifted`: `habituationCut` (below the
+bar it faced, but past the bar without habituation's lift), `nearMiss: {margin, count}` (below
+the bar it faced by less than `margin` of it, not counted under habituation or the cross-project
+lift), `capped` (admitted past a tier's slots), `budgetTrimmed` (admitted, then cut by the
+render's bytes) and `inhibited` (head wins, near-duplicates). `adapter.recall` carries the same
+counts flat, `turn`, and `startedBy` (`person` / `host` / `unattended`, the prompt hook's own
+`startedByHost` reading), so the week's question is one table.
+
+- **Counted after the fact, from what the turn holds.** `stopCounts` reads the verdicts (each
+  `below-bar` one carries the bar it faced, lifts included), the cross-lifted ids and the
+  render's trims. No store read, no judgement. The test runs the same prompts through
+  UserPromptSubmit and `deliverTurn` on two copies of one store, counting on and off: same
+  stdout bytes, same ids in the same order, rows equal but for the five keys.
+- **Belief/tag slot displacement does not exist, so there is no key for it.** The beliefs slot
+  gives way first in the render (`TRIM_ORDER`) and never takes a memory's room; tags act through
+  priming, which can reorder who holds a slot but does not lower how many show.
+- **The margin, 0.1 (relative to the bar faced).** A relative margin because every candidate
+  faces its own bar (leave-one-out, salience-modulated, in floor units that move with store
+  size). Measured on a replay of the 10-18..10-25 turns (1,782; 648 a person started) over a
+  copy of the 10-25 snapshot, gate state cleared: ~23 `below-bar` candidates a person turn,
+  ratio activation/bar p50 0.58, p90 0.83, p95 0.90, p99 0.98, no knee near 1. At 0.1 the band
+  is the top 5% of misses: 0.98 a person turn (375 of 648 turns have one), the same order as
+  what shows, so a fall in shown that is really the bar moving shows up as a rise here. 0.05
+  (0.48/turn) is thin for a week's read; 0.2 (2.5/turn) is mostly memories no small bar move
+  would show. Narrower than either lift (habituation ×1.5, cross-project ×1.25).
+- **The replay's other numbers (person turns, per turn):** echo skipped 1.43, near miss 0.87,
+  cross-project lift 0.28, habituation 0.26, inhibited 0.12, capped 0, budget 0; shown 0.71
+  (lower than live's 1.2–1.6: the store is the 10-25 one, not as each turn met it — later
+  ratings habituate, later fading — and the echo set is every write of the session, compactions
+  ignored). On this replay, the caps and the byte budget stop nothing.

@@ -267,6 +267,28 @@ export interface RecallTunables {
    *  about the margin an ordinary footnote clears its bar by. CAL. */
   HABITUATION_BAR_LIFT: number;
 
+  // ── what stopped a memory, counted (2026-10-25, N1 — observation only) ──
+  /**
+   * WHAT STOPPED A MEMORY, COUNTED (N1, 2026-10-25): the `recall.decision`
+   * row carries how many candidates habituation alone, a near miss of the
+   * bar, a full tier, the render's bytes and lateral inhibition kept from
+   * showing (`stopCounts`), and `adapter.recall` the same, flat. Counted
+   * after the turn is decided, from what it already holds: on or off, the
+   * same memories show in the same order in the same bytes. Off: not
+   * counted, and the rows are as before. Read at use.
+   */
+  STOP_COUNTS: boolean;
+  /**
+   * THE NEAR MISS'S MARGIN (N1, 2026-10-25): a candidate turned away
+   * `below-bar` counts as a near miss on the `recall.decision` row
+   * (`nearMiss`) when its activation was at least `1 − margin` of the bar it
+   * faced. Relative, because each candidate faces its own bar (leave-one-out,
+   * salience-modulated, in floor units that move with the store's size), so
+   * an absolute gap means a different thing every turn. Read only to count:
+   * no candidate is judged by it, and the row records the value used. CAL.
+   */
+  NEAR_MISS_MARGIN: number;
+
   // ── an unsettled pair competes (2026-10-24, E3 — an experiment; check ~7 lived days) ──
   /**
    * RETROACTIVE INTERFERENCE, IN REAL TIME (2026-10-24, E3; Mike's go 14:47,
@@ -744,6 +766,10 @@ export const TUNABLES: RecallTunables = {
   HABITUATION_MIN_SESSIONS: 2,
   HABITUATION_CLEAR_SCORE: 2,
   HABITUATION_BAR_LIFT: 0.5,
+
+  // N1, 2026-10-25: counted, never judged by.
+  STOP_COUNTS: true,
+  NEAR_MISS_MARGIN: 0.1,
 
   // E3, 2026-10-24 (an experiment; check ~7 lived days after install). Revert:
   // `UNSETTLED_COMPETES: false` (nothing read, the turn exactly as before).

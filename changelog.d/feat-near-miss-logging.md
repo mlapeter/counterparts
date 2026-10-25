@@ -1,0 +1,1 @@
+- **Each turn's recall record says what kept memories from showing** (internal): near misses of the bar, habituation, full tiers, the byte budget and duplicates are counted beside the echo and project skips, along with whether a person started the turn. What shows is unchanged.
