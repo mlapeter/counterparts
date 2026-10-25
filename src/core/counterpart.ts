@@ -178,7 +178,6 @@ import {
   craftBornDay,
   CRAFT_SINCE_KEY,
   isDirectoryScope,
-  openCarry,
 } from "./self/index.js";
 import type {
   BriefingResult,
@@ -1502,12 +1501,7 @@ export class Counterpart {
    */
   stillOpen(): { items: StillOpenItem[]; notCarried: number } {
     try {
-      const day = this.store.livedDay();
-      const t = this.self.tunables;
-      return {
-        items: this.self.stillOpen(day),
-        notCarried: openCarry(this.store, day, t.OPEN_CARRY_DAYS, t.OPEN_CARRY_GLIMPSE_TOUCH).notCarried.size,
-      };
+      return this.self.stillOpen(this.store.livedDay());
     } catch {
       return { items: [], notCarried: 0 };
     }

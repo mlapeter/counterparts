@@ -1145,7 +1145,7 @@ export class Self {
    * only: no stamp, no return, no seen set — being listed is not a touch
    * (`openCarry`), so the handle cannot keep a thread carried.
    */
-  stillOpen(day: number): StillOpenItem[] {
+  stillOpen(day: number): { items: StillOpenItem[]; notCarried: number } {
     const { open, carry } = this.openScanned(day);
     const settled = settledOver(this.store);
     const lanes = rankLanes(open, [], this.tunables, {
@@ -1171,7 +1171,7 @@ export class Self {
         ...(s.doc.eventDate === undefined ? {} : { date: s.doc.eventDate }),
       });
     }
-    return out;
+    return { items: out, notCarried: carry.notCarried.size };
   }
 
   /**
