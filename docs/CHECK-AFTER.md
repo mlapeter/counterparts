@@ -326,9 +326,12 @@ chapter/folder rules), a repeat across lanes, or Still open losing items Mike wa
   Does a session ever ask recall about something the calm tail counted (a facts question on an open thread's
   words), or does the tail go unread? Any "(live)" left on a terminal idle past two hours?
 - **Changes a decision if:** the night line shows the wrong night (dated by the run's date: a dream run late in
-  the evening reads as "none yet today" the next morning) → date it by the run's start instead; a tight wake
-  loses an open item or a dated one to it → let it give way before the Yesterday line's narrowest form; the
-  calm tail hides open threads nobody reaches → put one handle back (a count by folder, or the newest one's id).
+  the evening reads as "none yet today" the next morning) → date it by the run's start instead; the day's first
+  wake always reading "none yet today" (the run starts at its first prompt, after the wake) and the line so
+  telling nothing on the morning that matters → show the latest night with its date instead; a tight wake still
+  losing an open item or a dated one to it (since review of #623 a rescue takes the line out first) → look at
+  `briefing-room.ts#takeRoom`; the calm tail hides open threads nobody reaches → put one handle back (a count
+  by folder, or the newest one's id).
 - **Revert:** `self.NIGHT_LINE` false; `ELSEWHERE_QUIET_MS` `Infinity`; `moreLine`'s generic form for `threads`
   (`OPEN_TAIL_WORDS`); `staleWords`' three clauses.
 

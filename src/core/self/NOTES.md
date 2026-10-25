@@ -2813,6 +2813,15 @@ random-5b's wake on 0.3.35 (8,981 B) had four rough spots; each is now a smaller
   is Still open's first item's whole words (printed as its line), then Nearby items. "Last night" is the night run dated the session's date (the run starts
   at the first session of a day, dated that day); a dream run by hand late in the evening
   therefore reads as "none yet today" the next morning — watch it (CHECK-AFTER).
+  **Review of #623:** the run starts at that session's first PROMPT, after its
+  SessionStart wake is built, so the day's first wake reads "none yet today (last: …)"
+  under `ask` and `auto` alike; what the night did shows from the next session on. And
+  tighter than that fixture, with no Yesterday line, the night line was the furniture's
+  only form — a floor — and the wake folded a thing due today and every open item into
+  "More than this wake lists" to keep it (at 1,600–1,700 B). The rescues now take the
+  night line out (`briefing-room.ts#takeRoom`, `withoutNightLine`) for a target at
+  `openFirst` or above, after every room below it; the Yesterday line's pointers stay a
+  floor ("tighter still", `wake-polish-1025.test.ts`).
 - **"quiet since"** (`handoff/last-here.ts#ELSEWHERE_QUIET_MS`, 2 h): the registry calls a
   session live for 4 h after its last turn, a window sized for binding a server, not for
   telling a reader it is in use.

@@ -317,6 +317,9 @@ export function withTodaySoFar(
   };
 }
 
+/** The night line's head (`dream/night-line.ts#nightLine` writes it; the room reads it). */
+export const NIGHT_LINE_HEAD = "Last night:";
+
 /**
  * "LAST NIGHT:" IN THE SAME PIECE OF FURNITURE (2026-10-25, the wake-polish
  * builder; `self.NIGHT_LINE`, lightly held). The night line rides in every
@@ -327,6 +330,13 @@ export function withTodaySoFar(
  * is the last of the furniture to give way. A form that carried summaries
  * (`todaySoFarSummaries`) still does, with the line in it. Without a night
  * line the furniture comes back untouched, byte for byte. Pure.
+ *
+ * Unlike the Yesterday line's pointers, the night line is not a floor: a
+ * rescue for a dated item, "Still open"'s first item or anything ranked
+ * above them takes it out once every room below that item is spent
+ * (`briefing-room.ts#takeRoom`, review of #623) — before, a wake with no
+ * Yesterday line had the night line as its only form, and a tight one
+ * folded a thing due today into "More than this wake lists" to keep it.
  */
 export function withNightLine(
   day: { readonly yesterday?: string; readonly yesterdayShorter?: readonly string[]; readonly todaySoFarSummaries?: readonly string[] },

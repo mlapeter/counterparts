@@ -328,6 +328,36 @@ describe("3. Last night", () => {
     expect(countedLanes(lane(withNight, FRAMING.threads).join("\n")).threads ?? 0).toBe(50 - listed(withNight, FRAMING.threads));
   });
 
+  test("tighter still, with no Yesterday line: the night line itself gives way before a thing due today or Still open's first item (review of #623)", () => {
+    // Measured at review: at these budgets the night line was the furniture's
+    // only form, and the wake folded the item due today and every open one into
+    // "More than this wake lists" to keep it.
+    const long = (head: string): string => `${head} ${"The detail goes on, as a real memory's first paragraph does, with the steps and the reasons. ".repeat(3)}`;
+    const build = (budget: number, opens: number): string => {
+      rmSync(storeDir, { recursive: true, force: true });
+      const w = world(at(D2, 9), budget);
+      const page = ["## Core", "", long("I keep the garden's ledger."), "", "## Lately", "", long("The beans are in.")].join("\n");
+      expect(w.c.revisePage(page, { by: "owner", reason: "a page" }).written).toBe(true);
+      const SAL = { relevance: 0.9, emotional: 0.8, predictive: 0.8 } as const;
+      for (let i = 0; i < opens; i += 1) w.c.store.put({ type: "memory", kind: "fact", title: `Does bed ${String(i)} want lime?`, body: long(`Open ${String(i)}: whether bed ${String(i)} wants lime.`), meta: { unresolved: true }, salience: SAL });
+      w.c.store.put({ type: "memory", kind: "person", title: "DUETODAY the seed order closes at noon", body: "DUETODAY the seed order closes at noon; the list is in the green folder.", learnedOn: "2026-10-20", eventDate: D2, salience: SAL });
+      dream(w, "drm_00000000a009", D2, { link: 4, merge: 1, fold: 2, gist: 1, "feeling-now": 3 });
+      reflection(w, "rfl_00000000b009", D2, "entry", "drm_00000000a009");
+      w.c.rebrief({ budgetBytes: budget, at: D1 });
+      return wake(w, budget);
+    };
+    for (const [budget, opens] of [[1_600, 1], [1_600, 50], [1_700, 50]] as const) {
+      const text = build(budget, opens);
+      expect(lineOf(text, "Yesterday")).toBeUndefined();
+      expect(text).toContain("DUETODAY the seed order closes at noon");
+      expect(lane(text, FRAMING.threads)[0]).toStartWith("- ");
+      expect(text).toContain("I keep the garden's ledger.");
+      expect(text).toContain("The beans are in.");
+    }
+    // With the room, the line is there.
+    expect(lineOf(build(2_300, 50), NIGHT_LINE_HEAD)).toStartWith("Last night: dream drm_00000000a009 made ");
+  });
+
   test("the words, pure: counts ranked and capped, an undone dream, a reflection alone", () => {
     const base: NightFacts = { today: D2, now: at(D2, 9), dream: null, reflection: null, run: null, setting: "auto" };
     const d = (counts: Record<string, number>, state = "journaled"): NightFacts["dream"] => ({ id: "drm_x", date: D2, state, counts });

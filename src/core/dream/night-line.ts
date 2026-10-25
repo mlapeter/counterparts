@@ -26,6 +26,7 @@
 import { dreamSkippedOf, dreamSkippedWords, nightRunLost } from "./index.js";
 import type { DreamingSetting, NightRun } from "./index.js";
 import { addDays, isDay, shortDay, yearOf } from "../time.js";
+import { NIGHT_LINE_HEAD } from "../self/briefing.js";
 
 /** What the line reads, gathered by the caller (`Counterpart#nightLineFor`). */
 export interface NightFacts {
@@ -52,8 +53,8 @@ export interface NightFacts {
   readonly setting: DreamingSetting;
 }
 
-/** The line's head. */
-export const NIGHT_LINE_HEAD = "Last night:";
+/** The line's head: defined beside the furniture it rides in, which reads it to take the line out. */
+export { NIGHT_LINE_HEAD };
 
 /**
  * A dream's change, as the line says it: singular and plural. `replayed` is
