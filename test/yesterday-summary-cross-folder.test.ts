@@ -413,6 +413,26 @@ describe("a dream's merge or gist is read by its originals' folders", () => {
     expect(summaryLed(sessionStart(c))).toBe(false);
   });
 
+  test("a reflection's entry citing BAKERY's memory, written in HERE and cited: off falls back; on, it shows", async () => {
+    const here = await hereDay();
+    const c = brain();
+    const [a] = bakeryTwins(c);
+    clock = at(DB, 23);
+    c.store.advanceClock(DB);
+    const r = c.reflections.begin({ session: NIGHT, scope: HERE });
+    if (!r.ok) throw new Error(String(r.reason));
+    const done = c.reflections.finish({ reflection: r.bundle.reflection, session: NIGHT, entry: "Looking back, winter baking has a shape now.", cites: [a] });
+    if (!done.ok) throw new Error(String(done.reason));
+    const entry = c.store.list({ type: "memory", source: "reflection" })[0];
+    if (entry === undefined) throw new Error(`no entry: ${JSON.stringify(done.outcome)}`);
+    expect(c.store.row(entry)?.origin_scope).toBe(HERE);
+    told(c, D1, [ownSummary(c, here), entry]);
+    scopes({ [HERE]: "on", [BAKERY]: "off" });
+    expect(summaryLed(sessionStart(c))).toBe(false);
+    scopes({ [HERE]: "on", [BAKERY]: "on" });
+    expect(summaryLed(sessionStart(c))).toBe(true);
+  });
+
   test("uncited: a merge the night made EARLY in the day (day's end reads it as the day's) of a folder now off still falls back", async () => {
     const here = await hereDay();
     const c = brain();
