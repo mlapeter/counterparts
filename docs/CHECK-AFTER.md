@@ -387,7 +387,7 @@ wins again, exactly the 0.3.36 behaviour), or revert the PR. If it stays: retiri
 ## Due a week after the stop counts (2026-10-25, N1, Mike's OK 11:44 via roadmap 3b — observation only, `recall.STOP_COUNTS`)
 
 What: shown per Mike-typed turn fell (~1.9 → 1.2–1.6) and only the echo skip could be named. Each turn now counts what
-each mechanism kept from showing: `habituationCut` (habituation's lift alone), `nearMiss` (below the bar it faced by
+each mechanism kept from showing: `habituationCut` (habituation's lift alone, not one the cross-project lift already counts), `nearMiss` (below the bar it faced by
 less than 10% of it, not counted under habituation or the cross-project lift), `capped` (admitted past a tier's
 slots), `budgetTrimmed` (cut by the render's bytes), `inhibited` (head wins, near-duplicates), beside `echoSkipped`,
 `projectSkipped` and `crossProjectLifted`. Belief/tag displacement has no key: the beliefs slot never takes a memory's
@@ -423,7 +423,8 @@ GROUP BY date, build ORDER BY MIN(seq);
 
 Changes it: nothing to revert unless a row is wrong; it answers the shown-per-turn question. If `nearMiss` stays near 0
 while shown falls, the bar is not what moved; if it climbs as shown falls, read the bar (SNR, the semantic profile).
-Off: `recall.STOP_COUNTS=false` in `src/core/recall/tunables.ts` (the rows exactly as before).
+Off: `recall.STOP_COUNTS=false` in `src/core/recall/tunables.ts` (the counts absent; `adapter.recall` keeps `turn` and
+`startedBy`).
 
 ## Due a week after the support door's shadow (2026-10-24, E2, Mike's go 14:36 and his yes 20:59 to merge in shadow, lightly held — `physics.CORE_DOOR_SUPPORT`)
 

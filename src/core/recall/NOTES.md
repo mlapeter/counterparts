@@ -1496,3 +1496,9 @@ counts flat (the near miss as `nearMissCount`), `turn`, and `startedBy` (`person
   (lower than live's 1.2–1.6: the store is the 10-25 one, not as each turn met it — later
   ratings habituate, later fading — and the echo set is every write of the session, compactions
   ignored). On this replay, the caps and the byte budget stop nothing.
+- **Review of #625.** A habituated memory of another project that either lift alone would have
+  kept back (at the defaults 1.5–1.875 × its plain bar) was counted twice, in `habituationCut` and
+  in `crossProjectLifted`; it is now the cross-project lift's alone, so the counts partition the
+  `below-bar` verdicts they name. And the count runs guarded: a throw in it leaves the row without
+  the five keys (as off) and rings `recall.stopcounts.failed`, rather than reaching the adapter's
+  guard and costing the turn its recall.

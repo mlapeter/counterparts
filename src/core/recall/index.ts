@@ -359,7 +359,8 @@ export interface RecallDecision {
    * is off, so an off turn's row is the row before them.
    *
    * `habituationCut`: turned away `below-bar` that the bar habituation's lift
-   * alone stopped — it cleared the bar it would have faced without it.
+   * alone stopped — it cleared the bar it would have faced without it. Not
+   * one `crossProjectLifted` already counts: each candidate is in one count.
    */
   readonly habituationCut?: number;
   /** `below-bar` within `margin` of the bar it faced (activation ≥ (1 − margin)
@@ -629,7 +630,7 @@ export class Recall {
         echoSkipped: 0,
         projectSkipped: 0,
         crossProjectLifted: 0,
-        ...(this.tunables.STOP_COUNTS ? NO_STOPS(this.tunables) : {}),
+        ...this.stops(turn.sessionId, () => NO_STOPS(this.tunables)),
         primed: plan === null ? null : { ...NO_PRIME, sources: plan.sources, train: plan.activation.train !== null },
         beliefs: null,
         spread: null,
@@ -857,7 +858,7 @@ export class Recall {
       echoSkipped: gated.verdicts.filter((v) => v.verdict === "echo-skipped").length,
       projectSkipped: gated.verdicts.filter((v) => v.verdict === "project-skipped").length,
       crossProjectLifted: gated.crossLifted.length,
-      ...(this.tunables.STOP_COUNTS ? stopCounts(gated.verdicts, gated.crossLifted, rendered.trimmed, this.tunables) : {}),
+      ...this.stops(turn.sessionId, () => stopCounts(gated.verdicts, gated.crossLifted, rendered.trimmed, this.tunables)),
       ...(competing === null ? {} : { pairsCompeted: gated.competed.length }),
       primed,
       beliefs: beliefPicks === null ? null : { offered: beliefPicks.offered, shown: rendered.beliefs, bytes: rendered.beliefBytes },
@@ -1380,6 +1381,22 @@ export class Recall {
     return n;
   }
 
+  /**
+   * The stop counts for the decision row (N1), or none: switched off
+   * (`STOP_COUNTS`), or a count that threw. Observation only, so a throw
+   * here costs the row its five keys (as off), never the turn its recall —
+   * the adapter's guard would otherwise swallow it and the turn go quiet.
+   */
+  private stops(sessionId: string, count: () => StopCounts): StopCounts {
+    if (!this.tunables.STOP_COUNTS) return {};
+    try {
+      return count();
+    } catch (err) {
+      this.emit("recall.stopcounts.failed", sessionId, { code: err instanceof Error ? err.name : "unknown" });
+      return {};
+    }
+  }
+
   private readonly ring: RecallEvent[] = [];
 
   private emit(
@@ -1591,10 +1608,15 @@ export function stopCounts(
     if (v.verdict === "capped") capped++;
     else if (v.verdict === "inhibited") inhibited++;
     else if (v.verdict === "below-bar") {
+      // One bucket each, beside `crossProjectLifted`: a habituated memory of
+      // another project that either lift alone would have kept back (at the
+      // defaults, 1.5–1.875 × its plain bar) is the cross-project lift's, the
+      // count that came first, and neither habituation's nor a near miss.
+      if (crossed.has(v.id)) continue;
       // The bar it faced is plain * (1 + HABITUATION_BAR_LIFT) * crossLift
       // (gate.ts): clearing it without habituation's part is what that part stopped.
       if (v.habituated === true && v.activation >= v.bar / (1 + t.HABITUATION_BAR_LIFT)) habituationCut++;
-      else if (!crossed.has(v.id) && v.bar > 0 && v.activation >= (1 - margin) * v.bar) near++;
+      else if (v.bar > 0 && v.activation >= (1 - margin) * v.bar) near++;
     }
   }
   const budgetTrimmed = trimmed.filter((x) => x.lane === "surfaced" || x.lane === "footnote").length;

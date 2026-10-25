@@ -275,7 +275,8 @@ export interface RecallTunables {
    * showing (`stopCounts`), and `adapter.recall` the same, flat. Counted
    * after the turn is decided, from what it already holds: on or off, the
    * same memories show in the same order in the same bytes. Off: not
-   * counted, and the rows are as before. Read at use.
+   * counted, and the five keys are absent (`adapter.recall` keeps its `turn`
+   * and `startedBy`, which do not depend on it). Read at use.
    */
   STOP_COUNTS: boolean;
   /**

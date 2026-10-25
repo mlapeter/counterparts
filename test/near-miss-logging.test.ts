@@ -283,6 +283,32 @@ describe("N1: what stopped a memory is counted, and only counted", () => {
     expect(by).toEqual(["host", "unattended"]);
   });
 
+  test("a count that throws costs the row its keys, never the turn its recall", () => {
+    const { on, off } = twins();
+    tune(off, { STOP_COUNTS: false });
+    // The count's first read throws, on the quiet path and the full one alike.
+    Object.defineProperty(on.counterpart.recall.tunables, "NEAR_MISS_MARGIN", {
+      get() {
+        throw new Error("boom");
+      },
+    });
+    let shown = 0;
+    for (const text of [...PROMPTS, "what time does the tram to the airport leave"]) {
+      const a = turn(on, "s-8", text);
+      const b = turn(off, "s-8", text);
+      expect(a.out.ok).toBe(true);
+      expect(a.stdout).toBe(b.stdout);
+      expect(a.out.surfaced).toEqual(b.out.surfaced);
+      expect(a.out.footnotes).toEqual(b.out.footnotes);
+      shown += a.out.surfaced.length + a.out.footnotes.length;
+    }
+    expect(shown).toBeGreaterThan(0);
+    const dOn = rows(on, RECALL_DECISION_EVENT);
+    expect(dOn.length).toBe(PROMPTS.length + 1);
+    for (const r of dOn) for (const k of NEW_KEYS) expect(k in r).toBe(false);
+    expect(rows(on, RECALL_DELIVERED_EVENT).some((r) => "nearMissCount" in r)).toBe(false);
+  });
+
   test("a quiet turn counts nothing stopped, and still carries the margin", () => {
     const { on } = twins();
     turn(on, "s-7", "what time does the tram to the airport leave");
@@ -311,13 +337,17 @@ describe("stopCounts: attribution, read off the verdicts", () => {
       v("near-2", "below-bar", 1.85, 2),
       // Only the cross-project lift kept it back: counted there, not here.
       v("cross", "below-bar", 0.99, 1),
+      // Habituated AND another project's (plain bar 1, faced 1 × 1.5 × 1.25 =
+      // 1.875), at 1.6: either lift alone would have kept it back, so the
+      // gate lists it cross-lifted; counted there only, not as habituation's.
+      v("both", "below-bar", 1.6, 1.875, { habituated: true }),
       v("cap", "capped", 2, 1),
       v("inh", "inhibited", 2, 1),
       v("shown", "footnoted", 2, 1),
       v("echo", "echo-skipped", 2, 1),
       v("floor", "below-floor", 0.1, 1),
     ];
-    const c = stopCounts(verdicts, ["cross"], [{ lane: "footnote" }, { lane: "belief" }, { lane: "surfaced" }, { lane: "affect" }], t);
+    const c = stopCounts(verdicts, ["cross", "both"], [{ lane: "footnote" }, { lane: "belief" }, { lane: "surfaced" }, { lane: "affect" }], t);
     expect(c).toEqual({ habituationCut: 1, nearMiss: { margin: 0.1, count: 2 }, capped: 1, budgetTrimmed: 2, inhibited: 1 });
   });
 
