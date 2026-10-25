@@ -338,6 +338,13 @@ against day 8 — which pulls against Mike's 10-20/10-21 rulings that the core w
 fast-lane crossings are what it keeps out; `mem_c439775f4cb8` (one use felt at 0.5) waits for a second occasion
 (accepted as built, with the gap knob).
 
+Shadow on the harness (10-24 corpus): the replay's days are identical to off's (core 0/6/10/11/12), and the shadow's
+rows read: 7 `wouldHold` (the 6 reflection-only fast-lane crossings of days 8–12, and `c439` on day 19), 3
+`wouldPromote` (`mem_3e902ac53462` day 19, `mem_b5d49bb663b2` day 29, `mem_8412e26dc04e` day 30); the summed columns
+are lanes 12 and support 7 (cumulative support 0/0/4/5/7 against on's 0/0/3/4/6). The one extra is
+`mem_b65a4d8b6189`: in the lanes' world its day-18 use is a return; with the door on it was on display in the wake's
+hints and refused — what is core changes what is shown. Every other admission matches on's by id and day.
+
 The rows (read-only; split by build — every payload carries `build`):
 - `promotion.shadow`, one per disagreement, each memory each kind once (`dedupKey`), `ref` the memory: `kind`
   (`wouldPromote`: the support door says yes, the lanes did not promote it; `wouldHold`: the lanes promoted it, the
