@@ -364,6 +364,30 @@ const DATED_HEADING = /^## chapter \d+ — (?:([A-Za-z]{3} \d{1,2} [A-Za-z]{3} \
  * row's first and latest write. Bounded to the episodes born inside
  * `fromDay`. A removed or superseded row is not read. Never throws.
  */
+/**
+ * HOW MANY OF AN EPISODE'S CHAPTERS WERE WRITTEN ON `date` (`YYYY-MM-DD`, in
+ * `zone`), read off their headings — `chaptersOn`'s rule, and the W1 privacy
+ * gate's (`Counterpart#daySummaryShown`, which reads archived and merged
+ * episodes too). Pure.
+ */
+export function chaptersWrittenOn(row: { body: string; created_at: number | null }, date: string, zone: string): number {
+  const said = readableDate(date);
+  if (said.length === 0) return 0;
+  let dated = 0;
+  let that = 0;
+  for (const m of row.body.matchAll(DATED_HEADING)) {
+    if (m[1] === undefined) continue;
+    dated += 1;
+    if (m[1] === said) that += 1;
+  }
+  // THE HEADING'S DATE ONLY (second review of #308): a row's own write
+  // times move for a retitle or a revision too, so they would list a day
+  // no chapter was written on. An episode from before headings carried a
+  // date (2026-09-24) is read by the day it was born, and only then.
+  if (dated === 0 && localDate(row.created_at ?? 0, zone) === date) that = 1;
+  return that;
+}
+
 export function chaptersOn(store: Store, date: string, opts: { fromDay?: number } = {}): ChaptersOnDate[] {
   const out: ChaptersOnDate[] = [];
   const said = readableDate(date);
@@ -389,18 +413,7 @@ export function chaptersOn(store: Store, date: string, opts: { fromDay?: number 
     try {
       const row = store.row(id);
       if (row === undefined || row.superseded_by !== null || row.body.length === 0) continue;
-      let dated = 0;
-      let that = 0;
-      for (const m of row.body.matchAll(DATED_HEADING)) {
-        if (m[1] === undefined) continue;
-        dated += 1;
-        if (m[1] === said) that += 1;
-      }
-      // THE HEADING'S DATE ONLY (second review of #308): a row's own write
-      // times move for a retitle or a revision too, so they would list a day
-      // no chapter was written on. An episode from before headings carried a
-      // date (2026-09-24) is read by the day it was born, and only then.
-      if (dated === 0 && localDate(row.created_at ?? 0, zone) === date) that = 1;
+      const that = chaptersWrittenOn(row, date, zone);
       if (that === 0) continue;
       out.push({
         id,

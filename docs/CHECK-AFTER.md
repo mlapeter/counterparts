@@ -250,8 +250,9 @@ What: at a session start the wake carries "Today so far here:" under the Yesterd
 this folder before the one "Last here" names (newest 4, each by time, title, id and its summary's first sentence cut
 at 120 bytes), and "Last here" no longer lists them as "Before it" / "+N more". The Yesterday line opens "Yesterday,
 in day's end's words:" with day's end's summary when (a) every memory it cites is nameable in this wake, (b) every
-chapter that day is from this folder or a scope-on folder, and (c) every folder that wrote a memory that day is too.
-Otherwise the old chapter list. Corpus replay (10-24 corpus, 15:00 on 10-23, every folder's scope on): ~/counterparts
+chapter that day is from this folder or a scope-on folder, and (c) every folder that wrote a memory that day is too
+— archived and merged rows included, a memory lived that day included wherever it was written up, and a row with no
+folder failing it (review of #614). Otherwise the old chapter list. Corpus replay (10-24 corpus, 15:00 on 10-23, every folder's scope on): ~/counterparts
 8,799 → 8,941 bytes, ~/counterparts-phone 8,628 → 8,673; the new line cost 3 "Still open" items in each (Still open
 keeps its first item and its count); start time within noise (numbers in the PR).
 

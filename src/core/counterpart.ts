@@ -138,7 +138,7 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere } from "./coverage/index.js";
-import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
+import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, chaptersWrittenOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
 import type { ChaptersOnDate, TodayChapter } from "./handoff/last-here.js";
 import type { ChapterHere, HereSession, LastHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
 import { LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, lastExchangeLine, withExchange } from "./handoff/last-exchange.js";
@@ -221,7 +221,7 @@ import type {
 import { TUNABLES as PHYSICS, band as bandOf, fadeOf } from "./physics/index.js";
 import type { UseTier } from "./physics/index.js";
 import type { Kind } from "./types.js";
-import { isKnownSession } from "./types.js";
+import { isKnownSession, livedOn } from "./types.js";
 import {
   SELF_BRIEFING_EVENT,
   CAPTURE_FAILED_EVENT,
@@ -1940,11 +1940,20 @@ export class Counterpart {
    *     folder's own, or marked about me, us or the owner from a folder whose
    *     scope setting is on. A cite that no longer reads (removed, forgotten)
    *     or is not a memory fails it;
-   *   - every chapter written that day (`chaptersOn`, unbounded by birth day)
-   *     comes from this folder or one whose scope setting is on, and records
-   *     its folder;
-   *   - every folder that wrote a memory that day is this one or one whose
-   *     scope setting is on (`memoryCountsByScopeSince`, counts only).
+   *   - every chapter written that day (`chaptersWrittenOn`, unbounded by
+   *     birth day, archived and merged episodes included) comes from this
+   *     folder or one whose scope setting is on, and records its folder;
+   *   - every memory of that day — lived that day as day's end picks them
+   *     (a second-hand write-up the next morning included), or written inside
+   *     it (backdated included) — archived and merged rows included, the
+   *     night's own merges and reflections left to their originals, comes from
+   *     this folder or one whose scope setting is on, and records its folder.
+   *
+   * The store is read as day's end SAW it, not as the night left it: the
+   * dream archives and merges after day's end has read the day (review of
+   * #614). What it cannot see: a memory erased since (its row is gone), and
+   * whatever day's end's recall reached on other days — a summary's cites are
+   * the only bound on that.
    *
    * No way to ask the scope setting (`exportsFrom` absent) and nothing from
    * another folder passes. Stricter than the brief's floor (cites, plus
@@ -1969,10 +1978,33 @@ export class Counterpart {
           return false;
         }
       };
-      for (const c of chaptersOn(this.store, date)) if (!open(c.scope ?? null)) return null;
       const zone = this.store.zone();
-      const before = new Map(this.store.memoryCountsByScopeSince(startOfLocalDay(date, zone)).map((r) => [r.scope, r.count] as const));
-      for (const r of this.store.memoryCountsByScopeSince(startOfLocalDay(addDays(date, 1), zone))) before.set(r.scope, (before.get(r.scope) ?? 0) - r.count);
+      const from = startOfLocalDay(date, zone);
+      const to = startOfLocalDay(addDays(date, 1), zone);
+      // THE STORE AS DAY'S END SAW IT, NOT AS THE NIGHT LEFT IT (review of
+      // #614): archived and merged rows count too — the night's dream archives
+      // and merges after day's end has read them — and a chapter or memory
+      // with no folder recorded fails, as it does in `nameableHere`.
+      for (const id of this.store.list({ type: "episode" })) {
+        const row = this.store.row(id);
+        if (row !== undefined && chaptersWrittenOn(row, date, zone) > 0 && !open(row.origin_scope)) return null;
+      }
+      // The day's memories as day's end picks them (`writer.ts#dayMemories`:
+      // the day LIVED, so a second-hand write-up the next morning is that
+      // day's), and every one written inside the day. The night's own rows
+      // (a merge, a reflection) are filed under the dreaming folder; the
+      // originals they came from are read here with their own.
+      for (const id of this.store.list({ type: "memory", learnedOnFrom: date })) {
+        const row = this.store.row(id);
+        if (row === undefined) continue;
+        const ref = row.origin_ref ?? "";
+        if (row.source === "dreamed" || row.source === "reflection" || ref.startsWith("dream:") || ref.startsWith("reflection:")) continue;
+        const inDay = row.created_at !== null && row.created_at >= from && row.created_at < to;
+        if ((inDay || livedOn(row) === date) && !open(row.origin_scope)) return null;
+      }
+      // Backdated rows written inside the day (learned on an earlier date).
+      const before = new Map(this.store.memoryCountsByScopeSince(from).map((r) => [r.scope, r.count] as const));
+      for (const r of this.store.memoryCountsByScopeSince(to)) before.set(r.scope, (before.get(r.scope) ?? 0) - r.count);
       for (const [scope, n] of before) if (n > 0 && !open(scope)) return null;
       const denied = new Set(this.store.deniedIds());
       for (const id of told.cites) {

@@ -301,6 +301,106 @@ describe("Yesterday from day's end's summary", () => {
     k.c.rebrief({ budgetBytes: BUDGET, at: D2 });
     expect(k.c.wake(BUDGET).text).not.toContain(TOLD);
   });
+
+  // ── the gate's awkward states (review of #614) ─────────────────────────────
+  // The summary is told at the night from the whole day; the wake reads the
+  // store as the night LEFT it. What the night's dream archived or merged,
+  // what was written up second-hand the next morning, and what was written
+  // with no folder all reached day's end, and each must keep the summary out
+  // of a wake that may not name where it came from.
+  const offPrivate = (s: string): boolean => s !== PRIVATE;
+  test("review: a scope-off folder's only memory that day, archived by that night's dream, still keeps the summary out", () => {
+    const { k, own } = yesterdayStore();
+    const secret = memory(k, { scope: PRIVATE, session: S5, date: D1, hour: 16, body: "The quarter closed at a loss." });
+    summary(k, D1, TOLD, [own]);
+    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).not.toContain(TOLD);
+    k.set(at(D2, 2));
+    k.c.store.archive(secret, "dream: faded");
+    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).not.toContain(TOLD);
+  });
+  test("review: a scope-off folder's memories merged by that night's dream (the merge filed under the dreaming folder) still keep the summary out", () => {
+    const { k, own } = yesterdayStore();
+    const one = memory(k, { scope: PRIVATE, session: S5, date: D1, hour: 16, body: "The quarter closed at a loss." });
+    const two = memory(k, { scope: PRIVATE, session: S5, date: D1, hour: 17, body: "The loss was the van repair." });
+    summary(k, D1, TOLD, [own]);
+    k.set(at(D2, 2));
+    // The dream's merge (`dream/index.ts`): a new row stamped the night, in
+    // the dreaming session's folder, the originals superseded.
+    const merged = k.c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The quarter closed at a loss, from the van repair.",
+      source: "dreamed",
+      meta: { dream: "dream_test", mergedFrom: [one, two] },
+      origin: { session: S5, scope: HERE, ref: "dream:dream_test" },
+    });
+    k.c.store.supersedeInto(one, merged, "merge");
+    k.c.store.supersedeInto(two, merged, "merge");
+    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).not.toContain(TOLD);
+  });
+  test("review: a memory of that day written up second-hand the next morning, before a late day's end, keeps the summary out", () => {
+    const { k, own } = yesterdayStore();
+    // Written on D2 at 06:00 about D1 (the catch-up): day's end, run late,
+    // reads it as D1's (`writer.ts#isOfDay`, `types.ts#livedOn`).
+    k.set(at(D2, 6));
+    k.c.store.put({ type: "memory", kind: "fact", body: "The quarter closed at a loss.", happenedOn: D1, meta: { secondHand: true }, origin: { session: S5, scope: PRIVATE } });
+    summary(k, D1, TOLD, [own]);
+    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).not.toContain(TOLD);
+  });
+  test("review: a memory written that day with no folder recorded keeps the summary out — nothing says where it may be shown", () => {
+    const { k, own } = yesterdayStore();
+    k.set(at(D1, 18));
+    k.c.store.put({ type: "memory", kind: "fact", body: "The quarter closed at a loss.", origin: { session: S5 } });
+    summary(k, D1, TOLD, [own]);
+    expect(wakeFor(k, HERE).text).not.toContain(TOLD);
+  });
+  test("review: a backdated memory (written that day, learned on an earlier date) from a scope-off folder keeps the summary out", () => {
+    const { k, own } = yesterdayStore();
+    k.set(at(D1, 18));
+    k.c.store.put({ type: "memory", kind: "fact", body: "The quarter closed at a loss.", learnedOn: "2026-10-01", origin: { session: S5, scope: PRIVATE } });
+    summary(k, D1, TOLD, [own]);
+    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).not.toContain(TOLD);
+  });
+  test("review: a scope-off folder's chapter that day, archived after the night, keeps the summary out", () => {
+    const { k, own } = yesterdayStore();
+    const ch = episode(k, { session: S5, scope: PRIVATE, title: "The quarterly figures", date: D1, hour: 17, summary: null });
+    summary(k, D1, TOLD, [own]);
+    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).not.toContain(TOLD);
+    k.set(at(D2, 2));
+    k.c.store.archive(ch, "dream: faded");
+    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).not.toContain(TOLD);
+  });
+  test("review: zero cites on a multi-folder day shows only while every folder of the day may be read here", () => {
+    const { k } = yesterdayStore();
+    summary(k, D1, TOLD, []);
+    expect(wakeFor(k, HERE).text).toContain(TOLD);
+    expect(wakeFor(k, HERE, { exportsFrom: (s) => s !== THERE }).text).not.toContain(TOLD);
+  });
+  test("review: a folder under this one (a joined project folder) whose scope setting is off is not this folder", () => {
+    const { k, own } = yesterdayStore();
+    const sub = join(HERE, "notes");
+    mkdirSync(sub, { recursive: true });
+    memory(k, { scope: sub, session: S5, date: D1, hour: 16, body: "Notes kept in the sub-folder." });
+    summary(k, D1, TOLD, [own]);
+    expect(wakeFor(k, HERE, { exportsFrom: (s) => s !== sub }).text).not.toContain(TOLD);
+    expect(wakeFor(k, HERE).text).toContain(TOLD);
+  });
+  test("review: the night's own rows (a merge filed under another folder) do not by themselves keep an all-here day's summary out", () => {
+    const { k, own } = yesterdayStore();
+    const one = memory(k, { scope: HERE, session: S1, date: D1, hour: 16, body: "The beans want netting." });
+    summary(k, D1, TOLD, [own]);
+    k.set(at(D2, 2));
+    const merged = k.c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The beans want netting by the fence.",
+      source: "dreamed",
+      meta: { dream: "dream_test", mergedFrom: [one] },
+      origin: { session: S5, scope: PRIVATE, ref: "dream:dream_test" },
+    });
+    k.c.store.supersedeInto(one, merged, "merge");
+    expect(wakeFor(k, HERE, { exportsFrom: offPrivate }).text).toContain(TOLD);
+  });
 });
 
 describe("the room", () => {

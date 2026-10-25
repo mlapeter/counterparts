@@ -22,5 +22,10 @@
   scope settings, so cites don't bound what the prose drew on. The summary shows only when every
   cite is nameable here (this folder's, or about me/us/owner from a folder whose scope is on),
   every chapter that day is from this folder or a scope-on folder, and every folder that wrote a
-  memory that day is too. Otherwise the plain chapter list. The summary is never cut: under
+  memory that day is too. Otherwise the plain chapter list. Tightened by the PR's review: the day
+  is read as day's end saw it, so rows the night's dream archived or merged still count, a memory
+  lived that day counts wherever it was written up, and a chapter or memory with no folder
+  recorded fails the gate (it is not nameable anywhere but its own wake). Residual: a memory
+  erased since leaves no row to read, and day's end's recall into other days is bounded only by
+  its cites. The summary is never cut: under
   pressure the line falls back to the plain list's forms.

@@ -263,7 +263,9 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     about me, us or the owner from a folder whose scope is on), every chapter that day is
     from this folder or one whose scope is on, and every folder that wrote a memory that
     day is too (`Counterpart#daySummaryShown`); otherwise, and in the published render,
-    the chapter list exactly as before.
+    the chapter list exactly as before. The day is read as day's end saw it (review of
+    #614): archived and merged rows count, a memory lived that day counts wherever it was
+    written up (day's end's own rule), and a row with no folder recorded fails it.
     **"Today so far here"** (2026-10-24, lane W1, `self.TODAY_SO_FAR`): at a session start,
     today's chapters written in this folder (the row's directory) before the one "Last
     here" names, the newest `TODAY_SO_FAR_SHOWN` by time, title, id and the first sentence
