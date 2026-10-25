@@ -370,7 +370,9 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     vocabulary (`none`, `lagged`, `in-line`, `in-line-skipped`, `stale`, `other-model`,
     `unreadable`, and the worker's four named failures; `other-model`, 2026-09-23: a lag row
     ranked under another embedder than box 3 records now; `in-line-skipped`, 2026-10-19: no
-    fresh lag row, and box 3 past `SEMANTIC_INLINE_MAX_VECTORS`). Measured 2026-09-04: both live paths built their turn without a
+    fresh lag row, and box 3 past `SEMANTIC_INLINE_MAX_VECTORS`; since 2026-10-25, with
+    `SEMANTIC_THIS_TURN` on, an ambient turn ranks its own text whenever it can and `lagged`
+    is the fallback past that guard). Measured 2026-09-04: both live paths built their turn without a
     vector, so `semanticUsed: false` was written on every real turn and said nothing about
     why — "did not fire" and "was never asked" are different records (scar §2.4). The
     source is NOT in the durable surface set (`RECALL_DECISION_FIELDS`), because moving

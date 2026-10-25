@@ -2772,14 +2772,24 @@ export class Counterpart {
    * `no-text`, `embed-failed`) — embeds its own text and ranks it in line (`session.ts#inLineSemantic`), recorded as
    * `in-line`, or `in-line-skipped` when box 3 is past the count guard. With no
    * vector to be had (no embedder, an empty box 3) the lag's word stands.
+   *
+   * THIS TURN'S MEANING, EVERY TURN (2026-10-25, `recall/tunables.ts#SEMANTIC_THIS_TURN`,
+   * on; an experiment, check ~2026-11-01): a FRESH lag row no longer wins either.
+   * The turn embeds its own text in line, so the meaning lookup is about what was
+   * just asked, not the exchange before it. Past the count guard a fresh lag row
+   * is used as before (`lagged`, with its `semanticFromTurn`), so a huge store
+   * loses nothing; with no fresh row there, `in-line-skipped`. Off: the paragraph
+   * above, exactly. The worker still writes its row after every turn; with the
+   * switch on, this reads it only as that fallback.
    */
   private withSemantic(turn: RecallTurn): RecallTurn {
     if (turn.vector !== undefined || turn.semanticHits !== undefined) return turn;
     const lag = loadSessionSemantic(this.store, turn.sessionId);
-    if (lag.source !== "lagged") {
+    if (lag.source !== "lagged" || this.recall.tunables.SEMANTIC_THIS_TURN) {
       const own = inLineSemantic(this.store, turn.text, this.recall.tunables.SEMANTIC_INLINE_MAX_VECTORS);
       if (own !== null && "vector" in own) return { ...turn, vector: own.vector, semanticSource: "in-line" };
-      if (own !== null) return { ...turn, semanticSource: "in-line-skipped" };
+      // Skipped with a fresh lag row ready (the switch on, a store past the guard): the lag stands.
+      if (own !== null && lag.source !== "lagged") return { ...turn, semanticSource: "in-line-skipped" };
     }
     return {
       ...turn,

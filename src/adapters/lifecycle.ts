@@ -1220,7 +1220,11 @@ export class Lifecycle implements HostLifecycle {
       // watch can read out of the store tomorrow. `semantic: "none"` on every
       // real turn is exactly the finding this PR closes. Since 2026-10-19 a
       // turn the lag never reached (first prompt, stale row) reads `in-line`
-      // (or `in-line-skipped` past the vector-count guard); `in-line` on a
+      // (or `in-line-skipped` past the vector-count guard). Since 2026-10-25,
+      // with `recall.SEMANTIC_THIS_TURN` on, every turn that can reads
+      // `in-line`, and `lagged` means it could not (past the guard, with the
+      // worker's fresh row as the fallback). The worker's own health is its
+      // `adapter.semantic.lag` rows. With the switch off, `in-line` on a
       // session's later turns is the lag falling behind, by name.
       semantic: decision.semanticSource,
       semanticFrom: decision.semanticFromTurn,
