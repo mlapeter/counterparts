@@ -254,8 +254,20 @@ export const TUNABLES = {
    * Why: eight thresholds and two ways of counting days said one sentence —
    * it kept coming back, from separate moments, over time, and it mattered —
    * and their history was lowering each whenever nothing passed.
+   *
+   * THREE SETTINGS (`CoreDoorMode`, read through `coreDoorMode`): `"off"` —
+   * the two lanes, byte for byte as before; `"on"` — the support door
+   * decides, as above; `"shadow"` (the DEFAULT, 2026-10-24 21:00, Mike's yes
+   * 20:59, lightly held) — the two lanes decide, exactly as off, and the
+   * support door runs beside them and only records: one `promotion.shadow`
+   * row per disagreement and one `promotion.shadow.sleep` row per sleep
+   * (`sleep/consolidate.ts#runShadow`). `true` / `false` still read as on /
+   * off. Why shadow: on the harness the door grew the core about half as
+   * fast as the lanes (days 7/14/21/28/end 0/0/3/4/6 against 0/6/10/11/12),
+   * against Mike's 10-20/10-21 rulings that the core was starving; a week of
+   * rows on his store decides on, off or tune.
    */
-  CORE_DOOR_SUPPORT: true,
+  CORE_DOOR_SUPPORT: "shadow" as CoreDoorMode | boolean,
   /**
    * THE MAKING IS THE FIRST MOMENT (E2 review, 2026-10-24): the core door's
    * days factor counts the slot's first encoding's lived day as one of its
@@ -771,6 +783,25 @@ export interface KindPhysics {
 }
 
 export type DecayShape = "exponential" | "flat" | "power-law";
+
+/**
+ * The core door's three settings (`TUNABLES.CORE_DOOR_SUPPORT`, 2026-10-24,
+ * E2): `off` the two lanes, `shadow` the two lanes with the support door
+ * recording beside them, `on` the support door.
+ */
+export type CoreDoorMode = "off" | "shadow" | "on";
+
+/**
+ * The core door's setting as one of its three values — every reader goes
+ * through here, never the raw tunable (the string `"off"` is truthy). `true`
+ * and `"true"` read as on, `false` and `"false"` as off, and anything this
+ * does not know as off: the lanes, as before the door existed.
+ */
+export function coreDoorMode(v: unknown = TUNABLES.CORE_DOOR_SUPPORT): CoreDoorMode {
+  if (v === true || v === "on" || v === "true") return "on";
+  if (v === "shadow") return "shadow";
+  return "off";
+}
 
 export function kindPhysics(kind: Kind): KindPhysics {
   return TUNABLES.KINDS[kind];
@@ -1764,13 +1795,16 @@ const NO_CORE_DOOR_SUPPORT: CoreDoorSupport = { support: 0, days: 0, height: 0, 
  * promotes. Evaluated at consolidation by `sleep/`, which executes the crossing
  * (and caps how many cross per night).
  *
- * THE SUPPORT DOOR (2026-10-24, E2, `CORE_DOOR_SUPPORT` on): one crossing in
+ * THE SUPPORT DOOR (2026-10-24, E2, `CORE_DOOR_SUPPORT` "on"): one crossing in
  * place of both lanes — its core support (`ctx.support`, `coreDoorSupport`) at
  * or past `CORE_SUPPORT_LINE`, not an earlier state of its slot, and within
  * reach on the day. The gates about meaning stay: about me (recognition
  * opens it once the support is met), not demoted, not already identity.
+ * `supportDoor` says which door answers: the setting's by default (on only
+ * at "on"; "shadow" and "off" are the lanes); the shadow passes true to ask
+ * the support door's question beside the lanes' (`sleep/consolidate.ts`).
  */
-export function promotionEligibility(m: MemoryPhysics, ctx: CoreContext): PromotionVerdict {
+export function promotionEligibility(m: MemoryPhysics, ctx: CoreContext, supportDoor: boolean = coreDoorMode() === "on"): PromotionVerdict {
   // v9: the fast lane's feeling, without the feelings a reflection recorded
   // later unless the owner opened that door (`CORE_FAST_ACCEPTS_REFLECTED_FEELING`).
   const accepts = ctx.acceptsReflectedFeeling ?? TUNABLES.CORE_FAST_ACCEPTS_REFLECTED_FEELING;
@@ -1799,7 +1833,9 @@ export function promotionEligibility(m: MemoryPhysics, ctx: CoreContext): Promot
     rec.earlier !== true &&
     (now === null || now >= TUNABLES.REACH);
   // THE SUPPORT DOOR (2026-10-24, E2): one arc decides, when it is on.
-  const door = TUNABLES.CORE_DOOR_SUPPORT;
+  // `supportDoor`: the setting's (`coreDoorMode() === "on"`), unless the
+  // caller asks the door's question itself — the shadow (`sleep/consolidate.ts`).
+  const door = supportDoor;
   const sup = ctx.support ?? NO_CORE_DOOR_SUPPORT;
   const supportMet = door && sup.level >= TUNABLES.CORE_SUPPORT_LINE - 1e-9 && !sup.earlier && (now === null || now >= TUNABLES.REACH);
   const opened = door ? supportMet : fastMet;

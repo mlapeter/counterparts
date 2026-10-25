@@ -837,3 +837,12 @@ core reads 0/0/3/4/6 (the lanes 0/6/10/11/12). Of the first cut's nine, the thre
 the three single uses felt at 0.5; nothing enters that the first cut left out. Nearest real
 levels to the line: 0.1013 above (`mem_ed879e9691a6`, one spaced use felt at 0.6), 0.0980 below
 (the two felt at 0.5).
+
+## 2026-10-24 21:00 — merged in shadow (E2 addendum)
+
+`CORE_DOOR_SUPPORT` has three values (`CoreDoorMode`), read only through `coreDoorMode()`, and
+`promotionEligibility` takes an optional third argument, `supportDoor`, so the shadow in
+`sleep/consolidate.ts` asks the arc's question with the same function the door on uses (no second
+copy of the eligibility rules to drift). The default argument is the setting's, so every other
+caller is unchanged. Default `"shadow"`: the lanes decide; the arc's answers are rows
+(`promotion.shadow`, `promotion.shadow.sleep`; sleep NOTES). Promoting or reverting is one value.

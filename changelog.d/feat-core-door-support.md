@@ -5,4 +5,7 @@
   or more after it was made, is in, and an ordinary one needs to come back on another day.
   The day after a memory is made counts as the same occasion as its making. Being shown counts nothing, and a
   reflection citing a memory counts only once a later use echoes it, never on its own.
-  Each new core memory's record lists what backed it. Switch: `physics.CORE_DOOR_SUPPORT`.
+  Each new core memory's record lists what backed it. **For now it runs in shadow:** the two
+  lanes still decide what becomes core, and each night this measure records, beside them, which
+  memories it would have let in or kept out, so a week of real nights can decide.
+  Switch: `physics.CORE_DOOR_SUPPORT` (`"shadow"` by default, `"on"`, `"off"`).

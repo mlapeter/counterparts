@@ -30,7 +30,8 @@ identity band is systems consolidation for memories about me or about us, by two
 strongly felt one that comes back (the amygdala's stamp plus one reactivation), or one
 that keeps coming back over weeks. *(Since 2026-10-24, E2: one support arc, of which those
 two are the ends — feeling multiplies each reactivation, separate lived days harden it;
-§5.3.)*
+§5.3. Merged in SHADOW: by default the two lanes still decide and the arc only records
+beside them.)*
 
 ## 3. Keeps
 
@@ -220,9 +221,21 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
 - **Nothing is born into identity.** At birth, band ≤ semantic regardless of claimed
   salience. Identity is entered only by: (a) a declared revision landing on an existing
   identity element — the successor inherits membership — or (b) **promotion at
-  consolidation through the CORE DOOR**: since 2026-10-24 one SUPPORT ARC (below); from
-  2026-09-26 until then, two CORE LANES (kept below as lineage, and still what the switch
-  off runs).
+  consolidation through the CORE DOOR**: since 2026-10-24 one SUPPORT ARC (below) when
+  `CORE_DOOR_SUPPORT` is `"on"`; from 2026-09-26, two CORE LANES (kept below as lineage),
+  which are still what `"off"` runs and what the default, `"shadow"`, runs while the arc
+  records beside them.
+
+  *(Amended 2026-10-24 21:00, E2 addendum — Mike's yes 20:59, lightly held: merged in
+  SHADOW.)* `CORE_DOOR_SUPPORT` has three settings: `"off"` (the two lanes, byte for byte),
+  `"shadow"` (the DEFAULT: the two lanes decide exactly as off, and sleep asks the support
+  arc the same question for every candidate the lanes consider, writing one
+  `promotion.shadow` row per disagreement — `wouldPromote`, `wouldHold` — and one
+  `promotion.shadow.sleep` row per sleep; nothing the core, the page or the wake reads
+  changes), and `"on"` (the arc decides). `true` / `false` read as on / off. Why: on the
+  harness the arc grew the core about half as fast as the lanes (days 7/14/21/28/end
+  0/0/3/4/6 against 0/6/10/11/12), against Mike's 10-20/10-21 rulings that the core was
+  starving; a week of shadow rows on his store decides on, off or tune — one value.
 
   *(Amended 2026-10-24, E2 — Mike's go 14:36, lightly held, an experiment behind
   `CORE_DOOR_SUPPORT`; elegance check §2. Old contracts don't hold us back: the lanes'

@@ -55,3 +55,16 @@
   2 days of use or more after it was made" for a felt one); the Self page's "closest to the core" still ranks by the
   lanes' progress, and the help page and `counterparts mechanisms`' label still describe the
   two lanes — follow-ups if the door is kept.
+- Decided by Mike, 2026-10-24 20:59, lightly held (E2 addendum): merge it in SHADOW. "ok i agree
+  with your rec to merge e2 in shadow mode". `physics.CORE_DOOR_SUPPORT` is three-valued, `"off"`
+  (the lanes, byte for byte), `"shadow"` (the default: the lanes decide, the support door records
+  `promotion.shadow` rows per disagreement and a `promotion.shadow.sleep` row per sleep) and `"on"`
+  (the door decides); `true`/`false` read as on/off. Why: on the harness the door grew the core
+  about half as fast as the lanes (0/0/3/4/6 against 0/6/10/11/12 on days 7/14/21/28/end), against
+  his 10-20/10-21 rulings that the core was starving. Accepted as built: the `c439` trade and
+  `CORE_SUPPORT_GAP_DAYS` 2. After a week of 0.3.36 shadow rows he decides on, off or tune.
+- Decided by the shadow's builder, 2026-10-24: the shadow keeps a mark per memory (`meta`
+  `sleep.shadow.<id>`), so it asks about an admitted memory once and asks again about a core member
+  the lanes promoted against its no until it admits it (`caughtUp`). Why: then the summary's
+  columns, summed, are each door's core growth (a stateless shadow repeats a held memory's
+  `wouldPromote` every night). The per-memory rows are latched, each kind once a memory.

@@ -5,7 +5,8 @@
  * within one build. The product grows no knob for it: the modules' tunables
  * are plain objects read at use, and this sets a value on one before the run.
  *
- * Named `module.KEY=VALUE`, top-level numbers and booleans only. An unknown
+ * Named `module.KEY=VALUE`, top-level numbers and booleans only — and the
+ * few settings with named values (`CHOICES`), one of theirs. An unknown
  * module or key, or a value of another type, is refused before anything runs.
  * So is a key some reader copied at load (`CAPTURED`): set, it would change
  * some readers and not others, or none. `dream/index.ts`'s `FIT_OVERHEAD`
@@ -65,12 +66,21 @@ const CAPTURED: Readonly<Record<string, string>> = {
   "remember.CONSUMED_LEDGER_MAX": "counterpart.ts",
 };
 
+/**
+ * SETTINGS WITH NAMED VALUES (2026-10-24, E2 addendum): a tunable that is one
+ * of a few words, with what `--set` may give it. `true` / `false` are read as
+ * booleans (the core door still reads them as on / off).
+ */
+const CHOICES: Readonly<Record<string, readonly string[]>> = {
+  "physics.CORE_DOOR_SUPPORT": ["off", "shadow", "on", "true", "false"],
+};
+
 export interface Setting {
   readonly module: string;
   readonly key: string;
-  readonly value: number | boolean;
+  readonly value: number | boolean | string;
   /** The build's own value, before the run set it. */
-  readonly was: number | boolean;
+  readonly was: number | boolean | string;
 }
 
 export class SettingError extends Error {
@@ -82,7 +92,7 @@ export class SettingError extends Error {
 }
 
 /** Read one `module.KEY=VALUE` against this build's tunables, refusing what it can't set. Pure. */
-export function parseSetting(text: string): Omit<Setting, "was"> & { readonly was: number | boolean } {
+export function parseSetting(text: string): Setting {
   const m = /^([a-z]+)\.([A-Z0-9_]+)=(.+)$/.exec(text.trim());
   if (m === null) throw new SettingError("SETTING_SHAPE", `"${text}" is not module.KEY=VALUE`);
   const [, module, key, raw] = m as unknown as [string, string, string, string];
@@ -92,6 +102,11 @@ export function parseSetting(text: string): Omit<Setting, "was"> & { readonly wa
   const copy = CAPTURED[`${module}.${key}`];
   if (copy !== undefined) throw new SettingError("SETTING_CAPTURED", `${module}.${key} is copied at load into ${copy}; a run can't set it`);
   const was = target[key];
+  const choices = CHOICES[`${module}.${key}`];
+  if (choices !== undefined && (typeof was === "string" || typeof was === "boolean")) {
+    if (!choices.includes(raw)) throw new SettingError("SETTING_TYPE", `${module}.${key} is one of ${choices.join(", ")}, not "${raw}"`);
+    return { module, key, value: raw === "true" ? true : raw === "false" ? false : raw, was };
+  }
   if (typeof was === "boolean") {
     if (raw !== "true" && raw !== "false") throw new SettingError("SETTING_TYPE", `${module}.${key} is a boolean, not "${raw}"`);
     return { module, key, value: raw === "true", was };

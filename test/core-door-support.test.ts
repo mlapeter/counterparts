@@ -25,9 +25,10 @@ import { join } from "node:path";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { TUNABLES as PHYSICS, coreDoorSupport, promotionEligibility } from "../src/core/physics/index.js";
-import { coreContextFor, coreSupportOf, promotionRecordKey, runCycle } from "../src/core/sleep/index.js";
+import { TUNABLES as PHYSICS, coreDoorMode, coreDoorSupport, promotionEligibility } from "../src/core/physics/index.js";
+import { PROMOTION_SHADOW_EVENT, PROMOTION_SHADOW_SLEEP_EVENT, SHADOW_MARK_PREFIX, coreContextFor, coreSupportOf, promotionRecordKey, runCycle } from "../src/core/sleep/index.js";
 import type { PromotionRecord } from "../src/core/sleep/index.js";
+import type { CoreDoorMode } from "../src/core/physics/index.js";
 import { coreRoad } from "../src/adapters/dashboard/web/views/memory.js";
 import type { CoreRoad } from "../src/adapters/dashboard/web/views/memory.js";
 // @ts-expect-error — a plain browser module, no declarations
@@ -40,14 +41,15 @@ const open: Counterpart[] = [];
 let dateN = 0;
 let doorWas = PHYSICS.CORE_DOOR_SUPPORT;
 
-function setDoor(on: boolean): void {
-  (PHYSICS as { CORE_DOOR_SUPPORT: boolean }).CORE_DOOR_SUPPORT = on;
+function setDoor(mode: CoreDoorMode | boolean): void {
+  (PHYSICS as { CORE_DOOR_SUPPORT: CoreDoorMode | boolean }).CORE_DOOR_SUPPORT = mode;
 }
 
 beforeEach(() => {
   dateN = 0;
   doorWas = PHYSICS.CORE_DOOR_SUPPORT;
-  setDoor(true);
+  // The support door deciding, explicitly: the default is "shadow" since the E2 addendum.
+  setDoor("on");
   dir = mkdtempSync(join(tmpdir(), "counterparts-core-door-"));
 });
 
@@ -329,8 +331,11 @@ describe("6. the switch off is the two lanes, exactly", () => {
     return { c, felt, twice, reflected };
   }
 
-  test("off: the lanes decide — the felt memory cited by a reflection crosses by the fast lane, nothing carries a support key anywhere", async () => {
-    setDoor(false);
+  // "off", `false` (a boolean still reads as off) and "shadow" (the lanes decide; the support door only records
+  // beside them, in rows of its own): the same lanes' answer, and no support key on anything the lanes write.
+  test.each([["off"], [false], ["shadow"]] as const)("%p: the lanes decide — the felt memory cited by a reflection crosses by the fast lane, nothing carries a support key anywhere", async (mode) => {
+    setDoor(mode);
+    expect(coreDoorMode()).toBe(mode === "shadow" ? "shadow" : "off");
     const { c, felt, twice, reflected } = await world();
     const ctx = coreContextFor(c.store, c.store.row(twice)!, c.store.livedDay());
     expect("support" in ctx).toBe(false);
@@ -348,9 +353,16 @@ describe("6. the switch off is the two lanes, exactly", () => {
     // felt (used the day after birth) and twice (two days) stay out under the lanes.
     expect(c.store.physicsOf(felt).promotedIdentity).toBe(false);
     expect(c.store.physicsOf(twice).promotedIdentity).toBe(false);
+    // The shadow's own rows: support would take twice (two real uses on two occasions — what on does, below),
+    // and the lanes carried the reflection-only memory in, where support says no.
+    const shadowRows = c.store.eventLog({ name: PROMOTION_SHADOW_EVENT }).map((e) => [e.ref, (JSON.parse(e.payload ?? "{}") as { kind: string }).kind]);
+    expect(shadowRows).toEqual(mode === "shadow" ? [[twice, "wouldPromote"], [reflected, "wouldHold"]] : []);
+    expect(c.store.eventLog({ name: PROMOTION_SHADOW_SLEEP_EVENT }).length > 0).toBe(mode === "shadow");
   });
 
-  test("on, the same world: support decides — two real uses on two occasions are in; the felt use the day after the making and the reflection alone are not", async () => {
+  test.each([["on"], [true]] as const)("%p, the same world: support decides — two real uses on two occasions are in; the felt use the day after the making and the reflection alone are not", async (mode) => {
+    setDoor(mode);
+    expect(coreDoorMode()).toBe("on");
     const { c, felt, twice, reflected } = await world();
     const promoted = new Set<string>();
     for (const id of [felt, twice]) if (c.store.physicsOf(id).promotedIdentity) promoted.add(id);
@@ -544,5 +556,223 @@ describe("E2 review — switching the door on never touches today's core", () =>
     } finally {
       rmSync(twin, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The shadow (E2 addendum, 2026-10-24 21:00, Mike's yes 20:59): the default.
+// The lanes promote exactly as off; the support door runs beside them and only
+// records — a row per disagreement, a row per sleep.
+// ---------------------------------------------------------------------------
+
+describe("the shadow: the lanes decide, the support door records what it would have done", () => {
+  type Role = "felt" | "twice" | "reflected" | "late";
+  interface ShadowRow {
+    memory: string;
+    kind: "wouldPromote" | "wouldHold";
+    day: number;
+    level: number;
+    line: number;
+    days: number;
+    sum: number;
+    filings: { memoryId: string; route: string; day: number; session: string | null; weight: number }[];
+    lane?: string;
+    reflectionOnly?: boolean;
+  }
+  interface SleepRow {
+    day: number;
+    lanes: number;
+    support: number;
+    overlap: number;
+    wouldPromote: number;
+    wouldHold: number;
+    caughtUp: number;
+    considered: number;
+    line: number;
+  }
+  interface Run {
+    ids: Record<Role, string>;
+    role: (id: string) => string;
+    born: number;
+    /** Each sleep's promotions, by role. */
+    nights: string[][];
+    core: Role[];
+    /** What the core reads, by role: core events, band.promoted payloads, the promotion records. */
+    coreEvents: unknown[];
+    bandPromoted: unknown[];
+    records: unknown[];
+    shadow: (Omit<ShadowRow, "memory" | "filings"> & { memory: string; filings: string[] })[];
+    sleeps: SleepRow[];
+    marks: Record<string, unknown>;
+  }
+
+  /**
+   * One script, run from scratch on its own store with the door at `mode`:
+   *   - `felt` (feeling 0.8), used once three days after the making: both doors take it — the overlap;
+   *   - `twice` (plain), used in two sessions on two later days: support takes it, the lanes do not;
+   *   - `reflected` (0.8), cited by a reflection two days after the making and never used: the lanes' fast
+   *     lane takes it (a reflection's return after a gap), support never does;
+   *   - `late` (0.8), the same as `reflected`, then used for real two days later: the lanes take it with
+   *     `reflected`; support takes it the night after the use (the shadow's `caughtUp`).
+   */
+  async function script(mode: CoreDoorMode, nights = 8): Promise<Run> {
+    setDoor(mode);
+    dateN = 0;
+    dir = mkdtempSync(join(tmpdir(), `counterparts-core-shadow-${mode}-`));
+    let c = brain();
+    nextDay(c);
+    const ids = {} as Record<Role, string>;
+    ids.felt = await write(c, { text: "Being trusted with the first night mattered to me more than I said.", emotional: 0.8 });
+    c = brain();
+    ids.twice = await write(c, { text: "I keep the owner's words when the words matter." });
+    c = brain();
+    ids.reflected = await write(c, { text: "I notice when a review is about me rather than the code.", emotional: 0.8 });
+    c = brain();
+    ids.late = await write(c, { text: "I slow down when a change touches what he trusts me with.", emotional: 0.8 });
+    c = brain();
+    const born = c.store.livedDay();
+    const promotedOn: string[][] = [];
+    const sleep = () => promotedOn.push(sleepNow(c).promoted.map((p) => p.id));
+    // Day +2: twice used; the reflection cites reflected and late.
+    sleep();
+    sleep();
+    expect(c.resolveUse("u1", ids.twice, "referenced").credited).toBe(true);
+    const begun = c.reflections.begin({ session: "r1" });
+    if (!begun.ok) throw new Error(begun.reason);
+    const done = c.reflections.finish({ reflection: begun.bundle.reflection, session: "r1", entry: "On being read.", cites: [ids.reflected, ids.late] });
+    if (!done.ok) throw new Error(done.reason);
+    // Day +3: felt and twice used.
+    sleep();
+    expect(c.resolveUse("u2", ids.felt, "referenced").credited).toBe(true);
+    expect(c.resolveUse("u2", ids.twice, "referenced").credited).toBe(true);
+    // Day +4: late used for real.
+    sleep();
+    expect(c.resolveUse("u3", ids.late, "referenced").credited).toBe(true);
+    while (promotedOn.length < nights) sleep();
+    const byId = new Map(Object.entries(ids).map(([r, id]) => [id, r]));
+    const role = (id: string) => byId.get(id) ?? id;
+    const swap = (v: unknown): unknown => JSON.parse(JSON.stringify(v).replace(/mem_[0-9a-f]+/g, (m) => role(m)));
+    // Rows by role, in a stable order (one night's promotions are written strongest first, then by the random id).
+    const sorted = (xs: unknown): unknown[] => (swap(xs) as unknown[]).sort((a, b) => (JSON.stringify(a) < JSON.stringify(b) ? -1 : 1));
+    const store = c.store;
+    const run: Run = {
+      ids,
+      role,
+      born,
+      // Within a night the order is strength, then the (random) id: sorted, so runs compare.
+      nights: promotedOn.map((n) => n.map(role).sort()),
+      core: (Object.keys(ids) as Role[]).filter((r) => store.physicsOf(ids[r]).promotedIdentity).sort(),
+      coreEvents: sorted(store.coreEvents({ limit: 500 }).map((e) => [e.memory_id, e.action, e.day, e.lane, e.actor])),
+      bandPromoted: sorted(store.eventLog({ name: "band.promoted" }).map((e) => [e.day, e.ref, JSON.parse(e.payload ?? "{}")])),
+      records: swap((Object.values(ids) as string[]).map((id) => store.getMeta(promotionRecordKey(id)) ?? null).map((r) => (r === null ? null : JSON.parse(r)))) as unknown[],
+      shadow: store.eventLog({ name: PROMOTION_SHADOW_EVENT }).map((e) => {
+        const p = JSON.parse(e.payload ?? "{}") as ShadowRow;
+        expect(e.ref).toBe(p.memory);
+        return { ...p, memory: role(p.memory), filings: p.filings.map((f) => `${f.route}:${role(f.memoryId)}`) };
+      }),
+      sleeps: store.eventLog({ name: PROMOTION_SHADOW_SLEEP_EVENT }).map((e) => JSON.parse(e.payload ?? "{}") as SleepRow),
+      marks: Object.fromEntries((Object.keys(ids) as Role[]).flatMap((r) => {
+        const raw = store.getMeta(`${SHADOW_MARK_PREFIX}${ids[r]}`);
+        return raw === undefined ? [] : [[r, JSON.parse(raw) as unknown]];
+      })),
+    };
+    for (const k of open.splice(0)) k.close();
+    rmSync(dir, { recursive: true, force: true });
+    return run;
+  }
+
+  test("the default is the shadow", () => {
+    setDoor(doorWas);
+    expect(PHYSICS.CORE_DOOR_SUPPORT).toBe("shadow");
+    expect(coreDoorMode()).toBe("shadow");
+  });
+
+  test("shadow leaves the same core as off after eight sleeps, and its rows name what on would have done", async () => {
+    const off = await script("off");
+    const shadow = await script("shadow");
+    const on = await script("on");
+
+    // The lanes, as written: reflected and late the night after the citation, felt the night after its use.
+    expect(off.core).toEqual(["felt", "late", "reflected"]);
+    expect(off.nights.slice(0, 4)).toEqual([[], [], ["late", "reflected"], ["felt"]]);
+    // On: felt and twice the night after their uses; late the night after its real use; reflected never.
+    expect(on.core).toEqual(["felt", "late", "twice"]);
+
+    // SHADOW = OFF for everything the core reads: the same promotions each night, the same core, the same
+    // core events, the same band.promoted rows and the same promotion records — no support key on any.
+    expect(shadow.nights).toEqual(off.nights);
+    expect(shadow.core).toEqual(off.core);
+    expect(shadow.coreEvents).toEqual(off.coreEvents);
+    expect(shadow.bandPromoted).toEqual(off.bandPromoted);
+    expect(shadow.records).toEqual(off.records);
+    expect(JSON.stringify(shadow.records)).not.toContain('"support"');
+    // Off and on write no shadow row and no mark.
+    for (const r of [off, on]) {
+      expect(r.shadow).toEqual([]);
+      expect(r.sleeps).toEqual([]);
+      expect(r.marks).toEqual({});
+    }
+
+    // THE ROWS NAME WHAT ON WOULD HAVE DONE.
+    const wouldPromote = shadow.shadow.filter((r) => r.kind === "wouldPromote").map((r) => r.memory);
+    const wouldHold = shadow.shadow.filter((r) => r.kind === "wouldHold").map((r) => r.memory);
+    expect(wouldPromote).toEqual(["twice"]);
+    expect(wouldHold.sort()).toEqual(["late", "reflected"]);
+    // wouldPromote ⊆ on's promotions.
+    for (const m of wouldPromote) expect(on.core).toContain(m as Role);
+    // wouldHold: lane promotions on did not make — except the one support admitted later (caught up), which on
+    // made later, the night after its real use.
+    const caughtUp = Object.entries(shadow.marks).filter(([, m]) => (m as { caughtUp?: number }).caughtUp !== undefined).map(([r]) => r);
+    expect(caughtUp).toEqual(["late"]);
+    expect(wouldHold.filter((m) => !caughtUp.includes(m)).sort()).toEqual(off.core.filter((m) => !on.core.includes(m)).sort());
+    expect(on.nights.findIndex((n) => n.includes("late"))).toBe(shadow.sleeps.findIndex((s) => s.caughtUp > 0));
+
+    // Each row: the support level, the line, lived days, the sum and its filings (ids and routes; no text).
+    const twiceRow = shadow.shadow.find((r) => r.memory === "twice");
+    expect(twiceRow).toMatchObject({ kind: "wouldPromote", line: PHYSICS.CORE_SUPPORT_LINE, days: 3 });
+    expect(twiceRow?.level ?? 0).toBeGreaterThanOrEqual(PHYSICS.CORE_SUPPORT_LINE);
+    expect(twiceRow?.filings).toEqual(["return:twice", "return:twice"]);
+    const reflectedRow = shadow.shadow.find((r) => r.memory === "reflected");
+    expect(reflectedRow).toMatchObject({ kind: "wouldHold", lane: "fast", reflectionOnly: true, level: 0, days: 0 });
+    expect(reflectedRow?.filings).toEqual(["found:reflected"]);
+    // The day the rows name is the night the lanes or support decided.
+    expect(twiceRow?.day).toBe(shadow.born + 4);
+    expect(reflectedRow?.day).toBe(shadow.born + 3);
+    // Nothing but ids and numbers: no memory's words in any row.
+    const all = JSON.stringify([shadow.shadow, shadow.sleeps]);
+    for (const word of ["trusted", "owner's words", "review", "slow down"]) expect(all).not.toContain(word);
+  });
+
+  test("one summary row a sleep, zeros included; N, M and K are right, and summed they are each door's core growth", async () => {
+    const off = await script("off");
+    const shadow = await script("shadow");
+    const on = await script("on");
+    expect(shadow.sleeps.length).toBe(8);
+    const firstDay = shadow.sleeps[0]?.day ?? 0;
+    expect(shadow.sleeps.map((s) => s.day)).toEqual(shadow.sleeps.map((_, i) => firstDay + i));
+    // N is the lanes' promotions that night, exactly.
+    expect(shadow.sleeps.map((s) => s.lanes)).toEqual(shadow.nights.map((n) => n.length));
+    // Night by night: +3 the lanes take reflected and late, support nothing (two holds); +4 the lanes take felt,
+    // support felt and twice (overlap 1, one wouldPromote); +5 support takes late (caught up); then nothing.
+    const at = (k: number) => shadow.sleeps.find((s) => s.day === shadow.born + k);
+    expect(at(3)).toMatchObject({ lanes: 2, support: 0, overlap: 0, wouldPromote: 0, wouldHold: 2, caughtUp: 0 });
+    expect(at(4)).toMatchObject({ lanes: 1, support: 2, overlap: 1, wouldPromote: 1, wouldHold: 0, caughtUp: 0 });
+    expect(at(5)).toMatchObject({ lanes: 0, support: 1, overlap: 0, wouldPromote: 0, wouldHold: 0, caughtUp: 1 });
+    for (const s of shadow.sleeps.filter((s) => s.day > shadow.born + 5)) expect(s).toMatchObject({ lanes: 0, support: 0, overlap: 0 });
+    for (const s of shadow.sleeps) {
+      expect(s.line).toBe(PHYSICS.CORE_SUPPORT_LINE);
+      // The rows written that night are the disagreements the summary counts.
+      const rows = shadow.shadow.filter((r) => r.day === s.day);
+      expect(rows.filter((r) => r.kind === "wouldPromote").length).toBe(s.wouldPromote);
+      expect(rows.filter((r) => r.kind === "wouldHold").length).toBe(s.wouldHold);
+      // M = overlap + wouldPromote + caughtUp; N = overlap + wouldHold + the lanes catching up on an admitted one.
+      expect(s.support).toBe(s.overlap + s.wouldPromote + s.caughtUp);
+      expect(s.lanes).toBeGreaterThanOrEqual(s.overlap + s.wouldHold);
+    }
+    // Summed: the lanes' column is off's core growth, the support column on's.
+    const sum = (k: keyof SleepRow) => shadow.sleeps.reduce((n, s) => n + s[k], 0);
+    expect(sum("lanes")).toBe(off.core.length);
+    expect(sum("support")).toBe(on.core.length);
+    expect(sum("support")).toBe(on.nights.flat().length);
   });
 });

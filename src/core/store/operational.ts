@@ -2756,9 +2756,10 @@ export const BUILD_LOG_PREFIX = "build.";
 export interface SettingInForce {
   readonly module: string;
   readonly key: string;
-  readonly value: number | boolean;
+  /** A number, a boolean, or one of a setting's named values (`physics.CORE_DOOR_SUPPORT`, 2026-10-24). */
+  readonly value: number | boolean | string;
   /** The build's own value. */
-  readonly was: number | boolean;
+  readonly was: number | boolean | string;
 }
 
 /** The version a `package.json` at `path` names, or `BUILD_UNKNOWN`. Never throws. */

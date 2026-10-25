@@ -1144,9 +1144,33 @@ is ever shared across machines or pid namespaces.
 `slotEvidence`, read by both `coreRecurrence` (unchanged numbers: the lanes, `weighCore`'s
 `lastEver`) and `coreSupportFor` (the support door's filings). The walk returns every source; each
 reader picks its own, so a glimpse can be a tenth of a recurrence day for the lanes and nothing
-for the door. `coreContextFor` counts support only while `physics.CORE_DOOR_SUPPORT` is on and
-only for a candidate, so the switch off adds no read and no key to the context. The closed-door
+for the door. `coreContextFor` counts support only while `physics.CORE_DOOR_SUPPORT` is `"on"` and
+only for a candidate, so off and the default shadow add no read and no key to the context. The closed-door
 check behind `feelingRecordedLater` counts the same support with the lived feelings only.
 The walk also returns the slot's first encoding's lived day (`bornDay`, E2 review): the door
 counts it as the first lived day once a lived filing stands, and a filing the day after it as
 the same occasion (`physics.CORE_SUPPORT_GAP_DAYS`).
+
+## 2026-10-24 — the support door in shadow (E2 addendum, the default)
+
+Mike's yes 20:59: merge E2 with the lanes still deciding. `physics.CORE_DOOR_SUPPORT` is now
+`"off" | "shadow" | "on"` (`physics#coreDoorMode`; `true`/`false` read as on/off), default
+`"shadow"`. Every reader goes through `coreDoorMode`: the string `"off"` is truthy, so a raw
+read would have opened the door.
+
+What the shadow had to keep, to make its rows add up. A stateless shadow (ask every night,
+write every disagreement) would write the same `wouldPromote` for a memory every night the
+lanes keep holding it, and summing its "would have promoted" column would overcount. So the
+shadow keeps a small mark per memory (`meta` `sleep.shadow.<id>`: `admitted`, `held`,
+`caughtUp`): an admitted memory is not asked again (as a promoted one is not, when the door is
+on), and a core member the lanes promoted against the arc's no (`held`) is asked again, as if
+unpromoted, until the arc admits it (`caughtUp`, counted in M — on would have promoted it that
+night). Then the summary's `support` column, summed from install, is the arc's core growth, and
+`lanes` the lanes'. The per-memory rows are latched (`dedupKey`), each kind once a memory.
+
+What it still can't see. A lanes run is not an on run: what is core changes what the wake's hints
+lane shows, and a use while shown there is not a return (the E2 PR's second-order note), so on
+Mike's store the shadow approximates on, it doesn't replay it. A held member is asked at its
+unpromoted strength (a promoted row reads 1), so the reach gate and the cap's order read as on
+would. A sleep with no candidate at all and nothing promoted writes no summary row (an empty
+store's nights stay quiet in the log-sweep tests).

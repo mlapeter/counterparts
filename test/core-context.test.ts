@@ -23,7 +23,7 @@ import { REFLECTED_FEELING_KEY, coreContextFor, runConsolidate } from "../src/co
 import type { ReadsCoreContext } from "../src/core/sleep/index.js";
 import type { PutInput, ReadOnlyStore, Store } from "../src/core/store/index.js";
 import { rowToPhysics } from "../src/core/store/operational.js";
-import { withTwoLanes } from "./two-lanes-fixture.js";
+import { withCoreDoor, withTwoLanes } from "./two-lanes-fixture.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -193,8 +193,10 @@ describe("the helper and consolidation agree", () => {
 });
 
 describe("the helper and consolidation agree with the support door on (E2 review)", () => {
+  // The support door deciding: "on" explicitly (the default is "shadow" since the E2 addendum).
+  withCoreDoor("on");
   test("door closed and open, before and after real uses: row by row, the helper's context reaches consolidation's verdict", () => {
-    expect(PHYSICS.CORE_DOOR_SUPPORT).toBe(true);
+    expect(PHYSICS.CORE_DOOR_SUPPORT).toBe("on");
     const c = brain();
     const m = scene(c);
     const ids = [m.felt, m.later, m.fact, m.demoted];

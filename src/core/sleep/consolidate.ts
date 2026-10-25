@@ -45,7 +45,7 @@
  * Arithmetic only: this phase never calls a model.
  */
 
-import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility, coreFeeling, coreDoorSupport, promote, promotionEligibility, strength } from "../physics/index.js";
+import { TUNABLES as PHYSICS_TUNABLES, consolidationEligibility, coreDoorMode, coreFeeling, coreDoorSupport, promote, promotionEligibility, strength } from "../physics/index.js";
 import { IDENTITY_ABOUT_MARKS, IDENTITY_KINDS, LATER_FEELING_SOURCES, PLAN_STATUSES, defaultStrength, isSelfRelevantFeeling } from "../store/index.js";
 import type { CoreContext, CoreDoorSupport, MemoryPhysics, PromotionCrossing, PromotionReason, Recurrence, SupportFiling } from "../physics/index.js";
 import { rowToPhysics } from "../store/operational.js";
@@ -90,6 +90,145 @@ export interface ConsolidateResult extends PhaseOutcome {
 
 export function promotionRecordKey(id: string): string {
   return `${PROMOTION_RECORD_PREFIX}${id}`;
+}
+
+/**
+ * THE SUPPORT DOOR IN SHADOW (2026-10-24 21:00, E2 addendum, Mike's yes
+ * 20:59; `physics.CORE_DOOR_SUPPORT` "shadow", the default): the two lanes
+ * promote exactly as off, and beside them the support door is asked the same
+ * question for every candidate the lanes consider. One row per
+ * DISAGREEMENT — `ref` the memory; payload `memory`, `kind` (`wouldPromote`:
+ * support says yes and the lanes did not promote it; `wouldHold`: the lanes
+ * promoted it and support says no), `day`, the support `level`, the `line`,
+ * its lived `days`, its `sum`, and its `filings` (`memoryId`, `route`, `day`,
+ * `session`, `weight` — ids and numbers, never text); a `wouldHold` also names
+ * the `lane` that carried it and whether it was `reflectionOnly`. Each memory
+ * gets each kind at most once (`dedupKey`), so the rows are the lists by id.
+ */
+export const PROMOTION_SHADOW_EVENT = "promotion.shadow";
+
+/**
+ * …and one row per sleep that consolidated under shadow, zeros included
+ * (a sleep with no candidate at all and no promotion writes none):
+ * `lanes` (N, promoted tonight), `support` (M, what the support door would
+ * have promoted tonight, capped like the lanes at `CORE_MAX_PER_SLEEP`,
+ * strongest first), `overlap` (K, in both), `wouldPromote` / `wouldHold` (the
+ * disagreement rows written tonight), `caughtUp` (memories the lanes had
+ * already promoted against the shadow's no, which support now admits —
+ * counted in M), `considered` (candidates the support door was asked about),
+ * and the `line`. Summed over the nights, `lanes` is the lanes' core growth
+ * and `support` the support door's.
+ */
+export const PROMOTION_SHADOW_SLEEP_EVENT = "promotion.shadow.sleep";
+
+/**
+ * Where the shadow keeps what it has decided about a memory (`meta`, one key a
+ * memory, written only once a disagreement or an admission happened): JSON
+ * `{ admitted?: day, held?: day, caughtUp?: day }`. `admitted`: the support
+ * door would have promoted it (with or without the lanes) — the shadow's core;
+ * `held`: the lanes promoted it and support had not; `caughtUp`: support
+ * admitted a held one later. Read by the shadow only; nothing the core, the
+ * page or the wake reads.
+ */
+export const SHADOW_MARK_PREFIX = "sleep.shadow.";
+
+interface ShadowMark {
+  readonly admitted?: number;
+  readonly held?: number;
+  readonly caughtUp?: number;
+}
+
+function readShadowMark(store: Pick<SleepStore, "getMeta">, id: string): ShadowMark {
+  const raw = store.getMeta(`${SHADOW_MARK_PREFIX}${id}`);
+  if (raw === undefined) return {};
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return typeof v === "object" && v !== null ? (v as ShadowMark) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** One candidate the shadow asked the support door about. */
+interface ShadowAsk {
+  readonly id: string;
+  readonly support: CoreDoorSupport;
+  readonly eligible: boolean;
+  /** Its strength as an unpromoted memory: the cap's order, as the door on would read it. */
+  readonly strength: number;
+  /** A core member the lanes promoted against the shadow's no (`held`), asked again. */
+  readonly held: boolean;
+}
+
+/**
+ * The shadow's night (see `PROMOTION_SHADOW_EVENT`): cap the support door's
+ * yeses as the lanes are capped, set them against what the lanes promoted
+ * tonight, write a row per disagreement and one for the night, and mark the
+ * memories. Writes only under `apply`; the counts come back either way.
+ */
+function runShadow(
+  ctx: PhaseCtx,
+  asked: readonly ShadowAsk[],
+  lanes: readonly PromotionRecord[],
+): { lanes: number; support: number; overlap: number; wouldPromote: number; wouldHold: number; caughtUp: number; considered: number } {
+  const { store, day } = ctx;
+  const line = PHYSICS_TUNABLES.CORE_SUPPORT_LINE;
+  const byId = new Map(asked.map((a) => [a.id, a]));
+  const yes = asked.filter((a) => a.eligible).sort((a, b) => b.strength - a.strength || (a.id < b.id ? -1 : 1));
+  const would = yes.slice(0, TUNABLES.CORE_MAX_PER_SLEEP);
+  const promotedTonight = new Map(lanes.map((r) => [r.id, r]));
+  const wouldIds = new Set(would.map((a) => a.id));
+  const supportOf = (sup: CoreDoorSupport | undefined) => ({
+    level: sup?.level ?? 0,
+    line,
+    days: sup?.days ?? 0,
+    sum: sup?.support ?? 0,
+    filings: (sup?.filings ?? []).map((f) => ({ memoryId: f.memoryId, route: f.route, day: f.day, session: f.session, weight: f.weight })),
+  });
+  const mark = (id: string, next: ShadowMark): void => {
+    if (ctx.apply) store.setMeta(`${SHADOW_MARK_PREFIX}${id}`, JSON.stringify(next));
+  };
+  const row = (id: string, kind: "wouldPromote" | "wouldHold", extra: Record<string, unknown>): void => {
+    if (!ctx.apply) return;
+    store.appendEvent?.({
+      name: PROMOTION_SHADOW_EVENT,
+      day,
+      ref: id,
+      dedupKey: `${PROMOTION_SHADOW_EVENT}.${kind}.${id}`,
+      payload: { memory: id, kind, day, ...supportOf(byId.get(id)?.support), ...extra },
+    });
+  };
+  let overlap = 0;
+  let wouldPromote = 0;
+  let wouldHold = 0;
+  let caughtUp = 0;
+  for (const a of would) {
+    const was = readShadowMark(store, a.id);
+    if (a.held) {
+      caughtUp += 1;
+      mark(a.id, { ...was, caughtUp: day });
+      continue;
+    }
+    if (promotedTonight.has(a.id)) overlap += 1;
+    else {
+      wouldPromote += 1;
+      row(a.id, "wouldPromote", {});
+    }
+    mark(a.id, { ...was, admitted: day });
+  }
+  for (const r of lanes) {
+    if (wouldIds.has(r.id)) continue;
+    const was = readShadowMark(store, r.id);
+    // Admitted by the support door on an earlier night: the lanes caught up, no disagreement.
+    if (was.admitted !== undefined) continue;
+    wouldHold += 1;
+    row(r.id, "wouldHold", { lane: r.lane, reflectionOnly: r.reflectionOnly });
+    mark(r.id, { ...was, held: day });
+  }
+  const counts = { lanes: lanes.length, support: would.length, overlap, wouldPromote, wouldHold, caughtUp, considered: asked.length };
+  // One a sleep, zeros included — unless there was nothing to ask about at all (no candidate, nothing promoted).
+  if (ctx.apply && (asked.length > 0 || lanes.length > 0)) store.appendEvent?.({ name: PROMOTION_SHADOW_SLEEP_EVENT, day, payload: { day, ...counts, line } });
+  return counts;
 }
 
 /**
@@ -675,8 +814,9 @@ export function coreContextFor(
   const felt = candidate && stronglyFelt(store, row.id, reflected);
   // The recurrence lane's count (2026-10-11), read only where the lanes can use it.
   const recurrence = candidate ? coreRecurrence(store, row.id, day) : undefined;
-  // The support door's count (2026-10-24, E2), read only while it is on and only where it can be used.
-  const support = candidate && PHYSICS_TUNABLES.CORE_DOOR_SUPPORT ? coreSupportOf(store, row.id, day, reflected) : undefined;
+  // The support door's count (2026-10-24, E2), read only while it decides ("on") and only where it can be used.
+  // In "shadow" the lanes' context stays exactly off's; the shadow counts support itself (`runConsolidate`).
+  const support = candidate && coreDoorMode() === "on" ? coreSupportOf(store, row.id, day, reflected) : undefined;
   return {
     aboutMe: about,
     ...(recurrence === undefined ? {} : { recurrence }),
@@ -732,6 +872,17 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
 
   /** Tonight's eligible crossings, before the cap. */
   const eligible: { id: string; index: number; crossing: PromotionCrossing; strength: number; physics: MemoryPhysics }[] = [];
+  // THE SHADOW (E2 addendum): the support door asked beside the lanes, never deciding.
+  const shadow = coreDoorMode() === "shadow";
+  const asked: ShadowAsk[] = [];
+  /** Ask the support door about one memory as if it were not core yet; candidates only, as the door on reads them. */
+  const askSupport = (id: string, p: MemoryPhysics, laneCtx: CoreContext & { readonly day: number }, held: boolean): void => {
+    if (!laneCtx.aboutMe && laneCtx.selfRelevantFeeling !== true) return;
+    const unpromoted = held ? { ...p, promotedIdentity: false } : p;
+    const support = coreSupportOf(store, id, day, reflected);
+    const v = promotionEligibility(unpromoted, { ...laneCtx, support }, true);
+    asked.push({ id, support, eligible: v.eligible && v.lane === "support", strength: strength(unpromoted, day), held });
+  };
 
   while (visited < ids.length) {
     if (out.examined >= ctx.budget) {
@@ -800,6 +951,11 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     }
     if (p.promotedIdentity) {
       block("already-identity");
+      // The shadow asks again about a core member the lanes promoted against its no.
+      if (shadow) {
+        const mk = readShadowMark(store, id);
+        if (mk.held !== undefined && mk.caughtUp === undefined) askSupport(id, p, coreContextFor(store, row, day, { acceptsReflectedFeeling: reflected }), true);
+      }
       // ── 3. the core weighs itself (2026-10-11): flag, or lift a flag —
       // never demote (`core-standing.ts`).
       const w = weighCore(store, row, day);
@@ -815,7 +971,13 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     // context is `coreContextFor`'s — one source of truth with every reader
     // that asks the same question. Closed means fully closed (owner ruling D1
     // on #256): the fast lane's return must be an ordinary use.
-    const outcome = promote(p, day, coreContextFor(store, row, day, { acceptsReflectedFeeling: reflected }));
+    const laneCtx = coreContextFor(store, row, day, { acceptsReflectedFeeling: reflected });
+    const outcome = promote(p, day, laneCtx);
+    if (shadow) {
+      const mk = readShadowMark(store, id);
+      // Already in the shadow's core: support has answered for it.
+      if (mk.admitted === undefined) askSupport(id, p, laneCtx, false);
+    }
     if (!outcome.promoted || outcome.crossing === null) {
       // Every blocking reason is reported: "not about me" and "no lane yet"
       // are different diagnoses.
@@ -848,7 +1010,7 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
     // feelings only — the feeling is all the door to later feelings changes
     // there (a reflection's citation is a found filing either way, and alone
     // it gives no lived day).
-    const door = PHYSICS_TUNABLES.CORE_DOOR_SUPPORT;
+    const door = coreDoorMode() === "on";
     const closed = reflected
       ? promotionEligibility(e.physics, {
           aboutMe: true,
@@ -902,6 +1064,9 @@ export function runConsolidate(ctx: PhaseCtx): ConsolidateResult {
   // `apply`: an observer's read-only report may not move the store's place in
   // the store (§5 G10).
   if (ctx.apply && stoppedAt !== null) writeCursor(store, CONSOLIDATE_PHASE, stoppedAt);
+
+  // THE SHADOW'S NIGHT, after the lanes' writes: rows and marks only, nothing the core reads.
+  if (shadow) runShadow(ctx, asked, promoted);
 
   return { ...out, consolidated, promoted, reconsidering, reaffirmed, promotionBlocked };
 }

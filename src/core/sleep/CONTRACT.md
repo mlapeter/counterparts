@@ -95,7 +95,8 @@ alone.
   bonus is LEGACY** (rows born before schema v8 only; physics §5.11): a memory made since
   stays strong by returning, credited at the moment it returns, and this pass decides the
   CORE — for memories about me or about us, at most three a night (below): by one support
-  arc since 2026-10-24 (`physics.CORE_DOOR_SUPPORT`, E2), by two lanes before it.
+  arc since 2026-10-24 when `physics.CORE_DOOR_SUPPORT` is `"on"` (E2), by two lanes before
+  it — and by the two lanes under the default, `"shadow"`, while the arc only records.
   *(Three per consolidation, `CORE_MAX_PER_SLEEP`; literally a night since 2026-10-24, when
   consolidation went to every lived day. Before that it ran every third lived day.)*
 
@@ -188,6 +189,18 @@ reading it. The crossing's record names lane `support`, its level, the line, the
 lived days and every filing (ids and numbers only). The closed-door check behind
 `feelingRecordedLater` counts the same support with the lived feelings only. The cap, the
 order (strongest first) and every other gate are unchanged. Off: the two lanes, exactly.
+*(Amended 2026-10-24 21:00, E2 addendum, Mike's yes 20:59, lightly held.)* All of the above is
+`"on"`. The DEFAULT is `"shadow"`: the two lanes decide, exactly as off (no support key on the
+context, the verdict or the record), and beside them this phase asks the arc about every
+candidate the lanes consider — and about a core member the lanes promoted against the arc's
+no, until the arc admits it — caps its yeses like the lanes (`CORE_MAX_PER_SLEEP`, strongest
+first), and writes, under `apply` only, one `promotion.shadow` row per disagreement
+(`wouldPromote`: the arc yes, the lanes no; `wouldHold`: the lanes promoted it, the arc no —
+each memory each kind once, `ref` the memory, the level, line, lived days, sum and filings,
+ids and numbers only) and one `promotion.shadow.sleep` row per sleep (N lanes, M support, K
+overlap, the disagreements, `caughtUp`). What the arc has decided per memory sits in `meta`
+`sleep.shadow.<id>` (read by the shadow only). Nothing the core, the page or the wake reads
+changes.
 The legacy
 consolidation marking runs first, for legacy rows only; a post-upgrade row is counted
 `not-legacy`. The first decay pass after the v8 upgrade runs a one-time census
