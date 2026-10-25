@@ -333,6 +333,17 @@ export const RECALL_RATED_EVENT = "recall.rated";
 export const ASSOCIATE_FLUSH_EVENT = "associate.flush";
 
 /**
+ * AN AWAKE REPEAT, COUNTED OR HELD (B1, 2026-10-24): one row each time a
+ * session's belief says what an existing belief says and
+ * `schemas.AWAKE_SUPPORT_ON_DUPLICATE` is on — `ref` the belief, the
+ * memory, its session (null when unknown or unbound), and `filed` with its
+ * route and weight, or `filed: false` with why (`already-counted`,
+ * `counted-this-session`, `counted-today`, or fileSupport's refusal). For
+ * the check after (docs/CHECK-AFTER.md).
+ */
+export const AWAKE_SUPPORT_EVENT = "belief.support.awake";
+
+/**
  * Where temporal contiguity has got to (2026-09-28): the newest `created_at`
  * its last pass read, and the ids written at exactly that moment, as JSON in
  * the `meta` table. A moment rather than a rowid, so a table rebuild by a

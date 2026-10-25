@@ -368,3 +368,245 @@ describe("the owner's correction", () => {
     expect(c.store.physicsOf(b).pressure).toBeGreaterThan(0);
   });
 });
+
+/**
+ * B1 (2026-10-24, lineage #583 → B1): an awake belief that says what one
+ * already says still answers `near-duplicate` with that belief's id, and its
+ * memory now counts for that belief — at most once per belief per session
+ * (the memory's own session; unbound: once a lived day). Through the
+ * `remember` tool's `belief` field, the path a session uses.
+ */
+describe("an awake repeat counts, once a session (B1)", () => {
+  const STATEMENT = "We are at our best when we argue it out.";
+  const OLD_NOTE = (id: string) => `It says what ${id} says. The memory stands; tonight's reflection may count it for that belief.`;
+
+  afterEach(() => {
+    (SCHEMAS as { AWAKE_SUPPORT_ON_DUPLICATE: boolean }).AWAKE_SUPPORT_ON_DUPLICATE = true;
+  });
+
+  /** A belief the reflection wrote (no support yet), on the self subject. */
+  function existingBelief(c: Counterpart): string {
+    const me = c.schemas.ensureSelfSubject();
+    const made = c.schemas.addBelief({ entityId: me, statement: STATEMENT, day: c.store.livedDay(), birthRoute: "reflection", about: "us" });
+    if (made.id === null) throw new Error(made.reason);
+    return made.id;
+  }
+
+  const said = (n: string) => ({
+    text: `Mike: arguing it out worked again today, on the ${n} question, and we both said so.`,
+    saidBy: "owner",
+    about: "us",
+    emotional: 0,
+    belief: { statement: STATEMENT, about: "us" },
+  });
+
+  test("a testimony repeat: refused near-duplicate, and one support row filed (testimony, physics' weight), schema.support.filed emitted", async () => {
+    const s = openServer({ dir, session: "s-one", scope: "/work" });
+    try {
+      const bid = existingBelief(s.counterpart);
+      const r = await s.call("remember", said("naming"));
+      expect(r.structuredContent["stored"]).toBe(true);
+      const b = r.structuredContent["belief"] as Record<string, unknown>;
+      expect(b).toMatchObject({ stored: false, reason: "near-duplicate", id: bid, support: { filed: true, route: "testimony" } });
+      expect(b["note"]).toContain("now counts for it (testimony");
+      const rows = s.counterpart.store.supportOf(bid);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ memoryId: r.structuredContent["id"], route: "testimony", stance: "support" });
+      expect(rows[0]?.weight).toBeCloseTo(PHYSICS.SUPPORT_TESTIMONY * 1, 6);
+      expect((b["support"] as { weight: number }).weight).toBeCloseTo(rows[0]?.weight ?? -1, 9);
+      const ev = s.counterpart.events("schema.support.filed");
+      expect(ev).toHaveLength(1);
+      expect(ev[0]?.data?.["via"]).toBe("awake-duplicate");
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("the #583 scenario: eight near-duplicates from eight memories in one session file exactly once; the other seven say already counted from this session", async () => {
+    const s = openServer({ dir, session: "s-eight", scope: "/work" });
+    try {
+      const bid = existingBelief(s.counterpart);
+      const words = ["naming", "pricing", "schema", "release", "dashboard", "license", "storage", "roadmap"];
+      const replies: Record<string, unknown>[] = [];
+      for (const w of words) {
+        const r = await s.call("remember", said(w));
+        expect(r.structuredContent["stored"]).toBe(true);
+        replies.push(r.structuredContent["belief"] as Record<string, unknown>);
+      }
+      expect(replies.every((b) => b["reason"] === "near-duplicate" && b["id"] === bid && b["stored"] === false)).toBe(true);
+      expect(replies.filter((b) => (b["support"] as { filed: boolean }).filed)).toHaveLength(1);
+      const rest = replies.slice(1);
+      expect(rest.every((b) => (b["support"] as { reason?: string }).reason === "counted-this-session")).toBe(true);
+      expect(rest.every((b) => String(b["note"]).includes("already counted from this session"))).toBe(true);
+      expect(s.counterpart.store.supportOf(bid)).toHaveLength(1);
+      expect(s.counterpart.events("schema.support.filed")).toHaveLength(1);
+      // The durable record the check after reads: one filed, seven held, all naming this session.
+      const kept = s.counterpart.store.eventLog({ name: "belief.support.awake", ref: bid }).map((e) => JSON.parse(e.payload ?? "{}") as Record<string, unknown>);
+      expect(kept).toHaveLength(8);
+      expect(kept.filter((p) => p["filed"] === true)).toHaveLength(1);
+      expect(kept.filter((p) => p["reason"] === "counted-this-session")).toHaveLength(7);
+      expect(kept.every((p) => p["session"] === "s-eight")).toBe(true);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("a second session the same day files a second time, at the same-day discount", async () => {
+    const a = openServer({ dir, session: "s-morning", scope: "/work" });
+    let bid: string;
+    try {
+      bid = existingBelief(a.counterpart);
+      await a.call("remember", said("naming"));
+    } finally {
+      a.counterpart.close();
+    }
+    const b = openServer({ dir, session: "s-afternoon", scope: "/other" });
+    try {
+      const r = await b.call("remember", said("pricing"));
+      expect(r.structuredContent["belief"]).toMatchObject({ reason: "near-duplicate", id: bid, support: { filed: true, route: "testimony" } });
+      const rows = b.counterpart.store.supportOf(bid);
+      expect(rows).toHaveLength(2);
+      const second = rows.find((x) => x.memoryId === r.structuredContent["id"]);
+      expect(second?.session).toBe("s-afternoon");
+      expect(second?.weight).toBeCloseTo(PHYSICS.SUPPORT_TESTIMONY * PHYSICS.SUPPORT_SAME_DAY, 6);
+    } finally {
+      b.counterpart.close();
+    }
+  });
+
+  test("a memory already filed for that belief: already counted, nothing new", async () => {
+    const s = openServer({ dir, session: "s-filed", scope: "/work" });
+    try {
+      const c = s.counterpart;
+      const bid = existingBelief(c);
+      const r = await s.call("remember", { text: "Mike: arguing it out is how we got the naming right.", saidBy: "owner", about: "us" });
+      const mid = r.structuredContent["id"] as string;
+      // The reflection counted it first (no awake door has a way to hand it the same memory twice).
+      expect(c.schemas.fileSupport({ beliefId: bid, memoryId: mid, stance: "support", day: c.store.livedDay() }).ok).toBe(true);
+      const before = c.events("schema.support.filed").length;
+      const out = c.sessionBelief({ memoryId: mid, statement: STATEMENT, about: "us" });
+      expect(out).toMatchObject({ ok: false, reason: "near-duplicate", id: bid, support: { filed: false, reason: "already-counted" } });
+      expect(out.note).toContain("already counts for it");
+      expect(c.store.supportOf(bid)).toHaveLength(1);
+      expect(c.events("schema.support.filed").length).toBe(before);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("not testimony, a choice or vivid: refused before the near-duplicate check, nothing filed", async () => {
+    const s = openServer({ dir, session: "s-plain", scope: "/work" });
+    try {
+      const bid = existingBelief(s.counterpart);
+      const r = await s.call("remember", { text: "We argued out the naming question again and it went fine.", about: "us", emotional: 0, belief: { statement: STATEMENT, about: "us" } });
+      expect(r.structuredContent["belief"]).toMatchObject({ stored: false, reason: "not-testimony-choice-or-vivid" });
+      expect((r.structuredContent["belief"] as Record<string, unknown>)["support"]).toBeUndefined();
+      expect(s.counterpart.store.supportOf(bid)).toHaveLength(0);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("switched off (schemas.AWAKE_SUPPORT_ON_DUPLICATE = false): exactly as before — the old note, no support key, nothing filed", async () => {
+    (SCHEMAS as { AWAKE_SUPPORT_ON_DUPLICATE: boolean }).AWAKE_SUPPORT_ON_DUPLICATE = false;
+    const s = openServer({ dir, session: "s-off", scope: "/work" });
+    try {
+      const bid = existingBelief(s.counterpart);
+      const r = await s.call("remember", said("naming"));
+      expect(r.structuredContent["belief"]).toEqual({ stored: false, reason: "near-duplicate", id: bid, note: OLD_NOTE(bid) });
+      expect(s.counterpart.store.supportOf(bid)).toHaveLength(0);
+      expect(s.counterpart.events("schema.support.filed")).toHaveLength(0);
+      expect(s.counterpart.events("schema.support.refused")).toHaveLength(0);
+      expect(s.counterpart.store.eventLog({ name: "belief.support.awake" })).toHaveLength(0);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("an unbound session (mcp): once per belief per lived day", () => {
+    const c = brain();
+    nextDay(c);
+    const bid = existingBelief(c);
+    const one = mem(c, "Mike: arguing it out fixed the naming question.", { saidBy: "owner", about: "us", origin: { session: "mcp", scope: "/a" } });
+    const two = mem(c, "Mike: arguing it out fixed the pricing question too.", { saidBy: "owner", about: "us", origin: { session: "mcp", scope: "/b" } });
+    expect(c.sessionBelief({ memoryId: one, statement: STATEMENT, about: "us" }).support).toMatchObject({ filed: true });
+    const again = c.sessionBelief({ memoryId: two, statement: STATEMENT, about: "us" });
+    expect(again.support).toEqual({ filed: false, reason: "counted-today" });
+    expect(again.note).toContain("once a day");
+    nextDay(c);
+    const three = mem(c, "Mike: arguing it out fixed the license question as well.", { saidBy: "owner", about: "us", origin: { session: "mcp", scope: "/c" } });
+    expect(c.sessionBelief({ memoryId: three, statement: STATEMENT, about: "us" }).support).toMatchObject({ filed: true });
+    expect(c.store.supportOf(bid)).toHaveLength(2);
+  });
+
+  // Review of #616: pumping, attacked through the remember tool.
+  test("many sessions in one day: one filing each, every one after the first at the same-day weight, all one support day", async () => {
+    let bid = "";
+    for (let i = 0; i < 6; i += 1) {
+      const s = openServer({ dir, session: `s-pump-${String(i)}`, scope: "/work" });
+      try {
+        if (i === 0) bid = existingBelief(s.counterpart);
+        for (let k = 0; k < 3; k += 1) await s.call("remember", said(`q${String(i)}-${String(k)}`));
+      } finally {
+        s.counterpart.close();
+      }
+    }
+    const s = openServer({ dir, session: "s-pump-read", scope: "/work" });
+    try {
+      // In filing order (supportOf reads by day, then memory id).
+      const rows = s.counterpart.store.supportOf(bid).sort((x, y) => x.createdAt - y.createdAt || (x.session ?? "").localeCompare(y.session ?? ""));
+      expect(rows).toHaveLength(6);
+      expect(rows.map((r) => r.session)).toEqual([0, 1, 2, 3, 4, 5].map((i) => `s-pump-${String(i)}`));
+      expect(rows[0]?.weight).toBeCloseTo(PHYSICS.SUPPORT_TESTIMONY, 6);
+      for (const r of rows.slice(1)) expect(r.weight).toBeCloseTo(PHYSICS.SUPPORT_TESTIMONY * PHYSICS.SUPPORT_SAME_DAY, 6);
+      const p = s.counterpart.store.physicsOf(bid);
+      expect(p.support).toBeCloseTo(PHYSICS.SUPPORT_TESTIMONY * (1 + 5 * PHYSICS.SUPPORT_SAME_DAY), 6);
+      expect(p.supportDays).toBe(1);
+    } finally {
+      s.counterpart.close();
+    }
+  });
+
+  test("revisions (updates:) are no way around the cap: the same session's is held, another session's files once", async () => {
+    const a = openServer({ dir, session: "s-rev-a", scope: "/work" });
+    let bid = "";
+    let first = "";
+    try {
+      bid = existingBelief(a.counterpart);
+      const r = await a.call("remember", said("naming"));
+      first = r.structuredContent["id"] as string;
+      const rev = await a.call("remember", { ...said("naming, revised"), updates: first });
+      expect(rev.structuredContent["stored"]).toBe(true);
+      expect((rev.structuredContent["belief"] as Record<string, unknown>)["support"]).toEqual({ filed: false, reason: "counted-this-session" });
+    } finally {
+      a.counterpart.close();
+    }
+    const b = openServer({ dir, session: "s-rev-b", scope: "/work" });
+    try {
+      const one = await b.call("remember", { ...said("naming, revised again"), updates: first });
+      expect((one.structuredContent["belief"] as Record<string, unknown>)["support"]).toMatchObject({ filed: true });
+      const two = await b.call("remember", { ...said("naming, once more"), updates: one.structuredContent["id"] });
+      expect((two.structuredContent["belief"] as Record<string, unknown>)["support"]).toEqual({ filed: false, reason: "counted-this-session" });
+      expect(b.counterpart.store.supportOf(bid).map((r) => r.session).sort()).toEqual(["s-rev-a", "s-rev-b"]);
+    } finally {
+      b.counterpart.close();
+    }
+  });
+
+  test("an unbound server through remember (origin mcp): once a lived day, its rows naming no session", async () => {
+    const a = openServer({ dir, scope: "/work" });
+    let bid = "";
+    try {
+      bid = existingBelief(a.counterpart);
+      const one = await a.call("remember", said("naming"));
+      expect(a.counterpart.store.row(one.structuredContent["id"] as string)?.origin_session).toBe("mcp");
+      expect((one.structuredContent["belief"] as Record<string, unknown>)["support"]).toMatchObject({ filed: true });
+      const two = await a.call("remember", said("pricing"));
+      expect((two.structuredContent["belief"] as Record<string, unknown>)["support"]).toEqual({ filed: false, reason: "counted-today" });
+      const kept = a.counterpart.store.eventLog({ name: "belief.support.awake", ref: bid }).map((e) => JSON.parse(e.payload ?? "{}") as Record<string, unknown>);
+      expect(kept.map((p) => p["session"])).toEqual([null, null]);
+    } finally {
+      a.counterpart.close();
+    }
+  });
+});
