@@ -114,7 +114,7 @@ import type {
   Resolved,
   SentinelReading,
 } from "./briefing.js";
-import { hintsForReader } from "./briefing.js";
+import { dayLineForReader, hintsForReader } from "./briefing.js";
 import {
   PAGE_META_BY,
   PAGE_META_REASON,
@@ -2782,8 +2782,18 @@ export class Self {
    * `briefing-delivery.ts#hintsForReader`. Not applied to a read that is not
    * a delivery (the owner's dashboard), nor to an assembled wake, which
    * applied it already.
+   *
+   * `dayForms` (review of P1, 2026-10-25; INTERFACE-GAPS §14): on the same
+   * road, the published Yesterday line — every folder's chapter titles, for
+   * no reader — is replaced by this reader's gated line, widest form first
+   * (`Counterpart#yesterdayFor` with a reader), through
+   * `briefing-delivery.ts#dayLineForReader`; none given or none that fits,
+   * and the line is not printed. Asked only on this road.
+   *
+   * Either read throwing delivers nothing (fail closed): the bundle it was
+   * reading for cannot be shown unread.
    */
-  wake(delivery?: WakeDelivery, assembled?: string, hintKeptOut?: (id: string) => boolean): WakeResult {
+  wake(delivery?: WakeDelivery, assembled?: string, hintKeptOut?: (id: string) => boolean, dayForms?: () => readonly string[]): WakeResult {
     // A wake ASSEMBLED at session start (`assemble`, 2026-10-10) is delivered
     // in place of the published one, with the same preface and tense.
     let raw = assembled ?? this.store.getMeta(BRIEFING_KEY);
@@ -2792,12 +2802,25 @@ export class Self {
     // preface, matched to its lines by the record published beside it when
     // that record speaks for this very bundle.
     let hintsOut: { lines: number; ids: number; blind: boolean } | null = null;
-    if (assembled === undefined && delivery !== undefined && hintKeptOut !== undefined && raw !== undefined && raw.length > 0) {
-      const shown = wakeShown(this.store);
-      const reader = hintsForReader(raw, shown !== null && shown.hash === hashText(raw) ? shown.hints : null, hintKeptOut);
-      if (reader.text !== raw) {
-        raw = reader.text;
-        hintsOut = { lines: reader.lines, ids: reader.ids, blind: reader.blind };
+    let dayLine: boolean | null = null;
+    if (assembled === undefined && delivery !== undefined && (hintKeptOut !== undefined || dayForms !== undefined) && raw !== undefined && raw.length > 0) {
+      try {
+        if (hintKeptOut !== undefined) {
+          const shown = wakeShown(this.store);
+          const reader = hintsForReader(raw, shown !== null && shown.hash === hashText(raw) ? shown.hints : null, hintKeptOut);
+          if (reader.text !== raw) {
+            raw = reader.text;
+            hintsOut = { lines: reader.lines, ids: reader.ids, blind: reader.blind };
+          }
+        }
+        if (dayForms !== undefined) {
+          const day = dayLineForReader(raw, dayForms());
+          raw = day.text;
+          dayLine = day.changed;
+        }
+      } catch (err) {
+        this.emit("self.wake.reader.failed", undefined, { code: err instanceof Error ? err.name : "unknown" });
+        raw = undefined;
       }
     }
     if (raw === undefined) {
@@ -2871,6 +2894,7 @@ export class Self {
       elements: reading.statedElements,
       preface: delivered?.applied ?? false,
       ...(hintsOut === null ? {} : { hintsKeptOut: hintsOut.lines + hintsOut.ids, hintsBlind: hintsOut.blind }),
+      ...(dayLine === true ? { dayLineForReader: true } : {}),
     });
     return {
       text: delivered?.text ?? raw,

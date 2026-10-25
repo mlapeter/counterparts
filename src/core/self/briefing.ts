@@ -104,6 +104,7 @@ export {
   WAKE_WHOLE_SENTENCE,
   applyPreface,
   arrivingTense,
+  dayLineForReader,
   groupDigits,
   hintsForReader,
   prefaceLine,

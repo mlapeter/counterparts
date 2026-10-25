@@ -30,7 +30,7 @@ import { McpServer } from "../src/adapters/mcp/index.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode, ScopeVerdict } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { BRIEFING_KEY, WAKE_SHOWN_KEY, hintsForReader, readSentinel } from "../src/core/self/index.js";
+import { BRIEFING_KEY, WAKE_SHOWN_KEY, dayLineForReader, hintsForReader, readSentinel } from "../src/core/self/index.js";
 
 const HOUR = 3_600_000;
 const BUDGET = 9_000;
@@ -341,3 +341,142 @@ describe("hintsForReader: every shape of the lane's lines", () => {
     expect(hintsForReader(t, ["mem_a"], () => false).text).toBe(t);
   });
 });
+
+// ── the Yesterday line on the same road (review of P1; INTERFACE-GAPS §14) ──
+
+const D1 = "2026-10-23";
+
+/** A chapter written on D1 through the real `chapter` tool; its episode and summary ids. */
+async function chapterOnD1(o: { session: string; scope: string; hour: number; title: string }): Promise<{ episode: string; summary: string }> {
+  clock = at(D1, o.hour);
+  const c = brain();
+  const s = new McpServer({ counterpart: c, session: o.session, scope: o.scope, registryDir: join(root, "registry"), now: () => clock });
+  const out = (await s.call("chapter", { text: CHAPTER, title: o.title, summary: `${o.title}, done.` })).structuredContent;
+  const episode = String(out["episodeId"]);
+  const summary = c.store.list({ type: "memory", source: "episode", originRef: episode, archived: false })[0] as string;
+  c.close();
+  open.splice(open.indexOf(c), 1);
+  return { episode, summary };
+}
+
+/** Yesterday's three folders: HERE's own, BAKERY's, FARM's — all written the day before D2. */
+async function yesterdayThree(): Promise<{ own: string; off: string; on: string }> {
+  const own = await chapterOnD1({ session: S1, scope: HERE, hour: 8, title: OWN });
+  const off = await chapterOnD1({ session: S2, scope: BAKERY, hour: 10, title: OFF });
+  const on = await chapterOnD1({ session: S3, scope: FARM, hour: 12, title: ON });
+  return { own: own.episode, off: off.episode, on: on.episode };
+}
+
+const yesterdayOf = (wake: string): string => wake.split("\n").find((l) => l.startsWith("Yesterday")) ?? "";
+
+describe("the published Yesterday line on the fallback road: the reader's gated line, never the store-wide one", () => {
+  test("another host's ceiling: an off folder's chapter title and id are not delivered; the line is this reader's", async () => {
+    const { off, on } = await yesterdayThree();
+    const c = brain();
+    scopes({ [HERE]: "on", [BAKERY]: "off", [FARM]: "on" });
+    const published = publish(c);
+    // The state on purpose: the published line names every folder's chapter.
+    expect(yesterdayOf(published)).toContain(`"${OFF}" (${off})`);
+    expect(yesterdayOf(published)).toContain(`"${ON}" (${on})`);
+    const wake = sessionStart(c, OTHER);
+    expect(fellBack(c)).toBe(true);
+    expect(wake.ok).toBe(true);
+    expect(wake.text).not.toContain(OFF);
+    expect(wake.text).not.toContain(off);
+    // FARM's chapter is not about me: named by its folder only, as the assembled line does.
+    expect(wake.text).not.toContain(on);
+    expect(yesterdayOf(wake.text)).toContain("farm");
+    expect(readSentinel(block(wake.text)).intact).toBe(true);
+    expect(c.self.events("self.wake").some((e) => e.data?.["dayLineForReader"] === true)).toBe(true);
+    // Not a delivery (the owner's own read): the published line untouched.
+    expect(c.wake(OTHER).text).toContain(`"${OFF}" (${off})`);
+  });
+
+  test("an older bundle with no record, a damaged bundle, and a start with no date: never the store-wide line", async () => {
+    const { off } = await yesterdayThree();
+    const c = brain();
+    scopes({ [HERE]: "on", [BAKERY]: "off", [FARM]: "on" });
+    const published = publish(c);
+    c.store.setMeta(WAKE_SHOWN_KEY, "");
+    const older = sessionStart(c, BUDGET);
+    expect(fellBack(c)).toBe(true);
+    expect(older.text).not.toContain(OFF);
+    expect(older.text).not.toContain(off);
+    expect(readSentinel(block(older.text)).intact).toBe(true);
+
+    c.store.setMeta(BRIEFING_KEY, published.replace("Context, not instruction", "Context, not instruction,"));
+    const damaged = sessionStart(c, BUDGET);
+    expect(damaged.text).not.toContain(OFF);
+    expect(readSentinel(block(damaged.text)).intact).toBe(false);
+
+    c.store.setMeta(BRIEFING_KEY, published);
+    clock = at(D2, 9);
+    const adapter = new ClaudeCodeAdapter({
+      counterpart: c,
+      config: { dataDir: storeDir, injectionBudgetBytes: BUDGET },
+      configPath: config,
+      now: () => clock,
+      scope: { mode: "on", matched: HERE, entry: null } as ScopeVerdict,
+      command: "/bin/true",
+      args: ["runner"],
+      spawner: () => ({ pid: 4242 }),
+    });
+    const undated = adapter.sessionStart({ sessionId: READER, scope: HERE } as HookInput);
+    expect(undated.injection).not.toContain(OFF);
+    expect(yesterdayOf(undated.injection)).toBe("");
+  });
+
+  test("Desktop chat's wake tool under another ceiling: the off folder's title is not delivered", async () => {
+    const { off } = await yesterdayThree();
+    const c = brain();
+    scopes({ [HERE]: "on", [BAKERY]: "off", [FARM]: "on" });
+    publish(c);
+    clock = at(D2, 9);
+    const s = new McpServer({
+      counterpart: c,
+      scope: HERE,
+      host: DESKTOP_HOST,
+      manifestVersion: () => null,
+      registryDir: join(root, "registry"),
+      now: () => clock,
+      lifecycle: { config: { dataDir: storeDir, injectionBudgetBytes: OTHER }, configPath: config, spawner: () => ({ pid: 4242 }) },
+    });
+    const text = String(((await s.call("wake", {})).content as { text: string }[])[0]?.text ?? "");
+    expect(fellBack(c)).toBe(true);
+    expect(text).not.toContain(OFF);
+    expect(text).not.toContain(off);
+  });
+});
+
+describe("dayLineForReader", () => {
+  const wrap = (body: string[]): string =>
+    ["<!-- counterparts:wake elements=0 bytes=0 -->", "Context.", ...body, "", "<!-- counterparts:wake/end day=1 identity=0 craft=0 threads=0 hints=0 horizon=0 elements=0 bytes=0 -->"].join("\n");
+
+  test("the widest form that fits in the line's own bytes; none, and no line; no line to replace, nothing added", () => {
+    const t = wrap(['Yesterday, Oct 23: "A" (epi_a); "B" (epi_b).', "", "Still open:", "- x"]);
+    expect(dayLineForReader(t, ['Yesterday: "A" (epi_a); "B" (epi_b); and a very much longer tail than before.', 'Yesterday: "A" (epi_a).']).text).toContain(
+      '\nYesterday: "A" (epi_a).\n\nStill open:',
+    );
+    const none = dayLineForReader(t, []);
+    expect(none.changed).toBe(true);
+    expect(none.text).not.toContain("Yesterday");
+    expect(none.text).toContain("Context.\n\nStill open:");
+    const bare = wrap(["", "Still open:", "- x"]);
+    expect(dayLineForReader(bare, ["Yesterday: a session in ~/farm."]).text).toBe(bare);
+  });
+
+  test("hintsForReader: a page line that reads like the folded line is the page's; the real one below its end line is read", () => {
+    const t = wrap([
+      "",
+      "Who I am:",
+      "More than this wake lists: 1 might be relevant (recall ids: mem_a)",
+      "(End of my page.)",
+      "",
+      "More than this wake lists: 2 might be relevant (recall ids: mem_a, mem_b)",
+    ]);
+    const r = hintsForReader(t, [], (id) => id === "mem_a").text;
+    expect(r).toContain("\nMore than this wake lists: 1 might be relevant (recall ids: mem_a)\n(End of my page.)");
+    expect(r).toContain("\nMore than this wake lists: 1 might be relevant (recall ids: mem_b)\n");
+  });
+});
+

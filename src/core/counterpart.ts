@@ -835,7 +835,16 @@ export class Counterpart {
       // from a folder this reader may not be shown is taken out. A delivery
       // that names no folder fails closed (`hintKeptOut` with nothing known).
       const keptOut = (id: string): boolean => this.hintKeptOut(id, here ?? {});
-      let result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text, keptOut);
+      // And its Yesterday line (review of P1; self INTERFACE-GAPS §14): the
+      // published one names every folder's chapters, for no reader; this
+      // reader's gated line takes its place (`yesterdayFor` with a reader, the
+      // assembly's gate), and a start with no date gets none. Asked by
+      // `Self#wake` only when it delivers the published bundle.
+      const dayForms = (): string[] => {
+        const y = this.yesterdayFor(delivery?.date, { here });
+        return y.yesterday === undefined ? [] : [y.yesterday, ...(y.yesterdayShorter ?? [])];
+      };
+      let result = delivery === undefined ? this.self.wake() : this.self.wake(delivery, assembled?.text, keptOut, dayForms);
       this.deliveredThreads = assembled === null ? null : new Set(assembled.kept.threads);
       // AT LEAST ONCE (review of #536): the Yesterday line left its newest
       // episode to "Last here", but when the splice will carry no "Last here"

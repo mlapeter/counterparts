@@ -597,8 +597,10 @@ export function hintsForReader(text: string, listed: readonly string[] | null, k
       }
     }
   }
-  // THE FOLDED LINE's part for this lane (`foldedLine`).
-  const f = lines.findIndex((l) => isFoldedLine(l));
+  // THE FOLDED LINE's part for this lane (`foldedLine`), composed under "Who
+  // I am" — below the page's end line, so a page line that reads like it is
+  // not taken for it.
+  const f = lines.findIndex((l, i) => i > floor && isFoldedLine(l));
   if (f > 0) {
     const partRe = new RegExp(`^(\\d+) ${nounRe} \\(recall ids: (.*?)(?:, and \\d+ more)?\\)$`);
     const parts = (lines[f] ?? "").slice(FOLDED_WORDS.length + 1).split("; ");
@@ -625,11 +627,22 @@ export function hintsForReader(text: string, listed: readonly string[] | null, k
   }
   if (drop.size === 0 && put.size === 0) return same;
 
-  const intact = readSentinel(text).intact && OPEN_RE.test(lines[0] ?? "");
   const body = lines.flatMap((l, i) => (drop.has(i) ? [] : [put.get(i) ?? l]));
-  if (!intact) return { text: body.join("\n"), lines: gone, ids, blind };
+  return { text: restated(text, body, gone), lines: gone, ids, blind };
+}
+
+/**
+ * A published bundle's lines, changed for one reader, joined again: on a
+ * clean render both byte counts re-solved, and `elements=` and the
+ * sentinel's `hints=` lowered by `gone` listed hints; on a damaged one the
+ * stated counts left as they were, so the damage stays readable
+ * (`applyPreface`'s reason). Pure.
+ */
+function restated(original: string, body: readonly string[], gone: number): string {
+  const intact = readSentinel(original).intact && OPEN_RE.test(original.split("\n", 1)[0] ?? "");
+  if (!intact) return body.join("\n");
   const lower = (line: string, field: string): string =>
-    line.replace(new RegExp(`\\b${field}=(\\d+)`), (_m, n: string) => `${field}=${String(Math.max(0, Number(n) - gone))}`);
+    gone === 0 ? line : line.replace(new RegExp(`\\b${field}=(\\d+)`), (_m, n: string) => `${field}=${String(Math.max(0, Number(n) - gone))}`);
   const open = lower(body[0] ?? "", "elements");
   const tail = lower(lower(body[body.length - 1] ?? "", "elements"), "hints");
   const build = (stated: string): string[] => [
@@ -638,5 +651,36 @@ export function hintsForReader(text: string, listed: readonly string[] | null, k
     tail.replace(BYTES_FIELD, `bytes=${stated}`),
   ];
   const skeleton = byteLength(build("").join("\n"));
-  return { text: build(String(fixedPointTotal(skeleton, 2))).join("\n"), lines: gone, ids, blind };
+  return build(String(fixedPointTotal(skeleton, 2))).join("\n");
+}
+
+// ── one reader's Yesterday line, in a bundle delivered as published ─────────
+
+/**
+ * THE PUBLISHED BUNDLE'S YESTERDAY LINE, FOR ONE READER (review of P1,
+ * 2026-10-25; self INTERFACE-GAPS §14). The turn-end's render is composed for
+ * no reader, so its Yesterday line names every folder's chapters by title and
+ * id — a folder set off among them. A session start that assembles reads the
+ * line gated (`Counterpart#yesterdayFor` with a reader); one that delivers
+ * the published bundle as it is now does too. The furniture under the
+ * framing — every line between the context line and the first blank line,
+ * which in a published bundle is the Yesterday line alone — is replaced by
+ * the reader's own gated line (`forms`, widest first): the widest form no
+ * longer in bytes than what it replaces, or nothing when none fits or there
+ * is none. Nothing the published render said there is kept (fail closed),
+ * and the bundle never grows. Furniture, so only the byte counts move. Pure.
+ */
+export function dayLineForReader(text: string, forms: readonly string[]): { text: string; changed: boolean } {
+  const lines = text.split("\n");
+  if (lines.length < 3) return { text, changed: false };
+  // Under the context line; a bundle that carries none starts at its Yesterday line.
+  const start = (lines[1] ?? "").startsWith("Yesterday") ? 1 : 2;
+  let end = start;
+  while (end < lines.length - 1 && lines[end] !== "") end++;
+  const was = lines.slice(start, end);
+  const room = byteLength(was.join("\n"));
+  const form = forms.find((f) => f.trim().length > 0 && !f.includes("\n") && byteLength(f) <= room);
+  const now = form === undefined ? [] : [form];
+  if (now.length === was.length && now.every((l, i) => l === was[i])) return { text, changed: false };
+  return { text: restated(text, [...lines.slice(0, start), ...now, ...lines.slice(end)], 0), changed: true };
 }

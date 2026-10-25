@@ -377,5 +377,15 @@ by the published record's order, `WAKE_SHOWN_KEY`, when the record speaks for th
 id out of the lane's count lines, and the byte counts re-solved. With no record (a bundle an
 older build published) no line can be told apart, so the lane is not printed. A delivery that
 names no folder keeps out every summary that recorded one, on both roads. Still open: the
-published render itself (the dashboard's, the owner's), the fallback's Yesterday line (as
-above), and the other rows named in the paragraph before.
+published render itself (the dashboard's, the owner's), and the other rows named in the
+paragraph before.
+
+**The fallback's Yesterday line closed 2026-10-25 (review of P1):** the second close named
+above. On the same road the published line (every folder's titles, for no reader) is replaced by
+this reader's gated line (`Counterpart#yesterdayFor` with a reader, through `Self#wake`'s
+`dayForms` and `briefing-delivery.ts#dayLineForReader`): its widest form no longer in bytes than
+the published line, or no line, so the bundle never grows. A start with no date gets none. As at
+an assembled start, the newest own episode is left to "Last here"; a fallback whose "Last here"
+has no room names it in neither line (the assembly re-runs for that, the fallback does not). The
+crash sweep's wake (`counterpart-sweep.ts#sweepWake`, one composition for every crashed folder)
+leaves out every chapter summary that recorded a folder, as a reader that names none does.
