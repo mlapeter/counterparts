@@ -37,6 +37,7 @@ const open: Counterpart[] = [];
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "cp-this-turn-"));
+  embedThrows = false;
 });
 
 afterEach(() => {
@@ -52,10 +53,16 @@ function topic(t: string): number[] {
   return [0, 0, 1];
 }
 
+/** Set to make the sync face throw, as a broken table would, from then on. */
+let embedThrows = false;
+
 function embedder(): LiveEmbedder {
   return {
     model: "test-embed-1",
-    embed: topic,
+    embed: (t: string) => {
+      if (embedThrows) throw new Error("the table would not read");
+      return topic(t);
+    },
     vector: async (t: string) => topic(t),
     warm: async (texts: readonly string[]) => texts.length,
     stats: () => ({ hits: 0, misses: 0, cached: 0, fetched: 0, failed: 0, lastFailures: [] }),
@@ -218,6 +225,50 @@ describe("the meaning lookup reads this turn (SEMANTIC_THIS_TURN)", () => {
       // And the session's next ambient turn reads as the switch says, the ask between notwithstanding.
       const next = prompt(w, "s-ask", MEANING_ONLY);
       expect(next.semantic).toBe(on ? "in-line" : "lagged");
+    }
+  });
+  test("switch off, fresh lag row: the turn does no in-line work at all (no count read, no rank)", async () => {
+    // The drift guard for "off is the 2026-10-19 behaviour exactly": a later
+    // change that embedded and ranked on an off turn and then used the lag
+    // anyway would still read `lagged` above, and cost every turn the rank.
+    const w = await world(false);
+    prompt(w, "s-off", "Tell me about the kite festival.");
+    await worker(w, "s-off", "Tell me about the kite festival.", "It moved to the headland.");
+    const count = spyOn(w.a.counterpart.store, "embeddingCount");
+    const near = spyOn(w.a.counterpart.store, "nearestTo");
+    try {
+      const second = prompt(w, "s-off", MEANING_ONLY);
+      expect(second.semantic).toBe("lagged");
+      expect(count).toHaveBeenCalledTimes(0);
+      expect(near).toHaveBeenCalledTimes(0);
+    } finally {
+      count.mockRestore();
+      near.mockRestore();
+    }
+  });
+
+  test("switch on: an embed that throws, or a box 3 that will not count, leaves the fresh lag row standing and the hook answering", async () => {
+    const w = await world(true);
+    prompt(w, "s-throw", "Tell me about the kite festival.");
+    await worker(w, "s-throw", "Tell me about the kite festival.", "It moved to the headland.");
+    embedThrows = true;
+    const thrown = prompt(w, "s-throw", MEANING_ONLY);
+    expect(thrown.semantic).toBe("lagged");
+    expect(thrown.semanticFrom).toBe(1);
+    expect(thrown.semanticOf(w.kite)).toBeGreaterThan(0);
+    // (A new row: turn 1's said `in-line`. A failed hook would have left none.)
+    embedThrows = false;
+
+    await worker(w, "s-throw", MEANING_ONLY, "Eleven holts.");
+    const count = spyOn(w.a.counterpart.store, "embeddingCount").mockImplementation(() => {
+      throw new Error("database is locked");
+    });
+    try {
+      const locked = prompt(w, "s-throw", MEANING_ONLY);
+      expect(locked.semantic).toBe("lagged");
+      expect(locked.semanticFrom).toBe(2);
+    } finally {
+      count.mockRestore();
     }
   });
 });

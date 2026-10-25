@@ -155,7 +155,10 @@ export interface RecallTunables {
    * without one ranks in line (the 2026-10-19 behaviour, exactly). A deliberate
    * ask brings its own vector either way. The replay (1,782 real turns,
    * 2026-10-25) was a wash on numbers; the case is design: the cue matches the
-   * turn. Read at use; `harness compare --set recall.SEMANTIC_THIS_TURN=false`.
+   * turn. Read at use. Not an A/B the harness can show: its worker writes no
+   * lag row (`tools/harness/week.ts` drains to `sessionEnd`, never
+   * `laggedSemantic`), so every harness turn is `in-line` either way; the
+   * replay is the measure.
    */
   SEMANTIC_THIS_TURN: boolean;
   /** Weight on base-level activation (strength). The recency/arrival channel:
