@@ -3265,7 +3265,12 @@ export class Reflections {
       // offer is UNMARKED a night, a line each. Off (`REFLECT_ROOM_ORDER`
       // false), the branch below keeps #383's bound.
       const longRoom = longView.reduce((n, mid) => n + lineCost(mid), 0);
-      const offerReserve = offerRoom;
+      // A STATED BOUND (review of #619): past the room the offer is lines
+      // only — the shared fit gets 0 room, the long view's rescue takes exactly
+      // its lines, so nothing is left over to raise an offered one to an
+      // excerpt — and never more than `unmarkedOfferCap()` (UNMARKED lines at
+      // their longest, about 10k characters). Within the room, as before.
+      const offerReserve = Math.min(offerRoom, Math.max(avail, unmarkedOfferCap()));
       const room = Math.max(0, avail - longRoom - offerReserve);
       const shared = fit(cands, { room, excerptChars: T.DETAIL_CHARS });
       const thin = thinIn(shared);
@@ -4569,6 +4574,18 @@ function isJournalCopy(row: MemoryRow): boolean {
  * Is the folder a memory was written in on (review of #558)? One with no
  * origin is not asked; the host's answer throwing counts as no.
  */
+/**
+ * THE UNMARKED OFFER'S MOST, PAST THE ROOM (review of #619, D1): `UNMARKED`
+ * lines at their longest — the fit's `OVERHEAD` each, and a `LINE_BYTES` line
+ * at its widest on the wire (`wireChars` counts a non-ASCII UTF-16 unit as
+ * three, so a 200-byte line costs at most 300). Read at use. With the
+ * defaults: 24 × (120 + 300) = 10,080 characters.
+ */
+export function unmarkedOfferCap(): number {
+  const T = REFLECT_TUNABLES;
+  return Math.max(0, Math.floor(T.UNMARKED)) * (FIT_TUNABLES.OVERHEAD + Math.ceil(T.LINE_BYTES * 1.5));
+}
+
 function folderIsOn(scope: string | null, folderOn: ((scope: string) => boolean) | undefined): boolean {
   if (folderOn === undefined || scope === null || scope.trim().length === 0) return true;
   try {

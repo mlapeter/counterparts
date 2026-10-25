@@ -445,7 +445,9 @@ dream having run.
   of their own (2026-10-11): on a night the plain fit leaves one waiting or a bare id, what
   they cost as lines is held back from the shared room, so a full night shows each at least as
   a line; any other night is fitted as before. With `dream.REFLECT_ROOM_ORDER` (on) that
-  reserve is not bounded by the room either (2026-10-24, D1), like the long view's lines;
+  reserve is not bounded by the room either (2026-10-24, D1), like the long view's lines —
+  past the room it is lines only, at most `unmarkedOfferCap()` (UNMARKED × (OVERHEAD + 1.5 ×
+  LINE_BYTES), 10,080 characters; review of #619);
   off, it never goes past the room there is (#383). Its row always records the offer:
   `detail.unmarked` (the ids, `[]` too) from `begin`, carried through `finish`, which adds
   `detail.unmarkedMarked` (the offered ids it marked, across finishes) and

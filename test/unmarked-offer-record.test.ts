@@ -19,7 +19,8 @@ import { join } from "node:path";
 
 import { openServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { DREAM_TUNABLES, REFLECT_TUNABLES } from "../src/core/dream/index.js";
+import { DREAM_TUNABLES, REFLECT_TUNABLES, unmarkedOfferCap } from "../src/core/dream/index.js";
+import { FIT_TUNABLES, lineOf, readIndex, wireChars } from "../src/core/fit/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 
 const NOW = Date.UTC(2026, 9, 24, 15, 0);
@@ -155,6 +156,45 @@ describe("the unmarked offer, on the record", () => {
     const n = await night("s-night-1");
     expect([...n.offered].sort()).toEqual([...ids].sort());
     expect(counts(n.detail)["unmarkedOffered"]).toBe(6);
+  });
+
+  test("past the room the offer is UNMARKED lines at most, never excerpts: a stated bound (review of #619)", async () => {
+    const cap = REFLECT_TUNABLES.UNMARKED;
+    const bodies = new Map<string, string>();
+    seed((put) => {
+      // Long and wide: each body far past DETAIL_CHARS, its first line past
+      // LINE_BYTES, with non-ASCII so the wire cost is at its widest.
+      for (let i = 0; i < cap + 4; i += 1) {
+        const body = `Atelier note ${String(i)} — ${"émail céladon, cuisson réduite, ".repeat(30)}\n${"Le four a tenu la palier vingt minutes et la glaçure a coulé sur l'étagère. ".repeat(80)}`;
+        bodies.set(put(body, { origin: { scope: WORKSHOP } }), body);
+      }
+      for (let i = 0; i < 8; i += 1) put(`Who I am, ${String(i)}: ${"I keep the hard problems for first thing and say what I do not know. ".repeat(20)}`, { kind: "self", about: "me", physics: { birthDay: 0, lastUsedDay: 0, promotedIdentity: true } });
+    });
+    R["ROOM_CHARS"] = 1;
+    const s = openServer({ dir, session: "s-bound", scope: WORKSHOP, timeZone: "UTC" });
+    try {
+      const b = await s.call("reflect", { phase: "begin", session: "s-bound" });
+      expect(b.isError ?? false).toBe(false);
+      const rid = b.structuredContent["reflection"] as string;
+      const offered = (JSON.parse(s.counterpart.store.reflection(rid)?.detail ?? "{}") as Record<string, unknown>)["unmarked"] as string[];
+      expect(offered).toHaveLength(cap);
+      // How the fit showed them: a line each (or whole, when the whole is no
+      // longer than its line) — never an excerpt or a bare id.
+      const index = readIndex(s.counterpart.store, "reflection");
+      expect(index?.ref).toBe(rid);
+      const asLine = new Set([...(index?.offered.line ?? []), ...(index?.offered.whole ?? [])]);
+      for (const id of offered) {
+        expect(asLine.has(id)).toBe(true);
+        expect(index?.offered.excerpt ?? []).not.toContain(id);
+        expect(index?.offered.id ?? []).not.toContain(id);
+      }
+      // What they cost, measured as the fit measures it, within the bound.
+      const cost = offered.reduce((n, id) => n + FIT_TUNABLES.OVERHEAD + wireChars(lineOf({ body: bodies.get(id) ?? "" }, REFLECT_TUNABLES.LINE_BYTES)), 0);
+      expect(cost).toBeLessThanOrEqual(unmarkedOfferCap());
+      expect(unmarkedOfferCap()).toBe(cap * (FIT_TUNABLES.OVERHEAD + Math.ceil(REFLECT_TUNABLES.LINE_BYTES * 1.5)));
+    } finally {
+      s.counterpart.close();
+    }
   });
 
   test("at most UNMARKED a night", async () => {
