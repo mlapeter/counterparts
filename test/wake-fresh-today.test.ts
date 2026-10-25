@@ -543,6 +543,8 @@ describe("Today, elsewhere", () => {
     for (const [scope, head] of places) {
       const session = `${head}-0000-4000-8000-000000000001`;
       recordSession(storeDir, { sessionId: session, scope, phase: "start", at: at(D2, 8) });
+      // A turn since, so it reads live, not quiet (2026-10-25, `ELSEWHERE_QUIET_MS`).
+      recordSession(storeDir, { sessionId: session, scope, phase: "boundary", at: at(D2, 9, 30) });
       // THERE's chapter is work (its title stays home); the others' are about me, but their folders are not on.
       const epi = c.store.put({
         type: "episode",

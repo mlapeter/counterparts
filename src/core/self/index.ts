@@ -1209,7 +1209,6 @@ export class Self {
       },
       ...(coming.later.length === 0 ? {} : { later: coming.later }),
       ...(coming.overdue.length === 0 ? {} : { overdue: coming.overdue }),
-      ...(fresh.threadsStale === undefined ? {} : { threadsStale: fresh.threadsStale }),
     };
     return this.composeLanes(lanes, docs, sources, {
       day,
@@ -1374,8 +1373,6 @@ export class Self {
           ...(lanes.later === undefined || lanes.later.length === 0 || req.omit !== undefined ? {} : { horizonLater: lanes.later }),
           // And which of them are past their date, so it says "overdue" (review of #511).
           ...(lanes.overdue === undefined || lanes.overdue.length === 0 || req.omit !== undefined ? {} : { horizonOverdue: lanes.overdue }),
-          // And which open threads are weeks old, so "Still open"'s count says so (2026-10-18).
-          ...(lanes.threadsStale === undefined || lanes.threadsStale.length === 0 || req.omit !== undefined ? {} : { threadsStale: lanes.threadsStale }),
           ...(req.elsewhereShorter === undefined || req.elsewhere === undefined || req.omit !== undefined
             ? {}
             : { elsewhereShorter: req.elsewhereShorter }),

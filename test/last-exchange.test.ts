@@ -586,7 +586,10 @@ describe("its rank: with the handoffs, below every dated item and the page", () 
     // borrowed room paid for prints its first item as a line instead. Which
     // items are listed is what the exchange line must not change.
     const which = (ls: readonly string[]): string[] => ls.map((l) => /Open question \d+:/.exec(l)?.[0] ?? l);
-    expect(which(lane(text, FRAMING.threads))).toEqual(which(lane(quiet, FRAMING.threads)));
+    // Since 2026-10-25 "Still open"'s count names no ids, and the room that
+    // frees lets B's wake list one more item than A's: the line takes none away.
+    const listed = (ls: readonly string[]): string[] => which(ls.filter((l) => l.startsWith("- ")));
+    for (const item of listed(lane(quiet, FRAMING.threads))) expect(listed(lane(text, FRAMING.threads))).toContain(item);
     expect(lane(text, FRAMING.horizon)).toEqual(lane(quiet, FRAMING.horizon));
     // Last here and the handoffs still point the way, the line between them.
     const ls = text.split("\n");

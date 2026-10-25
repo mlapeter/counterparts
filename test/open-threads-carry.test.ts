@@ -30,7 +30,7 @@ import { openAdapter, stopAsk } from "../src/adapters/claude-code/index.js";
 import type { HookInput } from "../src/adapters/claude-code/index.js";
 import { STOP_ASK_OPENER, parseTranscript } from "../src/adapters/claude-code/transcript.js";
 import { OPEN_LINE_MAX_CHARS } from "../src/adapters/claude-code/hooks.js";
-import { FRAMING, SELF_TUNABLES, openCarry } from "../src/core/self/index.js";
+import { FRAMING, SELF_TUNABLES, countedLanes, openCarry } from "../src/core/self/index.js";
 import { freshGateState, loadGateState, saveGateState } from "../src/core/recall/index.js";
 import type { GateState } from "../src/core/recall/index.js";
 import { REFLECT_TUNABLES } from "../src/core/dream/index.js";
@@ -116,10 +116,17 @@ function wakes(s: McpServer): { built: string; assembled: string } {
 /** What each memory this test wrote says, by id: a shown line carries its words, a counted one its id. */
 const words = new Map<string, string>();
 
-/** Is it under "Still open" — listed (its words) or counted (its id)? */
+/** Is it under "Still open" — listed (its words)? (Before 2026-10-25 a
+ *  counted one showed its id too; the count names no id now, `openTotal`.) */
 const inStillOpen = (text: string, id: string): boolean => {
   const said = words.get(id) ?? id;
   return lane(text, FRAMING.threads).some((l) => l.includes(id) || l.includes(said));
+};
+
+/** How many "Still open" carries: the items it lists and the ones it counts. */
+const openTotal = (text: string): number => {
+  const lines = lane(text, FRAMING.threads);
+  return lines.filter((l) => l.startsWith("- ")).length + (countedLanes(lines.join("\n")).threads ?? 0);
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -159,7 +166,9 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
     for (let d = 25; d <= 31; d += 1) {
       toDay(s, d);
       const w = wakes(s);
-      for (const text of [w.built, w.assembled]) for (const id of [eleven, twelve, asked]) expect(inStillOpen(text, id)).toBe(true);
+      // The three old ones rank after the six fresh (`byThreadLive`), so they
+      // are counted, not listed: 6 fresh + 3 = 9 carried, 5 listed, "4 more".
+      for (const text of [w.built, w.assembled]) expect(openTotal(text)).toBe(9);
       const night = s.counterpart.reflections.begin({ session: `s-night-${String(d)}` });
       if (!night.ok) throw new Error(night.reason);
       expect(night.bundle.noLongerCarried).toBeUndefined();
@@ -169,11 +178,14 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
     // Day 32: the day-11 one is no longer carried, in either wake.
     toDay(s, 32);
     let w = wakes(s);
+    // (Counted, so by the total: only the day-11 one is 21 lived days untouched.)
     for (const text of [w.built, w.assembled]) {
       expect(inStillOpen(text, eleven)).toBe(false);
-      expect(inStillOpen(text, twelve)).toBe(true);
-      expect(inStillOpen(text, asked)).toBe(true);
+      expect(openTotal(text)).toBe(8);
     }
+    // Which one the total lost, by id (review of #623: the count names no ids now).
+    const carry32 = openCarry(s.counterpart.store, 32, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried;
+    expect([eleven, twelve, asked].map((id) => carry32.has(id))).toEqual([true, false, false]);
     // Not closed: the flag stands.
     expect(s.counterpart.store.readProse(eleven).meta["unresolved"]).toBe(true);
 
@@ -183,14 +195,16 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
     for (const text of [w.built, w.assembled]) {
       expect(inStillOpen(text, eleven)).toBe(false);
       expect(inStillOpen(text, twelve)).toBe(false);
-      expect(inStillOpen(text, asked)).toBe(true);
+      expect(openTotal(text)).toBe(7);
+      const carry33 = openCarry(s.counterpart.store, 33, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried;
+      expect([eleven, twelve, asked].map((id) => carry33.has(id))).toEqual([true, true, false]);
       // In no other lane either ("Nearby" would read as carried still).
       for (const id of [eleven, twelve]) {
         expect(text).not.toContain(id);
         expect(text).not.toContain(words.get(id) ?? id);
       }
       // 6 fresh + asked = 7 carried: 5 listed, "2 more".
-      expect(lane(text, FRAMING.threads).join("\n")).toMatch(/\(2 more still open/);
+      expect(lane(text, FRAMING.threads).join("\n")).toMatch(/\(2 more open, /);
     }
 
     // Recall still finds it — and being shown an answer is not a touch.
@@ -198,7 +212,10 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
     expect(read.isError ?? false).toBe(false);
     expect(read.structuredContent["ids"]).toContain(eleven);
     w = wakes(s);
-    for (const text of [w.built, w.assembled]) expect(inStillOpen(text, eleven)).toBe(false);
+    for (const text of [w.built, w.assembled]) {
+      expect(inStillOpen(text, eleven)).toBe(false);
+      expect(openTotal(text)).toBe(7);
+    }
     // Used — the session drew on it — is: carried again the same day.
     const drew = await s.call("session_end", { session: "s-writer", memories: [], drewOn: [eleven] });
     expect(drew.structuredContent["drewOn"]).toEqual({ credited: [eleven] });

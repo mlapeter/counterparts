@@ -433,22 +433,24 @@ describe("a handoff says when it may be out of date (item 1)", () => {
   // The words since 2026-10-18 (the wake-polish builder): one sentence —
   // "N days old; since then: a newer chapter here; written on 0.3.9, 0.3.10
   // now" — where "before 0.3.10 was installed, and a newer chapter here
-  // since" was, which random-6c's 10-17 wake found hard to read.
-  test("written by an older release than the one installed: 'written on 0.3.9, 0.3.10 now'", () => {
+  // since" was, which random-6c's 10-17 wake found hard to read. Since
+  // 2026-10-25 two clauses: "N days old, with a newer chapter here since;
+  // release 0.3.9 then, 0.3.10 now" (random-5b's 10-25 wake).
+  test("written by an older release than the one installed: 'release 0.3.9 then, 0.3.10 now'", () => {
     const k = afternoon();
     k.set(at(18, 45));
     k.c.writeHandoff("Waiting on the irrigation fix: when it is released, test the timer again.", { scope: HERE, session: C, build: "0.3.9" });
     k.c.rebrief({ budgetBytes: 9_000, at: "2026-09-30" });
     const stale = pointer(k.c.wake(9_000, { date: "2026-09-30" }, here("0.3.10")).text);
     // Read the day it was written: no age, only the release.
-    expect(stale).toContain("(written 09-30 18:45 by session c9cacbcc \u2014 written on 0.3.9, 0.3.10 now): Waiting on the irrigation fix");
+    expect(stale).toContain("(written 09-30 18:45 by session c9cacbcc \u2014 release 0.3.9 then, 0.3.10 now): Waiting on the irrigation fix");
     expect(pointer(k.c.wake(9_000, { date: "2026-09-30" }, here("0.3.9")).text)).not.toContain(" now)");
     expect(pointer(k.c.wake(9_000, { date: "2026-09-30" }, here(null)).text)).not.toContain(" now)");
     // Two days later it says how old it is, first.
     k.set(at(9, 0) + 2 * 24 * 60 * MIN);
     k.c.rebrief({ budgetBytes: 9_000, at: "2026-10-02" });
     expect(pointer(k.c.wake(9_000, { date: "2026-10-02" }, here("0.3.10")).text)).toContain(
-      "(written 09-30 18:45 by session c9cacbcc \u2014 2 days old; written on 0.3.9, 0.3.10 now): ",
+      "(written 09-30 18:45 by session c9cacbcc \u2014 2 days old; release 0.3.9 then, 0.3.10 now): ",
     );
   });
 
@@ -466,10 +468,10 @@ describe("a handoff says when it may be out of date (item 1)", () => {
     }
     k.c.rebrief({ budgetBytes: 9_000, at: "2026-09-30" });
     const text = k.c.wake(9_000, { date: "2026-09-30" }, here("0.3.10", (s) => (s === C ? "0.3.9" : null))).text;
-    expect(pointer(text)).toContain("by session c9cacbcc \u2014 written on 0.3.9, 0.3.10 now");
+    expect(pointer(text)).toContain("by session c9cacbcc \u2014 release 0.3.9 then, 0.3.10 now");
   });
 
-  test("another session wrote a chapter here after it: 'since then: a newer chapter here'; the writer's own does not count", async () => {
+  test("another session wrote a chapter here after it: 'a newer chapter here since'; the writer's own does not count", async () => {
     const k = afternoon();
     k.set(at(15, 19));
     k.c.writeHandoff("The seed order is drafted; it goes out on Friday.", { scope: HERE, session: C });
@@ -484,7 +486,7 @@ describe("a handoff says when it may be out of date (item 1)", () => {
     k.set(at(16, 30));
     const r = await k.server(A).call("chapter", { session: A, title: "Autumn beds", text: "We planned the autumn beds: garlic first, broad beans after, and the frost dates." });
     expect(r.isError).not.toBe(true);
-    expect(pointer(wake(k.c, B))).toContain("(written 09-30 15:19 by session c9cacbcc \u2014 since then: a newer chapter here): ");
+    expect(pointer(wake(k.c, B))).toContain("(written 09-30 15:19 by session c9cacbcc \u2014 a newer chapter here since): ");
   });
 
   test("versions compare by number, a pre-release before its release", () => {
@@ -495,14 +497,14 @@ describe("a handoff says when it may be out of date (item 1)", () => {
     expect(versionOlder(null, "0.3.10")).toBe(false);
     expect(versionOlder("not a version", "0.3.10")).toBe(false);
     expect(staleWords({ writtenWith: "0.3.9", installed: "0.3.10", newerChapter: true })).toBe(
-      "since then: a newer chapter here; written on 0.3.9, 0.3.10 now",
+      "a newer chapter here since; release 0.3.9 then, 0.3.10 now",
     );
     // The age leads, from one day on; only old is not stale.
     expect(staleWords({ writtenWith: "0.3.9", installed: "0.3.10", newerChapter: true, age: 5 })).toBe(
-      "5 days old; since then: a newer chapter here; written on 0.3.9, 0.3.10 now",
+      "5 days old, with a newer chapter here since; release 0.3.9 then, 0.3.10 now",
     );
-    expect(staleWords({ newerChapter: true, age: 1 })).toBe("1 day old; since then: a newer chapter here");
-    expect(staleWords({ newerChapter: true, age: 0 })).toBe("since then: a newer chapter here");
+    expect(staleWords({ newerChapter: true, age: 1 })).toBe("1 day old, with a newer chapter here since");
+    expect(staleWords({ newerChapter: true, age: 0 })).toBe("a newer chapter here since");
     expect(staleWords({ writtenWith: "0.3.10", installed: "0.3.10", newerChapter: false, age: 9 })).toBeNull();
   });
 });
