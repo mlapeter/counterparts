@@ -183,6 +183,9 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
       expect(inStillOpen(text, eleven)).toBe(false);
       expect(openTotal(text)).toBe(8);
     }
+    // Which one the total lost, by id (review of #623: the count names no ids now).
+    const carry32 = openCarry(s.counterpart.store, 32, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried;
+    expect([eleven, twelve, asked].map((id) => carry32.has(id))).toEqual([true, false, false]);
     // Not closed: the flag stands.
     expect(s.counterpart.store.readProse(eleven).meta["unresolved"]).toBe(true);
 
@@ -193,6 +196,8 @@ describe("3. an untouched, ownerless open item stops being carried", () => {
       expect(inStillOpen(text, eleven)).toBe(false);
       expect(inStillOpen(text, twelve)).toBe(false);
       expect(openTotal(text)).toBe(7);
+      const carry33 = openCarry(s.counterpart.store, 33, SELF_TUNABLES.OPEN_CARRY_DAYS).notCarried;
+      expect([eleven, twelve, asked].map((id) => carry33.has(id))).toEqual([true, true, false]);
       // In no other lane either ("Nearby" would read as carried still).
       for (const id of [eleven, twelve]) {
         expect(text).not.toContain(id);
