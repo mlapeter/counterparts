@@ -387,9 +387,9 @@ wins again, exactly the 0.3.36 behaviour), or revert the PR. If it stays: retiri
 ## Due a week after the stop counts (2026-10-25, N1, Mike's OK 11:44 via roadmap 3b — observation only, `recall.STOP_COUNTS`)
 
 What: shown per Mike-typed turn fell (~1.9 → 1.2–1.6) and only the echo skip could be named. Each turn now counts what
-each mechanism kept from showing: `habituationCut` (habituation's lift alone, not one the cross-project lift already counts), `nearMiss` (below the bar it faced by
-less than 10% of it, not counted under habituation or the cross-project lift), `capped` (admitted past a tier's
-slots), `budgetTrimmed` (cut by the render's bytes), `inhibited` (head wins, near-duplicates), beside `echoSkipped`,
+each mechanism kept from showing: `habituationCut` (habituation's lift alone, not one the cross-project lift already
+counts), `nearMiss` (below the bar it faced by less than 10% of it, not counted under habituation or the cross-project
+lift), `capped` (admitted past a tier's slots), `budgetTrimmed` (cut by the render's bytes), `inhibited` (head wins, near-duplicates), beside `echoSkipped`,
 `projectSkipped` and `crossProjectLifted`. Belief/tag displacement has no key: the beliefs slot never takes a memory's
 room. Nothing is judged by these; the test proves the same bytes with them on or off. The replay (1,782 turns over a
 10-25 snapshot copy, 648 a person started; recall NOTES "N1") read, per person turn: echo 1.43, near miss 0.87, cross
