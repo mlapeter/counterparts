@@ -32,6 +32,12 @@ export interface SemanticTuning {
  *     answering; the worker ranked the PREVIOUS exchange, and that ranking is
  *     this turn's cue (`session.ts`). When the conversation has moved on, every
  *     lagged hit is about the last subject, so the same floor costs differently.
+ *
+ * Since 2026-10-19 an ambient turn with no fresh lag row ranks its own text on
+ * the `inline` profile, and since 2026-10-25 (`SEMANTIC_THIS_TURN`, on) every
+ * ambient turn that can does: the per-turn path is `lagged` only past the
+ * in-line count guard. The `inline` numbers were measured on deliberate
+ * questions; ambient prompts are the experiment's to watch.
  */
 export type SemanticPath = "inline" | "lagged";
 
@@ -133,9 +139,25 @@ export interface RecallTunables {
    * and rank it in line (`session.ts#inLineSemantic`). A COUNT, not a clock:
    * the rank runs inside `activate()`, before `build()`'s first time check, so
    * an overrun there would abort the turn rather than degrade the channel.
-   * Above it the channel stays dark and the turn records `in-line-skipped`. CAL.
+   * Above it the channel stays dark and the turn records `in-line-skipped`; with
+   * `SEMANTIC_THIS_TURN` on and a fresh lag row ready, that row is used
+   * (`lagged`). CAL.
    */
   SEMANTIC_INLINE_MAX_VECTORS: number;
+  /**
+   * THE MEANING LOOKUP READS THIS TURN (2026-10-25, Mike's "switch on", lightly
+   * held; an experiment, check ~2026-11-01). On: every ambient turn embeds its
+   * own text and ranks it in line (`counterpart.ts#withSemantic`), fresh lagged
+   * cue or not, so the meaning channel is about what was just asked, on the
+   * `inline` calibration (`SEMANTIC_BY_IDENTITY`) rather than the previous
+   * exchange on the `lagged` one. Past `SEMANTIC_INLINE_MAX_VECTORS` a fresh
+   * lag row is used as before. Off: a fresh lag row wins and only a turn
+   * without one ranks in line (the 2026-10-19 behaviour, exactly). A deliberate
+   * ask brings its own vector either way. The replay (1,782 real turns,
+   * 2026-10-25) was a wash on numbers; the case is design: the cue matches the
+   * turn. Read at use; `harness compare --set recall.SEMANTIC_THIS_TURN=false`.
+   */
+  SEMANTIC_THIS_TURN: boolean;
   /** Weight on base-level activation (strength). The recency/arrival channel:
    *  it can make a memory warm, never loud. [v1: 0.15] CAL. */
   ARRIVAL_WEIGHT: number;
@@ -612,6 +634,10 @@ export const TUNABLES: RecallTunables = {
   // 100,000 is ~4.5x the largest size measured, still well inside the budget
   // if the scan stays linear (warm, at 10x: ~0.8 ms per 1,000 vectors).
   SEMANTIC_INLINE_MAX_VECTORS: 50_000,
+  // On (2026-10-25). The replay's in-line arm (1,782 real turns, a 10-25
+  // snapshot copy) cost +4-7 ms p50 a turn and changed 16% of lagged turns by
+  // ~1.3 items, a wash on later-credited items (lost 10, gained 8). Revert: false.
+  SEMANTIC_THIS_TURN: true,
   ARRIVAL_WEIGHT: 0.15,
 
   // 1.2 -> 1.6 (CAL, 2026-09-04). Once length normalization stopped nine hubs

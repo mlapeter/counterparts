@@ -3376,9 +3376,11 @@ describe("the lagged semantic cue — computed after a turn, used on the next", 
     expect(unlit.decision.verdicts.find((v) => v.id === darkOtter)?.semantic ?? 0).toBe(0);
   });
 
-  test("a STALE lag row takes the same in-line path; a fresh one is still used as before", async () => {
+  test("switch off: a STALE lag row takes the same in-line path; a fresh one is still used as before", async () => {
     const emb = computingEmbedder();
-    const c = brain(emb);
+    // `SEMANTIC_THIS_TURN` off (2026-10-25): the fresh row wins, as it did
+    // before; on, see `test/this-turn-meaning.test.ts`.
+    const c = brainAt(dir, emb, { SEMANTIC_THIS_TURN: false });
     const { otter } = seed(c);
     await backfillVectors({ counterpart: c, embedder: emb });
 
