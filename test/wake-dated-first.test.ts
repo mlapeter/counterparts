@@ -44,6 +44,7 @@ import {
   ARRIVING_NEAR_DAYS,
   BRIEFING_KEY,
   COLLAPSED_WORDS,
+  OPEN_TAIL_WORDS,
   NONE_TODAY_WORDS,
   FRAMING,
   PAGE_END_LINES,
@@ -1204,7 +1205,7 @@ describe("the owner's 10-12 morning: nothing the wake chose goes unmentioned", (
       expect(shape.open.listed + shape.open.counted).toBe(25);
       // Arriving and Still open list items, so each keeps its own count line under it (never the fold).
       expect(text).toContain(`(${String(shape.arriving.counted)} more coming up; recall ids`);
-      expect(text).toContain(`(${String(shape.open.counted)} more still open; recall ids`);
+      expect(text).toContain(`(${String(shape.open.counted)} more open, ${OPEN_TAIL_WORDS})`);
       // "Nearby": listed, counted, or — the least of the lanes, in room
       // nothing else wants — left quiet, a step-down the session start's own
       // event records (decided by COUNTERPARTS, 2026-10-12).

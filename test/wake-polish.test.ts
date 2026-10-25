@@ -5,11 +5,13 @@
  *
  *   1. "Still open" leads with what is live: a thread untouched for
  *      `STILL_OPEN_STALE_DAYS` lived days ranks after the rest, one that would
- *      show as "Unsettled — may be out of date" after a plain one, and the
- *      count line says how many of what it counts are that old.
- *   2. A handoff says its staleness in one sentence ("2 days old; since then:
- *      a newer chapter here; written on 0.3.9, 0.3.10 now"), and when every
- *      one listed is stale, the newest is shown and the rest counted.
+ *      show as "Unsettled — may be out of date" after a plain one. (Its count
+ *      line said how many were that old until 2026-10-25; now it is one calm
+ *      count with no ids, `OPEN_TAIL_WORDS`.)
+ *   2. A handoff says its staleness in one sentence ("2 days old, with a
+ *      newer chapter here since; release 0.3.9 then, 0.3.10 now", the words
+ *      since 2026-10-25), and when every one listed is stale, the newest is
+ *      shown and the rest counted.
  *   3. (The Yesterday line's folders are in `wake-fresh-today.test.ts`.)
  *
  * Hermetic: every store is a fresh temp dir, removed after.
@@ -23,7 +25,7 @@ import { Store } from "../src/core/store/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { SELF_TUNABLES, Self, rankLanes, scanOne } from "../src/core/self/index.js";
 import type { Scanned } from "../src/core/self/identity.js";
-import { STALE_OPEN_WORDS, countedLanes, moreLine } from "../src/core/self/briefing.js";
+import { OPEN_TAIL_WORDS, STALE_OPEN_WORDS, countedLanes, moreLine } from "../src/core/self/briefing.js";
 import { unsettledAmong } from "../src/core/recall/standing.js";
 import { pointerBlock, pointerLadder, staleWords } from "../src/core/handoff/index.js";
 import type { Handoff } from "../src/core/handoff/index.js";
@@ -78,8 +80,6 @@ describe("1. Still open leads with what is live", () => {
       unsettled: new Set([unsettled]),
     });
     expect(lanes.threads.map((r) => r.id)).toEqual([revived, fresh, unsettled, oldPerson, oldFact]);
-    // The weeks-old ones, named for the count line.
-    expect([...(lanes.threadsStale ?? [])].sort()).toEqual([oldFact, oldPerson].sort());
   });
 
   test("the boundary is STILL_OPEN_STALE_DAYS lived days untouched, read as #489 D reads it (born or used)", () => {
@@ -90,10 +90,7 @@ describe("1. Still open leads with what is live", () => {
     const justFresh = thread(s, "Untouched one day short of it.", day - T + 1);
     const lanes = rankLanes(scan(s, [justStale, justFresh], day), [], SELF_TUNABLES);
     expect(lanes.threads.map((r) => r.id)).toEqual([justFresh, justStale]);
-    expect(lanes.threadsStale).toEqual([justStale]);
-    // The words are pinned to the default: change one and the other changes too.
     expect(T).toBe(14);
-    expect(STALE_OPEN_WORDS).toBe("untouched for 2+ weeks");
   });
 
   test("an unsettled pair's older memory is found in one read, and ranks after a plain open one in the composed wake", () => {
@@ -126,16 +123,18 @@ describe("1. Still open leads with what is live", () => {
     }
   });
 
-  test("the count line says how many of what it counts are weeks old, and the wake's reader still reads its number", () => {
-    const line = moreLine("threads", ["mem_a", "mem_b", "mem_c"], undefined, ["mem_b", "mem_c", "mem_x"]);
-    expect(line).toBe("(3 more still open, 2 untouched for 2+ weeks; recall ids: mem_a, mem_b, mem_c)");
+  test("the count line is calm: no ids, no age count — and the wake's reader still reads its number, old form and new (2026-10-25)", () => {
+    const line = moreLine("threads", ["mem_a", "mem_b", "mem_c"]);
+    expect(line).toBe(`(3 more open, ${OPEN_TAIL_WORDS})`);
+    expect(line).not.toContain("mem_");
     expect(countedLanes(line)).toEqual({ threads: 3 });
-    // None old, or another lane: the line as before.
-    expect(moreLine("threads", ["mem_a"], undefined, ["mem_x"])).toBe("(1 more still open; recall ids: mem_a)");
-    expect(moreLine("hints", ["mem_a"], undefined, ["mem_a"])).toBe("(1 more might be relevant; recall ids: mem_a)");
+    // A bundle stored before 2026-10-25 still reads.
+    expect(countedLanes(`(3 more still open, 2 ${STALE_OPEN_WORDS}; recall ids: mem_a, mem_b, mem_c)`)).toEqual({ threads: 3 });
+    // Another lane: the line as before.
+    expect(moreLine("hints", ["mem_a"])).toBe("(1 more might be relevant; recall ids: mem_a)");
   });
 
-  test("composed: the shown items are this week's, and the count names the old ones among the rest", () => {
+  test("composed: the shown items are this week's, and the rest are one calm count", () => {
     const s = store();
     const day = 40;
     const old = Array.from({ length: 6 }, (_, i) => thread(s, `Old open question ${String(i)} about the glaze log.`, 20 + i));
@@ -144,8 +143,8 @@ describe("1. Still open leads with what is live", () => {
     // THREADS_MAX (5) considered: the four recent, newest first, then one old.
     expect(out.kept.threads.slice(0, 4)).toEqual([...recent].reverse());
     expect(old).toContain(out.kept.threads[4] ?? "?");
-    const more = out.text.split("\n").find((l) => l.startsWith("(5 more still open"));
-    expect(more).toBe(`(5 more still open, 5 ${STALE_OPEN_WORDS}; recall ids: ${old.filter((id) => !out.kept.threads.includes(id)).sort((x, y) => old.indexOf(y) - old.indexOf(x)).join(", ")})`);
+    const more = out.text.split("\n").find((l) => l.startsWith("(5 more open"));
+    expect(more).toBe(`(5 more open, ${OPEN_TAIL_WORDS})`);
   });
 });
 
@@ -166,7 +165,7 @@ describe("2. a handoff's staleness is one sentence; when all are stale, one is s
   const STALE = staleWords({ writtenWith: "0.3.9", installed: "0.3.10", newerChapter: true, age: 6 });
 
   test("the sentence: how old, what happened since, the release it was written on", () => {
-    expect(STALE).toBe("6 days old; since then: a newer chapter here; written on 0.3.9, 0.3.10 now");
+    expect(STALE).toBe("6 days old, with a newer chapter here since; release 0.3.9 then, 0.3.10 now");
     // Only old is not stale: the written date says it.
     expect(staleWords({ writtenWith: "0.3.10", installed: "0.3.10", age: 6 })).toBeNull();
   });
@@ -221,7 +220,7 @@ describe("2. a handoff's staleness is one sentence; when all are stale, one is s
     const text = c.wake(9_000, { date: "2026-10-15" }, { scope: HERE, session: "reader", installed: "0.3.10" }).text;
     const lines = text.split("\n");
     expect(lines.filter((l) => /^\d\) From /.test(l))).toHaveLength(1);
-    expect(lines.find((l) => l.startsWith("1) From "))).toContain("(3 days old; written on 0.3.9, 0.3.10 now): Handoff 2");
+    expect(lines.find((l) => l.startsWith("1) From "))).toContain("(3 days old; release 0.3.9 then, 0.3.10 now): Handoff 2");
     expect(lines.some((l) => l.startsWith("+2 older here: "))).toBe(true);
     // Read with the release they were written on: not stale, all three listed.
     const same = c.wake(9_000, { date: "2026-10-15" }, { scope: HERE, session: "reader", installed: "0.3.9" }).text;

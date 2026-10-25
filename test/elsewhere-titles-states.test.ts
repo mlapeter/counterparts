@@ -249,8 +249,11 @@ describe("open here, by the registry's clock", () => {
     const w = world(at(D2, 6));
     recordSession(storeDir, { sessionId: P, scope: HERE, phase: "start", at: at(D2, 6) });
     const theirs = memory(w, at(D2, 6, 10), { session: P, scope: HERE, title: "Roadmap: the notes module", body: "Notes.", about: "work", status: "planned" });
-    w.set(at(D2, 9, 59));
+    w.set(at(D2, 7, 59));
     expect(elsewhereOf(wakeText(w))).toContain(`Here, also open: session 25e12e7d since 06:00: "Roadmap: the notes module" (${theirs}).`);
+    // Two hours without a turn (2026-10-25, `ELSEWHERE_QUIET_MS`): open, but quiet.
+    w.set(at(D2, 9, 59));
+    expect(elsewhereOf(wakeText(w))).toContain(`Here, also open: session 25e12e7d since 06:00, quiet since then: "Roadmap: the notes module" (${theirs}).`);
     w.set(at(D2, 10, 1));
     expect(elsewhereOf(wakeText(w))).not.toContain("Here, also open");
     recordSession(storeDir, { sessionId: P, scope: HERE, phase: "boundary", at: at(D2, 10, 2) });

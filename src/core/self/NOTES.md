@@ -2784,3 +2784,50 @@ the glimpse rule alone, `OPEN_CARRY_GLIMPSE_TOUCH` true.
   night's newest settled row, no dream begun since) and writes a `revised` row carrying the
   summary over; a summary sent again with the page is the later telling and stands. After
   the dream begins, a page write is an ordinary amendment, as with an open claim.
+
+## 2026-10-25 — the wake polish from random-5b's wake (lightly held)
+
+random-5b's wake on 0.3.35 (8,981 B) had four rough spots; each is now a smaller line.
+
+- **"Still open"'s tail** (`briefing.ts#OPEN_TAIL_WORDS`): `(96 more open, kept quietly;
+  recall finds one by what it's about)`. The brief suggested "ask recall what's still
+  open"; measured on the owner's 10-25 snapshot copy, the facts questions "what's still
+  open", "open threads" and "what is still unresolved" matched **none** of its 156 open
+  threads (`nothing-came` or no open one among the answers): they share no content word
+  with them, and no recall door lists every open thread. A question about the thing itself
+  does reach it (`wake-more.test.ts`, through the MCP door). The "untouched for 2+ weeks"
+  count is dropped, not realigned: it was a third rule (14 lived days, born or used) beside
+  the carry (21, a glimpse not a touch) and could not be said as one with it. The order
+  still ranks the weeks-old last (`STILL_OPEN_STALE_DAYS`). `countedLanes` reads both forms.
+  The collapsed and folded lines (a lane that lists nothing) keep their ids: there, the ids
+  are the only handle in the wake.
+- **"Last night:"** (`dream/night-line.ts`, `self.NIGHT_LINE`): one line in the Yesterday
+  line's furniture (`briefing.ts#withNightLine`), between Yesterday and "Today so far
+  here", in every form of the ladder and alone as its last rung — so it gives way after
+  the furniture around it, and costs what it costs from the lanes the furniture already
+  outranks. A delivery splice (as the project line) was the other option; it would show
+  only in leftover room — about 300–500 B on the 10-25 snapshot copy's renders (8,504–8,649
+  B at 9,000 in three folders), but 19 B on random-5b's own 8,981 B wake — so on a full day
+  it would be the first thing lost, and the brief asked for a sane yield order instead.
+  Measured on a fixture (`wake-polish-1025.test.ts`, "a tight day"): what gives way for it
+  is Still open's first item's whole words (printed as its line), then Nearby items. "Last night" is the night run dated the session's date (the run starts
+  at the first session of a day, dated that day); a dream run by hand late in the evening
+  therefore reads as "none yet today" the next morning — watch it (CHECK-AFTER).
+  **Review of #623:** the run starts at that session's first PROMPT, after its
+  SessionStart wake is built, so the day's first wake reads "none yet today (last: …)"
+  under `ask` and `auto` alike; what the night did shows from the next session on. And
+  tighter than that fixture, with no Yesterday line, the night line was the furniture's
+  only form — a floor — and the wake folded a thing due today and every open item into
+  "More than this wake lists" to keep it (at 1,600–1,700 B). The rescues now take the
+  night line out (`briefing-room.ts#takeRoom`, `withoutNightLine`) for a target at
+  `openFirst` or above, after every room below it; the Yesterday line's pointers stay a
+  floor ("tighter still", `wake-polish-1025.test.ts`).
+- **"quiet since"** (`handoff/last-here.ts#ELSEWHERE_QUIET_MS`, 2 h): the registry calls a
+  session live for 4 h after its last turn, a window sized for binding a server, not for
+  telling a reader it is in use.
+- **A handoff's staleness**: two clauses, "1 day old, with a newer chapter here since;
+  release 0.3.34 then, 0.3.35 now". The release clause already showed only when it
+  differed.
+- **The Yesterday line's titles** (`YESTERDAY_TITLE_BYTES` 60) were checked on the 0.3.36
+  snapshot copy: every cut was at a word boundary ("…prompt, me…" was "me vs Gemini"),
+  so `excerpt` was left as it is.

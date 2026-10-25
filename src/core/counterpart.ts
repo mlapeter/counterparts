@@ -41,7 +41,7 @@ import { Associate, appendPendingCues, appendPendingDeltas, claimPending, releas
 import type { CoactivateResult, CueDelta, CueFlushReport, Credited, FlushReport, PairDelta, PendingClaim } from "./associate/index.js";
 import { READ_TODAY_AT_START, horizonFor } from "./briefing.js";
 import { episodeGate } from "./bridge.js";
-import { Dreams, Reflections } from "./dream/index.js";
+import { Dreams, Reflections, nightLine } from "./dream/index.js";
 import { meetingDay } from "./onboarding.js";
 import type { VectorSource } from "./bridge.js";
 import type { MintResult } from "./mint.js";
@@ -200,7 +200,7 @@ import type {
 import { acceptsReflectedFeeling, keepCore, ownerNames, retireCore } from "./sleep/index.js";
 import { DAYS_END_JOURNAL_SHARE, MERGE_DEPTH, WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, daySummaries, journalBlockChars } from "./self/writer.js";
 import { chapterSummaries } from "./self/summaries.js";
-import { withTodaySoFar } from "./self/briefing.js";
+import { withNightLine, withTodaySoFar } from "./self/briefing.js";
 import type { WriterJournal } from "./self/writer.js";
 import { dayJournal } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
@@ -1035,7 +1035,7 @@ export class Counterpart {
       }
       // This folder's other open sessions (2026-10-20), the same title gates.
       const mine = this.hereSessions(gate, here?.sessions?.() ?? [], since, until, { skip: new Set(this.store.openThreadIds()), startedSince: false });
-      const lines = todayElsewhereLines([...dirs.values()] as TodayElsewhere[], zone, mine);
+      const lines = todayElsewhereLines([...dirs.values()] as TodayElsewhere[], zone, mine, this.nowFn());
       if (lines === null) return {};
       return lines.shorter.length === 0 ? { elsewhere: lines.line } : { elsewhere: lines.line, elsewhereShorter: lines.shorter };
     } catch {
@@ -1878,11 +1878,41 @@ export class Counterpart {
    * (`todaySoFarFor`), as one piece of furniture with one ladder of forms
    * (`self/briefing.ts#withTodaySoFar`). With no "Today so far" line this is
    * the Yesterday line exactly. Never throws.
+   *
+   * "LAST NIGHT:" BETWEEN THEM (2026-10-25, the wake-polish builder;
+   * `self.NIGHT_LINE`, read at use): what the night did, or that it was
+   * quiet, or that none ran (`nightLineFor`), in the same furniture and the
+   * last of it to give way (`self/briefing.ts#withNightLine`).
    */
   private dayLinesFor(at: string, here: WakeHere | undefined): { yesterday?: string; yesterdayShorter?: string[]; todaySoFarSummaries?: string[] } {
     const y = this.yesterdayFor(at, { here });
     const today = this.todaySoFarFor(at, here, y.yesterday ?? "");
-    return withTodaySoFar(y, today.forms, today.summaries);
+    return withNightLine(withTodaySoFar(y, today.forms, today.summaries), SELF_TUNABLES.NIGHT_LINE ? this.nightLineFor(at) : null);
+  }
+
+  /**
+   * THE "LAST NIGHT:" LINE for a session starting on `at` (2026-10-25,
+   * `dream/night-line.ts#nightLine`): what `counterparts night` reads — the
+   * newest dream and its change counts, the newest reflection, the latest
+   * headless run's row and the dreaming setting. Reads only, four indexed
+   * reads; no journal, no model. Null when there is nothing to say or
+   * anything throws.
+   */
+  private nightLineFor(at: string): string | null {
+    try {
+      const d = this.dreams.list(1)[0];
+      const r = this.reflections.list(1)[0];
+      return nightLine({
+        today: at,
+        now: this.nowFn(),
+        dream: d === undefined ? null : { id: d.dream.id, date: d.dream.date, state: d.dream.state, counts: d.counts },
+        reflection: r === undefined ? null : { id: r.id, date: r.date, state: r.state, entry_id: r.entry_id, page_version: r.page_version },
+        run: this.dreams.nightRun(),
+        setting: this.dreams.setting(),
+      });
+    } catch {
+      return null;
+    }
   }
 
   /**

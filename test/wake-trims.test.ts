@@ -29,6 +29,7 @@ import {
   HOW_I_WORK_RULE,
   LEGACY_CONTEXT,
   NONE_TODAY_WORDS,
+  OPEN_TAIL_WORDS,
   PAGE_DATELINE_TODAY,
   PAGE_HOST_BUDGET_BYTES,
   PAGE_ROOM_BYTES,
@@ -435,7 +436,7 @@ describe("6. Coming up lists what is due today, and counts the rest — overdue 
     expect(only).toBe(`(2 overdue; recall ids: ${a}, ${b})`);
     expect(countedLanes(only).horizon).toBe(2);
     // Another lane never says overdue.
-    expect(moreLine("threads", [a], [a])).toBe(`(1 more still open; recall ids: ${a})`);
+    expect(moreLine("threads", [a], [a])).toBe(`(1 more open, ${OPEN_TAIL_WORDS})`);
     // The switch off: the lane as before, both listed.
     const before = new Self({ store: s, tunables: { COMING_UP_TODAY_ONLY: false } }).build({ budgetBytes: 40_000, day: 1, at: TODAY, horizon: [{ id: a, due: "2026-10-18" }, { id: b, due: "2026-10-19" }] });
     expect(before.counts.horizon).toBe(2);
@@ -502,13 +503,17 @@ describe("at production scale, 9,000 bytes", () => {
     }
     // Measured 2026-10-16: 5 listed before (3 open, 2 dated), 14 after (5
     // open, 8 nearby, today's 1) — "before" here has the trims' header and
-    // dates already, so the real gain is larger.
-    expect(before.elements).toBe(5);
+    // dates already, so the real gain is larger. 7 before since 2026-10-25:
+    // "Still open"'s count names no ids now (`OPEN_TAIL_WORDS`), and the
+    // room its five ids took lists two more items.
+    expect(before.elements).toBe(7);
     expect(after.elements).toBe(14);
     expect(after.elements).toBeGreaterThan(before.elements);
     expect(after.counts.craft).toBe(0);
     expect(after.counts.horizon).toBe(1);
-    expect(after.counts.threads).toBeGreaterThan(before.counts.threads);
+    // Both now list the lane's cap (before: 3 until 2026-10-25, its count's ids gone).
+    expect(after.counts.threads).toBe(SELF_TUNABLES.THREADS_MAX);
+    expect(after.counts.threads).toBeGreaterThanOrEqual(before.counts.threads);
   });
 });
 

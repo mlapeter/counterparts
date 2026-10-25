@@ -176,7 +176,7 @@ describe("the next session here is told who was last here", () => {
     // happened since: A's chapter (2026-10-18; before it, the line counted
     // how much of A's evening was written up — doctor and coverage say that).
     const pointer = lines.find((l) => l.startsWith("Where I left off in this directory"));
-    expect(pointer).toContain("by session c9cacbcc — since then: a newer chapter here):");
+    expect(pointer).toContain("by session c9cacbcc — a newer chapter here since):");
     expect(pointer).not.toContain("written up");
     expect(pointer).not.toContain("work here");
     // Order: Last here above the pointer, both above the sentinel.

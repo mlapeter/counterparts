@@ -58,6 +58,11 @@ reply actually used reconsolidates, where in humans every retrieval does.
     since cache v7 (store CONTRACT §4). Facts mode reads both the same way. To undo the
     discount: set `EVERYDAY_NORM_HIGH <= EVERYDAY_NORM_LOW`. To undo stemming: another cache
     bump whose worker step re-indexes from prose (a revert is not free; store CONTRACT §4).
+    - **2026-10-25 (Mike): stemming is KEPT, no longer trying.** Its "items shown per turn
+      drop → revert" trigger was met on 10-22 but measured the wrong thing — a replay with
+      stemming off shows fewer items, not more (0.42 → 0.39 a turn) — so it is retired; the
+      other triggers stand (docs/CHECK-AFTER.md, the stemming entry). The everyday-word
+      discount beside it is unchanged by this.
 - **…and the same rule holds on the DOCUMENT side: a cue's evidence for a memory does not
   scale with how long the memory is.** Informativeness says a token spanning the whole store
   is evidence of nothing; a memory spanning every topic is likewise specific evidence for
@@ -365,7 +370,12 @@ credit at the boundary; reinforcement deltas handed to `physics/`.
     recomputable from the store it leaves behind rather than from a live event ring, and a
     human rating can be carried across a change only when that set provably matches (parallel
     CONTRACT §5 G2/G12, replay INTERFACE-GAPS §7). Nothing is written under observer; an
-    abort writes nothing at all, which is guarantee 2 unchanged.
+    abort writes nothing at all, which is guarantee 2 unchanged. Since 2026-10-25 (N1) the
+    row also counts what each mechanism kept from showing (`habituationCut`, `nearMiss`
+    with its margin, `capped`, `budgetTrimmed`, `inhibited`, beside `echoSkipped` and
+    `projectSkipped`), read off the verdicts and the render's trims after the turn is
+    decided (`stopCounts`): observation only — the same memories, order and bytes with
+    `STOP_COUNTS` on or off (`near-miss-logging.test.ts`).
 16. **[M]** The semantic channel has a **stated source on every turn**, from a closed
     vocabulary (`none`, `lagged`, `in-line`, `in-line-skipped`, `stale`, `other-model`,
     `unreadable`, and the worker's four named failures; `other-model`, 2026-09-23: a lag row
