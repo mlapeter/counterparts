@@ -373,11 +373,13 @@ core):
 
 Not stored: the support of a memory with no disagreement (computed at each consolidation, not written). A lanes run
 is not an on run — what is core changes what the wake's hints show, and a use while shown there is no return — so the
-door's column approximates on, it doesn't replay it.
+door's column approximates on, it doesn't replay it. The nightly `promotion.shadow.sleep` row has no dedup key, so it
+is swept after `retentionDays` (90): read the running totals within that window (the per-memory rows are kept). The
+door's column counts growth: an owner demotion of a memory it admitted is not taken back out.
 
 Changes it: Mike decides on, off or tune. On: `physics.CORE_DOOR_SUPPORT` `"on"` in `src/core/physics/index.ts` (the
 door decides; today's core stays). Off: `"off"` (the lanes byte for byte, no rows). Tune: `CORE_SUPPORT_LINE` or
-`CORE_SUPPORT_GAP_DAYS`, staying in shadow. Each is one value; nothing to undo in the store (the shadow's rows and
+`CORE_SUPPORT_GAP_DAYS`, staying in shadow. Each is one value (a source edit and a release; no config path sets physics); nothing to undo in the store (the shadow's rows and
 `sleep.shadow.*` marks are read by nothing else).
 
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
