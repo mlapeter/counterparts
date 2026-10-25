@@ -199,7 +199,9 @@ export function shorterThan(line: string | undefined, forms: readonly string[] |
  *
  *   - `work` — the room held for "Work here" (`lendBytes`);
  *   - `yesterday` — the Yesterday line, one title at a time given way to its
- *     id (`yesterdayShorter`);
+ *     id (`yesterdayShorter`) — and, at a session start since 2026-10-24,
+ *     "Today so far here" under it, which steps down and drops first
+ *     (`todaySoFar`, `briefing.ts#withTodaySoFar`);
  *   - `handoffs` — the room held for "Last here" and the handoff pointer
  *     (`handoffLendBytes`), which the delivery gives up in its own order;
  *   - `arriving` — Arriving's lines past its head (`arrivingHead`), from the
@@ -287,6 +289,10 @@ export function takeRoom(
           limit = req.budgetBytes + work;
           got = attempt();
         }
+        break;
+      case "todaySoFar":
+        // "Today so far" rides in the Yesterday line's forms, its own steps
+        // first (`briefing.ts#withTodaySoFar`): the next case takes them.
         break;
       case "yesterday":
         for (const form of shorterThan(y, req.yesterdayShorter)) {

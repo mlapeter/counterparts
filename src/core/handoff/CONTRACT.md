@@ -253,6 +253,25 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     on — and the rest join the count (`yesterdayLine`'s `hidden`); this directory's own are
     named as before. The published render, which no one session reads, stays store-wide
     (self INTERFACE-GAPS §14).
+    **Day's end's summary leads it, at a session start, past a gate** (2026-10-24, lane W1,
+    Mike's go, lightly held; `self.YESTERDAY_FROM_SUMMARY`): when day's end left a summary
+    about that date (`self/writer.ts#daySummaries`) the line opens "Yesterday, in day's
+    end's words:" with it, uncut, then "Chapters:" as the plain line lists them, fewer as
+    room asks, then the plain line's own forms (`last-here.ts#yesterdaySummaryForms`).
+    Day's end reads the whole day store-wide, whatever the scope settings, so the summary
+    is shown only when every memory it cites is nameable in this wake (this folder's, or
+    about me, us or the owner from a folder whose scope is on), every chapter that day is
+    from this folder or one whose scope is on, and every folder that wrote a memory that
+    day is too (`Counterpart#daySummaryShown`); otherwise, and in the published render,
+    the chapter list exactly as before.
+    **"Today so far here"** (2026-10-24, lane W1, `self.TODAY_SO_FAR`): at a session start,
+    today's chapters written in this folder (the row's directory) before the one "Last
+    here" names, the newest `TODAY_SO_FAR_SHOWN` by time, title, id and the first sentence
+    of their session-written summary, the older counted (`last-here.ts#todaySoFarLine`,
+    `Counterpart#todaySoFarFor`). Each episode once: not "Last here"'s first, not one the
+    Yesterday line names, not the reader's own; "Last here"'s "Before it" and "+N more"
+    skip what it names. Other folders' chapters stay with "Today, elsewhere" (§11) and the
+    about-me line.
 
 13. **[M] What was planned here since the handoff is named under it** (2026-10-09). A
     session that left a handoff and later changed the plan in a note, without rewriting
