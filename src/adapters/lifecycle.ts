@@ -1255,7 +1255,7 @@ export class Lifecycle implements HostLifecycle {
         ? {}
         : {
             habituationCut: decision.habituationCut ?? 0,
-            nearMiss: decision.nearMiss.count,
+            nearMissCount: decision.nearMiss.count,
             capped: decision.capped ?? 0,
             budgetTrimmed: decision.budgetTrimmed ?? 0,
             inhibited: decision.inhibited ?? 0,

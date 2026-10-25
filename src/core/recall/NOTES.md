@@ -1471,7 +1471,7 @@ bar it faced, but past the bar without habituation's lift), `nearMiss: {margin, 
 the bar it faced by less than `margin` of it, not counted under habituation or the cross-project
 lift), `capped` (admitted past a tier's slots), `budgetTrimmed` (admitted, then cut by the
 render's bytes) and `inhibited` (head wins, near-duplicates). `adapter.recall` carries the same
-counts flat, `turn`, and `startedBy` (`person` / `host` / `unattended`, the prompt hook's own
+counts flat (the near miss as `nearMissCount`), `turn`, and `startedBy` (`person` / `host` / `unattended`, the prompt hook's own
 `startedByHost` reading), so the week's question is one table.
 
 - **Counted after the fact, from what the turn holds.** `stopCounts` reads the verdicts (each

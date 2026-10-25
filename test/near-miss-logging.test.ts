@@ -199,8 +199,11 @@ describe("N1: what stopped a memory is counted, and only counted", () => {
 
     const aOn = rows(on, RECALL_DELIVERED_EVENT);
     const aOff = rows(off, RECALL_DELIVERED_EVENT);
+    expect(aOn.length).toBe(PROMPTS.length);
+    expect(aOn.every((r) => "nearMissCount" in r && r["startedBy"] === "person")).toBe(true);
+    expect(aOff.some((r) => "nearMissCount" in r)).toBe(false);
     for (let i = 0; i < aOn.length; i++) {
-      expect(without(aOn[i] as Record<string, unknown>, [...NEW_KEYS, "elapsedMs"])).toEqual(without(aOff[i] as Record<string, unknown>, ["elapsedMs"]));
+      expect(without(aOn[i] as Record<string, unknown>, ["habituationCut", "nearMissCount", "capped", "budgetTrimmed", "inhibited", "elapsedMs"])).toEqual(without(aOff[i] as Record<string, unknown>, ["elapsedMs"]));
     }
   });
 
@@ -229,7 +232,7 @@ describe("N1: what stopped a memory is counted, and only counted", () => {
     // The adapter's row: the same counts, flat, the turn to join on, who started it.
     expect(delivered["turn"]).toBe(row["turn"]);
     expect(delivered["capped"]).toBe(row["capped"]);
-    expect(delivered["nearMiss"]).toBe(near);
+    expect(delivered["nearMissCount"]).toBe(near);
     expect(delivered["habituationCut"]).toBe(0);
     expect(delivered["inhibited"]).toBe(row["inhibited"]);
     expect(delivered["budgetTrimmed"]).toBe(row["budgetTrimmed"]);
