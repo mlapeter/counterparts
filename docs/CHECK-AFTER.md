@@ -297,6 +297,13 @@ The wake writes no row, so read it where it lands (read-only):
   another folder (only about-me cites cross);
 - whether the Still-open items it costs in a full wake are missed (Mike's read; since W1b it gives up its summaries
   first, and its titles still cost Still open past its first item), and whether the summaries are missed when they go.
+- **Y1 (2026-10-25, fix):** in 0.3.36 the summary never showed: every chapter's summary memory was born with no
+  folder (42/42 on 10-24), and a memory with none fails the gate. Now a chapter's summary records its chapter's
+  folder, and one written before is read in its chapter's folder. After the release that carries it: new summary
+  memories have `origin_scope` (`SELECT COUNT(*), COUNT(origin_scope) FROM memories WHERE type='memory' AND
+  source='episode' AND created_at > <install ms>;` equal counts), and the snapshot replay above names the check that
+  still holds a day back. On the 10-25 snapshot copy, 10-24 (the one day with a summary) still fell back in
+  ~/counterparts even with every folder's scope on: day's end cited a ~/motelier memory marked `work`.
 
 Changes it: the summary almost never showing (then the gate's cite rule is what to revisit with Mike, not the
 chapter/folder rules), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false
