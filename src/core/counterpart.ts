@@ -198,7 +198,7 @@ import type {
   WriterInput,
 } from "./self/index.js";
 import { acceptsReflectedFeeling, keepCore, ownerNames, retireCore } from "./sleep/index.js";
-import { DAYS_END_JOURNAL_SHARE, WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, daySummaries, journalBlockChars } from "./self/writer.js";
+import { DAYS_END_JOURNAL_SHARE, MERGE_DEPTH, WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, daySummaries, journalBlockChars } from "./self/writer.js";
 import { chapterSummaries } from "./self/summaries.js";
 import { withNightLine, withTodaySoFar } from "./self/briefing.js";
 import type { WriterJournal } from "./self/writer.js";
@@ -409,6 +409,21 @@ function linksDespite(r: CreditResult): boolean {
   const why = r.outcome?.reason;
   return why === "birth-day" || why === "own-write" || why === "stale-day" || why === "already-credited-today";
 }
+
+/**
+ * A ROW THE NIGHTLY RUN WROTE — a dream's merge or gist, a reflection's entry
+ * — told by origin (`dream:` / `reflection:`, which catches a merge, whose
+ * `source` is its best source's) or by source, as the store's `NIGHTLY_SQL`
+ * tells it. Filed under the folder the night ran in, whatever folders its
+ * words came from.
+ */
+function isNightRow(row: { source: string | null; origin_ref: string | null }): boolean {
+  const ref = row.origin_ref ?? "";
+  return row.source === "dreamed" || row.source === "reflection" || ref.startsWith("dream:") || ref.startsWith("reflection:");
+}
+
+/** How deep `Counterpart#nightOriginFolders` follows night rows made of night rows: as deep as day's end follows a merge to its day. */
+const NIGHT_ORIGINS_DEPTH = MERGE_DEPTH;
 
 export class Counterpart {
   readonly store: Store;
@@ -924,6 +939,7 @@ export class Counterpart {
           : { horizonMore: asked.more, horizonMoreItems: asked.moreItems.map((i) => (nearDue(i.due, at) ? { ...i, near: true } : i)) }),
         ...this.dayLinesFor(at, here),
         ...this.elsewhereFor(at, here),
+        ...(here === undefined ? {} : { hintKeptOut: (id: string) => this.hintKeptOut(id, here) }),
       });
       if (out === null) return null;
       this.emit("counterpart.wake.assembled", undefined, {
@@ -1970,17 +1986,25 @@ export class Counterpart {
    * `pageWriterInput`; its recall reaches the store too) — so what it cites
    * does not bound what its words drew on. It is shown only when ALL of:
    *
-   *   - every memory it cites is nameable in this wake (`nameableHere`): this
-   *     folder's own, or marked about me, us or the owner from a folder whose
-   *     scope setting is on. A cite that no longer reads (removed, forgotten)
-   *     or is not a memory fails it;
+   *   - every memory it cites comes from this folder or one whose scope
+   *     setting is on, and records its folder (its chapter's, for a chapter's
+   *     summary: `memoryFolder`) — whatever its mark, since Y2 (2026-10-25,
+   *     Mike's go, lightly held): the summary may mention other folders' work,
+   *     as "Today, elsewhere" names their work by title. Until then only a
+   *     cite marked about me, us or the owner crossed (`nameableHere`). A cite
+   *     that no longer reads (removed, forgotten), is denied, or is not a
+   *     memory fails it. A cite the night wrote (a dream's merge or gist, a
+   *     reflection's entry) is filed under the folder the night ran in, so it
+   *     is read by its originals' folders (`nightOriginFolders`), and fails
+   *     when any original is not open or cannot be told (review of Y2);
    *   - every chapter written that day (`chaptersWrittenOn`, unbounded by
    *     birth day, archived and merged episodes included) comes from this
    *     folder or one whose scope setting is on, and records its folder;
    *   - every memory of that day — lived that day as day's end picks them
    *     (a second-hand write-up the next morning included), or written inside
    *     it (backdated included) — archived and merged rows included, the
-   *     night's own merges and reflections left to their originals, comes from
+   *     night's own merges, gists and reflections read by their originals'
+   *     folders as a cite is, comes from
    *     this folder or one whose scope setting is on, and records its folder.
    *
    * The store is read as day's end SAW it, not as the night left it: the
@@ -1989,11 +2013,14 @@ export class Counterpart {
    * whatever day's end's recall reached on other days — a summary's cites are
    * the only bound on that.
    *
-   * No way to ask the scope setting (`exportsFrom` absent) and nothing from
-   * another folder passes. Stricter than the brief's floor (cites, plus
-   * chapters only when nothing is cited) because the prose can carry a private
-   * folder's day without citing it. Never throws: a store that will not
-   * answer shows no summary.
+   * One rule for all three: a folder the owner has turned off, paused or set
+   * to observe (`exportsFrom` false) holds the summary back wherever it shows
+   * in that day, and the wake falls back to the chapter list. No way to ask
+   * the scope setting (`exportsFrom` absent) and nothing from another folder
+   * passes. Stricter than the brief's floor (cites, plus chapters only when
+   * nothing is cited) because the prose can carry a private folder's day
+   * without citing it. Never throws: a store that will not answer shows no
+   * summary.
    */
   private daySummaryShown(date: string, here: WakeHere | undefined): string | null {
     try {
@@ -2027,29 +2054,117 @@ export class Counterpart {
       // The day's memories as day's end picks them (`writer.ts#dayMemories`:
       // the day LIVED, so a second-hand write-up the next morning is that
       // day's), and every one written inside the day. The night's own rows
-      // (a merge, a reflection) are filed under the dreaming folder; the
-      // originals they came from are read here with their own.
+      // (a merge, a gist, a reflection's entry) are filed under the folder
+      // the night ran in, so they are read by their originals' folders
+      // (`nightOriginFolders`, review of Y2): a night that ran early in the
+      // day may have merged an older memory of a folder since set off, and
+      // day's end reads that merge as the day's (`writer.ts#isOfDay`).
+      const denied = new Set(this.store.deniedIds());
+      const allOpen = (folders: readonly (string | null)[] | null): boolean => folders !== null && folders.every((f) => open(f));
       for (const id of this.store.list({ type: "memory", learnedOnFrom: date })) {
         const row = this.store.row(id);
         if (row === undefined) continue;
-        const ref = row.origin_ref ?? "";
-        if (row.source === "dreamed" || row.source === "reflection" || ref.startsWith("dream:") || ref.startsWith("reflection:")) continue;
         const inDay = row.created_at !== null && row.created_at >= from && row.created_at < to;
-        if ((inDay || livedOn(row) === date) && !open(this.memoryFolder(row))) return null;
+        if (!inDay && livedOn(row) !== date) continue;
+        if (!allOpen(isNightRow(row) ? this.nightOriginFolders(row, denied) : [this.memoryFolder(row)])) return null;
       }
       // Backdated rows written inside the day (learned on an earlier date).
       const before = new Map(this.store.memoryCountsByScopeSince(from).map((r) => [r.scope, r.count] as const));
       for (const r of this.store.memoryCountsByScopeSince(to)) before.set(r.scope, (before.get(r.scope) ?? 0) - r.count);
       for (const [scope, n] of before) if (n > 0 && !open(scope)) return null;
-      const denied = new Set(this.store.deniedIds());
+      // THE CITES, BY FOLDER ALONE (2026-10-25, Y2): the same `open` as the
+      // day's chapters and memories above — whatever the cite's mark. Until
+      // Y2 only a cite marked about me, us or the owner crossed folders
+      // (`nameableHere`), so day's end, which tells the whole day, almost
+      // never showed for someone who works in several (10-24: one ~/motelier
+      // `work` cite held it in ~/counterparts).
+      // A cite the NIGHT wrote (a dream's merge or gist, a reflection's
+      // entry) is filed under the folder the night ran in, not where its
+      // words came from: it is read by its originals' folders instead
+      // (`nightOriginFolders`, review of Y2), and fails when any of them is
+      // not open or cannot be told.
       for (const id of told.cites) {
         if (denied.has(id)) return null;
         const row = this.store.row(id);
         if (row === undefined || row.type !== "memory") return null;
-        const aboutMe = row.about !== null && row.about !== undefined && (CORE_ABOUT_MARKS as readonly string[]).includes(row.about);
-        if (!this.nameableHere(this.memoryFolder(row), aboutMe, here)) return null;
+        if (!allOpen(isNightRow(row) ? this.nightOriginFolders(row, denied) : [this.memoryFolder(row)])) return null;
       }
       return told.text;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * IS THIS "NEARBY" ITEM KEPT OUT OF A WAKE FOR `here`? (review of Y2,
+   * 2026-10-25; the brief's privacy lines.) The published bundle chooses its
+   * hints store-wide, for no reader, so a chapter's summary — the chapter's
+   * own account of the work — from a folder the owner set off, paused or to
+   * observe was listed in every other folder's wake. Kept out: a chapter's
+   * summary (`source` episode, written from a chapter) whose folder
+   * (`memoryFolder`) is another folder whose scope setting is not on, or any
+   * other folder when the setting cannot be read (`exportsFrom` absent). One
+   * whose chapter recorded no folder (from before folders) is kept, as
+   * before: there is no folder to ask about. Other hints are not this read's
+   * (self INTERFACE-GAPS §14). A store that will not answer keeps it out.
+   */
+  private hintKeptOut(id: string, here: WakeHere): boolean {
+    try {
+      const row = this.store.row(id);
+      if (row === undefined || row.type !== "memory" || row.source !== "episode" || !(row.origin_ref ?? "").startsWith("epi_")) return false;
+      const folder = this.memoryFolder(row);
+      if (folder === null) return false;
+      const norm = (s: string): string => s.trim().replace(/\/+$/, "");
+      const own = norm(here.scope ?? "");
+      if (own.length > 0 && norm(folder) === own) return false;
+      return here.exportsFrom === undefined || here.exportsFrom(folder) !== true;
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * THE FOLDERS A NIGHT ROW'S WORDS CAME FROM, for a privacy read (review of
+   * Y2, 2026-10-25): a dream's merge (`meta.mergedFrom`), a dream's gist or
+   * fold (`meta.sources`), a reflection's entry (`meta.cites`) — each is
+   * filed under the folder the night ran in, so its own `origin_scope` says
+   * nothing about whose memories it rewords. Its originals are followed, a
+   * night row among them through its own, `NIGHT_ORIGINS_DEPTH` deep, as
+   * `self/writer.ts#isOfDay` follows a merge to its day; an archived original
+   * reads as any row does. Null — the caller fails the cite — when it names
+   * no originals, when one is gone, denied, or neither a memory nor a
+   * chapter, or past the depth; an original with no folder recorded comes
+   * back null in the list, and the caller's `open` fails it. Never throws.
+   */
+  private nightOriginFolders(row: { meta: string }, denied: ReadonlySet<string>, depth = 0): (string | null)[] | null {
+    if (depth >= NIGHT_ORIGINS_DEPTH) return null;
+    try {
+      const meta = JSON.parse(row.meta) as Record<string, unknown>;
+      const ids = new Set<string>();
+      for (const key of ["mergedFrom", "sources", "cites"]) {
+        const v = meta[key];
+        if (Array.isArray(v)) for (const x of v) if (typeof x === "string" && x.length > 0) ids.add(x);
+      }
+      if (ids.size === 0) return null;
+      const out: (string | null)[] = [];
+      for (const id of ids) {
+        if (denied.has(id)) return null;
+        const orig = this.store.row(id);
+        if (orig === undefined) return null;
+        if (orig.type === "episode") {
+          out.push(orig.origin_scope !== null && orig.origin_scope.trim().length > 0 ? orig.origin_scope : null);
+          continue;
+        }
+        if (orig.type !== "memory") return null;
+        if (!isNightRow(orig)) {
+          out.push(this.memoryFolder(orig));
+          continue;
+        }
+        const deeper = this.nightOriginFolders(orig, denied, depth + 1);
+        if (deeper === null) return null;
+        out.push(...deeper);
+      }
+      return out;
     } catch {
       return null;
     }

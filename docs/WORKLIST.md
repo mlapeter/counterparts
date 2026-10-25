@@ -21,6 +21,8 @@ repeating them.*
   that night's snapshot, so replays read a store the release has actually run on.
 - **Model harness runs: once per release** (Mike, 10-22). One night compare for each switch whose default changed
   in the release, spent by the coordinator at cut time, rather than runs per lane or per PR.
+- Day's end shouldn't READ off/observer folders' chapters at all, so its summary is clean by construction and the
+  Yesterday gate's off-folder block can go (roadmap 10-25, after Y2 #624).
 
 - **Night children's session ids** (from the 10-22 read): `dream.night`, `dreams.session` and `reflections.session`
   all hold the parent session, so "the nightly run's sessions get no footnotes" (#523 F) can only be checked by time

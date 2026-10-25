@@ -362,9 +362,9 @@ export interface SelfTunables {
    * YESTERDAY READS DAY'S END'S SUMMARY (2026-10-24, lane W1; Mike's go
    * 17:45, lightly held). On: at a session start, when day's end left a
    * summary about yesterday (`writer.ts#daySummaries`) and the privacy gate
-   * lets it through (`Counterpart#daySummaryShown`: every memory it cites
-   * nameable in this wake, and every chapter and memory of that day from this
-   * folder or one whose scope setting is on), the Yesterday line leads with it and
+   * lets it through (`Counterpart#daySummaryShown`: every memory it cites, and
+   * every chapter and memory of that day, from this folder or one whose scope
+   * setting is on — a cite whatever its mark since Y2), the Yesterday line leads with it and
    * lists the chapters after it, fewer as room asks. Otherwise, and off, the
    * chapter list exactly as before. Read at use.
    */

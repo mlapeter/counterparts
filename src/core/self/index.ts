@@ -357,6 +357,15 @@ export interface AssembleRequest
   readonly horizonMore?: readonly string[];
   /** `horizonMore` with their dates (`BoundaryRequest.horizonMoreItems`). */
   readonly horizonMoreItems?: readonly HorizonItem[];
+  /**
+   * A "Nearby" item this session may not be shown (review of Y2,
+   * 2026-10-25): the published bundle's hints are chosen store-wide, for no
+   * reader, so the caller names the ones its reader's folder rules keep out
+   * (`Counterpart#hintKeptOut`: a chapter's summary from a folder whose scope
+   * setting is off). Left out of the lane, neither listed nor counted.
+   * Absent: every hint the bundle chose.
+   */
+  readonly hintKeptOut?: (id: string) => boolean;
 }
 
 /**
@@ -1190,7 +1199,9 @@ export class Self {
     // "Nearby" as the turn-end CHOSE it — what it listed, then what its trim
     // popped (2026-10-12) — so this composition lists or counts them in its
     // own room rather than leaving the popped ones without a word.
-    const hintsScanned = carried([...shown.hints, ...shown.more.hints], "hints");
+    const keptOut = req.hintKeptOut;
+    const hintIds = [...shown.hints, ...shown.more.hints];
+    const hintsScanned = carried(keptOut === undefined ? hintIds : hintIds.filter((id) => !keptOut(id)), "hints");
     const covered = hintsScanned.length === 0 ? new Set<string>() : this.pageCovers(hintsScanned);
     const lanes: Lanes = {
       identity: carried(shown.identity, "identity").map((s) => rankedAs(note(s), "identity")),

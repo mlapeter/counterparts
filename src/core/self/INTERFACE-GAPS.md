@@ -360,3 +360,12 @@ host on another budget, rather than one boundary. The dashboard reads it too, as
 directory's chapters not about me, or from a directory whose scope is off), with the
 session-start assembly naming them where they belong; or a fallback that re-renders the
 Yesterday line gated instead of delivering the published one.
+
+**"Might be relevant" too, narrowed 2026-10-25 (review of Y2):** the hints lane is chosen
+store-wide (§12), so a chapter's summary from a folder the owner set off, paused or to observe
+was listed in every other folder's SessionStart wake — before Y1 (#621) as after it (Y1 gave
+summaries their chapter's folder; the lane reads a folder only for work, and a summary is a
+journal row). The session-start assembly now leaves such a summary out
+(`AssembleRequest.hintKeptOut`, `Counterpart#hintKeptOut`). Still open: the published render
+and its fallback delivery (as above) list it; and other hints, threads and identity rows from
+a scope-off folder (written before it was set off) still travel store-wide, as recall does.
