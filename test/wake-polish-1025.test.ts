@@ -28,7 +28,7 @@ import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { NIGHT_LINE_HEAD, nightLine } from "../src/core/dream/index.js";
 import type { NightFacts, NightRun } from "../src/core/dream/index.js";
-import { ELSEWHERE_QUIET_MS, YESTERDAY_SUMMARY_WORDS } from "../src/core/handoff/last-here.js";
+import { ELSEWHERE_QUIET_MS, YESTERDAY_SUMMARY_WORDS, todayElsewhereLines } from "../src/core/handoff/last-here.js";
 import { FRAMING, OPEN_TAIL_WORDS, SELF_TUNABLES, countedLanes, withNightLine } from "../src/core/self/index.js";
 
 const MIN = 60_000;
@@ -160,6 +160,14 @@ describe("2. an open session with no turn for two hours is quiet, not live", () 
     recordSession(storeDir, { sessionId: A, scope: THERE, phase: "boundary", at: at(D2, 12, 40) });
     w.set(at(D2, 12, 45));
     expect(lineOf(wake(w), "Today, elsewhere: ")).toContain("open since 08:00 (live)");
+  });
+
+  test("a session quiet since before midnight says the day of its last turn (review of #623)", () => {
+    const here = [{ session: A, model: null, startedAt: at(D1, 20), lastAt: at(D1, 22, 30), titles: [] }];
+    const line = todayElsewhereLines([], ZONE, here, at(D2, 1))?.line ?? "";
+    expect(line).toContain(", quiet since 10-24 22:30");
+    // The same day: the clock alone.
+    expect(todayElsewhereLines([], ZONE, [{ session: A, model: null, startedAt: at(D2, 6), lastAt: at(D2, 7), titles: [] }], at(D2, 9, 1))?.line ?? "").toContain("since 06:00, quiet since 07:00");
   });
 });
 
@@ -365,5 +373,13 @@ describe("3. Last night", () => {
     expect(nightLine({ ...base, dream: d({ link: 1 }, "undone") })).toBe("Last night: dream drm_x was undone.");
     expect(nightLine({ ...base, reflection: { id: "rfl_y", date: D2, state: "reflected", entry_id: "mem_1", page_version: null } })).toBe("Last night: reflection rfl_y wrote an entry.");
     expect(nightLine(base)).toBeNull();
+    // Review of #623: a run started today and lost past its watchdog did not finish — not "none yet";
+    // and with dreaming off, none is to come, so not "yet" either.
+    const lost: NightRun = { run: "nrn_lost", date: D2, state: "started", kind: "night", session: S, startedAt: at(D2, 1), endedAt: null, reason: null, detail: null, code: null, dream: null, reflection: null, timeoutMs: HOUR };
+    const prior: NightFacts["dream"] = { id: "drm_x", date: D1, state: "journaled", counts: { link: 1 } };
+    expect(nightLine({ ...base, dream: prior, run: lost })).toBe("Last night: the nightly run did not finish (no word from it).");
+    expect(nightLine({ ...base, dream: prior, run: { ...lost, startedAt: at(D2, 8, 50) } })).toBe("Last night: the nightly run is under way.");
+    expect(nightLine({ ...base, dream: prior })).toBe("Last night: none yet today (last: Oct 24).");
+    expect(nightLine({ ...base, dream: prior, setting: "off" })).toBe("Last night: no night ran (last: Oct 24); dreaming is off.");
   });
 });

@@ -894,8 +894,10 @@ export function todayElsewhereLines(
   // Quiet from the minute it opened: "quiet since then", not the time twice.
   const quiet = (lastAt: number | null | undefined, from: number | null): string => {
     if (now === undefined || lastAt === null || lastAt === undefined || now - lastAt < quietMs) return "";
-    const at = clock(lastAt);
-    return from !== null && clock(from) === at && localDate(from, zone) === localDate(lastAt, zone) ? ", quiet since then" : `, quiet since ${at}`;
+    // A turn before today's midnight says its day (review of #623): a session
+    // open past midnight is live for four hours after its last turn.
+    const at = localDate(lastAt, zone) === localDate(now, zone) ? clock(lastAt) : localStamp(lastAt, zone);
+    return from !== null && clock(from) === clock(lastAt) && localDate(from, zone) === localDate(lastAt, zone) ? ", quiet since then" : `, quiet since ${at}`;
   };
   const one = (d: TodayElsewhere, chapters: boolean, titles: number): string => {
     const hush = d.live ? quiet(d.lastAt, d.firstAt) : "";

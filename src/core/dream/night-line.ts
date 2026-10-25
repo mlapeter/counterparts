@@ -115,11 +115,15 @@ export function nightLine(f: NightFacts): string | null {
     if (runToday !== null && runToday.state !== "done" && runToday.state !== "started") {
       return `${NIGHT_LINE_HEAD} the nightly run did not finish (${runToday.state}).`;
     }
+    // Started today and past its watchdog with no word (review of #623): a
+    // run that began and was lost, not a night still to come.
+    if (runToday !== null && runToday.state === "started") return `${NIGHT_LINE_HEAD} the nightly run did not finish (no word from it).`;
     // Nothing tonight: when the last one was.
     const dates = [f.dream?.date, f.reflection?.date, run?.date].filter((d): d is string => typeof d === "string" && d.length > 0 && d < today).sort();
     const last = dates[dates.length - 1];
     if (last === undefined) return null;
-    return isDay(today) && last === addDays(today, -1)
+    // "Yet" promises one to come; with dreaming off none is (review of #623).
+    return isDay(today) && last === addDays(today, -1) && off.length === 0
       ? `${NIGHT_LINE_HEAD} none yet today (last: ${shortDate(last)})${off}.`
       : `${NIGHT_LINE_HEAD} no night ran (last: ${shortDate(last)})${off}.`;
   }
