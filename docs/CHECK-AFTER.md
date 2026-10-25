@@ -68,6 +68,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Wake polish 10-25 (random-5b's wake): a "Last night:" line (`self.NIGHT_LINE`), "Still open"'s tail one calm count with no ids, "quiet since HH:MM" for a session idle two hours (`ELSEWHERE_QUIET_MS`), a handoff's staleness in two clauses | not released, 10-25 | ~3 mornings after install | "Due ~3 mornings after the wake polish of 10-25" below |
 | A `still open` recall handle that lists what "Still open" carries (and the facts questions asking for that list), named in the wake's tail (O1); before the day's run the night line names the latest finished night, dated (L1) | not released, 10-25 | ~3 mornings after install | "Due ~3 mornings after the still open handle and the dated night" below |
 | Ambient recall's meaning reads THIS turn (S1): every ambient turn embeds its own prompt and ranks it in line, fresh lag row or not, on the `inline` calibration; past the in-line count guard the worker's fresh lag row is used, recorded `lagged`; switch `recall.SEMANTIC_THIS_TURN` | not released, 10-25 | ~1 week after install (~2026-11-01): footnote ratings and items shown per Mike-typed turn vs 10-22..24; short-prompt complaints | "Due ~1 week after this-turn meaning" below; `docs/decisions.d/feat-this-turn-meaning.md` |
+| What stopped a memory, counted (N1, observation only): `recall.decision` carries `habituationCut`, `nearMiss {margin 0.1, count}`, `capped`, `budgetTrimmed`, `inhibited` beside the echo/project skips; `adapter.recall` the same flat (the near miss as `nearMissCount`), with `turn` and `startedBy` (`person`/`host`/`unattended`); switch `recall.STOP_COUNTS` | not released, 10-25 | a week after install: what stopped memories on the turns a person typed, by day | "Due a week after the stop counts" below; `src/core/recall/NOTES.md` "N1" |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -436,6 +437,48 @@ Changes it: useful ratings falling, or noise rising, on Mike-typed turns beyond 
 complaint more than once; p95 cost past ~50 ms. Then try off, or tune the ambient profile apart from the deliberate
 one before reverting. Revert: `recall.SEMANTIC_THIS_TURN=false` in `src/core/recall/tunables.ts` (a fresh lag row
 wins again, exactly the 0.3.36 behaviour), or revert the PR. If it stays: retiring the lag writer is the follow-up.
+
+## Due a week after the stop counts (2026-10-25, N1, Mike's OK 11:44 via roadmap 3b — observation only, `recall.STOP_COUNTS`)
+
+What: shown per Mike-typed turn fell (~1.9 → 1.2–1.6) and only the echo skip could be named. Each turn now counts what
+each mechanism kept from showing: `habituationCut` (habituation's lift alone, not one the cross-project lift already
+counts), `nearMiss` (below the bar it faced by less than 10% of it, not counted under habituation or the cross-project
+lift), `capped` (admitted past a tier's slots), `budgetTrimmed` (cut by the render's bytes), `inhibited` (head wins, near-duplicates), beside `echoSkipped`,
+`projectSkipped` and `crossProjectLifted`. Belief/tag displacement has no key: the beliefs slot never takes a memory's
+room. Nothing is judged by these; the test proves the same bytes with them on or off. The replay (1,782 turns over a
+10-25 snapshot copy, 648 a person started; recall NOTES "N1") read, per person turn: echo 1.43, near miss 0.87, cross
+lift 0.28, habituation 0.26, inhibited 0.12, capped 0, budget 0.
+
+Look at (read-only; rows from before this build have no `startedBy` and no counts, so they drop out):
+- **what stopped memories on Mike's typed turns this week**, per day and build:
+
+```sql
+SELECT json_extract(payload,'$.date') AS date, json_extract(payload,'$.build') AS build, COUNT(*) AS turns,
+       ROUND(AVG(json_extract(payload,'$.surfaced') + json_extract(payload,'$.footnotes')), 2) AS shown,
+       ROUND(AVG(json_extract(payload,'$.echoSkipped')), 2) AS echo,
+       ROUND(AVG(json_extract(payload,'$.projectSkipped')), 2) AS project,
+       ROUND(AVG(json_extract(payload,'$.crossProjectLifted')), 2) AS cross_lift,
+       ROUND(AVG(json_extract(payload,'$.habituationCut')), 2) AS habituation,
+       ROUND(AVG(json_extract(payload,'$.nearMissCount')), 2) AS near_miss,
+       ROUND(AVG(json_extract(payload,'$.capped')), 2) AS capped,
+       ROUND(AVG(json_extract(payload,'$.budgetTrimmed')), 2) AS budget,
+       ROUND(AVG(json_extract(payload,'$.inhibited')), 2) AS inhibited
+FROM events
+WHERE name = 'adapter.recall' AND json_extract(payload,'$.startedBy') = 'person'
+  AND json_extract(payload,'$.nearMissCount') IS NOT NULL AND json_extract(payload,'$.date') >= date('now', '-7 days')
+GROUP BY date, build ORDER BY MIN(seq);
+```
+
+  `startedBy` is the prompt hook's own reading: `person` is an attended session whose prompt no host frame opens (not
+  a task notice, a subagent's hand-back or another session's message); `sdk-cli` and other unattended sessions read
+  `unattended`. The same query with `'host'` gives the comparison.
+- the margin the rows were counted at, should it be tuned: `SELECT json_extract(payload,'$.nearMiss.margin') AS margin, COUNT(*) FROM events WHERE name = 'recall.decision' AND json_extract(payload,'$.nearMiss') IS NOT NULL GROUP BY margin;`
+- one turn's decision row: `adapter.recall`'s `session` and `turn` are `recall.decision`'s `ref` and `$.turn`.
+
+Changes it: nothing to revert unless a row is wrong; it answers the shown-per-turn question. If `nearMiss` stays near 0
+while shown falls, the bar is not what moved; if it climbs as shown falls, read the bar (SNR, the semantic profile).
+Off: `recall.STOP_COUNTS=false` in `src/core/recall/tunables.ts` (the counts absent; `adapter.recall` keeps `turn` and
+`startedBy`).
 
 ## Due a week after the support door's shadow (2026-10-24, E2, Mike's go 14:36 and his yes 20:59 to merge in shadow, lightly held — `physics.CORE_DOOR_SUPPORT`)
 
