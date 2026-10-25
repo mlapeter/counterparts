@@ -3999,6 +3999,41 @@ replay compare read 0 lines differing).
   columns, summed, are each door's core growth (a stateless shadow repeats a held memory's
   `wouldPromote` every night). The per-memory rows are latched, each kind once a memory.
 
+### Decided by Mike, 2026-10-25, lightly held (ambient recall's meaning reads this turn)
+
+- Decided by Mike on the 10-25 roadmap ("switch on"), lightly held: every ambient turn embeds its own prompt and
+  ranks it in line (`recall.SEMANTIC_THIS_TURN`, on), instead of using the worker's lagged rank of the previous
+  exchange when one is fresh. Why: the cue should match the turn. The replay (1,782 real turns, 10-18..10-25, a
+  10-25 snapshot copy) was a wash on numbers: 16% of lagged turns differ by ~1.3 items, later-credited items lost
+  10 and gained 8, ≤3-word prompts lost 1 credited of 28, +4–7 ms p50 a turn
+  (`~/counterparts-notes/2026-10-25-0327-reread.md`, "Semantic lag A/B, gate cleared").
+- Past the in-line count guard (`SEMANTIC_INLINE_MAX_VECTORS`) a fresh lag row is still used, recorded `lagged`,
+  so the lag WRITER stays in the worker for now; retiring it is a later cleanup. The embed backfill beside it stays
+  regardless.
+- Ambient turns now rank on the `inline` calibration (`SEMANTIC_BY_IDENTITY`, potion: floor 0.15, weight 6),
+  which was measured on deliberate questions, where the lagged profile had floor 0.05, weight 1. The replay's
+  in-line arm ran on that profile, so its numbers include it.
+- Check ~2026-11-01 (`docs/CHECK-AFTER.md`). Revert: `recall.SEMANTIC_THIS_TURN` false.
+
+### Decided by Mike, 2026-10-25, lightly held (Yesterday's day summary may mention other folders' work)
+
+- Decided by Mike on the 10-25 roadmap ("your rec sounds good"), lightly held: day's end's summary of yesterday
+  may lead the Yesterday line in any folder while it mentions other folders' work, at the level "Today, elsewhere"
+  already names their work by title. In the gate (`Counterpart#daySummaryShown`) a cite now crosses folders on its
+  folder alone: this folder, or one whose scope setting is on, whatever its mark. Until then only a cite marked
+  about me, us or the owner crossed, so a summary of a day spent in several folders almost never showed (10-24 on
+  the 10-25 snapshot copy: one ~/motelier `work` cite held it back in ~/counterparts).
+- Unchanged: a folder set off or paused (or observer) anywhere in that day — a cite, a chapter, or a memory —
+  keeps the summary out and the wake lists the chapters; so do a denied cite, a cite or row with no folder, and
+  anything from another folder when the scope setting can't be read. A folder never registered reads as on
+  (`scopes.ts#stanceOfMode`, `unset`), as it already did for the day's chapters and memories.
+- Coordinator's decision in review: a cite the night wrote (a dream's merge or gist, a reflection's entry) is filed
+  under the folder the night ran in, so it is read by its originals' folders (`Counterpart#nightOriginFolders`,
+  a few merges deep), and fails closed when any original is not open, denied, gone or records no folder. The same
+  holds for such a row made inside that day, which day's end reads as the day's.
+- Check with the Y1 lines in `docs/CHECK-AFTER.md` ("Due ~5 days after Today so far"). Revert: the PR (back to
+  about-me cites only), or `self.YESTERDAY_FROM_SUMMARY` false.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules

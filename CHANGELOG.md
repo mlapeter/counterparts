@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.3.37 — 2026-10-25
+
+The wake says what the night did: a "Last night:" line under Yesterday, or, before the day's own nightly run, "The night of Oct 24: …" naming the latest night that finished. "Still open" counts what it leaves out calmly and points at `recall "still open"`, which lists every open item, and a terminal left open for hours reads "quiet since …" instead of "(live)". The Yesterday line can now open with day's end's own summary of yesterday, which in 0.3.36 never showed (a chapter's summary recorded no folder), also when yesterday's work spanned several folders. Ambient recall looks up memories by the meaning of what you just typed, not the exchange before it. **Privacy fixes:** a folder you have turned off no longer shows its chapter summaries ("Might be relevant") or its chapter titles (the Yesterday line) in another folder's session start, whichever way the wake arrives: built at session start, handed over as the last turn-end left it, or read back for a lost session. No store-format change (store v15, cache v7), no wiring change: `counterparts connect` is not needed after upgrading, and going back to 0.3.36 is a plain reinstall. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
+
+- **Recall's meaning lookup is about what you just asked.** Each turn now looks up memories by the meaning of
+  its own prompt, not the exchange before it, so a change of subject is followed at once rather than a turn
+  later. A store too large to look up in line on every turn still uses the previous exchange, as before.
+  Asking `recall` directly is unchanged. To go back: `recall.SEMANTIC_THIS_TURN` false.
+- **Yesterday's line can open with day's end's summary again.** A chapter's summary memory was written with no
+  folder, so the privacy check behind "Yesterday, in day's end's words" refused every day with a chapter in it and
+  the summary never showed. A chapter's summary now records the folder its chapter was written in, and summaries
+  written before are read as written in their chapter's folder. Nothing in the store changes; the privacy check is
+  as strict as before.
+- **The wake says what last night did.** A session start's wake has a "Last night:" line
+  under the Yesterday line: what the dream and the reflection did, by id and in a few
+  words ("dream drm_… made 11 links, 1 fold and 1 feeling; reflection rfl_… rewrote the
+  page"), or "a quiet night", or that the nightly run is under way; before the day's run it
+  names the latest night that finished (below). A store that has never had a night shows no line.
+- **"Still open" counts the rest calmly.** The line under the open items reads "(96 more
+  open, kept quietly; recall "still open" lists them)" instead of a count of how many
+  were untouched for two weeks and five bare ids.
+- **A terminal left open is quiet, not live.** "Today, elsewhere" (and "Here, also open")
+  says "open since 10-24 16:49, quiet since 07:12" for a session with no turn for two
+  hours, instead of "(live)".
+- **A handoff's staleness reads in two parts.** "(1 day old, with a newer chapter here
+  since; release 0.3.34 then, 0.3.35 now)" where it said "1 day old; since then: a newer
+  chapter here; written on 0.3.34, 0.3.35 now".
+- **Each turn's recall record says what kept memories from showing** (internal): near misses of the bar, habituation, full tiers, the byte budget and duplicates are counted beside the echo and project skips, along with whether a person started the turn. What shows is unchanged.
+- **Yesterday's line can tell the whole day when you work in several folders.** Day's end's summary of
+  yesterday may now mention work from your other folders, the way "Today, elsewhere" already names their work.
+  Until now one cited piece of work from another folder kept the summary out, so for anyone who works in more
+  than one folder it almost never showed. A folder you have turned off or paused still keeps it out: if
+  yesterday touched one, the wake lists yesterday's chapters instead, as before.
+- **A folder you have turned off no longer shows its chapter summaries under "Might be relevant"** in another
+  folder's session start. They were listed there before, whatever the folder's setting.
+- **Recall can list what's still open.** `recall` with the handle "still open" lists every
+  open item the wake's "Still open" carries, in the wake's order, with ids, titles and how
+  long since each was touched, twenty to a page. Asking "what's still open?" or "open
+  threads" in facts mode gets the same list. The wake's count under "Still open" now points
+  at it: "(94 more open, kept quietly; recall "still open" lists them)".
+- **The first wake of the day says what the last night did.** Before the day's nightly run,
+  the night line describes the latest night that finished, dated by the day it read ("The
+  night of Oct 24: dream drm_… made 11 links, 1 feeling and 1 fold; reflection rfl_…
+  rewrote the page."), instead of "Last night: none yet today". A night more than three
+  days back says so: "The night of Oct 19 was the last to run: …".
+- **A folder you have turned off keeps its chapter summaries out of "Might be relevant" in other folders, also
+  when a session start hands over the wake as the last turn-end wrote it** (for example, in a second app with a
+  different size limit).
+- **That wake's "Yesterday" line is the one this folder's own wake would carry**, so a turned-off folder's chapter
+  titles are no longer in it. The wake the crash fallback reads a lost session with leaves chapter summaries out
+  too.
+
 ## 0.3.36 — 2026-10-25
 
 A session opened mid-day now sees what this folder did earlier today (a "Today so far here" line), and the Yesterday line opens with day's end's own summary of yesterday when everything it rests on may be shown in this folder; on a tight day, "Still open" keeps its items before "Today so far" keeps its summaries. When you write the newer state of a recent memory without linking it, a turn that brings back both shows the newer one first and labels the older one "may be out of date". A word that brought a memory back, which the session then used, is wired to it, so next time the word alone can bring it back. The core is decided every night instead of every third (still at most three a night), and a belief you repeat awake counts as support for the one that already says it. A new way of deciding the core, by how much real use has backed a memory, runs **in shadow only**: it records each night what it would have let in or kept out, and nothing changes yet. **This release changes the store's format (v14 to v15, one new table), so after installing, quit the dashboard and every open Claude Code session, then start them again**: one left running from before the update keeps the old code against the upgraded store and stops working on it until it is restarted. The first open saves a copy of your store before upgrading it. **0.3.35 and older refuse the upgraded store**, so going back to 0.3.35 is `counterparts rollback` first, while 0.3.36 is still installed (it puts that pre-upgrade copy back; anything remembered since is set aside, not deleted), then 0.3.35's install and `counterparts connect` as it prints. Cache v7 unchanged; no wiring change, so `counterparts connect` is not needed after upgrading.
