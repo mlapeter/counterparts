@@ -77,6 +77,9 @@ repeating them.*
 - **Benchmark-motivated changes from 10-18** (Mike: lightly held, review in about a week): #516's "may be inside the
   window" label and the rest of that day's list. Due ~10-25.
 - **The synthetic bench's drift**: re-tune check (BENCHMARK session's).
+- **Rows written while a folder was on, then the folder turned off**: hint, thread and identity rows still show in
+  every folder's wake and in recall. Does turning a folder off later take back what it already shared? (found in
+  #624's review, 10-25; roadmap puts it to Mike)
 
 ## Outside this repo (other sessions)
 

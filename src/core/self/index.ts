@@ -113,6 +113,7 @@ import type {
   Resolved,
   SentinelReading,
 } from "./briefing.js";
+import { hintsForReader } from "./briefing.js";
 import {
   PAGE_META_BY,
   PAGE_META_REASON,
@@ -2702,11 +2703,31 @@ export class Self {
    * no model and no write; the cost is a single aggregate, not O(store) prose,
    * and a caller that passes nothing pays exactly the old one meta row
    * (INTERFACE-GAPS #2).
+   *
+   * `hintKeptOut` (P1, 2026-10-25): a delivery of the PUBLISHED bundle — no
+   * `assembled` text — takes the reader's "Might be relevant" read the
+   * assembly takes (`AssembleRequest.hintKeptOut`), through
+   * `briefing-delivery.ts#hintsForReader`. Not applied to a read that is not
+   * a delivery (the owner's dashboard), nor to an assembled wake, which
+   * applied it already.
    */
-  wake(delivery?: WakeDelivery, assembled?: string): WakeResult {
+  wake(delivery?: WakeDelivery, assembled?: string, hintKeptOut?: (id: string) => boolean): WakeResult {
     // A wake ASSEMBLED at session start (`assemble`, 2026-10-10) is delivered
     // in place of the published one, with the same preface and tense.
-    const raw = assembled ?? this.store.getMeta(BRIEFING_KEY);
+    let raw = assembled ?? this.store.getMeta(BRIEFING_KEY);
+    // THE PUBLISHED BUNDLE, FOR THIS READER (P1): its hints were chosen
+    // store-wide; what this reader may not be shown is taken out before the
+    // preface, matched to its lines by the record published beside it when
+    // that record speaks for this very bundle.
+    let hintsOut: { lines: number; ids: number; blind: boolean } | null = null;
+    if (assembled === undefined && delivery !== undefined && hintKeptOut !== undefined && raw !== undefined && raw.length > 0) {
+      const shown = wakeShown(this.store);
+      const reader = hintsForReader(raw, shown !== null && shown.hash === hashText(raw) ? shown.hints : null, hintKeptOut);
+      if (reader.text !== raw) {
+        raw = reader.text;
+        hintsOut = { lines: reader.lines, ids: reader.ids, blind: reader.blind };
+      }
+    }
     if (raw === undefined) {
       this.emit("self.wake", undefined, { ok: false, reason: "absent", bytes: 0 });
       return {
@@ -2777,6 +2798,7 @@ export class Self {
       stated: reading.statedBytes,
       elements: reading.statedElements,
       preface: delivered?.applied ?? false,
+      ...(hintsOut === null ? {} : { hintsKeptOut: hintsOut.lines + hintsOut.ids, hintsBlind: hintsOut.blind }),
     });
     return {
       text: delivered?.text ?? raw,

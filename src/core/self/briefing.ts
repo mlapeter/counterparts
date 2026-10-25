@@ -105,12 +105,13 @@ export {
   applyPreface,
   arrivingTense,
   groupDigits,
+  hintsForReader,
   prefaceLine,
   readSentinel,
   spliceBeforeSentinel,
   withHeadFields,
 } from "./briefing-delivery.js";
-export type { PrefaceFacts, PrefacedBundle, SentinelReading } from "./briefing-delivery.js";
+export type { HintsForReader, PrefaceFacts, PrefacedBundle, SentinelReading } from "./briefing-delivery.js";
 
 /**
  * Composed order — behavioral-spec §1's, minus the two riders the Rulings drop
@@ -473,7 +474,7 @@ export const MORE_NOUN: Readonly<Record<LaneName, string>> = {
 
 /** The phrases before the plain-words rename, read back (`countedLanes`) off
  *  a stored bundle as `LEGACY_FRAMING` is; nothing composes them any more. */
-const LEGACY_MORE_NOUN: Readonly<Partial<Record<LaneName, string>>> = {
+export const LEGACY_MORE_NOUN: Readonly<Partial<Record<LaneName, string>>> = {
   hints: "nearby",
   horizon: "arriving",
 };

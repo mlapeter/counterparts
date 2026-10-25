@@ -369,3 +369,13 @@ journal row). The session-start assembly now leaves such a summary out
 (`AssembleRequest.hintKeptOut`, `Counterpart#hintKeptOut`). Still open: the published render
 and its fallback delivery (as above) list it; and other hints, threads and identity rows from
 a scope-off folder (written before it was set off) still travel store-wide, as recall does.
+
+**The fallback's "Might be relevant" closed 2026-10-25 (P1):** a delivery of the published
+bundle as it is takes the same read (`Self#wake`'s `hintKeptOut`,
+`briefing-delivery.ts#hintsForReader`): a kept-out summary's listed line is taken out (matched
+by the published record's order, `WAKE_SHOWN_KEY`, when the record speaks for that bundle), its
+id out of the lane's count lines, and the byte counts re-solved. With no record (a bundle an
+older build published) no line can be told apart, so the lane is not printed. A delivery that
+names no folder keeps out every summary that recorded one, on both roads. Still open: the
+published render itself (the dashboard's, the owner's), the fallback's Yesterday line (as
+above), and the other rows named in the paragraph before.
