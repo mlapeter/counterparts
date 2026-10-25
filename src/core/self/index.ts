@@ -3331,6 +3331,12 @@ export class Self {
     // chapter's "owner" with that mark's floor.
     const legacy = doc.meta[CHAPTER_ABOUT_META] === undefined;
     const mark = input.about ?? aboutMarkOf(chapterAbout(doc.meta, input.chapter)) ?? (legacy ? aboutMarkOf(doc.meta[EPISODE_ABOUT_META]) : null);
+    // ITS CHAPTER'S FOLDER (2026-10-25, Y1): the directory the episode was
+    // born in (`appendChapter` sets it at birth), so a privacy read of the
+    // summary (the Yesterday-from-summary gate) knows where it was written.
+    // Until then every summary was born with none. An episode from before
+    // folders has none to give, and its summary none either.
+    const folder = this.store.row(input.episodeId)?.origin_scope ?? null;
     const put: Parameters<Store["put"]>[0] = {
       type: "memory",
       kind: "self",
@@ -3344,7 +3350,7 @@ export class Self {
         [CLAIMED_DEFAULT_SPELLED]: true,
       },
       source: "episode",
-      origin: { session: input.sessionId, ref: input.episodeId },
+      origin: { session: input.sessionId, ref: input.episodeId, ...(folder === null || folder.length === 0 ? {} : { scope: folder }) },
       salience: { claimed: defaultClaimFor({ about: mark, kind: "self" }).claim },
     };
     // THE TITLE, THROUGH THE SECRETS SCAN ONLY (review of #293, B3): the
