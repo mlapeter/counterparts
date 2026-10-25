@@ -30,6 +30,8 @@ import { McpServer } from "../src/adapters/mcp/index.js";
 import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeMode, ScopeVerdict } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
+import type { SweepChunk } from "../src/core/remember/index.js";
 import { BRIEFING_KEY, WAKE_SHOWN_KEY, dayLineForReader, hintsForReader, readSentinel } from "../src/core/self/index.js";
 
 const HOUR = 3_600_000;
@@ -480,3 +482,33 @@ describe("dayLineForReader", () => {
   });
 });
 
+describe("the crash sweep's wake: no one reader, so no chapter summary that recorded a folder", () => {
+  test("an off folder's summary does not reach the interpreter's prompt", async () => {
+    await threeFolders();
+    const c = brain();
+    scopes({ [HERE]: "on", [BAKERY]: "off", [FARM]: "on" });
+    // The state on purpose: the published bundle lists all three, so the store-wide lane chooses them.
+    expect(publish(c)).toContain(`${OFF}, done.`);
+    c.store.put({ type: "memory", kind: "self", band: "identity", title: "How I work", body: "I write the failing test before the fix.", learnedOn: "2026-10-01" });
+    c.captureSpans({ session: "crashed", scope: HERE, turns: [
+      { role: "user", text: "We moved the cold frame to the south wall so the seedlings catch the morning sun before the frost lifts." },
+      { role: "assistant", text: "Moved. The south wall keeps the frame out of the wind as well, which matters more than the sun in March." },
+    ] });
+    c.boundary({ session: "crashed", scope: HERE, kind: "stop" });
+    clock += REMEMBER_TUNABLES.CRASH_STALE_MS + 60_000;
+    const prompts: string[] = [];
+    await c.sweepFallback({
+      wakeBytes: BUDGET,
+      minBytes: 1,
+      interpret: async (chunk: SweepChunk) => {
+        prompts.push(chunk.prompt);
+        return { proposals: [], stopReason: "end_turn" };
+      },
+    });
+    expect(prompts.length).toBeGreaterThan(0);
+    for (const p of prompts) {
+      expect(p).toContain("WHO YOU ARE");
+      expect(p).not.toContain(`${OFF}, done.`);
+    }
+  });
+});
