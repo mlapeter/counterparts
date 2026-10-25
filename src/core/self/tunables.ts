@@ -337,6 +337,17 @@ export interface SelfTunables {
    */
   PAGE_WRITER_ASKS_PER_DAY: number;
   /**
+   * "LAST NIGHT:" IN THE WAKE (2026-10-25, the wake-polish builder from
+   * random-5b's 10-25 wake; Mike's go, lightly held). On: a session start's
+   * wake carries one line saying what last night's dream and reflection did,
+   * by id and in a few words, or that it was a quiet night, or that none ran
+   * (`dream/night-line.ts#nightLine`) — between the Yesterday line and "Today
+   * so far here", in the same piece of furniture, and the last of it to give
+   * way (`Counterpart#dayLinesFor`). Off: no line, the wake exactly as before.
+   * Read at use.
+   */
+  NIGHT_LINE: boolean;
+  /**
    * "TODAY SO FAR" IN THE WAKE (2026-10-24, lane W1; Mike's go 17:45, lightly
    * held). On: a session start's wake carries one more line under the
    * Yesterday line — today's chapters written in this folder before the one
@@ -502,6 +513,7 @@ export const SELF_TUNABLES: SelfTunables = {
   DAY_SUMMARY: true,
   DAY_SUMMARY_CHARS: 600,
   PAGE_WRITER_ASKS_PER_DAY: 2,
+  NIGHT_LINE: true,
   TODAY_SO_FAR: true,
   YESTERDAY_FROM_SUMMARY: true,
 

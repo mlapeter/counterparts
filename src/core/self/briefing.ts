@@ -317,6 +317,57 @@ export function withTodaySoFar(
   };
 }
 
+/**
+ * "LAST NIGHT:" IN THE SAME PIECE OF FURNITURE (2026-10-25, the wake-polish
+ * builder; `self.NIGHT_LINE`, lightly held). The night line rides in every
+ * form of the Yesterday line's ladder (`withTodaySoFar`'s), between the
+ * Yesterday line and "Today so far here" — the order things happened in —
+ * and the ladder gains one last rung, the night line alone: the Yesterday
+ * line and "Today so far" step down as they always have, and the night line
+ * is the last of the furniture to give way. A form that carried summaries
+ * (`todaySoFarSummaries`) still does, with the line in it. Without a night
+ * line the furniture comes back untouched, byte for byte. Pure.
+ */
+export function withNightLine(
+  day: { readonly yesterday?: string; readonly yesterdayShorter?: readonly string[]; readonly todaySoFarSummaries?: readonly string[] },
+  night: string | null,
+): { yesterday?: string; yesterdayShorter?: string[]; todaySoFarSummaries?: string[] } {
+  const copy = (): { yesterday?: string; yesterdayShorter?: string[]; todaySoFarSummaries?: string[] } => ({
+    ...(day.yesterday === undefined ? {} : { yesterday: day.yesterday }),
+    ...(day.yesterdayShorter === undefined ? {} : { yesterdayShorter: [...day.yesterdayShorter] }),
+    ...(day.todaySoFarSummaries === undefined ? {} : { todaySoFarSummaries: [...day.todaySoFarSummaries] }),
+  });
+  if (night === null || night.trim().length === 0) return copy();
+  const n = flatten(night);
+  const y = day.yesterday;
+  if (y === undefined || y.length === 0) return { yesterday: n };
+  const forms = [y, ...(day.yesterdayShorter ?? []).filter((s) => s.length > 0 && byteLength(s) < byteLength(y))];
+  // After the Yesterday line when the form opens with it, else first.
+  const into = (f: string): string => {
+    const lines = f.split("\n");
+    const at = lines[0]?.startsWith("Yesterday") === true ? 1 : 0;
+    return [...lines.slice(0, at), n, ...lines.slice(at)].join("\n");
+  };
+  const summed = new Set(day.todaySoFarSummaries ?? []);
+  const out: string[] = [];
+  const said: string[] = [];
+  let last = Number.POSITIVE_INFINITY;
+  for (const f of [...forms.map(into), n]) {
+    const size = byteLength(f);
+    if (size >= last) continue;
+    out.push(f);
+    last = size;
+  }
+  for (const f of forms) if (summed.has(f)) said.push(into(f));
+  const [widest, ...shorter] = out;
+  if (widest === undefined) return copy();
+  return {
+    yesterday: widest,
+    ...(shorter.length === 0 ? {} : { yesterdayShorter: shorter }),
+    ...(said.length === 0 ? {} : { todaySoFarSummaries: said.filter((s) => out.includes(s)) }),
+  };
+}
+
 /** Where each lane the trim loop pops sits in `ROOM_ORDER`: Arriving's lines
  *  past its head at `arriving`, "Who I am" with the page. */
 const TRIM_ROOM: Readonly<Record<LaneName, RoomLane>> = {
