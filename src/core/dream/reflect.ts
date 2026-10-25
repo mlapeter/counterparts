@@ -4571,10 +4571,6 @@ function isJournalCopy(row: MemoryRow): boolean {
 }
 
 /**
- * Is the folder a memory was written in on (review of #558)? One with no
- * origin is not asked; the host's answer throwing counts as no.
- */
-/**
  * THE UNMARKED OFFER'S MOST, PAST THE ROOM (review of #619, D1): `UNMARKED`
  * lines at their longest — the fit's `OVERHEAD` each, and a `LINE_BYTES` line
  * at its widest on the wire (`wireChars` counts a non-ASCII UTF-16 unit as
@@ -4586,6 +4582,10 @@ export function unmarkedOfferCap(): number {
   return Math.max(0, Math.floor(T.UNMARKED)) * (FIT_TUNABLES.OVERHEAD + Math.ceil(T.LINE_BYTES * 1.5));
 }
 
+/**
+ * Is the folder a memory was written in on (review of #558)? One with no
+ * origin is not asked; the host's answer throwing counts as no.
+ */
 function folderIsOn(scope: string | null, folderOn: ((scope: string) => boolean) | undefined): boolean {
   if (folderOn === undefined || scope === null || scope.trim().length === 0) return true;
   try {
