@@ -308,11 +308,13 @@ The wake writes no row, so read it where it lands (read-only):
   alone (this folder, or one whose scope setting is on: the same rule as (b) and (c)), whatever its mark; "only
   about-me cites cross" above no longer holds. Still out: a cite, chapter or memory that day from a folder set off
   or paused, a denied cite, a cite with no folder, and anything from another folder when the scope setting can't be
-  read. On the 10-25 snapshot copy, 10-24 now shows in ~/counterparts with every folder on (and in ~/motelier,
+  read. A cite the night wrote (a dream's merge or gist, a reflection's entry) is filed under the folder the night
+  ran in, so it is read by its originals' folders instead, a few merges deep, and fails when any original is off,
+  denied, gone or foldless (review of Y2); the same for such a row made inside the day. On the 10-25 snapshot copy, 10-24 now shows in ~/counterparts with every folder on (and in ~/motelier,
   ~/random, ~/islander-website); with any one of those three off it falls back, by the chapter check (each wrote
   chapters that day). Day's end stored its first summary on 10-25 (about 10-24), so 10-18–10-23 have none to show.
   After the release: on a morning replay, a day that falls back should name a scope-off folder, a denied/foldless
-  cite, or no stored summary — never a cite's mark. Read what the summary says in a folder it wasn't written in
+  cite (or a night row whose originals can't all be read), or no stored summary — never a cite's mark. Read what the summary says in a folder it wasn't written in
   (Mike's read: does another folder's work in it read as useful or as noise).
 
 Changes it: the summary almost never showing (since Y2 the cite rule is folder-only; next is the chapter/folder rule

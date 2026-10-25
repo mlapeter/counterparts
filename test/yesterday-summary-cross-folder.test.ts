@@ -37,6 +37,8 @@ import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 
 const HOUR = 3_600_000;
 const BUDGET = 9_000;
+const DA = "2026-10-20";
+const DB = "2026-10-21";
 const D0 = "2026-10-22";
 const D1 = "2026-10-23";
 const D2 = "2026-10-24";
@@ -258,5 +260,127 @@ describe("a folder the owner excluded still holds it back: the chapter-list form
     c.store.appendRemovalRecord({ memoryId: work, stage: "requested", actor: "owner", reason: "test" });
     c.store.appendRemovalRecord({ memoryId: work, stage: "dark", actor: "owner", reason: "test" });
     expect(summaryLed(sessionStart(c))).toBe(false);
+  });
+});
+
+/**
+ * A NIGHT ROW IS READ BY ITS ORIGINALS' FOLDERS (review of Y2): a dream's
+ * merge or gist is filed under the folder the dream ran in (HERE below),
+ * whatever folders its originals came from. Cited by day's end — or made
+ * early in the day, which day's end reads as the day's — it would pass the
+ * folder check as HERE's while its words are BAKERY's. Every row here is
+ * written through the real `dream` tool.
+ */
+describe("a dream's merge or gist is read by its originals' folders", () => {
+  /** The `dream` tool, run by the night from HERE at `hour` on `date`: one change; the made row's id. */
+  async function dreamed(c: Counterpart, o: { date: string; hour: number; change: Record<string, unknown> }): Promise<string> {
+    clock = at(o.date, o.hour);
+    c.store.advanceClock(o.date);
+    const s = new McpServer({ counterpart: c, session: NIGHT, scope: HERE, registryDir: join(root, "registry"), now: () => clock });
+    const b = await s.call("dream", { phase: "begin", session: NIGHT });
+    const dream = String(b.structuredContent["dream"]);
+    const p = await s.call("dream", { phase: "propose", session: NIGHT, dream, changes: [o.change] });
+    if (p.isError === true) throw new Error(`refused: ${JSON.stringify(b.structuredContent).slice(0, 300)} / ${JSON.stringify(p.structuredContent)}`);
+    const made = (p.structuredContent["made"] as { id?: string }[] | undefined)?.[0]?.id;
+    if (made === undefined) throw new Error(`nothing made: ${JSON.stringify(p.structuredContent)}`);
+    await s.call("dream", { phase: "journal", session: NIGHT, dream, title: "A night", text: "A short dream." });
+    return made;
+  }
+
+  /** A memory strong enough for a dream's queue, in `scope` (none: no folder recorded), lived on `date`. */
+  function worked(c: Counterpart, o: { scope: string | null; date: string; body: string }): string {
+    clock = at(o.date, 10);
+    c.store.advanceClock(o.date);
+    const day = c.store.livedDay();
+    return c.store.put({
+      type: "memory",
+      kind: "fact",
+      body: o.body,
+      about: "work",
+      salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 },
+      physics: { birthDay: day, lastUsedDay: day },
+      origin: { session: S2, ...(o.scope === null ? {} : { scope: o.scope }) },
+    });
+  }
+
+  /** Two near-copies of BAKERY's work, lived two days before the summary's day. */
+  function bakeryTwins(c: Counterpart): [string, string] {
+    return [
+      worked(c, { scope: BAKERY, date: DA, body: "The oven schedule for the winter: two bakes a day, the second at four." }),
+      worked(c, { scope: BAKERY, date: DA, body: "Winter oven schedule: bake twice a day, the second bake at four." }),
+    ];
+  }
+
+  /** HERE's two chapters on D1; the older one's summary memory. */
+  async function hereDay(): Promise<string> {
+    const here = await chapterVia({ session: S4, scope: HERE, date: D1, hour: 8, title: "Sowing the broad beans" });
+    await chapterVia({ session: S1, scope: HERE, date: D1, hour: 10, title: "Mending the cold frame" });
+    return here;
+  }
+
+  const ownSummary = (c: Counterpart, here: string): string => c.store.list({ type: "memory", source: "episode", originRef: here, archived: false })[0] as string;
+
+  test("a merge of BAKERY's memories, made on D0 in HERE and cited: BAKERY off falls back; on, it shows", async () => {
+    const here = await hereDay();
+    const c = brain();
+    const [a, b] = bakeryTwins(c);
+    const merged = await dreamed(c, { date: D0, hour: 22, change: { action: "merge", ids: [a, b], text: "The winter oven schedule: two bakes a day, the second at four." } });
+    // The merge is filed under the folder the dream ran in.
+    expect(c.store.row(merged)?.origin_scope).toBe(HERE);
+    expect(c.store.row(merged)?.origin_ref ?? "").toStartWith("dream:");
+    told(c, D1, [ownSummary(c, here), merged]);
+    scopes({ [HERE]: "on", [BAKERY]: "off" });
+    const wake = sessionStart(c);
+    expect(summaryLed(wake)).toBe(false);
+    expect(wake).not.toContain(TOLD);
+    expect(yesterday(wake)).toStartWith("Yesterday: ");
+    scopes({ [HERE]: "on", [BAKERY]: "on" });
+    expect(summaryLed(sessionStart(c))).toBe(true);
+  });
+
+  test("a merge of a merge: followed to the first originals", async () => {
+    const here = await hereDay();
+    const c = brain();
+    const [a, b] = bakeryTwins(c);
+    const first = await dreamed(c, { date: DB, hour: 22, change: { action: "merge", ids: [a, b], text: "The winter oven schedule: two bakes a day, the second at four." } });
+    const mine = worked(c, { scope: HERE, date: D0, body: "Winter baking schedule, as I noted it: two bakes, the second at four." });
+    const second = await dreamed(c, { date: D0, hour: 22, change: { action: "merge", ids: [first, mine], text: "Winter: two bakes a day, the second at four." } });
+    expect(JSON.parse(c.store.row(second)?.meta ?? "{}")["mergedFrom"]).toContain(first);
+    told(c, D1, [ownSummary(c, here), second]);
+    scopes({ [HERE]: "on", [BAKERY]: "paused" });
+    expect(summaryLed(sessionStart(c))).toBe(false);
+    scopes({ [HERE]: "on", [BAKERY]: "on" });
+    expect(summaryLed(sessionStart(c))).toBe(true);
+  });
+
+  test("a gist drawn from BAKERY's memories and cited: off falls back; an original with no folder fails closed", async () => {
+    const here = await hereDay();
+    const c = brain();
+    const [a, b] = bakeryTwins(c);
+    const gist = await dreamed(c, { date: DB, hour: 22, change: { action: "gist", text: "Winter means two bakes a day.", sources: [a, b] } });
+    expect(c.store.row(gist)?.source).toBe("dreamed");
+    const own = ownSummary(c, here);
+    told(c, D1, [own, gist]);
+    scopes({ [HERE]: "on", [BAKERY]: "off" });
+    expect(summaryLed(sessionStart(c))).toBe(false);
+    scopes({ [HERE]: "on", [BAKERY]: "on" });
+    expect(summaryLed(sessionStart(c))).toBe(true);
+    // One original records no folder: it cannot be told, so it fails.
+    const nowhere = worked(c, { scope: null, date: D0, body: "Flour arrives on Tuesdays, two sacks of it." });
+    const gist2 = await dreamed(c, { date: D0, hour: 22, change: { action: "gist", text: "Tuesdays set the week's baking.", sources: [nowhere] } });
+    told(c, D1, [own, gist2]);
+    expect(summaryLed(sessionStart(c))).toBe(false);
+  });
+
+  test("uncited: a merge the night made EARLY in the day (day's end reads it as the day's) of a folder now off still falls back", async () => {
+    const here = await hereDay();
+    const c = brain();
+    const [a, b] = bakeryTwins(c);
+    await dreamed(c, { date: D1, hour: 2, change: { action: "merge", ids: [a, b], text: "The winter oven schedule: two bakes a day, the second at four." } });
+    told(c, D1, [ownSummary(c, here)]);
+    scopes({ [HERE]: "on", [BAKERY]: "off" });
+    expect(summaryLed(sessionStart(c))).toBe(false);
+    scopes({ [HERE]: "on", [BAKERY]: "on" });
+    expect(summaryLed(sessionStart(c))).toBe(true);
   });
 });
