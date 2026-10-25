@@ -58,6 +58,11 @@ reply actually used reconsolidates, where in humans every retrieval does.
     since cache v7 (store CONTRACT §4). Facts mode reads both the same way. To undo the
     discount: set `EVERYDAY_NORM_HIGH <= EVERYDAY_NORM_LOW`. To undo stemming: another cache
     bump whose worker step re-indexes from prose (a revert is not free; store CONTRACT §4).
+    - **2026-10-25 (Mike): stemming is KEPT, no longer trying.** Its "items shown per turn
+      drop → revert" trigger was met on 10-22 but measured the wrong thing — a replay with
+      stemming off shows fewer items, not more (0.42 → 0.39 a turn) — so it is retired; the
+      other triggers stand (docs/CHECK-AFTER.md, the stemming entry). The everyday-word
+      discount beside it is unchanged by this.
 - **…and the same rule holds on the DOCUMENT side: a cue's evidence for a memory does not
   scale with how long the memory is.** Informativeness says a token spanning the whole store
   is evidence of nothing; a memory spanning every topic is likewise specific evidence for

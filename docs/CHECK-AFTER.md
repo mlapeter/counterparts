@@ -65,6 +65,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | An unsettled pair competes (E3): when a turn reaches both members, the older counts at `1 − k·sim·fresh` (k 0.6, cosine over 0.8, 7 lived days) for the loud tier and the order, never admission; the label stays; switch `recall.UNSETTLED_COMPETES` | 0.3.36, 10-24 | ~7 lived days after install | "Due ~7 lived days after unsettled competition" below; `docs/decisions.d/feat-unsettled-competes.md` |
 | The unmarked offer on the record (D1, a fix): every reflection row says what it was offered to mark (`detail.unmarked`, an empty list too) and which it marked (`detail.unmarkedMarked`, `counts.unmarkedOffered`/`unmarkedMarked`); the offer keeps its lines when the fixed parts fill the room (with `dream.REFLECT_ROOM_ORDER`) | 0.3.36, 10-24 | 3 nights after install | "Due 3 nights after the unmarked offer's record" below |
 | The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | 0.3.36, 10-24 | a week of 0.3.36 shadow rows, then Mike decides on, off or tune | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
+| Wake polish 10-25 (random-5b's wake): a "Last night:" line (`self.NIGHT_LINE`), "Still open"'s tail one calm count with no ids, "quiet since HH:MM" for a session idle two hours (`ELSEWHERE_QUIET_MS`), a handoff's staleness in two clauses | not released, 10-25 | ~3 mornings after install | "Due ~3 mornings after the wake polish of 10-25" below |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -300,6 +301,28 @@ The wake writes no row, so read it where it lands (read-only):
 Changes it: the summary almost never showing (then the gate's cite rule is what to revisit with Mike, not the
 chapter/folder rules), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false
 (both false: the wake byte for byte as before), or revert the PR.
+
+## Due ~3 mornings after the wake polish of 10-25 (random-5b's 10-25 wake, Mike's go, lightly held — `self.NIGHT_LINE`, `handoff/last-here.ts#ELSEWHERE_QUIET_MS`, `self/briefing.ts#OPEN_TAIL_WORDS`)
+
+- **Trying:** (1) a "Last night:" line in a session start's wake — what the dream and the reflection did by id
+  and in a few words, "a quiet night", "none yet today (last: …)" or "the nightly run is under way" — riding in
+  the Yesterday line's furniture and the last of it to give way; (2) "Still open"'s tail as one calm count with
+  no ids and no "untouched for 2+ weeks" (`(96 more open, kept quietly; recall finds one by what it's about)`);
+  (3) "Today, elsewhere" / "Here, also open" say "quiet since HH:MM" for a session with no turn for two hours,
+  not "(live)"; (4) a handoff's staleness in two clauses ("1 day old, with a newer chapter here since; release
+  0.3.34 then, 0.3.35 now").
+- **Look at:** three mornings' first wakes (the session-start wake in a transcript, or `counterparts wake`):
+  does "Last night:" match `counterparts night` (same ids, a quiet night called quiet, a morning before the run
+  reads "none yet today")? Does the wake still fit 9,000 bytes with the page whole, and what gave way for the
+  line (`counterpart.wake.assembled` in the hook's ring; the session-start `adapter.wake.injected` row's bytes)?
+  Does a session ever ask recall about something the calm tail counted (a facts question on an open thread's
+  words), or does the tail go unread? Any "(live)" left on a terminal idle past two hours?
+- **Changes a decision if:** the night line shows the wrong night (dated by the run's date: a dream run late in
+  the evening reads as "none yet today" the next morning) → date it by the run's start instead; a tight wake
+  loses an open item or a dated one to it → let it give way before the Yesterday line's narrowest form; the
+  calm tail hides open threads nobody reaches → put one handle back (a count by folder, or the newest one's id).
+- **Revert:** `self.NIGHT_LINE` false; `ELSEWHERE_QUIET_MS` `Infinity`; `moreLine`'s generic form for `threads`
+  (`OPEN_TAIL_WORDS`); `staleWords`' three clauses.
 
 ## Due 3–5 days after awake belief support (2026-10-24, B1, Mike's yes 18:04, lightly held — `schemas.AWAKE_SUPPORT_ON_DUPLICATE`)
 
@@ -1147,9 +1170,15 @@ by the paths in the fragment.
   "select value from cache_meta where key='terms'"` says `light-1` after the first worker run. (2) Footnote
   ratings and items shown per turn since install, against the week before (`adapter.recall` rows), especially
   first prompts. (3) A few of Mike's own opening questions: did the memory he meant show?
-- **Changes a decision if:** items shown per turn drop, or ratings fall, or a name/id he searches for stops
+- **Changes a decision if:** ~~items shown per turn drop~~, or ratings fall, or a name/id he searches for stops
   matching → revert. A stem merging two different words in his real use (known: even/evening, morning/morn,
   sim/sims) → add an exception.
+  **2026-10-25 (Mike, 11:26): the "items shown per turn drop" trigger is retired, and stemming is kept.** It
+  was met on 10-22 but measured the wrong thing: a replay with stemming OFF shows fewer items, not more
+  (0.42 → 0.39 a turn; `~/counterparts-notes/2026-10-25-0327-reread.md`), so the drop was not stemming's.
+  The other triggers stand (ratings fall; a searched name or id stops matching → revert; a stem merging two
+  real words → an exception). The drop in items shown per Mike-typed turn is not dropped: it is an open item
+  in the roadmap's fresh-memory priming talk.
 - **Revert:** the discount alone: set `EVERYDAY_NORM_HIGH <= EVERYDAY_NORM_LOW` (recall tunables). Stemming is
   not free to undo: unstemmed lookups miss stemmed rows, so it needs a build that indexes surface words again
   and keeps asking for both forms, or another cache bump whose worker step re-indexes from prose.
