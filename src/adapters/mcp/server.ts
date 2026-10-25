@@ -3368,7 +3368,16 @@ export class McpServer {
       statement: a["statement"] as string,
       ...(a["about"] === "us" || a["about"] === "me" ? { about: a["about"] } : {}),
     });
-    return { belief: { stored: out.ok && out.reason === "born", reason: out.reason, ...(out.id === null ? {} : { id: out.id }), ...(out.note === undefined ? {} : { note: out.note }) } };
+    return {
+      belief: {
+        stored: out.ok && out.reason === "born",
+        reason: out.reason,
+        ...(out.id === null ? {} : { id: out.id }),
+        ...(out.note === undefined ? {} : { note: out.note }),
+        // B1: a near-duplicate's filing outcome, beside the refusal.
+        ...(out.support === undefined ? {} : { support: out.support }),
+      },
+    };
   }
 
   /**

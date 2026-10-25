@@ -898,3 +898,24 @@ birth day.
   memories that gained one). Doctor prints both: on the corpus copy, 287 links on 208 memories.
 - *A kill before the look-back.* A plan record with no `linked` field means the look-back never
   finished, so the next night runs it for every keeper of a merged twin.
+
+## 2026-10-24 — an awake repeat counts, once a session (B1, lineage #583 → B1)
+
+The review of #583 made a session's near-duplicate belief file nothing: eight repeats from eight
+memories had pumped one belief's support to 8 in one session. Physics has since discounted a
+second filing from a session the belief already has (`SUPPORT_SAME_SESSION` 0.25), but the count
+still climbed, so the cap stayed. It left a session at 2pm a day behind the self: what it
+noticed awake counted only if the reflection found it that night. Now the near-duplicate files
+its memory as support (`fileSupport`, route off said_by), at most once per belief per session.
+"This session" is the memory's `origin_session`, which `remember` sets from the bound session,
+else the host session found by process, else `mcp`: the same field physics' spread reads, so
+the cap and the discount agree. Any support row from that session counts, the belief's own
+birth row included, which kept the #583 tests literally true. `mcp` and null are not a session
+(`isKnownSession`): those fall back to once per belief per lived day (a support row born or
+filed that day). The birth cap (`BELIEF_SESSION_BIRTHS_PER_DAY`) sits below the near-duplicate
+check, so a near-duplicate still files on a day whose births are spent: filing is not a birth.
+The filing's event carries `via: awake-duplicate` (an optional `SupportFilingInput.via`, absent
+everywhere else), and each awake repeat, filed or held, writes a durable `belief.support.awake` row
+(the schemas' own events live only in the ring and the process log), so the check after can tell
+awake filings from the reflection's. Switch
+`AWAKE_SUPPORT_ON_DUPLICATE`; off is the old reply, byte for byte.

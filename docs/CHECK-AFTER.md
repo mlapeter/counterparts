@@ -61,6 +61,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Consolidation every lived day (`sleep` `CADENCE.consolidate` 1, was 3): the core is decided at every night's sleep, still at most 3 a night (`CORE_MAX_PER_SLEEP`); read with 0.3.35's R2 (own-write), since both feed the core | not released, 10-24 (0.3.36) | ~7 nights after install | "Due ~7 nights after daily consolidation" below; `docs/decisions.d/feat-daily-consolidation.md` |
 | Cue learning (R3, store v15 `cue_edges`): the words of a turn that showed a memory, which was then used or rated, wire to it, and a learned pair reads as one more cue (`w × share × CUE_PAIR_UNITS`); switch `physics.CUE_LEARNING` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after cue learning" below; `docs/decisions.d/feat-cue-learning.md` |
 | "Today so far here" in a session start's wake (this folder's earlier chapters today, with their summaries; `self.TODAY_SO_FAR`) and the Yesterday line led by day's end's summary behind a privacy gate (`self.YESTERDAY_FROM_SUMMARY`) | not released, 10-24 (W1) | ~5 days after install: mid-day wakes in two folders | "Due ~5 days after Today so far" below; `docs/decisions.d/feat-today-so-far.md` |
+| An awake repeat counts (B1): a belief written in the moment that says what one already says is still refused `near-duplicate`, and its memory is filed as support for that belief, at most once per belief per session (unbound: once a lived day); events `schema.support.filed` with `via: awake-duplicate`; switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` | not released, 10-24 | 3–5 days after the release that carries it | "Due 3–5 days after awake belief support" below; `docs/decisions.d/feat-awake-belief-support.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -268,6 +269,32 @@ The wake writes no row, so read it where it lands (read-only):
 Changes it: the summary almost never showing (then the gate's cite rule is what to revisit with Mike, not the
 chapter/folder rules), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false
 (both false: the wake byte for byte as before), or revert the PR.
+
+## Due 3–5 days after awake belief support (2026-10-24, B1, Mike's yes 18:04, lightly held — `schemas.AWAKE_SUPPORT_ON_DUPLICATE`)
+
+What: a session's belief that says what an existing belief says used to file nothing (review of #583: eight repeats
+had pumped one belief to 8 in a session). Now its memory counts as support for that belief, once per belief per
+session (the memory's `origin_session`; any support row from that session counts, the birth's included). An unbound
+session (`mcp`) falls back to once a lived day. Physics' spread still discounts a second session the same day (×0.5).
+
+Look at, per lived day since install (read-only). The awake door keeps its own row, `belief.support.awake` (`ref` the
+belief; payload memoryId, session, `filed` with route and weight, or `filed: false` with `reason`); `belief_support`
+holds every filing, the reflection's included:
+- awake filings and held repeats a day: `SELECT day, SUM(json_extract(payload,'$.filed')) AS filed, SUM(json_extract(payload,'$.filed') = 0) AS held, GROUP_CONCAT(DISTINCT json_extract(payload,'$.reason')) AS why_held FROM events WHERE name = 'belief.support.awake' GROUP BY day ORDER BY day DESC LIMIT 10;`
+  against all filings that day: `SELECT day, COUNT(*) AS filed FROM belief_support GROUP BY day ORDER BY day DESC LIMIT 10;`
+  (all minus awake = the reflection's plus a session birth's first support);
+- any belief whose support rose by more than one awake filing in a day: `SELECT day, ref AS belief, COUNT(*) AS n, GROUP_CONCAT(json_extract(payload,'$.session')) AS sessions, GROUP_CONCAT(ROUND(json_extract(payload,'$.weight'),2)) AS weights FROM events WHERE name = 'belief.support.awake' AND json_extract(payload,'$.filed') = 1 GROUP BY day, ref HAVING n > 1 ORDER BY n DESC;`
+  expect a few, each from a different session, the later ones at the same-day weight (×0.5); many from one session, or
+  a null session more than once a day, is a bug;
+- did an awake-filed belief cross a core or page threshold sooner than it would have: for each belief above, its rows
+  (`SELECT memory_id, route, day, ROUND(weight,2) FROM belief_support WHERE belief_id = ? ORDER BY day`) and whether it
+  reached the page or the core in those days; its support without the awake rows is what it would have had.
+
+What would change it: one belief climbing by several awake filings a day for days (sessions repeating a
+belief instead of noticing new things), or a belief reaching the page on awake repeats alone. Revert:
+`schemas.AWAKE_SUPPORT_ON_DUPLICATE=false` (the old reply, nothing filed; rows already filed stay, counted), or revert
+the PR. Step 2 of B1 (`supports:` on remember) is briefed from these numbers.
+
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 
 What: every night's `dream.night` row now carries `usage`: each child's tokens from its own `result` line and the
