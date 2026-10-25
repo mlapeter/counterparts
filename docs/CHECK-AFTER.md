@@ -63,6 +63,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | "Today so far here" in a session start's wake (this folder's earlier chapters today, with their summaries; `self.TODAY_SO_FAR`) and the Yesterday line led by day's end's summary behind a privacy gate (`self.YESTERDAY_FROM_SUMMARY`) | not released, 10-24 (W1) | ~5 days after install: mid-day wakes in two folders | "Due ~5 days after Today so far" below; `docs/decisions.d/feat-today-so-far.md` |
 | An awake repeat counts (B1): a belief written in the moment that says what one already says is still refused `near-duplicate`, and its memory is filed as support for that belief, at most once per belief per session (unbound: once a lived day); events `schema.support.filed` with `via: awake-duplicate`; switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` | not released, 10-24 | 3–5 days after the release that carries it | "Due 3–5 days after awake belief support" below; `docs/decisions.d/feat-awake-belief-support.md` |
 | An unsettled pair competes (E3): when a turn reaches both members, the older counts at `1 − k·sim·fresh` (k 0.6, cosine over 0.8, 7 lived days) for the loud tier and the order, never admission; the label stays; switch `recall.UNSETTLED_COMPETES` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after unsettled competition" below; `docs/decisions.d/feat-unsettled-competes.md` |
+| The unmarked offer on the record (D1, a fix): every reflection row says what it was offered to mark (`detail.unmarked`, an empty list too) and which it marked (`detail.unmarkedMarked`, `counts.unmarkedOffered`/`unmarkedMarked`); the offer keeps its lines when the fixed parts fill the room (with `dream.REFLECT_ROOM_ORDER`) | not released, 10-24 | 3 nights after install | "Due 3 nights after the unmarked offer's record" below |
 | The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | not released, 10-24 (0.3.36) | a week of 0.3.36 shadow rows, then Mike decides on, off or tune | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
@@ -183,6 +184,31 @@ Changes it: the core stops growing, or the reflection's entries or the page lose
 older candidate. Revert: `dream.REFLECT_CANDIDATES_CAP=false` (every candidate, exactly as before; the lane counts
 are still kept), or revert the PR.
 
+## Due 3 nights after the unmarked offer's record (2026-10-24, D1, a fix — no switch of its own)
+
+What: from 10-10 to 10-23 no reflection row recorded `detail.unmarked`. On a night with a dream the fixed parts (the
+dream's saw list, the chapters, the page) took the whole room, the offer's reserve was bounded by what was left (0),
+every offered id waited and was dropped, and an empty offer wrote no key. 0.3.34's room order (`dream.REFLECT_ROOM_ORDER`)
+already shrank the fixed parts; this fix holds the offer's lines back like the long view's, whatever the room, and
+always records it: `detail.unmarked` (the ids offered, `[]` too), `detail.unmarkedMarked` (the offered ids it marked,
+across finishes), and `counts.unmarkedOffered` / `counts.unmarkedMarked`. The 10-24 night (0.3.35) may already show
+an offer; the "every row has the key" check starts at the first night of the release that carries this.
+
+Look at, per night since install (read-only):
+- every reflection row has the key, and how many it was offered and marked:
+  `SELECT date, state, json_type(detail,'$.unmarked') AS has_key, json_array_length(detail,'$.unmarked') AS offered, json_array_length(detail,'$.unmarkedMarked') AS marked, json_extract(detail,'$.counts.unmarkedOffered') AS c_offered, json_extract(detail,'$.counts.unmarkedMarked') AS c_marked, json_extract(detail,'$.build') AS build FROM reflections ORDER BY started_at DESC LIMIT 7;`
+  `has_key` should read `array` on every row from the release on (a begun, unfinished row too);
+- the marks themselves, per night, and where they went:
+  `SELECT r.date, m.about, COUNT(*) FROM reflections r, json_each(r.detail,'$.unmarkedMarked') j JOIN memories m ON m.id = j.value GROUP BY r.date, m.about ORDER BY r.date;`
+- the pool: `SELECT COUNT(*) FROM memories WHERE type='memory' AND archived=0 AND about IS NULL AND kind IN ('fact','entity','place','skill') AND origin_scope LIKE '/%' AND COALESCE(source,'') NOT IN ('dreamed','reflection');`
+  (about 13 on the 10-24 copy, after Mike's 10-21 hand pass).
+
+Changes it: `offered` 0 on a night the pool is not empty means the offer is filtered before the fit — first suspect
+the folder setting (`server.ts#folderOn` answers "off" for every folder when the scopes file will not read, which
+drops every candidate, all of which carry a directory scope). Marked 0 for three nights with a pool says the prompt
+line is ignored, not lost: read an entry's `about` part. Revert: the record is a record; the room change goes with
+`dream.REFLECT_ROOM_ORDER=false` (#383's bound, as before), or revert the PR.
+
 ## Due ~7 nights after own-write (2026-10-24, R2, Mike's go, lightly held — `physics.OWN_WRITE_GATE`)
 
 What: use credit refuses the session that wrote a memory on its birth day (`own-write`), not every session. Another
@@ -257,7 +283,9 @@ chapter that day is from this folder or a scope-on folder, and (c) every folder 
 — archived and merged rows included, a memory lived that day included wherever it was written up, and a row with no
 folder failing it (review of #614). Otherwise the old chapter list. Corpus replay (10-24 corpus, 15:00 on 10-23, every folder's scope on): ~/counterparts
 8,799 → 8,941 bytes, ~/counterparts-phone 8,628 → 8,673; the new line cost 3 "Still open" items in each (Still open
-keeps its first item and its count); start time within noise (numbers in the PR).
+keeps its first item and its count); start time within noise (numbers in the PR). W1b (10-24, Mike 21:11, lightly
+held): the summaries now step down to titles before "Still open" drops an item — on the same replay Still open keeps
+2 items instead of 1 in both folders, and "Today so far" shows titles only.
 
 The wake writes no row, so read it where it lands (read-only):
 - two or three mid-day session starts, one in ~/counterparts and one in another folder: the SessionStart context in
@@ -266,7 +294,8 @@ The wake writes no row, so read it where it lands (read-only):
   then replay the next morning's wake on a copy of a nightly snapshot in a temp dir (never the live store) to see which
   gate held it back. Expect it to fall back on days with work in a scope-off folder, or with a cited work memory from
   another folder (only about-me cites cross);
-- whether the 3 Still-open items it costs in a full wake are missed (Mike's read).
+- whether the Still-open items it costs in a full wake are missed (Mike's read; since W1b it gives up its summaries
+  first, and its titles still cost Still open past its first item), and whether the summaries are missed when they go.
 
 Changes it: the summary almost never showing (then the gate's cite rule is what to revisit with Mike, not the
 chapter/folder rules), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false

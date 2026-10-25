@@ -138,7 +138,7 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere } from "./coverage/index.js";
-import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, chaptersWrittenOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
+import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, chaptersWrittenOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, todaySoFarSummaryForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
 import type { ChaptersOnDate, TodayChapter } from "./handoff/last-here.js";
 import type { ChapterHere, HereSession, LastHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
 import { LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, lastExchangeLine, withExchange } from "./handoff/last-exchange.js";
@@ -1863,9 +1863,10 @@ export class Counterpart {
    * (`self/briefing.ts#withTodaySoFar`). With no "Today so far" line this is
    * the Yesterday line exactly. Never throws.
    */
-  private dayLinesFor(at: string, here: WakeHere | undefined): { yesterday?: string; yesterdayShorter?: string[] } {
+  private dayLinesFor(at: string, here: WakeHere | undefined): { yesterday?: string; yesterdayShorter?: string[]; todaySoFarSummaries?: string[] } {
     const y = this.yesterdayFor(at, { here });
-    return withTodaySoFar(y, this.todaySoFarFor(at, here, y.yesterday ?? ""));
+    const today = this.todaySoFarFor(at, here, y.yesterday ?? "");
+    return withTodaySoFar(y, today.forms, today.summaries);
   }
 
   /**
@@ -1891,8 +1892,9 @@ export class Counterpart {
    * Reads only: the walk the wake already made, one chapter read for the date
    * (`chaptersOn`) and one grouped read of the summaries. Never throws.
    */
-  private todaySoFarFor(at: string, here: WakeHere | undefined, yesterday: string): string[] {
-    if (!SELF_TUNABLES.TODAY_SO_FAR || here === undefined || (here.scope ?? "").trim().length === 0) return [];
+  private todaySoFarFor(at: string, here: WakeHere | undefined, yesterday: string): { forms: string[]; summaries: string[] } {
+    const none = { forms: [], summaries: [] };
+    if (!SELF_TUNABLES.TODAY_SO_FAR || here === undefined || (here.scope ?? "").trim().length === 0) return none;
     try {
       const day = this.store.livedDay();
       const fromDay = Math.max(0, day - LAST_HERE_LIFE_DAYS + 1);
@@ -1904,7 +1906,7 @@ export class Counterpart {
         (c) => this.nameableHere(c.scope ?? null, false, here) && !named.has(c.id) && !(reader !== null && walk.get(c.id)?.session === reader),
       );
       const listed = mine.filter((c) => c.id !== newest);
-      if (listed.length === 0) return [];
+      if (listed.length === 0) return none;
       if (listed.length < mine.length && newest !== null) this.yesterdayLeftOut = newest;
       const zone = this.store.zone();
       const summaries = chapterSummaries(this.store, listed.map((c) => c.id));
@@ -1922,9 +1924,10 @@ export class Counterpart {
             summary: last?.body ?? "",
           };
         });
-      return todaySoFarForms(chapters);
+      const forms = todaySoFarForms(chapters);
+      return { forms, summaries: todaySoFarSummaryForms(chapters, forms) };
     } catch {
-      return [];
+      return none;
     }
   }
 

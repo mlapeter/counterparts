@@ -1182,3 +1182,24 @@ What it is for: a child's transcript or output is matched to its row by name, no
   132 → 30 (+102 counted), their lines 29.3k → 8.6k, the bundle 85.1k / 4 parts → 73.6k / 3.
   The felt lane's count went 24 → 50 (the cut candidates join its pool). The brief's ~38k
   for the candidates was an estimate; measured lines were 29k.
+
+## 2026-10-24 — the unmarked offer, on the record (D1, the unmarked-offer diagnosis)
+
+- **What was seen.** No reflection row from 10-10 to 10-23 had `detail.unmarked`; only
+  10-09's did. The pool was not empty (about 146 unmarked directory facts/skills on 10-10,
+  13 on the 10-24 copy after the 10-21 hand pass).
+- **The cause, replayed on the 10-24 copy (no model).** With 0.3.33's code and 10-23's
+  dream, the fixed parts cost 105,677 characters of the 80,000 room: `avail` 0, the offer's
+  reserve `min(offerRoom, avail)` 0, every offered id waited, `unmarked.filter(kept)` gave
+  `[]`, and `begin` wrote the key only for a non-empty offer — so the row said nothing.
+  The same store with no dream offered 13 (avail 42,593). On master (0.3.34's room order)
+  the same three dreams leave 16–23k and offer 13.
+- **The fix.** In the room-order branch the offer's reserve is what its lines cost, not
+  bounded by `avail` (the 10-11 intent: "a full night still shows them"); the legacy
+  branch keeps #383's bound, so `REFLECT_ROOM_ORDER=false` is the way back. The row
+  always records the offer (`[]` too), and `finish` records which of them it marked.
+- **Headless or tool path:** one door. The night's reflection child calls the MCP
+  `reflect` tool (`night-run.ts` `NIGHT_TOOLS`), the same `begin` with `folderOn`.
+  `folderOn` answers "off" for every folder when the scopes file will not read, which
+  would drop every candidate (all carry a directory scope) — not the cause on 10-23
+  (avail 0 alone empties the offer), but the first suspect if `offered` reads 0 with a pool.

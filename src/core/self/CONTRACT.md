@@ -308,10 +308,13 @@ proposals and their archive; render and delivery telemetry.
    "Work here" reserve (`lendBytes`) lent to each rung before it steps down (review of
    #358) — every rung whole text (2026-10-10). **What gives way to whom is ONE declared
    list** (2026-10-10, a working default, `briefing.ts#ROOM_ORDER`), first to give way to
-   last: Nearby, craft, "Still open" past its first item (the trim loop's), "Work here"
+   last: Nearby, craft, "Today so far here"'s chapter summaries down to titles only
+   (2026-10-24; W1 → W1b, Mike 21:11, lightly held; session start only — the trim loop
+   steps them before it pops "Still open", `BriefingRequest.todaySoFarSummaries`), "Still
+   open" past its first item (the trim loop's), "Work here"
    (the delivery's room, `lendBytes`), "Still open"'s count beside items the trim kept,
-   "Today so far here" (2026-10-24, lane W1, session start only, `self.TODAY_SO_FAR`:
-   shorter summaries, titles only, fewer titles, then none — it rides as a second line in
+   "Today so far here"'s titles (2026-10-24, lane W1, session start only, `self.TODAY_SO_FAR`:
+   fewer titles, then none — it rides as a second line in
    the Yesterday line's forms, `briefing.ts#withTodaySoFar`, so it gives way first), the
    Yesterday line's titles (a title at a time given way to its id), "Last here" and the
    handoffs (the delivery's room past the newest handoff's own block, `handoffLendBytes`),

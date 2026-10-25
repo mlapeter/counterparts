@@ -402,8 +402,11 @@ describe("one ordered list of who gives way to whom", () => {
     expect(at("arrivingFirst")).toBeLessThan(at("handoffsKept"));
     expect(at("handoffsKept")).toBeLessThan(at("due"));
     expect(at("due")).toBeLessThan(at("page"));
-    // The trim loop's lanes are the bottom of the same list, in the same order.
-    expect(ROOM_ORDER.slice(0, 3)).toEqual(TRIM_ORDER.slice(0, 3) as never);
+    // The trim loop's lanes are the bottom of the same list, in the same order
+    // — with "Today so far"'s summaries between craft and "Still open" (W1b).
+    expect(ROOM_ORDER.filter((l) => (TRIM_ORDER.slice(0, 3) as readonly string[]).includes(l))).toEqual(TRIM_ORDER.slice(0, 3) as never);
+    expect(ROOM_ORDER.slice(0, 4)).toEqual(["hints", "craft", "todaySoFarSummaries", "threads"] as never);
+    expect(at("threads")).toBeLessThan(at("work"));
     // The "Today, elsewhere" line ranks above the handoffs' room and below
     // every dated item and the page's borrowing (review of #380).
     expect(at("handoffs")).toBeLessThan(at("elsewhere"));
