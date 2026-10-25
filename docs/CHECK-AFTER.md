@@ -294,6 +294,7 @@ What would change it: one belief climbing by several awake filings a day for day
 belief instead of noticing new things), or a belief reaching the page on awake repeats alone. Revert:
 `schemas.AWAKE_SUPPORT_ON_DUPLICATE=false` (the old reply, nothing filed; rows already filed stay, counted), or revert
 the PR. Step 2 of B1 (`supports:` on remember) is briefed from these numbers.
+
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 
 What: every night's `dream.night` row now carries `usage`: each child's tokens from its own `result` line and the
