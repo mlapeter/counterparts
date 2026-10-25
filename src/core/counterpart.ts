@@ -1904,7 +1904,21 @@ export class Counterpart {
    */
   private nightLineFor(at: string): string | null {
     try {
-      const dreams = this.dreams.list(NIGHT_LINE_READ).map((d) => ({ id: d.dream.id, date: d.dream.date, state: d.dream.state, counts: d.counts }));
+      // Each dream's changes counted only when the line names it (review of
+      // #626): `Dreams#counts` reads every change row, and a session start
+      // would otherwise read them for all `NIGHT_LINE_READ` dreams.
+      const counter = this.dreams;
+      const dreams = this.store.dreams({ limit: NIGHT_LINE_READ }).map((d) => {
+        let counts: Record<string, number> | null = null;
+        return {
+          id: d.id,
+          date: d.date,
+          state: d.state,
+          get counts(): Record<string, number> {
+            return (counts ??= counter.counts(d.id));
+          },
+        };
+      });
       const reflections = this.reflections.list(NIGHT_LINE_READ).map((r) => ({ id: r.id, date: r.date, state: r.state, entry_id: r.entry_id, page_version: r.page_version }));
       return nightLine({
         today: at,

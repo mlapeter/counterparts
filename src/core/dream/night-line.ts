@@ -218,10 +218,12 @@ function latestFinished(f: NightFacts): { stamped: string; dream: NightDream | n
   ].filter(before);
   if (dates.length === 0) return null;
   const stamped = dates.reduce((a, b) => (b > a ? b : a));
+  // A finished row before an abandoned one of the same date (review of #626:
+  // a retry that journaled after one left begun is that night's dream).
   return {
     stamped,
-    dream: dreams.find((d) => d.date === stamped) ?? null,
-    reflection: reflections.find((r) => r.date === stamped) ?? null,
+    dream: dreams.find((d) => d.date === stamped && d.state === "journaled") ?? dreams.find((d) => d.date === stamped) ?? null,
+    reflection: reflections.find((r) => r.date === stamped && r.state === "reflected") ?? reflections.find((r) => r.date === stamped) ?? null,
     run: run !== null && run.date === stamped ? run : null,
   };
 }
@@ -244,6 +246,10 @@ export function nightLine(f: NightFacts): string | null {
     if (runToday !== null && runToday.state !== "done" && runToday.state !== "started") {
       return `${NIGHT_LINE_HEAD} the nightly run did not finish (${runToday.state}).`;
     }
+    // Today's run finished with no dream, no reflection and no skip on record
+    // (review of #626): a quiet night, today's — not the night before named as
+    // if today's had not run.
+    if (runToday !== null && runToday.state === "done") return `${NIGHT_LINE_HEAD} a quiet night — the nightly run finished with no dream and no reflection.`;
     // Started today and past its watchdog with no word (review of #623): a
     // run that began and was lost, not a night still to come.
     if (runToday !== null && runToday.state === "started") return `${NIGHT_LINE_HEAD} the nightly run did not finish (no word from it).`;

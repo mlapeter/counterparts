@@ -29,7 +29,9 @@ import { ClaudeCodeAdapter } from "../src/adapters/claude-code/hooks.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { STILL_OPEN_PAGE, asksStillOpen } from "../src/adapters/mcp/server.js";
+import { setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeVerdict } from "../src/adapters/scopes.js";
+import { ownerRemoval } from "../src/adapters/cli/removal.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { NIGHT_LINE_HEAD, NIGHT_LINE_STALE_DAYS, NIGHT_OF_HEAD, nightLine, nightOf } from "../src/core/dream/index.js";
 import type { NightFacts, NightRun } from "../src/core/dream/index.js";
@@ -404,6 +406,44 @@ describe("L1. the night line names the latest finished night, dated", () => {
     expect(lineOf(wake(f), NIGHT_LINE_HEAD)).toBe("Last night: none yet today (last: Oct 24).");
   });
 
+  test("review of #626: today's run done with no dream, no reflection and no skip is today's quiet night, not the night before", () => {
+    const w = world(at(D2, 11));
+    dream(w, "drm_00000000a111", D1, { link: 4 });
+    reflection(w, "rfl_00000000b111", D1, "entry", "drm_00000000a111");
+    w.c.dreams.recordNightRun(run(D2, "done"));
+    const text = wake(w);
+    expect(lineOf(text, NIGHT_LINE_HEAD)).toBe("Last night: a quiet night — the nightly run finished with no dream and no reflection.");
+    expect(lineOf(text, NIGHT_OF_HEAD)).toBeUndefined();
+  });
+
+  test("review of #626: a retry that journaled is the night's dream, not the abandoned one beside it on the same date", () => {
+    const w = world(at(D2, 9));
+    dream(w, "drm_00000000a112", D1, { link: 5 });
+    dream(w, "drm_00000000a113", D1, { link: 1 }, "begun");
+    expect(lineOf(wake(w), NIGHT_OF_HEAD)).toBe("The night of Oct 23: dream drm_00000000a112 made 5 links.");
+  });
+
+  test("review of #626: after a gap of several days, the last run is named by the day before its stamp and called the last", () => {
+    // Run stamped Oct 20 after a week away (it read Oct 13–19); today Oct 25.
+    const w = world(at(D2, 9));
+    dream(w, "drm_00000000a114", "2026-10-20", { link: 6 });
+    expect(lineOf(wake(w), NIGHT_OF_HEAD)).toBe("The night of Oct 19 was the last to run: dream drm_00000000a114 made 6 links.");
+  });
+
+  test("review of #626: a session start counts the changes of the dream it names, not of every dream it reads", () => {
+    const w = world(at(D2, 9));
+    for (let k = 0; k < 7; k += 1) dream(w, `drm_00000000a2${String(k).padStart(2, "0")}`, addDays(D1, -6 + k), { link: k + 1 });
+    let counted = 0;
+    const real = w.c.dreams.counts.bind(w.c.dreams);
+    w.c.dreams.counts = (id: string): Record<string, number> => {
+      counted += 1;
+      return real(id);
+    };
+    expect(lineOf(wake(w), NIGHT_OF_HEAD)).toBe("The night of Oct 23: dream drm_00000000a206 made 7 links.");
+    expect(counted).toBeGreaterThan(0);
+    expect(counted).toBeLessThanOrEqual(2);
+  });
+
   test("pure: the date a night is named by, and both heads read as the night line", () => {
     expect(nightOf("2026-10-24")).toBe("2026-10-23");
     expect(nightOf("2026-03-01")).toBe("2026-02-28");
@@ -466,4 +506,94 @@ describe("the tight-budget sweep: the item due today and Still open's first item
     expect(withLine).toBeGreaterThan(0);
     expect(build(3_000, 50, "before").split("\n").find(isNightLine)).toStartWith("The night of Oct 23: ");
   }, 120_000);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("review of #626: the handle lists what the wake in this folder may show, and nothing else", () => {
+  /** An open thread written in `folder`, marked `about`. */
+  function openIn(w: World, folder: string, title: string, about: "work" | "owner" = "work"): string {
+    return w.c.store.put({ type: "memory", kind: "fact", title, body: `${title} The detail of it.`, meta: { unresolved: true }, about, origin: { scope: folder }, salience: { relevance: 0.9, emotional: 0.6, predictive: 0.7 } });
+  }
+
+  test("another folder's work-marked thread: the wake here carries it, so the handle lists it — the same exposure, not more", async () => {
+    const w = world(at(D2, 9));
+    toDay(w, 2);
+    const THERE = join(root, "workshop");
+    mkdirSync(THERE, { recursive: true });
+    const theirs = openIn(w, THERE, "THERE-WORK does the lathe belt need a spare?");
+    const ours = openIn(w, HERE, "HERE-WORK does the trellis need another post?");
+    w.c.rebrief({ budgetBytes: BUDGET, at: w.today() });
+    const text = wake(w);
+    // The wake's Still open is store-wide for open threads (`rankLanes`: an
+    // open work memory is a thread wherever the session wakes).
+    expect(text).toContain("THERE-WORK");
+    expect(text).toContain("HERE-WORK");
+    const items = itemsOf(await stillOpen(tools(w)));
+    expect(items.map((i) => i.id).sort()).toEqual([theirs, ours].sort());
+  });
+
+  test("a folder set off or paused: the handle and the routed question are refused and say nothing", async () => {
+    const w = world(at(D2, 9));
+    toDay(w, 2);
+    openIn(w, HERE, "SECRET-OFF is the gate latch fixed?");
+    const file = join(root, "scopes.json");
+    for (const mode of ["off", "paused"] as const) {
+      writeScopes(file, setScope(null, HERE, mode, { at: D2 }));
+      const s = new McpServer({ counterpart: w.c, session: S, scope: HERE, now: () => w.now(), scopesFile: file });
+      for (const args of [{ handle: "still open" }, { question: "what's still open?", mode: "facts" }]) {
+        const r = await s.call("recall", args);
+        expect(r.isError, `${mode} ${JSON.stringify(args)}`).toBe(true);
+        expect(JSON.stringify(r)).not.toContain("SECRET-OFF");
+      }
+    }
+    // (Observer is fixed at launch from the same registry — `bin/serve.ts` —
+    // and covered above through `launchObserver`.)
+  });
+
+  test("a removed open thread is in neither the wake nor the handle — taken dark only (a removal cut off before its chase) as well as completed", async () => {
+    const w = world(at(D2, 9));
+    toDay(w, 2);
+    const kept = openIn(w, HERE, "KEPT is the rain gauge level?", "owner");
+    const gone = openIn(w, HERE, "GONE-WHOLE did the neighbour return the ladder?", "owner");
+    const dark = openIn(w, HERE, "GONE-DARK did the vet call back about the cat?", "owner");
+    ownerRemoval(w.c.store, { targetId: gone, actor: "owner", reason: "review test", requestedAt: w.now() }, { now: () => w.now() });
+    w.c.store.appendRemovalRecord({ memoryId: dark, stage: "requested", actor: "owner", reason: "review test" });
+    w.c.store.appendRemovalRecord({ memoryId: dark, stage: "dark", actor: "owner", reason: "review test" });
+    expect(w.c.store.deniedIds()).toEqual(expect.arrayContaining([gone, dark]));
+    w.c.rebrief({ budgetBytes: BUDGET, at: w.today() });
+    const text = wake(w);
+    expect(text).toContain("KEPT is the rain gauge");
+    expect(text).not.toContain("GONE-");
+    const got = await stillOpen(tools(w));
+    expect(itemsOf(got).map((i) => i.id)).toEqual([kept]);
+    expect(JSON.stringify(got)).not.toContain("GONE-");
+  });
+
+  test("a session with no folder: the same list (the wake's Still open reads no folder either)", async () => {
+    const w = world(at(D2, 9));
+    toDay(w, 2);
+    const a = openIn(w, HERE, "NOFOLDER-A is the shed roof sealed?");
+    const s = new McpServer({ counterpart: w.c, session: S, now: () => w.now() });
+    expect(itemsOf(await stillOpen(s)).map((i) => i.id)).toEqual([a]);
+  });
+
+  test("near-misses reach the ordinary facts answer, not the list", async () => {
+    const w = world(at(D2, 9));
+    const s = tools(w);
+    toDay(w, 2);
+    await remember(s, { text: "Open: is the hardware store still open on Sundays in winter?", unresolved: true });
+    for (const q of [
+      "is the hardware store still open?",
+      "what's still open at the hardware store",
+      "which open threads mention the hardware store",
+      "still open on sundays",
+      "what's open on Sunday",
+      "open",
+      "threads",
+    ]) {
+      expect(asksStillOpen(q), q).toBe(false);
+      const got = (await s.call("recall", { question: q, mode: "facts" })).structuredContent;
+      expect(got["reason"], q).not.toBe("still-open");
+    }
+  });
 });
