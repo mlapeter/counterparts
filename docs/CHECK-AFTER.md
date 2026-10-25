@@ -60,6 +60,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Use credit refuses the memory's writing session on its birth day (`own-write`), not everyone: another session's use credits a newborn memory once that day; unknown/unbound writers keep the birth-day rule (switch `physics.OWN_WRITE_GATE`) | 0.3.35, 10-24 (R2) | ~7 nights after install: promotions and core growth | "Due ~7 nights after own-write" below; `docs/decisions.d/fix-own-write-not-birth-day.md` |
 | Consolidation every lived day (`sleep` `CADENCE.consolidate` 1, was 3): the core is decided at every night's sleep, still at most 3 a night (`CORE_MAX_PER_SLEEP`); read with 0.3.35's R2 (own-write), since both feed the core | not released, 10-24 (0.3.36) | ~7 nights after install | "Due ~7 nights after daily consolidation" below; `docs/decisions.d/feat-daily-consolidation.md` |
 | Cue learning (R3, store v15 `cue_edges`): the words of a turn that showed a memory, which was then used or rated, wire to it, and a learned pair reads as one more cue (`w × share × CUE_PAIR_UNITS`); switch `physics.CUE_LEARNING` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after cue learning" below; `docs/decisions.d/feat-cue-learning.md` |
+| "Today so far here" in a session start's wake (this folder's earlier chapters today, with their summaries; `self.TODAY_SO_FAR`) and the Yesterday line led by day's end's summary behind a privacy gate (`self.YESTERDAY_FROM_SUMMARY`) | not released, 10-24 (W1) | ~5 days after install: mid-day wakes in two folders | "Due ~5 days after Today so far" below; `docs/decisions.d/feat-today-so-far.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -242,6 +243,31 @@ recorded), so whether a footnote came by a learned pair can't be read from the s
 
 Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
 word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
+
+## Due ~5 days after Today so far (2026-10-24, W1, Mike's go 17:45, lightly held — `self.TODAY_SO_FAR`, `self.YESTERDAY_FROM_SUMMARY`)
+
+What: at a session start the wake carries "Today so far here:" under the Yesterday line: today's chapters written in
+this folder before the one "Last here" names (newest 4, each by time, title, id and its summary's first sentence cut
+at 120 bytes), and "Last here" no longer lists them as "Before it" / "+N more". The Yesterday line opens "Yesterday,
+in day's end's words:" with day's end's summary when (a) every memory it cites is nameable in this wake, (b) every
+chapter that day is from this folder or a scope-on folder, and (c) every folder that wrote a memory that day is too
+— archived and merged rows included, a memory lived that day included wherever it was written up, and a row with no
+folder failing it (review of #614). Otherwise the old chapter list. Corpus replay (10-24 corpus, 15:00 on 10-23, every folder's scope on): ~/counterparts
+8,799 → 8,941 bytes, ~/counterparts-phone 8,628 → 8,673; the new line cost 3 "Still open" items in each (Still open
+keeps its first item and its count); start time within noise (numbers in the PR).
+
+The wake writes no row, so read it where it lands (read-only):
+- two or three mid-day session starts, one in ~/counterparts and one in another folder: the SessionStart context in
+  each transcript. Each chapter named once; "Today so far" ≠ "Today, elsewhere"; nothing from a scope-off folder;
+- whether the summary ever shows. Day's end's summaries: `SELECT json_extract(payload,'$.about') AS about, json_array_length(json_extract(payload,'$.summaryCites')) AS cites FROM events WHERE name = 'self.page.writer.ran' AND json_extract(payload,'$.summary') IS NOT NULL ORDER BY seq DESC LIMIT 7;`
+  then replay the next morning's wake on a copy of a nightly snapshot in a temp dir (never the live store) to see which
+  gate held it back. Expect it to fall back on days with work in a scope-off folder, or with a cited work memory from
+  another folder (only about-me cites cross);
+- whether the 3 Still-open items it costs in a full wake are missed (Mike's read).
+
+Changes it: the summary almost never showing (then the gate's cite rule is what to revisit with Mike, not the
+chapter/folder rules), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false
+(both false: the wake byte for byte as before), or revert the PR.
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 
 What: every night's `dream.night` row now carries `usage`: each child's tokens from its own `result` line and the

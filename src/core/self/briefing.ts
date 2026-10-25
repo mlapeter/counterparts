@@ -175,6 +175,11 @@ export const TRIM_ORDER: readonly LaneName[] = [
  *     lines (`lendBytes`), which then shows fewer of them;
  *   - `openCount` — "Still open"'s count beside the items the trim kept,
  *     paid for out of "Work here" and nothing else (review of #358);
+ *   - `todaySoFar` — "Today so far here" (2026-10-24, lane W1, lightly
+ *     held; session start only, `self.TODAY_SO_FAR`): shorter summaries,
+ *     then titles only, then fewer titles, then none. It rides in the
+ *     Yesterday line's place as a second line (`withTodaySoFar`), so every
+ *     step that takes the Yesterday line's room takes this line's first;
  *   - `yesterday` — the Yesterday line: a title at a time gives way to its
  *     id, pointers instead of titles (`yesterdayShorter`);
  *   - `lastHere`, `handoffs` — the delivery's room for "Last here" and this
@@ -233,6 +238,7 @@ export const ROOM_ORDER = [
   "threads",
   "work",
   "openCount",
+  "todaySoFar",
   "yesterday",
   "lastHere",
   "handoffs",
@@ -247,6 +253,42 @@ export const ROOM_ORDER = [
   "page",
 ] as const;
 export type RoomLane = (typeof ROOM_ORDER)[number];
+
+/**
+ * "TODAY SO FAR" IN THE YESTERDAY LINE'S PLACE (2026-10-24, lane W1, lightly
+ * held). The two lines are one piece of furniture under the framing line —
+ * Yesterday, then "Today so far here" — and one ladder of forms, widest
+ * first: "Today so far" steps down first beside the whole Yesterday line
+ * (its place in `ROOM_ORDER` is just below `yesterday`), then drops, then
+ * the Yesterday line steps down as it always has. Every reader of the
+ * Yesterday line's room (`render`'s floor, `takeRoom`'s `yesterday` step, the
+ * page's borrowing) then sees both without a parameter of its own. Without a
+ * "Today so far" line the Yesterday line and its forms come back untouched,
+ * byte for byte. Pure.
+ */
+export function withTodaySoFar(
+  yesterday: { readonly yesterday?: string; readonly yesterdayShorter?: readonly string[] },
+  today: readonly string[],
+): { yesterday?: string; yesterdayShorter?: string[] } {
+  const y = yesterday.yesterday;
+  const ys = y === undefined || y.length === 0 ? [] : [y, ...(yesterday.yesterdayShorter ?? []).filter((s) => s.length > 0 && byteLength(s) < byteLength(y))];
+  if (today.length === 0) {
+    if (y === undefined) return {};
+    return yesterday.yesterdayShorter === undefined ? { yesterday: y } : { yesterday: y, yesterdayShorter: [...yesterday.yesterdayShorter] };
+  }
+  const forms = [...today.map((t) => (ys[0] === undefined ? t : `${ys[0]}\n${t}`)), ...ys];
+  const out: string[] = [];
+  let last = Number.POSITIVE_INFINITY;
+  for (const f of forms) {
+    const size = byteLength(f);
+    if (size >= last) continue;
+    out.push(f);
+    last = size;
+  }
+  const [widest, ...shorter] = out;
+  if (widest === undefined) return {};
+  return shorter.length === 0 ? { yesterday: widest } : { yesterday: widest, yesterdayShorter: shorter };
+}
 
 /** Where each lane the trim loop pops sits in `ROOM_ORDER`: Arriving's lines
  *  past its head at `arriving`, "Who I am" with the page. */
@@ -1091,7 +1133,9 @@ export function compose(
 
   const build = (bytes: string): string => {
     const lines: string[] = [headerLine(day, elements, bytes), FRAMING.context];
-    if (yesterday !== undefined && yesterday.length > 0) lines.push(flatten(yesterday));
+    // One line, or two since 2026-10-24: "Today so far here" rides under it
+    // (`withTodaySoFar`). A line with no newline prints exactly as before.
+    if (yesterday !== undefined && yesterday.length > 0) for (const l of yesterday.split("\n")) if (l.trim().length > 0) lines.push(flatten(l));
     for (const lane of LANE_ORDER) {
       const items = kept[lane];
       if (lane === "hints" && elsewhere !== undefined && elsewhere.length > 0) lines.push("", flatten(elsewhere));

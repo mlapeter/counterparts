@@ -138,7 +138,8 @@ import {
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere } from "./coverage/index.js";
-import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter } from "./handoff/last-here.js";
+import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, chaptersWrittenOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
+import type { ChaptersOnDate, TodayChapter } from "./handoff/last-here.js";
 import type { ChapterHere, HereSession, LastHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
 import { LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, lastExchangeLine, withExchange } from "./handoff/last-exchange.js";
 import type { LastExchange } from "./handoff/last-exchange.js";
@@ -197,7 +198,9 @@ import type {
   WriterInput,
 } from "./self/index.js";
 import { acceptsReflectedFeeling, keepCore, ownerNames, retireCore } from "./sleep/index.js";
-import { DAYS_END_JOURNAL_SHARE, WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, journalBlockChars } from "./self/writer.js";
+import { DAYS_END_JOURNAL_SHARE, WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, daySummaries, journalBlockChars } from "./self/writer.js";
+import { chapterSummaries } from "./self/summaries.js";
+import { withTodaySoFar } from "./self/briefing.js";
 import type { WriterJournal } from "./self/writer.js";
 import { dayJournal } from "./dream/slices.js";
 import { DREAM_TUNABLES } from "./dream/tunables.js";
@@ -218,7 +221,7 @@ import type {
 import { TUNABLES as PHYSICS, band as bandOf, fadeOf } from "./physics/index.js";
 import type { UseTier } from "./physics/index.js";
 import type { Kind } from "./types.js";
-import { isKnownSession } from "./types.js";
+import { isKnownSession, livedOn } from "./types.js";
 import {
   SELF_BRIEFING_EVENT,
   CAPTURE_FAILED_EVENT,
@@ -918,7 +921,7 @@ export class Counterpart {
         ...(asked.more.length === 0
           ? {}
           : { horizonMore: asked.more, horizonMoreItems: asked.moreItems.map((i) => (nearDue(i.due, at) ? { ...i, near: true } : i)) }),
-        ...this.yesterdayFor(at, { here }),
+        ...this.dayLinesFor(at, here),
         ...this.elsewhereFor(at, here),
       });
       if (out === null) return null;
@@ -1834,12 +1837,186 @@ export class Counterpart {
       const elsewhere = [...places].map(([scope, sessions]) => ({ scope, sessions }));
       // Undated at a session start, read under its `Now:` line (2026-10-16).
       const dated = reader === undefined || !YESTERDAY_UNDATED_AT_START;
+      // DAY'S END'S SUMMARY LEADS (2026-10-24, lane W1, `self.YESTERDAY_FROM_SUMMARY`,
+      // read at use): at a session start only, and only past the privacy
+      // gate (`daySummaryShown`). Otherwise the chapter list, as before.
+      const told = reader === undefined || !SELF_TUNABLES.YESTERDAY_FROM_SUMMARY ? null : this.daySummaryShown(date, reader.here);
+      if (told !== null) {
+        const [widest, ...narrower] = yesterdaySummaryForms(told, day, date, elsewhere, dated);
+        if (widest === undefined) return {};
+        return narrower.length === 0 ? { yesterday: widest } : { yesterday: widest, yesterdayShorter: narrower };
+      }
       const line = yesterdayLine(day, date, undefined, elsewhere, dated);
       if (line === null) return {};
       const shorter = yesterdayShorter(day, date, elsewhere, dated);
       return shorter.length === 0 ? { yesterday: line } : { yesterday: line, yesterdayShorter: shorter };
     } catch {
       return {};
+    }
+  }
+
+  /**
+   * THE LINES UNDER THE FRAMING AT A SESSION START (2026-10-24, lane W1):
+   * the Yesterday line (`yesterdayFor`) and, under it, "Today so far here"
+   * (`todaySoFarFor`), as one piece of furniture with one ladder of forms
+   * (`self/briefing.ts#withTodaySoFar`). With no "Today so far" line this is
+   * the Yesterday line exactly. Never throws.
+   */
+  private dayLinesFor(at: string, here: WakeHere | undefined): { yesterday?: string; yesterdayShorter?: string[] } {
+    const y = this.yesterdayFor(at, { here });
+    return withTodaySoFar(y, this.todaySoFarFor(at, here, y.yesterday ?? ""));
+  }
+
+  /**
+   * "TODAY SO FAR HERE" (2026-10-24, lane W1; Mike's go 17:45, lightly held;
+   * `self.TODAY_SO_FAR`, read at use): for a session starting on `at` in
+   * `here.scope`, today's chapters written in THIS folder — the row's own
+   * directory, the same rule as the Yesterday line's own-folder chapters
+   * (`nameableHere`) — each by time, title, id and the start of its
+   * session-written summary (`self/summaries.ts`). The line's forms, widest
+   * first (`handoff/last-here.ts#todaySoFarForms`), or none.
+   *
+   * EACH EPISODE ONCE, as the Yesterday line: the episode "Last here" names
+   * first is that line's (`lastHereNewest`, unless this delivery found no room
+   * for it — `yesterdayKeepsNewest`), and one the Yesterday line names by id
+   * (an episode written on both days) is that line's. Not the reader's own
+   * session's. "Last here"'s "Before it" and "+N more here" leave out what this
+   * line names (they skip any id the wake already carries).
+   *
+   * Other folders are not this line's: "Today, elsewhere" says them, under its
+   * own gate, and the "About me, from another directory" line names an
+   * about-me chapter from there — so no chapter is named by both.
+   *
+   * Reads only: the walk the wake already made, one chapter read for the date
+   * (`chaptersOn`) and one grouped read of the summaries. Never throws.
+   */
+  private todaySoFarFor(at: string, here: WakeHere | undefined, yesterday: string): string[] {
+    if (!SELF_TUNABLES.TODAY_SO_FAR || here === undefined || (here.scope ?? "").trim().length === 0) return [];
+    try {
+      const day = this.store.livedDay();
+      const fromDay = Math.max(0, day - LAST_HERE_LIFE_DAYS + 1);
+      const newest = this.yesterdayKeepsNewest ? null : this.lastHereNewest(here);
+      const named = new Set([...yesterday.matchAll(/\((epi_[0-9a-f]+)\)/g)].map((m) => m[1]));
+      const walk = new Map([...this.chaptersInWindow(day).values()].map((c) => [c.id, c] as const));
+      const reader = here.session ?? null;
+      const mine = chaptersOn(this.store, at, { fromDay }).filter(
+        (c) => this.nameableHere(c.scope ?? null, false, here) && !named.has(c.id) && !(reader !== null && walk.get(c.id)?.session === reader),
+      );
+      const listed = mine.filter((c) => c.id !== newest);
+      if (listed.length === 0) return [];
+      if (listed.length < mine.length && newest !== null) this.yesterdayLeftOut = newest;
+      const zone = this.store.zone();
+      const summaries = chapterSummaries(this.store, listed.map((c) => c.id));
+      const written = (c: ChaptersOnDate): number => walk.get(c.id)?.writtenAt ?? c.createdAt;
+      const chapters: TodayChapter[] = [...listed]
+        .sort((a, b) => written(a) - written(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .map((c) => {
+          const held = summaries.get(c.id);
+          const last = held === undefined ? undefined : held.get(Math.max(...held.keys()));
+          const at = walk.get(c.id)?.writtenAt;
+          return {
+            id: c.id,
+            title: c.title,
+            time: at === undefined ? "" : (localStamp(at, zone).split(" ")[1] ?? ""),
+            summary: last?.body ?? "",
+          };
+        });
+      return todaySoFarForms(chapters);
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * MAY DAY'S END'S SUMMARY OF `date` BE SHOWN IN A WAKE FOR `here`? Its text
+   * when so, else null (2026-10-24, lane W1; the brief's privacy gate, held
+   * firmly). Day's end reads the WHOLE day — every chapter of it, store-wide,
+   * and the day's strongest memories, whatever folder wrote them and whatever
+   * that folder's scope setting (`dream/slices.ts#dayJournal`,
+   * `pageWriterInput`; its recall reaches the store too) — so what it cites
+   * does not bound what its words drew on. It is shown only when ALL of:
+   *
+   *   - every memory it cites is nameable in this wake (`nameableHere`): this
+   *     folder's own, or marked about me, us or the owner from a folder whose
+   *     scope setting is on. A cite that no longer reads (removed, forgotten)
+   *     or is not a memory fails it;
+   *   - every chapter written that day (`chaptersWrittenOn`, unbounded by
+   *     birth day, archived and merged episodes included) comes from this
+   *     folder or one whose scope setting is on, and records its folder;
+   *   - every memory of that day — lived that day as day's end picks them
+   *     (a second-hand write-up the next morning included), or written inside
+   *     it (backdated included) — archived and merged rows included, the
+   *     night's own merges and reflections left to their originals, comes from
+   *     this folder or one whose scope setting is on, and records its folder.
+   *
+   * The store is read as day's end SAW it, not as the night left it: the
+   * dream archives and merges after day's end has read the day (review of
+   * #614). What it cannot see: a memory erased since (its row is gone), and
+   * whatever day's end's recall reached on other days — a summary's cites are
+   * the only bound on that.
+   *
+   * No way to ask the scope setting (`exportsFrom` absent) and nothing from
+   * another folder passes. Stricter than the brief's floor (cites, plus
+   * chapters only when nothing is cited) because the prose can carry a private
+   * folder's day without citing it. Never throws: a store that will not
+   * answer shows no summary.
+   */
+  private daySummaryShown(date: string, here: WakeHere | undefined): string | null {
+    try {
+      const told = daySummaries(this.store, { sinceDay: Math.max(0, this.store.livedDay() - LAST_HERE_LIFE_DAYS) }).find((s) => s.about === date);
+      if (told === undefined || told.text.trim().length === 0) return null;
+      const norm = (s: string): string => s.trim().replace(/\/+$/, "");
+      const own = norm(here?.scope ?? "");
+      const exportsFrom = here?.exportsFrom;
+      const open = (scope: string | null): boolean => {
+        if (scope === null || norm(scope).length === 0) return false;
+        if (own.length > 0 && norm(scope) === own) return true;
+        if (exportsFrom === undefined) return false;
+        try {
+          return exportsFrom(scope) === true;
+        } catch {
+          return false;
+        }
+      };
+      const zone = this.store.zone();
+      const from = startOfLocalDay(date, zone);
+      const to = startOfLocalDay(addDays(date, 1), zone);
+      // THE STORE AS DAY'S END SAW IT, NOT AS THE NIGHT LEFT IT (review of
+      // #614): archived and merged rows count too — the night's dream archives
+      // and merges after day's end has read them — and a chapter or memory
+      // with no folder recorded fails, as it does in `nameableHere`.
+      for (const id of this.store.list({ type: "episode" })) {
+        const row = this.store.row(id);
+        if (row !== undefined && chaptersWrittenOn(row, date, zone) > 0 && !open(row.origin_scope)) return null;
+      }
+      // The day's memories as day's end picks them (`writer.ts#dayMemories`:
+      // the day LIVED, so a second-hand write-up the next morning is that
+      // day's), and every one written inside the day. The night's own rows
+      // (a merge, a reflection) are filed under the dreaming folder; the
+      // originals they came from are read here with their own.
+      for (const id of this.store.list({ type: "memory", learnedOnFrom: date })) {
+        const row = this.store.row(id);
+        if (row === undefined) continue;
+        const ref = row.origin_ref ?? "";
+        if (row.source === "dreamed" || row.source === "reflection" || ref.startsWith("dream:") || ref.startsWith("reflection:")) continue;
+        const inDay = row.created_at !== null && row.created_at >= from && row.created_at < to;
+        if ((inDay || livedOn(row) === date) && !open(row.origin_scope)) return null;
+      }
+      // Backdated rows written inside the day (learned on an earlier date).
+      const before = new Map(this.store.memoryCountsByScopeSince(from).map((r) => [r.scope, r.count] as const));
+      for (const r of this.store.memoryCountsByScopeSince(to)) before.set(r.scope, (before.get(r.scope) ?? 0) - r.count);
+      for (const [scope, n] of before) if (n > 0 && !open(scope)) return null;
+      const denied = new Set(this.store.deniedIds());
+      for (const id of told.cites) {
+        if (denied.has(id)) return null;
+        const row = this.store.row(id);
+        if (row === undefined || row.type !== "memory") return null;
+        const aboutMe = row.about !== null && row.about !== undefined && (CORE_ABOUT_MARKS as readonly string[]).includes(row.about);
+        if (!this.nameableHere(row.origin_scope, aboutMe, here)) return null;
+      }
+      return told.text;
+    } catch {
+      return null;
     }
   }
 
