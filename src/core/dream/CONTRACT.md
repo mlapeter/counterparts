@@ -443,8 +443,15 @@ dream having run.
   the owner's name 1), then the most used, then the oldest, rotated so the last three
   nights' offers wait behind the rest — offered to be marked by meaning. They keep a room
   of their own (2026-10-11): on a night the plain fit leaves one waiting or a bare id, what
-  they cost as lines is held back from the shared room (never past the room there is), so
-  a full night shows each at least as a line; any other night is fitted as before. A writer's mark is never
+  they cost as lines is held back from the shared room, so a full night shows each at least as
+  a line; any other night is fitted as before. With `dream.REFLECT_ROOM_ORDER` (on) that
+  reserve is not bounded by the room either (2026-10-24, D1), like the long view's lines —
+  past the room it is lines only, at most `unmarkedOfferCap()` (UNMARKED × (OVERHEAD + 1.5 ×
+  LINE_BYTES), 10,080 characters; review of #619);
+  off, it never goes past the room there is (#383). Its row always records the offer:
+  `detail.unmarked` (the ids, `[]` too) from `begin`, carried through `finish`, which adds
+  `detail.unmarkedMarked` (the offered ids it marked, across finishes) and
+  `counts.unmarkedOffered` / `counts.unmarkedMarked`. A writer's mark is never
   offered, nor one written in a folder the host's setting has off or paused (`begin`'s
   `folderOn`, review of #558: the MCP server reads it as `lifecycle.ts#chapterExports`
   does; a setting that will not read offers none from a folder). A reflection's own later feelings are counted but never make a change. Three questions, rotated so consecutive nights share none (the dream question only
