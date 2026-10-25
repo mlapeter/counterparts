@@ -117,12 +117,13 @@ export const HANDOFF_EXCERPT_BYTES = 160;
  * 1,963 since a "since" line can follow it (2026-10-09): three plans at the
  * title cap and a count, 317 bytes on the widest block (1,646). 1,946 since
  * each says its staleness as one sentence and the newest no longer counts the
- * work since it (2026-10-18, the wake-polish builder).
+ * work since it (2026-10-18, the wake-polish builder). 1,949 since that
+ * sentence is two clauses (2026-10-25: a byte longer at its widest, each of three).
  * In practice the share rule binds first: at the 9,000 bytes the owner's hosts
  * report, no reserve can pass 1,125, so a block that wide is carried with two
  * shown rather than three.
  */
-export const HANDOFF_RESERVE_MAX_BYTES = 1946;
+export const HANDOFF_RESERVE_MAX_BYTES = 1949;
 
 /**
  * Slack on top of the block that actually exists, so a reserve taken at one

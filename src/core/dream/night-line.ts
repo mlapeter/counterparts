@@ -25,6 +25,7 @@
  */
 import { dreamSkippedOf, dreamSkippedWords, nightRunLost } from "./index.js";
 import type { DreamingSetting, NightRun } from "./index.js";
+import { addDays, isDay, shortDay, yearOf } from "../time.js";
 
 /** What the line reads, gathered by the caller (`Counterpart#nightLineFor`). */
 export interface NightFacts {
@@ -90,19 +91,9 @@ export function dreamChangeWords(counts: Readonly<Record<string, number>>): stri
   return said.length === 1 ? (said[0] ?? "") : `${said.slice(0, -1).join(", ")} and ${said[said.length - 1] ?? ""}`;
 }
 
-const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
-
-/** `2026-10-24` → `Oct 24`. */
+/** `2026-10-24` → `Oct 24` (its own year, so `shortDay` drops it). */
 function shortDate(ymd: string): string {
-  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(ymd);
-  const mo = m === null ? undefined : SHORT_MONTHS[Number(m[1]) - 1];
-  return m === null || mo === undefined ? ymd : `${mo} ${String(Number(m[2]))}`;
-}
-
-/** The day before `ymd`, as `YYYY-MM-DD` (calendar arithmetic, no zone). */
-function dayBefore(ymd: string): string {
-  const t = Date.parse(`${ymd}T12:00:00Z`);
-  return Number.isNaN(t) ? "" : new Date(t - 86_400_000).toISOString().slice(0, 10);
+  return shortDay(ymd, isDay(ymd) ? yearOf(ymd) : undefined);
 }
 
 /** The line, or null when there is no night to speak of (a store that never had one). */
@@ -127,7 +118,7 @@ export function nightLine(f: NightFacts): string | null {
     const dates = [f.dream?.date, f.reflection?.date, run?.date].filter((d): d is string => typeof d === "string" && d.length > 0 && d < today).sort();
     const last = dates[dates.length - 1];
     if (last === undefined) return null;
-    return last === dayBefore(today)
+    return isDay(today) && last === addDays(today, -1)
       ? `${NIGHT_LINE_HEAD} none yet today (last: ${shortDate(last)})${off}.`
       : `${NIGHT_LINE_HEAD} no night ran (last: ${shortDate(last)})${off}.`;
   }
