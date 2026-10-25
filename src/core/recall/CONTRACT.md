@@ -184,6 +184,18 @@ reply actually used reconsolidates, where in humans every retrieval does.
   questions untouched. The count is read from a derived note in box 3, rebuilt from the
   `recall.rated` rows whenever it is behind them. The rating row now also records what its
   call credited and linked.
+- **An unsettled pair competes** (2026-10-24, E3, an experiment; `UNSETTLED_COMPETES`). When
+  a turn's words or meaning reach both members of a standing unsettled pair, the newer past
+  the absolute floor, the older — the one labelled "Unsettled — may be out of date"
+  (`standing.ts#unsettledCompetition`) — counts at `activation × (1 − k · sim · fresh)` once
+  it has cleared the floor and its bar at its own reach: the loud tier's checks and both
+  rankings see the scaled number, admission does not. A weight, never a filter: it shows,
+  labelled, whenever there is room; alone it is untouched; nothing is written. While they
+  compete, the two are never each other's copy: near-duplicates by words (`NEAR_DUPLICATE`)
+  both show, the newer first (off, the gate shows only the stronger of them, as before), so
+  a wrong pair one name apart cannot hide the older behind the weight. Its verdict and
+  shown tier row carry `competed {with, factor}`; the decision row counts them
+  (`pairsCompeted`, absent while off). Ambient only.
 - **Framing is load-bearing and part of the spec** — footnotes are pointers, and the "quietly
   available / ignorable" phrasing is a deliberate probe question, at step 1 since 2026-09-14
   (§7 OQ4). [v1 §9 G17]

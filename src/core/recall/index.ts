@@ -49,7 +49,7 @@ import type { GateRecordInput } from "../store/index.js";
 import type { CueWord, GateState, SemanticSource } from "./session.js";
 import { beliefLine, render } from "./render.js";
 import type { BeliefLine } from "./render.js";
-import { headOf, standingOf } from "./standing.js";
+import { headOf, standingOf, unsettledCompetition } from "./standing.js";
 import type { RenderResult, Resolve, Resolved } from "./render.js";
 import { withTunables } from "./tunables.js";
 import type { RecallTunables } from "./tunables.js";
@@ -348,6 +348,11 @@ export interface RecallDecision {
   /** How many only `CROSS_PROJECT_BAR_LIFT` kept below their bar this turn —
    *  another project's work that would otherwise have shown (2026-10-21). */
   readonly crossProjectLifted: number;
+  /** How many olders of an unsettled pair counted at a weight this turn, their
+   *  newer a candidate too (E3, 2026-10-24; which ones: `competed` on their
+   *  verdicts and shown tier rows). Absent when `UNSETTLED_COMPETES` is off or
+   *  the turn never reached the gate, so an off turn's row is as before. */
+  readonly pairsCompeted?: number;
   /** What context priming did this turn (2026-10-19, `PrimeSummary`); null when it did not run. */
   readonly primed: PrimeSummary | null;
   /** What the beliefs slot did this turn (lane E, `BeliefSlotSummary`); null when it did not run. */
@@ -686,6 +691,16 @@ export class Recall {
     // HABITUATION (an experiment, 2026-10-19, light): who was rated 0 in enough
     // recent sessions. Ambient turns only: a deliberate feeling ask is untouched.
     const habituated = turn.feeling === undefined ? habituatedIds(this.store, day, this.tunables) : new Map<string, number>();
+    // AN UNSETTLED PAIR COMPETES (2026-10-24, E3, an experiment): the older of
+    // a standing unsettled pair, its newer reached this turn too, counts at a
+    // weight in the gate. Off: nothing is read.
+    const competing = this.tunables.UNSETTLED_COMPETES
+      ? unsettledCompetition(this.store, candidates, day, {
+          k: this.tunables.UNSETTLED_COMPETE_K,
+          simFloor: this.tunables.UNSETTLED_COMPETE_SIM_FLOOR,
+          windowDays: this.tunables.UNSETTLED_COMPETE_WINDOW_DAYS,
+        })
+      : null;
 
     const gated = gate(
       {
@@ -698,6 +713,7 @@ export class Recall {
         ...(turn.elsewhere !== undefined && this.tunables.RECALL_BY_PROJECT ? { elsewhere: turn.elsewhere } : {}),
         ...(turn.elsewhere !== undefined && !this.tunables.RECALL_BY_PROJECT && this.tunables.CROSS_PROJECT_BAR_LIFT > 1 ? { crossing: turn.elsewhere } : {}),
         ...(habituated.size === 0 ? {} : { habituated }),
+        ...(competing === null || competing.size === 0 ? {} : { competing }),
       },
       this.tunables,
     );
@@ -812,6 +828,7 @@ export class Recall {
       echoSkipped: gated.verdicts.filter((v) => v.verdict === "echo-skipped").length,
       projectSkipped: gated.verdicts.filter((v) => v.verdict === "project-skipped").length,
       crossProjectLifted: gated.crossLifted.length,
+      ...(competing === null ? {} : { pairsCompeted: gated.competed.length }),
       primed,
       beliefs: beliefPicks === null ? null : { offered: beliefPicks.offered, shown: rendered.beliefs, bytes: rendered.beliefBytes },
       // What the gate SHOWED of the pointers activation handed it, after the

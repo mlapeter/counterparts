@@ -62,6 +62,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Cue learning (R3, store v15 `cue_edges`): the words of a turn that showed a memory, which was then used or rated, wire to it, and a learned pair reads as one more cue (`w × share × CUE_PAIR_UNITS`); switch `physics.CUE_LEARNING` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after cue learning" below; `docs/decisions.d/feat-cue-learning.md` |
 | "Today so far here" in a session start's wake (this folder's earlier chapters today, with their summaries; `self.TODAY_SO_FAR`) and the Yesterday line led by day's end's summary behind a privacy gate (`self.YESTERDAY_FROM_SUMMARY`) | not released, 10-24 (W1) | ~5 days after install: mid-day wakes in two folders | "Due ~5 days after Today so far" below; `docs/decisions.d/feat-today-so-far.md` |
 | An awake repeat counts (B1): a belief written in the moment that says what one already says is still refused `near-duplicate`, and its memory is filed as support for that belief, at most once per belief per session (unbound: once a lived day); events `schema.support.filed` with `via: awake-duplicate`; switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` | not released, 10-24 | 3–5 days after the release that carries it | "Due 3–5 days after awake belief support" below; `docs/decisions.d/feat-awake-belief-support.md` |
+| An unsettled pair competes (E3): when a turn reaches both members, the older counts at `1 − k·sim·fresh` (k 0.6, cosine over 0.8, 7 lived days) for the loud tier and the order, never admission; the label stays; switch `recall.UNSETTLED_COMPETES` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after unsettled competition" below; `docs/decisions.d/feat-unsettled-competes.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -294,6 +295,29 @@ What would change it: one belief climbing by several awake filings a day for day
 belief instead of noticing new things), or a belief reaching the page on awake repeats alone. Revert:
 `schemas.AWAKE_SUPPORT_ON_DUPLICATE=false` (the old reply, nothing filed; rows already filed stay, counted), or revert
 the PR. Step 2 of B1 (`supports:` on remember) is briefed from these numbers.
+
+## Due ~7 lived days after unsettled competition (2026-10-24, E3, Mike's go 14:47, lightly held — `recall.UNSETTLED_COMPETES`)
+
+What: when a turn reaches both members of a standing unsettled pair (the slot detector's "newer state of" proposal, or
+a dream's unsettled flag), the older one, already labelled "Unsettled — may be out of date", counts at
+`activation × (1 − k · sim · fresh)` for the loud tier and the order, never for admission: the newer wins a close race,
+the older still shows, labelled, when there's room. k 0.6; `sim` = cosine over 0.8, over 0.2; `fresh` falls to 0 over 7
+lived days. Only a newer past the absolute floor presses. Replay on the 10-24 corpus: in the 8 proposals' windows (≤ 1
+lived day each) 322 turns ran and none showed both members; the 3 the dream undid had 50 turns and neither member
+shown. So expect it to fire rarely: a same-day turn about something just rewritten.
+
+Look at (read-only):
+- how often it fires: `SELECT COUNT(*) AS turns, SUM(json_extract(payload,'$.pairsCompeted') > 0) AS competed FROM events WHERE name = 'recall.decision' AND json_extract(payload,'$.pairsCompeted') IS NOT NULL;`
+- the olders it weighed that still showed, with their newer and weight: `SELECT e.day, json_extract(f.value,'$.id') AS older, json_extract(f.value,'$.competed.with') AS newer, json_extract(f.value,'$.competed.factor') AS factor FROM events e, json_each(e.payload,'$.footnotes') f WHERE e.name = 'recall.decision' AND json_extract(f.value,'$.competed') IS NOT NULL ORDER BY e.seq DESC LIMIT 20;`
+  (and the same over `$.surfaced`);
+- the cost side: for pairs the dream WITHDREW since install (`SELECT pair_id, day FROM contradiction_settles WHERE action = 'withdraw' AND actor = 'dream'`),
+  any turn above with that pair's older — a wrong newer that won a race; Mike reads whether any mattered.
+
+Not stored: an older the weight pushed out of a full tier (`capped`) appears only in the count, not by id.
+
+Changes it: Mike reading a true memory pushed below a wrong "newer" more than once a week, or an outdated fact still shown
+first beside its newer. Revert: `recall.UNSETTLED_COMPETES=false` in `src/core/recall/tunables.ts` (nothing read; the
+turn and its row exactly as before), or revert the PR.
 
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 
