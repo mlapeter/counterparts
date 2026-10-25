@@ -125,9 +125,10 @@ export interface SelfTunables {
   /**
    * "STILL OPEN" LEADS WITH WHAT IS LIVE (2026-10-18, the wake-polish
    * builder, lightly held): an open thread untouched — neither born nor used
-   * — for this many lived days ranks after every one touched since, and the
-   * lane's count line says how many of what it counts are that old ("41
-   * untouched for 2+ weeks"). "Untouched" is read as #489 D's `staleOpen`
+   * — for this many lived days ranks after every one touched since. (Until
+   * 2026-10-25 the lane's count line also said how many of what it counted
+   * were that old, "41 untouched for 2+ weeks"; dropped as a third rule
+   * beside `OPEN_CARRY_DAYS`, `briefing.ts#OPEN_TAIL_WORDS`.) "Untouched" is read as #489 D's `staleOpen`
    * reads it (born or used), but the thresholds differ: the nightly
    * close-offer looks from `REFLECT_TUNABLES.STALE_OPEN_DAYS` (4) and offers
    * at most 5 a night, so it does not count what this counts. CAL.

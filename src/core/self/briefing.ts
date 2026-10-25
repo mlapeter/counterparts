@@ -432,25 +432,41 @@ function overdueAmong(lane: LaneName, ids: readonly string[], overdue: readonly 
 export const OVERDUE_WORD = "overdue";
 
 /**
- * WHAT "STILL OPEN"'S COUNT SAYS OF ITS OLD ONES (2026-10-18, the wake-polish
- * builder, lightly held): `(56 more still open, 19 untouched for 2+ weeks;
- * recall ids …)` — the threads untouched for `STILL_OPEN_STALE_DAYS` (14)
- * lived days, which rank last (`identity.ts#byThreadLive`). Fourteen lived
- * days are at least two weeks of the calendar: a lived day is a day the
- * memory was used.
+ * WHAT "STILL OPEN"'S COUNT SAID OF ITS OLD ONES, 2026-10-18 to 2026-10-25:
+ * `(56 more still open, 19 untouched for 2+ weeks; recall ids …)`. Nothing
+ * composes it now (`OPEN_TAIL_WORDS`); `countedLanes` still reads it off a
+ * bundle stored before.
  */
 export const STALE_OPEN_WORDS = "untouched for 2+ weeks";
 
-/** `(3 more still open; recall ids: mem_…, mem_…, mem_…)`, `(56 more still
- *  open, 19 untouched for 2+ weeks; recall ids: …)`, and for "Coming up"
+/**
+ * "STILL OPEN"'S TAIL, CALM AND WITHOUT IDS (2026-10-25, the wake-polish
+ * builder from random-5b's 10-25 wake; Mike's go, lightly held):
+ * `(96 more open, kept quietly; recall finds one by what it's about)`.
+ * The line it replaces — `(96 more still open, 15 untouched for 2+ weeks;
+ * recall ids (the first 5): mem_…×5)` — read as guilt, and five bare ids said
+ * nothing of what they were. Its "untouched" count was a third rule beside
+ * the carry (`identity.ts#openCarry`: 21 lived days, a glimpse is not a
+ * touch) and the order (`STILL_OPEN_STALE_DAYS`: 14, born or used), so it is
+ * dropped rather than realigned; the order still puts the weeks-old last.
+ *
+ * WHY "BY WHAT IT'S ABOUT", NOT "ASK WHAT'S STILL OPEN": measured on the
+ * owner's 10-25 snapshot, the facts questions "what's still open", "open
+ * threads" and "what is still unresolved" matched none of its 156 open
+ * threads — they share no content word with them — and no recall door lists
+ * every open thread. A facts question about the thing itself reaches any
+ * memory sharing a content word with it, open or not. Revert: the generic
+ * form below for `threads` too.
+ */
+export const OPEN_TAIL_WORDS = "kept quietly; recall finds one by what it's about";
+
+/** `(3 more might be relevant; recall ids: mem_…, mem_…, mem_…)`; for "Still
+ *  open" `(56 more open, kept quietly; …)` (`OPEN_TAIL_WORDS`); for "Coming up"
  *  `(2 overdue, 4 more coming up; recall ids: …)` or `(2 overdue; recall ids: …)`. */
-export function moreLine(lane: LaneName, ids: readonly string[], overdue?: readonly string[], stale?: readonly string[]): string {
+export function moreLine(lane: LaneName, ids: readonly string[], overdue?: readonly string[]): string {
+  if (lane === "threads") return `(${String(ids.length)} more open, ${OPEN_TAIL_WORDS})`;
   const late = overdueAmong(lane, ids, overdue);
-  if (late === 0) {
-    const old = lane !== "threads" || stale === undefined || stale.length === 0 ? 0 : ids.filter((id) => stale.includes(id)).length;
-    const said = old === 0 ? "" : `, ${String(old)} ${STALE_OPEN_WORDS}`;
-    return `(${String(ids.length)} more ${MORE_NOUN[lane]}${said}; ${recallIds(ids)})`;
-  }
+  if (late === 0) return `(${String(ids.length)} more ${MORE_NOUN[lane]}; ${recallIds(ids)})`;
   const rest = ids.length - late;
   return `(${String(late)} ${OVERDUE_WORD}${rest === 0 ? "" : `, ${String(rest)} more ${MORE_NOUN[lane]}`}; ${recallIds(ids)})`;
 }
@@ -509,7 +525,13 @@ export function countedLanes(text: string): Partial<Record<LaneName, number>> {
       out[collapsed] = Number(/^\D*(\d+) — /.exec(line.slice(heading.length))?.[1] ?? 0);
       continue;
     }
-    // "Still open"'s old ones ride inside the count (2026-10-18): `(56 more still open, 19 untouched for 2+ weeks; …)`.
+    // "Still open"'s calm tail (2026-10-25): `(96 more open, kept quietly; …)`.
+    const calm = /^\((\d+) more open, kept quietly/.exec(line);
+    if (calm !== null) {
+      out.threads = Number(calm[1]);
+      continue;
+    }
+    // "Still open"'s old ones rode inside the count (2026-10-18 to 10-25): `(56 more still open, 19 untouched for 2+ weeks; …)`.
     const more = new RegExp(`^\\((\\d+) more (.+?)(?:, \\d+ ${STALE_OPEN_WORDS.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})?; recall ids`).exec(line);
     const lane = more === null ? undefined : byNoun.get(more[2] ?? "");
     if (more !== null && lane !== undefined) {
@@ -571,7 +593,7 @@ export function collapsedLine(lane: LaneName, ids: readonly string[], counted?: 
 
 /** What "Coming up" counts rather than lists, as a composition's request
  *  carries it (`BriefingRequest.horizonLater`, `.horizonOverdue`). */
-export type HorizonCounted = Pick<BriefingRequest, "horizonLater" | "horizonOverdue" | "threadsStale">;
+export type HorizonCounted = Pick<BriefingRequest, "horizonLater" | "horizonOverdue">;
 
 /** The lane a collapsed line (`collapsedLine`) speaks for, or null for any other line. */
 export function collapsedLane(line: string): LaneName | null {
@@ -826,10 +848,6 @@ export interface BriefingRequest {
   /** Those of `horizonLater` past their date (review of #511): the line
    *  counts them as overdue. Absent: none said so. */
   readonly horizonOverdue?: readonly string[];
-  /** "Still open"'s threads untouched for `STILL_OPEN_STALE_DAYS` lived days
-   *  (`Lanes.threadsStale`, 2026-10-18): its count line says how many of what
-   *  it counts are that old. Absent: nothing said. */
-  readonly threadsStale?: readonly string[];
 }
 
 export interface TrimEvent {

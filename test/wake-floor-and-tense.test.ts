@@ -291,7 +291,7 @@ describe("Still open keeps its first item beside a long page, and the page is ne
           if (id === undefined) expect(bodies).toContain(shown);
           else expect(ids).toContain(id);
         }
-        expect(open[open.length - 1]).toStartWith(`(${String(25 - listed.length)} more still open; `);
+        expect(open[open.length - 1]).toStartWith(`(${String(25 - listed.length)} more open, `);
         // And what gave way was "Work here" (fewer lines), not the reminders or
         // yesterday's chapters: both Arriving lines, all four titles.
         expect(lane(text, FRAMING.horizon)?.filter((l) => l.startsWith("- ")).length).toBe(2);
@@ -339,7 +339,7 @@ describe("Still open keeps its first item beside a long page, and the page is ne
     clock("America/Denver", "2026-10-09", 8);
     const open = lane(sessionStart(a, "America/Denver", "s1").text, FRAMING.threads) ?? [];
     expect(open.filter((l) => l.startsWith("- ")).length).toBe(SELF_TUNABLES.THREADS_MAX);
-    expect(open[open.length - 1]).toStartWith(`(${String(25 - SELF_TUNABLES.THREADS_MAX)} more still open; `);
+    expect(open[open.length - 1]).toStartWith(`(${String(25 - SELF_TUNABLES.THREADS_MAX)} more open, `);
   });
 
   test("a short page is not cut for the lanes beside it", async () => {
@@ -504,7 +504,7 @@ describe("what gives way for Still open's first item, in order — never the pag
         expect(oneMoreArriving(out).bytes).toBeGreaterThan(b);
         if (out.counts.threads > 0) {
           expect(out.counts.threads).toBe(1);
-          expect(open?.[1]).toStartWith("(19 more still open; ");
+          expect(open?.[1]).toStartWith("(19 more open, ");
         }
       }
       if (y !== undefined && y !== full) {
@@ -558,7 +558,7 @@ describe("what gives way for Still open's first item, in order — never the pag
     const lent = render(lanes(), req(b, { lend: 2_000 }), resolve, SELF_TUNABLES);
     expect(lent.counts.horizon).toBe(3);
     expect(lent.counts.threads).toBe(1);
-    expect(lane(lent.text, FRAMING.threads)?.[1]).toStartWith("(19 more still open; ");
+    expect(lane(lent.text, FRAMING.threads)?.[1]).toStartWith("(19 more open, ");
     expect(lent.text).toContain(`\n${full}\n`);
     expect(lent.text).toContain(`${FRAMING.identity}\n${body}\n`);
     // It ran past the budget by what it borrowed, and says what it was composed to.
