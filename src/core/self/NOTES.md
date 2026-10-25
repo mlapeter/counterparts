@@ -2805,9 +2805,12 @@ random-5b's wake on 0.3.35 (8,981 B) had four rough spots; each is now a smaller
   line's furniture (`briefing.ts#withNightLine`), between Yesterday and "Today so far
   here", in every form of the ladder and alone as its last rung — so it gives way after
   the furniture around it, and costs what it costs from the lanes the furniture already
-  outranks. A delivery splice (as the project line) was the other option; on the owner's
-  wakes, which run within a few dozen bytes of 9,000, a line that only takes leftover room
-  would rarely show. "Last night" is the night run dated the session's date (the run starts
+  outranks. A delivery splice (as the project line) was the other option; it would show
+  only in leftover room — about 300–500 B on the 10-25 snapshot copy's renders (8,504–8,649
+  B at 9,000 in three folders), but 19 B on random-5b's own 8,981 B wake — so on a full day
+  it would be the first thing lost, and the brief asked for a sane yield order instead.
+  Measured on a fixture (`wake-polish-1025.test.ts`, "a tight day"): what gives way for it
+  is Still open's first item's whole words (printed as its line), then Nearby items. "Last night" is the night run dated the session's date (the run starts
   at the first session of a day, dated that day); a dream run by hand late in the evening
   therefore reads as "none yet today" the next morning — watch it (CHECK-AFTER).
 - **"quiet since"** (`handoff/last-here.ts#ELSEWHERE_QUIET_MS`, 2 h): the registry calls a

@@ -111,7 +111,7 @@ export { applyTagsAnswer, askTags, renderTagsBundle, tagNights, tagsBundle, tags
 export type { TagNight, TagsAnswer, TagsApplied, TagsBundle } from "./tags.js";
 export { FEELING_WEEKS_TUNABLES, awakeFeelingCounts, feelingWeeks } from "./feeling-weeks.js";
 // The wake's "Last night:" line (2026-10-25, wake polish).
-export { NIGHT_LINE_CHANGES, NIGHT_LINE_HEAD, dreamChangeWords, nightLine } from "./night-line.js";
+export { NIGHT_LINE_CHANGES, NIGHT_LINE_HEAD, nightChangeWords, nightLine } from "./night-line.js";
 export type { NightFacts } from "./night-line.js";
 export type { FeelingWeeks } from "./feeling-weeks.js";
 export type { ReflectBundle, ReflectContext, ReflectFinish, ReflectItem, ReflectOutcome, ReflectRefusal } from "./reflect.js";

@@ -28,7 +28,7 @@ import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { NIGHT_LINE_HEAD, nightLine } from "../src/core/dream/index.js";
 import type { NightFacts, NightRun } from "../src/core/dream/index.js";
-import { ELSEWHERE_QUIET_MS } from "../src/core/handoff/last-here.js";
+import { ELSEWHERE_QUIET_MS, YESTERDAY_SUMMARY_WORDS } from "../src/core/handoff/last-here.js";
 import { FRAMING, OPEN_TAIL_WORDS, SELF_TUNABLES, countedLanes, withNightLine } from "../src/core/self/index.js";
 
 const MIN = 60_000;
@@ -77,21 +77,21 @@ interface World {
 }
 
 /** A store on the test's clock, with a bundle published the evening before. */
-function world(start: number): World {
+function world(start: number, budget = BUDGET): World {
   let now = at(D1, 18);
-  const c = Counterpart.open({ dir: storeDir, budgetBytes: BUDGET, now: () => now, timeZone: ZONE });
+  const c = Counterpart.open({ dir: storeDir, budgetBytes: budget, now: () => now, timeZone: ZONE });
   open.push(c);
-  c.rebrief({ budgetBytes: BUDGET, at: D1 });
+  c.rebrief({ budgetBytes: budget, at: D1 });
   now = start;
   return { c, set: (t) => void (now = t), now: () => now };
 }
 
 /** The wake SessionStart delivers to a session in HERE, now. */
-function wake(w: World): string {
+function wake(w: World, budget = BUDGET): string {
   const verdict = { mode: "on", matched: HERE, entry: null } as ScopeVerdict;
   const a = new ClaudeCodeAdapter({
     counterpart: w.c,
-    config: { dataDir: storeDir, injectionBudgetBytes: BUDGET },
+    config: { dataDir: storeDir, injectionBudgetBytes: budget },
     configPath: config,
     now: () => w.now(),
     scope: verdict,
@@ -100,7 +100,7 @@ function wake(w: World): string {
     spawner: () => ({ pid: 4242 }),
   });
   const text = a.sessionStart({ sessionId: S, scope: HERE, at: D2, source: "startup" } as HookInput).injection;
-  expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(BUDGET + 200);
+  expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(budget + 200);
   return text;
 }
 
@@ -279,11 +279,53 @@ describe("3. Last night", () => {
     expect(forms).toEqual([`${Y}\n${N}\n${T}`, `${Y}\n${N}\n${Tt}`, `${Y}\n${N}`, `${Ys}\n${N}`, N]);
     for (let i = 1; i < forms.length; i += 1) expect(Buffer.byteLength(forms[i] ?? "")).toBeLessThan(Buffer.byteLength(forms[i - 1] ?? ""));
     expect(out.todaySoFarSummaries).toEqual([`${Y}\n${N}\n${T}`]);
+    // The summary-led Yesterday (W1, `yesterdaySummaryForms`) is one line that opens "Yesterday, …": the same place.
+    const lead = `Yesterday, ${YESTERDAY_SUMMARY_WORDS} The beds were turned. Chapters: "Bed one turned" (epi_000000000001).`;
+    expect(withNightLine({ yesterday: `${lead}\n${Tt}`, yesterdayShorter: [lead] }, N).yesterday).toBe(`${lead}\n${N}\n${Tt}`);
     // No Yesterday line: the night line first, over "Today so far".
     expect(withNightLine({ yesterday: T }, N).yesterday).toBe(`${N}\n${T}`);
     // No furniture at all: the line alone. No line: untouched.
     expect(withNightLine({}, N)).toEqual({ yesterday: N });
     expect(withNightLine(day, null)).toEqual(day);
+  });
+
+  test("a tight day: the line stays, and what gives way for it is Still open's later items and Nearby — never a thing due today, Still open's first item or the page", () => {
+    // Measured: at 2,550 the line costs Still open's first item its whole words (it prints as its line);
+    // at 2,300 two Nearby items, counted. Nothing due today, no first item, no page.
+    const TIGHT = 2_300;
+    const long = (head: string): string => `${head} ${"The detail goes on, as a real memory's first paragraph does, with the steps and the reasons. ".repeat(3)}`;
+    const build = (night: boolean): string => {
+      rmSync(storeDir, { recursive: true, force: true });
+      const w = world(at(D2, 9), TIGHT);
+      const page = ["## Core", "", long("I keep the garden's ledger."), "", "## Lately", "", long("The beans are in.")].join("\n");
+      expect(w.c.revisePage(page, { by: "owner", reason: "a page" }).written).toBe(true);
+      const SAL = { relevance: 0.9, emotional: 0.8, predictive: 0.8 } as const;
+      for (let i = 0; i < 50; i += 1) w.c.store.put({ type: "memory", kind: "fact", title: `Does bed ${String(i)} want lime?`, body: long(`Open ${String(i)}: whether bed ${String(i)} wants lime.`), meta: { unresolved: true }, salience: SAL });
+      for (let i = 0; i < 8; i += 1) w.c.store.put({ type: "memory", kind: "fact", title: `Compost heap ${String(i)} runs warm`, body: long(`Warm ${String(i)}.`), salience: SAL });
+      w.c.store.put({ type: "memory", kind: "person", title: "DUETODAY the seed order closes at noon", body: "DUETODAY the seed order closes at noon; the list is in the green folder.", learnedOn: "2026-10-20", eventDate: D2, salience: SAL });
+      if (night) {
+        dream(w, "drm_00000000a008", D2, { link: 4, merge: 1 });
+        reflection(w, "rfl_00000000b008", D2, "entry", "drm_00000000a008");
+      }
+      w.c.rebrief({ budgetBytes: TIGHT, at: D1 });
+      return wake(w, TIGHT);
+    };
+    const without = build(false);
+    const withNight = build(true);
+    expect(lineOf(without, NIGHT_LINE_HEAD)).toBeUndefined();
+    expect(lineOf(withNight, NIGHT_LINE_HEAD)).toBe("Last night: dream drm_00000000a008 made 4 links and 1 merge; reflection rfl_00000000b008 wrote an entry.");
+    for (const text of [without, withNight]) {
+      // The dated item due today, Still open's first item, the page whole.
+      expect(text).toContain("DUETODAY the seed order closes at noon");
+      expect(lane(text, FRAMING.threads)[0]).toStartWith("- ");
+      expect(text).toContain("I keep the garden's ledger.");
+      expect(text).toContain("The beans are in.");
+    }
+    // What gave way: items further down Still open, or Nearby — counted, not lost.
+    const listed = (text: string, heading: string): number => lane(text, heading).filter((l) => l.startsWith("- ")).length;
+    const room = (text: string): number => listed(text, FRAMING.threads) + listed(text, FRAMING.hints);
+    expect(room(withNight)).toBeLessThan(room(without));
+    expect(countedLanes(lane(withNight, FRAMING.threads).join("\n")).threads ?? 0).toBe(50 - listed(withNight, FRAMING.threads));
   });
 
   test("the words, pure: counts ranked and capped, an undone dream, a reflection alone", () => {

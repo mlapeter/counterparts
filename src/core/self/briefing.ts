@@ -577,7 +577,7 @@ export function countedLanes(text: string): Partial<Record<LaneName, number>> {
       continue;
     }
     // "Still open"'s calm tail (2026-10-25): `(96 more open, kept quietly; …)`.
-    const calm = /^\((\d+) more open, kept quietly/.exec(line);
+    const calm = new RegExp(`^\\((\\d+) more open, ${OPEN_TAIL_WORDS.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`).exec(line);
     if (calm !== null) {
       out.threads = Number(calm[1]);
       continue;

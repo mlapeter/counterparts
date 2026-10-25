@@ -77,7 +77,7 @@ const CHANGE_WORDS: Readonly<Record<string, readonly [string, string]>> = {
 export const NIGHT_LINE_CHANGES = 3;
 
 /** `11 links, 1 fold and 1 feeling`, or null when the dream changed nothing but replays. */
-export function dreamChangeWords(counts: Readonly<Record<string, number>>): string | null {
+export function nightChangeWords(counts: Readonly<Record<string, number>>): string | null {
   const kinds = Object.entries(counts)
     .filter(([action, n]) => action !== "replayed" && n > 0)
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
@@ -131,7 +131,7 @@ export function nightLine(f: NightFacts): string | null {
     else if (dream.state !== "journaled") {
       dreamPart = `dream ${dream.id} was begun, not finished`;
     } else {
-      const did = dreamChangeWords(dream.counts);
+      const did = nightChangeWords(dream.counts);
       dreamQuiet = did === null;
       dreamPart = did === null ? `dream ${dream.id} changed nothing` : `dream ${dream.id} made ${did}`;
     }
