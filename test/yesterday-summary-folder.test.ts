@@ -23,6 +23,7 @@ import { join } from "node:path";
 
 import { McpServer } from "../src/adapters/mcp/index.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { chaseRemoved } from "../src/core/store/owner-op-seam.js";
 import { YESTERDAY_SUMMARY_WORDS } from "../src/core/handoff/last-here.js";
 import { SELF_TUNABLES } from "../src/core/self/tunables.js";
 import { readableDate } from "../src/core/time.js";
@@ -91,10 +92,10 @@ function brain(): Counterpart {
 }
 
 /** A chapter written through the `chapter` tool in `scope` at `hour` on `date`; the summary memory's id (or null). */
-async function chapterVia(o: { session: string; scope: string; date: string; hour: number; title: string; summary?: string }): Promise<{ episode: string; summary: string | null }> {
+async function chapterVia(o: { session: string; scope: string; date: string; hour: number; title: string; summary?: string; about?: "work" }): Promise<{ episode: string; summary: string | null }> {
   clock = at(o.date, o.hour);
   const s = server(o.session, o.scope);
-  const out = (await s.call("chapter", { text: CHAPTER, title: o.title, ...(o.summary === undefined ? {} : { summary: o.summary }) })).structuredContent;
+  const out = (await s.call("chapter", { text: CHAPTER, title: o.title, ...(o.summary === undefined ? {} : { summary: o.summary }), ...(o.about === undefined ? {} : { about: o.about }) })).structuredContent;
   const episode = String(out["episodeId"]);
   const summaryId = s.counterpart.store.list({ type: "memory", source: "episode", originRef: episode, archived: false })[0] ?? null;
   s.counterpart.close();
@@ -208,5 +209,63 @@ describe("read side: a summary written before Y1 reads its chapter's folder", ()
     legacy(c, { session: S3, scope: null, date: D0, hour: 20, title: "An old chapter", summaryOn: { date: D1, hour: 8 } });
     told(c, D1, [own.summary]);
     expect(shown(wakeIn(c, HERE))).toBe(false);
+  });
+});
+
+describe("review of Y1: the awkward states, built on purpose", () => {
+  test("an archived chapter still lends its folder: a private one keeps blocking with that folder's scope off", () => {
+    const c = brain();
+    const own = legacy(c, { session: S1, scope: HERE, date: D1, hour: 9, title: "Sowing the broad beans" });
+    const secret = legacy(c, { session: S3, scope: PRIVATE, date: D0, hour: 20, title: "The quarterly figures", summaryOn: { date: D1, hour: 8 } });
+    c.store.archive(secret.episode, "merged");
+    expect(c.store.row(secret.episode)?.archived).toBe(1);
+    told(c, D1, [own.summary]);
+    expect(shown(wakeIn(c, HERE, (s) => s !== PRIVATE))).toBe(false);
+    expect(shown(wakeIn(c, HERE))).toBe(true);
+  });
+
+  test("an erased chapter's tombstone keeps its folder, so its summary reads as written there — as a summary written since Y1 carries it — and blocks with that folder off", () => {
+    const c = brain();
+    const own = legacy(c, { session: S1, scope: HERE, date: D1, hour: 9, title: "Sowing the broad beans" });
+    const gone = legacy(c, { session: S3, scope: PRIVATE, date: D0, hour: 20, title: "An erased chapter", summaryOn: { date: D1, hour: 8 } });
+    c.store.appendRemovalRecord({ memoryId: gone.episode, stage: "requested", actor: "owner", reason: "test" });
+    c.store.appendRemovalRecord({ memoryId: gone.episode, stage: "dark", actor: "owner", reason: "test" });
+    chaseRemoved(c.store, gone.episode);
+    expect(c.store.row(gone.episode)?.body).toBe("");
+    told(c, D1, [own.summary]);
+    expect(shown(wakeIn(c, HERE, (s) => s !== PRIVATE))).toBe(false);
+    expect(shown(wakeIn(c, HERE))).toBe(true);
+  });
+
+  test("a summary whose chapter row is missing altogether lends nothing: no folder, and the summary stays out", () => {
+    const c = brain();
+    const own = legacy(c, { session: S1, scope: HERE, date: D1, hour: 9, title: "Sowing the broad beans" });
+    clock = at(D1, 10);
+    const dangling = "epi_00000000000000000000000000";
+    expect(c.store.row(dangling)).toBeUndefined();
+    c.store.put({ type: "memory", kind: "self", body: SUMMARY, meta: { episodeId: dangling, sessionId: S3, chapter: 1, chapterSummary: "automatic" }, source: "episode", origin: { session: S3, ref: dangling } });
+    told(c, D1, [own.summary]);
+    expect(shown(wakeIn(c, HERE))).toBe(false);
+  });
+
+  test("an origin_ref naming a memory, not a chapter, lends nothing", () => {
+    const c = brain();
+    const own = legacy(c, { session: S1, scope: HERE, date: D1, hour: 9, title: "Sowing the broad beans" });
+    clock = at(D1, 10);
+    const other = c.store.put({ type: "memory", kind: "fact", body: "The shed key hangs behind the door.", origin: { session: S1, scope: HERE } });
+    c.store.put({ type: "memory", kind: "fact", body: "The pigeons nest in the ash tree by the road.", source: "episode", origin: { session: S1, ref: other } });
+    told(c, D1, [own.summary]);
+    expect(shown(wakeIn(c, HERE))).toBe(false);
+  });
+
+  test("a work-marked chapter's summary takes no slot in this folder's work candidates", async () => {
+    const one = await chapterVia({ session: S1, scope: HERE, date: D2, hour: 9, title: "Fixing the gate", summary: "Fixed the gate's latch and oiled the hinge.", about: "work" });
+    const c = brain();
+    const row = c.store.row(one.summary as string);
+    expect(row?.about).toBe("work");
+    expect(row?.origin_scope).toBe(HERE);
+    clock = at(D2, 10);
+    const real = c.store.put({ type: "memory", kind: "fact", body: "The gate latch is a Suffolk latch; the spare is in the shed.", origin: { session: S1, scope: HERE } });
+    expect(c.store.workCandidates(HERE, 40)).toEqual([real]);
   });
 });
