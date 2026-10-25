@@ -24,7 +24,10 @@ export function coreRoadLine(p, promoted) {
   if (p.support) {
     if (p.blocked === "demoted-by-owner") return "You took it out of the core, so it stays out.";
     if (!p.byUse) return "";
-    if (p.oneReturn) return "Felt strongly, so one real use on a later day makes it core.";
+    if (p.oneReturn) {
+      return "Felt strongly, so one real use " + p.needGap + (p.needGap === 1 ? " day of use" : " days of use") +
+        " or more after it was made makes it core.";
+    }
     const pct = Math.max(0, Math.min(99, Math.round((100 * p.support.level) / p.support.need)));
     return "Real uses from separate moments, on separate days, make it core — it is " + pct + "% of the way.";
   }

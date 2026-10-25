@@ -242,26 +242,37 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
   w            = route × spread × (1 + SUPPORT_FEELING × I_door(m))             # supportCredit, §5.13
                  spread: same session 0.25 · same lived day 0.5 · same folder 0.75 (a return keeps
                  no folder, so every filing after the first takes 0.75) · else 1
-  S(m)         = Σ w;   days(m) = distinct LIVED days (an un-echoed find gives none)
+  S(m)         = Σ w;   days(m) = distinct LIVED days (an un-echoed find gives none),
+                 and — once any stands — the slot's making's day among them, a lived
+                 day fewer than CORE_SUPPORT_GAP_DAYS (2) after it counted as it
   level(m)     = BELIEF_SUPPORT_CAP × (1 − e^(−S / BELIEF_SUPPORT_SCALE))
                  × min(1, ln(1 + days) / ln(1 + BELIEF_RESIST_DAYS))           0.9, 4, 14
-  promote      ⇔ about me(m) ∧ level(m) ≥ CORE_SUPPORT_LINE (0.0615, CAL) ∧ m not an earlier
+  promote      ⇔ about me(m) ∧ level(m) ≥ CORE_SUPPORT_LINE (0.1005, CAL) ∧ m not an earlier
                  state of its slot ∧ strength(m, d) ≥ REACH ∧ not demoted
-  recognized   ⇒ about me, once level(m) ≥ the line (the opening below, on the arc)
+  recognized   ⇒ about me, once level(m) ≥ the line (the opening below, on the arc;
+                 recognition is itself a strongly felt feeling, so it opens no unfelt road)
   ```
 
   - **One crossing, counted and named.** The crossing is still an explicit event (scar
     §2.4): its record carries lane `support`, the level, the line, `S`, its lived days
     and every filing (ids, routes, days, sessions, weights; never text).
-  - **The fast lane falls out of it.** One real use of a memory felt at 0.5 (the fast
-    lane's relative floor) is 0.0618 (0.0607 at 0.45, 0.051 unfelt), so a strongly felt
-    memory that comes back once is in; two real uses on two lived days are 0.129,
-    whatever the feeling. A reflection alone gives no
+  - **The fast lane falls out of it.** One real use two or more lived days after the
+    making, felt at 0.6 (the fast lane's bar), is 0.1013 (0.0997 at 0.55 — the most an
+    unweighed word gives — 0.0981 at 0.5, 0.0808 unfelt); the line sits midway between
+    0.55 and 0.6, so a strongly felt memory that comes back once, spaced, is in. The day
+    after the making is the same occasion (one lived day: at most 0.072, felt at 1), so
+    one use there never carries it alone. Two real uses on two lived days after the
+    making are 0.129 or more, whatever the feeling, and two sessions on one spaced day
+    0.114. *(E2 review, 2026-10-24: the first cut's line, 0.0615 over the uses' lived
+    days alone, let one use felt at 0.485 or more cross the day after birth — one
+    occasion. Tuned on the 10-24 and 10-23 corpora: 0.0999, 0.1005 and 0.1012 cross the
+    same memories.)* A reflection alone gives no
     lived day, so it never carries a memory in (lane F's `livedSupportDays` reads the
     same way); once a later real use echoes its finds they count full, on their days.
   - **What it drops:** the lanes' day, session, span and 30-day-window thresholds, the
-    full-day and anchor rules, the 0.75 binarization of a return into a lane day, and
-    the fast lane's gap of 2 (a return is still refused on the birth day). Below
+    full-day and anchor rules, and the 0.75 binarization of a return into a lane day; the
+    fast lane's gap of 2 lives on as the making's spacing in `days(m)`, and its 0.6 as
+    where one spaced use's level meets the line. Below
     `REACH` stays a gate, for now — a candidate for weighting later.
   - **What it keeps:** about me (and recognition), the owner's demotion, already
     identity, an earlier state of a slot never crossing by the slot, the nightly cap

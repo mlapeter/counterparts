@@ -769,7 +769,7 @@ than re-deriving it: recall trains on `credited` or `already-credited-today` onl
 
 ## 2026-10-24 — the core door is one support arc (E2, an experiment, `CORE_DOOR_SUPPORT`)
 
-**What the arithmetic forced.** The `returns` table keeps one row per memory, lived day and
+**What the arithmetic forced (the first cut; recalibrated below).** The `returns` table keeps one row per memory, lived day and
 source, and `creditReturn` refuses a second awake-class return the same day, so "three uses in
 one session on one day" is one filing before the spread discounts are ever asked; a reflection
 returns at most weekly, so "five nights of citations" is one filing unless the nights are a week
@@ -794,7 +794,7 @@ would take SAME_DAY and no find could ever be echoed. Returns keep no folder, so
 shares the unknown one and takes SAME_FOLDER after the first: a constant 0.75 until a return
 records its folder.
 
-**The harness (10-24 and 10-23 corpora, the same life a day apart; identical answers).** Off is
+**The harness, the first cut (10-24 and 10-23 corpora, the same life a day apart; identical answers).** Off is
 byte-identical to master (JSON equal but the run's instant, its settings line and the random ids
 of contradiction pairs). On: 9 core at the end against 12; the first promotion on day 7 (the
 lanes' first on day 8), then none until day 19, by when the lanes had 6. Of the lanes' 12, 5
@@ -809,3 +809,31 @@ other evidence in their slot (level 0), 52 carry their slot's real uses or re-en
 A second-order effect to know: what is core changes what the wake shows in its hints lane, and a
 use while shown there is not a return. One memory's day-18 use was a return with the door off
 and on display with it on.
+
+**The review's recalibration (E2 review, 2026-10-24, the roadmap seat's target).** The first
+cut's line was a sliver between one plain use and one use felt at 0.5, so the door was in effect
+"one use felt at 0.485 or more" — the day after birth included (`mem_3d44aeb08b60`, one use the
+day after it was made), and a writer's bare `emotional: 0.5` claim with it (`mem_fd38c2c77233`).
+Neither is "from separate moments, over time". Two calibration moves, both inside the arc:
+- the days factor counts the SLOT'S MAKING as its first lived day once any lived filing stands
+  (a reflection alone still gives none), and a lived filing fewer than `CORE_SUPPORT_GAP_DAYS` (2)
+  after it as that same day: the making and the next day are one occasion. This is the fast
+  lane's gap, read as spacing in the days count — a day count cannot see spacing otherwise;
+- the line moves 0.0615 → 0.1005, midway between one spaced use felt at 0.55 (0.0997, the most an
+  unweighed word gives) and at 0.6 (0.1013, the fast lane's bar). A sharp feeling bar is a cliff
+  in level whatever the line: `SUPPORT_FEELING` 0.5 puts the whole 0.55–0.6 band inside 0.0016 of
+  level, so the margin that matters is in the feeling the line stands for (0.575), against the
+  feelings real memories carry. On both corpora 0.0999, 0.1005 and 0.1012 cross the same six.
+What it gives up: `mem_c439775f4cb8`, one use felt at 0.5 that its word called strongly felt
+(0.1 above the word's default), now waits for a second occasion. The door reads intensity, not
+the word-relative "strongly felt" (`stronglyFelt`); making the door read that judgement is a
+design question, not a line. The record's `support.days` now includes the making's day, so a
+single spaced use reads "2 lived days", and it no longer equals lane F's `livedSupportDays`.
+Slots written twice on their first day by two sessions (`mem_8412e26dc04e`, then used the next
+day; `mem_b5d49bb663b2`) are one occasion now and cross when life comes back to them (days 30 and
+29, against the first cut's 21 and 20; the lanes took the first on day 31 and never the second).
+Six cross on both corpora (the lanes 12, the first cut 9); on days 7/14/21/28 and the last the
+core reads 0/0/3/4/6 (the lanes 0/6/10/11/12). Of the first cut's nine, the three that leave are
+the three single uses felt at 0.5; nothing enters that the first cut left out. Nearest real
+levels to the line: 0.1013 above (`mem_ed879e9691a6`, one spaced use felt at 0.6), 0.0980 below
+(the two felt at 0.5).

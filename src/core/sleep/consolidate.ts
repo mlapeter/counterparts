@@ -539,9 +539,13 @@ interface SlotItem {
  * slot's first fold on a member already there when it was folded; and each
  * member's RE-ENCODING — its birth, written by a session, other than the
  * slot's first encoding and other than a member from before the fold.
- * `earlier`: a later member settled over `id` (`changed`).
+ * `earlier`: a later member settled over `id` (`changed`); `bornDay`: the
+ * slot's first encoding's lived day (E2 review), null for an empty slot.
  */
-function slotEvidence(store: Pick<SleepStore, "row" | "returnsOf" | "contradictionsOf">, id: string): { readonly items: readonly SlotItem[]; readonly earlier: boolean } {
+function slotEvidence(
+  store: Pick<SleepStore, "row" | "returnsOf" | "contradictionsOf">,
+  id: string,
+): { readonly items: readonly SlotItem[]; readonly earlier: boolean; readonly bornDay: number | null } {
   const members = slotOf(store, id);
   const rows = members.map((m) => ({ id: m, row: store.row(m) }));
   let earlier = false;
@@ -589,7 +593,8 @@ function slotEvidence(store: Pick<SleepStore, "row" | "returnsOf" | "contradicti
       items.push({ member: m, day: row.birth_day, source: REENCODED, session: row.origin_session ?? null, at: row.created_at ?? null });
     }
   }
-  return { items, earlier };
+  const first = rows.find((x) => x.id === firstBorn)?.row;
+  return { items, earlier, bornDay: first === undefined ? null : first.birth_day };
 }
 
 /**
@@ -619,6 +624,8 @@ const CORE_SUPPORT_ROUTE: Readonly<Record<string, string>> = {
  * unknown — a return keeps none — so after the first, each takes
  * `SUPPORT_SAME_FOLDER`. `feeling` multiplies each (`physics#coreFeeling`, the
  * door's reading). No window: support is counted over a life, as a belief's is.
+ * The slot's making is the first of its lived days, and the day after it the
+ * same occasion (`walk.bornDay`, `CORE_SUPPORT_GAP_DAYS`; E2 review).
  */
 export function coreSupportFor(store: Pick<SleepStore, "row" | "returnsOf" | "contradictionsOf">, id: string, day: number, feeling: number): CoreDoorSupport {
   const walk = slotEvidence(store, id);
@@ -635,7 +642,7 @@ export function coreSupportFor(store: Pick<SleepStore, "row" | "returnsOf" | "co
     scope: null,
     feeling,
   }));
-  return coreDoorSupport(filings, { earlier: walk.earlier });
+  return coreDoorSupport(filings, { earlier: walk.earlier, bornDay: walk.bornDay });
 }
 
 /**

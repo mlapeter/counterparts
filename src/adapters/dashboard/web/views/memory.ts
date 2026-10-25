@@ -84,7 +84,8 @@ export function coreRoad(verdict: PromotionVerdict): CoreRoad {
     needSpan: verdict.slow.needSpan,
     holdShort: verdict.slow.strength !== null && verdict.slow.strength < verdict.slow.needStrength,
     oneReturn: onlyNoLane && !verdict.fast.met && verdict.fast.intensity >= verdict.fast.needIntensity,
-    needGap: verdict.fast.needGap,
+    // The support door's spacing from the making when it is on (E2 review), else the fast lane's gap.
+    needGap: verdict.support?.needGap ?? verdict.fast.needGap,
     lane: verdict.lane,
     eligible: verdict.eligible,
     blocked,

@@ -244,7 +244,9 @@ export const TUNABLES = {
    * replay count nothing. The height `BELIEF_SUPPORT_CAP x (1 − e^(−S /
    * BELIEF_SUPPORT_SCALE))` times the days factor `min(1, ln(1 + days) /
    * ln(1 + BELIEF_RESIST_DAYS))` over its distinct LIVED days (an un-echoed
-   * find gives none: insight earns support, not time) — one crossing, one
+   * find gives none: insight earns support, not time; the slot's making is
+   * the first of them, and the day after it the same occasion —
+   * `CORE_SUPPORT_GAP_DAYS`) — one crossing, one
    * counted record naming the filings. The fast and slow lanes above are not
    * read for eligibility while it is on (their progress is still computed,
    * for the readers that show it). Off: the two lanes exactly as before.
@@ -255,20 +257,36 @@ export const TUNABLES = {
    */
   CORE_DOOR_SUPPORT: true,
   /**
-   * Where the core door's support crosses (E2): the height x days factor
-   * above. Just under one real use felt at `CORE_FAST_RELATIVE_FLOOR` (0.5:
-   * 0.0618), the lowest feeling the fast lane ever called strongly felt, so a
-   * strongly felt memory that comes back once is in — the fast lane, falling
-   * out of the arc — and one felt at 0.45 or less (0.0607; unfelt 0.051)
-   * needs another occasion; two real uses on two lived days are in whatever
-   * the feeling (0.129). A reflection alone never is (no lived day).
-   * CAL, tuned once on the harness (2026-10-24, the 10-24 and 10-23 corpora),
-   * from 0.06: the same memories cross at both (none sits between), and
-   * 0.0615 names the bar; a try at 0.0635 (one use felt at
-   * `CORE_FAST_FEELING`) dropped a fast-lane memory whose real use came felt
-   * at 0.5 above its word's default.
+   * THE MAKING IS THE FIRST MOMENT (E2 review, 2026-10-24): the core door's
+   * days factor counts the slot's first encoding's lived day as one of its
+   * days — once any lived filing stands, so a reflection alone still gives
+   * none — and a lived filing fewer than this many lived days after it as
+   * that same day: "not the very next day", the fast lane's
+   * `CORE_FAST_GAP_DAYS` read as spacing. So one real use two or more days
+   * after the making is two lived days (birth and the use), and one the day
+   * after is one. Why: "from separate moments, over time" — with the door's
+   * first cut a felt use the day after birth crossed, one occasion on one
+   * day. CAL, lightly held.
    */
-  CORE_SUPPORT_LINE: 0.0615,
+  CORE_SUPPORT_GAP_DAYS: 2,
+  /**
+   * Where the core door's support crosses (E2): the height x days factor
+   * above. One real use felt at `CORE_FAST_FEELING` (0.6) two or more days
+   * after the making is 0.1013; at 0.55 — the most a feeling word gives
+   * unweighed (`store/feelings.ts#defaultStrength`) — 0.0997, at 0.5 0.0981,
+   * unfelt 0.0808. The line sits midway between 0.55 and 0.6 (a feeling of
+   * 0.575), so a strongly felt memory that comes back once, spaced, is in —
+   * the fast lane, falling out of the arc — and a defaulted or merely felt
+   * one needs another occasion. One use the day after the making is one
+   * lived day (at most 0.072, felt at 1): never in alone. Two real uses on
+   * two lived days after the making are in whatever the feeling (0.129, or
+   * 0.163 with its own day), and so are two sessions on one spaced day
+   * (0.114). A reflection alone never is (no lived day).
+   * CAL, tuned on the harness (E2 review, 2026-10-24, the 10-24 and 10-23
+   * corpora) from the first cut's 0.0615 (just under one use felt at 0.5,
+   * one lived day): 0.0999, 0.1005 and 0.1012 cross the same memories.
+   */
+  CORE_SUPPORT_LINE: 0.1005,
   /**
    * The salience-claim ceiling for a FALLBACK-minted memory (owner ruling
    * 2026-08-29, the authorship doctrine's salience half): the experiencer's own
@@ -1547,6 +1565,8 @@ export interface PromotionVerdict {
     readonly needStrength: number;
     /** An earlier state of its slot: the slot's support lifts the current one. */
     readonly earlier: boolean;
+    /** `CORE_SUPPORT_GAP_DAYS`: how many lived days after the making a use counts a day of its own. */
+    readonly needGap: number;
   };
   /** `base` as it stands — carried for the record, never a threshold. */
   base: number;
@@ -1677,13 +1697,17 @@ export function coreFeeling(m: Pick<MemoryPhysics, "salience" | "feelingPeak" | 
  * (`supportCredit`, §5.13) over the memory's recurrence filings, read as one
  * number — `BELIEF_SUPPORT_CAP x (1 − e^(−S / BELIEF_SUPPORT_SCALE))` (its
  * height) times `min(1, ln(1 + days) / ln(1 + BELIEF_RESIST_DAYS))` (its
- * days factor), `days` its distinct LIVED days (`SupportCredit.livedDays`:
- * an un-echoed find gives none). Pure.
+ * days factor), `days` its distinct LIVED days (`SupportCredit.livedOn`: an
+ * un-echoed find gives none) — with `bornDay` (the slot's first encoding's
+ * lived day) one of them once any lived day stands, and a lived day fewer
+ * than `CORE_SUPPORT_GAP_DAYS` after it counted as it (E2 review: the making
+ * is the first moment, and the day after it the same occasion). Without
+ * `bornDay`, the lived days alone. Pure.
  */
 export interface CoreDoorSupport {
   /** The support sum S (`SupportCredit.uses`). */
   readonly support: number;
-  /** Distinct lived days behind it (`SupportCredit.livedDays`). */
+  /** Distinct lived days behind it: the making's among them once a lived filing stands (`coreDoorSupport`). */
   readonly days: number;
   readonly height: number;
   readonly daysFactor: number;
@@ -1695,13 +1719,20 @@ export interface CoreDoorSupport {
   readonly earlier: boolean;
 }
 
-export function coreDoorSupport(filings: readonly SupportFiling[], opts: { earlier?: boolean } = {}): CoreDoorSupport {
+export function coreDoorSupport(filings: readonly SupportFiling[], opts: { earlier?: boolean; bornDay?: number | null } = {}): CoreDoorSupport {
   const credit = supportCredit(filings);
+  const born = opts.bornDay;
+  let lived = credit.livedOn.length;
+  if (typeof born === "number" && lived > 0) {
+    const days = new Set<number>([born]);
+    for (const d of credit.livedOn) days.add(d - born < TUNABLES.CORE_SUPPORT_GAP_DAYS ? born : d);
+    lived = days.size;
+  }
   const height = TUNABLES.BELIEF_SUPPORT_CAP * (1 - Math.exp(-credit.uses / TUNABLES.BELIEF_SUPPORT_SCALE));
-  const daysFactor = credit.livedDays <= 0 ? 0 : Math.min(1, Math.log(1 + credit.livedDays) / Math.log(1 + TUNABLES.BELIEF_RESIST_DAYS));
+  const daysFactor = lived <= 0 ? 0 : Math.min(1, Math.log(1 + lived) / Math.log(1 + TUNABLES.BELIEF_RESIST_DAYS));
   return {
     support: credit.uses,
-    days: credit.livedDays,
+    days: lived,
     height,
     daysFactor,
     level: height * daysFactor,
@@ -1816,6 +1847,7 @@ export function promotionEligibility(m: MemoryPhysics, ctx: CoreContext): Promot
             strength: now,
             needStrength: TUNABLES.REACH,
             earlier: sup.earlier,
+            needGap: TUNABLES.CORE_SUPPORT_GAP_DAYS,
           },
         }
       : {}),
@@ -2238,6 +2270,8 @@ export interface SupportCredit {
    * (2026-10-24, E2), so insight earns support, not lived time. A belief reads `days`.
    */
   readonly livedDays: number;
+  /** …and those days themselves, ascending (the core door folds the making's neighbour into it, E2 review). */
+  readonly livedOn: readonly number[];
 }
 
 /**
@@ -2309,7 +2343,7 @@ export function supportCredit(filings: readonly SupportFiling[]): SupportCredit 
       if (LIVED_ROUTES.has(f.route) || echoed) livedDays.add(f.bornDay ?? f.day);
     }
   }
-  return { weights, uses, lastDay, days: days.size, livedDays: livedDays.size };
+  return { weights, uses, lastDay, days: days.size, livedDays: livedDays.size, livedOn: [...livedDays].sort((a, b) => a - b) };
 }
 
 /**

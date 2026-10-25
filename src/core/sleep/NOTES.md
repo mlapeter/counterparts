@@ -1147,3 +1147,6 @@ reader picks its own, so a glimpse can be a tenth of a recurrence day for the la
 for the door. `coreContextFor` counts support only while `physics.CORE_DOOR_SUPPORT` is on and
 only for a candidate, so the switch off adds no read and no key to the context. The closed-door
 check behind `feelingRecordedLater` counts the same support with the lived feelings only.
+The walk also returns the slot's first encoding's lived day (`bornDay`, E2 review): the door
+counts it as the first lived day once a lived filing stands, and a filing the day after it as
+the same occasion (`physics.CORE_SUPPORT_GAP_DAYS`).
