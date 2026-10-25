@@ -1116,7 +1116,7 @@ export class Schemas {
       return { ok: false, reason: "already-counted", beliefId, route: null, weight: 0 };
     }
     const weight = this.store.supportOf(beliefId).find((r) => r.memoryId === input.memoryId)?.weight ?? 0;
-    this.emit("schema.support.filed", beliefId, { memoryId: input.memoryId, stance: input.stance, route, weight, day: input.day });
+    this.emit("schema.support.filed", beliefId, { memoryId: input.memoryId, stance: input.stance, route, weight, day: input.day, ...(input.via === undefined ? {} : { via: input.via }) });
     const out: SupportFileOutcome = { ok: true, reason: "filed", beliefId, route, weight, ...(note === undefined ? {} : { note }) };
     if (input.stance === "contrary") {
       return { ...out, revision: this.challengeBelief({ updates: beliefId, challengerId: input.memoryId, day: input.day, weight }) };

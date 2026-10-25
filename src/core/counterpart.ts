@@ -227,6 +227,7 @@ import {
   RECALL_RATED_EVENT,
   recallDecisionRecord,
   ASSOCIATE_FLUSH_EVENT,
+  AWAKE_SUPPORT_EVENT,
   SUBJECTS_BACKFILL_META,
   REGROWN_RELINK_META,
   CORRECTED_RELINK_META,
@@ -3942,16 +3943,22 @@ export class Counterpart {
    * weak (route `session`), that memory its first support; at most
    * `BELIEF_SESSION_BIRTHS_PER_DAY` a lived day; the statement kept to
    * `MAX_BELIEF_CHARS`. One that says what a belief already says is refused
-   * with that belief's id and NOTHING is filed (review of #583: eight repeats
-   * from eight memories had pumped a belief's support to 8 in one session) —
-   * the reflection files what fits, spread and counted once. Off with
-   * `schemas.BELIEFS_BIRTH`.
+   * with that belief's id (review of #583: eight repeats from eight memories
+   * had pumped a belief's support to 8 in one session), and — #583 → B1,
+   * 2026-10-24 — its memory is filed as support for that belief, AT MOST ONCE
+   * PER BELIEF PER SESSION (the memory's `origin_session`, the same session
+   * physics' spread reads; any support row from that session counts, the
+   * belief's own birth row included). An unknown or unbound session (`mcp`)
+   * falls back to once per belief per lived day. The outcome rides beside the
+   * refusal as `support`. Off with `schemas.AWAKE_SUPPORT_ON_DUPLICATE`
+   * (nothing filed, as before). All of it off with `schemas.BELIEFS_BIRTH`.
    */
   sessionBelief(input: { memoryId: string; statement: string; about?: "me" | "us" }): {
     ok: boolean;
     reason: "born" | "near-duplicate" | "beliefs-off" | "observer" | "memory-unknown" | "not-testimony-choice-or-vivid" | "statement-required" | "limit-reached" | string;
     id: string | null;
     note?: string;
+    support?: { filed: true; route: string | null; weight: number } | { filed: false; reason: string };
   } {
     if (this.observer) return { ok: false, reason: "observer", id: null };
     if (!SCHEMAS_TUNABLES.BELIEFS_BIRTH) return { ok: false, reason: "beliefs-off", id: null, note: "Beliefs are off: none was written." };
@@ -3973,7 +3980,10 @@ export class Counterpart {
     const me = this.schemas.ensureSelfSubject();
     const near = this.schemas.nearestBelief(me, statement);
     if (near !== null) {
-      return { ok: false, reason: "near-duplicate", id: near.id, note: `It says what ${near.id} says. The memory stands; tonight's reflection may count it for that belief.` };
+      if (!SCHEMAS_TUNABLES.AWAKE_SUPPORT_ON_DUPLICATE) {
+        return { ok: false, reason: "near-duplicate", id: near.id, note: `It says what ${near.id} says. The memory stands; tonight's reflection may count it for that belief.` };
+      }
+      return { ok: false, reason: "near-duplicate", id: near.id, ...this.awakeSupport(near.id, input.memoryId, row.origin_session, day) };
     }
     const today = this.store
       .list({ type: "schema", archived: false })
@@ -3997,6 +4007,60 @@ export class Counterpart {
     const filed = this.schemas.fileSupport({ beliefId: made.id, memoryId: input.memoryId, stance: "support", day });
     const cut = statement.length < flat.length ? ` The statement was kept to its first ${String(max)} characters.` : "";
     return { ok: true, reason: "born", id: made.id, note: `Born weak, backed by this memory (${String(filed.route)}).${cut}` };
+  }
+
+  /**
+   * `sessionBelief`'s near-duplicate, counted (B1, 2026-10-24): the memory
+   * filed as support for the belief it repeats, unless this memory already
+   * counts for it, or a support row from the same session (unknown or
+   * unbound: from the same lived day) already does — the #583 cap.
+   */
+  private awakeSupport(beliefId: string, memoryId: string, session: string | null, day: number): {
+    note: string;
+    support: { filed: true; route: string | null; weight: number } | { filed: false; reason: string };
+  } {
+    const out = this.awakeSupportOutcome(beliefId, memoryId, session, day);
+    // Kept for the check after (docs/CHECK-AFTER.md, B1): the schemas' own
+    // events live in the ring and the process log, not the store.
+    try {
+      this.store.appendEvent({
+        name: AWAKE_SUPPORT_EVENT,
+        day,
+        ref: beliefId,
+        payload: {
+          memoryId,
+          session: isKnownSession(session) ? session : null,
+          ...(out.support.filed ? { filed: true, route: out.support.route, weight: out.support.weight } : { filed: false, reason: out.support.reason }),
+        },
+      });
+    } catch (err) {
+      this.emit("counterpart.belief.awake-support.unrecorded", beliefId, { code: errCode(err) });
+    }
+    return out;
+  }
+
+  private awakeSupportOutcome(beliefId: string, memoryId: string, session: string | null, day: number): {
+    note: string;
+    support: { filed: true; route: string | null; weight: number } | { filed: false; reason: string };
+  } {
+    const later = "the reflection may count it later.";
+    const rows = this.store.supportOf(beliefId).filter((r) => r.stance === "support");
+    if (rows.some((r) => r.memoryId === memoryId)) {
+      return { note: `It says what ${beliefId} says; this memory already counts for it.`, support: { filed: false, reason: "already-counted" } };
+    }
+    const known = isKnownSession(session);
+    const counted = known ? rows.some((r) => r.session === session) : rows.some((r) => r.bornDay === day || r.day === day);
+    if (counted) {
+      return known
+        ? { note: `It says what ${beliefId} says; already counted from this session; ${later}`, support: { filed: false, reason: "counted-this-session" } }
+        : { note: `It says what ${beliefId} says; already counted today (this session is not known, so once a day); ${later}`, support: { filed: false, reason: "counted-today" } };
+    }
+    const filed = this.schemas.fileSupport({ beliefId, memoryId, stance: "support", day, via: "awake-duplicate" });
+    if (!filed.ok) {
+      return { note: `It says what ${beliefId} says. The memory stands; it was not counted (${filed.reason}); ${later}`, support: { filed: false, reason: filed.reason } };
+    }
+    const w = Math.round(filed.weight * 100) / 100;
+    return { note: `It says what ${beliefId} says; this memory now counts for it (${String(filed.route)}, ${String(w)}).`, support: { filed: true, route: filed.route, weight: filed.weight } };
   }
 
   /**

@@ -257,8 +257,13 @@ name/alias resolution; birth and death telemetry.
     (`Counterpart#sessionBelief`, `remember`'s `belief`) — from the owner's words, my own
     choice or a moment felt strongly at the time (its recorded feelings) only, on the self
     subject, route `session`, at most `BELIEF_SESSION_BIRTHS_PER_DAY` a lived day, kept to
-    `MAX_BELIEF_CHARS`; a repeat is refused `near-duplicate` and files nothing (the
-    reflection files what fits, once). The owner's words that a belief is wrong
+    `MAX_BELIEF_CHARS`; a repeat is refused `near-duplicate` with that belief's id, and
+    (#583 → B1, 2026-10-24; was: files nothing) its memory is filed as support for that
+    belief at most once per belief per session — the memory's `origin_session`, any support
+    row from it counting, the birth's included; unknown or unbound (`mcp`), once a lived day
+    — said beside the refusal as `support`, the event marked `via: awake-duplicate`, each repeat
+    recorded as a `belief.support.awake` row; off
+    with `AWAKE_SUPPORT_ON_DUPLICATE` (files nothing, as before). The owner's words that a belief is wrong
     (`Counterpart#correctBelief`, lane D's button — a bare "That's wrong." is enough; or an
     awake write `said_by` owner that `updates` it) settle it `corrected` at once, the
     owner's settle (`revision.ts`, reading the row, not the index), past the update guard,
