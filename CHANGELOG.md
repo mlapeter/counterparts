@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.3.36 — 2026-10-25
+
+A session opened mid-day now sees what this folder did earlier today (a "Today so far here" line), and the Yesterday line opens with day's end's own summary of yesterday when everything it rests on may be shown in this folder; on a tight day, "Still open" keeps its items before "Today so far" keeps its summaries. When you write the newer state of a recent memory without linking it, a turn that brings back both shows the newer one first and labels the older one "may be out of date". A word that brought a memory back, which the session then used, is wired to it, so next time the word alone can bring it back. The core is decided every night instead of every third (still at most three a night), and a belief you repeat awake counts as support for the one that already says it. A new way of deciding the core, by how much real use has backed a memory, runs **in shadow only**: it records each night what it would have let in or kept out, and nothing changes yet. **This release changes the store's format (v14 to v15, one new table), so after installing, quit the dashboard and every open Claude Code session, then start them again**: one left running from before the update keeps the old code against the upgraded store and stops working on it until it is restarted. The first open saves a copy of your store before upgrading it. **0.3.35 and older refuse the upgraded store**, so going back to 0.3.35 is `counterparts rollback` first, while 0.3.36 is still installed (it puts that pre-upgrade copy back; anything remembered since is set aside, not deleted), then 0.3.35's install and `counterparts connect` as it prints. Cache v7 unchanged; no wiring change, so `counterparts connect` is not needed after upgrading.
+
+- **The core is decided every night, not every third night.** A memory that has earned its
+  place in who I am joins at the next sleep instead of waiting up to two more days. Still at
+  most three a night.
+- **Practising a cue makes its answer come back faster.** When a word in what you typed brings a
+  memory back and the session then uses it (opens it, quotes it, draws on it, or rates it 2–3),
+  that word is wired to the memory, and next time the word alone can bring it back. A memory
+  rated 0 for a word drops for that word only. Only words some memory already holds are ever
+  kept, and a turn's words leave with the conversation after 14 days. Store format 15 (one new
+  table); the upgrade copies the store first, and an older build refuses the upgraded store.
+  Switch: `physics.CUE_LEARNING`.
+- **A session opened mid-day sees what this folder did earlier today.** A "Today so far here"
+  line under the Yesterday line names today's earlier chapters in this folder, each with its
+  time, title, id and the first sentence of its summary. It gives up room before anything
+  else under the framing.
+- **Yesterday reads as day's end told it.** When day's end left a summary of yesterday, the
+  Yesterday line opens with it, word for word, and lists the chapters after it. It does this
+  only when everything the summary rests on may be shown in this folder, and otherwise lists
+  the chapters as before.
+- **A belief you repeat awake now counts for the one that already says it.** When a session
+  writes a belief that an existing belief already says, it is still turned away with that
+  belief's id, and the memory now counts as support for it, once per session, instead of
+  waiting for the night's reflection.
+- **A change you didn't link wins a close race right away.** When you write something that reads
+  as the newer state of a recent memory without saying so ("the car is a Rivian now"), the two
+  are marked as a pair for the night to confirm. Until then, a turn that brings back both now
+  shows the newer one first; the older one still shows, labelled "may be out of date", whenever
+  there is room, and on its own it shows as before. Nothing is changed in the store. Switch:
+  `recall.UNSETTLED_COMPETES`.
+- **The nightly reflection is offered its unmarked memories again, and says so.** On a busy night
+  the room was full before the offer of memories nobody had marked was fitted, so from 10-10 the
+  reflection was offered none and its record said nothing. Now it is offered up to 24 a night
+  whatever the room, and every reflection records how many it was offered and how many it marked,
+  0 included.
+- **On a tight day, "Still open" keeps its items before "Today so far" keeps its summaries.**
+  The chapter summaries in the "Today so far here" line step down to titles before any "Still
+  open" item is dropped, since a summary can still be opened by its chapter's id. The titles
+  keep their place.
+- **A memory joins the core when life has backed it enough, by one measure instead of two
+  lanes.** Real uses of a memory about me or us (opened, quoted, drawn on, rated useful)
+  from separate moments and lived days add up, the way a belief's support does; feeling
+  makes each count more, so a strongly felt memory that comes back once, a couple of days
+  or more after it was made, is in, and an ordinary one needs to come back on another day.
+  The day after a memory is made counts as the same occasion as its making. Being shown counts nothing, and a
+  reflection citing a memory counts only once a later use echoes it, never on its own.
+  Each new core memory's record lists what backed it. **For now it runs in shadow:** the two
+  lanes still decide what becomes core, and each night this measure records, beside them, which
+  memories it would have let in or kept out, so a week of real nights can decide.
+  Switch: `physics.CORE_DOOR_SUPPORT` (`"shadow"` by default, `"on"`, `"off"`).
+
 ## 0.3.35 — 2026-10-24
 
 The morning reflection reads a shorter list of the memories that may become core: at most 30 a night, the 20 strongest and 10 taking turns through the rest, with the others counted in one line (on a copy of the author's store, 132 candidates → 30 shown and "+102 more", the reflection's reading 85k characters in 4 parts → 74k in 3; a tail of about 100 comes round in about 10 nights). Day's end's known misread from 0.3.34 is fixed: a night that tells the day and then writes the page reads as a page revised. A memory written in one session now counts as used the first time another session draws on it, the same day. No store-format change (store v14, cache v7), no wiring change: `counterparts connect` is not needed after upgrading. Restart the dashboard and every Claude Code session afterwards so the long-running memory server and dashboard load the new version.
