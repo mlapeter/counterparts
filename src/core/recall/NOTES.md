@@ -1427,6 +1427,11 @@ at `activation × (1 − k · sim · fresh)` in a turn that also reached its new
   `headsWin`): scaling there moves the turn's background and every other candidate's bar.
 - **Its bars are read at its own reach.** `barsFor` is leave-one-out over the raw sample, so
   the scaled candidate is substituted only after the bars are read.
+- **Near-duplicates by words.** Two texts that differ by a word or two are a `NEAR_DUPLICATE`
+  pair, and the gate always showed only the stronger. Measured on the test's one-word pair
+  (blue card / green card): off, the older was the stronger and showed, the newer `inhibited`
+  as its copy; on, the reverse. So for such pairs the older does not show labelled (it does
+  not show); the newer does, which is the point.
 - **The newer must be really reached.** A stray common word reaches nearly every memory (the
   test fixture's common words reach nearly every memory at 0.16–0.25, under its floor), so a newer under the absolute
   floor presses nothing; a link-only pointer neither (`unsettledCompetition`).

@@ -561,7 +561,9 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     // older can lose the loud slot or a capped one. Here, once it has cleared
     // the floor and its admission bar at its own reach: a weight, never a
     // filter — it is admitted, labelled, as before, and shows whenever there
-    // is room (a wrong pair costs a place in the order, not the memory).
+    // is room (a wrong pair costs a place in the order, not the memory). A
+    // near-duplicate pair already showed only the stronger (below); now the
+    // newer is the one kept.
     // Only a newer the turn really reached presses: one past the same
     // absolute floor (a stray common word reaches nearly everything).
     const competing = input.competing?.get(c.id);

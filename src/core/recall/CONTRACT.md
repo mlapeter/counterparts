@@ -190,7 +190,10 @@ reply actually used reconsolidates, where in humans every retrieval does.
   (`standing.ts#unsettledCompetition`) — counts at `activation × (1 − k · sim · fresh)` once
   it has cleared the floor and its bar at its own reach: the loud tier's checks and both
   rankings see the scaled number, admission does not. A weight, never a filter: it shows,
-  labelled, whenever there is room; alone it is untouched; nothing is written. Its verdict and
+  labelled, whenever there is room; alone it is untouched; nothing is written. One exception
+  that is not new: when the two are near-duplicates by words (`NEAR_DUPLICATE`), the gate
+  already showed only the stronger, and now that is the newer — before, an older that was
+  stronger showed and hid the newer as its copy. Its verdict and
   shown tier row carry `competed {with, factor}`; the decision row counts them
   (`pairsCompeted`, absent while off). Ambient only.
 - **Framing is load-bearing and part of the spec** — footnotes are pointers, and the "quietly

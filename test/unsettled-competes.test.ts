@@ -250,6 +250,35 @@ describe("E3 — an unsettled pair competes", () => {
     expect(lastDecision(a, "sess-after")["pairsCompeted"]).toBe(0);
   });
 
+  test("near-duplicates by words: the near-duplicate rule, which shows one of the two, now shows the newer", async () => {
+    // Two texts that differ by one word are near-duplicates (`NEAR_DUPLICATE`):
+    // the gate always showed only the stronger. With the pair competing, the
+    // older sorts below its newer, so the newer is the one shown and the older
+    // is the one inhibited — the label does not show, because the memory does not.
+    const a = adapter();
+    const store = a.counterpart.store;
+    findable(store);
+    for (const d of ["2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24"]) store.advanceClock(d);
+    for (const body of FILLER) store.put({ type: "memory", kind: "fact", body });
+    const base = "Mike renewed the car registration for driving at the county office downtown on Monday morning, paying the fee with the";
+    const older = String((await remember(a, `${base} blue card.`))["id"]);
+    setSystemTime(new Date("2026-10-24T16:00:00.000Z"));
+    const r = await remember(a, `${base} green card.`);
+    const newer = String(r["id"]);
+    expect(r["slot"]).toMatchObject({ over: older });
+    const ask = "when was the car registration renewed at the county office?";
+    const verdicts = (session: string) => {
+      const d = a.counterpart.recall.build({ sessionId: session, text: ask }).decision;
+      return { older: d.verdicts.find((v) => v.id === older)?.verdict, newer: d.verdicts.find((v) => v.id === newer)?.verdict };
+    };
+    tune(a, { UNSETTLED_COMPETES: false });
+    const off = verdicts("probe-off");
+    // Off: here the older is the stronger, so the outdated one showed and hid the newer as its copy.
+    expect(off).toEqual({ older: "footnoted", newer: "inhibited" });
+    tune(a, { UNSETTLED_COMPETES: true });
+    expect(verdicts("probe-on")).toEqual({ older: "inhibited", newer: "footnoted" });
+  });
+
   test("4. undone at night: no competition from then on, and no label", async () => {
     const a = adapter();
     const { older, newer } = await world(a);
