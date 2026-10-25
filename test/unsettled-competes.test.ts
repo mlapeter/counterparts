@@ -250,33 +250,67 @@ describe("E3 — an unsettled pair competes", () => {
     expect(lastDecision(a, "sess-after")["pairsCompeted"]).toBe(0);
   });
 
-  test("near-duplicates by words: the near-duplicate rule, which shows one of the two, now shows the newer", async () => {
-    // Two texts that differ by one word are near-duplicates (`NEAR_DUPLICATE`):
-    // the gate always showed only the stronger. With the pair competing, the
-    // older sorts below its newer, so the newer is the one shown and the older
-    // is the one inhibited — the label does not show, because the memory does not.
-    const a = adapter();
+  /** Two texts one word apart written through `remember`, the second proposed as the newer state of the first. */
+  async function nearDuplicates(a: Adapter, first: string, second: string): Promise<{ older: string; newer: string }> {
     const store = a.counterpart.store;
     findable(store);
     for (const d of ["2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24"]) store.advanceClock(d);
     for (const body of FILLER) store.put({ type: "memory", kind: "fact", body });
-    const base = "Mike renewed the car registration for driving at the county office downtown on Monday morning, paying the fee with the";
-    const older = String((await remember(a, `${base} blue card.`))["id"]);
+    const older = String((await remember(a, first))["id"]);
     setSystemTime(new Date("2026-10-24T16:00:00.000Z"));
-    const r = await remember(a, `${base} green card.`);
-    const newer = String(r["id"]);
+    const r = await remember(a, second);
     expect(r["slot"]).toMatchObject({ over: older });
+    return { older, newer: String(r["id"]) };
+  }
+
+  /** Both members' gate verdicts for `ask` (a probe session of its own). */
+  function verdictsOf(a: Adapter, session: string, ask: string, older: string, newer: string): { older: unknown; newer: unknown } {
+    const d = a.counterpart.recall.build({ sessionId: session, text: ask }).decision;
+    return { older: d.verdicts.find((v) => v.id === older)?.verdict, newer: d.verdicts.find((v) => v.id === newer)?.verdict };
+  }
+
+  test("near-duplicates by words: a competing pair is not each other's copy — both show, the newer first, the older labelled", async () => {
+    // Two texts one word apart are near-duplicates (`NEAR_DUPLICATE`), and the
+    // gate shows only the stronger. Off, the older is the stronger here, so the
+    // outdated one shows and hides the newer as its copy. On, the two members
+    // of a competing pair are exempt from that rule between themselves: both
+    // show, the newer first, the older with its label.
+    const a = adapter();
+    const base = "Mike renewed the car registration for driving at the county office downtown on Monday morning, paying the fee with the";
+    const { older, newer } = await nearDuplicates(a, `${base} blue card.`, `${base} green card.`);
     const ask = "when was the car registration renewed at the county office?";
-    const verdicts = (session: string) => {
-      const d = a.counterpart.recall.build({ sessionId: session, text: ask }).decision;
-      return { older: d.verdicts.find((v) => v.id === older)?.verdict, newer: d.verdicts.find((v) => v.id === newer)?.verdict };
-    };
     tune(a, { UNSETTLED_COMPETES: false });
-    const off = verdicts("probe-off");
-    // Off: here the older is the stronger, so the outdated one showed and hid the newer as its copy.
-    expect(off).toEqual({ older: "footnoted", newer: "inhibited" });
+    expect(verdictsOf(a, "probe-off", ask, older, newer)).toEqual({ older: "footnoted", newer: "inhibited" });
     tune(a, { UNSETTLED_COMPETES: true });
-    expect(verdicts("probe-on")).toEqual({ older: "inhibited", newer: "footnoted" });
+    expect(verdictsOf(a, "probe-on", ask, older, newer)).toEqual({ older: "footnoted", newer: "footnoted" });
+    const t = prompt(a, "sess-dup", ask);
+    const ids = shown(t);
+    expect(ids).toContain(older);
+    expect(ids.indexOf(newer)).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf(newer)).toBeLessThan(ids.indexOf(older));
+    expect(t.injection).toContain(`Unsettled — may be out of date, see [${newer}]`);
+  });
+
+  test("a WRONG near-duplicate pair (two people, one name apart) never hides the older the turn asked about", async () => {
+    // The reviewer's case: Anna's renewal and Ben's read alike word for word,
+    // so the detector proposes Ben's as the newer state of Anna's. A turn
+    // about Anna reaches hers strongly; at the full weight (sim 1, fresh 1,
+    // factor 0.4) it sorts below Ben's and, as a near-duplicate, was
+    // inhibited as his copy: the true memory gone for the day. It shows,
+    // labelled, and Ben's shows too.
+    const a = adapter();
+    const base = "renewed the car registration for driving at the county office downtown on Monday morning, paying the fee with the blue card.";
+    const { older: anna, newer: ben } = await nearDuplicates(a, `Anna ${base}`, `Ben ${base}`);
+    const ask = "when did Anna renew the car registration?";
+    tune(a, { UNSETTLED_COMPETES: false });
+    expect(verdictsOf(a, "probe-off", ask, anna, ben)).toEqual({ older: "footnoted", newer: "inhibited" });
+    tune(a, { UNSETTLED_COMPETES: true });
+    expect(verdictsOf(a, "probe-on", ask, anna, ben)).toEqual({ older: "footnoted", newer: "footnoted" });
+    const t = prompt(a, "sess-anna", ask);
+    expect(shown(t)).toContain(anna);
+    expect(shown(t)).toContain(ben);
+    expect(t.injection).toContain(`Unsettled — may be out of date, see [${ben}]`);
+    expect(lastDecision(a, "sess-anna")["pairsCompeted"]).toBe(1);
   });
 
   test("4. undone at night: no competition from then on, and no label", async () => {

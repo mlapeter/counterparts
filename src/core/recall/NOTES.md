@@ -1430,8 +1430,18 @@ at `activation × (1 − k · sim · fresh)` in a turn that also reached its new
 - **Near-duplicates by words.** Two texts that differ by a word or two are a `NEAR_DUPLICATE`
   pair, and the gate always showed only the stronger. Measured on the test's one-word pair
   (blue card / green card): off, the older was the stronger and showed, the newer `inhibited`
-  as its copy; on, the reverse. So for such pairs the older does not show labelled (it does
-  not show); the newer does, which is the point.
+  as its copy. First built, on, the reverse: the older did not show at all. The review's wrong
+  pair one name apart (Anna's renewal / Ben's) showed that is a filter: a turn about Anna
+  reached hers at 5.04 against Ben's 3.60, the full weight (0.4) took it to 2.02, and it was
+  inhibited as Ben's copy. So while they compete the two members are exempt from the
+  near-duplicate rule between themselves: both show, the newer first, the older labelled.
+  Off, unchanged.
+- **Tiers are not reordered across.** The weight orders within a tier and can cost the loud
+  slot; an older that still clears the loud checks at its weight stays loud and renders
+  before a footnoted newer, even when its scaled activation is below the newer's (review,
+  Hartwell probe with the strong floor lowered: 5.74 → 4.42, loud, beside a 4.58 footnoted
+  newer). Its label names the newer. A newer that clears the floor but not its own bar
+  still presses, so the older can be weighed with no newer shown; the label still names it.
 - **The newer must be really reached.** A stray common word reaches nearly every memory (the
   test fixture's common words reach nearly every memory at 0.16–0.25, under its floor), so a newer under the absolute
   floor presses nothing; a link-only pointer neither (`unsettledCompetition`).

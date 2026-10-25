@@ -561,9 +561,9 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
     // older can lose the loud slot or a capped one. Here, once it has cleared
     // the floor and its admission bar at its own reach: a weight, never a
     // filter — it is admitted, labelled, as before, and shows whenever there
-    // is room (a wrong pair costs a place in the order, not the memory). A
-    // near-duplicate pair already showed only the stronger (below); now the
-    // newer is the one kept.
+    // is room (a wrong pair costs a place in the order, not the memory). Two
+    // members that read as near-duplicates are not each other's copy while
+    // they compete (below): both show.
     // Only a newer the turn really reached presses: one past the same
     // absolute floor (a stray common word reaches nearly everything).
     const competing = input.competing?.get(c.id);
@@ -635,7 +635,14 @@ export function gate(input: GateInput, t: RecallTunables): GateResult {
       record(a.c, "inhibited");
       continue;
     }
-    const dup = kept.some((k) => similarity(k.c, a.c) >= t.NEAR_DUPLICATE);
+    // The two members of a COMPETING unsettled pair (E3) are never each
+    // other's copy: the night has not said whether they are one thing or
+    // two, so both show, the newer first and the older labelled. Otherwise
+    // a wrong pair that reads alike word for word (two people, one name
+    // apart) would hide the older, the memory the turn asked about, behind
+    // the weight — a filter. Only while competing, so off is as before.
+    const paired = (x: string, y: string): boolean => competedIds.get(x)?.with === y || competedIds.get(y)?.with === x;
+    const dup = kept.some((k) => similarity(k.c, a.c) >= t.NEAR_DUPLICATE && !paired(k.c.id, a.c.id));
     if (dup) {
       record(a.c, "inhibited");
       continue;

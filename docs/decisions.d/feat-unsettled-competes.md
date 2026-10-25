@@ -19,3 +19,8 @@
   could not tell 0.5 from 0.7). `fresh` falls linearly to 0 over the slot window, 7 lived days.
   An older in several pairs takes the strongest press, never the product. Ambient recall only
   (deliberate recall does not run the gate).
+- Decided by the E3 reviewer, 2026-10-24: while a pair competes, its two members are never
+  each other's near-duplicate copy (`NEAR_DUPLICATE`): both show, the newer first. Built
+  first with the near-duplicate rule keeping the newer, a wrong pair one name apart (Anna's
+  car registration, Ben's) hid Anna's from a turn about Anna; that is a filter. Off, the
+  rule is as before.
