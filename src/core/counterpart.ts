@@ -198,7 +198,7 @@ import type {
   WriterInput,
 } from "./self/index.js";
 import { acceptsReflectedFeeling, keepCore, ownerNames, retireCore } from "./sleep/index.js";
-import { DAYS_END_JOURNAL_SHARE, WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, daySummaries, journalBlockChars } from "./self/writer.js";
+import { DAYS_END_JOURNAL_SHARE, MERGE_DEPTH, WRITER_JOURNAL_CHARS, WRITER_JOURNAL_SHARE, daySummaries, journalBlockChars } from "./self/writer.js";
 import { chapterSummaries } from "./self/summaries.js";
 import { withTodaySoFar } from "./self/briefing.js";
 import type { WriterJournal } from "./self/writer.js";
@@ -422,8 +422,8 @@ function isNightRow(row: { source: string | null; origin_ref: string | null }): 
   return row.source === "dreamed" || row.source === "reflection" || ref.startsWith("dream:") || ref.startsWith("reflection:");
 }
 
-/** How deep `Counterpart#nightOriginFolders` follows night rows made of night rows (`self/writer.ts`'s merge depth). */
-const NIGHT_ORIGINS_DEPTH = 4;
+/** How deep `Counterpart#nightOriginFolders` follows night rows made of night rows: as deep as day's end follows a merge to its day. */
+const NIGHT_ORIGINS_DEPTH = MERGE_DEPTH;
 
 export class Counterpart {
   readonly store: Store;
@@ -939,6 +939,7 @@ export class Counterpart {
           : { horizonMore: asked.more, horizonMoreItems: asked.moreItems.map((i) => (nearDue(i.due, at) ? { ...i, near: true } : i)) }),
         ...this.dayLinesFor(at, here),
         ...this.elsewhereFor(at, here),
+        ...(here === undefined ? {} : { hintKeptOut: (id: string) => this.hintKeptOut(id, here) }),
       });
       if (out === null) return null;
       this.emit("counterpart.wake.assembled", undefined, {
@@ -2061,6 +2062,34 @@ export class Counterpart {
       return told.text;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * IS THIS "NEARBY" ITEM KEPT OUT OF A WAKE FOR `here`? (review of Y2,
+   * 2026-10-25; the brief's privacy lines.) The published bundle chooses its
+   * hints store-wide, for no reader, so a chapter's summary — the chapter's
+   * own account of the work — from a folder the owner set off, paused or to
+   * observe was listed in every other folder's wake. Kept out: a chapter's
+   * summary (`source` episode, written from a chapter) whose folder
+   * (`memoryFolder`) is another folder whose scope setting is not on, or any
+   * other folder when the setting cannot be read (`exportsFrom` absent). One
+   * whose chapter recorded no folder (from before folders) is kept, as
+   * before: there is no folder to ask about. Other hints are not this read's
+   * (self INTERFACE-GAPS §14). A store that will not answer keeps it out.
+   */
+  private hintKeptOut(id: string, here: WakeHere): boolean {
+    try {
+      const row = this.store.row(id);
+      if (row === undefined || row.type !== "memory" || row.source !== "episode" || !(row.origin_ref ?? "").startsWith("epi_")) return false;
+      const folder = this.memoryFolder(row);
+      if (folder === null) return false;
+      const norm = (s: string): string => s.trim().replace(/\/+$/, "");
+      const own = norm(here.scope ?? "");
+      if (own.length > 0 && norm(folder) === own) return false;
+      return here.exportsFrom === undefined || here.exportsFrom(folder) !== true;
+    } catch {
+      return true;
     }
   }
 

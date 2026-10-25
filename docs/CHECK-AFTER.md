@@ -310,7 +310,9 @@ The wake writes no row, so read it where it lands (read-only):
   or paused, a denied cite, a cite with no folder, and anything from another folder when the scope setting can't be
   read. A cite the night wrote (a dream's merge or gist, a reflection's entry) is filed under the folder the night
   ran in, so it is read by its originals' folders instead, a few merges deep, and fails when any original is off,
-  denied, gone or foldless (review of Y2); the same for such a row made inside the day. On the 10-25 snapshot copy, 10-24 now shows in ~/counterparts with every folder on (and in ~/motelier,
+  denied, gone or foldless (review of Y2); the same for such a row made inside the day. Also from that review:
+  "Might be relevant" at a session start leaves out a chapter's summary from another folder whose scope setting
+  isn't on (it was listed before; the published bundle's fallback still lists it, self INTERFACE-GAPS §14). On the 10-25 snapshot copy, 10-24 now shows in ~/counterparts with every folder on (and in ~/motelier,
   ~/random, ~/islander-website); with any one of those three off it falls back, by the chapter check (each wrote
   chapters that day). Day's end stored its first summary on 10-25 (about 10-24), so 10-18–10-23 have none to show.
   After the release: on a morning replay, a day that falls back should name a scope-off folder, a denied/foldless

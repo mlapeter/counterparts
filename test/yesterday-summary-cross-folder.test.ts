@@ -220,9 +220,9 @@ describe("a folder the owner excluded still holds it back: the chapter-list form
     expect(wake).not.toContain(theirs);
     expect(wake).not.toContain(TOLD);
     expect(wake).not.toContain("bakery");
-    // (The store-wide body's hints — "Might be relevant" — are not this
-    // gate's; only the furniture is read by folder.)
     expect(yesterday(wake)).not.toContain("oven");
+    // Nor its chapter's summary under "Might be relevant" (review of Y2).
+    expect(wake).not.toContain("The winter oven schedule");
   });
 
   test("off, the bakery's chapter that day, and NOTHING of it cited: still falls back — the prose may carry it uncited", async () => {
@@ -260,6 +260,47 @@ describe("a folder the owner excluded still holds it back: the chapter-list form
     c.store.appendRemovalRecord({ memoryId: work, stage: "requested", actor: "owner", reason: "test" });
     c.store.appendRemovalRecord({ memoryId: work, stage: "dark", actor: "owner", reason: "test" });
     expect(summaryLed(sessionStart(c))).toBe(false);
+  });
+});
+
+/**
+ * "MIGHT BE RELEVANT" KEEPS A SCOPE-OFF FOLDER'S CHAPTER SUMMARY OUT (review
+ * of Y2). The published bundle chooses its hints store-wide, for no reader,
+ * so until this review a chapter's summary from a folder set off was listed
+ * in every other folder's SessionStart wake (Y1, which gave summaries their
+ * chapter's folder, changed nothing here: before and after, it was listed).
+ * The session-start assembly now leaves out a chapter's summary from another
+ * folder whose scope setting is not on.
+ */
+describe("Nearby at session start: another folder's chapter summary by that folder's scope setting", () => {
+  const nearby = (wake: string): string => {
+    const i = wake.indexOf("Might be relevant:");
+    return i < 0 ? "" : wake.slice(i, wake.indexOf("\n\n", i) < 0 ? undefined : wake.indexOf("\n\n", i));
+  };
+
+  test("off, paused or observer: left out; on: listed; this folder's own: always listed", async () => {
+    await chapterVia({ session: S4, scope: HERE, date: D1, hour: 8, title: "Sowing the broad beans" });
+    await chapterVia({ session: S3, scope: BAKERY, date: D1, hour: 13, title: "The winter oven schedule" });
+    const c = brain();
+    scopes({ [HERE]: "on", [BAKERY]: "on" });
+    const open = sessionStart(c);
+    expect(nearby(open)).toContain("The winter oven schedule, done.");
+    expect(nearby(open)).toContain("Sowing the broad beans, done.");
+    for (const mode of ["off", "paused", "observer"] as const) {
+      scopes({ [HERE]: "on", [BAKERY]: mode });
+      const wake = sessionStart(c);
+      expect(wake).not.toContain("The winter oven schedule");
+      expect(nearby(wake)).toContain("Sowing the broad beans, done.");
+    }
+  });
+
+  test("no scope setting to read: another folder's chapter summary is left out", async () => {
+    await chapterVia({ session: S4, scope: HERE, date: D1, hour: 8, title: "Sowing the broad beans" });
+    await chapterVia({ session: S3, scope: BAKERY, date: D1, hour: 13, title: "The winter oven schedule" });
+    const c = brain();
+    const wake = sessionStart(c, { configPath: null });
+    expect(wake).not.toContain("The winter oven schedule");
+    expect(nearby(wake)).toContain("Sowing the broad beans, done.");
   });
 });
 
