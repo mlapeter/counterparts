@@ -247,12 +247,15 @@ describe("Yesterday from day's end's summary", () => {
     expect(plainYesterday(k)).toBe(before);
   });
 
-  test("5. a summary citing a memory a wake here may not name falls back to the chapter list", () => {
+  test("5. a work cite from another folder leads the line while that folder's scope setting is on (Y2); with it off, the chapter list", () => {
     const { k, own, workThere } = yesterdayStore();
-    const before = plainYesterday(k);
-    // A work memory from another folder: its folder exports, but it is not about me.
+    const offThere = (s: string): boolean => s !== THERE;
+    const before = plainYesterday(k, { exportsFrom: offThere });
+    // A work memory from another folder, not about me: its folder exports, so it crosses
+    // (until Y2, 2026-10-25, only an about-me cite did).
     summary(k, D1, TOLD, [own, workThere]);
-    expect(lineStarting(wakeFor(k, HERE).text, "Yesterday")).toBe(before);
+    expect(lineStarting(wakeFor(k, HERE).text, "Yesterday")).toStartWith(`Yesterday, ${YESTERDAY_SUMMARY_WORDS} ${TOLD}`);
+    expect(lineStarting(wakeFor(k, HERE, { exportsFrom: offThere }).text, "Yesterday")).toBe(before);
   });
 
   test("5b. a cite from a folder whose scope setting is off, or one that no longer reads, falls back", () => {

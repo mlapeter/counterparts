@@ -304,10 +304,21 @@ The wake writes no row, so read it where it lands (read-only):
   source='episode' AND created_at > <install ms>;` equal counts), and the snapshot replay above names the check that
   still holds a day back. On the 10-25 snapshot copy, 10-24 (the one day with a summary) still fell back in
   ~/counterparts even with every folder's scope on: day's end cited a ~/motelier memory marked `work`.
+- **Y2 (2026-10-25, roadmap's rec, Mike "sounds good", lightly held):** a cite now crosses folders on its folder
+  alone (this folder, or one whose scope setting is on: the same rule as (b) and (c)), whatever its mark; "only
+  about-me cites cross" above no longer holds. Still out: a cite, chapter or memory that day from a folder set off
+  or paused, a denied cite, a cite with no folder, and anything from another folder when the scope setting can't be
+  read. On the 10-25 snapshot copy, 10-24 now shows in ~/counterparts with every folder on (and in ~/motelier,
+  ~/random, ~/islander-website); with any one of those three off it falls back, by the chapter check (each wrote
+  chapters that day). Day's end stored its first summary on 10-25 (about 10-24), so 10-18–10-23 have none to show.
+  After the release: on a morning replay, a day that falls back should name a scope-off folder, a denied/foldless
+  cite, or no stored summary — never a cite's mark. Read what the summary says in a folder it wasn't written in
+  (Mike's read: does another folder's work in it read as useful or as noise).
 
-Changes it: the summary almost never showing (then the gate's cite rule is what to revisit with Mike, not the
-chapter/folder rules), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false
-(both false: the wake byte for byte as before), or revert the PR.
+Changes it: the summary almost never showing (since Y2 the cite rule is folder-only; next is the chapter/folder rule
+itself, with Mike), another folder's work in it reading as noise or as too much (then back to about-me cites only:
+revert Y2's PR), a repeat across lanes, or Still open losing items Mike wanted. Revert: either switch false (both
+false: the wake byte for byte as before), or revert the PR.
 
 ## Due 3–5 days after awake belief support (2026-10-24, B1, Mike's yes 18:04, lightly held — `schemas.AWAKE_SUPPORT_ON_DUPLICATE`)
 

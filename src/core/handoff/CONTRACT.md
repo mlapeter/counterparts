@@ -259,8 +259,10 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     end's words:" with it, uncut, then "Chapters:" as the plain line lists them, fewer as
     room asks, then the plain line's own forms (`last-here.ts#yesterdaySummaryForms`).
     Day's end reads the whole day store-wide, whatever the scope settings, so the summary
-    is shown only when every memory it cites is nameable in this wake (this folder's, or
-    about me, us or the owner from a folder whose scope is on), every chapter that day is
+    is shown only when every memory it cites is from this folder or one whose scope is on
+    (whatever its mark since Y2, 2026-10-25, lightly held: the summary may mention other
+    folders' work, as "Today, elsewhere" names it; until then only a cite about me, us or
+    the owner crossed), every chapter that day is
     from this folder or one whose scope is on, and every folder that wrote a memory that
     day is too (`Counterpart#daySummaryShown`); otherwise, and in the published render,
     the chapter list exactly as before. The day is read as day's end saw it (review of

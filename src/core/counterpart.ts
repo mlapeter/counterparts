@@ -1940,10 +1940,14 @@ export class Counterpart {
    * `pageWriterInput`; its recall reaches the store too) — so what it cites
    * does not bound what its words drew on. It is shown only when ALL of:
    *
-   *   - every memory it cites is nameable in this wake (`nameableHere`): this
-   *     folder's own, or marked about me, us or the owner from a folder whose
-   *     scope setting is on. A cite that no longer reads (removed, forgotten)
-   *     or is not a memory fails it;
+   *   - every memory it cites comes from this folder or one whose scope
+   *     setting is on, and records its folder (its chapter's, for a chapter's
+   *     summary: `memoryFolder`) — whatever its mark, since Y2 (2026-10-25,
+   *     Mike's go, lightly held): the summary may mention other folders' work,
+   *     as "Today, elsewhere" names their work by title. Until then only a
+   *     cite marked about me, us or the owner crossed (`nameableHere`). A cite
+   *     that no longer reads (removed, forgotten), is denied, or is not a
+   *     memory fails it;
    *   - every chapter written that day (`chaptersWrittenOn`, unbounded by
    *     birth day, archived and merged episodes included) comes from this
    *     folder or one whose scope setting is on, and records its folder;
@@ -1959,11 +1963,14 @@ export class Counterpart {
    * whatever day's end's recall reached on other days — a summary's cites are
    * the only bound on that.
    *
-   * No way to ask the scope setting (`exportsFrom` absent) and nothing from
-   * another folder passes. Stricter than the brief's floor (cites, plus
-   * chapters only when nothing is cited) because the prose can carry a private
-   * folder's day without citing it. Never throws: a store that will not
-   * answer shows no summary.
+   * One rule for all three: a folder the owner has turned off, paused or set
+   * to observe (`exportsFrom` false) holds the summary back wherever it shows
+   * in that day, and the wake falls back to the chapter list. No way to ask
+   * the scope setting (`exportsFrom` absent) and nothing from another folder
+   * passes. Stricter than the brief's floor (cites, plus chapters only when
+   * nothing is cited) because the prose can carry a private folder's day
+   * without citing it. Never throws: a store that will not answer shows no
+   * summary.
    */
   private daySummaryShown(date: string, here: WakeHere | undefined): string | null {
     try {
@@ -2011,13 +2018,18 @@ export class Counterpart {
       const before = new Map(this.store.memoryCountsByScopeSince(from).map((r) => [r.scope, r.count] as const));
       for (const r of this.store.memoryCountsByScopeSince(to)) before.set(r.scope, (before.get(r.scope) ?? 0) - r.count);
       for (const [scope, n] of before) if (n > 0 && !open(scope)) return null;
+      // THE CITES, BY FOLDER ALONE (2026-10-25, Y2): the same `open` as the
+      // day's chapters and memories above — whatever the cite's mark. Until
+      // Y2 only a cite marked about me, us or the owner crossed folders
+      // (`nameableHere`), so day's end, which tells the whole day, almost
+      // never showed for someone who works in several (10-24: one ~/motelier
+      // `work` cite held it in ~/counterparts).
       const denied = new Set(this.store.deniedIds());
       for (const id of told.cites) {
         if (denied.has(id)) return null;
         const row = this.store.row(id);
         if (row === undefined || row.type !== "memory") return null;
-        const aboutMe = row.about !== null && row.about !== undefined && (CORE_ABOUT_MARKS as readonly string[]).includes(row.about);
-        if (!this.nameableHere(this.memoryFolder(row), aboutMe, here)) return null;
+        if (!open(this.memoryFolder(row))) return null;
       }
       return told.text;
     } catch {
