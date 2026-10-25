@@ -18,11 +18,12 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
-import { promote } from "../src/core/physics/index.js";
+import { TUNABLES as PHYSICS, promote } from "../src/core/physics/index.js";
 import { REFLECTED_FEELING_KEY, coreContextFor, runConsolidate } from "../src/core/sleep/index.js";
 import type { ReadsCoreContext } from "../src/core/sleep/index.js";
 import type { PutInput, ReadOnlyStore, Store } from "../src/core/store/index.js";
 import { rowToPhysics } from "../src/core/store/operational.js";
+import { withCoreDoor, withTwoLanes } from "./two-lanes-fixture.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -118,6 +119,8 @@ function helperPromotes(store: ReadsCoreContext & Pick<Store, "row">, id: string
 }
 
 describe("the helper and consolidation agree", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("door closed and open: row by row, the helper's context reaches consolidation's verdict", () => {
     const c = brain();
     const m = scene(c);
@@ -186,6 +189,44 @@ describe("the helper and consolidation agree", () => {
     const used = nextDay(c);
     c.store.reinforce(m.felt, used, "referenced", { cued: true });
     expect(coreContextFor(c.store, row(m.felt), used, { acceptsReflectedFeeling: false }).organicReturnDay).toBe(used);
+  });
+});
+
+describe("the helper and consolidation agree with the support door on (E2 review)", () => {
+  // The support door deciding: "on" explicitly (the default is "shadow" since the E2 addendum).
+  withCoreDoor("on");
+  test("door closed and open, before and after real uses: row by row, the helper's context reaches consolidation's verdict", () => {
+    expect(PHYSICS.CORE_DOOR_SUPPORT).toBe("on");
+    const c = brain();
+    const m = scene(c);
+    const ids = [m.felt, m.later, m.fact, m.demoted];
+    const agree = (day: number): Record<string, Record<string, boolean>> => {
+      const out: Record<string, Record<string, boolean>> = {};
+      for (const door of ["off", "on"]) {
+        c.store.setMeta(REFLECTED_FEELING_KEY, door);
+        const night = wouldPromote(c.store, day);
+        out[door] = {};
+        for (const id of ids) {
+          const mine = helperPromotes(c.store, id, day);
+          expect(`${door} ${id}: ${String(mine)}`).toBe(`${door} ${id}: ${String(night.includes(id))}`);
+          (out[door] as Record<string, boolean>)[id] = mine;
+        }
+      }
+      return out;
+    };
+    // A reflection's citation alone: no lived day, so nothing crosses on either path.
+    const before = agree(c.store.livedDay());
+    for (const door of ["off", "on"]) for (const id of ids) expect(before[door]?.[id]).toBe(false);
+    // Real uses, spaced from the making: felt (0.9) is in on both paths; never a fact, never the demoted.
+    nextDay(c);
+    const used = nextDay(c);
+    for (const id of [m.felt, m.later, m.fact, m.demoted]) c.store.reinforce(id, used, "referenced", { cued: true });
+    const after = agree(used);
+    for (const door of ["off", "on"]) {
+      expect(after[door]?.[m.felt]).toBe(true);
+      expect(after[door]?.[m.fact]).toBe(false);
+      expect(after[door]?.[m.demoted]).toBe(false);
+    }
   });
 });
 

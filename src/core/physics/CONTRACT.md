@@ -28,7 +28,10 @@ durability comes from SPACED RETRIEVAL — Ebbinghaus's savings (1885), the spac
 trace harder to lose, more so after a gap) — rather than from a one-time bonus; and the
 identity band is systems consolidation for memories about me or about us, by two lanes: a
 strongly felt one that comes back (the amygdala's stamp plus one reactivation), or one
-that keeps coming back over weeks.
+that keeps coming back over weeks. *(Since 2026-10-24, E2: one support arc, of which those
+two are the ends — feeling multiplies each reactivation, separate lived days harden it;
+§5.3. Merged in SHADOW: by default the two lanes still decide and the arc only records
+beside them.)*
 
 ## 3. Keeps
 
@@ -182,7 +185,8 @@ two, 0.40 after five, never past 0.5 (`REP_SCALE_USES`). Built by the drewOn bui
 2026-10-11, from Mike's 10-10 direction, lightly held.*
 
 `base` is monotone non-decreasing (salience is fixed, `uses` only rises). **Identity is
-reached only through §5.3's explicit promotion by a core lane, or declared revision —
+reached only through §5.3's explicit promotion by the core door (a core lane until
+2026-10-24), or declared revision —
 never at birth, by either arm, and never by `base`.** `consolidated` can be set only on a
 LEGACY row (born before schema v8): the upgrade kept that path open for exactly those rows,
 and every memory made since earns its durability from returns (§5.11) instead.
@@ -217,7 +221,84 @@ band(m, d) = identity  if promoted(m)                              # explicit cr
 - **Nothing is born into identity.** At birth, band ≤ semantic regardless of claimed
   salience. Identity is entered only by: (a) a declared revision landing on an existing
   identity element — the successor inherits membership — or (b) **promotion at
-  consolidation by a CORE LANE** (rewritten 2026-09-26, owner decisions; working defaults):
+  consolidation through the CORE DOOR**: since 2026-10-24 one SUPPORT ARC (below) when
+  `CORE_DOOR_SUPPORT` is `"on"`; from 2026-09-26, two CORE LANES (kept below as lineage),
+  which are still what `"off"` runs and what the default, `"shadow"`, runs while the arc
+  records beside them.
+
+  *(Amended 2026-10-24 21:00, E2 addendum — Mike's yes 20:59, lightly held: merged in
+  SHADOW.)* `CORE_DOOR_SUPPORT` has three settings: `"off"` (the two lanes, byte for byte),
+  `"shadow"` (the DEFAULT: the two lanes decide exactly as off, and sleep asks the support
+  arc the same question for every candidate the lanes consider, writing one
+  `promotion.shadow` row per disagreement — `wouldPromote`, `wouldHold` — and one
+  `promotion.shadow.sleep` row per sleep; nothing the core, the page or the wake reads
+  changes), and `"on"` (the arc decides). `true` / `false` read as on / off. Why: on the
+  harness the arc grew the core about half as fast as the lanes (days 7/14/21/28/end
+  0/0/3/4/6 against 0/6/10/11/12), against Mike's 10-20/10-21 rulings that the core was
+  starving; a week of shadow rows on his store decides on, off or tune — one value.
+
+  *(Amended 2026-10-24, E2 — Mike's go 14:36, lightly held, an experiment behind
+  `CORE_DOOR_SUPPORT`; elegance check §2. Old contracts don't hold us back: the lanes'
+  eight thresholds and two ways of counting days said one sentence — it kept coming back,
+  from separate moments, over time, and it mattered — and their history was lowering
+  each whenever nothing passed.)* The door is the support beliefs already earn by (§5.13),
+  over the memory's own recurrence evidence:
+
+  ```
+  about me(m)  = as below (the mark; me or us, a core kind, not a plan)       # unchanged
+  filings(m)   = over m's SLOT (as below; folds as below), each with its own lived day:
+                 a real use of a member — opened, quoted, drawn on, rated 2–3     route return   1
+                 a member written into the slot by a session (re-encoding)       route reencoded 1
+                 a reflection's citation                                          route found  0.7 → 1 once a
+                                                                                  later real use echoes it
+                 a glimpse (shown, unrated), a rating of 1, a dream's replay      nothing
+  w            = route × spread × (1 + SUPPORT_FEELING × I_door(m))             # supportCredit, §5.13
+                 spread: same session 0.25 · same lived day 0.5 · same folder 0.75 (a return keeps
+                 no folder, so every filing after the first takes 0.75) · else 1
+  S(m)         = Σ w;   days(m) = distinct LIVED days (an un-echoed find gives none),
+                 and — once any stands — the slot's making's day among them, a lived
+                 day fewer than CORE_SUPPORT_GAP_DAYS (2) after it counted as it
+  level(m)     = BELIEF_SUPPORT_CAP × (1 − e^(−S / BELIEF_SUPPORT_SCALE))
+                 × min(1, ln(1 + days) / ln(1 + BELIEF_RESIST_DAYS))           0.9, 4, 14
+  promote      ⇔ about me(m) ∧ level(m) ≥ CORE_SUPPORT_LINE (0.1005, CAL) ∧ m not an earlier
+                 state of its slot ∧ strength(m, d) ≥ REACH ∧ not demoted
+  recognized   ⇒ about me, once level(m) ≥ the line (the opening below, on the arc;
+                 recognition is itself a strongly felt feeling, so it opens no unfelt road)
+  ```
+
+  - **One crossing, counted and named.** The crossing is still an explicit event (scar
+    §2.4): its record carries lane `support`, the level, the line, `S`, its lived days
+    and every filing (ids, routes, days, sessions, weights; never text).
+  - **The fast lane falls out of it.** One real use two or more lived days after the
+    making, felt at 0.6 (the fast lane's bar), is 0.1013 (0.0997 at 0.55 — the most an
+    unweighed word gives — 0.0981 at 0.5, 0.0808 unfelt); the line sits midway between
+    0.55 and 0.6, so a strongly felt memory that comes back once, spaced, is in. The day
+    after the making is the same occasion (one lived day: at most 0.072, felt at 1), so
+    one use there never carries it alone. Two real uses on two lived days after the
+    making are 0.129 or more, whatever the feeling, and two sessions on one spaced day
+    0.114. *(E2 review, 2026-10-24: the first cut's line, 0.0615 over the uses' lived
+    days alone, let one use felt at 0.485 or more cross the day after birth — one
+    occasion. Tuned on the 10-24 and 10-23 corpora: 0.0999, 0.1005 and 0.1012 cross the
+    same memories.)* A reflection alone gives no
+    lived day, so it never carries a memory in (lane F's `livedSupportDays` reads the
+    same way); once a later real use echoes its finds they count full, on their days.
+  - **What it drops:** the lanes' day, session, span and 30-day-window thresholds, the
+    full-day and anchor rules, and the 0.75 binarization of a return into a lane day; the
+    fast lane's gap of 2 lives on as the making's spacing in `days(m)`, and its 0.6 as
+    where one spaced use's level meets the line. Below
+    `REACH` stays a gate, for now — a candidate for weighting later.
+  - **What it keeps:** about me (and recognition), the owner's demotion, already
+    identity, an earlier state of a slot never crossing by the slot, the nightly cap
+    (`sleep/`), and a dream that can nominate and never promote. The binary
+    `returnDays` / `firstReturnDay` / `lastReturnDay` are still written for their other
+    readers; only the door stops reading them. `I_door` is the fast lane's feeling (every
+    feeling while the door to later feelings is open, the lived ones when closed).
+  - **One language with lane F** (`self.CORE_FROM_BELIEFS`, off): the same support
+    arithmetic and the same lived-days reading, so a core of earned beliefs and a core
+    of supported memories can be read side by side.
+
+  *(Lineage — THE TWO LANES, 2026-09-26 → 2026-10-24; what `CORE_DOOR_SUPPORT` off runs,
+  exactly.)*
 
   ```
   about me(m) = about(m) ∈ {me, us} ∧ kind(m) ∈ {self, person, entity}     # the mark, read by sleep/
@@ -589,7 +670,9 @@ If any later change would DELETE rows, it waits for the owner (synthesis §8 A).
     even consolidated. The recorded feeling is never rewritten; softening is a read.
     **Emotion counts toward identity through the core's fast lane and nowhere else**
     (owner decisions 2026-09-26; `promotionBase`, the interim stopgap, is retired). The
-    lift itself stays height only.
+    lift itself stays height only. *(Since 2026-10-24, E2: through the core door's
+    support, where feeling multiplies each filing — `SUPPORT_FEELING` — and still
+    nowhere else.)*
 14. **[M]** Returns (§5.11) only ever LENGTHEN stability: the factor is exactly 1 at zero
     returns, so a memory that has never returned fades as it always did, and nothing a
     return does lowers strength. The v8 upgrade moves no memory down a band and makes

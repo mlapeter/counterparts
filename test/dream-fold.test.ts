@@ -32,6 +32,7 @@ import { settledOver } from "../src/core/self/index.js";
 import { coreRecurrence, runCycle, slotOf } from "../src/core/sleep/index.js";
 import type { PutInput } from "../src/core/store/index.js";
 import { LEGACY_SLOT_FADE, useSlotFade } from "./slot-fade-fixture.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 let dir: string;
 const open: Counterpart[] = [];
@@ -422,6 +423,8 @@ describe("a correction to a source flags the folds made from it", () => {
 });
 
 describe("fold → core is open in practice (D6), by recurrence after the fold (random-06's ruling)", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   /** Four personal memories, by four sessions, over six lived days, folded into one `self`/me fold. */
   function personalFold(c: Counterpart): { fold: string; parts: string[] } {
     nextDay(c);

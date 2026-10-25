@@ -66,6 +66,7 @@ import { run } from "../src/adapters/cli/index.js";
 import type { Io } from "../src/adapters/cli/index.js";
 import { recallDecisionRecord } from "../src/core/counterpart-events.js";
 import { findable } from "./store-fixture.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 let dir: string;
 const open: { close(): void }[] = [];
@@ -120,6 +121,8 @@ function note(over: Partial<MemoryPhysics> = {}, salience: Partial<Salience> = {
 // 1 + 2 + 3 — the arithmetic (physics §5.10)
 // ═══════════════════════════════════════════════════════════════════════════
 describe("physics §5.10 — height, slope, and the feeling that softens", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("intensity is the STRONGEST of the numeric score and the recorded feelings, his or mine", () => {
     expect(emotionalIntensity(note())).toBe(0);
     expect(emotionalIntensity(note({}, { emotional: 0.6 }))).toBe(0.6);

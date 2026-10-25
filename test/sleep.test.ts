@@ -70,6 +70,7 @@ import type {
   SleepEvent,
   SleepStore,
 } from "../src/core/sleep/index.js";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 const SLEEP_SRC = fileURLToPath(new URL("../src/core/sleep/", import.meta.url));
 
@@ -616,6 +617,8 @@ describe("the decay tick", () => {
 
 // ═══════════════════════════════════════════════════════════════════════════
 describe("consolidation and the identity crossing", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("identity promotion is an EXPLICIT, COUNTED crossing with a persisted record and its lane", () => {
     const s = store();
     const id = fastLaneSelf(s);

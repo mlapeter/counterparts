@@ -41,6 +41,7 @@ import { expansionSalt, expansionsPath, handleKey, readHandleResolutions } from 
 import { McpServer } from "../src/adapters/mcp/index.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { chmodSync, writeFileSync } from "node:fs";
+import { withTwoLanes } from "./two-lanes-fixture.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
 
@@ -162,6 +163,8 @@ function creditRows(c: Counterpart): { reason: string; credited: number; expande
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("the lifecycle, through the adapter", () => {
+  // The two lanes (physics §5.3 until 2026-10-24): the support door is pinned off here (E2).
+  withTwoLanes();
   test("expanded by id while it shows in the wake's hints lane: credited every day, never a return, never core", async () => {
     const a = adapter();
     const c = a.counterpart;

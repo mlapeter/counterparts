@@ -64,6 +64,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | An awake repeat counts (B1): a belief written in the moment that says what one already says is still refused `near-duplicate`, and its memory is filed as support for that belief, at most once per belief per session (unbound: once a lived day); events `schema.support.filed` with `via: awake-duplicate`; switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` | not released, 10-24 | 3–5 days after the release that carries it | "Due 3–5 days after awake belief support" below; `docs/decisions.d/feat-awake-belief-support.md` |
 | An unsettled pair competes (E3): when a turn reaches both members, the older counts at `1 − k·sim·fresh` (k 0.6, cosine over 0.8, 7 lived days) for the loud tier and the order, never admission; the label stays; switch `recall.UNSETTLED_COMPETES` | not released, 10-24 (0.3.36) | ~7 lived days after install | "Due ~7 lived days after unsettled competition" below; `docs/decisions.d/feat-unsettled-competes.md` |
 | The unmarked offer on the record (D1, a fix): every reflection row says what it was offered to mark (`detail.unmarked`, an empty list too) and which it marked (`detail.unmarkedMarked`, `counts.unmarkedOffered`/`unmarkedMarked`); the offer keeps its lines when the fixed parts fill the room (with `dream.REFLECT_ROOM_ORDER`) | not released, 10-24 | 3 nights after install | "Due 3 nights after the unmarked offer's record" below |
+| The core door is one support arc (E2, `physics.CORE_DOOR_SUPPORT`), **in shadow** (Mike's yes 10-24 20:59): the two lanes still decide; beside them the support door (real uses, its slot's re-encodings, reflection citations echoed by a later use, at `CORE_SUPPORT_LINE` 0.1005 over its lived days; glimpses count nothing) records `promotion.shadow` rows (`wouldPromote` / `wouldHold`) and a `promotion.shadow.sleep` row a night | not released, 10-24 (0.3.36) | a week of 0.3.36 shadow rows, then Mike decides on, off or tune | "Due a week after the support door's shadow" below; `docs/decisions.d/feat-core-door-support.md` |
 | The day summary (`self.DAY_SUMMARY`): day's end leaves a few lines about the day on the night's row; the dream opens with it, the reflection sees 21 days as a line a day | not released, 10-23 | 7 nights after install | "Due 7 nights after the day summary" below; `docs/decisions.d/feat-day-summary-1023.md` |
 | What a night costs (`usage` on `dream.night`, per child and total), to read the Haiku tag child's real tokens | not released, 10-23 | ~2026-10-27 (reminder mem_8f7e7db449bb) | "Due ~2026-10-27 (what the tag child costs)" below; `docs/decisions.d/feat-night-usage-debug-1023.md` |
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
@@ -347,6 +348,68 @@ Not stored: an older the weight pushed out of a full tier (`capped`) appears onl
 Changes it: Mike reading a true memory pushed below a wrong "newer" more than once a week, or an outdated fact still shown
 first beside its newer. Revert: `recall.UNSETTLED_COMPETES=false` in `src/core/recall/tunables.ts` (nothing read; the
 turn and its row exactly as before), or revert the PR.
+
+## Due a week after the support door's shadow (2026-10-24, E2, Mike's go 14:36 and his yes 20:59 to merge in shadow, lightly held — `physics.CORE_DOOR_SUPPORT`)
+
+What: the core's door as one support arc, in place of the fast and slow lanes — **merged in shadow**. The two lanes
+still decide what becomes core, exactly as before; each night sleep also asks the support door about every candidate
+the lanes consider and records where the two disagree. The door: a memory about me or us crosses when its support —
+the belief's arithmetic (`supportCredit`) over its real uses (opened, quoted, drawn on, rated 2–3), its slot's
+re-encodings and the reflection's citations (found filings, full once a later use echoes them) — reaches
+`CORE_SUPPORT_LINE` (0.1005) as height × days factor over its LIVED days (the slot's making the first of them once a
+lived filing stands, a filing the day after the making the same occasion, `CORE_SUPPORT_GAP_DAYS` 2). Glimpses and
+ratings of 1 count nothing; a reflection alone gives no lived day and never carries a memory in; one real use two
+days or more after the making, felt at 0.6 or more, is in; an unfelt or merely felt one needs a second occasion.
+
+Why shadow: on the harness (10-24 and 10-23 corpora, identical answers) the door grew the core about half as fast as
+the lanes — core on days 7/14/21/28/last 0/0/3/4/6 against the lanes' 0/6/10/11/12, the first promotion on day 19
+against day 8 — which pulls against Mike's 10-20/10-21 rulings that the core was starving. The 7 reflection-only
+fast-lane crossings are what it keeps out; `mem_c439775f4cb8` (one use felt at 0.5) waits for a second occasion
+(accepted as built, with the gap knob).
+
+Shadow on the harness (10-24 corpus): the replay's days are identical to off's (core 0/6/10/11/12), and the shadow's
+rows read: 7 `wouldHold` (the 6 reflection-only fast-lane crossings of days 8–12, and `c439` on day 19), 3
+`wouldPromote` (`mem_3e902ac53462` day 19, `mem_b5d49bb663b2` day 29, `mem_8412e26dc04e` day 30); the summed columns
+are lanes 12 and support 7 (cumulative support 0/0/4/5/7 against on's 0/0/3/4/6). The one extra is
+`mem_b65a4d8b6189`: in the lanes' world its day-18 use is a return; with the door on it was on display in the wake's
+hints and refused — what is core changes what is shown. Every other admission matches on's by id and day.
+
+The rows (read-only; split by build — every payload carries `build`):
+- `promotion.shadow`, one per disagreement, each memory each kind once (`dedupKey`), `ref` the memory: `kind`
+  (`wouldPromote`: the support door says yes, the lanes did not promote it; `wouldHold`: the lanes promoted it, the
+  door says no), `day`, `level`, `line`, lived `days`, `sum`, `filings` (`memoryId`, `route`, `day`, `session`,
+  `weight` — ids and numbers, no text); a `wouldHold` also has the `lane` that carried it and `reflectionOnly`;
+- `promotion.shadow.sleep`, one per sleep that had a candidate: `lanes` (N, promoted tonight), `support` (M, what the
+  door would have promoted tonight, capped like the lanes at 3, strongest first), `overlap` (K), `wouldPromote`,
+  `wouldHold`, `caughtUp` (a memory the lanes promoted against the door's no, which the door now admits — counted in
+  M: on would have promoted it that night), `considered`, `line`. Summed, `lanes` is the lanes' core growth and
+  `support` the door's.
+
+Look at, after a week of nights on 0.3.36 (read with E1, daily consolidation, and R2, own-write, which also feed the
+core):
+- each night, and the cumulative core both ways (each on top of the core both shared at install; on never demotes):
+  `SELECT day, json_extract(payload,'$.lanes') AS n, json_extract(payload,'$.support') AS m, json_extract(payload,'$.overlap') AS k, json_extract(payload,'$.caughtUp') AS caught_up, json_extract(payload,'$.considered') AS considered, SUM(json_extract(payload,'$.lanes')) OVER (ORDER BY seq) AS lanes_total, SUM(json_extract(payload,'$.support')) OVER (ORDER BY seq) AS support_total FROM events WHERE name = 'promotion.shadow.sleep' ORDER BY seq;`
+  and the core as it stands (the lanes'): `SELECT COUNT(*) FROM memories WHERE promoted_identity = 1;`
+- the wouldPromote and wouldHold lists by id:
+  `SELECT json_extract(payload,'$.kind') AS kind, ref AS memory, day, ROUND(json_extract(payload,'$.level'), 4) AS level, json_extract(payload,'$.days') AS days, json_extract(payload,'$.lane') AS lane, json_extract(payload,'$.reflectionOnly') AS reflection_only FROM events WHERE name = 'promotion.shadow' ORDER BY kind, day;`
+  with their filings: `SELECT e.ref AS memory, json_extract(f.value,'$.route') AS route, json_extract(f.value,'$.day') AS day, ROUND(json_extract(f.value,'$.weight'), 3) AS weight FROM events e, json_each(e.payload,'$.filings') f WHERE e.name = 'promotion.shadow' ORDER BY e.ref, day;`
+  and which held ones the door admitted later: `SELECT substr(key, 14) AS memory, json_extract(value,'$.held') AS held, json_extract(value,'$.caughtUp') AS caught_up FROM meta WHERE key LIKE 'sleep.shadow.%' AND json_extract(value,'$.held') IS NOT NULL;`
+- how many lane promotions were carried by reflection citations (the crossings the door is built to refuse):
+  `SELECT COUNT(*) AS lane_promotions, SUM(json_extract(payload,'$.reflectionOnly')) AS reflection_only FROM events WHERE name = 'band.promoted' AND json_extract(payload,'$.build') = '0.3.36';`
+  and of those, the `wouldHold` rows with `reflection_only` 1 above.
+- Mike reads the two lists: the wouldPromote memories (would he want them core?) and the wouldHold ones (are they
+  who he/we are, or reflection's echoes?).
+
+Not stored: the support of a memory with no disagreement (computed at each consolidation, not written). A lanes run
+is not an on run — what is core changes what the wake's hints show, and a use while shown there is no return — so the
+door's column approximates on, it doesn't replay it. The nightly `promotion.shadow.sleep` row has no dedup key, so it
+is swept after `retentionDays` (90): read the running totals within that window (the per-memory rows are kept). The
+door's column counts growth: an owner demotion of a memory it admitted is not taken back out.
+
+Changes it: Mike decides on, off or tune. On: `physics.CORE_DOOR_SUPPORT` `"on"` in `src/core/physics/index.ts` (the
+door decides; today's core stays). Off: `"off"` (the lanes byte for byte, no rows). Tune: `CORE_SUPPORT_LINE` or
+`CORE_SUPPORT_GAP_DAYS`, staying in shadow. Each is one value (a source edit and a release; no config path sets physics); nothing to undo in the store (the shadow's rows and
+`sleep.shadow.*` marks are read by nothing else).
 
 ## Due ~2026-10-27 (what the tag child costs, 2026-10-23 — docs/decisions.d/feat-night-usage-debug-1023.md; reminder mem_8f7e7db449bb)
 

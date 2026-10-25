@@ -83,6 +83,24 @@ test("a setting that can't be set is refused by name, and none of the batch is s
   expect(appliedSettings()).toEqual([]);
 });
 
+test("the core door's named values are a setting: off, shadow, on, and true/false as on/off (E2 addendum)", () => {
+  expect(parseSetting("physics.CORE_DOOR_SUPPORT=shadow")).toMatchObject({ value: "shadow", was: PHYSICS.CORE_DOOR_SUPPORT });
+  expect(parseSetting("physics.CORE_DOOR_SUPPORT=on").value).toBe("on");
+  expect(parseSetting("physics.CORE_DOOR_SUPPORT=off").value).toBe("off");
+  expect(parseSetting("physics.CORE_DOOR_SUPPORT=false").value).toBe(false);
+  expect(parseSetting("physics.CORE_DOOR_SUPPORT=true").value).toBe(true);
+  expect(() => parseSetting("physics.CORE_DOOR_SUPPORT=maybe")).toThrow("SETTING_TYPE");
+  const was = PHYSICS.CORE_DOOR_SUPPORT;
+  try {
+    applySettings(["physics.CORE_DOOR_SUPPORT=on"]);
+    expect(PHYSICS.CORE_DOOR_SUPPORT as unknown).toBe("on");
+    expect(settingsForChild()).toBe("physics.CORE_DOOR_SUPPORT=on");
+  } finally {
+    restoreSettings();
+  }
+  expect(PHYSICS.CORE_DOOR_SUPPORT).toBe(was);
+});
+
 test("a child's server applies what its parent passed down, and nothing when nothing was", () => {
   expect(applySettingsFromEnv({})).toEqual([]);
   expect(applySettingsFromEnv({ [SETTINGS_ENV]: "  " })).toEqual([]);
