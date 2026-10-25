@@ -3801,6 +3801,204 @@ replay compare read 0 lines differing).
   for days. A birth-day return stays refused `birth-day` for everyone (spacing measures from
   birth); only the use is credited.
 
+### Decided by Mike and the E1 builder, 2026-10-24, lightly held (consolidation every lived day)
+
+- Decided by Mike, 2026-10-24, lightly held (E1, elegance finding 1): the consolidate phase
+  runs every lived day (`sleep` `CADENCE.consolidate` 1, was 3). Why: the only stated reason
+  was v0's "every 3 days"; eligibility is arithmetic over rows written in real time, so waiting
+  gains nothing. `CORE_MAX_PER_SLEEP` stays 3 (Mike's 09-26 "~3 per sleep"), now literally per
+  night; its future belongs to the core-door redesign. Revert: the one number back to 3.
+- Decided by the E1 builder, 2026-10-24: the dead duplicate `TUNABLES.CONSOLIDATION_EVERY_DAYS`
+  is deleted (nothing read it). The thirteen CONTRACT and NOTES lines the 10-24 elegance check
+  called stale were checked against the code: eleven reworded to what it does now, lineage kept
+  and marked; sleep's "three a night" is true again with this change and gained a dated note;
+  physics CONTRACT's "×1.45 for feeling" in the 10-10 decay history stays (it describes the time
+  before, correctly).
+
+### Decided by Mike and the R3 builder, 2026-10-24, lightly held (cue learning)
+
+- Decided by Mike, 2026-10-24, lightly held (R3, an experiment): the words of a turn that
+  showed a memory the session then used wire to it (`cue_edges`), and a learned pair fetches
+  its memory as one more cue. Why: the ping/pong habit; a person who practises "ping → pong"
+  gets better at it, and recall was getting worse as talk about the habit added competitors.
+  R3 ships on its own store bump (v15), not batched with R4. Switch: `physics.CUE_LEARNING`
+  (off: nothing recorded, trained or read).
+- Decided by the R3 builder, 2026-10-24: a fully learned pair is worth 6 rare words
+  (`recall.CUE_PAIR_UNITS`), not the brief's "about one": the loud tier's floor is absolute
+  (4.5 units) and a bare one-word prompt brings ~1, so at 1 the demo's bar (a bare "ping"
+  brings pong back loud) is unreachable. Read at the word's share of the turn (review of
+  #613, from the roadmap seat): `w × share × 6`, the share being the word's cue weight over
+  the turn's own words' total, the split training uses — a bare "ping" reads the pair whole,
+  one "ping" inside a long prompt about something else reads a sliver and does not surface
+  loud (flat, it did: 13.4, ahead of the prompt's own subject). η 0.5 per full use split by the turn's word weights;
+  a rating of 1 trains a quarter, 0 depresses one full share; `CUE_W_CAP` 1, `CUE_MAX_OUT`
+  1.5 per word, `S_CUE` 60 lived days. Each showing trains a memory at most once (up to its
+  best share); cadence refusals still train (five sessions, five times); `own-write` and an
+  unknown writer's birth day never do. An observer neither writes nor reads cue pairs.
+- Decided by the R3 builder, 2026-10-24: the turn's cue words live in `gate_session` (kind
+  `cues`), not a new table: they are session state, already bounded and swept with it, and
+  `clearIdleCarries` drops them on the 14-day clock with the carried words.
+
+### Decided by Mike and the W1 builder, 2026-10-24, lightly held ("Today so far" and Yesterday from day's end's summary)
+
+- Decided by Mike, 2026-10-24 17:45 ("yes to both, lightly held, go ahead"; night-list item A):
+  a session start's wake gets a "Today so far here" line (`self.TODAY_SO_FAR`, on), and the
+  Yesterday line leads with day's end's summary when there is one (`self.YESTERDAY_FROM_SUMMARY`,
+  on). Why: jumping between sessions should feel like talking to the same person; a 3pm session
+  saw only the newest chapter here, and the one model-written account of yesterday was read only
+  by the night. Revert: either switch off (both off: the wake byte for byte as before, checked
+  on the 10-24 corpus), or revert the PR.
+- Decided by the W1 builder, 2026-10-24: "Today so far" is THIS folder's chapters only (the
+  row's own directory). The brief leaned to adding about-me chapters from other folders; those
+  are already named once by "Today, elsewhere" (a folder's newest about-me chapter) or the "About
+  me, from another directory" line, so taking them here would repeat them or need a second
+  suppression rule. Joined project folders are not included (follow-up if wanted).
+- Decided by the W1 builder, 2026-10-24: the line rides in the Yesterday line's place as a second
+  line, one ladder of forms (`withTodaySoFar`): it steps down and drops before the Yesterday line
+  gives up a title (`ROOM_ORDER`'s `todaySoFar`, just below `yesterday`). Like Yesterday it outranks
+  "Still open" past its first item and "Work here"; on the corpus replay it cost those 3 Still-open
+  items in a full wake. Widths: the newest 4, a summary's first sentence cut at 120 bytes, then 60.
+- Decided by the W1 builder, 2026-10-24, the privacy gate (stricter than the brief's floor, on
+  purpose): day's end reads every chapter and the day's strongest memories store-wide, whatever the
+  scope settings, so cites don't bound what the prose drew on. The summary shows only when every
+  cite is nameable here (this folder's, or about me/us/owner from a folder whose scope is on),
+  every chapter that day is from this folder or a scope-on folder, and every folder that wrote a
+  memory that day is too. Otherwise the plain chapter list. Tightened by the PR's review: the day
+  is read as day's end saw it, so rows the night's dream archived or merged still count, a memory
+  lived that day counts wherever it was written up, and a chapter or memory with no folder
+  recorded fails the gate (it is not nameable anywhere but its own wake). Residual: a memory
+  erased since leaves no row to read, and day's end's recall into other days is bounded only by
+  its cites. The summary is never cut: under
+  pressure the line falls back to the plain list's forms.
+
+### Decided by Mike and the B1 builder, 2026-10-24, lightly held (an awake repeat counts, once a session)
+
+- Decided by Mike, 2026-10-24 18:04, lightly held (night list row 22 / note B, step 1 of B1):
+  a belief written in the moment that says what an existing belief says still answers
+  `near-duplicate` with that belief's id, and its memory is now filed as support for it
+  (`schemas.fileSupport`, route read off said_by), at most once per belief per session. Why:
+  what a session notices awake should count awake, so a session at 2pm isn't a day behind the
+  self. The #583 protection (eight repeats pumped one belief to 8) is kept as the per-session
+  cap. Lineage #583 → B1. Switch `schemas.AWAKE_SUPPORT_ON_DUPLICATE` (default on); off is the
+  old reply exactly. Check 3–5 days after the release (docs/CHECK-AFTER.md). Step 2 (a
+  `supports:` field on remember) waits for that check and for E2.
+- Decided by the B1 builder, 2026-10-24: "this session" is the memory's `origin_session` (what
+  `remember` already writes; the field physics' spread reads), and any support row from it
+  counts, the belief's own birth included. An unknown or unbound session (`mcp`) falls back to
+  once per belief per lived day. The filing's `schema.support.filed` event carries
+  `via: awake-duplicate`, and each awake repeat, filed or held, writes a `belief.support.awake`
+  events row for the check after. The reply adds `support: {filed, route, weight}` or
+  `{filed: false, reason}` beside the refusal.
+
+### Decided by Mike and the E3 builder, 2026-10-24, lightly held (an unsettled pair competes)
+
+- Decided by Mike, 2026-10-24 14:47, lightly held (E3, an experiment; elegance check §4): when
+  both members of a standing unsettled pair are a turn's candidates, the older one competes at
+  a weight, `activation × (1 − k · sim · fresh)`, so the newer wins a close race. Why: an
+  undeclared change ("the car is a Rivian now") left this morning's outdated fact at full rank
+  beside the new one until the night confirmed it; between a hard cut (wrong 3 times in 7) and
+  nothing there is graded competition, the brain's retroactive interference. The label stays;
+  nothing is cut, archived or written. Switch: `recall.UNSETTLED_COMPETES` (off: nothing read,
+  the turn exactly as before).
+- Decided by the E3 builder, 2026-10-24: competition moves the older's ORDER and its loud slot,
+  never its admission — the weight applies after it has cleared the floor and its bar at its
+  own reach. Built first after the floor only, a deliberately wrong pair (two people's
+  sisters) hid the true memory below its bar; that is a filter. Only a newer past the absolute
+  floor presses.
+- Decided by the E3 builder, 2026-10-24: `sim` is the two stored vectors' cosine over 0.8 (the
+  detector's lower bar, `SLOT_LINEAGE_COSINE`), not the brief's 0.85, which would leave six of
+  the corpus's eight proposals pressing by 12% at most. k 0.6 (the brief's middle; the corpus
+  could not tell 0.5 from 0.7). `fresh` falls linearly to 0 over the slot window, 7 lived days.
+  An older in several pairs takes the strongest press, never the product. Ambient recall only
+  (deliberate recall does not run the gate).
+- Decided by the E3 reviewer, 2026-10-24: while a pair competes, its two members are never
+  each other's near-duplicate copy (`NEAR_DUPLICATE`): both show, the newer first. Built
+  first with the near-duplicate rule keeping the newer, a wrong pair one name apart (Anna's
+  car registration, Ben's) hid Anna's from a turn about Anna; that is a filter. Off, the
+  rule is as before.
+
+### Decided by Mike, 2026-10-24, lightly held ("Still open" keeps its items before "Today so far" keeps its summaries, W1b)
+
+- Decided by Mike, 2026-10-24 21:11 ("ok your rec sounds good, lightly held as im sure we'll
+  continue making tweaks to that page"; raised by W1's reviewer and the coordinator): "Today so
+  far here"'s summary forms give way before "Still open" past its first item, as a new
+  `ROOM_ORDER` lane `todaySoFarSummaries` between craft and "Still open". Its title forms stay
+  where W1 put them (`todaySoFar`, below "Still open"'s items and "Work here"). Why: a summary can
+  be opened by its chapter's id, but a Still open item that drops is a promise forgotten. No new
+  switch: with `self.TODAY_SO_FAR` off the wake is byte for byte as before (checked on the 10-24
+  corpus). Revert: move the lane, or revert the PR.
+
+### Decided by Mike and the E2 builder, 2026-10-24, lightly held (the core door is one support arc)
+
+- Decided by Mike, 2026-10-24, lightly held (E2, elegance finding 2, an experiment): a memory
+  about me or us joins the core when its SUPPORT reaches one line, the support beliefs already
+  earn by (`physics#supportCredit`), over the memory's own recurrence evidence; the fast and slow
+  lanes are no longer read for eligibility. Glimpses and ratings of 1 count nothing (his 14:36:
+  "glimpses shouldn't count for that"). Name: "support", the word beliefs use. Why: eight
+  thresholds and two ways of counting days said one sentence, and their history was lowering
+  each whenever nothing passed. Switch: `physics.CORE_DOOR_SUPPORT` (off: the two lanes, exactly).
+- Decided by the E2 builder, 2026-10-24: the days factor reads LIVED days only — an un-echoed
+  reflection find gives none (`SupportCredit.livedDays`, the same reading as lane F's
+  `livedSupportDays`), where a belief's resistance gives a night of finds one day. Why: each
+  citation is its own night, so the belief's reading let two weekly citations of an unused
+  memory cross (0.097 at the first line), against the brief's "the reflection alone can't
+  carry a memory in"; with lived days it can't, by arithmetic rather than a rule, and a later
+  real use echoes the finds.
+- Decided by the E2 builder, 2026-10-24: a real use files at full weight under its own route
+  (`return`, `SUPPORT_RETURN` 1; a session's re-encoding `reencoded`, the same), not the belief's
+  `use` (0.5, which is use of a belief at work), and never a belief route (`SUPPORT_ROUTES` keeps
+  the table's vocabulary). A drawn-on use files as a real use (the brief lists drewOn there).
+- Decided by the E2 builder, 2026-10-24: a filing's own lived day stands as its "born" day (so a
+  later real use echoes an earlier find, and two occasions on one day share it); every filing's
+  folder is unknown, because a return keeps none, so each after the first takes
+  `SUPPORT_SAME_FOLDER` (0.75) — a constant, not a signal, until a return records its folder.
+  The feeling that multiplies each filing is the fast lane's (`coreFeeling`: every feeling while
+  the door to later feelings is open). No trailing window (a belief's support has none); below
+  `REACH` stays a gate (a candidate for weighting later); an earlier state of a slot still never
+  crosses by the slot.
+- (Superseded by the E2 review's calibration below.) Decided by the E2 builder, 2026-10-24:
+  `CORE_SUPPORT_LINE` tuned once on the harness, from 0.06 to 0.0615 — just under one real use felt at `CORE_FAST_RELATIVE_FLOOR` (0.5: 0.0618), the
+  lowest feeling the fast lane ever called strongly felt. The same memories cross at both on
+  the 10-24 and 10-23 corpora (none sits between); 0.0615 names the bar. A try at 0.0635 (one
+  use felt at `CORE_FAST_FEELING`) dropped `mem_c439775f4cb8`, a fast-lane memory whose one real
+  use came felt at 0.5 above its word's default, and was not kept. Two more memories with one
+  real use at intensity 0.5 cross that the lanes did not let in: the door reads the intensity,
+  not which word or claim carried it, and has no gap of 2. The numbers are in the PR and CHECK-AFTER.
+- Decided by the E2 reviewer, 2026-10-24, on the roadmap seat's calibration target (lightly
+  held): the first cut's line sat in a 0.0003 sliver between one plain use (0.051) and one use
+  felt at 0.5 (0.0618), so the door was in effect "one use felt at 0.485 or more" — the day
+  after birth included, and a writer's bare `emotional: 0.5` claim with it. Recalibrated within
+  the arc: the days factor counts the slot's making as its first lived day once any lived
+  filing stands, and a lived filing fewer than `CORE_SUPPORT_GAP_DAYS` (2) after it as that same
+  day ("from separate moments, over time": the day after the making is one occasion); the line
+  moves 0.0615 → 0.1005, midway between one spaced use felt at 0.55 (0.0997, the most an
+  unweighed word gives) and at 0.6 (0.1013, the fast lane's bar). One plain spaced use is 0.0808;
+  two real uses on two lived days after the making 0.129 or more. On the 10-24 and 10-23
+  corpora 0.0999, 0.1005 and 0.1012 cross the same six memories. Given up: `mem_c439775f4cb8`
+  (one use felt at 0.5, strongly felt by its word's relative bar) now needs a second occasion;
+  the door reads intensity, not the word-relative "strongly felt" — a design question, not a
+  line. `support.days` on the record now includes the making's day, so it no longer equals
+  lane F's `livedSupportDays` for the same filings.
+- Decided by the E2 builder, 2026-10-24: the closed-door check behind `feelingRecordedLater`
+  counts the same support with the lived feelings only (a reflection's citation is a found
+  filing either way). The memory card speaks the door's road (how far along, or "one real use
+  2 days of use or more after it was made" for a felt one); the Self page's "closest to the core" still ranks by the
+  lanes' progress, and the help page and `counterparts mechanisms`' label still describe the
+  two lanes — follow-ups if the door is kept.
+- Decided by Mike, 2026-10-24 20:59, lightly held (E2 addendum): merge it in SHADOW. "ok i agree
+  with your rec to merge e2 in shadow mode". `physics.CORE_DOOR_SUPPORT` is three-valued, `"off"`
+  (the lanes, byte for byte), `"shadow"` (the default: the lanes decide, the support door records
+  `promotion.shadow` rows per disagreement and a `promotion.shadow.sleep` row per sleep) and `"on"`
+  (the door decides); `true`/`false` read as on/off. Why: on the harness the door grew the core
+  about half as fast as the lanes (0/0/3/4/6 against 0/6/10/11/12 on days 7/14/21/28/end), against
+  his 10-20/10-21 rulings that the core was starving. Accepted as built: the `c439` trade and
+  `CORE_SUPPORT_GAP_DAYS` 2. After a week of 0.3.36 shadow rows he decides on, off or tune.
+- Decided by the shadow's builder, 2026-10-24: the shadow keeps a mark per memory (`meta`
+  `sleep.shadow.<id>`), so it asks about an admitted memory once and asks again about a core member
+  the lanes promoted against its no until it admits it (`caughtUp`). Why: then the summary's
+  columns, summed, are each door's core growth (a stateless shadow repeats a held memory's
+  `wouldPromote` every night). The per-memory rows are latched, each kind once a memory.
+
 ### Also noted
 
 - **A read-without-crediting mode for audits.** A way to read memories (a review, a rules
