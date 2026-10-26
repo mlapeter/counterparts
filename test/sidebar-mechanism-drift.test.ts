@@ -173,10 +173,13 @@ describe("the sidebar's copy of MECHANISM_EVIDENCE", () => {
     expect(sidebarLights("band.transition", { from: "episodic", to: "semantic", site: "decay", direction: "up", cause: "recurve" })).toEqual([]);
   });
 
-  test("the twelve mechanisms in core's order and ids, with the one not built drawn hollow", () => {
+  test("the twelve mechanisms in core's order and ids, with the ones it cannot count left undrawn", () => {
     expect(MECHS.map((m) => m.id)).toEqual(MECHANISM_EVIDENCE.map((m) => m.id));
+    // Not built, or built with no event proof (Schemas since 2026-10-26: its
+    // evidence is a census on the store's rows, which no activity row shows,
+    // so a sidebar count would read 0 forever).
     expect(MECHS.filter((m) => m.notBuilt === true).map((m) => m.id)).toEqual(
-      MECHANISM_EVIDENCE.filter((m) => m.build === "not").map((m) => m.id),
+      MECHANISM_EVIDENCE.filter((m) => m.build === "not" || m.proofs.length === 0).map((m) => m.id),
     );
   });
 });

@@ -35,7 +35,8 @@ export type Mech = {
   readonly short: string;
   /** The website's one line: what slides open under the legend. */
   readonly site: string;
-  /** Drawn hollow: not built. */
+  /** Not drawn: not built, or (Schemas, since 2026-10-26) built with no event
+   *  the feed can count — its evidence is rows on the store, not activity. */
   readonly notBuilt?: true;
 };
 
