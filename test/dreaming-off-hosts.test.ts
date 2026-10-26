@@ -17,7 +17,7 @@
  * invented.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -137,6 +137,9 @@ describe("off refuses launch, on every host", () => {
     const night = String((await call("wake", { night: true })).out["session"]);
     const r = await call("dream", { phase: "launch", session: night });
     expectRefusedOff(r);
+    // The routine's prompt (trial.sh) says what to do with that refusal.
+    const script = readFileSync(join(import.meta.dir, "..", "tools", "trials", "claude-ai", "trial.sh"), "utf8");
+    expect(script).toContain("If the launch itself refuses (dreaming is off), tonight is skipped: call nothing else");
     expect(r.text).toContain("Dreaming is off");
   });
 
