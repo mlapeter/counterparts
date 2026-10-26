@@ -55,7 +55,7 @@
  * No body text, no question text, no note text ever reaches an event.
  */
 import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT, boundedIds } from "../../core/counterpart.js";
-import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT, SLOT_HINT } from "../../core/reconsolidation.js";
+import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT, SLOT_HINT, contentWords } from "../../core/reconsolidation.js";
 import type { Neighbour } from "../../core/reconsolidation.js";
 import { localDate, todayIn } from "../../core/time.js";
 import type { Recurrence } from "../../core/time.js";
@@ -134,6 +134,7 @@ import {
   listSessions,
   manifestVersionOnDisk,
   readSession,
+  reflectorDone,
   sessionOfHost,
   recordServerLaunch,
   refreshServerLaunch,
@@ -153,7 +154,16 @@ import {
   embedQuestion,
 } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
-import { NIGHTS_GLOSS } from "./nights.js";
+import { LAST_NIGHT_WIRE_CHARS, NIGHTS_GLOSS, isLastNightHandle, nightsForQuestion, readLastNight } from "./nights.js";
+import type { QuestionNightWhy } from "./nights.js";
+import { claudeAiWakeText, sameYouLine } from "./chat-wake.js";
+
+/** Why a dream rode beside a question's answer, as the result says it. */
+const QUESTION_NIGHT_WHY: Readonly<Record<QuestionNightWhy, string>> = {
+  "reflection-shown": "the answer shows the reflection that followed this dream",
+  words: "this dream's title or journal shares words with the question",
+  "names-dreams": "the question asks about dreams; this is the newest",
+};
 import type { NightSummary } from "./nights.js";
 import { factsRecall, renderFacts } from "./facts.js";
 import { meaningRecall, renderMeaning } from "./meaning.js";
@@ -216,6 +226,7 @@ import {
   SERVER_NAME,
   SERVER_VERSION,
   START_PROMPT,
+  startPromptFor,
   desktopWriteUpAsk,
   STORE_BUSY_REFUSAL,
   schemaUnreadableRefusal,
@@ -626,20 +637,22 @@ export class McpServer {
       case "prompts/list": {
         if (id === undefined) return null;
         if (!this.desktop) return failure(id, ERROR_CODES.METHOD_NOT_FOUND, `unknown method: ${request.method}`);
+        const prompt = startPromptFor(this.host);
         return success(id, {
-          prompts: [{ name: START_PROMPT.name, title: START_PROMPT.title, description: START_PROMPT.description, arguments: [] }],
+          prompts: [{ name: prompt.name, title: prompt.title, description: prompt.description, arguments: [] }],
         });
       }
       case "prompts/get": {
         if (id === undefined) return null;
         if (!this.desktop) return failure(id, ERROR_CODES.METHOD_NOT_FOUND, `unknown method: ${request.method}`);
-        if (params["name"] !== START_PROMPT.name) {
+        const prompt = startPromptFor(this.host);
+        if (params["name"] !== prompt.name) {
           return failure(id, ERROR_CODES.INVALID_PARAMS, `unknown prompt: ${String(params["name"])}`);
         }
-        this.emit("mcp.prompt", undefined, { name: START_PROMPT.name });
+        this.emit("mcp.prompt", undefined, { name: prompt.name });
         return success(id, {
-          description: START_PROMPT.description,
-          messages: [{ role: "user", content: { type: "text", text: START_PROMPT.text } }],
+          description: prompt.description,
+          messages: [{ role: "user", content: { type: "text", text: prompt.text } }],
         });
       }
       case "tools/call": {
@@ -982,7 +995,7 @@ export class McpServer {
         // Claude Desktop's only (`tools.ts#WAKE`). A Claude Code client never
         // reaches here over the wire (`toolSpec` refuses it first); a direct
         // call gets the same answer any tool this host does not have gets.
-        return this.desktop ? this.wakeTool() : this.refuse(name, "unknown-tool", { tool: name });
+        return this.desktop ? this.wakeTool(args) : this.refuse(name, "unknown-tool", { tool: name });
       case "reflect":
         return this.reflectTool(args);
       case "meet":
@@ -1469,6 +1482,7 @@ export class McpServer {
         dreaming: this.counterpart.dreams.setting(),
         folders: this.meetAsksWhere(),
         plugin: this.install === "plugin" && !this.desktop,
+        web: this.host === CLAUDE_AI_HOST,
         state,
       });
       this.emit("mcp.meet.read", undefined, { state });
@@ -1507,6 +1521,7 @@ export class McpServer {
         const next = finishText({
           name: this.counterpart.ownerDisplayName(),
           dreaming: this.counterpart.dreams.setting(),
+          web: this.host === CLAUDE_AI_HOST,
           sidebar:
             !this.desktop &&
             sidebarBeside({
@@ -2241,6 +2256,10 @@ export class McpServer {
     const stillOpenAsked =
       (typeof handle === "string" && handle.trim().toLowerCase() === STILL_OPEN_HANDLE && args["question"] === undefined && args["ids"] === undefined) ||
       (handle === undefined && args["ids"] === undefined && args["mode"] === "facts" && typeof args["question"] === "string" && asksStillOpen(args["question"]));
+    // LAST NIGHT, WHOLE (2026-10-26, OL1b): "last dream" / "last night".
+    if (isLastNightHandle(handle) && args["question"] === undefined && args["ids"] === undefined) {
+      return this.lastNightTool(String(handle).trim().toLowerCase());
+    }
     if (stillOpenAsked) {
       const page = args["page"];
       if (page !== undefined && (typeof page !== "number" || !Number.isInteger(page) || page < 1)) {
@@ -2422,6 +2441,41 @@ export class McpServer {
    * (`self/identity.ts#openCarry`), so asking cannot keep a thread carried.
    * Never reached under observer (G5): recall stands down first.
    */
+  /**
+   * THE NEWEST NIGHT, WHOLE (2026-10-26, OL1b item 3): its dream — title,
+   * journal uncut, what it did — and the reflection after it, entry and share
+   * uncut (`nights.ts#readLastNight`). Read-only, like every night: it credits
+   * nothing and marks nothing seen; the memory ids it names open as usual.
+   * Every host's: a chat with no console reads last night this way.
+   */
+  private lastNightTool(handle: string): ToolResult {
+    // The two parts' room, under this server's ceiling with the words beside them (review of #645).
+    const night = readLastNight(this.counterpart, Math.min(LAST_NIGHT_WIRE_CHARS, this.resultCeilingChars - 4_000));
+    const found = night.dream !== null || night.reflection !== null;
+    this.emit("mcp.recall.lastnight", undefined, { dream: night.dream !== null, reflection: night.reflection !== null, cut: night.reflectionCut ?? null });
+    const rid = night.reflection?.id ?? "";
+    const cutNote =
+      night.reflectionCut === "summary"
+        ? ` The two together were more than one answer carries, so the reflection comes as a summary (its entry cut; entryChars is the whole length): recall with handle ${rid} reads it whole.`
+        : night.reflectionCut === "pointer"
+          ? ` The two together were more than one answer carries, so the reflection is named by id only: recall with handle ${rid} reads it whole.`
+          : "";
+    return this.result(
+      {
+        path: "handle",
+        reason: found ? "last-night" : "no-night",
+        handle,
+        ...(night.dream === null ? {} : { dream: { ...night.dream } }),
+        ...(night.reflection === null ? {} : { reflection: { ...night.reflection } }),
+        ...(found ? { nightsGloss: NIGHTS_GLOSS } : {}),
+        note: found
+          ? `The newest dream, whole, and the reflection after it. Reading it marks nothing: a share it shows as not yet told is still untold (once it is told, the reflect tool's phase "told" marks it, as the wake says).${cutNote}`
+          : "No dream or reflection yet: nights have not run on this memory.",
+      },
+      false,
+    );
+  }
+
   private stillOpenTool(page: number, routed: boolean): ToolResult {
     // For this folder, as its wake reads it (O2, 2026-10-26): its own first,
     // the personal ones after, another folder's work not listed or counted;
@@ -2566,6 +2620,29 @@ export class McpServer {
     this.noteRecall(row, 0, question, false, payload, ids, key);
     this.markSeen(ids, key);
     this.noteAsked(ids, key, question);
+    // DREAMS THE QUESTION REACHES (2026-10-26, OL1b): a dream is not a memory,
+    // so neither mode finds one; beside the answer, read-only, on its first
+    // page (`nights.ts#nightsForQuestion`). Credits and marks nothing.
+    const dreams = page === 1 ? nightsForQuestion(this.counterpart, question, ids, (t) => contentWords(t)) : [];
+    // The answer first (review of #645): a dream that would carry the result
+    // past its ceiling stays out, so the net never cuts the answer for it.
+    const dreamGloss = `${NIGHTS_GLOSS} recall with handle "last dream" reads the newest whole, and a dream's id alone reads that one whole.`;
+    while (dreams.length > 0) {
+      const tried = { ...payload, nights: dreams.map((d) => ({ ...d.night, why: QUESTION_NIGHT_WHY[d.why] })), nightsGloss: dreamGloss };
+      if (wireChars(JSON.stringify(tried)) <= this.resultCeilingChars) break;
+      dreams.pop();
+    }
+    if (dreams.length > 0) {
+      this.emit("mcp.recall.nights", undefined, { dreams: dreams.length, why: dreams.map((d) => d.why).join(",") });
+      return this.result(
+        {
+          ...payload,
+          nights: dreams.map((d) => ({ ...d.night, why: QUESTION_NIGHT_WHY[d.why] })),
+          nightsGloss: dreamGloss,
+        },
+        false,
+      );
+    }
     return this.result(payload, false);
   }
 
@@ -2865,6 +2942,8 @@ export class McpServer {
    *     (`lifecycle.ts#spawnWorker`), and the day's dream line is offered when
    *     one is due and is an ASK (`wakeDreamLine`) — the headless nightly run
    *     stays Claude Code's;
+   *   - a morning share another session left and never told, carried once
+   *     (`wakeShareLine`, OL1a 2026-10-26) — this host's only carry;
    *   - the update and doctor notices, as plain lines;
    *   - the next-session write-up pointer, measured against a tool result's
    *     room (`TOOL_RESULT_CHARS`), not a hook's.
@@ -2872,8 +2951,15 @@ export class McpServer {
    * Not here, on purpose: the first-launch scope question (there is no
    * directory to ask about), the parallel run's primacy, and the headless run.
    */
-  private wakeTool(): ToolResult {
+  private wakeTool(args: Record<string, unknown> = {}): ToolResult {
     if (this.observer) return this.standDown("wake");
+    // A NIGHT'S OWN WAKE (2026-10-26, OL1b, from OL1a's review): the routine
+    // that runs the night passes `night: true`, and wakes quiet, as the
+    // headless nightly run does (`SessionInput.nightRun`): no share carried —
+    // after a day with no chat it would claim the share the next chat should
+    // tell — no plain reminder claimed, no first-meeting line, no dream line,
+    // no write-up pointer.
+    const night = args["night"] === true;
     const lc = this.lifecycle();
     const store = this.counterpart.store;
     const now = this.nowFn();
@@ -2881,6 +2967,7 @@ export class McpServer {
       sessionId: randomUUID(),
       scope: this.scope,
       at: localDate(now, store.zone()),
+      ...(night ? { nightRun: true } : {}),
     };
     lc.noteSession("start", input);
     // The first meeting's marker rides in the wake's head tag (2026-10-20,
@@ -2889,7 +2976,13 @@ export class McpServer {
     const plain = lc.plainFor(input);
     const told = lc.claimPlain(input, plain.due);
     const spawn = lc.spawnWorker(input);
-    const dream = this.wakeDreamLine(input);
+    // NO DREAM LINE ON CLAUDE.AI (2026-10-26, OL1b): its nights are the
+    // person's own routine, and the ask relayed in a chat read as "say dream
+    // if you want". Left unclaimed, the offer is never said here. And none —
+    // no share, no owner-facing ask — in a night's own wake (`night`).
+    const claudeAi = this.host === CLAUDE_AI_HOST;
+    const dream = claudeAi || night ? null : this.wakeDreamLine(input);
+    const share = night ? null : this.wakeShareLine(input);
     const notices = [this.wakeUpdateLine(), this.wakeDoctorLine()].filter((l): l is string => l !== null);
     const head = `Counterparts session for this chat: ${input.sessionId}. Pass session: ${input.sessionId} on session_end, chapter, dream and reflect in this chat.`;
     // Or, when the wake has no head tag, as one tag in front of it (`tagLead`).
@@ -2900,14 +2993,31 @@ export class McpServer {
     // certain delivery, so it is committed here.
     const meet = lc.onboardingLine(input);
     meet?.commit();
-    const parts = [
-      head,
-      `${lead}\n${ONE_TAG_LINE ? tags : ""}${woke.text}`.trimEnd(),
-      ...(notices.length === 0 ? [] : [notices.join("\n")]),
-      ...(dream === null ? [] : [`${dream}\n${chatWordsFor(this.host).dreamNote}`]),
-      ...(meet === null ? [] : [meet.text]),
-    ];
-    const body = parts.join("\n\n");
+    // THE SHARE right after the session line: carrying it is a CLAIM. Nothing
+    // here trims the wake (the briefing is composed to its budget beforehand,
+    // and the write-up pointer gives way when there is no room), but a host
+    // that cuts a long tool result cuts from the end — so it rides first.
+    const body = claudeAi
+      ? // CLAUDE.AI'S SHAPE (`chat-wake.ts`): one short session line, what is
+        // for the person first, the same words otherwise.
+        claudeAiWakeText({
+          session: input.sessionId,
+          share: share === null ? [] : [share],
+          lead,
+          wake: `${ONE_TAG_LINE ? tags : ""}${woke.text}`,
+          // No host shares a claude.ai store yet: the line waits for one that does.
+          sameYou: sameYouLine(this.counterpart.ownerDisplayName(), []),
+          notices,
+          meet: meet === null ? null : meet.text,
+        })
+      : [
+          head,
+          ...(share === null ? [] : [share]),
+          `${lead}\n${ONE_TAG_LINE ? tags : ""}${woke.text}`.trimEnd(),
+          ...(notices.length === 0 ? [] : [notices.join("\n")]),
+          ...(dream === null ? [] : [`${dream}\n${chatWordsFor(this.host).dreamNote}`]),
+          ...(meet === null ? [] : [meet.text]),
+        ].join("\n\n");
     const pointer = lc.deliverWriteUpAsk(input, Buffer.byteLength(body, "utf8"), {
       limit: ADAPTER_TUNABLES.TOOL_RESULT_CHARS,
       label: "wake",
@@ -2926,6 +3036,8 @@ export class McpServer {
       plain: told.length,
       spawned: spawn.started,
       dream: dream !== null,
+      share: share !== null,
+      night,
       notices: notices.length,
       pointer: pointer.length > 0,
     });
@@ -2938,6 +3050,35 @@ export class McpServer {
     // THE BRIEFING AS TEXT, not as JSON: whichever of the two a host hands the
     // model, it reads the wake as the wake, with the id on its first line.
     return { content: [{ type: "text", text }], structuredContent: payload };
+  }
+
+  /**
+   * THE MORNING SHARE NO ONE TOLD, for a hookless wake (2026-10-26, OL1a): the
+   * newest share offered from another session, carried here — once, a claim
+   * (`Reflections.carryLine`) — when the session that reflected has let go of
+   * it (`sessions.ts#reflectorDone`). A claude.ai routine's session never ends,
+   * so it counts as ended once its reflection finished; a live Claude Code
+   * session that reflected keeps its share to tell. Claude Code's own carry is
+   * its prompt hook's (`hooks.ts#dreamLines`), by the same rule. A tool result
+   * is certain delivery, so the claim is safe here. Never throws.
+   */
+  private wakeShareLine(input: SessionInput): string | null {
+    if (this.observer) return null;
+    try {
+      const reflections = this.counterpart.reflections;
+      const pending = reflections.pendingShare({ session: input.sessionId });
+      if (pending === null) return null;
+      const record = pending.session === null ? null : readSession(this.registryDir, pending.session);
+      if (!reflectorDone(record, this.nowFn(), this.sessionTtlMs)) {
+        this.emit("mcp.wake.share", input.sessionId, { reflection: pending.id, carried: false, reason: "reflector-live" });
+        return null;
+      }
+      const line = reflections.carryLine({ session: input.sessionId, reflection: pending.id });
+      this.emit("mcp.wake.share", input.sessionId, { reflection: pending.id, carried: line !== null });
+      return line;
+    } catch {
+      return null;
+    }
   }
 
   /**

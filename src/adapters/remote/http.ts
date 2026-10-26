@@ -45,7 +45,8 @@
  * THE CALL LOG (`onCall`): one record per message — the time, the method, the
  * tool, the `Mcp-Session-Id` this server issued at `initialize` (a connection,
  * which is the nearest thing to a conversation the wire carries), the
- * Counterparts session the call named or `wake` minted, ok or the refusal's
+ * Counterparts session the call named or `wake` minted (never the one a
+ * nameless call fell back to), ok or the refusal's
  * reason code, and at `initialize` the client's own name and version. Ids and
  * codes only: never an argument, never a result's text.
  */
@@ -61,6 +62,13 @@ export const LOOPBACK = "127.0.0.1";
 
 /** A request body larger than this is refused (`413`). Tool arguments are small. */
 export const MAX_BODY_BYTES = 1_000_000;
+
+/**
+ * A JSON-RPC batch longer than this is refused (`400`) before any message
+ * runs (security review of the OL2 stack, info). Batches were dropped from MCP
+ * in 2025-06-18 and are kept for 2025-03-26 clients, which send a handful.
+ */
+export const MAX_BATCH = 32;
 
 /** The secret path segment's entropy, in bytes (192 bits; the brief asks ≥128). */
 export const SECRET_BYTES = 24;
@@ -107,6 +115,8 @@ export interface CallRecord {
  */
 export interface McpPostOptions {
   readonly maxBodyBytes?: number;
+  /** Messages in one batch; `MAX_BATCH` when absent. */
+  readonly maxBatch?: number;
   /** Told once per message, after its answer is known. A throw is swallowed. */
   readonly onCall?: (record: CallRecord) => void;
   /** Told the status of each request refused before it reached the server
@@ -243,7 +253,11 @@ async function one(raw: unknown, connection: string | null, target: McpTarget, o
     record["ok"] = result["isError"] !== true;
     if (result["isError"] === true) record["reason"] = code(sc["reason"]) ?? "error";
     // `wake` mints the session; it is the one call that names none going in.
-    if (record["session"] === undefined) {
+    // ONLY `wake` (review of #641): `chapter`, `reflect` and `dream` echo the
+    // session a nameless call was filed under (the most recent one, remote
+    // INTERFACE-GAPS §2), which may be another chat's; logging that as the
+    // call's session would hide a chat that never woke inside another's row.
+    if (record["session"] === undefined && record["tool"] === "wake") {
       const minted = code(sc["session"]);
       if (minted !== undefined) record["session"] = minted;
     }
@@ -309,6 +323,11 @@ export function handleMcpPost(req: IncomingMessage, res: ServerResponse, target:
       const messages = batch ? (body as unknown[]) : [body];
       if (messages.length === 0) {
         json(res, 400, failure(null, ERROR_CODES.INVALID_REQUEST, "empty batch"));
+        return;
+      }
+      if (messages.length > (opts.maxBatch ?? MAX_BATCH)) {
+        tell(() => opts.onRefused?.(400));
+        json(res, 400, failure(null, ERROR_CODES.INVALID_REQUEST, "batch too large"));
         return;
       }
       // A connection id is issued at `initialize` and logged on every later

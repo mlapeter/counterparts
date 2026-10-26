@@ -28,15 +28,23 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
    shape and for containment (`isWithin`) on every open (`src/tenants.ts#tenantDir`).
 3. **One `McpServer` per store, each with its own queue.** Handles are never shared or reused across stores. An LRU
    plus an idle sweep closes unused stores. A store in use is never closed. A request arriving while its store closes
-   waits, then reopens it.
+   waits, then reopens it. `close(storeId)` (account delete) waits on a promise until no call holds the store, never
+   a poll of the queue (the 10-26 review: a poll froze the process when it raced an in-flight request), and drops
+   the store's worker: its owed run is forgotten and a running child is stopped.
 4. **The worker child's environment is allow-listed** (`workerEnv`). `spawn.ts#planSpawn` starts from the parent's
-   whole environment; the pool passes on only `PATH`, the locale, `TZ`, `TMPDIR` and the `COUNTERPARTS_*` values the
-   plan pinned. The child's `HOME` is its tenant dir.
+   whole environment; the pool passes on only `PATH`, the locale, `TZ`, `TMPDIR` and, by name, the `COUNTERPARTS_*`
+   values the plan pins plus the static weights dir (`WORKER_COUNTERPARTS_ALLOW`), never a prefix match. The child's
+   `HOME` is its tenant dir.
 5. **At most one worker per store, and at most `max` in all.** Extra boundaries coalesce into one more run.
 6. **The call log holds ids and codes only**, plus the store as an HMAC under a per-process salt: matchable, not
    nameable. It never holds a token.
 7. **`/mcp` refuses** anything but POST (`405`), a foreign `Origin` (`403`), and a body that is not
    `application/json` (`415`). The last closes the local door's `text/plain` simple-request hole.
+   - A token that can't be *checked* (`authenticate` threw, e.g. the accounts database is down) gets `503` with
+     `Retry-After`, never `401`, so the client retries instead of asking the person to sign in again.
+   - Only origin-form request targets reach a route. `//host/x` and absolute-form targets get `400`, so no route ever
+     sees a host the client chose. Every published URL is built from `publicOrigin`.
+   - Headers time out at 30 s and requests at 300 s, the same bounds as the local door.
 
 ### Accounts and sign-in (step 3: `src/accounts.ts`, `src/pages.ts`, `src/web.ts`, `src/egress.ts`)
 

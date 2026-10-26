@@ -28,9 +28,9 @@ import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_INSTRUCTIONS, DESKTOP_INSTRUCTIONS } from "../src/adapters/mcp/server-words.js";
 import { readSession } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
-import { LOOPBACK, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
+import { LOOPBACK, MAX_BATCH, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
 import type { CallRecord, McpTarget, RunningHttp } from "../src/adapters/remote/http.js";
-import { openCallLog, summarizeCalls } from "../src/adapters/remote/call-log.js";
+import { openCallLog, summarizeCalls, summarizeChats } from "../src/adapters/remote/call-log.js";
 import { livePathRefusal, liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
 
 const CANARY = "Canary for this trial: the person's imaginary lighthouse is called Quillmere Saffron.";
@@ -137,7 +137,8 @@ describe("the HTTP door, through the socket", () => {
     const list = result((await rpc(http.url, "tools/list")).body)["tools"] as Record<string, unknown>[];
     expect(list.map((t) => t["name"])).toEqual(["wake", ...TOOLS.map((t) => t.name)]);
     const wake = list[0] as Record<string, unknown>;
-    expect(String(wake["description"]).startsWith("Call this first in every conversation.")).toBe(true);
+    // It describes what wake brings; it does not tell Claude to call it first (OL1b item 4: the directory rule).
+    expect(String(wake["description"]).startsWith("Start a conversation with your long-term memory of this person")).toBe(true);
     for (const t of list) {
       const text = JSON.stringify(t);
       expect(text).not.toContain("Quillmere");
@@ -290,6 +291,26 @@ describe("the HTTP door, through the socket", () => {
     expect(body.map((r) => r.id)).toEqual([1, 2]);
   });
 
+  test("a batch longer than MAX_BATCH is refused whole, before any message runs", async () => {
+    let handled = 0;
+    const counting = {
+      async handle(request: { id?: string | number }): Promise<{ jsonrpc: string; id: string | number; result: Record<string, unknown> }> {
+        handled += 1;
+        return { jsonrpc: "2.0", id: request.id ?? 0, result: {} };
+      },
+    };
+    const http = await serveHttp({ server: counting });
+    closers.push(() => http.close());
+    const batch = (n: number): string => JSON.stringify(Array.from({ length: n }, (_, i) => ({ jsonrpc: "2.0", id: i + 1, method: "ping" })));
+    const over = await fetch(http.url, { method: "POST", headers: { "content-type": "application/json" }, body: batch(MAX_BATCH + 1) });
+    expect(over.status).toBe(400);
+    expect(((await over.json()) as { error: { message: string } }).error.message).toBe("batch too large");
+    expect(handled).toBe(0);
+    const at = await fetch(http.url, { method: "POST", headers: { "content-type": "application/json" }, body: batch(MAX_BATCH) });
+    expect(at.status).toBe(200);
+    expect(handled).toBe(MAX_BATCH);
+  });
+
   test("claude.ai's 2025-11-25 is echoed through the door", async () => {
     const { http, calls } = await door();
     const init = await rpc(http.url, "initialize", { ...INIT, protocolVersion: "2025-11-25" });
@@ -364,7 +385,7 @@ describe("claude.ai's tools and words", () => {
     expect(toolDefinitions("claude-code")).toEqual(toolDefinitions(false));
     expect(DESKTOP_TOOLS.at(-1)?.name).toBe("wake");
     expect(CLAUDE_AI_TOOLS[0]).toBe(CLAUDE_AI_WAKE);
-    expect(renderDescription(CLAUDE_AI_WAKE)).toContain("remember what matters as it comes up");
+    expect(renderDescription(CLAUDE_AI_WAKE)).toContain("what is worth keeping is saved as it comes up, with `remember`");
     expect(DESKTOP_INSTRUCTIONS).toContain("Code tab");
   });
 
@@ -391,6 +412,100 @@ describe("the call log", () => {
       ["c2", false, 0, 1, "claude-ai"],
     ]);
     expect((readFileSync(path, "utf8").match(/\n/g) ?? []).length).toBe(5);
+  });
+
+  test("per chat, through the door (OL1b): one connection, two chats keyed by the session wake minted; calls that named none counted apart", async () => {
+    const path = join(root, "calls.jsonl");
+    const log = openCallLog(path);
+    const s = claudeAiServer();
+    const http = await serveHttp({ server: s, onCall: (r) => log.write(r) });
+    closers.push(() => http.close());
+    const init = await rpc(http.url, "initialize", INIT);
+    const conn = { "mcp-session-id": String(init.headers.get("mcp-session-id")) };
+    const call = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> =>
+      result((await rpc(http.url, "tools/call", { name, arguments: args }, conn)).body)["structuredContent"] as Record<string, unknown>;
+    // A chat that asks before it wakes: no session named, before any wake.
+    await call("status", {});
+    const a = String((await call("wake", {}))["session"]);
+    await call("remember", { session: a, text: "The greenhouse vents open at nine.", kind: "fact" });
+    await call("chapter", { session: a, text: "We talked about the greenhouse vents and settled on nine." });
+    // A second chat on the SAME connection, as claude.ai does it.
+    const b = String((await call("wake", {}))["session"]);
+    expect(b).not.toBe(a);
+    await call("remember", { session: b, text: "The cellar door sticks in the rain.", kind: "fact" });
+    await call("remember", { text: "The cellar key hangs by the stove.", kind: "fact" });
+
+    const report = summarizeChats(path);
+    expect(report.clients).toEqual(["claude-ai"]);
+    expect(report.chats.map((c) => [c.session, c.woke, c.tools, c.remembered, c.chapter])).toEqual([
+      [a, true, ["wake", "remember", "chapter"], 1, true],
+      [b, true, ["wake", "remember"], 1, false],
+    ]);
+    expect(new Set(report.chats.map((c) => c.connection)).size).toBe(1);
+    expect(report.unnamed).toEqual([{ connection: conn["mcp-session-id"], calls: 2, beforeWake: 1, tools: ["status", "remember"], errors: 0 }]);
+    // The old per-connection view sees one row for both chats.
+    expect(summarizeCalls(path)).toHaveLength(1);
+    // And the trial's own reader prints it.
+    const out = await new Promise<string>((resolveRun) => {
+      const child = spawn(process.execPath, [join(import.meta.dir, "..", "tools", "trials", "claude-ai", "report.ts"), path], { stdio: ["ignore", "pipe", "pipe"] });
+      let text = "";
+      child.stdout.on("data", (d: Buffer) => (text += d.toString()));
+      child.on("close", () => resolveRun(text));
+    });
+    expect(out).toContain("2 chats; 2 woke in this log.");
+    expect(out).toContain("2 calls, 1 before any wake on it");
+    expect(out).toContain(a.slice(0, 8));
+    expect(out).not.toContain("greenhouse");
+  });
+
+  test("a nameless chapter, reflect or dream is logged with no session, not the one it fell back to (review of #641)", async () => {
+    const path = join(root, "calls.jsonl");
+    const log = openCallLog(path);
+    const s = claudeAiServer();
+    const http = await serveHttp({ server: s, onCall: (r) => log.write(r) });
+    closers.push(() => http.close());
+    const init = await rpc(http.url, "initialize", INIT);
+    const conn = { "mcp-session-id": String(init.headers.get("mcp-session-id")) };
+    const call = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> =>
+      result((await rpc(http.url, "tools/call", { name, arguments: args }, conn)).body)["structuredContent"] as Record<string, unknown>;
+    const a = String((await call("wake", {}))["session"]);
+    // A second chat that never woke: the server files these under `a`, and says so.
+    expect((await call("chapter", { text: "We talked about the shed roof and the gutters." }))["session"]).toBe(a);
+    expect((await call("reflect", { phase: "begin" }))["session"]).toBe(a);
+    const report = summarizeChats(path);
+    expect(report.chats.map((c) => [c.session, c.tools])).toEqual([[a, ["wake"]]]);
+    expect(report.unnamed).toEqual([{ connection: conn["mcp-session-id"], calls: 2, beforeWake: 0, tools: ["chapter", "reflect"], errors: 0 }]);
+  });
+
+  test("per chat, from the log: chats interleaved across two connections, a failed wake, a line that does not parse", () => {
+    const path = join(root, "calls.jsonl");
+    const line = (r: Record<string, unknown>): string => JSON.stringify({ at: "2026-10-26T10:00:00.000Z", ms: 1, ok: true, ...r });
+    writeFileSync(
+      path,
+      [
+        line({ method: "initialize", connection: "c1", client: "claude-ai" }),
+        line({ method: "initialize", connection: "c2", client: "claude-ai" }),
+        line({ method: "tools/call", tool: "wake", connection: "c1", ok: false, reason: "-32603" }),
+        line({ method: "tools/call", tool: "wake", connection: "c1", session: "s-a", at: "2026-10-26T10:01:00.000Z" }),
+        line({ method: "tools/call", tool: "wake", connection: "c2", session: "s-b", at: "2026-10-26T10:02:00.000Z" }),
+        "{not json",
+        line({ method: "tools/call", tool: "remember", connection: "c2", session: "s-a" }),
+        line({ method: "tools/call", tool: "remember", connection: "c1", session: "s-b" }),
+        line({ method: "tools/call", tool: "chapter", connection: "c1", session: "s-a", ok: false, reason: "too-short" }),
+        line({ method: "tools/call", tool: "recall", connection: "c2", session: "s-old" }),
+        "",
+      ].join("\n"),
+    );
+    const report = summarizeChats(path);
+    expect(report.clients).toEqual(["claude-ai"]);
+    expect(report.chats.map((c) => [c.session, c.connection, c.firstAt.slice(11, 16), c.woke, c.tools, c.remembered, c.chapter, c.errors])).toEqual([
+      ["s-a", "c1", "10:01", true, ["wake", "remember", "chapter"], 1, true, 1],
+      ["s-b", "c2", "10:02", true, ["wake", "remember"], 1, false, 0],
+      ["s-old", "c2", "10:00", false, ["recall"], 0, false, 0],
+    ]);
+    // The failed wake minted nothing: it is a nameless call, before any wake, and an error.
+    expect(report.unnamed).toEqual([{ connection: "c1", calls: 1, beforeWake: 1, tools: ["wake"], errors: 1 }]);
+    expect(readFileSync(path, "utf8")).not.toMatch(/"text"|"query"/);
   });
 });
 
