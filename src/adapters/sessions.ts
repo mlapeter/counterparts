@@ -453,7 +453,10 @@ export function isLive(
  * record is written once, at `wake`), so it counts as ended once its
  * reflection has finished, which is the only kind a share is offered from
  * (`Reflections.pendingShare` reads reflected rows). A claude.ai routine's
- * share then reaches the next chat's wake instead of staying offered.
+ * share then reaches the next chat's wake instead of staying offered. The
+ * hookless wake's rule (`mcp/server.ts#wakeShareLine`); Claude Code's prompt
+ * keeps its own (`hooks.ts#dreamLines`: ended or quiet only), so a terminal
+ * prompt never claims a share a Desktop chat is about to tell.
  */
 export function reflectorDone(record: SessionRecord | null, now: number, ttlMs: number = SESSION_TTL_MS): boolean {
   if (record === null || !isLive(record, now, ttlMs)) return true;

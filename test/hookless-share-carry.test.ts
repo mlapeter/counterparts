@@ -18,8 +18,8 @@
  *     reflected is still going carries nothing; once it ended, the next prompt
  *     carries it, once. A hookless wake keeps the same rule for a Claude Code
  *     reflector (Desktop shares a store with Claude Code).
- *   - The one new Claude Code case: a prompt carries a hookless chat's share
- *     without waiting out the four hours.
+ *   - Claude Code's prompt keeps its own rule for a hookless chat's share too:
+ *     it waits out the four hours (the rule is the hookless wake's only).
  *   - The open question, documented: a routine's own wake is a wake like any
  *     other, so it carries a share still offered from an earlier night.
  *
@@ -267,10 +267,14 @@ describe("the rule, and Claude Code unchanged", () => {
     expect(s.counterpart.store.reflection(rid)?.share_state).toBe("carried");
   });
 
-  test("the one new Claude Code case: a prompt carries a hookless chat's share without waiting out the four hours", () => {
-    recordSession(dir, { sessionId: "ai-night", scope: "claude-ai:", phase: "start", host: CLAUDE_AI_HOST });
-    reflectedBy("ai-night");
-    expect(prompt("cc-next").injection).toContain("ZQSHARE");
+  test("Claude Code unchanged for a hookless chat's share too: a prompt inside the four hours does not carry it; a hookless wake does", async () => {
+    recordSession(dir, { sessionId: "desk-chat", scope: "claude-desktop:", phase: "start", host: DESKTOP_HOST });
+    const rid = reflectedBy("desk-chat");
+    expect(prompt("cc-next").injection).not.toContain("ZQSHARE");
     expect(prompt("cc-later").injection).not.toContain("ZQSHARE");
+    const s = chatServer(DESKTOP_HOST);
+    const woke = await s.call("wake", {});
+    expect(String(woke.structuredContent["wake"])).toContain("ZQSHARE");
+    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("carried");
   });
 });

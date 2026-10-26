@@ -1788,10 +1788,14 @@ routine's share for four hours after its last call.
 chat's session (`isChatHost`; a pseudo-scope for a record with no host), which counts as ended
 once its reflection finished (the only kind `pendingShare` offers). `wakeShareLine` carries with
 it (the atomic `carryLine` claim) right after the session line — the size net cuts from the end,
-and a claimed share must not be what falls off. `dreamLines` uses the same helper: Claude Code →
-Claude Code is unchanged; the one new case is a Claude Code prompt carrying a hookless chat's share
-at once rather than after four hours. Tests: `test/hookless-share-carry.test.ts` (the HTTP door;
-the hook).
+and a claimed share must not be what falls off. Claude Code's `dreamLines` is untouched: its
+prompt still waits for the reflector to end or go quiet, a hookless one included — on Mike's store
+a Desktop chat that reflected in-chat tells its share itself seconds later, and a terminal prompt
+must not claim it in between. Whether a Claude Code prompt should also take a routine's share at
+once is open until a store is really shared between a routine host and Claude Code (stage 3).
+On a store shared with Claude Code's headless run, a hookless wake may now claim the night's share
+before `nightHandBack` does; the claim is atomic, so it is carried once, and the dream's line still
+lands in Claude Code. Tests: `test/hookless-share-carry.test.ts` (the HTTP door; the hook).
 
 **Open, with a recommendation:** a routine's own `wake` is a wake like any other (never told apart
 by client name), so with no chat since the last night it claims that night's share in the routine,
