@@ -30,12 +30,13 @@ So the cause is one layer below the brief's guess:
   not apply either: claude.ai's routine is a chat calling dream/reflect over MCP, not
   `dreams.nightRun()` (Claude Code's spawned run).
 - **Second, and it would bite as soon as the wake carried with Claude Code's rule:** a hookless
-  session's registry record is written once, at `wake` (`lc.noteSession("start")`); MCP calls
-  never write a boundary or an end (grep: no `noteSession`/boundary write in `adapters/mcp` or
-  `adapters/remote` besides the wake's start). So the routine's session reads LIVE for 4 h after
-  its wake and is never ended. Under the "reflecting session ended or quiet" rule, a chat opened
-  within 4 h of the routine's wake would not carry it. (This is the brief's guess, true but not
-  the first thing in the way.)
+  session's registry record is started at `wake` (`lc.noteSession("start")`) and refreshed by each
+  call that NAMES it (`bindDesktopCall` → `sessions.ts#touchDesktopSession`, a `boundary` write);
+  nothing ever writes an `end` (no Stop/SessionEnd; `session_end`/`chapter` don't end the record).
+  So the routine's session reads LIVE for 4 h after its last call and is never ended. Under the
+  "reflecting session ended or quiet" rule, a chat opened within 4 h of the routine's last call
+  would not carry it. (This is the brief's guess, true but not the first thing in the way.)
+  [Corrected: the first version of this note said MCP calls never write a boundary; they do.]
 - Side fact: on a store shared with Claude Code (Mike's local, Desktop chat), a Claude Code prompt
   more than 4 h after a Desktop reflection's wake does carry it via (1); a Desktop wake never does.
 

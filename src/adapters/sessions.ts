@@ -93,7 +93,7 @@ import { isModelId } from "../core/self/index.js";
 import { CACHE_SCHEMA_VERSION, SCHEMA_VERSION } from "../core/store/index.js";
 import type { Store } from "../core/store/index.js";
 
-import { DEFAULT_HOST, isHostName, isPseudoScope, wordingFor } from "./hosts.js";
+import { DEFAULT_HOST, isChatHost, isHostName, isPseudoScope, wordingFor } from "./hosts.js";
 import { packagePath } from "./runtime.js";
 
 /** The one directory name. Classified in `store/paths.ts` LAYOUT. */
@@ -441,6 +441,23 @@ export function isLive(
 ): boolean {
   if (record.endedAt !== null) return false;
   return now - record.lastBoundaryAt <= ttlMs;
+}
+
+/**
+ * HAS THE SESSION THAT REFLECTED LET GO OF ITS SHARE? (2026-10-26, OL1a.) A
+ * morning share the reflecting session never told is carried by another
+ * session only once this is true, so the two do not both tell it. True when
+ * that session has no record, has ended, or is quiet past the TTL — Claude
+ * Code's rule since v9 — or when it is a HOOKLESS CHAT's session (Desktop's
+ * chat, claude.ai): nothing ever ends one there (no Stop, no SessionEnd; its
+ * record is written once, at `wake`), so it counts as ended once its
+ * reflection has finished, which is the only kind a share is offered from
+ * (`Reflections.pendingShare` reads reflected rows). A claude.ai routine's
+ * share then reaches the next chat's wake instead of staying offered.
+ */
+export function reflectorDone(record: SessionRecord | null, now: number, ttlMs: number = SESSION_TTL_MS): boolean {
+  if (record === null || !isLive(record, now, ttlMs)) return true;
+  return isChatHost(hostOf(record)) || isPseudoScope(record.scope);
 }
 
 export function readSession(dataDir: string, sessionId: string): SessionRecord | null {

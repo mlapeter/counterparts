@@ -64,10 +64,10 @@ import {
   NON_INTERACTIVE_ENTRYPOINTS,
   decideUpdateNotice,
   installedBuild,
-  isLive,
   markUpdateNoticeShown,
   readSession,
   recordSession,
+  reflectorDone,
   stampSessionOpened,
 } from "../sessions.js";
 import type { SessionRecord } from "../sessions.js";
@@ -1149,8 +1149,9 @@ export class ClaudeCodeAdapter extends Lifecycle {
    *
    * v9 (2026-09-27): a MORNING SHARE the reflecting session never told is
    * carried here, ONCE, by the next session — only when the session that
-   * reflected has ended (its registry record is ended or quiet), so the two
-   * do not both tell it. Here, on the prompt, rather than in the SessionStart
+   * reflected has ended (its registry record is ended or quiet; a hookless
+   * chat's counts ended once it reflected, `reflectorDone`), so the two do not
+   * both tell it. Here, on the prompt, rather than in the SessionStart
    * wake, whose byte ceiling is what stranded the page writer.
    */
   private dreamLines(input: HookInput, byHost = false): { text: string; told: DreamTold | null; note: { notice: string; context: string } | null } {
@@ -1179,7 +1180,8 @@ export class ClaudeCodeAdapter extends Lifecycle {
       const pending = this.counterpart.reflections.pendingShare({ session: input.sessionId });
       if (pending !== null) {
         const record = pending.session === null ? null : readSession(this.counterpart.store.dir, pending.session);
-        if (record === null || !isLive(record, this.nowFn())) {
+        // Ended or quiet — or a hookless chat's, which never ends (`reflectorDone`, OL1a).
+        if (reflectorDone(record, this.nowFn())) {
           const carried = this.counterpart.reflections.carryLine({ session: input.sessionId, reflection: pending.id });
           if (carried !== null) lines.push(carried);
         }
