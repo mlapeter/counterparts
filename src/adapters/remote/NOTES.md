@@ -44,3 +44,9 @@
   (`auto` means Claude Code's headless run, which claude.ai has not), is the hosted
   server's account-creation step. The meeting's "where it lives" answer is left out on
   the web until the hosted privacy copy exists.
+- **A connection is not a chat (2026-10-26, OL1b).** claude.ai kept a handful of
+  `Mcp-Session-Id`s open across a day of conversations, so the trial's report reads per
+  chat: the session `wake` minted, and every later call that named it
+  (`call-log.ts#summarizeChats`). Keyed that way "wake first" is true by construction;
+  what measures a chat that never woke is the calls that named no session, counted per
+  connection, and how many of them came before any wake on it.
