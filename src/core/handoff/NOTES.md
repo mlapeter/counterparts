@@ -673,3 +673,20 @@ unchanged, so recall's "the most recent session" and the no-room row still mean 
 H0 `checkins`: "Last here" named nothing all week before; after, every morning names the
 previous check-in.
 
+
+## 2026-10-26 — review of #636's follow-ups: headless runs, the line's room with no chapter
+
+- **A session nobody attended is not the line's.** `WakeSession.headless` is the host's word
+  (Claude Code: the registry's `entrypoint` in `NON_INTERACTIVE_ENTRYPOINTS`, `sdk-cli` for
+  `claude -p`, the SDKs). The later-session walk passes one over before its `LATER_HERE_TRIED`
+  count, so a run of them cannot hide the person's session behind them. A session the registry
+  no longer knows (records are pruned at 7 days, the line's fortnight is 14) reads as a
+  person's: noise at worst, the direction `fired.ts#presentDays` takes too.
+- **The reserve no longer waits for a chapter.** `handoffRoom` sized the line only when the
+  fortnight held a chapter; a later session with none now gets the same room, under the same
+  share rule. The boundary has no registry, so the reserve is a bound and counts a headless
+  session too. Measured at 9,000 B on a full-lanes fixture: the line had fitted before anyway,
+  in the slack of other reserves (the preface's worst case is 293 B against ~110 used, and an
+  unused "Last said here" bound), so this mostly stops it borrowing that room. When the line
+  is dropped, its no-room row now names the later session, not the older chapter or nothing.
+- `sessionsHere(scope)` is read once per scope for the chapters and the later session both.
