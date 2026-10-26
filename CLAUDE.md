@@ -39,6 +39,8 @@ tests, module CONTRACTs, and `docs/harvest/`.
   types and maps `./x.js` imports to `.ts`; `src/adapters/runtime.ts` is the one place
   that knows bun from node. The store binds `bun:sqlite` or `node:sqlite`. bun at
   `~/.bun/bin/bun` for tests (`bun test`); `bun run test:node` is the Node smoke test.
+  Every test, harness run and check, with its cost and when it's worth running:
+  `docs/TESTING.md`.
 - Runtime deps: dependency hygiene is judgment, not a vow (Amendment 15 spirit) — but
   the default is zero.
 
