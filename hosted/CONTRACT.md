@@ -51,11 +51,15 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 11. **Sign-up needs a live invite.** It is spent at the click, inside the same transaction that creates the person,
     the verified email identity and the store.
 12. **The login page never says who has an account.** It shows the same words whether a link went out or not, and
-    the email is sent without being awaited, so the response time doesn't say it either.
+    the email is sent without being awaited, so the response time doesn't say it either. Every ask, refused or not,
+    writes one `login_links` row in one commit (a refused one is dead on arrival and keeps no address), so the disk
+    write doesn't say it. Rows a day past expiry are swept by the next ask.
 13. **Every form is CSRF-bound** (an HMAC of the browser cookie) and Origin-checked. After login, only our own paths
-    (`/account`, `/oauth/…`) are followed: `//evil`, `/\evil` and schemes all fall back to `/account`.
+    (`/account`, `/oauth/…`) are followed, checked on the path AFTER dot-segments resolve: `//evil`, `/\evil`,
+    `/oauth/..//evil` and schemes all fall back to `/account`.
 14. **Rate limits on the login form**: 20 an hour per IP and 5 an hour per address. They live in memory, which suits
-    one instance.
+    one instance. Behind the proxy, the IP is the LAST `X-Forwarded-For` hop (the one the proxy appended), never the
+    first (the client's own words). One proxy hop is assumed; check the header's shape on the first Railway deploy.
 15. **Pages carry a strict CSP** (nonce'd inline style and script only), `frame-ancestors 'none'` and `no-store`.
     Cookies are `HttpOnly; SameSite=Lax`, and `__Host-` + `Secure` on https.
 
