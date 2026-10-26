@@ -404,4 +404,8 @@ count could not be told truly without reading the reader's whole list again (`Se
 with a reader) — and a lane left with no bullets would need a collapsed line built from those
 ids; `restated` lowers only the sentinel's `hints=`, so `threads=` needs it too. The
 reconsidering core memories ride in the same id list and must stay. The `still open` handle has
-no fallback and is covered.
+no fallback and is covered. The crash sweep's wake (`counterpart-sweep.ts#sweepWake`) leaves out
+every folder's open work, as a reader that names none (O2's review). How often the fallback road
+is taken, read at review: the bundle is published at the session's reported ceiling (the config's
+`injectionBudgetBytes`, Claude Code's default when unset), so a start misses the assembly mainly
+after a ceiling change, on an older build's bundle, or when the assembly throws.

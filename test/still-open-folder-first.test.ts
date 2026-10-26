@@ -30,6 +30,8 @@ import { McpServer } from "../src/adapters/mcp/index.js";
 import { scopesPath, setScope, writeScopes } from "../src/adapters/scopes.js";
 import type { ScopeRegistry, ScopeVerdict } from "../src/adapters/scopes.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { TUNABLES as REMEMBER_TUNABLES } from "../src/core/remember/index.js";
+import type { SweepChunk } from "../src/core/remember/index.js";
 import { FRAMING, SELF_TUNABLES, countedLanes } from "../src/core/self/index.js";
 
 const MIN = 60_000;
@@ -310,5 +312,78 @@ describe("O2. Still open: this folder's first, personal after, other folders' wo
       kept += 1;
     }
     expect(kept).toBeGreaterThan(0);
+  });
+
+  test("a full 9,000 B wake on a tight day: the lane yields from its end, so the personal ones go before this folder's, and the workshop's work never shows", () => {
+    const w = world(at(D2, 9));
+    toDay(w, 2);
+    const long = "with the long detail about the beds, the posts and the timers that a busy day leaves in a title";
+    for (let i = 0; i < 3; i += 1) openIn(w, HERE, `HERE-${String(i)} does bed ${String(i)} want lime ${long}?`);
+    toDay(w, 3);
+    // Fresher than ours: personal ones, and the workshop's work, many and long.
+    for (let i = 0; i < 6; i += 1) openIn(w, THERE, `OWNER-${String(i)} does the accountant want form ${String(i)} ${long}?`, "owner");
+    for (let i = 0; i < 12; i += 1) openIn(w, THERE, `THERE-${String(i)} does jig ${String(i)} need a stop ${long}?`);
+    for (let i = 0; i < 12; i += 1) {
+      w.c.store.put({ type: "memory", kind: "fact", title: `FILL-${String(i)} something I know about the garden ${long}`, body: `FILL-${String(i)} ${long}. ${long}.`, about: "me", salience: SAL });
+    }
+    // The page grows until the lane gives way: at every size, ours lead, the
+    // personal ones follow, the workshop's never show nor count.
+    const para = (head: string, n: number): string => `${head} ${"The detail goes on, as a real page's paragraph does, with the steps and the reasons behind them. ".repeat(n)}`;
+    const seen = new Set<number>();
+    for (let n = 16; n <= 26; n += 1) {
+      const page = ["## Core", "", para("I keep the garden's ledger.", n), "", "## Lately", "", para("The beans are in.", n), "", para("The posts are up.", n)].join("\n");
+      if (!w.c.revisePage(page, { by: "owner", reason: `a page, ${String(n)}` }).written) continue;
+      w.c.rebrief({ budgetBytes: BUDGET, at: w.today() });
+      const text = wake(w);
+      const shown = tags(listed(text));
+      const ours = shown.filter((t) => t.startsWith("HERE")).length;
+      expect(shown.slice(0, ours).every((t) => t.startsWith("HERE")), `${String(n)}: ${shown.join(",")}`).toBe(true);
+      expect(shown.slice(ours).every((t) => t.startsWith("OWNER")), `${String(n)}: ${shown.join(",")}`).toBe(true);
+      // Ours give way only once no personal one is left listed.
+      if (ours < 3) expect(shown.length).toBe(ours);
+      expect(text).not.toContain("THERE-");
+      expect(shown.length + tailCount(text)).toBe(9);
+      seen.add(shown.length);
+    }
+    // The page did squeeze the lane: a full list, a shorter one, and one with only ours.
+    expect(seen.has(SELF_TUNABLES.THREADS_MAX)).toBe(true);
+    expect([...seen].some((k) => k > 0 && k <= 3)).toBe(true);
+  });
+
+  test("a reader that names no folder sees no folder's work (fail closed): personal and folderless only", () => {
+    const w = world(at(D2, 9));
+    fixture(w);
+    const got = w.c.stillOpen({});
+    const order = tags(got.items.map((i) => `${i.title} `));
+    expect(order).toEqual(["OWNER", "US", "LEGACY"]);
+    // No reader at all (the dashboard): every folder's, as before.
+    expect(w.c.stillOpen().items.length).toBe(7);
+  });
+
+  test("the crash sweep's wake: one wake for every crashed folder, so no folder's open work reaches the interpreter", async () => {
+    const w = world(at(D2, 9));
+    fixture(w);
+    w.c.captureSpans({ session: "crashed", scope: HERE, turns: [
+      { role: "user", text: "We moved the cold frame to the south wall so the seedlings catch the morning sun before the frost lifts." },
+      { role: "assistant", text: "Moved. The south wall keeps the frame out of the wind as well, which matters more than the sun in March." },
+    ] });
+    w.c.boundary({ session: "crashed", scope: HERE, kind: "stop" });
+    w.set(w.now() + REMEMBER_TUNABLES.CRASH_STALE_MS + 60_000);
+    const prompts: string[] = [];
+    await w.c.sweepFallback({
+      wakeBytes: BUDGET,
+      minBytes: 1,
+      interpret: async (chunk: SweepChunk) => {
+        prompts.push(chunk.prompt);
+        return { proposals: [], stopReason: "end_turn" };
+      },
+    });
+    expect(prompts.length).toBeGreaterThan(0);
+    for (const p of prompts) {
+      // The state on purpose: the personal ones are in the sweep's wake, every folder's work is not.
+      expect(p).toContain("OWNER does the accountant");
+      expect(p).not.toContain("THERE-");
+      expect(p).not.toContain("HERE-1");
+    }
   });
 });
