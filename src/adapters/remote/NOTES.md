@@ -27,3 +27,36 @@
   standard `destructiveHint: true`.
 - **The trial store offers no first meeting.** Only `counterparts install` writes
   onboarding `not_started`; a store this door opens fresh reads `done`.
+- **claude.ai's surface (2026-10-26, OL1b).** Its wake has its own shape
+  (`mcp/chat-wake.ts`): one short session line, what is for the person first (a slot for
+  the carried share, the clock and plain reminders, then "Coming up" and "Still open"
+  moved up whole), and no dream line — its nights are the person's routine. Its tool
+  words describe and never command: the directory's review refuses "call this first",
+  so wake-first lives in the person's instruction block. Its one MCP prompt is "Wake
+  Counterparts" (the + menu). readOnly stays on Memory status alone: recall records what
+  it delivered (a gate record the credit pass reads) and wake mints a session, so the
+  hint would be stretched; the honest route to a read-only recall is one that records
+  nothing (an observer read), which is a design change, not an annotation.
+- **Dreams from a chat (2026-10-26, OL1b).** claude.ai has no console and no dashboard,
+  so `recall` reads last night itself: the handle "last dream" (or "last night") returns
+  the newest dream whole and the reflection after it, and a dream's id alone now reads
+  whole too, up to what one answer carries (a 30,000-character journal and a 20,000-character
+  entry together do not fit: the dream stays whole and the reflection is named, whole by its
+  id). A question's answer carries the dreams it reaches: by the reflection entry it showed,
+  or, when the question asks about dreams, by words (review of #645: words on every question
+  carried a work-week dream beside six of eight ordinary questions). A dream never displaces
+  the answer: one that would pass the ceiling stays out. Dream journals have no embedding, so "by meaning" is words
+  for now; a real index would be a cache table, batched with other store-format changes.
+- **The first meeting over the door (2026-10-26, OL1b).** It runs cleanly once the store
+  starts as a new install (`onboarding.ts#beginNewInstall`); on claude.ai its words say
+  a connector, keep no store path or console command, and leave the first dream to the
+  routine. Who starts a hosted store as a new install, and with which dreaming setting
+  (`auto` means Claude Code's headless run, which claude.ai has not), is the hosted
+  server's account-creation step. The meeting's "where it lives" answer is left out on
+  the web until the hosted privacy copy exists.
+- **A connection is not a chat (2026-10-26, OL1b).** claude.ai kept a handful of
+  `Mcp-Session-Id`s open across a day of conversations, so the trial's report reads per
+  chat: the session `wake` minted, and every later call that named it
+  (`call-log.ts#summarizeChats`). Keyed that way "wake first" is true by construction;
+  what measures a chat that never woke is the calls that named no session, counted per
+  connection, and how many of them came before any wake on it.

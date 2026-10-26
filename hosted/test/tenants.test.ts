@@ -8,11 +8,14 @@
  */
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, test } from "node:test";
 
+import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { SpawnPlan } from "../../src/adapters/spawn.js";
 import { createHostedServer, resourceMetadataUrl } from "../src/server.js";
 import type { Caller, HostedCallRecord } from "../src/server.js";
@@ -281,6 +284,65 @@ describe("the tenant registry", () => {
     assert.equal(tenants.isOpen(a), false);
     await tenants.withTenant(a, {}, async (_t, server) => assert.ok(server.counterpart.store.dir.endsWith(join(a, "store"))));
   });
+
+  test("close() raced by a request whose body is still arriving: the process keeps turning, and the store closes once the answer is out (review 10-26)", async () => {
+    // In a child: the bug froze its whole event loop, which in-process would
+    // freeze this runner's timers too. The child is killed if it hangs.
+    const fixture = fileURLToPath(new URL("./fixtures/close-in-flight.ts", import.meta.url));
+    const out = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+      const child = spawn(process.execPath, scriptArgs(fixture), { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" } });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+      child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+      const timer = setTimeout(() => child.kill("SIGKILL"), 20_000);
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        resolve({ code, stdout, stderr });
+      });
+    });
+    assert.equal(out.code, 0, `the child hung or failed: ${out.stderr}`);
+    const line = JSON.parse(out.stdout.trim().split("\n").at(-1) ?? "{}") as Record<string, unknown>;
+    assert.deepEqual(line, { openBefore: true, ticked: true, status: 200, openAfter: false });
+  });
+
+  test("close() (account delete) drops the store's worker: the owed run never starts, the running child is stopped", async () => {
+    const children: { dir: string; child: EventEmitter & { killed: string | null } }[] = [];
+    const pool = workerPool({
+      max: 1,
+      run: (p) => {
+        const child = Object.assign(new EventEmitter(), {
+          pid: children.length + 1,
+          killed: null as string | null,
+          kill(this: EventEmitter & { killed: string | null }, sig: string) {
+            this.killed = sig;
+            setTimeout(() => this.emit("exit", null, sig), 5);
+            return true;
+          },
+        });
+        children.push({ dir: p.env["COUNTERPARTS_DATA_DIR"]!, child });
+        return child as never;
+      },
+    });
+    const tenants = new Tenants({ root: join(tmp.root, "tenants"), embedder: null, spawner: pool });
+    closers.push(() => tenants.closeAll());
+    const a = storeId();
+    const b = storeId();
+    const wake = (id: string): Promise<unknown> => tenants.withTenant(id, {}, (t) => t.server.handle({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "wake", arguments: {} } }));
+    await wake(a);
+    await wake(a); // owed behind a's running child
+    await wake(b); // owed: the pool's one slot is a's
+    const dirA = join(tenantDir(tenants.root, a), "store");
+    const dirB = join(tenantDir(tenants.root, b), "store");
+    assert.deepEqual(pool.running(), [dirA]);
+    assert.deepEqual(pool.pending().sort(), [dirA, dirB].sort());
+    await tenants.close(a);
+    assert.equal(children[0]!.child.killed, "SIGKILL");
+    // a's owed run was forgotten; the freed slot went to b, never back to a.
+    assert.deepEqual(children.map((c) => c.dir), [dirA, dirB]);
+    assert.deepEqual(pool.pending(), []);
+    assert.equal(tenants.isOpen(a), false);
+  });
 });
 
 describe("the worker pool", () => {
@@ -331,6 +393,21 @@ describe("the worker pool", () => {
     assert.equal(env["COUNTERPARTS_REQUIRE_EXPLICIT_DIR"], "1");
   });
 
+  test("COUNTERPARTS_* values pass by name, not by prefix: the server's own never steer or reach a child (review 10-26)", () => {
+    const env = workerEnv(
+      plan("/data/tenants/x/store", {
+        COUNTERPARTS_CONFIG: "/data/tenants/x/config.json",
+        COUNTERPARTS_SESSION: "s-1",
+        COUNTERPARTS_OBSERVER: "1",
+        COUNTERPARTS_NIGHT_CHILD: "1",
+        COUNTERPARTS_NIGHT_RUN: "1",
+        COUNTERPARTS_HOSTED_SECRET: "nope",
+        NODE_OPTIONS: "--require /tmp/evil.js",
+      }),
+    );
+    assert.deepEqual(Object.keys(env).sort(), ["COUNTERPARTS_CONFIG", "COUNTERPARTS_DATA_DIR", "COUNTERPARTS_REQUIRE_EXPLICIT_DIR", "COUNTERPARTS_SESSION", "HOME"]);
+  });
+
   test("through a real wake: the pool hands the child only allow-listed variables, even with secrets in the server's environment", async () => {
     process.env["HOSTED_KEK"] = "test-only-not-a-key";
     try {
@@ -347,6 +424,78 @@ describe("the worker pool", () => {
       assert.equal(envs[0]!["COUNTERPARTS_DATA_DIR"], join(tenantDir(tenants.root, id), "store"));
     } finally {
       delete process.env["HOSTED_KEK"];
+    }
+  });
+});
+
+describe("hardening from the stack's review", () => {
+  test("an authenticate that throws (accounts down) answers 503 with Retry-After, never 401", async () => {
+    const tenants = new Tenants({ root: join(tmp.root, "tenants"), embedder: null, spawner: () => ({ pid: 1 }) });
+    closers.push(() => tenants.closeAll());
+    const server = createHostedServer({ tenants, publicOrigin: ORIGIN, authenticate: async () => {
+      throw new Error("database is locked");
+    } });
+    const { base, close } = await listen(server);
+    closers.push(close);
+    const out = await rpc(`${base}/mcp`, "tools/list", undefined, { authorization: `Bearer ${randomBytes(24).toString("base64url")}` });
+    assert.equal(out.status, 503);
+    assert.equal(out.headers.get("retry-after"), "30");
+    assert.equal(out.headers.get("www-authenticate"), null);
+    assert.equal(server.headersTimeout, 30_000);
+    assert.equal(server.requestTimeout, 300_000);
+  });
+
+  test("only origin-form request targets: //host/x and absolute-form are 400, so no route ever sees a client-chosen host", async () => {
+    const r = await rig();
+    const { createConnection } = await import("node:net");
+    const port = new URL(r.url).port;
+    const raw = (target: string): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const sock = createConnection(Number(port), "127.0.0.1", () => sock.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`));
+        let data = "";
+        sock.on("data", (d: Buffer) => (data += d.toString()));
+        sock.on("end", () => resolve(data));
+        sock.on("error", reject);
+      });
+    for (const target of ["//attacker.example/healthz", "http://attacker.example/healthz"]) {
+      const answer = await raw(target);
+      assert.match(answer.split("\r\n")[0]!, /^HTTP\/1\.1 400/, target);
+    }
+    assert.match((await raw("/healthz")).split("\r\n")[0]!, /^HTTP\/1\.1 200/);
+  });
+
+  test("the real worker child runs, with the pool's allow-listed environment, against a temp tenant", { timeout: 150_000 }, async () => {
+    const exits: { code: number | null; err: string }[] = [];
+    let done!: () => void;
+    const finished = new Promise<void>((r) => (done = r));
+    const pool = workerPool({
+      max: 1,
+      run: (plan, env) => {
+        const child = spawn(plan.command, [...plan.args], { env, stdio: ["ignore", "ignore", "pipe"], timeout: 120_000 });
+        let err = "";
+        child.stderr!.on("data", (d: Buffer) => (err += d.toString()));
+        child.once("exit", (code) => {
+          exits.push({ code, err });
+          done();
+        });
+        return child;
+      },
+    });
+    process.env["HOSTED_KEKS"] = "v1:test-only-not-a-key";
+    try {
+      const tenants = new Tenants({ root: join(tmp.root, "tenants"), embedder: null, spawner: pool });
+      closers.push(() => tenants.closeAll());
+      const id = storeId();
+      await tenants.withTenant(id, {}, async (t) => {
+        await t.server.handle({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "wake", arguments: {} } });
+      });
+      await finished;
+      assert.equal(exits.length, 1);
+      assert.equal(exits[0]!.code, 0, exits[0]!.err.slice(0, 2000));
+      // The child wrote into its own tenant, and nowhere else under the root.
+      assert.ok(existsSync(join(tenantDir(tenants.root, id), "store", "counterparts.sqlite")));
+    } finally {
+      delete process.env["HOSTED_KEKS"];
     }
   });
 });

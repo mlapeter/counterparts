@@ -22,32 +22,42 @@ export interface UsageTally extends ChildTokens {
 
 const ZERO: UsageTally = { calls: 0, unread: 0, input: 0, output: 0, cacheRead: 0, cacheCreate: 0, costUsd: 0 };
 let tally: UsageTally = ZERO;
+/** The same tally per night act (`catch-up`, `writer`, `dream`, `reflection`, ...), for the children that said which (L2, 2026-10-26). */
+let byAct: Record<string, UsageTally> = {};
 
-/** Add one child's output to this process's tally. */
-export function recordUsage(output: string | undefined): void {
-  const u = childUsage(output);
-  if (u === null) {
-    tally = { ...tally, unread: tally.unread + 1 };
-    return;
-  }
-  tally = {
-    calls: tally.calls + 1,
-    unread: tally.unread,
-    input: tally.input + u.input,
-    output: tally.output + u.output,
-    cacheRead: tally.cacheRead + u.cacheRead,
-    cacheCreate: tally.cacheCreate + u.cacheCreate,
-    costUsd: Math.round((tally.costUsd + u.costUsd) * 1e6) / 1e6,
+function add(t: UsageTally, u: ChildTokens | null): UsageTally {
+  if (u === null) return { ...t, unread: t.unread + 1 };
+  return {
+    calls: t.calls + 1,
+    unread: t.unread,
+    input: t.input + u.input,
+    output: t.output + u.output,
+    cacheRead: t.cacheRead + u.cacheRead,
+    cacheCreate: t.cacheCreate + u.cacheCreate,
+    costUsd: Math.round((t.costUsd + u.costUsd) * 1e6) / 1e6,
   };
+}
+
+/** Add one child's output to this process's tally — and, when it was a night's child, to its act's (`act`). */
+export function recordUsage(output: string | undefined, act?: string): void {
+  const u = childUsage(output);
+  tally = add(tally, u);
+  if (act !== undefined) byAct = { ...byAct, [act]: add(byAct[act] ?? ZERO, u) };
 }
 
 export function usageTally(): UsageTally {
   return tally;
 }
 
+/** The night children's tallies by act, so far this process. */
+export function usageByAct(): Readonly<Record<string, UsageTally>> {
+  return byAct;
+}
+
 /** Back to zero (tests). */
 export function resetUsage(): void {
   tally = ZERO;
+  byAct = {};
 }
 
 /** All tokens the model read or wrote, cached or not. */

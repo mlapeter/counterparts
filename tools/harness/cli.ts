@@ -145,7 +145,9 @@ export function renderWeek(r: WeekRecord): string {
   for (const n of r.nights) {
     const cu = n.catchUp;
     const plan = cu === null ? "" : ` · catch-up: owed ${String(cu.owed)}${cu.planned.length === 0 ? "" : `, planned ${cu.planned.map((p) => `${p.session} (${String(p.parts)}/${String(p.of)} parts)`).join(", ")}`}${cu.ran === null ? "" : `, ran ${cu.ran.state} (granted ${String(cu.ran.granted)}, written ${String(cu.ran.written)}, left ${String(cu.ran.left)})`}`;
-    out.push(`  night launched day ${String(n.day)} in ${n.launchedIn} (${n.kind}): ${n.state} (${n.parts.join(",") || "none"}) · asked ${n.asked.map((a) => a.act).join(", ") || "nothing"}${plan}`);
+    const spent = n.asked.filter((a) => typeof a.tokens === "number");
+    const tokens = spent.length === 0 ? "" : ` · tokens ${spent.map((a) => `${a.act} ${(Number(a.tokens) / 1000).toFixed(1)}k`).join(", ")}`;
+    out.push(`  night launched day ${String(n.day)} in ${n.launchedIn} (${n.kind}): ${n.state} (${n.parts.join(",") || "none"}) · asked ${n.asked.map((a) => a.act).join(", ") || "nothing"}${plan}${tokens}`);
   }
   for (const k of r.wakes) {
     if (!k.morning) continue;
