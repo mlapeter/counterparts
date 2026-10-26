@@ -1844,3 +1844,17 @@ Desktop's door).
 "follow the prompt the launch returns yourself, here", but its `dream` description and `how`
 still name the background agent, as on master. Recommended: give Desktop the same treatment in
 its own small PR, after a look at its live use.
+
+## OL1d: "no dreams" means no dreams, words by host (2026-10-26)
+
+- **Off now refuses the dream `launch` on every host** (`dreaming-off`). `begin`/`writer` stay ungated: the Claude
+  Code headless night builds its prompt from the store (night-run.ts) and never calls launch, and a run under way
+  finishes.
+- **Nothing in mcp/ or remote/ starts a night.** Only claude-code/hooks.ts#startNightRun (and the CLI catch-up)
+  does. Hookless wake leaves headless offers unclaimed; claude.ai wake has no dream line. Tested: `auto` on claude.ai
+  spawns only the worker.
+- **The Desktop dream/reflect description and launch `how` no longer name a background agent** (closes the open item
+  above). Claude Code words are byte-identical.
+- **Flags, recommendations only:** under off, a standalone reflect `launch` on the person's word stays available
+  (awake, not a dream), while the night's reflection stops with the night. On claude.ai, `ask` behaves like `auto`
+  (it has no dream line); no new value was added.
