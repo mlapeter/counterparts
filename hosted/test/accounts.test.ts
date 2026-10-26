@@ -15,6 +15,7 @@ import { accountPages } from "../src/pages.js";
 import { createHostedServer } from "../src/server.js";
 import { Tenants } from "../src/tenants.js";
 import { safeNext } from "../src/web.js";
+import { openDb } from "../../src/core/store/db.js";
 import { listen, tempRoot } from "./helpers.js";
 
 let tmp: { root: string; remove: () => void };
@@ -69,13 +70,13 @@ interface Rig {
   setNow: (t: number) => void;
 }
 
-async function rig(): Promise<Rig> {
+async function rig(opts: { trustProxy?: boolean } = {}): Promise<Rig> {
   let now = Date.UTC(2026, 9, 26, 12);
   const clock = (): number => now;
   const accounts = new Accounts({ path: join(tmp.root, "control", "accounts.sqlite"), now: clock });
   closers.push(() => accounts.close());
   const mail = memoryMailer();
-  const pages = accountPages({ accounts, mailer: mail, publicOrigin: "http://127.0.0.1", now: clock });
+  const pages = accountPages({ accounts, mailer: mail, publicOrigin: "http://127.0.0.1", now: clock, ...(opts.trustProxy === true ? { trustProxy: true } : {}) });
   const tenants = new Tenants({ root: join(tmp.root, "tenants"), embedder: null, spawner: () => ({ pid: 1 }) });
   closers.push(() => tenants.closeAll());
   const server = createHostedServer({ tenants, publicOrigin: "http://127.0.0.1", authenticate: async () => null, routes: [pages.route] });
@@ -206,6 +207,88 @@ describe("signing up and signing in", () => {
     for (const bad of ["//evil.example", "/\\evil.example", "https://evil.example", "javascript:alert(1)", "/account/../..//evil", "/elsewhere"]) {
       assert.equal(safeNext(bad), "/account", bad);
     }
+  });
+
+  test("review of #644: dot-segments under an allowed prefix can't resolve to another host", async () => {
+    // Each of these passed the old prefix check and came out as `//evil.example…`.
+    for (const bad of ["/oauth/..//evil.example", "/oauth/../\t/evil.example", "/oauth/%2e%2e//evil.example", "/oauth/.%2e//evil.example/x", "/oauth/../account/..//evil.example", "/oauth/..\n//evil.example"]) {
+      const out = safeNext(bad);
+      assert.ok(!out.startsWith("//"), `${JSON.stringify(bad)} → ${out}`);
+      assert.equal(out, "/account", JSON.stringify(bad));
+    }
+    assert.equal(safeNext("/oauth/allow/abc?x=1"), "/oauth/allow/abc?x=1");
+    // Through the door: a signed-in browser opening /login?next=… is redirected at once.
+    const r = await rig();
+    const { code } = r.accounts.createInvite();
+    const b = new Browser(r.base);
+    await b.go((await askLink(r, b, "redirect@example.com", code)).link!);
+    const res = await b.go(`/login?next=${encodeURIComponent("/oauth/..//evil.example/phish")}`);
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("location"), "/account");
+    // And through the emailed link's `next`.
+    const b2 = new Browser(r.base);
+    const viaLink = await askLink(r, b2, "redirect@example.com", "", "/oauth/..//evil.example/phish");
+    assert.equal((await b2.go(viaLink.link!)).headers.get("location"), "/account");
+  });
+
+  test("review of #644: behind the proxy, the per-IP limit keys on the hop the proxy appended, not the one the client wrote", async () => {
+    const r = await rig({ trustProxy: true });
+    const b = new Browser(r.base);
+    const statuses: number[] = [];
+    for (let i = 0; i < 21; i++) {
+      const form = await (await b.go("/login")).text();
+      // The client forges a new first hop every time; the proxy appends the real address last.
+      const res = await b.form("/login", { csrf: csrfOf(form), email: `spray${String(i)}@example.com` }, { "x-forwarded-for": `198.51.100.${String(i)}, 203.0.113.7` });
+      statuses.push(res.status);
+      await res.text();
+    }
+    assert.deepEqual(statuses.slice(0, 20), Array(20).fill(200));
+    assert.equal(statuses[20], 429);
+  });
+
+  test("review of #644: a refused ask costs the same commit as a sent one, and keeps no address", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite();
+    const first = new Browser(r.base);
+    await first.go((await askLink(r, first, "member@example.com", code)).link!);
+    const dbPath = join(tmp.root, "control", "accounts.sqlite");
+    const count = (): number => {
+      const db = openDb(dbPath, { wal: true });
+      try {
+        return db.get<{ n: number }>("SELECT COUNT(*) AS n FROM login_links")!.n;
+      } finally {
+        db.close();
+      }
+    };
+    const before = count();
+    assert.equal((await askLink(r, new Browser(r.base), "member@example.com")).link !== null, true);
+    assert.equal(count(), before + 1);
+    assert.equal((await askLink(r, new Browser(r.base), "outsider@example.com")).link, null);
+    assert.equal(count(), before + 2, "the refused ask wrote its (dead) row too");
+    assert.equal((await askLink(r, new Browser(r.base), "outsider2@example.com", "cpi_wrong_wrong_wrong_wrong_wrong_wrong")).link, null);
+    assert.equal(count(), before + 3);
+    const bytes = ["", "-wal"].map((s) => { try { return readFileSync(`${dbPath}${s}`).toString("latin1"); } catch { return ""; } }).join("");
+    assert.doesNotMatch(bytes, /outsider/);
+    // A link a day past its expiry is swept by the next ask.
+    r.setNow(Date.UTC(2026, 9, 28, 12));
+    await askLink(r, new Browser(r.base), "member@example.com");
+    assert.equal(count(), 1);
+  });
+
+  test("review of #644: signing in again in the same browser ends the session it carried", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite();
+    const b = new Browser(r.base);
+    await b.go((await askLink(r, b, "again@example.com", code)).link!);
+    const old = b.jar.get("cp_session")!;
+    assert.ok(r.accounts.sessionPerson(old) !== null);
+    // A second link asked for and used in this same browser (the form's token is the browser's, on any page).
+    const form = await (await b.go("/account")).text();
+    await b.form("/login", { csrf: csrfOf(form), email: "again@example.com", next: "/account" });
+    const link = /https?:\/\/[^\s]+/.exec(r.mail.sent.at(-1)!.text)![0].replace(/^https?:\/\/[^/]+/, "");
+    assert.equal((await b.go(link)).status, 303);
+    assert.equal(r.accounts.sessionPerson(old), null);
+    assert.ok(r.accounts.sessionPerson(b.jar.get("cp_session")!) !== null);
   });
 
   test("sign out ends the session; a suspended person's session stops at the next request", async () => {

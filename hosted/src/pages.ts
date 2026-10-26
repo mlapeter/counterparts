@@ -171,6 +171,8 @@ ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
         }
         return true;
       }
+      // A session this browser already carried ends here: one browser, one session row.
+      opts.accounts.endSession(parseCookies(req).get(names.session) ?? null);
       const session = opts.accounts.startSession(used.personId);
       redirect(res, safeNext(url.searchParams.get("next")), { "Set-Cookie": cookie(names.session, session, { secure: names.secure, maxAgeS: SESSION_MAX_AGE_S }) });
       return true;

@@ -194,6 +194,8 @@ export class Accounts {
   }
 
   private liveInvite(code: string): string | null {
+    // No code still costs one lookup, so "no invite" and "a bad invite" take the same time.
+    if (code.length === 0) code = "\u0000";
     const row = this.db.get<{ id: string }>(
       "SELECT id FROM invites WHERE code_hash = ? AND uses < max_uses AND (expires_at IS NULL OR expires_at > ?)",
       sha256(code),
@@ -214,26 +216,38 @@ export class Accounts {
     if (email === null) return { send: false, reason: "bad-email" };
     const identity = this.db.get<{ id: string; person_id: string }>("SELECT id, person_id FROM identities WHERE kind = 'email' AND value = ?", email);
     let inviteId: string | null = null;
+    let refused: "invite-required" | "suspended" | null = null;
     if (identity !== undefined) {
-      if (!this.isLive(identity.person_id)) return { send: false, reason: "suspended" };
+      if (!this.isLive(identity.person_id)) refused = "suspended";
     } else {
-      inviteId = typeof input.inviteCode === "string" && input.inviteCode.trim().length > 0 ? this.liveInvite(input.inviteCode.trim()) : null;
-      if (inviteId === null) return { send: false, reason: "invite-required" };
+      inviteId = this.liveInvite(typeof input.inviteCode === "string" ? input.inviteCode.trim() : "");
+      if (inviteId === null) refused = "invite-required";
     }
     const token = secret("cpl_");
     const at = this.now();
-    this.db.run(
-      "INSERT INTO login_links (id, token_hash, email, identity_id, invite_id, time_zone, browser_hash, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      id128(),
-      sha256(token),
-      email,
-      identity?.id ?? null,
-      inviteId,
-      validTimeZone(input.timeZone),
-      sha256(input.browser),
-      at,
-      at + LINK_MS,
-    );
+    // EVERY ask writes one row in one commit, refused or not. A refused ask's
+    // row is dead on arrival (used, no address, no identity) and only pays the
+    // same disk write, so the response time doesn't say who has an account: the
+    // commit is the slow part (~75 µs on a laptop, milliseconds on a network
+    // volume; review of #644). The same commit drops links a day past their
+    // expiry, so addresses don't pile up here.
+    this.db.transaction((): void => {
+      this.db.run("DELETE FROM login_links WHERE expires_at < ?", at - 24 * 60 * 60 * 1000);
+      this.db.run(
+        "INSERT INTO login_links (id, token_hash, email, identity_id, invite_id, time_zone, browser_hash, created_at, expires_at, used_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        id128(),
+        sha256(token),
+        refused === null ? email : "",
+        refused === null ? (identity?.id ?? null) : null,
+        refused === null ? inviteId : null,
+        validTimeZone(input.timeZone),
+        sha256(input.browser),
+        at,
+        at + LINK_MS,
+        refused === null ? null : at,
+      );
+    });
+    if (refused !== null) return { send: false, reason: refused };
     return { send: true, to: email, token, signUp: identity === undefined };
   }
 
@@ -269,6 +283,7 @@ export class Accounts {
       const existing = this.db.get<{ person_id: string }>("SELECT person_id FROM identities WHERE kind = 'email' AND value = ?", row.email);
       if (existing !== undefined) {
         if (!this.isLive(existing.person_id)) return { ok: false, reason: "suspended" };
+        this.audit(existing.person_id, null, "login.link", null);
         return { ok: true, personId: existing.person_id, created: false };
       }
       if (row.invite_id === null) return { ok: false, reason: "invite-spent" };
