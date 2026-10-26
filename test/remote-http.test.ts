@@ -368,6 +368,56 @@ describe("the call log", () => {
     expect(out).toContain(a.slice(0, 8));
     expect(out).not.toContain("greenhouse");
   });
+
+  test("a nameless chapter, reflect or dream is logged with no session, not the one it fell back to (review of #641)", async () => {
+    const path = join(root, "calls.jsonl");
+    const log = openCallLog(path);
+    const s = claudeAiServer();
+    const http = await serveHttp({ server: s, onCall: (r) => log.write(r) });
+    closers.push(() => http.close());
+    const init = await rpc(http.url, "initialize", INIT);
+    const conn = { "mcp-session-id": String(init.headers.get("mcp-session-id")) };
+    const call = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> =>
+      result((await rpc(http.url, "tools/call", { name, arguments: args }, conn)).body)["structuredContent"] as Record<string, unknown>;
+    const a = String((await call("wake", {}))["session"]);
+    // A second chat that never woke: the server files these under `a`, and says so.
+    expect((await call("chapter", { text: "We talked about the shed roof and the gutters." }))["session"]).toBe(a);
+    expect((await call("reflect", { phase: "begin" }))["session"]).toBe(a);
+    const report = summarizeChats(path);
+    expect(report.chats.map((c) => [c.session, c.tools])).toEqual([[a, ["wake"]]]);
+    expect(report.unnamed).toEqual([{ connection: conn["mcp-session-id"], calls: 2, beforeWake: 0, tools: ["chapter", "reflect"], errors: 0 }]);
+  });
+
+  test("per chat, from the log: chats interleaved across two connections, a failed wake, a line that does not parse", () => {
+    const path = join(root, "calls.jsonl");
+    const line = (r: Record<string, unknown>): string => JSON.stringify({ at: "2026-10-26T10:00:00.000Z", ms: 1, ok: true, ...r });
+    writeFileSync(
+      path,
+      [
+        line({ method: "initialize", connection: "c1", client: "claude-ai" }),
+        line({ method: "initialize", connection: "c2", client: "claude-ai" }),
+        line({ method: "tools/call", tool: "wake", connection: "c1", ok: false, reason: "-32603" }),
+        line({ method: "tools/call", tool: "wake", connection: "c1", session: "s-a", at: "2026-10-26T10:01:00.000Z" }),
+        line({ method: "tools/call", tool: "wake", connection: "c2", session: "s-b", at: "2026-10-26T10:02:00.000Z" }),
+        "{not json",
+        line({ method: "tools/call", tool: "remember", connection: "c2", session: "s-a" }),
+        line({ method: "tools/call", tool: "remember", connection: "c1", session: "s-b" }),
+        line({ method: "tools/call", tool: "chapter", connection: "c1", session: "s-a", ok: false, reason: "too-short" }),
+        line({ method: "tools/call", tool: "recall", connection: "c2", session: "s-old" }),
+        "",
+      ].join("\n"),
+    );
+    const report = summarizeChats(path);
+    expect(report.clients).toEqual(["claude-ai"]);
+    expect(report.chats.map((c) => [c.session, c.connection, c.firstAt.slice(11, 16), c.woke, c.tools, c.remembered, c.chapter, c.errors])).toEqual([
+      ["s-a", "c1", "10:01", true, ["wake", "remember", "chapter"], 1, true, 1],
+      ["s-b", "c2", "10:02", true, ["wake", "remember"], 1, false, 0],
+      ["s-old", "c2", "10:00", false, ["recall"], 0, false, 0],
+    ]);
+    // The failed wake minted nothing: it is a nameless call, before any wake, and an error.
+    expect(report.unnamed).toEqual([{ connection: "c1", calls: 1, beforeWake: 1, tools: ["wake"], errors: 1 }]);
+    expect(readFileSync(path, "utf8")).not.toMatch(/"text"|"query"/);
+  });
 });
 
 describe("the entry point's refusals", () => {
