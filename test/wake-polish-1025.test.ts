@@ -29,7 +29,7 @@ import { recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { NIGHT_LINE_HEAD, NIGHT_OF_HEAD, nightLine } from "../src/core/dream/index.js";
 import type { NightFacts, NightRun } from "../src/core/dream/index.js";
-import { ELSEWHERE_QUIET_MS, YESTERDAY_SUMMARY_WORDS, todayElsewhereLines } from "../src/core/handoff/last-here.js";
+import { ELSEWHERE_QUIET_MS, TODAY_ELSEWHERE_MAX_BYTES, YESTERDAY_SUMMARY_WORDS, todayElsewhereLines } from "../src/core/handoff/last-here.js";
 import { FRAMING, OPEN_TAIL_WORDS, SELF_TUNABLES, countedLanes, withNightLine } from "../src/core/self/index.js";
 
 const MIN = 60_000;
@@ -161,6 +161,23 @@ describe("2. an open session with no turn for two hours is quiet, not live", () 
     recordSession(storeDir, { sessionId: A, scope: THERE, phase: "boundary", at: at(D2, 12, 40) });
     w.set(at(D2, 12, 45));
     expect(lineOf(wake(w), "Today, elsewhere: ")).toContain("open since 08:00 (live)");
+  });
+
+  test("a session that ended this morning after a start yesterday lends its start to no live one beside it (10-26 07:14 wake)", () => {
+    const B = "b1b2c3d4-0000-4000-8000-00000000000b";
+    const w = world(at(D2, 7, 14));
+    // Yesterday's, closed at the restart this morning.
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D1, 11, 27) });
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "end", at: at(D2, 5, 25) });
+    // The new one, open and at work.
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "start", at: at(D2, 5, 30) });
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "boundary", at: at(D2, 7, 11) });
+    const line = lineOf(wake(w), "Today, elsewhere: ") ?? "";
+    expect(line).toContain("bakery open since 05:30 (live)");
+    expect(line).not.toContain("10-24");
+    // Past the new one's four hours, nothing is open: the day's whole span, yesterday's start and all.
+    w.set(at(D2, 11, 30));
+    expect(lineOf(wake(w), "Today, elsewhere: ") ?? "").toContain("bakery 10-24 11:27–07:11");
   });
 
   test("a session quiet since before midnight says the day of its last turn (review of #623)", () => {
@@ -385,5 +402,93 @@ describe("3. Last night", () => {
     expect(nightLine({ ...base, dream: prior })).toBe("The night of Oct 23: dream drm_x made 1 link.");
     expect(nightLine({ ...base, dream: { ...prior, state: "begun" } })).toBe("Last night: none yet today (last: Oct 24).");
     expect(nightLine({ ...base, dream: prior, setting: "off" })).toBe("Last night: no night ran (last: Oct 24); dreaming is off.");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+describe("2b. an open folder's start is its open sessions' (review of #631)", () => {
+  const B = "b1b2c3d4-0000-4000-8000-00000000000b";
+
+  test("two open in one folder, one open overnight from yesterday: the line keeps yesterday's date", () => {
+    const w = world(at(D2, 7, 14));
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D1, 11) });
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "boundary", at: at(D2, 6) });
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "start", at: at(D2, 5, 30) });
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "boundary", at: at(D2, 7) });
+    expect(lineOf(wake(w), "Today, elsewhere: ") ?? "").toContain("bakery open since 10-24 11:00 (live)");
+  });
+
+  test("an ended session with later activity neither starts nor keeps awake the open one; the day's memories are all counted", () => {
+    const w = world(at(D2, 5, 10));
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 5) });
+    w.c.store.put({ type: "memory", kind: "fact", body: "The rye starter was fed at five.", origin: { session: A, scope: THERE } });
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "start", at: at(D2, 5, 30) });
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "boundary", at: at(D2, 7, 11) });
+    w.set(at(D2, 7, 20));
+    w.c.store.put({ type: "memory", kind: "fact", body: "The oven ran ten degrees hot.", origin: { session: B, scope: THERE } });
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "end", at: at(D2, 7, 50) });
+    w.set(at(D2, 8));
+    const live = lineOf(wake(w), "Today, elsewhere: ") ?? "";
+    expect(live).toContain("bakery open since 05:30 (live)");
+    // Counts and titles are the whole day's, the ended session's among them.
+    expect(live).toContain("2 memories");
+    expect(live).toContain("The rye starter was fed at five.");
+    // Two hours past the open one's own last turn: quiet, by its turn, not the ended one's.
+    w.set(at(D2, 10));
+    const quiet = lineOf(wake(w), "Today, elsewhere: ") ?? "";
+    expect(quiet).toContain("bakery open since 05:30, quiet since 07:11");
+    expect(quiet).not.toContain("07:50");
+    expect(quiet).not.toContain("05:00");
+  });
+
+  test("the open one at work beside one that ended early: live, from the open one's start", () => {
+    const w = world(at(D2, 10));
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 5) });
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "end", at: at(D2, 6) });
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "start", at: at(D2, 5, 30) });
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "boundary", at: at(D2, 9, 55) });
+    expect(lineOf(wake(w), "Today, elsewhere: ") ?? "").toContain("bakery open since 05:30 (live)");
+  });
+
+  test("a resumed session keeps its record's first start — the registry's, not this line's (documented, not changed)", () => {
+    const w = world(at(D2, 9, 30));
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D1, 11, 27) });
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "end", at: at(D1, 22) });
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D2, 9) });
+    expect(lineOf(wake(w), "Today, elsewhere: ") ?? "").toContain("bakery open since 10-24 11:27 (live)");
+  });
+
+  test("Here, also open names this folder's open session by its own start, not an ended one's beside it", () => {
+    const w = world(at(D2, 7, 14));
+    recordSession(storeDir, { sessionId: A, scope: HERE, phase: "start", at: at(D1, 11, 27) });
+    recordSession(storeDir, { sessionId: A, scope: HERE, phase: "end", at: at(D2, 5, 25) });
+    recordSession(storeDir, { sessionId: B, scope: HERE, phase: "start", at: at(D2, 5, 30) });
+    recordSession(storeDir, { sessionId: B, scope: HERE, phase: "boundary", at: at(D2, 7, 11) });
+    const text = wake(w);
+    const line = lineOf(text, "Here, also open: ") ?? lineOf(text, "Today, elsewhere: ") ?? "";
+    expect(line).toContain(B.slice(0, 8));
+    expect(line).toContain("since 05:30");
+    expect(line).not.toContain(A.slice(0, 8));
+    expect(line).not.toContain("10-24");
+  });
+
+  test("a crowded morning: the line fits, and no open folder borrows yesterday's start", () => {
+    const w = world(at(D2, 5, 10));
+    const folders = [THERE, ...["mill", "dairy", "orchard", "apiary", "cellar"].map((n) => join(root, n))];
+    for (const f of folders) mkdirSync(f, { recursive: true });
+    folders.forEach((f, i) => {
+      const old = `${String(i)}0000000-0000-4000-8000-000000000001`;
+      const now = `${String(i)}0000000-0000-4000-8000-000000000002`;
+      recordSession(storeDir, { sessionId: old, scope: f, phase: "start", at: at(D1, 11, 27) });
+      recordSession(storeDir, { sessionId: old, scope: f, phase: "end", at: at(D2, 5, 25) });
+      recordSession(storeDir, { sessionId: now, scope: f, phase: "start", at: at(D2, 5, 30) });
+      for (let k = 0; k < 3; k += 1) w.c.store.put({ type: "memory", kind: "fact", body: `A long placeholder title for folder ${String(i)} item ${String(k)}, wide enough to crowd the line.`, origin: { session: now, scope: f } });
+    });
+    w.set(at(D2, 7, 14));
+    const line = lineOf(wake(w), "Today, elsewhere: ") ?? "";
+    expect(line).toContain("open since 05:30 (live)");
+    expect(Buffer.byteLength(line, "utf8")).toBeLessThanOrEqual(TODAY_ELSEWHERE_MAX_BYTES);
+    expect(line).not.toContain("10-24");
+    expect(line).toContain("more");
   });
 });
