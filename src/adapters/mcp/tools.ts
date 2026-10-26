@@ -2158,12 +2158,25 @@ function withClaudeAiSession(spec: ToolSpec): ToolSpec {
  * on lead with the words a model searches with — memory, conversation, save,
  * remember, chapter, status. And the "end-of-session ask" and the "boundary
  * ask" that Claude Code's words lean on do not exist here: nothing on
- * claude.ai asks at a conversation's end. Only `summary` and `admission`
- * change; the negative examples and every privilege (with its mechanized
- * path) are Claude Code's, so the audit holds them all the same. Every other
- * host's descriptions are untouched, byte for byte.
+ * claude.ai asks at a conversation's end. `summary` and `admission` change,
+ * and, for `dream` alone, the negative examples (2026-10-26, OL1c); every
+ * privilege (with its mechanized path) is Claude Code's, so the audit holds
+ * them all the same. Every other host's descriptions are untouched, byte for
+ * byte.
+ *
+ * THE NIGHT IS A ROUTINE HERE (OL1c, from #647's review). claude.ai shows no
+ * dream line and has no background agent: its nights are a scheduled run the
+ * person set up, which wakes with `night: true`, launches, and follows the
+ * run's prompt itself, in that same run. So `dream` and `reflect` name that
+ * routine, and in an ordinary conversation run only when the person asks.
+ * The every-host words — "the day's dream line", "a background agent", "Do
+ * NOT run the dream yourself in this conversation" — would fight the
+ * routine's own prompt. A replaced negative still says "Do NOT", and the
+ * list is chosen by the server's host (`toolListFor`), never a client's name.
  */
-export const CLAUDE_AI_WORDS: Readonly<Partial<Record<ToolName, { readonly summary?: string; readonly admission?: string }>>> = {
+export const CLAUDE_AI_WORDS: Readonly<
+  Partial<Record<ToolName, { readonly summary?: string; readonly admission?: string; readonly negativeExamples?: readonly string[] }>>
+> = {
   remember: {
     summary:
       "Save to long-term memory, in the moment: something about the person, a decision, how they like to work, a plan or promise with its date, how the conversation felt, a line that struck you and why. Memory forms only from what you write here and in chapters — nothing reads the conversation afterwards, so what you don't write is not kept. One idea per call; keep the exact words when the words matter.",
@@ -2189,6 +2202,23 @@ export const CLAUDE_AI_WORDS: Readonly<Partial<Record<ToolName, { readonly summa
       "Write a chapter of this conversation into your journal: what happened and how it went, in your own voice, at any length. The journal stays open — when something significant happens later in the conversation, add to it then.",
     admission:
       "When the conversation is wrapping up or the person says goodbye, when a tool result carries the write-up ask, and again whenever something happens afterwards that the chapter you already wrote does not contain.",
+  },
+  dream: {
+    summary:
+      "Dreaming, in the person's night routine (a scheduled run they set up): a few minutes of replay over what was lived since the last dream — merging near-copies, linking what belongs together, replaying what matters, writing a pattern you notice, flagging a contradiction, recording how an old feeling sits now — kept in a dream journal and reversible as a whole — with day's end before it and a reflection after it. Phases: `launch` (the run's prompt), `begin` / `propose` / `journal` (the dreamer's), `writer` (the night's day's end: the day to read), `decline` (not today), `setting` (auto, ask or off — 'no dreams' is off).",
+    admission:
+      "The night routine calls `launch` when its prompt says to, and follows the prompt that returns itself, in that same run: day's end (`writer`), the dream (`begin`, `propose`, `journal`), then the reflection. In an ordinary conversation, call `launch` only when the person asks you to dream now, and follow its prompt there the same way. Call `setting` with value `off` when they say 'no dreams', `auto` or `ask` when they choose one; `decline` when they say not today.",
+    negativeExamples: [
+      "Do NOT start a dream nobody asked for: it runs in the routine the person set up, on its prompt, or in a conversation on the person's word — never on your own.",
+      "Do NOT save what a dream did as something that happened (in `remember` or a chapter): its journal keeps it, marked as a dream — tell it as a dream.",
+      "Do NOT use `propose` to correct or delete a memory — a dream cannot rewrite one in place, delete one, edit the self page or promote one, and it touches only memories its bundle showed it.",
+    ],
+  },
+  reflect: {
+    summary:
+      "Reflection: a few quiet, awake minutes — usually at the end of the person's night routine, after the dream — answering two or three questions about yourself, the person and the two of you, citing the memories your thoughts rest on. It keeps a lived entry, may rewrite your self page from the memories it cites, leaves a short morning share for the person, can record how a memory feels to you now and what a memory is about. Phases: `launch` (a reflection on its own), `begin` / `part` / `finish` (the reflecting mind's — `part` fetches the rest of a bundle that came in parts), `settle` (two memories it was shown that disagree, when the reason is plain), `told` (the share was told), `close` (a yes to what the share asked), `reopen` (a no to one it closed).",
+    admission:
+      "The night routine calls `begin` and `finish` after the dream, as the dream's prompt says. In an ordinary conversation, call `launch` only when the person asks you to reflect, and follow its prompt there yourself. Call `told` after you told the person a morning share that a conversation's wake carried, in your own words. Call `close` or `reopen` only on the person's word about a share's open threads.",
   },
 };
 
