@@ -4,7 +4,7 @@
 #
 #   trial.sh start [--local] [--dry-run] [--dir DIR]   serve; Ctrl-C stops it all
 #   trial.sh check [--dir DIR]                         start --local, prove the door, stop
-#   trial.sh report [--dir DIR]                        what the call log says, per connection
+#   trial.sh report [--dir DIR]                        what the call log says, per chat
 #   trial.sh night LOCAL_URL [--dry-run] [--dir DIR]   optional: run a night by hand (claude -p)
 #
 # DIR defaults to ~/counterparts-trials/claude-ai. It is never ~/.counterparts:
@@ -59,7 +59,10 @@ for live in "$HOME/.counterparts" "$HOME/.bansai" "$HOME/.claude-engram"; do
 done
 
 # The prompt a night runs on: the Cowork scheduled task's text, and `night`'s.
-NIGHT_PROMPT='Do tonight'"'"'s memory work with the counterparts-trial tools, on your own, without asking me anything. First call wake once and keep the session id it returns. Then call the dream tool with phase "launch" and that session id, and follow the prompt it returns yourself, here, step by step, through every call it names (day'"'"'s end, the dream, then the reflection), passing the same session id each time. If a tool refuses, note its reason and go on to the next step. End with a short list of the steps, each marked done or with the reason it stopped. Do not quote any memory in that list.'
+# v2 (2026-10-26, OL1b, from the first trial day): the morning share is kept
+# for the next chat (told there, not in the run's reply), the tools' notices
+# stay in the run, and the reply is the step list alone.
+NIGHT_PROMPT='Do tonight'"'"'s memory work with the counterparts-trial tools, on your own, without asking me anything. First call wake once and keep the session id it returns. Then call the dream tool with phase "launch" and that session id, and follow the prompt it returns yourself, here, step by step, through every call it names (day'"'"'s end, the dream, then the reflection), passing the same session id each time. If a tool refuses, note its reason and go on to the next step. The reflection may leave a morning share: it is for my next chat, so do not tell it here and do not mark it told. Do not pass on Counterparts'"'"' own notices, or anything the wake brought for me. When you are done, reply with only a short list of the steps, each marked done or with the reason it stopped, and nothing after it. Do not quote any memory in that list.'
 
 fresh_store() {
   mkdir -p "$DIR"

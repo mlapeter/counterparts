@@ -166,3 +166,16 @@ describe("trial.sh stops the server and the tunnel together", () => {
     expect(alive(tunnelPid)).toBe(false);
   }, 60_000);
 });
+
+describe("the night prompt, v2 (OL1b)", () => {
+  test("keeps the share for the next chat, keeps notices in the run, and ends with the step list alone", async () => {
+    const out = await run(["prompt", "--dir", join(root, "t")]);
+    expect(out.code).toBe(0);
+    const prompt = out.out.trim();
+    expect(prompt).toContain('phase "launch"');
+    expect(prompt).toContain("it is for my next chat, so do not tell it here and do not mark it told");
+    expect(prompt).toContain("Do not pass on Counterparts' own notices");
+    expect(prompt).toContain("reply with only a short list of the steps");
+    expect(prompt.endsWith("Do not quote any memory in that list.")).toBe(true);
+  });
+});

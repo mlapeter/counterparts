@@ -28,7 +28,7 @@ import { readSession } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { LOOPBACK, newSecret, serveHttp } from "../src/adapters/remote/http.js";
 import type { CallRecord, RunningHttp } from "../src/adapters/remote/http.js";
-import { openCallLog, summarizeCalls } from "../src/adapters/remote/call-log.js";
+import { openCallLog, summarizeCalls, summarizeChats } from "../src/adapters/remote/call-log.js";
 import { livePathRefusal, liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
 
 const CANARY = "Canary for this trial: the person's imaginary lighthouse is called Quillmere Saffron.";
@@ -323,6 +323,50 @@ describe("the call log", () => {
       ["c2", false, 0, 1, "claude-ai"],
     ]);
     expect((readFileSync(path, "utf8").match(/\n/g) ?? []).length).toBe(5);
+  });
+
+  test("per chat, through the door (OL1b): one connection, two chats keyed by the session wake minted; calls that named none counted apart", async () => {
+    const path = join(root, "calls.jsonl");
+    const log = openCallLog(path);
+    const s = claudeAiServer();
+    const http = await serveHttp({ server: s, onCall: (r) => log.write(r) });
+    closers.push(() => http.close());
+    const init = await rpc(http.url, "initialize", INIT);
+    const conn = { "mcp-session-id": String(init.headers.get("mcp-session-id")) };
+    const call = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> =>
+      result((await rpc(http.url, "tools/call", { name, arguments: args }, conn)).body)["structuredContent"] as Record<string, unknown>;
+    // A chat that asks before it wakes: no session named, before any wake.
+    await call("status", {});
+    const a = String((await call("wake", {}))["session"]);
+    await call("remember", { session: a, text: "The greenhouse vents open at nine.", kind: "fact" });
+    await call("chapter", { session: a, text: "We talked about the greenhouse vents and settled on nine." });
+    // A second chat on the SAME connection, as claude.ai does it.
+    const b = String((await call("wake", {}))["session"]);
+    expect(b).not.toBe(a);
+    await call("remember", { session: b, text: "The cellar door sticks in the rain.", kind: "fact" });
+    await call("remember", { text: "The cellar key hangs by the stove.", kind: "fact" });
+
+    const report = summarizeChats(path);
+    expect(report.clients).toEqual(["claude-ai"]);
+    expect(report.chats.map((c) => [c.session, c.woke, c.tools, c.remembered, c.chapter])).toEqual([
+      [a, true, ["wake", "remember", "chapter"], 1, true],
+      [b, true, ["wake", "remember"], 1, false],
+    ]);
+    expect(new Set(report.chats.map((c) => c.connection)).size).toBe(1);
+    expect(report.unnamed).toEqual([{ connection: conn["mcp-session-id"], calls: 2, beforeWake: 1, tools: ["status", "remember"], errors: 0 }]);
+    // The old per-connection view sees one row for both chats.
+    expect(summarizeCalls(path)).toHaveLength(1);
+    // And the trial's own reader prints it.
+    const out = await new Promise<string>((resolveRun) => {
+      const child = spawn(process.execPath, [join(import.meta.dir, "..", "tools", "trials", "claude-ai", "report.ts"), path], { stdio: ["ignore", "pipe", "pipe"] });
+      let text = "";
+      child.stdout.on("data", (d: Buffer) => (text += d.toString()));
+      child.on("close", () => resolveRun(text));
+    });
+    expect(out).toContain("2 chats; 2 woke in this log.");
+    expect(out).toContain("2 calls, 1 before any wake on it");
+    expect(out).toContain(a.slice(0, 8));
+    expect(out).not.toContain("greenhouse");
   });
 });
 
