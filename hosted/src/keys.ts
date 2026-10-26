@@ -11,8 +11,10 @@
  *     **Nothing else in hosted/ touches the raw KEK** (pinned by a test that
  *     greps for the variable's name).
  *   - **A DEK** (data-encryption key) per store: 32 random bytes made at
- *     sign-up, stored only WRAPPED (AES-256-GCM under the KEK, the store id as
- *     associated data, the KEK's version recorded on the wrapped value).
+ *     sign-up, stored only WRAPPED (AES-256-GCM under the KEK, a fresh random
+ *     96-bit nonce per wrap; the store id AND the KEK version as associated
+ *     data, so a wrapped value can't be moved to another store or relabelled
+ *     to another version; the version also recorded on the wrapped value).
  *   - **What a DEK keys**, through HKDF-SHA256 with a purpose label, never the
  *     DEK itself: the store's Litestream SSE-C key (`litestreamKey`).
  *   - **Rewrap** moves every wrapped DEK from KEK version N to N+1: rotation, and
@@ -58,7 +60,13 @@ export class EnvKeyWrapper implements KeyWrapper {
   private readonly ring: ReadonlyMap<string, Buffer>;
 
   constructor(ring: ReadonlyMap<string, Buffer>, current: string) {
-    for (const [v, k] of ring) if (k.length !== 32) throw new Error(`KEK ${v} is not 32 bytes`);
+    const seen = new Set<string>();
+    for (const [v, k] of ring) {
+      if (k.length !== 32) throw new Error(`KEK ${v} is not 32 bytes`);
+      // Two versions with one key would make the version label meaningless (and a rewrap a no-op).
+      if (seen.has(k.toString("hex"))) throw new Error(`KEK ${v} repeats another version's key`);
+      seen.add(k.toString("hex"));
+    }
     if (!ring.has(current)) throw new Error("the current KEK version is not in the ring");
     this.ring = ring;
     this.version = current;
@@ -67,7 +75,7 @@ export class EnvKeyWrapper implements KeyWrapper {
   async wrap(dek: Buffer, aad: string): Promise<WrappedKey> {
     const iv = randomBytes(12);
     const cipher = createCipheriv("aes-256-gcm", this.ring.get(this.version)!, iv);
-    cipher.setAAD(Buffer.from(aad, "utf8"));
+    cipher.setAAD(boundAad(this.version, aad));
     const ct = Buffer.concat([cipher.update(dek), cipher.final(), cipher.getAuthTag()]);
     return `w1.${this.version}.${iv.toString("base64url")}.${ct.toString("base64url")}`;
   }
@@ -81,10 +89,15 @@ export class EnvKeyWrapper implements KeyWrapper {
     const body = Buffer.from(ctB64!, "base64url");
     if (iv.length !== 12 || body.length < 17) throw new Error("not a wrapped key");
     const decipher = createDecipheriv("aes-256-gcm", kek, iv);
-    decipher.setAAD(Buffer.from(aad, "utf8"));
+    decipher.setAAD(boundAad(version, aad));
     decipher.setAuthTag(body.subarray(body.length - 16));
     return Buffer.concat([decipher.update(body.subarray(0, body.length - 16)), decipher.final()]);
   }
+}
+
+/** The associated data a wrap is bound to: the format, the KEK version and the caller's label (the store id). */
+function boundAad(version: string, aad: string): Buffer {
+  return Buffer.from(`counterparts/dek/w1\u0000${version}\u0000${aad}`, "utf8");
 }
 
 /**
@@ -102,6 +115,8 @@ export function kekRingFromEnv(env: Record<string, string | undefined>): EnvKeyW
     const key = Buffer.from(entry.slice(i + 1).trim(), "base64");
     if (i <= 0 || !/^[A-Za-z0-9_-]{1,32}$/.test(version)) return { refusal: "HOSTED_KEKS: every entry is version:base64key." };
     if (key.length !== 32) return { refusal: `HOSTED_KEKS: key ${version} is not 32 bytes.` };
+    if (ring.has(version)) return { refusal: `HOSTED_KEKS: version ${version} appears twice.` };
+    if ([...ring.values()].some((k) => k.equals(key))) return { refusal: `HOSTED_KEKS: key ${version} repeats another version's key.` };
     ring.set(version, key);
   }
   const current = env["HOSTED_KEK_CURRENT"] ?? (ring.size === 1 ? [...ring.keys()][0]! : "");
@@ -137,6 +152,10 @@ export class KeyStore {
   constructor(opts: { path: string; wrapper: KeyWrapper; now?: () => number }) {
     mkdirSync(dirname(opts.path), { recursive: true, mode: 0o700 });
     this.db = openDb(opts.path, { wal: true });
+    // A deleted wrapped DEK must not stay in a free cell of the file: node:sqlite's
+    // default is OFF (bun's is FAST), and the KEK plus a copy of the volume would
+    // otherwise rebuild a "shredded" key.
+    this.db.get("PRAGMA secure_delete = ON");
     this.db.exec(SCHEMA);
     this.wrapper = opts.wrapper;
     this.now = opts.now ?? ((): number => Date.now());
@@ -171,9 +190,32 @@ export class KeyStore {
     return this.db.all<{ store_id: string }>("SELECT store_id FROM store_keys ORDER BY created_at").map((r) => r.store_id);
   }
 
-  /** Crypto-shred, locally: the wrapped DEK is gone. */
+  /**
+   * Crypto-shred, locally: the wrapped DEK is gone — its cell zeroed
+   * (`secure_delete`) and the log folded back and truncated, so no old frame of
+   * it stays in `keys.sqlite-wal`. This file is not replicated, so the checkpoint
+   * is ours to run. A busy checkpoint is retried by the next delete.
+   */
   delete(storeId: string): void {
     this.db.run("DELETE FROM store_keys WHERE store_id = ?", storeId);
+    try {
+      this.db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {
+      /* busy: the next delete's checkpoint folds it */
+    }
+  }
+
+  /** The store ids whose wrapped DEK this wrapper can't open (a KEK version dropped before a rewrap finished). */
+  async unreadable(): Promise<string[]> {
+    const bad: string[] = [];
+    for (const row of this.db.all<{ store_id: string; wrapped: string }>("SELECT store_id, wrapped FROM store_keys")) {
+      try {
+        (await this.wrapper.unwrap(row.wrapped, row.store_id)).fill(0);
+      } catch {
+        bad.push(row.store_id);
+      }
+    }
+    return bad;
   }
 
   /**

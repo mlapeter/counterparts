@@ -19,7 +19,10 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "../src/app.js";
 import type { App } from "../src/app.js";
 import { Backups, CONTROL_KEY_ID, LitestreamSidecar, keyObject, replicaPrefix } from "../src/backup.js";
+import type { Sidecar } from "../src/backup.js";
 import { memoryMailer, memoryObjectStore, r2ObjectStore } from "../src/egress.js";
+import type { ObjectStore } from "../src/egress.js";
+import { openDb } from "../../src/core/store/db.js";
 import { EnvKeyWrapper, KeyStore, kekRingFromEnv, kekVersionOf, litestreamKey } from "../src/keys.js";
 import { tenantDir } from "../src/tenants.js";
 import { listen, storeId, tempRoot } from "./helpers.js";
@@ -71,11 +74,28 @@ describe("the KEK seam", () => {
   test("nothing in hosted/src but keys.ts touches the raw KEK or the cipher", () => {
     const dir = fileURLToPath(new URL("../src/", import.meta.url));
     const touching: string[] = [];
-    for (const f of readdirSync(dir).filter((n) => n.endsWith(".ts"))) {
+    // Every file under src/, at any depth, and every spelling of a cipher or KDF node offers.
+    for (const f of (readdirSync(dir, { recursive: true }) as string[]).filter((n) => /\.(m?[jt]s)$/.test(n))) {
       const code = readFileSync(join(dir, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ").replace(/^\s*\*.*$/gm, " ");
-      if (/HOSTED_KEKS|HOSTED_KEK_CURRENT|createCipheriv|createDecipheriv|hkdfSync/.test(code)) touching.push(f);
+      if (/HOSTED_KEK|createCipher|createDecipher|\bhkdf|subtle|webcrypto|aes-\d|chacha20/i.test(code)) touching.push(f);
     }
     assert.deepEqual(touching, ["keys.ts"]);
+  });
+
+  test("the version is bound too: a value relabelled to another version, or a ring repeating a version or a key, is refused", async () => {
+    const keysRing = ring("v1", "v2");
+    const w = new EnvKeyWrapper(keysRing, "v1");
+    const wrapped = await w.wrap(randomBytes(32), "store-a");
+    const relabelled = wrapped.replace(/^w1\.v1\./, "w1.v2.");
+    await assert.rejects(w.unwrap(relabelled, "store-a"));
+    // And no ring may hold one key under two versions (an operator's copy-paste), which would make the label moot.
+    const same = randomBytes(32);
+    assert.throws(() => new EnvKeyWrapper(new Map([["v1", same], ["v2", same]]), "v1"));
+    const key = randomBytes(32).toString("base64");
+    const dupKey = kekRingFromEnv({ HOSTED_KEKS: `v1:${key},v2:${key}`, HOSTED_KEK_CURRENT: "v2" });
+    assert.ok("refusal" in dupKey && !dupKey.refusal.includes(key));
+    const dupVersion = kekRingFromEnv({ HOSTED_KEKS: `v1:${key},v1:${randomBytes(32).toString("base64")}` });
+    assert.ok("refusal" in dupVersion && !dupVersion.refusal.includes(key));
   });
 
   test("rewrap moves every DEK from v1 to v2 without changing it; afterwards v1 can be dropped", async () => {
@@ -169,19 +189,66 @@ describe("the Litestream sidecar", () => {
         return child as unknown as ChildProcess;
       },
     });
-    sidecar.reload();
+    await sidecar.reload();
     assert.equal(spawned.length, 1);
     assert.deepEqual(spawned[0]!.args, ["replicate", "-config", "/data/litestream.yml"]);
     assert.deepEqual(Object.keys(spawned[0]!.env).sort(), ["LITESTREAM_ACCESS_KEY_ID", "LITESTREAM_SECRET_ACCESS_KEY", "PATH"]);
-    sidecar.reload();
-    await new Promise((r) => setImmediate(r));
-    await new Promise((r) => setImmediate(r));
+    await sidecar.reload();
     assert.equal(spawned.length, 2);
     assert.deepEqual(spawned[0]!.child.killed, ["SIGTERM"]);
     await sidecar.stop();
     assert.deepEqual(spawned[1]!.child.killed, ["SIGTERM"]);
   });
 });
+
+describe("the Litestream sidecar, on its way out", () => {
+  test("reload resolves only after the old child has exited; one that ignores SIGTERM gets SIGKILL", async () => {
+    const children: SlowChild[] = [];
+    const sidecar = new LitestreamSidecar({
+      binary: "litestream",
+      configPath: "/data/litestream.yml",
+      env: { PATH: "/usr/bin" },
+      killAfterMs: 50,
+      spawnFn: () => {
+        const c = new SlowChild(children.length === 0 ? 30 : null);
+        children.push(c);
+        return c as unknown as ChildProcess;
+      },
+    });
+    await sidecar.reload();
+    const t0 = Date.now();
+    await sidecar.reload();
+    assert.ok(children[0]!.exited, "the first child had exited when reload resolved");
+    assert.ok(Date.now() - t0 >= 25);
+    // The second child ignores SIGTERM: stop escalates.
+    await sidecar.stop();
+    assert.deepEqual(children[1]!.killed, ["SIGTERM", "SIGKILL"]);
+  });
+});
+
+/** A child that exits `exitAfterMs` after SIGTERM (null: only on SIGKILL). */
+class SlowChild extends EventEmitter {
+  killed: string[] = [];
+  exited = false;
+  exitCode: number | null = null;
+  signalCode: string | null = null;
+  private readonly exitAfterMs: number | null;
+  constructor(exitAfterMs: number | null) {
+    super();
+    this.exitAfterMs = exitAfterMs;
+  }
+  kill(sig: string): boolean {
+    this.killed.push(sig);
+    if (sig === "SIGKILL" || this.exitAfterMs !== null) {
+      setTimeout(() => {
+        this.exited = true;
+        this.exitCode = 0;
+        this.emit("exit", 0);
+      }, sig === "SIGKILL" ? 0 : this.exitAfterMs!);
+    }
+    return true;
+  }
+}
 
 describe("Backups", () => {
   test("a store's backup: its DEK, a 0600 key file holding its derived SSE-C key, one wrapped-key object, a place in the config with no secret in it", async () => {
@@ -240,7 +307,9 @@ class Browser {
 }
 const csrfOf = (html: string): string => /name="csrf" value="([^"]+)"/.exec(html)?.[1] ?? "";
 
-async function appRig(): Promise<{ app: App; base: string; mail: ReturnType<typeof memoryMailer>; objects: ReturnType<typeof memoryObjectStore>; reloads: () => number }> {
+async function appRig(
+  o: { objects?: ObjectStore; sidecar?: Sidecar; wrapper?: EnvKeyWrapper } = {},
+): Promise<{ app: App; base: string; mail: ReturnType<typeof memoryMailer>; objects: ReturnType<typeof memoryObjectStore>; reloads: () => number }> {
   const mail = memoryMailer();
   const objects = memoryObjectStore();
   let reloads = 0;
@@ -250,7 +319,13 @@ async function appRig(): Promise<{ app: App; base: string; mail: ReturnType<type
     mailer: mail,
     embedder: null,
     spawner: () => ({ pid: 1 }),
-    backup: { wrapper: new EnvKeyWrapper(ring("v1"), "v1"), objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: { reload: () => void reloads++, stop: async () => undefined } },
+    backup: {
+      wrapper: o.wrapper ?? new EnvKeyWrapper(ring("v1"), "v1"),
+      objects: o.objects ?? objects,
+      bucket: "bkt",
+      endpoint: "https://acct.r2.cloudflarestorage.com",
+      sidecar: o.sidecar ?? { reload: () => void reloads++, stop: async () => undefined },
+    },
   });
   closers.push(() => app.close());
   await app.start();
@@ -345,5 +420,144 @@ describe("rotation, end to end", () => {
       assert.equal(objects.objects.get(keyObject(id)), keys.wrapped(id));
     }
     assert.equal((await objects.list("keys/")).length, ids.length + 1);
+  });
+});
+
+// ── the awkward states of a delete, built on purpose (OL2 security review) ────
+
+describe("delete, when things go wrong", () => {
+  test("Litestream's last upload on SIGTERM lands BEFORE the prefix delete, not after it: R2 is empty for the store right after", async () => {
+    const objects = memoryObjectStore();
+    const configPath = join(tmp.root, "data", "litestream.yml");
+    // A stand-in for `litestream replicate`: on SIGTERM it flushes one more segment
+    // for every store in the configuration it started with, a moment later, then exits.
+    const sidecar = new LitestreamSidecar({
+      binary: "litestream",
+      configPath,
+      env: { PATH: "/usr/bin" },
+      spawnFn: () => {
+        const stores = existsSync(configPath) ? [...readFileSync(configPath, "utf8").matchAll(/path: "tenants\/([^"]+)"/g)].map((m) => m[1]!) : [];
+        const child = new EventEmitter() as EventEmitter & { kill: (s: string) => boolean; exitCode: number | null; signalCode: string | null };
+        child.exitCode = null;
+        child.signalCode = null;
+        child.kill = (): boolean => {
+          setTimeout(() => {
+            void (async (): Promise<void> => {
+              for (const id of stores) await objects.put(`${replicaPrefix(id)}ltx/0/final-flush.ltx`, "ciphertext");
+              child.exitCode = 0;
+              child.emit("exit", 0);
+            })();
+          }, 30);
+          return true;
+        };
+        return child as unknown as ChildProcess;
+      },
+    });
+    const r = await appRig({ objects, sidecar });
+    const me = await signUp(r, "flush@example.com");
+    const other = await signUp(r, "keeps@example.com");
+    const page = await (await me.browser.go("/account")).text();
+    assert.equal((await me.browser.form("/account/delete", { csrf: csrfOf(page), confirm: "flush@example.com" })).status, 200);
+    assert.deepEqual(await objects.list(replicaPrefix(me.storeId)), []);
+    assert.equal(objects.objects.has(keyObject(me.storeId)), false);
+    // The other store's final flush (from the same restart) is its own and stays.
+    assert.ok((await objects.list(replicaPrefix(other.storeId))).length > 0);
+    await new Promise((res) => setTimeout(res, 60));
+    assert.deepEqual(await objects.list(replicaPrefix(me.storeId)), [], "and nothing arrives later either");
+  });
+
+  test("a delete cut short (R2 down) is never resurrected by a restart, and the restart finishes it", async () => {
+    const inner = memoryObjectStore();
+    let down = false;
+    const flaky: ObjectStore = {
+      put: (k, b) => inner.put(k, b),
+      get: (k) => inner.get(k),
+      list: (p) => inner.list(p),
+      delete: async (k) => {
+        if (down) throw new Error("object store DELETE answered 503");
+        await inner.delete(k);
+      },
+      deletePrefix: async (p) => {
+        if (down) throw new Error("object store DELETE answered 503");
+        return inner.deletePrefix(p);
+      },
+    };
+    const wrapper = new EnvKeyWrapper(ring("v1"), "v1");
+    const r = await appRig({ objects: flaky, wrapper });
+    const me = await signUp(r, "halfway@example.com");
+    for (const n of [1, 2]) await inner.put(`${replicaPrefix(me.storeId)}ltx/0/${String(n)}.ltx`, "ciphertext");
+    await r.app.tenants.withTenant(me.storeId, {}, async () => undefined);
+    const page = await (await me.browser.go("/account")).text();
+    down = true;
+    const res = await me.browser.form("/account/delete", { csrf: csrfOf(page), confirm: "halfway@example.com" });
+    assert.equal(res.status, 202);
+    // Closed already: signed out, no way back in, the store out of start-up's live list.
+    assert.equal((await me.browser.go("/account")).status, 303);
+    assert.equal(r.app.accounts.requestLink({ email: "halfway@example.com", browser: "b".repeat(43) }).send, false);
+    assert.equal(r.app.accounts.liveStoreIds().includes(me.storeId), false);
+    assert.deepEqual(r.app.accounts.pendingDeletes(), [me.personId]);
+    // An operator can't reactivate a person mid-delete.
+    r.app.accounts.setState(me.personId, "active");
+    assert.equal(r.app.accounts.isLive(me.personId), false);
+    // A call that was authenticated just before the revoke can't re-open (and re-create) the store.
+    await assert.rejects(r.app.tenants.withTenant(me.storeId, {}, async () => undefined));
+    // The process dies here. A new one starts on the same volume, R2 back.
+    await r.app.close();
+    down = false;
+    const r2 = await appRig({ objects: flaky, wrapper });
+    // No new key, no key object, no replica, no tenant dir, not in the config; the person a tombstone.
+    assert.equal(r2.app.keys!.wrapped(me.storeId), null);
+    assert.equal(inner.objects.has(keyObject(me.storeId)), false);
+    assert.deepEqual(await inner.list(replicaPrefix(me.storeId)), []);
+    assert.equal(existsSync(tenantDir(r2.app.tenants.root, me.storeId)), false);
+    assert.doesNotMatch(readFileSync(r2.app.backups!.configPath, "utf8"), new RegExp(me.storeId));
+    assert.equal(r2.app.accounts.person(me.personId)!.state, "deleted");
+    assert.deepEqual(r2.app.accounts.pendingDeletes(), []);
+  });
+
+  test("nothing of a deleted person stays in a free cell: not the wrapped DEK in keys.sqlite, not the address in accounts.sqlite", async () => {
+    const r = await appRig();
+    const me = await signUp(r, "no-trace-left@example.com");
+    const wrapped = r.app.keys!.wrapped(me.storeId)!;
+    const page = await (await me.browser.go("/account")).text();
+    assert.equal((await me.browser.form("/account/delete", { csrf: csrfOf(page), confirm: "no-trace-left@example.com" })).status, 200);
+    const keysFile = join(tmp.root, "data", "keys", "keys.sqlite");
+    for (const f of [keysFile, `${keysFile}-wal`]) {
+      if (existsSync(f)) assert.equal(readFileSync(f).includes(Buffer.from(wrapped.split(".")[3]!)), false, `${f} still holds the wrapped DEK`);
+    }
+    // accounts.sqlite's log is Litestream's to fold; once it is folded, the file has no address in it.
+    const accountsFile = join(tmp.root, "data", "control", "accounts.sqlite");
+    const db = openDb(accountsFile, { wal: true });
+    try {
+      db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    } finally {
+      db.close();
+    }
+    assert.equal(readFileSync(accountsFile).includes(Buffer.from("no-trace-left@example.com")), false);
+  });
+
+  test("start-up refuses a ring that can't open a store's key (a version dropped before a rewrap finished)", async () => {
+    const keysRing = ring("v1", "v2");
+    const r = await appRig({ wrapper: new EnvKeyWrapper(keysRing, "v1") });
+    await signUp(r, "rotate@example.com");
+    await r.app.close();
+    await assert.rejects(appRig({ wrapper: new EnvKeyWrapper(new Map([["v2", keysRing.get("v2")!]]), "v2") }), /don't open with the KEK ring/);
+  });
+
+  test("a rewrap that died between its key writes and its uploads is repaired by running it again", async () => {
+    const keysRing = ring("v1", "v2");
+    const keys = new KeyStore({ path: join(tmp.root, "data", "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(keysRing, "v1") });
+    closers.push(() => keys.close());
+    const objects = memoryObjectStore();
+    const ids = [storeId(), storeId()];
+    const backups = new Backups({ dataRoot: join(tmp.root, "data"), keys, objects, bucket: "bkt", endpoint: "https://acct.r2.cloudflarestorage.com", sidecar: null, liveStores: () => ids });
+    await backups.ensureAll();
+    const v2 = new EnvKeyWrapper(keysRing, "v2");
+    await keys.rewrap(v2); // ... and the process dies before any upload
+    assert.equal(kekVersionOf(objects.objects.get(keyObject(ids[0]!))!), "v1");
+    assert.deepEqual(await keys.rewrap(v2), []); // the second run moves nothing
+    assert.equal(await backups.syncKeyObjects(), ids.length + 1); // but its sync puts every stale object
+    for (const id of [...ids, CONTROL_KEY_ID]) assert.equal(objects.objects.get(keyObject(id)), keys.wrapped(id));
+    assert.equal(await backups.syncKeyObjects(), 0);
   });
 });

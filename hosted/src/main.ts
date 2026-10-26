@@ -125,7 +125,10 @@ async function main(): Promise<void> {
   }
   if (command === "rewrap") {
     // Every wrapped DEK onto HOSTED_KEK_CURRENT (the ring holds the old version
-    // too), then their R2 objects re-written. Run with the server stopped.
+    // too), then EVERY live store's R2 object compared and re-written — not only
+    // the ones this run moved, so a rewrap that died between the two is repaired
+    // by running it again. Run with the server stopped; drop the old version
+    // from HOSTED_KEKS only after it prints (start-up refuses a key it can't open).
     if (backup === null) {
       process.stderr.write("[hosted] refused: rewrap needs the keys and the bucket (not BACKUPS=off).\n");
       process.exitCode = 1;
@@ -135,10 +138,10 @@ async function main(): Promise<void> {
     const accounts = new Accounts({ path: `${read.dataRoot}/control/accounts.sqlite` });
     const backups = new Backups({ dataRoot: read.dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds() });
     const moved = await keys.rewrap(backup.wrapper);
-    await backups.reuploadKeys(moved);
+    const put = await backups.syncKeyObjects();
     keys.close();
     accounts.close();
-    process.stdout.write(`rewrapped ${String(moved.length)} keys onto ${backup.wrapper.version}\n`);
+    process.stdout.write(`rewrapped ${String(moved.length)} keys onto ${backup.wrapper.version}; ${String(put)} key objects re-written\n`);
     return;
   }
   const mailer = mailerFrom(env);

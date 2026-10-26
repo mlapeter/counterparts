@@ -280,7 +280,20 @@ ${
         message(res, 400, "Not deleted", "The address you typed doesn't match this account's. Nothing was deleted.", { href: "/account", text: "Back" });
         return true;
       }
-      await opts.deleteAccount(personId);
+      const finished = await opts.deleteAccount(personId).then(
+        () => true,
+        () => false,
+      );
+      if (!finished) {
+        // The account is already closed (sessions and grants gone, the store marked
+        // deleting); the server finishes the rest on its own (`finishPendingDeletes`).
+        page(res, 202, {
+          title: "Deleting",
+          headers: { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) },
+          body: `<h1>Deleting</h1><p>Your account is closed. Part of the deletion didn't finish just now; the server keeps trying until it's done, on its own.</p>`,
+        });
+        return true;
+      }
       page(res, 200, {
         title: "Deleted",
         headers: { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) },

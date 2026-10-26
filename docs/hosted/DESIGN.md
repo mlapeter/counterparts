@@ -456,21 +456,29 @@ Railway's own volume backups stay **off**. Their retention is Railway's, not our
   - There is no `keys.sqlite` backup and there are no daily copies.
   - R2 versioning and object lock stay **off** for `keys/` (a bucket setting, in §7.3).
 - **Delete, at once** (`app.ts#deleteAccount`, one audit row per step, no content):
-  1. the person is marked deleting, so every session stops, and every grant is revoked;
-  2. the tenant handle drains and closes;
-  3. the store leaves `litestream.yml` and the sidecar restarts;
+  1. the person is marked deleting and the store turns `deleting` (durably: start-up never gives it a new key), so every
+     session stops, and every grant is revoked;
+  2. the store is retired in the process (nothing re-opens it), and its handle drains and closes;
+  3. the store leaves `litestream.yml` and the sidecar restarts; the delete waits for the old child to exit, so its last
+     upload can't land after step 4;
   4. the key file, the local wrapped DEK, the `keys/<storeId>.wrapped` object and the whole `tenants/<storeId>/` replica
      prefix are deleted;
   5. the tenant dir is removed;
   6. identities, sessions and pending links are deleted, leaving the person and store as tombstones (id, dates, state).
 
-  A test checks R2 right after the delete: no wrapped key and no replica object.
+  A test checks R2 right after the delete: no wrapped key and no replica object. Every step is idempotent; a delete cut
+  short (a crash, R2 down) is finished at start-up and on a ten-minute timer. `keys.sqlite` and `accounts.sqlite` run
+  with `secure_delete = ON` (node:sqlite's default is off, bun's FAST), so a deleted wrapped DEK or address doesn't stay
+  in a free cell of the file, or in every later Litestream snapshot of it.
 - **R2 credentials.** R2 gets its own narrowly scoped token: one bucket, objects only. It is used by the object client
   (`egress.ts#r2ObjectStore`, SigV4 via `aws4fetch` 1.0.20, pinned, zero dependencies) and by the Litestream child (its
   own environment). The worker child never sees it (`tenants.ts#workerEnv`).
 - **Still open (flagged): the control databases' backup history.** After a delete, `accounts.sqlite`'s Litestream history
-  still holds the deleted address and audit codes until that history ages out: Litestream's `snapshot.retention`, 24 h by
-  default. Store content is gone at once; this is the account row.
+  (the snapshot taken before the delete, and the LTX files after it) still holds the deleted address until that history
+  ages out. With the defaults (`snapshot.interval` 24 h, `snapshot.retention` 24 h) that is at most about 24 h after the
+  delete, plus Litestream's retention-check lag (not measured: no binary in the build). It's SSE-C ciphertext under the
+  `control` key, which isn't shredded. The audit rows (person id, action codes, invite id, no address) stay as
+  tombstones by design. Store content is gone at once; this is the account row.
   - To make it "at once" too: keep the address encrypted under the person's DEK, plus a keyed hash (HMAC) of it for
     lookup. Then shredding the DEK leaves only the hash in old copies.
   - Recommended: do that before any non-family user.

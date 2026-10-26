@@ -11,9 +11,8 @@
  *
  * Mike's hosted store is new and separate: nothing here reads a local store.
  */
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import type { Server } from "node:http";
-import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
 import { exportStore as exportCoreStore } from "../../src/adapters/cli/export.js";
@@ -71,10 +70,12 @@ export interface App {
   readonly tenants: Tenants;
   readonly keys: KeyStore | null;
   readonly backups: Backups | null;
-  /** Start-up work that may touch the network (backups' `ensureAll`). */
+  /** Start-up work that may touch the network: finish any delete a crash cut short, then backups' `ensureAll`. */
   start(): Promise<void>;
-  /** Delete one person's account and memory, at once, everywhere. */
+  /** Delete one person's account and memory, at once, everywhere. Idempotent: running it again finishes a delete that failed part-way. */
   deleteAccount(personId: string): Promise<void>;
+  /** Finish every delete that began and didn't end (start-up, and a timer while serving). Returns how many finished. */
+  finishPendingDeletes(): Promise<number>;
   close(): Promise<void>;
 }
 
@@ -104,10 +105,14 @@ export function createApp(opts: AppOptions): App {
   let tenantsRef: Tenants | null = null;
   let deleteRef: ((personId: string) => Promise<void>) | null = null;
 
+  // Export's plaintext copy is made on the data volume (encrypted at rest, and
+  // swept at start-up after a crash), never in the container's /tmp.
+  const scratchRoot = join(opts.dataRoot, "scratch");
   const exportStore = async (personId: string): Promise<{ path: string; filename: string; cleanup: () => void }> => {
     const storeId = accounts.person(personId)?.storeId;
     if (storeId === null || storeId === undefined || tenantsRef === null) throw new Error("no store");
-    const scratch = mkdtempSync(join(tmpdir(), "counterparts-export-"));
+    mkdirSync(scratchRoot, { recursive: true, mode: 0o700 });
+    const scratch = mkdtempSync(join(scratchRoot, "export-"));
     const target = join(scratch, "out");
     const report = await tenantsRef.withTenant(storeId, {}, (t, server) => t.serial(async () => exportCoreStore(server.counterpart.store, { target, plaintext: true })));
     const file = report.ok ? readdirSync(target).find((n) => n.endsWith(".sqlite")) : undefined;
@@ -154,19 +159,24 @@ export function createApp(opts: AppOptions): App {
   /**
    * DELETE, AT ONCE, EVERYWHERE (design §5.4 as Mike changed it). In order,
    * each step audited by code:
-   *   1. every session and connection stops (the person is marked deleting,
-   *      every grant revoked);
-   *   2. the store's handle drains and closes;
+   *   1. every session and connection stops (the person is marked deleting —
+   *      durably, the store turns `deleting` — and every grant is revoked);
+   *   2. the store is retired (never re-opened in this process) and its handle
+   *      drains and closes;
    *   3. backups: out of the sidecar, the key file, the local wrapped DEK, the
    *      wrapped-key object in R2, the whole replica prefix in R2;
    *   4. the tenant dir is removed;
    *   5. the account: identities, sessions and links deleted, tombstones left.
+   * Every step is idempotent. If one throws (a crash, R2 down), the store stays
+   * `deleting`: it is never given a new key, and `finishPendingDeletes` runs the
+   * whole sequence again at start-up and on a timer until it ends.
    */
-  const deleteAccount = async (personId: string): Promise<void> => {
-    const storeId = accounts.person(personId)?.storeId ?? null;
+  const inFlight = new Map<string, Promise<void>>();
+  const runDelete = async (personId: string): Promise<void> => {
     accounts.markDeleting(personId);
     o.revokeAll(personId);
-    if (storeId !== null) {
+    for (const storeId of accounts.storesToDelete(personId)) {
+      tenants.retire(storeId);
       await tenants.close(storeId);
       if (backups !== null) {
         const gone = await backups.removeStore(storeId);
@@ -177,7 +187,27 @@ export function createApp(opts: AppOptions): App {
     }
     accounts.markDeleted(personId);
   };
+  const deleteAccount = (personId: string): Promise<void> => {
+    const running = inFlight.get(personId);
+    if (running !== undefined) return running;
+    const p = runDelete(personId).finally(() => inFlight.delete(personId));
+    inFlight.set(personId, p);
+    return p;
+  };
   deleteRef = deleteAccount;
+  const finishPendingDeletes = async (): Promise<number> => {
+    let done = 0;
+    for (const personId of accounts.pendingDeletes()) {
+      try {
+        await deleteAccount(personId);
+        done += 1;
+      } catch {
+        accounts.audit(personId, null, "delete.retry.failed", null);
+      }
+    }
+    return done;
+  };
+  let retryTimer: ReturnType<typeof setInterval> | null = null;
 
   const server = createHostedServer({
     tenants,
@@ -196,10 +226,20 @@ export function createApp(opts: AppOptions): App {
     keys,
     backups,
     async start(): Promise<void> {
+      rmSync(scratchRoot, { recursive: true, force: true });
+      // Deletes first: a half-deleted store must be gone before backups look for live ones.
+      await finishPendingDeletes();
       if (backups !== null) await backups.ensureAll();
+      if (retryTimer === null) {
+        retryTimer = setInterval(() => void finishPendingDeletes(), 10 * 60 * 1000);
+        retryTimer.unref?.();
+      }
     },
     deleteAccount,
+    finishPendingDeletes,
     async close(): Promise<void> {
+      if (retryTimer !== null) clearInterval(retryTimer);
+      retryTimer = null;
       await tenants.closeAll();
       await opts.backup?.sidecar?.stop();
       o.close();

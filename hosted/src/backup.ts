@@ -45,8 +45,13 @@ export const keyObject = (storeId: string): string => `keys/${storeId}.wrapped`;
 export const replicaPrefix = (storeId: string): string => `tenants/${storeId}/`;
 
 export interface Sidecar {
-  /** Start, or restart with the configuration as it now is. */
-  reload(): void;
+  /**
+   * Start, or restart with the configuration as it now is. Resolves once the
+   * previous child has EXITED (its last upload done) and the new one started:
+   * a delete waits on it before it removes the store's objects, or a final
+   * sync from the old child could land in R2 after the prefix was cleared.
+   */
+  reload(): void | Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -105,14 +110,20 @@ export class Backups {
     const wrapped = this.opts.keys.wrapped(storeId) ?? (await this.opts.keys.create(storeId));
     if (!existsSync(this.keyFile(storeId))) await this.writeKeyFile(storeId);
     if ((await this.opts.objects.get(keyObject(storeId))) !== wrapped) await this.opts.objects.put(keyObject(storeId), wrapped);
-    if (opts.reload !== false) this.reload();
+    if (opts.reload !== false) await this.reload();
   }
 
-  /** Start-up: the control key and every live store, then one reload. */
+  /**
+   * Start-up: every wrapped DEK must open with the ring as it is now (a KEK
+   * version dropped before a rewrap finished would otherwise go unnoticed until
+   * a restore), then the control key and every live store, then one reload.
+   */
   async ensureAll(): Promise<void> {
+    const unreadable = await this.opts.keys.unreadable();
+    if (unreadable.length > 0) throw new Error(`${String(unreadable.length)} wrapped store keys don't open with the KEK ring: put the old version back in the ring and run rewrap again.`);
     await this.ensureStore(CONTROL_KEY_ID, { reload: false });
     for (const id of this.opts.liveStores()) await this.ensureStore(id, { reload: false });
-    this.reload();
+    await this.reload();
   }
 
   /** After a rewrap: the moved stores' objects carry the new wrapping (an overwrite; versioning is off). */
@@ -124,15 +135,36 @@ export class Backups {
   }
 
   /**
-   * DELETE AT ONCE: out of the sidecar first (so it stops writing), then the
-   * key file, the local wrapped DEK, the wrapped-key object and the replica
-   * prefix. The tenant dir itself is the caller's to remove (after its handle
-   * is closed). Returns how many replica objects went.
+   * Every live store's (and the control key's) R2 object made equal to its
+   * wrapped DEK here. `rewrap` ends with this rather than with only the stores
+   * it moved, so a rewrap that died between its database writes and its
+   * uploads is repaired by simply running it again. Returns how many were put.
+   */
+  async syncKeyObjects(): Promise<number> {
+    let put = 0;
+    for (const id of [CONTROL_KEY_ID, ...this.opts.liveStores()]) {
+      const wrapped = this.opts.keys.wrapped(id);
+      if (wrapped === null || (await this.opts.objects.get(keyObject(id))) === wrapped) continue;
+      await this.opts.objects.put(keyObject(id), wrapped);
+      put += 1;
+    }
+    return put;
+  }
+
+  /**
+   * DELETE AT ONCE: the local wrapped DEK (so the configuration, written from
+   * the key store, no longer has this store), then out of the sidecar — WAITING
+   * for the old Litestream child to exit, so nothing it flushes on the way out
+   * lands after the prefix delete — then the key file, the wrapped-key object
+   * and the replica prefix. Every step is idempotent: a delete that died
+   * part-way is finished by running it again. The tenant dir itself is the
+   * caller's to remove (after its handle is closed). Returns how many replica
+   * objects went.
    */
   async removeStore(storeId: string): Promise<number> {
     if (!STORE_ID.test(storeId)) throw new Error("not a store id");
     this.opts.keys.delete(storeId);
-    this.reload(); // the configuration is written from the key store: this store is no longer in it
+    await this.reload();
     rmSync(this.keyFile(storeId), { force: true });
     await this.opts.objects.delete(keyObject(storeId));
     return this.opts.objects.deletePrefix(replicaPrefix(storeId));
@@ -164,10 +196,10 @@ export class Backups {
     return `${lines.join("\n")}\n`;
   }
 
-  /** Write the configuration and restart the sidecar on it. */
-  reload(): void {
+  /** Write the configuration and restart the sidecar on it (resolves when the old child has exited). */
+  async reload(): Promise<void> {
     writeFileSync(this.configPath, this.config(), { mode: 0o600 });
-    this.opts.sidecar?.reload();
+    await this.opts.sidecar?.reload();
   }
 }
 
@@ -178,6 +210,8 @@ export class Backups {
  */
 export class LitestreamSidecar implements Sidecar {
   private child: ChildProcess | null = null;
+  /** Children sent SIGTERM and not yet exited. */
+  private dying: Promise<void>[] = [];
   private stopping = false;
   private restarts: number[] = [];
   private readonly opts: {
@@ -185,24 +219,48 @@ export class LitestreamSidecar implements Sidecar {
     configPath: string;
     env: Record<string, string>;
     spawnFn?: (cmd: string, args: string[], env: Record<string, string>) => ChildProcess;
-    onEvent?: (name: "sidecar.start" | "sidecar.exit" | "sidecar.backoff") => void;
+    onEvent?: (name: "sidecar.start" | "sidecar.exit" | "sidecar.backoff" | "sidecar.kill") => void;
+    /** A child that hasn't exited this long after SIGTERM gets SIGKILL. */
+    killAfterMs?: number;
   };
 
   constructor(opts: LitestreamSidecar["opts"]) {
     this.opts = opts;
   }
 
-  reload(): void {
+  async reload(): Promise<void> {
     this.stopping = false;
     const old = this.child;
     this.child = null;
-    if (old !== null) {
-      old.removeAllListeners("exit");
-      old.once("exit", () => this.start());
-      old.kill("SIGTERM");
-    } else {
-      this.start();
-    }
+    if (old !== null) this.dying.push(this.terminate(old));
+    // Every child already on its way out, not only this one: two reloads in a row
+    // must not leave the first child flushing while the second is said done.
+    const waiting = [...this.dying];
+    await Promise.all(waiting);
+    this.dying = this.dying.filter((p) => !waiting.includes(p));
+    if (!this.stopping) this.start();
+  }
+
+  /** SIGTERM (Litestream finishes its upload and exits), SIGKILL after `killAfterMs`; resolves on exit. */
+  private terminate(c: ChildProcess): Promise<void> {
+    return new Promise<void>((done) => {
+      if (typeof c.exitCode === "number" || typeof c.signalCode === "string") {
+        done();
+        return;
+      }
+      c.removeAllListeners("exit"); // no back-off restart for a child we ended
+      const timer = setTimeout(() => {
+        this.opts.onEvent?.("sidecar.kill");
+        c.kill("SIGKILL");
+      }, this.opts.killAfterMs ?? 30_000);
+      timer.unref?.();
+      c.once("exit", () => {
+        clearTimeout(timer);
+        this.opts.onEvent?.("sidecar.exit");
+        done();
+      });
+      c.kill("SIGTERM");
+    });
   }
 
   private start(): void {
@@ -228,10 +286,9 @@ export class LitestreamSidecar implements Sidecar {
     this.stopping = true;
     const c = this.child;
     this.child = null;
-    if (c === null) return;
-    await new Promise<void>((r) => {
-      c.once("exit", () => r());
-      c.kill("SIGTERM");
-    });
+    if (c !== null) this.dying.push(this.terminate(c));
+    const waiting = [...this.dying];
+    await Promise.all(waiting);
+    this.dying = this.dying.filter((p) => !waiting.includes(p));
   }
 }
