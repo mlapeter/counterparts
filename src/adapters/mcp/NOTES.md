@@ -1847,9 +1847,28 @@ its own small PR, after a look at its live use.
 
 ## OL1d: "no dreams" means no dreams, words by host (2026-10-26)
 
-- **Off now refuses the dream `launch` on every host** (`dreaming-off`). `begin`/`writer` stay ungated: the Claude
-  Code headless night builds its prompt from the store (night-run.ts) and never calls launch, and a run under way
-  finishes.
+- **Off now refuses the dream `launch` on every host** (`dreaming-off`). The Claude Code headless night builds its
+  prompt from the store (night-run.ts) and never calls launch.
+- **…and `writer`/`begin` called without one (review of #650).** Over the HTTP door a caller could skip the gated
+  launch and call `begin` straight away (a v2 claude.ai routine, told "if a tool refuses, go on", would). Under off
+  they refuse with the same `dreaming-off` line unless today's day row is `launched` (a launch, or the hook's
+  headless start — a run under way finishes) or the server carries the night's own mark (`server.nightRun()`: a
+  child's `NIGHT_CHILD_ENV` or the catch-up's `NIGHT_RUN_ENV`, which has no child mark). Gated before
+  `claimNightWriter`/`closeNightWriter`, so a refusal writes nothing. `part`/`propose`/`journal` are keyed to an
+  open dream and stay ungated. Tested through the door on claude.ai, Desktop and Claude Code, launched-then-off, and
+  the night's dream child, writer child and catch-up with no row.
+- **Edges left, flagged:** (a) a launch at 23:58 and a `begin` after midnight under off reads the new day's row and
+  is refused; accepting yesterday's `launched` row would reopen the gate for a routine the next night, so it was
+  left. (b) A dream begun yesterday and resumed today under off without a launch is refused the same way.
+- **Reflect `begin` stays ungated.** "Part of a night" has no clean server-side mark: the `night: true` wake is not
+  recorded on the session, and a reflect with a `dream` under off is either impossible now (that dream could not
+  have begun) or a left-behind run finishing (decision D). So a standalone reflect on the person's word stays open
+  (the flag below), and a v2 routine that called reflect `begin` after the refused dream would still reflect. The
+  v3 night prompt (trial.sh) stops at the refused launch.
+- **Words follow the session being served (review of #650).** The `setting` result and the dream/reflect launch
+  `how` read `placeHost` (`callAs !== null ? DEFAULT_HOST : host`), so Desktop's Code tab gets Claude Code's words
+  byte for byte (tested). Tool descriptions are per server, not per call, and cannot follow `callAs`: the Code tab
+  sees Desktop's descriptions, as before.
 - **Nothing in mcp/ or remote/ starts a night.** Only claude-code/hooks.ts#startNightRun (and the CLI catch-up)
   does. Hookless wake leaves headless offers unclaimed; claude.ai wake has no dream line. Tested: `auto` on claude.ai
   spawns only the worker.

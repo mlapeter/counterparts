@@ -374,11 +374,12 @@ export function chatWordsFor(host: string): ChatWords {
 
 /**
  * "NO DREAMS" MEANS NO DREAMS (2026-10-26, OL1d, from #649's review). While the
- * dreaming setting is `off`, a dream `launch` refuses on every host with this:
- * no night starts from the tool — not day's end, not the dream, not the
- * reflection after it. A run already under way is not stopped (owner decision
- * D): its later phases are not gated, and Claude Code's headless night composes
- * its prompt from the store, never through `launch`.
+ * dreaming setting is `off`, a dream `launch` refuses on every host with this,
+ * and so do `writer` and `begin` called without one (review of #650): no night
+ * starts from the tool — not day's end, not the dream, not the reflection after
+ * it. A run already under way is not stopped (owner decision D): today's row
+ * says `launched`, or the server is the headless night's own (Claude Code's
+ * night composes its prompt from the store, never through `launch`).
  */
 export const DREAMING_OFF_REFUSAL =
   'Dreaming is off ("no dreams"), so no night starts: no day\'s end, no dream, no reflection — do not call those phases for it. Saying "dreams on" turns it back on: this tool, phase "setting", value "auto", on their word.';
