@@ -990,8 +990,9 @@ version of this note said the checkpoint was sufficient and no VACUUM was
 needed. **That was wrong**, and the third adversarial review caught it
 (NEW-MAJOR-1). Blanking a body long enough to take OVERFLOW pages leaves whole
 pages on the freelist still holding the words; `secure_delete` is 2 (FAST) by
-default, which zeroes only the slack of a page being REWRITTEN, never a whole
-freed page. My test passed because its marker sat at the START of the body —
+default under bun (and, since 2026-10-26, set by `openDb` on every connection,
+because node:sqlite's default is 0), which zeroes only the slack of a page
+being REWRITTEN, never a whole freed page. My test passed because its marker sat at the START of the body —
 the page holding the start of an overflow chain gets reused, the middle and the
 end do not. With marks at the start, middle and end of a ~40 KB body the residue
 is deterministic 5/5, in `counterparts.sqlite` itself, in a page no row points

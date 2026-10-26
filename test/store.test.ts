@@ -2157,6 +2157,7 @@ describe("WAL, the busy timeout, and I39", () => {
     expect([...body.matchAll(/PRAGMA (\w+)/g)].map((m) => m[1])).toEqual([
       "busy_timeout",
       "foreign_keys",
+      "secure_delete",
       "synchronous",
     ]);
     // …with the journal-mode decision between the second and the fourth.
@@ -2167,6 +2168,31 @@ describe("WAL, the busy timeout, and I39", () => {
     const db = openDb(join(scratch(), "probe.sqlite"));
     expect(db.get<{ timeout: number }>("PRAGMA busy_timeout")?.timeout).toBe(BUSY_TIMEOUT_MS);
     db.close();
+  });
+
+  test("secure_delete is FAST on every connection, and a deleted row's words leave every file", () => {
+    // Set, not inherited: it is a compile-time default of the runtime's SQLite
+    // (bun's is FAST, node:sqlite's is 0). `test/node-smoke.ts` runs the same
+    // check under Node.
+    const dir = join(scratch(), "secure-delete");
+    mkdirSync(dir);
+    const path = join(dir, "probe.sqlite");
+    const marker = "SECURE-DELETE-MARK-7f3a";
+    const db = openDb(path, { wal: true });
+    try {
+      expect(db.get<{ secure_delete: number }>("PRAGMA secure_delete")?.secure_delete).toBe(2);
+      db.run("CREATE TABLE probe (id INTEGER PRIMARY KEY, body TEXT)");
+      db.run("INSERT INTO probe (body) VALUES (?)", "kept ".repeat(40));
+      db.run("INSERT INTO probe (body) VALUES (?)", `${marker} a short memory ${marker}`);
+      db.run("INSERT INTO probe (body) VALUES (?)", "kept ".repeat(40));
+      db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+      expect(readFileSync(path).toString("latin1")).toContain(marker);
+      db.run("DELETE FROM probe WHERE body LIKE ?", `${marker}%`);
+      db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    } finally {
+      db.close();
+    }
+    for (const f of readdirSync(dir)) expect([f, readFileSync(join(dir, f)).toString("latin1").includes(marker)]).toEqual([f, false]);
   });
 
   test("a WRITER converts the file to WAL; an INSTRUMENT opening a DELETE store leaves it alone", () => {
