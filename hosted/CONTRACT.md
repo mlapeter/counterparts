@@ -38,6 +38,27 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 7. **`/mcp` refuses** anything but POST (`405`), a foreign `Origin` (`403`), and a body that is not
    `application/json` (`415`). The last closes the local door's `text/plain` simple-request hole.
 
+### Accounts and sign-in (step 3: `src/accounts.ts`, `src/pages.ts`, `src/web.ts`, `src/egress.ts`)
+
+8. **The person is the hub.** A person has identities: kind and value, unique, so phone numbers, passkeys and other
+   AIs attach later as more rows. A person also has one store.
+9. **Every secret is stored as its SHA-256**: login-link tokens, session tokens, invite codes, the browser binding.
+   A copy of `accounts.sqlite` signs nobody in. The test greps the file for raw secrets.
+10. **A login link works once, for 15 minutes, in the browser that asked for it.**
+    - The single-use claim is one `UPDATE … WHERE used_at IS NULL`.
+    - The wrong browser is refused without spending the link, so a forwarded email or a mail scanner signs nobody in
+      and doesn't burn the link either.
+11. **Sign-up needs a live invite.** It is spent at the click, inside the same transaction that creates the person,
+    the verified email identity and the store.
+12. **The login page never says who has an account.** It shows the same words whether a link went out or not, and
+    the email is sent without being awaited, so the response time doesn't say it either.
+13. **Every form is CSRF-bound** (an HMAC of the browser cookie) and Origin-checked. After login, only our own paths
+    (`/account`, `/oauth/…`) are followed: `//evil`, `/\evil` and schemes all fall back to `/account`.
+14. **Rate limits on the login form**: 20 an hour per IP and 5 an hour per address. They live in memory, which suits
+    one instance.
+15. **Pages carry a strict CSP** (nonce'd inline style and script only), `frame-ancestors 'none'` and `no-store`.
+    Cookies are `HttpOnly; SameSite=Lax`, and `__Host-` + `Secure` on https.
+
 ## What it drops, for now
 
 - Keys, backups, export and delete: step 5, which waits on Mike (DESIGN §5).

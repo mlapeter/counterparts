@@ -1,0 +1,174 @@
+/**
+ * THE SMALL WEB TOOLKIT THE PAGES SHARE (OL2 step 3): cookies, forms, CSRF,
+ * HTML escaping, the page frame and its headers, client IPs, rate limits.
+ * No framework, no dependency.
+ */
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import type { IncomingMessage, ServerResponse } from "node:http";
+
+export const MAX_FORM_BYTES = 8 * 1024;
+
+export function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
+export function parseCookies(req: IncomingMessage): Map<string, string> {
+  const out = new Map<string, string>();
+  const raw = req.headers["cookie"];
+  if (typeof raw !== "string") return out;
+  for (const part of raw.split(";")) {
+    const i = part.indexOf("=");
+    if (i <= 0) continue;
+    const k = part.slice(0, i).trim();
+    const v = part.slice(i + 1).trim();
+    if (k.length > 0 && !out.has(k)) out.set(k, v);
+  }
+  return out;
+}
+
+export interface CookieNames {
+  readonly browser: string;
+  readonly session: string;
+  readonly secure: boolean;
+}
+
+/** `__Host-` names (Secure, Path=/, no Domain) on https; plain names for local http. */
+export function cookieNames(publicOrigin: string): CookieNames {
+  const secure = publicOrigin.startsWith("https://");
+  return secure ? { browser: "__Host-cp_browser", session: "__Host-cp_session", secure } : { browser: "cp_browser", session: "cp_session", secure };
+}
+
+export function cookie(name: string, value: string, opts: { secure: boolean; maxAgeS: number }): string {
+  return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${String(opts.maxAgeS)}${opts.secure ? "; Secure" : ""}`;
+}
+
+/** Read an urlencoded form body, bounded. Null when too large or not a form. */
+export async function readForm(req: IncomingMessage, max = MAX_FORM_BYTES): Promise<URLSearchParams | null> {
+  const type = req.headers["content-type"];
+  if (typeof type !== "string" || !/^application\/x-www-form-urlencoded\s*(;|$)/i.test(type)) {
+    req.resume();
+    return null;
+  }
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    size += chunk.length;
+    if (size > max) return null;
+    chunks.push(chunk);
+  }
+  return new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+}
+
+/** CSRF: a token bound to this browser's cookie under a server key. */
+export class Csrf {
+  private readonly key: Buffer;
+  constructor(key?: Buffer) {
+    this.key = key ?? randomBytes(32);
+  }
+  token(browser: string): string {
+    return createHmac("sha256", this.key).update(`csrf:${browser}`).digest("base64url");
+  }
+  check(browser: string | undefined, presented: string | null): boolean {
+    if (browser === undefined || presented === null) return false;
+    const want = Buffer.from(this.token(browser));
+    const got = Buffer.from(presented);
+    return want.length === got.length && timingSafeEqual(want, got);
+  }
+}
+
+/** A POST from a page of ours: the Origin, when the browser sends one, is ours. */
+export function sameOrigin(req: IncomingMessage, publicOrigin: string): boolean {
+  const o = req.headers["origin"];
+  return o === undefined || o === publicOrigin;
+}
+
+/**
+ * A local path to return to after login: one of ours, never another host.
+ * `//evil.example`, `/\evil`, schemes and anything outside the allowed prefixes
+ * fall back to `/account`.
+ */
+export function safeNext(raw: unknown): string {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 512) return "/account";
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return "/account";
+  if (!(raw === "/account" || raw.startsWith("/oauth/"))) return "/account";
+  try {
+    const u = new URL(raw, "https://x.invalid");
+    if (u.origin !== "https://x.invalid") return "/account";
+    return u.pathname + u.search;
+  } catch {
+    return "/account";
+  }
+}
+
+/** The page frame. `nonce` gates the one inline style and any inline script. */
+export function page(res: ServerResponse, status: number, opts: { title: string; body: string; nonce?: string; headers?: Record<string, string | string[]>; formAction?: string }): void {
+  const nonce = opts.nonce ?? randomBytes(16).toString("base64");
+  const csp = [
+    "default-src 'none'",
+    `style-src 'nonce-${nonce}'`,
+    `script-src 'nonce-${nonce}'`,
+    `form-action ${opts.formAction ?? "'self'"}`,
+    "frame-ancestors 'none'",
+    "base-uri 'none'",
+  ].join("; ");
+  res.writeHead(status, {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": csp,
+    ...(opts.headers ?? {}),
+  });
+  res.end(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(opts.title)} · Counterparts</title>
+<style nonce="${nonce}">body{font:16px/1.5 system-ui,sans-serif;max-width:34rem;margin:3rem auto;padding:0 1rem;color:#1d1d1f}input,button{font:inherit;padding:.5rem .7rem;margin:.25rem 0}input[type=email],input[type=text]{width:100%;box-sizing:border-box}button{cursor:pointer}.muted{color:#666}li{margin:.4rem 0}</style>
+</head><body>
+${opts.body}
+</body></html>
+`);
+}
+
+export function redirect(res: ServerResponse, location: string, headers: Record<string, string | string[]> = {}): void {
+  res.writeHead(303, { Location: location, "Cache-Control": "no-store", ...headers });
+  res.end();
+}
+
+/** The client's address: the first X-Forwarded-For hop behind a proxy we trust, else the socket. */
+export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
+  if (trustProxy) {
+    const xff = req.headers["x-forwarded-for"];
+    const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
+    if (first !== undefined && first.length > 0 && first.length < 64) return first;
+  }
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+/** A fixed-window-ish rate limit in memory: at most `max` hits per `windowMs` per key. One instance only. */
+export class RateLimit {
+  private readonly hits = new Map<string, number[]>();
+  private readonly max: number;
+  private readonly windowMs: number;
+  private readonly now: () => number;
+  constructor(max: number, windowMs: number, now: () => number = () => Date.now()) {
+    this.max = max;
+    this.windowMs = windowMs;
+    this.now = now;
+  }
+  take(key: string): boolean {
+    const t = this.now();
+    const list = (this.hits.get(key) ?? []).filter((h) => h > t - this.windowMs);
+    if (list.length >= this.max) {
+      this.hits.set(key, list);
+      return false;
+    }
+    list.push(t);
+    this.hits.set(key, list);
+    if (this.hits.size > 50_000) this.sweep(t);
+    return true;
+  }
+  private sweep(t: number): void {
+    for (const [k, v] of this.hits) if (!v.some((h) => h > t - this.windowMs)) this.hits.delete(k);
+  }
+}
