@@ -131,7 +131,7 @@ export function renderNight(r: NightReplayRecord): string {
 
 /** The week's record, as lines: per session, per night, per wake. Counts, states and labels only. */
 export function renderWeek(r: WeekRecord): string {
-  const out: string[] = [`${r.owner}'s first week (${r.script}, seat ${r.seat}) · ${String(r.days)} days · ${(r.elapsedMs / 60_000).toFixed(1)} min · model calls ${String(r.modelCalls)}`];
+  const out: string[] = [`${r.owner}'s first week (${r.script}, seat ${r.seat}) · ${String(r.days)} days · ${r.elapsedMs < 60_000 ? `${(r.elapsedMs / 1000).toFixed(1)} s` : `${(r.elapsedMs / 60_000).toFixed(1)} min`} · model calls ${String(r.modelCalls)}`];
   for (const x of r.sessions) {
     const c = x.coverage;
     const ledger = c === null ? "ledger: nothing captured" : `captured ${String(c.pieces)}, written ${String(c.written)}, unwritten ${String(c.unwritten)}${c.spanMin === null ? "" : ` over ${String(c.spanMin)} min`} · ${c.owed ? "OWED" : `not owed (${c.whyNot ?? "?"})`}`;

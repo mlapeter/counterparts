@@ -353,7 +353,9 @@ const FURNITURE: readonly (readonly [RegExp, string])[] = [
   [/^Today, elsewhere\b/, "Today, elsewhere"],
   [/^Since you started\b/, "Since you started"],
   [/^About me, from another directory\b/, "About me, elsewhere"],
-  [/^Handoff\b/, "Handoff"],
+  // The handoff pointer and its "since" line, as the wake prints them (`test/continuity.test.ts`).
+  [/^Where I left off\b/, "Handoff"],
+  [/^Since this handoff:/, "Since this handoff"],
   [/^Still open\b/, "Still open"],
 ];
 
@@ -791,7 +793,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
                 ignored += 1;
                 answer = SCRIPTED_REPLY;
               } else {
-                if (await tool("session_end", { memories: onAsk.memories.map((content) => ({ content })) })) answered += 1;
+                if (await tool("session_end", { memories: onAsk.memories.map((content) => ({ content })), ...(onAsk.handoff === undefined ? {} : { handoff: onAsk.handoff }) })) answered += 1;
                 else ignored += 1;
                 answer = "Noted for next time.";
               }

@@ -41,7 +41,7 @@ export interface ScriptedSession {
    * or `"ignore"`: reply without calling the tool, as a model that carries on
    * does. Default: answered, no memories. A model decides for itself.
    */
-  readonly onAsk?: "ignore" | { readonly memories: readonly string[] };
+  readonly onAsk?: "ignore" | { readonly memories: readonly string[]; readonly handoff?: string };
 }
 
 /** A scripted seat's reply when the line names none. */

@@ -106,7 +106,7 @@ const NIGHT: readonly ScriptedDay[] = [
       },
       {
         scope: "chat",
-        onAsk: { memories: ["The owner wants tomatoes on the south bed."] },
+        onAsk: { memories: ["The owner wants tomatoes on the south bed."], handoff: "Plant the tomato starts on the south bed on Saturday." },
         turns: [
           { say: "one more: tomatoes or beans on the south bed?", remember: ["The owner is choosing between tomatoes and beans for the south bed."] },
           ...Array.from({ length: 8 }, (_, i) => ({ say: `thinking it through out loud, part ${String(i + 1)}, the south bed gets the most sun of all of them`, after: 5 })),
@@ -115,7 +115,13 @@ const NIGHT: readonly ScriptedDay[] = [
       },
     ],
   },
-  { sessions: [{ scope: "chat", turns: [{ say: "morning, quick hello" }] }] },
+  {
+    sessions: [
+      { scope: "chat", turns: [{ say: "morning, quick hello" }] },
+      // The default answer to an ask: a `session_end` with no memories ("nothing new"), which the server accepts.
+      { scope: "chat", turns: Array.from({ length: 8 }, (_, i) => ({ say: `an afternoon note about the compost heap, number ${String(i + 1)}, long enough to count`, after: 5 })) },
+    ],
+  },
 ];
 
 test("a night the gate launches runs its catch-up plan with the scripted seat refusing every child; asks answered and ignored; Last here names the chapter", async () => {
@@ -132,6 +138,9 @@ test("a night the gate launches runs its catch-up plan with the scripted seat re
   expect(chose!.asks).toBeGreaterThan(0);
   expect(chose!.asksAnswered).toBe(chose!.asks);
   expect(chose!.chapters).toBe(1);
+  const compost = r.sessions.find((s) => s.label === "d2s2")!;
+  expect(compost.asks).toBeGreaterThan(0);
+  expect(compost.asksAnswered).toBe(compost.asks);
   // WITHOUT THE MEETING the first lived day is over at the first boundary, so the gate is due by
   // the second session's first prompt (3 new memories): the product launches the night there, on
   // day 1, and again on each morning after, since a refused dream never journals.
@@ -157,6 +166,8 @@ test("a night the gate launches runs its catch-up plan with the scripted seat re
   expect(morning.lastHere?.session).toBe("d1s2");
   expect(morning.lastHere?.episode).toMatch(/^epi_/);
   expect(morning.lines).toContain("Last here");
+  // The handoff its `session_end` left stands on the next morning's wake, as its pointer line.
+  expect(morning.lines).toContain("Handoff");
   // Still owed at the end: nobody wrote it up.
   expect(r.owedAtEnd).toContain("d1s1");
   expect(JSON.stringify(r)).not.toContain("tomatoes");
