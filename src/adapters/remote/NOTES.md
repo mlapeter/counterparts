@@ -16,3 +16,14 @@
   claude.ai subscription (this build's own session had `claude.ai Claude Docs` loaded).
   A trial connector would appear there as a second memory server. The trial checklist
   gives the `deniedMcpServers` entry that keeps it out.
+- **A night through the tools alone (the roadmap's addendum, 2026-10-26).** A remote model
+  (a Cowork scheduled task, or `claude -p` by hand) can run the night with no hooks and no
+  local children: `wake` for a session, `dream` `launch` for the prompt, then the tools
+  that prompt names (`dream` writer/begin/propose/journal, `self_page`, `recall`,
+  `reflect`), all on this door (`test/remote-http.test.ts` holds the names). Two things
+  stay with the headless run: the tagging child's `tags` phase (served to that child
+  alone), and the transcript catch-up, which has nothing to catch up for a chat with no
+  transcript. No tool carries an annotation that asks for a person; `dream` has the
+  standard `destructiveHint: true`.
+- **The trial store offers no first meeting.** Only `counterparts install` writes
+  onboarding `not_started`; a store this door opens fresh reads `done`.

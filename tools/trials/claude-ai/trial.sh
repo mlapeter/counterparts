@@ -131,7 +131,7 @@ case "$cmd" in
     if [ "$DRY" = 1 ] && [ "$LOCAL" = 0 ]; then
       fresh_store
       echo "dry run: would start the server on 127.0.0.1 (a free port), then:"
-      echo "  cloudflared tunnel --no-autoupdate --url http://127.0.0.1:<port>"
+      echo "  cloudflared tunnel --no-autoupdate --loglevel info --url http://127.0.0.1:<port>"
       echo "and print https://<name>.trycloudflare.com/<secret> once."
       command -v cloudflared >/dev/null || echo "cloudflared is not installed: brew install cloudflared"
       exit 0
@@ -148,7 +148,8 @@ case "$cmd" in
         exit 1
       fi
       : > "$DIR/tunnel.log"
-      cloudflared tunnel --no-autoupdate --url "http://127.0.0.1:$PORT" >> "$DIR/tunnel.log" 2>&1 &
+      # `info` pinned: at `debug` cloudflared logs every request URL, secret included.
+      cloudflared tunnel --no-autoupdate --loglevel info --url "http://127.0.0.1:$PORT" >> "$DIR/tunnel.log" 2>&1 &
       TUNNEL_PID=$!
       HOST=""
       for _ in $(seq 1 60); do

@@ -33,7 +33,9 @@ on the owner's machine through a tunnel he starts.
    constant time. Every other path and method gets the same `404` and the same body;
    `GET` and `DELETE` on the secret path get `405` (no SSE stream is offered).
 3. The secret appears in one place: the `url …` line on stdout. Not in the call log, the
-   process log, stderr, or any error body.
+   process log, stderr, or any error body. (The trial script prints it once and writes it
+   to no file; it runs cloudflared with `--loglevel info` pinned, because at `debug` the
+   tunnel logs every request URL, per Cloudflare's docs.)
 4. One message at a time reaches `handle` (a queue), because `McpServer` keeps per-call
    state on the instance and stdio never delivered two at once.
 5. Bodies over 1 MB are `413`; a body that is not JSON is `400` with JSON-RPC's parse error.
