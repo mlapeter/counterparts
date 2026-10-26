@@ -19,6 +19,12 @@
  * hook's injection arrives in the prompt, wrapped as a system reminder, not
  * as the host's own attachment.
  *
+ * TIER 0 (2026-10-26, `seat: "scripted"`): the same host with no model in the
+ * seat. Each line gets the script's reply and its scripted tool calls, made
+ * through the memory's own server in-process; the nights run `runNight` with
+ * a seat that refuses every ask (`scriptedNightSeat`). Every model child of
+ * either seat goes through one starter, counted in `modelCalls`.
+ *
  * The store, a snapshot of it at the week's end (a single file, for
  * `cli.ts replay`), and the run record are the output. The record holds counts
  * and states only.
@@ -30,21 +36,24 @@ import { join, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
 
-import { ClaudeCodeAdapter, NIGHT_DENIED_TOOLS, NIGHT_KIND_ENV, NIGHT_RUN_ENV, expansionIdsOf, openEmbedder, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
-import type { ChildPlan, ChildResult, HookInput, NightStarter, SpawnPlan } from "../../src/adapters/claude-code/index.js";
+import { ClaudeCodeAdapter, NIGHT_DENIED_TOOLS, NIGHT_KIND_ENV, NIGHT_RUN_ENV, catchUpOf, expansionIdsOf, openEmbedder, planCatchUp, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
+import type { ChildPlan, ChildResult, HookInput, NightAnswer, NightStarter, SpawnPlan } from "../../src/adapters/claude-code/index.js";
+import { coverageReading } from "../../src/adapters/cli/commands.js";
+import type { CoverageRow } from "../../src/adapters/cli/commands.js";
 import type { TurnExpansion } from "../../src/adapters/lifecycle.js";
+import { McpServer } from "../../src/adapters/mcp/index.js";
 import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
-import { Counterpart, coreFromBeliefs } from "../../src/core/counterpart.js";
-import type { PlainReminder } from "../../src/core/counterpart.js";
+import { ADAPTER_ASK_EVENT, Counterpart, coreFromBeliefs } from "../../src/core/counterpart.js";
+import type { PlainReminder, Seat, SeatAsk } from "../../src/core/counterpart.js";
 
 import { childInit, modelSeat, SERVE_AT_SCRIPT } from "./model-seat.js";
 import type { ChildInit } from "./model-seat.js";
-import { OWNER_NAME, OWNER_WEEK } from "./owner-week.js";
+import { OWNER_NAME, OWNER_WEEK, SCRIPTED_GAP_MIN, SCRIPTED_REPLY, turnOf } from "./owner-week.js";
 import type { ScriptedDay } from "./owner-week.js";
 import { SERVE_AT_ENV } from "./serve-at.js";
 import { pageReading } from "./page.js";
 import type { PageReading } from "./page.js";
-import { SETTINGS_ENV, appliedSettings, runningBuild, settingsForChild } from "./settings.js";
+import { SETTINGS_ENV, appliedSettings, runningBuild, settingsForChild, tunableNow } from "./settings.js";
 import type { Setting } from "./settings.js";
 import { settledOf } from "./settled.js";
 import type { SettledReading } from "../../src/adapters/cli/commands.js";
@@ -80,6 +89,16 @@ export interface WeekOptions {
   readonly script?: readonly ScriptedDay[];
   /** The script's name, for the record (default "plain"). */
   readonly scriptName?: string;
+  /** The scripted person's name, for the record (default Dana). */
+  readonly owner?: string;
+  /**
+   * Who sits in the counterpart's seat (default `"model"`). `"scripted"`
+   * (tier 0, 2026-10-26): NO model. Each line gets the script's canned reply
+   * and its scripted tool calls, through the memory's own server in-process;
+   * a Stop ask is answered as the script says; the nights run `runNight` with
+   * a seat that records each ask and starts nothing.
+   */
+  readonly seat?: "model" | "scripted";
   /** Where to write the self page's words at the week's end (`page.ts`); never into the record. */
   readonly pageOut?: string;
   /** How many of the script's days to run (default all). */
@@ -108,17 +127,89 @@ export interface WeekOptions {
   readonly onProgress?: (line: string) => void;
 }
 
+/**
+ * ONE SESSION AS THE COVERAGE LEDGER JUDGED IT once it ended (2026-10-26,
+ * `cli/coverage.ts#coverageReading`, the reading `counterparts coverage`
+ * prints). Counts and minutes only.
+ */
+export interface SessionCoverage {
+  /** Pieces captured (the person's lines and jots), and how many are written up. */
+  readonly pieces: number;
+  readonly written: number;
+  readonly unwritten: number;
+  /** The unwritten stretch, first piece to last, in minutes; null when nothing is unwritten. */
+  readonly spanMin: number | null;
+  readonly state: string;
+  readonly overFloor: boolean;
+  /** Owed a write-up, and a person's session (the catch-up's own filter). */
+  readonly owed: boolean;
+  /**
+   * Why it is not owed, or null when it is: `written` (nothing unwritten),
+   * `active`, `lapsed`, `under-floor:pieces` / `under-floor:span` (named
+   * against `coverage.OWED_PIECES` / `OWED_SPAN_MS` as set for the run),
+   * `not-a-person`.
+   */
+  readonly whyNot: string | null;
+}
+
 export interface SessionLine {
   readonly day: number;
+  /** `d<day>s<n>`: how the record names this session elsewhere (the catch-up plan, the wakes). */
+  readonly label: string;
   readonly scope: string;
   readonly turns: number;
   /** Footnotes the turns' recall showed, in all. */
   readonly footnotes: number;
-  /** Stop asks the session got, and how many the model answered. */
+  /** Stop asks the session got. */
   readonly asks: number;
+  /** Stops at a turn's end (not the re-fired ones): each either asked or was paced. */
+  readonly stops: number;
+  /** Stops that asked nothing: `stops - asks`. */
+  readonly paced: number;
+  /** The pacer's own word on each Stop (`adapter.ask` rows), counted as `outcome:reason` ("paced:not-enough-substance", "asked:…"). */
+  readonly stopReasons: Readonly<Record<string, number>>;
+  /** A scripted seat's: asks answered with `session_end`, and left unanswered. Null for a model, which decides itself. */
+  readonly asksAnswered: number | null;
+  readonly asksIgnored: number | null;
+  /** A scripted seat's `remember` calls that landed, and that the server refused. Null for a model. */
+  readonly remembers: number | null;
+  readonly remembersRefused: number | null;
+  /** A scripted seat's `chapter` calls that landed, and that the server refused. Null for a model. */
+  readonly chapters: number | null;
+  readonly chaptersRefused: number | null;
   readonly memoriesAfter: number;
   readonly failedTurns: number;
   readonly init: ChildInit | null;
+  /** The ledger's word on it right after its end; null when it captured nothing the ledger holds. */
+  readonly coverage: SessionCoverage | null;
+}
+
+/** What a night's catch-up would write up, planned before the night runs (`planCatchUp`, nothing written). */
+export interface NightCatchUp {
+  /** Sessions owing a write-up the catch-up could take. */
+  readonly owed: number;
+  /** The first batch's sessions, by label (`?` for one not from this week), with the parts it would read of each. */
+  readonly planned: readonly { readonly session: string; readonly parts: number; readonly of: number }[];
+  /** The run's own row afterwards (`night.write-up`), or null when it wrote none (nothing owed). */
+  readonly ran: { readonly state: string; readonly granted: number; readonly written: number; readonly left: number; readonly partsLeft: number | null } | null;
+}
+
+/** One SessionStart's wake, read for its furniture: which session "Last here" names, and the lines around it, by kind. */
+export interface WakeLine {
+  readonly day: number;
+  /** The session it opened, by label. */
+  readonly label: string;
+  /** The day's first session: the morning's wake. */
+  readonly morning: boolean;
+  /** "Last here": the chapter it names and the session that wrote it (by label; `?` when not this week's), or null when the wake has none. */
+  readonly lastHere: { readonly episode: string; readonly session: string } | null;
+  /** "Last said here": the session it quotes (by label), or null. */
+  readonly lastSaid: string | null;
+  /** The dream's gate as the session's first prompt finds it (`Dreams#status`): its reason, and the new memories it counted (a floor at `MIN_NEW`). */
+  readonly gate: { readonly reason: string; readonly newSince: number };
+  /** The furniture lines it carried, by their opening words ("Last here", "Yesterday", "Handoff", ...), never their text. */
+  readonly lines: readonly string[];
+  readonly bytes: number;
 }
 
 export interface WeekRecord {
@@ -137,9 +228,22 @@ export interface WeekRecord {
   readonly ranAt: string;
   readonly elapsedMs: number;
   readonly days: number;
+  /** Who sat in the seat: "model" or "scripted" (tier 0, no model). */
+  readonly seat: "model" | "scripted";
+  /** Model children started, turns and nights: every call to the starter. 0 for a scripted seat, by construction and by count. */
+  readonly modelCalls: number;
   readonly sessions: readonly SessionLine[];
-  /** The nights the product launched (its gate decided), by the morning they ran on. */
-  readonly nights: readonly { readonly day: number; readonly state: string; readonly kind: string; readonly parts: readonly string[] }[];
+  /**
+   * The nights the product launched (its gate decided), by the morning they
+   * ran on. `asked`: the acts the night put to its seat, in order (a
+   * scripted seat refuses each, so a refused dream ends the run before its
+   * reflection and tags are reached). `catchUp`: what it would write up.
+   */
+  readonly nights: readonly { readonly day: number; readonly launchedIn: string; readonly state: string; readonly kind: string; readonly parts: readonly string[]; readonly asked: readonly { readonly act: string; readonly promptBytes: number }[]; readonly catchUp: NightCatchUp | null }[];
+  /** Every SessionStart's wake, read for "Last here" and its neighbours. */
+  readonly wakes: readonly WakeLine[];
+  /** Sessions owed a write-up at the week's end, by label (the ledger's word then). */
+  readonly owedAtEnd: readonly string[];
   /** Worker boundaries the product asked for (each Stop and session end), run by the harness. */
   readonly boundaries: number;
   /**
@@ -182,6 +286,100 @@ export function replyOf(output: string | undefined): string {
 /** A hook's words as the model sees them in a live session: beside its turn, as a system reminder. */
 function reminded(injection: string, text: string): string {
   return injection.trim().length === 0 ? text : `<system-reminder>\n${injection.trim()}\n</system-reminder>\n\n${text}`;
+}
+
+/**
+ * THE NIGHT'S SEAT WITH NO MODEL (tier 0, 2026-10-26): it refuses every ask,
+ * so nothing starts (the week records each ask by act and size). `runNight`
+ * still runs everything that needs no model: the gate that launched it, the
+ * catch-up's plan, grant and release (its row says `could-not-start`), the
+ * run's row. A refused first child ends the run, so the reflection and the
+ * tags are never asked.
+ */
+export function scriptedNightSeat(): Seat<NightAnswer> {
+  return {
+    name: "harness:scripted",
+    answer(_ask: SeatAsk): Promise<NightAnswer> {
+      return Promise.resolve({ refused: "harness:scripted", started: false, code: null, timedOut: false, error: null, ms: 0 });
+    },
+  };
+}
+
+/** Why a ledger row is not owed, against the floor as set for this run; null when it is owed. Pure. */
+export function whyNotOwed(e: CoverageRow, floor: { pieces: number; spanMs: number } = coverageFloor()): string | null {
+  if (e.owed && e.person) return null;
+  if (e.stretch === null) return "written";
+  if (e.state === "active") return "active";
+  if (e.lapsed) return "lapsed";
+  if (!e.overFloor) return e.stretch.pieces < floor.pieces ? "under-floor:pieces" : e.stretch.lastAt - e.stretch.firstAt < floor.spanMs ? "under-floor:span" : "under-floor";
+  if (!e.person) return "not-a-person";
+  return "not-owed";
+}
+
+/** The floor a stretch must pass to be owed, as set for this run (`--set coverage.OWED_PIECES=…` moves it). */
+function coverageFloor(): { pieces: number; spanMs: number } {
+  const pieces = tunableNow("coverage", "OWED_PIECES");
+  const spanMs = tunableNow("coverage", "OWED_SPAN_MS");
+  return { pieces: typeof pieces === "number" ? pieces : 3, spanMs: typeof spanMs === "number" ? spanMs : 15 * MIN };
+}
+
+/** A ledger row as the record keeps it: counts and minutes. Pure. */
+export function sessionCoverage(e: CoverageRow): SessionCoverage {
+  const unwritten = e.stretch?.pieces ?? 0;
+  return {
+    pieces: e.pieces,
+    written: e.written,
+    unwritten,
+    spanMin: e.stretch === null ? null : e.stretch.minutes,
+    state: e.state,
+    overFloor: e.overFloor,
+    owed: e.owed && e.person,
+    whyNot: whyNotOwed(e),
+  };
+}
+
+/**
+ * THE WAKE'S FURNITURE, by kind (the lines spliced around the bundle: "Last
+ * here", "Before it", "Last said here", "Yesterday", the handoff pointer…).
+ * Matched by their opening words; the record keeps the kinds, never a line.
+ */
+const FURNITURE: readonly (readonly [RegExp, string])[] = [
+  [/^Last here:/, "Last here"],
+  [/^Before it:/, "Before it"],
+  [/^\+\d+ more here/, "+N more here"],
+  [/^Last said here/, "Last said here"],
+  [/^Yesterday\b/, "Yesterday"],
+  [/^Today so far\b/, "Today so far"],
+  [/^Today, elsewhere\b/, "Today, elsewhere"],
+  [/^Since you started\b/, "Since you started"],
+  [/^About me, from another directory\b/, "About me, elsewhere"],
+  [/^Handoff\b/, "Handoff"],
+  [/^Still open\b/, "Still open"],
+];
+
+/** One wake read for "Last here" and its neighbours. `sessionOf` maps an episode to the session that wrote it; `label` a session id (or its first 8 characters) to its label. */
+export function readWake(injection: string, sessionOf: (episode: string) => string | null, label: (session: string) => string): Pick<WakeLine, "lastHere" | "lastSaid" | "lines" | "bytes"> {
+  const lines: string[] = [];
+  let lastHere: WakeLine["lastHere"] = null;
+  let lastSaid: string | null = null;
+  for (const raw of injection.split("\n")) {
+    const line = raw.trim();
+    const kind = FURNITURE.find(([re]) => re.test(line))?.[1];
+    if (kind === undefined) continue;
+    lines.push(kind);
+    if (kind === "Last here" && lastHere === null) {
+      const episode = /\bepi_[A-Za-z0-9_-]+/.exec(line)?.[0] ?? null;
+      if (episode !== null) {
+        const s = sessionOf(episode);
+        lastHere = { episode, session: s === null ? "?" : label(s) };
+      }
+    }
+    if (kind === "Last said here" && lastSaid === null) {
+      const s = /\(session ([^)\s]+)\)/.exec(line)?.[1];
+      if (s !== undefined) lastSaid = label(s);
+    }
+  }
+  return { lastHere, lastSaid, lines, bytes: Buffer.byteLength(injection, "utf8") };
 }
 
 /** The ids and handles the model opened with the recall tool in one turn, read from its stream-json as live reads a transcript. */
@@ -330,9 +528,24 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   const scopesFile = scopesPath(configPath);
   const registry = setScope(null, work, "on", { at: startDate });
   writeScopes(scopesFile, registry);
-  const start = opts.start ?? ((p: ChildPlan): Promise<ChildResult> => startChild(p));
+  // EVERY MODEL CHILD GOES THROUGH HERE, turns and nights alike, and is
+  // counted: a scripted seat's record says 0 because nothing called it.
+  let modelCalls = 0;
+  const start = (p: ChildPlan): Promise<ChildResult> => {
+    modelCalls += 1;
+    return (opts.start ?? ((q: ChildPlan): Promise<ChildResult> => startChild(q)))(p);
+  };
+  const scripted = opts.seat === "scripted";
   const say = (line: string): void => opts.onProgress?.(line);
   const turnOpts: WeekOptions = { ...opts, timeZone };
+  // HOW THE RECORD NAMES A SESSION: `d<day>s<n>`, from its id or the id's first 8 characters (a wake line's spelling).
+  const labels = new Map<string, string>();
+  const labelOf = (session: string): string => {
+    const exact = labels.get(session);
+    if (exact !== undefined) return exact;
+    for (const [id, l] of labels) if (session.length >= 8 && id.startsWith(session)) return l;
+    return "?";
+  };
 
   let clock = at(startDate, 0);
   const now = (): number => clock;
@@ -340,7 +553,9 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   const open = (): Counterpart => Counterpart.open({ dir, budgetBytes: budget, now, timeZone, ...(embedder === null ? {} : { embed: embedder.embed }) });
   const counterpart = open();
   // AS A NEW INSTALL BEGINS: the meeting waits for the first session, dreaming is on.
-  if (opts.install !== false) counterpart.store.setMetaMany(opts.install === "without-meeting" ? NEW_INSTALL_META.filter(([k]) => k !== "onboarding.meet") : NEW_INSTALL_META);
+  // A SCRIPTED SEAT BEGINS WITHOUT THE MEETING by default: the night's gate waits while one is pending, and no model is there to hold it.
+  const install = opts.install ?? (scripted ? "without-meeting" : true);
+  if (install !== false) counterpart.store.setMetaMany(install === "without-meeting" ? NEW_INSTALL_META.filter(([k]) => k !== "onboarding.meet") : NEW_INSTALL_META);
 
   // THE PRODUCT DECIDES WHAT RUNS: its spawner is asked for the night (at a
   // morning's first prompt, when the gate says so) and for the worker (at each
@@ -352,9 +567,23 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     asked.push(plan);
     return { pid: 0 };
   };
-  const nights: { day: number; state: string; kind: string; parts: string[] }[] = [];
+  const nights: WeekRecord["nights"][number][] = [];
   let boundaries = 0;
-  const drain = async (date: string, day: number): Promise<void> => {
+  // WHAT THE NIGHT'S CATCH-UP WOULD TAKE, read just before it runs, as its first batch will plan it.
+  const catchUpPlan = (run: string): Omit<NightCatchUp, "ran"> => {
+    const c = open();
+    try {
+      const plan = planCatchUp(c, { run, now: clock });
+      return { owed: plan.owed, planned: plan.subjects.map((s) => ({ session: labelOf(s.session), parts: s.served, of: s.of })) };
+    } finally {
+      c.close();
+    }
+  };
+  const catchUpRan = (run: string): NightCatchUp["ran"] => {
+    const r = catchUpOf(counterpart.store, run);
+    return r === null ? null : { state: r.state, granted: r.granted, written: r.written, left: r.left, partsLeft: r.partsLeft };
+  };
+  const drain = async (date: string, day: number, label: string): Promise<void> => {
     // THE WORKER FIRST: live's starts within seconds of its Stop, and its
     // boundary moves the lived day before a night it launched has done
     // anything. A night's returns then land on the day they belong to.
@@ -369,6 +598,17 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
       const kind = plan.env[NIGHT_KIND_ENV]!;
       const run = plan.env[NIGHT_RUN_ENV]!;
       say(`  night (${kind})`);
+      const planned = catchUpPlan(run);
+      // Each ask the night puts to its seat, by act and size, whoever answers.
+      const asked: { act: string; promptBytes: number }[] = [];
+      const inner: Seat<NightAnswer> = scripted ? scriptedNightSeat() : modelSeat({ dir, configPath, now, timeZone, budgetBytes: budget, env, ...(opts.model === undefined ? {} : { model: opts.model }), start });
+      const seat: Seat<NightAnswer> = {
+        name: inner.name,
+        answer: (ask) => {
+          asked.push({ act: ask.act, promptBytes: Buffer.byteLength(ask.prompt, "utf8") });
+          return inner.answer(ask);
+        },
+      };
       const night = await runNight({
         open,
         config,
@@ -376,10 +616,10 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
         session: plan.env["COUNTERPARTS_SESSION"] ?? "",
         scope: plan.env["COUNTERPARTS_SCOPE"] ?? work,
         kind: readKind(kind),
-        seat: modelSeat({ dir, configPath, now, timeZone, budgetBytes: budget, env, ...(opts.model === undefined ? {} : { model: opts.model }), ...(opts.start === undefined ? {} : { start: opts.start }) }),
+        seat,
         now,
       });
-      nights.push({ day, state: night.state, kind, parts: [...(night.parts ?? [])] });
+      nights.push({ day, launchedIn: label, state: night.state, kind, parts: [...(night.parts ?? [])], asked, catchUp: { ...planned, ran: catchUpRan(run) } });
     }
   };
   const adapterFor = (scope: string): ClaudeCodeAdapter =>
@@ -409,7 +649,36 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   };
 
   const sessions: SessionLine[] = [];
+  const wakes: WakeLine[] = [];
+  const owedAtEnd: string[] = [];
   const daily: { day: number; date: string; alive: number; core: number; beliefCore: number; beliefs: number }[] = [];
+  const sessionOf = (episode: string): string | null => {
+    const db = new Database(join(dir, "counterparts.sqlite"), { readonly: true });
+    try {
+      return (db.query("SELECT origin_session AS s FROM memories WHERE id = ?").get(episode) as { s: string | null } | null)?.s ?? null;
+    } finally {
+      db.close();
+    }
+  };
+  const ledgerOf = (session: string): SessionCoverage | null => {
+    const row = coverageReading(counterpart.store).find((e) => e.session === session);
+    return row === undefined ? null : sessionCoverage(row);
+  };
+  const stopReasonsOf = (session: string): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const r of counterpart.store.eventLog({ name: ADAPTER_ASK_EVENT })) {
+      let p: { session?: unknown; outcome?: unknown; reason?: unknown };
+      try {
+        p = JSON.parse(r.payload ?? "{}") as typeof p;
+      } catch {
+        continue;
+      }
+      if (p.session !== session) continue;
+      const key = `${String(p.outcome ?? "?")}:${String(p.reason ?? "?")}`;
+      out[key] = (out[key] ?? 0) + 1;
+    }
+    return out;
+  };
   try {
     // The script's days, then one more morning: its first session start is where the last night runs.
     for (let d = 0; d <= script.length; d++) {
@@ -418,6 +687,8 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
       for (const [k, s] of day.sessions.entries()) {
         clock = at(date, SESSION_HOURS[k] ?? 21);
         const sessionId = randomUUID();
+        const label = `d${String(d + 1)}s${String(k + 1)}`;
+        labels.set(sessionId, label);
         const scope = join(work, s.scope);
         mkdirSync(scope, { recursive: true });
         w.projects.push(scope);
@@ -428,7 +699,9 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
         say(`day ${String(d + 1)} ${date}: session ${String(k + 1)} (${s.scope}), ${String(s.turns.length)} turns`);
         const woke = adapter.sessionStart({ ...base(), source: "startup" });
         claim(adapter, base(), woke);
-        await drain(date, d + 1);
+        await drain(date, d + 1, label);
+        const gate = counterpart.dreams.status(date);
+        wakes.push({ day: d + 1, label, morning: k === 0, ...readWake(woke.injection, sessionOf, labelOf), gate: { reason: gate.reason, newSince: gate.newSince } });
         if (s.turns.length === 0) {
           // THE EXTRA MORNING: the product launches the night from the first
           // prompt (`hooks.ts#dreamLines`), never from the session start, so
@@ -439,17 +712,33 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
           // within seconds, before the night it launched has begun its dream.
           boundaries += 1;
           await counterpart.sessionEnd({ date, sweep: { skipped: "not-opted-in" } });
-          await drain(date, d + 1);
+          await drain(date, d + 1, label);
           adapter.sessionEnd({ ...base() });
-          await drain(date, d + 1);
+          await drain(date, d + 1, label);
           continue;
         }
         let pending = [woke.injection, woke.ask ?? ""].filter((x) => x.length > 0).join("\n\n");
         let first = true;
         let footnotes = 0;
         let asks = 0;
+        let stops = 0;
+        let answered = 0;
+        let ignored = 0;
+        let remembered = 0;
+        let refusedRemembers = 0;
+        let chapters = 0;
+        let refusedChapters = 0;
         let failed = 0;
         let init: ChildInit | null = null;
+        // A SCRIPTED SEAT'S TOOLS: the memory's own server, in-process, bound
+        // to this session and folder as the session's server is (`serve-at.ts`).
+        const server = scripted
+          ? new McpServer({ counterpart, session: sessionId, scope, now, scopesFile, env: {}, ...(embedder === null ? {} : { embedder }) })
+          : null;
+        const tool = async (name: string, args: Record<string, unknown>): Promise<boolean> => {
+          const out = await (server as McpServer).call(name, { session: sessionId, ...args });
+          return out.isError !== true && out.structuredContent["ok"] !== false;
+        };
         const turn = async (prompt: string): Promise<string> => {
           const plan = planTurn(turnOpts, { dir, configPath, session: sessionId, scope, now: clock, first, prompt, scopesFile });
           first = false;
@@ -463,29 +752,79 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
           if (ids.length > 0) expansions.push({ atTurn: log.length, ids });
           return replyOf(result.output);
         };
-        for (const text of s.turns) {
+        for (const [i, line] of s.turns.map(turnOf).entries()) {
+          const text = line.say;
+          // HUMAN PACING (scripted): the line is typed `after` minutes past the last Stop.
+          if (scripted && i > 0) clock += (line.after ?? SCRIPTED_GAP_MIN) * MIN;
           const said = adapter.userPromptSubmit({ ...base(), prompt: text });
           claim(adapter, base(), said);
           footnotes += said.footnotes.length;
           const context = [pending, said.injection, said.ask ?? ""].filter((x) => x.length > 0).join("\n\n");
           pending = "";
           log.push({ role: "user", text });
-          const reply = await turn(reminded(context, text));
+          let reply: string;
+          if (scripted) {
+            // The turn's tool calls first, as a model makes them before its reply ends the turn.
+            for (const memory of line.remember ?? []) {
+              if (await tool("remember", { text: memory })) remembered += 1;
+              else refusedRemembers += 1;
+            }
+            if (line.chapter !== undefined) {
+              if (await tool("chapter", { title: line.chapter.title, text: line.chapter.text })) chapters += 1;
+              else refusedChapters += 1;
+            }
+            reply = line.reply ?? SCRIPTED_REPLY;
+            clock += MIN / 2;
+          } else reply = await turn(reminded(context, text));
           log.push({ role: "assistant", text: reply });
           // THE STOP, its boundary (the worker it asks for), and its ask: put to the model as the conversation's next message.
           const stopped = adapter.stop({ ...base() });
-          await drain(date, d + 1);
+          stops += 1;
+          await drain(date, d + 1, label);
           if (stopped.ask !== null && stopped.ask.length > 0) {
             asks += 1;
-            const answer = await turn(reminded(stopped.ask, "(Stop hook feedback)"));
+            let answer: string;
+            if (scripted) {
+              // As the script says: a `session_end` with its memories, or carry on without the tool.
+              const onAsk = s.onAsk ?? { memories: [] };
+              if (onAsk === "ignore") {
+                ignored += 1;
+                answer = SCRIPTED_REPLY;
+              } else {
+                if (await tool("session_end", { memories: onAsk.memories.map((content) => ({ content })) })) answered += 1;
+                else ignored += 1;
+                answer = "Noted for next time.";
+              }
+              clock += MIN / 2;
+            } else answer = await turn(reminded(stopped.ask, "(Stop hook feedback)"));
             log.push({ role: "assistant", text: answer });
             adapter.stop({ ...base(), reFired: true });
-            await drain(date, d + 1);
+            await drain(date, d + 1, label);
           }
         }
         adapter.sessionEnd({ ...base() });
-        await drain(date, d + 1);
-        sessions.push({ day: d + 1, scope: s.scope, turns: s.turns.length, footnotes, asks, memoriesAfter: count(dir, "SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND type = 'memory'"), failedTurns: failed, init });
+        await drain(date, d + 1, label);
+        sessions.push({
+          day: d + 1,
+          label,
+          scope: s.scope,
+          turns: s.turns.length,
+          footnotes,
+          asks,
+          stops,
+          paced: stops - asks,
+          stopReasons: stopReasonsOf(sessionId),
+          asksAnswered: scripted ? answered : null,
+          asksIgnored: scripted ? ignored : null,
+          remembers: scripted ? remembered : null,
+          remembersRefused: scripted ? refusedRemembers : null,
+          chapters: scripted ? chapters : null,
+          chaptersRefused: scripted ? refusedChapters : null,
+          memoriesAfter: count(dir, "SELECT COUNT(*) AS n FROM memories WHERE archived = 0 AND type = 'memory'"),
+          failedTurns: failed,
+          init,
+          coverage: ledgerOf(sessionId),
+        });
       }
       if (d < script.length) {
         daily.push({
@@ -497,6 +836,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
         });
       }
     }
+    for (const e of coverageReading(counterpart.store)) if (e.owed && e.person) owedAtEnd.push(labelOf(e.session));
   } finally {
     counterpart.close();
   }
@@ -512,7 +852,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
   }
   return {
     harness: "owner-week",
-    owner: OWNER_NAME,
+    owner: opts.owner ?? OWNER_NAME,
     script: opts.scriptName ?? "plain",
     build: runningBuild(),
     settings: appliedSettings(),
@@ -521,8 +861,12 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     ranAt: new Date(w.started).toISOString(),
     elapsedMs: Date.now() - w.started,
     days: script.length,
+    seat: scripted ? "scripted" : "model",
+    modelCalls,
     sessions,
     nights,
+    wakes,
+    owedAtEnd,
     boundaries,
     daily,
     out,

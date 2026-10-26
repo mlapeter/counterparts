@@ -45,6 +45,11 @@ const MODULES: Readonly<Record<string, Record<string, unknown>>> = {
   sleep: SLEEP as unknown as Record<string, unknown>,
 };
 
+/** A tunable's value as it stands for this run (after any `--set`), for a reading that names the rule it measured against. */
+export function tunableNow(module: string, key: string): unknown {
+  return MODULES[module]?.[key];
+}
+
 /**
  * Keys read through a copy made at load (review of #566): refused, because
  * setting one would change only the readers of the live object.

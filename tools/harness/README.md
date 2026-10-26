@@ -198,7 +198,7 @@ usage.
 ## A scripted owner's first week (`week`)
 
 ```sh
-bun tools/harness/cli.ts week [--script plain|meaningful] [--days N] [--no-nights] [--model <name>] --out <week.sqlite>
+bun tools/harness/cli.ts week [--script plain|meaningful|checkins] [--seat model|scripted] [--days N] [--no-nights] [--model <name>] --out <week.sqlite>
 bun tools/harness/cli.ts replay --source <week.sqlite>      # then, under rule patches, compare
 ```
 
@@ -254,6 +254,78 @@ typed as people type to an assistant. It took about 20 minutes, ended with 59 me
 
 On replay, letting facts count plus a 1-day gap promotes 2; adding a 0.5 feeling bar promotes at least 4. That's a floor: the replay ends before one more consolidation. The bar is also a crude stand-in, because it lets unweighed default feelings through.
 All of them come in on the reflection alone.
+
+## Tier 0: the week with no model (`week --seat scripted`)
+
+```sh
+bun tools/harness/cli.ts week --seat scripted --script checkins [--json <file>] [--out <week.sqlite>] [--keep]
+bun tools/harness/cli.ts compare --mode week --set coverage.OWED_PIECES=1 -- --seat scripted --script checkins
+```
+
+The same host as `week`: `ClaudeCodeAdapter` in-process on the harness's clock, the real
+`sessionStart` / `userPromptSubmit` / `stop` / `sessionEnd`, the worker boundary each one asks
+for, and `runNight` whenever the product's gate launches a night. What changes is who sits in
+the seat. **No model runs, and it costs nothing:** the check-ins week takes about half a
+second, so it can run on every PR. Three tiers, as planned on 2026-10-26: tier 0 is this; tier 1
+would be a small model with a slim prompt over 3–4 days; tier 2 is `week` as above, before a
+release that changes behaviour.
+
+- **A turn:** the line's canned `reply` goes into the transcript the hooks read. Its scripted
+  tool calls go through the memory's own MCP server, in-process and bound to the session and
+  folder, before the turn's Stop, as a model makes them: `remember` (one memory each) and
+  `chapter`. Lines come `after` minutes apart (default 2): human pacing, not a model's 3
+  minutes a call.
+- **A Stop ask:** the session's `onAsk` says what happens. It's either a `session_end` with
+  its memories (the default, with none), or `"ignore"`: the reply carries on without the tool,
+  then the Stop re-fires, as Claude Code does.
+- **A night:** the gate launches it as it would anyway. `runNight` runs with a seat that
+  refuses every ask (`week.ts#scriptedNightSeat`). Still real: the catch-up's plan, grant and
+  release (its row says `could-not-start`) and the run's row. A refused dream ends the run, so
+  the reflection and tags are never asked. The record says which acts were asked.
+- **No meeting by default.** The night's gate waits while a meeting is pending, and no model
+  is there to hold one. So a scripted week begins as an owner who skipped it. One effect:
+  with no meeting holding the first day, the gate can launch the first night in day 1's
+  second session.
+- **Zero model calls, counted:** every model child of any mode goes through one starter, and
+  the record's `modelCalls` counts each call. The test passes a starter that throws.
+
+Scripts: a session's lines are plain strings, or `{ say, reply?, remember?, chapter?, after? }`
+(`owner-week.ts#ScriptedTurn`). `plain` and `meaningful` run under a scripted seat too, with the
+default reply and no tool calls. `checkins` (`checkins-week.ts`) is the new first audience
+(r/claudexplorers, Mike 10-26): Robin, a nurse on a new ward. It has 10 short sessions over 7
+days, 2–4 lines each, two days with 2 sessions, three in-session `remember`s, three sessions
+that ignore an ask, and one that answers it with a memory.
+
+What the record adds (both seats; text never, ids and labels only, sessions named `d<day>s<n>`):
+- **Per session:**
+  - stops, asks raised, and paced, with the pacer's own reason per Stop (`adapter.ask`);
+  - asks answered or ignored, and remembers and chapters landed or refused (scripted seat
+    only);
+  - the coverage ledger's word right after the session ended
+    (`cli/coverage.ts#coverageReading`, the reading `counterparts coverage` prints): pieces
+    captured, written up and unwritten, the stretch's span, owed or not, and why not
+    (`under-floor:pieces`, `under-floor:span`, `written`, `lapsed`, `not-a-person`), against
+    the floor as `--set` left it.
+- **Per night:** the session it was launched in, the acts asked with their prompt sizes, the
+  catch-up's plan just before it ran (`planCatchUp`: sessions owed, and the parts the first
+  batch would read of each), and the catch-up's own row afterwards.
+- **Per SessionStart:**
+  - the session the wake's "Last here" names, and its chapter's id;
+  - the session "Last said here" quotes;
+  - the wake's other lines, by their opening words;
+  - the dream gate's reason and its count of new memories.
+- **Sessions owed at the week's end.** `compare` shows these as rows.
+
+On 2026-10-26 (0.3.37), `checkins` read:
+- 10 sessions and 27 Stops, every one paced (`not-enough-substance`), so no ask was raised;
+- every session ended under the floor (2–4 unwritten pieces over 0–7 minutes), so none was owed;
+- no night all week. The gate said `too-little-new` each morning: with only the three
+  in-session memories, never 3 new in the dream's window. Nothing was owed for a catch-up
+  alone;
+- "Last here" named nothing (no chapter); "Last said here" followed the newest session.
+
+This is the before for S2. With `--set coverage.OWED_PIECES=1 --set
+coverage.OWED_SPAN_MS=60000`, 9 of the 10 are owed and the nights plan 36 parts.
 
 ## Two sides, one table (`compare`)
 

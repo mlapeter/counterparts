@@ -9,13 +9,50 @@
  * come back and many that do not.
  *
  * A session is a project folder (its scope, relative to the run's work dir)
- * and the owner's turns, in order. The counterpart's replies are the model's.
+ * and the owner's turns, in order. The counterpart's replies are the model's,
+ * or, with no model in the seat (`week --seat scripted`, tier 0), the script's.
  */
+
+/**
+ * ONE OWNER LINE WITH WHAT A SCRIPTED SEAT DOES AROUND IT (2026-10-26, tier
+ * 0): the counterpart's reply, the memories it files with `remember` before
+ * the turn's Stop, and when the line is typed. A model in the seat reads only
+ * `say`; the rest is for a run with no model (`week --seat scripted`).
+ */
+export interface ScriptedTurn {
+  readonly say: string;
+  /** The counterpart's canned reply (default `SCRIPTED_REPLY`). */
+  readonly reply?: string;
+  /** Memories filed through the `remember` tool on this turn, before its Stop. */
+  readonly remember?: readonly string[];
+  /** A chapter written through the `chapter` tool on this turn, before its Stop. */
+  readonly chapter?: { readonly title: string; readonly text: string };
+  /** Minutes after the previous turn's Stop that this line is typed (default `SCRIPTED_GAP_MIN`). */
+  readonly after?: number;
+}
 
 export interface ScriptedSession {
   /** The project folder, relative to the run's work dir: the session's scope. */
   readonly scope: string;
-  readonly turns: readonly string[];
+  readonly turns: readonly (string | ScriptedTurn)[];
+  /**
+   * What a scripted seat does with a Stop ask (no model): answer it with a
+   * `session_end` naming these memories (none: answered with nothing to add),
+   * or `"ignore"`: reply without calling the tool, as a model that carries on
+   * does. Default: answered, no memories. A model decides for itself.
+   */
+  readonly onAsk?: "ignore" | { readonly memories: readonly string[] };
+}
+
+/** A scripted seat's reply when the line names none. */
+export const SCRIPTED_REPLY = "Got it. I'm here.";
+
+/** Minutes between a scripted seat's turns when the line names none: human pacing, not a model's 3 minutes a call. */
+export const SCRIPTED_GAP_MIN = 2;
+
+/** A scripted line, whichever way it was written. */
+export function turnOf(t: string | ScriptedTurn): ScriptedTurn {
+  return typeof t === "string" ? { say: t } : t;
 }
 
 export interface ScriptedDay {

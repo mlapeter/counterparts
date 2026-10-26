@@ -12,7 +12,9 @@ import { replayNight } from "./night.js";
 import type { NightReplayRecord } from "./night.js";
 import { runPhysicsReplay } from "./replay.js";
 import { runWeek } from "./week.js";
+import type { WeekRecord } from "./week.js";
 import { OWNER_WEEK_MEANINGFUL } from "./owner-week.js";
+import { CHECKINS_OWNER, OWNER_WEEK_CHECKINS } from "./checkins-week.js";
 import type { RunRecord } from "./replay.js";
 import { DEFAULT_CORPUS } from "./source.js";
 import { runCompare } from "./compare.js";
@@ -127,6 +129,32 @@ export function renderNight(r: NightReplayRecord): string {
   return out.join("\n");
 }
 
+/** The week's record, as lines: per session, per night, per wake. Counts, states and labels only. */
+export function renderWeek(r: WeekRecord): string {
+  const out: string[] = [`${r.owner}'s first week (${r.script}, seat ${r.seat}) · ${String(r.days)} days · ${(r.elapsedMs / 60_000).toFixed(1)} min · model calls ${String(r.modelCalls)}`];
+  for (const x of r.sessions) {
+    const c = x.coverage;
+    const ledger = c === null ? "ledger: nothing captured" : `captured ${String(c.pieces)}, written ${String(c.written)}, unwritten ${String(c.unwritten)}${c.spanMin === null ? "" : ` over ${String(c.spanMin)} min`} · ${c.owed ? "OWED" : `not owed (${c.whyNot ?? "?"})`}`;
+    const tools = x.remembers === null ? "" : ` · remember ${String(x.remembers)}${x.remembersRefused === 0 ? "" : ` (${String(x.remembersRefused)} refused)`}${x.chapters === null || (x.chapters === 0 && x.chaptersRefused === 0) ? "" : ` · chapter ${String(x.chapters)}${x.chaptersRefused === 0 ? "" : ` (${String(x.chaptersRefused)} refused)`}`} · asks answered ${String(x.asksAnswered)}, ignored ${String(x.asksIgnored)}`;
+    out.push(`  ${x.label} ${x.scope}: ${String(x.turns)} turns · stops ${String(x.stops)}: asked ${String(x.asks)}, paced ${String(x.paced)}${Object.keys(x.stopReasons).length === 0 ? "" : ` (${Object.entries(x.stopReasons).map(([k, n]) => `${k} ${String(n)}`).join(", ")})`}${tools} · ${ledger} · footnotes ${String(x.footnotes)} · failed ${String(x.failedTurns)} · memories after ${String(x.memoriesAfter)}${x.init === null ? "" : ` · plugins ${String(x.init.plugins.length)}, servers ${x.init.servers.map((v) => `${v.name}:${v.status}`).join(",")}`}`);
+  }
+  for (const n of r.nights) {
+    const cu = n.catchUp;
+    const plan = cu === null ? "" : ` · catch-up: owed ${String(cu.owed)}${cu.planned.length === 0 ? "" : `, planned ${cu.planned.map((p) => `${p.session} (${String(p.parts)}/${String(p.of)} parts)`).join(", ")}`}${cu.ran === null ? "" : `, ran ${cu.ran.state} (granted ${String(cu.ran.granted)}, written ${String(cu.ran.written)}, left ${String(cu.ran.left)})`}`;
+    out.push(`  night launched day ${String(n.day)} in ${n.launchedIn} (${n.kind}): ${n.state} (${n.parts.join(",") || "none"}) · asked ${n.asked.map((a) => a.act).join(", ") || "nothing"}${plan}`);
+  }
+  for (const k of r.wakes) {
+    if (!k.morning) continue;
+    out.push(`  wake ${k.label}: last here ${k.lastHere === null ? "none" : `${k.lastHere.session} (${k.lastHere.episode})`}${k.lastSaid === null ? "" : ` · last said ${k.lastSaid}`} · lines ${k.lines.join(", ") || "none"} · ${String(k.bytes)} bytes · dream gate ${k.gate.reason} (${String(k.gate.newSince)} new)`);
+  }
+  out.push(`  worker boundaries the product asked for: ${String(r.boundaries)}`);
+  out.push(`  owed at the week's end: ${r.owedAtEnd.length === 0 ? "none" : r.owedAtEnd.join(", ")}`);
+  for (const d of r.daily) out.push(`  end of day ${String(d.day)} ${d.date}: ${String(d.alive)} memories, core ${String(d.core)}`);
+  if (r.out !== null) out.push(`store: ${r.out} (replay it: bun tools/harness/cli.ts replay --source ${r.out})`);
+  if (r.keptAt !== null) out.push(`kept: ${r.keptAt}`);
+  return out.join("\n");
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const [cmd, ...all] = argv;
   if (cmd === "compare") {
@@ -184,9 +212,15 @@ async function main(argv: readonly string[]): Promise<number> {
     const days = flag(args, "--days");
     const scriptName = flag(args, "--script");
     // A bare --script is refused too: a paid run of the wrong week costs more than an error.
-    if (args.includes("--script") && scriptName !== "plain" && scriptName !== "meaningful") throw new Error(`UNKNOWN_SCRIPT: ${scriptName ?? "(none)"} (plain or meaningful)`);
+    if (args.includes("--script") && scriptName !== "plain" && scriptName !== "meaningful" && scriptName !== "checkins") throw new Error(`UNKNOWN_SCRIPT: ${scriptName ?? "(none)"} (plain, meaningful or checkins)`);
+    const seatName = flag(args, "--seat");
+    if (args.includes("--seat") && seatName !== "model" && seatName !== "scripted") throw new Error(`UNKNOWN_SEAT: ${seatName ?? "(none)"} (model or scripted)`);
+    // No model sits in a scripted seat, so naming one is a mistake, not a choice.
+    if (seatName === "scripted" && args.includes("--model")) throw new Error("--model has no seat to sit in with --seat scripted");
     const record = await runWeek({
       ...(scriptName === "meaningful" ? { script: OWNER_WEEK_MEANINGFUL, scriptName } : {}),
+      ...(scriptName === "checkins" ? { script: OWNER_WEEK_CHECKINS, scriptName, owner: CHECKINS_OWNER } : {}),
+      ...(seatName === "scripted" ? { seat: "scripted" as const } : {}),
       ...(days === undefined ? {} : { days: Number(days) }),
       ...(args.includes("--no-nights") ? { nights: false } : {}),
       ...(flag(args, "--out") === undefined ? {} : { out: flag(args, "--out")! }),
@@ -198,16 +232,7 @@ async function main(argv: readonly string[]): Promise<number> {
       ...(flag(args, "--page-out") === undefined ? {} : { pageOut: flag(args, "--page-out")! }),
       onProgress: (line) => process.stderr.write(`${line}\n`),
     });
-    const out: string[] = [`${record.owner}'s first week (${record.script}) · ${String(record.days)} days · ${(record.elapsedMs / 60_000).toFixed(1)} min`];
-    for (const x of record.sessions) {
-      out.push(`  day ${String(x.day)} ${x.scope}: ${String(x.turns)} turns · footnotes ${String(x.footnotes)} · asks ${String(x.asks)} · failed ${String(x.failedTurns)} · memories after ${String(x.memoriesAfter)}${x.init === null ? "" : ` · plugins ${String(x.init.plugins.length)}, servers ${x.init.servers.map((v) => `${v.name}:${v.status}`).join(",")}`}`);
-    }
-    for (const n of record.nights) out.push(`  night on the morning of day ${String(n.day)} (${n.kind}): ${n.state} (${n.parts.join(",") || "none"})`);
-    out.push(`  worker boundaries the product asked for: ${String(record.boundaries)}`);
-    for (const d of record.daily) out.push(`  end of day ${String(d.day)} ${d.date}: ${String(d.alive)} memories, core ${String(d.core)}`);
-    if (record.out !== null) out.push(`store: ${record.out} (replay it: bun tools/harness/cli.ts replay --source ${record.out})`);
-    if (record.keptAt !== null) out.push(`kept: ${record.keptAt}`);
-    process.stdout.write(out.join("\n") + "\n");
+    process.stdout.write(renderWeek(record) + "\n");
     const json = flag(args, "--json");
     if (json !== undefined) writeFileSync(json, JSON.stringify(record, null, 2));
     return 0;
@@ -247,6 +272,7 @@ async function main(argv: readonly string[]): Promise<number> {
         "       bun tools/harness/cli.ts compare --mode replay|night|week [--branch <ref>] [--base <ref>] [--set module.KEY=V]… [--base-set …] [--preset <name>] [--base-preset <name>] [--runs N] [--pages <dir>] -- <the mode's own flags>\n" +
         "       (replay, night and week also take --set module.KEY=V and --preset <name>, and night and week --page-out <file>)\n" +
         "       bun tools/harness/cli.ts corpus [--from <snapshot folder>] [--snapshots <dir>] [--out <dir>] [--json <out>]\n" +
+        "       bun tools/harness/cli.ts week [--script plain|meaningful|checkins] [--seat model|scripted] [--days N] [--no-nights] [--model <name>] [--out <week.sqlite>] [--keep] [--json <out>]\n" +
         "       bun tools/harness/cli.ts night --dir <night folder> | --source <pre-night copy> --outcome <after copy> --dream <transcript> --reflection <transcript> [--model [<name>]] [--time-zone Z] [--budget N] [--no-embed] [--keep] [--json <out>]\n",
     );
     return 2;

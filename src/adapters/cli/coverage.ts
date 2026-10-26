@@ -67,15 +67,37 @@ function standing(e: LedgerEntry, zone: string, auto: boolean, person: boolean):
   );
 }
 
+/** The ledger as this command reads it: every session holding a captured piece, judged now. Read-only. */
+function ledgerNow(store: Store): LedgerEntry[] {
+  const now = store.now();
+  // READ-ONLY by construction: an observer buffer writes nothing.
+  const spans = new SpanBuffer({ dir: store.dir, observer: true, now: () => now });
+  const host = hostSessionEvidence(store);
+  return ledger(spans, { now, zone: store.zone(), host: (s) => ({ endedAt: host(s).endedAt }) });
+}
+
+/** One session as the ledger judges it, with the catch-up's filter beside it. Counts and times, no text. */
+export type CoverageRow = LedgerEntry & {
+  /** A write-up is ever asked for it (`sessions.ts#pointable`). */
+  readonly person: boolean;
+};
+
+/**
+ * THE LEDGER, STRUCTURED (2026-10-26, harness tier 0): what this command
+ * prints, as rows, for a host or an instrument that measures it (the
+ * harness's scripted week). The same reading and the same filter as
+ * `coverageLines`. Read-only.
+ */
+export function coverageReading(store: Store): CoverageRow[] {
+  return ledgerNow(store).map((e) => ({ ...e, person: pointable(e, store.dir) }));
+}
+
 /** The lines `counterparts coverage` prints for `date`. */
 export function coverageLines(input: { store: Store; date: string; today: string }): string[] {
   const { store, date } = input;
   const zone = store.zone();
   const now = store.now();
-  // READ-ONLY by construction: an observer buffer writes nothing.
-  const spans = new SpanBuffer({ dir: store.dir, observer: true, now: () => now });
-  const host = hostSessionEvidence(store);
-  const entries = ledger(spans, { now, zone, host: (s) => ({ endedAt: host(s).endedAt }) });
+  const entries = ledgerNow(store);
   // ONE FILTER for "is a write-up ever asked for it" (2026-10-11): the one
   // the catch-up and doctor read, so this command never lists as owed what
   // they rightly let lapse.

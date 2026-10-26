@@ -220,6 +220,13 @@ export function readRecord(mode: Mode, rec: Record<string, unknown>, pageText: s
     const sessions = Array.isArray(rec["sessions"]) ? (rec["sessions"] as Record<string, unknown>[]) : [];
     rows["footnotes shown"] = sessions.reduce((a, s) => a + (num(s["footnotes"]) ?? 0), 0);
     rows["failed turns"] = sessions.reduce((a, s) => a + (num(s["failedTurns"]) ?? 0), 0);
+    // Tier 0's own readings (2026-10-26), when the record has them: what the Stop asked, what was owed, what the nights planned.
+    if (rec["modelCalls"] !== undefined) rows["model children started"] = num(rec["modelCalls"]);
+    if (sessions.some((s) => s["stops"] !== undefined)) rows["Stop asks raised"] = sessions.reduce((a, s) => a + (num(s["asks"]) ?? 0), 0);
+    if (sessions.some((s) => s["coverage"] !== undefined)) rows["sessions owed at their end"] = sessions.filter((s) => obj(s["coverage"])["owed"] === true).length;
+    if (Array.isArray(rec["owedAtEnd"])) rows["sessions owed at the week's end"] = (rec["owedAtEnd"] as unknown[]).length;
+    if (Array.isArray(rec["wakes"])) rows["night catch-up parts planned"] = nights.reduce((a, n) => a + (Array.isArray(obj(n["catchUp"])["planned"]) ? (obj(n["catchUp"])["planned"] as Record<string, unknown>[]).reduce((b, p) => b + (num(p["parts"]) ?? 0), 0) : 0), 0);
+    if (Array.isArray(rec["wakes"])) rows["mornings with a Last here"] = (rec["wakes"] as Record<string, unknown>[]).filter((k) => k["morning"] === true && k["lastHere"] !== null).length;
   }
   if (mode !== "replay") {
     rows["page version"] = page === undefined ? null : page === null ? "none" : typeof page["error"] === "string" ? "unread" : num(page["version"]);
