@@ -702,9 +702,10 @@ previous check-in.
 - **A session with only night rows and no words still held is passed over**, as one with
   nothing captured always was ("something to show for it"); before, it was named with the
   night's quote. Kept: a dream filed under it is nothing it said.
-- An awake `reflect` call is filed the same way and is skipped too. Only a night launches
-  one today; if sessions start reflecting by hand, telling the two apart needs a mark on the
-  row (the reflection row's `dream_id` is the nearest one).
+- A reflection a session makes by hand (the `reflect` tool) is filed the same way and is
+  skipped too: the rows carry no mark of who launched them. Telling the two apart would need
+  one (the reflection row's `dream_id` is the nearest); left for a later read of whether
+  hand reflections happen enough to matter.
 - Harness (finding 6): night children's tokens are tallied by act (`recordUsage(output, act)`),
   each night's asks carry their child's tokens, and `renderWeek` prints them per night, so a
   model-seat week can say what each catch-up cost.
