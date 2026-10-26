@@ -105,6 +105,8 @@ export function tenantDir(root: string, storeId: string): string {
 export class Tenants {
   readonly root: string;
   private readonly open = new Map<string, Handle>();
+  /** Stores deleted in this process: never opened again (`retire`). */
+  private readonly retired = new Set<string>();
   private readonly opts: TenantsOptions;
   private readonly spawner: Spawner;
   private readonly now: () => number;
@@ -161,6 +163,15 @@ export class Tenants {
   }
 
   /**
+   * Account delete: this store never opens again in this process. A call that
+   * was authenticated just before its grants were revoked would otherwise
+   * re-open it — and re-create an empty tenant dir after the delete removed it.
+   */
+  retire(storeId: string): void {
+    this.retired.add(storeId);
+  }
+
+  /**
    * Close one store now, for account delete: waits for its calls, closes the
    * handle, and drops its worker (an owed run is forgotten and a running child
    * is stopped), so nothing reopens the store after its directory is removed.
@@ -197,6 +208,7 @@ export class Tenants {
 
   private async acquire(storeId: string, tenant: TenantOptions): Promise<Handle> {
     for (;;) {
+      if (this.retired.has(storeId)) throw new Error("that store was deleted");
       const h = this.open.get(storeId);
       if (h === undefined) break;
       if (h.closing !== null) {

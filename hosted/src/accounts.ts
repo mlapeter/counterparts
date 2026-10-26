@@ -166,6 +166,10 @@ export class Accounts {
   constructor(opts: AccountsOptions) {
     mkdirSync(dirname(opts.path), { recursive: true, mode: 0o700 });
     this.db = openDb(opts.path, { wal: true });
+    // A deleted person's address must not stay in a free cell of this file:
+    // Litestream's every later snapshot copies the whole page. node:sqlite's
+    // default is OFF (bun's is FAST).
+    this.db.get("PRAGMA secure_delete = ON");
     this.db.exec(SCHEMA);
     this.now = opts.now ?? ((): number => Date.now());
   }
@@ -370,11 +374,61 @@ export class Accounts {
    * Suspending clears sessions either way — nobody refused is let back in.
    */
   setState(personId: string, state: "active" | "suspended"): boolean {
-    this.db.run("UPDATE people SET state = ? WHERE id = ? AND state != 'deleted'", state, personId);
+    // A person whose delete has begun stays out until it finishes (`markDeleting`).
+    this.db.run("UPDATE people SET state = ? WHERE id = ? AND state != 'deleted' AND NOT EXISTS (SELECT 1 FROM stores WHERE person_id = people.id AND state = 'deleting')", state, personId);
     const changed = (this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1;
     if (state !== "active") this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
     if (changed) this.audit(personId, null, `person.${state}`, null);
     return changed;
+  }
+
+  /** The store ids of every live store (start-up's backup check). */
+  liveStoreIds(): string[] {
+    return this.db.all<{ id: string }>("SELECT s.id FROM stores s JOIN people p ON p.id = s.person_id WHERE s.state = 'active' AND p.state != 'deleted'").map((r) => r.id);
+  }
+
+  /**
+   * THE ACCOUNT'S LAST STEP (after its store is gone): every way in, every
+   * session and pending link is deleted; the person and the store are left as
+   * tombstones (id, dates, state) so nothing reuses their ids. The address can
+   * sign up again later as a new person, with a new invite.
+   */
+  markDeleted(personId: string): void {
+    const at = this.now();
+    this.db.transaction(() => {
+      const emails = this.db.all<{ value: string }>("SELECT value FROM identities WHERE person_id = ? AND kind = 'email'", personId).map((r) => r.value);
+      for (const e of emails) this.db.run("DELETE FROM login_links WHERE email = ?", e);
+      this.db.run("DELETE FROM identities WHERE person_id = ?", personId);
+      this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
+      this.db.run("UPDATE stores SET state = 'deleted' WHERE person_id = ?", personId);
+      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, display_name = NULL, time_zone = NULL WHERE id = ?", at, personId);
+    });
+    this.audit(personId, null, "account.deleted", null);
+  }
+
+  /**
+   * Mark a person as being deleted: every session and link stops now, before
+   * the slow part, and their stores turn `deleting` — durably, so start-up's
+   * backup check (`liveStoreIds`) never gives a half-deleted store a new key,
+   * and `pendingDeletes` finds the delete to finish after a crash.
+   */
+  markDeleting(personId: string): void {
+    this.db.transaction(() => {
+      this.db.run("UPDATE people SET state = 'suspended' WHERE id = ? AND state = 'active'", personId);
+      this.db.run("UPDATE stores SET state = 'deleting' WHERE person_id = ? AND state = 'active'", personId);
+      this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
+    });
+    this.audit(personId, null, "account.deleting", null);
+  }
+
+  /** The stores a delete has to remove: every one not yet a tombstone (active or deleting). */
+  storesToDelete(personId: string): string[] {
+    return this.db.all<{ id: string }>("SELECT id FROM stores WHERE person_id = ? AND state != 'deleted' ORDER BY created_at", personId).map((r) => r.id);
+  }
+
+  /** People whose delete began and didn't finish (a crash, or R2 down): start-up and a timer finish them. */
+  pendingDeletes(): string[] {
+    return this.db.all<{ person_id: string }>("SELECT DISTINCT person_id FROM stores WHERE state = 'deleting'").map((r) => r.person_id);
   }
 
   audit(personId: string | null, storeId: string | null, action: string, detail: string | null): void {

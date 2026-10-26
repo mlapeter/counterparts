@@ -9,6 +9,7 @@
     "node": ">=24"
   },
   "dependencies": {
+    "aws4fetch": "1.0.20",
     "oidc-provider": "9.13.0"
   },
   "devDependencies": {

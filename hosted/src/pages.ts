@@ -18,6 +18,7 @@
  */
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
+import { createReadStream, statSync } from "node:fs";
 
 import type { Accounts } from "./accounts.js";
 import { LINK_MS } from "./accounts.js";
@@ -49,6 +50,12 @@ export interface PagesOptions {
     disconnect(personId: string, id: string): Promise<void>;
   };
   readonly now?: () => number;
+  /** A sign-up just made a person and a store (step 5: the store's key and backup). A throw is audited, not shown. */
+  readonly onSignup?: (personId: string, storeId: string) => Promise<void>;
+  /** Export (step 5): a file to send, and how to clean it up. */
+  readonly exportStore?: (personId: string) => Promise<{ readonly path: string; readonly filename: string; readonly cleanup: () => void }>;
+  /** Delete the account, at once (step 5). */
+  readonly deleteAccount?: (personId: string) => Promise<void>;
 }
 
 export interface Pages {
@@ -171,6 +178,13 @@ ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
         }
         return true;
       }
+      if (used.created && opts.onSignup !== undefined) {
+        const storeId = opts.accounts.person(used.personId)?.storeId ?? null;
+        if (storeId !== null) {
+          // Start-up's `ensureAll` finishes whatever fails here.
+          await opts.onSignup(used.personId, storeId).catch(() => opts.accounts.audit(used.personId, storeId, "signup.backup.failed", null));
+        }
+      }
       // A session this browser already carried ends here: one browser, one session row.
       opts.accounts.endSession(parseCookies(req).get(names.session) ?? null);
       const session = opts.accounts.startSession(used.personId);
@@ -208,7 +222,84 @@ ${
 <form method="post" action="/account/timezone"><input type="hidden" name="csrf" value="${token}">
 <label>Time zone (your memory's day turns over at your midnight)<br><input type="text" name="tz" value="${escapeHtml(person.timeZone ?? "")}"></label>
 <button type="submit">Save</button></form>
+${
+  opts.exportStore === undefined
+    ? ""
+    : `<h2>Take your memory with you</h2>
+<form method="post" action="/account/export"><input type="hidden" name="csrf" value="${token}">
+<p class="muted">The whole memory as one SQLite file: complete, readable by any SQLite tool, and the shape a local install can take in.</p>
+<button type="submit">Download my memory</button></form>`
+}
+${
+  opts.deleteAccount === undefined
+    ? ""
+    : `<h2>Delete everything</h2>
+<form method="post" action="/account/delete"><input type="hidden" name="csrf" value="${token}">
+<p class="muted">Deletes your memory and its backups at once, and closes your account. Your account email is purged from our encrypted account backups within 24 hours. It can't be undone. Download your memory first if you want to keep it.</p>
+<label>Type your email address to confirm<br><input type="email" name="confirm" autocomplete="off"></label>
+<button type="submit">Delete my account and memory</button></form>`
+}
 <form method="post" action="/logout"><input type="hidden" name="csrf" value="${token}"><button type="submit">Sign out</button></form>`,
+      });
+      return true;
+    }
+    if ((p === "/account/export" || p === "/account/delete") && req.method === "POST") {
+      const browser = parseCookies(req).get(names.browser);
+      const form = await readForm(req);
+      const personId = personOf(req);
+      if (form === null || !sameOrigin(req, opts.publicOrigin) || !csrf.check(browser, form.get("csrf")) || personId === null) {
+        message(res, 403, "Start again", "This form expired or came from somewhere else.", { href: "/account", text: "Your account" });
+        return true;
+      }
+      if (p === "/account/export") {
+        if (opts.exportStore === undefined) return false;
+        const out = await opts.exportStore(personId);
+        try {
+          res.writeHead(200, {
+            "Content-Type": "application/vnd.sqlite3",
+            "Content-Disposition": `attachment; filename="${out.filename.replace(/[^A-Za-z0-9._-]/g, "_")}"`,
+            "Content-Length": String(statSync(out.path).size),
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+          });
+          await new Promise<void>((done, fail) => {
+            const stream = createReadStream(out.path);
+            stream.once("error", fail);
+            res.once("finish", () => done());
+            res.once("close", () => done());
+            stream.pipe(res);
+          });
+        } finally {
+          out.cleanup();
+        }
+        opts.accounts.audit(personId, null, "account.exported", null);
+        return true;
+      }
+      if (opts.deleteAccount === undefined) return false;
+      const person = opts.accounts.person(personId);
+      const typed = (form.get("confirm") ?? "").trim().toLowerCase();
+      if (person === null || person.email === null || typed !== person.email) {
+        message(res, 400, "Not deleted", "The address you typed doesn't match this account's. Nothing was deleted.", { href: "/account", text: "Back" });
+        return true;
+      }
+      const finished = await opts.deleteAccount(personId).then(
+        () => true,
+        () => false,
+      );
+      if (!finished) {
+        // The account is already closed (sessions and grants gone, the store marked
+        // deleting); the server finishes the rest on its own (`finishPendingDeletes`).
+        page(res, 202, {
+          title: "Deleting",
+          headers: { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) },
+          body: `<h1>Deleting</h1><p>Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing.</p>`,
+        });
+        return true;
+      }
+      page(res, 200, {
+        title: "Deleted",
+        headers: { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) },
+        body: `<h1>Deleted</h1><p>Your memory and its backups are gone, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours. Thank you for trying Counterparts.</p>`,
       });
       return true;
     }
