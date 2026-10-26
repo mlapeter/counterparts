@@ -21,12 +21,21 @@ Branch `feat/hosted-server`, from origin/master eacdafda. The brief is
   stores behind one router, one queue per target) and 2025-11-25 through the door; `test/mcp.test.ts` covers echoing each
   listed version. Full `bun test` green (7714 pass) and `test:node` green on Node 24.
 
-## Next
+- **Step 2, done (PR #643, `feat/hosted-tenants`):** `hosted/` package, `tenants.ts`, `server.ts`, the CI job "hosted".
+  16 tests.
+- **Step 3, done (PR #644, `feat/hosted-accounts`):** `accounts.ts`, `pages.ts`, `web.ts`, `egress.ts`. 11 tests.
+- **Step 4, done (PR on `feat/hosted-oauth`):** `oauth.ts`, `oauth-adapter.ts`, `app.ts` (the composition), `main.ts`
+  (the entry point plus `invite`). hosted/ now has its own `package.json` dependencies (oidc-provider 9.13.0;
+  devDeps oauth4webapi, @types/oidc-provider, the MCP SDK as a test client), its own `bun.lock` and its own
+  `tsconfig.json`. CI installs them with `bun install --cwd hosted --frozen-lockfile`. 47 hosted tests, green under
+  bun 1.3.10 and Node 24.22.
 
-- Steps 2–4 on stacked branches: feat/hosted-tenants (step 2), feat/hosted-accounts (step 3), feat/hosted-oauth (step 4).
-  Each PR's base is the branch before it.
-- Hosted tests use `node:test` + `node:assert`, so the same files run under `bun test ./hosted/test` and under
-  `node --import ./src/adapters/node-hooks.mjs --test hosted/test/*.test.ts` (CI job "hosted").
+## Next (after the coordinator's answer on step 5)
+
+- Step 5: keys + backups + export + delete (waits on Mike).
+- Step 6: ops (Dockerfile, Litestream sidecar, /readyz, alerts, RUNBOOK, Fly fallback).
+- Step 7: the security review.
+- Before the last PR is marked ready: fold this file into `hosted/NOTES.md`.
 
 ## Learned
 
@@ -39,5 +48,18 @@ Branch `feat/hosted-server`, from origin/master eacdafda. The brief is
 - **oidc-provider complains on bun.** It prints "Unsupported runtime" there, so production runs Node 24.
 - **`wake` spawns a `runner.ts` child per boundary** (`mcp/server.ts:2891`). Multi-tenant needs the `Spawner` seam: a cap
   and per-store coalescing.
+- **`spawn.ts#planSpawn` copies the parent's whole environment into the worker.** The hosted pool allow-lists the
+  child's environment (`tenants.ts#workerEnv`).
+- **oidc-provider details found while building step 4:**
+  - It defaults ID tokens to RS256 and refuses DCR (`invalid_client_metadata`) unless its key set matches. Our
+    per-process key is EC P-256, so we set `enabledJWA.idTokenSigningAlgValues` and the client default to ES256.
+  - It issues a `registration_access_token` on DCR. That token is a bearer, so it is hashed too.
+  - `memory` counts as a plain scope as well as a resource scope. The Allow grant adds both, or the authorization loops
+    back to the Allow page.
+  - Its CIMD fetch already carries an SSRF guard (special-use IPs refused on Node, no redirects, 2.5 s, body limit),
+    which is most of DESIGN §4.4's list. We add https-on-443 only.
+  - A loopback `native` client registered without a port comes back on any port (RFC 8252), which is what Claude Code
+    needs.
+- **Login email timing.** Not awaiting the login email keeps a known and an unknown address equally fast.
 - **Blocked in this session:** the native build of `better-sqlite3-multiple-ciphers` (it fetches external code). Mike can
   allow it if he wants file-level encryption measured.
