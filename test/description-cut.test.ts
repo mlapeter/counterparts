@@ -176,7 +176,9 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
    */
   test("each description's length is recorded, so a change shows in review", () => {
     const lengths = Object.fromEntries(
-      DESKTOP_TOOLS.map((spec) => {
+      // Every host's words (Claude Code's), and `wake`. Desktop's own `dream`
+      // and `reflect` words (OL1d) are held inside the cut by the test above.
+      [...TOOLS, ...DESKTOP_TOOLS.filter((t) => t.name === "wake")].map((spec) => {
         const description = renderDescription(spec);
         return [spec.name, { total: description.length, beforeList: description.indexOf(GUARANTEES) }];
       }),
