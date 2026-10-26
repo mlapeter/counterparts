@@ -21,7 +21,7 @@ Each question is flagged, not quietly decided. These are what the coordinator re
 
 | # | Question | Recommendation | The main tradeoff |
 |---|---|---|---|
-| Q1 | OAuth library | **`oidc-provider` 9.x** (panva), pinned exactly, in the hosted package only. Fallback: the phone project's hand-written authorization server, about 400 lines (§4.6) | A certified, maintained protocol core, against roughly 33 transitive packages and a big configuration surface we must set correctly |
+| Q1 | OAuth library | **`oidc-provider` 9.x** (panva), pinned exactly, in the hosted package only. Fallback: a hand-written authorization server rewritten in `hosted/` on the phone project's pattern, about 400 lines there (that repo is reference only, never imported) (§4.6) | A certified, maintained protocol core, against roughly 33 transitive packages and a big configuration surface we must set correctly |
 | Q2 | Encrypt the SQLite file itself, or rely on an encrypted volume plus per-user-key backups | **Volume at rest plus per-user-key-encrypted backups** for the beta (§5) | A copy of the live disk is readable plaintext if Railway's disk encryption doesn't hold. File-level encryption would close that, but neither built-in driver can do it (**M**) |
 | Q3 | How backups leave the host | **Litestream v0.5.13+, one `path:` entry per store, each with its own SSE-C key file**, to R2 (§5.3) | Point-in-time restore, but the config is static (regenerated and reloaded per signup or delete), and R2 sees the key on each request. The alternative: our own snapshot shipping, encrypted on our side (the provider never holds a key; loses up to one interval of writes) |
 | Q4 | When a delete becomes unreadable everywhere | **"At once" on the live server, "within 7 days" for every backup copy.** The key store is kept out of Litestream and backed up with 7-day retention (§5.4) | An honest claim with a number in it, against the plan's "at once". Making it truly "at once" means rotating the KEK on every delete |
@@ -316,7 +316,7 @@ before a rewrite, and well-knowns placed under a path.
 | `@modelcontextprotocol/server` 2.4 (SDK v2) | It has **no authorization server at all** (**M**, grep) | n/a | Not a candidate |
 | better-auth plus `@better-auth/oauth-provider` 1.7 | CIMD types present | kysely, its own schema and its own accounts | It would own the person table, which runs against decision 2 |
 | `@cloudflare/workers-oauth-provider` | Yes | Workers runtime only | Wrong platform |
-| Hand-written, the phone pattern (`~/counterparts-phone/lib/oauth.ts`) | Not built (DCR only) | Zero (node:crypto) | **Fallback.** It works with claude.ai today. CIMD would be ours to write |
+| Hand-written, rewritten in `hosted/` on the phone's pattern (`~/counterparts-phone/lib/oauth.ts`, reference only, never imported) | Not built (DCR only) | Zero (node:crypto) | **Fallback.** The phone's version works with claude.ai today. CIMD would be ours to write |
 
 **Why oidc-provider.** The spike ran it end to end under bun 1.3.10 and Node 24.22, driven by `oauth4webapi` as a strict
 client (**M**):
@@ -341,7 +341,9 @@ refresh rotation, mix-up protection, the error redirect rules. The library has y
    a reading of its changelog.
 2. Run on Node in production (Q6).
 3. Set `clientAuthMethods: ["none"]`, `pkce.required: () => true`, opaque access tokens via `getResourceServerInfo`,
-   `rotateRefreshToken: true`, and explicit TTLs for every artifact (the spike printed "default ttl" notices).
+   `rotateRefreshToken: true`, `issueRefreshToken: async () => true`, and explicit TTLs for every artifact (the spike
+   printed "default ttl" notices). Without `issueRefreshToken`, no refresh token is issued unless the client asks for
+   `offline_access`, and the spec says servers SHOULD NOT advertise that scope.
 4. Disable `devInteractions`. Configure the signing keys (`jwks`) even though we issue no JWTs: the library wants keys for
    any ID tokens, and we leave `openid` out of `scopes`.
 5. Write the adapter over `node:sqlite` with hashed ids (§4.5).
