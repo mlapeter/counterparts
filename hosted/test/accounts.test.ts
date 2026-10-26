@@ -275,6 +275,23 @@ describe("signing up and signing in", () => {
     assert.equal(count(), 1);
   });
 
+  test("a refused state change writes no audit row: the log never says a deleted person was restored", async () => {
+    const r = await rig();
+    const { code } = r.accounts.createInvite();
+    const b = new Browser(r.base);
+    await b.go((await askLink(r, b, "audit@example.com", code)).link!);
+    const personId = r.accounts.sessionPerson(b.jar.get("cp_session")!)!;
+    assert.equal(r.accounts.setState(personId, "suspended"), true);
+    const db = openDb(join(tmp.root, "control", "accounts.sqlite"), { wal: true });
+    db.run("UPDATE people SET state = 'deleted' WHERE id = ?", personId);
+    db.close();
+    assert.equal(r.accounts.setState(personId, "active"), false);
+    assert.equal(r.accounts.setState("0".repeat(32), "suspended"), false);
+    const actions = r.accounts.auditOf(personId).map((a) => a.action);
+    assert.deepEqual(actions.filter((a) => a.startsWith("person.")), ["person.suspended"]);
+    assert.equal(r.accounts.isLive(personId), false);
+  });
+
   test("review of #644: signing in again in the same browser ends the session it carried", async () => {
     const r = await rig();
     const { code } = r.accounts.createInvite();

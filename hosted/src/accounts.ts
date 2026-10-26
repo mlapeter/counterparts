@@ -363,11 +363,18 @@ export class Accounts {
     return true;
   }
 
-  /** Suspend (or restore) a person: every session and connection stops at its next use. */
-  setState(personId: string, state: "active" | "suspended"): void {
+  /**
+   * Suspend (or restore) a person: every session and connection stops at its
+   * next use. True when the state changed. The audit row is written only then:
+   * a refused change (a deleted person, an unknown id) must not read as done.
+   * Suspending clears sessions either way — nobody refused is let back in.
+   */
+  setState(personId: string, state: "active" | "suspended"): boolean {
     this.db.run("UPDATE people SET state = ? WHERE id = ? AND state != 'deleted'", state, personId);
+    const changed = (this.db.get<{ n: number }>("SELECT changes() AS n")?.n ?? 0) === 1;
     if (state !== "active") this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
-    this.audit(personId, null, `person.${state}`, null);
+    if (changed) this.audit(personId, null, `person.${state}`, null);
+    return changed;
   }
 
   audit(personId: string | null, storeId: string | null, action: string, detail: string | null): void {
