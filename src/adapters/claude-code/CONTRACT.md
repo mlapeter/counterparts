@@ -1082,14 +1082,14 @@ the sweep no interpreter; its gate row says `not-opted-in` and `runner.done` say
 next-session`. A crashed session is pointed at like any other. An old `crashWriteUp` value
 is ignored and named in `retired`.
 
-**[M] Doctor: `Catch-up` (was `Write-ups`, and before that `Crash write-up`; same key), and the `Sweep` line.** Since 2026-09-30 the line reads the coverage ledger — yesterday's state, amber on a stretch owed from yesterday or earlier, the week's lapses (`core/coverage/NOTES.md` §8). Before it, `Crash write-up`: `next session`
+**[M] Doctor: `Catch-up` (was `Write-ups`, and before that `Crash write-up`; same key), and the `Sweep` line.** Since 2026-09-30 the line reads the coverage ledger — yesterday's state, amber on an OVERDUE stretch (since S2c, 2026-10-26: a catch-up ran on a later date and left it owed, or two days of use with no catch-up since; until then any stretch from yesterday or earlier), the week's lapses (`core/coverage/NOTES.md` §8). Before it, `Crash write-up`: `next session`
 green; amber when a session is finished in one project and waiting on words it left in
 another, naming that project (re-review m-C); amber when the newest pointer outcome is a
 DEFERRAL and sessions are waiting — saying the wake was too full, by how many bytes, and to lower
 `injectionBudgetBytes` by that much (never "open a session", which would defer again);
 and (until 2026-09-30, when the `Write-ups` rule above replaced it) amber when a session had
-waited past a 3-day `WRITE_UP_WAIT_DAYS`. Counted with the pointer's own eligibility: a small
-debt the pointer never offers (not known as a person's session) is named apart, as left to lapse. Never red; not in the session-start reading. `Sweep`: `not-opted-in` —
+waited past a 3-day `WRITE_UP_WAIT_DAYS`. Counted with the pointer's own eligibility: a
+debt the pointer never offers (short, and headless or with no session record — counted by reason since S2c) is named apart, as left to lapse. Never red; not in the session-start reading. `Sweep`: `not-opted-in` —
 and an older build's `no-credential` — is green `next session`.
 
 ## 6. Scars honored

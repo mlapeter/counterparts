@@ -51,7 +51,7 @@ function standing(e: LedgerEntry, zone: string, auto: boolean, person: boolean):
   if (e.lapsed) {
     return `${what} — let go after ${plural(e.daysOfUseSince, "day", "days")} of use unwritten: lost to memory, no longer owed, nothing deleted`;
   }
-  if (e.owed && !person) return `${what} — left to lapse (small; not known as a person's session): nothing asks for its write-up`;
+  if (e.owed && !person) return `${what} — left to lapse (short, and headless or with no session record): nothing asks for its write-up`;
   if (e.owed) {
     const why = e.state === "ended" ? "it ended" : "it has been quiet since the date changed";
     // WHO CATCHES IT UP (2026-10-11): under dreaming `auto` the nightly run
@@ -161,7 +161,7 @@ export function coverageLines(input: { store: Store; date: string; today: string
   );
   if (lapsing.length > 0) {
     out.push(
-      `Left to lapse (small; not known as a person's session): ${plural(lapsing.length, "session", "sessions")} — ${lapsing
+      `Left to lapse (short, and headless or with no session record): ${plural(lapsing.length, "session", "sessions")} — ${lapsing
         .map((e) => `${e.session} (${plural(e.stretch?.pieces ?? 0, "piece", "pieces")})`)
         .join(", ")}.`,
     );
