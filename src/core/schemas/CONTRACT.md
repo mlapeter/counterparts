@@ -138,8 +138,10 @@ name/alias resolution; birth and death telemetry.
    `changed` or `corrected` at one credits at least `F_DAY_CAP_SLOW` a day (still three lived
    days for a slow kind); and a core memory holding a state (a status not `done`, or a date)
    that a `done` memory updates leaves the core at once, `changed` under it (source
-   `fulfilled`). The belief and current-state arms have no live producer (only the demo
-   seeder and tests reach them) and are left as they were, not routed. Found as a gap on 2026-09-04: the pressure
+   `fulfilled`). The belief and current-state arms are left as they were, not routed: a
+   belief revises under its own pressure here (`supersedeBelief`). They had no live
+   producer when this was written; since wave 2 (lane C, 0.3.31) the night's reflection
+   and a session form beliefs (`addBelief`), and a current state still has none. Found as a gap on 2026-09-04: the pressure
    accumulator had no live caller, and the running store held zero pressure, zero
    `superseded_by` and zero `revision.pressure` events for its whole life.
 2. **[M] Birth requires the name to occur in the source as a whole name**, by the same

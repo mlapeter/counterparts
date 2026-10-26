@@ -122,7 +122,8 @@ describe("the mapping", () => {
   test("a built mechanism names durable events; a grey one names none and says why", () => {
     for (const m of MECHANISM_PROOFS) {
       if (m.build !== "not") {
-        expect(`${m.id}: ${m.proofs.length > 0}`).toBe(`${m.id}: true`);
+        // A proof, or a count of its rows (Schemas, 2026-10-26: a census only).
+        expect(`${m.id}: ${m.proofs.length > 0 || m.census !== undefined}`).toBe(`${m.id}: true`);
         for (const p of m.proofs) expect(DURABLE_EVENT_NAMES).toContain(p.event);
       } else {
         expect(`${m.id}: ${m.proofs.length}`).toBe(`${m.id}: 0`);
@@ -175,9 +176,10 @@ describe("the lights, on a seeded store", () => {
   test("grey never claims activity — even when the log holds rows that look like it", () => {
     const v = viewOf(richDir);
     const greys = v.mechanisms.filter((m) => m.status === "grey");
-    // Gist is partly built since 2026-09-26 (a dream's pattern), and
-    // interference since 2026-09-29 (merges, flags, the changed fade): not grey.
-    expect(greys.map((m) => m.id).sort()).toEqual(["schema"]);
+    // Gist is partly built since 2026-09-26 (a dream's pattern),
+    // interference since 2026-09-29 (merges, flags, the changed fade), and
+    // Schemas is read since 2026-10-26 (beliefs, wave 2): none is grey.
+    expect(greys.map((m) => m.id).sort()).toEqual([]);
     for (const m of greys) {
       expect(m.events).toEqual([]);
       expect(m.evidence).not.toMatch(/\d/);
@@ -289,7 +291,7 @@ describe("times fired today (the sidebar's “Mechanisms today”, 2026-10-10)",
       dreaming: 1,
       reconsolidation: 0,
       "episodic-semantic": 1,
-      schema: null,
+      schema: 0,
     });
     // The seven-day evidence still counts amounts, as it always has.
     const by = Object.fromEntries(v.mechanisms.map((m) => [m.id, m]));

@@ -21,7 +21,7 @@ import { Dashboard } from "../src/adapters/dashboard/index.js";
 import { mechanismsView } from "../src/adapters/dashboard/web/views/mechanisms.js";
 import { MEMORY_MECHANISMS, consoleVerdicts, readMechanism } from "../src/adapters/cli/mechanisms.js";
 import { firedReport } from "../src/adapters/fired.js";
-import { MECHANISM_EVIDENCE, builtCount, firingKey, mechanismEvidence } from "../src/adapters/mechanism-evidence.js";
+import { MECHANISM_EVIDENCE, builtCount, censusesOf, firingKey, mechanismEvidence } from "../src/adapters/mechanism-evidence.js";
 import { seedDemo } from "../tools/demo/seed.js";
 
 const temps: string[] = [];
@@ -83,9 +83,10 @@ describe("one judgement, two surfaces", () => {
     const lights = bothLights(richDir, today);
     expect(lights.size).toBe(12);
     for (const [id, [dash, cli]] of lights) expect(`${id}: ${cli}`).toBe(`${id}: ${dash}`);
-    // And the store has something of each light to agree on.
+    // And the store has something of both lit states to agree on (none of
+    // the twelve is unbuilt since Schemas, 2026-10-26).
     const seen = new Set([...lights.values()].map(([d]) => d));
-    expect(seen).toEqual(new Set(["●", "◐", "○"]));
+    expect(seen).toEqual(new Set(["●", "◐"]));
   });
 
   test("consolidation ran on time yesterday: both say waiting, next run at the next session's end", () => {
@@ -221,7 +222,8 @@ describe("built / partly / not", () => {
     for (const m of MECHANISM_EVIDENCE) {
       expect(["built", "partly", "not"]).toContain(m.build);
       if (m.build === "not") expect(m.proofs.length).toBe(0);
-      else expect(m.proofs.length).toBeGreaterThan(0);
+      // A built one names a proof, or counts its rows (Schemas, 2026-10-26: a census only).
+      else expect(m.proofs.length + censusesOf(m).length).toBeGreaterThan(0);
     }
     expect(builtCount()).toBe(MECHANISM_EVIDENCE.filter((m) => m.build !== "not").length);
   });
@@ -257,7 +259,7 @@ describe("firedToday (2026-10-10, the sidebar's times fired today)", () => {
       const lived = by({ sinceDay: day - 6, today: day });
       expect(lived["decay"]).toBe(1); // yesterday's fade, and a crossing up, are not today's fades
       expect(lived["dreaming"]).toBe(2); // two dreams in three rows
-      expect(lived["schema"]).toBeNull();
+      expect(lived["schema"]).toBe(0); // built since 2026-10-26, and a census backs no row
       const none = by({ sinceDay: day - 6, today: day, isToday: () => false });
       expect(none["decay"]).toBe(0);
       expect(none["dreaming"]).toBe(0);

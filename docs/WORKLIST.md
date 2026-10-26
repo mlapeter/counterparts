@@ -63,8 +63,9 @@ repeating them.*
 - **Dream throughput.** About 40–55 new memories a night by priority; the queue holds at 400–590; on a busy day about
   1 in 10 new memories is ever dreamed (389 waited after the 10-20 night). Is that enough? Talk after ~10-22, so a
   change doesn't muddy #523's reading.
-- **Schemas, with gist.** Beliefs and entities that grow from what's lived; the only mechanism not built. Dreams write
-  about 8 gists a week, and many episodes becoming one understanding happens only by chance.
+- **Schemas, with gist.** Beliefs and entities that grow from what's lived. Beliefs are built since wave 2 (0.3.31:
+  born weak at night, earned by the memories filed for them); what is left is gist. Dreams write about 8 gists a week,
+  and many episodes becoming one understanding happens only by chance.
 - **F3. The decisive memory stays quiet at the moment of action.** When Mike ran the backup on 10-20, ~/random was
   offered unrelated footnotes; the 10-13 decision that backups hold no conversation text never came up, and the
   memory that did was the stale one saying backups copy spans, so a non-problem got flagged. Same root as the 10-19
