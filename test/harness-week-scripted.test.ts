@@ -21,6 +21,8 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import type { ChildPlan, ChildResult } from "../src/adapters/claude-code/child.js";
+import { McpServer } from "../src/adapters/mcp/index.js";
+import { Counterpart } from "../src/core/counterpart.js";
 import { OWNER_WEEK_CHECKINS } from "../tools/harness/checkins-week.js";
 import type { ScriptedDay } from "../tools/harness/owner-week.js";
 import { renderWeek } from "../tools/harness/cli.js";
@@ -194,5 +196,35 @@ test("the CLI refuses a model named for a scripted seat, and an unknown seat", a
   for (const args of [["--seat", "scripted", "--model", "haiku"], ["--seat", "robot"]]) {
     const p = Bun.spawnSync([process.execPath, cli, "week", ...args], { env: env(), stdout: "pipe", stderr: "pipe" });
     expect(p.exitCode).toBe(1);
+  }
+});
+
+test("a reflection-only night records no catch-up plan: only a night kind runs one", async () => {
+  // A stub model: a turn says "Noted."; the dream child begins and journals a dream; the reflection child does
+  // nothing, so the day's reflection is left behind and a later session the same day launches the reflection alone.
+  const start = async (p: ChildPlan): Promise<ChildResult> => {
+    const e = (JSON.parse(p.args[p.args.indexOf("--mcp-config") + 1]!) as { mcpServers: { counterparts: { env: Record<string, string> } } }).mcpServers.counterparts.env;
+    if (e["COUNTERPARTS_NIGHT_CHILD"] === "dream") {
+      const at0 = Number(e["HARNESS_NOW"]);
+      const copy = Counterpart.open({ dir: e["COUNTERPARTS_DATA_DIR"]!, budgetBytes: 9_000, now: () => at0, timeZone: "UTC" });
+      const server = new McpServer({ counterpart: copy, session: e["COUNTERPARTS_SESSION"]!, scope: root, env: { COUNTERPARTS_NIGHT_CHILD: "dream" }, now: () => at0 });
+      const b = (await server.call("dream", { phase: "begin", session: e["COUNTERPARTS_SESSION"] })).structuredContent;
+      await server.call("dream", { phase: "journal", dream: b["dream"], session: e["COUNTERPARTS_SESSION"], title: "T", text: "A dream." });
+      copy.close();
+    } else if ((p.args[p.args.indexOf("--allowedTools") + 1] ?? "").includes("mcp__counterparts__remember")) {
+      // A person's turn files a memory, as a model calling `remember` would.
+      const at0 = Number(e["HARNESS_NOW"]);
+      const copy = Counterpart.open({ dir: e["COUNTERPARTS_DATA_DIR"]!, budgetBytes: 9_000, now: () => at0, timeZone: "UTC" });
+      copy.store.put({ type: "memory", kind: "fact", body: `A thing said at ${String(at0)}.`, salience: { novelty: null, relevance: 0.7, emotional: 0.3, predictive: 0.6 } });
+      copy.close();
+    }
+    return { code: 0, timedOut: false, error: null, output: JSON.stringify({ type: "result", result: "Noted." }) };
+  };
+  const remembering = (n: number): ScriptedDay["sessions"][number] => ({ scope: "chat", turns: Array.from({ length: n }, (_, i) => `a line about the garden, number ${String(i + 1)}, long enough to count`) });
+  const r = await runWeek({ script: [{ sessions: [remembering(3)] }, { sessions: [remembering(2), remembering(2), remembering(2)] }], scriptName: "reflection-fixture", install: "without-meeting", start, workRoot: join(root, "work"), env: env() });
+  expect(r.nights.some((n) => n.kind.startsWith("reflection:"))).toBe(true);
+  for (const n of r.nights) {
+    if (n.kind.startsWith("reflection:")) expect(n.catchUp).toBeNull();
+    else expect(n.catchUp).not.toBeNull();
   }
 });

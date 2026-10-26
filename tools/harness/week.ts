@@ -237,7 +237,7 @@ export interface WeekRecord {
    * The nights the product launched (its gate decided), by the morning they
    * ran on. `asked`: the acts the night put to its seat, in order (a
    * scripted seat refuses each, so a refused dream ends the run before its
-   * reflection and tags are reached). `catchUp`: what it would write up.
+   * reflection and tags are reached). `catchUp`: what it would write up (null for a reflection run, which has none).
    */
   readonly nights: readonly { readonly day: number; readonly launchedIn: string; readonly state: string; readonly kind: string; readonly parts: readonly string[]; readonly asked: readonly { readonly act: string; readonly promptBytes: number }[]; readonly catchUp: NightCatchUp | null }[];
   /** Every SessionStart's wake, read for "Last here" and its neighbours. */
@@ -600,14 +600,16 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
       const kind = plan.env[NIGHT_KIND_ENV]!;
       const run = plan.env[NIGHT_RUN_ENV]!;
       say(`  night (${kind})`);
-      const planned = catchUpPlan(run);
+      const nightKind = readKind(kind);
+      // A reflection run has no catch-up (`night-run.ts`: only a night kind runs one), so it plans none here either.
+      const planned = nightKind.kind === "night" ? catchUpPlan(run) : null;
       // Each ask the night puts to its seat, by act and size, whoever answers.
-      const asked: { act: string; promptBytes: number }[] = [];
+      const acts: { act: string; promptBytes: number }[] = [];
       const inner: Seat<NightAnswer> = scripted ? scriptedNightSeat() : modelSeat({ dir, configPath, now, timeZone, budgetBytes: budget, env, ...(opts.model === undefined ? {} : { model: opts.model }), start });
       const seat: Seat<NightAnswer> = {
         name: inner.name,
         answer: (ask) => {
-          asked.push({ act: ask.act, promptBytes: Buffer.byteLength(ask.prompt, "utf8") });
+          acts.push({ act: ask.act, promptBytes: Buffer.byteLength(ask.prompt, "utf8") });
           return inner.answer(ask);
         },
       };
@@ -617,11 +619,11 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
         run,
         session: plan.env["COUNTERPARTS_SESSION"] ?? "",
         scope: plan.env["COUNTERPARTS_SCOPE"] ?? work,
-        kind: readKind(kind),
+        kind: nightKind,
         seat,
         now,
       });
-      nights.push({ day, launchedIn: label, state: night.state, kind, parts: [...(night.parts ?? [])], asked, catchUp: { ...planned, ran: catchUpRan(run) } });
+      nights.push({ day, launchedIn: label, state: night.state, kind, parts: [...(night.parts ?? [])], asked: acts, catchUp: planned === null ? null : { ...planned, ran: catchUpRan(run) } });
     }
   };
   const adapterFor = (scope: string): ClaudeCodeAdapter =>
