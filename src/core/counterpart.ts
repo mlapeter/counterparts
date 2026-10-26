@@ -194,6 +194,7 @@ import type {
   PageWriterStatus,
   SelfPage,
   StillOpenItem,
+  ThreadReader,
   WakeDelivery,
   WakeResult,
   WakeTrigger,
@@ -958,6 +959,9 @@ export class Counterpart {
         // Whoever reads: a delivery that names no folder keeps out every
         // other folder's summary (P1: fail closed where the reader is unknown).
         hintKeptOut: (id: string) => this.hintKeptOut(id, here ?? {}),
+        // "Still open" for this reader (O2): this folder's first, another
+        // folder's work left out; a delivery naming no folder fails closed.
+        reader: this.threadReader(here?.scope, here?.exportsFrom),
       });
       if (out === null) return null;
       this.emit("counterpart.wake.assembled", undefined, {
@@ -1545,14 +1549,30 @@ export class Counterpart {
    * memories being reconsidered, in the wake's order; and how many open
    * threads the carry no longer keeps (`notCarried`), counted, not listed.
    * Reads only: nothing it lists is touched, so listing cannot keep a thread
-   * carried. Empty on a store that cannot answer; never throws.
+   * carried. Empty on a store that cannot answer; never throws. `here` (O2,
+   * 2026-10-26): the folder asking and the host's setting, read as the wake
+   * there reads them (`threadReader`); absent, every folder's threads.
    */
-  stillOpen(): { items: StillOpenItem[]; notCarried: number } {
+  stillOpen(here?: { scope?: string; exportsFrom?: (scope: string) => boolean }): { items: StillOpenItem[]; notCarried: number } {
     try {
-      return this.self.stillOpen(this.store.livedDay());
+      return this.self.stillOpen(this.store.livedDay(), here === undefined ? undefined : this.threadReader(here.scope, here.exportsFrom));
     } catch {
       return { items: [], notCarried: 0 };
     }
+  }
+
+  /**
+   * WHO READS "STILL OPEN" (O2, 2026-10-26): `scope`'s folders — it first,
+   * then the folders joined to it as one project that the host's setting
+   * (`exportsFrom`) lets be named elsewhere, as "Work here" reads them
+   * (`self/work.ts#projectFolders`). No folder named: none, so every folder's
+   * work is left out (fail closed, as `hintKeptOut`). A store that will not
+   * answer: the folder alone (`projectFolders`).
+   */
+  private threadReader(scope: string | undefined, exportsFrom?: (scope: string) => boolean): ThreadReader {
+    const own = (scope ?? "").trim();
+    if (own.length === 0) return { folders: [] };
+    return { folders: projectFolders(this.store, own, this.self.tunables.PROJECTS_TRAVEL, exportsFrom) };
   }
 
   /** The wake's "Last said here" line for `here`, or null. Never throws. Any

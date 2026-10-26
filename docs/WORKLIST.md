@@ -80,7 +80,11 @@ repeating them.*
 - **The synthetic bench's drift**: re-tune check (BENCHMARK session's).
 - **Rows written while a folder was on, then the folder turned off**: hint, thread and identity rows still show in
   every folder's wake and in recall. Does turning a folder off later take back what it already shared? (found in
-  #624's review, 10-25; roadmap puts it to Mike)
+  #624's review, 10-25.) Mike, 10-26: leave it as it is for now. What a folder shared before it was turned off stays
+  visible elsewhere. This holds for now and isn't a rule.
+- **Backlog: offer to delete a folder's memories when it's turned off.** When the owner turns a folder off, offer the
+  choice to delete what was written there. Mike expects it to be complex. Not for now: this week is new users and
+  launch.
 
 ## Outside this repo (other sessions)
 

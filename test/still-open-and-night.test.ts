@@ -515,7 +515,7 @@ describe("review of #626: the handle lists what the wake in this folder may show
     return w.c.store.put({ type: "memory", kind: "fact", title, body: `${title} The detail of it.`, meta: { unresolved: true }, about, origin: { scope: folder }, salience: { relevance: 0.9, emotional: 0.6, predictive: 0.7 } });
   }
 
-  test("another folder's work-marked thread: the wake here carries it, so the handle lists it — the same exposure, not more", async () => {
+  test("another folder's work-marked thread: neither the wake here nor the handle carries it (O2, 2026-10-26) — the same exposure, not more", async () => {
     const w = world(at(D2, 9));
     toDay(w, 2);
     const THERE = join(root, "workshop");
@@ -524,12 +524,14 @@ describe("review of #626: the handle lists what the wake in this folder may show
     const ours = openIn(w, HERE, "HERE-WORK does the trellis need another post?");
     w.c.rebrief({ budgetBytes: BUDGET, at: w.today() });
     const text = wake(w);
-    // The wake's Still open is store-wide for open threads (`rankLanes`: an
-    // open work memory is a thread wherever the session wakes).
-    expect(text).toContain("THERE-WORK");
+    // Another folder's work stays in its folder, as "Work here" does (O2).
+    expect(text).not.toContain("THERE-WORK");
     expect(text).toContain("HERE-WORK");
     const items = itemsOf(await stillOpen(tools(w)));
-    expect(items.map((i) => i.id).sort()).toEqual([theirs, ours].sort());
+    expect(items.map((i) => i.id)).toEqual([ours]);
+    // In its own folder, the other way round.
+    const there = new McpServer({ counterpart: w.c, session: S, scope: THERE, now: () => w.now() });
+    expect(itemsOf(await stillOpen(there)).map((i) => i.id)).toEqual([theirs]);
   });
 
   test("a folder set off or paused: the handle and the routed question are refused and say nothing", async () => {
@@ -569,12 +571,13 @@ describe("review of #626: the handle lists what the wake in this folder may show
     expect(JSON.stringify(got)).not.toContain("GONE-");
   });
 
-  test("a session with no folder: the same list (the wake's Still open reads no folder either)", async () => {
+  test("a session in another folder (the store's own, when none is named): the personal thread, not a folder's work (O2)", async () => {
     const w = world(at(D2, 9));
     toDay(w, 2);
-    const a = openIn(w, HERE, "NOFOLDER-A is the shed roof sealed?");
+    openIn(w, HERE, "NOFOLDER-A is the shed roof sealed?");
+    const b = openIn(w, HERE, "NOFOLDER-B did the vet call back?", "owner");
     const s = new McpServer({ counterpart: w.c, session: S, now: () => w.now() });
-    expect(itemsOf(await stillOpen(s)).map((i) => i.id)).toEqual([a]);
+    expect(itemsOf(await stillOpen(s)).map((i) => i.id)).toEqual([b]);
   });
 
   test("near-misses reach the ordinary facts answer, not the list", async () => {
