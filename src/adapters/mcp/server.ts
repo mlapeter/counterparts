@@ -154,6 +154,7 @@ import {
 } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
 import { NIGHTS_GLOSS } from "./nights.js";
+import { claudeAiWakeText, sameYouLine } from "./chat-wake.js";
 import type { NightSummary } from "./nights.js";
 import { factsRecall, renderFacts } from "./facts.js";
 import { meaningRecall, renderMeaning } from "./meaning.js";
@@ -216,6 +217,7 @@ import {
   SERVER_NAME,
   SERVER_VERSION,
   START_PROMPT,
+  startPromptFor,
   desktopWriteUpAsk,
   STORE_BUSY_REFUSAL,
   schemaUnreadableRefusal,
@@ -626,20 +628,22 @@ export class McpServer {
       case "prompts/list": {
         if (id === undefined) return null;
         if (!this.desktop) return failure(id, ERROR_CODES.METHOD_NOT_FOUND, `unknown method: ${request.method}`);
+        const prompt = startPromptFor(this.host);
         return success(id, {
-          prompts: [{ name: START_PROMPT.name, title: START_PROMPT.title, description: START_PROMPT.description, arguments: [] }],
+          prompts: [{ name: prompt.name, title: prompt.title, description: prompt.description, arguments: [] }],
         });
       }
       case "prompts/get": {
         if (id === undefined) return null;
         if (!this.desktop) return failure(id, ERROR_CODES.METHOD_NOT_FOUND, `unknown method: ${request.method}`);
-        if (params["name"] !== START_PROMPT.name) {
+        const prompt = startPromptFor(this.host);
+        if (params["name"] !== prompt.name) {
           return failure(id, ERROR_CODES.INVALID_PARAMS, `unknown prompt: ${String(params["name"])}`);
         }
-        this.emit("mcp.prompt", undefined, { name: START_PROMPT.name });
+        this.emit("mcp.prompt", undefined, { name: prompt.name });
         return success(id, {
-          description: START_PROMPT.description,
-          messages: [{ role: "user", content: { type: "text", text: START_PROMPT.text } }],
+          description: prompt.description,
+          messages: [{ role: "user", content: { type: "text", text: prompt.text } }],
         });
       }
       case "tools/call": {
@@ -2889,7 +2893,11 @@ export class McpServer {
     const plain = lc.plainFor(input);
     const told = lc.claimPlain(input, plain.due);
     const spawn = lc.spawnWorker(input);
-    const dream = this.wakeDreamLine(input);
+    // NO DREAM LINE ON CLAUDE.AI (2026-10-26, OL1b): its nights are the
+    // person's own routine, and the ask relayed in a chat read as "say dream
+    // if you want". Left unclaimed, the offer is never said here.
+    const claudeAi = this.host === CLAUDE_AI_HOST;
+    const dream = claudeAi ? null : this.wakeDreamLine(input);
     const notices = [this.wakeUpdateLine(), this.wakeDoctorLine()].filter((l): l is string => l !== null);
     const head = `Counterparts session for this chat: ${input.sessionId}. Pass session: ${input.sessionId} on session_end, chapter, dream and reflect in this chat.`;
     // Or, when the wake has no head tag, as one tag in front of it (`tagLead`).
@@ -2900,14 +2908,27 @@ export class McpServer {
     // certain delivery, so it is committed here.
     const meet = lc.onboardingLine(input);
     meet?.commit();
-    const parts = [
-      head,
-      `${lead}\n${ONE_TAG_LINE ? tags : ""}${woke.text}`.trimEnd(),
-      ...(notices.length === 0 ? [] : [notices.join("\n")]),
-      ...(dream === null ? [] : [`${dream}\n${chatWordsFor(this.host).dreamNote}`]),
-      ...(meet === null ? [] : [meet.text]),
-    ];
-    const body = parts.join("\n\n");
+    const body = claudeAi
+      ? // CLAUDE.AI'S SHAPE (`chat-wake.ts`): one short session line, what is
+        // for the person first, the same words otherwise.
+        claudeAiWakeText({
+          session: input.sessionId,
+          // THE SHARE'S SLOT: the share carry for hookless hosts (OL1a) fills it.
+          share: [],
+          lead,
+          wake: `${ONE_TAG_LINE ? tags : ""}${woke.text}`,
+          // No host shares a claude.ai store yet: the line waits for one that does.
+          sameYou: sameYouLine(this.counterpart.ownerDisplayName(), []),
+          notices,
+          meet: meet === null ? null : meet.text,
+        })
+      : [
+          head,
+          `${lead}\n${ONE_TAG_LINE ? tags : ""}${woke.text}`.trimEnd(),
+          ...(notices.length === 0 ? [] : [notices.join("\n")]),
+          ...(dream === null ? [] : [`${dream}\n${chatWordsFor(this.host).dreamNote}`]),
+          ...(meet === null ? [] : [meet.text]),
+        ].join("\n\n");
     const pointer = lc.deliverWriteUpAsk(input, Buffer.byteLength(body, "utf8"), {
       limit: ADAPTER_TUNABLES.TOOL_RESULT_CHARS,
       label: "wake",
