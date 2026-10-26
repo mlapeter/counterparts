@@ -2904,8 +2904,10 @@ export class McpServer {
     // certain delivery, so it is committed here.
     const meet = lc.onboardingLine(input);
     meet?.commit();
-    // THE SHARE right after the session line: carrying it is a CLAIM, and the
-    // size net cuts from the end, so it rides where no cut can drop it.
+    // THE SHARE right after the session line: carrying it is a CLAIM. Nothing
+    // here trims the wake (the briefing is composed to its budget beforehand,
+    // and the write-up pointer gives way when there is no room), but a host
+    // that cuts a long tool result cuts from the end — so it rides first.
     const parts = [
       head,
       ...(share === null ? [] : [share]),

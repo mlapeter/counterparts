@@ -1787,8 +1787,10 @@ routine's share for four hours after its last call.
 **The fix:** `sessions.ts#reflectorDone` — no record, ended, quiet past the TTL, or a hookless
 chat's session (`isChatHost`; a pseudo-scope for a record with no host), which counts as ended
 once its reflection finished (the only kind `pendingShare` offers). `wakeShareLine` carries with
-it (the atomic `carryLine` claim) right after the session line — the size net cuts from the end,
-and a claimed share must not be what falls off. Claude Code's `dreamLines` is untouched: its
+it (the atomic `carryLine` claim) right after the session line — nothing in `wakeTool` trims (the
+briefing is composed to its budget first; the write-up pointer gives way), but a host that cuts a
+long tool result cuts from the end, and a claimed share must not be what falls off (review: a wake
+at its budget still carries the whole share, tested). Claude Code's `dreamLines` is untouched: its
 prompt still waits for the reflector to end or go quiet, a hookless one included — on Mike's store
 a Desktop chat that reflected in-chat tells its share itself seconds later, and a terminal prompt
 must not claim it in between. Whether a Claude Code prompt should also take a routine's share at
