@@ -35,7 +35,7 @@
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { CLAUDE_AI_HOST } from "../../src/adapters/hosts.js";
@@ -49,6 +49,8 @@ import type { SpawnPlan, Spawner } from "../../src/adapters/spawn.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { AdapterConfig } from "../../src/adapters/config.js";
 import { isWithin } from "../../src/core/store/paths.js";
+import { beginNewInstall } from "../../src/core/onboarding.js";
+import { AUTO_RESET_KEY, DREAMING_SETTING_KEY } from "../../src/core/dream/index.js";
 
 /** 128 bits as lowercase hex: the only shape a store id may have. */
 export const STORE_ID = /^[0-9a-f]{32}$/;
@@ -197,6 +199,8 @@ export class Tenants {
   private openHandle(storeId: string, tenant: TenantOptions): Handle {
     const dir = tenantDir(this.root, storeId);
     const storeDir = join(dir, "store");
+    // A store this open CREATES is a new person's: it starts like a new install (below).
+    const fresh = !existsSync(storeDir);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const configPath = join(dir, "config.json");
     const config: AdapterConfig = {
@@ -223,6 +227,7 @@ export class Tenants {
         spawner: this.spawner,
       },
     });
+    if (fresh) startNewStore(server);
     this.tell("tenant.open", storeId);
     return { storeId, server, serial: serialQueue(), refs: 0, lastUsed: this.now(), closing: null };
   }
@@ -259,6 +264,24 @@ export class Tenants {
       /* a listener never fails a call */
     }
   }
+}
+
+/**
+ * A NEW PERSON'S STORE STARTS LIKE A NEW INSTALL (OL1b's finding, 2026-10-26):
+ * only `counterparts install` writes onboarding `not_started`, so a store this
+ * server creates would otherwise never offer the first meeting. And dreaming
+ * is set `off` explicitly: `auto` means Claude Code's headless night run and
+ * `ask` would have the wake ask about it, and claude.ai has neither — the
+ * person's own routine runs the night, through the `dream` tool's phases,
+ * which the setting does not gate (`hosted/test/tenants.test.ts` pins that).
+ */
+export function startNewStore(server: McpServer): void {
+  const store = server.counterpart.store;
+  beginNewInstall(store, { dreaming: false });
+  store.setMetaMany([
+    [DREAMING_SETTING_KEY, "off"],
+    [AUTO_RESET_KEY, "chosen"],
+  ]);
 }
 
 /** The environment keys a worker child may inherit, beyond the `COUNTERPARTS_*` the plan pinned. */

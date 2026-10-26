@@ -98,6 +98,15 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     `invite` prints one code, once.
 23. **Rate limits** on the open endpoints: 30 registrations an hour per IP, 600 token calls an hour per IP.
 
+### A new person's store (OL1b's finding)
+
+- **A store the server creates starts like a new install** (`tenants.ts#startNewStore`). Onboarding is set to
+  `not_started`, so the first wake offers the first meeting. Dreaming is set `off` explicitly, because `auto` is Claude
+  Code's headless run and `ask` would make the wake ask, and claude.ai has neither. The person's own routine runs the
+  night through the `dream` tool, which the setting does not gate; a test pins that.
+- **A store that already exists is never re-initialized.**
+- **Still owed:** the meeting's "where it lives" answer waits for OL3's hosted privacy copy.
+
 ## What it drops, for now
 
 - Keys, backups, export and delete: step 5, which waits on Mike (DESIGN §5).
