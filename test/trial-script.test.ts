@@ -173,6 +173,7 @@ describe("the night prompt, v2 (OL1b)", () => {
     expect(out.code).toBe(0);
     const prompt = out.out.trim();
     expect(prompt).toContain('phase "launch"');
+    expect(prompt).toContain("First call wake once, with night: true,");
     expect(prompt).toContain("it is for my next chat, so do not tell it here and do not mark it told");
     expect(prompt).toContain("Do not pass on Counterparts' own notices");
     expect(prompt).toContain("reply with only a short list of the steps");

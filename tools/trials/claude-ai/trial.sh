@@ -61,8 +61,11 @@ done
 # The prompt a night runs on: the Cowork scheduled task's text, and `night`'s.
 # v2 (2026-10-26, OL1b, from the first trial day): the morning share is kept
 # for the next chat (told there, not in the run's reply), the tools' notices
-# stay in the run, and the reply is the step list alone.
-NIGHT_PROMPT='Do tonight'"'"'s memory work with the counterparts-trial tools, on your own, without asking me anything. First call wake once and keep the session id it returns. Then call the dream tool with phase "launch" and that session id, and follow the prompt it returns yourself, here, step by step, through every call it names (day'"'"'s end, the dream, then the reflection), passing the same session id each time. If a tool refuses, note its reason and go on to the next step. The reflection may leave a morning share: it is for my next chat, so do not tell it here and do not mark it told. Do not pass on Counterparts'"'"' own notices, or anything the wake brought for me. When you are done, reply with only a short list of the steps, each marked done or with the reason it stopped, and nothing after it. Do not quote any memory in that list.'
+# stay in the run, and the reply is the step list alone. The run's wake passes
+# `night: true` (served from the claude.ai surface PR): a quiet wake that
+# carries no share and claims no reminder, so a day with no chat does not lose
+# the last night's share to this run.
+NIGHT_PROMPT='Do tonight'"'"'s memory work with the counterparts-trial tools, on your own, without asking me anything. First call wake once, with night: true, and keep the session id it returns. Then call the dream tool with phase "launch" and that session id, and follow the prompt it returns yourself, here, step by step, through every call it names (day'"'"'s end, the dream, then the reflection), passing the same session id each time. If a tool refuses, note its reason and go on to the next step. The reflection may leave a morning share: it is for my next chat, so do not tell it here and do not mark it told. Do not pass on Counterparts'"'"' own notices, or anything the wake brought for me. When you are done, reply with only a short list of the steps, each marked done or with the reason it stopped, and nothing after it. Do not quote any memory in that list.'
 
 fresh_store() {
   mkdir -p "$DIR"
