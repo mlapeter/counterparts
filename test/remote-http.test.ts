@@ -16,7 +16,7 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -29,7 +29,7 @@ import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { LOOPBACK, newSecret, serveHttp } from "../src/adapters/remote/http.js";
 import type { CallRecord, RunningHttp } from "../src/adapters/remote/http.js";
 import { openCallLog, summarizeCalls } from "../src/adapters/remote/call-log.js";
-import { liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
+import { livePathRefusal, liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
 
 const CANARY = "Canary for this trial: the person's imaginary lighthouse is called Quillmere Saffron.";
 
@@ -325,16 +325,26 @@ describe("the entry point's refusals", () => {
       expect(liveStoreRefusal(join(homedir(), live))).toContain("off-limits");
     }
     expect(liveStoreRefusal(join(home, "counterparts-trials", "claude-ai"), home)).toBeNull();
+    // As the disk resolves it (review of #634): a `..`, or a symlink into the live store.
+    expect(liveStoreRefusal(join(home, "counterparts-trials", "..", ".counterparts", "store"), home)).toContain("live store");
+    mkdirSync(join(home, ".counterparts"), { recursive: true });
+    symlinkSync(join(home, ".counterparts"), join(home, "trial-link"));
+    expect(liveStoreRefusal(join(home, "trial-link", "store"), home)).toContain("live store");
+    expect(liveStoreRefusal(join(home, "trial-link"), home)).toContain("live store");
+    // The configuration's folder and its snapshots folder are held the same way.
+    expect(livePathRefusal(join(home, ".counterparts"), "the configuration", home)).toContain("inside a live store");
+    expect(livePathRefusal(join(home, "trial-link", "snapshots"), "the snapshots folder", home)).toContain("inside a live store");
+    expect(livePathRefusal(join(home, "counterparts-trials", "claude-ai"), "the configuration", home)).toBeNull();
     expect(readLaunch(["--dir", join(root, "s"), "--port", "99999"])).toHaveProperty("refusal");
     expect(readLaunch(["--dir", join(root, "s"), "--canary", "  x  "])).toMatchObject({ dir: join(root, "s"), port: 0, canary: "x" });
   });
 
   const BIN = join(import.meta.dir, "..", "src", "adapters", "remote", "bin", "serve-http.ts");
 
-  function launch(args: string[]): Promise<{ code: number | null; out: string; err: string; firstLine: string }> {
+  function launch(args: string[], env: Record<string, string> = {}): Promise<{ code: number | null; out: string; err: string; firstLine: string }> {
     return new Promise((resolveRun) => {
       const child = spawn(process.execPath, [BIN, ...args], {
-        env: { PATH: process.env["PATH"] ?? "", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" },
+        env: { PATH: process.env["PATH"] ?? "", COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", ...env },
         stdio: ["ignore", "pipe", "pipe"],
       });
       let out = "";
@@ -374,5 +384,24 @@ describe("the entry point's refusals", () => {
     // The secret is on stdout's one line and nowhere on stderr.
     expect(ok.err).not.toContain(ok.firstLine.slice(ok.firstLine.lastIndexOf("/") + 1));
     expect(ok.code).toBe(0);
+  }, 60_000);
+
+  test("the process: a configuration in a live store, or one naming its snapshots folder, is refused before a byte is served", async () => {
+    // A HOME of the test's own (hermetic): its `.counterparts` stands for the owner's.
+    const home = join(root, "home");
+    const live = join(home, ".counterparts");
+    mkdirSync(live, { recursive: true });
+    const inLive = join(live, "trial.json");
+    writeFileSync(inLive, JSON.stringify({ dataDir: dir }));
+    const refusedConfig = await launch(["--dir", dir, "--config", inLive], { HOME: home });
+    expect(refusedConfig.code).toBe(1);
+    expect(refusedConfig.out).toBe("");
+    expect(refusedConfig.err).toContain("the configuration is inside a live store");
+    const snapping = join(root, "trial.json");
+    writeFileSync(snapping, JSON.stringify({ dataDir: dir, snapshots: { dir: join(live, "snapshots") } }));
+    const refusedSnapshots = await launch(["--dir", dir, "--config", snapping], { HOME: home });
+    expect(refusedSnapshots.code).toBe(1);
+    expect(refusedSnapshots.out).toBe("");
+    expect(refusedSnapshots.err).toContain("snapshots folder is inside a live store");
   }, 60_000);
 });

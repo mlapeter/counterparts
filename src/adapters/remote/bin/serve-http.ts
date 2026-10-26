@@ -17,15 +17,18 @@
  *     says, and the owner's live stores are refused (`liveStoreRefusal`): this
  *     door puts a store on the web.
  *   - **A configuration nobody named, or one it cannot read** — the rules every
- *     entry point shares (`config-path.ts`).
+ *     entry point shares (`config-path.ts`) — and one that sits in a live store
+ *     or names a snapshots folder there (`livePathRefusal`). Every path is
+ *     checked as written and as the disk resolves it, symlinks followed.
  *
  * WHAT IT PRINTS: one line on stdout, `url <http://127.0.0.1:port/secret>`, the
  * only place the secret appears; everything else goes to stderr, without it.
  * The trial script reads that line, starts the tunnel to the port, and prints
  * the public URL once. Ctrl-C (or SIGTERM) stops it, and the URL dies with it.
  */
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { parseArgs } from "node:util";
 
 import { configLine, implicitConfigRefusal, namedConfigRefusal, namedUnreadableRefusal, resolveConfigPath } from "../../config-path.js";
@@ -49,17 +52,61 @@ import { openCallLog } from "../call-log.js";
  * place their names are spelled).
  */
 export function liveStoreRefusal(dir: string, home: string = homedir()): string | null {
-  const resolved = resolve(dir);
-  const live = join(home, ".counterparts");
-  if (resolved === live || resolved.startsWith(`${live}${sep}`)) {
-    return `[counterparts] refused: ${live} is a live store, and this server puts a store on the web. Name a trial store of its own with --dir.`;
+  const live = liveRootOf(dir, home);
+  if (live === "live") {
+    return `[counterparts] refused: ${join(home, ".counterparts")} is a live store, and this server puts a store on the web. Name a trial store of its own with --dir.`;
   }
-  try {
-    assertSafeDataDir(resolved);
-  } catch {
+  if (live === "ancestor") {
     return "[counterparts] refused: that directory is off-limits to this package. Name a trial store of its own with --dir.";
   }
   return null;
+}
+
+/**
+ * The same refusal for the other paths this server writes beside its store —
+ * the configuration (its `scopes.json` and `sidebar.json` land next to it) and
+ * the snapshots folder the configuration names (review of #634): a trial
+ * configuration that pointed into `~/.counterparts` would have the web's calls
+ * write the owner's scopes and snapshots, whatever `--dir` said.
+ */
+export function livePathRefusal(path: string, what: string, home: string = homedir()): string | null {
+  return liveRootOf(path, home) === null
+    ? null
+    : `[counterparts] refused: ${what} is inside a live store, and this server puts a store on the web. Give the trial a configuration and a snapshots folder of its own.`;
+}
+
+/**
+ * Is `path` inside the owner's live store ("live") or an ancestor's
+ * ("ancestor")? Checked as written AND as the disk resolves it (review of
+ * #634), so a symlink or a `..` cannot walk a trial path into a live store.
+ */
+function liveRootOf(path: string, home: string): "live" | "ancestor" | null {
+  const live = [join(home, ".counterparts"), physical(join(home, ".counterparts"))];
+  for (const candidate of new Set([resolve(path), physical(path)])) {
+    if (live.some((l) => candidate === l || candidate.startsWith(`${l}${sep}`))) return "live";
+    try {
+      assertSafeDataDir(candidate);
+    } catch {
+      return "ancestor";
+    }
+  }
+  return null;
+}
+
+/** `path` as the disk resolves it: its nearest existing ancestor's real path, then the rest as written. */
+function physical(path: string): string {
+  let head = resolve(path);
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync(head), ...rest);
+    } catch {
+      const parent = dirname(head);
+      if (parent === head) return resolve(path);
+      rest.unshift(basename(head));
+      head = parent;
+    }
+  }
 }
 
 export interface HttpLaunch {
@@ -123,7 +170,10 @@ async function main(): Promise<void> {
     return;
   }
   const { embedder, reason, snapshotsDir, timeZone, pageWriterMode, config } = questionEmbedder(choice.path);
-  const unreadable = namedUnreadableRefusal(choice, reason);
+  const unreadable =
+    namedUnreadableRefusal(choice, reason) ??
+    livePathRefusal(dirname(choice.path), "the configuration") ??
+    (snapshotsDir === undefined ? null : livePathRefusal(snapshotsDir, "the configuration's snapshots folder"));
   if (unreadable !== null) {
     process.stderr.write(`${unreadable}\n`);
     process.exitCode = 1;
