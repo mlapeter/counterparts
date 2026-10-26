@@ -72,6 +72,10 @@ function plural(n: number, one: string, many = `${one}s`): string {
  * THE CONSOLE'S WINDOW: seven CALENDAR days, today included, in the store's
  * zone — the same window the `fired` report counts over. The lived-day bound
  * only keeps the read cheap (a lived day is never longer than a calendar day).
+ * A census has no row to date and counts from its bound alone, so it is given
+ * the dashboard's: seven lived days, today included (2026-10-26, review of
+ * #629 — at `- 7` a belief born eight lived days back lit the console's
+ * Schemas row while the dashboard and `fired` called it quiet).
  */
 export function calendarWindow(store: ReadOnlyStore, today: string): EvidenceWindow {
   let livedDay = 0;
@@ -84,6 +88,7 @@ export function calendarWindow(store: ReadOnlyStore, today: string): EvidenceWin
   const zone = store.zone();
   return {
     sinceDay: Math.max(0, livedDay - FIRED_DAYS),
+    censusSinceDay: Math.max(0, livedDay - (FIRED_DAYS - 1)),
     today: livedDay,
     contains: (row: EventRow) => {
       const date = rowDate(row, payloadOf(row), zone);

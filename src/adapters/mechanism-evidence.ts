@@ -458,6 +458,12 @@ export const FELT_EVENTS: ReadonlySet<string> = new Set(
 export interface EvidenceWindow {
   /** The lowest lived day a row may carry — the SQL bound, and the census's. */
   readonly sinceDay: number;
+  /**
+   * The lowest lived day a census counts from, when it is not `sinceDay`: the
+   * console reads event rows from a looser lived bound and dates them by the
+   * calendar, but a census has only the lived day (review of #629).
+   */
+  readonly censusSinceDay?: number;
   /** The lived day that counts as today. */
   readonly today: number;
   /** Whether a row falls inside the window. Default: `row.day >= sinceDay`. */
@@ -787,7 +793,7 @@ function judge(store: ReadOnlyStore, window: EvidenceWindow): { verdicts: Verdic
     for (const c of censusesOf(m)) {
       let count = 0;
       try {
-        count = c.count(store, window.sinceDay);
+        count = c.count(store, window.censusSinceDay ?? window.sinceDay);
       } catch {
         // A store that cannot answer the census simply has no census count.
       }
