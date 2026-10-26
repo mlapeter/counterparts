@@ -37,6 +37,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
+import { ledger } from "../src/core/coverage/index.js";
 import { ClaudeCodeAdapter } from "../src/adapters/claude-code/hooks.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import { parseTranscript } from "../src/adapters/claude-code/transcript.js";
@@ -790,5 +791,52 @@ describe("review of #392: host text is never the owner's words", () => {
   });
   test.todo("a scheduled prompt (isMeta, system) opening a turn", async () => {
     await check((s) => s.add(meta("SCHEDWORDS run the nightly bed check.", { promptSource: "system" }), said("Checked.")).stop(at(9, 5)), null);
+  });
+});
+
+// ── S2 review (2026-10-26): folders that keep nothing ───────────────────────
+
+describe("S2 review: a session in an off, paused or observer folder owes nothing, and no folder's Last here names it", () => {
+  test("through the real Stop and SessionEnd hooks: no debt there; HERE's wake names the check-in that worked HERE, never the other folder's sessions", () => {
+    const w = world(at(8));
+    // A person's short check-in HERE (on): owed under S2, and named.
+    new Session(w, A, HERE).add(typed("Morning — just checking in about the beds."), said("Morning! The beds look fine.")).stop(at(8, 5)).end(at(8, 6));
+    const ids = { off: C, paused: "c9cacbcc-0000-4000-8000-0000000000c2", observer: "c9cacbcc-0000-4000-8000-0000000000c3" } as const;
+    let t = at(8, 30);
+    // An observer folder's hook opens the store as an observer (`bin/hook.ts` folds the verdict into the config).
+    const watcher = Counterpart.open({ dir: storeDir, budgetBytes: BUDGET, now: () => w.now(), timeZone: ZONE, observer: true });
+    open.push(watcher);
+    const hooksFor = (mode: "off" | "paused" | "observer"): ClaudeCodeAdapter =>
+      mode !== "observer"
+        ? w.hooks({ mode })
+        : new ClaudeCodeAdapter({
+            counterpart: watcher,
+            config: { dataDir: storeDir, injectionBudgetBytes: BUDGET, timeZone: ZONE, observer: true },
+            configPath: join(root, "claude-code.json"),
+            now: () => w.now(),
+            scope: { mode: "observer", matched: THERE, entry: null } as ScopeVerdict,
+            command: "/bin/true",
+            args: ["runner"],
+            spawner: () => ({ pid: 4242 }),
+          });
+    for (const mode of ["off", "paused", "observer"] as const) {
+      const id = ids[mode];
+      recordSession(storeDir, { sessionId: id, scope: THERE, phase: "start", at: t });
+      const turns = parseTranscript(jsonl([typed(`THEREWORDS ${mode}: a quick word in a folder that keeps nothing.`), said(`THEREWORDS ${mode} heard.`)])).turns;
+      w.set((t += 5 * MIN));
+      hooksFor(mode).stop({ sessionId: id, scope: THERE, turns, at: D } as HookInput);
+      w.set((t += MIN));
+      hooksFor(mode).sessionEnd({ sessionId: id, scope: THERE, turns, at: D } as HookInput);
+    }
+    w.set(at(11));
+    const entries = ledger(w.c.spans, { now: w.now(), zone: ZONE });
+    expect(entries.find((e) => e.session === A)).toMatchObject({ owed: true, recorded: false });
+    for (const id of Object.values(ids)) expect(entries.find((e) => e.session === id)).toBeUndefined();
+    const text = wakeOf(w, at(11), { date: D });
+    const line = text.split("\n").find((l) => l.startsWith("Last here:")) ?? "";
+    expect(line).toMatch(/^Last here: session a1b2c3d4, /);
+    expect(text).not.toContain("THEREWORDS");
+    expect(text).not.toContain("0000000000c2");
+    expect(text).not.toContain("0000000000c3");
   });
 });

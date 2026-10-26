@@ -153,3 +153,14 @@ ceiling) instead of retention's 3 days, and its lapse is counted as one. A lone 
 too; the writer may answer it with nothing (guards loose-first: no bytes floor until a real
 store says it needs one). Revert: `UNRECORDED_OWED_PIECES` very high.
 
+Review of S2 (2026-10-26): a `claude -p` run that is NOT small (six lines in a few minutes,
+under the floor, no record) was owed, not small, so `pointable` let the night take it — on
+master it owed nothing. `pointable` now holds a session that is not a person's to the floor,
+small or not (`HeldSession.overFloor`): such a debt is kept until it lapses, as a small one
+was, and never written up. And the night: a night made whole by owed write-ups reads the
+dream's queue again after its catch-up (`dream/CONTRACT.md`), so a catch-up that keeps
+failing does not buy a whole night every morning until the debt lapses. What a failing
+catch-up still costs, bounded: each night re-plans everything owed, store-wide, oldest
+first, and runs ONE batch (`NIGHT_WRITE_UP_BATCH_PARTS` 16 parts, 192 KB) — a batch that
+brought nothing back starts no other — until the debts lapse at 14 days of use.
+

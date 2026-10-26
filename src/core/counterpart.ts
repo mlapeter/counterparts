@@ -1841,6 +1841,7 @@ export class Counterpart {
     const newestChapter = found.reduce((m, f) => Math.max(m, f.lastAt), -Infinity);
     const day = this.store.livedDay();
     const now = this.nowFn();
+    const norm = (s: string): string => s.trim().replace(/\/+$/, "");
     let denied: Set<string> | null = null;
     let tried = 0;
     for (const s of sessionsHere(this.spans, scope)) {
@@ -1861,6 +1862,12 @@ export class Counterpart {
         if (denied.has(id)) continue;
         const row = this.store.row(id);
         if (row === undefined || row.superseded_by !== null || row.body.trim().length === 0) continue;
+        // THIS FOLDER'S OWN (S2 review): a session at work in two folders
+        // made its notes, and its write-ups are filed, under each folder; a
+        // memory from the other one — or from none recorded — is not this
+        // line's to quote (`memoryFolder`, the privacy read's).
+        const folder = this.memoryFolder(row);
+        if (folder === null || norm(folder) !== norm(scope)) continue;
         const born = row.created_at ?? 0;
         if (born <= at) continue;
         at = born;

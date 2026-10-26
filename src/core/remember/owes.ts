@@ -165,6 +165,10 @@ export interface HeldSession {
   readonly owes: boolean;
   /** It owes, and what it owes is small: one line is enough. */
   readonly small: boolean;
+  /** Its unwritten stretch is past the floor (pieces and minutes) — not owed
+   *  only because it left no record of its own (S2 review: the host holds a
+   *  session that is not a person's conversation to the floor). */
+  readonly overFloor: boolean;
   /** The host's registry holds it open. */
   readonly open: boolean;
   /** When its retention clock started. */
@@ -301,6 +305,7 @@ export function planRetention(buffer: SpanBuffer, sources: RetentionSources): He
       facts,
       owes,
       small: owes && entry?.small === true,
+      overFloor: entry?.overFloor === true,
       open: h.open,
       clockFrom,
       lines: t.lines,

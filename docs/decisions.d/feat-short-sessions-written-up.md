@@ -21,6 +21,18 @@
   "not written up yet", and the newest chapter after it as "Before it". Recall's "the most
   recent session" is unchanged. Why: the Dana week's "Last here" named day 1's meeting until
   day 6. No switch.
+- Decided in the S2 review, 2026-10-26, lightly held: a night made whole by owed write-ups
+  says so (`night:owed-as-new`) and reads the dream's queue again after its catch-up; under
+  `MIN_NEW` it ends as the catch-up alone. Why: the promotion is a forecast made before the
+  catch-up runs, and a seat that refuses or fails the catch-up kept the debt — and so the
+  promotion — every morning until it lapsed, three model children a night on too little new.
+- Decided in the S2 review, 2026-10-26: a session that is not a person's conversation
+  (`claude -p`, the Agent SDK) is held to the floor for the night and the pointer
+  (`pointable`), small or not — on the builder's head a six-line headless run under 15
+  minutes was owed, not small, and written up.
+- Decided in the S2 review, 2026-10-26: "Last here"'s later session quotes only a memory
+  filed in this folder (`memoryFolder`); a session at work in two folders had the other
+  folder's note quoted.
 - Not done, on evidence: batching several short sessions into one write-up part. H0's "36
   parts for 9 sessions" was the refusing night seat re-planning everything owed so far each
   night; with a working catch-up each night plans only the day before's sessions (1–2 parts,

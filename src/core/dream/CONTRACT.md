@@ -131,7 +131,11 @@ dreamer is the model (a background agent the session launches), outside this pro
   `OWED_COUNTS_AS_NEW`): when the reason is `too-little-new` and the queue plus the sessions
   owed from an earlier day (one each) reach `MIN_NEW`, the host drops `dreamSkipped` and the
   night runs whole — the catch-up first, so what it writes is in the queue when the dream
-  begins. `first-day` stays the catch-up alone.
+  begins. `first-day` stays the catch-up alone. Such a night says so (`night:owed-as-new`,
+  S2 review): after its catch-up it reads the queue again (`Dreams#queuedNew`), and when what
+  the catch-up wrote did not bring it to `MIN_NEW` (a seat that refused or failed it, a writer
+  that found nothing) it ends as the catch-up alone, `skipped: too-little-new`, rather than
+  running a writer, a dream and a reflection on too little new every night the debt stays.
   THE FIRST MEETING'S DAYS (2026-10-12, `DreamContext.holds`, `onboarding.ts#meetingDay`):
   on the first meeting's first offer day, on a later day it was begun (`offered`) and is not
   finished, and on the day it finished,

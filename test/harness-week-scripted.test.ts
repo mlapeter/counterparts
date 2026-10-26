@@ -98,7 +98,8 @@ test("the check-ins week runs through the real hooks with no model: remembers la
     [4, "d4s2", "night"],
     [5, "d5s1", "catch-up:too-little-new"],
     [6, "d6s1", "catch-up:too-little-new"],
-    [7, "d7s1", "night"],
+    // Whole because owed write-ups counted as new, and it says so (S2 review): it dreams only if its catch-up delivers.
+    [7, "d7s1", "night:owed-as-new"],
     [8, "d8s1", "catch-up:too-little-new"],
   ]);
   // Each night's catch-up takes what is owed by then — one part per check-in, all in one batch — and writes it up
@@ -109,7 +110,7 @@ test("the check-ins week runs through the real hooks with no model: remembers la
     expect(n.catchUp!.ran).toMatchObject({ state: "done", written: n.catchUp!.planned.length, left: 0, partsLeft: 0 });
     expect(n.asked[0]!.act).toBe("catch-up");
     // A whole night asks its dream (journaled by the script) and goes on to the refused reflection.
-    if (n.kind === "night") expect(n.asked.map((a) => a.act)).toContain("dream");
+    if (n.kind === "night" || n.kind === "night:owed-as-new") expect(n.asked.map((a) => a.act)).toContain("dream");
     else expect(n.asked.map((a) => a.act)).toEqual(["catch-up"]);
   }
   expect(r.owedAtEnd).toEqual([]);

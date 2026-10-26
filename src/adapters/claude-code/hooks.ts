@@ -1294,7 +1294,7 @@ export class ClaudeCodeAdapter extends Lifecycle {
       const { dreamSkipped: _skipped, ...asWhole } = offer;
       const chosen: DreamOffer = whole ? asWhole : offer;
       if (!dreams.claimOffer(chosen)) return false;
-      const started = this.startNightRun(input, chosen);
+      const started = this.startNightRun(input, chosen, whole);
       this.emit("adapter.night.catch-up-only", { started, owed, dream: chosen.dreamSkipped ?? null, ...(whole ? { owedAsNew: owed, fresh: offer.fresh } : {}) });
       return started;
     } catch {
@@ -1329,16 +1329,20 @@ export class ClaudeCodeAdapter extends Lifecycle {
    * started; false — with a `could-not-start` row saying why — when it did
    * not, so the next offer asks instead. Never throws.
    */
-  private startNightRun(input: HookInput, offer: DreamOffer): boolean {
+  private startNightRun(input: HookInput, offer: DreamOffer, owedAsNew = false): boolean {
     const dreams = this.counterpart.dreams;
     const store = this.counterpart.store;
     const run = newNightRunId();
+    // `owedAsNew` (S2 review): made whole by owed write-ups counted as new —
+    // the run reads the queue again after its catch-up (`night-run.ts`).
     const kind: NightKind =
       offer.reflects !== null
         ? { kind: "reflection", dream: offer.reflects }
-        : offer.dreamSkipped === undefined
-          ? { kind: "night" }
-          : { kind: "night", dreamSkipped: offer.dreamSkipped };
+        : offer.dreamSkipped !== undefined
+          ? { kind: "night", dreamSkipped: offer.dreamSkipped }
+          : owedAsNew
+            ? { kind: "night", owedAsNew: true }
+            : { kind: "night" };
     const base = {
       run,
       date: offer.at,
