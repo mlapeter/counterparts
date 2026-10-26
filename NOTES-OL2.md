@@ -12,11 +12,21 @@ Branch `feat/hosted-server`, from origin/master eacdafda. The brief is
   - oidc-provider 9.13 runs a full DCR + PKCE + resource + refresh-rotation flow under bun and Node 24;
   - MCP SDK v2 has no authorization server, and SDK v1's has no server-side CIMD.
 
+- **2026-10-26, checkpoint answered** (roadmap seat, on Mike's word): build steps 1–4. Step 5 (keys + backups) waits on
+  Mike: the Q4 wording, who holds the key, the §5.2 privacy paragraph, and whether to allow the native-driver spike. Don't
+  run that spike. Accepted: Q1, Q5–Q11. Q2/Q3 lean accept.
+- **Step 1, done (PR #639, this branch):** `remote/http.ts` exports `handleMcpPost(req, res, target)` and `serialQueue()`;
+  `serveHttp` is the local listener over them, unchanged. `mcp/protocol.ts` echoes 2025-11-25, and
+  `LATEST_PROTOCOL_VERSION` is named as 2025-06-18. Tests: `test/remote-http.test.ts` covers the mounted handler (two real
+  stores behind one router, one queue per target) and 2025-11-25 through the door; `test/mcp.test.ts` covers echoing each
+  listed version. Full `bun test` green (7714 pass) and `test:node` green on Node 24.
+
 ## Next
 
-- **STOP.** Wait for the coordinator / roadmap seat / Mike to answer Q1–Q11.
-- Then build in DESIGN §9's order. First PR: split `remote/http.ts` into a request handler and the local listener, and add
-  2025-11-25 to negotiation (`mcp/protocol.ts` belongs to the mcp module, so coordinate).
+- Steps 2–4 on stacked branches: feat/hosted-tenants (step 2), feat/hosted-accounts (step 3), feat/hosted-oauth (step 4).
+  Each PR's base is the branch before it.
+- Hosted tests use `node:test` + `node:assert`, so the same files run under `bun test ./hosted/test` and under
+  `node --import ./src/adapters/node-hooks.mjs --test hosted/test/*.test.ts` (CI job "hosted").
 
 ## Learned
 
