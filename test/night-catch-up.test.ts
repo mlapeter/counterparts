@@ -73,6 +73,8 @@ import { LAST_HERE_NOROOM_EVENT, chaptersOn, yesterdayLine } from "../src/core/h
 import { BRIEFING_KEY, SELF_TUNABLES, render } from "../src/core/self/index.js";
 import { dayMemories, isOfDay } from "../src/core/self/writer.js";
 import { Store } from "../src/core/store/index.js";
+import { sessionsHere } from "../src/core/coverage/index.js";
+import { narrate } from "../src/adapters/dashboard/web/narrate.js";
 import { addDays, localDate, readableDate } from "../src/core/time.js";
 
 const MIN = 60_000;
@@ -1772,12 +1774,12 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     quick("sdk-run", proj, 6, YESTERDAY_10() + 5 * HOUR, "sdk-cli");
     // Once its registry record is pruned (7 days on, while its owed text is kept until it lapses), nobody can
     // say whose it was: it still fails closed (S2 review).
-    quick("sdk-pruned", proj, 6, YESTERDAY_10() + 6 * HOUR, "sdk-cli");
-    rmSync(sessionPath(dir, "sdk-pruned") as string, { force: true });
+    quick("sdkprune", proj, 6, YESTERDAY_10() + 6 * HOUR, "sdk-cli");
+    rmSync(sessionPath(dir, "sdkprune") as string, { force: true });
     const a = hooksAt();
     a.counterpart.store.advanceClock(YESTERDAY());
     expect(owes("sdk-run")).toBe(true);
-    expect(owes("sdk-pruned")).toBe(true);
+    expect(owes("sdkprune")).toBe(true);
     prompt(a, "day2-1");
     expect(nightPlans()).toHaveLength(0);
   });
@@ -1946,5 +1948,108 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     expect(shown).toBeGreaterThan(0);
     const rows = a.counterpart.store.eventLog({ name: LAST_HERE_NOROOM_EVENT });
     expect(rows.map((r) => r.ref)).toEqual(["checkinB"]);
+    // The dashboard reads the ref as the session it is, not an unknown memory (review of #638).
+    expect(narrate(a.counterpart.store, rows[0] as Parameters<typeof narrate>[1]).subject).toBe("session checkinB");
+  });
+
+  // ── review of #638 (2026-10-26): the awkward states, through SessionStart ──
+  test("review of #638: more `claude -p` runs than the walk tries, all newer than the person's session — the person's is still named", () => {
+    lived("person-1", proj, { pieces: 2, at: YESTERDAY_10() + 2 * HOUR });
+    for (let i = 0; i < 5; i++) quick(`sdk-${String(i)}`, proj, 3, YESTERDAY_10() + (4 + i) * HOUR, "sdk-cli");
+    const a = hooksAt({ setting: "auto" });
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
+    const text = wokeHere(a, "morning-1");
+    expect(text).not.toMatch(/sdk-\d/);
+    expect(lastHereLines(text)[0]).toMatch(/^Last here: session person-1, /);
+  });
+
+  test("review of #638: a `claude -p` run whose registry record was pruned reads as a person's — named, inside the ceiling", () => {
+    lived("person-1", proj, { pieces: 2, at: YESTERDAY_10() + 2 * HOUR });
+    quick("sdkprune", proj, 3, YESTERDAY_10() + 6 * HOUR, "sdk-cli");
+    rmSync(sessionPath(dir, "sdkprune") as string, { force: true });
+    expect(readSession(dir, "sdkprune")).toBeNull();
+    const a = hooksAt({ setting: "auto" });
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
+    const text = wokeHere(a, "morning-1");
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(BUDGET);
+    expect(lastHereLines(text)[0]).toMatch(/^Last here: session sdkprune, [^\n]*, no chapter, not written up yet\.$/);
+  });
+
+  test("review of #638: nothing crosses folders — a headless run and a person's session in another folder change neither folder's line", () => {
+    lived("pproj", proj, { pieces: 2, at: YESTERDAY_10() + 2 * HOUR });
+    lived("pother", other, { pieces: 2, at: YESTERDAY_10() + 3 * HOUR });
+    quick("sdk-other", other, 3, YESTERDAY_10() + 6 * HOUR, "sdk-cli");
+    quick("sdk-proj", proj, 3, YESTERDAY_10() + 7 * HOUR, "sdk-cli");
+    const a = hooksAt({ setting: "auto" });
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
+    const inProj = lastHereLines(wokeHere(a, "morning-1"));
+    expect(inProj).toHaveLength(1);
+    expect(inProj[0]).toMatch(/^Last here: session pproj, /);
+    const out = a.sessionStart({ sessionId: "morning-2", scope: other, at: TODAY(), entrypoint: "cli" } as HookInput);
+    expect(out.ok).toBe(true);
+    const inOther = lastHereLines(out.injection);
+    expect(inOther).toHaveLength(1);
+    expect(inOther[0]).toMatch(/^Last here: session pother, /);
+  });
+
+  test("review of #638: a brand-new user's first days — the second session is told of the first, and the reserve trims nothing on a store that does not fill the wake", () => {
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    saved(a.counterpart, 3);
+    const bare = a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
+    lived("first", proj, { pieces: 2, at: YESTERDAY_10() + 2 * HOUR });
+    const after = a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
+    // The line's room is held back at the boundary...
+    expect((bare.composeBudget as number) - (after.composeBudget as number)).toBeGreaterThan(0);
+    // ...and costs this store nothing: the bundle sits far under the budget, so no lane gave anything up.
+    expect(after.bytes).toBeLessThan((after.composeBudget as number) / 2);
+    expect(after.elements).toBeGreaterThanOrEqual(bare.elements);
+    expect(lastHereLines(wokeHere(a, "second"))[0]).toMatch(/^Last here: session first, /);
+  });
+
+  test("review of #638: a folder whose only later session is headless leaves the bound's room unused — no line, no row, inside the ceiling", () => {
+    const a = hooksAt({ setting: "auto" });
+    a.counterpart.store.advanceClock(YESTERDAY());
+    fullLanes(a.counterpart);
+    const bare = a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() }).composeBudget as number;
+    quick("sdk-only", proj, 6, YESTERDAY_10() + 7 * HOUR, "sdk-cli");
+    const reserved = a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() }).composeBudget as number;
+    // The boundary has no registry: the bound counts the run (the PR's stated cost).
+    expect(bare - reserved).toBeGreaterThan(0);
+    const text = wokeHere(a, "morning-1");
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(BUDGET);
+    expect(lastHereLines(text)).toEqual([]);
+    expect(a.counterpart.store.eventLog({ name: LAST_HERE_NOROOM_EVENT })).toHaveLength(0);
+  });
+
+  test("review of #638: the shared walk — chaptersHereFor with the folder's sessions handed in equals its own walk, per scope and per reader", () => {
+    lived("writer-a", proj, { pieces: 3, at: YESTERDAY_10() + 1 * HOUR });
+    lived("writer-b", other, { pieces: 3, at: YESTERDAY_10() + 2 * HOUR });
+    lived("writer-c", proj, { pieces: 3, at: YESTERDAY_10() + 4 * HOUR });
+    lived("nobody", proj, { pieces: 2, at: YESTERDAY_10() + 6 * HOUR });
+    chapterYesterday("writer-a", "Valve order on loop A");
+    chapterYesterday("writer-b", "Reservoir top-up in the other folder");
+    chapterYesterday("writer-c", "Pump start checklist");
+    const a = hooksAt({ setting: "auto" });
+    const c = a.counterpart;
+    c.store.advanceClock(YESTERDAY());
+    type Spans = Parameters<typeof sessionsHere>[0];
+    type Chapters = NonNullable<Parameters<Counterpart["chaptersHereFor"]>[2]>;
+    const cc = c as unknown as { spans: Spans; chaptersInWindow(day: number): Chapters };
+    const all = cc.chaptersInWindow(c.store.livedDay());
+    expect(all.size).toBe(3);
+    let compared = 0;
+    for (const scope of cc.spans.scopes()) {
+      const here = sessionsHere(cc.spans, scope);
+      for (const reader of [null, "writer-a", "writer-b", "writer-c", "nobody", "stranger"]) {
+        const own = c.chaptersHereFor(scope, reader, all);
+        expect(c.chaptersHereFor(scope, reader, all, here)).toEqual(own);
+        compared += own.length;
+      }
+    }
+    expect(compared).toBeGreaterThan(0);
   });
 });
