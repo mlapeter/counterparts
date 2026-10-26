@@ -22,7 +22,7 @@ import type { SideResult } from "../tools/harness/compare.js";
 import { planModelChild } from "../tools/harness/model-seat.js";
 import { pageReading } from "../tools/harness/page.js";
 import { SETTINGS_ENV, SettingError, appliedSettings, applySettings, applySettingsFromEnv, parseSetting, restoreSettings, settingsForChild } from "../tools/harness/settings.js";
-import { childUsage, recordUsage, resetUsage, totalTokens, usageTally } from "../tools/harness/usage.js";
+import { childUsage, recordUsage, resetUsage, totalTokens, usageByAct, usageTally } from "../tools/harness/usage.js";
 
 let root: string;
 
@@ -138,6 +138,21 @@ test("a child's tokens come from its last result line; one that said none is cou
   const t = usageTally();
   expect(t).toEqual({ calls: 2, unread: 1, input: 6, output: 8, cacheRead: 2000, cacheCreate: 20, costUsd: 0.03 });
   expect(totalTokens(t)).toBe(2034);
+});
+
+test("a night child's tokens are tallied by its act too; a turn's only in the whole (L2)", () => {
+  resetUsage();
+  recordUsage(RESULT(5, 5, 0.01));
+  recordUsage(RESULT(10, 1, 0.01), "catch-up");
+  recordUsage(RESULT(20, 2, 0.02), "dream");
+  recordUsage(RESULT(30, 3, 0.03), "catch-up");
+  recordUsage(undefined, "dream");
+  expect(usageTally().calls).toBe(4);
+  expect(Object.keys(usageByAct()).sort()).toEqual(["catch-up", "dream"]);
+  expect(usageByAct()["catch-up"]).toEqual({ calls: 2, unread: 0, input: 40, output: 4, cacheRead: 2000, cacheCreate: 20, costUsd: 0.04 });
+  expect(usageByAct()["dream"]).toMatchObject({ calls: 1, unread: 1, input: 20 });
+  resetUsage();
+  expect(usageByAct()).toEqual({});
 });
 
 // ── the plan ────────────────────────────────────────────────────────────────

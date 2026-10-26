@@ -167,7 +167,7 @@ export function modelSeat(input: ModelSeatInput): Seat<NightAnswer> & { readonly
       const neverStarted = result.spawnCode !== undefined || (result.code === null && !result.timedOut && result.error !== null);
       if (!neverStarted) {
         inits[ask.act] = childInit(result.output);
-        recordUsage(result.output);
+        recordUsage(result.output, ask.act);
       }
       return {
         refused: null,
