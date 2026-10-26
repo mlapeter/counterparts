@@ -1467,7 +1467,11 @@ export class Counterpart {
     // given up when there is not room for both (`handoff/last-here.ts`).
     // An episode the body above already names (the Yesterday line) is not
     // named again below it (2026-10-20, each episode once).
-    const lastHere = this.lastHereLadder(scope, here?.session ?? null, chapters, here?.exportsFrom, (id) => result.text.includes(id));
+    // A session nobody attended (`claude -p`, the SDK) is never the line's
+    // (review of #636): the host's registry says which, read once here.
+    const headless = this.headlessHere(here);
+    const lastHereFound = this.lastHereBlocks(scope, here?.session ?? null, chapters, here?.exportsFrom, (id) => result.text.includes(id), headless);
+    const lastHere = lastHereFound.blocks;
     // LAST SAID HERE (2026-10-11): the last exchange in this directory, one
     // line at the foot of the blocks above the handoff — the first thing they
     // give up, at each of their widths (`withExchange`).
@@ -1478,7 +1482,13 @@ export class Counterpart {
     // Only for a "Last here" line proper: the about-me line alone names no
     // chapter here, and its drop is not this row's (review of #311, NIT).
     const named = lastHere.some((b) => b.startsWith("Last here:"));
-    const lastHereId = !named ? null : (allHere.find((c) => reader === null || c.chapter.session !== reader)?.chapter.id ?? null);
+    // A later session with no chapter is named first, so its no-room row is
+    // that session's, not the chapter's below it (review of #636).
+    const lastHereId = !named
+      ? null
+      : lastHereFound.later !== null
+        ? lastHereFound.later.session
+        : (allHere.find((c) => reader === null || c.chapter.session !== reader)?.chapter.id ?? null);
     const newest = ladder[0];
     const budget = this.reportedBudget;
     // THIS DIRECTORY'S WORK (2026-10-01, lane 8): the craft lane, composed
@@ -1786,9 +1796,28 @@ export class Counterpart {
     exportsFrom?: (scope: string) => boolean,
     named?: (id: string) => boolean,
   ): string[] {
+    return this.lastHereBlocks(scope, reader, chapters, exportsFrom, named).blocks;
+  }
+
+  /**
+   * `lastHereLadder`'s blocks, with the later session the line names first
+   * when it names one (its no-room row's ref). `headless` is the sessions the
+   * host says nobody attended, which the line passes over. Never throws.
+   */
+  private lastHereBlocks(
+    scope: string,
+    reader: string | null,
+    chapters?: ReadonlyMap<string, ChapterHere>,
+    exportsFrom?: (scope: string) => boolean,
+    named?: (id: string) => boolean,
+    headless?: ReadonlySet<string>,
+  ): { blocks: string[]; later: LaterHere | null } {
     try {
       const all = chapters ?? this.chaptersInWindow(this.store.livedDay());
-      const found = this.chaptersHereFor(scope, reader, all);
+      // ONE WALK of this folder's sessions for the chapters and the later
+      // session both (review of #636: it was read twice per scope).
+      const here = sessionsHere(this.spans, scope);
+      const found = this.chaptersHereFor(scope, reader, all, here);
       const zone = this.store.zone();
       const entries: LastHere[] = found.map((f) => ({
         chapter: f.chapter,
@@ -1806,7 +1835,7 @@ export class Counterpart {
       // newest session is newer than every chapter here, the line names it
       // first — with what of it is written up — and the newest chapter after
       // it, rather than that chapter as if nothing happened since.
-      const later = this.yesterdayKeepsNewest ? null : this.laterHere(scope, reader, found, all);
+      const later = this.yesterdayKeepsNewest ? null : this.laterHere(scope, reader, found, all, here, headless);
       const base =
         later !== null
           ? laterHereLadder(later, entries[0] ?? null, reader, named)
@@ -1816,11 +1845,20 @@ export class Counterpart {
       // ABOUT ME, FROM ANOTHER DIRECTORY (2026-10-01): one more line on the
       // widest rungs, given up first; alone when nothing was written here.
       const away = this.selfChapterElsewhere(all, new Set(found.map((f) => f.chapter.id)), reader, exportsFrom);
-      if (away === null || named?.(away.id) === true) return base;
+      if (away === null || named?.(away.id) === true) return { blocks: base, later };
       const line = elsewhereLine(away, stampWords(localStamp(away.writtenAt, zone).split(" ")[0] ?? ""), reader);
-      return base.length === 0 ? [line] : [...base.map((b) => `${b}\n${line}`), ...base];
+      return { blocks: base.length === 0 ? [line] : [...base.map((b) => `${b}\n${line}`), ...base], later };
     } catch {
-      return [];
+      return { blocks: [], later: null };
+    }
+  }
+
+  /** The sessions the host's registry says nobody attended (`WakeSession.headless`). Never throws. */
+  private headlessHere(here?: WakeHere): ReadonlySet<string> {
+    try {
+      return new Set((here?.sessions?.() ?? []).filter((s) => s.headless === true).map((s) => s.session));
+    } catch {
+      return new Set();
     }
   }
 
@@ -1837,6 +1875,8 @@ export class Counterpart {
     reader: string | null,
     found: readonly { chapter: ChapterHere; lastAt: number }[],
     chapters: ReadonlyMap<string, ChapterHere>,
+    here: ReturnType<typeof sessionsHere> = sessionsHere(this.spans, scope),
+    headless?: ReadonlySet<string>,
   ): LaterHere | null {
     const newestChapter = found.reduce((m, f) => Math.max(m, f.lastAt), -Infinity);
     const day = this.store.livedDay();
@@ -1844,7 +1884,7 @@ export class Counterpart {
     const norm = (s: string): string => s.trim().replace(/\/+$/, "");
     let denied: Set<string> | null = null;
     let tried = 0;
-    for (const s of sessionsHere(this.spans, scope)) {
+    for (const s of here) {
       // Newest first: past the newest chapter, or the line's fortnight (in
       // lived days, and in calendar days too), nothing later is left.
       if (s.lastAt <= newestChapter) return null;
@@ -1853,6 +1893,10 @@ export class Counterpart {
       // Not the reader; and a session that wrote a chapter — here or in the
       // directory its row names — is that chapter's line, never this one.
       if (s.session === reader || chapters.has(s.session)) continue;
+      // Nor one nobody attended (review of #636): a `claude -p` run is not
+      // where the person left off. Passed before the count, so a run of them
+      // cannot hide the person's session behind them.
+      if (headless?.has(s.session) === true) continue;
       // A few at most: each costs a memory lookup.
       if (++tried > LATER_HERE_TRIED) return null;
       denied ??= new Set(this.store.deniedIds());
@@ -1926,12 +1970,16 @@ export class Counterpart {
     scope: string,
     reader: string | null,
     chapters?: ReadonlyMap<string, ChapterHere>,
+    here?: ReturnType<typeof sessionsHere>,
   ): { chapter: ChapterHere; firstAt: number; lastAt: number }[] {
     const day = this.store.livedDay();
     const all = chapters ?? this.chaptersInWindow(day);
     if (all.size === 0) return [];
     const only = new Set(all.keys());
-    const sessions = new Map(sessionsHere(this.spans, scope, { only }).map((s) => [s.session, s] as const));
+    // The folder's sessions when the caller has read them already: per
+    // session the same as the `only` walk, which keeps each session whole.
+    const walked = here === undefined ? sessionsHere(this.spans, scope, { only }) : here.filter((s) => only.has(s.session));
+    const sessions = new Map(walked.map((s) => [s.session, s] as const));
     return chaptersHere(all, { scope, claimed: chapterClaims(this.spans, scope), sessions }, day, { reader });
   }
 
@@ -2580,7 +2628,8 @@ export class Counterpart {
    * that directory's handoff rungs, exactly as delivery tries them; the share
    * rule still takes the widest that passes, so the line can never make the
    * pointer cost more than the eighth it could already. With no handoff and
-   * no chapter here inside the fortnight, the reserve is zero as before.
+   * no line to carry — no chapter here inside the fortnight, and no later
+   * session that wrote none (review of #636) — the reserve is zero as before.
    */
   private wakeReserveBytes(
     budgetBytes: number,
@@ -2622,16 +2671,18 @@ export class Counterpart {
       blocks.push(...rungs);
     }
     try {
+      // With no chapter in the fortnight too (review of #636): the line then
+      // names a later session that wrote none, and wants its room as much.
       const chapters = this.chaptersInWindow(this.store.livedDay());
-      if (chapters.size > 0) {
-        for (const scope of this.spans.scopes()) {
-          // Sized as if every directory's chapters may cross: the reserve is
-          // a bound, and the boundary cannot read the host's scope setting.
-          const lines = this.lastHereLadder(scope, null, chapters, () => true).map((b) => byteLength(b));
-          for (const l of lines) {
-            blocks.push(l);
-            for (const h of handoffBytes.get(norm(scope)) ?? []) blocks.push(l + 1 + h);
-          }
+      for (const scope of this.spans.scopes()) {
+        // Sized as if every directory's chapters may cross, and as if any
+        // session may be the line's, a headless one too: the reserve is a
+        // bound, and the boundary cannot read the host's scope setting or
+        // its registry.
+        const lines = this.lastHereLadder(scope, null, chapters, () => true).map((b) => byteLength(b));
+        for (const l of lines) {
+          blocks.push(l);
+          for (const h of handoffBytes.get(norm(scope)) ?? []) blocks.push(l + 1 + h);
         }
       }
     } catch {

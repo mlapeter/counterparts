@@ -100,6 +100,7 @@ import {
   manifestVersionOnDisk,
   markSinceSeen,
   NIGHT_RUNNER_PREFIX,
+  NON_INTERACTIVE_ENTRYPOINTS,
   readSession,
   readWriteUpProgress,
   recordSession,
@@ -679,6 +680,7 @@ export class Lifecycle implements HostLifecycle {
           live: isLive(r, now),
           endedAt: r.endedAt,
           model: r.model ?? null,
+          headless: r.entrypoint !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(r.entrypoint),
         }));
       },
     };

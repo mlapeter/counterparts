@@ -69,7 +69,7 @@ import { SCOPE_ENV, SESSION_ENV } from "../src/adapters/spawn.js";
 import { readLog } from "../src/adapters/log/index.js";
 import { openLog } from "../src/adapters/log/index.js";
 import { Counterpart, NIGHT_WRITE_UP_EVENT } from "../src/core/counterpart.js";
-import { chaptersOn, yesterdayLine } from "../src/core/handoff/last-here.js";
+import { LAST_HERE_NOROOM_EVENT, chaptersOn, yesterdayLine } from "../src/core/handoff/last-here.js";
 import { BRIEFING_KEY, SELF_TUNABLES, render } from "../src/core/self/index.js";
 import { dayMemories, isOfDay } from "../src/core/self/writer.js";
 import { Store } from "../src/core/store/index.js";
@@ -1844,5 +1844,107 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     expect(line).toMatch(/^Last here: session both, /);
     expect(line).not.toContain("4417");
     expect(line).toContain("not written up yet");
+  });
+
+  // ── review of #636's follow-ups (2026-10-26): headless runs, and room with no chapter ──
+  /** What SessionStart hands a person's session opening in `proj` (Claude Code's own entrypoint). */
+  function wokeHere(a: ClaudeCodeAdapter, session: string): string {
+    const out = a.sessionStart({ sessionId: session, scope: proj, at: TODAY(), entrypoint: "cli" } as HookInput);
+    expect(out.ok).toBe(true);
+    return out.injection;
+  }
+  const lastHereLines = (t: string): string[] => t.split("\n").filter((l) => l.startsWith("Last here:") || l.startsWith("Before it:"));
+  /** Enough to fill the lanes at the ceiling: long identity elements past the lane's count, and "Nearby" memories. */
+  function fullLanes(c: Counterpart): void {
+    for (let i = 0; i < 40; i++) {
+      c.store.put({
+        type: "memory",
+        kind: "fact",
+        body: `Working note ${String(i)}: the pump on loop ${String(i)} runs only after its relief valve is seated, and the reservoir is topped up first.`,
+        salience: { relevance: 0.8, emotional: 0.5, predictive: 0.7 },
+        physics: { birthDay: c.store.livedDay(), lastUsedDay: c.store.livedDay() },
+      });
+    }
+    for (let i = 0; i < 60; i++) {
+      c.store.put({
+        type: "memory",
+        kind: "self",
+        body: `Placeholder identity element ${String(i)}, written long enough to compete for the budget. `.repeat(4).trim(),
+        band: "identity",
+        learnedOn: c.store.today(),
+        salience: { relevance: 0.9, emotional: 0.6, predictive: 0.6 },
+        physics: { promotedIdentity: true },
+      });
+    }
+  }
+
+  test("review of #636: a `claude -p` run is never named in its own folder's Last here; the person's session before it is", () => {
+    lived("person-1", proj, { pieces: 2, at: YESTERDAY_10() + 5 * HOUR });
+    quick("sdk-run", proj, 6, YESTERDAY_10() + 7 * HOUR, "sdk-cli");
+    const a = hooksAt({ setting: "auto" });
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
+    const text = wokeHere(a, "morning-1");
+    expect(text).not.toContain("sdk-run");
+    expect(lastHereLines(text)[0]).toMatch(/^Last here: session person-1, [^\n]*, no chapter, not written up yet\.$/);
+  });
+
+  test("review of #636: a folder whose only later session is a `claude -p` run shows no Last here for it; a person's chapterless one alone shows", () => {
+    quick("sdk-only", proj, 6, YESTERDAY_10() + 7 * HOUR, "sdk-cli");
+    const a = hooksAt({ setting: "auto" });
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
+    expect(lastHereLines(wokeHere(a, "morning-1"))).toEqual([]);
+    // The same shape, a person's session: it is named.
+    quick("cli-only", proj, 6, YESTERDAY_10() + 8 * HOUR, "cli");
+    a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
+    expect(lastHereLines(wokeHere(a, "morning-2"))[0]).toMatch(/^Last here: session cli-only, /);
+  });
+
+  test("review of #636: no chapter, full lanes, a 9,000 B wake — the boundary reserves the chapterless line's room, and SessionStart carries it inside the ceiling", () => {
+    const a = hooksAt({ setting: "auto" });
+    a.counterpart.store.advanceClock(YESTERDAY());
+    fullLanes(a.counterpart);
+    // Nothing later here yet: no line, and nothing reserved for one.
+    const bare = a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() }).composeBudget as number;
+    checkIns();
+    const reserved = a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() }).composeBudget as number;
+    const text = wokeHere(a, "morning-1");
+    const bytes = (t: string): number => new TextEncoder().encode(t).length;
+    expect(bytes(text)).toBeGreaterThan(BUDGET - 1_000);
+    expect(bytes(text)).toBeLessThanOrEqual(BUDGET);
+    const got = lastHereLines(text);
+    expect(got).toEqual([expect.stringMatching(/^Last here: session checkinB, [^\n]*, no chapter, not written up yet\.$/)]);
+    // The lanes gave up the line's room at the boundary (before this, with no chapter, the reserve was zero).
+    expect(bare - reserved).toBeGreaterThanOrEqual(bytes(got[0] as string));
+    expect(a.counterpart.store.eventLog({ name: LAST_HERE_NOROOM_EVENT })).toHaveLength(0);
+  });
+
+  test("review of #636: with no room at all the chapterless line steps down cleanly — never over the ceiling, and its no-room row names the session it would have named", () => {
+    checkIns();
+    const a = hooksAt({ setting: "auto" });
+    a.counterpart.store.advanceClock(YESTERDAY());
+    fullLanes(a.counterpart);
+    a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
+    const bytes = (t: string): number => new TextEncoder().encode(t).length;
+    // Delivered under ceilings tighter than the one it was composed to, from the bundle's own size up.
+    const at = (budget: number, n: number): string => a.counterpart.wake(budget, { date: TODAY() }, { scope: proj, session: `morning-${String(n)}` }).text;
+    const floor = bytes(at(bytes(a.counterpart.wake(BUDGET, { date: TODAY() }).text), 0));
+    let dropped = 0;
+    let shown = 0;
+    for (let budget = floor, n = 1; budget <= floor + 400; budget += 20, n++) {
+      const t = at(budget, n);
+      expect(bytes(t)).toBeLessThanOrEqual(budget);
+      const got = lastHereLines(t);
+      if (got.length === 0) dropped++;
+      else {
+        shown++;
+        expect(got).toEqual([expect.stringMatching(/^Last here: session checkinB, /)]);
+      }
+    }
+    expect(dropped).toBeGreaterThan(0);
+    expect(shown).toBeGreaterThan(0);
+    const rows = a.counterpart.store.eventLog({ name: LAST_HERE_NOROOM_EVENT });
+    expect(rows.map((r) => r.ref)).toEqual(["checkinB"]);
   });
 });
