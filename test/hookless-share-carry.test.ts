@@ -41,6 +41,7 @@ import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import type { RunningHttp } from "../src/adapters/remote/http.js";
 import { Counterpart } from "../src/core/counterpart.js";
+import { localDate } from "../src/core/time.js";
 
 const SHARE = "ZQSHARE I keep coming back to the lighthouse we talked about.";
 const NOT_TOLD = "never told";
@@ -276,5 +277,114 @@ describe("the rule, and Claude Code unchanged", () => {
     const woke = await s.call("wake", {});
     expect(String(woke.structuredContent["wake"])).toContain("ZQSHARE");
     expect(s.counterpart.store.reflection(rid)?.share_state).toBe("carried");
+  });
+
+  test("a hookless wake and a Claude Code prompt on one store carry an ended reflector's share once, either order (review of #642)", async () => {
+    for (const first of ["wake", "prompt"] as const) {
+      dir = join(root, `store-${first}`); // one reflection a day: a store per order
+      recordSession(dir, { sessionId: `cc-${first}`, scope: "/proj", phase: "start" });
+      const rid = reflectedBy(`cc-${first}`);
+      recordSession(dir, { sessionId: `cc-${first}`, scope: "/proj", phase: "end" });
+      const s = chatServer(DESKTOP_HOST);
+      const viaPrompt = (): boolean => prompt(`p-${first}`).injection.includes(`reflection: ${rid}`);
+      const viaWake = async (): Promise<boolean> => String((await s.call("wake", {})).structuredContent["wake"]).includes(`reflection: ${rid}`);
+      const carried = first === "wake" ? [await viaWake(), viaPrompt()] : [viaPrompt(), await viaWake()];
+      expect(carried).toEqual([true, false]);
+      expect(s.counterpart.store.reflection(rid)?.share_state).toBe("carried");
+    }
+  });
+});
+
+describe("awkward states (review of #642)", () => {
+  /** A routine's reflection through the server: wake, remember, begin — and finish only when asked. */
+  async function routine(s: McpServer, finish: boolean): Promise<{ night: string; rid: string }> {
+    const night = String((await s.call("wake", {})).structuredContent["session"]);
+    const cite = String((await s.call("remember", { session: night, text: `The lighthouse at Quillmere, night ${nextId++}.` })).structuredContent["id"]);
+    const begun = await s.call("reflect", { phase: "begin", session: night });
+    const rid = begun.structuredContent["reflection"];
+    if (typeof rid !== "string") throw new Error(`begin refused: ${JSON.stringify(begun.structuredContent).slice(0, 400)}`);
+    if (finish) {
+      const done = await s.call("reflect", {
+        phase: "finish",
+        session: night,
+        reflection: rid,
+        entry: "Looking back over the day, the lighthouse stays with me.",
+        cites: [cite],
+        share: { text: SHARE, cites: [cite] },
+      });
+      if (typeof done.structuredContent["handBack"] !== "string") throw new Error(`finish refused: ${JSON.stringify(done.structuredContent).slice(0, 400)}`);
+    }
+    return { night, rid };
+  }
+
+  test("a routine that began reflecting and never finished releases nothing", async () => {
+    const s = chatServer();
+    // A crashed routine alone: the row stays begun, nothing is offered, no wake carries.
+    const crashed = await routine(s, false);
+    expect(String((await s.call("wake", {})).structuredContent["wake"])).not.toContain("ZQSHARE");
+    expect(s.counterpart.store.reflection(crashed.rid)).toMatchObject({ state: "begun", share_state: "none" });
+  });
+
+  test("a crashed routine does not hide an older untold share: the next chat carries the older one", async () => {
+    const s = chatServer();
+    // Last night's share, reflected by a routine (dated yesterday: one reflection a day), never told.
+    const store = s.counterpart.store;
+    const yesterday = localDate(Date.now() - 86_400_000, store.zone());
+    recordSession(dir, { sessionId: "last-night", scope: "claude-ai:", phase: "start", host: CLAUDE_AI_HOST });
+    const cite = store.put({
+      type: "memory",
+      kind: "fact",
+      body: "The lighthouse at Quillmere, last night.",
+      salience: { relevance: 0.6, emotional: 0.3, predictive: 0.6 },
+      physics: { birthDay: store.livedDay(), lastUsedDay: store.livedDay() },
+    });
+    const begun = s.counterpart.reflections.begin({ session: "last-night", at: yesterday });
+    if (!begun.ok) throw new Error(begun.reason);
+    const earlier = begun.bundle.reflection;
+    const done = s.counterpart.reflections.finish({ reflection: earlier, session: "last-night", entry: "x", cites: [cite], share: { text: SHARE, cites: [cite] } });
+    if (!done.ok) throw new Error(String(done.reason));
+    // Tonight's routine begins and dies (begun straight through core: the
+    // routine's own wake would claim last night's share — open question 1).
+    recordSession(dir, { sessionId: "tonight", scope: "claude-ai:", phase: "start", host: CLAUDE_AI_HOST });
+    const crashed = s.counterpart.reflections.begin({ session: "tonight" });
+    if (!crashed.ok) throw new Error(crashed.reason);
+    expect(store.reflection(crashed.bundle.reflection)).toMatchObject({ state: "begun", share_state: "none" });
+    expect(store.reflection(earlier)?.share_state).toBe("offered");
+    const next = await s.call("wake", {});
+    expect(String(next.structuredContent["wake"])).toContain(`reflection: ${earlier}`);
+    expect(store.reflection(earlier)?.share_state).toBe("carried");
+  });
+
+  test("a wake composed to its full budget still carries the whole share, ahead of the briefing", async () => {
+    const s = openServer({
+      dir,
+      host: CLAUDE_AI_HOST,
+      env: {},
+      lifecycle: { config: { dataDir: dir, injectionBudgetBytes: 1_200 }, spawner: stub },
+      manifestVersion: () => null,
+    });
+    closers.push(() => s.counterpart.close());
+    const store = s.counterpart.store;
+    for (let i = 0; i < 80; i += 1) {
+      store.put({
+        type: "memory",
+        kind: "fact",
+        body: `Memory ${i}: a long afternoon at the harbour, the boats, the gulls and the cold wind off the water, number ${i}.`,
+        salience: { relevance: 0.7, emotional: 0.5, predictive: 0.6 },
+        physics: { birthDay: store.livedDay(), lastUsedDay: store.livedDay() },
+      });
+    }
+    const { night, rid } = await routine(s, true);
+    // The briefing composed to the budget, so the wake is the full 1,200 bytes, not the bootstrap line.
+    s.counterpart.boundary({ session: night, scope: "claude-ai:", kind: "stop" });
+    s.counterpart.rebrief({ budgetBytes: 1_200 });
+    const woke = await s.call("wake", {});
+    const text = String(woke.structuredContent["wake"]);
+    expect(text).not.toContain("No briefing has been composed yet");
+    expect(Buffer.byteLength(text.slice(text.indexOf("Now:")), "utf8")).toBeGreaterThan(1_000);
+    expect(text).toContain(SHARE);
+    expect(text).toContain(`reflection: ${rid}`);
+    expect(text.indexOf(SHARE)).toBeLessThan(text.indexOf("Now:"));
+    expect(store.reflection(rid)?.share_state).toBe("carried");
   });
 });
