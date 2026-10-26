@@ -58,7 +58,7 @@ neighbours after the bench measures the tail)
 | ✅ **Working, watch only** | salience · reminders · contradictions · consolidation · forgetting |
 | 🔧 **Working, needs a pass** | retrieval · dreaming · emotion (tuning) |
 | 🟡 **Partly** | association · interference · episodic → semantic (gist) |
-| ⬜ **Not built** | schemas |
+| 🆕 **Built since this read** | schemas (wave 2, 0.3.31) |
 
 **Working, watch only:**
 - **Salience**: every memory scored at write (462 in the last 7 days).
@@ -77,8 +77,8 @@ neighbours after the bench measures the tail)
 - **Interference**: near-copies merge and a newer state replaces an older one; similar memories competing for recall isn't built.
 - **Episodic → semantic**: dreams write about 8 gists a week; many episodes becoming one understanding happens only by chance.
 
-**Not built:**
-- **Schemas**: beliefs and entities that grow from what's lived.
+**Built since this read:**
+- **Schemas**: not built on 10-19. Since wave 2 (0.3.31, 10-21) the night's reflection forms beliefs about me, us and the people and projects in play, and adopts a dream's candidates; a session may form one about me. Each is born weak and grows by the lived memories filed for it. `counterparts mechanisms` counts them since 2026-10-26.
 
 **What connects them:** about 3% of shown memories are credited as used (opened by id, quoted, or named in `drewOn`), while 18% are rated useful. Use is what strengthens a memory and its links, so the gap starves association and leaves consolidation leaning on the nightly passes. "What counts as use" is the first mechanism conversation.
 
