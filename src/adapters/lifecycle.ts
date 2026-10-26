@@ -75,7 +75,7 @@ import { capabilities, TUNABLES } from "./config.js";
 import type { AdapterConfig, CapabilityReport } from "./config.js";
 import { countTranslated, readHandleResolutions, translateExpansions } from "./expansions.js";
 import type { ExpansionsRead } from "./expansions.js";
-import { DEFAULT_HOST } from "./hosts.js";
+import { CLAUDE_AI_HOST, DEFAULT_HOST } from "./hosts.js";
 import { pruneLog } from "./log/index.js";
 import {
   SCOPE_EVENT,
@@ -784,7 +784,7 @@ export class Lifecycle implements HostLifecycle {
       if (offer.due) {
         return {
           kind: "offer",
-          text: offerLine(offer.state),
+          text: offerLine(offer.state, { web: this.host === CLAUDE_AI_HOST }),
           commit: () => {
             noteOffered(store, { on, session: input.sessionId, state: false });
             this.emit("adapter.meet.offered", { state: offer.state });
