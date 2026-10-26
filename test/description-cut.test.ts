@@ -17,7 +17,8 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { DESKTOP_TOOLS, TOOLS, renderDescription, toolDefinitions } from "../src/adapters/mcp/tools.js";
+import { CLAUDE_AI_TOOLS, DESKTOP_TOOLS, TOOLS, renderDescription, toolDefinitions } from "../src/adapters/mcp/tools.js";
+import { CLAUDE_AI_HOST } from "../src/adapters/hosts.js";
 import type { ToolSpec } from "../src/adapters/mcp/tools.js";
 
 /** What Claude Code serves of a description when the tool is loaded up front. */
@@ -32,7 +33,7 @@ function endOf(text: string, part: string): number {
 }
 
 /** The descriptions a client is actually sent, by tool name. */
-function served(desktop: boolean): Map<string, string> {
+function served(desktop: boolean | string): Map<string, string> {
   return new Map(toolDefinitions(desktop).map((t) => [String(t["name"]), String(t["description"])]));
 }
 
@@ -42,6 +43,7 @@ describe("tool descriptions, as a host that serves only the first 2,048 characte
     for (const [desktop, specs] of [
       [false, TOOLS],
       [true, DESKTOP_TOOLS],
+      [CLAUDE_AI_HOST, CLAUDE_AI_TOOLS],
     ] as const) {
       const descriptions = served(desktop);
       for (const spec of specs as readonly ToolSpec[]) {

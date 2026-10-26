@@ -68,6 +68,7 @@ import { RECURRENCES } from "../../core/time.js";
 import { PAGE_ROOM_BYTES, STILL_OPEN_HANDLE } from "../../core/self/briefing.js";
 import { CLAIM_PREFIX_MIN_CHARS } from "../../core/self/page.js";
 import { MEET_STEPS } from "../../core/onboarding.js";
+import { CLAUDE_AI_HOST, DESKTOP_HOST } from "../hosts.js";
 
 /**
  * A MEMORY'S TITLE, ASKED FOR AS ONE LINE (2026-09-28, build B). Indexes — the
@@ -2072,6 +2073,78 @@ function withDesktopSession(spec: ToolSpec): ToolSpec {
 export const DESKTOP_TOOLS: readonly ToolSpec[] = [...TOOLS.map(withDesktopSession), WAKE];
 
 /**
+ * `wake` FOR CLAUDE.AI (2026-10-26, the claude.ai trial). The same tool and the
+ * same server code as Desktop's; the words are for a chat on the web — no Code
+ * tab, and no end of conversation this server can see, so it says to remember
+ * in the moment. Its description says plainly to call it first: claude.ai has
+ * no hook and no documented way to make a tool run at chat start, and whether
+ * this sentence is enough is what the trial measures.
+ */
+export const CLAUDE_AI_WAKE: ToolSpec = {
+  name: "wake",
+  annotations: annotate("Wake", { readOnly: false }),
+  summary:
+    "Call this first in every conversation. It wakes your memory of this person: who I am, what is nearby and arriving, any reminder due today, and what happened recently — and a session id for this conversation.",
+  admission:
+    "Call it first in every new conversation, once, before answering anything — even a plain hello, and above all anything about the person, the past, or work in progress. Then pass the session id it returns as `session` on every later call in this conversation. Nothing tells this memory when a conversation ends, so remember what matters as it comes up, with `remember`, rather than waiting for an end.",
+  negativeExamples: [
+    "Do NOT answer what you remember — yesterday, a person, a project — from `recall` alone before this conversation has woken, and never call what `recall` returned the full record: it is a slice. Wake first.",
+    "Do NOT call it again later in the same conversation to refresh what you know — it starts a new session. Ask `recall` a question (with a mode) instead.",
+  ],
+  privileges: [
+    {
+      claim:
+        "Each call starts a NEW session: it mints the id and writes that session's registry record itself (host claude-ai, the shared place claude-ai:), because claude.ai has no hook to do it.",
+      mechanizedBy: "src/adapters/mcp/server.ts#wakeTool -> src/adapters/lifecycle.ts#noteSession",
+    },
+    {
+      claim:
+        "What it returns is composed by the same code as Claude Code's session start — the published wake, the clock, today's plain reminders — never re-written for this host.",
+      mechanizedBy: "src/adapters/lifecycle.ts#composeWake + src/adapters/lifecycle.ts#plainFor",
+    },
+    {
+      claim:
+        "It starts the background worker that sleeps and fades memories, as a session start does, and offers the day's dream line when one is due — but never starts the headless nightly run.",
+      mechanizedBy: "src/adapters/lifecycle.ts#spawnWorker + src/adapters/mcp/server.ts#wakeDreamLine",
+    },
+    {
+      claim: "Under observer stance it stands down over the wire and says so.",
+      mechanizedBy: "src/adapters/mcp/server.ts#standDown",
+    },
+  ],
+  inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+};
+
+/** The `session` a claude.ai conversation names: Desktop's, without the Code tab. */
+const CLAUDE_AI_SESSION_PROPERTY = {
+  type: "string",
+  description:
+    "This conversation's session id from the wake tool. Pass it on every call, so the call is filed under this conversation's session and not the most recent one.",
+};
+
+function withClaudeAiSession(spec: ToolSpec): ToolSpec {
+  const schema = spec.inputSchema as { properties?: Record<string, unknown> };
+  const properties = schema.properties ?? {};
+  if ("session" in properties) return spec;
+  return { ...spec, inputSchema: { ...spec.inputSchema, properties: { ...properties, session: CLAUDE_AI_SESSION_PROPERTY } } };
+}
+
+/** The tools a claude.ai server offers: `wake` FIRST (the one to call first),
+ *  then every host's, each able to name its session. */
+export const CLAUDE_AI_TOOLS: readonly ToolSpec[] = [CLAUDE_AI_WAKE, ...TOOLS.map(withClaudeAiSession)];
+
+/**
+ * WHICH LIST A SERVER OFFERS: a boolean is the old question (is this Desktop?),
+ * a string is the host (`McpServer.host`) — Desktop's chat, claude.ai, or any
+ * other, which is offered every host's tools and no `wake`.
+ */
+export function toolListFor(host: boolean | string): readonly ToolSpec[] {
+  if (host === true || host === DESKTOP_HOST) return DESKTOP_TOOLS;
+  if (host === CLAUDE_AI_HOST) return CLAUDE_AI_TOOLS;
+  return TOOLS;
+}
+
+/**
  * OLD NAMES THAT STILL ANSWER (2026-10-10, Group 1c). `note` became `remember`;
  * a host caches the tool list a server gave it at launch, so a session that
  * was running when the package was upgraded — or a server that restarted under
@@ -2099,9 +2172,9 @@ export function canonicalToolName(name: string): string {
  * so a Claude Code client calling it gets today's unknown-tool answer. An old
  * name (`TOOL_ALIASES`) finds its new spec.
  */
-export function toolSpec(name: string, desktop = false): ToolSpec | undefined {
+export function toolSpec(name: string, desktop: boolean | string = false): ToolSpec | undefined {
   const canonical = canonicalToolName(name);
-  return (desktop ? DESKTOP_TOOLS : TOOLS).find((t) => t.name === canonical);
+  return toolListFor(desktop).find((t) => t.name === canonical);
 }
 
 /**
@@ -2129,8 +2202,8 @@ export function renderDescription(spec: ToolSpec): string {
 
 /** The `tools/list` payload. Shape is MCP's; content is the registry's. A
  *  Claude Desktop client (`desktop`) is offered `wake` too, last. */
-export function toolDefinitions(desktop = false): Record<string, unknown>[] {
-  return (desktop ? DESKTOP_TOOLS : TOOLS).map((spec) => ({
+export function toolDefinitions(desktop: boolean | string = false): Record<string, unknown>[] {
+  return toolListFor(desktop).map((spec) => ({
     name: spec.name,
     title: spec.annotations.title,
     description: renderDescription(spec),

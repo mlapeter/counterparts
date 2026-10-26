@@ -51,7 +51,7 @@ import {
 import type { Response, ToolResult } from "../src/adapters/mcp/index.js";
 import { launchOptions } from "../src/adapters/mcp/bin/serve.js";
 import { FACTS_JOURNAL_GLOSS } from "../src/adapters/mcp/facts.js";
-import { toolDefinitions } from "../src/adapters/mcp/tools.js";
+import { CLAUDE_AI_WAKE, WAKE, toolDefinitions } from "../src/adapters/mcp/tools.js";
 import { findable } from "./store-fixture.js";
 
 const ENV = "COUNTERPARTS_DATA_DIR";
@@ -650,7 +650,8 @@ describe("the tool-description audit", () => {
   test("every stated privilege names a mechanized path, and every path it names exists", () => {
     const root = join(import.meta.dir, "..");
     let checked = 0;
-    for (const spec of TOOLS) {
+    // The two hosts' `wake`s are held too (2026-10-26): offered only to a chat host, never in `TOOLS`.
+    for (const spec of [...TOOLS, WAKE, CLAUDE_AI_WAKE]) {
       expect(spec.privileges.length).toBeGreaterThan(0);
       // The engine's rows too (2026-10-11): kept out of the description, never
       // out of this audit — a pointer nobody reads rots fastest.

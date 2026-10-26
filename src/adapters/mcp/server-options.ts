@@ -113,6 +113,14 @@ export interface McpServerOptions {
    */
   host?: string;
   /**
+   * THE CLAUDE.AI TRIAL'S CANARY (2026-10-26): one invented fact, added to the
+   * `initialize` `instructions` a claude.ai server sends and to nothing else —
+   * no tool description carries it — so a cold question about it shows whether
+   * claude.ai delivered the field. Set by `adapters/remote/bin/serve-http.ts`;
+   * ignored by every other host.
+   */
+  canary?: string;
+  /**
    * WHAT CLAUDE DESKTOP'S `wake` NEEDS TO RUN A SESSION START, handed in by the
    * entry point (`bin/serve.ts`) and used only once a Desktop client is seen:
    * the configuration this process read (the wake's budget, the worker's
