@@ -23,7 +23,7 @@
  *
  * Pure text functions; the server composes and claims (`server.ts#wakeTool`).
  */
-import { FRAMING, LEGACY_CONTEXT, LEGACY_FRAMING } from "../../core/self/briefing.js";
+import { FRAMING, LEGACY_CONTEXT, LEGACY_FRAMING, collapsedLane } from "../../core/self/briefing.js";
 
 /** The session line a claude.ai wake opens with. */
 export function claudeAiSessionLine(session: string): string {
@@ -35,8 +35,9 @@ const PAGE_END = "(End of my page.)";
 
 /**
  * "Coming up" and then "Still open", each moved whole to just under the
- * framing line. A lane is its heading and every line after it up to the next
- * blank line (lanes hold no blank line; the page can, so headings are looked
+ * framing line — in full, or collapsed to its one counting line. A lane is
+ * its heading and every line after it up to the next blank line (lanes hold
+ * no blank line; the page can, so headings are looked
  * for after the page's end line). A wake without the framing line, or without
  * either lane, comes back unchanged. Pure.
  */
@@ -47,9 +48,14 @@ export function chatLanesFirst(text: string): string {
   const pageEnd = lines.indexOf(PAGE_END, framing);
   const from = pageEnd < 0 ? framing + 1 : pageEnd + 1;
   const blocks: string[][] = [];
-  const lanes: readonly (readonly string[])[] = [[FRAMING.horizon, LEGACY_FRAMING.horizon], [FRAMING.threads]];
-  for (const heading of lanes) {
-    const at = lines.findIndex((l, i) => i >= from && heading.includes(l) && lines[i - 1] === "");
+  // A lane the budget collapsed to its one line ("Coming up: 1 — none due
+  // today, 1 overdue; recall ids: …") moves too: it is still the lane.
+  const lanes = [
+    { lane: "horizon", headings: [FRAMING.horizon, LEGACY_FRAMING.horizon] as readonly string[] },
+    { lane: "threads", headings: [FRAMING.threads] as readonly string[] },
+  ] as const;
+  for (const { lane, headings } of lanes) {
+    const at = lines.findIndex((l, i) => i >= from && (headings.includes(l) || collapsedLane(l) === lane) && lines[i - 1] === "");
     if (at < 0) continue;
     let end = at + 1;
     while (end < lines.length && lines[end] !== "") end += 1;

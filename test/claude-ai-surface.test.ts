@@ -88,7 +88,11 @@ async function tool(url: string, name: string, args: Record<string, unknown>): P
   return { text: r.content[0]?.text ?? "", structured: r.structuredContent };
 }
 
-const today = (): string => new Date().toISOString().slice(0, 10);
+// A fixed local noon, and its date: the server dates "today" in the store's
+// zone, so a UTC date (toISOString) is tomorrow every evening west of UTC.
+const NOON = new Date("2026-09-26T12:00:00").getTime();
+const noon = (): number => NOON;
+const today = (): string => "2026-09-26";
 
 /** A store with a page, an open thread, a plain reminder due today and a nearby memory, published. */
 async function lived(url: string, s: McpServer): Promise<void> {
@@ -102,7 +106,7 @@ async function lived(url: string, s: McpServer): Promise<void> {
 
 describe("2. claude.ai's wake, through the door", () => {
   test("one short session line; the clock and the plain reminder; Coming up and Still open first under the framing line; nothing reworded", async () => {
-    const { http, s } = await door();
+    const { http, s } = await door(CLAUDE_AI_HOST, noon);
     await lived(http.url, s);
     const woke = await tool(http.url, "wake", {});
     const session = String(woke.structured["session"]);
@@ -203,6 +207,31 @@ describe("2. claude.ai's wake, through the door", () => {
     expect(out.slice(9)).toEqual(["", FRAMING.identity, "## Core", "Still open:", "", "Coming up:", "(End of my page.)", "", FRAMING.hints, "- Oct 26 · two", "", "<!-- counterparts:wake/end -->"]);
     expect(out.length).toBe(wake.split("\n").length);
     expect(chatLanesFirst("No briefing has been composed yet.")).toBe("No briefing has been composed yet.");
+  });
+
+  test("chatLanesFirst: a lane collapsed to its one counting line moves up too (an overdue item is a due item)", () => {
+    const collapsed = `${FRAMING.horizon} 1 — none due today, 1 overdue; recall ids: mem_a1b2c3`;
+    const wake = [
+      FRAMING.context,
+      "",
+      FRAMING.identity,
+      "## Core",
+      "(End of my page.)",
+      "",
+      FRAMING.threads,
+      "- Oct 26 · one",
+      "",
+      FRAMING.hints,
+      "- Oct 26 · two",
+      "",
+      collapsed,
+      "",
+      "<!-- counterparts:wake/end -->",
+    ].join("\n");
+    const out = chatLanesFirst(wake).split("\n");
+    expect(out.slice(0, 6)).toEqual([FRAMING.context, "", collapsed, "", FRAMING.threads, "- Oct 26 · one"]);
+    expect(out.length).toBe(wake.split("\n").length);
+    expect([...out].sort()).toEqual([...wake.split("\n")].sort());
   });
 
   test("the same-you seam: nothing for no shared host, one line for one", () => {
@@ -311,8 +340,21 @@ describe("a night's own wake (night: true), through the door", () => {
     expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "carried", share_session: String(chat.structured["session"]) });
   });
 
-  test("a night's wake claims no plain reminder: the day's chat still gets it", async () => {
+  test("a night's wake still lets the routine dream: launch from the quiet wake's session hands back the run's prompt", async () => {
     const { http } = await door();
+    const first = String((await tool(http.url, "wake", {})).structured["session"]);
+    for (const text of ["The cold frame lid sticks in the morning damp.", "Wren talks plans through out loud first.", "The rain barrel overflows toward the shed."]) {
+      await tool(http.url, "remember", { session: first, text });
+    }
+    const night = String((await tool(http.url, "wake", { night: true })).structured["session"]);
+    const body = await rpc(http.url, "tools/call", { name: "dream", arguments: { phase: "launch", session: night } });
+    const r = body["result"] as { isError?: boolean; content: { text: string }[]; structuredContent: Record<string, unknown> };
+    expect(r.isError ?? false).toBe(false);
+    expect(r.content[0]?.text.length ?? 0).toBeGreaterThan(200);
+  });
+
+  test("a night's wake claims no plain reminder: the day's chat still gets it", async () => {
+    const { http } = await door(CLAUDE_AI_HOST, noon);
     const first = String((await tool(http.url, "wake", {})).structured["session"]);
     await tool(http.url, "remember", { session: first, kind: "fact", title: "Seed order", text: "The seed order goes in today.", eventDate: today(), remind: "plain" });
     const quiet = await tool(http.url, "wake", { night: true });
