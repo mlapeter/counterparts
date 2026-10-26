@@ -60,7 +60,7 @@ import { SETTINGS_ENV, appliedSettings, runningBuild, settingsForChild, tunableN
 import type { Setting } from "./settings.js";
 import { settledOf } from "./settled.js";
 import type { SettledReading } from "../../src/adapters/cli/commands.js";
-import { recordUsage, usageTally } from "./usage.js";
+import { recordUsage, totalTokens, usageByAct, usageTally } from "./usage.js";
 import type { UsageTally } from "./usage.js";
 import { underLiveRoot } from "./source.js";
 
@@ -228,6 +228,8 @@ export interface WeekRecord {
   readonly settings: readonly Setting[];
   /** The model children's tokens, all turns and nights. */
   readonly usage: UsageTally;
+  /** The night children's tokens by act (`catch-up`, `writer`, `dream`, ...); empty with the scripted seat. */
+  readonly usageByAct?: Readonly<Record<string, UsageTally>>;
   /** The self page at the week's end, by numbers. */
   readonly page: PageReading | { readonly error: string } | null;
   readonly ranAt: string;
@@ -252,7 +254,7 @@ export interface WeekRecord {
    * scripted seat refuses each, so a refused dream ends the run before its
    * reflection and tags are reached). `catchUp`: what it would write up (null for a reflection run, which has none).
    */
-  readonly nights: readonly { readonly day: number; readonly launchedIn: string; readonly state: string; readonly kind: string; readonly parts: readonly string[]; readonly asked: readonly { readonly act: string; readonly promptBytes: number }[]; readonly catchUp: NightCatchUp | null }[];
+  readonly nights: readonly { readonly day: number; readonly launchedIn: string; readonly state: string; readonly kind: string; readonly parts: readonly string[]; readonly asked: readonly { readonly act: string; readonly promptBytes: number; readonly tokens?: number | null }[]; readonly catchUp: NightCatchUp | null }[];
   /** Every SessionStart's wake, read for "Last here" and its neighbours. */
   readonly wakes: readonly WakeLine[];
   /** Sessions owed a write-up at the week's end, by label (the ledger's word then). */
@@ -669,13 +671,23 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
       // A reflection run has no catch-up (`night-run.ts`: only a night kind runs one), so it plans none here either.
       const planned = nightKind.kind === "night" ? catchUpPlan(run) : null;
       // Each ask the night puts to its seat, by act and size, whoever answers.
-      const acts: { act: string; promptBytes: number }[] = [];
+      // With the model in the seat, each ask's child tokens too (its act's tally, before and after; asks run one at a
+      // time), so a night's catch-up can be read apart from the week's total (L2, S2 tier 2 finding 6). Null when no
+      // child said its usage (the scripted seat, or a crash).
+      const acts: { act: string; promptBytes: number; tokens: number | null }[] = [];
       const inner: Seat<NightAnswer> = scripted ? scriptedNightSeat({ open, now }) : modelSeat({ dir, configPath, now, timeZone, budgetBytes: budget, env, ...(opts.model === undefined ? {} : { model: opts.model }), start });
       const seat: Seat<NightAnswer> = {
         name: inner.name,
-        answer: (ask) => {
-          acts.push({ act: ask.act, promptBytes: Buffer.byteLength(ask.prompt, "utf8") });
-          return inner.answer(ask);
+        answer: async (ask) => {
+          const entry = { act: ask.act, promptBytes: Buffer.byteLength(ask.prompt, "utf8"), tokens: null as number | null };
+          acts.push(entry);
+          const was = usageByAct()[ask.act];
+          try {
+            return await inner.answer(ask);
+          } finally {
+            const now = usageByAct()[ask.act];
+            if (now !== undefined && now.calls > (was?.calls ?? 0)) entry.tokens = totalTokens(now) - (was === undefined ? 0 : totalTokens(was));
+          }
         },
       };
       const night = await runNight({
@@ -931,6 +943,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     build: runningBuild(),
     settings: appliedSettings(),
     usage: usageTally(),
+    usageByAct: usageByAct(),
     page,
     ranAt: new Date(w.started).toISOString(),
     elapsedMs: Date.now() - w.started,

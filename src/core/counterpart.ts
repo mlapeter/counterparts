@@ -1866,7 +1866,8 @@ export class Counterpart {
    * THE NEWEST SESSION HERE, when it is newer than every chapter here and
    * wrote none (S2, 2026-10-26) — not the reader, inside the line's fortnight
    * — with when it was here and its newest live memory (a write-up of it, or
-   * a note it made), or null. Its times are the folder's own turn-ends and
+   * a note it made; never the night's own output filed under it, `isNightRow`),
+   * or null. Its times are the folder's own turn-ends and
    * pieces (`coverage/#sessionsHere`), as a chapter's session's are. Throws
    * only what the store throws; the caller wraps it.
    */
@@ -1906,6 +1907,12 @@ export class Counterpart {
         if (denied.has(id)) continue;
         const row = this.store.row(id);
         if (row === undefined || row.superseded_by !== null || row.body.trim().length === 0) continue;
+        // NOT THE NIGHT'S OWN WORDS (L2, 2026-10-26; S2 tier 2 finding 1): a
+        // dream's gist, fold or merge and a reflection's entry are filed under
+        // the session the night launched in, which says nothing of what was
+        // said in it. Its own notes and its write-ups (filed under the
+        // session they write up) are what the line quotes.
+        if (isNightRow(row)) continue;
         // THIS FOLDER'S OWN (S2 review): a session at work in two folders
         // made its notes, and its write-ups are filed, under each folder; a
         // memory from the other one — or from none recorded — is not this
