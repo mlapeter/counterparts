@@ -71,7 +71,9 @@ test("the check-ins week runs through the real hooks with no model: remembers la
   const d1 = r.sessions[0]!.coverage!;
   expect(d1.written).toBeGreaterThan(0);
   expect(d1.unwritten).toBeLessThan(d1.pieces);
-  // THE BEFORE OF S2: every check-in ended, and none is owed: each is under the floor.
+  // THE BEFORE OF S2, PINNED AS OF 0.3.37: every check-in ended, and none is owed: each is under the floor.
+  // S2 (short-session write-ups) is EXPECTED to move this: after it, an ended session with unwritten turns is
+  // owed and the nights plan it. When S2 lands, update these pins (and the nights below) to its "after".
   for (const s of r.sessions) {
     expect(s.coverage).not.toBeNull();
     expect(s.coverage!.state).toBe("ended");
@@ -79,7 +81,8 @@ test("the check-ins week runs through the real hooks with no model: remembers la
     expect(s.coverage!.whyNot).toMatch(/^under-floor:/);
   }
   expect(r.owedAtEnd).toEqual([]);
-  // No night: never enough new memories in the dream's window, and nothing owed for a catch-up alone.
+  // No night: never enough new memories in the dream's window, and nothing owed for a catch-up alone. S2 is expected
+  // to change this too: owed check-ins launch catch-up-only nights.
   expect(r.nights).toEqual([]);
   expect(r.wakes.filter((k) => k.morning).map((k) => k.gate.reason)).toEqual(["first-day", ...Array(7).fill("too-little-new")]);
   // "Last here" names nothing all week (no chapter); "Last said here" follows the newest session.
@@ -150,6 +153,8 @@ test("a night the gate launches runs its catch-up plan with the scripted seat re
   // WITHOUT THE MEETING the first lived day is over at the first boundary, so the gate is due by
   // the second session's first prompt (3 new memories): the product launches the night there, on
   // day 1, and again on each morning after, since a refused dream never journals.
+  // PINNED AS OF 0.3.37: today's night timing and catch-up rows. S2 or any gate change is expected to move them;
+  // update the pin to the new timing rather than reading the change as a regression.
   expect(r.nights.map((n) => [n.day, n.launchedIn])).toEqual([
     [1, "d1s2"],
     [2, "d2s1"],
