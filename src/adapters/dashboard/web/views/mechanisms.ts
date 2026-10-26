@@ -186,6 +186,13 @@ export const LEADS: Readonly<Record<string, readonly LeadCandidate[]>> = {
     lead(["faded"], "earlier memory faded under a newer one", "earlier memories faded under newer ones"),
   ],
   "episodic-semantic": [lead(["gist"], "pattern dreamed into a memory of its own", "patterns dreamed into memories of their own")],
+  // Beliefs formed first (2026-10-26), then the memories filed for them, then what is held.
+  schema: [
+    lead(["born", "adopted"], "belief formed", "beliefs formed"),
+    lead(["support"], "memory filed as support for a belief", "memories filed as support for beliefs"),
+    lead(["contrary"], "memory filed against a belief", "memories filed against beliefs"),
+    lead(["held"], "belief held", "beliefs held", false),
+  ],
 };
 
 /** The big number, from a verdict's parts (and the returns split, and what it holds). */
