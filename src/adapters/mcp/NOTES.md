@@ -1806,3 +1806,33 @@ older one never carried either). Recommended: a wake argument the night prompt p
 carry, on the claude-ai surface's lane; until then accepted, and documented by a test. Also
 accepted: in-chat dreaming on a hookless host, where another chat waking between `finish` and
 `told` would carry the share the reflecting chat is about to tell (rare; told twice at worst).
+
+## 2026-10-26 — claude.ai's `dream` and `reflect` name the night routine (OL1c)
+
+From #647's review: on claude.ai there is no dream line and no background agent, yet `dream`'s
+shared words said to launch only "after the owner said dream … to the day's dream line", to hand
+the prompt "to a background agent", and "Do NOT run the dream yourself in this conversation" —
+the opposite of what the routine's own prompt (night prompt v2, `trial.sh prompt`) tells the run
+to do. One surface only holds once those stop fighting. `CLAUDE_AI_WORDS` now carries `dream`
+(summary, admission, negatives) and `reflect` (summary, admission): the night routine the person
+set up calls them and follows the launch prompt itself in that same run; in an ordinary
+conversation, `launch` only when the person asks, and its prompt is then followed there.
+
+**The negative example's mechanism:** `CLAUDE_AI_WORDS` gained an optional `negativeExamples`
+(a whole replacement list), spread by `withClaudeAiWords` like the other two fields. It is
+host-scoped already — `toolListFor` keys on the server's host, never a client's name — and adds
+no `ToolSpec` field or new path. Only `dream` uses it: its first two negatives were false here
+(rewritten: no dream unasked; never save what a dream did as something that happened, since on
+claude.ai memory forms only from writes); the `propose` guard stays verbatim. `reflect`'s
+negatives already fit. Privileges and annotations stay every host's. The surface test holds that
+every replaced negative still says "Do NOT", and that Claude Code's and Desktop's `dream` /
+`reflect` descriptions are the shared ones, byte for byte (also over Desktop's door).
+Tests: `test/claude-ai-surface.test.ts` "dream and reflect name the routine" — tools/list as
+claude.ai, and the night prompt v2's steps over the HTTP door (night wake, launch, writer, begin,
+journal, reflect begin/finish), none refused.
+
+**Open, with a recommendation:** the launch RESULT's `how` (`server-self-tools.ts`, dream and
+reflect `launch`) still says "Hand `prompt` to a background agent (the Agent tool)" on every host,
+Desktop included. The routine's prompt overrides it today. Recommended: host-scope it through
+`chatWordsFor(server.host)` (a `launchHow` beside `dreamNote`) in a follow-up; Desktop's line
+would change too, so it wants its own look.
