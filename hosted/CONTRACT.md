@@ -123,9 +123,15 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 ### A new person's store (OL1b's finding)
 
 - **A store the server creates starts like a new install** (`tenants.ts#startNewStore`). Onboarding is set to
-  `not_started`, so the first wake offers the first meeting. Dreaming is set `off` explicitly, because `auto` is Claude
-  Code's headless run and `ask` would make the wake ask, and claude.ai has neither. The person's own routine runs the
-  night through the `dream` tool, which the setting does not gate; a test pins that.
+  `not_started`, so the first wake offers the first meeting.
+- **Dreaming starts `auto`, as for every new install** (the roadmap's ruling of 2026-10-26, following Mike's 10-11
+  "dreaming on by default"). The setting is the person's wish; the host decides who starts the night.
+  - On this host nothing starts the night on its own. The wake makes no dream offer on claude.ai, and no path from the
+    server or its worker spawns a night run (that is Claude Code's hooks alone).
+  - So the person's own routine runs the night, through the `dream` tool. A test checks that a wake under `auto` plans
+    only the worker (`runner.ts`) and no night run, and that `dream` launch works.
+  - The src lane OL1d makes "auto on a hookless host spawns no night run" true in `src/` too, and makes launch refuse
+    while dreaming is `off`.
 - **A store that already exists is never re-initialized.**
 - **Still owed:** the meeting's "where it lives" answer waits for OL3's hosted privacy copy.
 
