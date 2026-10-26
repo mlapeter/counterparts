@@ -2100,4 +2100,39 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
     expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Last here: session nightrun, [^\n]*, no chapter, not written up yet\.$/);
   });
+
+  /** A write-up of `session` as `mint.ts` files it: under the session it writes up, in `scope`, its ref the proposal's id. */
+  function writeUpOf(session: string, scope: string, at: number, title: string): void {
+    const c = Counterpart.open({ dir, now: () => at });
+    try {
+      const day = c.store.livedDay();
+      c.store.put({ type: "memory", kind: "fact", title, body: `${title}, as the session said it.`, salience: { relevance: 0.6 }, physics: { birthDay: day, lastUsedDay: day }, source: "authored", origin: { session, scope, ref: `prp_${String(at)}` } });
+    } finally {
+      c.close();
+    }
+  }
+
+  test("L2 review: a write-up here is quoted though the night's rows under the session are newer; the folder-only rule holds for both", () => {
+    lived("split", proj, { pieces: 2, at: YESTERDAY_10() + 5 * HOUR });
+    writeUpOf("split", proj, YESTERDAY_10() + 6 * HOUR, "Written up from split: the ward rota");
+    // Newer, and each one the line must pass: the night's output filed here, the night's output filed in the
+    // other folder, and a write-up of the same session filed in the other folder.
+    nightFiledUnder("split", proj, YESTERDAY_10() + 9 * HOUR);
+    nightFiledUnder("split", other, YESTERDAY_10() + 10 * HOUR);
+    writeUpOf("split", other, YESTERDAY_10() + 11 * HOUR, "Written up from split: the side project");
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
+    expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Last here: session split, [^\n]*, no chapter — "Written up from split: the ward rota" \(mem_[0-9a-f]+\)\.$/);
+  });
+
+  test("L2 review: only the night's rows here and a write-up from another folder — 'not written up yet'", () => {
+    lived("split2", proj, { pieces: 2, at: YESTERDAY_10() + 5 * HOUR });
+    nightFiledUnder("split2", proj, YESTERDAY_10() + 9 * HOUR);
+    writeUpOf("split2", other, YESTERDAY_10() + 10 * HOUR, "Written up from split2: the side project");
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
+    expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Last here: session split2, [^\n]*, no chapter, not written up yet\.$/);
+  });
 });
