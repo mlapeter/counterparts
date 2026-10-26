@@ -347,7 +347,9 @@ export interface LaterHere {
   /**
    * Its newest live memory — the night's second-hand write-up of it, or a
    * note it made in the moment — by title (or first sentence) and id; null
-   * when nothing from it is written yet. The id is the door to the rest.
+   * when nothing from it is written yet. Never a dream's or a reflection's
+   * own output, though a night files those under the session it launched in
+   * (L2, 2026-10-26). The id is the door to the rest.
    */
   readonly memory: { readonly id: string; readonly title: string } | null;
 }
