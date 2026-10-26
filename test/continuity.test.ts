@@ -235,12 +235,17 @@ describe("the next session here is told who was last here", () => {
     expect(pointer).not.toContain("write up");
   });
 
-  test("a session that wrote no chapter here is not 'last here'", async () => {
+  test("S2 (2026-10-26): a LATER session that wrote no chapter is 'last here', and the chapter before it is named after it", async () => {
     const k = afternoon();
     await mikesAfternoon(k);
-    // B talks for a while in HERE and writes nothing; A is still the one named.
+    // B talks for a while in HERE after A's chapter and writes nothing. Until S2 the line kept naming A's
+    // chapter as if nothing had happened since (the Dana week: day 1's meeting, until day 6).
     for (const m of [56, 57, 58]) k.talk(B, at(17, m));
-    expect(wake(k.c, "d0d0d0d0-0000-4000-8000-00000000000d")).toContain("Last here: session a1b2c3d4");
+    const text = wake(k.c, "d0d0d0d0-0000-4000-8000-00000000000d");
+    expect(text).toContain("Last here: session b5b6b7b8, Sep 30 17:56–17:58, no chapter, not written up yet.");
+    expect(text).toMatch(/\nBefore it: session a1b2c3d4[^\n]*\(epi_[0-9a-f]+\)\./);
+    // A session that DID write a chapter is that chapter's line, newest first as before.
+    expect(wake(k.c, B)).toContain("Last here: session a1b2c3d4");
   });
 
   test("several sessions here that day: the newest two named, the rest by id", async () => {
@@ -404,7 +409,8 @@ describe("what were we about to do? a plan written after the handoff is named be
     const without = full.text
       .split("\n")
       // "Last said here" (2026-10-11) is given up before the handoff's rungs too.
-      .filter((l) => l !== since && l !== WORK_HERE_HEADING && !/^- .*\(mem_[0-9a-f]+\)$/.test(l) && !l.startsWith("Last said here"))
+      // So is "Last here" (S2, 2026-10-26: a later session with no chapter is named).
+      .filter((l) => l !== since && l !== WORK_HERE_HEADING && !/^- .*\(mem_[0-9a-f]+\)$/.test(l) && !l.startsWith("Last said here") && !l.startsWith("Last here"))
       .join("\n");
     const tight = new TextEncoder().encode(without).length + 8;
     const woke = k.c.wake(tight, { date: "2026-09-30" }, { scope: HERE, session: B });
@@ -788,8 +794,8 @@ describe("the pieces", () => {
     k.set(at(20, 0));
     k.c.boundary({ session: A, scope: HERE, kind: "session-end" });
     expect(sessionsHere(k.c.spans, HERE)).toEqual([
-      { session: A, firstAt: at(16, 1), lastAt: at(17, 0), ended: true },
-      { session: B, firstAt: at(16, 30), lastAt: at(16, 30), ended: false },
+      { session: A, firstAt: at(16, 1), lastAt: at(17, 0), ended: true, lastDay: 0, held: true },
+      { session: B, firstAt: at(16, 30), lastAt: at(16, 30), ended: false, lastDay: 0, held: true },
     ]);
     expect(sessionsHere(k.c.spans, `${HERE}/`).map((s) => s.session)).toEqual([A, B]);
     expect(sessionsHere(k.c.spans, HERE, { only: new Set([B]) }).map((s) => s.session)).toEqual([B]);

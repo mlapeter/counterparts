@@ -52,16 +52,22 @@ counted, so it is.
 **Inputs** — a `SpanBuffer` (read-only for everything but the two claims), the store's
 zone, a clock, and optional host evidence (`endedAt` per session).
 **Outputs** — the ledger (per session: state, pieces, what is written up, the unwritten
-stretch, owed, lapsed, small, per-date counts); `askFromStretch`; `claimUnwritten`;
+stretch, recorded, owed, lapsed, small, per-date counts); `isDebt`; `askFromStretch`; `claimUnwritten`;
 `workSince` (with how far that work is written up, 2026-09-30); `sessionsHere`; `chapterClaims`; three
 durable row names written by `recordCoverage`.
 
 **Guarantees** — **[M]** mechanized, **[A]** advisory:
 
 1. **[M] One rule for "owes".** A session owes a write-up when its unwritten stretch is at
-   least `OWED_PIECES` pieces spanning `OWED_SPAN_MS`, it is not active (it ended, or it has
-   captured nothing since the calendar date changed in the store's zone), and the stretch
-   has not lapsed. `remember/owes.ts#planRetention` reads it; nothing else decides it.
+   least `OWED_PIECES` pieces spanning `OWED_SPAN_MS` — or, when the session left NO RECORD
+   OF ITS OWN, at least `UNRECORDED_OWED_PIECES` pieces whatever their span (S2,
+   2026-10-26) — it is not active (it ended, or it has captured nothing since the calendar
+   date changed in the store's zone), and the stretch has not lapsed. A record is a claim
+   that is not an in-the-moment note's (a handback's memories, "nothing new", a chapter, a
+   write-up's memories or the door's own claim: any claim none of whose marks is `own`),
+   or a write-up mark. So the floor keeps its job for a closing tail AFTER a record, and a
+   short check-in that only ever noted things in the moment still owes what it did not
+   note. `remember/owes.ts#planRetention` reads it; nothing else decides it.
 2. **[M] The pacer's third arm is pieces AND time**: `ASK_PIECES` unwritten pieces
    captured since the last ask (all of them, before a first ask) and `ASK_AFTER_MS` since
    the later of the stretch's first piece and the last ask. One piece, however large, is
@@ -96,4 +102,5 @@ durable row names written by `recordCoverage`.
 ## 6. Tunables
 
 `tunables.ts`, every one a working default: `ASK_PIECES` 3, `ASK_AFTER_MS` 30 min,
-`OWED_PIECES` 3, `OWED_SPAN_MS` 15 min, `LAPSE_DAYS_OF_USE` 3, `SMALL_STRETCH_PIECES` 6.
+`OWED_PIECES` 3, `OWED_SPAN_MS` 15 min, `UNRECORDED_OWED_PIECES` 1 (S2, 2026-10-26),
+`LAPSE_DAYS_OF_USE` 14 (3 until 2026-10-10), `SMALL_STRETCH_PIECES` 6.

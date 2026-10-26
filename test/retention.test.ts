@@ -302,14 +302,34 @@ describe("THE RULE — nothing deletes while coverage says a session owes", () =
     expect(report.deleted).toBe(shapes.length - owing.length);
   });
 
-  test("a CLOSING-TURN TAIL — one piece — owes nothing: it goes after its week, crashed or not", () => {
+  test("a CLOSING-TURN TAIL — one piece after the session's own record — owes nothing: it goes after its week, crashed or not", () => {
     const buf = new SpanBuffer({ dir, now: () => NOW - 8 * DAY });
-    buf.capture({ session: "tail", scope: SCOPE, turns: [{ role: "user", text: "One last thing before I go." }] });
+    buf.capture({ session: "tail", scope: SCOPE, turns: [{ role: "user", text: "The thing we settled tonight, for the record." }] });
+    // Its record: a "nothing new" answer claimed what it had said by then.
+    buf.claimCoverage({ scope: SCOPE, session: "tail", proposalId: "nothing-new:tail:1" });
+    buf.capture({
+      session: "tail",
+      scope: SCOPE,
+      turns: [
+        { role: "user", text: "The thing we settled tonight, for the record." },
+        { role: "user", text: "One last thing before I go." },
+      ],
+    });
     buf.boundary({ session: "tail", scope: SCOPE, kind: "stop" });
     const [h] = planRetention(new SpanBuffer({ dir, now: () => NOW }), fake());
     expect(h?.facts).toMatchObject({ capturedText: true, unwritten: 1, state: "quiet" });
     expect(h?.owes).toBe(false);
     expect(h?.verdict).toBe("deleted");
+  });
+
+  test("S2 (2026-10-26): ONE PIECE from a session that left no record of its own is owed, and kept", () => {
+    const buf = new SpanBuffer({ dir, now: () => NOW - 8 * DAY });
+    buf.capture({ session: "checkin", scope: SCOPE, turns: [{ role: "user", text: "just wanted to say hi before my shift" }] });
+    buf.boundary({ session: "checkin", scope: SCOPE, kind: "stop" });
+    const [h] = planRetention(new SpanBuffer({ dir, now: () => NOW }), fake());
+    expect(h?.facts).toMatchObject({ capturedText: true, unwritten: 1, state: "quiet" });
+    expect(h?.owes).toBe(true);
+    expect(h?.verdict).toBe("kept-owed");
   });
 
   test("written up, then more work, lost without a normal end — the stretch AFTER the write-up is owed", async () => {
@@ -644,6 +664,8 @@ describe("the delete: the owner's strike, naming whole sessions", () => {
     const writer = new SpanBuffer({ dir, now: () => NOW - 10 * DAY });
     for (let i = 0; i < 12; i += 1) {
       writer.capture({ session: `s${String(i)}`, scope: SCOPE, turns: [{ role: "user", text: `turn number ${String(i)} of an old week` }] });
+      // Answered "nothing new" (S2: a session with no record of its own owes even one piece).
+      writer.claimCoverage({ scope: SCOPE, session: `s${String(i)}`, proposalId: `nothing-new:s${String(i)}:1` });
       writer.boundary({ session: `s${String(i)}`, scope: SCOPE, kind: "session-end" });
     }
     const small = new SpanBuffer({ dir, now: () => NOW, consumedLedgerMax: 5 });

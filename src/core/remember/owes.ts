@@ -16,7 +16,8 @@
  *
  * Since 2026-09-30 it is `core/coverage/`'s rule, read off its ledger: a
  * session owes a write-up when it holds an unwritten stretch of three pieces
- * over fifteen minutes or more, it is not active (it ended, or it has captured
+ * over fifteen minutes or more — or any unwritten stretch, when it left no
+ * record of its own (S2, 2026-10-26) — it is not active (it ended, or it has captured
  * nothing since the calendar date changed), and the stretch has not lapsed.
  * Retention reads it here, the next-session write-up reads it through
  * `planRetention` (`adapters/sessions.ts`), and doctor reads the counts — so

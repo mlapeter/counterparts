@@ -1231,13 +1231,34 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
     const s = seeder();
     ended(s, "short-kept", { at: Date.now() - 2 * DAY, bytes: 200, asked: false });
     ended(s, "full-kept", { at: Date.now() - 2 * DAY, bytes: 900 });
-    ended(s, "tail", { at: Date.now() - 2 * DAY, bytes: 200, captures: 1 });
+    // S2 (2026-10-26): ONE line from a session that left no record of its own is owed and kept.
+    ended(s, "one-line", { at: Date.now() - 2 * DAY, bytes: 200, captures: 1 });
+    // A TAIL AFTER ITS OWN RECORD (a "nothing new" answer), under the floor: still owes nothing, and goes after its week.
+    const at = Date.now() - 2 * DAY;
+    ended(s, "tail", { at, bytes: 200, captures: 1, asked: false, end: "crash" });
+    expect(claimUnwritten(s.c.spans, { session: "tail", scope: PROJ, by: CLAIM_NOTHING_NEW, ref: "tail" }).pieces).toBe(1);
+    s.set(at + 2 * PIECE_GAP);
+    s.c.captureSpans({
+      session: "tail",
+      scope: PROJ,
+      turns: [
+        { role: "user", text: wordsOf("tail #0", 200) },
+        { role: "assistant", text: "(tail #0) understood." },
+        { role: "user", text: "and one more thing before I go" },
+      ],
+    });
+    s.c.boundary({ session: "tail", scope: PROJ, kind: "stop" });
+    s.c.boundary({ session: "tail", scope: PROJ, kind: "session-end" });
+    recordSession(storeDir, { sessionId: "tail", scope: PROJ, phase: "end", at: at + 2 * PIECE_GAP + 1 });
     s.done();
     const c = Counterpart.open({ dir: storeDir });
     const v = verdicts(c);
+    const tail = planRetention(c.spans, writeUpSources(c.store)).find((h) => h.session === "tail");
     c.close();
     expect(v.later.get("short-kept")).toBe("kept-owed");
     expect(v.later.get("full-kept")).toBe("kept-owed");
+    expect(v.later.get("one-line")).toBe("kept-owed");
+    expect(tail?.facts.unwritten).toBe(1);
     expect(v.now.get("tail")).toBe("kept-young");
     expect(v.later.get("tail")).toBe("deleted");
   });

@@ -7,6 +7,7 @@ What the build learned, and every choice the brief left open (2026-09-26).
 | name | value | reason |
 |---|---|---|
 | `MIN_NEW` | 3 | a dream with less than three new memories to replay is not worth the owner's minutes |
+| `OWED_COUNTS_AS_NEW` | true | S2, 2026-10-26: each session owed a write-up from an earlier day counts as one new memory toward `MIN_NEW` when a night would run for its catch-up alone; the catch-up runs first, so the dream finds them. A check-in user otherwise never got a whole night (H0 `checkins`: no night all week before S2) |
 | `FIRST_DREAM_DAYS` | 7 | a store that never dreamed treats the last week as "new" |
 | `MAX_NEW` | 40 | bounds the bundle: newest first |
 | `NEIGHBOURS` | 4 | the owner's "5–8" (6 until 2026-10-23); 4 since, an experiment with `FRESH_LIST_CHARS` 16k to fit more new memories a night (docs/decisions.d/feat-dream-intake-1023.md) |

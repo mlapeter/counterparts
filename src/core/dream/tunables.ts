@@ -11,6 +11,18 @@ export const DREAM_TUNABLES = {
    *  (undreamed, within reach) — a dream with nothing to replay is not
    *  worth his minutes. CAL. */
   MIN_NEW: 3,
+  /**
+   * OWED WRITE-UPS COUNT AS NEW (S2, 2026-10-26; lightly held): when the gate
+   * says "too little new" and a night would start for its catch-up alone, each
+   * session from an earlier day still owing a write-up counts as one new
+   * memory toward `MIN_NEW` — the catch-up runs first in the night, so what it
+   * writes is in the dream's queue by the time the dream begins. A person who
+   * only checks in (a few short sessions a day, a remember or two) otherwise
+   * never gets a whole night. Read by the host (`claude-code/hooks.ts#
+   * catchUpWhenOwed`), which knows what is owed; a first day stays catch-up
+   * only (there is no night behind it to dream on). Revert: false.
+   */
+  OWED_COUNTS_AS_NEW: true,
   /** A store that has never dreamed reads its journal this many lived days back. */
   FIRST_DREAM_DAYS: 7,
   /**

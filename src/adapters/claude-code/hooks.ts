@@ -50,6 +50,7 @@ import {
 } from "../../core/counterpart.js";
 import type { PlainReminder } from "../../core/counterpart.js";
 import { newNightRunId } from "../../core/dream/index.js";
+import { DREAM_TUNABLES } from "../../core/dream/tunables.js";
 import { PRONOUN_RULE, coverFinish, meetingHold } from "../../core/onboarding.js";
 import type { DreamOffer } from "../../core/dream/index.js";
 import type { BoundaryKind } from "../../core/remember/index.js";
@@ -1284,9 +1285,17 @@ export class ClaudeCodeAdapter extends Lifecycle {
         store.setMeta(NOTHING_OWED_BEFORE_KEY, input.at);
         return false;
       }
-      if (!dreams.claimOffer(offer)) return false;
-      const started = this.startNightRun(input, offer);
-      this.emit("adapter.night.catch-up-only", { started, owed, dream: offer.dreamSkipped ?? null });
+      // OWED WRITE-UPS COUNT AS NEW (S2, 2026-10-26): the catch-up runs first
+      // in the night, so with what it is about to write the queue reaches
+      // `MIN_NEW`, and the night runs whole — not its catch-up alone. Each
+      // owed session counts as one. A first day stays catch-up only.
+      const whole =
+        DREAM_TUNABLES.OWED_COUNTS_AS_NEW && offer.dreamSkipped === "too-little-new" && offer.fresh + owed >= DREAM_TUNABLES.MIN_NEW;
+      const { dreamSkipped: _skipped, ...asWhole } = offer;
+      const chosen: DreamOffer = whole ? asWhole : offer;
+      if (!dreams.claimOffer(chosen)) return false;
+      const started = this.startNightRun(input, chosen);
+      this.emit("adapter.night.catch-up-only", { started, owed, dream: chosen.dreamSkipped ?? null, ...(whole ? { owedAsNew: owed, fresh: offer.fresh } : {}) });
       return started;
     } catch {
       return false;
