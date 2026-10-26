@@ -15,6 +15,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -396,6 +397,22 @@ describe("refusals, on purpose", () => {
     const personId = (await r.app.oauth.authenticate(c.access))!.personId;
     r.app.accounts.setState(personId, "suspended");
     assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(c.access))).status, 401);
+  });
+
+  test("revoked rows leave no trace in a free cell of oauth.sqlite (secure_delete, which node:sqlite leaves OFF)", async () => {
+    const r = await rig();
+    assert.equal(r.app.oauth.store.db.get<{ secure_delete: number }>("PRAGMA secure_delete")?.secure_delete, 1);
+    const { code } = r.app.accounts.createInvite();
+    const c = await connect(r, "gone@example.com", { invite: code });
+    const personId = (await r.app.oauth.authenticate(c.access))!.personId;
+    // The access token's row key is sha256(token): it lives in that row and nowhere else.
+    const key = createHash("sha256").update(c.access, "utf8").digest("hex");
+    const file = join(tmp.root, "data", "control", "oauth.sqlite");
+    r.app.oauth.store.db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    assert.ok(readFileSync(file).toString("latin1").includes(key), "the row is in the file before");
+    r.app.oauth.revokeAll(personId);
+    r.app.oauth.store.db.get("PRAGMA wal_checkpoint(TRUNCATE)");
+    assert.ok(!readFileSync(file).toString("latin1").includes(key), "the deleted row's bytes are still in the file");
   });
 });
 

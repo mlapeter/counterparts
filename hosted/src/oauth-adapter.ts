@@ -80,6 +80,10 @@ export class OidcStore {
   constructor(path: string, now: () => number = () => Date.now()) {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     this.db = openDb(path, { wal: true });
+    // A revoked grant's rows (account id, client id, token payloads) must not
+    // stay in a free cell of this file: Litestream's every later snapshot copies
+    // the whole page. node:sqlite's default is OFF (bun's is FAST).
+    this.db.get("PRAGMA secure_delete = ON");
     this.db.exec(SCHEMA);
     this.now = now;
   }
