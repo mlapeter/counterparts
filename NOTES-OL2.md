@@ -30,6 +30,13 @@ Branch `feat/hosted-server`, from origin/master eacdafda. The brief is
   `tsconfig.json`. CI installs them with `bun install --cwd hosted --frozen-lockfile`. 47 hosted tests, green under
   bun 1.3.10 and Node 24.22.
 
+- **OL1b's finding, folded in (on `feat/hosted-accounts`, merged up into `feat/hosted-oauth`):** a store the server
+  creates starts like a new install (`tenants.ts#startNewStore`: onboarding `not_started`, dreaming `off` explicitly).
+  Tested: the first wake offers the meeting, `dream` launch still works under `off`, and a reopened store is never
+  re-initialized. The meeting's "where it lives" answer waits for OL3's hosted privacy copy.
+- **Not merged yet:** origin/master moved to 15871d67 (#640, #642). Merge it into the stack before any PR is marked
+  ready.
+
 ## Next (after the coordinator's answer on step 5)
 
 - Step 5: keys + backups + export + delete (waits on Mike).
