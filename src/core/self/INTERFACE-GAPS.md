@@ -397,4 +397,11 @@ folder's and its joined folders' threads first, personal ones after, another fol
 neither the list nor its count. A reader that names no folder fails closed (no folder's work).
 Still open: the fallback road. A start that cannot assemble delivers the published bundle,
 whose "Still open" was ranked store-wide for no reader, so another folder's work can lead it
-there as before; a `hintsForReader`-style read over `THREADS_SHOWN_KEY` would close it.
+there as before. Not a `hintsForReader` mirror (O2's review, 2026-10-26): dropping another
+folder's work bullets by `THREADS_SHOWN_KEY`'s order is the easy half, but the lane's tail
+(`moreLine`'s calm form) names no ids and `WakeShown` records no thread overflow, so the tail's
+count could not be told truly without reading the reader's whole list again (`Self#stillOpen`
+with a reader) — and a lane left with no bullets would need a collapsed line built from those
+ids; `restated` lowers only the sentinel's `hints=`, so `threads=` needs it too. The
+reconsidering core memories ride in the same id list and must stay. The `still open` handle has
+no fallback and is covered.
