@@ -190,17 +190,26 @@ describe("two people, two stores, one door", () => {
 });
 
 describe("a new person's store", () => {
-  test("starts like a new install: the first meeting offered, dreaming off — and the person's own night routine still runs", async () => {
+  test("starts like a new install: the first meeting offered, dreaming auto — no night starts on its own, and the person's own routine runs it", async () => {
     const r = await rig();
     const wake = await rpc(r.url, "tools/call", { name: "wake", arguments: {} }, auth(r.tokens.a));
     const session = String(((wake.body["result"] as Record<string, unknown>)["structuredContent"] as Record<string, unknown>)["session"]);
     await r.tenants.withTenant(r.callers.a.storeId, {}, async (_t, server) => {
-      assert.equal(server.counterpart.store.getMeta("dream.setting"), "off");
+      assert.equal(server.counterpart.store.getMeta("dream.setting"), "auto");
       assert.notEqual(server.counterpart.store.getMeta("onboarding.meet"), "done");
     });
     // The wake offers the meeting (its offer line mentions it).
     assert.match(JSON.stringify(wake.body), /counterparts-meet/);
-    // The routine's way in: `dream` launch is not gated by the setting.
+    // Under auto, nothing starts a night on this host: the wake carries no dream
+    // offer, and every child planned is the worker (runner.ts), none a night run.
+    assert.doesNotMatch(JSON.stringify(wake.body), /nightly run|no dreams/i);
+    assert.ok(r.plans.length >= 1);
+    for (const p of r.plans) {
+      assert.ok(p.args.some((a) => a.endsWith("runner.ts")), JSON.stringify(p.args));
+      assert.equal(p.env["COUNTERPARTS_NIGHT_RUN"], undefined);
+      assert.equal(p.env["COUNTERPARTS_NIGHT_CHILD"], undefined);
+    }
+    // The routine's way in: `dream` launch works under auto.
     const launch = await rpc(r.url, "tools/call", { name: "dream", arguments: { session, phase: "launch" } }, auth(r.tokens.a));
     const out = (launch.body["result"] as Record<string, unknown>)["structuredContent"] as Record<string, unknown>;
     assert.notEqual((launch.body["result"] as Record<string, unknown>)["isError"], true, JSON.stringify(out));
