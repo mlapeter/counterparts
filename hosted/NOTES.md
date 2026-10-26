@@ -4,6 +4,27 @@ The OL2 lane's progress notes, folded in here when the stack was marked ready (2
 questions are in `docs/hosted/DESIGN.md`, the guarantees in `CONTRACT.md`, and what is still owed in
 `INTERFACE-GAPS.md`.
 
+## Stack status (for a successor; `NOTES-OL2.md` was folded in here)
+
+Status on 2026-10-26, late:
+
+- **Propagation is done.** Every branch contains everything below it: master 21504d86 → `feat/hosted-server` (#639) →
+  `feat/hosted-tenants` (#643) → `feat/hosted-accounts` (#644) → `feat/hosted-oauth` (#646) → `feat/hosted-keys` (#648).
+  All five are marked ready, and the coordinator merges them in that order on green.
+- **The review hardening list is done:**
+  - the batch cap (#639);
+  - 503 when a token can't be checked, origin-form targets only, door timeouts, and a real worker-child smoke test
+    (#643);
+  - the MAIL=log refusal with an https origin (#646);
+  - the reviewers' LOW/INFO items listed in `INTERFACE-GAPS.md` (#648);
+  - CONTRIBUTING's CI list (#643).
+- **Folded in after that:**
+  - dreaming `auto` for new stores (#644, merged up);
+  - Mike's "account email purged from backups within 24 hours", with snapshots at 12 h / 12 h, and email-under-DEK as a
+    gate before any non-family user (#648).
+- **Left:** if master moves again, merge it up the stack in order (hosted tests on every branch under bun and Node 24,
+  plus the full root suite on #639). Nothing else is open in this pass.
+
 ## How it was built
 
 - **One design checkpoint, then the steps as stacked PRs:**
