@@ -28,7 +28,7 @@ import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_INSTRUCTIONS, DESKTOP_INSTRUCTIONS } from "../src/adapters/mcp/server-words.js";
 import { readSession } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
-import { LOOPBACK, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
+import { LOOPBACK, MAX_BATCH, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
 import type { CallRecord, McpTarget, RunningHttp } from "../src/adapters/remote/http.js";
 import { openCallLog, summarizeCalls, summarizeChats } from "../src/adapters/remote/call-log.js";
 import { livePathRefusal, liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
@@ -137,7 +137,8 @@ describe("the HTTP door, through the socket", () => {
     const list = result((await rpc(http.url, "tools/list")).body)["tools"] as Record<string, unknown>[];
     expect(list.map((t) => t["name"])).toEqual(["wake", ...TOOLS.map((t) => t.name)]);
     const wake = list[0] as Record<string, unknown>;
-    expect(String(wake["description"]).startsWith("Call this first in every conversation.")).toBe(true);
+    // It describes what wake brings; it does not tell Claude to call it first (OL1b item 4: the directory rule).
+    expect(String(wake["description"]).startsWith("Start a conversation with your long-term memory of this person")).toBe(true);
     for (const t of list) {
       const text = JSON.stringify(t);
       expect(text).not.toContain("Quillmere");
@@ -290,6 +291,26 @@ describe("the HTTP door, through the socket", () => {
     expect(body.map((r) => r.id)).toEqual([1, 2]);
   });
 
+  test("a batch longer than MAX_BATCH is refused whole, before any message runs", async () => {
+    let handled = 0;
+    const counting = {
+      async handle(request: { id?: string | number }): Promise<{ jsonrpc: string; id: string | number; result: Record<string, unknown> }> {
+        handled += 1;
+        return { jsonrpc: "2.0", id: request.id ?? 0, result: {} };
+      },
+    };
+    const http = await serveHttp({ server: counting });
+    closers.push(() => http.close());
+    const batch = (n: number): string => JSON.stringify(Array.from({ length: n }, (_, i) => ({ jsonrpc: "2.0", id: i + 1, method: "ping" })));
+    const over = await fetch(http.url, { method: "POST", headers: { "content-type": "application/json" }, body: batch(MAX_BATCH + 1) });
+    expect(over.status).toBe(400);
+    expect(((await over.json()) as { error: { message: string } }).error.message).toBe("batch too large");
+    expect(handled).toBe(0);
+    const at = await fetch(http.url, { method: "POST", headers: { "content-type": "application/json" }, body: batch(MAX_BATCH) });
+    expect(at.status).toBe(200);
+    expect(handled).toBe(MAX_BATCH);
+  });
+
   test("claude.ai's 2025-11-25 is echoed through the door", async () => {
     const { http, calls } = await door();
     const init = await rpc(http.url, "initialize", { ...INIT, protocolVersion: "2025-11-25" });
@@ -364,7 +385,7 @@ describe("claude.ai's tools and words", () => {
     expect(toolDefinitions("claude-code")).toEqual(toolDefinitions(false));
     expect(DESKTOP_TOOLS.at(-1)?.name).toBe("wake");
     expect(CLAUDE_AI_TOOLS[0]).toBe(CLAUDE_AI_WAKE);
-    expect(renderDescription(CLAUDE_AI_WAKE)).toContain("remember what matters as it comes up");
+    expect(renderDescription(CLAUDE_AI_WAKE)).toContain("what is worth keeping is saved as it comes up, with `remember`");
     expect(DESKTOP_INSTRUCTIONS).toContain("Code tab");
   });
 
