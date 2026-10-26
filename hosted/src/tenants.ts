@@ -44,11 +44,12 @@ import type { McpServer } from "../../src/adapters/mcp/index.js";
 import { serialQueue } from "../../src/adapters/remote/http.js";
 import type { McpTarget, Serial } from "../../src/adapters/remote/http.js";
 import { scopesPath } from "../../src/adapters/scopes.js";
-import { DATA_DIR_ENV, WORKER_RUNNER_PATH } from "../../src/adapters/spawn.js";
+import { CONFIG_ENV, DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, WORKER_RUNNER_PATH } from "../../src/adapters/spawn.js";
 import type { SpawnPlan, Spawner } from "../../src/adapters/spawn.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { AdapterConfig } from "../../src/adapters/config.js";
 import { isWithin } from "../../src/core/store/paths.js";
+import { STATIC_WEIGHTS_ENV } from "../../src/core/embed/static.js";
 
 /** 128 bits as lowercase hex: the only shape a store id may have. */
 export const STORE_ID = /^[0-9a-f]{32}$/;
@@ -87,6 +88,8 @@ interface Handle {
   refs: number;
   lastUsed: number;
   closing: Promise<void> | null;
+  /** Told once when `refs` falls to 0: what `close()` waits on (a promise, never a poll). */
+  idle: (() => void)[];
 }
 
 /** The tenant dir, after both checks. Throws on anything else. */
@@ -136,6 +139,7 @@ export class Tenants {
     } finally {
       h.refs -= 1;
       h.lastUsed = this.now();
+      if (h.refs === 0) for (const wake of h.idle.splice(0)) wake();
     }
   }
 
@@ -155,22 +159,40 @@ export class Tenants {
     this.sweeper.unref?.();
   }
 
-  /** Close one store now (waits for its calls). For account delete. */
+  /**
+   * Close one store now, for account delete: waits for its calls, closes the
+   * handle, and drops its worker (an owed run is forgotten and a running child
+   * is stopped), so nothing reopens the store after its directory is removed.
+   */
   async close(storeId: string): Promise<void> {
-    const h = this.open.get(storeId);
-    if (h === undefined) return;
-    while (h.refs > 0) await h.serial(async () => undefined);
-    await this.evict(h);
+    await this.release(storeId);
+    const pool = this.spawner as Partial<WorkerPool>;
+    if (typeof pool.drop === "function" && STORE_ID.test(storeId)) await pool.drop(join(tenantDir(this.root, storeId), "store"));
   }
 
-  /** Close everything (shutdown). */
+  /** Close everything (shutdown). Workers already running are left to finish. */
   async closeAll(): Promise<void> {
     if (this.sweeper !== null) clearInterval(this.sweeper);
     this.sweeper = null;
-    await Promise.all([...this.open.keys()].map((id) => this.close(id)));
+    await Promise.all([...this.open.keys()].map((id) => this.release(id)));
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
+
+  /**
+   * Wait until no call holds the store, then close it. The wait is on the
+   * handle's `idle` promise, NEVER a loop over its queue: a call holds its ref
+   * while its body is still arriving and until its answer has flushed, both of
+   * which need the event loop, and a loop of already-settled promises never
+   * yields to it (review 10-26: `close()` racing one in-flight request froze
+   * the whole process, every tenant).
+   */
+  private async release(storeId: string): Promise<void> {
+    const h = this.open.get(storeId);
+    if (h === undefined) return;
+    while (h.refs > 0 && h.closing === null) await new Promise<void>((r) => h.idle.push(r));
+    await this.evict(h);
+  }
 
   private async acquire(storeId: string, tenant: TenantOptions): Promise<Handle> {
     for (;;) {
@@ -190,7 +212,9 @@ export class Tenants {
     const h = this.openHandle(storeId, tenant);
     h.refs += 1;
     this.open.set(storeId, h);
-    await this.trim();
+    // Not awaited: one person's first call never waits on other stores closing.
+    // `evict` marks each handle closing synchronously, so the cap holds at once.
+    this.trim();
     return h;
   }
 
@@ -224,18 +248,19 @@ export class Tenants {
       },
     });
     this.tell("tenant.open", storeId);
-    return { storeId, server, serial: serialQueue(), refs: 0, lastUsed: this.now(), closing: null };
+    return { storeId, server, serial: serialQueue(), refs: 0, lastUsed: this.now(), closing: null, idle: [] };
   }
 
   /** Over the cap: close the least recently used idle handles. A soft cap — in-use handles are never closed. */
-  private async trim(): Promise<void> {
+  private trim(): void {
     const max = this.opts.maxOpen ?? DEFAULT_MAX_OPEN;
     const over = this.open.size - max;
     if (over <= 0) return;
     const idle = [...this.open.values()].filter((h) => h.refs === 0 && h.closing === null).slice(0, over);
-    await Promise.all(idle.map((h) => this.evict(h)));
+    for (const h of idle) void this.evict(h);
   }
 
+  /** Close one handle after its queue drains. Never rejects: a close that throws still leaves the map. */
   private evict(h: Handle): Promise<void> {
     if (h.closing !== null) return h.closing;
     h.closing = (async (): Promise<void> => {
@@ -244,6 +269,8 @@ export class Tenants {
       try {
         h.server.forgetLaunch();
         h.server.counterpart.close();
+      } catch {
+        /* the handle is gone either way; the next open starts clean */
       } finally {
         if (this.open.get(h.storeId) === h) this.open.delete(h.storeId);
         this.tell("tenant.close", h.storeId);
@@ -264,6 +291,15 @@ export class Tenants {
 /** The environment keys a worker child may inherit, beyond the `COUNTERPARTS_*` the plan pinned. */
 export const WORKER_ENV_ALLOW = ["PATH", "LANG", "LC_ALL", "TZ", "TMPDIR"] as const;
 
+/**
+ * The `COUNTERPARTS_*` values a worker may carry, BY NAME (review 10-26): the
+ * ones `planSpawn` pins, plus where the static weights live. A prefix match
+ * would hand on whatever the server's environment exported under the prefix:
+ * `COUNTERPARTS_OBSERVER` or `COUNTERPARTS_NIGHT_CHILD` would change what the
+ * worker does, and a future secret named that way would leak.
+ */
+export const WORKER_COUNTERPARTS_ALLOW = [DATA_DIR_ENV, WATCHDOG_ENV, SESSION_ENV, SCOPE_ENV, CONFIG_ENV, STATIC_WEIGHTS_ENV] as const;
+
 /** The plan's environment, cut down to what a worker needs and nothing of the server's. */
 export function workerEnv(plan: SpawnPlan): Record<string, string> {
   const env: Record<string, string> = {};
@@ -271,8 +307,9 @@ export function workerEnv(plan: SpawnPlan): Record<string, string> {
     const v = plan.env[key];
     if (v !== undefined) env[key] = v;
   }
-  for (const [key, value] of Object.entries(plan.env)) {
-    if (key.startsWith("COUNTERPARTS_")) env[key] = value;
+  for (const key of WORKER_COUNTERPARTS_ALLOW) {
+    const v = plan.env[key];
+    if (v !== undefined) env[key] = v;
   }
   // The child's home is its tenant dir: nothing under a real home.
   const dataDir = plan.env[DATA_DIR_ENV];
@@ -286,6 +323,11 @@ export interface WorkerPool extends Spawner {
   running(): string[];
   /** Data dirs with one more run owed. */
   pending(): string[];
+  /**
+   * Forget this store (account delete): its owed run is dropped and a running
+   * child is stopped. Resolves once no child for it is running.
+   */
+  drop(dir: string): Promise<void>;
 }
 
 /**
@@ -294,17 +336,18 @@ export interface WorkerPool extends Spawner {
  */
 export function workerPool(opts: {
   max: number;
-  run?: (plan: SpawnPlan, env: Record<string, string>) => Pick<ChildProcess, "pid" | "once">;
+  run?: (plan: SpawnPlan, env: Record<string, string>) => Pick<ChildProcess, "pid" | "once" | "kill">;
 }): WorkerPool {
   const run =
     opts.run ??
     ((plan: SpawnPlan, env: Record<string, string>) =>
       spawn(plan.command, [...plan.args], { stdio: "ignore", env, timeout: plan.timeoutMs }));
   const running = new Set<string>();
+  const children = new Map<string, { child: Pick<ChildProcess, "pid" | "once" | "kill">; exited: Promise<void> }>();
   const owed = new Map<string, SpawnPlan>();
   const start = (dir: string, plan: SpawnPlan): number | undefined => {
     running.add(dir);
-    let child: Pick<ChildProcess, "pid" | "once">;
+    let child: Pick<ChildProcess, "pid" | "once" | "kill">;
     try {
       child = run(plan, workerEnv(plan));
     } catch (err) {
@@ -312,10 +355,15 @@ export function workerPool(opts: {
       throw err;
     }
     let done = false;
+    let exited!: () => void;
+    const entry = { child, exited: new Promise<void>((r) => (exited = r)) };
+    children.set(dir, entry);
     const finish = (): void => {
       if (done) return;
       done = true;
       running.delete(dir);
+      if (children.get(dir) === entry) children.delete(dir);
+      exited();
       drain();
     };
     child.once("exit", finish);
@@ -345,5 +393,16 @@ export function workerPool(opts: {
   }) as WorkerPool;
   spawner.running = () => [...running];
   spawner.pending = () => [...owed.keys()];
+  spawner.drop = async (dir: string): Promise<void> => {
+    owed.delete(dir);
+    const entry = children.get(dir);
+    if (entry === undefined) return;
+    try {
+      entry.child.kill("SIGKILL");
+    } catch {
+      /* already gone */
+    }
+    await entry.exited;
+  };
   return spawner;
 }
