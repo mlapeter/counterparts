@@ -690,3 +690,21 @@ previous check-in.
   unused "Last said here" bound), so this mostly stops it borrowing that room. When the line
   is dropped, its no-room row now names the later session, not the older chapter or nothing.
 - `sessionsHere(scope)` is read once per scope for the chapters and the later session both.
+
+## 2026-10-26 — the later session's quote is never the night's (L2)
+
+- **Night output is filed under the session the night launched in**, not the sessions it
+  read: a dream's gist, fold or merge (`origin_ref dream:…`) and a reflection's entry
+  (`reflection:…`). The S2 tier-2 week showed chapterless sessions quoted as "Reflected: …" /
+  "Dreamed: …" (d3s1, d4s2, d6s1). `laterHere` now passes over `isNightRow` rows, the same
+  test the privacy read uses, so the quote is the session's own note or its write-up (filed
+  under the session it writes up), else "not written up yet". The folder-only rule stands.
+- **A session with only night rows and no words still held is passed over**, as one with
+  nothing captured always was ("something to show for it"); before, it was named with the
+  night's quote. Kept: a dream filed under it is nothing it said.
+- An awake `reflect` call is filed the same way and is skipped too. Only a night launches
+  one today; if sessions start reflecting by hand, telling the two apart needs a mark on the
+  row (the reflection row's `dream_id` is the nearest one).
+- Harness (finding 6): night children's tokens are tallied by act (`recordUsage(output, act)`),
+  each night's asks carry their child's tokens, and `renderWeek` prints them per night, so a
+  model-seat week can say what each catch-up cost.
