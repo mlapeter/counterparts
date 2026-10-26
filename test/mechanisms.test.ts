@@ -17,6 +17,7 @@ import { join } from "node:path";
 
 import { Counterpart } from "../src/core/counterpart.js";
 import { Store } from "../src/core/store/index.js";
+import { Schemas } from "../src/core/schemas/index.js";
 import { MECHANISMS, daysBefore, firedReport } from "../src/adapters/fired.js";
 import { MEMORY_MECHANISMS } from "../src/adapters/cli/mechanisms.js";
 import { firedLines } from "../src/adapters/cli/commands.js";
@@ -127,7 +128,8 @@ describe("counterparts mechanisms", () => {
       Consolidation: "●",
       Dreaming: "◐",
       Reconsolidation: "◐",
-      Schemas: "○",
+      // Built since wave 2; read off its rows since 2026-10-26. No beliefs here: idle.
+      Schemas: "◐",
       // Partly built since 2026-09-26: a dream writes a gist.
       Gist: "◐",
     });
@@ -246,5 +248,90 @@ describe("counterparts mechanisms", () => {
     expect(a.out).toEqual(expected);
     expect(b.out).toEqual(expected);
     expect(a.out.join("\n")).toContain("what has fired —");
+  });
+});
+
+/**
+ * SCHEMAS (2026-10-26): the row said "not built" while the night formed
+ * beliefs. It reads the rows a belief leaves now — its birth route and lived
+ * birth day, and each memory filed for or against it — through the console.
+ */
+describe("Schemas: beliefs formed and the memories filed for them", () => {
+  /** A store lived through enough days that the window has an outside. */
+  function beliefStore(build: (s: Store, schemas: Schemas, today: number) => void): void {
+    const s = Store.open({ dir, now: () => at(TODAY) });
+    try {
+      for (let d = 1; d <= 16; d++) s.advanceClock(`2026-09-${String(d).padStart(2, "0")}`);
+      const schemas = Schemas.open({ store: s });
+      build(s, schemas, s.livedDay());
+    } finally {
+      s.close();
+    }
+  }
+
+  function lived(s: Store, body: string, day: number): string {
+    return s.put({ type: "memory", kind: "fact", body, physics: { birthDay: day, lastUsedDay: day }, origin: { session: `sess-${String(day)}`, scope: `/work/${String(day)}` } });
+  }
+
+  test("no beliefs: built, idle, and it says there are none yet", async () => {
+    const { out } = await console_(["mechanisms"]);
+    expect(lights(out).get("Schemas")).toBe("◐");
+    expect(lineFor(out, "Schemas")).toContain("built, not firing yet: no beliefs yet");
+    expect(out.join("\n")).not.toContain("not built yet:");
+  });
+
+  test("a belief born in the window, with memories filed for and against it: working, with the counts", async () => {
+    beliefStore((s, schemas, today) => {
+      const me = schemas.ensureSelfSubject();
+      const a = lived(s, "I asked for the plan in short steps again.", today);
+      const b = lived(s, "Short steps made the release go smoothly.", today);
+      const c = lived(s, "A long plan in one go worked fine yesterday.", today);
+      const born = schemas.addBelief({ entityId: me, statement: "We work best in short steps.", day: today, birthRoute: "reflection", channel: "authored", groundedIn: [a] });
+      expect(born.ok).toBe(true);
+      const id = born.id as string;
+      expect(schemas.fileSupport({ beliefId: id, memoryId: a, stance: "support", day: today }).ok).toBe(true);
+      expect(schemas.fileSupport({ beliefId: id, memoryId: b, stance: "support", day: today }).ok).toBe(true);
+      expect(schemas.fileSupport({ beliefId: id, memoryId: c, stance: "contrary", day: today }).ok).toBe(true);
+      // And one adopted from a dream's candidate.
+      const d = lived(s, "The owner reviews diffs before merging.", today);
+      const adopted = schemas.addBelief({ entityId: me, statement: "Reviews come before merges here.", day: today, birthRoute: "dream", channel: "authored", groundedIn: [d] });
+      expect(schemas.fileSupport({ beliefId: adopted.id as string, memoryId: d, stance: "support", day: today }).ok).toBe(true);
+    });
+    const { out } = await console_(["mechanisms"]);
+    expect(lights(out).get("Schemas")).toBe("●");
+    expect(lineFor(out, "Schemas")).toContain("1 belief formed, 1 belief adopted from a dream, 3 memories filed as support (1 against); 2 beliefs held");
+    // The full report counts the same rows, dated by the moment each was written.
+    const s = Store.open({ dir, observer: true });
+    try {
+      const rows = new Map(firedReport(s, TODAY).rows.map((r) => [r.id, r]));
+      expect(rows.get("belief-birth")?.state).toBe("firing");
+      expect(rows.get("belief-birth")?.firedInWindow).toBe(2);
+      expect(rows.get("belief-support")?.state).toBe("firing");
+      expect(rows.get("belief-support")?.firedInWindow).toBe(4);
+    } finally {
+      s.close();
+    }
+  });
+
+  test("a belief older than the window: built, not firing this week, and still held", async () => {
+    beliefStore((s, schemas) => {
+      const me = schemas.ensureSelfSubject();
+      const a = lived(s, "I asked for the plan in short steps.", 1);
+      const born = schemas.addBelief({ entityId: me, statement: "We work best in short steps.", day: 1, birthRoute: "reflection", channel: "authored", groundedIn: [a] });
+      expect(schemas.fileSupport({ beliefId: born.id as string, memoryId: a, stance: "support", day: 1 }).ok).toBe(true);
+    });
+    const { out } = await console_(["mechanisms"]);
+    expect(lights(out).get("Schemas")).toBe("◐");
+    expect(lineFor(out, "Schemas")).toContain("built, not firing this week: no belief formed and no memory filed for or against one; 1 belief held");
+  });
+
+  test("a belief carried from v1 is held, never counted as formed", async () => {
+    beliefStore((_s, schemas, today) => {
+      const me = schemas.ensureSelfSubject();
+      expect(schemas.addBelief({ entityId: me, statement: "I keep notes short.", day: today, birthRoute: "migrated", channel: "migrated" }).ok).toBe(true);
+    });
+    const { out } = await console_(["mechanisms"]);
+    expect(lights(out).get("Schemas")).toBe("◐");
+    expect(lineFor(out, "Schemas")).toContain("1 belief held");
   });
 });
