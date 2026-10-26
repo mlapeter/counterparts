@@ -35,7 +35,7 @@
  */
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { CLAUDE_AI_HOST } from "../../src/adapters/hosts.js";
@@ -49,6 +49,7 @@ import type { SpawnPlan, Spawner } from "../../src/adapters/spawn.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { AdapterConfig } from "../../src/adapters/config.js";
 import { isWithin } from "../../src/core/store/paths.js";
+import { beginNewInstall } from "../../src/core/onboarding.js";
 import { STATIC_WEIGHTS_ENV } from "../../src/core/embed/static.js";
 
 /** 128 bits as lowercase hex: the only shape a store id may have. */
@@ -221,6 +222,8 @@ export class Tenants {
   private openHandle(storeId: string, tenant: TenantOptions): Handle {
     const dir = tenantDir(this.root, storeId);
     const storeDir = join(dir, "store");
+    // A store this open CREATES is a new person's: it starts like a new install (below).
+    const fresh = !existsSync(storeDir);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const configPath = join(dir, "config.json");
     const config: AdapterConfig = {
@@ -247,6 +250,7 @@ export class Tenants {
         spawner: this.spawner,
       },
     });
+    if (fresh) startNewStore(server);
     this.tell("tenant.open", storeId);
     return { storeId, server, serial: serialQueue(), refs: 0, lastUsed: this.now(), closing: null, idle: [] };
   }
@@ -286,6 +290,23 @@ export class Tenants {
       /* a listener never fails a call */
     }
   }
+}
+
+/**
+ * A NEW PERSON'S STORE STARTS LIKE A NEW INSTALL (OL1b's finding, 2026-10-26):
+ * only `counterparts install` writes onboarding `not_started`, so a store this
+ * server creates would otherwise never offer the first meeting. Dreaming starts
+ * `auto`, as every new install does (Mike, 2026-10-11; the roadmap's ruling of
+ * 2026-10-26): the setting is the PERSON'S wish, and the HOST decides who starts
+ * the night. On this host nothing starts on its own — the wake makes no dream
+ * offer on claude.ai (`mcp/server.ts`), and no path from the server or its
+ * worker spawns a night run (that is Claude Code's hooks alone) — so the
+ * person's own routine runs the night through the `dream` tool. The tests pin
+ * both halves (`hosted/test/tenants.test.ts`).
+ */
+export function startNewStore(server: McpServer): void {
+  const store = server.counterpart.store;
+  beginNewInstall(store);
 }
 
 /** The environment keys a worker child may inherit, beyond the `COUNTERPARTS_*` the plan pinned. */
