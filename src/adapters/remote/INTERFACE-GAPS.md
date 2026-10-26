@@ -13,7 +13,8 @@
    phase is served only to the nightly run's own child, so a night run from claude.ai (a
    scheduled task, or by hand) does day's end, the dream and the reflection through the
    tools, and skips tagging.
-4. **Protocol versions.** `mcp/protocol.ts` speaks up to 2025-06-18; claude.ai also offers
-   2025-11-25. Negotiation answers 2025-06-18 and the client decides.
+4. **Protocol versions.** `mcp/protocol.ts` echoes 2025-11-25 since OL2 step 1 (2026-10-26); claude.ai offers
+   it and is answered in it. A version this server does not know is still answered with
+   2025-06-18. The 2026-07-28 revision (stateless) is `docs/hosted/DESIGN.md` §3, later.
 5. **Doctor.** No claude.ai line: nothing reads the call log but the trial script.
 6. **No console command.** Run by path (`bin/serve-http.ts`); see CONTRACT.

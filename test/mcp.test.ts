@@ -30,6 +30,7 @@ import { SESSION_TTL_MS, recordSession } from "../src/adapters/sessions.js";
 import {
   ERROR_CODES,
   FrameReader,
+  LATEST_PROTOCOL_VERSION,
   McpServer,
   PROTOCOL_VERSIONS,
   RECALL_BODY_CHARS,
@@ -201,8 +202,17 @@ describe("the wire", () => {
     const s = server();
     const [response] = await pump(s, [rpc(1, "initialize", { protocolVersion: "2099-01-01" })]);
     expect((response as unknown as { result: { protocolVersion: string } }).result.protocolVersion).toBe(
-      PROTOCOL_VERSIONS[0] as string,
+      LATEST_PROTOCOL_VERSION,
     );
+    expect(LATEST_PROTOCOL_VERSION).toBe("2025-06-18");
+  });
+
+  test("2025-11-25 (what claude.ai asks for) is echoed; every listed revision is", async () => {
+    expect(PROTOCOL_VERSIONS).toContain("2025-11-25");
+    for (const v of PROTOCOL_VERSIONS) {
+      const [response] = await pump(server(), [rpc(1, "initialize", { protocolVersion: v, capabilities: {} })]);
+      expect((response as unknown as { result: { protocolVersion: string } }).result.protocolVersion).toBe(v);
+    }
   });
 
   test("a notification is answered with nothing at all", async () => {

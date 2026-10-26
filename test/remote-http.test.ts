@@ -16,6 +16,8 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -26,8 +28,8 @@ import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_INSTRUCTIONS, DESKTOP_INSTRUCTIONS } from "../src/adapters/mcp/server-words.js";
 import { readSession } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
-import { LOOPBACK, newSecret, serveHttp } from "../src/adapters/remote/http.js";
-import type { CallRecord, RunningHttp } from "../src/adapters/remote/http.js";
+import { LOOPBACK, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
+import type { CallRecord, McpTarget, RunningHttp } from "../src/adapters/remote/http.js";
 import { openCallLog, summarizeCalls } from "../src/adapters/remote/call-log.js";
 import { livePathRefusal, liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
 
@@ -286,6 +288,72 @@ describe("the HTTP door, through the socket", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id: number }[];
     expect(body.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  test("claude.ai's 2025-11-25 is echoed through the door", async () => {
+    const { http, calls } = await door();
+    const init = await rpc(http.url, "initialize", { ...INIT, protocolVersion: "2025-11-25" });
+    expect(result(init.body)["protocolVersion"]).toBe("2025-11-25");
+    expect(calls[0]).toMatchObject({ method: "initialize", protocolVersion: "2025-11-25", ok: true });
+  });
+});
+
+describe("the POST handler, mounted behind another door's router (OL2 step 1: the hosted server's seam)", () => {
+  /** A stand-in for the hosted router: a header picks the target, and each target has its own queue. */
+  async function mounted(targets: Record<string, McpTarget>): Promise<{ url: string }> {
+    const server = createServer((req, res) => {
+      const which = req.headers["x-target"];
+      const target = typeof which === "string" ? targets[which] : undefined;
+      if (req.url !== "/mcp" || req.method !== "POST" || target === undefined) {
+        req.resume();
+        res.writeHead(404).end();
+        return;
+      }
+      handleMcpPost(req, res, target);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    closers.push(() => new Promise<void>((r) => server.close(() => r())));
+    const address = server.address() as AddressInfo;
+    return { url: `http://127.0.0.1:${String(address.port)}/mcp` };
+  }
+
+  test("two real servers behind one router: each call reaches its own store, and nothing crosses", async () => {
+    const a = openServer({ dir: join(root, "a"), host: CLAUDE_AI_HOST, env: {}, lifecycle: { spawner: () => ({ pid: 1 }) }, manifestVersion: () => null });
+    const b = openServer({ dir: join(root, "b"), host: CLAUDE_AI_HOST, env: {}, lifecycle: { spawner: () => ({ pid: 1 }) }, manifestVersion: () => null });
+    closers.push(() => a.counterpart.close(), () => b.counterpart.close());
+    const { url } = await mounted({ a: { server: a, serial: serialQueue() }, b: { server: b, serial: serialQueue() } });
+    const as = { "x-target": "a" };
+    const bs = { "x-target": "b" };
+    const wakeA = (await rpc(url, "tools/call", { name: "wake", arguments: {} }, as)).body;
+    const sessionA = String((result(wakeA)["structuredContent"] as Record<string, unknown>)["session"]);
+    const saved = await rpc(url, "tools/call", { name: "remember", arguments: { session: sessionA, text: "Store A's owner keeps bees on a rooftop in Ogden." } }, as);
+    expect(result(saved.body)["isError"]).not.toBe(true);
+    // A's session named in B's store is not B's session, and A's words are not in B.
+    const crossed = await rpc(url, "tools/call", { name: "recall", arguments: { session: sessionA, question: "rooftop bees", mode: "facts" } }, bs);
+    expect(JSON.stringify(crossed.body)).not.toContain("Ogden");
+    const own = await rpc(url, "tools/call", { name: "recall", arguments: { session: sessionA, question: "rooftop bees", mode: "facts" } }, as);
+    expect(JSON.stringify(own.body)).toContain("Ogden");
+    expect(a.counterpart.store.dir).not.toBe(b.counterpart.store.dir);
+  });
+
+  test("one queue per target: a slow store never holds up another, and each store still sees one message at a time", async () => {
+    const seen = { a: { in: 0, most: 0 }, b: { in: 0, most: 0 } };
+    const order: string[] = [];
+    const slow = (name: "a" | "b", ms: number) => ({
+      async handle(request: { id?: string | number }): Promise<{ jsonrpc: string; id: string | number; result: Record<string, unknown> }> {
+        const s = seen[name];
+        s.in += 1;
+        s.most = Math.max(s.most, s.in);
+        await new Promise((r) => setTimeout(r, ms));
+        s.in -= 1;
+        order.push(name);
+        return { jsonrpc: "2.0", id: request.id ?? 0, result: {} };
+      },
+    });
+    const { url } = await mounted({ a: { server: slow("a", 120), serial: serialQueue() }, b: { server: slow("b", 5), serial: serialQueue() } });
+    await Promise.all([rpc(url, "ping", undefined, { "x-target": "a" }), rpc(url, "ping", undefined, { "x-target": "a" }), rpc(url, "ping", undefined, { "x-target": "b" })]);
+    expect(seen.a.most).toBe(1);
+    expect(order[0]).toBe("b");
   });
 });
 
