@@ -47,7 +47,10 @@ jobs:
         with:
           bun-version: 1.3.10
       - run: bun install --frozen-lockfile
+      # hosted/ has its own dependencies (oidc-provider, its test clients) and its own typecheck.
+      - run: bun install --cwd hosted --frozen-lockfile
       - run: bun run typecheck
+      - run: bunx tsc --noEmit -p hosted/tsconfig.json
       - run: bun tools/changelog/stitch.ts --check
 
   suite:
@@ -129,6 +132,7 @@ jobs:
         with:
           bun-version: 1.3.10
       - run: bun install --frozen-lockfile
+      - run: bun install --cwd hosted --frozen-lockfile
       - name: Hosted tests under Node 24
         if: matrix.runtime == 'node 24'
         run: node --import ./src/adapters/node-hooks.mjs --test hosted/test/*.test.ts

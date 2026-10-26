@@ -1,0 +1,5 @@
+{
+  "//": "The hosted package checks against its own dependencies (hosted/node_modules: bun install --cwd hosted). The root typecheck stays free of them.",
+  "extends": "../tsconfig.json",
+  "include": ["src", "test"]
+}

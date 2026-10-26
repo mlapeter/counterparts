@@ -2,10 +2,13 @@
  * EVERY CONNECTION THE HOSTED SERVER OPENS, IN ONE FILE (OL2; design §1, the
  * G6 row): the core is inbound-only and its guard (`test/claude-code.test.ts`)
  * says so of `src/`; the hosted server is not, so its egress is named here and
- * pinned by `hosted/test/egress.test.ts` — a new destination is a review event.
+ * pinned by `hosted/test/accounts.test.ts` ("egress") — a new destination is a review event.
  *
  *   1. Resend's HTTP API, to send a login email (`resendMailer`).
- *   2. (step 4) a client's CIMD document, through the SSRF guard.
+ *   2. a client's CIMD document (`cimdFetch`): oidc-provider calls it with its own
+ *      guard already applied — https only, no redirects, a 2.5 s timeout, a body
+ *      limit, and (on Node) a dispatcher that refuses special-use addresses —
+ *      and `oauth.ts` adds https-on-443 only.
  *
  * Nothing here logs a token, an address or a message body.
  */
@@ -48,3 +51,7 @@ export function memoryMailer(): Mailer & { readonly sent: Mail[] } {
     },
   };
 }
+
+/** The CIMD fetch oidc-provider uses (its `fetch` option). It arrives with the library's options (signal, dispatcher, manual redirect) and passes them on unchanged. */
+export type CimdFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
+export const cimdFetch: CimdFetch = (input, init) => fetch(input, init);

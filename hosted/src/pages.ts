@@ -23,6 +23,7 @@ import type { Accounts } from "./accounts.js";
 import { LINK_MS } from "./accounts.js";
 import type { Mailer } from "./egress.js";
 import type { Route } from "./server.js";
+import type { CookieNames } from "./web.js";
 import { Csrf, RateLimit, clientIp, cookie, cookieNames, escapeHtml, page, parseCookies, readForm, redirect, safeNext, sameOrigin } from "./web.js";
 
 const BROWSER_MAX_AGE_S = 400 * 24 * 60 * 60;
@@ -57,6 +58,7 @@ export interface Pages {
   /** This browser's binding cookie value, setting one on `res` when missing. */
   browserOf(req: IncomingMessage, res: ServerResponse): string;
   readonly csrf: Csrf;
+  readonly cookieNames: CookieNames;
 }
 
 const SENT_WORDS =
@@ -239,5 +241,5 @@ ${
     return false;
   };
 
-  return { route, personOf, browserOf, csrf };
+  return { route, personOf, browserOf, csrf, cookieNames: names };
 }

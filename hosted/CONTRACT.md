@@ -71,6 +71,55 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 15. **Pages carry a strict CSP** (nonce'd inline style and script only), `frame-ancestors 'none'` and `no-store`.
     Cookies are `HttpOnly; SameSite=Lax`, and `__Host-` + `Secure` on https.
 
+### OAuth 2.1 (step 4: `src/oauth.ts`, `src/oauth-adapter.ts`, `src/app.ts`, `src/main.ts`)
+
+16. **oidc-provider 9.13.0, pinned exactly, does the protocol** (DESIGN Q1): DCR, CIMD, PKCE S256 only, resource
+    indicators, opaque tokens, refresh rotation, revocation, and `iss` on the response.
+    - CIMD is an experiment in this version (`ack: "draft-02"`), so every upgrade is a test run and a changelog read.
+    - `token_endpoint_auth_methods_supported` is exactly `["none"]`. Together with
+      `client_id_metadata_document_supported: true`, that is what makes claude.ai choose CIMD.
+17. **A token is for `/mcp` and nothing else.** Another resource is `invalid_target` at authorize. `authenticate`
+    checks:
+    - expiry;
+    - the audience (`/mcp` or `/mcp/`);
+    - the `memory` scope;
+    - that the **grant still exists**, so a disconnect or a reused code stops the token on its next call, with no
+      cache;
+    - that the person is live.
+18. **No bearer value is stored.**
+    - Access tokens, refresh tokens, authorization codes and registration tokens are kept under `sha256(id)`, with
+      their `jti` stripped from the payload. A test greps the control files for the live tokens.
+    - Grant and client ids stay readable: they grant nothing by themselves.
+19. **The Allow page**:
+    - requires our own signed-in person;
+    - belongs to the browser that started the authorization (the library's interaction cookie);
+    - is CSRF-bound, with `frame-ancestors 'none'`, and its `form-action` allows only us and the app's own return
+      origin;
+    - names the app by where it really is: a CIMD client by its URL's host, a registered one by its return host
+      FIRST, with its self-declared name after as a quoted claim. Only a loopback http return is "an app on this
+      computer".
+    - A grant is reused without the page (the library's silent re-authorization) only while OUR web session is the
+      same person as the library's own session. A sign-out of ours brings the page, and the login, back.
+20. **Discovery.** Protected Resource Metadata is at `/.well-known/oauth-protected-resource/mcp` and the root form.
+    The authorization-server document is at both `/.well-known/oauth-authorization-server` and
+    `/.well-known/openid-configuration`. Every URL is built from `PUBLIC_ORIGIN`: requests reach the library with
+    `Host` pinned to it and `X-Forwarded-Host` dropped, because the library builds endpoint URLs from the request.
+21. **The CIMD fetch** goes through `egress.ts#cimdFetch`. On Node the library applies its own guard: https only, no
+    redirects, a 2.5 s timeout, a body limit, and a refusal of special-use IPs (checked on the connected socket, so
+    DNS rebinding doesn't pass). A Node-only test proves the guard reaches our fetch. We add https-on-443 only.
+    - **The library fetches nothing else a client names.** `sector_identifier_uri`, `jwks_uri`, `jwks`,
+      `backchannel_logout_uri` and `request_uris` are refused at registration and in CIMD documents, and every body
+      limit is finite.
+    - **Redirect URIs** are https, http on a loopback address only, or a native app's own scheme.
+22. **The entry point** (`src/main.ts`) needs everything named, and nothing falls back to a default:
+    - `HOSTED_DATA_ROOT`: absolute, and never inside a live store;
+    - `PUBLIC_ORIGIN`: https, except in a local `MAIL=log` run;
+    - the mail key.
+
+    `invite` prints one code, once.
+23. **Rate limits** on the open endpoints: 30 registrations an hour per IP, 600 token calls an hour per IP, and 300
+    authorization starts an hour per IP (each can make the server fetch a CIMD document).
+
 ### A new person's store (OL1b's finding)
 
 - **A store the server creates starts like a new install** (`tenants.ts#startNewStore`). Onboarding is set to
