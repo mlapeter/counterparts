@@ -103,7 +103,8 @@ export function overdue(e: LedgerEntry, zone: string, lastCatchUpAt: number | nu
   if (e.stretch === null) return false;
   const day = localDate(e.stretch.lastAt, zone);
   if (lastCatchUpAt !== null && localDate(lastCatchUpAt, zone) > day) return true;
-  return e.daysOfUseSince >= OVERDUE_DAYS_OF_USE && (lastCatchUpAt === null || lastCatchUpAt < e.stretch.lastAt);
+  // No catch-up on a later date (the arm above), so none since that counts.
+  return e.daysOfUseSince >= OVERDUE_DAYS_OF_USE;
 }
 
 /** The newest catch-up row's time, or null when none ran (or it cannot be read). */
@@ -331,7 +332,7 @@ export function crashWriteUpFindings(input: DoctorInput, store: Store, owedReadi
         title,
         detail,
         (auto
-          ? "The nightly run had its chance at these and they are still owed; counterparts catch-up does it now. "
+          ? "The nightly run had its chance at these, or has not run in two days of use, and they are still owed; counterparts catch-up does it now. "
           : "Run counterparts catch-up to write them up now, or open a session in the project each one is in: its start points at the oldest. ") +
           `counterparts coverage says which. A stretch nobody writes up lapses after ${String(COVERAGE_TUNABLES.LAPSE_DAYS_OF_USE)} days of use — nothing is deleted, it stops being owed.`,
         data,

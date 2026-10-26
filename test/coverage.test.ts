@@ -850,6 +850,8 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
 
   test("S2c: away for days, no day of use since — still green; two days of use with no catch-up since — amber", async () => {
     checkIn("checkin-old", noonToday() - 4 * DAY);
+    // A second run the check-in's own day, after it: no chance at it (same date), and it does not hide what follows.
+    nightRan(1, noonToday() - 4 * DAY + 3 * HOUR);
     expect((await doctorCatchUp()).severity).toBe("green");
     // One later day of use: the night's first chance is that day, and no row says it failed.
     dayOfUse("used-1", noonToday() - DAY);

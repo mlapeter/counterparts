@@ -326,7 +326,10 @@ What the record adds (both seats; text never, ids and labels only, sessions name
   - the session the wake's "Last here" names, and its chapter's id;
   - the session "Last said here" quotes;
   - the wake's other lines, by their opening words;
-  - the dream gate's reason and its count of new memories.
+  - the dream gate's reason and its count of new memories;
+  - on a morning, doctor's Catch-up line (severity and detail) read through `doctorFindings`
+    at the session start, before the first prompt launches the night (S2c); `compare` counts
+    the amber mornings.
 - **Sessions owed at the week's end.** `compare` shows these as rows.
 
 On 2026-10-26 (0.3.37), `checkins` read:
