@@ -27,3 +27,16 @@
   standard `destructiveHint: true`.
 - **The trial store offers no first meeting.** Only `counterparts install` writes
   onboarding `not_started`; a store this door opens fresh reads `done`.
+- **Dreams from a chat (2026-10-26, OL1b).** claude.ai has no console and no dashboard,
+  so `recall` reads last night itself: the handle "last dream" (or "last night") returns
+  the newest dream whole and the reflection after it, and a dream's id alone now reads
+  whole too. A question's answer carries the dreams it reaches, by words and by the
+  reflection entry it showed. Dream journals have no embedding, so "by meaning" is words
+  for now; a real index would be a cache table, batched with other store-format changes.
+- **The first meeting over the door (2026-10-26, OL1b).** It runs cleanly once the store
+  starts as a new install (`onboarding.ts#beginNewInstall`); on claude.ai its words say
+  a connector, keep no store path or console command, and leave the first dream to the
+  routine. Who starts a hosted store as a new install, and with which dreaming setting
+  (`auto` means Claude Code's headless run, which claude.ai has not), is the hosted
+  server's account-creation step. The meeting's "where it lives" answer is left out on
+  the web until the hosted privacy copy exists.
