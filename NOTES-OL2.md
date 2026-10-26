@@ -37,7 +37,7 @@ Branch `feat/hosted-server`, from origin/master eacdafda. The brief is
 - **Not merged yet:** origin/master moved to 15871d67 (#640, #642). Merge it into the stack before any PR is marked
   ready.
 
-- **Step 5, answered by Mike (14:52 and 15:07, via the roadmap seat) and built (`feat/hosted-keys`):**
+- **Step 5, answered by Mike (14:52 and 15:07, via the roadmap seat) and built (PR #648, `feat/hosted-keys`):**
   - Q2 and Q3 accepted; the native-driver spike is not run.
   - Delete is at once, everywhere: each wrapped DEK is one write-once R2 object, deleted with the store.
   - The KEK sits behind the `KeyWrapper` seam (a Railway secret for the beta, our Cloudflare key service before any
