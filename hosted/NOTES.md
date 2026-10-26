@@ -39,3 +39,26 @@ questions are in `docs/hosted/DESIGN.md`, the guarantees in `CONTRACT.md`, and w
   the whole process froze.
 - **Under bun, `node:http` doesn't emit `close` when a client aborts mid-body.** That request keeps its ref, so under bun
   the handle is never evicted. Node 24 behaves; this only affects the bun test runtime.
+
+### Accounts, OAuth, keys (steps 3–5)
+
+- **Every login ask, refused or not, writes one row in one commit** (the #644 review). Otherwise the disk write alone (a
+  WAL fsync on a network volume) tells an attacker whether an address has an account. The login email is also not
+  awaited.
+- **`safeNext` checks the path after dot-segments resolve** (the #644 review). `/oauth/..//evil` resolved to `//evil`.
+- **Behind a proxy, the client IP is the last `X-Forwarded-For` hop** (the #644 review). The first hop is whatever the
+  client wrote.
+- **oidc-provider keeps its own 24 h login session**, and our `/logout` doesn't end it. Silent re-authorization must
+  also check our own web session (`loadExistingGrant`, the #646 review).
+- **More oidc-provider details:**
+  - It defaults ID tokens to RS256 and refuses DCR unless its keys match, so we configure ES256.
+  - DCR issues a `registration_access_token`. That is a bearer, so it is hashed.
+  - `memory` is both a plain scope and a resource scope, so the grant covers both.
+  - Its endpoint URLs follow the `Host` header, so requests reach it with `Host` pinned to `PUBLIC_ORIGIN`.
+  - Remote client metadata (`sector_identifier_uri`, `jwks_uri`, …) is refused.
+- **node:sqlite's `secure_delete` defaults to 0** (bun's is FAST). Deleted rows stay in free cells, and so in every
+  Litestream snapshot. `oauth.sqlite`, `accounts.sqlite` and `keys.sqlite` all set it on (the #648 review).
+- **A half-finished delete must stay a delete** (the #648 review). The store turns `deleting` durably, start-up finishes
+  pending deletes before `ensureAll`, and `Tenants.retire` refuses any later open.
+- **Litestream v0.5 dropped its own encryption.** SSE-C is per replica, and `dir` mode shares one key. So each store
+  gets its own `path:` entry, and each wrapped DEK is one write-once R2 object rather than a replicated keys database.

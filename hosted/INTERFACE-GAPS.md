@@ -1,21 +1,69 @@
 # hosted/ — what it still owes
 
-1. **Two gates before any non-family user** (DESIGN §5.4):
+## Before any non-family user
+
+1. **Two gates** (DESIGN §5.4):
    - Railway's disk encryption confirmed in writing;
    - the Cloudflare Worker key service (a second `KeyWrapper`), so that one leak of Railway's environment can't expose
      both the KEK and the R2 credentials.
-2. **The control databases' backup history.** It keeps a deleted person's address and audit codes until Litestream's
-   snapshot retention (24 h by default) ages them out. The fix: the address encrypted under the person's DEK, plus a
-   keyed hash for lookup.
-3. **Restore.** Nothing restores yet: the R2 objects to keys, then Litestream restore, then a drill against a local S3
-   stand-in. This comes with the ops step's runbook.
-4. **Operations** (DESIGN §7, build step 6): the Dockerfile (Node 24 plus a pinned Litestream binary), `/readyz` with
-   replication lag, alerts, the runbook, and the Fly fallback.
-   - Whether Litestream v0.5 reloads its config on a signal is unmeasured. The sidecar restarts instead.
-5. **A rate limit and quota on `/mcp`.** Per-person calls a minute and the per-store size quota are not built yet.
-6. **Unused DCR clients pile up.** A sweep of clients older than 30 days that hold no grant is not built.
-7. **Refresh sliding vs absolute.** Whether the rotated refresh token's 30-day expiry slides was not measured.
-8. **Export as markdown.** Export is the database file. The readable markdown tree needs an archive format, and is not
-   built.
-9. **The 2026-07-28 transport** (DESIGN §3), behind a version switch.
-10. **A high security review** (DESIGN §9 step 7) before anyone outside the family.
+2. **The address in the control database's backup history.** With `secure_delete` on, snapshots taken after a delete
+   are clean. But the snapshot from before it, and the LTX files after it, keep a deleted person's address for up to
+   about 24 h: Litestream's snapshot interval and retention, plus its retention-check lag, which is unmeasured.
+   - Fix: the address encrypted under the person's DEK, plus a keyed hash for lookup.
+   - Until then, the "at once" copy holds for the memory and its backups, not for the address (#648 review). Mike has
+     suggested wording for the account page, the done page and the 202 page.
+3. **The `src/` store contract's `secure_delete` note.** `src/core/store/CONTRACT.md` says the default is FAST, which
+   is bun only; Node's default is 0, and the hosted server runs Node. The core's forget and removal paths should be
+   checked for what they rely on. That file is the coordinator's, not this lane's (#648 review).
+
+## The first Railway deploy
+
+4. **Check `X-Forwarded-For`.** Log the raw header of one request from a known IP and confirm it carries exactly one
+   appended hop. `web.ts#clientIp` takes the last hop. If Railway puts a second internal hop in front, every client
+   shares one rate-limit bucket. That shows up as loud 429s, not a silent bypass (#644 review).
+
+## Operations (build step 6)
+
+5. **Restore.** R2's key objects, then the keys, then a Litestream restore, then a drill against a local S3 stand-in.
+6. **The rest of ops:**
+   - the Dockerfile (Node 24 plus a pinned Litestream binary);
+   - `/readyz` with replication lag;
+   - alerts;
+   - the runbook (R2 versioning and object lock off for `keys/`);
+   - the Fly fallback.
+   - Not verified against the real binary: whether Litestream v0.5 reloads its config on a signal, and whether it does
+     a final sync on SIGTERM. The sidecar restarts and waits for the exit either way.
+7. **Rate limits and quotas on `/mcp`.** Per-tenant calls a minute, a connection cap and the per-store size quota are
+   not built. Store calls run synchronous sqlite on one event loop, so one tenant's heavy calls slow every other
+   tenant, even with a queue per store (#643 review).
+
+## Low, named so they are decisions
+
+8. **Duplicate grants.** Each Allow press for the same client mints a new grant, so the account page can list
+   duplicates, and Disconnect removes only one (#646 review).
+9. **Unused DCR clients pile up.** Client rows never expire. Growth is bounded by 30 registrations an hour per IP; a
+   sweep of clients older than 30 days with no grant is not built.
+10. **Suspension doesn't revoke grants.** Restoring a person restores their connections. `authenticate` checks
+    `isLive`, so a suspended person's token is refused anyway (#646 review).
+11. **Custom-scheme redirects.** The Allow page's `form-action` lists only http(s) return origins, so a custom-scheme
+    native client may be blocked by CSP after Allow. That's functional, not security (#646 review).
+12. **The batch, interrupted.** If a client disconnects mid-batch, the rest of the batch can run after the store was
+    evicted. Those calls fail with "internal error" to a client that has gone; nothing crosses tenants (#643 review).
+    Batches are capped at 32 messages.
+13. **Bun only.** `node:http` doesn't emit `close` on a mid-body abort, so under bun the handle keeps its ref. Production
+    Node 24 behaves (#643 review).
+14. **`/login/link` has no rate limit.** The tokens are 256-bit, so there is nothing to brute-force (#644 review).
+15. **A residual in the mail timing.** The mailer still builds its request before the response flushes. That costs well
+    under a millisecond, below network jitter (#644 review).
+16. **The link-validity oracle.** "Wrong browser" and "can't be used" tell a live token from a dead one. At 256 bits
+    that isn't exploitable (#644 review).
+17. **Sign-up while R2 is down.** If the key object's put fails, the store is in `litestream.yml` without
+    `keys/<id>.wrapped`, and can't be restored from R2 alone until the next `ensureAll` (#648 review).
+18. **Retire, tested only through `withTenant`.** A door-level test (authenticate, then delete, then the MCP POST) is a
+    follow-up (#648 review).
+19. **A hung Litestream makes the delete POST wait** up to the 30 s SIGKILL timeout (#648 review).
+20. **`rewrap` with the server up.** "Server stopped" is only a comment. Start-up's unreadable-key refusal catches the
+    bad outcome (#648 review).
+21. **Refresh sliding vs absolute.** Whether the rotated refresh token's 30-day expiry slides wasn't measured.
+22. **Export as markdown.** Export is the database file. The readable markdown tree needs an archive format.
+23. **The 2026-07-28 transport** (DESIGN §3), behind a version switch.
