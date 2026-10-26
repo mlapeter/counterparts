@@ -63,6 +63,13 @@ export const LOOPBACK = "127.0.0.1";
 /** A request body larger than this is refused (`413`). Tool arguments are small. */
 export const MAX_BODY_BYTES = 1_000_000;
 
+/**
+ * A JSON-RPC batch longer than this is refused (`400`) before any message
+ * runs (security review of the OL2 stack, info). Batches were dropped from MCP
+ * in 2025-06-18 and are kept for 2025-03-26 clients, which send a handful.
+ */
+export const MAX_BATCH = 32;
+
 /** The secret path segment's entropy, in bytes (192 bits; the brief asks ≥128). */
 export const SECRET_BYTES = 24;
 
@@ -100,19 +107,33 @@ export interface CallRecord {
   readonly protocolVersion?: string;
 }
 
-export interface ServeHttpOptions {
+/**
+ * The options every door shares: what happens to ONE POST once it has been
+ * routed to an MCP endpoint (2026-10-26, OL2 step 1). The local door
+ * (`serveHttp`) and the hosted server (`hosted/`) both hand a request here
+ * after their own gate — the secret path here, a bearer token there.
+ */
+export interface McpPostOptions {
+  readonly maxBodyBytes?: number;
+  /** Messages in one batch; `MAX_BATCH` when absent. */
+  readonly maxBatch?: number;
+  /** Told once per message, after its answer is known. A throw is swallowed. */
+  readonly onCall?: (record: CallRecord) => void;
+  /** Told the status of each request refused before it reached the server
+   *  (413, 400). A throw is swallowed. */
+  readonly onRefused?: (status: number) => void;
+  readonly now?: () => number;
+}
+
+export interface ServeHttpOptions extends McpPostOptions {
   readonly server: HttpMcpServer;
   /** The secret path segment; a fresh one when absent. At least 22 characters. */
   readonly secret?: string;
   /** The port on 127.0.0.1; 0 (the default) lets the system choose. */
   readonly port?: number;
-  readonly maxBodyBytes?: number;
-  /** Told once per message, after its answer is known. A throw is swallowed. */
-  readonly onCall?: (record: CallRecord) => void;
   /** Told the status of each request refused before it reached the server
    *  (404, 405, 413, 400). Never told the path. A throw is swallowed. */
   readonly onRefused?: (status: number) => void;
-  readonly now?: () => number;
 }
 
 export interface RunningHttp {
@@ -122,6 +143,33 @@ export interface RunningHttp {
   /** `http://127.0.0.1:<port>/<secret>` — the one string that carries the secret. */
   readonly url: string;
   close(): Promise<void>;
+}
+
+/** Runs `fn` after every earlier `fn` handed to the same queue has settled. */
+export type Serial = <T>(fn: () => Promise<T>) => Promise<T>;
+
+/** Where one routed POST goes: a server, and the queue in front of it. */
+export interface McpTarget {
+  readonly server: HttpMcpServer;
+  /** ONE MESSAGE AT A TIME per server (the header). The hosted server keeps
+   *  one queue per store; the local door has one store and one queue. */
+  readonly serial: Serial;
+}
+
+/**
+ * A fresh queue: every function handed to it waits for the last to settle,
+ * whether it resolved or threw.
+ */
+export function serialQueue(): Serial {
+  let queue: Promise<unknown> = Promise.resolve();
+  return <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = queue.then(fn);
+    queue = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
 }
 
 const NOT_FOUND = "Not found\n";
@@ -139,6 +187,171 @@ function printable(value: string | null | undefined, max: number): string | null
   return clean.length === 0 ? null : clean;
 }
 
+function tell(fn: () => void): void {
+  try {
+    fn();
+  } catch {
+    /* a listener's trouble is never the client's answer */
+  }
+}
+
+function plain(res: ServerResponse, status: number, extra: Record<string, string> = {}): void {
+  res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", ...extra });
+  res.end(status === 404 ? NOT_FOUND : `${status}\n`);
+}
+
+function json(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    ...headers,
+  });
+  res.end(JSON.stringify(body));
+}
+
+/** One message through the server, and its call-log record. */
+async function one(raw: unknown, connection: string | null, target: McpTarget, opts: McpPostOptions, now: () => number): Promise<Response | null> {
+  const started = now();
+  const parsed = parseLine(JSON.stringify(raw));
+  if (!parsed.ok) {
+    const response = failure(parsed.id, parsed.code, parsed.message);
+    tell(() => opts.onCall?.({ at: new Date(started).toISOString(), method: "invalid", connection, ok: false, reason: String(parsed.code), ms: now() - started }));
+    return response;
+  }
+  const request = parsed.request;
+  let response: Response | null;
+  try {
+    response = await target.serial(() => target.server.handle(request));
+  } catch {
+    // The message stays on this machine: it could name a path on disk.
+    response = request.id === undefined ? null : failure(request.id, ERROR_CODES.INTERNAL_ERROR, "internal error");
+  }
+  const params = request.params ?? {};
+  const isInit = request.method === "initialize";
+  const record: Record<string, unknown> = {
+    at: new Date(started).toISOString(),
+    method: code(request.method, 64) ?? "other",
+    connection,
+    ms: now() - started,
+  };
+  if (request.method === "tools/call") {
+    record["tool"] = code(params["name"], 32) ?? "other";
+    const args = params["arguments"];
+    const named = args !== null && typeof args === "object" ? code((args as Record<string, unknown>)["session"]) : undefined;
+    if (named !== undefined) record["session"] = named;
+  }
+  if (response === null) {
+    record["ok"] = true;
+  } else if ("error" in response) {
+    record["ok"] = false;
+    record["reason"] = String(response.error.code);
+  } else {
+    const result = response.result;
+    const structured = result["structuredContent"];
+    const sc = structured !== null && typeof structured === "object" ? (structured as Record<string, unknown>) : {};
+    record["ok"] = result["isError"] !== true;
+    if (result["isError"] === true) record["reason"] = code(sc["reason"]) ?? "error";
+    // `wake` mints the session; it is the one call that names none going in.
+    // ONLY `wake` (review of #641): `chapter`, `reflect` and `dream` echo the
+    // session a nameless call was filed under (the most recent one, remote
+    // INTERFACE-GAPS §2), which may be another chat's; logging that as the
+    // call's session would hide a chat that never woke inside another's row.
+    if (record["session"] === undefined && record["tool"] === "wake") {
+      const minted = code(sc["session"]);
+      if (minted !== undefined) record["session"] = minted;
+    }
+  }
+  if (isInit) {
+    record["client"] = printable(target.server.clientName, 128);
+    record["clientVersion"] = printable(target.server.clientVersion, 64);
+    const asked = code(params["protocolVersion"], 32);
+    if (asked !== undefined) record["protocolVersion"] = asked;
+  }
+  tell(() => opts.onCall?.(record as unknown as CallRecord));
+  return response;
+}
+
+/**
+ * Serve ONE POST that a door has already routed to an MCP endpoint and let
+ * through its gate: read the body (bounded), frame it as JSON-RPC (one message
+ * or a batch), hand each message to `target.server` through `target.serial`,
+ * and answer plain JSON — or `202` with no body for notifications alone.
+ *
+ * The method is not checked here: the door answers anything but POST itself
+ * (`405` with `Allow: POST`). Nothing about the gate is known here either, so
+ * nothing about it can leak from here.
+ */
+export function handleMcpPost(req: IncomingMessage, res: ServerResponse, target: McpTarget, opts: McpPostOptions = {}): void {
+  const maxBody = opts.maxBodyBytes ?? MAX_BODY_BYTES;
+  const now = opts.now ?? ((): number => Date.now());
+  const refuse = (status: number, extra: Record<string, string> = {}): void => {
+    tell(() => opts.onRefused?.(status));
+    plain(res, status, extra);
+  };
+  const chunks: Buffer[] = [];
+  let size = 0;
+  let over = false;
+  req.on("data", (chunk: Buffer) => {
+    if (over) return;
+    size += chunk.length;
+    if (size > maxBody) {
+      over = true;
+      refuse(413, { Connection: "close" });
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
+  req.on("error", () => {
+    if (!res.headersSent) refuse(400);
+  });
+  req.on("end", () => {
+    if (over) return;
+    void (async (): Promise<void> => {
+      let body: unknown;
+      try {
+        body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } catch {
+        tell(() => opts.onRefused?.(400));
+        json(res, 400, failure(null, ERROR_CODES.PARSE_ERROR, "invalid JSON"));
+        return;
+      }
+      const header = req.headers["mcp-session-id"];
+      const carried = code(Array.isArray(header) ? header[0] : header);
+      const batch = Array.isArray(body);
+      const messages = batch ? (body as unknown[]) : [body];
+      if (messages.length === 0) {
+        json(res, 400, failure(null, ERROR_CODES.INVALID_REQUEST, "empty batch"));
+        return;
+      }
+      if (messages.length > (opts.maxBatch ?? MAX_BATCH)) {
+        tell(() => opts.onRefused?.(400));
+        json(res, 400, failure(null, ERROR_CODES.INVALID_REQUEST, "batch too large"));
+        return;
+      }
+      // A connection id is issued at `initialize` and logged on every later
+      // message that carries it; one that carries none is still served.
+      const initializing = messages.some((m) => m !== null && typeof m === "object" && (m as Record<string, unknown>)["method"] === "initialize");
+      const connection = initializing ? randomUUID() : (carried ?? null);
+      const responses: Response[] = [];
+      for (const message of messages) {
+        const response = await one(message, connection, target, opts, now);
+        if (response !== null) responses.push(response);
+      }
+      const headers: Record<string, string> = initializing && connection !== null ? { "Mcp-Session-Id": connection } : {};
+      if (responses.length === 0) {
+        res.writeHead(202, { "Cache-Control": "no-store", ...headers });
+        res.end();
+        return;
+      }
+      json(res, 200, batch ? responses : responses[0], headers);
+    })().catch(() => {
+      if (!res.headersSent) refuse(500);
+    });
+  });
+}
+
 /**
  * Serve `server` on 127.0.0.1 under `/<secret>`. Resolves once listening.
  */
@@ -146,26 +359,8 @@ export async function serveHttp(opts: ServeHttpOptions): Promise<RunningHttp> {
   const secret = opts.secret ?? newSecret();
   if (!/^[A-Za-z0-9_-]{22,}$/.test(secret)) throw new Error("the secret path segment must be at least 22 URL-safe characters");
   const expected = Buffer.from(`/${secret}`, "utf8");
-  const maxBody = opts.maxBodyBytes ?? MAX_BODY_BYTES;
-  const now = opts.now ?? ((): number => Date.now());
-  const tell = (fn: () => void): void => {
-    try {
-      fn();
-    } catch {
-      /* a listener's trouble is never the client's answer */
-    }
-  };
-
   // ONE MESSAGE AT A TIME (the header): every `handle` waits for the last.
-  let queue: Promise<unknown> = Promise.resolve();
-  const serial = <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = queue.then(fn);
-    queue = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  };
+  const target: McpTarget = { server: opts.server, serial: serialQueue() };
 
   const pathOk = (rawUrl: string | undefined): boolean => {
     let pathname: string;
@@ -181,80 +376,7 @@ export async function serveHttp(opts: ServeHttpOptions): Promise<RunningHttp> {
 
   const refuse = (res: ServerResponse, status: number, extra: Record<string, string> = {}): void => {
     tell(() => opts.onRefused?.(status));
-    res.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store", ...extra });
-    res.end(status === 404 ? NOT_FOUND : `${status}\n`);
-  };
-
-  const json = (res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void => {
-    res.writeHead(status, {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-      ...headers,
-    });
-    res.end(JSON.stringify(body));
-  };
-
-  /** One message through the server, and its call-log record. */
-  const one = async (raw: unknown, connection: string | null): Promise<{ response: Response | null; initialize: boolean }> => {
-    const started = now();
-    const parsed = parseLine(JSON.stringify(raw));
-    if (!parsed.ok) {
-      const response = failure(parsed.id, parsed.code, parsed.message);
-      tell(() => opts.onCall?.({ at: new Date(started).toISOString(), method: "invalid", connection, ok: false, reason: String(parsed.code), ms: now() - started }));
-      return { response, initialize: false };
-    }
-    const request = parsed.request;
-    let response: Response | null;
-    try {
-      response = await serial(() => opts.server.handle(request));
-    } catch {
-      // The message stays on this machine: it could name a path on disk.
-      response = request.id === undefined ? null : failure(request.id, ERROR_CODES.INTERNAL_ERROR, "internal error");
-    }
-    const params = request.params ?? {};
-    const isInit = request.method === "initialize";
-    const record: Record<string, unknown> = {
-      at: new Date(started).toISOString(),
-      method: code(request.method, 64) ?? "other",
-      connection,
-      ms: now() - started,
-    };
-    if (request.method === "tools/call") {
-      record["tool"] = code(params["name"], 32) ?? "other";
-      const args = params["arguments"];
-      const named = args !== null && typeof args === "object" ? code((args as Record<string, unknown>)["session"]) : undefined;
-      if (named !== undefined) record["session"] = named;
-    }
-    if (response === null) {
-      record["ok"] = true;
-    } else if ("error" in response) {
-      record["ok"] = false;
-      record["reason"] = String(response.error.code);
-    } else {
-      const result = response.result;
-      const structured = result["structuredContent"];
-      const sc = structured !== null && typeof structured === "object" ? (structured as Record<string, unknown>) : {};
-      record["ok"] = result["isError"] !== true;
-      if (result["isError"] === true) record["reason"] = code(sc["reason"]) ?? "error";
-      // `wake` mints the session; it is the one call that names none going in.
-      // ONLY `wake` (review of #641): `chapter`, `reflect` and `dream` echo the
-      // session a nameless call was filed under (the most recent one, remote
-      // INTERFACE-GAPS §2), which may be another chat's; logging that as the
-      // call's session would hide a chat that never woke inside another's row.
-      if (record["session"] === undefined && record["tool"] === "wake") {
-        const minted = code(sc["session"]);
-        if (minted !== undefined) record["session"] = minted;
-      }
-    }
-    if (isInit) {
-      record["client"] = printable(opts.server.clientName, 128);
-      record["clientVersion"] = printable(opts.server.clientVersion, 64);
-      const asked = code(params["protocolVersion"], 32);
-      if (asked !== undefined) record["protocolVersion"] = asked;
-    }
-    tell(() => opts.onCall?.(record as unknown as CallRecord));
-    return { response, initialize: isInit };
+    plain(res, status, extra);
   };
 
   const onRequest = (req: IncomingMessage, res: ServerResponse): void => {
@@ -268,62 +390,7 @@ export async function serveHttp(opts: ServeHttpOptions): Promise<RunningHttp> {
       refuse(res, 405, { Allow: "POST" });
       return;
     }
-    const chunks: Buffer[] = [];
-    let size = 0;
-    let over = false;
-    req.on("data", (chunk: Buffer) => {
-      if (over) return;
-      size += chunk.length;
-      if (size > maxBody) {
-        over = true;
-        refuse(res, 413, { Connection: "close" });
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("error", () => {
-      if (!res.headersSent) refuse(res, 400);
-    });
-    req.on("end", () => {
-      if (over) return;
-      void (async (): Promise<void> => {
-        let body: unknown;
-        try {
-          body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-        } catch {
-          tell(() => opts.onRefused?.(400));
-          json(res, 400, failure(null, ERROR_CODES.PARSE_ERROR, "invalid JSON"));
-          return;
-        }
-        const header = req.headers["mcp-session-id"];
-        const carried = code(Array.isArray(header) ? header[0] : header);
-        const batch = Array.isArray(body);
-        const messages = batch ? (body as unknown[]) : [body];
-        if (messages.length === 0) {
-          json(res, 400, failure(null, ERROR_CODES.INVALID_REQUEST, "empty batch"));
-          return;
-        }
-        // A connection id is issued at `initialize` and logged on every later
-        // message that carries it; one that carries none is still served.
-        const initializing = messages.some((m) => m !== null && typeof m === "object" && (m as Record<string, unknown>)["method"] === "initialize");
-        const connection = initializing ? randomUUID() : (carried ?? null);
-        const responses: Response[] = [];
-        for (const message of messages) {
-          const { response } = await one(message, connection);
-          if (response !== null) responses.push(response);
-        }
-        const headers: Record<string, string> = initializing && connection !== null ? { "Mcp-Session-Id": connection } : {};
-        if (responses.length === 0) {
-          res.writeHead(202, { "Cache-Control": "no-store", ...headers });
-          res.end();
-          return;
-        }
-        json(res, 200, batch ? responses : responses[0], headers);
-      })().catch(() => {
-        if (!res.headersSent) refuse(res, 500);
-      });
-    });
+    handleMcpPost(req, res, target, opts);
   };
 
   const server: Server = createServer(onRequest);

@@ -37,8 +37,13 @@ on the owner's machine through a tunnel he starts.
    to no file; it runs cloudflared with `--loglevel info` pinned, because at `debug` the
    tunnel logs every request URL, per Cloudflare's docs.)
 4. One message at a time reaches `handle` (a queue), because `McpServer` keeps per-call
-   state on the instance and stdio never delivered two at once.
-5. Bodies over 1 MB are `413`; a body that is not JSON is `400` with JSON-RPC's parse error.
+   state on the instance and stdio never delivered two at once. Since OL2 step 1
+   (2026-10-26) the POST handling is its own export, `handleMcpPost(req, res, target)`,
+   and the queue travels with the server in `target` (`serialQueue()`): the local door
+   builds one target, and the hosted server (`hosted/`, design in `docs/hosted/DESIGN.md`)
+   keeps one per store behind its own gate. Guarantees 1–3 are the local door's listener
+   and are unchanged; the handler knows nothing of any gate.
+5. Bodies over 1 MB are `413`; a body that is not JSON is `400` with JSON-RPC's parse error; a batch of more than `MAX_BATCH` (32) messages is `400`, refused whole before any message runs.
 6. Inbound only: it opens no connection and resolves no host (pinned in
    `test/claude-code.test.ts`).
 7. The call log holds ids and codes only: time, method, tool, the connection id
