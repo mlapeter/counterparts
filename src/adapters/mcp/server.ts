@@ -1477,6 +1477,7 @@ export class McpServer {
         dreaming: this.counterpart.dreams.setting(),
         folders: this.meetAsksWhere(),
         plugin: this.install === "plugin" && !this.desktop,
+        web: this.host === CLAUDE_AI_HOST,
         state,
       });
       this.emit("mcp.meet.read", undefined, { state });
@@ -1515,6 +1516,7 @@ export class McpServer {
         const next = finishText({
           name: this.counterpart.ownerDisplayName(),
           dreaming: this.counterpart.dreams.setting(),
+          web: this.host === CLAUDE_AI_HOST,
           sidebar:
             !this.desktop &&
             sidebarBeside({
