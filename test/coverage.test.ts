@@ -900,6 +900,89 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
     expect((await doctorCatchUp()).severity).toBe("green");
   });
 
+  // ── S2c review: the ambers a real problem still earns, whatever the setting ──
+
+  /** `counterparts doctor --json`, through the CLI: one finding by key. */
+  async function doctorFinding(key: string): Promise<{ severity: string; detail: string; fix: string; data: Record<string, unknown> }> {
+    const config = join(root, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, timeZone: ZONE }));
+    const out: string[] = [];
+    await cliRun(["doctor", `--config=${config}`, "--json"], { io: { out: (l) => out.push(l), err: () => {} }, env: {}, home: join(root, "home") });
+    const json = JSON.parse(out.join("\n")) as { findings: { key: string; severity: string; detail: string; fix: string; data: Record<string, unknown> }[] };
+    const f = json.findings.find((x) => x.key === key);
+    if (f === undefined) throw new Error(`no ${key} finding`);
+    return f;
+  }
+
+  function setDreaming(value: "auto" | "ask" | "off"): void {
+    const s = Counterpart.open({ dir: storeDir, timeZone: ZONE });
+    s.store.setMeta(DREAMING_SETTING_KEY, value);
+    s.close();
+  }
+
+  function nightState(state: string, at: number, left: number): void {
+    const c = Counterpart.open({ dir: storeDir, timeZone: ZONE, now: () => at });
+    c.store.appendEvent({ name: NIGHT_WRITE_UP_EVENT, day: c.store.livedDay(), ref: `nrn_${state}_${String(at)}`, payload: { state, granted: 0, written: 0, parts: 0, unread: 0, left } });
+    c.close();
+  }
+
+  test("S2c review: dreaming OFF — no night ever runs; amber once two days of use pass, the Authorship count agrees, and it stays amber up to the lapse", async () => {
+    setDreaming("off");
+    checkIn("off-1", noonToday() - 15 * DAY);
+    expect((await doctorCatchUp()).severity).toBe("green");
+    dayOfUse("off-u1", noonToday() - 14 * DAY);
+    expect((await doctorCatchUp()).severity).toBe("green");
+    dayOfUse("off-u2", noonToday() - 13 * DAY);
+    const f = await doctorCatchUp();
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("1 overdue");
+    expect(f.fix).toContain("Run counterparts catch-up");
+    expect(f.fix).toContain("lapses after 14 days of use");
+    const a = await doctorFinding("authorship");
+    expect(a.data["owedStale"]).toBe(1);
+    expect(a.detail).toContain("1 overdue (a catch-up has run since, or 2 days of use)");
+    // Up to day of use 13 of 14: still owed, still amber.
+    for (let d = 12; d >= 2; d--) dayOfUse(`off-u${String(15 - d)}`, noonToday() - d * DAY);
+    const late = await doctorCatchUp();
+    expect(late.severity).toBe("amber");
+    expect(late.data["stale"]).toBe(1);
+  });
+
+  test("S2c review: a night that cannot start, or fails, every morning — amber the first morning it leaves the check-in owed", async () => {
+    for (const state of ["could-not-start", "failed"]) {
+      rmSync(storeDir, { recursive: true, force: true });
+      setDreaming("auto");
+      checkIn(`broken-${state}`, noonToday() - DAY);
+      expect((await doctorCatchUp()).severity).toBe("green");
+      nightState(state, Date.now(), 1);
+      const f = await doctorCatchUp();
+      expect(f.severity).toBe("amber");
+      expect(f.data["stale"]).toBe(1);
+    }
+  });
+
+  test("S2c review: the ordinary auto week — a night each morning clears yesterday's check-in — is green every morning, before and after the night", async () => {
+    setDreaming("auto");
+    for (let d = 3; d >= 1; d--) {
+      const morning = noonToday() - d * DAY - 4 * HOUR;
+      // The morning's night clears what is owed, then the day's check-in.
+      const k = clocked(morning);
+      for (const e of ledger(k.c.spans, { now: morning, zone: ZONE }).filter((x) => x.owed)) {
+        k.c.spans.claimCoverage({ scope: PROJ, session: e.session, proposalId: `prp_night_${e.session}` });
+      }
+      k.c.close();
+      open.splice(open.indexOf(k.c), 1);
+      nightState("done", morning + MIN, 0);
+      checkIn(`week-${String(d)}`, noonToday() - d * DAY);
+    }
+    // This morning, before the first prompt: yesterday's check-in waits for its night.
+    const f = await doctorCatchUp();
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("1 session to catch up");
+    expect(f.data["stale"]).toBe(0);
+    expect((await doctorFinding("authorship")).data["owedStale"]).toBe(0);
+  });
+
   test("the catch-up's unread line is today's, or that run's date's — never a past date's from a later run (review of #435)", () => {
     const { yesterday, today } = yesterdayStore();
     const c = Counterpart.open({ dir: storeDir, timeZone: ZONE });
