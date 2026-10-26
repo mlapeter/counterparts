@@ -386,7 +386,10 @@ where they differ:
   other: the noise floor, next to the difference. The same build and settings on both sides is
   refused unless `--runs` is 2 or more (a noise check).
 - **Tokens:** the record carries every model child's usage, read from its own stream-json
-  `result` line (`usage.ts`), so a side's cost is in its row.
+  `result` line (`usage.ts`), so a side's cost is in its row. A night's children are also
+  tallied by act (`usageByAct` in a week's record, 2026-10-26), and each night's asks carry
+  their own child's tokens: a model-seat week prints `tokens catch-up 38.1k, dream ...` on
+  each night line, so a catch-up's cost reads apart from the week's total.
 - **The page** (night and week) goes in the record by numbers only: version, bytes, the
   memories it cites, claims with no cite behind them. The compare diffs the words in its
   scratch and removes them; `--pages <dir>` keeps them for a human read. On the owner's
