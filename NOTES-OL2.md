@@ -24,7 +24,7 @@ Branch `feat/hosted-server`, from origin/master eacdafda. The brief is
 - **Step 2, done (PR #643, `feat/hosted-tenants`):** `hosted/` package, `tenants.ts`, `server.ts`, the CI job "hosted".
   16 tests.
 - **Step 3, done (PR #644, `feat/hosted-accounts`):** `accounts.ts`, `pages.ts`, `web.ts`, `egress.ts`. 11 tests.
-- **Step 4, done (PR on `feat/hosted-oauth`):** `oauth.ts`, `oauth-adapter.ts`, `app.ts` (the composition), `main.ts`
+- **Step 4, done (PR #646, `feat/hosted-oauth`):** `oauth.ts`, `oauth-adapter.ts`, `app.ts` (the composition), `main.ts`
   (the entry point plus `invite`). hosted/ now has its own `package.json` dependencies (oidc-provider 9.13.0;
   devDeps oauth4webapi, @types/oidc-provider, the MCP SDK as a test client), its own `bun.lock` and its own
   `tsconfig.json`. CI installs them with `bun install --cwd hosted --frozen-lockfile`. 47 hosted tests, green under

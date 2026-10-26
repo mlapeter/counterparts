@@ -376,7 +376,10 @@ export function createOAuth(opts: OAuthOptions): OAuth {
     async list(personId: string): Promise<ConnectionView[]> {
       const out: ConnectionView[] = [];
       for (const g of store.grantsOf(personId)) {
-        const client = await provider.Client.find(g.clientId).catch(() => undefined);
+        // A CIMD client (an https client id) is labelled by its host with no
+        // lookup: `Client.find` would FETCH its document, and an account page
+        // must not depend on someone else's server.
+        const client = /^https:\/\//.test(g.clientId) ? undefined : await provider.Client.find(g.clientId).catch(() => undefined);
         out.push({
           id: g.id,
           client: client === undefined ? clientLabel(g.clientId, []) : clientLabel(client.clientId, client.redirectUris ?? [], client.clientName),
