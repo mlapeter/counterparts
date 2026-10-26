@@ -266,9 +266,14 @@ export function lightOf(v: Verdict, returns?: ReturnsBySource): MechanismLight {
       events: [],
     };
   }
+  // A mechanism read only off its rows (Schemas) keeps no firing day: with
+  // rows held it has fired before, so "no record of it firing" would be false.
+  const censusOnly = row.proofs.length === 0 && (v.held ?? 0) > 0;
   const evidence =
     v.lastFiredDay === null
-      ? `Built, and no record of it firing yet.`
+      ? censusOnly
+        ? `Built, but quiet for ${MECHANISM_DAYS} days of use.`
+        : `Built, and no record of it firing yet.`
       : `Built, but quiet for ${MECHANISM_DAYS} days of use (last fired on day ${v.lastFiredDay} of use).`;
   return { ...base, status: "amber", evidence: `${evidence}${heldLine}`, events: [] };
 }
