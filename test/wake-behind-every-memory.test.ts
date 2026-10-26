@@ -154,7 +154,7 @@ function stored(out: { structuredContent: Record<string, unknown> }): string {
 }
 
 describe("a memory written with note reaches the wake at the next turn-end", () => {
-  test("session A notes a thread, an owner fact and a dated one, its turn ends, and session B — in another directory — wakes to all three", async () => {
+  test("session A notes a thread, an owner fact and a dated one, its turn ends: session B in another directory wakes to the owner fact and the dated one, a session in A's directory to the thread (O2)", async () => {
     const { d1, d2 } = seed();
     await worker(d1); // the day's first turn-end: the cycle renders
     expect(briefingRows().map((r) => r["reason"])).toEqual(["rendered"]);
