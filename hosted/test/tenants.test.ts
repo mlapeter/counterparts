@@ -394,3 +394,75 @@ describe("the worker pool", () => {
     }
   });
 });
+
+describe("hardening from the stack's review", () => {
+  test("an authenticate that throws (accounts down) answers 503 with Retry-After, never 401", async () => {
+    const tenants = new Tenants({ root: join(tmp.root, "tenants"), embedder: null, spawner: () => ({ pid: 1 }) });
+    closers.push(() => tenants.closeAll());
+    const server = createHostedServer({ tenants, publicOrigin: ORIGIN, authenticate: async () => {
+      throw new Error("database is locked");
+    } });
+    const { base, close } = await listen(server);
+    closers.push(close);
+    const out = await rpc(`${base}/mcp`, "tools/list", undefined, { authorization: `Bearer ${randomBytes(24).toString("base64url")}` });
+    assert.equal(out.status, 503);
+    assert.equal(out.headers.get("retry-after"), "30");
+    assert.equal(out.headers.get("www-authenticate"), null);
+    assert.equal(server.headersTimeout, 30_000);
+    assert.equal(server.requestTimeout, 300_000);
+  });
+
+  test("only origin-form request targets: //host/x and absolute-form are 400, so no route ever sees a client-chosen host", async () => {
+    const r = await rig();
+    const { createConnection } = await import("node:net");
+    const port = new URL(r.url).port;
+    const raw = (target: string): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const sock = createConnection(Number(port), "127.0.0.1", () => sock.write(`GET ${target} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`));
+        let data = "";
+        sock.on("data", (d: Buffer) => (data += d.toString()));
+        sock.on("end", () => resolve(data));
+        sock.on("error", reject);
+      });
+    for (const target of ["//attacker.example/healthz", "http://attacker.example/healthz"]) {
+      const answer = await raw(target);
+      assert.match(answer.split("\r\n")[0]!, /^HTTP\/1\.1 400/, target);
+    }
+    assert.match((await raw("/healthz")).split("\r\n")[0]!, /^HTTP\/1\.1 200/);
+  });
+
+  test("the real worker child runs, with the pool's allow-listed environment, against a temp tenant", { timeout: 150_000 }, async () => {
+    const exits: { code: number | null; err: string }[] = [];
+    let done!: () => void;
+    const finished = new Promise<void>((r) => (done = r));
+    const pool = workerPool({
+      max: 1,
+      run: (plan, env) => {
+        const child = spawn(plan.command, [...plan.args], { env, stdio: ["ignore", "ignore", "pipe"], timeout: 120_000 });
+        let err = "";
+        child.stderr!.on("data", (d: Buffer) => (err += d.toString()));
+        child.once("exit", (code) => {
+          exits.push({ code, err });
+          done();
+        });
+        return child;
+      },
+    });
+    process.env["HOSTED_KEKS"] = "v1:test-only-not-a-key";
+    try {
+      const tenants = new Tenants({ root: join(tmp.root, "tenants"), embedder: null, spawner: pool });
+      closers.push(() => tenants.closeAll());
+      const id = storeId();
+      await tenants.withTenant(id, {}, async (t) => {
+        await t.server.handle({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "wake", arguments: {} } });
+      });
+      await finished;
+      assert.equal(exits.length, 1);
+      assert.equal(exits[0]!.code, 0, exits[0]!.err.slice(0, 2000));
+      // The child wrote into its own tenant, and nowhere else under the root.
+      assert.ok(existsSync(join(tenantDir(tenants.root, id), "store", "counterparts.sqlite")));
+    } finally {
+      delete process.env["HOSTED_KEKS"];
+    }
+  });
+});

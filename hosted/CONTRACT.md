@@ -40,6 +40,11 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
    nameable. It never holds a token.
 7. **`/mcp` refuses** anything but POST (`405`), a foreign `Origin` (`403`), and a body that is not
    `application/json` (`415`). The last closes the local door's `text/plain` simple-request hole.
+   - A token that can't be *checked* (`authenticate` threw, e.g. the accounts database is down) gets `503` with
+     `Retry-After`, never `401`, so the client retries instead of asking the person to sign in again.
+   - Only origin-form request targets reach a route. `//host/x` and absolute-form targets get `400`, so no route ever
+     sees a host the client chose. Every published URL is built from `publicOrigin`.
+   - Headers time out at 30 s and requests at 300 s, the same bounds as the local door.
 
 ## What it drops, for now
 
