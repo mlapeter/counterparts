@@ -87,20 +87,30 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - belongs to the browser that started the authorization (the library's interaction cookie);
     - is CSRF-bound, with `frame-ancestors 'none'`, and its `form-action` allows only us and the app's own return
       origin;
-    - names the app by where it really is: a CIMD client by its URL's host, a registered one by its return host. A
-      self-declared name never stands alone.
+    - names the app by where it really is: a CIMD client by its URL's host, a registered one by its return host
+      FIRST, with its self-declared name after as a quoted claim. Only a loopback http return is "an app on this
+      computer".
+    - A grant is reused without the page (the library's silent re-authorization) only while OUR web session is the
+      same person as the library's own session. A sign-out of ours brings the page, and the login, back.
 20. **Discovery.** Protected Resource Metadata is at `/.well-known/oauth-protected-resource/mcp` and the root form.
     The authorization-server document is at both `/.well-known/oauth-authorization-server` and
-    `/.well-known/openid-configuration`. Every URL is built from `PUBLIC_ORIGIN`.
+    `/.well-known/openid-configuration`. Every URL is built from `PUBLIC_ORIGIN`: requests reach the library with
+    `Host` pinned to it and `X-Forwarded-Host` dropped, because the library builds endpoint URLs from the request.
 21. **The CIMD fetch** goes through `egress.ts#cimdFetch`. On Node the library applies its own guard: https only, no
-    redirects, a 2.5 s timeout, a body limit, and a refusal of special-use IPs. We add https-on-443 only.
+    redirects, a 2.5 s timeout, a body limit, and a refusal of special-use IPs (checked on the connected socket, so
+    DNS rebinding doesn't pass). A Node-only test proves the guard reaches our fetch. We add https-on-443 only.
+    - **The library fetches nothing else a client names.** `sector_identifier_uri`, `jwks_uri`, `jwks`,
+      `backchannel_logout_uri` and `request_uris` are refused at registration and in CIMD documents, and every body
+      limit is finite.
+    - **Redirect URIs** are https, http on a loopback address only, or a native app's own scheme.
 22. **The entry point** (`src/main.ts`) needs everything named, and nothing falls back to a default:
     - `HOSTED_DATA_ROOT`: absolute, and never inside a live store;
     - `PUBLIC_ORIGIN`: https, except in a local `MAIL=log` run;
     - the mail key.
 
     `invite` prints one code, once.
-23. **Rate limits** on the open endpoints: 30 registrations an hour per IP, 600 token calls an hour per IP.
+23. **Rate limits** on the open endpoints: 30 registrations an hour per IP, 600 token calls an hour per IP, and 300
+    authorization starts an hour per IP (each can make the server fetch a CIMD document).
 
 ### A new person's store (OL1b's finding)
 

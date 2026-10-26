@@ -78,19 +78,40 @@ export function isOurResource(value: unknown, publicOrigin: string): boolean {
   return value === ours || value === `${ours}/`;
 }
 
+/** The hosts RFC 8252 calls loopback, as `URL#hostname` spells them. */
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/** A redirect URI we let a client register: https, http on loopback only (RFC 8252 §7.3), or a native app's own scheme. */
+export function redirectUriAcceptable(uri: unknown): boolean {
+  if (typeof uri !== "string") return false;
+  try {
+    const u = new URL(uri);
+    if (u.protocol === "http:") return LOOPBACK_HOSTS.has(u.hostname);
+    return true; // https, or a private-use scheme the library itself vets (no javascript:, data:, …)
+  } catch {
+    return false;
+  }
+}
+
 /** Where an app sends the person back, as they would recognise it. */
 export function returnsTo(uri: string): string {
   try {
     const u = new URL(uri);
     if (u.protocol === "https:") return u.host;
-    if (u.protocol === "http:") return "an app on this computer";
+    // Only a loopback address is "this computer"; any other http host is named (review of #646).
+    if (u.protocol === "http:") return LOOPBACK_HOSTS.has(u.hostname) ? "an app on this computer" : u.host;
     return `an app (${u.protocol.replace(/:$/, "")})`;
   } catch {
     return "an app";
   }
 }
 
-/** Who is asking, by where they really are: a CIMD client by its URL's host; a registered one by where it returns to. */
+/**
+ * Who is asking, by where they really are: a CIMD client by its URL's host; a
+ * registered one by where it returns to — FIRST, with the name it gave itself
+ * after, quoted, as its claim. A name leading the label could carry its own
+ * fake "(claude.ai)" (review of #646).
+ */
 export function clientLabel(clientId: string, redirectUris: readonly string[], clientName?: string): string {
   if (/^https:\/\//.test(clientId)) {
     try {
@@ -101,8 +122,17 @@ export function clientLabel(clientId: string, redirectUris: readonly string[], c
   }
   const hosts = [...new Set(redirectUris.map(returnsTo))];
   const where = hosts.join(", ") || "an app";
-  return clientName !== undefined && clientName.length > 0 ? `${clientName.slice(0, 60)} (${where})` : where;
+  const name = clientName?.replace(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/g, "").trim().slice(0, 60);
+  return name !== undefined && name.length > 0 ? `${where} (calls itself “${name}”)` : where;
 }
+
+/**
+ * Client metadata that would make this server fetch a URL the client chose, or
+ * that a public client has no use for: refused at registration and in CIMD
+ * documents alike. `sector_identifier_uri` is fetched AT REGISTRATION, on any
+ * port, with no body limit (review of #646).
+ */
+const REFUSED_CLIENT_METADATA = ["sector_identifier_uri", "jwks_uri", "jwks", "backchannel_logout_uri", "request_uris"] as const;
 
 export function protectedResourceMetadata(publicOrigin: string): Record<string, unknown> {
   return {
@@ -151,6 +181,34 @@ export function createOAuth(opts: OAuthOptions): OAuth {
     enabledJWA: { idTokenSigningAlgValues: ["ES256"] },
     responseTypes: ["code"],
     pkce: { required: () => true },
+    extraClientMetadata: {
+      properties: [...REFUSED_CLIENT_METADATA, "redirect_uris"],
+      validator: (_ctx: unknown, key: string, value: unknown) => {
+        if ((REFUSED_CLIENT_METADATA as readonly string[]).includes(key)) {
+          if (value !== undefined) throw new errors.InvalidClientMetadata(`${key} is not accepted by this server`);
+          return;
+        }
+        if (key === "redirect_uris" && Array.isArray(value) && !value.every(redirectUriAcceptable)) {
+          throw new errors.InvalidRedirectUri("redirect_uris must be https, or http on a loopback address");
+        }
+      },
+    },
+    // Belt and braces behind the refusal above: nothing the library fetches is unbounded.
+    fetchResponseBodyLimits: { "client_id metadata document": 5 * 1024, jwks_uri: 16 * 1024, sector_identifier_uri: 5 * 1024 },
+    // A grant is reused WITHOUT the Allow page only while OUR web session is the
+    // same person's. The library keeps its own session (24 h) that a sign-out of
+    // ours doesn't end, so without this a signed-out shared browser still minted
+    // codes for the last person to press Allow (review of #646).
+    loadExistingGrant: async (ctx: KoaContextWithOIDC) => {
+      const fresh = ctx.oidc.result?.["consent"] as { grantId?: string } | undefined;
+      if (fresh?.grantId !== undefined) return ctx.oidc.provider.Grant.find(fresh.grantId);
+      const client = ctx.oidc.client;
+      if (client === undefined) return undefined;
+      const grantId = ctx.oidc.session?.grantIdFor(client.clientId);
+      if (grantId === undefined) return undefined;
+      if (pages.personOf(ctx.req) !== ctx.oidc.session?.accountId) return undefined;
+      return ctx.oidc.provider.Grant.find(grantId);
+    },
     rotateRefreshToken: true,
     issueRefreshToken: async (_ctx: unknown, client: { grantTypeAllowed(t: string): boolean }) => client.grantTypeAllowed("refresh_token"),
     routes: {
@@ -216,6 +274,9 @@ export function createOAuth(opts: OAuthOptions): OAuth {
     },
     fetch: opts.fetch ?? cimdFetch,
     renderError: async (ctx: KoaContextWithOIDC, out: { error: string; error_description?: string }) => {
+      ctx.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'");
+      ctx.set("X-Frame-Options", "DENY");
+      ctx.set("X-Content-Type-Options", "nosniff");
       ctx.type = "html";
       ctx.body = `<!doctype html><meta charset="utf-8"><title>Sign-in problem · Counterparts</title><body style="font:16px system-ui;max-width:34rem;margin:3rem auto"><h1>That sign-in didn't work</h1><p>${escapeHtml(out.error)}${out.error_description === undefined ? "" : `: ${escapeHtml(out.error_description)}`}</p><p>Start connecting again from the app.</p></body>`;
     },
@@ -225,9 +286,22 @@ export function createOAuth(opts: OAuthOptions): OAuth {
   provider.proxy = opts.trustProxy === true;
   const callback = provider.callback();
 
+  // The library builds its endpoint URLs (discovery, the resume redirect) from
+  // the request's host — `X-Forwarded-Host` too, under `proxy` — so the request
+  // is pinned to `publicOrigin` before it gets there. A forged host header would
+  // otherwise name another server's endpoints in a discovery document that any
+  // cache in front would keep (review of #646).
+  const pinned = new URL(origin);
+  const pin = (req: IncomingMessage): void => {
+    req.headers["host"] = pinned.host;
+    delete req.headers["x-forwarded-host"];
+    if (provider.proxy) req.headers["x-forwarded-proto"] = pinned.protocol.replace(/:$/, "");
+  };
+
   /** Hand a request to the library, optionally under another path (the RFC 8414 alias). */
   const toProvider = (req: IncomingMessage, res: ServerResponse, path?: string): Promise<void> =>
     new Promise<void>((done) => {
+      pin(req);
       if (path !== undefined) req.url = path;
       res.once("finish", () => done());
       res.once("close", () => done());
@@ -239,6 +313,9 @@ export function createOAuth(opts: OAuthOptions): OAuth {
   // connecting twice a day never meets them.
   const registerLimit = new RateLimit(30, 60 * 60 * 1000);
   const tokenLimit = new RateLimit(600, 60 * 60 * 1000);
+  // Starting a sign-in can make the library FETCH a CIMD document (any https
+  // client_id it hasn't cached), so it is bounded too (review of #646).
+  const authorizeLimit = new RateLimit(300, 60 * 60 * 1000);
   const limited = (res: ServerResponse): void => {
     res.writeHead(429, { "Content-Type": "application/json", "Cache-Control": "no-store", "Retry-After": "3600" });
     res.end(JSON.stringify({ error: "slow_down", error_description: "too many requests from this network in the last hour" }));
@@ -247,6 +324,7 @@ export function createOAuth(opts: OAuthOptions): OAuth {
   // ── the Allow page ────────────────────────────────────────────────────────
 
   const allowPage = async (req: IncomingMessage, res: ServerResponse, uid: string): Promise<void> => {
+    pin(req);
     let details: Awaited<ReturnType<Provider["interactionDetails"]>>;
     try {
       details = await provider.interactionDetails(req, res);
@@ -345,7 +423,8 @@ export function createOAuth(opts: OAuthOptions): OAuth {
     }
     if (p.startsWith("/oauth/") && p !== "/oauth/allow" && !p.startsWith("/oauth/allow/")) {
       const ip = clientIp(req, opts.trustProxy === true);
-      if (req.method === "POST" && ((p === "/oauth/register" && !registerLimit.take(ip)) || (p === "/oauth/token" && !tokenLimit.take(ip)))) {
+      const starts = p === "/oauth/authorize" || p === "/oauth/par";
+      if ((req.method === "POST" && ((p === "/oauth/register" && !registerLimit.take(ip)) || (p === "/oauth/token" && !tokenLimit.take(ip)))) || (starts && !authorizeLimit.take(ip))) {
         req.resume();
         limited(res);
         return true;

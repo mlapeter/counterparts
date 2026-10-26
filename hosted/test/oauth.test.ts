@@ -14,6 +14,7 @@
  */
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
+import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -22,7 +23,8 @@ import * as oauth from "oauth4webapi";
 
 import { createApp } from "../src/app.js";
 import type { App } from "../src/app.js";
-import { memoryMailer } from "../src/egress.js";
+import { cimdFetch, memoryMailer } from "../src/egress.js";
+import { clientLabel, returnsTo } from "../src/oauth.js";
 import { listen, rpc, tempRoot, tool } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
@@ -95,20 +97,25 @@ interface Rig {
   origin: string;
   mail: ReturnType<typeof memoryMailer>;
   cimd: Map<string, unknown>;
+  /** Every outbound fetch the library asked for, with the init it passed. */
+  fetched: { url: string; init: RequestInit | undefined }[];
 }
 
-async function rig(): Promise<Rig> {
+async function rig(opts: { trustProxy?: boolean } = {}): Promise<Rig> {
   const port = await freePort();
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
   const cimd = new Map<string, unknown>();
+  const fetched: Rig["fetched"] = [];
   const app = createApp({
     dataRoot: join(tmp.root, "data"),
     publicOrigin: origin,
     mailer: mail,
     embedder: null,
     spawner: () => ({ pid: 1 }),
-    cimdFetch: async (input) => {
+    ...(opts.trustProxy === true ? { trustProxy: true } : {}),
+    cimdFetch: async (input, init) => {
+      fetched.push({ url: String(input), init });
       const doc = cimd.get(String(input));
       return doc === undefined ? new Response("no", { status: 404 }) : new Response(JSON.stringify(doc), { status: 200, headers: { "content-type": "application/json" } });
     },
@@ -122,7 +129,7 @@ async function rig(): Promise<Rig> {
         app.server.closeAllConnections?.();
       }),
   );
-  return { app, origin, mail, cimd };
+  return { app, origin, mail, cimd, fetched };
 }
 
 /** Sign `browser` in as `email` (a sign-up when `invite` is given), landing on `next`. */
@@ -502,5 +509,183 @@ describe("limits on the open endpoints", () => {
     }
     assert.deepEqual(statuses.slice(0, 30), Array(30).fill(201));
     assert.equal(statuses[30], 429);
+  });
+});
+
+describe("review of #646: the attacker's cases", () => {
+  const discover = async (r: Rig): Promise<oauth.AuthorizationServer> => oauth.processDiscoveryResponse(new URL(r.origin), await oauth.discoveryRequest(new URL(r.origin), { algorithm: "oauth2", ...insecure }));
+  const authzUrl = async (as: oauth.AuthorizationServer, clientId: string, redirect: string): Promise<string> => {
+    const u = new URL(as.authorization_endpoint!);
+    u.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirect, response_type: "code", scope: "memory", code_challenge: await oauth.calculatePKCECodeChallenge(oauth.generateRandomCodeVerifier()), code_challenge_method: "S256", state: "s" }).toString();
+    return u.toString();
+  };
+  const register = async (r: Rig, meta: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> => {
+    const res = await fetch(`${r.origin}/oauth/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token_endpoint_auth_method: "none", ...meta }) });
+    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+  };
+
+  test("metadata that would make the server fetch a URL of the client's choosing is refused, and nothing is fetched", async () => {
+    const r = await rig();
+    // sector_identifier_uri used to be FETCHED at registration: any https host, any port, no body limit.
+    for (const extra of [{ sector_identifier_uri: "https://internal.example:8443/sector.json" }, { jwks_uri: "https://internal.example/jwks.json" }, { backchannel_logout_uri: "https://internal.example/bc" }, { jwks: { keys: [] } }]) {
+      const out = await register(r, { redirect_uris: [CALLBACK], ...extra });
+      assert.equal(out.status, 400, JSON.stringify(extra));
+      assert.equal(out.body["error"], "invalid_client_metadata");
+    }
+    assert.equal(r.fetched.length, 0);
+    // The same rule holds for a CIMD document: the document is fetched, its sector URI is not.
+    const id = "https://claude.example/oauth/client.json";
+    r.cimd.set(id, { client_id: id, redirect_uris: [CALLBACK], token_endpoint_auth_method: "none", sector_identifier_uri: "https://internal.example/sector.json" });
+    const res = await fetch(await authzUrl(await discover(r), id, CALLBACK), { redirect: "manual" });
+    assert.notEqual(res.status, 303);
+    assert.ok(r.fetched.length > 0);
+    assert.deepEqual([...new Set(r.fetched.map((f) => f.url))], [id]);
+  });
+
+  test("a redirect over plain http is accepted only on loopback; the Allow page names any other host as itself", async () => {
+    const r = await rig();
+    assert.equal((await register(r, { redirect_uris: ["http://evil.example/cb"] })).status, 400);
+    assert.equal((await register(r, { redirect_uris: [CALLBACK, "http://192.168.1.20/cb"] })).status, 400);
+    assert.equal((await register(r, { redirect_uris: ["http://localhost:33418/callback"] })).status, 201);
+    assert.equal((await register(r, { application_type: "native", redirect_uris: ["http://127.0.0.1/callback"] })).status, 201);
+    assert.equal(returnsTo("http://evil.example/cb"), "evil.example");
+    assert.equal(returnsTo("http://localhost:5000/cb"), "an app on this computer");
+  });
+
+  test("consent phishing: a registered app's own name can't stand in front of where it really returns to", async () => {
+    const r = await rig();
+    const as = await discover(r);
+    const reg = await register(r, { redirect_uris: ["https://claude-ai.evil.example/cb"], client_name: "Claude (claude.ai)" });
+    assert.equal(reg.status, 201);
+    const { code } = r.app.accounts.createInvite();
+    const b = new Browser(r.origin);
+    await signIn(r, b, "phish@example.com", code, "/account");
+    const started = await b.go(await authzUrl(as, String(reg.body["client_id"]), "https://claude-ai.evil.example/cb"));
+    const html = await (await b.go(new URL(started.headers.get("location")!, r.origin).pathname)).text();
+    const h1 = /<h1>([^<]*)<\/h1>/.exec(html)![1]!;
+    assert.match(h1, /^Connect claude-ai\.evil\.example \(calls itself/);
+    assert.equal(clientLabel("abc", [CALLBACK], "Claude‮"), "claude.ai (calls itself “Claude”)");
+  });
+
+  test("a grant is reused without the Allow page only while OUR session is the same person's: after sign-out, Allow and login come back", async () => {
+    const r = await rig();
+    const { code } = r.app.accounts.createInvite({ maxUses: 2 });
+    const c = await connect(r, "shared@example.com", { invite: code });
+    // Still signed in, same browser, same app: the library's silent re-authorization (a code, no page).
+    const again = await c.browser.go(await authzUrl(c.as, c.client.client_id, CALLBACK));
+    assert.equal(new URL(again.headers.get("location")!, r.origin).origin, "https://claude.ai");
+    // Signed out of Counterparts: the next connect in this browser must go through Allow, which asks for a login.
+    const acct = await (await c.browser.go("/account")).text();
+    assert.equal((await c.browser.form("/logout", { csrf: csrfOf(acct) })).status, 303);
+    const after = await c.browser.go(await authzUrl(c.as, c.client.client_id, CALLBACK));
+    const allow = new URL(after.headers.get("location")!, r.origin);
+    assert.equal(allow.origin, r.origin, "no code was minted for a signed-out browser");
+    assert.match(allow.pathname, /^\/oauth\/allow\//);
+    const page = await c.browser.go(allow.pathname);
+    assert.equal(page.status, 303);
+    assert.match(String(page.headers.get("location")), /^\/login\?next=/);
+    // Someone else signs in in that browser: the Allow page is theirs to answer, not a silent code for the first person.
+    const other = await signIn(r, c.browser, "other@example.com", code, allow.pathname);
+    assert.equal(other.headers.get("location"), allow.pathname);
+    const otherPage = await (await c.browser.go(allow.pathname)).text();
+    assert.match(otherPage, /Signed in as <strong>other@example\.com<\/strong>/);
+  });
+
+  test("a replayed refresh token revokes the grant: the tokens rotated from it die too", async () => {
+    const r = await rig();
+    const { code } = r.app.accounts.createInvite();
+    const c = await connect(r, "replay@example.com", { invite: code });
+    const next = await oauth.processRefreshTokenResponse(c.as, c.client, await oauth.refreshTokenGrantRequest(c.as, c.client, oauth.None(), c.refresh, insecure));
+    assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(next.access_token))).status, 200);
+    // The thief replays the old one.
+    const replay = await oauth.refreshTokenGrantRequest(c.as, c.client, oauth.None(), c.refresh, insecure);
+    assert.equal(((await replay.json()) as { error: string }).error, "invalid_grant");
+    assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(next.access_token))).status, 401);
+    const nextRefresh = await oauth.refreshTokenGrantRequest(c.as, c.client, oauth.None(), next.refresh_token!, insecure);
+    assert.equal(((await nextRefresh.json()) as { error: string }).error, "invalid_grant");
+    // And racing the same refresh token four ways: exactly one wins.
+    const d = await connect(r, "replay@example.com", { browser: c.browser });
+    const raced = await Promise.all([0, 1, 2, 3].map(async () => (await oauth.refreshTokenGrantRequest(d.as, d.client, oauth.None(), d.refresh, insecure)).status));
+    assert.equal(raced.filter((s) => s === 200).length, 1);
+  });
+
+  test("a forged Host or X-Forwarded-Host never reaches a URL the library publishes", async () => {
+    const r = await rig({ trustProxy: true });
+    const viaXfh = await (await fetch(`${r.origin}/.well-known/oauth-authorization-server`, { headers: { "x-forwarded-host": "evil.example", "x-forwarded-proto": "https" } })).text();
+    assert.doesNotMatch(viaXfh, /evil\.example/);
+    assert.match(viaXfh, new RegExp(`"token_endpoint":"${r.origin}/oauth/token"`));
+    const viaHost = await new Promise<string>((resolve, reject) => {
+      const u = new URL(`${r.origin}/.well-known/openid-configuration`);
+      const req = httpRequest({ host: u.hostname, port: u.port, path: u.pathname, headers: { host: "evil.example" } }, (res) => {
+        let body = "";
+        res.on("data", (c: Buffer) => (body += c.toString()));
+        res.on("end", () => resolve(body));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+    assert.doesNotMatch(viaHost, /evil\.example/);
+  });
+
+  test("no bearer value of any kind is on disk: not the code, not the registration access token", async () => {
+    const r = await rig();
+    const reg = await register(r, { redirect_uris: [CALLBACK] });
+    const rat = String(reg.body["registration_access_token"]);
+    assert.ok(rat.length > 20);
+    const { code } = r.app.accounts.createInvite();
+    const c = await connect(r, "disk@example.com", { invite: code });
+    let bytes = "";
+    for (const f of ["oauth.sqlite", "oauth.sqlite-wal"]) {
+      try {
+        bytes += readFileSync(join(tmp.root, "data", "control", f)).toString("latin1");
+      } catch {
+        /* not there */
+      }
+    }
+    assert.ok(bytes.length > 0);
+    assert.ok(!bytes.includes(c.params.get("code")!), "the authorization code is stored");
+    assert.ok(!bytes.includes(rat), "the registration access token is stored");
+  });
+
+  test("the library's error page can't be framed", async () => {
+    const r = await rig();
+    const res = await fetch(`${r.origin}/oauth/authorize?client_id=nobody&response_type=code`, { redirect: "manual" });
+    assert.equal(res.status, 400);
+    assert.match(String(res.headers.get("content-security-policy")), /frame-ancestors 'none'/);
+    assert.equal(res.headers.get("x-frame-options"), "DENY");
+  });
+
+  test("starting sign-ins is bounded per address, because each can make the server fetch a CIMD document", async () => {
+    const r = await rig();
+    const statuses: number[] = [];
+    for (let i = 0; i < 301; i++) {
+      const res = await fetch(`${r.origin}/oauth/authorize?client_id=nobody${String(i)}&response_type=code`, { redirect: "manual" });
+      statuses.push(res.status);
+      await res.text();
+    }
+    assert.ok(statuses.slice(0, 300).every((s) => s !== 429));
+    assert.equal(statuses[300], 429);
+  });
+
+  test("on Node, the library's SSRF guard reaches our CIMD fetch and refuses a loopback address", async () => {
+    // Bun has no undici dispatcher (the library warns and fetches unguarded); production runs Node 24, and CI runs this there.
+    if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") return;
+    const r = await rig();
+    const id = "https://claude.example/oauth/client.json";
+    r.cimd.set(id, { client_id: id, redirect_uris: [CALLBACK], token_endpoint_auth_method: "none" });
+    await (await fetch(await authzUrl(await discover(r), id, CALLBACK), { redirect: "manual" })).text();
+    const init = r.fetched[0]!.init as RequestInit & { dispatcher?: unknown };
+    assert.ok(init.dispatcher !== undefined, "the library handed its guarded dispatcher to our fetch");
+    assert.equal(init.redirect, "manual");
+    const target = createHttpServer((_req, res) => res.end("internal"));
+    await new Promise<void>((resolve) => target.listen(0, "127.0.0.1", () => resolve()));
+    const url = `http://127.0.0.1:${String((target.address() as { port: number }).port)}/`;
+    try {
+      assert.equal(await (await fetch(url)).text(), "internal"); // reachable without the guard
+      await assert.rejects(cimdFetch(url, { dispatcher: init.dispatcher } as RequestInit));
+    } finally {
+      target.closeAllConnections();
+      await new Promise<void>((resolve) => target.close(() => resolve()));
+    }
   });
 });
