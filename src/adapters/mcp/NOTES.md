@@ -1831,8 +1831,16 @@ Tests: `test/claude-ai-surface.test.ts` "dream and reflect name the routine" —
 claude.ai, and the night prompt v2's steps over the HTTP door (night wake, launch, writer, begin,
 journal, reflect begin/finish), none refused.
 
-**Open, with a recommendation:** the launch RESULT's `how` (`server-self-tools.ts`, dream and
-reflect `launch`) still says "Hand `prompt` to a background agent (the Agent tool)" on every host,
-Desktop included. The routine's prompt overrides it today. Recommended: host-scope it through
-`chatWordsFor(server.host)` (a `launchHow` beside `dreamNote`) in a follow-up; Desktop's line
-would change too, so it wants its own look.
+**The launch result's `how` too.** Once claude.ai's description said "follow its prompt there",
+the `launch` RESULT's `how` ("Hand `prompt` to a background agent (the Agent tool)") would have
+contradicted it in a chat where the person asks to dream. So on claude.ai alone (`server.host ===
+CLAUDE_AI_HOST`, not `chatWordsFor`, which falls back to Desktop's words for every other host,
+Claude Code included) `dream` and `reflect` `launch` return `CLAUDE_AI_DREAM_LAUNCH_HOW` /
+`CLAUDE_AI_REFLECT_LAUNCH_HOW` (`server-words.ts`): follow it here; a share left in the night
+routine waits for the next conversation. Every other host's `how` is unchanged (tested over
+Desktop's door).
+
+**Open, with a recommendation:** Desktop has no background agent either; its dream note says
+"follow the prompt the launch returns yourself, here", but its `dream` description and `how`
+still name the background agent, as on master. Recommended: give Desktop the same treatment in
+its own small PR, after a look at its live use.

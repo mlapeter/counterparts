@@ -26,7 +26,7 @@ import { CLAUDE_AI_TOOLS, TOOLS, openServer, renderDescription, toolDefinitions 
 import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_WORDS } from "../src/adapters/mcp/tools.js";
 import { chatLanesFirst, claudeAiSessionLine, sameYouLine } from "../src/adapters/mcp/chat-wake.js";
-import { CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_NOTE, START_PROMPT } from "../src/adapters/mcp/server-words.js";
+import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_NOTE, START_PROMPT } from "../src/adapters/mcp/server-words.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import type { RunningHttp } from "../src/adapters/remote/http.js";
@@ -439,6 +439,10 @@ describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
     const night = String((await tool(http.url, "wake", { night: true })).structured["session"]);
     const launched = await call("dream", { phase: "launch", session: night });
     expect(String(launched["prompt"]).length).toBeGreaterThan(200);
+    // The result agrees with the description and the routine: follow it here, no background agent.
+    expect(launched["how"]).toBe(CLAUDE_AI_DREAM_LAUNCH_HOW);
+    expect(String(launched["how"])).toContain("Follow `prompt` yourself, here");
+    expect(String(launched["how"]).toLowerCase()).not.toContain("background");
     await call("dream", { phase: "writer", session: night });
     const begun = await call("dream", { phase: "begin", session: night });
     const dreamId = String(begun["dream"]);
@@ -450,5 +454,25 @@ describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
     expect(typeof done["handBack"]).toBe("string");
     expect(s.counterpart.store.dream(dreamId)).toBeDefined();
     expect(s.counterpart.store.reflection(rid)).toBeDefined();
+  });
+
+  test("a launch result's `how`: claude.ai's follows the prompt here; Desktop's still hands it to a background agent", async () => {
+    for (const [host, dreamHow, reflectHow] of [
+      [CLAUDE_AI_HOST, CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_REFLECT_LAUNCH_HOW],
+      [DESKTOP_HOST, null, null],
+    ] as const) {
+      const { http } = await door(host);
+      const session = String((await tool(http.url, "wake", {})).structured["session"]);
+      await tool(http.url, "remember", { session, text: "The cold frame lid sticks in the morning damp." });
+      const d = String((await tool(http.url, "dream", { phase: "launch", session })).structured["how"]);
+      const r = String((await tool(http.url, "reflect", { phase: "launch", session })).structured["how"]);
+      if (dreamHow === null) {
+        expect(d.startsWith("Hand `prompt` to a background agent (the Agent tool), unchanged")).toBe(true);
+        expect(r.startsWith("Hand `prompt` to a background agent (the Agent tool), unchanged")).toBe(true);
+      } else {
+        expect(d).toBe(dreamHow);
+        expect(r).toBe(reflectHow as string);
+      }
+    }
   });
 });

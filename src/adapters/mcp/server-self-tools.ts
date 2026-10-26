@@ -17,7 +17,8 @@ import {
 import type { TraceInput } from "../../core/self/page.js";
 import type { PageWriterMode, PageWriterRun } from "../../core/self/index.js";
 import type { ToolResult } from "./server-options.js";
-import { dreamHow, PAGE_REFUSAL_DETAIL, pageLaneAnswer, pageRoomAnswer } from "./server-words.js";
+import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_REFLECT_LAUNCH_HOW, dreamHow, PAGE_REFUSAL_DETAIL, pageLaneAnswer, pageRoomAnswer } from "./server-words.js";
+import { CLAUDE_AI_HOST } from "../hosts.js";
 import type { McpServer } from "./server.js";
 
 /**
@@ -83,7 +84,7 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
             // retelling in the session's own words would carry none, and the
             // dream's title and changes would read as something that
             // happened (adversarial review of #251).
-            how: "Hand `prompt` to a background agent (the Agent tool), unchanged, and carry on. When it finishes, show the owner its first line (the dream's) exactly as it came back — it carries the dream's mark, which keeps the dream out of lived memory. If a morning share follows, tell it to the owner in your own words, as a telling (\"While I slept I dreamed…\"), then call the reflect tool with phase \"told\" — never state what was dreamed as something that happened.",
+            how: server.host === CLAUDE_AI_HOST ? CLAUDE_AI_DREAM_LAUNCH_HOW : "Hand `prompt` to a background agent (the Agent tool), unchanged, and carry on. When it finishes, show the owner its first line (the dream's) exactly as it came back — it carries the dream's mark, which keeps the dream out of lived memory. If a morning share follows, tell it to the owner in your own words, as a telling (\"While I slept I dreamed…\"), then call the reflect tool with phase \"told\" — never state what was dreamed as something that happened.",
           },
           false,
         );
@@ -393,7 +394,7 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
             // After a dream whose run was cut off before it reflected
             // (review of #271): the reflection alone, on that dream.
             prompt: reflections.launchPrompt({ session, dream: typeof args["dream"] === "string" ? args["dream"] : null }),
-            how: "Hand `prompt` to a background agent (the Agent tool), unchanged, and carry on. When it finishes, if it left a morning share, tell it to the owner in your own words, then call this tool with phase \"told\".",
+            how: server.host === CLAUDE_AI_HOST ? CLAUDE_AI_REFLECT_LAUNCH_HOW : "Hand `prompt` to a background agent (the Agent tool), unchanged, and carry on. When it finishes, if it left a morning share, tell it to the owner in your own words, then call this tool with phase \"told\".",
           },
           false,
         );
