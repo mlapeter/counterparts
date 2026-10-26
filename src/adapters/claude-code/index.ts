@@ -119,6 +119,12 @@ export {
 } from "./night-run.js";
 export type { ClaudeCodeAnswer, ClaudeCodeSeatInput, NightAnswer, NightChild, NightChildPlan, NightKind, NightRunInput, NightRunnerPlan, NightStarter } from "./night-run.js";
 
+// THE MORNING CATCH-UP'S PLAN, read (2026-10-26, harness tier 0): what a night
+// would write up — the sessions owed and their parts — decided, nothing written,
+// and the row a run leaves. Public so an instrument reads it as the night does.
+export { catchUpOf, planCatchUp, plannedParts } from "./night-catch-up.js";
+export type { CatchUpPlan, CatchUpReport, CatchUpSubject } from "./night-catch-up.js";
+
 export { DATA_DIR_ENV, NIGHT_CHILD_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, planSpawn, spawnDetached } from "../spawn.js";
 export type { PlanInput, SpawnOutcome, SpawnPlan, SpawnRefusal, Spawner } from "../spawn.js";
 

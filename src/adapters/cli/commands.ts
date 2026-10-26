@@ -144,6 +144,9 @@ export type { Io, RunOptions } from "./commands-shared.js";
 export { logEntryLine, firedLines, DOCTOR_RED_EXIT } from "./commands-readings.js";
 // The settled-things measure, public for a host's own reading (the harness's compare column).
 export { settledReading, settledLines } from "./mechanisms.js";
+// The coverage ledger as rows (2026-10-26): what `counterparts coverage` reads, for the harness's scripted week.
+export { coverageReading } from "./coverage.js";
+export type { CoverageRow } from "./coverage.js";
 export type { SettledReading } from "./mechanisms.js";
 export { carryForward, KNOWN_HOSTS } from "./commands-install.js";
 export { DASHBOARD_DEFAULT_PORT, dashboardLine } from "./commands-dashboard.js";
