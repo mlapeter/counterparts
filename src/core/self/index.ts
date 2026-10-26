@@ -197,7 +197,7 @@ import {
 import type { JournalCopyOutcome } from "./journal-file.js";
 import { lineOf } from "../fit/index.js";
 import { SELF_TUNABLES, withTunables } from "./tunables.js";
-import { craftSince } from "./work.js";
+import { craftBornDay, craftSince, projectFolder, threadPlace } from "./work.js";
 import type { SelfTunables } from "./tunables.js";
 import { calendarDate } from "./calendar.js";
 import { isDay, yearOf } from "../time.js";
@@ -384,6 +384,21 @@ export interface AssembleRequest
    * Absent: every hint the bundle chose.
    */
   readonly hintKeptOut?: (id: string) => boolean;
+  /**
+   * WHO READS "STILL OPEN" (O2, 2026-10-26): the reader's folders, this one
+   * first and its project's after (`work.ts#projectFolders`, the host's
+   * setting applied). Their open threads lead, the personal ones follow, and
+   * another folder's work is neither listed nor counted
+   * (`work.ts#threadPlace`). An empty list — a reader that names no folder —
+   * fails closed: every folder's work is left out. Absent: every open thread,
+   * as the turn-end composes for no reader.
+   */
+  readonly reader?: ThreadReader;
+}
+
+/** One reader's folders, for "Still open" (`AssembleRequest.reader`, `Self#stillOpen`). */
+export interface ThreadReader {
+  readonly folders: readonly string[];
 }
 
 /**
@@ -1154,15 +1169,21 @@ export class Self {
    * under "Coming up" instead, is here too, where the ranking puts it. Reads
    * only: no stamp, no return, no seen set — being listed is not a touch
    * (`openCarry`), so the handle cannot keep a thread carried.
+   *
+   * `reader` (O2, 2026-10-26): the folder asking, as the wake assembled there
+   * reads it — its threads first, the personal ones after, another folder's
+   * work neither listed nor counted in `notCarried`. Absent: every thread.
    */
-  stillOpen(day: number): { items: StillOpenItem[]; notCarried: number } {
+  stillOpen(day: number, reader?: ThreadReader): { items: StillOpenItem[]; notCarried: number } {
     const { open, carry } = this.openScanned(day);
     const settled = settledOver(this.store);
+    const place = reader === undefined ? undefined : this.threadPlaceFor(reader);
     const lanes = rankLanes(open, [], this.tunables, {
       carry,
       settledOver: settled,
       unsettled: unsettledAmong(this.store, open.map((s) => s.id)),
       waiting: waitingIds(this.store, day),
+      ...(place === undefined ? {} : { threadPlace: place }),
     });
     const byId = new Map(open.map((s) => [s.id, s] as const));
     const out: StillOpenItem[] = [];
@@ -1181,7 +1202,39 @@ export class Self {
         ...(s.doc.eventDate === undefined ? {} : { date: s.doc.eventDate }),
       });
     }
-    return { items: out, notCarried: carry.notCarried.size };
+    // What the carry no longer keeps, counted as the list is: another
+    // folder's work is not this reader's to count (O2). One row read each.
+    let notCarried = carry.notCarried.size;
+    if (place !== undefined) {
+      notCarried = 0;
+      for (const id of carry.notCarried.keys()) {
+        const s = scanOne(this.store, id, day);
+        if (s !== null && place(s) !== "out") notCarried += 1;
+      }
+    }
+    return { items: out, notCarried };
+  }
+
+  /**
+   * "STILL OPEN"'S PLACE FOR ONE READER (O2, 2026-10-26): `work.ts#threadPlace`
+   * with the reader's folders and the rule "Work here" reads (craft travels
+   * under `PROJECTS_TRAVEL`, since `craftSince`). Reads only.
+   */
+  private threadPlaceFor(reader: ThreadReader): (s: Scanned) => "here" | "personal" | "out" {
+    const folders = new Set(reader.folders.map(projectFolder).filter((f) => f.length > 0));
+    const rule = { craftTravels: this.tunables.PROJECTS_TRAVEL, craftSince: craftSince(this.store) };
+    return (s) =>
+      threadPlace(
+        {
+          about: s.about ?? null,
+          kind: s.kind,
+          originScope: s.originScope ?? null,
+          journal: typeof s.doc.meta["episodeId"] === "string",
+          bornDay: craftBornDay(s.doc.meta, s.doc.bornDay),
+        },
+        folders,
+        rule,
+      );
   }
 
   /**
@@ -1248,7 +1301,8 @@ export class Self {
       unsettled: unsettledAmong(this.store, open.map((s) => s.id)),
       waiting: waitingIds(this.store, day),
       workAtDelivery: this.tunables.CRAFT_AT_DELIVERY,
-        craftSince: craftSince(this.store),
+      craftSince: craftSince(this.store),
+      ...(req.reader === undefined ? {} : { threadPlace: this.threadPlaceFor(req.reader) }),
       ...(coming.more.length === 0 ? {} : { horizonMore: coming.more }),
       ...(coming.later.length === 0 ? {} : { later: coming.later }),
     });

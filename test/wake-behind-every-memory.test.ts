@@ -22,7 +22,7 @@ import { openAdapter } from "../src/adapters/claude-code/index.js";
 import type { AdapterConfig } from "../src/adapters/claude-code/index.js";
 import { runOnce } from "../src/adapters/claude-code/bin/runner.js";
 import { openServer } from "../src/adapters/mcp/index.js";
-import { recordSession } from "../src/adapters/sessions.js";
+import { canonicalScope, recordSession } from "../src/adapters/sessions.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import { BRIEFING_KEY, wakeBehind } from "../src/core/self/index.js";
 import { Store } from "../src/core/store/index.js";
@@ -179,7 +179,10 @@ describe("a memory written with note reaches the wake at the next turn-end", () 
     expect(behind()).toBe(null);
 
     const b = wakeOf("B", "proj-b", d1);
-    expect(b).toContain("THREAD-MARK");
+    // The thread is proj-a's work: it waits in its own folder's Still open (O2).
+    // (The folder as the hook names it: the server wrote it canonical.)
+    expect(b).not.toContain("THREAD-MARK");
+    expect(wakeOf("B2", canonicalScope("proj-a"), d1)).toContain("THREAD-MARK");
     expect(b).toContain("NEARBY-MARK");
     expect(b).toContain("ARRIVING-MARK");
 
@@ -194,13 +197,13 @@ describe("a memory written with note reaches the wake at the next turn-end", () 
     const mcp = server("A", "proj-a");
     const open = stored(await mcp.call("note", { text: "CLOSE-MARK: does the export keep the dates?", unresolved: true, relevance: 0.9, emotional: 0.7, predictive: 0.9 }));
     await turnEnd("A", "proj-a", d1);
-    expect(wakeOf("B", "proj-b", d1)).toContain("CLOSE-MARK");
+    expect(wakeOf("B", canonicalScope("proj-a"), d1)).toContain("CLOSE-MARK");
 
     stored(await mcp.call("note", { text: "Answered: the export keeps the dates, checked against a real file.", updates: open, unresolved: false }));
     mcp.counterpart.close();
     expect(behind()).toEqual(["memory"]);
     await turnEnd("A", "proj-a", d1);
-    expect(wakeOf("C", "proj-b", d1)).not.toContain("CLOSE-MARK");
+    expect(wakeOf("C", canonicalScope("proj-a"), d1)).not.toContain("CLOSE-MARK");
   });
 
   test("a write-up keeps its own trigger; a refused note marks nothing", async () => {

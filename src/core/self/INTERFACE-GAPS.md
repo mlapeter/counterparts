@@ -389,3 +389,12 @@ an assembled start, the newest own episode is left to "Last here"; a fallback wh
 has no room names it in neither line (the assembly re-runs for that, the fallback does not). The
 crash sweep's wake (`counterpart-sweep.ts#sweepWake`, one composition for every crashed folder)
 leaves out every chapter summary that recorded a folder, as a reader that names none does.
+
+**"Still open" for one reader, 2026-10-26 (O2; Mike agreed the lean that morning, lightly
+held):** the session-start assembly and the `still open` handle now read the lane for their
+folder (`AssembleRequest.reader`, `rankLanes`' `threadPlace`, `work.ts#threadPlace`): this
+folder's and its joined folders' threads first, personal ones after, another folder's work in
+neither the list nor its count. A reader that names no folder fails closed (no folder's work).
+Still open: the fallback road. A start that cannot assemble delivers the published bundle,
+whose "Still open" was ranked store-wide for no reader, so another folder's work can lead it
+there as before; a `hintsForReader`-style read over `THREADS_SHOWN_KEY` would close it.
