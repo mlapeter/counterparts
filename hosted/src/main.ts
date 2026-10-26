@@ -35,6 +35,9 @@ export function readEnv(env: Record<string, string | undefined>, command: string
   const origin = env["PUBLIC_ORIGIN"]?.replace(/\/+$/, "");
   if (origin === undefined || !/^https?:\/\/[^/]+$/.test(origin)) return { ok: false, refusal: "refused: set PUBLIC_ORIGIN (e.g. https://app.counterparts.ai), with no path." };
   if (command === "serve" && origin.startsWith("http://") && env["MAIL"] !== "log") return { ok: false, refusal: "refused: PUBLIC_ORIGIN must be https outside a local run (MAIL=log)." };
+  // MAIL=log prints sign-in links to stderr: a local run only. With an https
+  // origin it would put links into the host's logs (review of #646).
+  if (command === "serve" && origin.startsWith("https://") && env["MAIL"] === "log") return { ok: false, refusal: "refused: MAIL=log is for a local http run; an https PUBLIC_ORIGIN must send real email." };
   const port = Number(env["PORT"] ?? "8080");
   if (command === "serve" && (!Number.isInteger(port) || port <= 0 || port > 65535)) return { ok: false, refusal: "refused: PORT is a whole number from 1 to 65535." };
   const live = livePathRefusal(dataRoot, "HOSTED_DATA_ROOT");

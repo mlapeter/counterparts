@@ -35,6 +35,7 @@ describe("the entry point", () => {
     assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "http://a.example" }, "serve").ok, false);
     assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "https://a.example/path" }, "serve").ok, false);
     assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "https://app.counterparts.ai" }, "serve").ok, true);
+    assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "https://app.counterparts.ai", MAIL: "log" }, "serve").ok, false);
     const noKey = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env: baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "https://app.counterparts.ai" }), encoding: "utf8", timeout: 30_000 });
     assert.equal(noKey.status, 1);
     assert.match(noKey.stderr, /RESEND_API_KEY/);
