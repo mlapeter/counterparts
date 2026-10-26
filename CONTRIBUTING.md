@@ -42,11 +42,19 @@ which installs the package into a throwaway home directory and checks it end to 
 Every pull request and every push to master runs
 [`.github/workflows/tests.yml`](.github/workflows/tests.yml): the typecheck, the changelog
 fragment check, the whole suite on Linux in two time zones (`America/Denver` and
-`Pacific/Kiritimati`) and on macOS in Denver, and the Node smoke test on Node 22.15 and 24.
+`Pacific/Kiritimati`) and on macOS in Denver, the Node smoke test on Node 22.15 and 24, and
+the hosted server's tests (`hosted/test`) under Node 24 and bun.
 To run the same checks locally (the Node one needs `node` 22.15 or later on your `PATH`):
 
 ```sh
 bun run typecheck && bun tools/changelog/stitch.ts --check && TZ=America/Denver bun test --timeout 30000 && TZ=Pacific/Kiritimati bun test --timeout 30000 && bun run test:node
+```
+
+The hosted server (`hosted/`, a private package with its own dependencies) has its own checks. They need Node 24 on
+your `PATH` for the Node run:
+
+```sh
+bun install --cwd hosted && bun test ./hosted/test && node --import ./src/adapters/node-hooks.mjs --test hosted/test/*.test.ts
 ```
 
 ## Two safety rules
