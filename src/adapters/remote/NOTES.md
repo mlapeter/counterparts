@@ -27,3 +27,13 @@
   standard `destructiveHint: true`.
 - **The trial store offers no first meeting.** Only `counterparts install` writes
   onboarding `not_started`; a store this door opens fresh reads `done`.
+- **claude.ai's surface (2026-10-26, OL1b).** Its wake has its own shape
+  (`mcp/chat-wake.ts`): one short session line, what is for the person first (a slot for
+  the carried share, the clock and plain reminders, then "Coming up" and "Still open"
+  moved up whole), and no dream line — its nights are the person's routine. Its tool
+  words describe and never command: the directory's review refuses "call this first",
+  so wake-first lives in the person's instruction block. Its one MCP prompt is "Wake
+  Counterparts" (the + menu). readOnly stays on Memory status alone: recall records what
+  it delivered (a gate record the credit pass reads) and wake mints a session, so the
+  hint would be stretched; the honest route to a read-only recall is one that records
+  nothing (an observer read), which is a design change, not an annotation.
