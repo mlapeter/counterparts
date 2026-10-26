@@ -2413,6 +2413,9 @@ export class McpServer {
    * What the lane's tail counts, listed. Also reached by a facts question
    * that asks exactly that ("what's still open", `asksStillOpen`): measured
    * on the owner's 10-25 snapshot, those matched none of 156 open threads.
+   * For THIS folder since 2026-10-26 (O2), as its wake reads the lane: its
+   * own threads first, the personal ones after, another folder's work not
+   * listed and not counted.
    *
    * Reads only, like `last exchange`: no recall row, no credit, no seen set,
    * no quotable record — a ring event alone. Being listed is not a touch
@@ -2420,7 +2423,11 @@ export class McpServer {
    * Never reached under observer (G5): recall stands down first.
    */
   private stillOpenTool(page: number, routed: boolean): ToolResult {
-    const { items, notCarried } = this.counterpart.stillOpen();
+    // For this folder, as its wake reads it (O2, 2026-10-26): its own first,
+    // the personal ones after, another folder's work not listed or counted;
+    // a joined folder the setting has off is not this one's (`folderOn`).
+    const on = this.folderOn();
+    const { items, notCarried } = this.counterpart.stillOpen({ scope: this.scope, ...(on === undefined ? {} : { exportsFrom: on }) });
     const pages = Math.max(1, Math.ceil(items.length / STILL_OPEN_PAGE));
     const at = Math.min(page, pages);
     const shown = items.slice((at - 1) * STILL_OPEN_PAGE, at * STILL_OPEN_PAGE);

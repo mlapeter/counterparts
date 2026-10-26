@@ -389,3 +389,23 @@ an assembled start, the newest own episode is left to "Last here"; a fallback wh
 has no room names it in neither line (the assembly re-runs for that, the fallback does not). The
 crash sweep's wake (`counterpart-sweep.ts#sweepWake`, one composition for every crashed folder)
 leaves out every chapter summary that recorded a folder, as a reader that names none does.
+
+**"Still open" for one reader, 2026-10-26 (O2; Mike agreed the lean that morning, lightly
+held):** the session-start assembly and the `still open` handle now read the lane for their
+folder (`AssembleRequest.reader`, `rankLanes`' `threadPlace`, `work.ts#threadPlace`): this
+folder's and its joined folders' threads first, personal ones after, another folder's work in
+neither the list nor its count. A reader that names no folder fails closed (no folder's work).
+Still open: the fallback road. A start that cannot assemble delivers the published bundle,
+whose "Still open" was ranked store-wide for no reader, so another folder's work can lead it
+there as before. Not a `hintsForReader` mirror (O2's review, 2026-10-26): dropping another
+folder's work bullets by `THREADS_SHOWN_KEY`'s order is the easy half, but the lane's tail
+(`moreLine`'s calm form) names no ids and `WakeShown` records no thread overflow, so the tail's
+count could not be told truly without reading the reader's whole list again (`Self#stillOpen`
+with a reader) — and a lane left with no bullets would need a collapsed line built from those
+ids; `restated` lowers only the sentinel's `hints=`, so `threads=` needs it too. The
+reconsidering core memories ride in the same id list and must stay. The `still open` handle has
+no fallback and is covered. The crash sweep's wake (`counterpart-sweep.ts#sweepWake`) leaves out
+every folder's open work, as a reader that names none (O2's review). How often the fallback road
+is taken, read at review: the bundle is published at the session's reported ceiling (the config's
+`injectionBudgetBytes`, Claude Code's default when unset), so a start misses the assembly mainly
+after a ceiling change, on an older build's bundle, or when the assembly throws.

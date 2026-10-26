@@ -427,7 +427,8 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
   }
 
   const flagged = (c: Counterpart, id: string): boolean => c.store.readProse(id).meta["unresolved"] === true;
-  const stillOpen = (c: Counterpart): string => under(wake(c, LIBRARY), FRAMING.threads).join("\n");
+  // Read in the folder the thread was written in: another folder's work is not in its Still open (O2).
+  const stillOpen = (c: Counterpart, dir: string = WORKSHOP): string => under(wake(c, dir), FRAMING.threads).join("\n");
 
   test("note sets it; the thread is under Still open; updates with unresolved: false closes it", async () => {
     const c = counterpart();
@@ -524,10 +525,10 @@ describe("the `unresolved` flag: set by note and session_end, closed by updates 
       meta: { unresolved: true },
       origin: { scope: LIBRARY },
     });
-    expect(stillOpen(c)).toContain("the reading room gets a second lamp");
+    expect(stillOpen(c, LIBRARY)).toContain("the reading room gets a second lamp");
     const done = await c.submitJot({ content: "The reading room's second lamp is in and working.", updates: there, unresolved: false }, { session: "s-closer", scope: WORKSHOP });
     expect(done.thread).toEqual({ from: there, closed: true });
-    expect(stillOpen(c)).not.toContain("the reading room gets a second lamp");
+    expect(stillOpen(c, LIBRARY)).not.toContain("the reading room gets a second lamp");
   });
 
   test("the lane is small: at most THREADS_MAX, person-scoped first, oldest first", () => {
