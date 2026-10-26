@@ -1887,7 +1887,8 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.store.advanceClock(YESTERDAY());
     a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
     const text = wokeHere(a, "morning-1");
-    expect(text).not.toContain("sdk-run");
+    // "Last here" only: "Last said here" (inside about a day, so by the clock) may quote the run (review of #638).
+    expect(lastHereLines(text).join("\n")).not.toContain("sdk-run");
     expect(lastHereLines(text)[0]).toMatch(/^Last here: session person-1, [^\n]*, no chapter, not written up yet\.$/);
   });
 
@@ -1960,7 +1961,7 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     a.counterpart.store.advanceClock(YESTERDAY());
     a.counterpart.rebrief({ budgetBytes: BUDGET, at: TODAY() });
     const text = wokeHere(a, "morning-1");
-    expect(text).not.toMatch(/sdk-\d/);
+    expect(lastHereLines(text).join("\n")).not.toMatch(/sdk-\d/);
     expect(lastHereLines(text)[0]).toMatch(/^Last here: session person-1, /);
   });
 
