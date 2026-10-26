@@ -23,6 +23,7 @@ import { runningBuild } from "../src/core/store/operational.js";
 import { NEW_INSTALL_META, planTurn, recalledIds, replyOf, runWeek } from "../tools/harness/week.js";
 import { Counterpart } from "../src/core/counterpart.js";
 import type { ScriptedDay } from "../tools/harness/owner-week.js";
+import { resetUsage } from "../tools/harness/usage.js";
 
 let root: string;
 
@@ -32,6 +33,8 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(root, { recursive: true, force: true });
+  // The usage tally is the process's: a week here that says its usage must not leave it to the next file's week.
+  resetUsage();
 });
 
 const SCRIPT: readonly ScriptedDay[] = [
@@ -43,6 +46,11 @@ const SCRIPT: readonly ScriptedDay[] = [
 const result = (text: string): string => [
   JSON.stringify({ type: "system", subtype: "init", plugins: [], mcp_servers: [{ name: "counterparts", status: "connected" }] }),
   JSON.stringify({ type: "result", result: text }),
+].join("\n");
+
+const withUsage = (text: string, input: number): string => [
+  JSON.stringify({ type: "system", subtype: "init", plugins: [], mcp_servers: [{ name: "counterparts", status: "connected" }] }),
+  JSON.stringify({ type: "result", result: text, total_cost_usd: 0.01, usage: { input_tokens: input, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 } }),
 ].join("\n");
 
 test("the week drives the product's adapter on its clock, one child per turn, and hands back its store as one file", async () => {
@@ -58,7 +66,9 @@ test("the week drives the product's adapter on its clock, one child per turn, an
       c.store.put({ type: "memory", kind: "fact", body: `A thing Dana said at ${String(at0)}.`, salience: { novelty: null, relevance: 0.7, emotional: 0.3, predictive: 0.6 } });
       c.close();
     }
-    return Promise.resolve({ code: 0, timedOut: false, error: null, output: result("Noted.") });
+    // A night's child says its usage, as a real one's result line does: 1,000 + its act's length in tokens.
+    if (allowed.includes("mcp__counterparts__remember")) return Promise.resolve({ code: 0, timedOut: false, error: null, output: result("Noted.") });
+    return Promise.resolve({ code: 0, timedOut: false, error: null, output: withUsage("Done.", 1_000) });
   };
   const out = join(root, "week.sqlite");
   // Without the meeting: the night's gate waits while one is pending, and a stub never holds one.
@@ -77,6 +87,11 @@ test("the week drives the product's adapter on its clock, one child per turn, an
   expect(r.nights.every((n) => n.day >= 2 && n.kind.length > 0)).toBe(true);
   // The last scripted day is dreamed too: the extra morning's first prompt launches its night.
   expect(r.nights.map((n) => n.day)).toContain(4);
+  // Each night's asks carry their own child's tokens (L2, S2 tier 2 finding 6): a catch-up apart from the week's total.
+  const asks = r.nights.flatMap((n) => n.asked);
+  expect(asks.length).toBeGreaterThan(0);
+  for (const a of asks) expect(a.tokens).toBe(1_000 + 2 + 3 + 4);
+  for (const a of new Set(asks.map((x) => x.act))) expect(r.usageByAct?.[a]?.calls ?? 0).toBeGreaterThanOrEqual(asks.filter((x) => x.act === a).length);
   // The worker the product asked for at each Stop and session end, run by the harness.
   expect(r.boundaries).toBeGreaterThanOrEqual(3);
 

@@ -85,19 +85,25 @@ export function sameOrigin(req: IncomingMessage, publicOrigin: string): boolean 
 /**
  * A local path to return to after login: one of ours, never another host.
  * `//evil.example`, `/\evil`, schemes and anything outside the allowed prefixes
- * fall back to `/account`.
+ * fall back to `/account`. The allow-list is checked on the path AFTER the URL
+ * parser has resolved dot-segments and dropped tabs and newlines, because that
+ * resolved path is what goes out in `Location`: `/oauth/..//evil.example`
+ * resolves to `//evil.example`, another host (review of #644).
  */
 export function safeNext(raw: unknown): string {
   if (typeof raw !== "string" || raw.length === 0 || raw.length > 512) return "/account";
   if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return "/account";
-  if (!(raw === "/account" || raw.startsWith("/oauth/"))) return "/account";
+  let u: URL;
   try {
-    const u = new URL(raw, "https://x.invalid");
-    if (u.origin !== "https://x.invalid") return "/account";
-    return u.pathname + u.search;
+    u = new URL(raw, "https://x.invalid");
   } catch {
     return "/account";
   }
+  if (u.origin !== "https://x.invalid") return "/account";
+  const path = u.pathname;
+  if (path.startsWith("//") || path.includes("\\")) return "/account";
+  if (!(path === "/account" || path.startsWith("/oauth/"))) return "/account";
+  return path + u.search;
 }
 
 /** The page frame. `nonce` gates the one inline style and any inline script. */
@@ -135,12 +141,20 @@ export function redirect(res: ServerResponse, location: string, headers: Record<
   res.end();
 }
 
-/** The client's address: the first X-Forwarded-For hop behind a proxy we trust, else the socket. */
+/**
+ * The client's address. Behind a proxy we trust, the LAST X-Forwarded-For hop:
+ * the one the proxy itself appended. The first hop is whatever the client sent,
+ * so trusting it let anyone name a fresh "address" per request and walk past
+ * every per-IP limit (review of #644). This assumes ONE proxy hop in front
+ * (Railway's edge). If a deploy shows a second hop, every client lands in one
+ * bucket — loud 429s, not a silent bypass — and this is the line to change.
+ */
 export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
   if (trustProxy) {
     const xff = req.headers["x-forwarded-for"];
-    const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
-    if (first !== undefined && first.length > 0 && first.length < 64) return first;
+    const joined = Array.isArray(xff) ? xff.join(",") : xff;
+    const last = joined?.split(",").at(-1)?.trim();
+    if (last !== undefined && last.length > 0 && last.length < 64) return last;
   }
   return req.socket.remoteAddress ?? "unknown";
 }

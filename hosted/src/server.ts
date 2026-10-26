@@ -125,7 +125,17 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       return;
     }
     const token = bearer(req);
-    const caller = token === null ? null : await opts.authenticate(token).catch(() => null);
+    // A token we could not CHECK (the accounts database down, say) is not a
+    // token we refused: 503, so claude.ai retries instead of asking the person
+    // to sign in again (review of the OL2 stack, info).
+    let caller: Caller | null;
+    try {
+      caller = token === null ? null : await opts.authenticate(token);
+    } catch {
+      req.resume();
+      text(res, 503, "503\n", { "Retry-After": "30", ...hsts });
+      return;
+    }
     if (caller === null) {
       req.resume();
       text(res, 401, "401\n", { ...challenge(token === null ? undefined : "invalid_token"), ...hsts });
@@ -151,11 +161,21 @@ export function createHostedServer(opts: HostedServerOptions): Server {
     );
   };
 
-  return createServer((req, res) => {
+  const server = createServer((req, res) => {
     void (async (): Promise<void> => {
+      // ONLY ORIGIN-FORM TARGETS ("/path?query"). An absolute-form or
+      // "//host/x" target would give `url.host` a host the client chose; every
+      // route builds its URLs from `publicOrigin`, and nothing reaches a route
+      // whose target could say otherwise (review of the OL2 stack, info).
+      const target = req.url ?? "/";
+      if (!target.startsWith("/") || target.startsWith("//")) {
+        req.resume();
+        text(res, 400, "400\n");
+        return;
+      }
       let url: URL;
       try {
-        url = new URL(req.url ?? "/", origin);
+        url = new URL(target, origin);
       } catch {
         req.resume();
         text(res, 400, "400\n");
@@ -178,4 +198,9 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       else res.destroy();
     });
   });
+  // The same bounds as the local door (`remote/http.ts#serveHttp`): a client
+  // that trickles its headers or its body is cut off.
+  server.headersTimeout = 30_000;
+  server.requestTimeout = 300_000;
+  return server;
 }

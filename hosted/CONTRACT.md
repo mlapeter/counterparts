@@ -28,15 +28,23 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
    shape and for containment (`isWithin`) on every open (`src/tenants.ts#tenantDir`).
 3. **One `McpServer` per store, each with its own queue.** Handles are never shared or reused across stores. An LRU
    plus an idle sweep closes unused stores. A store in use is never closed. A request arriving while its store closes
-   waits, then reopens it.
+   waits, then reopens it. `close(storeId)` (account delete) waits on a promise until no call holds the store, never
+   a poll of the queue (the 10-26 review: a poll froze the process when it raced an in-flight request), and drops
+   the store's worker: its owed run is forgotten and a running child is stopped.
 4. **The worker child's environment is allow-listed** (`workerEnv`). `spawn.ts#planSpawn` starts from the parent's
-   whole environment; the pool passes on only `PATH`, the locale, `TZ`, `TMPDIR` and the `COUNTERPARTS_*` values the
-   plan pinned. The child's `HOME` is its tenant dir.
+   whole environment; the pool passes on only `PATH`, the locale, `TZ`, `TMPDIR` and, by name, the `COUNTERPARTS_*`
+   values the plan pins plus the static weights dir (`WORKER_COUNTERPARTS_ALLOW`), never a prefix match. The child's
+   `HOME` is its tenant dir.
 5. **At most one worker per store, and at most `max` in all.** Extra boundaries coalesce into one more run.
 6. **The call log holds ids and codes only**, plus the store as an HMAC under a per-process salt: matchable, not
    nameable. It never holds a token.
 7. **`/mcp` refuses** anything but POST (`405`), a foreign `Origin` (`403`), and a body that is not
    `application/json` (`415`). The last closes the local door's `text/plain` simple-request hole.
+   - A token that can't be *checked* (`authenticate` threw, e.g. the accounts database is down) gets `503` with
+     `Retry-After`, never `401`, so the client retries instead of asking the person to sign in again.
+   - Only origin-form request targets reach a route. `//host/x` and absolute-form targets get `400`, so no route ever
+     sees a host the client chose. Every published URL is built from `publicOrigin`.
+   - Headers time out at 30 s and requests at 300 s, the same bounds as the local door.
 
 ### Accounts and sign-in (step 3: `src/accounts.ts`, `src/pages.ts`, `src/web.ts`, `src/egress.ts`)
 
@@ -51,11 +59,15 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 11. **Sign-up needs a live invite.** It is spent at the click, inside the same transaction that creates the person,
     the verified email identity and the store.
 12. **The login page never says who has an account.** It shows the same words whether a link went out or not, and
-    the email is sent without being awaited, so the response time doesn't say it either.
+    the email is sent without being awaited, so the response time doesn't say it either. Every ask, refused or not,
+    writes one `login_links` row in one commit (a refused one is dead on arrival and keeps no address), so the disk
+    write doesn't say it. Rows a day past expiry are swept by the next ask.
 13. **Every form is CSRF-bound** (an HMAC of the browser cookie) and Origin-checked. After login, only our own paths
-    (`/account`, `/oauth/…`) are followed: `//evil`, `/\evil` and schemes all fall back to `/account`.
+    (`/account`, `/oauth/…`) are followed, checked on the path AFTER dot-segments resolve: `//evil`, `/\evil`,
+    `/oauth/..//evil` and schemes all fall back to `/account`.
 14. **Rate limits on the login form**: 20 an hour per IP and 5 an hour per address. They live in memory, which suits
-    one instance.
+    one instance. Behind the proxy, the IP is the LAST `X-Forwarded-For` hop (the one the proxy appended), never the
+    first (the client's own words). One proxy hop is assumed; check the header's shape on the first Railway deploy.
 15. **Pages carry a strict CSP** (nonce'd inline style and script only), `frame-ancestors 'none'` and `no-store`.
     Cookies are `HttpOnly; SameSite=Lax`, and `__Host-` + `Secure` on https.
 
@@ -83,20 +95,30 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - belongs to the browser that started the authorization (the library's interaction cookie);
     - is CSRF-bound, with `frame-ancestors 'none'`, and its `form-action` allows only us and the app's own return
       origin;
-    - names the app by where it really is: a CIMD client by its URL's host, a registered one by its return host. A
-      self-declared name never stands alone.
+    - names the app by where it really is: a CIMD client by its URL's host, a registered one by its return host
+      FIRST, with its self-declared name after as a quoted claim. Only a loopback http return is "an app on this
+      computer".
+    - A grant is reused without the page (the library's silent re-authorization) only while OUR web session is the
+      same person as the library's own session. A sign-out of ours brings the page, and the login, back.
 20. **Discovery.** Protected Resource Metadata is at `/.well-known/oauth-protected-resource/mcp` and the root form.
     The authorization-server document is at both `/.well-known/oauth-authorization-server` and
-    `/.well-known/openid-configuration`. Every URL is built from `PUBLIC_ORIGIN`.
+    `/.well-known/openid-configuration`. Every URL is built from `PUBLIC_ORIGIN`: requests reach the library with
+    `Host` pinned to it and `X-Forwarded-Host` dropped, because the library builds endpoint URLs from the request.
 21. **The CIMD fetch** goes through `egress.ts#cimdFetch`. On Node the library applies its own guard: https only, no
-    redirects, a 2.5 s timeout, a body limit, and a refusal of special-use IPs. We add https-on-443 only.
+    redirects, a 2.5 s timeout, a body limit, and a refusal of special-use IPs (checked on the connected socket, so
+    DNS rebinding doesn't pass). A Node-only test proves the guard reaches our fetch. We add https-on-443 only.
+    - **The library fetches nothing else a client names.** `sector_identifier_uri`, `jwks_uri`, `jwks`,
+      `backchannel_logout_uri` and `request_uris` are refused at registration and in CIMD documents, and every body
+      limit is finite.
+    - **Redirect URIs** are https, http on a loopback address only, or a native app's own scheme.
 22. **The entry point** (`src/main.ts`) needs everything named, and nothing falls back to a default:
     - `HOSTED_DATA_ROOT`: absolute, and never inside a live store;
     - `PUBLIC_ORIGIN`: https, except in a local `MAIL=log` run;
     - the mail key.
 
     `invite` prints one code, once.
-23. **Rate limits** on the open endpoints: 30 registrations an hour per IP, 600 token calls an hour per IP.
+23. **Rate limits** on the open endpoints: 30 registrations an hour per IP, 600 token calls an hour per IP, and 300
+    authorization starts an hour per IP (each can make the server fetch a CIMD document).
 
 ### A new person's store (OL1b's finding)
 

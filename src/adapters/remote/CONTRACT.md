@@ -43,7 +43,7 @@ on the owner's machine through a tunnel he starts.
    builds one target, and the hosted server (`hosted/`, design in `docs/hosted/DESIGN.md`)
    keeps one per store behind its own gate. Guarantees 1–3 are the local door's listener
    and are unchanged; the handler knows nothing of any gate.
-5. Bodies over 1 MB are `413`; a body that is not JSON is `400` with JSON-RPC's parse error.
+5. Bodies over 1 MB are `413`; a body that is not JSON is `400` with JSON-RPC's parse error; a batch of more than `MAX_BATCH` (32) messages is `400`, refused whole before any message runs.
 6. Inbound only: it opens no connection and resolves no host (pinned in
    `test/claude-code.test.ts`).
 7. The call log holds ids and codes only: time, method, tool, the connection id

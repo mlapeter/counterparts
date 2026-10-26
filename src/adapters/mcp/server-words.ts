@@ -91,6 +91,25 @@ export const START_PROMPT = {
 } as const;
 
 /**
+ * CLAUDE.AI'S PROMPT (2026-10-26, OL1b item 5): claude.ai lists a connector's
+ * prompts in the + menu (it called `prompts/list` three times on the trial's
+ * first day), so a person can start a chat with one click. The person picks
+ * it, so it may ask for the call outright; it also says what to do with what
+ * the wake brings, as the instruction block does.
+ */
+export const CLAUDE_AI_START_PROMPT = {
+  name: "wake-counterparts",
+  title: "Wake Counterparts",
+  description: "Wake your long-term memory for this conversation before we begin.",
+  text: "Before anything else, call the counterparts wake tool, read what it returns, and keep the session id it gives for this conversation. If it brings something for me — something due, something left open between us, what you dreamed — mention it briefly. Then say hello as yourself, with that memory in mind.",
+} as const;
+
+/** The one prompt a chat host offers: claude.ai's, else Desktop's. */
+export function startPromptFor(host: string): { readonly name: string; readonly title: string; readonly description: string; readonly text: string } {
+  return host === CLAUDE_AI_HOST ? CLAUDE_AI_START_PROMPT : START_PROMPT;
+}
+
+/**
  * THE ONE LINE THAT MAKES A DESKTOP DREAM LINE TRUE THERE. The day's dream line
  * is core's, and says the person was "shown … in the terminal" and that the
  * prompt goes to "a background agent (the Agent tool)". Desktop chat has
