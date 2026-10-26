@@ -163,6 +163,23 @@ describe("2. an open session with no turn for two hours is quiet, not live", () 
     expect(lineOf(wake(w), "Today, elsewhere: ")).toContain("open since 08:00 (live)");
   });
 
+  test("a session that ended this morning after a start yesterday lends its start to no live one beside it (10-26 07:14 wake)", () => {
+    const B = "b1b2c3d4-0000-4000-8000-00000000000b";
+    const w = world(at(D2, 7, 14));
+    // Yesterday's, closed at the restart this morning.
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "start", at: at(D1, 11, 27) });
+    recordSession(storeDir, { sessionId: A, scope: THERE, phase: "end", at: at(D2, 5, 25) });
+    // The new one, open and at work.
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "start", at: at(D2, 5, 30) });
+    recordSession(storeDir, { sessionId: B, scope: THERE, phase: "boundary", at: at(D2, 7, 11) });
+    const line = lineOf(wake(w), "Today, elsewhere: ") ?? "";
+    expect(line).toContain("bakery open since 05:30 (live)");
+    expect(line).not.toContain("10-24");
+    // Past the new one's four hours, nothing is open: the day's whole span, yesterday's start and all.
+    w.set(at(D2, 11, 30));
+    expect(lineOf(wake(w), "Today, elsewhere: ") ?? "").toContain("bakery 10-24 11:27–07:11");
+  });
+
   test("a session quiet since before midnight says the day of its last turn (review of #623)", () => {
     const here = [{ session: A, model: null, startedAt: at(D1, 20), lastAt: at(D1, 22, 30), titles: [] }];
     const line = todayElsewhereLines([], ZONE, here, at(D2, 1))?.line ?? "";

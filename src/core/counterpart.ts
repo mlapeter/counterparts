@@ -1023,12 +1023,27 @@ export class Counterpart {
         }
         return d;
       };
+      // AN OPEN DIRECTORY IS ITS OPEN SESSIONS (2026-10-26, the 07:14 wake that
+      // read "~/counterparts-site open since 10-25 … (live)" for a session
+      // started at 05:30): a session that ended this morning after a start
+      // yesterday is in today's window too, and folding its start into the
+      // live one's said yesterday's. A directory with a session still open says
+      // the open ones' first start and last turn — as "Since you started" does
+      // — and one with none open says the day's whole span, as before.
+      const open = new Map<string, { firstAt: number; lastAt: number }>();
       for (const s of here?.sessions?.() ?? []) {
         if (s.session === reader || s.lastAt < since || s.startedAt >= until || !named(s.scope)) continue;
         const d = dirOf(s.scope);
         d.firstAt = d.firstAt === null ? s.startedAt : Math.min(d.firstAt, s.startedAt);
         d.lastAt = d.lastAt === null ? s.lastAt : Math.max(d.lastAt, s.lastAt);
         d.live = d.live || s.live;
+        if (!s.live) continue;
+        const o = open.get(d.scope);
+        open.set(d.scope, o === undefined ? { firstAt: s.startedAt, lastAt: s.lastAt } : { firstAt: Math.min(o.firstAt, s.startedAt), lastAt: Math.max(o.lastAt, s.lastAt) });
+      }
+      for (const [key, o] of open) {
+        const d = dirs.get(key);
+        if (d !== undefined) Object.assign(d, o);
       }
       for (const { scope, count } of this.store.memoryCountsByScopeSince(since)) {
         if (named(scope)) dirOf(scope).memories = count;
