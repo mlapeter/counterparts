@@ -134,6 +134,7 @@ import {
   listSessions,
   manifestVersionOnDisk,
   readSession,
+  reflectorDone,
   sessionOfHost,
   recordServerLaunch,
   refreshServerLaunch,
@@ -986,7 +987,7 @@ export class McpServer {
         // Claude Desktop's only (`tools.ts#WAKE`). A Claude Code client never
         // reaches here over the wire (`toolSpec` refuses it first); a direct
         // call gets the same answer any tool this host does not have gets.
-        return this.desktop ? this.wakeTool() : this.refuse(name, "unknown-tool", { tool: name });
+        return this.desktop ? this.wakeTool(args) : this.refuse(name, "unknown-tool", { tool: name });
       case "reflect":
         return this.reflectTool(args);
       case "meet":
@@ -2869,6 +2870,8 @@ export class McpServer {
    *     (`lifecycle.ts#spawnWorker`), and the day's dream line is offered when
    *     one is due and is an ASK (`wakeDreamLine`) — the headless nightly run
    *     stays Claude Code's;
+   *   - a morning share another session left and never told, carried once
+   *     (`wakeShareLine`, OL1a 2026-10-26) — this host's only carry;
    *   - the update and doctor notices, as plain lines;
    *   - the next-session write-up pointer, measured against a tool result's
    *     room (`TOOL_RESULT_CHARS`), not a hook's.
@@ -2876,8 +2879,15 @@ export class McpServer {
    * Not here, on purpose: the first-launch scope question (there is no
    * directory to ask about), the parallel run's primacy, and the headless run.
    */
-  private wakeTool(): ToolResult {
+  private wakeTool(args: Record<string, unknown> = {}): ToolResult {
     if (this.observer) return this.standDown("wake");
+    // A NIGHT'S OWN WAKE (2026-10-26, OL1b, from OL1a's review): the routine
+    // that runs the night passes `night: true`, and wakes quiet, as the
+    // headless nightly run does (`SessionInput.nightRun`): no share carried —
+    // after a day with no chat it would claim the share the next chat should
+    // tell — no plain reminder claimed, no first-meeting line, no dream line,
+    // no write-up pointer.
+    const night = args["night"] === true;
     const lc = this.lifecycle();
     const store = this.counterpart.store;
     const now = this.nowFn();
@@ -2885,6 +2895,7 @@ export class McpServer {
       sessionId: randomUUID(),
       scope: this.scope,
       at: localDate(now, store.zone()),
+      ...(night ? { nightRun: true } : {}),
     };
     lc.noteSession("start", input);
     // The first meeting's marker rides in the wake's head tag (2026-10-20,
@@ -2895,9 +2906,11 @@ export class McpServer {
     const spawn = lc.spawnWorker(input);
     // NO DREAM LINE ON CLAUDE.AI (2026-10-26, OL1b): its nights are the
     // person's own routine, and the ask relayed in a chat read as "say dream
-    // if you want". Left unclaimed, the offer is never said here.
+    // if you want". Left unclaimed, the offer is never said here. And none —
+    // no share, no owner-facing ask — in a night's own wake (`night`).
     const claudeAi = this.host === CLAUDE_AI_HOST;
-    const dream = claudeAi ? null : this.wakeDreamLine(input);
+    const dream = claudeAi || night ? null : this.wakeDreamLine(input);
+    const share = night ? null : this.wakeShareLine(input);
     const notices = [this.wakeUpdateLine(), this.wakeDoctorLine()].filter((l): l is string => l !== null);
     const head = `Counterparts session for this chat: ${input.sessionId}. Pass session: ${input.sessionId} on session_end, chapter, dream and reflect in this chat.`;
     // Or, when the wake has no head tag, as one tag in front of it (`tagLead`).
@@ -2908,13 +2921,16 @@ export class McpServer {
     // certain delivery, so it is committed here.
     const meet = lc.onboardingLine(input);
     meet?.commit();
+    // THE SHARE right after the session line: carrying it is a CLAIM. Nothing
+    // here trims the wake (the briefing is composed to its budget beforehand,
+    // and the write-up pointer gives way when there is no room), but a host
+    // that cuts a long tool result cuts from the end — so it rides first.
     const body = claudeAi
       ? // CLAUDE.AI'S SHAPE (`chat-wake.ts`): one short session line, what is
         // for the person first, the same words otherwise.
         claudeAiWakeText({
           session: input.sessionId,
-          // THE SHARE'S SLOT: the share carry for hookless hosts (OL1a) fills it.
-          share: [],
+          share: share === null ? [] : [share],
           lead,
           wake: `${ONE_TAG_LINE ? tags : ""}${woke.text}`,
           // No host shares a claude.ai store yet: the line waits for one that does.
@@ -2924,6 +2940,7 @@ export class McpServer {
         })
       : [
           head,
+          ...(share === null ? [] : [share]),
           `${lead}\n${ONE_TAG_LINE ? tags : ""}${woke.text}`.trimEnd(),
           ...(notices.length === 0 ? [] : [notices.join("\n")]),
           ...(dream === null ? [] : [`${dream}\n${chatWordsFor(this.host).dreamNote}`]),
@@ -2947,6 +2964,8 @@ export class McpServer {
       plain: told.length,
       spawned: spawn.started,
       dream: dream !== null,
+      share: share !== null,
+      night,
       notices: notices.length,
       pointer: pointer.length > 0,
     });
@@ -2959,6 +2978,35 @@ export class McpServer {
     // THE BRIEFING AS TEXT, not as JSON: whichever of the two a host hands the
     // model, it reads the wake as the wake, with the id on its first line.
     return { content: [{ type: "text", text }], structuredContent: payload };
+  }
+
+  /**
+   * THE MORNING SHARE NO ONE TOLD, for a hookless wake (2026-10-26, OL1a): the
+   * newest share offered from another session, carried here — once, a claim
+   * (`Reflections.carryLine`) — when the session that reflected has let go of
+   * it (`sessions.ts#reflectorDone`). A claude.ai routine's session never ends,
+   * so it counts as ended once its reflection finished; a live Claude Code
+   * session that reflected keeps its share to tell. Claude Code's own carry is
+   * its prompt hook's (`hooks.ts#dreamLines`), by the same rule. A tool result
+   * is certain delivery, so the claim is safe here. Never throws.
+   */
+  private wakeShareLine(input: SessionInput): string | null {
+    if (this.observer) return null;
+    try {
+      const reflections = this.counterpart.reflections;
+      const pending = reflections.pendingShare({ session: input.sessionId });
+      if (pending === null) return null;
+      const record = pending.session === null ? null : readSession(this.registryDir, pending.session);
+      if (!reflectorDone(record, this.nowFn(), this.sessionTtlMs)) {
+        this.emit("mcp.wake.share", input.sessionId, { reflection: pending.id, carried: false, reason: "reflector-live" });
+        return null;
+      }
+      const line = reflections.carryLine({ session: input.sessionId, reflection: pending.id });
+      this.emit("mcp.wake.share", input.sessionId, { reflection: pending.id, carried: line !== null });
+      return line;
+    } catch {
+      return null;
+    }
   }
 
   /**

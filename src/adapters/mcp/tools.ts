@@ -2117,8 +2117,24 @@ export const CLAUDE_AI_WAKE: ToolSpec = {
       claim: "Under observer stance it stands down over the wire and says so.",
       mechanizedBy: "src/adapters/mcp/server.ts#standDown",
     },
+    {
+      claim:
+        "With `night: true` it wakes quiet, as the headless nightly run does: it carries no morning share, claims no reminder and offers no meeting or dream, so what the night leaves is still there for the next conversation.",
+      mechanizedBy: "src/adapters/mcp/server.ts#wakeTool -> src/adapters/lifecycle.ts#plainFor",
+    },
   ],
-  inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+  inputSchema: {
+    type: "object",
+    properties: {
+      night: {
+        type: "boolean",
+        description:
+          "true only in a nightly routine's own run, when its prompt says so: a quiet wake that carries no morning share and no reminder, so they reach the next conversation. Leave it out in a conversation.",
+      },
+    },
+    required: [],
+    additionalProperties: false,
+  },
 };
 
 /** The `session` a claude.ai conversation names: Desktop's, without the Code tab. */

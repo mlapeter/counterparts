@@ -279,3 +279,45 @@ describe("5. the Wake Counterparts prompt, through the door", () => {
     expect(desk.map((p) => p["name"])).toEqual([START_PROMPT.name]);
   });
 });
+
+describe("a night's own wake (night: true), through the door", () => {
+  const SHARE = "ZQSHARE The cold frame kept coming back to me.";
+
+  /** A routine's night: its wake, a memory, the reflection with a share. Returns the reflection's id. */
+  async function aNight(url: string, wakeArgs: Record<string, unknown>): Promise<string> {
+    const night = String((await tool(url, "wake", wakeArgs)).structured["session"]);
+    const cite = String((await tool(url, "remember", { session: night, text: "Wren and I talked about the cold frame lid tonight." })).structured["id"]);
+    const begun = (await tool(url, "reflect", { phase: "begin", session: night })).structured;
+    const rid = String(begun["reflection"]);
+    const done = (await tool(url, "reflect", { phase: "finish", session: night, reflection: rid, entry: "The cold frame conversation stays with me.", cites: [cite], share: { text: SHARE, cites: [cite] } })).structured;
+    expect(typeof done["handBack"]).toBe("string");
+    return rid;
+  }
+
+  test("a quiet day: the next night's wake carries nothing, and the next chat carries the share", async () => {
+    const { http, s } = await door();
+    const rid = await aNight(http.url, { night: true });
+    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("offered");
+    // No chat all day; the routine wakes again for the next night.
+    const nextNight = await tool(http.url, "wake", { night: true });
+    expect(nextNight.text).not.toContain("ZQSHARE");
+    expect(nextNight.text).not.toContain("never told");
+    expect(nextNight.text).not.toContain("<counterparts-meet>");
+    expect(s.counterpart.store.reflection(rid)?.share_state).toBe("offered");
+    // The next chat carries it, first after the session line.
+    const chat = await tool(http.url, "wake", {});
+    expect(chat.text).toContain(SHARE);
+    expect(chat.text.indexOf(SHARE)).toBeLessThan(chat.text.indexOf("Now:"));
+    expect(s.counterpart.store.reflection(rid)).toMatchObject({ share_state: "carried", share_session: String(chat.structured["session"]) });
+  });
+
+  test("a night's wake claims no plain reminder: the day's chat still gets it", async () => {
+    const { http } = await door();
+    const first = String((await tool(http.url, "wake", {})).structured["session"]);
+    await tool(http.url, "remember", { session: first, kind: "fact", title: "Seed order", text: "The seed order goes in today.", eventDate: today(), remind: "plain" });
+    const quiet = await tool(http.url, "wake", { night: true });
+    expect(quiet.text).not.toContain("Plain reminder");
+    const chat = await tool(http.url, "wake", {});
+    expect(chat.text).toContain("Plain reminder (they asked to be told)");
+  });
+});
