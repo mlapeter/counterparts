@@ -59,6 +59,15 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 15. **Pages carry a strict CSP** (nonce'd inline style and script only), `frame-ancestors 'none'` and `no-store`.
     Cookies are `HttpOnly; SameSite=Lax`, and `__Host-` + `Secure` on https.
 
+### A new person's store (OL1b's finding)
+
+- **A store the server creates starts like a new install** (`tenants.ts#startNewStore`). Onboarding is set to
+  `not_started`, so the first wake offers the first meeting. Dreaming is set `off` explicitly, because `auto` is Claude
+  Code's headless run and `ask` would make the wake ask, and claude.ai has neither. The person's own routine runs the
+  night through the `dream` tool, which the setting does not gate; a test pins that.
+- **A store that already exists is never re-initialized.**
+- **Still owed:** the meeting's "where it lives" answer waits for OL3's hosted privacy copy.
+
 ## What it drops, for now
 
 - Keys, backups, export and delete: step 5, which waits on Mike (DESIGN §5).
