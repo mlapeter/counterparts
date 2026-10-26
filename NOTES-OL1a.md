@@ -44,7 +44,34 @@ So the cause is one layer below the brief's guess:
 `row.session !== input.session`; `carryLine` is an atomic claim (`ifShareState: "offered"`), so
 two wakes racing carry it once.
 
+## Step 2 — the fix (done, 185b2adf)
+
+- `sessions.ts#reflectorDone(record, now, ttl)`: no record, ended, quiet past the TTL (Claude Code's
+  v9 rule), OR a hookless chat's session (`isChatHost(host)`, or a pseudo-scope for a record with
+  no host) — it never ends, so once its reflection finished (the only kind `pendingShare` offers)
+  it counts ended.
+- `mcp/server.ts#wakeShareLine`: `pendingShare` → `reflectorDone` → `carryLine` (the atomic
+  claim); rides right after the session line (the size net cuts from the end; a claimed share must
+  not be what falls off). OL1b owns the claude-ai wake shape and may move it — keep it high.
+- `hooks.ts#dreamLines` uses the same helper. Claude Code → Claude Code is unchanged; the one new
+  case: a Claude Code prompt carries a hookless chat's share at once instead of after 4 h.
+
+## Step 3 — tests (done): test/hookless-share-carry.test.ts
+
+7 tests. Without the server change 4 fail; without the hooks change the new-CC-case test fails.
+
+## Open, flagged (recommendation)
+
+- A routine's own `wake` is a wake like any other (the server can't tell it from a chat's, and
+  must not by client name), so if no chat came since the last night it claims that night's share
+  in the routine, where no one reads it. Harm is small (the newer share is carried by the next
+  chat anyway; before this fix the older one was never carried either). Recommend: a wake argument
+  the night prompt passes (e.g. `night: true` → skip the carry), on OL1b's surface; until then,
+  accept. Documented by a test.
+- In-chat dreaming on a hookless host (no routine): the chat that reflected tells its share
+  itself; a different chat waking in the seconds between `finish` and `told` would carry it too.
+  Accepted (rare, mild: told twice).
+
 ## Next
 
-- Fix (pending the design check): carry in `wakeTool`.
-- Real-path test through the HTTP door; Claude Code unchanged test.
+- Full `bun test`, merge origin/master, fold this file into adapters/mcp NOTES.md, PR.
