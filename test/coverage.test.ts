@@ -46,6 +46,7 @@ import { openServer } from "../src/adapters/mcp/index.js";
 import type { McpServer, ToolResult } from "../src/adapters/mcp/server.js";
 import { readSession, recordSession, writeUpPlan } from "../src/adapters/sessions.js";
 import { run as cliRun } from "../src/adapters/cli/index.js";
+import { DREAMING_SETTING_KEY } from "../src/core/dream/index.js";
 import { coverageLines } from "../src/adapters/cli/coverage.js";
 
 const MIN = 60_000;
@@ -718,7 +719,7 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
     expect(bad.join("\n")).toContain("--date takes a day as YYYY-MM-DD");
   });
 
-  test("doctor's Write-ups line: yesterday's state, amber on a stretch owed from yesterday, and the week's lapses", () => {
+  test("doctor's Write-ups line: yesterday's state, amber once a catch-up ran and left a stretch owed, and the week's lapses", () => {
     const { today } = yesterdayStore();
     const c = Counterpart.open({ dir: storeDir, timeZone: ZONE });
     open.push(c);
@@ -732,18 +733,26 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
         today,
         refusals: {},
       }).find((x) => x.key === "crash-write-up");
+    // THE MORNING BEFORE ITS NIGHT (S2c): yesterday's debt waits for the
+    // catch-up the first prompt launches — owed, and not a problem.
+    const before = read();
+    expect(before?.title).toBe("Catch-up");
+    expect(before?.severity).toBe("green");
+    expect(before?.detail).toMatch(/^yesterday \(\d{4}-\d{2}-\d{2}\): 2 sessions, 4 of 9 pieces written up; 1 session to catch up$/);
+    // A catch-up ran today and left it owed: the night had its chance.
+    c.store.appendEvent({ name: NIGHT_WRITE_UP_EVENT, day: c.store.livedDay(), ref: "nrn_left", payload: { state: "done", granted: 1, written: 0, parts: 0, unread: 0, left: 1 } });
     const f = read();
-    expect(f?.title).toBe("Catch-up");
     expect(f?.severity).toBe("amber");
-    expect(f?.detail).toMatch(/^yesterday \(\d{4}-\d{2}-\d{2}\): 2 sessions, 4 of 9 pieces written up; 1 session to catch up, 1 from yesterday or earlier$/);
+    expect(f?.detail).toContain("1 session to catch up, 1 overdue (a catch-up has run since, or 2 days of use)");
     expect(f?.fix).toContain("counterparts coverage");
     // Written up: green, and a lapse this week is counted.
     c.spans.claimCoverage({ scope: PROJ, session: "owing-one", proposalId: "prp_late" });
     c.store.appendEvent({ name: COVERAGE_LAPSED_EVENT, day: c.store.livedDay(), dedupKey: "t", payload: { session: "gone", pieces: 3, minutes: 20 } });
     const g = read();
     expect(g?.severity).toBe("green");
-    expect(g?.detail).toContain("9 of 9 pieces written up; nothing owed; 1 lost unwritten this week");
-    // A small debt the pointer never offers — `claude -p` — is named apart, not waited on.
+    expect(g?.detail).toContain("9 of 9 pieces written up;");
+    expect(g?.detail).toContain("; nothing owed; 1 lost unwritten this week");
+    // A short debt the pointer never offers — `claude -p` — is named apart, not waited on.
     recordSession(storeDir, { sessionId: "print-1", scope: PROJ, phase: "start", entrypoint: "sdk-cli" });
     const k = clocked(Date.now() - 2 * DAY);
     const p = talker(k, "print-1");
@@ -751,7 +760,9 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
     p.end(Date.now() - 2 * DAY + 25 * MIN);
     const h = read();
     expect(h?.severity).toBe("green");
-    expect(h?.detail).toContain("nothing owed; 1 small, not known as a person's session: left to lapse");
+    expect(h?.detail).toContain("nothing owed; 1 short headless run (claude -p, the Agent SDK): not asked for a write-up, left to lapse");
+    expect(h?.data["unpointedHeadless"]).toBe(1);
+    expect(h?.data["unpointedNoRecord"]).toBe(0);
   });
 
   test("`counterparts coverage` reads the same person-session filter as doctor and the catch-up: a small `claude -p` stretch is left to lapse, not owed (2026-10-11)", () => {
@@ -767,10 +778,209 @@ describe("reading it: `counterparts coverage` and the doctor line", () => {
     open.push(c);
     const said = coverageLines({ store: c.store, date: today, today }).join("\n");
     expect(said).toContain("Owed now: 1 session — owing-one (5 pieces).");
-    expect(said).toContain("Left to lapse (small; not known as a person's session): 1 session — print-1 (3 pieces).");
+    expect(said).toContain("Left to lapse (short, and headless or with no session record): 1 session — print-1 (3 pieces).");
     const that = coverageLines({ store: c.store, date: new Date(printedAt).toISOString().slice(0, 10), today }).join("\n");
-    expect(that).toMatch(/print-1[\s\S]*not yet written up: 3 pieces over 20 min, since [^\n]* — left to lapse \(small; not known as a person's session\)/);
+    expect(that).toMatch(/print-1[\s\S]*not yet written up: 3 pieces over 20 min, since [^\n]* — left to lapse \(short, and headless or with no session record\)/);
     expect(that).not.toMatch(/print-1[^\n]*\n[^\n]*owed \(/);
+  });
+
+  // ── S2c (2026-10-26): amber only when the catch-up had its chance ──────────
+
+  /** `counterparts doctor --json`, through the CLI, on the real clock: the Catch-up finding. */
+  async function doctorCatchUp(): Promise<{ severity: string; detail: string; fix: string; data: Record<string, unknown> }> {
+    const config = join(root, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, timeZone: ZONE }));
+    const out: string[] = [];
+    await cliRun(["doctor", `--config=${config}`, "--json"], { io: { out: (l) => out.push(l), err: () => {} }, env: {}, home: join(root, "home") });
+    const json = JSON.parse(out.join("\n")) as { findings: { key: string; severity: string; detail: string; fix: string; data: Record<string, unknown> }[] };
+    const f = json.findings.find((x) => x.key === "crash-write-up");
+    if (f === undefined) throw new Error("no Catch-up finding");
+    return f;
+  }
+
+  /** A person's short check-in at `at`: two pieces three minutes apart, no record of its own, ended. */
+  function checkIn(session: string, at: number): void {
+    recordSession(storeDir, { sessionId: session, scope: PROJ, phase: "start", at });
+    const k = clocked(at);
+    const t = talker(k, session);
+    t.piece(at);
+    t.piece(at + 3 * MIN);
+    t.end(at + 4 * MIN);
+    k.c.close();
+    open.splice(open.indexOf(k.c), 1);
+  }
+
+  /** A turn-end on the date of `at` in a session written up as it goes: a day of use, nothing owed. */
+  function dayOfUse(session: string, at: number): void {
+    const k = clocked(at);
+    const t = talker(k, session);
+    t.piece(at);
+    k.c.spans.claimCoverage({ scope: PROJ, session, proposalId: `prp_${session}` });
+    t.end(at + MIN);
+    k.c.close();
+    open.splice(open.indexOf(k.c), 1);
+  }
+
+  function nightRan(left: number, at = Date.now()): void {
+    const c = Counterpart.open({ dir: storeDir, timeZone: ZONE, now: () => at });
+    c.store.appendEvent({ name: NIGHT_WRITE_UP_EVENT, day: c.store.livedDay(), ref: `nrn_${String(left)}_${String(at)}`, payload: { state: "done", granted: 1, written: 0, parts: 0, unread: 0, left } });
+    c.close();
+  }
+
+  const noonToday = (): number => Date.parse(`${new Date().toISOString().slice(0, 10)}T12:00:00Z`);
+
+  test("S2c: the morning after a check-in, before the first prompt, it is owed and doctor is green; a catch-up that ran and left it is amber", async () => {
+    checkIn("checkin-1", noonToday() - DAY);
+    const morning = await doctorCatchUp();
+    expect(morning.severity).toBe("green");
+    expect(morning.detail).toContain("1 session to catch up");
+    expect(morning.detail).not.toContain("overdue");
+    expect(morning.data["stale"]).toBe(0);
+    // The night ran at the first prompt (dreaming `auto`, as an install sets it) and its catch-up left the check-in owed.
+    const s = Counterpart.open({ dir: storeDir, timeZone: ZONE });
+    s.store.setMeta(DREAMING_SETTING_KEY, "auto");
+    s.close();
+    nightRan(1);
+    const after = await doctorCatchUp();
+    expect(after.severity).toBe("amber");
+    expect(after.detail).toContain("1 session to catch up, 1 overdue (a catch-up has run since, or 2 days of use)");
+    expect(after.fix).toContain("The nightly run had its chance at these");
+    expect(after.data["stale"]).toBe(1);
+  });
+
+  test("S2c: away for days, no day of use since — still green; two days of use with no catch-up since — amber", async () => {
+    checkIn("checkin-old", noonToday() - 4 * DAY);
+    // A second run the check-in's own day, after it: no chance at it (same date), and it does not hide what follows.
+    nightRan(1, noonToday() - 4 * DAY + 3 * HOUR);
+    expect((await doctorCatchUp()).severity).toBe("green");
+    // One later day of use: the night's first chance is that day, and no row says it failed.
+    dayOfUse("used-1", noonToday() - DAY);
+    expect((await doctorCatchUp()).severity).toBe("green");
+    // A second: two days of use came and went and nothing cleared it — nights are not running.
+    dayOfUse("used-2", noonToday() - 2 * DAY);
+    const f = await doctorCatchUp();
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("1 overdue");
+  });
+
+  test("S2c: a catch-up the same day as the stretch is no chance at it; the catch-up's day decides, not its minute", async () => {
+    // Yesterday at noon a check-in; at three, a second run that day (a whole night after a catch-up-only one). Same date: it waits for the next night.
+    nightRan(1, noonToday() - DAY + 3 * HOUR);
+    checkIn("checkin-noon", noonToday() - DAY);
+    const f = await doctorCatchUp();
+    expect(f.severity).toBe("green");
+    expect(f.detail).not.toContain("overdue");
+  });
+
+  test("S2c: the lapsing count says what it counts — a short headless run (not small) and a short session with no registry record, apart", async () => {
+    const at = noonToday() - DAY;
+    // Six pieces in ten minutes from `claude -p`: not small, under the floor, no record of its own.
+    recordSession(storeDir, { sessionId: "print-6", scope: PROJ, phase: "start", at, entrypoint: "sdk-cli" });
+    const k = clocked(at);
+    const p = talker(k, "print-6");
+    for (let i = 0; i < 6; i++) p.piece(at + i * 2 * MIN);
+    p.end(at + 11 * MIN);
+    // Three pieces from a session the registry has no record of.
+    const q = talker(k, "unknown-3");
+    for (let i = 0; i < 3; i++) q.piece(at + HOUR + i * MIN);
+    q.end(at + HOUR + 5 * MIN);
+    k.c.close();
+    open.splice(open.indexOf(k.c), 1);
+    const f = await doctorCatchUp();
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain(
+      "nothing owed; 1 short headless run (claude -p, the Agent SDK) and 1 short session with no session record: not asked for a write-up, left to lapse",
+    );
+    expect(f.detail).not.toContain("small, not known");
+    expect(f.data["unpointed"]).toBe(2);
+    expect(f.data["unpointedHeadless"]).toBe(1);
+    expect(f.data["unpointedNoRecord"]).toBe(1);
+    // A night that ran does not make them overdue: they are never asked for.
+    nightRan(0);
+    expect((await doctorCatchUp()).severity).toBe("green");
+  });
+
+  // ── S2c review: the ambers a real problem still earns, whatever the setting ──
+
+  /** `counterparts doctor --json`, through the CLI: one finding by key. */
+  async function doctorFinding(key: string): Promise<{ severity: string; detail: string; fix: string; data: Record<string, unknown> }> {
+    const config = join(root, "claude-code.json");
+    writeFileSync(config, JSON.stringify({ dataDir: storeDir, timeZone: ZONE }));
+    const out: string[] = [];
+    await cliRun(["doctor", `--config=${config}`, "--json"], { io: { out: (l) => out.push(l), err: () => {} }, env: {}, home: join(root, "home") });
+    const json = JSON.parse(out.join("\n")) as { findings: { key: string; severity: string; detail: string; fix: string; data: Record<string, unknown> }[] };
+    const f = json.findings.find((x) => x.key === key);
+    if (f === undefined) throw new Error(`no ${key} finding`);
+    return f;
+  }
+
+  function setDreaming(value: "auto" | "ask" | "off"): void {
+    const s = Counterpart.open({ dir: storeDir, timeZone: ZONE });
+    s.store.setMeta(DREAMING_SETTING_KEY, value);
+    s.close();
+  }
+
+  function nightState(state: string, at: number, left: number): void {
+    const c = Counterpart.open({ dir: storeDir, timeZone: ZONE, now: () => at });
+    c.store.appendEvent({ name: NIGHT_WRITE_UP_EVENT, day: c.store.livedDay(), ref: `nrn_${state}_${String(at)}`, payload: { state, granted: 0, written: 0, parts: 0, unread: 0, left } });
+    c.close();
+  }
+
+  test("S2c review: dreaming OFF — no night ever runs; amber once two days of use pass, the Authorship count agrees, and it stays amber up to the lapse", async () => {
+    setDreaming("off");
+    checkIn("off-1", noonToday() - 15 * DAY);
+    expect((await doctorCatchUp()).severity).toBe("green");
+    dayOfUse("off-u1", noonToday() - 14 * DAY);
+    expect((await doctorCatchUp()).severity).toBe("green");
+    dayOfUse("off-u2", noonToday() - 13 * DAY);
+    const f = await doctorCatchUp();
+    expect(f.severity).toBe("amber");
+    expect(f.detail).toContain("1 overdue");
+    expect(f.fix).toContain("Run counterparts catch-up");
+    expect(f.fix).toContain("lapses after 14 days of use");
+    const a = await doctorFinding("authorship");
+    expect(a.data["owedStale"]).toBe(1);
+    expect(a.detail).toContain("1 overdue (a catch-up has run since, or 2 days of use)");
+    // Up to day of use 13 of 14: still owed, still amber.
+    for (let d = 12; d >= 2; d--) dayOfUse(`off-u${String(15 - d)}`, noonToday() - d * DAY);
+    const late = await doctorCatchUp();
+    expect(late.severity).toBe("amber");
+    expect(late.data["stale"]).toBe(1);
+  });
+
+  test("S2c review: a night that cannot start, or fails, every morning — amber the first morning it leaves the check-in owed", async () => {
+    for (const state of ["could-not-start", "failed"]) {
+      rmSync(storeDir, { recursive: true, force: true });
+      setDreaming("auto");
+      checkIn(`broken-${state}`, noonToday() - DAY);
+      expect((await doctorCatchUp()).severity).toBe("green");
+      nightState(state, Date.now(), 1);
+      const f = await doctorCatchUp();
+      expect(f.severity).toBe("amber");
+      expect(f.data["stale"]).toBe(1);
+    }
+  });
+
+  test("S2c review: the ordinary auto week — a night each morning clears yesterday's check-in — is green every morning, before and after the night", async () => {
+    setDreaming("auto");
+    for (let d = 3; d >= 1; d--) {
+      const morning = noonToday() - d * DAY - 4 * HOUR;
+      // The morning's night clears what is owed, then the day's check-in.
+      const k = clocked(morning);
+      for (const e of ledger(k.c.spans, { now: morning, zone: ZONE }).filter((x) => x.owed)) {
+        k.c.spans.claimCoverage({ scope: PROJ, session: e.session, proposalId: `prp_night_${e.session}` });
+      }
+      k.c.close();
+      open.splice(open.indexOf(k.c), 1);
+      nightState("done", morning + MIN, 0);
+      checkIn(`week-${String(d)}`, noonToday() - d * DAY);
+    }
+    // This morning, before the first prompt: yesterday's check-in waits for its night.
+    const f = await doctorCatchUp();
+    expect(f.severity).toBe("green");
+    expect(f.detail).toContain("1 session to catch up");
+    expect(f.data["stale"]).toBe(0);
+    expect((await doctorFinding("authorship")).data["owedStale"]).toBe(0);
   });
 
   test("the catch-up's unread line is today's, or that run's date's — never a past date's from a later run (review of #435)", () => {

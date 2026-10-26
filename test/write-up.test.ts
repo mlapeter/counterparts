@@ -33,7 +33,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Counterpart, SWEEP_GATE_EVENT } from "../src/core/counterpart.js";
+import { Counterpart, NIGHT_WRITE_UP_EVENT, SWEEP_GATE_EVENT } from "../src/core/counterpart.js";
 import { SpanBuffer, planRetention } from "../src/core/remember/index.js";
 import type { ProposalRecord } from "../src/core/remember/proposals.js";
 import { SELF_TUNABLES } from "../src/core/self/index.js";
@@ -133,6 +133,16 @@ function seeder(): { c: Counterpart; set(at: number): void; done(): void } {
       c.close();
     },
   };
+}
+
+/** A catch-up ran at `at` and left `left` sessions owed: its durable row, as
+ *  `night-catch-up.ts` writes it. A debt from an earlier date had its chance
+ *  (S2c, 2026-10-26). */
+function catchUpRan(at = Date.now(), left = 1): void {
+  const s = seeder();
+  s.set(at);
+  s.c.store.appendEvent({ name: NIGHT_WRITE_UP_EVENT, day: s.c.store.livedDay(), ref: `nrn_${String(at)}`, payload: { state: "done", granted: 0, written: 0, parts: 0, unread: 0, left } });
+  s.done();
 }
 
 /** Words said to a session, `bytes` of them, in `captures` boundaries. */
@@ -1098,9 +1108,10 @@ describe("doctor: one line, `Write-ups` (#192's `Crash write-up`, re-read off th
     ended(s, "crashed", { at: Date.now() - 5 * DAY, end: "crash" });
     ended(s, "unanswered", { at: Date.now() - 2 * DAY, end: "normal" });
     s.done();
+    catchUpRan(Date.now(), 2);
     const got = line();
     expect(got.severity).toBe("amber");
-    expect(got.detail).toContain("2 sessions to catch up, 2 from yesterday or earlier");
+    expect(got.detail).toContain("2 sessions to catch up, 2 overdue (a catch-up has run since, or 2 days of use)");
   });
 
   test("a session finished here and waiting on another project names that project (m-C)", async () => {
@@ -1116,6 +1127,8 @@ describe("doctor: one line, `Write-ups` (#192's `Crash write-up`, re-read off th
     expect(payload(await s.call("session_end", { session: "proj-writer", writeUp: "multi", memories: [] }))["reason"]).toBe("written-up-here");
     s.counterpart.close();
     open.splice(open.indexOf(s.counterpart), 1);
+    // Finished here and waiting on OTHER is the ordinary state until a catch-up has had its chance (S2c).
+    catchUpRan();
     const c = Counterpart.open({ dir: storeDir });
     open.push(c);
     const f = doctorFindings({
@@ -1133,7 +1146,7 @@ describe("doctor: one line, `Write-ups` (#192's `Crash write-up`, re-read off th
     expect(f?.fix).toContain("Run counterparts catch-up");
   });
 
-  test("counts the sessions that owe, and turns amber once one is from yesterday or earlier", () => {
+  test("counts the sessions that owe, and turns amber once a catch-up has run since one (S2c: not merely from yesterday or earlier)", () => {
     const s = seeder();
     ended(s, "fresh", { at: earlierToday() });
     s.done();
@@ -1144,9 +1157,16 @@ describe("doctor: one line, `Write-ups` (#192's `Crash write-up`, re-read off th
     const t = seeder();
     ended(t, "stale", { at: Date.now() - 5 * DAY, scope: OTHER });
     t.done();
+    // Five days old and no night since (and no day of use): waiting for its first catch-up, not a problem.
+    const waiting = line();
+    expect(waiting.severity).toBe("green");
+    expect(waiting.detail).toContain("; 2 sessions to catch up");
+    expect(waiting.detail).not.toContain("overdue");
+    // A catch-up ran today: the old one had its chance; today's has not.
+    catchUpRan();
     const amber = line();
     expect(amber.severity).toBe("amber");
-    expect(amber.detail).toContain("; 2 sessions to catch up, 1 from yesterday or earlier");
+    expect(amber.detail).toContain("; 2 sessions to catch up, 1 overdue (a catch-up has run since, or 2 days of use)");
   });
 
   test("Authorship carries the owed count as detail and stays green — the loss is Write-ups' one amber", () => {
@@ -1173,11 +1193,12 @@ describe("doctor: one line, `Write-ups` (#192's `Crash write-up`, re-read off th
     const t = seeder();
     ended(t, "stale", { at: Date.now() - (WRITE_UP_WAIT_DAYS + 2) * DAY, scope: OTHER });
     t.done();
+    catchUpRan();
     const late = lines();
     expect(late.crash).toBe("amber");
     expect(late.authorship.severity).toBe("green");
     expect(late.authorship.stale).toBe(1);
-    expect(late.authorship.detail).toContain("1 session awaiting catch-up, 1 from yesterday or earlier");
+    expect(late.authorship.detail).toContain("1 session awaiting catch-up, 1 overdue (a catch-up has run since, or 2 days of use)");
   });
 });
 
@@ -1409,10 +1430,11 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
     expect(f?.fix).not.toContain("The wake is too full");
   });
 
-  test("doctor counts a small owed stretch like any debt: amber from the day after (2026-09-30)", () => {
+  test("doctor counts a small owed stretch like any debt: amber once a catch-up has run since (2026-09-30; S2c)", () => {
     const s = seeder();
     ended(s, "short-old", { at: Date.now() - (WRITE_UP_WAIT_DAYS + 2) * DAY, bytes: 200, asked: false });
     s.done();
+    catchUpRan();
     const c = Counterpart.open({ dir: storeDir });
     try {
       const f = doctorFindings({
@@ -1425,7 +1447,7 @@ describe("the short write-up: a small owed stretch (2026-09-29; since 2026-09-30
         refusals: {},
       }).find((x) => x.key === "crash-write-up");
       expect(f?.severity).toBe("amber");
-      expect(f?.detail).toContain("1 session to catch up, 1 from yesterday or earlier");
+      expect(f?.detail).toContain("1 session to catch up, 1 overdue (a catch-up has run since, or 2 days of use)");
     } finally {
       c.close();
     }

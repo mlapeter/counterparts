@@ -1725,11 +1725,33 @@ function smallWriteUpDue(h: HeldSession, dataDir: string): boolean {
  * (`overFloor` absent) is read as past it.
  */
 export function pointable(h: { readonly session: string; readonly small: boolean; readonly overFloor?: boolean }, dataDir: string): boolean {
-  if (!h.small && h.overFloor !== false) return true;
+  return notPointableWhy(h, dataDir) === null;
+}
+
+/**
+ * WHY `pointable` SAYS NO (S2c, 2026-10-26), so a count of them can say what
+ * it counts: `headless` — a short debt from a session that is not a person's
+ * conversation (`claude -p`, the Agent SDK); `no-record` — a short debt whose
+ * session has no registry record, so nobody can say whose it was. Null: it
+ * is pointable. "Short" is small, or under the floor.
+ */
+export function notPointableWhy(
+  h: { readonly session: string; readonly small: boolean; readonly overFloor?: boolean },
+  dataDir: string,
+): "headless" | "no-record" | null {
+  if (!h.small && h.overFloor !== false) return null;
   const path = sessionPath(dataDir, h.session);
-  if (path === null || !existsSync(path)) return !h.small && h.overFloor !== false;
+  if (path === null || !existsSync(path)) return "no-record";
   const entrypoint = readSession(dataDir, h.session)?.entrypoint;
-  return entrypoint === undefined || !NON_INTERACTIVE_ENTRYPOINTS.has(entrypoint);
+  return entrypoint !== undefined && NON_INTERACTIVE_ENTRYPOINTS.has(entrypoint) ? "headless" : null;
+}
+
+/** What a count of the debts `pointable` refuses says, by reason ("" when none). */
+export function lapsingWords(headless: number, noRecord: number): string {
+  const parts: string[] = [];
+  if (headless > 0) parts.push(`${String(headless)} short headless run${headless === 1 ? "" : "s"} (claude -p, the Agent SDK)`);
+  if (noRecord > 0) parts.push(`${String(noRecord)} short session${noRecord === 1 ? "" : "s"} with no session record`);
+  return parts.length === 0 ? "" : `${parts.join(" and ")}: not asked for a write-up, left to lapse`;
 }
 
 /**

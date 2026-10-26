@@ -294,8 +294,8 @@ Read (read-only, by build; never the live store's text):
 - owed rows per day and their size: `SELECT substr(json_extract(payload,'$.from'),1,10) AS d, COUNT(*), SUM(json_extract(payload,'$.pieces')) FROM events WHERE name='coverage.owed' AND json_extract(payload,'$.build')='<build>' GROUP BY d;`
   expect ~3 a day, most 1–3 pieces;
 - the night's catch-up rows (`adapter.night.writeup`): `parts`, `written`, `left`, `batches` per night — expect one
-  batch and `left` 0 on an ordinary day; `doctor`'s Catch-up line, and whether "N small, not known as a person's
-  session: left to lapse" or "lost unwritten this week" grow (headless `claude -p` sessions under the floor are owed in
+  batch and `left` 0 on an ordinary day; `doctor`'s Catch-up line, and whether "N short headless runs (claude -p, the Agent SDK)"
+  (since S2c; was "N small, not known as a person's session") or "lost unwritten this week" grow (headless `claude -p` sessions under the floor are owed in
   the ledger, kept and never taken — `pointable` holds them to the floor: if that count climbs, give the ledger
   the host's word on who is a person); and nights launched as `night:owed-as-new` that ended as the catch-up alone
   (`dream.night` children `skipped-too-little-new`): the catch-up did not deliver what the gate counted;

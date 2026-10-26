@@ -111,7 +111,9 @@ line finds the chapters written in a directory (`handoff/NOTES.md` §9).
 
 The `Write-ups` line replaces #192's `Crash write-up` and keeps its key (`crash-write-up`)
 so the console's layout and its headline order are untouched. The 3-day wait is gone:
-amber when a stretch from yesterday or earlier is owed.
+amber when a stretch from yesterday or earlier is owed. (Since S2c, 2026-10-26: when an owed
+stretch is overdue — a catch-up ran on a later date and left it, or two days of use passed
+with no catch-up since. After S2 the old rule was amber every morning for check-ins.)
 
 ## 9. Lapse after fourteen days of use, not three (2026-10-10, Group 1c)
 

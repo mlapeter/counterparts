@@ -145,7 +145,7 @@ import {
 } from "./doctor-self-page.js";
 import { hostFindings, runtimeFindings, desktopFindings } from "./doctor-host.js";
 import type { HostReading, DesktopReading } from "./doctor-host.js";
-import { readOwed, crashWriteUpFindings } from "./doctor-write-ups.js";
+import { readOwed, crashWriteUpFindings, overdueWords } from "./doctor-write-ups.js";
 import type { OwedSource, OwedReading } from "./doctor-write-ups.js";
 import { worstFirst } from "./doctor-report.js";
 import { feedbackLoopFindings } from "./doctor-feedback.js";
@@ -1270,7 +1270,7 @@ function drewOnWeek(store: Store, livedDay: number): { calls: number; named: num
  *
  * GREEN, with counts: cap refusals and the sweep's share are not losses, and
  * the one loss it could name — a session that owes a write-up
- * (`core/coverage/`) from yesterday or earlier — is the `Write-ups` line's
+ * (`core/coverage/`) the catch-up had its chance at — is the `Write-ups` line's
  * amber. This line carries that count as detail, or says "unknown"
  * when it could not be read. The session-start reading does not read the owed
  * sessions (it walks every scope's words), so there the line omits them.
@@ -1510,7 +1510,7 @@ function authorshipFindings(input: DoctorInput, store: Store, owedReading: OwedS
         : owed.waiting === 0
           ? ""
           : `; ${plural(owed.waiting, "session", "sessions")} awaiting catch-up` +
-            (owed.stale === 0 ? "" : `, ${String(owed.stale)} from yesterday or earlier`);
+            (owed.stale === 0 ? "" : `, ${overdueWords(owed.stale)}`);
   const detail =
     `${windowPhrase(shown, input.today)}: invited to write ${plural(asked, "time", "times")}, ` +
     `${plural(paced, "Stop", "Stops")} paced out, ${String(capped)} over the day's allowance` +
@@ -3403,7 +3403,7 @@ export function doctorFindings(input: DoctorInput): Finding[] {
   let owedCache: { value: OwedReading | "failed" } | null = null;
   const owedReading: OwedSource = () => {
     if (!owedAllowed) return null;
-    owedCache ??= { value: readOwed(store, input.today) };
+    owedCache ??= { value: readOwed(store) };
     return owedCache.value;
   };
   const groups: (readonly [string, () => Finding[]])[] = [
