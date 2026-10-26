@@ -230,6 +230,14 @@ export interface WeekRecord {
   readonly days: number;
   /** Who sat in the seat: "model" or "scripted" (tier 0, no model). */
   readonly seat: "model" | "scripted";
+  /**
+   * How the store began (`WeekOptions.install` as it took effect): `"new"`, a
+   * new install with the meeting offered; `"without-meeting"`, an owner who
+   * skipped it (a scripted seat's default: no model is there to hold it, and
+   * the gate waits while one is pending); `"bare"`, no install meta. A
+   * harness choice, not the product's new-install path.
+   */
+  readonly install: "new" | "without-meeting" | "bare";
   /** Model children started, turns and nights: every call to the starter. 0 for a scripted seat, by construction and by count. */
   readonly modelCalls: number;
   readonly sessions: readonly SessionLine[];
@@ -866,6 +874,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     elapsedMs: Date.now() - w.started,
     days: script.length,
     seat: scripted ? "scripted" : "model",
+    install: install === false ? "bare" : install === "without-meeting" ? "without-meeting" : "new",
     modelCalls,
     sessions,
     nights,

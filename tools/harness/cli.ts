@@ -132,6 +132,10 @@ export function renderNight(r: NightReplayRecord): string {
 /** The week's record, as lines: per session, per night, per wake. Counts, states and labels only. */
 export function renderWeek(r: WeekRecord): string {
   const out: string[] = [`${r.owner}'s first week (${r.script}, seat ${r.seat}) · ${String(r.days)} days · ${r.elapsedMs < 60_000 ? `${(r.elapsedMs / 1000).toFixed(1)} s` : `${(r.elapsedMs / 60_000).toFixed(1)} min`} · model calls ${String(r.modelCalls)}`];
+  // WHAT THE HARNESS CHOSE, said before any number (review of #632): a scripted seat's replies are canned and its
+  // owner skipped the meeting, so nothing below reads as the product's own new-install path or a model's choices.
+  if (r.seat === "scripted") out.push("  HARNESS, NOT PRODUCT: scripted seat (canned replies, scripted tool calls, nights' seat refuses every ask)");
+  if (r.install === "without-meeting") out.push("  HARNESS, NOT PRODUCT: began without the meeting (an owner who skipped it), so the first night can come on day 1");
   for (const x of r.sessions) {
     const c = x.coverage;
     const ledger = c === null ? "ledger: nothing captured" : `captured ${String(c.pieces)}, written ${String(c.written)}, unwritten ${String(c.unwritten)}${c.spanMin === null ? "" : ` over ${String(c.spanMin)} min`} · ${c.owed ? "OWED" : `not owed (${c.whyNot ?? "?"})`}`;

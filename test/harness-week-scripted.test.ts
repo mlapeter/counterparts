@@ -91,6 +91,10 @@ test("the check-ins week runs through the real hooks with no model: remembers la
   expect(json).not.toContain("grumpy");
   expect(json).not.toContain("Priya");
   expect(renderWeek(r)).toContain("model calls 0");
+  // The harness's own choices are said as such, so nobody reads them as product behaviour.
+  expect(r.install).toBe("without-meeting");
+  expect(renderWeek(r)).toContain("HARNESS, NOT PRODUCT: scripted seat");
+  expect(renderWeek(r)).toContain("HARNESS, NOT PRODUCT: began without the meeting");
   expect(readdirSync(join(root, "work"))).toEqual([]);
 });
 
