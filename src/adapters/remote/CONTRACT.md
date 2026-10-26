@@ -54,8 +54,9 @@ on the owner's machine through a tunnel he starts.
   door.
 - **Origin / Host checks and CORS.** The tunnel forwards its own hostname and claude.ai
   calls from its cloud, so neither header can be named in advance. DNS rebinding needs the
-  path, which no page has; with no CORS headers a browser cannot read an answer, and a
-  cross-origin JSON POST fails its preflight.
+  path, which no page has; with no CORS headers a browser cannot read an answer. The
+  Content-Type is not checked, so a page that knew the path could still send a `text/plain`
+  POST with no preflight and be served: the secret is the whole defense (review of #634).
 - **SSE and server-to-client messages.** Plain JSON answers only, so a tunnel that does not
   stream can carry it.
 - **A console command or package bin.** The door is run by path from the trial script

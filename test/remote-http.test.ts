@@ -258,6 +258,20 @@ describe("the HTTP door, through the socket", () => {
     expect(most).toBe(1);
   });
 
+  test("a throw inside the server answers 'internal error', never its message (it could name a path)", async () => {
+    const throwing = {
+      async handle(): Promise<never> {
+        throw new Error("ENOENT: no such file, open '/Users/someone/counterparts-trials/claude-ai/store/x'");
+      },
+    };
+    const http = await serveHttp({ server: throwing });
+    closers.push(() => http.close());
+    const out = await rpc(http.url, "ping");
+    expect(out.status).toBe(200);
+    expect(out.body["error"]).toEqual({ code: -32603, message: "internal error" });
+    expect(JSON.stringify(out.body)).not.toContain("/Users/");
+  });
+
   test("a batch (2025-03-26) is answered as an array, notifications left out", async () => {
     const { http } = await door();
     const res = await fetch(http.url, {

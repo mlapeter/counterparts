@@ -26,8 +26,13 @@
  *     hostname, and claude.ai calls from Anthropic's cloud, so neither header
  *     is something this file can name in advance. DNS rebinding — the attack the
  *     spec's Origin rule is for — needs the page to know the path, and the path
- *     is a 192-bit secret no page has. With no CORS headers a browser cannot read
- *     an answer anyway, and a JSON POST from another origin fails its preflight.
+ *     is a 192-bit secret no page has. THE SECRET IS THE WHOLE DEFENSE (review
+ *     of #634): with no CORS headers a page cannot READ an answer, but the
+ *     Content-Type is not checked, so a `text/plain` POST — a "simple" request,
+ *     sent with no preflight — would still be served to a page that knew the
+ *     path. Treat the URL as a password.
+ *   - **Nothing about the host in an error.** A throw inside `handle` answers
+ *     "internal error", never its message, which could carry a path on disk.
  *   - **Bounded.** A body over `maxBodyBytes` is `413`; a body that is not JSON
  *     is `400` with JSON-RPC's parse error; headers and requests time out.
  *   - **One call at a time.** `McpServer` keeps per-call state on the instance
@@ -202,8 +207,9 @@ export async function serveHttp(opts: ServeHttpOptions): Promise<RunningHttp> {
     let response: Response | null;
     try {
       response = await serial(() => opts.server.handle(request));
-    } catch (err) {
-      response = request.id === undefined ? null : failure(request.id, ERROR_CODES.INTERNAL_ERROR, String((err as Error).message ?? err));
+    } catch {
+      // The message stays on this machine: it could name a path on disk.
+      response = request.id === undefined ? null : failure(request.id, ERROR_CODES.INTERNAL_ERROR, "internal error");
     }
     const params = request.params ?? {};
     const isInit = request.method === "initialize";
