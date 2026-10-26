@@ -1,0 +1,12 @@
+{
+  "name": "counterparts-hosted",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The hosted Counterparts server (app.counterparts.ai). Never published; ships as a container. Design: docs/hosted/DESIGN.md.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {}
+}
