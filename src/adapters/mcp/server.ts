@@ -55,7 +55,7 @@
  * No body text, no question text, no note text ever reaches an event.
  */
 import { MCP_OVERSIZE_EVENT, MCP_PART_EVENT, MCP_RECALL_EVENT, boundedIds } from "../../core/counterpart.js";
-import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT, SLOT_HINT } from "../../core/reconsolidation.js";
+import { CONTRADICTION_TUNABLES, HELD_HINT, NEIGHBOURS_HINT, SLOT_HINT, contentWords } from "../../core/reconsolidation.js";
 import type { Neighbour } from "../../core/reconsolidation.js";
 import { localDate, todayIn } from "../../core/time.js";
 import type { Recurrence } from "../../core/time.js";
@@ -154,8 +154,16 @@ import {
   embedQuestion,
 } from "./deliberate.js";
 import type { DeliberateResult } from "./deliberate.js";
-import { NIGHTS_GLOSS } from "./nights.js";
+import { LAST_NIGHT_WIRE_CHARS, NIGHTS_GLOSS, isLastNightHandle, nightsForQuestion, readLastNight } from "./nights.js";
+import type { QuestionNightWhy } from "./nights.js";
 import { claudeAiWakeText, sameYouLine } from "./chat-wake.js";
+
+/** Why a dream rode beside a question's answer, as the result says it. */
+const QUESTION_NIGHT_WHY: Readonly<Record<QuestionNightWhy, string>> = {
+  "reflection-shown": "the answer shows the reflection that followed this dream",
+  words: "this dream's title or journal shares words with the question",
+  "names-dreams": "the question asks about dreams; this is the newest",
+};
 import type { NightSummary } from "./nights.js";
 import { factsRecall, renderFacts } from "./facts.js";
 import { meaningRecall, renderMeaning } from "./meaning.js";
@@ -1474,6 +1482,7 @@ export class McpServer {
         dreaming: this.counterpart.dreams.setting(),
         folders: this.meetAsksWhere(),
         plugin: this.install === "plugin" && !this.desktop,
+        web: this.host === CLAUDE_AI_HOST,
         state,
       });
       this.emit("mcp.meet.read", undefined, { state });
@@ -1512,6 +1521,7 @@ export class McpServer {
         const next = finishText({
           name: this.counterpart.ownerDisplayName(),
           dreaming: this.counterpart.dreams.setting(),
+          web: this.host === CLAUDE_AI_HOST,
           sidebar:
             !this.desktop &&
             sidebarBeside({
@@ -2246,6 +2256,10 @@ export class McpServer {
     const stillOpenAsked =
       (typeof handle === "string" && handle.trim().toLowerCase() === STILL_OPEN_HANDLE && args["question"] === undefined && args["ids"] === undefined) ||
       (handle === undefined && args["ids"] === undefined && args["mode"] === "facts" && typeof args["question"] === "string" && asksStillOpen(args["question"]));
+    // LAST NIGHT, WHOLE (2026-10-26, OL1b): "last dream" / "last night".
+    if (isLastNightHandle(handle) && args["question"] === undefined && args["ids"] === undefined) {
+      return this.lastNightTool(String(handle).trim().toLowerCase());
+    }
     if (stillOpenAsked) {
       const page = args["page"];
       if (page !== undefined && (typeof page !== "number" || !Number.isInteger(page) || page < 1)) {
@@ -2427,6 +2441,41 @@ export class McpServer {
    * (`self/identity.ts#openCarry`), so asking cannot keep a thread carried.
    * Never reached under observer (G5): recall stands down first.
    */
+  /**
+   * THE NEWEST NIGHT, WHOLE (2026-10-26, OL1b item 3): its dream — title,
+   * journal uncut, what it did — and the reflection after it, entry and share
+   * uncut (`nights.ts#readLastNight`). Read-only, like every night: it credits
+   * nothing and marks nothing seen; the memory ids it names open as usual.
+   * Every host's: a chat with no console reads last night this way.
+   */
+  private lastNightTool(handle: string): ToolResult {
+    // The two parts' room, under this server's ceiling with the words beside them (review of #645).
+    const night = readLastNight(this.counterpart, Math.min(LAST_NIGHT_WIRE_CHARS, this.resultCeilingChars - 4_000));
+    const found = night.dream !== null || night.reflection !== null;
+    this.emit("mcp.recall.lastnight", undefined, { dream: night.dream !== null, reflection: night.reflection !== null, cut: night.reflectionCut ?? null });
+    const rid = night.reflection?.id ?? "";
+    const cutNote =
+      night.reflectionCut === "summary"
+        ? ` The two together were more than one answer carries, so the reflection comes as a summary (its entry cut; entryChars is the whole length): recall with handle ${rid} reads it whole.`
+        : night.reflectionCut === "pointer"
+          ? ` The two together were more than one answer carries, so the reflection is named by id only: recall with handle ${rid} reads it whole.`
+          : "";
+    return this.result(
+      {
+        path: "handle",
+        reason: found ? "last-night" : "no-night",
+        handle,
+        ...(night.dream === null ? {} : { dream: { ...night.dream } }),
+        ...(night.reflection === null ? {} : { reflection: { ...night.reflection } }),
+        ...(found ? { nightsGloss: NIGHTS_GLOSS } : {}),
+        note: found
+          ? `The newest dream, whole, and the reflection after it. Reading it marks nothing: a share it shows as not yet told is still untold (once it is told, the reflect tool's phase "told" marks it, as the wake says).${cutNote}`
+          : "No dream or reflection yet: nights have not run on this memory.",
+      },
+      false,
+    );
+  }
+
   private stillOpenTool(page: number, routed: boolean): ToolResult {
     // For this folder, as its wake reads it (O2, 2026-10-26): its own first,
     // the personal ones after, another folder's work not listed or counted;
@@ -2571,6 +2620,29 @@ export class McpServer {
     this.noteRecall(row, 0, question, false, payload, ids, key);
     this.markSeen(ids, key);
     this.noteAsked(ids, key, question);
+    // DREAMS THE QUESTION REACHES (2026-10-26, OL1b): a dream is not a memory,
+    // so neither mode finds one; beside the answer, read-only, on its first
+    // page (`nights.ts#nightsForQuestion`). Credits and marks nothing.
+    const dreams = page === 1 ? nightsForQuestion(this.counterpart, question, ids, (t) => contentWords(t)) : [];
+    // The answer first (review of #645): a dream that would carry the result
+    // past its ceiling stays out, so the net never cuts the answer for it.
+    const dreamGloss = `${NIGHTS_GLOSS} recall with handle "last dream" reads the newest whole, and a dream's id alone reads that one whole.`;
+    while (dreams.length > 0) {
+      const tried = { ...payload, nights: dreams.map((d) => ({ ...d.night, why: QUESTION_NIGHT_WHY[d.why] })), nightsGloss: dreamGloss };
+      if (wireChars(JSON.stringify(tried)) <= this.resultCeilingChars) break;
+      dreams.pop();
+    }
+    if (dreams.length > 0) {
+      this.emit("mcp.recall.nights", undefined, { dreams: dreams.length, why: dreams.map((d) => d.why).join(",") });
+      return this.result(
+        {
+          ...payload,
+          nights: dreams.map((d) => ({ ...d.night, why: QUESTION_NIGHT_WHY[d.why] })),
+          nightsGloss: dreamGloss,
+        },
+        false,
+      );
+    }
     return this.result(payload, false);
   }
 

@@ -11,8 +11,11 @@ on a fresh trial store, to measure two things docs can't tell us: whether Claude
   `brew install cloudflared`. `--local` skips the tunnel; `--dry-run` prints what it would run.
 - `trial.sh check` starts it locally, checks initialize, tools/list, the canary, a 404 on a
   wrong path and the loopback bind, then stops.
-- `trial.sh report` reads the call log (`calls.jsonl`, ids and codes only): per connection,
-  whether `wake` came first, and the client name claude.ai sent.
+- `trial.sh report` reads the call log (`calls.jsonl`, ids and codes only) per chat:
+  claude.ai keeps one connection across chats, so a chat is the session its `wake`
+  minted. Each row: whether it woke, its tools in order, remembers, a chapter. Calls
+  that named no session are counted apart per connection, with how many came before
+  any wake (a chat that started without waking). Plus the client name claude.ai sent.
 - `trial.sh night <local url>` (optional) runs a night by hand with `claude -p` against the
   running trial server, with hooks, other MCP servers and claude.ai connectors off.
   `trial.sh prompt` prints the night prompt, which is also the Cowork scheduled task's text.
