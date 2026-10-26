@@ -24,7 +24,7 @@ Each question is flagged, not quietly decided. These are what the coordinator re
 | Q1 | OAuth library | **`oidc-provider` 9.x** (panva), pinned exactly, in the hosted package only. Fallback: a hand-written authorization server rewritten in `hosted/` on the phone project's pattern, about 400 lines there (that repo is reference only, never imported) (§4.6) | A certified, maintained protocol core, against roughly 33 transitive packages and a big configuration surface we must set correctly |
 | Q2 | Encrypt the SQLite file itself, or rely on an encrypted volume plus per-user-key backups | **Volume at rest plus per-user-key-encrypted backups** for the beta (§5) | A copy of the live disk is readable plaintext if Railway's disk encryption doesn't hold. File-level encryption would close that, but neither built-in driver can do it (**M**) |
 | Q3 | How backups leave the host | **Litestream v0.5.13+, one `path:` entry per store, each with its own SSE-C key file**, to R2 (§5.3) | Point-in-time restore, but the config is static (regenerated and reloaded per signup or delete), and R2 sees the key on each request. The alternative: our own snapshot shipping, encrypted on our side (the provider never holds a key; loses up to one interval of writes) |
-| Q4 | When a delete becomes unreadable everywhere | **Answered by Mike (2026-10-26): at once, everywhere.** Each wrapped DEK is one write-once R2 object, deleted with everything else (§5.4) | The control databases' backup history keeps a deleted address for Litestream's snapshot retention (24 h); flagged in §5.4 |
+| Q4 | When a delete becomes unreadable everywhere | **Answered by Mike (2026-10-26): at once, everywhere.** Each wrapped DEK is one write-once R2 object, deleted with everything else (§5.4) | The account email leaves the control database's backups within 24 hours (Mike's beta wording; snapshots 12 h / 12 h). Encrypting it under the DEK is a gate before non-family users (§5.4) |
 | Q5 | Where the code lives | **`hosted/` at the repo root**: a private package with its own `package.json` and its own dependencies, left out of npm `files`. It imports the core by relative path (§8) | The core stays zero-dependency and its network guard stays honest, at the cost of a second package in one repo |
 | Q6 | Which runtime runs the hosted server | **Node 24 LTS in the container** (the package already runs on Node through `node-hooks.mjs`). Tests run under bun too (§8.2) | `oidc-provider` supports Node only and prints "Unsupported runtime" on bun, even though the spike passed there (**M**) |
 | Q7 | The background worker (`wake` spawns `runner.ts` per boundary) | **Keep the child process, through the existing `Spawner` seam, behind a global cap and one pending run per store.** In-process comes later (§2.5) | It reuses the proven runner and isolates CPU, at the cost of one short-lived process per run |
@@ -399,7 +399,8 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 
 > Your memory is stored encrypted on our host's disks, and every backup is encrypted with a key that belongs to your
 > account alone. When you delete your account, your memory, its backups and your key are erased at once, so no copy
-> anywhere can be read again by anyone, us included. We hold the keys, so this protects your memory
+> of your memory anywhere can be read again by anyone, us included. Your account email is purged from our encrypted
+> account backups within 24 hours. We hold the keys, so this protects your memory
 > from lost disks, leaked backups and our backup provider, not from us: "we don't read it" is our promise, kept by access
 > controls and an audit log, not by math. And when Claude reads your memory, Anthropic sees what Claude reads.
 
@@ -473,21 +474,28 @@ Railway's own volume backups stay **off**. Their retention is Railway's, not our
 - **R2 credentials.** R2 gets its own narrowly scoped token: one bucket, objects only. It is used by the object client
   (`egress.ts#r2ObjectStore`, SigV4 via `aws4fetch` 1.0.20, pinned, zero dependencies) and by the Litestream child (its
   own environment). The worker child never sees it (`tenants.ts#workerEnv`).
-- **Still open (flagged): the control databases' backup history.** After a delete, `accounts.sqlite`'s Litestream history
-  (the snapshot taken before the delete, and the LTX files after it) still holds the deleted address until that history
-  ages out. With the defaults (`snapshot.interval` 24 h, `snapshot.retention` 24 h) that is at most about 24 h after the
-  delete, plus Litestream's retention-check lag (not measured: no binary in the build). It's SSE-C ciphertext under the
-  `control` key, which isn't shredded. The audit rows (person id, action codes, invite id, no address) stay as
-  tombstones by design. Store content is gone at once; this is the account row.
-  - To make it "at once" too: keep the address encrypted under the person's DEK, plus a keyed hash (HMAC) of it for
-    lookup. Then shredding the DEK leaves only the hash in old copies.
-  - Recommended: do that before any non-family user.
+- **The account email in backups: purged within 24 hours** (Mike, 2026-10-26, 16:21: the beta's wording). After a
+  delete, `accounts.sqlite`'s Litestream history still holds the deleted address until that history ages out. That
+  history is the snapshot taken before the delete plus the LTX files after it, and it is SSE-C ciphertext under the
+  `control` key, which isn't shredded.
+  - **The bound.** The address lasts at most max(snapshot interval, snapshot retention) after the delete, plus
+    Litestream's retention-enforcement lag. Its docs don't state that lag, and it isn't measured (no binary in the
+    build).
+  - **The settings.** Litestream's defaults (24 h / 24 h) would make the honest bound "24 h plus an unknown lag", so the
+    generated configuration sets **`snapshot.interval` 12 h and `snapshot.retention` 12 h**
+    (`backup.ts#SNAPSHOT_HOURS`). That leaves 12 h of room for the lag inside the 24 h promise.
+  - **The cost.** Two snapshots a day instead of one, and a 12 h point-in-time window.
+  - The audit rows (person id, action codes, invite id, no address) stay as tombstones by design.
+  - The account page, the done page and the 202 "didn't finish" page all say "purged within 24 hours".
 
-**Gates before any non-family user** (next to the security review):
+**Gates before any non-family user** (next to the security review; `hosted/INTERFACE-GAPS.md` mirrors them):
 1. Railway's disk encryption confirmed in writing.
 2. **The Cloudflare key service in place.** The reason: Railway's environment variables were reportedly breached
    recently (Mike's report, not verified). A single leak of them would expose both the KEK and the R2 credentials, which
    means every backup.
+3. **The account email encrypted under the person's DEK, with a keyed hash for lookup.** The hash key sits next to the
+   KEK, behind `KeyWrapper`. Shredding the DEK then leaves only the hash in old copies, so the email goes "at once" like
+   everything else. It is built in the same hardening pass as the key service. Not built now.
 
 ---
 

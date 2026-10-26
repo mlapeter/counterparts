@@ -235,7 +235,7 @@ ${
     ? ""
     : `<h2>Delete everything</h2>
 <form method="post" action="/account/delete"><input type="hidden" name="csrf" value="${token}">
-<p class="muted">Deletes your memory, its backups and your account, at once. It can't be undone. Download it first if you want to keep it.</p>
+<p class="muted">Deletes your memory and its backups at once, and closes your account. Your account email is purged from our encrypted account backups within 24 hours. It can't be undone. Download your memory first if you want to keep it.</p>
 <label>Type your email address to confirm<br><input type="email" name="confirm" autocomplete="off"></label>
 <button type="submit">Delete my account and memory</button></form>`
 }
@@ -292,14 +292,14 @@ ${
         page(res, 202, {
           title: "Deleting",
           headers: { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) },
-          body: `<h1>Deleting</h1><p>Your account is closed. Part of the deletion didn't finish just now; the server keeps trying until it's done, on its own.</p>`,
+          body: `<h1>Deleting</h1><p>Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing.</p>`,
         });
         return true;
       }
       page(res, 200, {
         title: "Deleted",
         headers: { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) },
-        body: `<h1>Deleted</h1><p>Your memory, its backups and your account are gone. Thank you for trying Counterparts.</p>`,
+        body: `<h1>Deleted</h1><p>Your memory and its backups are gone, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours. Thank you for trying Counterparts.</p>`,
       });
       return true;
     }

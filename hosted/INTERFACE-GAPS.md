@@ -6,12 +6,15 @@
    - Railway's disk encryption confirmed in writing;
    - the Cloudflare Worker key service (a second `KeyWrapper`), so that one leak of Railway's environment can't expose
      both the KEK and the R2 credentials.
-2. **The address in the control database's backup history.** With `secure_delete` on, snapshots taken after a delete
-   are clean. But the snapshot from before it, and the LTX files after it, keep a deleted person's address for up to
-   about 24 h: Litestream's snapshot interval and retention, plus its retention-check lag, which is unmeasured.
-   - Fix: the address encrypted under the person's DEK, plus a keyed hash for lookup.
-   - Until then, the "at once" copy holds for the memory and its backups, not for the address (#648 review). Mike has
-     suggested wording for the account page, the done page and the 202 page.
+2. **Gate (Mike, 2026-10-26, 16:21): the account email, encrypted under the person's DEK, with a keyed hash for
+   lookup.** The hash key sits next to the KEK, behind `KeyWrapper`. It is built in the same hardening pass as the key
+   service. Not built now.
+   - Until then, the beta says "your account email is purged from backups within 24 hours", on the account, done and
+     202 pages and in DESIGN §5.2.
+   - Why that holds: with `secure_delete` on, snapshots taken after a delete are clean. The pre-delete snapshot and the
+     LTX files after it are pruned within max(interval, retention) plus Litestream's retention lag. The generated config
+     sets 12 h / 12 h (`backup.ts#SNAPSHOT_HOURS`), which leaves 12 h of room for that lag. The lag is unmeasured
+     without the binary; measure it on the first deploy.
 3. **The `src/` store contract's `secure_delete` note.** `src/core/store/CONTRACT.md` says the default is FAST, which
    is bun only; Node's default is 0, and the hosted server runs Node. The core's forget and removal paths should be
    checked for what they rely on. That file is the coordinator's, not this lane's (#648 review).
