@@ -150,7 +150,7 @@ function kindOf(c: DreamChangeRow): string {
   return c.action === "gist" && detailOf(c.detail)["fold"] === true ? "fold" : c.action;
 }
 
-function dreamSummary(counterpart: Counterpart, dream: DreamRow, changes: readonly DreamChangeRow[]): DreamSummary {
+function dreamSummary(counterpart: Counterpart, dream: DreamRow, changes: readonly DreamChangeRow[], journalMax: number = NIGHT_JOURNAL_CHARS): DreamSummary {
   const store = counterpart.store;
   const standing = changes.filter((c) => c.undone !== 1);
   const byKind = new Map<string, string[]>();
@@ -174,7 +174,7 @@ function dreamSummary(counterpart: Counterpart, dream: DreamRow, changes: readon
     gists.push(body.length <= NIGHT_GIST_CHARS ? { id: c.ref, text: body } : { id: c.ref, chars: body.length });
   }
   const undone = changes.length - standing.length;
-  const journal = dream.journal === null || dream.journal.trim().length === 0 ? null : cut(dream.journal.trim(), NIGHT_JOURNAL_CHARS);
+  const journal = dream.journal === null || dream.journal.trim().length === 0 ? null : cut(dream.journal.trim(), journalMax);
   return {
     kind: "dream",
     id: dream.id,
@@ -192,11 +192,11 @@ function dreamSummary(counterpart: Counterpart, dream: DreamRow, changes: readon
   };
 }
 
-function reflectionSummary(store: Store, r: ReflectionRow): ReflectionSummary {
+function reflectionSummary(store: Store, r: ReflectionRow, entryMax: number = NIGHT_ENTRY_CHARS): ReflectionSummary {
   const d = detailOf(r.detail);
   const list = stringList;
   const title = typeof d["title"] === "string" ? d["title"] : null;
-  const entry = r.entry === null ? null : cut(r.entry, NIGHT_ENTRY_CHARS);
+  const entry = r.entry === null ? null : cut(r.entry, entryMax);
   return {
     kind: "reflection",
     id: r.id,
@@ -217,23 +217,151 @@ function reflectionSummary(store: Store, r: ReflectionRow): ReflectionSummary {
   };
 }
 
-/** ONE NIGHT, by its id: a summary, or why not. */
-export function readNight(counterpart: Counterpart, id: string): NightRead {
+/**
+ * ONE NIGHT, by its id: a summary, or why not. `whole` (2026-10-26, OL1b): the
+ * journal and the entry uncut — a night asked for alone, by its handle, which
+ * is how a chat with no console reads one (`readLastNight` too). Among `ids`
+ * it stays a summary, so ten nights beside the memories stay small.
+ */
+export function readNight(counterpart: Counterpart, id: string, opts: { readonly whole?: boolean } = {}): NightRead {
   const kind = nightKindOf(id);
   const store = counterpart.store;
+  const whole = opts.whole === true;
   try {
     if (kind === "dream") {
       const shown = counterpart.dreams.show(id.trim());
       if (shown === null) return { ok: false, reason: "handle-unknown" };
-      return { ok: true, night: dreamSummary(counterpart, shown.dream, shown.changes) };
+      return { ok: true, night: dreamSummary(counterpart, shown.dream, shown.changes, whole ? Number.POSITIVE_INFINITY : NIGHT_JOURNAL_CHARS) };
     }
     if (kind === "reflection") {
       const r = counterpart.reflections.show(id.trim());
       if (r === null) return { ok: false, reason: "handle-unknown" };
-      return { ok: true, night: reflectionSummary(store, r) };
+      return { ok: true, night: reflectionSummary(store, r, whole ? Number.POSITIVE_INFINITY : NIGHT_ENTRY_CHARS) };
     }
   } catch {
     // A read that fails answers as not found; recall never throws at a tool.
   }
   return { ok: false, reason: "handle-unknown" };
+}
+
+// ── last night, and nights a question names (2026-10-26, OL1b item 3) ────────
+
+/**
+ * THE HANDLES THAT READ THE NEWEST NIGHT WHOLE. On claude.ai there is no
+ * dashboard and no console, and on the trial's first day "what was your last
+ * dream?" found the reflection by meaning, not the dream; "show me the full
+ * dream" could not be answered at all (a dream opened only by its exact id,
+ * and then as a summary). Exact, like every handle: these words, any case.
+ */
+export const LAST_NIGHT_HANDLES: readonly string[] = ["last dream", "last night"];
+
+export function isLastNightHandle(handle: unknown): boolean {
+  return typeof handle === "string" && LAST_NIGHT_HANDLES.includes(handle.trim().toLowerCase());
+}
+
+/** The newest night, whole: its dream and the reflection after it. */
+export interface LastNight {
+  readonly dream: DreamSummary | null;
+  readonly reflection: ReflectionSummary | null;
+}
+
+/**
+ * The newest dream that wrote a journal and was not undone (else the newest
+ * dream), with the newest reflection after it; with no dream at all, the
+ * newest reflection — the console's `night last` rule. Journal and entry
+ * whole. Pure reads; null parts when there is nothing; never throws.
+ */
+export function readLastNight(counterpart: Counterpart): LastNight {
+  const store = counterpart.store;
+  try {
+    const recent = store.dreams({ limit: 20 });
+    const dream = recent.find((d) => d.journal !== null && d.journal.trim().length > 0 && d.state !== "undone") ?? recent[0];
+    const dreamRead = dream === undefined ? null : readNight(counterpart, dream.id, { whole: true });
+    const after = dream === undefined ? store.reflections({ limit: 1 })[0] : store.reflections({ dreamId: dream.id, limit: 1 })[0];
+    const reflectionRead = after === undefined ? null : readNight(counterpart, after.id, { whole: true });
+    return {
+      dream: dreamRead?.ok === true && dreamRead.night.kind === "dream" ? dreamRead.night : null,
+      reflection: reflectionRead?.ok === true && reflectionRead.night.kind === "reflection" ? reflectionRead.night : null,
+    };
+  } catch {
+    return { dream: null, reflection: null };
+  }
+}
+
+/** At most this many dreams ride beside a question's answer. */
+export const QUESTION_NIGHTS_MAX = 2;
+/** How many recent dreams a question's words are matched against. */
+export const QUESTION_NIGHTS_LOOKBACK = 30;
+
+/** Does the question name dreaming? */
+export function asksAboutDreams(question: string): boolean {
+  return /\b(dream|dreams|dreamed|dreamt|dreaming)\b/i.test(question);
+}
+
+/** Why a dream rode beside a question's answer. */
+export type QuestionNightWhy = "reflection-shown" | "words" | "names-dreams";
+
+/**
+ * DREAMS A QUESTION REACHES (2026-10-26, OL1b item 3; lightly held). A dream
+ * is not a memory, so neither mode's index finds it; its reflection's entry
+ * IS one, and meaning mode found that on the trial's first day. So a dream
+ * rides beside a question's answer when:
+ *
+ *   1. the answer showed the entry of a reflection that followed it; or
+ *   2. its title and journal share at least two content words with the
+ *      question (one, when the question names dreaming); or
+ *   3. the question names dreaming and nothing matched: the newest dream.
+ *
+ * Words, not vectors: dream journals have no embedding (a cache table would
+ * be a store-format change, batched with others — not this lane's). Summaries,
+ * newest first, at most `QUESTION_NIGHTS_MAX`; each says why it came. `words`
+ * is the content-word reader (`reconsolidation.ts#contentWords`), handed in
+ * so this file reads no core module it does not already. Never throws.
+ */
+export function nightsForQuestion(
+  counterpart: Counterpart,
+  question: string,
+  shownIds: readonly string[],
+  words: (text: string) => Set<string>,
+): { night: DreamSummary; why: QuestionNightWhy }[] {
+  const store = counterpart.store;
+  try {
+    const recent = store.dreams({ limit: QUESTION_NIGHTS_LOOKBACK }).filter((d) => d.state !== "undone");
+    if (recent.length === 0) return [];
+    const picked = new Map<string, QuestionNightWhy>();
+    const shown = new Set(shownIds);
+    if (shown.size > 0) {
+      for (const r of store.reflections({ limit: QUESTION_NIGHTS_LOOKBACK })) {
+        if (r.entry_id !== null && shown.has(r.entry_id) && r.dream_id !== null && recent.some((d) => d.id === r.dream_id)) picked.set(r.dream_id, "reflection-shown");
+      }
+    }
+    const naming = asksAboutDreams(question);
+    const asked = words(question);
+    // The words that ask ABOUT a night are not what it was about.
+    for (const w of ["dream", "dreams", "dreamed", "dreamt", "dreaming", "night", "last"]) for (const v of words(w)) asked.delete(v);
+    const need = naming ? 1 : 2;
+    if (asked.size > 0) {
+      for (const d of recent) {
+        if (picked.has(d.id)) continue;
+        const have = words(`${d.title ?? ""} ${d.journal ?? ""}`);
+        let shared = 0;
+        for (const w of asked) if (have.has(w)) shared += 1;
+        if (shared >= need) picked.set(d.id, "words");
+      }
+    }
+    if (picked.size === 0 && naming) {
+      const newest = recent.find((d) => d.journal !== null && d.journal.trim().length > 0) ?? recent[0];
+      if (newest !== undefined) picked.set(newest.id, "names-dreams");
+    }
+    const order = recent.map((d) => d.id).filter((id) => picked.has(id)).slice(0, QUESTION_NIGHTS_MAX);
+    const out: { night: DreamSummary; why: QuestionNightWhy }[] = [];
+    for (const id of order) {
+      const read = readNight(counterpart, id);
+      const why = picked.get(id);
+      if (read.ok && read.night.kind === "dream" && why !== undefined) out.push({ night: read.night, why });
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
