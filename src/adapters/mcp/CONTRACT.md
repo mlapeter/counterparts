@@ -408,8 +408,11 @@ actually wrote (chapter), the written self page or the version a write to it pro
     per call and writes that session's record through the shared lifecycle
     (`lifecycle.ts`, host `claude-desktop`), and returns the wake SessionStart composes,
     the clock, today's plain reminders (claimed), the day's dream line only when it is an
-    ask (a headless `auto` offer is left unclaimed for Claude Code), the update and doctor
-    notices as plain lines, and the write-up pointer measured against
+    ask (a headless `auto` offer is left unclaimed for Claude Code), a morning share
+    another session left untold — carried once, right after the session line, when the
+    reflecting session has let go of it (`sessions.ts#reflectorDone`: no record, ended,
+    quiet past the TTL, or a hookless chat's, which never ends; 2026-10-26, OL1a) — the
+    update and doctor notices as plain lines, and the write-up pointer measured against
     `TOOL_RESULT_CHARS`; it starts the worker. It never asks the first-launch question,
     never touches primacy, and never starts the headless nightly run. It sits under the
     schema gate like every tool.

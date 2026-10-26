@@ -45,7 +45,8 @@
  * THE CALL LOG (`onCall`): one record per message — the time, the method, the
  * tool, the `Mcp-Session-Id` this server issued at `initialize` (a connection,
  * which is the nearest thing to a conversation the wire carries), the
- * Counterparts session the call named or `wake` minted, ok or the refusal's
+ * Counterparts session the call named or `wake` minted (never the one a
+ * nameless call fell back to), ok or the refusal's
  * reason code, and at `initialize` the client's own name and version. Ids and
  * codes only: never an argument, never a result's text.
  */
@@ -243,7 +244,11 @@ async function one(raw: unknown, connection: string | null, target: McpTarget, o
     record["ok"] = result["isError"] !== true;
     if (result["isError"] === true) record["reason"] = code(sc["reason"]) ?? "error";
     // `wake` mints the session; it is the one call that names none going in.
-    if (record["session"] === undefined) {
+    // ONLY `wake` (review of #641): `chapter`, `reflect` and `dream` echo the
+    // session a nameless call was filed under (the most recent one, remote
+    // INTERFACE-GAPS §2), which may be another chat's; logging that as the
+    // call's session would hide a chat that never woke inside another's row.
+    if (record["session"] === undefined && record["tool"] === "wake") {
       const minted = code(sc["session"]);
       if (minted !== undefined) record["session"] = minted;
     }
