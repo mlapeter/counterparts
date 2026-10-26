@@ -309,6 +309,22 @@ export function claudeAiBindNote(session: string): string {
   return `No session was named, so this call was filed under the most recent claude.ai session — ${session}, which may be another conversation's. Every tool takes "session" here: pass the id wake gave this conversation, so its calls stay together.`;
 }
 
+/**
+ * WHAT A LAUNCH RESULT SAYS TO DO WITH ITS PROMPT, on claude.ai (2026-10-26,
+ * OL1c). Every other host's `how` hands the prompt to "a background agent (the
+ * Agent tool)"; claude.ai has none, and its `dream` / `reflect` descriptions say
+ * the prompt is followed in the same run or conversation. The rest — the
+ * dream's line shown as it came back, the share told as a telling and marked
+ * told — is every host's, except that a share left in the night routine waits
+ * for the next conversation (the routine's own prompt says so too).
+ */
+export const CLAUDE_AI_DREAM_LAUNCH_HOW =
+  "Follow `prompt` yourself, here, step by step, through every call it names, passing the same session. In the night routine, a morning share it leaves is for the person's next conversation: do not tell it there or mark it told. In a conversation where the person asked you to dream, show them the dream's line from the hand-back exactly as it came back — it carries the dream's mark, which keeps the dream out of lived memory — and if a morning share follows, tell it in your own words, as a telling (\"While I slept I dreamed…\"), then call the reflect tool with phase \"told\" — never state what was dreamed as something that happened.";
+
+/** The claude.ai copy of the reflect `launch` result's `how` (see above). */
+export const CLAUDE_AI_REFLECT_LAUNCH_HOW =
+  "Follow `prompt` yourself, here, step by step, passing the same session. When it finishes, if it left a morning share, tell it to the person in your own words, then call this tool with phase \"told\".";
+
 /** The claude.ai copy of `DESKTOP_DREAM_NOTE`. */
 export const CLAUDE_AI_DREAM_NOTE =
   "(claude.ai: there is no terminal here, so nobody has shown them that line — say it to them yourself, once, in your own words. And there is no background Agent tool: if they say dream, follow the prompt the launch returns yourself, here.)";
