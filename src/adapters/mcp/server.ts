@@ -87,7 +87,7 @@ import type { ScopeCommandContext, ScopeMode, ScopeRegistry, ScopeVerdict } from
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 
-import { CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, claudeCodeEnvMarker, hostOfClient, isPseudoScope, wordingFor } from "../hosts.js";
+import { CLAUDE_AI_HOST, CODE_TAB_ENTRYPOINT, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, chatScopeOf, claudeCodeEnvMarker, hostOfClient, isChatHost, isPseudoScope, wordingFor } from "../hosts.js";
 import { PLUGIN_ROOT_ENV } from "../plugin.js";
 import type { InstallRoute } from "../plugin.js";
 import { sidebarBeside } from "../host-wiring.js";
@@ -215,10 +215,7 @@ import { scriptArgs } from "../runtime.js";
 import {
   SERVER_NAME,
   SERVER_VERSION,
-  DESKTOP_INSTRUCTIONS,
   START_PROMPT,
-  NO_DESKTOP_SESSION,
-  desktopBindNote,
   desktopWriteUpAsk,
   STORE_BUSY_REFUSAL,
   schemaUnreadableRefusal,
@@ -227,11 +224,12 @@ import {
   uninstallRouteWords,
   memoryHomeWords,
   RECALL_MODE_WORDS,
-  DESKTOP_DREAM_NOTE,
   STILL_DATED_HINT,
   ANSWERS_HINT,
   STILL_DATED_SHOWN,
   TITLE_ASKED_NOTE,
+  chatWordsFor,
+  claudeAiInstructions,
 } from "./server-words.js";
 import { resolveScope, SEEN_SESSIONS, EVENT_RING } from "./server-options.js";
 import type {
@@ -328,6 +326,10 @@ export class McpServer {
   host: string;
   /** The `clientInfo.name` the client sent at `initialize`, or null. */
   clientName: string | null = null;
+  /** The `clientInfo.version` it sent beside it, or null (the claude.ai trial's call log reads both). */
+  clientVersion: string | null = null;
+  /** The claude.ai trial's canary, said in `instructions` only (`McpServerOptions.canary`). */
+  private readonly canary: string | undefined;
 
   private readonly embedderGiven: QuestionEmbedder | null;
   private readonly registryDir: string;
@@ -412,11 +414,14 @@ export class McpServer {
     this.manifestVersion = opts.manifestVersion ?? manifestVersionOnDisk;
     this.env = opts.env ?? process.env;
     // A server TOLD it serves Desktop takes Desktop's place from the start; the
-    // one a Desktop client reveals itself to takes it at `initialize`.
-    if (this.host === DESKTOP_HOST && opts.scope === undefined) {
-      this.scope = DESKTOP_SCOPE;
+    // one a Desktop client reveals itself to takes it at `initialize`. A server
+    // told it serves claude.ai (`adapters/remote/`) takes `claude-ai:` the same way.
+    const chatPlace = chatScopeOf(this.host);
+    if (chatPlace !== null && opts.scope === undefined) {
+      this.scope = chatPlace;
       this.scopeSource = "host";
     }
+    this.canary = opts.canary;
     this.storeObserver = opts.counterpart.observer;
     this.launchObserver = opts.launchObserver === true;
     this.embedderGiven = opts.embedder ?? null;
@@ -505,9 +510,19 @@ export class McpServer {
     return this.observer ? null : this.embedderGiven;
   }
 
-  /** Is this server talking to Claude Desktop's chat (or Cowork)? */
+  /**
+   * Is this server talking to a HOOKLESS CHAT HOST — Claude Desktop's chat (or
+   * Cowork), or claude.ai over the web (2026-10-26)? Everything this name gates
+   * (`wake`, per-call binding, the write-up ask on a result) is the same for
+   * both; where they differ (the Code tab, the words) the code reads `host`.
+   */
   get desktop(): boolean {
-    return this.host === DESKTOP_HOST;
+    return isChatHost(this.host);
+  }
+
+  /** The `instructions` a chat host's `initialize` carries. */
+  private chatInstructions(): string {
+    return this.host === CLAUDE_AI_HOST ? claudeAiInstructions(this.canary) : chatWordsFor(this.host).instructions;
   }
 
   /**
@@ -561,7 +576,15 @@ export class McpServer {
             ? (clientInfo as Record<string, unknown>)["name"]
             : undefined;
         this.clientName = typeof clientName === "string" ? clientName.slice(0, 128) : null;
-        if (hostOfClient(clientName) === DESKTOP_HOST) {
+        const clientVersion =
+          clientInfo !== null && typeof clientInfo === "object" && !Array.isArray(clientInfo)
+            ? (clientInfo as Record<string, unknown>)["version"]
+            : undefined;
+        this.clientVersion = typeof clientVersion === "string" ? clientVersion.slice(0, 64) : null;
+        // A server LAUNCHED as another chat host keeps it (2026-10-26): claude.ai's
+        // remote client may say `claude-ai` too, which is Desktop's chat's name.
+        const launchedChat = this.desktop && this.host !== DESKTOP_HOST;
+        if (!launchedChat && hostOfClient(clientName) === DESKTOP_HOST) {
           // THE BELT: a process Claude Code started stays Claude Code's, whatever
           // its client says (`hosts.ts#claudeCodeEnvMarker`) — and the log says
           // which signal won.
@@ -583,7 +606,7 @@ export class McpServer {
             ? { tools: { listChanged: false }, prompts: { listChanged: false } }
             : { tools: { listChanged: false } },
           serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
-          ...(this.desktop ? { instructions: DESKTOP_INSTRUCTIONS } : {}),
+          ...(this.desktop ? { instructions: this.chatInstructions() } : {}),
         });
       }
       case "notifications/initialized":
@@ -594,7 +617,7 @@ export class McpServer {
         return id === undefined ? null : success(id, {});
       case "tools/list": {
         if (id === undefined) return null;
-        const tools = toolDefinitions(this.desktop);
+        const tools = toolDefinitions(this.host);
         this.emit("mcp.tools.list", undefined, { tools: tools.length });
         return success(id, { tools });
       }
@@ -634,7 +657,7 @@ export class McpServer {
     if (typeof name !== "string") {
       return failure(id, ERROR_CODES.INVALID_PARAMS, "tools/call requires a string name");
     }
-    if (toolSpec(name, this.desktop) === undefined) {
+    if (toolSpec(name, this.host) === undefined) {
       // An unknown TOOL is a protocol fault (the client called something that
       // does not exist); an unusable ARGUMENT is the tool's own answer.
       return failure(id, ERROR_CODES.METHOD_NOT_FOUND, `unknown tool: ${name}`);
@@ -682,7 +705,8 @@ export class McpServer {
     // recorded is served as that Claude Code session — decided FIRST, so the
     // place read just below is that session's directory (its `off`, `paused`,
     // `observer`), and so it is never a Desktop call: no bind, no pacer, no ask.
-    this.callAs = this.desktop && name !== "wake" ? this.claudeCodeSessionNamed(args) : null;
+    // Desktop's only: there is no Code tab on the other end of a claude.ai connector.
+    this.callAs = this.host === DESKTOP_HOST && name !== "wake" ? this.claudeCodeSessionNamed(args) : null;
     const place = this.desktop ? stanceOfMode(this.scopeVerdict().mode) : null;
     this.callObserver = place === null ? null : place === "observer";
     if (this.callAs !== null) this.emit("mcp.session.served", this.callAs.session, { tool: name, host: DEFAULT_HOST });
@@ -763,6 +787,14 @@ export class McpServer {
     const claimed = args["session"];
     if (typeof claimed === "string" && claimed.length > 0) {
       const record = isSessionId(claimed) ? readSession(this.registryDir, claimed) : null;
+      // claude.ai's (2026-10-26): only its own sessions bind, and its words name no Code tab.
+      if (this.host !== DESKTOP_HOST && (record === null || hostOf(record) !== this.host)) {
+        this.callRefusal = {
+          reason: "session-unknown",
+          detail: `No ${chatWordsFor(this.host).label} session by that id is recorded. Use the id \`wake\` returned for this conversation, exactly, or call \`wake\` to start one.`,
+        };
+        return;
+      }
       // A CLAUDE CODE SESSION that reached here is one `claudeCodeSessionNamed`
       // turned down: outside the Code tab, or no longer live.
       if (record !== null && hostOf(record) === DEFAULT_HOST && record.entrypoint !== CODE_TAB_ENTRYPOINT) {
@@ -779,7 +811,7 @@ export class McpServer {
         };
         return;
       }
-      if (record === null || hostOf(record) !== DESKTOP_HOST) {
+      if (record === null || hostOf(record) !== this.host) {
         this.callRefusal = {
           reason: "session-unknown",
           detail: "No session by that id is recorded — not a Claude Desktop chat's, and not a Claude Code session's. In a Desktop chat, use the id `wake` returned for this chat, exactly, or call `wake` to start one; in a Claude Code session, use the id your wake or Stop ask names.",
@@ -797,11 +829,11 @@ export class McpServer {
       this.callBoundBy = "named";
       return;
     }
-    const latest = latestLiveSession(this.registryDir, DESKTOP_HOST, now, this.sessionTtlMs);
+    const latest = latestLiveSession(this.registryDir, this.host, now, this.sessionTtlMs);
     if (latest === null) {
       this.callRefusal = {
         reason: "session-required",
-        detail: NO_DESKTOP_SESSION,
+        detail: chatWordsFor(this.host).noSession,
       };
       return;
     }
@@ -855,7 +887,7 @@ export class McpServer {
     if (this.callBoundBy === "most-recent") {
       extra["boundTo"] = session;
       extra["boundBy"] = "most-recent";
-      extra["bindNote"] = desktopBindNote(session);
+      extra["bindNote"] = chatWordsFor(this.host).bindNote(session);
     }
     if (ask) extra["writeUpAsk"] = desktopWriteUpAsk(session);
     if (Object.keys(extra).length === 0) return result;
@@ -876,7 +908,7 @@ export class McpServer {
       {
         ...result.structuredContent,
         sessionRefused: why.reason,
-        sessionNote: `${why.detail} So this call ran with no session, under Claude Desktop's place (claude-desktop:).`,
+        sessionNote: `${why.detail} So this call ran with no session, under ${chatWordsFor(this.host).label}'s place (${chatWordsFor(this.host).place}).`,
       },
       result.isError === true,
     );
@@ -891,7 +923,7 @@ export class McpServer {
     this.lifecycleInst = new Lifecycle({
       counterpart: this.counterpart,
       config,
-      host: DESKTOP_HOST,
+      host: this.host,
       command: o.command ?? process.execPath,
       args: o.args ?? scriptArgs(WORKER_RUNNER_PATH, o.command ?? process.execPath),
       ...(o.spawner === undefined ? {} : { spawner: o.spawner }),
@@ -2865,7 +2897,7 @@ export class McpServer {
       head,
       `${lead}\n${ONE_TAG_LINE ? tags : ""}${woke.text}`.trimEnd(),
       ...(notices.length === 0 ? [] : [notices.join("\n")]),
-      ...(dream === null ? [] : [`${dream}\n${DESKTOP_DREAM_NOTE}`]),
+      ...(dream === null ? [] : [`${dream}\n${chatWordsFor(this.host).dreamNote}`]),
       ...(meet === null ? [] : [meet.text]),
     ];
     const body = parts.join("\n\n");
@@ -2875,7 +2907,8 @@ export class McpServer {
     });
     const text = pointer.length === 0 ? body : `${body}\n\n${pointer}`;
     try {
-      store.setMeta(DESKTOP_WAKE_KEY, String(now));
+      // Desktop's "last wake", which doctor's Desktop line reads; not claude.ai's.
+      if (this.host === DESKTOP_HOST) store.setMeta(DESKTOP_WAKE_KEY, String(now));
     } catch {
       /* a lost "last wake" is a doctor line, never a wake */
     }
@@ -3299,7 +3332,7 @@ export class McpServer {
     // `bindDesktopCall` — per call, never frozen for the process — and a call
     // it could not bind is refused here by the reason it found.
     if (this.desktop) {
-      const why = this.callRefusal ?? { reason: "session-required", detail: NO_DESKTOP_SESSION };
+      const why = this.callRefusal ?? { reason: "session-required", detail: chatWordsFor(this.host).noSession };
       this.emit("mcp.session.unbound", undefined, { reason: why.reason, host: this.host });
       return this.refuse(tool, why.reason, { detail: why.detail });
     }

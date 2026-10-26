@@ -23,7 +23,7 @@ import {
   tagsEcho,
   threadOf,
 } from "./server-args.js";
-import { TITLE_ASKED_NOTE } from "./server-words.js";
+import { TITLE_ASKED_NOTE, chatWordsFor } from "./server-words.js";
 import type { FeelingsRead, ReminderRead, AboutRead, TraitsRead, FactsRead, TagsRead } from "./server-args.js";
 import type { McpServer } from "./server.js";
 
@@ -434,7 +434,7 @@ export function drewOnField(server: McpServer, raw: unknown, via: "session_end" 
     return {
       credited: [],
       reason: "session-unnamed",
-      detail: `Name your session to say what you drew on: session: <the id wake gave this chat>. This call named none, so it was filed under the most recent Claude Desktop session (${server.session ?? "none"}), which may be another chat's.`,
+      detail: `Name your session to say what you drew on: session: <the id wake gave this chat>. This call named none, so it was filed under the most recent ${chatWordsFor(server.host).label} session (${server.session ?? "none"}), which may be another chat's.`,
     };
   }
   const session = server.session as string;
@@ -619,7 +619,8 @@ export function writeHandoffField(server: McpServer, raw: unknown): Record<strin
  */
 export function unnamedHandoffField(server: McpServer, raw: unknown): Record<string, unknown> | null {
   if (raw === undefined || raw === null) return null;
-  const detail = `Name your session to leave or retire a handoff: session: <the id wake gave this chat> — or, in a Claude Code session (Desktop's Code tab), the id your wake or Stop ask names. This call named none, so it was filed under the most recent Claude Desktop session (${server.session ?? "none"}), which may be another chat's.`;
+  const words = chatWordsFor(server.host);
+  const detail = `Name your session to leave or retire a handoff: session: <the id wake gave this chat>${words.codeTabClause}. This call named none, so it was filed under the most recent ${words.label} session (${server.session ?? "none"}), which may be another chat's.`;
   try {
     const out = server.counterpart.refuseHandoff("session-unnamed", { session: server.session });
     server["emit"]("mcp.handoff", undefined, { written: false, reason: out.reason, bytes: 0 });

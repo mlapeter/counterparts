@@ -1,7 +1,7 @@
 /** What the MCP server says: its name and version, its refusals, its notes to Claude Desktop, and the words its tools answer with (moved out of `server.ts`, 2026-10-11). */
 import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
-import { DEFAULT_HOST, wordingFor } from "../hosts.js";
+import { CLAUDE_AI_HOST, CLAUDE_AI_SCOPE, DEFAULT_HOST, DESKTOP_HOST, DESKTOP_SCOPE, wordingFor } from "../hosts.js";
 import type { InstallRoute } from "../plugin.js";
 import { RECALL_MAX_IDS } from "./deliberate.js";
 import type { DreamBundle } from "../../core/dream/index.js";
@@ -261,3 +261,78 @@ export const ANSWERS_HINT =
 /** Beside a write that closed a dated memory and sent no title (2026-10-14). */
 export const TITLE_ASKED_NOTE =
   "No title was given, and the old memory's was not carried over: this closes it, and the old title would read as still open. A title is asked for: give a memory that closes something its own short one (\"Taxes filed\").";
+
+/**
+ * CLAUDE.AI'S `instructions` (2026-10-26, the claude.ai trial): Desktop's one
+ * line, said for a chat on the web — no Code tab, no Stop ask, no end of
+ * conversation this server can see. claude.ai reportedly drops the field
+ * (anthropics/claude-ai-mcp#93); the trial's canary rides beside it to measure
+ * exactly that (`claudeAiInstructions`).
+ */
+export const CLAUDE_AI_INSTRUCTIONS =
+  "Counterparts is your memory. In every conversation, call its wake tool first — before answering anything, and above all anything about the person, the past, or work in progress — and once: it returns this conversation's briefing and a session id to pass as `session` on every later call in it. Without a wake, what recall returns is a slice, not the whole record: never present it as complete. Nothing tells this memory when a conversation ends, so remember what matters as it comes up, in the moment, with the remember tool.";
+
+/**
+ * The `instructions` a claude.ai server sends, with the trial's CANARY when the
+ * entry point was handed one: one invented fact no tool description carries, so
+ * a cold question about it shows whether claude.ai delivered this field at all.
+ */
+export function claudeAiInstructions(canary?: string): string {
+  return canary === undefined || canary.length === 0 ? CLAUDE_AI_INSTRUCTIONS : `${CLAUDE_AI_INSTRUCTIONS}\n\n${canary}`;
+}
+
+/** What a claude.ai call that needs a session is told when none is live. */
+export const NO_CLAUDE_AI_SESSION =
+  "No claude.ai session is live. Call the `wake` tool first: it starts this conversation's session and returns its id.";
+
+/** The claude.ai copy of `desktopBindNote`: no Code tab on the other end. */
+export function claudeAiBindNote(session: string): string {
+  return `No session was named, so this call was filed under the most recent claude.ai session — ${session}, which may be another conversation's. Every tool takes "session" here: pass the id wake gave this conversation, so its calls stay together.`;
+}
+
+/** The claude.ai copy of `DESKTOP_DREAM_NOTE`. */
+export const CLAUDE_AI_DREAM_NOTE =
+  "(claude.ai: there is no terminal here, so nobody has shown them that line — say it to them yourself, once, in your own words. And there is no background Agent tool: if they say dream, follow the prompt the launch returns yourself, here.)";
+
+/**
+ * THE WORDS A HOOKLESS CHAT HOST'S RESULTS SAY ABOUT IT, by host. Desktop's
+ * entry is the constants above, unchanged; claude.ai's names no Code tab.
+ */
+export interface ChatWords {
+  /** The host as a sentence names it: "Claude Desktop", "claude.ai". */
+  readonly label: string;
+  /** The place its chats share. */
+  readonly place: string;
+  readonly instructions: string;
+  readonly noSession: string;
+  readonly bindNote: (session: string) => string;
+  readonly dreamNote: string;
+  /** The Code-tab clause a "name your session" sentence adds, or "". */
+  readonly codeTabClause: string;
+}
+
+export const CHAT_WORDS: Readonly<Record<string, ChatWords>> = {
+  [DESKTOP_HOST]: {
+    label: "Claude Desktop",
+    place: DESKTOP_SCOPE,
+    instructions: DESKTOP_INSTRUCTIONS,
+    noSession: NO_DESKTOP_SESSION,
+    bindNote: desktopBindNote,
+    dreamNote: DESKTOP_DREAM_NOTE,
+    codeTabClause: " — or, in a Claude Code session (Desktop's Code tab), the id your wake or Stop ask names",
+  },
+  [CLAUDE_AI_HOST]: {
+    label: "claude.ai",
+    place: CLAUDE_AI_SCOPE,
+    instructions: CLAUDE_AI_INSTRUCTIONS,
+    noSession: NO_CLAUDE_AI_SESSION,
+    bindNote: claudeAiBindNote,
+    dreamNote: CLAUDE_AI_DREAM_NOTE,
+    codeTabClause: "",
+  },
+};
+
+/** The words for a chat host; Desktop's for any host without its own. */
+export function chatWordsFor(host: string): ChatWords {
+  return CHAT_WORDS[host] ?? (CHAT_WORDS[DESKTOP_HOST] as ChatWords);
+}

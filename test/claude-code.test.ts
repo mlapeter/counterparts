@@ -411,7 +411,15 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
     // `/api/whoami` on 127.0.0.1, nothing sent — so `counterparts dashboard`
     // can open the browser on this store's own dashboard instead of failing.
     // Pinned below: no other host, no other path.
-    expect(callers.sort()).toEqual(["adapters/dashboard/web/probe.ts", "adapters/dashboard/web/server.ts"]);
+    //
+    // THE THIRD ENTRY IS INBOUND, AND IT IS THE FIRST THAT IS MEANT TO BE
+    // REACHED FROM OFF THE MACHINE (2026-10-26, the claude.ai trial):
+    // `adapters/remote/http.ts` LISTENS on 127.0.0.1 for MCP over HTTP, and a
+    // tunnel somebody starts by hand carries claude.ai's calls to it. It answers
+    // only under a per-run 192-bit secret path (everything else is 404), opens
+    // no connection and resolves no host; pinned below the same way the
+    // dashboard's server is. Its own CONTRACT is the review.
+    expect(callers.sort()).toEqual(["adapters/dashboard/web/probe.ts", "adapters/dashboard/web/server.ts", "adapters/remote/http.ts"]);
     // (Only whole-line `//` comments stripped: a trailing-comment strip would eat the URL's own `//`.)
     const probe = readFileSync(join(SRC, "adapters/dashboard/web/probe.ts"), "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, " ")
@@ -426,6 +434,15 @@ describe("the adapter is a leaf — and every session-ending path is enumerated"
     expect(/\.request\s*\(|\.connect\s*\(|https?:\/\/(?!127\.0\.0\.1|localhost)/.test(server)).toBe(
       false,
     );
+    // The same inbound claim for the web door, and its one bind address.
+    const remote = readFileSync(join(SRC, "adapters/remote/http.ts"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/.*$/gm, " ");
+    expect(/\bfetch\s*\(/.test(remote)).toBe(false);
+    expect(/\.request\s*\(|\.connect\s*\(|https?:\/\/(?!127\.0\.0\.1|localhost)/.test(remote)).toBe(false);
+    expect((remote.match(/\.listen\(/g) ?? []).length).toBe(1);
+    expect(remote).toContain("server.listen(opts.port ?? 0, LOOPBACK,");
+    expect(remote).toContain('export const LOOPBACK = "127.0.0.1";');
   });
 
   test("every session-ending host event is wired, and each maps to a boundary kind", () => {
