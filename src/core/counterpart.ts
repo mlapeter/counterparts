@@ -133,14 +133,15 @@ import {
   HANDOFF_RESERVE_MARGIN_BYTES,
   reserveBytes,
   Handoffs,
+  excerpt as handoffExcerpt,
   isHandoffRow,
   staleWords,
 } from "./handoff/index.js";
 import type { Handoff, HandoffRefusal, HandoffWrite, PointerSince } from "./handoff/index.js";
 import { CLAIM_CHAPTER, askFromStretch, chapterClaims, claimUnwritten, sessionStretch, sessionsHere } from "./coverage/index.js";
-import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, chaptersWrittenOn, elsewhereLine, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, todaySoFarSummaryForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
+import { ELSEWHERE_TITLES_MAX, elsewhereNamedIn, LAST_HERE_LIFE_DAYS, LAST_HERE_NOROOM_EVENT, chaptersBySession, chaptersHere, chaptersOn, chaptersWrittenOn, elsewhereLine, LATER_HERE_TRIED, laterHereLadder, lastHereLadder, sinceElsewhereLines, stampWords, todayElsewhereLines, todaySoFarForms, todaySoFarSummaryForms, YESTERDAY_UNDATED_AT_START, yesterdayLine, yesterdayShorter, yesterdaySummaryForms } from "./handoff/last-here.js";
 import type { ChaptersOnDate, TodayChapter } from "./handoff/last-here.js";
-import type { ChapterHere, HereSession, LastHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
+import type { ChapterHere, HereSession, LastHere, LaterHere, MemoryHere, SinceElsewhere, TodayElsewhere } from "./handoff/last-here.js";
 import { LAST_EXCHANGE_LINE_MAX_BYTES, exchangeLikely, lastExchange, lastExchangeLine, withExchange } from "./handoff/last-exchange.js";
 import type { LastExchange } from "./handoff/last-exchange.js";
 import { addDays, daysBetween, isDay, localDate, localStamp, localStampAfter, startOfLocalDay, yearOf } from "./time.js";
@@ -1801,7 +1802,17 @@ export class Counterpart {
       // When this delivery found no room for the line and its Yesterday line
       // took the newest episode back (`yesterdayKeepsNewest`), the line is
       // not tried again: room the re-assembly freed would only repeat it.
-      const base = entries.length === 0 || this.yesterdayKeepsNewest ? [] : lastHereLadder(entries, reader, named);
+      // A LATER SESSION WITH NO CHAPTER (S2, 2026-10-26): when the folder's
+      // newest session is newer than every chapter here, the line names it
+      // first — with what of it is written up — and the newest chapter after
+      // it, rather than that chapter as if nothing happened since.
+      const later = this.yesterdayKeepsNewest ? null : this.laterHere(scope, reader, found, all);
+      const base =
+        later !== null
+          ? laterHereLadder(later, entries[0] ?? null, reader, named)
+          : entries.length === 0 || this.yesterdayKeepsNewest
+            ? []
+            : lastHereLadder(entries, reader, named);
       // ABOUT ME, FROM ANOTHER DIRECTORY (2026-10-01): one more line on the
       // widest rungs, given up first; alone when nothing was written here.
       const away = this.selfChapterElsewhere(all, new Set(found.map((f) => f.chapter.id)), reader, exportsFrom);
@@ -1811,6 +1822,64 @@ export class Counterpart {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * THE NEWEST SESSION HERE, when it is newer than every chapter here and
+   * wrote none (S2, 2026-10-26) — not the reader, inside the line's fortnight
+   * — with when it was here and its newest live memory (a write-up of it, or
+   * a note it made), or null. Its times are the folder's own turn-ends and
+   * pieces (`coverage/#sessionsHere`), as a chapter's session's are. Throws
+   * only what the store throws; the caller wraps it.
+   */
+  private laterHere(
+    scope: string,
+    reader: string | null,
+    found: readonly { chapter: ChapterHere; lastAt: number }[],
+    chapters: ReadonlyMap<string, ChapterHere>,
+  ): LaterHere | null {
+    const newestChapter = found.reduce((m, f) => Math.max(m, f.lastAt), -Infinity);
+    const day = this.store.livedDay();
+    const now = this.nowFn();
+    const norm = (s: string): string => s.trim().replace(/\/+$/, "");
+    let denied: Set<string> | null = null;
+    let tried = 0;
+    for (const s of sessionsHere(this.spans, scope)) {
+      // Newest first: past the newest chapter, or the line's fortnight (in
+      // lived days, and in calendar days too), nothing later is left.
+      if (s.lastAt <= newestChapter) return null;
+      if (s.lastDay !== null && day - s.lastDay >= LAST_HERE_LIFE_DAYS) return null;
+      if (now - s.lastAt >= LAST_HERE_LIFE_DAYS * 86_400_000) return null;
+      // Not the reader; and a session that wrote a chapter — here or in the
+      // directory its row names — is that chapter's line, never this one.
+      if (s.session === reader || chapters.has(s.session)) continue;
+      // A few at most: each costs a memory lookup.
+      if (++tried > LATER_HERE_TRIED) return null;
+      denied ??= new Set(this.store.deniedIds());
+      let memory: LaterHere["memory"] = null;
+      let at = -Infinity;
+      for (const id of this.store.list({ type: "memory", archived: false, originSession: s.session })) {
+        if (denied.has(id)) continue;
+        const row = this.store.row(id);
+        if (row === undefined || row.superseded_by !== null || row.body.trim().length === 0) continue;
+        // THIS FOLDER'S OWN (S2 review): a session at work in two folders
+        // made its notes, and its write-ups are filed, under each folder; a
+        // memory from the other one — or from none recorded — is not this
+        // line's to quote (`memoryFolder`, the privacy read's).
+        const folder = this.memoryFolder(row);
+        if (folder === null || norm(folder) !== norm(scope)) continue;
+        const born = row.created_at ?? 0;
+        if (born <= at) continue;
+        at = born;
+        memory = { id, title: row.title !== null && row.title.trim().length > 0 ? row.title : handoffExcerpt(row.body) };
+      }
+      // Something to show for it: words still held here, or a memory. A
+      // session that only ended a turn here (nothing captured) is passed over.
+      if (!s.held && memory === null) continue;
+      const zone = this.store.zone();
+      return { session: s.session, when: `${stampWords(localStamp(s.firstAt, zone))}–${stampWords(localStampAfter(s.lastAt, s.firstAt, zone))}`, memory };
+    }
+    return null;
   }
 
   /**

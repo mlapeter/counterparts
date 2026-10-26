@@ -127,3 +127,40 @@ doctor's "lost unwritten this week") say lost. Decided by g1c-builder, 2026-10-1
 held; revisit after ~5 lived days. Why: 01 says lapse only when the text must go, and
 nothing else bounds how long an owed session's text is held; fourteen is twice the
 ordinary week.
+
+## 10. A session with no record of its own owes, whatever its size (S2, 2026-10-26)
+
+The Dana week on 0.3.36 had 11 short sessions (3–5 turns); 42 of 43 Stop checks were paced,
+and none ever became a debt: the floor (3 unwritten pieces over 15 minutes) was tuned on long
+sessions, and each in-session `remember` claimed its turn's pieces. So nothing planned a
+write-up and "Last here" kept the day-1 meeting until day 6. H0's check-ins week (10 short
+sessions) read the same: 0 of 10 owed, no night all week. Mike, 10-26: the new first audience
+will often open a session "just to chat / check in", and those must be remembered.
+
+The rule now: a session that left no record of its own — no claim but in-the-moment notes',
+and no write-up mark — owes its unwritten stretch from `UNRECORDED_OWED_PIECES` (1) piece. A
+note's claim is told apart by its `own` mark (the note's own span); every other writer's claim
+carries none, so the ledger reads it off `coverage.jsonl` alone, with no proposal read. The
+floor stays for the tail after a record. On H0 `checkins`: 10 of 10 owed, each written up by
+the next night (one part each, one batch a night).
+
+What it costs, known: a record that claimed nothing (every typed turn already noted, then a
+handback or a chapter) leaves no mark, so a closing line after it reads as unrecorded and is
+owed — a one-line write-up. A session that is not a person's (`claude -p`, the Agent SDK) with
+a short unrecorded stretch is owed and small, so the pointer and the night never take it
+(`pointable`): its text is kept until it lapses (14 days of use, or retention's 14-day
+ceiling) instead of retention's 3 days, and its lapse is counted as one. A lone "hi" is owed
+too; the writer may answer it with nothing (guards loose-first: no bytes floor until a real
+store says it needs one). Revert: `UNRECORDED_OWED_PIECES` very high.
+
+Review of S2 (2026-10-26): a `claude -p` run that is NOT small (six lines in a few minutes,
+under the floor, no record) was owed, not small, so `pointable` let the night take it — on
+master it owed nothing. `pointable` now holds a session that is not a person's to the floor,
+small or not (`HeldSession.overFloor`), and so is an under-floor debt whose registry record was pruned (nobody can say whose it was): such a debt is kept until it lapses, as a small one
+was, and never written up. And the night: a night made whole by owed write-ups reads the
+dream's queue again after its catch-up (`dream/CONTRACT.md`), so a catch-up that keeps
+failing does not buy a whole night every morning until the debt lapses. What a failing
+catch-up still costs, bounded: each night re-plans everything owed, store-wide, oldest
+first, and runs ONE batch (`NIGHT_WRITE_UP_BATCH_PARTS` 16 parts, 192 KB) — a batch that
+brought nothing back starts no other — until the debts lapse at 14 days of use.
+

@@ -74,6 +74,7 @@ FROM events WHERE name = 'recall.decision' GROUP BY build ORDER BY MIN(seq);
 | Emotion's weight (about ×11 slower fading at a strong feeling vs ×2.8 designed), kept to watch | 10-18 | 2026-11-01 | "Checked 2026-10-18" below |
 | Mood-matched recall re-test, once drewOn gives a signal | 10-11 | when credit flows (after the feedback loop) | "Once drewOn gives a signal" below |
 | Forgetting: archiving resumes after 0.3.24 restarted the 14-lived-day wait | 10-14 | ~late October | "Ongoing" below |
+| S2: short sessions written up (an ended session with no record of its own is owed from one piece; owed write-ups count as new for the night; "Last here" names a later chapterless session) | not released, 10-26 | ~3 nights after install: owed rows a day, catch-up parts and `left`, doctor's unpointed/lost counts | "Due ~3 nights after S2" below; `docs/decisions.d/feat-short-sessions-written-up.md` |
 
 **Two follow-ups from the 10-19 overdue checks** (`~/counterparts-notes/2026-10-19-overdue-checks.md`)
 
@@ -276,6 +277,35 @@ recorded), so whether a footnote came by a learned pair can't be read from the s
 
 Changes it: noise rising, a common word wiring to many memories, or a memory Mike reads as wrong surfacing by a learned
 word. Revert: `physics.CUE_LEARNING=false` (nothing recorded, trained or read; the table stays), or revert the PR.
+
+## Due ~3 nights after S2 (2026-10-26, Mike: "sounds good", lightly held — `coverage.UNRECORDED_OWED_PIECES`, `dream.OWED_COUNTS_AS_NEW`)
+
+What: an ended session that left no record of its own (no handback, "nothing new", chapter or write-up) is owed
+from one unwritten piece, whatever its span; in-session notes still claim their own turns. When a night would run for
+its catch-up alone (`too-little-new`), each session owed from an earlier day counts as one new memory toward the
+dream's three. "Last here" names a later session with no chapter (with its newest memory) before the older chapter.
+H0 `checkins`: 0 → 10 of 10 owed, no night → a night every morning (3 whole), 10 parts in the week, one a check-in.
+Estimated on the 10-24 corpus snapshot (12 days, 10-12..10-23, from the `adapter.ask`, `coverage.*` rows): ~2.6 more
+sessions owed a day (~1.3 unwritten pieces each, one small part each) beside ~0.6 owed before; nights then plan ~7
+parts where they planned ~5. A one-time bump the first night after install: what ended in the last ~3 days with
+unwritten pieces (~8 short parts).
+
+Read (read-only, by build; never the live store's text):
+- owed rows per day and their size: `SELECT substr(json_extract(payload,'$.from'),1,10) AS d, COUNT(*), SUM(json_extract(payload,'$.pieces')) FROM events WHERE name='coverage.owed' AND json_extract(payload,'$.build')='<build>' GROUP BY d;`
+  expect ~3 a day, most 1–3 pieces;
+- the night's catch-up rows (`adapter.night.writeup`): `parts`, `written`, `left`, `batches` per night — expect one
+  batch and `left` 0 on an ordinary day; `doctor`'s Catch-up line, and whether "N small, not known as a person's
+  session: left to lapse" or "lost unwritten this week" grow (headless `claude -p` sessions under the floor are owed in
+  the ledger, kept and never taken — `pointable` holds them to the floor: if that count climbs, give the ledger
+  the host's word on who is a person); and nights launched as `night:owed-as-new` that ended as the catch-up alone
+  (`dream.night` children `skipped-too-little-new`): the catch-up did not deliver what the gate counted;
+- the write-ups themselves: second-hand memories of a short session (`json_extract(meta,'$.secondHand')`), and how
+  many parts were answered `[]` with a reason — a lot of "nothing worth keeping" says the one-piece floor is too low;
+- a morning wake in a folder with check-ins after a chapter: "Last here" names the newest session, then "Before it".
+
+Changes it: write-ups of one-line sessions that are all noise (raise `UNRECORDED_OWED_PIECES`), or a night that no
+longer fits (parts `left` > 0 on ordinary days). Revert: `coverage.UNRECORDED_OWED_PIECES=1e9`,
+`dream.OWED_COUNTS_AS_NEW=false`; the "Last here" change has no switch (revert the PR's `laterHere`).
 
 ## Due ~5 days after Today so far (2026-10-24, W1, Mike's go 17:45, lightly held — `self.TODAY_SO_FAR`, `self.YESTERDAY_FROM_SUMMARY`)
 

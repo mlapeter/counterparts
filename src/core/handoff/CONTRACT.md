@@ -179,7 +179,14 @@ the fortnight: one to three lines, no row and no durable event (§5 G11).
     HERE when its row's `origin_scope` says so (set at birth since 2026-09-30); with none,
     when this directory's coverage file holds its chapter claim; failing both, when its
     session's turn-ends are filed here — no new row type and no write. A removed row is
-    not read. A chapter puts the wake BEHIND (`self/behind.ts`, trigger `write-up`), so the
+    not read. A LATER SESSION WITH NO CHAPTER (S2, 2026-10-26): when the folder's newest
+    session (not the reader, inside the same fortnight, with words still held here or a
+    memory of its own) is newer than every chapter here and wrote none anywhere, the line
+    names it first — "Last here: session …, <when>, no chapter — "<its newest memory>"
+    (mem_…)." (a night's write-up of it, or a note it made — filed in THIS folder only: a
+    session at work in two folders never has the other folder's memory quoted here, S2
+    review), or "…, no chapter, not written up yet." — and the newest chapter after it as "Before it" (`laterHereLadder`); the
+    narrowest rung is the session alone. A chapter puts the wake BEHIND (`self/behind.ts`, trigger `write-up`), so the
     turn-end worker's refresh reserves the line's room on a store whose lanes fill the
     ceiling. It is spliced above the handoff pointer and shares its reserve and share rule
     (§6); the handoff is carried first. It is not a handoff: nothing retires it, and a

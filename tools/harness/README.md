@@ -259,7 +259,8 @@ All of them come in on the reflection alone.
 
 ```sh
 bun tools/harness/cli.ts week --seat scripted --script checkins [--json <file>] [--out <week.sqlite>] [--keep]
-bun tools/harness/cli.ts compare --mode week --set coverage.OWED_PIECES=1 -- --seat scripted --script checkins
+bun tools/harness/cli.ts compare --mode week --base origin/master --branch <yours> -- --seat scripted --script checkins
+bun tools/harness/cli.ts compare --mode week --base-set coverage.UNRECORDED_OWED_PIECES=1000000000 --base-set dream.OWED_COUNTS_AS_NEW=false -- --seat scripted --script checkins
 ```
 
 The same host as `week`: `ClaudeCodeAdapter` in-process on the harness's clock, the real
@@ -278,10 +279,22 @@ release that changes behaviour.
 - **A Stop ask:** the session's `onAsk` says what happens. It's either a `session_end` with
   its memories (the default, with none), or `"ignore"`: the reply carries on without the tool,
   then the Stop re-fires, as Claude Code does.
-- **A night:** the gate launches it as it would anyway. `runNight` runs with a seat that
-  refuses every ask (`week.ts#scriptedNightSeat`). Still real: the catch-up's plan, grant and
-  release (its row says `could-not-start`) and the run's row. A refused dream ends the run, so
-  the reflection and tags are never asked. The record says which acts were asked.
+- **A night:** the gate launches it as it would anyway. `runNight` runs with a seat
+  (`week.ts#scriptedNightSeat`) that answers two acts by a script, in-process through the
+  memory's own server, and refuses the rest (the writer, the reflection, the tags). Since S2
+  (2026-10-26):
+  - **the catch-up**, through the real write-up door bound to the batch's runner: every
+    granted session is fetched part by part and each part answered with one canned
+    second-hand memory that says it is the harness's. The plan, grant, door, memories, marks
+    and release are all real; a night clears what it was granted, and the next night plans
+    only what is new (a refusing catch-up re-planned everything owed so far each night: that
+    is where H0's first "36 parts" came from);
+  - **the dream**, as the smallest real one: `begin`, then `journal` with a canned line,
+    changing nothing. The dream's queue drains each night as a real dream's does, so the next
+    morning's gate counts only what is new since (a refused dream never journaled, and the gate
+    read the whole week as new every morning).
+
+  The record says which acts were asked.
 - **No meeting by default.** The night's gate waits while a meeting is pending, and no model
   is there to hold one. So a scripted week begins as an owner who skipped it. One effect:
   with no meeting holding the first day, the gate can launch the first night in day 1's
@@ -325,7 +338,22 @@ On 2026-10-26 (0.3.37), `checkins` read:
 - "Last here" named nothing (no chapter); "Last said here" followed the newest session.
 
 This is the before for S2. With `--set coverage.OWED_PIECES=1 --set
-coverage.OWED_SPAN_MS=60000`, 9 of the 10 are owed and the nights plan 36 parts.
+coverage.OWED_SPAN_MS=60000`, 9 of the 10 are owed and the nights plan 36 parts — summed over
+nights whose refusing catch-up wrote nothing, so each re-planned all that was owed so far.
+
+After S2 (2026-10-26: a session with no record of its own owes from one piece; owed write-ups
+count as new toward the dream's three; "Last here" names a later session with no chapter),
+with the catch-up and the dream answered by the script:
+- every one of the 10 is owed at its end, under the floor (`overFloor` false);
+- a night every morning from day 2, its catch-up alone (the gate `too-little-new`: yesterday's
+  notes, the queue drained by the night before) except day 7's, whole (2 new + 2 owed
+  write-ups, `dream.OWED_COUNTS_AS_NEW`); and on days 2 and 4 the catch-up's write-ups bring
+  the queue to three, so the ordinary relaunch runs a whole night at the second session;
+- each night's catch-up plans what is owed by then, one part each, in one batch, and writes it
+  all: 1, 1, 1, 1, 1, 1, 1, 2, 1 parts (10 in all), nothing owed at the week's end;
+- "Last here" names the previous check-in every morning: no chapter, and its newest memory (a
+  note it made) or "not written up yet" — the morning's wake comes before that night, which
+  starts at its first prompt; the write-up is named from the next session start on.
 
 ## Two sides, one table (`compare`)
 

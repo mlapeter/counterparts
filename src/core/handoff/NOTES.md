@@ -657,3 +657,19 @@ Undo: `git revert` of the PR; nothing is stored differently.
 - The "Last said here" line and the recall handle are no longer owner-only: any
   session in the folder gets them (the yours/guest split was removed). The line is
   still not given under observer, whose handle stands down.
+
+## 2026-10-26 — "Last here" names a later session with no chapter (S2)
+
+The Dana week (0.3.36): a meeting chapter on day 1, then short sessions with none, and "Last
+here" named the day-1 meeting until day 6 — true of the chapter, false as an account of who was
+last here. A check-in rarely writes a chapter, so for the new first audience it was most days.
+Now the newest session here, when it is newer than every chapter here and wrote none, is
+named first; its newest live memory stands for what it was about (the night's second-hand
+write-up of it, or a note it made in the moment — the smaller of the two true things, beside
+"Last said here", which quotes its last words while they are inside a day), and the chapter is
+"Before it". A session with nothing to show (only a turn-end filed here, no words held, no
+memory) is passed over, at most `LATER_HERE_TRIED` (3) looked at. `chaptersHereFor` is
+unchanged, so recall's "the most recent session" and the no-room row still mean the chapter.
+H0 `checkins`: "Last here" named nothing all week before; after, every morning names the
+previous check-in.
+

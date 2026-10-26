@@ -268,11 +268,39 @@ describe("what a session owes: three pieces over fifteen minutes, not at work", 
     expect(e?.state).toBe("ended");
     expect(e?.stretch?.pieces).toBe(1);
     expect(e?.owed).toBe(false);
-    // Three pieces inside ten minutes are under the floor too.
+    expect(e?.recorded).toBe(true);
+    // Three pieces inside ten minutes after a record are under the floor too.
     const u = talker(k, "quick");
+    u.piece(T0 + 2 * HOUR - MIN);
+    k.c.spans.claimCoverage({ scope: PROJ, session: "quick", proposalId: "nothing-new:quick:1" });
     for (let i = 0; i < 3; i++) u.piece(T0 + 2 * HOUR + i * 4 * MIN);
     u.end(T0 + 2 * HOUR + 13 * MIN);
-    expect(entryOf(k.c, "quick", T0 + 3 * HOUR)?.owed).toBe(false);
+    expect(entryOf(k.c, "quick", T0 + 3 * HOUR)).toMatchObject({ recorded: true, owed: false });
+  });
+
+  test("S2 (2026-10-26): a session that left NO RECORD of its own owes what it said, whatever its size", () => {
+    const k = clocked();
+    // Three pieces inside ten minutes, nothing claimed: once ended, owed.
+    const u = talker(k, "checkin");
+    for (let i = 0; i < 3; i++) u.piece(T0 + i * 4 * MIN);
+    expect(entryOf(k.c, "checkin", T0 + 9 * MIN)).toMatchObject({ state: "active", owed: false });
+    u.end(T0 + 13 * MIN);
+    expect(entryOf(k.c, "checkin", T0 + HOUR)).toMatchObject({ state: "ended", recorded: false, overFloor: false, owed: true, small: true });
+    // One piece is enough.
+    const one = talker(k, "hello");
+    one.piece(T0 + 2 * HOUR);
+    one.end(T0 + 2 * HOUR + MIN);
+    expect(entryOf(k.c, "hello", T0 + 3 * HOUR)).toMatchObject({ recorded: false, owed: true });
+    // A note in the moment (`remember`) is not the session's record: the check-ins week proves it through the real
+    // server (`test/harness-week-scripted.test.ts`, d1s1), and `short sessions` below through the hooks.
+    // Switched off (`UNRECORDED_OWED_PIECES` very high), the floor alone decides again.
+    const was = COVERAGE_TUNABLES.UNRECORDED_OWED_PIECES;
+    (COVERAGE_TUNABLES as { UNRECORDED_OWED_PIECES: number }).UNRECORDED_OWED_PIECES = 1e9;
+    try {
+      expect(entryOf(k.c, "checkin", T0 + HOUR)?.owed).toBe(false);
+    } finally {
+      (COVERAGE_TUNABLES as { UNRECORDED_OWED_PIECES: number }).UNRECORDED_OWED_PIECES = was;
+    }
   });
 
   test("a session LEFT OPEN OVERNIGHT owes the next date; an active one does not", () => {
@@ -528,7 +556,13 @@ describe("retention reads the same rule, on its own clocks", () => {
     };
     make("written", 4, 10 * MIN);
     k.c.spans.claimCoverage({ scope: PROJ, session: "written", proposalId: "prp_w" });
-    make("under", 2, 10 * MIN);
+    // Under the floor AFTER its own record (S2: with no record, two pieces would be owed).
+    const under = talker(k, "under");
+    under.piece(T0 - MIN);
+    k.c.spans.claimCoverage({ scope: PROJ, session: "under", proposalId: "nothing-new:under:1" });
+    under.piece(T0);
+    under.piece(T0 + 10 * MIN);
+    under.end(T0 + 20 * MIN);
     make("owing", 4, 10 * MIN);
     make("lapsing", 4, 10 * MIN);
     const verdicts = (now: number, extraUse: boolean, clocks: { maxMs?: number } = {}): Map<string, string> => {

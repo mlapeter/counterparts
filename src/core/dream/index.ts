@@ -1208,6 +1208,24 @@ export class Dreams {
   }
 
   /**
+   * THE QUEUE AS THE GATE COUNTS IT, without the gate's latches (S2 review,
+   * 2026-10-26): new memories within reach, counted up to `MIN_NEW` at most.
+   * A night made whole by owed write-ups counted as new (`OWED_COUNTS_AS_NEW`)
+   * reads it again once its catch-up has run, and goes on to the dream only
+   * when what the catch-up wrote brought it to `MIN_NEW` — a catch-up that
+   * wrote nothing must not buy a dream on too little new. Reads only; 0 under
+   * observer or when the store will not answer.
+   */
+  queuedNew(at: string = this.ctx.today()): number {
+    if (this.ctx.observer) return 0;
+    try {
+      return this.queue({ ask: true, skip: (d) => this.passedOver(d, at), enough: DREAM_TUNABLES.MIN_NEW }).ids.length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
    * THE GATE ITSELF — `status` asks it in this module's stance. Reads only.
    * (`previewAsk`, which asked it as a live session for the dashboard's
    * Tonight box, was removed 2026-10-09 with no caller left: NOTES.)

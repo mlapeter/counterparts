@@ -93,7 +93,7 @@ import { join } from "node:path";
 
 import { Counterpart, MCP_SPILLED_EVENT, seatAsk } from "../../core/counterpart.js";
 import type { CounterpartEvent, Seat, SeatAnswer, SeatAsk, SeatTool } from "../../core/counterpart.js";
-import { CATCH_UP_ONLY_REASONS, nightUsageOf, tagsBundle, tagsPrompt } from "../../core/dream/index.js";
+import { CATCH_UP_ONLY_REASONS, DREAM_TUNABLES, nightUsageOf, tagsBundle, tagsPrompt } from "../../core/dream/index.js";
 import type { NightTokens } from "../../core/dream/index.js";
 import { addDays, isDay, localDate } from "../../core/time.js";
 import { TUNABLES as SCHEMAS_TUNABLES } from "../../core/schemas/index.js";
@@ -301,9 +301,18 @@ export const HOST_SESSION_ENV = [
 /**
  * The whole night — or, with `dreamSkipped` (2026-10-11), its catch-up alone:
  * started because write-ups from an earlier day are owed while the dream is
- * not due (`Dreams#catchUpOffer`) — or the reflection alone.
+ * not due (`Dreams#catchUpOffer`) — or the reflection alone. `owedAsNew` (S2
+ * review, 2026-10-26): a whole night the gate would have run as its catch-up
+ * alone, made whole because the write-ups owed were counted as new
+ * (`dream.OWED_COUNTS_AS_NEW`); it dreams only if its catch-up delivers them.
  */
-export type NightKind = { readonly kind: "night"; readonly dreamSkipped?: CatchUpOnlyReason } | { readonly kind: "reflection"; readonly dream: string };
+export type NightKind =
+  | { readonly kind: "night"; readonly dreamSkipped?: CatchUpOnlyReason; readonly owedAsNew?: true }
+  | { readonly kind: "reflection"; readonly dream: string };
+
+/** `NIGHT_KIND_ENV`'s value for a whole night made so by owed write-ups. An
+ *  older `readKind` reads it as the whole night, the forgiving direction. */
+export const OWED_AS_NEW_KIND = "night:owed-as-new";
 
 /** A child of the run (2026-10-11): the page writer and the dream, or the reflection. */
 export type NightChild = NightChildRun["child"];
@@ -311,13 +320,15 @@ export type NightChild = NightChildRun["child"];
 /** `night`, `catch-up:<why the dream is skipped>` or `reflection:<id>`, for `NIGHT_KIND_ENV`. */
 export function kindValue(k: NightKind): string {
   if (k.kind === "reflection") return `reflection:${k.dream}`;
-  return k.dreamSkipped === undefined ? "night" : `catch-up:${k.dreamSkipped}`;
+  if (k.dreamSkipped !== undefined) return `catch-up:${k.dreamSkipped}`;
+  return k.owedAsNew === true ? OWED_AS_NEW_KIND : "night";
 }
 
 /** The reverse, forgiving: anything unreadable is the whole night. */
 export function readKind(raw: string | undefined): NightKind {
   const v = (raw ?? "").trim();
   if (v.startsWith("reflection:") && v.length > "reflection:".length) return { kind: "reflection", dream: v.slice("reflection:".length) };
+  if (v === OWED_AS_NEW_KIND) return { kind: "night", owedAsNew: true };
   const why = v.startsWith("catch-up:") ? v.slice("catch-up:".length) : "";
   if ((CATCH_UP_ONLY_REASONS as readonly string[]).includes(why)) return { kind: "night", dreamSkipped: why as CatchUpOnlyReason };
   return { kind: "night" };
@@ -707,6 +718,16 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
     // earlier day were owed while the dream was not due. Its dream and its
     // reflection are skipped, and the row says why — never a failed dream.
     if (input.kind.dreamSkipped !== undefined) return catchUpOnlyEnd(input, report, children, ended, (d) => (date = d));
+    // MADE WHOLE BY OWED WRITE-UPS (S2 review, 2026-10-26): the hook counted
+    // each owed session as one new memory before the catch-up ran. Read the
+    // queue again now: when what the catch-up wrote did not bring it to
+    // `MIN_NEW` — a seat that refused or failed it, a writer that found
+    // nothing — the night ends as the catch-up alone, as the gate would have
+    // run it, rather than buying a writer, a dream and a reflection on too
+    // little new, every night the debt stays owed.
+    if (input.kind.owedAsNew === true && !dreamDueAfterCatchUp(input)) {
+      return catchUpOnlyEnd({ ...input, kind: { kind: "night", dreamSkipped: "too-little-new" } }, report, children, ended, (d) => (date = d));
+    }
   }
 
   // A STORE THAT WILL NOT OPEN is not opened a second time just to say so:
@@ -947,6 +968,24 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
  * `done` when it did what it could (its own row says how much), the child's
  * failure when it could not start, failed or was stopped. Never throws.
  */
+/**
+ * A NIGHT MADE WHOLE BY OWED WRITE-UPS, after its catch-up: is the dream's
+ * queue at `MIN_NEW` now? Read on the run's own date. False when the store
+ * will not answer: the night falls back to what the gate would have run.
+ */
+function dreamDueAfterCatchUp(input: NightRunInput): boolean {
+  try {
+    const c = input.open();
+    try {
+      return c.dreams.queuedNew(input.date ?? c.store.today()) >= DREAM_TUNABLES.MIN_NEW;
+    } finally {
+      c.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
 function catchUpOnlyEnd(
   input: NightRunInput,
   report: CatchUpReport | null,

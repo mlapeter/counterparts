@@ -22,7 +22,9 @@
  * TIER 0 (2026-10-26, `seat: "scripted"`): the same host with no model in the
  * seat. Each line gets the script's reply and its scripted tool calls, made
  * through the memory's own server in-process; the nights run `runNight` with
- * a seat that refuses every ask (`scriptedNightSeat`). Every model child of
+ * a seat that answers the catch-up (through the real write-up door) and the
+ * dream (an empty journal) by a script, and refuses the rest
+ * (`scriptedNightSeat`). Every model child of
  * either seat goes through one starter, counted in `modelCalls`.
  *
  * The store, a snapshot of it at the week's end (a single file, for
@@ -36,13 +38,14 @@ import { join, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
 
-import { ClaudeCodeAdapter, NIGHT_DENIED_TOOLS, NIGHT_KIND_ENV, NIGHT_RUN_ENV, catchUpOf, expansionIdsOf, openEmbedder, planCatchUp, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
+import { ClaudeCodeAdapter, NIGHT_CHILD_ENV, NIGHT_DENIED_TOOLS, NIGHT_KIND_ENV, NIGHT_RUN_ENV, catchUpOf, expansionIdsOf, openEmbedder, planCatchUp, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
 import type { ChildPlan, ChildResult, HookInput, NightAnswer, NightStarter, SpawnPlan } from "../../src/adapters/claude-code/index.js";
 import { coverageReading } from "../../src/adapters/cli/commands.js";
 import type { CoverageRow } from "../../src/adapters/cli/commands.js";
 import type { TurnExpansion } from "../../src/adapters/lifecycle.js";
 import { McpServer } from "../../src/adapters/mcp/index.js";
 import { lookupScope, readScopes, scopesPath, setScope, writeScopes } from "../../src/adapters/scopes.js";
+import { readSession } from "../../src/adapters/sessions.js";
 import { ADAPTER_ASK_EVENT, Counterpart, coreFromBeliefs } from "../../src/core/counterpart.js";
 import type { PlainReminder, Seat, SeatAsk } from "../../src/core/counterpart.js";
 
@@ -201,8 +204,8 @@ export interface WakeLine {
   readonly label: string;
   /** The day's first session: the morning's wake. */
   readonly morning: boolean;
-  /** "Last here": the chapter it names and the session that wrote it (by label; `?` when not this week's), or null when the wake has none. */
-  readonly lastHere: { readonly episode: string; readonly session: string } | null;
+  /** "Last here": the chapter it names and the session that wrote it (by label; `?` when not this week's) — or, for a later session with no chapter (S2), that session and no episode — or null when the wake has none. */
+  readonly lastHere: { readonly episode: string | null; readonly session: string } | null;
   /** "Last said here": the session it quotes (by label), or null. */
   readonly lastSaid: string | null;
   /** The dream's gate as the session's first prompt finds it (`Dreams#status`): its reason, and the new memories it counted (a floor at `MIN_NEW`). */
@@ -297,18 +300,66 @@ function reminded(injection: string, text: string): string {
 }
 
 /**
- * THE NIGHT'S SEAT WITH NO MODEL (tier 0, 2026-10-26): it refuses every ask,
- * so nothing starts (the week records each ask by act and size). `runNight`
- * still runs everything that needs no model: the gate that launched it, the
- * catch-up's plan, grant and release (its row says `could-not-start`), the
- * run's row. A refused first child ends the run, so the reflection and the
- * tags are never asked.
+ * THE NIGHT'S SEAT WITH NO MODEL (tier 0, 2026-10-26). With no `script` it
+ * refuses every ask, so nothing starts (the week records each ask by act and
+ * size), and `runNight` still runs everything that needs no model: the gate
+ * that launched it, the catch-up's plan, grant and release, the run's row. A
+ * refused dream ends the run, so the reflection and the tags are never asked.
+ *
+ * WITH `script` (S2, 2026-10-26; what `runWeek` passes) two acts are answered
+ * by a script, through the memory's own server in-process, bound as that
+ * child's server is — and the rest (the writer, the reflection, the tags) are
+ * still refused:
+ *   - THE CATCH-UP, through the real write-up door (`mcp/write-up.ts`): every
+ *     session the runner was granted is fetched part by part and each part
+ *     answered with one canned second-hand memory. So a night clears what it
+ *     was granted and the next night plans only what is new — a refusing one
+ *     re-planned everything owed so far each night;
+ *   - THE DREAM, as the smallest real dream: `begin`, then `journal` with a
+ *     canned line, changing nothing. So the dream's queue drains each night as
+ *     a real dream's does, and the next morning's gate counts only what is new
+ *     since — a refused dream never journaled, and the gate read the whole
+ *     week's memories as new every morning.
+ * No model: every word it writes says it is the harness's.
  */
-export function scriptedNightSeat(): Seat<NightAnswer> {
+export function scriptedNightSeat(script?: { readonly open: () => Counterpart; readonly now: () => number }): Seat<NightAnswer> {
+  const refused: NightAnswer = { refused: "harness:scripted", started: false, code: null, timedOut: false, error: null, ms: 0 };
+  const done: NightAnswer = { refused: null, started: true, code: 0, timedOut: false, error: null, ms: 0 };
   return {
     name: "harness:scripted",
-    answer(_ask: SeatAsk): Promise<NightAnswer> {
-      return Promise.resolve({ refused: "harness:scripted", started: false, code: null, timedOut: false, error: null, ms: 0 });
+    async answer(ask: SeatAsk): Promise<NightAnswer> {
+      if (script === undefined || (ask.act !== "catch-up" && ask.act !== "dream")) return refused;
+      const c = script.open();
+      try {
+        const server = new McpServer({ counterpart: c, session: ask.session, scope: ask.scope, now: script.now, env: ask.act === "dream" ? { [NIGHT_CHILD_ENV]: "dream" } : {} });
+        if (ask.act === "dream") {
+          const begun = (await server.call("dream", { phase: "begin", session: ask.session })).structuredContent;
+          if (typeof begun["dream"] === "string") {
+            await server.call("dream", { phase: "journal", dream: begun["dream"], session: ask.session, title: "A scripted night", text: "A scripted dream that changed nothing (harness tier 0, no model)." });
+          }
+          return done;
+        }
+        const call = async (args: Record<string, unknown>): Promise<Record<string, unknown>> => (await server.call("session_end", { session: ask.session, ...args })).structuredContent;
+        for (const subject of readSession(c.store.dir, ask.session)?.mayWriteUp ?? []) {
+          // At most the parts the door says there are, and a guard against a door that loops.
+          for (let guard = 0; guard < 64; guard++) {
+            const part = await call({ writeUp: subject });
+            if (part["reason"] !== "part") break;
+            const n = Number(part["part"]);
+            const of = Number(part["of"]);
+            const lived = typeof part["endedOn"] === "string" ? part["endedOn"] : "an earlier day";
+            const back = await call({
+              writeUp: subject,
+              part: n,
+              memories: [{ content: `A scripted second-hand write-up of session ${subject.slice(0, 8)}, part ${String(n)} of ${String(of)}, lived ${lived} (harness tier 0, no model).` }],
+            });
+            if (back["reason"] !== "part-written") break;
+          }
+        }
+        return done;
+      } finally {
+        c.close();
+      }
     },
   };
 }
@@ -382,6 +433,10 @@ export function readWake(injection: string, sessionOf: (episode: string) => stri
       if (episode !== null) {
         const s = sessionOf(episode);
         lastHere = { episode, session: s === null ? "?" : label(s) };
+      } else {
+        // A LATER SESSION WITH NO CHAPTER (S2): the line names the session itself.
+        const s = /^Last here: session ([^,\s]+),/.exec(line)?.[1];
+        if (s !== undefined) lastHere = { episode: null, session: label(s) };
       }
     }
     if (kind === "Last said here" && lastSaid === null) {
@@ -613,7 +668,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
       const planned = nightKind.kind === "night" ? catchUpPlan(run) : null;
       // Each ask the night puts to its seat, by act and size, whoever answers.
       const acts: { act: string; promptBytes: number }[] = [];
-      const inner: Seat<NightAnswer> = scripted ? scriptedNightSeat() : modelSeat({ dir, configPath, now, timeZone, budgetBytes: budget, env, ...(opts.model === undefined ? {} : { model: opts.model }), start });
+      const inner: Seat<NightAnswer> = scripted ? scriptedNightSeat({ open, now }) : modelSeat({ dir, configPath, now, timeZone, budgetBytes: budget, env, ...(opts.model === undefined ? {} : { model: opts.model }), start });
       const seat: Seat<NightAnswer> = {
         name: inner.name,
         answer: (ask) => {

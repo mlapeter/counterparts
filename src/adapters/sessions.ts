@@ -1714,11 +1714,20 @@ function smallWriteUpDue(h: HeldSession, dataDir: string): boolean {
  * CAN THE POINTER EVER OFFER THIS DEBT? A full one, always; a small one only
  * as `smallWriteUpDue` says. Doctor's count reads it, so a debt the pointer
  * will never name is not reported as one waiting for it (review of #289).
+ *
+ * UNDER THE FLOOR (S2 review, 2026-10-26): a debt owed only because its
+ * session left no record of its own (`overFloor` false) is a person's short
+ * check-in — a session that is not a person's conversation (`claude -p`, the
+ * Agent SDK) is held to the floor as it was before S2, small or not. With no
+ * registry record (pruned 7 days after its last write, while an owed stretch
+ * is kept until it lapses) nobody can say whose it was, so an under-floor
+ * debt fails closed, as a small one always has. A caller that does not say
+ * (`overFloor` absent) is read as past it.
  */
-export function pointable(h: { readonly session: string; readonly small: boolean }, dataDir: string): boolean {
-  if (!h.small) return true;
+export function pointable(h: { readonly session: string; readonly small: boolean; readonly overFloor?: boolean }, dataDir: string): boolean {
+  if (!h.small && h.overFloor !== false) return true;
   const path = sessionPath(dataDir, h.session);
-  if (path === null || !existsSync(path)) return false;
+  if (path === null || !existsSync(path)) return !h.small && h.overFloor !== false;
   const entrypoint = readSession(dataDir, h.session)?.entrypoint;
   return entrypoint === undefined || !NON_INTERACTIVE_ENTRYPOINTS.has(entrypoint);
 }

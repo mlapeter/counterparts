@@ -39,14 +39,14 @@ import {
   runCatchUp,
 } from "../src/adapters/claude-code/night-catch-up.js";
 import type { CatchUpReport } from "../src/adapters/claude-code/night-catch-up.js";
-import { NIGHT_KIND_ENV, NIGHT_RUN_ENV, claudeCodeSeat, nightRowTimeoutMs, openNightCounterpart, readKind, runNight } from "../src/adapters/claude-code/night-run.js";
+import { NIGHT_KIND_ENV, NIGHT_RUN_ENV, OWED_AS_NEW_KIND, claudeCodeSeat, nightRowTimeoutMs, openNightCounterpart, readKind, runNight } from "../src/adapters/claude-code/night-run.js";
 import { ClaudeCodeAdapter } from "../src/adapters/claude-code/hooks.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { dreamingSettingWords, nightRunLine } from "../src/adapters/cli/dream-core.js";
 import { beginNewInstall } from "../src/core/onboarding.js";
 import { DREAM_TUNABLES } from "../src/core/dream/index.js";
 import { nightRunLost, nightRunWords } from "../src/core/dream/index.js";
-import { openServer } from "../src/adapters/mcp/index.js";
+import { McpServer, openServer } from "../src/adapters/mcp/index.js";
 import { openAdapter } from "../src/adapters/claude-code/index.js";
 import type { HookInput } from "../src/adapters/claude-code/hooks.js";
 import type { ToolResult } from "../src/adapters/mcp/index.js";
@@ -60,6 +60,7 @@ import {
   readSession,
   readWriteUpProgress,
   recordSession,
+  sessionPath,
   updateWriteUpProgress,
   writeUpEntries,
   writeUpPlan,
@@ -1175,9 +1176,18 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
   const NIGHTLY = "/pkg/bin/nightly.ts";
   let plans: SpawnPlan[] = [];
   let offsetMs = 0;
+  // THE CATCH-UP ALONE is what these pin, so owed write-ups do NOT count as new here (S2's
+  // `OWED_COUNTS_AS_NEW`, on by default, would make most of these nights whole); the S2 tests
+  // at the end of this block turn it back on.
+  const D = DREAM_TUNABLES as { OWED_COUNTS_AS_NEW: boolean };
+  const owedCounted = D.OWED_COUNTS_AS_NEW;
   beforeEach(() => {
     plans = [];
     offsetMs = 0;
+    D.OWED_COUNTS_AS_NEW = false;
+  });
+  afterEach(() => {
+    D.OWED_COUNTS_AS_NEW = owedCounted;
   });
 
   /** The hooks as install leaves a NEW store (dreaming `auto`, the meeting not started), a clock the test moves, and a spawner that records. */
@@ -1539,5 +1549,300 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     prompt(a, "day2-3");
     expect(nightPlans()).toHaveLength(2);
     expect(nightPlans()[1]?.env[NIGHT_KIND_ENV]).toBe("night");
+  });
+
+  // ── S2 (2026-10-26): short sessions written up ───────────────────────────
+  /** Two short check-ins yesterday (two lines each, 8 minutes: under the 15-minute floor), no record of their own. */
+  function checkIns(): void {
+    lived("checkinA", proj, { pieces: 2, at: YESTERDAY_10() + 5 * HOUR });
+    lived("checkinB", proj, { pieces: 2, at: YESTERDAY_10() + 7 * HOUR });
+  }
+
+  test("S2: two short check-ins with no record are owed, and with one saved memory make three — day 2's first prompt starts the WHOLE night, its catch-up first", async () => {
+    D.OWED_COUNTS_AS_NEW = true;
+    checkIns();
+    const a = hooksAt();
+    const c = a.counterpart;
+    c.store.advanceClock(YESTERDAY());
+    saved(c, 1);
+    expect(c.dreams.status(TODAY()).reason).toBe("too-little-new");
+    expect(owes("checkinA")).toBe(true);
+    expect(owes("checkinB")).toBe(true);
+    prompt(a, "day2-1");
+    expect(nightPlans()).toHaveLength(1);
+    const plan = nightPlans()[0] as SpawnPlan;
+    // Not the catch-up alone: 1 new + 2 owed write-ups reach `MIN_NEW` — a whole night that says why
+    // (S2 review), so it reads the queue again after its catch-up.
+    expect(plan.env[NIGHT_KIND_ENV]).toBe(OWED_AS_NEW_KIND);
+    expect(readKind(plan.env[NIGHT_KIND_ENV])).toEqual({ kind: "night", owedAsNew: true });
+    expect(c.store.dreamAsk(TODAY())?.state).toBe("launched");
+    const seen: ChildPlan[] = [];
+    const started: ChildPlan[] = [];
+    const out = await nightOf(plan, seen, started);
+    // The catch-up ran first and wrote both up through the door; then the night's own children were asked.
+    expect(seen).toHaveLength(1);
+    expect(owes("checkinA")).toBe(false);
+    expect(owes("checkinB")).toBe(false);
+    expect(started.length).toBeGreaterThan(0);
+    expect((out.children ?? []).some((ch) => ch.skipped !== undefined)).toBe(false);
+    expect(catchUpOf(c.store, out.run)).toMatchObject({ granted: 2, written: 2, left: 0, parts: 2 });
+  });
+
+  test("S2: under three even with the owed counted (none saved, two owed), the night is still the catch-up alone", async () => {
+    D.OWED_COUNTS_AS_NEW = true;
+    checkIns();
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    prompt(a, "day2-1");
+    expect(nightPlans()).toHaveLength(1);
+    expect(nightPlans()[0]?.env[NIGHT_KIND_ENV]).toBe("catch-up:too-little-new");
+  });
+
+  test("S2, the Dana shape: a chapter, then check-ins with none — the next wake's Last here names the newest check-in, not the chapter; once the night writes it up, its write-up is named", async () => {
+    // The meeting: two lines, then a chapter through the memory's own `chapter` tool, which claims what it said.
+    lived("meetingX", proj, { pieces: 2, at: YESTERDAY_10() });
+    const at = YESTERDAY_10() + HOUR;
+    const mc = Counterpart.open({ dir, now: () => at });
+    let ep = "";
+    try {
+      const server = new McpServer({ counterpart: mc, session: "meetingX", scope: proj, now: () => at, env: {} });
+      const ch = payload(await server.call("chapter", { session: "meetingX", title: "Meeting Robin", text: "We met; Robin is a nurse on a new ward." }));
+      ep = String(ch["episodeId"]);
+    } finally {
+      mc.close();
+    }
+    expect(ep).toMatch(/^epi_/);
+    expect(owes("meetingX")).toBe(false);
+    checkIns();
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
+    // The wake the next session here would get (the session start composes it so; read here so no meeting begins).
+    const before = a.counterpart.wake(9_000, { date: TODAY() }, { scope: proj, session: "morning-1" }).text;
+    expect(before).toMatch(/Last here: session checkinB, [^\n]*, no chapter, not written up yet\./);
+    expect(before).toContain(`\nBefore it: session meetingX`);
+    expect(before).toContain(`(${ep})`);
+    // The night writes both up (the catch-up alone: nothing saved, two owed).
+    prompt(a, "day2-1");
+    await nightOf(nightPlans()[0] as SpawnPlan, [], []);
+    a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
+    const after = a.counterpart.wake(9_000, { date: TODAY() }, { scope: proj, session: "morning-2" }).text;
+    expect(after).toMatch(/Last here: session checkinB, [^\n]*, no chapter — "Written up from checkinB, part 1[^"]*" \(mem_[0-9a-f]+\)\./);
+    expect(after).toContain(`(${ep})`);
+  });
+
+  // ── S2 review (2026-10-26): the awkward states ───────────────────────────
+  /** The detached process's side with a catch-up seat that answers as told, and a starter that records every night child. */
+  async function nightWith(plan: SpawnPlan, startCatchUp: (p: ChildPlan) => Promise<ChildResult>, started: ChildPlan[]): Promise<Awaited<ReturnType<typeof runNight>>> {
+    return runNight({
+      open: () => openNightCounterpart(config()),
+      config: config(),
+      run: String(plan.env[NIGHT_RUN_ENV]),
+      session: String(plan.env[SESSION_ENV]),
+      scope: String(plan.env[SCOPE_ENV]),
+      kind: readKind(plan.env[NIGHT_KIND_ENV]),
+      date: TODAY(),
+      startCatchUp,
+      start: async (p) => {
+        started.push(p);
+        return { code: 0, timedOut: false, error: null };
+      },
+    });
+  }
+  /** A session that said `n` lines a minute apart in `scope`, then ended — started as `entrypoint` says. */
+  function quick(id: string, scope: string, n: number, from: number, entrypoint?: string): void {
+    let at = from;
+    const c = Counterpart.open({ dir, now: () => at });
+    try {
+      recordSession(dir, { sessionId: id, scope, phase: "start", at, ...(entrypoint === undefined ? {} : { entrypoint }) });
+      const turns: { role: "user" | "assistant"; text: string }[] = [];
+      for (let i = 0; i < n; i++) {
+        at += MIN;
+        turns.push({ role: "user", text: `${id} #${String(i)}: the relief valve on loop ${String(i)} is seated before the pump runs.` });
+        turns.push({ role: "assistant", text: `(${id} #${String(i)}) Seat the valve on loop ${String(i)} first.` });
+        c.captureSpans({ session: id, scope, turns: [...turns] });
+      }
+      c.boundary({ session: id, scope, kind: "stop" });
+      c.boundary({ session: id, scope, kind: "session-end" });
+      recordSession(dir, { sessionId: id, scope, phase: "end", at: at + 1 });
+    } finally {
+      c.close();
+    }
+  }
+
+  test("S2 review: a night made whole by owed write-ups whose catch-up writes NOTHING ends as the catch-up alone — no writer, no dream, no reflection on too little new", async () => {
+    D.OWED_COUNTS_AS_NEW = true;
+    checkIns();
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    saved(a.counterpart, 1);
+    prompt(a, "day2-1");
+    expect(nightPlans()).toHaveLength(1);
+    const plan = nightPlans()[0] as SpawnPlan;
+    expect(readKind(plan.env[NIGHT_KIND_ENV])).toMatchObject({ kind: "night" });
+    const started: ChildPlan[] = [];
+    // The model seat ran the catch-up and it exited cleanly having called nothing.
+    const out = await nightWith(plan, async () => ({ code: 0, timedOut: false, error: null }), started);
+    expect(started).toEqual([]);
+    expect(out.state).toBe("done");
+    expect(out.children).toEqual([
+      { child: "dream", code: null, ms: 0, skipped: "too-little-new" },
+      { child: "reflection", code: null, ms: 0, skipped: "too-little-new" },
+    ]);
+    expect(owes("checkinA")).toBe(true);
+  });
+
+  test("S2 review: a whole-by-owed night whose catch-up could not start ends could-not-start, its dream unasked", async () => {
+    D.OWED_COUNTS_AS_NEW = true;
+    checkIns();
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    saved(a.counterpart, 1);
+    prompt(a, "day2-1");
+    const started: ChildPlan[] = [];
+    const out = await nightWith(nightPlans()[0] as SpawnPlan, async () => ({ code: null, timedOut: false, error: "spawn ENOENT", spawnCode: "ENOENT" }), started);
+    expect(started).toEqual([]);
+    expect(out).toMatchObject({ state: "could-not-start", detail: "catch-up" });
+  });
+
+  test("S2 review: a whole-by-owed night whose catch-up DID write goes on to the dream (the forecast came true)", async () => {
+    D.OWED_COUNTS_AS_NEW = true;
+    checkIns();
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    saved(a.counterpart, 1);
+    prompt(a, "day2-1");
+    const started: ChildPlan[] = [];
+    const out = await nightWith(nightPlans()[0] as SpawnPlan, drivingChild([]), started);
+    expect(started.length).toBeGreaterThan(0);
+    expect((out.children ?? []).some((ch) => ch.skipped !== undefined)).toBe(false);
+  });
+
+  test("S2 review: twenty owed check-ins and a catch-up that writes nothing — the night is one child with at most a batch's parts, and the owed stay owed (re-planned, bounded, until they lapse)", async () => {
+    for (let i = 0; i < 20; i++) lived(`ci-${String(i)}`, i % 2 === 0 ? proj : other, { pieces: 1, at: YESTERDAY_10() + i * 20 * MIN });
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    expect(owes("ci-0")).toBe(true);
+    prompt(a, "day2-1");
+    const seen: ChildPlan[] = [];
+    const out = await nightWith(
+      nightPlans()[0] as SpawnPlan,
+      async (p) => {
+        seen.push(p);
+        return { code: 0, timedOut: false, error: null };
+      },
+      [],
+    );
+    expect(seen).toHaveLength(1);
+    const row = catchUpOf(a.counterpart.store, out.run);
+    expect(row).toMatchObject({ batches: 1, written: 0 });
+    expect(row?.granted ?? 0).toBeLessThanOrEqual(TUNABLES.NIGHT_WRITE_UP_BATCH_PARTS);
+    expect(owes("ci-19")).toBe(true);
+  });
+
+  test("S2 review: a one-line check-in answered with NOTHING stops owing (the door's own claim closes it)", async () => {
+    lived("hello", proj, { pieces: 1, at: YESTERDAY_10() + 5 * HOUR });
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    expect(owes("hello")).toBe(true);
+    prompt(a, "day2-1");
+    // The writer finds nothing worth keeping and says so in one line, as the door asks.
+    const out = await nightWith(
+      nightPlans()[0] as SpawnPlan,
+      async (plan) => {
+        const runner = plan.env[SESSION_ENV] as string;
+        const s = openServer({ dir, session: runner, scope: plan.env[SCOPE_ENV] as string });
+        try {
+          const f = payload(await s.call("session_end", { session: runner, writeUp: "hello" }));
+          expect(f["reason"]).toBe("part");
+          const back = payload(await s.call("session_end", { session: runner, writeUp: "hello", part: f["part"], memories: [], nothing: "a hello and nothing else" }));
+          expect(back["reason"]).not.toBe("refused");
+        } finally {
+          s.counterpart.close();
+        }
+        return { code: 0, timedOut: false, error: null };
+      },
+      [],
+    );
+    expect(catchUpOf(a.counterpart.store, out.run)).toMatchObject({ written: 1, left: 0 });
+    expect(owes("hello")).toBe(false);
+  });
+
+  test("S2 review: a short `claude -p` run (six quick lines, no record) is not taken by the night — only a person's short session is", async () => {
+    quick("sdk-run", proj, 6, YESTERDAY_10() + 5 * HOUR, "sdk-cli");
+    // Once its registry record is pruned (7 days on, while its owed text is kept until it lapses), nobody can
+    // say whose it was: it still fails closed (S2 review).
+    quick("sdk-pruned", proj, 6, YESTERDAY_10() + 6 * HOUR, "sdk-cli");
+    rmSync(sessionPath(dir, "sdk-pruned") as string, { force: true });
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    expect(owes("sdk-run")).toBe(true);
+    expect(owes("sdk-pruned")).toBe(true);
+    prompt(a, "day2-1");
+    expect(nightPlans()).toHaveLength(0);
+  });
+
+  test("S2 review: beside a person's short session, the night writes up the person's and passes the `claude -p` run over", async () => {
+    quick("sdk-run", proj, 6, YESTERDAY_10() + 5 * HOUR, "sdk-cli");
+    quick("cli-run", proj, 6, YESTERDAY_10() + 6 * HOUR, "cli");
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    prompt(a, "day2-1");
+    expect(nightPlans()).toHaveLength(1);
+    const seen: ChildPlan[] = [];
+    await nightWith(nightPlans()[0] as SpawnPlan, drivingChild(seen), []);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.stdin).toContain("- cli-run:");
+    expect(seen[0]?.stdin).not.toContain("sdk-run");
+    expect(owes("cli-run")).toBe(false);
+  });
+
+  test("S2 review: the later session's line inside a tight ceiling — dropped whole, then the session alone, then with the chapter before it; never over the budget", () => {
+    chapterYesterday("meetingY", "Meeting Robin");
+    lived("meetingY", proj, { pieces: 2, at: YESTERDAY_10() });
+    checkIns();
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
+    const bytes = (t: string): number => new TextEncoder().encode(t).length;
+    const plain = bytes(a.counterpart.wake(9_000, { date: TODAY() }).text);
+    const at = (budget: number): string => a.counterpart.wake(budget, { date: TODAY() }, { scope: proj, session: "morning-1" }).text;
+    const full = at(9_000);
+    expect(full).toMatch(/Last here: session checkinB, [^\n]*, no chapter, not written up yet\.\nBefore it: session meetingY/);
+    const lines = (t: string): string[] => t.split("\n").filter((l) => l.startsWith("Last here:") || l.startsWith("Before it:"));
+    let sawHeadAlone = false;
+    // From the ceiling the stored bundle itself needs (under it the bundle is delivered as found, S2 or not).
+    const floor = bytes(at(plain));
+    for (let budget = floor; budget <= bytes(full) + 400; budget += 20) {
+      const t = at(budget);
+      expect(bytes(t)).toBeLessThanOrEqual(budget);
+      const got = lines(t);
+      // Never "Before it" without the line it follows.
+      if (got.some((l) => l.startsWith("Before it:"))) expect(got[0]).toMatch(/^Last here: session checkinB, /);
+      if (got.length === 1) sawHeadAlone = true;
+    }
+    expect(lines(at(floor))).toEqual([]);
+    expect(sawHeadAlone).toBe(true);
+  });
+
+  test("S2 review: Last here in one folder never quotes what the same session noted in ANOTHER folder", async () => {
+    lived("both", proj, { pieces: 2, at: YESTERDAY_10() + 5 * HOUR });
+    const at = YESTERDAY_10() + 6 * HOUR;
+    const mc = Counterpart.open({ dir, now: () => at });
+    try {
+      const server = new McpServer({ counterpart: mc, session: "both", scope: other, now: () => at, env: {} });
+      const r = payload(await server.call("remember", { text: "In the other folder: the vault code for the side project is 4417, keep it there.", title: "Vault code 4417" }));
+      expect(JSON.stringify(r)).toMatch(/mem_[0-9a-f]+/);
+    } finally {
+      mc.close();
+    }
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
+    const text = a.counterpart.wake(9_000, { date: TODAY() }, { scope: proj, session: "morning-1" }).text;
+    const line = text.split("\n").find((l) => l.startsWith("Last here:")) ?? "";
+    expect(line).toMatch(/^Last here: session both, /);
+    expect(line).not.toContain("4417");
+    expect(line).toContain("not written up yet");
   });
 });
