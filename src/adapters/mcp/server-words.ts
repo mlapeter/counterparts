@@ -371,3 +371,80 @@ export const CHAT_WORDS: Readonly<Record<string, ChatWords>> = {
 export function chatWordsFor(host: string): ChatWords {
   return CHAT_WORDS[host] ?? (CHAT_WORDS[DESKTOP_HOST] as ChatWords);
 }
+
+/**
+ * "NO DREAMS" MEANS NO DREAMS (2026-10-26, OL1d, from #649's review). While the
+ * dreaming setting is `off`, a dream `launch` refuses on every host with this:
+ * no night starts from the tool — not day's end, not the dream, not the
+ * reflection after it. A run already under way is not stopped (owner decision
+ * D): its later phases are not gated, and Claude Code's headless night composes
+ * its prompt from the store, never through `launch`.
+ */
+export const DREAMING_OFF_REFUSAL =
+  'Dreaming is off ("no dreams"), so no night starts: no day\'s end, no dream, no reflection — do not call those phases for it. Saying "dreams on" turns it back on: this tool, phase "setting", value "auto", on their word.';
+
+/**
+ * WHAT THE `setting` RESULT SAYS, by host (OL1d). The setting is the person's
+ * wish; the HOST decides who starts the night. Claude Code's first session
+ * starts it in the background (its words, byte for byte as before). A hookless
+ * host starts nothing on its own: on claude.ai (and the hosted server, which is
+ * claude.ai's host) the person's routine, or a chat on their word, runs it, and
+ * no daily question is shown there; Desktop's chat says the day's question
+ * itself and follows a launch's prompt in the chat, while a Claude Code
+ * session on the same memory, if there is one, still starts an `auto` night.
+ */
+export type DreamingSettingWords = Readonly<Record<"auto" | "ask" | "off", string>>;
+
+export const CLAUDE_CODE_SETTING_SAID: DreamingSettingWords = {
+  auto: "Dreaming on its own: once a day, the first session starts the nightly run by itself, in a separate windowless session in the background, and says so in one line. Today's run is still yours to start, if the owner asked for it.",
+  ask: "Dreaming asks first: once a day, the first session shows the owner the question in the terminal and waits for their word.",
+  off: "No dreams: nothing starts the nightly run and nothing asks. It can be turned back on with this phase (value ask or auto) when the owner says so.",
+};
+
+export const CLAUDE_AI_SETTING_SAID: DreamingSettingWords = {
+  auto: "Dreaming on: nothing here starts a night on its own — their night routine, or saying \"dream\" in a chat, runs the night (day's end, the dream, the reflection).",
+  ask: "Dreaming on: claude.ai shows no daily question, so this works as auto does — their night routine, or saying \"dream\" in a chat, runs the night.",
+  off: "No dreams: the night is skipped even if their routine runs — its launch is refused and says so. Saying \"dreams on\" turns it back on (this phase, value auto).",
+};
+
+export const DESKTOP_SETTING_SAID: DreamingSettingWords = {
+  auto: "Dreaming on its own: this chat starts nothing by itself. If Claude Code shares this memory, its first session of a day starts the nightly run in the background; here, saying \"dream\" runs it in the chat.",
+  ask: "Dreaming asks first: once a day, the first wake brings the question — say it to them once, in your own words, and wait for their word.",
+  off: "No dreams: nothing starts the nightly run and nothing asks, and a launch is refused. It can be turned back on with this phase (value ask or auto) when the owner says so.",
+};
+
+/** The `setting` result's words for the server's host; Claude Code's for any host without its own. */
+export function settingSaidFor(host: string): DreamingSettingWords {
+  if (host === CLAUDE_AI_HOST) return CLAUDE_AI_SETTING_SAID;
+  if (host === DESKTOP_HOST) return DESKTOP_SETTING_SAID;
+  return CLAUDE_CODE_SETTING_SAID;
+}
+
+/** Every host but claude.ai and Desktop: the dream `launch` result's `how`, as before. */
+export const DREAM_LAUNCH_HOW =
+  "Hand `prompt` to a background agent (the Agent tool), unchanged, and carry on. When it finishes, show the owner its first line (the dream's) exactly as it came back — it carries the dream's mark, which keeps the dream out of lived memory. If a morning share follows, tell it to the owner in your own words, as a telling (\"While I slept I dreamed…\"), then call the reflect tool with phase \"told\" — never state what was dreamed as something that happened.";
+
+/** Every host but claude.ai and Desktop: the reflect `launch` result's `how`, as before. */
+export const REFLECT_LAUNCH_HOW =
+  "Hand `prompt` to a background agent (the Agent tool), unchanged, and carry on. When it finishes, if it left a morning share, tell it to the owner in your own words, then call this tool with phase \"told\".";
+
+/**
+ * DESKTOP'S `how` (OL1d): Desktop's chat has no background Agent tool (its dream
+ * note already says to follow the launch's prompt in the chat), so the result
+ * says the same.
+ */
+export const DESKTOP_DREAM_LAUNCH_HOW =
+  "Follow `prompt` yourself, here, step by step, through every call it names, passing the same session. When it finishes, show the owner the dream's line from the hand-back exactly as it came back — it carries the dream's mark, which keeps the dream out of lived memory. If a morning share follows, tell it to the owner in your own words, as a telling (\"While I slept I dreamed…\"), then call the reflect tool with phase \"told\" — never state what was dreamed as something that happened.";
+
+export const DESKTOP_REFLECT_LAUNCH_HOW =
+  "Follow `prompt` yourself, here, step by step, passing the same session. When it finishes, if it left a morning share, tell it to the owner in your own words, then call this tool with phase \"told\".";
+
+/** The dream `launch` result's `how` for the server's host. */
+export function dreamLaunchHowFor(host: string): string {
+  return host === CLAUDE_AI_HOST ? CLAUDE_AI_DREAM_LAUNCH_HOW : host === DESKTOP_HOST ? DESKTOP_DREAM_LAUNCH_HOW : DREAM_LAUNCH_HOW;
+}
+
+/** The reflect `launch` result's `how` for the server's host. */
+export function reflectLaunchHowFor(host: string): string {
+  return host === CLAUDE_AI_HOST ? CLAUDE_AI_REFLECT_LAUNCH_HOW : host === DESKTOP_HOST ? DESKTOP_REFLECT_LAUNCH_HOW : REFLECT_LAUNCH_HOW;
+}

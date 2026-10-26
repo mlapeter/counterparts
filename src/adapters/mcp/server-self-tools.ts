@@ -17,8 +17,7 @@ import {
 import type { TraceInput } from "../../core/self/page.js";
 import type { PageWriterMode, PageWriterRun } from "../../core/self/index.js";
 import type { ToolResult } from "./server-options.js";
-import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_REFLECT_LAUNCH_HOW, dreamHow, PAGE_REFUSAL_DETAIL, pageLaneAnswer, pageRoomAnswer } from "./server-words.js";
-import { CLAUDE_AI_HOST } from "../hosts.js";
+import { DREAMING_OFF_REFUSAL, dreamHow, dreamLaunchHowFor, PAGE_REFUSAL_DETAIL, pageLaneAnswer, pageRoomAnswer, reflectLaunchHowFor, settingSaidFor } from "./server-words.js";
 import type { McpServer } from "./server.js";
 
 /**
@@ -72,6 +71,10 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
         // The day's row becomes `launched` (claimed, or flipped from an
         // accepted ask), so a run that dies before its dream begins is
         // started again (review of #271).
+        // "NO DREAMS" MEANS NO DREAMS (OL1d): while the setting is off, no
+        // night starts from here, on any host — a claude.ai routine included.
+        // Only the launch is gated: a run already under way finishes.
+        if (dreams.setting() === "off") return refused("dreaming-off", DREAMING_OFF_REFUSAL);
         dreams.launched({ at, session });
         server["emit"]("mcp.dream", undefined, { phase: "launch", session });
         return server["result"](
@@ -84,7 +87,7 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
             // retelling in the session's own words would carry none, and the
             // dream's title and changes would read as something that
             // happened (adversarial review of #251).
-            how: server.host === CLAUDE_AI_HOST ? CLAUDE_AI_DREAM_LAUNCH_HOW : "Hand `prompt` to a background agent (the Agent tool), unchanged, and carry on. When it finishes, show the owner its first line (the dream's) exactly as it came back — it carries the dream's mark, which keeps the dream out of lived memory. If a morning share follows, tell it to the owner in your own words, as a telling (\"While I slept I dreamed…\"), then call the reflect tool with phase \"told\" — never state what was dreamed as something that happened.",
+            how: dreamLaunchHowFor(server.host),
           },
           false,
         );
@@ -126,11 +129,9 @@ export function dreamTool(server: McpServer, args: Record<string, unknown>): Too
         const out = dreams.setSetting(value, { by: "session", session });
         if (!out.ok) return refused(out.reason, `value is one of ${DREAMING_SETTINGS.join(", ")}. It is ${dreams.setting()} now.`);
         server["emit"]("mcp.dream", undefined, { phase: "setting", setting: out.setting, before: out.before });
-        const said: Record<DreamingSetting, string> = {
-          auto: "Dreaming on its own: once a day, the first session starts the nightly run by itself, in a separate windowless session in the background, and says so in one line. Today's run is still yours to start, if the owner asked for it.",
-          ask: "Dreaming asks first: once a day, the first session shows the owner the question in the terminal and waits for their word.",
-          off: "No dreams: nothing starts the nightly run and nothing asks. It can be turned back on with this phase (value ask or auto) when the owner says so.",
-        };
+        // The setting is the person's wish; the host decides who starts the
+        // night, so the words are the server's host's (OL1d).
+        const said: Readonly<Record<DreamingSetting, string>> = settingSaidFor(server.host);
         // "No dreams" does not stop a run already going (owner decision D): said.
         const finishes = out.setting === "off" && dreams.nightRunUnderWay() ? ` ${NIGHT_RUN_FINISHES}` : "";
         return server["result"]({ phase, setting: out.setting, before: out.before, said: `${said[out.setting]}${finishes}` }, false);
@@ -394,7 +395,7 @@ export function reflectTool(server: McpServer, sent: Record<string, unknown>): T
             // After a dream whose run was cut off before it reflected
             // (review of #271): the reflection alone, on that dream.
             prompt: reflections.launchPrompt({ session, dream: typeof args["dream"] === "string" ? args["dream"] : null }),
-            how: server.host === CLAUDE_AI_HOST ? CLAUDE_AI_REFLECT_LAUNCH_HOW : "Hand `prompt` to a background agent (the Agent tool), unchanged, and carry on. When it finishes, if it left a morning share, tell it to the owner in your own words, then call this tool with phase \"told\".",
+            how: reflectLaunchHowFor(server.host),
           },
           false,
         );
