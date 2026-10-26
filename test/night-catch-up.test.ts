@@ -2053,4 +2053,51 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
     }
     expect(compared).toBeGreaterThan(0);
   });
+
+  // ── L2 (2026-10-26; S2 tier 2 finding 1): a night's own output is filed under the session it launched in ──
+  /** What a night writes under the session it launched in, as `dream/` and `reflect.ts` file it: a reflection's
+   *  entry, a dream's gist, and a merge (whose source is its best original's, told by its `dream:` origin). */
+  function nightFiledUnder(session: string, scope: string, at: number): void {
+    const c = Counterpart.open({ dir, now: () => at });
+    try {
+      const day = c.store.livedDay();
+      const physics = { birthDay: day, lastUsedDay: day };
+      c.store.put({ type: "memory", kind: "self", title: "Reflected: Being where the shift gets set down", body: "The check-ins are where the shift gets set down.", salience: { relevance: 0.5, emotional: 0.3, predictive: 0.5 }, physics, source: "reflection", origin: { session, scope, ref: "reflection:rfl_000000000001" } });
+      c.store.put({ type: "memory", kind: "fact", title: "Dreamed: valves before pumps, every time", body: "Every loop is seated before it runs.", salience: { claimed: 0.3 }, physics, source: "dreamed", origin: { session, scope, ref: "dream:drm_000000000001" } });
+      c.store.put({ type: "memory", kind: "fact", title: "Merged: the relief valves", body: "Relief valves are seated before the pumps run, on every loop.", salience: { relevance: 0.6 }, physics, source: "authored", origin: { session, scope, ref: "dream:drm_000000000001" } });
+    } finally {
+      c.close();
+    }
+  }
+
+  test("L2: Last here quotes the session's own memory, not the night's reflection or dream filed under it later", async () => {
+    lived("ownnote", proj, { pieces: 2, at: YESTERDAY_10() + 5 * HOUR });
+    const at = YESTERDAY_10() + 6 * HOUR;
+    const mc = Counterpart.open({ dir, now: () => at });
+    try {
+      const server = new McpServer({ counterpart: mc, session: "ownnote", scope: proj, now: () => at, env: {} });
+      const r = payload(await server.call("remember", { text: "Loop three's relief valve sticks; Robin taps it twice before seating it.", title: "Loop three's sticky valve" }));
+      expect(JSON.stringify(r)).toMatch(/mem_[0-9a-f]+/);
+    } finally {
+      mc.close();
+    }
+    // The night launched in this session afterwards, so its rows are newer than the session's own.
+    nightFiledUnder("ownnote", proj, YESTERDAY_10() + 9 * HOUR);
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
+    const line = lastHereLines(wokeHere(a, "morning-1"))[0] ?? "";
+    expect(line).toMatch(/^Last here: session ownnote, [^\n]*, no chapter — "Loop three's sticky valve" \(mem_[0-9a-f]+\)\.$/);
+    expect(line).not.toContain("Reflected:");
+    expect(line).not.toContain("Dreamed:");
+  });
+
+  test("L2: a session with only the night's output filed under it is 'not written up yet'", () => {
+    lived("nightrun", proj, { pieces: 2, at: YESTERDAY_10() + 5 * HOUR });
+    nightFiledUnder("nightrun", proj, YESTERDAY_10() + 9 * HOUR);
+    const a = hooksAt();
+    a.counterpart.store.advanceClock(YESTERDAY());
+    a.counterpart.rebrief({ budgetBytes: 9_000, at: TODAY() });
+    expect(lastHereLines(wokeHere(a, "morning-1"))[0]).toMatch(/^Last here: session nightrun, [^\n]*, no chapter, not written up yet\.$/);
+  });
 });
