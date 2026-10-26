@@ -588,8 +588,9 @@ describe("the instruction the writer reads", () => {
     // The whole block stays small enough to ride beside a real wake. (1,800
     // since 2026-10-10: the writing rule asks for a short version past the
     // page's room, in the same breath as the room itself; 2,000 since
-    // 2026-10-16: "## How I work" as a few short lessons, `HOW_I_WORK_RULE`.)
-    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(2000);
+    // 2026-10-16: "## How I work" as a few short lessons, `HOW_I_WORK_RULE`;
+    // 2,300 since 2026-10-26: no record is unknown, `NO_RECORD_RULE`.)
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThan(2300);
   });
 
   test("it names the session id, so the write can be recorded as the night's", () => {
