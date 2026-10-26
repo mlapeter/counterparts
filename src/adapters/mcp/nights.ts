@@ -20,6 +20,7 @@
  * Pure reads over the store; never writes, never throws past its caller.
  */
 import type { Counterpart } from "../../core/counterpart.js";
+import { clipWire, wireChars } from "../../core/fit/index.js";
 import { rowTombstoned } from "../../core/store/index.js";
 import type { DreamChangeRow, DreamRow, ReflectionRow, Store } from "../../core/store/index.js";
 
@@ -31,6 +32,15 @@ export const NIGHT_GIST_CHARS = 280;
 export const NIGHT_JOURNAL_CHARS = 1_200;
 /** How much of a reflection's entry a summary carries. */
 export const NIGHT_ENTRY_CHARS = 3_000;
+
+/**
+ * WHOLE, UP TO WHAT ONE ANSWER CARRIES (review of #645). A night read whole
+ * keeps its journal or entry uncut up to this many wire characters
+ * (`fit#wireChars`): the longest journal a dream may write (30,000) fits, so
+ * in English "whole" is whole; a text past it (another script, three to a
+ * character) is cut, and `journalChars` / `entryChars` says so.
+ */
+export const NIGHT_WHOLE_WIRE_CHARS = 32_000;
 
 /** Said once on a result that carries a night, so `nights` is not a bare field. */
 export const NIGHTS_GLOSS =
@@ -133,6 +143,10 @@ function capped(list: readonly string[], max = NIGHT_IDS_PER_KIND): IdsCapped {
 }
 
 function cut(text: string, max: number): { text: string; chars?: number } {
+  if (max === Number.POSITIVE_INFINITY) {
+    // Whole: uncut up to what one answer carries, measured on the wire.
+    return wireChars(text) <= NIGHT_WHOLE_WIRE_CHARS ? { text } : { text: clipWire(text, NIGHT_WHOLE_WIRE_CHARS), chars: text.length };
+  }
   return text.length <= max ? { text } : { text: `${text.slice(0, max - 1)}…`, chars: text.length };
 }
 
@@ -262,16 +276,39 @@ export function isLastNightHandle(handle: unknown): boolean {
 /** The newest night, whole: its dream and the reflection after it. */
 export interface LastNight {
   readonly dream: DreamSummary | null;
-  readonly reflection: ReflectionSummary | null;
+  /** Whole; or, past the room (`roomFor` in `readLastNight`), a short summary or just its id. */
+  readonly reflection: ReflectionSummary | ReflectionPointer | null;
+  /** How the reflection came when the two together passed the room; absent when whole. */
+  readonly reflectionCut?: "summary" | "pointer";
 }
+
+/** A reflection named by id alone: the room went to the dream. */
+export interface ReflectionPointer {
+  readonly kind: "reflection";
+  readonly id: string;
+  readonly date: string | null;
+  readonly title: string | null;
+  readonly shareState: string;
+  readonly told: boolean;
+}
+
+/** Room for the two parts of last night together, in wire characters, under one answer's ceiling. */
+export const LAST_NIGHT_WIRE_CHARS = 36_000;
 
 /**
  * The newest dream that wrote a journal and was not undone (else the newest
  * dream), with the newest reflection after it; with no dream at all, the
  * newest reflection — the console's `night last` rule. Journal and entry
  * whole. Pure reads; null parts when there is nothing; never throws.
+ *
+ * ONE ANSWER'S ROOM (review of #645): a dream may journal 30,000 characters
+ * and its reflection 20,000 more, past what one tool answer carries — and the
+ * server's last net cuts only a top-level string, so the two would have
+ * shipped over it whole and been spilled by the host. Past `room`, the dream
+ * stays whole and the reflection comes as a summary (its entry cut, and said),
+ * or by id alone; its id read as a handle opens it whole on its own.
  */
-export function readLastNight(counterpart: Counterpart): LastNight {
+export function readLastNight(counterpart: Counterpart, room: number = LAST_NIGHT_WIRE_CHARS): LastNight {
   const store = counterpart.store;
   try {
     const recent = store.dreams({ limit: 20 });
@@ -279,10 +316,14 @@ export function readLastNight(counterpart: Counterpart): LastNight {
     const dreamRead = dream === undefined ? null : readNight(counterpart, dream.id, { whole: true });
     const after = dream === undefined ? store.reflections({ limit: 1 })[0] : store.reflections({ dreamId: dream.id, limit: 1 })[0];
     const reflectionRead = after === undefined ? null : readNight(counterpart, after.id, { whole: true });
-    return {
-      dream: dreamRead?.ok === true && dreamRead.night.kind === "dream" ? dreamRead.night : null,
-      reflection: reflectionRead?.ok === true && reflectionRead.night.kind === "reflection" ? reflectionRead.night : null,
-    };
+    const d = dreamRead?.ok === true && dreamRead.night.kind === "dream" ? dreamRead.night : null;
+    const r = reflectionRead?.ok === true && reflectionRead.night.kind === "reflection" ? reflectionRead.night : null;
+    const fits = (x: unknown): boolean => wireChars(JSON.stringify({ dream: d, reflection: x })) <= room;
+    if (r === null || after === undefined || fits(r)) return { dream: d, reflection: r };
+    const summary = reflectionSummary(store, after);
+    if (fits(summary)) return { dream: d, reflection: summary, reflectionCut: "summary" };
+    const pointer: ReflectionPointer = { kind: "reflection", id: r.id, date: r.date, title: r.title, shareState: r.shareState, told: r.told };
+    return { dream: d, reflection: pointer, reflectionCut: "pointer" };
   } catch {
     return { dream: null, reflection: null };
   }
@@ -308,8 +349,11 @@ export type QuestionNightWhy = "reflection-shown" | "words" | "names-dreams";
  * rides beside a question's answer when:
  *
  *   1. the answer showed the entry of a reflection that followed it; or
- *   2. its title and journal share at least two content words with the
- *      question (one, when the question names dreaming); or
+ *   2. the question names dreaming, and its title or journal shares a
+ *      content word with it (review of #645: on any question, two shared
+ *      words carried a work-week dream beside six of eight ordinary
+ *      questions — "the release", "the dashboard work" — so a question that
+ *      does not ask about dreams is reached only by rule 1); or
  *   3. the question names dreaming and nothing matched: the newest dream.
  *
  * Words, not vectors: dream journals have no embedding (a cache table would
@@ -339,14 +383,13 @@ export function nightsForQuestion(
     const asked = words(question);
     // The words that ask ABOUT a night are not what it was about.
     for (const w of ["dream", "dreams", "dreamed", "dreamt", "dreaming", "night", "last"]) for (const v of words(w)) asked.delete(v);
-    const need = naming ? 1 : 2;
-    if (asked.size > 0) {
+    if (naming && asked.size > 0) {
       for (const d of recent) {
         if (picked.has(d.id)) continue;
         const have = words(`${d.title ?? ""} ${d.journal ?? ""}`);
         let shared = 0;
         for (const w of asked) if (have.has(w)) shared += 1;
-        if (shared >= need) picked.set(d.id, "words");
+        if (shared >= 1) picked.set(d.id, "words");
       }
     }
     if (picked.size === 0 && naming) {

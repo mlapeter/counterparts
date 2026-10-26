@@ -22,6 +22,9 @@ import { join } from "node:path";
 import { CLAUDE_AI_HOST } from "../src/adapters/hosts.js";
 import { openServer } from "../src/adapters/mcp/index.js";
 import { NIGHT_JOURNAL_CHARS } from "../src/adapters/mcp/nights.js";
+import { REFLECT_TUNABLES } from "../src/core/dream/reflect.js";
+import { DREAM_TUNABLES } from "../src/core/dream/tunables.js";
+import { TOOL_RESULT_CEILING, wireChars } from "../src/core/fit/index.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import { Counterpart } from "../src/core/counterpart.js";
@@ -57,7 +60,7 @@ function mem(c: Counterpart, body: string, over: Partial<PutInput> = {}): string
 }
 
 /** One night: a dream with a long journal, then a reflection after it with a long entry and a share. */
-function night(): { dream: string; reflection: string } {
+function night(o: { journal?: string; entry?: string; share?: string; reflect?: boolean } = {}): { dream: string; reflection: string } {
   const c = Counterpart.open({ dir, identity: { name: "Wren" } });
   try {
     c.store.advanceClock("2026-09-20");
@@ -69,17 +72,18 @@ function night(): { dream: string; reflection: string } {
     const dream = begun.bundle.dream;
     const proposed = c.dreams.propose({ dream, session: SESSION, changes: [{ action: "link", a, b }] });
     if (!proposed.ok) throw new Error("propose refused");
-    const j = c.dreams.journal({ dream, session: SESSION, title: "The greenhouse latch", text: LONG_JOURNAL });
+    const j = c.dreams.journal({ dream, session: SESSION, title: "The greenhouse latch", text: o.journal ?? LONG_JOURNAL });
     if (!j.ok) throw new Error("journal refused");
+    if (o.reflect === false) return { dream, reflection: "" };
     const r = c.reflections.begin({ session: SESSION, dream });
     if (!r.ok) throw new Error(`reflect begin refused: ${r.reason}`);
     const done = c.reflections.finish({
       reflection: r.bundle.reflection,
       session: SESSION,
       title: "near the glass",
-      entry: LONG_ENTRY,
+      entry: o.entry ?? LONG_ENTRY,
       cites: [a],
-      share: { text: "Last night I dreamed the seedlings kept sliding toward the cold glass.", cites: [a] },
+      share: { text: o.share ?? "Last night I dreamed the seedlings kept sliding toward the cold glass.", cites: [a] },
     });
     if (!done.ok) throw new Error(`reflect finish refused: ${done.reason}`);
     return { dream, reflection: r.bundle.reflection };
@@ -89,8 +93,8 @@ function night(): { dream: string; reflection: string } {
 }
 
 let nextId = 1;
-async function door(): Promise<{ url: string; counterpart: Counterpart }> {
-  const s = openServer({ dir, host: CLAUDE_AI_HOST, env: {}, lifecycle: { spawner: (_plan: SpawnPlan) => ({ pid: 4242 }) }, manifestVersion: () => null });
+async function door(resultCeilingChars?: number): Promise<{ url: string; counterpart: Counterpart }> {
+  const s = openServer({ dir, host: CLAUDE_AI_HOST, env: {}, ...(resultCeilingChars === undefined ? {} : { resultCeilingChars }), lifecycle: { spawner: (_plan: SpawnPlan) => ({ pid: 4242 }) }, manifestVersion: () => null });
   closers.push(() => s.counterpart.close());
   const http = await serveHttp({ server: s });
   closers.push(() => http.close());
@@ -163,12 +167,75 @@ describe("a question reaches a dream", () => {
     expect(String(p["nightsGloss"])).toContain('handle "last dream"');
   });
 
-  test("by its words, in facts mode: a question that shares the journal's words finds it; an unrelated one carries none", async () => {
-    const n = night();
+  test("by its words, when the question asks about dreams; an ordinary question that shares the journal's words carries none (review of #645)", async () => {
+    // No reflection: a question reaches this dream only by its words (rule 1 is the reflection's).
+    const n = night({ reflect: false });
     const { url } = await door();
-    const hit = await recall(url, { question: "the greenhouse latch and the seedlings", mode: "facts" });
+    const hit = await recall(url, { question: "did you dream about the greenhouse seedlings", mode: "facts" });
     expect(((hit["nights"] as Record<string, unknown>[] | undefined) ?? []).map((x) => x["id"])).toContain(n.dream);
+    // Two and more of the journal's words, no dream asked about: the answer stays the answer.
+    for (const question of ["the greenhouse latch and the seedlings", "when did the tomato starts go to the greenhouse benches"]) {
+      const plain = await recall(url, { question, mode: "facts" });
+      expect(plain["nights"]).toBeUndefined();
+    }
     const miss = await recall(url, { question: "when is the dentist appointment", mode: "facts" });
     expect(miss["nights"]).toBeUndefined();
+  });
+
+  test("a dream that would carry the answer past its ceiling stays out; the answer is not cut for it (review of #645)", async () => {
+    const n = night();
+    const question = "what was your last dream?";
+    const first = await door();
+    const full = await recall(first.url, { question, mode: "meaning" });
+    expect(((full["nights"] as Record<string, unknown>[] | undefined) ?? []).map((x) => x["id"])).toContain(n.dream);
+    const { nights: _n, nightsGloss: _g, ...answerOnly } = full;
+    for (const c of closers.splice(0).reverse()) await c();
+    // Room for the answer, not for the dream beside it.
+    const tight = await door(wireChars(JSON.stringify(answerOnly)) + 50);
+    const p = await recall(tight.url, { question, mode: "meaning" });
+    expect(p["nights"]).toBeUndefined();
+    expect(p["cut"]).toBeUndefined();
+    expect(p["answer"]).toBe(full["answer"]);
+  });
+});
+
+describe("last night, the awkward states (review of #645)", () => {
+  test("a dream with no reflection: the dream whole, no reflection", async () => {
+    const n = night({ reflect: false });
+    const { url } = await door();
+    const p = await recall(url, { handle: "last night" });
+    expect(p["reason"]).toBe("last-night");
+    expect((p["dream"] as Record<string, unknown>)["id"]).toBe(n.dream);
+    expect(p["reflection"]).toBeUndefined();
+  });
+
+  test("the longest night a dream and a reflection may write fits one answer: the dream whole, the reflection named, then whole by its id; the share untold", async () => {
+    const journal = "The latch clicked and the trays slid again toward the glass. ".repeat(600).slice(0, DREAM_TUNABLES.MAX_JOURNAL_CHARS).trim();
+    const entry = "I keep thinking about what we leave near the glass. ".repeat(500).slice(0, REFLECT_TUNABLES.MAX_ENTRY_CHARS).trim();
+    const share = "Last night I dreamed the seedlings slid toward the cold glass. ".repeat(60).slice(0, REFLECT_TUNABLES.MAX_SHARE_CHARS).trim();
+    const n = night({ journal, entry, share });
+    const { url, counterpart } = await door();
+    const p = await recall(url, { handle: "last dream" });
+    expect(wireChars(JSON.stringify(p))).toBeLessThanOrEqual(TOOL_RESULT_CEILING.CHARS);
+    expect(p["cut"]).toBeUndefined();
+    expect((p["dream"] as Record<string, unknown>)["journal"]).toBe(journal);
+    expect((p["reflection"] as Record<string, unknown>)["id"]).toBe(n.reflection);
+    expect(String(p["note"])).toContain(`recall with handle ${n.reflection} reads it whole`);
+    const alone = await recall(url, { handle: n.reflection });
+    const whole = (alone["nights"] as Record<string, unknown>[])[0] as Record<string, unknown>;
+    expect(whole["entry"]).toBe(entry);
+    expect(wireChars(JSON.stringify(alone))).toBeLessThanOrEqual(TOOL_RESULT_CEILING.CHARS);
+    expect(counterpart.store.reflection(n.reflection)?.share_state).toBe("offered");
+  });
+
+  test("a journal in another script, past one answer's room, is cut and says its whole length", async () => {
+    const journal = "温室の扉が風で開き続けた。".repeat(1_500).slice(0, 15_000);
+    night({ journal, reflect: false });
+    const { url } = await door();
+    const p = await recall(url, { handle: "last dream" });
+    expect(wireChars(JSON.stringify(p))).toBeLessThanOrEqual(TOOL_RESULT_CEILING.CHARS);
+    const dream = p["dream"] as Record<string, unknown>;
+    expect(dream["journalChars"]).toBe(journal.length);
+    expect(String(dream["journal"]).length).toBeLessThan(journal.length);
   });
 });

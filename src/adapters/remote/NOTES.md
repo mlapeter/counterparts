@@ -30,8 +30,12 @@
 - **Dreams from a chat (2026-10-26, OL1b).** claude.ai has no console and no dashboard,
   so `recall` reads last night itself: the handle "last dream" (or "last night") returns
   the newest dream whole and the reflection after it, and a dream's id alone now reads
-  whole too. A question's answer carries the dreams it reaches, by words and by the
-  reflection entry it showed. Dream journals have no embedding, so "by meaning" is words
+  whole too, up to what one answer carries (a 30,000-character journal and a 20,000-character
+  entry together do not fit: the dream stays whole and the reflection is named, whole by its
+  id). A question's answer carries the dreams it reaches: by the reflection entry it showed,
+  or, when the question asks about dreams, by words (review of #645: words on every question
+  carried a work-week dream beside six of eight ordinary questions). A dream never displaces
+  the answer: one that would pass the ceiling stays out. Dream journals have no embedding, so "by meaning" is words
   for now; a real index would be a cache table, batched with other store-format changes.
 - **The first meeting over the door (2026-10-26, OL1b).** It runs cleanly once the store
   starts as a new install (`onboarding.ts#beginNewInstall`); on claude.ai its words say

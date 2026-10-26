@@ -13,7 +13,7 @@
  * (a stub spawner); every answer is invented.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -118,6 +118,30 @@ describe("a cold first chat on claude.ai meets", () => {
     expect(desk).toContain(RETENTION_LINE);
     expect(desk).toContain("removing it: run counterparts uninstall in a terminal.");
     expect(offerLine("not_started")).toContain("They installed a memory plugin to be known");
+  });
+
+  // Pinned, not fixed: claude.ai is a chat host (`desktop`), so the close already leaves the sidebar out.
+  test("the close names no sidebar on claude.ai, though the machine serving it has one (review of #645)", async () => {
+    // A counterparts-sidebar plugin recorded where Claude Code would record it, in a moved config dir.
+    const config = join(root, "claude-config");
+    mkdirSync(join(config, "plugins"), { recursive: true });
+    writeFileSync(join(config, "plugins", "installed_plugins.json"), JSON.stringify({ plugins: { "counterparts-sidebar@counterparts": [{ installPath: "" }] } }));
+    const env = { CLAUDE_CONFIG_DIR: config };
+    const closes: Record<string, string> = {};
+    for (const host of [CLAUDE_AI_HOST, undefined]) {
+      const sub = join(root, `store-${host ?? "code"}`);
+      const c = Counterpart.open({ dir: sub });
+      beginNewInstall(c.store, { dreaming: false });
+      c.close();
+      const s = openServer({ dir: sub, ...(host === undefined ? {} : { host }), env, lifecycle: { spawner: (_plan: SpawnPlan) => ({ pid: 4242 }) }, manifestVersion: () => null });
+      closers.push(() => s.counterpart.close());
+      const session = String((await s.call("wake", {})).structuredContent["session"]);
+      await s.call("meet", { session });
+      closes[host ?? "code"] = (await s.call("meet", { session, step: "done" })).content[0]?.text ?? "";
+    }
+    expect(closes[CLAUDE_AI_HOST]).not.toContain("/counterparts shows the memory sidebar");
+    // The same machine, Claude Code's host: the sidebar line, as before.
+    expect(closes["code"]).toContain("/counterparts shows the memory sidebar");
   });
 
   test("the finding: a store this door opens fresh, never started as a new install, offers no meeting", async () => {
