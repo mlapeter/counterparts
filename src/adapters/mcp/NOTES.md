@@ -1772,3 +1772,31 @@ pinned holds: "by 12/20" asked on 10-09 (this year's), on 05-01 (last year's), "
   and the tagging child is allowed the dream tool alone (`seat.ts#SEAT_TOOLS.tags`). Three
   optional fields (`tagged`, `merges`, `kinds`); no privilege row (a nightly child's step).
   The run's id comes from `COUNTERPARTS_NIGHT_RUN`, else `session:<id>:<date>`.
+
+## 2026-10-26 — the night's share reaches the next chat on a hookless host (OL1a)
+
+The claude.ai trial (12:48): a routine reflected and left a share; the next chat's wake did not carry
+it. **The trace** (before any change): the only carries were Claude Code's — `hooks.ts#dreamLines`
+on a prompt (when the reflecting session's record is ended or quiet past `SESSION_TTL_MS`) and
+`nightHandBack` for Claude Code's own spawned run. `wakeTool` never looked for a share, so on a
+claude.ai-only store nothing ever carried one. Beneath that, the guess in the brief: a hookless
+session is never ended (its record is started at `wake` and refreshed by each call that names it,
+`touchDesktopSession`; nothing writes an end), so Claude Code's rule alone would have held a
+routine's share for four hours after its last call.
+
+**The fix:** `sessions.ts#reflectorDone` — no record, ended, quiet past the TTL, or a hookless
+chat's session (`isChatHost`; a pseudo-scope for a record with no host), which counts as ended
+once its reflection finished (the only kind `pendingShare` offers). `wakeShareLine` carries with
+it (the atomic `carryLine` claim) right after the session line — the size net cuts from the end,
+and a claimed share must not be what falls off. `dreamLines` uses the same helper: Claude Code →
+Claude Code is unchanged; the one new case is a Claude Code prompt carrying a hookless chat's share
+at once rather than after four hours. Tests: `test/hookless-share-carry.test.ts` (the HTTP door;
+the hook).
+
+**Open, with a recommendation:** a routine's own `wake` is a wake like any other (never told apart
+by client name), so with no chat since the last night it claims that night's share in the routine,
+where no one reads it. Small harm (the newer share still reaches the next chat; before this the
+older one never carried either). Recommended: a wake argument the night prompt passes to skip the
+carry, on the claude-ai surface's lane; until then accepted, and documented by a test. Also
+accepted: in-chat dreaming on a hookless host, where another chat waking between `finish` and
+`told` would carry the share the reflecting chat is about to tell (rare; told twice at worst).
