@@ -24,7 +24,7 @@ Each question is flagged, not quietly decided. These are what the coordinator re
 | Q1 | OAuth library | **`oidc-provider` 9.x** (panva), pinned exactly, in the hosted package only. Fallback: a hand-written authorization server rewritten in `hosted/` on the phone project's pattern, about 400 lines there (that repo is reference only, never imported) (§4.6) | A certified, maintained protocol core, against roughly 33 transitive packages and a big configuration surface we must set correctly |
 | Q2 | Encrypt the SQLite file itself, or rely on an encrypted volume plus per-user-key backups | **Volume at rest plus per-user-key-encrypted backups** for the beta (§5) | A copy of the live disk is readable plaintext if Railway's disk encryption doesn't hold. File-level encryption would close that, but neither built-in driver can do it (**M**) |
 | Q3 | How backups leave the host | **Litestream v0.5.13+, one `path:` entry per store, each with its own SSE-C key file**, to R2 (§5.3) | Point-in-time restore, but the config is static (regenerated and reloaded per signup or delete), and R2 sees the key on each request. The alternative: our own snapshot shipping, encrypted on our side (the provider never holds a key; loses up to one interval of writes) |
-| Q4 | When a delete becomes unreadable everywhere | **"At once" on the live server, "within 7 days" for every backup copy.** The key store is kept out of Litestream and backed up with 7-day retention (§5.4) | An honest claim with a number in it, against the plan's "at once". Making it truly "at once" means rotating the KEK on every delete |
+| Q4 | When a delete becomes unreadable everywhere | **Answered by Mike (2026-10-26): at once, everywhere.** Each wrapped DEK is one write-once R2 object, deleted with everything else (§5.4) | The control databases' backup history keeps a deleted address for Litestream's snapshot retention (24 h); flagged in §5.4 |
 | Q5 | Where the code lives | **`hosted/` at the repo root**: a private package with its own `package.json` and its own dependencies, left out of npm `files`. It imports the core by relative path (§8) | The core stays zero-dependency and its network guard stays honest, at the cost of a second package in one repo |
 | Q6 | Which runtime runs the hosted server | **Node 24 LTS in the container** (the package already runs on Node through `node-hooks.mjs`). Tests run under bun too (§8.2) | `oidc-provider` supports Node only and prints "Unsupported runtime" on bun, even though the spike passed there (**M**) |
 | Q7 | The background worker (`wake` spawns `runner.ts` per boundary) | **Keep the child process, through the existing `Spawner` seam, behind a global cap and one pending run per store.** In-process comes later (§2.5) | It reuses the proven runner and isolates CPU, at the cost of one short-lived process per run |
@@ -398,8 +398,8 @@ but it isn't the realistic threat. A compromised server holds the keys either wa
 **The honest privacy claim this supports** (for OL3's privacy page, plain words):
 
 > Your memory is stored encrypted on our host's disks, and every backup is encrypted with a key that belongs to your
-> account alone. When you delete your account, your memory is erased from our server at once, and we destroy your key, so
-> within 7 days every backup copy becomes unreadable by anyone, us included. We hold the keys, so this protects your memory
+> account alone. When you delete your account, your memory, its backups and your key are erased at once, so no copy
+> anywhere can be read again by anyone, us included. We hold the keys, so this protects your memory
 > from lost disks, leaked backups and our backup provider, not from us: "we don't read it" is our promise, kept by access
 > controls and an audit log, not by math. And when Claude reads your memory, Anthropic sees what Claude reads.
 
@@ -427,34 +427,59 @@ The alternative, if Mike wants the backup provider never to see a key:
 
 Railway's own volume backups stay **off**. Their retention is Railway's, not ours, and they would hold the key files.
 
-### 5.4 Keys and crypto-shredding (Q4)
+### 5.4 Keys and crypto-shredding (Q4; as Mike changed it, 2026-10-26, and as built in step 5)
 
-- **KEK.** 32 random bytes, in a Railway secret variable (`HOSTED_KEK`), with a versioned id.
-  - Mike also keeps a copy offline, in his password manager. Losing the KEK means losing every backup.
-  - There is no KMS on Railway. An external KMS (AWS or GCP) is a later option, and it needs an account, so it's Mike's
-    word.
-- **DEK.** 32 random bytes per store, generated at sign-up. It is stored **wrapped** (AES-256-GCM under the KEK, with the
-  store id as associated data) in `keys/keys.sqlite`. Its uses:
-  - the SSE-C backup key (HKDF);
-  - the export bundle's optional encryption;
-  - the file encryption key, if Q2 changes later.
-- **The hole, and how it's closed.** If `keys.sqlite` were replicated by Litestream, an old replica would still hold a
-  deleted store's wrapped DEK for the whole retention window, and the KEK still exists. So `keys.sqlite` is **not** in
-  Litestream. It is backed up as a single KEK-encrypted object, overwritten on every change, plus a daily copy kept 7 days
-  (an R2 lifecycle rule).
-  - **So:** on delete, the live wrapped key is gone at once. The last backup still holding it ages out within 7 days, and
-    from then on every Litestream copy of that store is ciphertext under a key nobody has.
-  - **For "at once" everywhere:** rotate the KEK on each delete (re-wrap every remaining DEK, destroy the old KEK). That's
-    possible but adds machinery, and depends on Railway not keeping variable history. Not for the beta.
-- **The delete sequence** (one function, with a durable audit row per step; no content):
-  1. revoke every grant;
-  2. drain and close the tenant handle;
-  3. drop the store from `litestream.yml` and restart the sidecar;
-  4. delete the wrapped DEK and the key file;
-  5. `rm -rf` the tenant dir;
-  6. delete the R2 prefix (best effort: the key is already gone);
-  7. delete the identities, sessions and invites, and mark the person deleted. A tombstone of id and date only stays, so a
-     re-sign-up starts fresh.
+**Mike's answers:**
+- Q2 and Q3 accepted.
+- The §5.2 paragraph is accepted, now saying "at once".
+- The native-driver spike is not run now.
+- Two changes to this section:
+  1. Delete is **at once, everywhere**.
+  2. The KEK sits behind a swappable seam.
+
+- **KEK, behind one seam.** All wrapping and unwrapping goes through one `KeyWrapper` interface (`hosted/src/keys.ts`).
+  - Each wrapped key records the KEK version it was wrapped under. Nothing else in `hosted/` touches the raw KEK, and a
+    test pins that.
+  - **The beta holds the KEK in a Railway secret**: `HOSTED_KEKS` holds the ring of versions and `HOSTED_KEK_CURRENT`
+    names the one in use (`EnvKeyWrapper`). Mike also keeps a copy offline; losing the KEK means losing every backup.
+  - **Later**, Mike moves it to our own small Cloudflare Worker key service, called only from Railway's fixed egress IP.
+    That is a second `KeyWrapper` and nothing else changes.
+- **Rewrap** (`main.ts rewrap`, `KeyStore.rewrap`) moves every wrapped DEK from KEK version N to N+1 and re-writes each
+  store's key object. One operation covers rotation and the move to Cloudflare.
+- **DEK.** 32 random bytes per store, made at sign-up and stored wrapped in `keys/keys.sqlite`: AES-256-GCM under the KEK,
+  with the store id as associated data.
+  - It keys the store's Litestream SSE-C key, through HKDF with a purpose label.
+  - The control databases' backups use the DEK of a pseudo-store, `control`.
+- **The key backups: one write-once object per store.** A store's wrapped DEK never changes after sign-up, except by a
+  rewrap.
+  - It is backed up once, at sign-up, as its own R2 object `keys/<storeId>.wrapped`. A rewrap overwrites it.
+  - There is no `keys.sqlite` backup and there are no daily copies.
+  - R2 versioning and object lock stay **off** for `keys/` (a bucket setting, in §7.3).
+- **Delete, at once** (`app.ts#deleteAccount`, one audit row per step, no content):
+  1. the person is marked deleting, so every session stops, and every grant is revoked;
+  2. the tenant handle drains and closes;
+  3. the store leaves `litestream.yml` and the sidecar restarts;
+  4. the key file, the local wrapped DEK, the `keys/<storeId>.wrapped` object and the whole `tenants/<storeId>/` replica
+     prefix are deleted;
+  5. the tenant dir is removed;
+  6. identities, sessions and pending links are deleted, leaving the person and store as tombstones (id, dates, state).
+
+  A test checks R2 right after the delete: no wrapped key and no replica object.
+- **R2 credentials.** R2 gets its own narrowly scoped token: one bucket, objects only. It is used by the object client
+  (`egress.ts#r2ObjectStore`, SigV4 via `aws4fetch` 1.0.20, pinned, zero dependencies) and by the Litestream child (its
+  own environment). The worker child never sees it (`tenants.ts#workerEnv`).
+- **Still open (flagged): the control databases' backup history.** After a delete, `accounts.sqlite`'s Litestream history
+  still holds the deleted address and audit codes until that history ages out: Litestream's `snapshot.retention`, 24 h by
+  default. Store content is gone at once; this is the account row.
+  - To make it "at once" too: keep the address encrypted under the person's DEK, plus a keyed hash (HMAC) of it for
+    lookup. Then shredding the DEK leaves only the hash in old copies.
+  - Recommended: do that before any non-family user.
+
+**Gates before any non-family user** (next to the security review):
+1. Railway's disk encryption confirmed in writing.
+2. **The Cloudflare key service in place.** The reason: Railway's environment variables were reportedly breached
+   recently (Mike's report, not verified). A single leak of them would expose both the KEK and the R2 credentials, which
+   means every backup.
 
 ---
 
@@ -524,13 +549,16 @@ R2 bucket. A move is: restore from R2 into a Fly volume, change DNS. A runbook g
 
 ### 7.3 What Mike must do (prepared by the build, done by him)
 
-1. Railway: the project, the service, the volume, and the `HOSTED_KEK` secret. Keep a copy of the KEK offline.
-2. Cloudflare R2: a bucket, an S3 API token scoped to it, and the 7-day lifecycle rule for the key-store copies.
-3. Resend: verify the sending domain for the login emails.
-4. DNS: `app.counterparts.ai` to Railway, and the TLS certificate there.
-5. Written confirmation of Railway's volume encryption.
-6. Optional: an outside uptime monitor.
-7. Before adding the connector to his claude.ai: extend `deniedMcpServers` in his `~/.claude/settings.json` to the hosted
+1. Railway: the project, the service, the volume, and the `HOSTED_KEKS` / `HOSTED_KEK_CURRENT` secrets (generate a
+   32-byte key, base64). Keep a copy of the KEK offline.
+2. Cloudflare R2: a bucket, and an API token scoped to that bucket's objects only. Versioning and object lock stay
+   **off** (at least for `keys/`), so a delete is a delete.
+3. Before any non-family user: the Cloudflare Worker key service, reachable only from Railway's fixed egress IP (§5.4).
+4. Resend: verify the sending domain for the login emails.
+5. DNS: `app.counterparts.ai` to Railway, and the TLS certificate there.
+6. Written confirmation of Railway's volume encryption (before any non-family user).
+7. Optional: an outside uptime monitor.
+8. Before adding the connector to his claude.ai: extend `deniedMcpServers` in his `~/.claude/settings.json` to the hosted
    URL and name. The coordinator reminds him; it is his config.
 
 ---

@@ -37,9 +37,19 @@ Branch `feat/hosted-server`, from origin/master eacdafda. The brief is
 - **Not merged yet:** origin/master moved to 15871d67 (#640, #642). Merge it into the stack before any PR is marked
   ready.
 
-## Next (after the coordinator's answer on step 5)
+- **Step 5, answered by Mike (14:52 and 15:07, via the roadmap seat) and built (`feat/hosted-keys`):**
+  - Q2 and Q3 accepted; the native-driver spike is not run.
+  - Delete is at once, everywhere: each wrapped DEK is one write-once R2 object, deleted with the store.
+  - The KEK sits behind the `KeyWrapper` seam (a Railway secret for the beta, our Cloudflare key service before any
+    non-family user), with rewrap.
+  - Code: `keys.ts`, `backup.ts` (Backups and LitestreamSidecar), R2 in `egress.ts` (aws4fetch 1.0.20, pinned), the
+    export and delete pages, and `app.ts#deleteAccount`.
+  - `main.ts` needs the KEK and R2 settings unless `BACKUPS=off`, and has a `rewrap` command.
+  - Flagged: the control databases' backup history keeps a deleted address for about 24 h (DESIGN §5.4).
 
-- Step 5: keys + backups + export + delete (waits on Mike).
+## Next
+
+- Merge origin/master into the stack, then the coordinator decides when to mark ready.
 - Step 6: ops (Dockerfile, Litestream sidecar, /readyz, alerts, RUNBOOK, Fly fallback).
 - Step 7: the security review.
 - Before the last PR is marked ready: fold this file into `hosted/NOTES.md`.

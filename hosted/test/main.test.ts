@@ -35,7 +35,10 @@ describe("the entry point", () => {
     assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "http://a.example" }, "serve").ok, false);
     assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "https://a.example/path" }, "serve").ok, false);
     assert.equal(readEnv({ HOSTED_DATA_ROOT: "/data", PUBLIC_ORIGIN: "https://app.counterparts.ai" }, "serve").ok, true);
-    const noKey = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env: baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "https://app.counterparts.ai" }), encoding: "utf8", timeout: 30_000 });
+    const noKek = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env: baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "https://app.counterparts.ai" }), encoding: "utf8", timeout: 30_000 });
+    assert.equal(noKek.status, 1);
+    assert.match(noKek.stderr, /HOSTED_KEKS/);
+    const noKey = spawnSync(process.execPath, [...scriptArgs(MAIN), "serve"], { env: baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "https://app.counterparts.ai", BACKUPS: "off" }), encoding: "utf8", timeout: 30_000 });
     assert.equal(noKey.status, 1);
     assert.match(noKey.stderr, /RESEND_API_KEY/);
   });
@@ -48,7 +51,7 @@ describe("the entry point", () => {
   });
 
   test("invite prints one code; serve answers health and the 401 on its port", async () => {
-    const env = baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "http://127.0.0.1", MAIL: "log", PORT: "0" });
+    const env = baseEnv({ HOSTED_DATA_ROOT: join(tmp.root, "data"), PUBLIC_ORIGIN: "http://127.0.0.1", MAIL: "log", PORT: "0", BACKUPS: "off" });
     const invite = spawnSync(process.execPath, [...scriptArgs(MAIN), "invite", "--note", "test"], { env, encoding: "utf8", timeout: 30_000 });
     assert.equal(invite.status, 0, invite.stderr);
     assert.match(invite.stdout.trim(), /^cpi_[A-Za-z0-9_-]{43}$/);

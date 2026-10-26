@@ -355,6 +355,37 @@ export class Accounts {
     this.audit(personId, null, `person.${state}`, null);
   }
 
+  /** The store ids of every live store (start-up's backup check). */
+  liveStoreIds(): string[] {
+    return this.db.all<{ id: string }>("SELECT s.id FROM stores s JOIN people p ON p.id = s.person_id WHERE s.state = 'active' AND p.state != 'deleted'").map((r) => r.id);
+  }
+
+  /**
+   * THE ACCOUNT'S LAST STEP (after its store is gone): every way in, every
+   * session and pending link is deleted; the person and the store are left as
+   * tombstones (id, dates, state) so nothing reuses their ids. The address can
+   * sign up again later as a new person, with a new invite.
+   */
+  markDeleted(personId: string): void {
+    const at = this.now();
+    this.db.transaction(() => {
+      const emails = this.db.all<{ value: string }>("SELECT value FROM identities WHERE person_id = ? AND kind = 'email'", personId).map((r) => r.value);
+      for (const e of emails) this.db.run("DELETE FROM login_links WHERE email = ?", e);
+      this.db.run("DELETE FROM identities WHERE person_id = ?", personId);
+      this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
+      this.db.run("UPDATE stores SET state = 'deleted' WHERE person_id = ?", personId);
+      this.db.run("UPDATE people SET state = 'deleted', deleted_at = ?, display_name = NULL, time_zone = NULL WHERE id = ?", at, personId);
+    });
+    this.audit(personId, null, "account.deleted", null);
+  }
+
+  /** Mark a person as being deleted: every session and link stops now, before the slow part. */
+  markDeleting(personId: string): void {
+    this.db.run("UPDATE people SET state = 'suspended' WHERE id = ? AND state = 'active'", personId);
+    this.db.run("DELETE FROM web_sessions WHERE person_id = ?", personId);
+    this.audit(personId, null, "account.deleting", null);
+  }
+
   audit(personId: string | null, storeId: string | null, action: string, detail: string | null): void {
     this.db.run("INSERT INTO audit (at, person_id, store_id, action, detail) VALUES (?, ?, ?, ?, ?)", this.now(), personId, storeId, action, detail);
   }

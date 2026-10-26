@@ -107,8 +107,35 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
 - **A store that already exists is never re-initialized.**
 - **Still owed:** the meeting's "where it lives" answer waits for OL3's hosted privacy copy.
 
+### Keys, backups, export, delete (step 5: `src/keys.ts`, `src/backup.ts`, `src/egress.ts`, `src/app.ts`)
+
+24. **One seam for the KEK.** All wrapping and unwrapping goes through `KeyWrapper`, and the KEK version rides on every
+    wrapped value. In the beta the KEK is a Railway secret (`EnvKeyWrapper`); later it moves to our Cloudflare key
+    service. A test pins that only `keys.ts` names the KEK variables or the cipher.
+25. **A DEK per store**, made at sign-up and stored only wrapped (AES-256-GCM, the store id as associated data).
+    - Only purpose-bound keys derived from it (HKDF) leave `keys.ts`: today, the store's Litestream SSE-C key.
+    - **Rewrap** moves every DEK from KEK N to N+1 without changing it, and re-writes the key objects.
+26. **What is backed up.**
+    - Each store's `counterparts.sqlite`, by the Litestream sidecar, under its own SSE-C key (a 0600 key file beside the
+      store).
+    - The control databases, under the `control` pseudo-store's key.
+    - Each wrapped DEK, once, as `keys/<storeId>.wrapped`.
+    - The sidecar's configuration holds paths only. Its environment holds R2 credentials only.
+27. **Delete is at once, everywhere.** In one sequence:
+    - sessions and grants stop;
+    - the handle closes;
+    - the store leaves the sidecar;
+    - the key file, the wrapped DEK, its R2 object and the whole R2 replica prefix are deleted;
+    - the tenant dir is removed;
+    - identities, sessions and links are deleted, and tombstones stay.
+
+    A test reads R2 right after the delete: nothing of the store is left. The delete asks for the typed address and a
+    CSRF token.
+28. **Export** is the core's own database export (`cli/export.ts`): one SQLite file. It is made inside the store's
+    queue, sent only to the signed-in person behind CSRF, and the scratch copy is removed after sending.
+
 ## What it drops, for now
 
-- Keys, backups, export and delete: step 5, which waits on Mike (DESIGN §5).
+- Restore, the Dockerfile and the rest of operations: the ops step (`INTERFACE-GAPS.md`).
 - Rate limits on `/mcp` and size quotas: the ops step.
 - The 2026-07-28 stateless revision: later, behind a version switch (DESIGN §3).
