@@ -38,7 +38,7 @@ import { join, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
 
-import { ClaudeCodeAdapter, NIGHT_CHILD_ENV, NIGHT_DENIED_TOOLS, NIGHT_KIND_ENV, NIGHT_RUN_ENV, catchUpOf, expansionIdsOf, openEmbedder, planCatchUp, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
+import { ClaudeCodeAdapter, doctorFindings, NIGHT_CHILD_ENV, NIGHT_DENIED_TOOLS, NIGHT_KIND_ENV, NIGHT_RUN_ENV, catchUpOf, expansionIdsOf, openEmbedder, planCatchUp, planNightChild, readKind, runNight, startChild } from "../../src/adapters/claude-code/index.js";
 import type { ChildPlan, ChildResult, HookInput, NightAnswer, NightStarter, SpawnPlan } from "../../src/adapters/claude-code/index.js";
 import { coverageReading } from "../../src/adapters/cli/commands.js";
 import type { CoverageRow } from "../../src/adapters/cli/commands.js";
@@ -213,6 +213,8 @@ export interface WakeLine {
   /** The furniture lines it carried, by their opening words ("Last here", "Yesterday", "Handoff", ...), never their text. */
   readonly lines: readonly string[];
   readonly bytes: number;
+  /** A morning's `doctor` Catch-up line, read through the real doctor at the session start, before the first prompt launches the night (S2c, 2026-10-26); null on a later session. */
+  readonly doctor: { readonly severity: string; readonly detail: string } | null;
 }
 
 export interface WeekRecord {
@@ -731,6 +733,11 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
     const row = coverageReading(counterpart.store).find((e) => e.session === session);
     return row === undefined ? null : sessionCoverage(row);
   };
+  // THE MORNING'S DOCTOR (S2c): the full reading, as `counterparts doctor` takes it, never the budgeted session-start one (which skips what is owed).
+  const catchUpLine = (date: string): WakeLine["doctor"] => {
+    const f = doctorFindings({ configPath, configReason: "loaded", config, dir, store: counterpart.store, today: date, refusals: {} }).find((x) => x.key === "crash-write-up");
+    return f === undefined ? null : { severity: f.severity, detail: f.detail };
+  };
   const stopReasonsOf = (session: string): Record<string, number> => {
     const out: Record<string, number> = {};
     for (const r of counterpart.store.eventLog({ name: ADAPTER_ASK_EVENT })) {
@@ -768,7 +775,7 @@ async function weekIn(opts: WeekOptions, w: WeekRun): Promise<WeekRecord> {
         claim(adapter, base(), woke);
         await drain(date, d + 1, label);
         const gate = counterpart.dreams.status(date);
-        wakes.push({ day: d + 1, label, morning: k === 0, ...readWake(woke.injection, sessionOf, labelOf), gate: { reason: gate.reason, newSince: gate.newSince } });
+        wakes.push({ day: d + 1, label, morning: k === 0, ...readWake(woke.injection, sessionOf, labelOf), gate: { reason: gate.reason, newSince: gate.newSince }, doctor: k === 0 ? catchUpLine(date) : null });
         if (s.turns.length === 0) {
           // THE EXTRA MORNING: the product launches the night from the first
           // prompt (`hooks.ts#dreamLines`), never from the session start, so

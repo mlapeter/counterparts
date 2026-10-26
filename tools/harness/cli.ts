@@ -150,6 +150,7 @@ export function renderWeek(r: WeekRecord): string {
   for (const k of r.wakes) {
     if (!k.morning) continue;
     out.push(`  wake ${k.label}: last here ${k.lastHere === null ? "none" : `${k.lastHere.session} (${k.lastHere.episode ?? "no chapter"})`}${k.lastSaid === null ? "" : ` · last said ${k.lastSaid}`} · lines ${k.lines.join(", ") || "none"} · ${String(k.bytes)} bytes · dream gate ${k.gate.reason} (${String(k.gate.newSince)} new)`);
+    if (k.doctor !== null && k.doctor !== undefined) out.push(`    doctor Catch-up before ${k.label}'s first prompt: ${k.doctor.severity} — ${k.doctor.detail}`);
   }
   out.push(`  worker boundaries the product asked for: ${String(r.boundaries)}`);
   out.push(`  owed at the week's end: ${r.owedAtEnd.length === 0 ? "none" : r.owedAtEnd.join(", ")}`);

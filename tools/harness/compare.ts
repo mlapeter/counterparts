@@ -226,6 +226,7 @@ export function readRecord(mode: Mode, rec: Record<string, unknown>, pageText: s
     if (sessions.some((s) => s["coverage"] !== undefined)) rows["sessions owed at their end"] = sessions.filter((s) => obj(s["coverage"])["owed"] === true).length;
     if (Array.isArray(rec["owedAtEnd"])) rows["sessions owed at the week's end"] = (rec["owedAtEnd"] as unknown[]).length;
     if (Array.isArray(rec["wakes"])) rows["night catch-up parts planned"] = nights.reduce((a, n) => a + (Array.isArray(obj(n["catchUp"])["planned"]) ? (obj(n["catchUp"])["planned"] as Record<string, unknown>[]).reduce((b, p) => b + (num(p["parts"]) ?? 0), 0) : 0), 0);
+    if (Array.isArray(rec["wakes"]) && (rec["wakes"] as Record<string, unknown>[]).some((k) => k["doctor"] !== undefined)) rows["mornings doctor's Catch-up is amber"] = (rec["wakes"] as Record<string, unknown>[]).filter((k) => obj(k["doctor"])["severity"] === "amber").length;
     if (Array.isArray(rec["wakes"])) rows["mornings with a Last here"] = (rec["wakes"] as Record<string, unknown>[]).filter((k) => k["morning"] === true && k["lastHere"] !== null).length;
   }
   if (mode !== "replay") {
