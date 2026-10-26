@@ -46,8 +46,14 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+/**
+ * Noon on `date` in the machine's zone, which is the store's: a row's
+ * `created_at` then falls on the date its lived day was advanced to. (Noon
+ * UTC is the next day in Kiritimati, UTC+14, and the belief rows, dated by
+ * their moment, fell a day off the window — review of #629.)
+ */
 function at(date: string): number {
-  return Date.parse(`${date}T12:00:00Z`);
+  return new Date(`${date}T12:00:00`).getTime();
 }
 
 /** Append durable rows, each stamped with a calendar date, and close. */
