@@ -17,7 +17,7 @@
  * worker is started (a stub spawner); every word is invented.
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -26,7 +26,7 @@ import { CLAUDE_AI_TOOLS, TOOLS, openServer, renderDescription, toolDefinitions 
 import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_WORDS } from "../src/adapters/mcp/tools.js";
 import { chatLanesFirst, claudeAiSessionLine, sameYouLine } from "../src/adapters/mcp/chat-wake.js";
-import { CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_NOTE, START_PROMPT } from "../src/adapters/mcp/server-words.js";
+import { CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_DREAM_NOTE, CLAUDE_AI_REFLECT_LAUNCH_HOW, CLAUDE_AI_START_PROMPT, DESKTOP_DREAM_NOTE, START_PROMPT } from "../src/adapters/mcp/server-words.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
 import { serveHttp } from "../src/adapters/remote/http.js";
 import type { RunningHttp } from "../src/adapters/remote/http.js";
@@ -268,11 +268,14 @@ describe("4. the tool words for chat", () => {
     expect(by["status"]?.startsWith("Memory status:")).toBe(true);
   });
 
-  test("only summary and admission change; negatives and privileges are every host's; Claude Code's and Desktop's words are untouched", () => {
+  test("summary and admission change (and dream's negatives); privileges are every host's; Claude Code's and Desktop's words are untouched", () => {
     for (const spec of CLAUDE_AI_TOOLS.slice(1)) {
       const base = TOOLS.find((t) => t.name === spec.name);
       expect(base).toBeDefined();
-      expect(spec.negativeExamples).toEqual(base?.negativeExamples ?? []);
+      const own = CLAUDE_AI_WORDS[spec.name as keyof typeof CLAUDE_AI_WORDS]?.negativeExamples;
+      expect(spec.negativeExamples).toEqual(own ?? base?.negativeExamples ?? []);
+      expect(spec.negativeExamples.length).toBeGreaterThanOrEqual(1);
+      for (const negative of spec.negativeExamples) expect(negative.toLowerCase()).toContain("do not");
       expect(spec.privileges).toEqual(base?.privileges ?? []);
       expect(spec.annotations).toEqual(base?.annotations as never);
       if (CLAUDE_AI_WORDS[spec.name as keyof typeof CLAUDE_AI_WORDS] === undefined) {
@@ -361,5 +364,115 @@ describe("a night's own wake (night: true), through the door", () => {
     expect(quiet.text).not.toContain("Plain reminder");
     const chat = await tool(http.url, "wake", {});
     expect(chat.text).toContain("Plain reminder (they asked to be told)");
+  });
+});
+
+/**
+ * THE NIGHT'S WORDS (2026-10-26, OL1c, from #647's review). The routine's own
+ * prompt (`trial.sh prompt`, night prompt v2) tells the run to wake with
+ * `night: true`, launch, and follow the returned prompt itself, here. claude.ai's
+ * `dream` and `reflect` descriptions now say the same thing; every other host
+ * keeps the shared words, which name the day's dream line and a background agent.
+ */
+describe("dream and reflect name the routine on claude.ai (OL1c)", () => {
+  const SHARED = ["the day's dream line", "a background agent", "Do NOT run the dream yourself in this conversation"];
+  const nightPrompt = (): string => {
+    const script = readFileSync(join(import.meta.dir, "..", "tools", "trials", "claude-ai", "trial.sh"), "utf8");
+    const m = /^NIGHT_PROMPT='(.*)'$/m.exec(script);
+    expect(m).not.toBeNull();
+    return (m?.[1] ?? "").replaceAll(`'"'"'`, "'");
+  };
+
+  test("tools/list as claude.ai: dream and reflect name the routine and none of the shared words that fight it", async () => {
+    const { http } = await door();
+    const list = ((await rpc(http.url, "tools/list"))["result"] as { tools: Record<string, unknown>[] }).tools;
+    const by = Object.fromEntries(list.map((t) => [String(t["name"]), String(t["description"])]));
+    const dream = by["dream"] ?? "";
+    const reflect = by["reflect"] ?? "";
+    for (const d of [dream, reflect]) {
+      expect(d).toContain("night routine");
+      expect(d).toContain("In an ordinary conversation, call `launch` only when the person asks");
+      for (const phrase of SHARED) expect(d).not.toContain(phrase);
+      expect(d.toLowerCase()).not.toContain("background");
+    }
+    expect(dream).toContain("follows the prompt that returns itself, in that same run");
+    expect(dream).toContain("Do NOT start a dream nobody asked for");
+    // The propose guard is every host's, kept verbatim.
+    expect(dream).toContain("Do NOT use `propose` to correct or delete a memory");
+    expect(reflect).toContain("The night routine calls `begin` and `finish` after the dream");
+  });
+
+  test("Claude Code's and Desktop's dream and reflect descriptions are the shared ones, byte for byte", async () => {
+    for (const host of [false, DESKTOP_HOST] as const) {
+      const defs = Object.fromEntries(toolDefinitions(host).map((t) => [String(t["name"]), String(t["description"])]));
+      for (const name of ["dream", "reflect"]) {
+        const base = TOOLS.find((t) => t.name === name);
+        expect(defs[name]).toBe(renderDescription(base as never));
+      }
+      for (const phrase of SHARED) expect(defs["dream"]).toContain(phrase);
+      expect(defs["reflect"]).toContain("hand its prompt to a background agent");
+    }
+    // Over Desktop's door too: what a Desktop client is sent.
+    const { http } = await door(DESKTOP_HOST);
+    const list = ((await rpc(http.url, "tools/list"))["result"] as { tools: Record<string, unknown>[] }).tools;
+    const dream = String(list.find((t) => t["name"] === "dream")?.["description"]);
+    expect(dream).toBe(renderDescription(TOOLS.find((t) => t.name === "dream") as never));
+  });
+
+  test("the night prompt v2's steps, through the door: a night: true wake, dream launch, day's end, the dream, the reflection — none refused", async () => {
+    const prompt = nightPrompt();
+    // The routine says what claude.ai's descriptions now say: wake quiet, launch, follow it yourself.
+    expect(prompt).toContain("wake once, with night: true");
+    expect(prompt).toContain('the dream tool with phase "launch"');
+    expect(prompt).toContain("follow the prompt it returns yourself, here");
+    const { http, s } = await door();
+    const day = String((await tool(http.url, "wake", {})).structured["session"]);
+    const cite = String((await tool(http.url, "remember", { session: day, text: "Wren and I fixed the cold frame lid together." })).structured["id"]);
+    for (const text of ["The rain barrel overflows toward the shed.", "Wren talks plans through out loud first."]) await tool(http.url, "remember", { session: day, text });
+
+    const call = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const body = await rpc(http.url, "tools/call", { name, arguments: args });
+      const r = body["result"] as { isError?: boolean; structuredContent: Record<string, unknown> };
+      expect({ name, phase: args["phase"], isError: r.isError ?? false, out: r.structuredContent }).toMatchObject({ isError: false });
+      return r.structuredContent;
+    };
+    const night = String((await tool(http.url, "wake", { night: true })).structured["session"]);
+    const launched = await call("dream", { phase: "launch", session: night });
+    expect(String(launched["prompt"]).length).toBeGreaterThan(200);
+    // The result agrees with the description and the routine: follow it here, no background agent.
+    expect(launched["how"]).toBe(CLAUDE_AI_DREAM_LAUNCH_HOW);
+    expect(String(launched["how"])).toContain("Follow `prompt` yourself, here");
+    expect(String(launched["how"]).toLowerCase()).not.toContain("background");
+    await call("dream", { phase: "writer", session: night });
+    const begun = await call("dream", { phase: "begin", session: night });
+    const dreamId = String(begun["dream"]);
+    expect(dreamId.length).toBeGreaterThan(0);
+    await call("dream", { phase: "journal", session: night, dream: dreamId, title: "The cold frame", text: "I dreamed the cold frame lid would not close." });
+    const reflected = await call("reflect", { phase: "begin", session: night, dream: dreamId });
+    const rid = String(reflected["reflection"]);
+    const done = await call("reflect", { phase: "finish", session: night, reflection: rid, entry: "The cold frame stays with me.", cites: [cite] });
+    expect(typeof done["handBack"]).toBe("string");
+    expect(s.counterpart.store.dream(dreamId)).toBeDefined();
+    expect(s.counterpart.store.reflection(rid)).toBeDefined();
+  });
+
+  test("a launch result's `how`: claude.ai's follows the prompt here; Desktop's still hands it to a background agent", async () => {
+    for (const [host, dreamHow, reflectHow] of [
+      [CLAUDE_AI_HOST, CLAUDE_AI_DREAM_LAUNCH_HOW, CLAUDE_AI_REFLECT_LAUNCH_HOW],
+      [DESKTOP_HOST, null, null],
+    ] as const) {
+      const { http } = await door(host);
+      const session = String((await tool(http.url, "wake", {})).structured["session"]);
+      await tool(http.url, "remember", { session, text: "The cold frame lid sticks in the morning damp." });
+      const d = String((await tool(http.url, "dream", { phase: "launch", session })).structured["how"]);
+      const r = String((await tool(http.url, "reflect", { phase: "launch", session })).structured["how"]);
+      if (dreamHow === null) {
+        expect(d.startsWith("Hand `prompt` to a background agent (the Agent tool), unchanged")).toBe(true);
+        expect(r.startsWith("Hand `prompt` to a background agent (the Agent tool), unchanged")).toBe(true);
+      } else {
+        expect(d).toBe(dreamHow);
+        expect(r).toBe(reflectHow as string);
+      }
+    }
   });
 });
