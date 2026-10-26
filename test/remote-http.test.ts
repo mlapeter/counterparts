@@ -28,7 +28,7 @@ import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_INSTRUCTIONS, DESKTOP_INSTRUCTIONS } from "../src/adapters/mcp/server-words.js";
 import { readSession } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
-import { LOOPBACK, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
+import { LOOPBACK, MAX_BATCH, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
 import type { CallRecord, McpTarget, RunningHttp } from "../src/adapters/remote/http.js";
 import { openCallLog, summarizeCalls, summarizeChats } from "../src/adapters/remote/call-log.js";
 import { livePathRefusal, liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
@@ -289,6 +289,26 @@ describe("the HTTP door, through the socket", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id: number }[];
     expect(body.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  test("a batch longer than MAX_BATCH is refused whole, before any message runs", async () => {
+    let handled = 0;
+    const counting = {
+      async handle(request: { id?: string | number }): Promise<{ jsonrpc: string; id: string | number; result: Record<string, unknown> }> {
+        handled += 1;
+        return { jsonrpc: "2.0", id: request.id ?? 0, result: {} };
+      },
+    };
+    const http = await serveHttp({ server: counting });
+    closers.push(() => http.close());
+    const batch = (n: number): string => JSON.stringify(Array.from({ length: n }, (_, i) => ({ jsonrpc: "2.0", id: i + 1, method: "ping" })));
+    const over = await fetch(http.url, { method: "POST", headers: { "content-type": "application/json" }, body: batch(MAX_BATCH + 1) });
+    expect(over.status).toBe(400);
+    expect(((await over.json()) as { error: { message: string } }).error.message).toBe("batch too large");
+    expect(handled).toBe(0);
+    const at = await fetch(http.url, { method: "POST", headers: { "content-type": "application/json" }, body: batch(MAX_BATCH) });
+    expect(at.status).toBe(200);
+    expect(handled).toBe(MAX_BATCH);
   });
 
   test("claude.ai's 2025-11-25 is echoed through the door", async () => {
