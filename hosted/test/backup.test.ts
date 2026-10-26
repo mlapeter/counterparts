@@ -83,11 +83,16 @@ describe("the KEK seam", () => {
   });
 
   test("the version is bound too: a value relabelled to another version, or a ring repeating a version or a key, is refused", async () => {
-    const keysRing = ring("v1", "v2");
-    const w = new EnvKeyWrapper(keysRing, "v1");
-    const wrapped = await w.wrap(randomBytes(32), "store-a");
+    // The same key bytes held as v1 by one wrapper and as v2 by another (each ring legal on
+    // its own): relabelling v1→v2 fails only because the version is in the associated data.
+    const k = randomBytes(32);
+    const asV1 = new EnvKeyWrapper(new Map([["v1", k]]), "v1");
+    const asV2 = new EnvKeyWrapper(new Map([["v2", Buffer.from(k)]]), "v2");
+    const dek = randomBytes(32);
+    const wrapped = await asV1.wrap(dek, "store-a");
+    assert.deepEqual(await asV1.unwrap(wrapped, "store-a"), dek);
     const relabelled = wrapped.replace(/^w1\.v1\./, "w1.v2.");
-    await assert.rejects(w.unwrap(relabelled, "store-a"));
+    await assert.rejects(asV2.unwrap(relabelled, "store-a"));
     // And no ring may hold one key under two versions (an operator's copy-paste), which would make the label moot.
     const same = randomBytes(32);
     assert.throws(() => new EnvKeyWrapper(new Map([["v1", same], ["v2", same]]), "v1"));
