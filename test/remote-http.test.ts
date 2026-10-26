@@ -137,7 +137,8 @@ describe("the HTTP door, through the socket", () => {
     const list = result((await rpc(http.url, "tools/list")).body)["tools"] as Record<string, unknown>[];
     expect(list.map((t) => t["name"])).toEqual(["wake", ...TOOLS.map((t) => t.name)]);
     const wake = list[0] as Record<string, unknown>;
-    expect(String(wake["description"]).startsWith("Call this first in every conversation.")).toBe(true);
+    // It describes what wake brings; it does not tell Claude to call it first (OL1b item 4: the directory rule).
+    expect(String(wake["description"]).startsWith("Start a conversation with your long-term memory of this person")).toBe(true);
     for (const t of list) {
       const text = JSON.stringify(t);
       expect(text).not.toContain("Quillmere");
@@ -364,7 +365,7 @@ describe("claude.ai's tools and words", () => {
     expect(toolDefinitions("claude-code")).toEqual(toolDefinitions(false));
     expect(DESKTOP_TOOLS.at(-1)?.name).toBe("wake");
     expect(CLAUDE_AI_TOOLS[0]).toBe(CLAUDE_AI_WAKE);
-    expect(renderDescription(CLAUDE_AI_WAKE)).toContain("remember what matters as it comes up");
+    expect(renderDescription(CLAUDE_AI_WAKE)).toContain("what is worth keeping is saved as it comes up, with `remember`");
     expect(DESKTOP_INSTRUCTIONS).toContain("Code tab");
   });
 
