@@ -60,6 +60,7 @@ import {
   readSession,
   readWriteUpProgress,
   recordSession,
+  sessionPath,
   updateWriteUpProgress,
   writeUpEntries,
   writeUpPlan,
@@ -1769,8 +1770,14 @@ describe("the night starts when write-ups from an earlier day are owed, even whe
 
   test("S2 review: a short `claude -p` run (six quick lines, no record) is not taken by the night — only a person's short session is", async () => {
     quick("sdk-run", proj, 6, YESTERDAY_10() + 5 * HOUR, "sdk-cli");
+    // Once its registry record is pruned (7 days on, while its owed text is kept until it lapses), nobody can
+    // say whose it was: it still fails closed (S2 review).
+    quick("sdk-pruned", proj, 6, YESTERDAY_10() + 6 * HOUR, "sdk-cli");
+    rmSync(sessionPath(dir, "sdk-pruned") as string, { force: true });
     const a = hooksAt();
     a.counterpart.store.advanceClock(YESTERDAY());
+    expect(owes("sdk-run")).toBe(true);
+    expect(owes("sdk-pruned")).toBe(true);
     prompt(a, "day2-1");
     expect(nightPlans()).toHaveLength(0);
   });

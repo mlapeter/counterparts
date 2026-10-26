@@ -156,7 +156,7 @@ store says it needs one). Revert: `UNRECORDED_OWED_PIECES` very high.
 Review of S2 (2026-10-26): a `claude -p` run that is NOT small (six lines in a few minutes,
 under the floor, no record) was owed, not small, so `pointable` let the night take it — on
 master it owed nothing. `pointable` now holds a session that is not a person's to the floor,
-small or not (`HeldSession.overFloor`): such a debt is kept until it lapses, as a small one
+small or not (`HeldSession.overFloor`), and so is an under-floor debt whose registry record was pruned (nobody can say whose it was): such a debt is kept until it lapses, as a small one
 was, and never written up. And the night: a night made whole by owed write-ups reads the
 dream's queue again after its catch-up (`dream/CONTRACT.md`), so a catch-up that keeps
 failing does not buy a whole night every morning until the debt lapses. What a failing
