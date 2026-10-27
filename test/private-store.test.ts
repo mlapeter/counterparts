@@ -21,7 +21,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -31,7 +31,8 @@ import type { Io } from "../src/adapters/cli/index.js";
 import { modesFindings } from "../src/adapters/claude-code/doctor-modes.js";
 import { runSnapshot } from "../src/adapters/snapshots.js";
 import { Counterpart } from "../src/core/counterpart.js";
-import { STORE_TIGHTENED_EVENT, Store, tightenStore } from "../src/core/store/index.js";
+import { STORE_TIGHTENED_EVENT, Store, storeNeedsTightening, tightenStore } from "../src/core/store/index.js";
+import { tightenInstallBase } from "../src/adapters/private-base.js";
 import type { StoreEvent } from "../src/core/store/index.js";
 import { scriptArgs } from "../src/adapters/runtime.js";
 
@@ -174,12 +175,24 @@ async function looseStore(): Promise<{ base: string; store: string }> {
 }
 
 describe("a store an older build left readable is tightened by a writer's open", () => {
-  test("every directory 0700 and every file 0600 after one open; the ring says how many", async () => {
+  test("every directory 0700 and every file 0600 under the store after one open; nothing outside it; the ring says how many", async () => {
     const { base, store } = await looseStore();
+    // An embedder's files beside a dir that happens to be called `store`
+    // (review of #657): the core has no business with them.
+    mkdirSync(join(base, "app", "public"), { recursive: true });
+    writeFileSync(join(base, "server.js"), "// app\n");
+    chmodSync(join(base, "app"), 0o755);
+    chmodSync(join(base, "app", "public"), 0o755);
+    chmodSync(join(base, "server.js"), 0o644);
     const events: StoreEvent[] = [];
     const s = Store.open({ dir: store, onEvent: (e) => events.push(e) });
     s.close();
-    expect(openPaths(base)).toEqual([]);
+    expect(openPaths(store)).toEqual([]);
+    expect(mode(base)).toBe(0o755);
+    expect(mode(join(base, "app"))).toBe(0o755);
+    expect(mode(join(base, "app", "public"))).toBe(0o755);
+    expect(mode(join(base, "server.js"))).toBe(0o644);
+    expect(mode(join(base, "snapshots"))).toBe(0o755);
     const ev = events.find((e) => e.name === STORE_TIGHTENED_EVENT);
     expect(ev).toBeDefined();
     expect(Number(ev?.data?.["tightened"])).toBeGreaterThan(3);
@@ -199,7 +212,7 @@ describe("a store an older build left readable is tightened by a writer's open",
 
   test("a chmod the filesystem refuses is skipped and counted, and the store still opens", async () => {
     const { store } = await looseStore();
-    const db = join(store, "counterparts.sqlite");
+    const db = join(realpathSync(store), "counterparts.sqlite");
     const events: StoreEvent[] = [];
     const s = Store.open({
       dir: store,
@@ -299,5 +312,88 @@ describe("the console's own files are private too (the entry point's umask)", ()
     expect(existsSync(join(base, "snapshots", "by-hand"))).toBe(true);
     expect(openPaths(base)).toEqual([]);
     expect(walk(base).some((e) => e.path.endsWith("spans") && e.dir)).toBe(true);
+  });
+});
+
+// ── review of #657: the base is the adapters', links are followed at the root ─
+
+describe("the install's base directory is the adapters' to tighten, and only when it is one", () => {
+  test("`counterparts connect` tightens a loose ~/.counterparts (its config, snapshots, log) and nothing outside it", async () => {
+    const home = join(temp(), "home");
+    const base = join(home, ".counterparts");
+    const store = join(base, "store");
+    const configPath = join(base, "claude-code.json");
+    const env = { COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+    const c = quietIo();
+    expect(await run(["install", "--no-connect", "--config", configPath, "--budget", "9000", "--name", "Ada"], { io: c.io, env, home })).toBe(EXIT.ok);
+    mkdirSync(join(base, "snapshots", "2026-10-01T00-00-00-000Z"), { recursive: true });
+    mkdirSync(join(base, "log"), { recursive: true });
+    writeFileSync(join(base, "log", "2026-10-27.jsonl"), "{}\n");
+    for (const e of walk(base)) chmodSync(e.path, e.dir ? 0o755 : 0o644);
+    chmodSync(home, 0o755);
+    const off = quietIo();
+    expect(
+      await run(["connect", "--config", configPath], {
+        io: off.io,
+        env,
+        home,
+        spawner: () => ({ missing: false, code: 0, out: "", err: "" }),
+        processes: () => ({ looked: true, processes: [] }),
+      }),
+    ).toBe(EXIT.ok);
+    // The store is the core's (a writer's open); the base, its config and
+    // snapshots and log are `connect`'s (`private-base.ts`).
+    expect(mode(base)).toBe(0o700);
+    expect(mode(configPath)).toBe(0o600);
+    expect(mode(join(base, "snapshots", "2026-10-01T00-00-00-000Z"))).toBe(0o700);
+    expect(mode(join(base, "log", "2026-10-27.jsonl"))).toBe(0o600);
+    expect(mode(home)).toBe(0o755);
+    expect(modesFindings(store, "darwin", configPath)[0]?.severity).not.toBe("amber");
+  });
+
+  test("a dir that is merely named `store` proves nothing: no config beside it, its parent is left alone", () => {
+    const root = temp();
+    const store = join(root, "store");
+    mkdirSync(store);
+    chmodSync(root, 0o755);
+    expect(tightenInstallBase(join(root, "claude-code.json"), store)).toBe(null);
+    expect(mode(root)).toBe(0o755);
+    // A config that names another store is not this layout either.
+    writeFileSync(join(root, "claude-code.json"), "{}");
+    expect(tightenInstallBase(join(root, "claude-code.json"), join(root, "other", "store"))).toBe(null);
+    expect(mode(root)).toBe(0o755);
+  });
+});
+
+describe("a symlinked store is tightened where it really is", () => {
+  test("the walk and the check follow the root link; the second open is quiet; doctor is green", () => {
+    const root = temp();
+    const real = join(root, "real-store");
+    Store.open({ dir: real }).close();
+    for (const e of walk(real)) chmodSync(e.path, e.dir ? 0o755 : 0o644);
+    const link = join(root, "link-store");
+    symlinkSync(real, link);
+    const first: StoreEvent[] = [];
+    Store.open({ dir: link, onEvent: (e) => first.push(e) }).close();
+    expect(first.some((e) => e.name === STORE_TIGHTENED_EVENT)).toBe(true);
+    expect(openPaths(real)).toEqual([]);
+    const second: StoreEvent[] = [];
+    Store.open({ dir: link, onEvent: (e) => second.push(e) }).close();
+    expect(second.some((e) => e.name === STORE_TIGHTENED_EVENT)).toBe(false);
+    expect(modesFindings(link, "darwin")[0]?.severity).toBe("green");
+  });
+
+  test("a symlinked database is not chmodded through and does not keep the gate open", () => {
+    const root = temp();
+    const store = join(root, "s");
+    Store.open({ dir: store }).close();
+    const elsewhere = join(root, "elsewhere.sqlite");
+    writeFileSync(elsewhere, "");
+    chmodSync(elsewhere, 0o644);
+    rmSync(join(store, "counterparts.sqlite"));
+    symlinkSync(elsewhere, join(store, "counterparts.sqlite"));
+    expect(storeNeedsTightening(store)).toBe(false);
+    tightenStore(store);
+    expect(mode(elsewhere)).toBe(0o644);
   });
 });

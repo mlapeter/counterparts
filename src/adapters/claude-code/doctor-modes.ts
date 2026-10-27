@@ -32,7 +32,7 @@ export function privatePaths(storeDir: string, configPath?: string): { path: str
   const out: { path: string; dir: boolean }[] = [];
   for (const d of base?.topOnly ?? []) out.push({ path: d, dir: true });
   out.push({ path: store, dir: true }, { path: join(store, DATABASE_FILE), dir: false });
-  for (const d of base?.recursive ?? []) out.push({ path: d, dir: true });
+  for (const d of base?.recursive ?? []) if (realRoot(d) !== store) out.push({ path: d, dir: true });
   return out;
 }
 

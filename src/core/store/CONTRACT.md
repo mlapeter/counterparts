@@ -543,14 +543,22 @@ store property is the `VACUUM INTO`, and that is G19. The code's numbering wins.
     `OBSERVER_READ_FLOOR` stays 11.
 29. **[M] The store is private to its user (2026-10-27, R1; `private.ts`).** A database
     an open creates is `0600` before WAL is on, so its `-wal`/`-shm` are too (SQLite copies
-    the database file's mode; measured on bun 1.3 and Node 22/24). A `VACUUM INTO` copy is
-    chmodded `0600` (it takes `0644 & ~umask`, never the source's mode). The roots the store
-    makes (itself, its cache, a snapshot's folder) are `0700`. A writer's open of a store
-    that is readable by group or other (a few stats: the store dir, the database, and the base
-    and snapshots dirs in the `<base>/store` layout; never on Windows) tightens it: group and other bits off everything under
-    the store, the snapshots dir and the base dir's log, never following a link; a chmod the
-    filesystem refuses is counted on `store.modes.tightened` and never refuses the open. An
-    observer's open changes no mode. The core never sets the umask; the package's own entry
+    the database file's mode; measured on bun 1.3 and Node 22/24); that is any database
+    `openDb` creates, hosted's control databases included. A `VACUUM INTO` copy is chmodded
+    `0600` (it takes `0644 & ~umask`, never the source's mode), so `backup --out` and
+    `export` write their copy `0600` in a `0700` folder wherever they are pointed. The
+    directories the store makes (itself, its cache, a snapshot's folder, a missing parent on
+    the way) are `0700`. A writer's open of a store whose directory or database is readable
+    by group or other (stats on the real path of the root; a symlinked database is neither
+    read through nor chmodded; never on Windows) takes group and other bits off everything
+    under the store and under a snapshots directory the caller NAMED, and nothing else: the
+    core does not tighten a parent or a sibling (review of #657). A chmod the filesystem
+    refuses is counted on `store.modes.tightened` and never refuses the open. An observer's
+    open changes no mode. A store shared with a group on purpose is tightened again at every
+    writer's open; there is no opt-out yet. Hosted tenant stores get the same at-open
+    tightening of their store directory (they are written 0700/0600 already, so it finds
+    nothing). The install's base directory (`~/.counterparts`) is the adapters'
+    (`adapters/private-base.ts`); the core never sets the umask, the package's own entry
     points do (`adapters/private-umask.ts`).
 
 ## 6. Scars honored

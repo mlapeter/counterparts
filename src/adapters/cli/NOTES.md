@@ -2110,3 +2110,10 @@ door the plugin's `/counterparts:uninstall` drives.
 - Our own processes run under umask 077 (`adapters/private-umask.ts`), so `connect` spawns
   `claude` under the umask it was given (`withHostUmask`): rule 6, `~/.claude.json` is not
   ours, extends to its mode.
+- Review of #657: ours is matched by content, so an entry a person typed byte for byte the
+  same is taken out by `disconnect` too, and the line names it (someone leaving for Online
+  wants it gone anyway). A `deniedMcpServers` that is not a list refuses only `connect`;
+  `disconnect` leaves it alone. `~/.claude` (and Desktop's folder) are made under the host's
+  umask, and so are our own children (`spawn.ts`, the plugin's first run, the plugin
+  console's hand-off), which set 077 themselves: before, the night's `claude -p` inherited
+  077 from a hook and wrote Claude Code's own files 0600.

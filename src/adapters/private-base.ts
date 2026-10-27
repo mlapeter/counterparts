@@ -12,13 +12,14 @@
  *
  * Run by the session-start hook and by `connect` (the upgrade path). The
  * base and its immediate entries lose their group and other bits, and
- * `snapshots/` and `log/` whole; best-effort and silent, gated by a few
+ * `store/`, `snapshots/` and `log/` whole (the store too, so `connect` alone
+ * leaves an older install private before any session has written); best-effort and silent, gated by a few
  * stats, never on Windows.
  */
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-import { DEFAULT_STORE_SUBDIR, SNAPSHOTS_DIR_NAME, realRoot, rootsNeedTightening, tightenRoots } from "../core/store/index.js";
+import { DATABASE_FILE, DEFAULT_STORE_SUBDIR, SNAPSHOTS_DIR_NAME, realRoot, rootsNeedTightening, tightenRoots } from "../core/store/index.js";
 import type { Chmod, PrivateRoots, TightenReport } from "../core/store/index.js";
 
 /** The base's roots, or null when `storeDir` is not `<dirname(configPath)>/store`. */
@@ -26,7 +27,7 @@ export function installBaseRoots(configPath: string, storeDir: string): PrivateR
   if (!existsSync(configPath)) return null;
   const base = dirname(resolve(configPath));
   if (realRoot(join(base, DEFAULT_STORE_SUBDIR)) !== realRoot(storeDir)) return null;
-  return { topOnly: [base], recursive: [join(base, SNAPSHOTS_DIR_NAME), join(base, "log")] };
+  return { topOnly: [base], recursive: [join(base, DEFAULT_STORE_SUBDIR), join(base, SNAPSHOTS_DIR_NAME), join(base, "log")] };
 }
 
 /** Tighten an install's base, when it is one. Null when there was nothing to do. */
@@ -38,7 +39,7 @@ export function tightenInstallBase(
   try {
     if ((opts.platform ?? process.platform) === "win32") return null;
     const roots = installBaseRoots(configPath, storeDir);
-    if (roots === null || !rootsNeedTightening(roots)) return null;
+    if (roots === null || !rootsNeedTightening(roots, [join(realRoot(storeDir), DATABASE_FILE)])) return null;
     return tightenRoots(roots, opts.chmod);
   } catch {
     return null;

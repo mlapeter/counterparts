@@ -2367,3 +2367,15 @@ and changes nothing; both look acceptable for a few hundred files. Everything el
 package writes is private by the entry points' umask (`adapters/private-umask.ts`), which
 the core never touches, so an embedder gets the database family and the roots private and
 the files other modules write inside a 0700 store.
+
+### 2026-10-27, later — the review of #657
+
+- **The core no longer reads a layout into a name.** The first cut tightened the parent
+  of any store dir called `store`, with every sibling: an embedder's `app/`, `server.js`,
+  `config.json` lost their group and other bits in the reviewer's probe, and so would
+  `$HOME` for a store at `~/store` and every hosted tenant directory. Now the core
+  tightens only the store and a snapshots directory the caller names. The base directory
+  is the adapters', who know it from the configuration sitting in it
+  (`adapters/private-base.ts`, run by the session-start hook and `connect`).
+- **Roots are realpathed, a database link is not read through** (`isOpen` uses `lstat`):
+  a symlinked store was never tightened and asked again at every open.

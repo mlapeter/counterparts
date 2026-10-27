@@ -11,3 +11,6 @@
   time this version writes to it; a drive that doesn't keep permissions (exFAT, some network
   drives) is left as it is and still opens. `doctor` has a Privacy line that says when the
   store is readable by other accounts, with the two commands that close it.
+- **`backup --out` and `export` write private copies** (the database `600` in a `700`
+  folder) wherever you point them. A store you share with a group on purpose is made
+  private again the next time Counterparts writes to it; there is no switch for that yet.

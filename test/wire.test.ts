@@ -2562,3 +2562,58 @@ describe("the deniedMcpServers entry", () => {
     expect(readFileSync(settingsFile(), "utf8")).toBe(before);
   });
 });
+
+describe("the deniedMcpServers entry, review of #657", () => {
+  test("a deniedMcpServers that is not a list does not block disconnect: the hooks go, the value stays", async () => {
+    await wire(input({ io: consoleWith().io }));
+    const wired = readSettingsFile();
+    wired[DENY_KEY] = null;
+    writeSettingsFile(wired);
+    const c = consoleWith();
+    const result = await unwire(input({ io: c.io }));
+    expect(result.outcome).toBe("ok");
+    expect(result.hooks).toBe("removed");
+    expect(readSettingsFile()).toEqual({ [DENY_KEY]: null });
+  });
+
+  test("connect names a null deny list as null, not as an object", async () => {
+    writeSettingsFile({ [DENY_KEY]: null });
+    const c = consoleWith();
+    expect((await wire(input({ io: c.io }))).outcome).toBe("refused");
+    expect(text(c.err)).toContain(`"${DENY_KEY}" key in`);
+    expect(text(c.err)).toContain("is null, not a list");
+  });
+
+  test("disconnect names the entry it took out, whoever typed it", async () => {
+    writeSettingsFile({ model: "opus", [DENY_KEY]: [{ serverUrl: HOSTED_DENY_URL }] });
+    const c = consoleWith();
+    await unwire(input({ io: c.io }));
+    expect(text(c.out)).toContain(`{ "serverUrl": "${HOSTED_DENY_URL}" }, was taken out of ${DENY_KEY}`);
+  });
+
+  test("the console as a child under umask 022: a missing ~/.claude is made 0755 and settings.json 0644, as before", () => {
+    const root = mkdtempSync(join(tmpdir(), "counterparts-wire-umask-"));
+    made.push(root);
+    const childHome = join(root, "home");
+    mkdirSync(childHome);
+    const stubDir = join(root, "stub");
+    mkdirSync(stubDir);
+    writeFileSync(join(stubDir, "claude"), "#!/bin/sh\nexit 0\n");
+    chmodSync(join(stubDir, "claude"), 0o755);
+    const cfg = join(childHome, ".counterparts", "claude-code.json");
+    const cli = join(import.meta.dir, "..", "src", "adapters", "cli", "bin", "counterparts.ts");
+    const env = { PATH: `${stubDir}:/usr/bin:/bin`, HOME: childHome, USERPROFILE: childHome, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1" };
+    const child = (args: readonly string[]): number | null =>
+      Bun.spawnSync(["/bin/sh", "-c", 'umask 022; exec "$@"', "sh", process.execPath, ...scriptArgs(cli, process.execPath), ...args], {
+        env,
+        stdout: "pipe",
+        stderr: "pipe",
+      }).exitCode;
+    expect(child(["install", "--no-connect", "--config", cfg, "--budget", "9000", "--name", "Ada"])).toBe(0);
+    expect(existsSync(join(childHome, ".claude"))).toBe(false);
+    expect(child(["connect", "--config", cfg])).toBe(0);
+    expect(statSync(join(childHome, ".claude")).mode & 0o777).toBe(0o755);
+    expect(statSync(join(childHome, ".claude", "settings.json")).mode & 0o777).toBe(0o644);
+    expect(statSync(join(childHome, ".counterparts")).mode & 0o777).toBe(0o700);
+  });
+});
