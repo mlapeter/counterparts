@@ -12,6 +12,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
@@ -589,5 +590,93 @@ describe("keys and the schema", () => {
     } finally {
       now.close();
     }
+  });
+});
+
+describe("the #659 review", () => {
+  test("a revoke that fails at the delete: the done page still renders, and a keep revokes first, so the old token never comes back", async () => {
+    const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
+    const me = await signUp(r, "revoke-fails@example.com");
+    const c = await connect(r, me.browser);
+    const store = r.app.oauth.store;
+    const real = store.revokeAccount.bind(store);
+    let failNext = 1;
+    store.revokeAccount = (id: string): void => {
+      if (failNext > 0) {
+        failNext -= 1;
+        throw new Error("oauth.sqlite is busy");
+      }
+      real(id);
+    };
+    const done = await deleteLater(me.browser, "revoke-fails@example.com");
+    assert.equal(done.status, 200, "the delete took effect, so the done page says so");
+    assert.equal(r.app.accounts.person(me.personId)!.state, "pending-delete");
+    assert.ok(r.app.accounts.auditOf(me.personId).some((a) => a.action === "delete.lock.revoke.failed"));
+    assert.ok(store.grantsOf(me.personId).length > 0, "the grant outlived the failed revoke");
+    // Refused anyway while pending (the person isn't live).
+    assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(c.access))).status, 401);
+    await signIn(r, me.browser, "revoke-fails@example.com", "");
+    const csrf = csrfOf(await (await me.browser.go("/account")).text());
+    // A keep whose revoke fails keeps nothing.
+    failNext = 1;
+    assert.equal((await me.browser.form("/account/keep", { csrf })).status, 503);
+    assert.equal(r.app.accounts.person(me.personId)!.state, "pending-delete");
+    // A keep that revokes: the account is back, the old connection is not.
+    assert.equal((await me.browser.form("/account/keep", { csrf })).status, 200);
+    assert.equal(r.app.accounts.person(me.personId)!.state, "active");
+    assert.equal(store.grantsOf(me.personId).length, 0);
+    assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(c.access))).status, 401);
+    const refreshed = await oauth.refreshTokenGrantRequest(c.as, c.client, oauth.None(), c.refresh, insecure);
+    assert.equal(((await refreshed.json()) as { error: string }).error, "invalid_grant");
+  });
+
+  test("a revoke that failed (or a crash between the two writes) is healed by the finish timer", async () => {
+    const r = await rig();
+    const me = await signUp(r, "healed@example.com");
+    await connect(r, me.browser);
+    const store = r.app.oauth.store;
+    const real = store.revokeAccount.bind(store);
+    let failNext = 1;
+    store.revokeAccount = (id: string): void => {
+      if (failNext-- > 0) throw new Error("oauth.sqlite is busy");
+      real(id);
+    };
+    assert.equal((await deleteLater(me.browser, "healed@example.com")).status, 200);
+    await until(() => store.grantsOf(me.personId).length === 0, "the timer's revoke");
+    assert.equal(r.app.accounts.person(me.personId)!.state, "pending-delete");
+  });
+
+  test("a call authenticated before the delete, its body still arriving, never runs after the lock: 401, no memory, and the delete page doesn't wait for it", async () => {
+    const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
+    const me = await signUp(r, "slow-body@example.com");
+    const c = await connect(r, me.browser);
+    const woke = await tool(`${r.origin}/mcp`, "wake", {}, bearer(c.access));
+    const session = String(woke["session"]);
+    await tool(`${r.origin}/mcp`, "remember", { session, text: "The slow body asks about the lantern in the bell tower." }, bearer(c.access));
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "recall", arguments: { session, question: "lantern bell tower", mode: "facts" } } });
+    const url = new URL(`${r.origin}/mcp`);
+    let sendRest: () => void = () => undefined;
+    const answer = new Promise<{ status: number; text: string }>((resolve, reject) => {
+      const req = httpRequest(
+        { host: url.hostname, port: url.port, path: url.pathname, method: "POST", headers: { "content-type": "application/json", accept: "application/json", "content-length": String(Buffer.byteLength(body)), authorization: `Bearer ${c.access}` } },
+        (res) => {
+          let text = "";
+          res.setEncoding("utf8");
+          res.on("data", (d: string) => (text += d));
+          res.on("end", () => resolve({ status: res.statusCode ?? 0, text }));
+        },
+      );
+      req.on("error", reject);
+      req.write(body.slice(0, 20));
+      sendRest = (): void => void req.end(body.slice(20));
+    });
+    await new Promise((res) => setTimeout(res, 150)); // authenticated, holding the store, body half sent
+    const started = Date.now();
+    assert.equal((await deleteLater(me.browser, "slow-body@example.com")).status, 200);
+    assert.ok(Date.now() - started < 2000, "the delete page didn't wait for the held body");
+    sendRest();
+    const got = await answer;
+    assert.equal(got.status, 401);
+    assert.doesNotMatch(got.text, /lantern/);
   });
 });

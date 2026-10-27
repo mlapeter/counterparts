@@ -165,6 +165,7 @@ export function createApp(opts: AppOptions): App {
   let tenantsRef: Tenants | null = null;
   let deleteRef: ((personId: string) => Promise<void>) | null = null;
   let scheduleRef: ((personId: string) => Promise<number | null>) | null = null;
+  let keepRef: ((personId: string) => boolean) | null = null;
 
   // Export's plaintext copy is made on the data volume (encrypted at rest, and
   // swept at start-up after a crash), never in the container's /tmp.
@@ -198,7 +199,7 @@ export function createApp(opts: AppOptions): App {
     exportStore,
     deleteAccount: (personId: string) => (deleteRef === null ? Promise.reject(new Error("not ready")) : deleteRef(personId)),
     scheduleDelete: (personId: string) => (scheduleRef === null ? Promise.reject(new Error("not ready")) : scheduleRef(personId)),
-    keepAccount: (personId: string) => accounts.keep(personId),
+    keepAccount: (personId: string) => (keepRef === null ? false : keepRef(personId)),
     ...(opts.now === undefined ? {} : { now: opts.now }),
   });
   oauth = createOAuth({
@@ -266,11 +267,46 @@ export function createApp(opts: AppOptions): App {
   const scheduleDelete = async (personId: string): Promise<number | null> => {
     const deadline = accounts.markPendingDelete(personId);
     if (deadline === null) return null;
-    o.revokeAll(personId);
-    for (const storeId of accounts.storesToDelete(personId)) await tenants.close(storeId);
+    // From here the delete has taken effect (durably). What follows can fail or
+    // be cut short by a crash; each failure is audited, the person still gets
+    // the done page, and `lockPending` (every tick, and a keep) heals it (#659 review).
+    lockPending(personId, true);
     return deadline;
   };
   scheduleRef = scheduleDelete;
+
+  /**
+   * A pending delete's lock, made whole: every grant revoked, the store's handle
+   * closed and its worker dropped. Idempotent and cheap; run at the delete,
+   * before a keep, and for every pending person on each finish tick, so a revoke
+   * that failed (or a process that died between the commit and the revoke)
+   * never leaves a pending person's connections alive. The close isn't awaited:
+   * a call holding the store while a slow body arrives is refused when it lands
+   * (the door's gate and the queue's check), and the delete page doesn't wait for it.
+   */
+  const lockPending = (personId: string, closeAll = false): void => {
+    try {
+      o.revokeAll(personId);
+    } catch {
+      accounts.audit(personId, null, "delete.lock.revoke.failed", null);
+    }
+    for (const storeId of accounts.storesToDelete(personId)) {
+      if (!closeAll && !tenants.isOpen(storeId)) continue; // the delete itself always closes (it drops the worker too)
+      void tenants.close(storeId).catch(() => accounts.audit(personId, storeId, "delete.lock.close.failed", null));
+    }
+  };
+
+  /**
+   * Keep: the grants are revoked FIRST (again: a revoke that failed at the delete
+   * must not come back to life with the account), then the account is kept. A
+   * revoke that throws keeps nothing (the page says try again).
+   */
+  const keepAccount = (personId: string): boolean => {
+    if (accounts.person(personId)?.state !== "pending-delete") return false;
+    o.revokeAll(personId);
+    return accounts.keep(personId);
+  };
+  keepRef = keepAccount;
 
   /**
    * DELETE EVERYTHING NOW, AND THE ERASE AT A DEADLINE (design §5.4). In order,
@@ -317,6 +353,8 @@ export function createApp(opts: AppOptions): App {
     // kept the account, in one statement. A deadline still ahead is left alone,
     // whatever restarted or failed meanwhile: never early.
     for (const personId of accounts.dueDeletes()) accounts.markDeleting(personId, { due: true });
+    // Every delete still pending: its lock made whole again (a revoke that failed, a crash between the two writes).
+    for (const personId of accounts.pendingDeletePeople()) lockPending(personId);
     let done = 0;
     for (const personId of accounts.pendingDeletes()) {
       try {
@@ -476,7 +514,7 @@ export function createApp(opts: AppOptions): App {
     readiness,
     deleteAccount,
     scheduleDelete,
-    keepAccount: (personId: string) => accounts.keep(personId),
+    keepAccount,
     finishPendingDeletes,
     async close(): Promise<void> {
       started = false;

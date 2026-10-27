@@ -172,9 +172,10 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
   const accounts = new Accounts({ path: accountsPath });
   // Opens each restored store once, so its cache is rebuilt here, offline, not on the person's first call.
-  const tenants = new Tenants({ root: join(dataRoot, "tenants"), embedder, spawner: () => ({ pid: 0 }) });
+  // A store locked by a pending delete (R6) is restored but never opened: its marker rebuilds the cache at its first open after a keep.
+  const tenants = new Tenants({ root: join(dataRoot, "tenants"), embedder, spawner: () => ({ pid: 0 }), locked: (id) => accounts.storeLocked(id) });
   try {
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id) });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id), locked: (id) => accounts.storeLocked(id) });
     const live = accounts.liveStoreIds();
     if (target !== "--all" && !live.includes(target)) throw new Error("that store isn't a live store in the accounts database");
     const ids = target === "--all" ? (force ? live : backups.missingStores()) : [target];
@@ -192,7 +193,7 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
         const r = await backups.restore(id, run, { force });
         if (r.restored > 0) {
           accounts.markOpened(id);
-          await tenants.withTenant(id, {}, async () => undefined);
+          if (!accounts.storeLocked(id)) await tenants.withTenant(id, {}, async () => undefined);
         }
         restored += r.restored;
         empty += r.empty;

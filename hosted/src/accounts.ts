@@ -544,6 +544,11 @@ export class Accounts {
     return kept;
   }
 
+  /** Every person whose delete is pending (due or not): the finish tick re-makes their lock whole. */
+  pendingDeletePeople(): string[] {
+    return this.db.all<{ id: string }>("SELECT id FROM people WHERE state = 'pending-delete'").map((r) => r.id);
+  }
+
   /** People whose pending delete is due now (`delete_after` passed). A deadline still ahead never appears. */
   dueDeletes(): string[] {
     return this.db.all<{ id: string }>("SELECT id FROM people WHERE state = 'pending-delete' AND delete_after IS NOT NULL AND delete_after <= ?", this.now()).map((r) => r.id);

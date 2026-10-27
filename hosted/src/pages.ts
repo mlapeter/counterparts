@@ -87,7 +87,7 @@ const SENT_WORDS =
 
 // THE DELETE WORDS (R6, Mike 2026-10-27: plain and honest). DESIGN §5.2 and §5.4 say the same.
 const DELETE_LATER_WORDS =
-  "Deleting locks your account and your memory at once: every connected AI is disconnected, and your memory isn't read, shown or used. 24 hours later your memory, its backups and its key are erased, unless you sign in before then and keep your account. Download your memory first if you want a copy.";
+  "Deleting locks your account and your memory at once: every connected AI is disconnected, and your memory isn't read by us or any AI, shown or used. After 24 hours your memory, its backups and its key are erased, unless you sign in before then and keep your account. Download your memory first if you want a copy.";
 const DELETE_NOW_WORDS = "your memory, its backups and its key are erased at once, and your account is closed. It can't be undone.";
 const AFTER_ERASE_WORDS = "Your account email is purged from our encrypted account backups within 24 hours of the erase.";
 const FORGET_WORDS =
@@ -160,7 +160,7 @@ ${notice.length > 0 ? `<p>${escapeHtml(notice)}</p>` : ""}
 ${
   due
     ? `<p>The time to keep it has passed (${when}). Your memory, its backups and its key are being erased now.</p>`
-    : `<p>Your account and memory are locked, and will be erased at <strong>${when}</strong>: your memory, its backups and its key. Until then your memory isn't read, shown or used, and no AI can reach it.</p>
+    : `<p>Your account and memory are locked, and will be erased after <strong>${when}</strong>: your memory, its backups and its key. Until then your memory isn't read by us or any AI, shown or used.</p>
 ${
   opts.keepAccount === undefined
     ? ""
@@ -172,7 +172,7 @@ ${
     ? ""
     : `<h2>Delete everything now</h2>
 <form method="post" action="/account/delete"><input type="hidden" name="csrf" value="${token}"><input type="hidden" name="when" value="now">
-<p class="muted">Instead of at ${when}: ${escapeHtml(DELETE_NOW_WORDS)} ${escapeHtml(AFTER_ERASE_WORDS)}</p>
+<p class="muted">Instead of waiting until ${when}: ${escapeHtml(DELETE_NOW_WORDS)} ${escapeHtml(AFTER_ERASE_WORDS)}</p>
 <label>Type your email address to confirm<br><input type="email" name="confirm" autocomplete="off"></label>
 <button type="submit">Delete everything now</button></form>`
 }`
@@ -335,7 +335,15 @@ ${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" va
           redirect(res, "/account");
           return true;
         }
-        if (!opts.keepAccount(pending)) {
+        let kept: boolean;
+        try {
+          kept = opts.keepAccount(pending);
+        } catch {
+          // The connections couldn't be revoked first, so nothing was kept (#659 review).
+          message(res, 503, "Try again", "Your account couldn't be kept just now. Nothing changed: it is still set to be deleted. Try again in a minute.", { href: "/account", text: "Your account" });
+          return true;
+        }
+        if (!kept) {
           message(res, 409, "Too late to keep it", "The time to keep your account has passed, and it is being erased now.");
           return true;
         }
@@ -364,7 +372,7 @@ ${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" va
         page(res, 200, {
           title: "Set to be deleted",
           headers: signOut,
-          body: `<h1>Your account is set to be deleted</h1><p>Your account and memory are locked, every connected AI is disconnected, and you're signed out. At <strong>${when}</strong> your memory, its backups and its key are erased.</p><p>Changed your mind? Sign in before then and keep your account. Your connected AIs stay disconnected: you connect them again.</p><p class="muted">${escapeHtml(AFTER_ERASE_WORDS)}</p><p><a href="/login">Sign in</a></p>`,
+          body: `<h1>Your account is set to be deleted</h1><p>Your account and memory are locked, every connected AI is disconnected, and you're signed out. After <strong>${when}</strong> your memory, its backups and its key are erased.</p><p>Changed your mind? Sign in before then and keep your account. Your connected AIs stay disconnected: you connect them again.</p><p class="muted">${escapeHtml(AFTER_ERASE_WORDS)}</p><p><a href="/login">Sign in</a></p>`,
         });
         return true;
       }

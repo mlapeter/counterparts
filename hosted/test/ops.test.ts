@@ -35,7 +35,7 @@ import { Backups, CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper, KeyStore } from "../src/keys.js";
 import { controlAside, controlAsideAtStart, eventLine, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag } from "../src/main.js";
-import { tenantDir } from "../src/tenants.js";
+import { RESTORED_MARKER, tenantDir } from "../src/tenants.js";
 import { listen, rpc, tempRoot, tool } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
@@ -751,6 +751,21 @@ describe("#653 review: restores and deletes", () => {
     assert.equal(person.email, null);
     assert.equal(b.app.keys!.wrapped(who.storeId), null, "no key made for it");
     assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 401);
+  });
+
+  test("#659 review: the restore CLI restores a store locked by a pending delete but never opens it (the marker waits for a keep)", async () => {
+    const { s3, bin, ring, dataRoot, who } = await livedStore();
+    const { Accounts } = await import("../src/accounts.js");
+    const accounts = new Accounts({ path: join(dataRoot, "control", "accounts.sqlite") });
+    assert.notEqual(accounts.markPendingDelete(who.personId), null);
+    accounts.close();
+    rmSync(tenantDir(join(dataRoot, "tenants"), who.storeId), { recursive: true, force: true });
+    const out = await restoreCommand(dataRoot, backupOptions(s3, ring, null), litestreamRunner(bin, litestreamEnv()), ["--all"], null);
+    assert.match(out.text, /stores: 1 restored/);
+    const dir = tenantDir(join(dataRoot, "tenants"), who.storeId);
+    assert.ok(existsSync(join(dir, "store", "counterparts.sqlite")), "restored");
+    assert.ok(existsSync(join(dir, RESTORED_MARKER)), "not opened: its cache rebuild waits for its first open after a keep");
+    assert.equal(existsSync(join(dir, "store", "cache")), false);
   });
 
   test("M1: the restore CLI never restores a store the bucket has a tombstone for", async () => {

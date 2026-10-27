@@ -194,6 +194,9 @@ export function createHostedServer(opts: HostedServerOptions): Server {
           const routed = limits === undefined ? target : { serial: target.serial, server: limits.wrap(target.server, caller.personId, caller.storeId, (reason) => event(`limit.${reason}`, store)) };
           handleMcpPost(req, res, routed, {
             ...(opts.maxBodyBytes === undefined ? {} : { maxBodyBytes: opts.maxBodyBytes }),
+            // A store locked (a delete) while this body was still arriving: the
+            // same 401 its revoked token now gets, and no message runs (#659 review).
+            gate: () => (opts.tenants.isLocked(caller.storeId) ? { status: 401, headers: challenge("invalid_token") } : null),
             onCall: (r) => opts.onCall?.({ ...r, store }),
           });
         }),

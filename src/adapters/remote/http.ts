@@ -123,6 +123,13 @@ export interface McpPostOptions {
    *  (413, 400). A throw is swallowed. */
   readonly onRefused?: (status: number) => void;
   readonly now?: () => number;
+  /**
+   * Asked once the whole body has arrived, before any message reaches the
+   * server: a refusal is answered with its status and headers instead. The
+   * hosted door uses it for a store locked while a slow body was in flight.
+   * Absent ⇒ never refused here.
+   */
+  readonly gate?: () => { readonly status: number; readonly headers?: Record<string, string> } | null;
 }
 
 export interface ServeHttpOptions extends McpPostOptions {
@@ -308,6 +315,11 @@ export function handleMcpPost(req: IncomingMessage, res: ServerResponse, target:
   });
   req.on("end", () => {
     if (over) return;
+    const shut = opts.gate?.() ?? null;
+    if (shut !== null) {
+      refuse(shut.status, shut.headers ?? {});
+      return;
+    }
     void (async (): Promise<void> => {
       let body: unknown;
       try {
