@@ -487,3 +487,9 @@ describe("a config outside ~/.counterparts: only our names in that directory are
     expect(openPaths(base)).toEqual([]);
   });
 });
+
+test("private-base spells the sidebar's two file names as sidebar-status does", async () => {
+  const { SIDEBAR_NAMES } = await import("../src/adapters/private-base.js");
+  const { PLUGIN_PRESENCE_NAME, SIDEBAR_FILE_NAME } = await import("../src/adapters/sidebar-status.js");
+  expect([...SIDEBAR_NAMES].sort()).toEqual([PLUGIN_PRESENCE_NAME, SIDEBAR_FILE_NAME].sort());
+});

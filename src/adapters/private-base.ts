@@ -31,16 +31,19 @@ import { DATABASE_FILE, DEFAULT_STORE_SUBDIR, SNAPSHOTS_DIR_NAME, isWithin, real
 import type { Chmod, PrivateRoots, TightenReport } from "../core/store/index.js";
 import { NPM_LIVE_NAME } from "./npm-live.js";
 import { SCOPES_FILE_NAME } from "./scopes.js";
-import { PLUGIN_PRESENCE_NAME, SIDEBAR_FILE_NAME } from "./sidebar-status.js";
 
 /** The old credentials file's name (`cli/install.ts#LEGACY_CREDENTIALS_FILE`),
  *  spelled here so this leaf does not import the console. */
 const LEGACY_CREDENTIALS = "credentials.env";
+/** The sidebar's two files (`sidebar-status.ts#SIDEBAR_FILE_NAME`, `#PLUGIN_PRESENCE_NAME`),
+ *  spelled here because that module pulls in the dashboard, which the hook
+ *  must not load; `test/private-store.test.ts` holds the two spellings together. */
+export const SIDEBAR_NAMES: readonly string[] = ["sidebar.json", "sidebar-plugin-here"];
 
 /** Is this entry of the base one this package writes? Directories go whole. */
 function ownName(name: string, configName: string): "file" | "tree" | null {
   if (name === DEFAULT_STORE_SUBDIR || name === SNAPSHOTS_DIR_NAME) return "tree";
-  if (name === configName || name === SCOPES_FILE_NAME || name === SIDEBAR_FILE_NAME || name === PLUGIN_PRESENCE_NAME) return "file";
+  if (name === configName || name === SCOPES_FILE_NAME || SIDEBAR_NAMES.includes(name)) return "file";
   if (name === LEGACY_CREDENTIALS || NPM_LIVE_NAME.test(name)) return "file";
   return null;
 }
