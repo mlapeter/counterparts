@@ -23,6 +23,7 @@ import { terminalWantsColour } from "../ansi.js";
 import { DATA_DIR_ENV, dataDir, describeGuardRefusal, isStoreError } from "../../../core/store/index.js";
 import { upgradePending, upgradePendingSentence } from "../upgrade.js";
 import { BINARY } from "../../runtime.js";
+import { usePrivateUmask } from "../../private-umask.js";
 import type { Binary } from "../../runtime.js";
 import type { StoreError } from "../../../core/store/index.js";
 import type { Band, Kind } from "../../../core/types.js";
@@ -479,6 +480,7 @@ export function isEntryPoint(argv1: string | undefined, url: string, binary: Bin
 /** Print a view, or `serve` the web page — what this file does as a script,
  *  and what the single binary's `dashboard` mode calls. */
 export async function start(): Promise<void> {
+  usePrivateUmask();
   const argv = process.argv.slice(2);
   // Help first, and before `serve` too: `serve --help` would otherwise bind a
   // socket against the default store.

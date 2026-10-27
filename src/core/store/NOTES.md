@@ -2344,3 +2344,77 @@ their own store methods (`wave2.ts`, delegates on `Store`).
   pair out of one of its words the index no longer holds (`sweepCueEdges`'s `terms`, review of
   #613), so a word wired to another memory does not outlive the only memory that held it. `dropGateRecords` is new beside `rewriteGateValues`:
   recall's per-turn cue records have their own lifetime inside the session's.
+
+## 2026-10-27 — the store is private to its user (R1)
+
+Measured before building, a database created and written under umask 022:
+
+| | bun 1.3.10 | Node 22.23 / 24.22 |
+|---|---|---|
+| new `counterparts.sqlite` | 644 | 644 |
+| its `-wal`/`-shm` | the database file's mode (644, or 600 after a chmod before WAL) | the same |
+| `VACUUM INTO` output | 644 (`0644 & ~umask`), whatever the source's mode | the same |
+| under umask 077 | 600 for all four | the same |
+
+So one chmod on a database the open created, before WAL, makes the family private, and a
+`VACUUM INTO` copy needs its own chmod. Directories: `mkdirPrivate` chmods the ones it
+created (a `mkdir` mode is masked by the umask). The at-open tightening is gated by stats,
+not a meta row, because a write at open is what broke a live `backup` once (2026-08-25):
+an already-tight store costs two or three `stat` calls. Two consequences, held lightly: a
+store somebody loosened on purpose is tightened again at the next writer's open, and on a
+filesystem that does not keep modes (exFAT reads 777) the walk runs at every writer's open
+and changes nothing; both look acceptable for a few hundred files. Everything else the
+package writes is private by the entry points' umask (`adapters/private-umask.ts`), which
+the core never touches, so an embedder gets the database family and the roots private and
+the files other modules write inside a 0700 store.
+
+### 2026-10-27, later — the review of #657
+
+- **The core no longer reads a layout into a name.** The first cut tightened the parent
+  of any store dir called `store`, with every sibling: an embedder's `app/`, `server.js`,
+  `config.json` lost their group and other bits in the reviewer's probe, and so would
+  `$HOME` for a store at `~/store` and every hosted tenant directory. Now the core
+  tightens only the store and a snapshots directory the caller names. The base directory
+  is the adapters', who know it from the configuration sitting in it
+  (`adapters/private-base.ts`, run by the session-start hook and `connect`).
+- **Roots are realpathed, a database link is not read through** (`isOpen` uses `lstat`):
+  a symlinked store was never tightened and asked again at every open.
+- **Re-check: the base is our names only.** `install --config ~/counterparts.json` makes
+  `$HOME` the base, so "the base and its immediate entries" stripped the home and
+  `~/Public`'s Drop Box. `adapters/private-base.ts` now tightens only the names this
+  package writes there (the config, `scopes.json`, the sidebar's files, the npm marker, a
+  legacy `credentials.env`, `store/` and `snapshots/`), and closes the directory itself
+  only when it holds nothing else and is not the home or above it. `doctor` reads the same
+  set. The core's `PrivateRoots.topOnly` became `only` (a path alone, never its entries).
+- **Second re-check: one list of our names.** The base list was shorter than what we
+  write (parked, blank and new stores, rollback's set-aside stores, `debug/`, config
+  backups and temp siblings), so a parked full copy of an old memory stayed 644 and doctor
+  said green. `uninstall`'s `ownedKind` moved to `adapters/owned-names.ts`, a leaf both
+  read, and gained `rollback-aside-v*` (which uninstall had missed too, so a delete now
+  takes it as well). A base is closed only when it is also not writable by others, not
+  sticky, and owned by this account. One collision is left on purpose: in a home or project
+  base, somebody else's file that happens to carry one of our names (a `scopes.json`, a
+  `store.parked-…`) is tightened too.
+- **Round 4: a configured `snapshots.dir` is the owner's place.** The core still took a
+  named snapshots directory whole, so `snapshots.dir` set to `$HOME` or `~/Documents` made
+  the home 700, the Drop Box 700 and every document 600 at the next `note`, with doctor
+  green (it graded a snapshots dir only inside the base). Now `snapshotsDirRoots` reads it
+  the way a base is read: only the names written there (dated copies, pre-migration copies,
+  `.partial-…`, `.taking-…`; spelled in `private.ts`, held to `snapshots.ts` by a test) go
+  whole, the directory is closed only when it holds nothing else (`closableDir`, the base's
+  rule, moved here), and a place `assertRotatableDir` refuses (a filesystem root, the home or
+  above it, in or around the store, a live v1 store) gets nothing. The base's own
+  `snapshots/` still goes whole; a configured one sitting in a home base no longer does.
+  doctor now grades exactly the roots that are tightened (`installBaseRoots` or
+  `storeRoots`), each at its top. A symlinked base is read at its real path.
+- **bun's `chmodSync` drops sticky and setgid** (measured, bun 1.3.10: `0o1700` reads back
+  `0o700`), so a path carrying a special bit is never chmodded and never counts as open;
+  tests set those bits through `/bin/chmod`, since the earlier "sticky base" test had in
+  fact been testing a plain 777. doctor still grades such a path by its mode (amber is the
+  truth), though its hint that the next session will close it is then not true for that path.
+- **The same class in `uninstall`.** `ownedNames` called a configured `snapshots.dir` ours
+  whenever it sat directly in the config's directory, so a project config with
+  `snapshots.dir` = `<project>/docs` listed `docs/` for `--delete-memories` (a home base is
+  refused outright, so `~/Documents` was not reachable that way). Now only the
+  `<dir>/snapshots` this package lays out is ours; any configured one is the owner's, and
+  `notTouched` names it. One rule for both callers again.

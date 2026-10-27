@@ -59,6 +59,8 @@ import {
 import type { SaysSoHook, StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
 import { BINARY, entryScript, scriptArgs } from "../../runtime.js";
+import { usePrivateUmask } from "../../private-umask.js";
+import { tightenInstallBase } from "../../private-base.js";
 import type { Binary } from "../../runtime.js";
 import { noteNpmLive, npmWiringForGate } from "../../npm-live.js";
 import {
@@ -837,6 +839,8 @@ async function runHook(
   // From here the configuration was understood, so the store it names is the one
   // a stand-down may leave its once-per-session mark under.
   said.dataDir = loaded.dataDir;
+  // The install's base directory, private (R1, `private-base.ts`): once a session.
+  if (name === "session-start" && loaded.dataDir !== undefined) tightenInstallBase(choice.path, loaded.dataDir);
   // THE SESSION'S OWN DIRECTORY — the one everything this event captures will be
   // FILED under, whatever directory the agent's shell has wandered into. It is
   // resolved here rather than above because its first source is the session
@@ -1096,6 +1100,7 @@ export function isEntryPoint(argv1: string | undefined, url: string, binary: Bin
 /** Run the hook and exit — what this file does as a script, and what the
  *  single binary's `hook` mode calls. */
 export function start(): void {
+  usePrivateUmask();
   void main().then(
     () => process.exit(process.exitCode === 2 ? 2 : 0),
     (err: unknown) => {

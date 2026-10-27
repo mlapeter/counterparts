@@ -60,6 +60,7 @@ import { pluginInstall, sidebarPluginRecorded } from "./host-wiring.js";
 import type { NpmWiring } from "./host-wiring.js";
 import { BINARY, CLI_SCRIPT, parseScriptInvocation, scriptArgs, shellTokens } from "./runtime.js";
 import type { Binary } from "./runtime.js";
+import { withHostUmask } from "./private-umask.js";
 
 /** Set by Claude Code on a plugin's hook, MCP and LSP processes. */
 export const PLUGIN_ROOT_ENV = "CLAUDE_PLUGIN_ROOT";
@@ -643,12 +644,15 @@ export function ensureFirstRun(input: FirstRunInput): FirstRun {
     const left = leaveFirstRunNotice(notice, choice.path);
     const runtime = input.runtime ?? process.execPath;
     const script = input.cliScript ?? CLI_SCRIPT;
-    const res = spawnSync(runtime, [...scriptArgs(script, runtime), "install", "--no-connect"], {
-      env: env as NodeJS.ProcessEnv,
-      encoding: "utf8",
-      timeout: FIRST_RUN_TIMEOUT_MS,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    // Under the host's umask: our own child sets 077 itself (`private-umask.ts`).
+    const res = withHostUmask(() =>
+      spawnSync(runtime, [...scriptArgs(script, runtime), "install", "--no-connect"], {
+        env: env as NodeJS.ProcessEnv,
+        encoding: "utf8",
+        timeout: FIRST_RUN_TIMEOUT_MS,
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    );
     if (res.status === 0 && existsSync(choice.path)) {
       return { state: "created", line: left ? null : firstRunLine(choice.path, input.home) };
     }

@@ -50,7 +50,10 @@
  * (two), `test/start-fresh.test.ts` (the `/bin/sh` runs of the printed rollback
  * lines), `test/log.test.ts` (the four entry points, and two appenders at once) and
  * `test/plugin.test.ts` (the plugin launcher, the npm hook and server run directly,
- * the first run's console, and one `/bin/sh` writer racing it) all pass an explicit
+ * the first run's console, and one `/bin/sh` writer racing it), `test/private-store.test.ts`
+ * (the console under `/bin/sh -c 'umask 022'`: install, note, backup, and note against a configured `snapshots.dir`), `test/wire.test.ts`
+ * (install and connect under `umask 022`) and `test/dreaming-headless.test.ts` (a driver
+ * starting `bin/nightly.ts` the hook's way, against a stub `claude`) all pass an explicit
  * `env` with a fake `HOME`; `test/live/harness.ts` (the
  * chromium probe and each live scenario's child `bun test`) passes an explicit `env`
  * copied from this process, temp `HOME` included. Add a site, do one of those two
