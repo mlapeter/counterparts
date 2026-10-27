@@ -24,9 +24,11 @@ import { createApp } from "../src/app.js";
 import type { App } from "../src/app.js";
 import { keyObject, replicaPrefix, tombstoneObject } from "../src/backup.js";
 import { memoryMailer, memoryObjectStore } from "../src/egress.js";
-import type { ObjectStore } from "../src/egress.js";
+import type { Mail, Mailer, ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper } from "../src/keys.js";
-import { StoreLocked, tenantDir } from "../src/tenants.js";
+import { eventLine } from "../src/main.js";
+import { deadlineWords } from "../src/pages.js";
+import { StoreLocked, storeTag, tenantDir } from "../src/tenants.js";
 import { openDb } from "../../src/core/store/db.js";
 import { REFUSED_ERROR } from "../../src/adapters/remote/http.js";
 import { rpc, tempRoot, tool } from "./helpers.js";
@@ -110,16 +112,29 @@ interface Rig {
 const ring = (): Map<string, Buffer> => new Map([["v1", randomBytes(32)]]);
 
 /** One server on a data root. Pass the same `dataRoot`, `objects` and `wrapper` to restart it on the same volume and bucket. */
-async function rig(o: { clock?: { at: number }; objects?: ReturnType<typeof memoryObjectStore>; store?: ObjectStore; wrapper?: EnvKeyWrapper; finishEveryMs?: number; onEvent?: (name: string) => void } = {}): Promise<Rig> {
+async function rig(
+  o: { clock?: { at: number }; objects?: ReturnType<typeof memoryObjectStore>; store?: ObjectStore; wrapper?: EnvKeyWrapper; finishEveryMs?: number; onEvent?: (name: string, store: string) => void; failMail?: { on: boolean } } = {},
+): Promise<Rig> {
   const port = await freePort();
   const origin = `http://127.0.0.1:${String(port)}`;
   const mail = memoryMailer();
+  // `failMail.on`: every send throws (the provider down), from the moment it is set.
+  const failMail = o.failMail;
+  const mailer: Mailer =
+    failMail === undefined
+      ? mail
+      : {
+          send: (m) => {
+            if (failMail.on) throw new Error("mail provider answered 503");
+            return mail.send(m);
+          },
+        };
   const objects = o.objects ?? memoryObjectStore();
   const clock = o.clock ?? { at: Date.now() };
   const app = createApp({
     dataRoot: join(tmp.root, "data"),
     publicOrigin: origin,
-    mailer: mail,
+    mailer,
     embedder: null,
     spawner: () => ({ pid: 1 }),
     now: () => clock.at,
@@ -852,5 +867,194 @@ describe("the #659 re-check rider: a refusal inside a batch", () => {
     const s2 = String((await tool(`${r.origin}/mcp`, "wake", {}, bearer(again.access)))["session"]);
     const found = await rpc(`${r.origin}/mcp`, "tools/call", { name: "recall", arguments: { session: s2, question: "spare oars boathouse", mode: "facts" } }, bearer(again.access));
     assert.match(JSON.stringify(found.body), /spare oars hang in the boathouse rafters/);
+  });
+});
+
+describe("R9: the delete emails", () => {
+  /** The emails a delete sent (not the sign-in links). */
+  const deleteMails = (r: Rig): Mail[] => r.mail.sent.filter((m) => /deleted/.test(m.subject));
+
+  /** No token, no id, nothing of the memory: the only link is the plain /login. */
+  function assertClean(r: Rig, m: Mail, secrets: readonly string[]): void {
+    for (const s of secrets) assert.equal(m.text.includes(s) || m.subject.includes(s), false, `the email carries none of: ${s.slice(0, 12)}…`);
+    assert.doesNotMatch(m.text, /token|session|[?&]\w+=/i);
+    for (const url of m.text.match(/https?:\/\/\S+/g) ?? []) assert.equal(url, `${r.origin}/login`);
+    assert.doesNotMatch(m.text, /[A-Za-z0-9_-]{24,}/, "nothing token-shaped");
+  }
+
+  /** Connect, wake, remember `text`, and give back what a leak would show: the tokens, the cookies, the ids. */
+  async function lived(r: Rig, me: { browser: Browser; personId: string; storeId: string }, text: string): Promise<{ c: Connected; secrets: string[] }> {
+    const c = await connect(r, me.browser);
+    const woke = await tool(`${r.origin}/mcp`, "wake", {}, bearer(c.access));
+    await tool(`${r.origin}/mcp`, "remember", { session: String(woke["session"]), text }, bearer(c.access));
+    const cookies = [...me.browser.jar.values()].map((x) => x.v);
+    return { c, secrets: [c.access, c.refresh, me.personId, me.storeId, storeTag(me.storeId), ...cookies] };
+  }
+
+  test("delete (24 h): one email to the account's address, with the deadline in their zone and how to keep it; a second delete and a keep send nothing", async () => {
+    const r = await rig();
+    const me = await signUp(r, "mailed@example.com");
+    const { secrets } = await lived(r, me, "The quince orchard hides behind the crimson gate.");
+    const t0 = r.clock.at;
+
+    const done = await deleteLater(me.browser, "mailed@example.com");
+    assert.equal(done.status, 200);
+    assert.match(await done.text(), /An email saying this is on its way to you/);
+    assert.equal(deleteMails(r).length, 1);
+    const m = deleteMails(r)[0]!;
+    assert.equal(m.to, "mailed@example.com");
+    assert.equal(m.subject, "Your Counterparts account is set to be deleted");
+    const when = deadlineWords(t0 + DELETE_GRACE_MS, "America/Denver");
+    assert.match(when, /^(Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, \w+ \d+ at \d+:\d\d [AP]M M[DS]T$/, "the person's own zone (signUp's America/Denver)");
+    assert.ok(m.text.includes(`Your account and memory are locked, and every connected AI is disconnected. After ${when} your memory, its backups and its key are erased.`));
+    assert.ok(m.text.includes(`Sign in at ${r.origin}/login before then and click "Keep my account".`));
+    assert.match(m.text, /If it wasn't you, sign in and keep your account before then/);
+    assertClean(r, m, [...secrets, "quince", "orchard", "crimson"]);
+
+    // A second delete, from the pending page: no new deadline, no email.
+    await signIn(r, me.browser, "mailed@example.com", "");
+    const csrf = csrfOf(await (await me.browser.go("/account")).text());
+    assert.equal((await me.browser.form("/account/delete", { csrf, when: "later", confirm: "mailed@example.com" })).headers.get("location"), "/account");
+    assert.equal(deleteMails(r).length, 1);
+    // Keep: no email.
+    r.clock.at = t0 + 2 * HOUR;
+    assert.equal((await me.browser.form("/account/keep", { csrf })).status, 200);
+    assert.equal(r.app.accounts.person(me.personId)!.state, "active");
+    assert.equal(deleteMails(r).length, 1);
+    // A delete after the keep sets a new deadline, and its email names it.
+    assert.equal((await deleteLater(me.browser, "mailed@example.com")).status, 200);
+    assert.equal(deleteMails(r).length, 2);
+    assert.ok(deleteMails(r)[1]!.text.includes(`After ${deadlineWords(t0 + 2 * HOUR + DELETE_GRACE_MS, "America/Denver")} your memory`));
+  });
+
+  test("the timer's erase at 24 h sends nothing", async () => {
+    const r = await rig();
+    const me = await signUp(r, "timer@example.com");
+    await r.app.tenants.withTenant(me.storeId, {}, async () => undefined);
+    const t0 = r.clock.at;
+    assert.equal((await deleteLater(me.browser, "timer@example.com")).status, 200);
+    const sent = r.mail.sent.length;
+    r.clock.at = t0 + DELETE_GRACE_MS;
+    await until(() => r.app.accounts.person(me.personId)!.state === "deleted", "the erase");
+    await ticks();
+    assert.equal(r.mail.sent.length, sent);
+    assert.equal(deleteMails(r).length, 1);
+  });
+
+  test("delete everything now: one email, sent although the address is purged after; from an active account and from the pending page", async () => {
+    const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
+    const me = await signUp(r, "gone@example.com");
+    const { secrets } = await lived(r, me, "The quince orchard hides behind the crimson gate.");
+    const page = await (await me.browser.go("/account")).text();
+    const gone = await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "gone@example.com" });
+    assert.equal(gone.status, 200);
+    assert.match(await gone.text(), /An email saying this is on its way to you/);
+    assert.equal(r.app.accounts.person(me.personId)!.email, null, "the address is purged");
+    await assertErased(r, me.storeId);
+    assert.equal(deleteMails(r).length, 1);
+    const m = deleteMails(r)[0]!;
+    assert.equal(m.to, "gone@example.com");
+    assert.equal(m.subject, "Your Counterparts account is deleted");
+    assert.equal(
+      m.text,
+      "Your memory, its backups and its key are erased, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours.\n\nThank you for trying Counterparts.\n",
+    );
+    assertClean(r, m, [...secrets, "quince", "orchard", "crimson"]);
+
+    // From the pending page: the delete's email, then exactly one more.
+    const two = await signUp(r, "pending-now@example.com");
+    assert.equal((await deleteLater(two.browser, "pending-now@example.com")).status, 200);
+    assert.equal(deleteMails(r).length, 2);
+    await signIn(r, two.browser, "pending-now@example.com", "");
+    const csrf = csrfOf(await (await two.browser.go("/account")).text());
+    assert.equal((await two.browser.form("/account/delete", { csrf, when: "now", confirm: "pending-now@example.com" })).status, 200);
+    assert.equal(r.app.accounts.person(two.personId)!.state, "deleted");
+    assert.equal(r.app.accounts.person(two.personId)!.email, null);
+    assert.equal(deleteMails(r).length, 3);
+    assert.equal(deleteMails(r)[2]!.to, "pending-now@example.com");
+    assert.equal(deleteMails(r)[2]!.subject, "Your Counterparts account is deleted");
+  });
+
+  test("delete everything now cut short (R2 down): the email says what the 202 page says, and the timer that finishes it sends nothing", async () => {
+    const inner = memoryObjectStore();
+    let down = false;
+    const flaky: ObjectStore = {
+      put: async (k, b) => {
+        if (down) throw new Error("object store PUT answered 503");
+        await inner.put(k, b);
+      },
+      get: (k) => inner.get(k),
+      list: (p) => inner.list(p),
+      delete: (k) => inner.delete(k),
+      deletePrefix: (p) => inner.deletePrefix(p),
+    };
+    const r = await rig({ objects: inner, store: flaky });
+    const me = await signUp(r, "cut@example.com");
+    await r.app.tenants.withTenant(me.storeId, {}, async () => undefined);
+    down = true;
+    const page = await (await me.browser.go("/account")).text();
+    const res = await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "cut@example.com" });
+    assert.equal(res.status, 202);
+    assert.equal(deleteMails(r).length, 1);
+    const m = deleteMails(r)[0]!;
+    assert.equal(m.to, "cut@example.com");
+    assert.equal(m.subject, "Your Counterparts account is being deleted");
+    assert.match(m.text, /^Your account is closed\. Part of the deletion didn't finish just now, so the server will keep retrying/);
+    assert.doesNotMatch(m.text, /are erased/);
+    down = false;
+    await until(() => r.app.accounts.person(me.personId)!.state === "deleted", "the retried erase");
+    await ticks();
+    assert.equal(deleteMails(r).length, 1);
+  });
+
+  test("a mailer that throws: the delete stands (locked, deadline set, grants revoked), the page renders, and the log has no address", async () => {
+    const failMail = { on: false };
+    const events: [string, string][] = [];
+    const r = await rig({ failMail, finishEveryMs: 60 * 60 * 1000, onEvent: (name, store) => void events.push([name, store]) });
+    const me = await signUp(r, "unmailed@example.com");
+    const { c } = await lived(r, me, "A note about the harbour.");
+    const t0 = r.clock.at;
+    failMail.on = true;
+
+    const done = await deleteLater(me.browser, "unmailed@example.com");
+    assert.equal(done.status, 200);
+    const words = await done.text();
+    assert.match(words, /Your account is set to be deleted/);
+    assert.ok(words.includes(deadlineWords(t0 + DELETE_GRACE_MS, "America/Denver")));
+    assert.equal(me.browser.cookie("cp_session"), null);
+    const person = r.app.accounts.person(me.personId)!;
+    assert.equal(person.state, "pending-delete");
+    assert.equal(person.deleteAfter, t0 + DELETE_GRACE_MS);
+    assert.equal(r.app.oauth.store.grantsOf(me.personId).length, 0, "every grant revoked");
+    assert.equal((await rpc(`${r.origin}/mcp`, "tools/list", undefined, bearer(c.access))).status, 401);
+    await until(() => r.app.accounts.auditOf(me.personId).some((a) => a.action === "delete.mail.failed"), "the failure audited");
+    assert.deepEqual(
+      events.filter(([n]) => n === "delete.mail.failed"),
+      [["delete.mail.failed", storeTag(me.storeId)]],
+    );
+    const line = eventLine("delete.mail.failed", storeTag(me.storeId));
+    assert.match(line, /^\[hosted\] delete\.mail\.failed storeTag=[0-9a-f]{16}: /);
+    for (const logged of [line, JSON.stringify(events), JSON.stringify(r.app.accounts.auditOf(me.personId))]) {
+      assert.doesNotMatch(logged, /@|unmailed/, "no address in the log or the audit");
+    }
+    assert.equal(line.includes(me.storeId), false, "the log line names the store by its tag only");
+    assert.equal(deleteMails(r).length, 0);
+
+    // Delete everything now with the mailer still down: erased, and the page renders.
+    failMail.on = false;
+    await signIn(r, me.browser, "unmailed@example.com", "");
+    failMail.on = true;
+    const csrf = csrfOf(await (await me.browser.go("/account")).text());
+    const gone = await me.browser.form("/account/delete", { csrf, when: "now", confirm: "unmailed@example.com" });
+    assert.equal(gone.status, 200);
+    assert.match(await gone.text(), /Your memory, its backups and its key are erased/);
+    assert.equal(r.app.accounts.person(me.personId)!.state, "deleted");
+    await assertErased(r, me.storeId);
+    await until(() => r.app.accounts.auditOf(me.personId).filter((a) => a.action === "delete.mail.failed").length === 2, "the second failure audited");
+    assert.deepEqual(
+      events.filter(([n]) => n === "delete.mail.failed").map(([, s]) => s),
+      [storeTag(me.storeId), storeTag(me.storeId)],
+      "a pending person's store is still named by its tag",
+    );
   });
 });
