@@ -330,7 +330,7 @@ Each fix has a test in `test/delete.test.ts` ("the #659 review") or `test/ops.te
 - **LOW: a queued call refused by the lock answered 200 with JSON-RPC "internal error".** `one()` in
   `remote/http.ts` caught `StoreLocked`. `McpPostOptions.refusal` now lets the door turn a call's error into an HTTP
   answer for the whole request (`401` for a locked store or a revoked token, `503` when the re-check throws). In a
-  batch, answers already made are dropped with it: the client re-authenticates and sends again.
+  batch, answers already made were dropped with it (changed by R7's rider, below).
 - All four cases (slow body + Keep, slow body + disconnect, queued + lock, queued + delete and Keep) fail on Node 24
   without the change and pass with it, on both runtimes.
 - **start-over refuses a store set to be deleted** (operator only; it read `liveStoreIds`, which includes pending).
@@ -367,4 +367,18 @@ keys there, but the control key itself was made. The guarantee is CONTRACT §31.
 - **Left:** a `BACKUPS=off` → on start that stops after its control key's upload and before every store's key would
   leave the rest `keys-newer` (the next start no longer looks like a volume never backed up). Rare: the bucket failing
   mid-start, on the one start that turns backups on.
+
+### R7's rider: a refusal inside a batch keeps the answers made (the #659 re-check, LOW)
+
+- **A batch's refusal replaced the whole answer, including messages that had run.** `[remember, recall]` with a
+  disconnect landing between them answered `401`, but the remember was written: a client sending the batch again
+  writes twice (worse with `503` and `Retry-After`, which says "send again").
+- **Now** (`remote/http.ts#handleMcpPost`): until a message of the request has reached the server, a refusal still
+  answers the whole request (`401`/`503`, with its headers). Once one has, the answers made are kept, HTTP is `200`,
+  and the refused message and each one refused after it carries `REFUSED_ERROR` (-32001, "refused (HTTP 401): this
+  message did not run", `data: { status, retryAfter? }`). A message that threw anything else counts as run (it may
+  have written). Single messages, all claude.ai sends (MCP 2025-06-18 has no batches), are unchanged.
+- **The test builds the window for real** (`test/delete.test.ts`, the rider block): the store's queue is held, the
+  batch queued, a second hold queued behind its first message, the disconnect made once the remember ran, then the
+  recall re-checks its token. It fails on Node 24 without the change.
 
