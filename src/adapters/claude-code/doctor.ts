@@ -144,6 +144,7 @@ import {
   nightRunFindings,
 } from "./doctor-self-page.js";
 import { denyFindings, hostFindings, runtimeFindings, desktopFindings } from "./doctor-host.js";
+import { modesFindings } from "./doctor-modes.js";
 import type { HostReading, DesktopReading } from "./doctor-host.js";
 import { readOwed, crashWriteUpFindings, overdueWords } from "./doctor-write-ups.js";
 import type { OwedSource, OwedReading } from "./doctor-write-ups.js";
@@ -3387,6 +3388,8 @@ export function doctorFindings(input: DoctorInput): Finding[] {
     ...(input.open === undefined ? [] : openFindings(input.open)),
     // A rollback's hold (2026-10-11): one file read, and only when it is there.
     ...rollbackFindings(input.dir),
+    // Who can read the store (R1): a few stats, no store read.
+    ...modesFindings(input.dir),
     // DID THE HOST STEPS TAKE (finding 4). Also read by the caller — it is four
     // small file reads outside this store, and the hook does not pay for them.
     ...(input.host === undefined ? [] : hostFindings(input.host)),

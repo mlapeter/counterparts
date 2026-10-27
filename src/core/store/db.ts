@@ -11,6 +11,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { StoreError } from "./errors.js";
+import { PRIVATE_FILE_MODE, chmodQuiet } from "./private.js";
 
 export type SqlValue = string | number | bigint | null | Uint8Array;
 export type SqlParam = SqlValue | boolean | undefined;
@@ -354,7 +355,13 @@ export function wroteOn(db: Db): boolean {
 }
 
 export function openDb(path: string, opts: OpenDbOptions = {}): Db {
+  // A DATABASE THIS OPEN CREATES IS 0600 (R1, `private.ts`), set before
+  // anything turns WAL on: SQLite gives `-wal` and `-shm` the database
+  // file's own mode, so the three come out private together. An existing file
+  // keeps its mode here; `tightenStore` is what changes one.
+  const minted = path !== ":memory:" && path !== "" && !path.startsWith("file:") && !existsSync(path);
   const { raw, driver } = openRaw(path);
+  if (minted && existsSync(path)) chmodQuiet(path, PRIVATE_FILE_MODE);
   let depth = 0;
   let savepointSeq = 0;
 
