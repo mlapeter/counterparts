@@ -26,8 +26,9 @@ thing and is safe to run again. It asks two things, and you can skip either of t
 
 - **Your name**, so the memory knows what to call you.
 - **Whether to connect Claude Code.** This adds five hooks to `~/.claude/settings.json`
-  (it keeps a backup first) and registers the memory tools. Hooks from other tools are
-  left alone.
+  (it keeps a backup first), registers the memory tools, and adds one `deniedMcpServers`
+  entry so the Counterparts Online connector never loads into Claude Code as a second memory.
+  Hooks and settings from other tools are left alone.
 
 There are no API keys. Search by meaning is turned on for you and runs on your machine;
 nothing leaves it except through Claude Code itself.
