@@ -27,7 +27,7 @@ import { accountPages } from "./pages.js";
 import type { ConnectionView, Pages } from "./pages.js";
 import { createHostedServer } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
-import { Tenants, tenantDir } from "./tenants.js";
+import { Tenants, storeTag, tenantDir } from "./tenants.js";
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, keyObject } from "./backup.js";
 import type { LitestreamRun, Sidecar } from "./backup.js";
@@ -66,8 +66,12 @@ export interface AppOptions {
   readonly backup?: AppBackupOptions;
   /** `/mcp`'s per-account limits (`limits.ts`); each absent number is that file's default. */
   readonly mcpLimits?: { readonly perMinute?: number; readonly perHour?: number; readonly inFlight?: number; readonly quotaBytes?: number };
-  /** Limit refusals and stores waiting for a restore, by hashed store tag (the entry point logs them). */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore", store: string) => void;
+  /**
+   * Limit refusals and stores waiting for a restore, by hashed store tag (the
+   * entry point logs them); and a new store whose backup set-up failed
+   * (`backup.ensure.failed`, tagged by `storeTag`, the restore CLI's tag).
+   */
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed", store: string) => void;
   readonly now?: () => number;
   /** `server.ts#HostedServerOptions.logForwardedFor` (the entry point's `LOG_FORWARDED_FOR=1`). */
   readonly logForwardedFor?: (raw: string) => void;
@@ -210,7 +214,15 @@ export function createApp(opts: AppOptions): App {
       }
       void backups
         .ensureStore(storeId)
-        .catch(() => accounts.audit(accounts.personOfStore(storeId), storeId, "backup.ensure.failed", null))
+        .catch(() => {
+          accounts.audit(accounts.personOfStore(storeId), storeId, "backup.ensure.failed", null);
+          // An operator reading the logs sees it too (R3): the event and the tag, never the id, an address or the error.
+          try {
+            opts.onEvent?.("backup.ensure.failed", storeTag(storeId));
+          } catch {
+            /* a log, not a gate */
+          }
+        })
         .finally(() => accounts.markOpened(storeId));
     },
   });
@@ -491,7 +503,9 @@ export const ASIDE_KEEP_MS = 24 * 60 * 60 * 1000;
  * (`--force` moves a file there). They hold addresses and memories outside the
  * 24 h purge, so they go a day after they were set aside: by the time in the
  * name for a `pre-restore` copy, by the change time (a rename sets it) for an
- * `aside` dir. Returns how many went.
+ * `aside` dir. Returns how many went. `overrides/` (CONTROL_ASIDE's used
+ * labels, `main.ts#controlAside`) is never listed: a guard swept with its copy
+ * would re-arm a forgotten override (R3).
  */
 export function sweepAside(dataRoot: string, tenantsRoot: string, now: number): number {
   let swept = 0;

@@ -34,6 +34,7 @@
  *     more run after it, never a second concurrent one.
  */
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import type { ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -116,6 +117,11 @@ interface Handle {
   closing: Promise<void> | null;
   /** Told once when `refs` falls to 0: what `close()` waits on (a promise, never a poll). */
   idle: (() => void)[];
+}
+
+/** A store's tag for an operator's terminal and logs: the first 16 hex of its SHA-256, never the id itself. */
+export function storeTag(storeId: string): string {
+  return createHash("sha256").update(storeId).digest("hex").slice(0, 16);
 }
 
 /** The tenant dir, after both checks. Throws on anything else. */

@@ -26,11 +26,13 @@
  *   LOG_FORWARDED_FOR  "1": log the raw X-Forwarded-For of each /readyz request (first deploy's hop check; unset after)
  *   RESTORE_ON_BOOT    "1": serve restores what this volume is missing from the bucket before it starts
  *                      (the control databases, then every store that lived and has no files here)
+ *   CONTROL_ASIDE      a label (letters, digits, - and _): serve moves control/ to control.aside-<label>
+ *                      before anything opens it, ONCE per label (the guard overrides/control-aside-<label>.used
+ *                      stays); for the "not the key that wrote the bucket's backups" refusal, with RESTORE_ON_BOOT=1
  *
  * No secret is ever printed. `invite` prints the new code once, to stdout.
  */
-import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
 import { withEmbedderDefault } from "../../src/adapters/config.js";
@@ -42,7 +44,7 @@ import { controlVolume, createApp, foreignControlRefusal, restoreControl } from 
 import type { AppBackupOptions } from "./app.js";
 import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, litestreamRunner, replicaPrefix, tombstoneObject } from "./backup.js";
 import type { LitestreamRun } from "./backup.js";
-import { STORE_ID, Tenants } from "./tenants.js";
+import { STORE_ID, Tenants, storeTag } from "./tenants.js";
 import type { SharedEmbedder } from "./tenants.js";
 import { KeyStore, kekRingFromEnv } from "./keys.js";
 import { memoryMailer, r2ObjectStore, resendMailer } from "./egress.js";
@@ -125,10 +127,7 @@ function restoreRunner(env: Record<string, string | undefined>): LitestreamRun {
  * then every live store whose database is missing. Prints counts, never an
  * address or a key; a store id is printed only when the operator named it.
  */
-/** A store's tag for an operator's terminal: the first 16 hex of its SHA-256, never the id itself. */
-export function storeTag(storeId: string): string {
-  return createHash("sha256").update(storeId).digest("hex").slice(0, 16);
-}
+export { storeTag };
 
 /**
  * `start-over <storeId>` (the #653 review, L8): the way out for a store that
@@ -209,6 +208,45 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
     keys.close();
     accounts.close();
   }
+}
+
+/** CONTROL_ASIDE's label: what goes into the aside dir's and the guard's names. */
+export const CONTROL_ASIDE_LABEL = /^[A-Za-z0-9_-]{1,32}$/;
+
+/** Where a used CONTROL_ASIDE label is remembered: a dir the start-up sweep (`app.ts#sweepAside`) never lists. */
+export const overrideGuard = (dataRoot: string, label: string): string => join(dataRoot, "overrides", `control-aside-${label}.used`);
+
+/**
+ * CONTROL_ASIDE=<label> (R3; the #653 final check's LOW): `serve` moves
+ * `control/` to `control.aside-<label>` before anything opens it, so a
+ * RESTORE_ON_BOOT start restores the bucket's control databases in its place.
+ * The RUNBOOK's recovery for "…but not the key that wrote the bucket's backups".
+ *
+ * AT MOST ONCE PER LABEL, until a human sets a new one. The guard
+ * (`overrides/control-aside-<label>.used`) is written BEFORE the move, with an
+ * exclusive create, and nothing ever deletes it: not the day-old sweep (which
+ * deletes `control.aside-*` itself, the copy, so a guard that was that copy's
+ * existence re-armed a forgotten override a day later), not a crash-restart.
+ * A crash between the guard and the move leaves `control/` where it was, and
+ * the start refuses as before: never a second move of a restored `control/`.
+ * Re-arm on purpose with a new label.
+ */
+export function controlAside(dataRoot: string, label: string, now: number = Date.now()): { line: string } | { refusal: string } {
+  if (!CONTROL_ASIDE_LABEL.test(label)) return { refusal: "refused: CONTROL_ASIDE must be a label of letters, digits, - and _ (at most 32), e.g. CONTROL_ASIDE=1." };
+  const guard = overrideGuard(dataRoot, label);
+  const aside = join(dataRoot, `control.aside-${label}`);
+  if (existsSync(guard)) return { line: `CONTROL_ASIDE=${label} was used once already: nothing moved. Unset CONTROL_ASIDE (or set a new label to move control/ aside again).` };
+  mkdirSync(join(dataRoot, "overrides"), { recursive: true });
+  try {
+    writeFileSync(guard, `${new Date(now).toISOString()}\n`, { flag: "wx" });
+  } catch {
+    return { line: `CONTROL_ASIDE=${label} was used once already: nothing moved. Unset CONTROL_ASIDE (or set a new label to move control/ aside again).` };
+  }
+  const control = join(dataRoot, "control");
+  if (!existsSync(control)) return { line: `CONTROL_ASIDE=${label}: there is no control/ to move; this label is used now. Unset CONTROL_ASIDE.` };
+  if (existsSync(aside)) return { line: `CONTROL_ASIDE=${label}: control.aside-${label} is already here, so nothing moved; this label is used now. Set a new label to move control/ aside.` };
+  renameSync(control, aside);
+  return { line: `CONTROL_ASIDE=${label}: moved control/ to control.aside-${label} (deleted a day from now). Unset CONTROL_ASIDE now; it won't move anything again under this label.` };
 }
 
 /**
@@ -340,6 +378,24 @@ async function main(): Promise<void> {
     if (out.failed > 0) process.exitCode = 1;
     return;
   }
+  // CONTROL_ASIDE: control/ moved aside once per label, before anything opens
+  // it. Never with BACKUPS=off: the aside copy would be the only one, and the
+  // sweep deletes it a day later.
+  const asideLabel = env["CONTROL_ASIDE"];
+  if (asideLabel !== undefined && asideLabel !== "") {
+    if (backup === null) {
+      process.stderr.write("[hosted] refused: CONTROL_ASIDE needs the bucket (not BACKUPS=off): the copy it sets aside would be the only one.\n");
+      process.exitCode = 1;
+      return;
+    }
+    const moved = controlAside(read.dataRoot, asideLabel);
+    if ("refusal" in moved) {
+      process.stderr.write(`[hosted] ${moved.refusal}\n`);
+      process.exitCode = 1;
+      return;
+    }
+    process.stderr.write(`[hosted] ${moved.line}\n`);
+  }
   // AN EMPTY VOLUME BESIDE A BUCKET THAT HAS BACKUPS: starting would make new,
   // empty control databases and replicate them over the real ones. So either
   // restore them first (RESTORE_ON_BOOT=1) or refuse, saying how.
@@ -370,8 +426,8 @@ async function main(): Promise<void> {
     embedder,
     ...(cookieKeys === undefined || cookieKeys.length === 0 ? {} : { cookieKeys }),
     ...(backup === null ? {} : { backup }),
-    // Limit refusals and stores waiting on a restore: the event and the hashed store tag, nothing else.
-    onEvent: (name, store) => process.stderr.write(`[hosted] ${name} store=${store}\n`),
+    // Limit refusals, stores waiting on a restore, a new store's failed backup set-up: the event and the hashed store tag, nothing else.
+    onEvent: (name, store) => process.stderr.write(`[hosted] ${name} store=${store}${name === "backup.ensure.failed" ? ": this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it)" : ""}\n`),
     // First deploy only: the raw X-Forwarded-For of each /readyz request, to count the proxy's hops. Unset it after.
     ...(env["LOG_FORWARDED_FOR"] === "1" ? { logForwardedFor: (raw: string) => process.stderr.write(`[hosted] /readyz X-Forwarded-For: ${raw}\n`) } : {}),
   });
