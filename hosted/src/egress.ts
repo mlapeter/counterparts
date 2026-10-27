@@ -4,7 +4,7 @@
  * says so of `src/`; the hosted server is not, so its egress is named here and
  * pinned by `hosted/test/accounts.test.ts` ("egress") — a new destination is a review event.
  *
- *   1. Resend's HTTP API, to send a login email (`resendMailer`).
+ *   1. Resend's HTTP API, to send a login email, or a delete's email (R9) (`resendMailer`).
  *   2. a client's CIMD document (`cimdFetch`): oidc-provider calls it with its own
  *      guard already applied — https only, no redirects, a 2.5 s timeout, a body
  *      limit, and (on Node) a dispatcher that refuses special-use addresses —

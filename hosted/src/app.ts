@@ -72,9 +72,10 @@ export interface AppOptions {
    * (`backup.ensure.failed`, tagged by `storeTag`, the restore CLI's tag);
    * and, at start-up, a store that lived with no key anywhere: given one
    * (`backup.key.minted`) or not, and why (`backup.keyless.<reason>`), by
-   * `storeTag` too (R5).
+   * `storeTag` too (R5); and a delete's email that didn't send
+   * (`delete.mail.failed`, by `storeTag`; R9).
    */
-  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}`, store: string) => void;
+  readonly onEvent?: (name: `limit.${LimitReason}` | "store.needs-restore" | "backup.ensure.failed" | "backup.key.minted" | `backup.keyless.${KeylessReason}` | "delete.mail.failed", store: string) => void;
   /** The clock for accounts (a pending delete's deadline, sessions, links), the pages, the limits and the sweeps. */
   readonly now?: () => number;
   /** How often the server finishes deletes while it runs: erases that were cut short, and pending deletes now due. Ten minutes by default. */
@@ -222,6 +223,8 @@ export function createApp(opts: AppOptions): App {
     deleteAccount: (personId: string) => (deleteRef === null ? Promise.reject(new Error("not ready")) : deleteRef(personId)),
     scheduleDelete: (personId: string) => (scheduleRef === null ? Promise.reject(new Error("not ready")) : scheduleRef(personId)),
     keepAccount: (personId: string) => (keepRef === null ? false : keepRef(personId)),
+    // The operator's log line for a delete's email that didn't send (R9): the store's tag, never the address.
+    onDeleteMailFailed: (storeId: string | null) => opts.onEvent?.("delete.mail.failed", storeId === null ? "none" : storeTag(storeId)),
     ...(opts.now === undefined ? {} : { now: opts.now }),
   });
   oauth = createOAuth({

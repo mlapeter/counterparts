@@ -60,6 +60,8 @@ export interface PagesOptions {
   readonly scheduleDelete?: (personId: string) => Promise<number | null>;
   /** Keep an account whose delete is pending (R6). False: nothing to keep, or too late. */
   readonly keepAccount?: (personId: string) => boolean;
+  /** A delete's email failed to send (R9): for the operator's log, by store. Never given the address or the error. */
+  readonly onDeleteMailFailed?: (storeId: string | null) => void;
 }
 
 /** A deadline in the person's own zone, e.g. "Tuesday, October 28 at 2:05 PM MDT". */
@@ -93,6 +95,36 @@ const AFTER_ERASE_WORDS = "Your account email is purged from our encrypted accou
 const FORGET_WORDS =
   "Forgetting one memory is different: it is gone from your memory at once, though traces can stay in unused space in your memory's file (on our encrypted disks) and in its encrypted backups until they are overwritten or expire. When your account is erased, all of it becomes unreadable at once.";
 const KEEP_WORDS = "Keeping it brings your account and memory back as they were. Your connected AIs stay disconnected: connect them again from Claude.";
+// The done pages' words, shared with their emails (R9) so the two say the same thing.
+const LOCKED_WORDS = "Your account and memory are locked, every connected AI is disconnected, and you're signed out.";
+const ERASED_WORDS = "Your memory, its backups and its key are erased, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours.";
+const ERASING_WORDS =
+  "Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing.";
+const MAIL_ON_ITS_WAY = "An email saying this is on its way to you.";
+
+/**
+ * THE DELETE EMAILS (R9, Mike 2026-10-27): one at a delete (24 hours), one at
+ * delete everything now. Plain text, the pages' own words. No link that carries
+ * a token (the person signs in at the plain /login), no ids, nothing of the memory.
+ */
+export function deleteLaterMail(to: string, deadline: string, origin: string): { to: string; subject: string; text: string } {
+  return {
+    to,
+    subject: "Your Counterparts account is set to be deleted",
+    text: `Your Counterparts account was set to be deleted. Your account and memory are locked, and every connected AI is disconnected. After ${deadline} your memory, its backups and its key are erased.
+
+Changed your mind? Sign in at ${origin}/login before then and click "Keep my account". Your connected AIs stay disconnected: you connect them again.
+
+If it wasn't you, sign in and keep your account before then.
+`,
+  };
+}
+
+export function deleteNowMail(to: string, finished: boolean): { to: string; subject: string; text: string } {
+  return finished
+    ? { to, subject: "Your Counterparts account is deleted", text: `${ERASED_WORDS}\n\nThank you for trying Counterparts.\n` }
+    : { to, subject: "Your Counterparts account is being deleted", text: `${ERASING_WORDS}\n` };
+}
 
 export function accountPages(opts: PagesOptions): Pages {
   const names = cookieNames(opts.publicOrigin);
@@ -361,6 +393,31 @@ ${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" va
         return true;
       }
       const signOut = { "Set-Cookie": cookie(names.session, "", { secure: names.secure, maxAgeS: 0 }) };
+      // The address and the zone, read BEFORE the delete: delete now purges them (R9).
+      const to = person.email;
+      // (A pending person's `storeId` is null: the store is locked. Its id is still the log's tag.)
+      const storeId = person.storeId ?? opts.accounts.storesToDelete(personId)[0] ?? null;
+      /**
+       * One email per delete the person made (R9). NOT awaited, and a failure
+       * changes nothing: the delete stands and the page is the same. The failure
+       * is audited and logged by store (the operator's tag), never by address.
+       */
+      const mail = (m: { to: string; subject: string; text: string }): void => {
+        let sending: Promise<void>;
+        try {
+          sending = opts.mailer.send(m);
+        } catch (err) {
+          sending = Promise.reject(err);
+        }
+        void sending.catch(() => {
+          opts.accounts.audit(personId, storeId, "delete.mail.failed", null);
+          try {
+            opts.onDeleteMailFailed?.(storeId);
+          } catch {
+            /* a log, not a gate */
+          }
+        });
+      };
       // Delete is LATER unless "now" was pressed (R6). A pending delete can only be made "now".
       if (form.get("when") !== "now" && opts.scheduleDelete !== undefined) {
         if (pending !== null) {
@@ -368,11 +425,13 @@ ${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" va
           return true;
         }
         const deadline = await opts.scheduleDelete(personId);
-        const when = escapeHtml(deadlineWords(deadline ?? now(), person.timeZone));
+        const words = deadlineWords(deadline ?? now(), person.timeZone);
+        // Only a delete that set the deadline sends: a second one (two tabs) set nothing.
+        if (deadline !== null) mail(deleteLaterMail(to, words, opts.publicOrigin));
         page(res, 200, {
           title: "Set to be deleted",
           headers: signOut,
-          body: `<h1>Your account is set to be deleted</h1><p>Your account and memory are locked, every connected AI is disconnected, and you're signed out. After <strong>${when}</strong> your memory, its backups and its key are erased.</p><p>Changed your mind? Sign in before then and keep your account. Your connected AIs stay disconnected: you connect them again.</p><p class="muted">${escapeHtml(AFTER_ERASE_WORDS)}</p><p><a href="/login">Sign in</a></p>`,
+          body: `<h1>Your account is set to be deleted</h1><p>${escapeHtml(LOCKED_WORDS)} After <strong>${escapeHtml(words)}</strong> your memory, its backups and its key are erased.</p><p>Changed your mind? Sign in before then and keep your account. Your connected AIs stay disconnected: you connect them again.</p><p class="muted">${escapeHtml(AFTER_ERASE_WORDS)}</p>${deadline === null ? "" : `<p class="muted">${escapeHtml(MAIL_ON_ITS_WAY)}</p>`}<p><a href="/login">Sign in</a></p>`,
         });
         return true;
       }
@@ -380,20 +439,21 @@ ${opts.scheduleDelete === undefined ? "" : `<button type="submit" name="when" va
         () => true,
         () => false,
       );
+      mail(deleteNowMail(to, finished));
       if (!finished) {
         // The account is already closed (sessions and grants gone, the store marked
         // deleting); the server finishes the rest on its own (`finishPendingDeletes`).
         page(res, 202, {
           title: "Deleting",
           headers: signOut,
-          body: `<h1>Deleting</h1><p>Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing.</p>`,
+          body: `<h1>Deleting</h1><p>${escapeHtml(ERASING_WORDS)}</p><p class="muted">${escapeHtml(MAIL_ON_ITS_WAY)}</p>`,
         });
         return true;
       }
       page(res, 200, {
         title: "Deleted",
         headers: signOut,
-        body: `<h1>Deleted</h1><p>Your memory, its backups and its key are erased, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours. Thank you for trying Counterparts.</p>`,
+        body: `<h1>Deleted</h1><p>${escapeHtml(ERASED_WORDS)} Thank you for trying Counterparts.</p><p class="muted">${escapeHtml(MAIL_ON_ITS_WAY)}</p>`,
       });
       return true;
     }
