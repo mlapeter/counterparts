@@ -190,6 +190,14 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       cache rebuilds at its first open after a keep).
     - The migration is one `ALTER TABLE people ADD COLUMN delete_after`, made at open when the column is missing, so a
       fresh volume and an existing beta volume both take it.
+    - **One email per delete the person makes** (R9, Mike 2026-10-27; `pages.ts#deleteLaterMail`, `#deleteNowMail`).
+      A delete that sets a deadline sends one to the account's address: locked, every connected AI disconnected, the
+      erase time in the person's own zone, and how to keep it (sign in at the plain `/login`, then Keep my account).
+      Delete everything now sends one in the done page's words (or the `202` page's, when the erase was cut short and
+      the server finishes it), to the address read BEFORE the delete purged it. A second delete, a keep and the
+      timer's erase send nothing. The emails carry no token, no link but `/login`, no id, and nothing of the memory.
+      A send is not awaited and can't undo or block the delete: a failure is audited (`delete.mail.failed`) and
+      logged by `storeTag` only, never the address, and the page is the same either way ("an email … is on its way").
 
     **Delete everything now** (`when=now`, from the account page or the pending page), and the erase at a deadline, run
     one sequence:

@@ -598,8 +598,9 @@ rate_buckets  (in memory in the beta; a table only if we ever run two instances)
 - **Delete.** `POST /account/delete` (typing your email) locks the account and sets the erase for 24 hours later;
   with `when=now` ("delete everything now", also on the pending page) it runs §5.4's erase at once. `POST /account/keep`
   undoes a pending delete. *As built (R6):* there is no re-authentication beyond the signed-in session (a pending
-  delete's session is always a fresh email link, since the delete ended every other), and no confirmation email
-  (none was ever built; `hosted/INTERFACE-GAPS.md` §34).
+  delete's session is always a fresh email link, since the delete ended every other). *R9:* each delete sends one
+  confirmation email: the deadline and how to keep the account, or that everything is erased (`hosted/CONTRACT.md`
+  §27); a keep and the erase at the deadline send none.
 
 ### 7.2 Fly.io fallback
 
