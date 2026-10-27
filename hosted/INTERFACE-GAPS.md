@@ -108,3 +108,9 @@
 29. **Refresh sliding vs absolute.** Whether the rotated refresh token's 30-day expiry slides wasn't measured.
 30. **Export as markdown.** Export is the database file. The readable markdown tree needs an archive format.
 31. **The 2026-07-28 transport** (DESIGN §3), behind a version switch.
+32. **A keyless store heals at the next start, not while serving** (R5). A started-over store whose first open's
+    backup set-up fails serves unbacked until a restart (the RUNBOOK says to force one). A retry on the 10-minute
+    timer, with the same checks and the bucket proven at this process's start, would close it.
+33. **`keys-newer` has no way out** (R5). A store left keyless because `keys.sqlite` was rebuilt after it was opened
+    stays unbacked: nothing mints for it, and `start-over` refuses while its database is here. An operator command
+    (`start-over --rekey`, with the same checks minus that one, after a human has looked) would be the path.

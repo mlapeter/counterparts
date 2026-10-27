@@ -27,7 +27,8 @@ if (!process.env.LITESTREAM_ACCESS_KEY_ID || !process.env.LITESTREAM_SECRET_ACCE
   process.stderr.write("standin: no R2 credentials in the environment\n");
   process.exit(2);
 }
-const extra = Object.keys(process.env).filter((k) => !["PATH", "LITESTREAM_ACCESS_KEY_ID", "LITESTREAM_SECRET_ACCESS_KEY"].includes(k) && !k.startsWith("__CF") && k !== "PWD" && k !== "SHLVL" && k !== "_");
+// NODE_EXTRA_CA_CERTS is the test wrapper's own (an https S3 stand-in's certificate), never the sidecar's environment.
+const extra = Object.keys(process.env).filter((k) => !["PATH", "LITESTREAM_ACCESS_KEY_ID", "LITESTREAM_SECRET_ACCESS_KEY", "NODE_EXTRA_CA_CERTS"].includes(k) && !k.startsWith("__CF") && k !== "PWD" && k !== "SHLVL" && k !== "_");
 if (extra.length > 0) {
   process.stderr.write(`standin: unexpected environment: ${extra.join(",")}\n`);
   process.exit(3);

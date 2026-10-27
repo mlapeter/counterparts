@@ -9,7 +9,10 @@
  *   - a store that lived and lost its files waits for a restore;
  *   - `/readyz`;
  *   - `/mcp`'s per-account limits;
- *   - the DCR sweep.
+ *   - the DCR sweep;
+ *   - (R5) a store that served with no key anywhere gets one at start-up, only
+ *     when nothing can be buried: through `main.ts serve` as a process, against
+ *     the stand-in over https.
  *
  * Hermetic: a temp data root, an in-memory mailer, a local S3 stand-in on
  * 127.0.0.1 that ENFORCES SSE-C (an object put under a key is refused to a GET
@@ -20,8 +23,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
-import { createServer as createNetServer } from "node:net";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -31,12 +32,14 @@ import * as oauth from "oauth4webapi";
 import { createApp, restoreControl } from "../src/app.js";
 import { openDb } from "../../src/core/store/db.js";
 import type { App, AppBackupOptions } from "../src/app.js";
-import { Backups, CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner, replicaPrefix, tombstoneObject } from "../src/backup.js";
+import { Accounts } from "../src/accounts.js";
+import { Backups, CONTROL_KEY_ID, KEYLESS_REASONS, LitestreamSidecar, keyObject, litestreamRunner, replicaPrefix, tombstoneObject } from "../src/backup.js";
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
-import { EnvKeyWrapper, KeyStore } from "../src/keys.js";
+import { EnvKeyWrapper, KeyStore, litestreamKey } from "../src/keys.js";
 import { controlAside, controlAsideAtStart, eventLine, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag } from "../src/main.js";
 import { tenantDir } from "../src/tenants.js";
-import { listen, rpc, tempRoot, tool } from "./helpers.js";
+import { freePort, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, tool } from "./helpers.js";
+import type { S3StandIn, Stored } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
 const insecure = { [oauth.allowInsecureRequests]: true } as const;
@@ -58,63 +61,23 @@ afterEach(async () => {
   tmp.remove();
 });
 
-async function freePort(): Promise<number> {
-  const s = createNetServer();
-  await new Promise<void>((r) => s.listen(0, "127.0.0.1", () => r()));
-  const port = (s.address() as { port: number }).port;
-  await new Promise<void>((r) => s.close(() => r()));
-  return port;
+// ── a local S3 that enforces SSE-C (helpers.ts; https too, for a spawned serve) ──
+
+async function s3StandIn(opts: { tls?: boolean } = {}): Promise<S3StandIn> {
+  const s3 = await sharedS3StandIn(opts.tls === true ? { tls: { dir: tmp.root } } : {});
+  closers.push(() => s3.close());
+  return s3;
 }
 
-// ── a local S3 that enforces SSE-C ───────────────────────────────────────────
-
-interface Stored {
-  body: Buffer;
-  /** The SSE-C key's MD5 it was put under, or null. */
-  keyMd5: string | null;
-}
-
-async function s3StandIn(): Promise<{ base: string; objects: Map<string, Stored> }> {
-  const objects = new Map<string, Stored>();
-  const server = createServer((req, res) => {
-    const url = new URL(req.url ?? "/", "http://x");
-    const [, bucket, ...rest] = url.pathname.split("/");
-    const key = rest.map(decodeURIComponent).join("/");
-    if (bucket !== "bkt") return void res.writeHead(404).end();
-    const sseKey = req.headers["x-amz-server-side-encryption-customer-key"];
-    const keyMd5 = typeof sseKey === "string" ? createHash("md5").update(Buffer.from(sseKey, "base64")).digest("base64") : null;
-    const chunks: Buffer[] = [];
-    req.on("data", (c: Buffer) => chunks.push(c));
-    req.on("end", () => {
-      if (req.method === "PUT") {
-        objects.set(key, { body: Buffer.concat(chunks), keyMd5 });
-        return void res.writeHead(200).end();
-      }
-      if (req.method === "DELETE") {
-        objects.delete(key);
-        return void res.writeHead(204).end();
-      }
-      if (key.length === 0 && url.searchParams.get("list-type") === "2") {
-        const prefix = url.searchParams.get("prefix") ?? "";
-        const all = [...objects.keys()].filter((k) => k.startsWith(prefix)).sort();
-        return void res.writeHead(200, { "content-type": "application/xml" }).end(`<ListBucketResult>${all.map((k) => `<Contents><Key>${k}</Key></Contents>`).join("")}<IsTruncated>false</IsTruncated></ListBucketResult>`);
-      }
-      const v = objects.get(key);
-      if (v === undefined) return void res.writeHead(404).end();
-      // SSE-C, as S3 and R2 enforce it: the same key, or nothing.
-      if (v.keyMd5 !== keyMd5) return void res.writeHead(400).end("InvalidRequest: the SSE-C key does not match");
-      res.writeHead(200).end(v.body);
-    });
-  });
-  const { base, close } = await listen(server);
-  closers.push(close);
-  return { base, objects };
-}
-
-/** The stand-in binary, as an executable the sidecar and the runner can spawn by path. */
-function standinBinary(): string {
+/**
+ * The stand-in binary, as an executable the sidecar and the runner can spawn by
+ * path. With `ca` (an https stand-in's certificate), it trusts that: the
+ * sidecar's environment is PATH and the R2 credentials only, so the wrapper
+ * names it.
+ */
+function standinBinary(ca: string | null = null): string {
   const bin = join(tmp.root, "litestream");
-  writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${STANDIN}" "$@"\n`);
+  writeFileSync(bin, `#!/bin/sh\n${ca === null ? "" : `NODE_EXTRA_CA_CERTS="${ca}" `}exec "${process.execPath}" "${STANDIN}" "$@"\n`);
   chmodSync(bin, 0o755);
   return bin;
 }
@@ -560,9 +523,10 @@ describe("the DCR client sweep", () => {
 // ── the review's awkward states (#OL2b review) ───────────────────────────────
 
 /** A person with a memory, replicated to the bucket, server stopped: the starting point of every awkward restore. */
-async function livedStore(): Promise<{ s3: Awaited<ReturnType<typeof s3StandIn>>; bin: string; ring: Map<string, Buffer>; dataRoot: string; port: number; who: Awaited<ReturnType<typeof connect>> }> {
-  const s3 = await s3StandIn();
-  const bin = standinBinary();
+/** A volume with one person who connected, woke and remembered, backed up, and the server stopped. `tls`: the bucket is served over https too, for a spawned serve. */
+async function livedStore(o: { tls?: boolean } = {}): Promise<{ s3: S3StandIn; bin: string; ring: Map<string, Buffer>; dataRoot: string; port: number; who: Awaited<ReturnType<typeof connect>> }> {
+  const s3 = await s3StandIn(o);
+  const bin = standinBinary(s3.ca);
   const ring = new Map([["v1", randomBytes(32)]]);
   const dataRoot = join(tmp.root, "volume");
   const a = (await rig({ dataRoot, backup: backupOptions(s3, ring, sidecarFor(dataRoot, bin)) })) as Rig & { port: number; close: () => Promise<void> };
@@ -1068,5 +1032,322 @@ describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", 
     assert.match(line, new RegExp(`^\\[hosted\\] backup\\.ensure\\.failed storeTag=${storeTag(who.storeId)}: this store is NOT backed up yet`));
     assert.doesNotMatch(line, new RegExp(who.storeId));
     assert.doesNotMatch(line, /@|EACCES|litestream\.yml for/);
+  });
+});
+
+// ── R5: a store that served with no key anywhere gets one at start-up, safely ──
+//
+// Through `main.ts serve` as its own process (bun or Node, whichever runs the
+// tests), against the S3 stand-in over https (R2_ENDPOINT must be https; the
+// child trusts the stand-in's certificate by NODE_EXTRA_CA_CERTS, the Litestream
+// stand-in through its wrapper). The volume is built in this process first.
+
+describe("R5: a store that served with no key anywhere gets one at start-up, only when nothing can be buried", () => {
+  const serveEnv = (o: { s3: S3StandIn; ring: Map<string, Buffer>; dataRoot: string; port: number; bin: string }, extra: Record<string, string> = {}): Record<string, string> => ({
+    PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+    HOME: tmp.root,
+    COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
+    HOSTED_DATA_ROOT: o.dataRoot,
+    PUBLIC_ORIGIN: `http://127.0.0.1:${String(o.port)}`,
+    PORT: String(o.port),
+    MAIL: "log",
+    HOSTED_KEKS: `v1:${o.ring.get("v1")!.toString("base64")}`,
+    R2_ENDPOINT: o.s3.tlsBase!,
+    R2_BUCKET: "bkt",
+    R2_ACCESS_KEY_ID: CREDS.LITESTREAM_ACCESS_KEY_ID,
+    R2_SECRET_ACCESS_KEY: CREDS.LITESTREAM_SECRET_ACCESS_KEY,
+    NODE_EXTRA_CA_CERTS: o.s3.ca!,
+    LITESTREAM_BIN: o.bin,
+    ...extra,
+  });
+  const keysAt = (dataRoot: string, ring: Map<string, Buffer>): KeyStore => {
+    const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
+    closers.push(() => keys.close());
+    return keys;
+  };
+  const dropReplica = (s3: S3StandIn, id: string): void => {
+    for (const k of [...s3.objects.keys()]) if (k.startsWith(replicaPrefix(id))) s3.objects.delete(k);
+  };
+  /** The line `serve` writes for a store left keyless, by tag, with its reason. */
+  const keylessLine = (id: string, reason: string): RegExp => new RegExp(`\\[hosted\\] backup\\.keyless storeTag=${storeTag(id)} reason=${reason}: this store is NOT backed up, and no key was made`);
+
+  /**
+   * THE KEYLESS STATE, built directly: a store that lived, whose database is
+   * here, with no key in keys.sqlite, no key object and no replica in the bucket
+   * (what the first test below reaches through start-over and a failed first
+   * open). The key file of the key that is gone stays beside it.
+   */
+  async function keylessStore(): Promise<Awaited<ReturnType<typeof livedStore>>> {
+    const lived = await livedStore({ tls: true });
+    const keys = new KeyStore({ path: join(lived.dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(lived.ring, "v1") });
+    keys.delete(lived.who.storeId);
+    keys.close();
+    lived.s3.objects.delete(keyObject(lived.who.storeId));
+    dropReplica(lived.s3, lived.who.storeId);
+    return lived;
+  }
+
+  test("the state reached for real (start-over, then a first open whose backup set-up throws) is healed at the next serve: minted once, the key file rewritten, replicating under it, and the next start mints nothing", async () => {
+    const { s3, bin, ring, dataRoot, port, who } = await livedStore({ tls: true });
+    const id = who.storeId;
+    // The volume died within seconds of the sign-up: nothing of the store reached the bucket, and the new volume holds no key of it.
+    const keys0 = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
+    keys0.delete(id);
+    keys0.close();
+    s3.objects.delete(keyObject(id));
+    dropReplica(s3, id);
+    rmSync(tenantDir(join(dataRoot, "tenants"), id), { recursive: true, force: true });
+    // A running server (a start-over before a start would be given its key by that start's ensureAll, as a new store).
+    const events: [string, string][] = [];
+    const b = (await rig({ dataRoot, port, backup: backupOptions(s3, ring, null), onEvent: (name, store) => void events.push([name, store]) })) as Rig & { port: number; close: () => Promise<void> };
+    assert.match(await startOverCommand(dataRoot, backupOptions(s3, ring, null), id), /starts over/);
+    // Its first open, while the bucket fails its key-object GET.
+    s3.fault = ({ method, key }) => (method === "GET" && key === keyObject(id) ? 500 : null);
+    assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
+    const until = Date.now() + 5000;
+    while (!events.some(([n]) => n === "backup.ensure.failed") && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+    // At that server's start it was a store waiting for a restore (no database, no key: never minted); then the failed set-up.
+    assert.deepEqual(events, [
+      [`backup.keyless.no-database`, storeTag(id)],
+      ["backup.ensure.failed", storeTag(id)],
+    ]);
+    s3.fault = null;
+    await b.close();
+    const storeDir = tenantDir(join(dataRoot, "tenants"), id);
+    assert.ok(existsSync(join(storeDir, "store", "counterparts.sqlite")), "it served: its database is here");
+    assert.equal(keysAt(dataRoot, ring).wrapped(id), null);
+    assert.equal(s3.objects.has(keyObject(id)), false);
+    // A key file of a key that is gone, beside it: the mint must not keep it.
+    writeFileSync(join(storeDir, "litestream.key"), `${randomBytes(32).toString("base64")}\n`, { mode: 0o600 });
+
+    // The next start heals it.
+    const env = serveEnv({ s3, ring, dataRoot, port, bin });
+    const first = await spawnServe(env);
+    assert.ok(first.up, first.stderr());
+    assert.match(first.stderr(), new RegExp(`\\[hosted\\] backup\\.key\\.minted storeTag=${storeTag(id)}: this store served with no backup key`));
+    assert.match(first.stderr(), /1 stores that served with no key here or in the bucket were given one/);
+    assert.doesNotMatch(first.stderr(), /backup\.keyless|stores that lived have no key/);
+    assert.doesNotMatch(first.stderr(), new RegExp(id));
+    await replicated(s3.objects, [keyObject(id), replicaPrefix(id)]);
+    // It still serves its person, through the spawned process's door.
+    assert.equal((await rpc(`http://127.0.0.1:${String(port)}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
+    await first.stop();
+
+    const keys = keysAt(dataRoot, ring);
+    const wrapped = keys.wrapped(id);
+    assert.notEqual(wrapped, null);
+    assert.equal(s3.objects.get(keyObject(id))!.body.toString("utf8"), wrapped, "the bucket's key object is the new key");
+    const dek = await keys.dek(id);
+    const sse = litestreamKey(dek);
+    dek.fill(0);
+    assert.equal(readFileSync(join(storeDir, "litestream.key"), "utf8").trim(), sse, "the key file is the new key's, not the one left behind");
+    const md5 = createHash("md5").update(Buffer.from(sse, "base64")).digest("base64");
+    const replica = [...s3.objects.entries()].filter(([k]) => k.startsWith(replicaPrefix(id)));
+    assert.ok(replica.length > 0 && replica.every(([, v]) => v.keyMd5 === md5), "replicated under the new key's SSE-C key");
+    const accounts = new Accounts({ path: join(dataRoot, "control", "accounts.sqlite") });
+    closers.push(() => accounts.close());
+    assert.ok(accounts.auditOf(who.personId).some((x) => x.action === "backup.key.minted"));
+
+    // Minted ONCE: the next start finds the key and makes none.
+    const second = await spawnServe(env);
+    assert.ok(second.up, second.stderr());
+    const out = await second.stop();
+    assert.doesNotMatch(out, /backup\.key\.minted|backup\.keyless|stores that served with no key/);
+    assert.equal(keys.wrapped(id), wrapped);
+    assert.equal(s3.objects.get(keyObject(id))!.body.toString("utf8"), wrapped);
+  });
+
+  test("(a, b) a key the bucket still has is adopted, never replaced by a new one", async () => {
+    const lived = await livedStore({ tls: true });
+    const id = lived.who.storeId;
+    const bucketKey = lived.s3.objects.get(keyObject(id))!.body.toString("utf8");
+    const keys0 = new KeyStore({ path: join(lived.dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(lived.ring, "v1") });
+    keys0.delete(id);
+    keys0.close();
+    const run = await spawnServe(serveEnv(lived));
+    assert.ok(run.up, run.stderr());
+    const out = await run.stop();
+    assert.doesNotMatch(out, /backup\.key\.minted|backup\.keyless/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), bucketKey);
+    assert.equal(lived.s3.objects.get(keyObject(id))!.body.toString("utf8"), bucketKey);
+  });
+
+  test("(b) the bucket's GET of its key object throws: serve doesn't start, and nothing is minted", async () => {
+    const lived = await keylessStore();
+    const id = lived.who.storeId;
+    lived.s3.fault = ({ method, key }) => (method === "GET" && key === keyObject(id) ? 500 : null);
+    const run = await spawnServe(serveEnv(lived));
+    assert.equal(run.up, false);
+    assert.match(await run.stop(), /\[hosted\] did not start: object store GET answered 500/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
+    assert.equal(lived.s3.objects.has(keyObject(id)), false);
+  });
+
+  test("(c) the bucket holds a replica of it, under a key that is gone: no key, and the line says so", async () => {
+    const lived = await keylessStore();
+    const id = lived.who.storeId;
+    lived.s3.objects.set(`${replicaPrefix(id)}standin/db`, { body: Buffer.from("under a lost key"), keyMd5: "lost" });
+    const run = await spawnServe(serveEnv(lived));
+    assert.ok(run.up, run.stderr());
+    const out = await run.stop();
+    assert.match(out, keylessLine(id, "replica-in-bucket"));
+    assert.match(out, /a new key would bury them\. Tell the coordinator/);
+    assert.match(out, /1 stores that lived have no key here or in the bucket: they are NOT backed up, and no new key was made/);
+    assert.doesNotMatch(out, /backup\.key\.minted/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
+    assert.equal(lived.s3.objects.has(keyObject(id)), false);
+    assert.equal(lived.s3.objects.get(`${replicaPrefix(id)}standin/db`)!.keyMd5, "lost", "the replica is untouched");
+  });
+
+  test("(c) the bucket's LIST of its replica prefix throws: no key (an unanswered check is never an empty one)", async () => {
+    const lived = await keylessStore();
+    const id = lived.who.storeId;
+    lived.s3.fault = ({ prefix }) => (prefix === replicaPrefix(id) ? 500 : null);
+    const run = await spawnServe(serveEnv(lived));
+    assert.ok(run.up, run.stderr());
+    const out = await run.stop();
+    assert.match(out, keylessLine(id, "bucket-unreadable"));
+    assert.match(out, /The next restart tries again/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
+  });
+
+  test("(d) the bucket has its tombstone: through serve its delete is finished first; in ensureAll itself it is never minted", async () => {
+    const lived = await keylessStore();
+    const id = lived.who.storeId;
+    lived.s3.objects.set(tombstoneObject(id), { body: Buffer.from("2026-10-27T00:00:00.000Z\n"), keyMd5: null });
+    const run = await spawnServe(serveEnv(lived));
+    assert.ok(run.up, run.stderr());
+    const out = await run.stop();
+    assert.match(out, /1 accounts the bucket says were deleted came back with the control databases: their deletes were finished/);
+    assert.doesNotMatch(out, /backup\.key\.minted/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
+    assert.equal(existsSync(tenantDir(join(lived.dataRoot, "tenants"), id)), false);
+    // Belt and braces: a store `ensureAll` is handed as live, with a tombstone in the bucket, is refused there too.
+    const dataRoot = join(tmp.root, "unit");
+    const other = randomBytes(16).toString("hex");
+    mkdirSync(join(tenantDir(join(dataRoot, "tenants"), other), "store"), { recursive: true });
+    writeFileSync(join(tenantDir(join(dataRoot, "tenants"), other), "store", "counterparts.sqlite"), "");
+    const keys = keysAt(dataRoot, lived.ring);
+    await keys.create(CONTROL_KEY_ID);
+    const objects = backupOptions(lived.s3, lived.ring, null).objects;
+    await objects.put(keyObject(CONTROL_KEY_ID), keys.wrapped(CONTROL_KEY_ID)!);
+    await objects.put(tombstoneObject(other), "2026-10-27T00:00:00.000Z\n");
+    const seen: [string, string][] = [];
+    const backups = new Backups({ dataRoot, keys, objects, bucket: "bkt", endpoint: lived.s3.base, sidecar: null, liveStores: () => [other], openedBefore: () => true, openedAt: () => Date.now() + 60_000, onKeyless: (s, outcome) => void seen.push([s, outcome]) });
+    assert.deepEqual(await backups.ensureAll({ reload: false }), { keyless: 1, minted: 0 });
+    assert.deepEqual(seen, [[other, "tombstone"]]);
+    assert.equal(keys.wrapped(other), null);
+  });
+
+  test("(e) its database isn't here: no key; it waits for a restore", async () => {
+    const lived = await keylessStore();
+    const id = lived.who.storeId;
+    for (const f of ["counterparts.sqlite", "counterparts.sqlite-wal", "counterparts.sqlite-shm"]) rmSync(join(tenantDir(join(lived.dataRoot, "tenants"), id), "store", f), { force: true });
+    const run = await spawnServe(serveEnv(lived));
+    assert.ok(run.up, run.stderr());
+    const out = await run.stop();
+    assert.match(out, keylessLine(id, "no-database"));
+    assert.match(out, /1 stores have no files on this volume and wait for a restore/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
+  });
+
+  test("(f) a bucket that had no control key before this start (a new or a different one): no key at that start; the next start against it, proven, makes one", async () => {
+    const lived = await keylessStore();
+    const id = lived.who.storeId;
+    // R2_BUCKET pointed at an empty bucket (an empty stand-in, its own certificate).
+    const empty = await s3StandIn({ tls: true });
+    const bin = standinBinary(empty.ca);
+    const at = { ...lived, s3: empty, bin };
+    const run = await spawnServe(serveEnv(at));
+    assert.ok(run.up, run.stderr());
+    const out = await run.stop();
+    assert.match(out, keylessLine(id, "bucket-unproven"));
+    assert.match(out, /If R2_BUCKET is wrong, fix it before anything else/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
+    assert.ok(empty.objects.has(keyObject(CONTROL_KEY_ID)), "that start put this volume's control key there");
+    assert.equal(empty.objects.has(keyObject(id)), false);
+    // The next start: the bucket held this volume's control key before it.
+    const again = await spawnServe(serveEnv(at));
+    assert.ok(again.up, again.stderr());
+    assert.match(await again.stop(), new RegExp(`backup\\.key\\.minted storeTag=${storeTag(id)}`));
+    assert.ok(empty.objects.has(keyObject(id)));
+    assert.equal(lived.s3.objects.has(keyObject(id)), false, "nothing went to the other bucket");
+  });
+
+  test("(f2) this volume's keys.sqlite is no older than the store's first open (it was rebuilt since; the same millisecond counts): no key", async () => {
+    const lived = await keylessStore();
+    const id = lived.who.storeId;
+    const accounts = new Accounts({ path: join(lived.dataRoot, "control", "accounts.sqlite") });
+    const opened = accounts.openedAt(id);
+    accounts.close();
+    assert.notEqual(opened, null);
+    // Equal, the edge (the #658 review): `>=` refuses it.
+    const keysDb = openDb(join(lived.dataRoot, "keys", "keys.sqlite"), { wal: true });
+    keysDb.run("UPDATE store_keys SET created_at = ? WHERE store_id = ?", opened, CONTROL_KEY_ID);
+    keysDb.close();
+    const run = await spawnServe(serveEnv(lived));
+    assert.ok(run.up, run.stderr());
+    const out = await run.stop();
+    assert.match(out, keylessLine(id, "keys-newer"));
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
+    assert.equal(lived.s3.objects.has(keyObject(id)), false);
+  });
+
+  test("a wrong R2_BUCKET (404 NoSuchBucket): serve doesn't start, saying so, and nothing is minted; NoSuchKey is still \"no object\"", async () => {
+    const lived = await keylessStore();
+    const id = lived.who.storeId;
+    const run = await spawnServe(serveEnv(lived, { R2_BUCKET: "not-the-bucket" }));
+    assert.equal(run.up, false);
+    assert.match(await run.stop(), /\[hosted\] did not start: the object store says the bucket \(R2_BUCKET\) doesn't exist/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
+    const wrong = r2ObjectStore({ endpoint: lived.s3.base, bucket: "not-the-bucket", accessKeyId: "a", secretAccessKey: "b" });
+    await assert.rejects(wrong.get("keys/control.wrapped"), /bucket \(R2_BUCKET\) doesn't exist/);
+    await assert.rejects(wrong.list("tenants/"), /LIST answered 404/);
+    await assert.rejects(wrong.delete("keys/control.wrapped"), /bucket \(R2_BUCKET\) doesn't exist/, "a delete in no bucket is not done");
+    const right = r2ObjectStore({ endpoint: lived.s3.base, bucket: "bkt", accessKeyId: "a", secretAccessKey: "b" });
+    assert.equal(await right.get("keys/nothing-here.wrapped"), null);
+    await right.delete("keys/nothing-here.wrapped"); // NoSuchKey: already gone, fine
+  });
+
+  test("keys.sqlite lost, then a start against a wrong empty bucket: back on the right bucket the refusal names the control key, and the RUNBOOK's way back works", async () => {
+    const lived = await livedStore({ tls: true });
+    const id = lived.who.storeId;
+    const keyBefore = lived.s3.objects.get(keyObject(id))!.body.toString("utf8");
+    // The wrong-bucket start's outcome (#653's existing behaviour): this volume made itself a new control key.
+    rmSync(join(lived.dataRoot, "keys"), { recursive: true, force: true });
+    const empty = await s3StandIn({ tls: true });
+    const wrongStart = await spawnServe(serveEnv({ ...lived, s3: empty, bin: standinBinary(empty.ca) }));
+    assert.ok(wrongStart.up, wrongStart.stderr());
+    await wrongStart.stop();
+    assert.ok(empty.objects.has(keyObject(CONTROL_KEY_ID)));
+    // R2_BUCKET fixed: the start refuses, naming the control key and the way back.
+    const bin = standinBinary(lived.s3.ca);
+    const refused = await spawnServe(serveEnv({ ...lived, bin }));
+    assert.equal(refused.up, false);
+    const said = await refused.stop();
+    assert.match(said, /did not start: the bucket's control key is a different key from this volume's/);
+    assert.match(said, /rm -rf \/data\/keys on Railway\), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1/);
+    // The way back: keys/ removed, one deploy with CONTROL_ASIDE + RESTORE_ON_BOOT.
+    rmSync(join(lived.dataRoot, "keys"), { recursive: true, force: true });
+    const back = await spawnServe(serveEnv({ ...lived, bin }, { CONTROL_ASIDE: "1", RESTORE_ON_BOOT: "1" }));
+    assert.ok(back.up, back.stderr());
+    assert.match(back.stderr(), /CONTROL_ASIDE=1: moved control\/ to control\.aside-1/);
+    assert.match(back.stderr(), /restored the control databases: 2 restored/);
+    assert.equal((await rpc(`http://127.0.0.1:${String(lived.port)}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(lived.who.access))).status, 200);
+    await back.stop();
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), keyBefore, "the store's key is the bucket's, adopted");
+  });
+
+  test("every keyless reason has its own words, by tag, never an id", () => {
+    const tag = storeTag("0".repeat(32));
+    for (const reason of KEYLESS_REASONS) {
+      const line = eventLine(`backup.keyless.${reason}`, tag);
+      assert.match(line, new RegExp(`^\\[hosted\\] backup\\.keyless storeTag=${tag} reason=${reason}: `));
+      assert.doesNotMatch(line, /undefined/);
+      assert.ok(line.length > 140, line);
+    }
+    // Said before its key object's upload, so it promises nothing the start might not reach (the #658 review).
+    assert.match(eventLine("backup.key.minted", tag), /It has a key now; backed up once this start is serving/);
+    assert.doesNotMatch(eventLine("backup.key.minted", tag), /from this start/);
   });
 });
