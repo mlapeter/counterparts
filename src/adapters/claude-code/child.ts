@@ -46,6 +46,10 @@ export interface ChildResult {
   readonly output?: string;
   /** True when the child wrote more than was kept. */
   readonly outputShort?: boolean;
+  /** The tail of what the child wrote to STDERR (2026-10-27, R4): at most
+   *  `STDERR_TAIL_BYTES`, the last of it, raw. Read only for why a child
+   *  failed (`child-error.ts`), and scrubbed there before it goes anywhere. */
+  readonly stderr?: string;
 }
 
 /** WHAT `startChild` NEEDS OF A PLAN. */
@@ -69,6 +73,9 @@ export interface ChildPlan {
 
 /** **CAL.** The most of a child's STDOUT kept in memory; the rest is drained unread. */
 export const OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
+
+/** **CAL.** The most of a child's STDERR kept: its last few KB, enough for the line that says why it stopped. */
+export const STDERR_TAIL_BYTES = 8 * 1024;
 
 /**
  * HOW LONG A CHILD GETS TO DIE POLITELY before it is killed, and how long after
@@ -100,12 +107,17 @@ export async function startChild(plan: ChildPlan, abort?: AbortSignal): Promise<
     let outputShort = false;
     const output = (): Pick<ChildResult, "output" | "outputShort"> =>
       plan.captureOutput === true ? { output: Buffer.concat(chunks).toString("utf8"), ...(outputShort ? { outputShort } : {}) } : {};
+    // THE TAIL OF STDERR (2026-10-27, R4): always piped and drained, only its
+    // last `STDERR_TAIL_BYTES` kept — a host's complaint about its arguments
+    // is there and nowhere else.
+    let errTail: Buffer = Buffer.alloc(0);
+    const stderr = (): Pick<ChildResult, "stderr"> => (errTail.length === 0 ? {} : { stderr: errTail.toString("utf8") });
     const done = (r: ChildResult): void => {
       if (settled) return;
       settled = true;
       for (const t of timers) clearTimeout(t);
       off?.();
-      resolve({ ...r, ...output() });
+      resolve({ ...r, ...output(), ...stderr() });
     };
     let child: ReturnType<typeof spawn>;
     try {
@@ -120,7 +132,7 @@ export async function startChild(plan: ChildPlan, abort?: AbortSignal): Promise<
         // command line is readable by every process on the machine through
         // `ps` (S2 review, NIT-2). `claude -p` with no positional prompt reads
         // stdin.
-        stdio: ["pipe", plan.captureOutput === true ? "pipe" : "ignore", "ignore"],
+        stdio: ["pipe", plan.captureOutput === true ? "pipe" : "ignore", "pipe"],
         env: { ...plan.env },
         ...(plan.cwd === undefined ? {} : { cwd: plan.cwd }),
       });
@@ -140,6 +152,10 @@ export async function startChild(plan: ChildPlan, abort?: AbortSignal): Promise<
       if (part.length < chunk.length) outputShort = true;
       chunks.push(part);
       kept += part.length;
+    });
+    child.stderr?.on("data", (chunk: Buffer) => {
+      const both = errTail.length === 0 ? chunk : Buffer.concat([errTail, chunk]);
+      errTail = both.length > STDERR_TAIL_BYTES ? both.subarray(both.length - STDERR_TAIL_BYTES) : both;
     });
     try {
       child.stdin?.end(plan.stdin);
@@ -203,12 +219,11 @@ export async function startChild(plan: ChildPlan, abort?: AbortSignal): Promise<
     // A PIPED STDOUT can outlive the child (2026-10-12): `close` waits for every
     // holder of the pipe, and a helper the host left behind would hold the run
     // until the watchdog. The exit, then a short grace for the last of the
-    // output, is the end.
-    if (plan.captureOutput === true) {
-      child.on("exit", (exit, sig) => {
-        timers.push(arm(() => ended(exit, sig), REAP_GRACE_MS));
-      });
-    }
+    // output, is the end. STDERR is piped for every child since 2026-10-27
+    // (R4), so this holds for every child.
+    child.on("exit", (exit, sig) => {
+      timers.push(arm(() => ended(exit, sig), REAP_GRACE_MS));
+    });
   });
 }
 

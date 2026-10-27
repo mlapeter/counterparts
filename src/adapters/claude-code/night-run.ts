@@ -110,6 +110,7 @@ import type { AdapterConfig } from "../config.js";
 import { DEFAULT_HOST_COMMAND, KILL_GRACE_MS, PERMISSION_MODE, REAP_GRACE_MS, startChild } from "./child.js";
 import { runCatchUp } from "./night-catch-up.js";
 import type { CatchUpReport } from "./night-catch-up.js";
+import { childErrorText, signedOutShaped } from "./child-error.js";
 import { childUsage, parseToolSpills } from "./transcript.js";
 import type { ToolSpills } from "./transcript.js";
 import type { ChildPlan, ChildResult } from "./child.js";
@@ -844,7 +845,6 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
     const tags = await tagsAfter(input.open, seat, (text) => seatAsk("tags", { prompt: text, run: input.run, session: input.session, scope: input.scope, limits: { turns: TUNABLES.NIGHT_TAGS_MAX_TURNS, ms: TUNABLES.NIGHT_TAGS_MS } }), input.session);
     if (tags !== null) children.push(tags);
   }
-  const ms = now() - startedAt;
   // THE RUN'S EXIT, from its children: stopped if any was stopped; the first
   // non-zero exit, else the last child's. Its code is that child's own (a
   // stopped child has none), never another child's.
@@ -942,15 +942,24 @@ export async function runNight(input: NightRunInput): Promise<NightRun> {
     ...(requeued === null ? {} : { requeued }),
   };
 
+  // WHAT THE FAILING CHILD SAID (2026-10-27, R4): one scrubbed line, or null.
+  const failure = result.failure ?? null;
   if (complete) return ended({ state: "done", reason: null, detail: null, code: exitCode, ...found });
   if (parts.length > 0) {
     const reason = result.timedOut ? "watchdog" : exitCode !== 0 ? "exit" : "unfinished";
-    return ended({ state: "partial", reason, detail: result.timedOut ? result.error : null, code: exitCode, ...found });
+    return ended({ state: "partial", reason, detail: result.timedOut ? result.error : exitCode !== 0 ? failure : null, code: exitCode, ...found });
   }
   if (result.timedOut) return ended({ state: "timed-out", reason: "watchdog", detail: result.error, code: exitCode, ...found });
   if (exitCode !== 0) {
-    if (!began && ms < TUNABLES.NIGHT_QUICK_EXIT_MS) return ended({ state: "could-not-start", reason: "quick-exit", detail: null, code: exitCode });
-    return ended({ state: "failed", reason: "exit", detail: null, code: exitCode, ...found });
+    // SIGNED OUT (2026-10-27, R4 addendum): the host lost its sign-in — on
+    // 10-27 an account switched mid-run. Said plainly, as a run that could
+    // not start, so the next session asks (`Dreams#fellBack`).
+    if (signedOutShaped(failure)) return ended({ state: "could-not-start", reason: "signed-out", detail: failure, code: exitCode, ...found });
+    // QUICK, by the failing child's own time (2026-10-27, R4): the run's
+    // counted the catch-up before it, and a 55-second catch-up turned three
+    // 3-second exits into `exit` rather than `quick-exit` (nrn_8f332b7d176d).
+    if (!began && result.ms < TUNABLES.NIGHT_QUICK_EXIT_MS) return ended({ state: "could-not-start", reason: "quick-exit", detail: failure, code: exitCode });
+    return ended({ state: "failed", reason: "exit", detail: failure, code: exitCode, ...found });
   }
   // What it began could not be read: said as such, never as nothing.
   if (unread !== null) return ended({ state: "failed", reason: "unread", detail: unread, code: exitCode });
@@ -1012,8 +1021,13 @@ function catchUpOnlyEnd(
       return ended({ state: "could-not-start", reason: "spawn-failed", detail: "catch-up", code: null });
     case "timed-out":
       return ended({ state: "timed-out", reason: "watchdog", detail: "catch-up", code });
-    case "failed":
-      return ended({ state: "failed", reason: "exit", detail: "catch-up", code });
+    case "failed": {
+      // What its child said (2026-10-27, R4), after the word that says whose.
+      const said = report?.detail ?? null;
+      const detail = said === null ? "catch-up" : `catch-up: ${said}`;
+      if (signedOutShaped(said)) return ended({ state: "could-not-start", reason: "signed-out", detail, code });
+      return ended({ state: "failed", reason: "exit", detail, code });
+    }
     default:
       return ended({ state: "done", reason: null, detail: null, code, parts: [] });
   }
@@ -1036,6 +1050,13 @@ export interface NightAnswer extends SeatAnswer {
    * it said none; absent from a seat that does not report usage.
    */
   readonly usage?: NightTokens | null;
+  /**
+   * WHY IT FAILED (2026-10-27, R4): one scrubbed line from what the child
+   * said — its `stream-json` error result, else its last STDERR line
+   * (`child-error.ts#childErrorText`). Absent when it exited 0, was stopped,
+   * or said nothing.
+   */
+  readonly failure?: string;
 }
 
 /**
@@ -1108,6 +1129,8 @@ export function claudeCodeSeat(input: ClaudeCodeSeatInput): Seat<ClaudeCodeAnswe
         const at = now();
         const result = await (input.startCatchUp ?? ((p: ChildPlan) => startChild(p)))(check);
         const neverStarted = neverStartedOf(result);
+        // Its output is not kept (it is prose): what it said of a failure is its STDERR's last line.
+        const failure = neverStarted ? null : childErrorText(result);
         return {
           refused: null,
           started: !neverStarted,
@@ -1116,6 +1139,7 @@ export function claudeCodeSeat(input: ClaudeCodeSeatInput): Seat<ClaudeCodeAnswe
           error: result.error,
           ms: now() - at,
           ...(result.spawnCode === undefined ? {} : { spawnCode: result.spawnCode }),
+          ...(failure === null ? {} : { failure }),
           result,
           spill: null,
         };
@@ -1135,6 +1159,7 @@ export function claudeCodeSeat(input: ClaudeCodeSeatInput): Seat<ClaudeCodeAnswe
         ms: out.ms,
         ...(out.result.spawnCode === undefined ? {} : { spawnCode: out.result.spawnCode }),
         ...(out.hostSession === undefined ? {} : { hostSession: out.hostSession }),
+        ...(out.failure === null ? {} : { failure: out.failure }),
         usage: out.usage,
         result: out.result,
         spill: out.spill,
@@ -1158,6 +1183,8 @@ interface NightChildOutcome {
   readonly hostSession?: string;
   /** What it spent, from its own `result` line; null when it said none. */
   readonly usage: NightTokens | null;
+  /** Why it failed, one scrubbed line (`childErrorText`); null when it did not, or said nothing. */
+  readonly failure: string | null;
 }
 
 /** The row's line for a child that ran. */
@@ -1168,6 +1195,7 @@ function childRunOf(child: NightChild, out: NightAnswer): NightChildRun {
     ms: out.ms,
     ...(out.timedOut ? { timedOut: true as const } : {}),
     ...(out.hostSession === undefined || out.hostSession.length === 0 ? {} : { hostSession: out.hostSession }),
+    ...(out.failure === undefined || out.failure.length === 0 ? {} : { detail: out.failure }),
   };
 }
 
@@ -1223,6 +1251,8 @@ async function runNightChild(
   // WHAT IT SPENT (2026-10-23), from the same output: its last `result` line.
   // A child stopped mid-stream, or retried plain, said none.
   const usage = neverStarted ? null : childUsage(result.output);
+  // WHY IT FAILED (2026-10-27, R4), from the same output or its STDERR.
+  const failure = neverStarted ? null : childErrorText(result);
   // ITS RAW OUTPUT, KEPT FOR A DEVELOPER (2026-10-23, `debug.nightTranscripts`,
   // off by default): never on a plain retry, which kept no output.
   if (childInput.config.debug?.nightTranscripts === true && childInput.child !== undefined && named) {
@@ -1238,7 +1268,7 @@ async function runNightChild(
   }
   // Recorded only when the child that ran is the one named: a plain retry
   // ran under an id its host chose, which this process never learns.
-  return { result, ms, neverStarted, spill, usage, ...(named && !neverStarted ? { hostSession } : {}) };
+  return { result, ms, neverStarted, spill, usage, failure, ...(named && !neverStarted ? { hostSession } : {}) };
 }
 
 /**
