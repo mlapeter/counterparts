@@ -1433,6 +1433,12 @@ describe("R7: a volume that lived refuses a bucket with no control key, unless N
     assert.equal(wrong.s3.objects.size, 0, "nothing reached the wrong bucket: no control key, no replica");
     assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(CONTROL_KEY_ID), controlBefore);
     assert.deepEqual(readFileSync(join(lived.dataRoot, "control", "accounts.sqlite")), accountsBefore, "no control write was made");
+    // The same rule stands in front of start-over, which against the wrong bucket would find "no replica".
+    const over = await command(serveEnv({ ...lived, ...wrong }), "start-over", lived.who.storeId);
+    assert.equal(over.status, 1);
+    assert.match(over.stderr, /refused: this volume has been backed up \(its control key is in keys\/keys\.sqlite\)/);
+    assert.doesNotMatch(over.stdout, /starts over/);
+    assert.equal(wrong.s3.objects.size, 0);
     // R2_BUCKET fixed: the start is the one it would have been.
     const fixed = await spawnServe(serveEnv(lived));
     assert.ok(fixed.up, fixed.stderr());
