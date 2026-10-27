@@ -23,7 +23,7 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -228,6 +228,40 @@ describe("under Node", () => {
     // Facts mode's answer is labeled lines in `answer`, the matched count beside it.
     assert.ok(recalled.includes("Brompton"), `recall did not return the note: ${recalled}\n${res.stderr}`);
     assert.ok(recalled.includes('\\"matched\\": 1'), `facts mode did not count one match: ${recalled}`);
+  });
+
+  test("the store is private under Node: a new store, the server's writes and a backup copy (R1)", () => {
+    // In this process, under a loose umask: the core's own modes (the store
+    // 0700, a new database 0600 with its -wal/-shm, a VACUUM INTO copy 0600).
+    const dir = join(work, "private", "store");
+    const prev = process.umask(0o022);
+    try {
+      const s = Store.open({ dir });
+      s.put({ type: "memory", kind: "fact", body: "The node privacy canary: the kettle is on the left.", salience: { claimed: 0.5 }, origin: { session: "node-smoke-p", scope: work } });
+      s.close();
+    } finally {
+      process.umask(prev);
+    }
+    const mode = (p: string): number => statSync(p).mode & 0o777;
+    assert.equal(mode(dir), 0o700);
+    for (const f of readdirSync(dir).filter((n) => n.startsWith("counterparts.sqlite"))) assert.equal(mode(join(dir, f)), 0o600, f);
+    // The console as a child under umask 022: its own umask (077) and
+    // `vacuumInto`'s chmod make the backup private.
+    const out = join(work, "private", "backup");
+    const cli = fileURLToPath(new URL("../src/adapters/cli/bin/counterparts.ts", import.meta.url));
+    const res = spawnSync(
+      "/bin/sh",
+      ["-c", 'umask 022; exec "$@"', "sh", process.execPath, ...scriptArgs(cli, process.execPath), "backup", "--dir", dir, "--out", out],
+      { env: childEnv(), cwd: work, encoding: "utf8", timeout: 60_000 },
+    );
+    assert.equal(res.status, 0, `${res.stdout}\n${res.stderr}`);
+    const walk = (p: string): string[] => {
+      const st = statSync(p);
+      const here = (st.mode & 0o077) === 0 ? [] : [`${p} ${(st.mode & 0o777).toString(8)}`];
+      return st.isDirectory() ? [...here, ...readdirSync(p).flatMap((n) => walk(join(p, n)))] : here;
+    };
+    assert.deepEqual(walk(out), []);
+    assert.deepEqual(walk(dir), []);
   });
 
   test("a SessionStart hook runs end to end and injects a wake", () => {
