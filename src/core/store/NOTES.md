@@ -2411,10 +2411,30 @@ the files other modules write inside a 0700 store.
   `0o700`), so a path carrying a special bit is never chmodded and never counts as open;
   tests set those bits through `/bin/chmod`, since the earlier "sticky base" test had in
   fact been testing a plain 777. doctor still grades such a path by its mode (amber is the
-  truth), though its hint that the next session will close it is then not true for that path.
+  truth); its hint for such a path is a by-hand chmod since R8 (below).
 - **The same class in `uninstall`.** `ownedNames` called a configured `snapshots.dir` ours
   whenever it sat directly in the config's directory, so a project config with
   `snapshots.dir` = `<project>/docs` listed `docs/` for `--delete-memories` (a home base is
   refused outright, so `~/Documents` was not reachable that way). Now only the
   `<dir>/snapshots` this package lays out is ours; any configured one is the owner's, and
   `notTouched` names it. One rule for both callers again.
+
+### 2026-10-27, R8 — the lows the last re-check of #657 left
+
+- **doctor's hint for a path with a special bit.** A setgid, setuid or sticky path is never
+  chmodded (above), but doctor graded `mode & 0o077` and promised "the next session does the
+  same", so on Linux a store dir that inherited g+s from its parent (`2755`) read amber with a
+  promise nothing would keep. Amber stays (it is readable); for those paths the hint is now
+  `chmod go-rwx "<path>"`, run by hand, which closes it and keeps the bit, and says no
+  session will. Tested through `doctor` as a child; macOS clears g+s for a group the user is
+  not in, so the test returns early there and Linux CI carries it.
+- **`snapshots.mirror` is not tightened, and doctor says so.** The mirror is a `cpSync` of the
+  day's copy, so under our `077` umask new copies come out 600/700, but copies an older build
+  put there stay 644/755. Tightening it is not asked for (it is the owner's second place, often
+  another disk). doctor's Privacy line now ends "the snapshot mirror at … is not checked here"
+  when one is configured, so green says nothing about it.
+- **Install through a dangling `~/.counterparts` link** (target not made yet) died with a bare
+  `ENOENT … mkdir …/store/cache`. Old: master before #657 (`3b9dc31f`) fails identically.
+  `mkdirPrivate` now refuses by name while climbing: the link, its target, `mkdir -p` the
+  target or remove the link. The target is not made for them: it is often another disk or a
+  synced folder, and a missing one may be an unmounted volume.

@@ -89,6 +89,16 @@ export function configuredSnapshots(configPath: string): string | undefined {
   }
 }
 
+/** `snapshots.mirror`, the same way; never tightened (R8), only named by doctor. */
+export function configuredMirror(configPath: string): string | undefined {
+  try {
+    const m = loadConfig(JSON.parse(readFileSync(configPath, "utf8"))).config.snapshots?.mirror;
+    return m === undefined || m.trim().length === 0 ? undefined : m;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Our paths in an install's base, or null when `storeDir` is not
  *  `<dirname(configPath)>/store` with that configuration in place. */
 export function installBasePaths(configPath: string, storeDir: string, home: string = homedir()): BasePaths | null {
