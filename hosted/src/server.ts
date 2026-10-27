@@ -171,12 +171,26 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       text(res, 429, "429: too many requests at once for this account\n", { "Retry-After": "5", ...hsts });
       return;
     }
+    // The slot is given back once, at the answer, or when the client's socket
+    // goes (under bun an abort mid-body never ends the request: INTERFACE-GAPS §18).
+    let held = limits !== undefined;
+    const release = (): void => {
+      if (!held) return;
+      held = false;
+      limits?.leave(caller.personId);
+    };
+    req.socket.once("close", release);
     for (const [k, v] of Object.entries(hsts)) res.setHeader(k, v);
     try {
       await opts.tenants.withTenant(caller.storeId, caller.timeZone === undefined ? {} : { timeZone: caller.timeZone }, (target) =>
         new Promise<void>((done) => {
           res.once("close", () => done());
           res.once("finish", () => done());
+          // Under bun an abort mid-body emits neither (INTERFACE-GAPS §18); the socket's close is the last word.
+          const gone = (): void => done();
+          req.socket.once("close", gone);
+          res.once("finish", () => req.socket.removeListener("close", gone));
+          res.once("close", () => req.socket.removeListener("close", gone));
           const routed = limits === undefined ? target : { serial: target.serial, server: limits.wrap(target.server, caller.personId, caller.storeId, (reason) => event(`limit.${reason}`, store)) };
           handleMcpPost(req, res, routed, {
             ...(opts.maxBodyBytes === undefined ? {} : { maxBodyBytes: opts.maxBodyBytes }),
@@ -192,7 +206,8 @@ export function createHostedServer(opts: HostedServerOptions): Server {
       event("store.needs-restore", store);
       text(res, 503, "503: this memory is being restored\n", { "Retry-After": "300" });
     } finally {
-      limits?.leave(caller.personId);
+      req.socket.removeListener("close", release);
+      release();
     }
   };
   const event = (name: `limit.${LimitReason}` | "store.needs-restore", store: string): void => {

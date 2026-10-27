@@ -1,5 +1,5 @@
 /**
- * `/mcp`'S LIMITS, PER ACCOUNT (OL2b; INTERFACE-GAPS §7).
+ * `/mcp`'S LIMITS, PER ACCOUNT (OL2b; the old INTERFACE-GAPS item on /mcp limits; the numbers: §11).
  *
  * Every store's calls run synchronous SQLite on one event loop, so one
  * account's flood slows every other account even with a queue per store (the

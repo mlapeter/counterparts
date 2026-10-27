@@ -38,9 +38,10 @@ import { livePathRefusal } from "../../src/adapters/remote/bin/serve-http.js";
 import { Accounts } from "./accounts.js";
 import { createApp, restoreControl } from "./app.js";
 import type { AppBackupOptions } from "./app.js";
-import { Backups, CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner } from "./backup.js";
+import { Backups, CONTROL_DATABASES, CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner } from "./backup.js";
 import type { LitestreamRun } from "./backup.js";
-import { STORE_ID } from "./tenants.js";
+import { STORE_ID, Tenants } from "./tenants.js";
+import type { SharedEmbedder } from "./tenants.js";
 import { KeyStore, kekRingFromEnv } from "./keys.js";
 import { memoryMailer, r2ObjectStore, resendMailer } from "./egress.js";
 import type { Mailer } from "./egress.js";
@@ -122,58 +123,95 @@ function restoreRunner(env: Record<string, string | undefined>): LitestreamRun {
  * then every live store whose database is missing. Prints counts, never an
  * address or a key; a store id is printed only when the operator named it.
  */
-async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, args: string[]): Promise<string> {
+async function restoreCommand(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, args: string[], embedder: SharedEmbedder): Promise<{ text: string; failed: number }> {
   const force = args.includes("--force");
   const target = args.find((a) => !a.startsWith("--")) ?? (args.includes("--all") ? "--all" : undefined);
   if (target === undefined || (target !== "--all" && target !== CONTROL_KEY_ID && !STORE_ID.test(target))) throw new Error("restore needs a store id, control, or --all");
-  const accountsPath = join(dataRoot, "control", "accounts.sqlite");
   const lines: string[] = [];
-  if (target === CONTROL_KEY_ID || (target === "--all" && (force || !existsSync(accountsPath)))) {
-    const r = await restoreControl(dataRoot, backup, run, { force });
-    lines.push(`control: ${String(r.restored)} restored, ${String(r.empty)} with no backup`);
-    if (target === CONTROL_KEY_ID) return lines.join("\n");
+  if (target === CONTROL_KEY_ID || target === "--all") {
+    // One control database at a time: the one in place is kept unless --force.
+    const r = await restoreControl(dataRoot, backup, run, force ? { force } : { missingOnly: true });
+    lines.push(`control: ${String(r.restored)} restored, ${String(r.kept)} already here, ${String(r.empty)} with no backup`);
+    if (target === CONTROL_KEY_ID) return { text: lines.join("\n"), failed: 0 };
   }
+  const accountsPath = join(dataRoot, "control", "accounts.sqlite");
   if (!existsSync(accountsPath)) throw new Error("no accounts database here: restore control first (or --all)");
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
   const accounts = new Accounts({ path: accountsPath });
+  // Opens each restored store once, so its cache is rebuilt here, offline, not on the person's first call.
+  const tenants = new Tenants({ root: join(dataRoot, "tenants"), embedder, spawner: () => ({ pid: 0 }) });
   try {
-    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds() });
+    const backups = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => accounts.liveStoreIds(), openedBefore: (id) => accounts.wasOpened(id) });
     const live = accounts.liveStoreIds();
     if (target !== "--all" && !live.includes(target)) throw new Error("that store isn't a live store in the accounts database");
     const ids = target === "--all" ? (force ? live : backups.missingStores()) : [target];
     let restored = 0;
     let empty = 0;
+    let failed = 0;
     for (const id of ids) {
-      const r = await backups.restore(id, run, { force });
-      restored += r.restored;
-      empty += r.empty;
+      try {
+        const r = await backups.restore(id, run, { force });
+        if (r.restored > 0) {
+          accounts.markOpened(id);
+          await tenants.withTenant(id, {}, async () => undefined);
+        }
+        restored += r.restored;
+        empty += r.empty;
+      } catch (err) {
+        failed += 1;
+        // A store id is printed only because the operator is restoring stores by id; never an address or a key.
+        lines.push(`store ${id}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
-    lines.push(`stores: ${String(restored)} restored, ${String(empty)} with no backup yet, ${String(live.length - ids.length)} already here`);
-    return lines.join("\n");
+    lines.push(`stores: ${String(restored)} restored, ${String(empty)} with no backup yet, ${String(failed)} failed, ${String(live.length - ids.length)} already here`);
+    return { text: lines.join("\n"), failed };
   } finally {
+    await tenants.closeAll();
     keys.close();
     accounts.close();
   }
 }
 
 /**
- * Before `serve` opens anything: a volume with no accounts database beside a
- * bucket that has the control key's object is a volume that LOST its data, not
- * a new server. Starting would make empty control databases and replicate them
- * over the real ones. With a runner (RESTORE_ON_BOOT=1) they are restored;
- * without, the start is refused, saying how.
+ * BEFORE ANYTHING OPENS A CONTROL DATABASE (`serve`, `invite`, `rewrap`): is
+ * this volume the one that wrote the bucket's backups? (The #OL2b review, H2.)
+ *
+ *   - The bucket has no `keys/control.wrapped`: a new server. Go on.
+ *   - This volume holds the control key too: it is the bucket's. A control
+ *     database missing from it (a control restore cut short) is restored alone
+ *     with a runner, refused without one. Never made empty: an empty one would
+ *     be replicated over the real one.
+ *   - The bucket has the key and this volume doesn't: the volume lost its data
+ *     (or is new). With no control database here, restore them (a runner) or
+ *     refuse, saying how. With one here (made by an `invite`, a `BACKUPS=off`
+ *     run, …), always refuse: it isn't the real one, and it would replace it.
  */
 export async function prepareVolume(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun | null): Promise<{ refusal?: string; restored?: string }> {
-  if (existsSync(join(dataRoot, "control", "accounts.sqlite"))) return {};
-  if ((await backup.objects.get(keyObject(CONTROL_KEY_ID))) === null) return {}; // a new server: an empty bucket
-  if (run === null) {
+  if ((await backup.objects.get(keyObject(CONTROL_KEY_ID))) === null) return {};
+  const keysPath = join(dataRoot, "keys", "keys.sqlite");
+  let localKey = false;
+  if (existsSync(keysPath)) {
+    const keys = new KeyStore({ path: keysPath, wrapper: backup.wrapper });
+    localKey = keys.wrapped(CONTROL_KEY_ID) !== null;
+    keys.close();
+  }
+  const present = CONTROL_DATABASES.filter((db) => existsSync(join(dataRoot, "control", db)));
+  if (localKey && present.length === CONTROL_DATABASES.length) return {};
+  if (!localKey && present.length > 0) {
     return {
-      refusal:
-        "refused: this volume has no accounts database, but the bucket has backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore), or point R2_BUCKET at an empty bucket for a new server.",
+      refusal: `refused: this volume has ${present.join(" and ")} but not the key that wrote the bucket's backups, so they aren't the bucket's. Move ${join(dataRoot, "control")} aside, then deploy with RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, Restore).`,
     };
   }
-  const r = await restoreControl(dataRoot, backup, run);
-  return { restored: `${String(r.restored)} restored, ${String(r.empty)} with no backup` };
+  if (run === null) {
+    return {
+      refusal: localKey
+        ? `refused: ${String(CONTROL_DATABASES.length - present.length)} of the control databases are missing from this volume, and the bucket has their backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore).`
+        : "refused: this volume has no accounts database, but the bucket has backups. Set RESTORE_ON_BOOT=1 and deploy again to restore them (docs/hosted/RUNBOOK.md, Restore), or point R2_BUCKET at an empty bucket for a new server.",
+    };
+  }
+  const r = await restoreControl(dataRoot, backup, run, { missingOnly: true });
+  if (r.restored + r.kept < CONTROL_DATABASES.length) return { refusal: `refused: the bucket's key object is there, but ${String(r.empty)} control databases have no replica to restore from. Nothing was started.` };
+  return { restored: `${String(r.restored)} restored, ${String(r.kept)} already here` };
 }
 
 async function main(): Promise<void> {
@@ -184,6 +222,18 @@ async function main(): Promise<void> {
     process.stderr.write(`[hosted] ${read.refusal}\n`);
     process.exitCode = 1;
     return;
+  }
+  if (command === "invite" || command === "rewrap") {
+    // Neither may make a control database on a volume that isn't the bucket's (prepareVolume).
+    const configured = backupFromEnv(env, read.dataRoot);
+    if (configured !== null && !("refusal" in configured)) {
+      const prepared = await prepareVolume(read.dataRoot, configured, null);
+      if (prepared.refusal !== undefined) {
+        process.stderr.write(`[hosted] ${prepared.refusal}\n`);
+        process.exitCode = 1;
+        return;
+      }
+    }
   }
   if (command === "invite") {
     const uses = Number(rest[rest.indexOf("--uses") + 1] ?? "1");
@@ -232,7 +282,9 @@ async function main(): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    process.stdout.write(`${await restoreCommand(read.dataRoot, backup, restoreRunner(env), rest)}\n`);
+    const out = await restoreCommand(read.dataRoot, backup, restoreRunner(env), rest, openEmbedder(withEmbedderDefault({})));
+    process.stdout.write(`${out.text}\n`);
+    if (out.failed > 0) process.exitCode = 1;
     return;
   }
   // AN EMPTY VOLUME BESIDE A BUCKET THAT HAS BACKUPS: starting would make new,
@@ -272,6 +324,8 @@ async function main(): Promise<void> {
   });
   const report = await app.start(restoreOnBoot && backup !== null ? { restore: restoreRunner(env) } : {});
   if (report.restored > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restored)} store databases restored. Unset RESTORE_ON_BOOT now.\n`);
+  if (report.restoreFailed > 0) process.stderr.write(`[hosted] RESTORE_ON_BOOT: ${String(report.restoreFailed)} store restores FAILED; those stores wait (the audit has them as store.restore.failed)\n`);
+  if (report.keyless > 0) process.stderr.write(`[hosted] ${String(report.keyless)} stores that lived have no key here or in the bucket: they are NOT backed up, and no new key was made\n`);
   if (report.needsRestore > 0) process.stderr.write(`[hosted] ${String(report.needsRestore)} stores have no files on this volume and wait for a restore (RESTORE_ON_BOOT=1)\n`);
   if (report.clientsSwept > 0) process.stderr.write(`[hosted] dropped ${String(report.clientsSwept)} registered OAuth clients never used\n`);
   await new Promise<void>((r) => app.server.listen(read.port, "0.0.0.0", () => r()));

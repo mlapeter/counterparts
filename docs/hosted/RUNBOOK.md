@@ -169,8 +169,10 @@ writes nothing.
 1. Attach the new, empty volume at `/data`, with the same variables, the same bucket and the same KEK.
 2. Add `RESTORE_ON_BOOT=1`, then deploy.
 3. The log shows:
-   - `restored the control databases: 2 restored, …`;
-   - `RESTORE_ON_BOOT: N store databases restored. Unset RESTORE_ON_BOOT now.`
+   - `restored the control databases: 2 restored, 0 already here`;
+   - each restored store's cache being rebuilt before `serving` (a large store takes a while);
+   - `RESTORE_ON_BOOT: N store databases restored. Unset RESTORE_ON_BOOT now.`;
+   - and, only if any failed, `N store restores FAILED`. Those stores wait, and everyone else is served.
 4. **Remove `RESTORE_ON_BOOT`**, then redeploy.
 
 Without the flag, a server on an empty volume beside a bucket that has backups **refuses to start**, and says so. If
@@ -191,8 +193,21 @@ node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore control
 node --import ./src/adapters/node-hooks.mjs hosted/src/main.ts restore <storeId> [--force]
 ```
 
-These use the same environment as `serve`, and `litestream` on PATH or `LITESTREAM_BIN`. A file already in place is
-refused unless `--force`.
+These use the same environment as `serve`, and `litestream` on PATH or `LITESTREAM_BIN`.
+- A file already in place is refused, unless `--force`. With `--force` the old file is moved aside as
+  `*.pre-restore-<time>` and never deleted.
+- The control databases are restored one at a time, and one already in place is kept.
+- **Not on Railway while the service runs.** Nothing checks for the running server, so use `RESTORE_ON_BOOT` there.
+
+### If a start refuses
+
+- **"…but not the key that wrote the bucket's backups"**: this volume has a control database that something else
+  made (an `invite` or a `BACKUPS=off` run, on a lost volume). Move `/data/control` aside, then use
+  `RESTORE_ON_BOOT=1`.
+- **"N of the control databases are missing"**: a control restore was cut short. `RESTORE_ON_BOOT=1` restores the
+  missing one alone.
+- **"N stores that lived have no key here or in the bucket"**: those stores serve, but aren't backed up. Tell the
+  coordinator; no new key is made on purpose.
 
 ### The drill with the real binary (do it once, soon after the first deploy)
 

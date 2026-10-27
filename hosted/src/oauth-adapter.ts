@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS client_use (
 );
 `;
 
-/** OL2b: a registered client that no one ever allowed is dropped this long after it registered (INTERFACE-GAPS §9). */
+/** OL2b: a registered client that no one ever allowed is dropped this long after it registered (the old INTERFACE-GAPS item "unused DCR clients pile up"). */
 export const UNUSED_CLIENT_DAYS = 30;
 
 /** Rows whose ids are not bearer credentials (see the header). */
@@ -92,6 +92,8 @@ export class OidcStore {
     // the whole page. node:sqlite's default is OFF (bun's is FAST).
     this.db.get("PRAGMA secure_delete = ON");
     this.db.exec(SCHEMA);
+    // A database from before `client_use`: every client a grant names was allowed once.
+    this.db.run("INSERT OR IGNORE INTO client_use (client_id, first_grant_at) SELECT json_extract(payload, '$.clientId'), ? FROM oidc WHERE model = 'Grant' AND json_extract(payload, '$.clientId') IS NOT NULL", now());
     this.now = now;
   }
 
@@ -162,7 +164,9 @@ export class OidcStore {
         return typeof issued === "number" && issued < cutoffSeconds;
       })
       .map((r) => r.key)
-      .filter((id) => this.db.get("SELECT 1 AS one FROM client_use WHERE client_id = ?", id) === undefined);
+      .filter((id) => this.db.get("SELECT 1 AS one FROM client_use WHERE client_id = ?", id) === undefined)
+      // Belt and braces for a database older than `client_use`: anything still issued to the client keeps it.
+      .filter((id) => this.db.get("SELECT 1 AS one FROM oidc WHERE model IN ('Grant', 'RefreshToken', 'AccessToken') AND json_extract(payload, '$.clientId') = ?", id) === undefined);
     for (const id of due) {
       this.db.transaction(() => {
         this.db.run("DELETE FROM oidc WHERE model = 'RegistrationAccessToken' AND json_extract(payload, '$.clientId') = ?", id);

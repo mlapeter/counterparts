@@ -48,7 +48,7 @@ import { CONFIG_ENV, DATA_DIR_ENV, SCOPE_ENV, SESSION_ENV, WATCHDOG_ENV, WORKER_
 import type { SpawnPlan, Spawner } from "../../src/adapters/spawn.js";
 import { scriptArgs } from "../../src/adapters/runtime.js";
 import type { AdapterConfig } from "../../src/adapters/config.js";
-import { isWithin } from "../../src/core/store/paths.js";
+import { DATABASE_FILE, isWithin } from "../../src/core/store/paths.js";
 import { beginNewInstall } from "../../src/core/onboarding.js";
 import { STATIC_WEIGHTS_ENV } from "../../src/core/embed/static.js";
 
@@ -260,7 +260,10 @@ export class Tenants {
     const dir = tenantDir(this.root, storeId);
     const storeDir = join(dir, "store");
     // A store this open CREATES is a new person's: it starts like a new install (below).
-    const fresh = !existsSync(storeDir);
+    // The DATABASE FILE, not the directory: a restore that failed or found no
+    // replica leaves `store/` behind empty, and that store must still wait for a
+    // restore, never be made empty and replicated over its own backup (#OL2b review H1).
+    const fresh = !existsSync(join(storeDir, DATABASE_FILE));
     if (fresh && this.opts.openedBefore?.(storeId) === true) throw new StoreNeedsRestore();
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const configPath = join(dir, "config.json");
@@ -292,7 +295,12 @@ export class Tenants {
     // the backup, so they are rebuilt from the rows before the first call.
     const marker = join(dir, RESTORED_MARKER);
     if (!fresh && existsSync(marker)) {
-      server.counterpart.store.rebuildCache();
+      try {
+        server.counterpart.store.rebuildCache();
+      } catch (err) {
+        server.counterpart.close();
+        throw err;
+      }
       rmSync(marker, { force: true });
     }
     if (fresh) {

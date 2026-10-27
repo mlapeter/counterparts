@@ -28,6 +28,7 @@ import type { ConnectionView, Pages } from "./pages.js";
 import { createHostedServer } from "./server.js";
 import type { HostedCallRecord } from "./server.js";
 import { Tenants, tenantDir } from "./tenants.js";
+import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import { Backups, CONTROL_KEY_ID } from "./backup.js";
 import type { LitestreamRun, Sidecar } from "./backup.js";
 import { McpLimits, dirBytes } from "./limits.js";
@@ -85,6 +86,10 @@ export interface StartOptions {
 export interface StartReport {
   /** Stores restored now (RESTORE_ON_BOOT). */
   readonly restored: number;
+  /** Stores whose restore failed now (RESTORE_ON_BOOT); they wait, the rest start. */
+  readonly restoreFailed: number;
+  /** Stores that lived and have no key anywhere: left out of the backups, never given a new key. */
+  readonly keyless: number;
   /** Stores opened before whose files are missing, left waiting (no RESTORE_ON_BOOT, or a restore that found nothing). */
   readonly needsRestore: number;
   /** Registered OAuth clients never used, dropped. */
@@ -128,6 +133,7 @@ export function createApp(opts: AppOptions): App {
           endpoint: opts.backup.endpoint,
           sidecar: opts.backup.sidecar ?? null,
           liveStores: () => accounts.liveStoreIds(),
+          openedBefore: (storeId) => accounts.wasOpened(storeId),
         });
   // Pages and OAuth need each other (the account page lists connections; the
   // Allow page needs the signed-in person), and pages need the delete that
@@ -299,21 +305,41 @@ export function createApp(opts: AppOptions): App {
       rmSync(scratchRoot, { recursive: true, force: true });
       // Deletes first: a half-deleted store must be gone before backups look for live ones.
       await finishPendingDeletes();
+      // Every live store whose database is here has lived: mark it (a database
+      // from before `opened_at`, or a mark whose write failed, heals here).
+      const dbOf = (id: string): string => join(tenantDir(tenants.root, id), "store", DATABASE_FILE);
+      for (const id of accounts.liveStoreIds()) if (existsSync(dbOf(id))) accounts.markOpened(id);
       let restored = 0;
+      let restoreFailed = 0;
+      let keyless = 0;
       if (backups !== null) {
         // Keys first (adopted from the bucket on a new volume), then restores
         // while no sidecar runs, then the sidecar on the whole configuration.
-        await backups.ensureAll({ reload: false });
+        keyless = (await backups.ensureAll({ reload: false })).keyless;
         if (startOpts.restore !== undefined) {
-          for (const id of backups.missingStores().filter((s) => accounts.wasOpened(s))) {
-            const r = await backups.restore(id, startOpts.restore);
-            accounts.audit(null, id, "store.restored", String(r.restored));
-            restored += r.restored;
+          // Every missing live store, marked or not: `-if-replica-exists` makes a
+          // store with no replica a no-op. One that fails is counted and left
+          // waiting; it never stops the others' start.
+          for (const id of backups.missingStores()) {
+            try {
+              const r = await backups.restore(id, startOpts.restore);
+              accounts.audit(null, id, "store.restored", String(r.restored));
+              if (r.restored > 0) {
+                accounts.markOpened(id);
+                // The cache rebuild (a re-embed of every row) runs now, before
+                // the server listens, not on some person's first call.
+                await tenants.withTenant(id, {}, async () => undefined);
+              }
+              restored += r.restored;
+            } catch {
+              accounts.audit(null, id, "store.restore.failed", null);
+              restoreFailed += 1;
+            }
           }
         }
         await backups.reload();
       }
-      const needsRestore = (backups?.missingStores() ?? accounts.liveStoreIds().filter((id) => !existsSync(join(tenantDir(tenants.root, id), "store")))).filter((s) => accounts.wasOpened(s)).length;
+      const needsRestore = accounts.liveStoreIds().filter((id) => accounts.wasOpened(id) && !existsSync(dbOf(id))).length;
       const clientsSwept = o.store.sweepClients();
       if (retryTimer === null) {
         retryTimer = setInterval(() => {
@@ -327,7 +353,7 @@ export function createApp(opts: AppOptions): App {
         retryTimer.unref?.();
       }
       started = true;
-      return { restored, needsRestore, clientsSwept };
+      return { restored, restoreFailed, keyless, needsRestore, clientsSwept };
     },
     readiness,
     deleteAccount,
@@ -352,7 +378,7 @@ export function createApp(opts: AppOptions): App {
  * `restore --all`, and at a RESTORE_ON_BOOT start on a volume that has no
  * accounts database.
  */
-export async function restoreControl(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, opts: { force?: boolean } = {}): Promise<{ restored: number; empty: number }> {
+export async function restoreControl(dataRoot: string, backup: AppBackupOptions, run: LitestreamRun, opts: { force?: boolean; missingOnly?: boolean } = {}): Promise<{ restored: number; empty: number; kept: number }> {
   const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: backup.wrapper });
   try {
     const b = new Backups({ dataRoot, keys, objects: backup.objects, bucket: backup.bucket, endpoint: backup.endpoint, sidecar: null, liveStores: () => [] });

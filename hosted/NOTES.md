@@ -88,7 +88,7 @@ Status on 2026-10-26, late:
 
 Built on master 6699b892 (the merged OL2 stack). What it covers: restore and the drill, `/readyz`, `/mcp` limits, the
 DCR sweep, the Dockerfile, and `docs/hosted/RUNBOOK.md`. The guarantees are CONTRACT §29–§36; what is left is
-INTERFACE-GAPS §4–§11.
+INTERFACE-GAPS §4–§13.
 
 ### Found while building
 
@@ -121,5 +121,24 @@ INTERFACE-GAPS §4–§11.
   `litestream version` (0.5.17, arm64). A `BACKUPS=off` run answered `/readyz` 200, `/mcp` 401 with the resource
   metadata, made an invite, and was `healthy`. A run against an unreachable bucket refused to start, now naming
   `R2_ENDPOINT`.
-- **Test rigs:** under bun, an aborted mid-body POST keeps its ref (§16). The in-flight test finishes its held body
-  instead of aborting it.
+- **Under bun, an aborted mid-body POST never ends its request** (INTERFACE-GAPS §18). The door now also settles on
+  the socket's `close`, which frees both the store's ref and the in-flight slot.
+
+### The review (high effort, after the first build)
+
+It found two data-loss paths and several smaller holes, all fixed on the branch with a test each:
+
+- **The guard checked `store/`, not the database file.** A restore that failed or found nothing left the dir
+  behind, and the store was then made empty.
+- **`prepareVolume` checked only `accounts.sqlite`.** An `invite` or a `BACKUPS=off` run on a lost volume made one,
+  and the next `serve` replicated the empty control databases over the real ones. A control restore cut short
+  likewise lost `oauth.sqlite`. Now the control key on this volume is what says "this volume is the bucket's", and
+  each control database is restored alone.
+- **The other fixes:**
+  - `opened_at` is back-filled at every start;
+  - one failing store no longer stops a RESTORE_ON_BOOT start;
+  - `--force` moves the old file aside;
+  - the cache is rebuilt before the server listens;
+  - a store that lived and has no key anywhere is never given a new one;
+  - the sweep keeps a client that any grant or token names;
+  - an abort under bun gives its slot back.

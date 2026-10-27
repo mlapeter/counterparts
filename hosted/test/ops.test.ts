@@ -29,8 +29,9 @@ import { fileURLToPath } from "node:url";
 import * as oauth from "oauth4webapi";
 
 import { createApp, restoreControl } from "../src/app.js";
+import { openDb } from "../../src/core/store/db.js";
 import type { App, AppBackupOptions } from "../src/app.js";
-import { CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner, replicaPrefix } from "../src/backup.js";
+import { Backups, CONTROL_KEY_ID, LitestreamSidecar, keyObject, litestreamRunner, replicaPrefix } from "../src/backup.js";
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper, KeyStore } from "../src/keys.js";
 import { prepareVolume } from "../src/main.js";
@@ -320,7 +321,6 @@ describe("the restore drill, through the door", () => {
 
     const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
     closers.push(() => keys.close());
-    const { Backups } = await import("../src/backup.js");
     const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
     await assert.rejects(backups.restore(who.storeId, run), /already in place/);
     // The store's dir lost; its key lost too (keys.sqlite is not replicated).
@@ -333,7 +333,7 @@ describe("the restore drill, through the door", () => {
     await assert.rejects(wrongRing.restore(who.storeId, run), /doesn't open with the KEK ring/);
     assert.equal(strangers.wrapped(who.storeId), null);
     // The right ring: back.
-    assert.deepEqual(await backups.restore(who.storeId, run), { restored: 1, empty: 0 });
+    assert.deepEqual(await backups.restore(who.storeId, run), { restored: 1, empty: 0, kept: 0 });
     // A store the bucket never heard of: refused, and no key is made for it.
     const unknown = "0".repeat(32);
     await assert.rejects(backups.restore(unknown, run), /no key object/);
@@ -356,7 +356,7 @@ describe("the restore drill, through the door", () => {
     await a.close();
     rmSync(dataRoot, { recursive: true, force: true });
     const r = await restoreControl(dataRoot, backupOptions(s3, ring, null), litestreamRunner(bin, litestreamEnv()));
-    assert.deepEqual(r, { restored: 2, empty: 0 });
+    assert.deepEqual(r, { restored: 2, empty: 0, kept: 0 });
     assert.ok(existsSync(join(dataRoot, "control", "accounts.sqlite")) && existsSync(join(dataRoot, "control", "oauth.sqlite")));
   });
 });
@@ -519,7 +519,7 @@ describe("/mcp's limits, per account", () => {
     assert.equal(second.status, 429);
     assert.equal(second.headers.get("retry-after"), "5");
     assert.deepEqual(events, ["limit.in-flight"]);
-    // The held one finishes its body and is answered (an abort mid-body would keep the store's ref under bun: INTERFACE-GAPS).
+    // The held one finishes its body and is answered (an abort is the next describe's case).
     const answered = new Promise<string>((res) => held.once("data", (d: Buffer) => res(d.toString("utf8"))));
     held.write(`${" ".repeat(998)}}`);
     assert.match(await answered, /^HTTP\/1\.1 /);
@@ -556,3 +556,148 @@ describe("the DCR client sweep", () => {
   });
 });
 
+// ── the review's awkward states (#OL2b review) ───────────────────────────────
+
+describe("restore, when things go wrong", () => {
+  async function livedStore(): Promise<{ s3: Awaited<ReturnType<typeof s3StandIn>>; bin: string; ring: Map<string, Buffer>; dataRoot: string; port: number; who: Awaited<ReturnType<typeof connect>> }> {
+    const s3 = await s3StandIn();
+    const bin = standinBinary();
+    const ring = new Map([["v1", randomBytes(32)]]);
+    const dataRoot = join(tmp.root, "volume");
+    const a = (await rig({ dataRoot, backup: backupOptions(s3, ring, sidecarFor(dataRoot, bin)) })) as Rig & { port: number; close: () => Promise<void> };
+    const who = await connect(a, "awkward@example.com");
+    const woke = await tool(`${a.origin}/mcp`, "wake", {}, bearer(who.access));
+    await tool(`${a.origin}/mcp`, "remember", { session: String(woke["session"]), text: "Awkward: the gate code is the year the oak was planted." }, bearer(who.access));
+    await replicated(s3.objects, [replicaPrefix(who.storeId), "control/accounts.sqlite/", "control/oauth.sqlite/"]);
+    await a.close();
+    return { s3, bin, ring, dataRoot, port: a.port, who };
+  }
+
+  test("a store dir left behind with NO database (a restore that failed or found nothing) still waits: 503, and no empty database is made", async () => {
+    const { s3, ring, dataRoot, port, who } = await livedStore();
+    const storeDir = join(tenantDir(join(dataRoot, "tenants"), who.storeId), "store");
+    for (const f of ["counterparts.sqlite", "counterparts.sqlite-wal", "counterparts.sqlite-shm"]) rmSync(join(storeDir, f), { force: true });
+    assert.ok(existsSync(storeDir));
+    const b = await rig({ dataRoot, port, backup: backupOptions(s3, ring, null) });
+    const res = await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access));
+    assert.equal(res.status, 503);
+    assert.equal(existsSync(join(storeDir, "counterparts.sqlite")), false);
+  });
+
+  test("one store's restore failing at boot leaves it waiting and starts everyone else", async () => {
+    const { s3, bin, ring, dataRoot, port, who } = await livedStore();
+    rmSync(tenantDir(join(dataRoot, "tenants"), who.storeId), { recursive: true, force: true });
+    const real = litestreamRunner(bin, litestreamEnv());
+    const failing: typeof real = async (args) => (args.at(-1)!.includes(who.storeId) ? { code: 1, stderr: "standin: the bucket answered 500" } : real(args));
+    const b = await rig({ dataRoot, port, backup: backupOptions(s3, ring, null), start: false });
+    const report = await b.app.start({ restore: failing });
+    assert.equal(report.restoreFailed, 1);
+    assert.equal(report.needsRestore, 1);
+    assert.equal((await fetch(`${b.origin}/readyz`)).status, 200);
+    assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 503);
+  });
+
+  test("an empty volume where an invite made accounts.sqlite is refused (it isn't the bucket's); so is the invite itself", async () => {
+    const { s3, bin, ring, dataRoot } = await livedStore();
+    rmSync(dataRoot, { recursive: true, force: true });
+    // What `invite` would leave: a new, empty accounts database, and no control key here.
+    const { Accounts } = await import("../src/accounts.js");
+    new Accounts({ path: join(dataRoot, "control", "accounts.sqlite") }).close();
+    const backup = backupOptions(s3, ring, null);
+    for (const run of [null, litestreamRunner(bin, litestreamEnv())]) {
+      const p = await prepareVolume(dataRoot, backup, run);
+      assert.match(String(p.refusal), /not the key that wrote the bucket's backups/);
+    }
+    // After moving control/ aside, RESTORE_ON_BOOT restores both.
+    rmSync(join(dataRoot, "control"), { recursive: true, force: true });
+    assert.match(String((await prepareVolume(dataRoot, backup, litestreamRunner(bin, litestreamEnv()))).restored), /^2 restored/);
+  });
+
+  test("a control restore cut short after accounts: the missing oauth.sqlite is restored ALONE, never made empty; accounts.sqlite is kept", async () => {
+    const { s3, bin, ring, dataRoot } = await livedStore();
+    rmSync(join(dataRoot, "control", "oauth.sqlite"), { force: true });
+    rmSync(join(dataRoot, "control", "oauth.sqlite-wal"), { force: true });
+    const accountsBefore = readFileSync(join(dataRoot, "control", "accounts.sqlite"));
+    const backup = backupOptions(s3, ring, null);
+    assert.match(String((await prepareVolume(dataRoot, backup, null)).refusal), /1 of the control databases are missing/);
+    assert.match(String((await prepareVolume(dataRoot, backup, litestreamRunner(bin, litestreamEnv()))).restored), /^1 restored, 1 already here/);
+    assert.ok(existsSync(join(dataRoot, "control", "oauth.sqlite")));
+    assert.deepEqual(readFileSync(join(dataRoot, "control", "accounts.sqlite")), accountsBefore);
+  });
+
+  test("--force moves the file in place aside (never deletes it), and drops Litestream's position for it", async () => {
+    const { s3, bin, ring, dataRoot, who } = await livedStore();
+    const storeDir = join(tenantDir(join(dataRoot, "tenants"), who.storeId), "store");
+    const meta = join(storeDir, ".counterparts.sqlite-litestream");
+    writeFileSync(join(storeDir, "marker-only"), "");
+    rmSync(join(storeDir, "marker-only"));
+    const { mkdirSync } = await import("node:fs");
+    mkdirSync(meta, { recursive: true });
+    const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
+    closers.push(() => keys.close());
+    const backups = new Backups({ dataRoot, keys, objects: backupOptions(s3, ring, null).objects, bucket: "bkt", endpoint: s3.base, sidecar: null, liveStores: () => [who.storeId] });
+    const before = readFileSync(join(storeDir, "counterparts.sqlite"));
+    assert.equal((await backups.restore(who.storeId, litestreamRunner(bin, litestreamEnv()), { force: true })).restored, 1);
+    const { readdirSync } = await import("node:fs");
+    const aside = readdirSync(storeDir).filter((n) => n.startsWith("counterparts.sqlite.pre-restore-"));
+    assert.equal(aside.length, 1);
+    assert.deepEqual(readFileSync(join(storeDir, aside[0]!)), before);
+    assert.equal(existsSync(meta), false);
+  });
+
+  test("a store that lived, whose key is gone here AND in the bucket, is never given a new key; the start goes on", async () => {
+    const { s3, ring, dataRoot, port, who } = await livedStore();
+    rmSync(join(dataRoot, "keys"), { recursive: true, force: true });
+    s3.objects.delete(keyObject(who.storeId));
+    const b = await rig({ dataRoot, port, backup: backupOptions(s3, ring, null), start: false });
+    const report = await b.app.start();
+    assert.equal(report.keyless, 1);
+    assert.equal(b.app.keys!.wrapped(who.storeId), null);
+    assert.equal(s3.objects.has(keyObject(who.storeId)), false);
+  });
+
+  test("a store from before opened_at (the mark NULL) is marked at the next start, so the guard covers it", async () => {
+    const r = (await rig()) as Rig & { port: number; close: () => Promise<void> };
+    const who = await connect(r, "older@example.com");
+    await tool(`${r.origin}/mcp`, "wake", {}, bearer(who.access));
+    const dataRoot = join(tmp.root, "data");
+    await r.close();
+    const db = openDb(join(dataRoot, "control", "accounts.sqlite"), { wal: true });
+    db.run("UPDATE stores SET opened_at = NULL");
+    db.close();
+    const b = await rig({ dataRoot, port: r.port });
+    assert.equal(b.app.accounts.wasOpened(who.storeId), true);
+  });
+});
+
+describe("limits, the review's cases", () => {
+  test("initialize doesn't count against the calls; an aborted mid-body POST gives its in-flight slot back", async () => {
+    const r = (await rig({ mcpLimits: { perMinute: 1, inFlight: 1 } })) as Rig & { port: number };
+    const who = await connect(r, "abort@example.com");
+    const url = `${r.origin}/mcp`;
+    for (let i = 0; i < 3; i++) assert.equal((await rpc(url, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } }, bearer(who.access))).status, 200);
+    const first = await rpc(url, "tools/call", { name: "status", arguments: {} }, bearer(who.access));
+    assert.notEqual((first.body["result"] as { isError?: boolean }).isError, true);
+    const { connect: dial } = await import("node:net");
+    for (let i = 0; i < 3; i++) {
+      const s = dial(r.port, "127.0.0.1");
+      s.on("error", () => undefined);
+      s.write(`POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nAuthorization: Bearer ${who.access}\r\nContent-Length: 1000\r\n\r\n{`);
+      await new Promise((res) => setTimeout(res, 100));
+      s.destroy();
+      await new Promise((res) => setTimeout(res, 100));
+    }
+    assert.equal((await rpc(url, "tools/list", {}, bearer(who.access))).status, 200);
+  });
+});
+
+describe("the DCR sweep, on an older database", () => {
+  test("a client with a live grant but no client_use row (a database from before the table) is kept", async () => {
+    const r = await rig();
+    const used = await connect(r, "olddb@example.com");
+    const store = r.app.oauth.store;
+    store.db.run("DELETE FROM client_use");
+    assert.equal(store.sweepClients(-60_000), 0);
+    assert.ok(store.db.get("SELECT 1 AS one FROM oidc WHERE model = 'Client' AND key = ?", used.clientId) !== undefined);
+  });
+});

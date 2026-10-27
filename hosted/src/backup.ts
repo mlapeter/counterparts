@@ -29,7 +29,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import { DATABASE_FILE } from "../../src/core/store/paths.js";
 import type { ObjectStore } from "./egress.js";
@@ -46,6 +46,14 @@ export const SNAPSHOT_HOURS = 12;
 
 export const keyObject = (storeId: string): string => `keys/${storeId}.wrapped`;
 export const replicaPrefix = (storeId: string): string => `tenants/${storeId}/`;
+
+/** A store that was opened before has no key on this volume and none in the bucket. */
+export class StoreKeyMissing extends Error {
+  constructor() {
+    super("a store that was opened before has no key here and none in the bucket: it is not backed up until that is resolved");
+    this.name = "StoreKeyMissing";
+  }
+}
 
 /** One `litestream <args>` run, to its exit: the restore command's seam (a stand-in binary in tests). */
 export type LitestreamRun = (args: string[]) => Promise<{ code: number; stderr: string }>;
@@ -88,6 +96,8 @@ export interface BackupsOptions {
   readonly sidecar?: Sidecar | null;
   /** The store ids that are live now (from accounts), for `ensureAll`. */
   readonly liveStores: () => string[];
+  /** Was this store ever opened (accounts' `opened_at`)? A store that was and has no key anywhere is never given a new one. Absent ⇒ never. */
+  readonly openedBefore?: (storeId: string) => boolean;
 }
 
 function yamlString(s: string): string {
@@ -144,6 +154,11 @@ export class Backups {
       adopted = await this.opts.keys.adopt(storeId, await this.readable(storeId, remote));
       wrapped = remote;
     }
+    if (wrapped === null && storeId !== CONTROL_KEY_ID && this.opts.openedBefore?.(storeId) === true) {
+      // A store that lived, with no key here and none in the bucket: its key was
+      // lost. A new one would hide that, and make any copy of it unreadable.
+      throw new StoreKeyMissing();
+    }
     wrapped ??= await this.opts.keys.create(storeId);
     if (adopted || !existsSync(this.keyFile(storeId))) await this.writeKeyFile(storeId);
     if (remote !== wrapped) {
@@ -168,12 +183,23 @@ export class Backups {
    * version dropped before a rewrap finished would otherwise go unnoticed until
    * a restore), then the control key and every live store, then one reload.
    */
-  async ensureAll(opts: { reload?: boolean } = {}): Promise<void> {
+  async ensureAll(opts: { reload?: boolean } = {}): Promise<{ keyless: number }> {
     const unreadable = await this.opts.keys.unreadable();
     if (unreadable.length > 0) throw new Error(`${String(unreadable.length)} wrapped store keys don't open with the KEK ring: put the old version back in the ring and run rewrap again.`);
     await this.ensureStore(CONTROL_KEY_ID, { reload: false });
-    for (const id of this.opts.liveStores()) await this.ensureStore(id, { reload: false });
+    let keyless = 0;
+    for (const id of this.opts.liveStores()) {
+      try {
+        await this.ensureStore(id, { reload: false });
+      } catch (err) {
+        // One store whose key is gone everywhere is left out of the backups
+        // (and said so), not allowed to stop every other person's start.
+        if (!(err instanceof StoreKeyMissing)) throw err;
+        keyless += 1;
+      }
+    }
     if (opts.reload !== false) await this.reload();
+    return { keyless };
   }
 
   /** After a rewrap: the moved stores' objects carry the new wrapping (an overwrite; versioning is off). */
@@ -245,8 +271,11 @@ export class Backups {
    * corrupt file being replaced). A replica that doesn't exist yet (a store
    * signed up and never written) is counted `empty`, not an error.
    */
-  async restore(id: string, run: LitestreamRun, opts: { force?: boolean } = {}): Promise<{ restored: number; empty: number }> {
-    const paths = this.dbPaths(id);
+  async restore(id: string, run: LitestreamRun, opts: { force?: boolean; missingOnly?: boolean } = {}): Promise<{ restored: number; empty: number; kept: number }> {
+    const all = this.dbPaths(id);
+    // `missingOnly`: the control databases one by one (a control restore cut
+    // short after its first file must not leave the second to be made empty).
+    const paths = opts.missingOnly === true ? all.filter((p) => !existsSync(p)) : all;
     if (!opts.force) {
       const there = paths.filter((p) => existsSync(p));
       if (there.length > 0) throw new Error(`${String(there.length)} of its database files are already in place: move them aside first (or --force).`);
@@ -258,6 +287,7 @@ export class Backups {
     writeFileSync(this.configPath, this.config(), { mode: 0o600 });
     let restored = 0;
     let empty = 0;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     for (const path of paths) {
       mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
       const out = `${path}.restoring`;
@@ -268,7 +298,13 @@ export class Backups {
         empty += 1;
         continue;
       }
-      for (const f of [path, `${path}-wal`, `${path}-shm`]) rmSync(f, { force: true });
+      // A file in place (`--force`) is moved aside, never deleted: the replica
+      // may be behind it (`/readyz` doesn't see lag yet). Litestream's own
+      // position for the old file (`.<name>-litestream`) goes: it describes a
+      // database that is no longer there.
+      for (const f of [path, `${path}-wal`]) if (existsSync(f)) renameSync(f, `${f}.pre-restore-${stamp}`);
+      rmSync(`${path}-shm`, { force: true });
+      rmSync(join(dirname(path), `.${basename(path)}-litestream`), { recursive: true, force: true });
       renameSync(out, path);
       if (existsSync(`${out}-wal`)) renameSync(`${out}-wal`, `${path}-wal`);
       rmSync(`${out}-shm`, { force: true });
@@ -282,7 +318,7 @@ export class Backups {
         writeFileSync(join(tenantDir(this.tenantsRoot(), id), RESTORED_MARKER), `${new Date().toISOString()}\n`, { mode: 0o600 });
       }
     }
-    return { restored, empty };
+    return { restored, empty, kept: all.length - paths.length };
   }
 
   /** The live stores whose database file is missing on this volume (start-up's restore check). */
