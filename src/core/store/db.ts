@@ -500,6 +500,14 @@ export function openDb(path: string, opts: OpenDbOptions = {}): Db {
   // Foreign keys are OFF by default in SQLite; referential integrity is enforced by
   // the store (contract §5 G4), so turn them on before anything is written.
   exec("PRAGMA foreign_keys = ON");
+  // FAST on both runtimes, set rather than inherited: it is a compile-time default
+  // of whichever SQLite the runtime carries. bun (1.3, macOS) ships it at 2; node's
+  // bundled SQLite (22.23, 24.22, measured 2026-10-26) ships it at 0, which left a
+  // deleted row's words in the page's free space through a checkpoint and a close.
+  // FAST zeroes what a delete frees inside a page at no extra I/O; whole freed
+  // OVERFLOW pages are still not zeroed, which is why removal VACUUMs (§5 G17).
+  // Connection-local: it writes nothing to the file, so an observer may set it.
+  exec("PRAGMA secure_delete = FAST");
   if (opts.wal === true) convertToWal(db);
   // FULL, not WAL's usual NORMAL: that is a durability ruling for the owner to
   // make, not a cleanup to make on the way past. TUNABLE — the one knob here

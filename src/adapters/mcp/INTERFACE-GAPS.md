@@ -379,3 +379,14 @@ A doctor line — "N held this week, M settled after" — is the obvious caller;
 belonged to another lane when the guard landed, so it was left for that lane to add. The
 number to watch is `settledAfter / held`: high means the 0.30 bar holds back real
 corrections, and it is the evidence for moving it.
+
+## 13. A hookless client on the default host gets Claude Code's dreaming words — OPEN 2026-10-26
+
+`server-words.ts#settingSaidFor` (and `dreamLaunchHowFor` / `reflectLaunchHowFor`) give
+claude.ai and Desktop their own words and every other host Claude Code's. A client that
+reaches a default-host server with no hooks behind it (Cursor, a bare MCP client) is
+told "the first session starts the nightly run … in the background", which nothing there
+does, and to hand the prompt to a background Agent tool it may not have. This was so on
+master before OL1d (review of #650 noted it; not fixed there). Closing it needs the server
+to know it has no hooks — a session the hooks never recorded is the likely signal — and
+words for "nothing here starts a night; say 'dream' to run it in the chat".
