@@ -388,6 +388,17 @@ Each has a test in `test/ops.test.ts`'s R7 block, through a spawned serve with `
   bucket put the control key there.
 - **LOW 7 (the rider):** `REFUSED_ERROR` is -32050; -32001 is the TS SDK's `RequestTimeout`.
 
+### The #661 re-check (approved), and three small items
+
+- **P7:** a store with no `opened_at` at the turn-on (an image upgrade and `NEW_BUCKET` in one deploy) was marked by
+  the start's heal AFTER `backups-turned-on`, so it was never "opened before" and stayed `keys-newer`. The heal now
+  runs first, and the waiver compares `<=` (the two writes can share a millisecond; nothing opens a store before the
+  server listens).
+- **A3:** an `accounts.sqlite` that isn't a database got the BACKUPS=off text, and `NEW_BUCKET` there would only have
+  crashed in `Accounts`. It has its own refusal now, without `NEW_BUCKET`.
+- **The hosted-bun flake** ("restore by hand", `ops.test.ts`): it waited for any object under the store's prefix, which
+  `wake` had already put. It now waits for the remembered words in the replica's bytes (`replicatedText`).
+
 ### R7's rider: a refusal inside a batch keeps the answers made (the #659 re-check, LOW)
 
 - **A batch's refusal replaced the whole answer, including messages that had run.** `[remember, recall]` with a

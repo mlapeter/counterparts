@@ -359,24 +359,26 @@ export function backupTraces(dataRoot: string): boolean {
  * accounts database (any state: a deleted one leaves its row), or a store's dir.
  * Not a control key, a key file or an invite alone: a first start cut short
  * leaves those, with nothing to lose. An accounts database that can't be read
- * counts as lived.
+ * is its own case ("unreadable", the #661 re-check's A3): never new, never
+ * NEW_BUCKET.
  */
-function volumeLived(dataRoot: string): boolean {
-  const root = join(dataRoot, "tenants");
-  if (existsSync(root) && readdirSync(root).some((id) => STORE_ID.test(id))) return true;
+function volumeLived(dataRoot: string): "no" | "yes" | "unreadable" {
   const path = join(dataRoot, "control", "accounts.sqlite");
-  if (!existsSync(path)) return false;
-  try {
-    const db = openDb(path, { wal: true });
+  let people = 0;
+  if (existsSync(path)) {
     try {
-      const row = db.get<{ n: number }>("SELECT (SELECT COUNT(*) FROM people) + (SELECT COUNT(*) FROM stores) AS n");
-      return (row?.n ?? 1) > 0;
-    } finally {
-      db.close();
+      const db = openDb(path, { wal: true });
+      try {
+        people = db.get<{ n: number }>("SELECT (SELECT COUNT(*) FROM people) + (SELECT COUNT(*) FROM stores) AS n")?.n ?? 0;
+      } finally {
+        db.close();
+      }
+    } catch {
+      return "unreadable";
     }
-  } catch {
-    return true;
   }
+  const root = join(dataRoot, "tenants");
+  return people > 0 || (existsSync(root) && readdirSync(root).some((id) => STORE_ID.test(id))) ? "yes" : "no";
 }
 
 /** `keys.sqlite`'s backup facts (R7), read only when the file is here. */
@@ -457,8 +459,13 @@ export async function emptyBucketGate(dataRoot: string, backup: AppBackupOptions
 function emptyBucket(dataRoot: string, backup: AppBackupOptions, v: ControlVolume, newBucket: string | undefined): Prepared {
   const value = newBucketValue(backup);
   const unset = " Unset NEW_BUCKET once it is serving.";
-  if (!volumeLived(dataRoot)) {
+  const lived = volumeLived(dataRoot);
+  if (lived === "no") {
     return newBucket === undefined ? {} : { note: "NEW_BUCKET is set, but this volume has no person and no store yet, so it starts as a new server without it: it changed nothing. Unset NEW_BUCKET." };
+  }
+  if (lived === "unreadable") {
+    // Never NEW_BUCKET here: the start would only fail opening it (the #661 re-check, A3).
+    return { refusal: `refused: control/accounts.sqlite is on this volume but isn't a database this server can read (a damaged file, or one copied in by hand), and the bucket R2_ENDPOINT and R2_BUCKET name ("${newBucketValue(backup)}") has no control key. Nothing was made or put. Point R2_BUCKET and R2_ENDPOINT at the bucket that has this volume's backups and deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1, or tell the coordinator (docs/hosted/RUNBOOK.md, If a start refuses).` };
   }
   const vouched = newBucket === value;
   const mismatch = newBucket === undefined || vouched ? "" : ` (NEW_BUCKET is set, but not to "${value}", so it doesn't count.)`;

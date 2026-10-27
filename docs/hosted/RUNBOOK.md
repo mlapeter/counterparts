@@ -258,6 +258,9 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
     `NEW_BUCKET` doesn't count here: the stores' keys are only in the old bucket. If the old bucket is gone, tell the
     coordinator.
   - **"…has people or stores but has never been backed up: it ran with BACKUPS=off"**: you are turning backups on.
+  - **"control/accounts.sqlite is on this volume but isn't a database this server can read"**: a damaged file, or
+    one copied in by hand. `NEW_BUCKET` doesn't help. Point the bucket variables at the bucket that has this volume's
+    backups and deploy once with `CONTROL_ASIDE=<new label>` and `RESTORE_ON_BOOT=1`, or tell the coordinator.
   - **"a start that turned backups on (NEW_BUCKET) was cut short…"**: the start that turned backups on stopped before
     the control key reached the bucket (the log of that start says why, e.g. `did not start: object store PUT
     answered …`). Fix that, and deploy again with the same `NEW_BUCKET`.

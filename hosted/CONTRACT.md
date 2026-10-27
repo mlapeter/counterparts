@@ -272,8 +272,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     front of every control restore (`restoreControl`: the CLI's `restore control` and `--all` too). The control key is
     adopted only when no control file here is kept.
     - **A volume that lived beside a bucket with NO control key is refused** (R7, `main.ts#emptyBucket`). Lived means
-      a person or a store in the accounts database (any state), or a store's dir; an unreadable accounts database
-      counts. Starting would make the volume a control key in that bucket and back the control databases up there:
+      a person or a store in the accounts database (any state), or a store's dir. An accounts database that isn't
+      one has its own refusal, with no `NEW_BUCKET`. Starting would make the volume a control key in that bucket and back the control databases up there:
       with a wrong `R2_BUCKET` or `R2_ENDPOINT`, every control write from then on goes to the wrong bucket. The
       refusal names the case it thinks it is, from what the volume holds, in this order:
       - `backups-turned-on` in `keys.sqlite` without `control-key-in-bucket`: a `NEW_BUCKET` start turning backups on
@@ -292,7 +292,8 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       line; set and not needed, it logs that it changed nothing.
     - **Turning backups on is recorded in `keys.sqlite`** (`backups-turned-on`, written at the start of the
       `NEW_BUCKET` start before anything is made or put), and every store opened before it has R5's (f) and (f2)
-      waived, at that start and every later one (`Backups#mintRefusal`); (c), (d) and (e) still hold. So a turn-on cut
+      waived, at that start and every later one (`Backups#mintRefusal`); (c), (d) and (e) still hold. The start's
+      `opened_at` heal runs before the fact, so a store from before that column counts as opened before it. So a turn-on cut
       short anywhere, a replica check that failed, or a delete pending then and kept later, all end with the store
       backed up. The fact goes with `keys.sqlite`: a volume that lost it is treated as one whose keys may be elsewhere.
       `control-key-in-bucket` is recorded once `ensureAll` has the control key in the bucket.

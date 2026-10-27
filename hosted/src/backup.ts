@@ -330,7 +330,9 @@ export class Backups {
     }
     const opened = this.opts.openedAt?.(storeId) ?? null;
     const turnedOn = this.opts.keys.fact("backups-turned-on");
-    if (turnedOn !== null && opened !== null && opened < turnedOn) return null;
+    // `<=`: the start's own heal marks a store from before `opened_at` just before the fact, maybe in the same
+    // millisecond (the #661 re-check, P7); nothing else opens a store then (the server doesn't listen yet).
+    if (turnedOn !== null && opened !== null && opened <= turnedOn) return null;
     if (!bucketProven) return "bucket-unproven";
     const keysMade = this.opts.keys.createdAt(CONTROL_KEY_ID);
     if (keysMade === null || opened === null || keysMade >= opened) return "keys-newer"; // equal refuses too (the #658 review)

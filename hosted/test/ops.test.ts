@@ -172,6 +172,20 @@ async function replicated(objects: Map<string, Stored>, prefixes: string[], ms =
   }
 }
 
+/**
+ * Until an object under `prefix` holds `text` (the stand-in puts the database
+ * and its -wal whole, unencrypted in the bytes; SSE-C is a header): the write
+ * that made it has reached the bucket, not only some earlier one.
+ */
+async function replicatedText(objects: Map<string, Stored>, prefix: string, text: string, ms = 10_000): Promise<void> {
+  const needle = Buffer.from(text, "utf8");
+  const until = Date.now() + ms;
+  while (![...objects.entries()].some(([k, v]) => k.startsWith(prefix) && v.body.includes(needle))) {
+    if (Date.now() > until) throw new Error(`not replicated: "${text}" under ${prefix}`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 async function rig(o: { dataRoot?: string; port?: number; backup?: AppBackupOptions; mcpLimits?: Parameters<typeof createApp>[0]["mcpLimits"]; onEvent?: Parameters<typeof createApp>[0]["onEvent"]; logForwardedFor?: (raw: string) => void; now?: () => number; start?: boolean } = {}): Promise<Rig & { port: number }> {
   const port = o.port ?? (await freePort());
   const origin = `http://127.0.0.1:${String(port)}`;
@@ -282,7 +296,8 @@ describe("the restore drill, through the door", () => {
     const who = await connect(a, "byhand@example.com");
     const woke = await tool(`${a.origin}/mcp`, "wake", {}, bearer(who.access));
     await tool(`${a.origin}/mcp`, "remember", { session: String(woke["session"]), text: "By hand: the spare key is under the blue pot." }, bearer(who.access));
-    await replicated(s3.objects, [replicaPrefix(who.storeId)]);
+    // Not just any object under the prefix (wake had already put one; the hosted-bun flake): the remember's own bytes.
+    await replicatedText(s3.objects, replicaPrefix(who.storeId), "the spare key is under the blue pot");
     await a.close();
 
     const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
@@ -1669,5 +1684,38 @@ describe("R7: a volume that lived refuses a bucket with no control key, unless N
     assert.doesNotMatch(said, /refused/);
     const after = await command(serveEnv(early), "invite");
     assert.equal(after.status, 0, after.stderr);
+  });
+
+  test("P7 (the #661 re-check): a store with no opened mark at the off → on start (a database from before opened_at) is healed before the turn-on fact, so it is given its key", async () => {
+    const off = await offVolume("unmarked@example.com");
+    const id = off.who.storeId;
+    const db = openDb(join(off.dataRoot, "control", "accounts.sqlite"), { wal: true });
+    db.run("UPDATE stores SET opened_at = NULL WHERE id = ?", id);
+    db.close();
+    const at = await onBucket(off);
+    const on = await spawnServe(serveEnv(at, { NEW_BUCKET: newBucketOf(at.s3) }));
+    assert.ok(on.up, on.stderr());
+    const out = await on.stop();
+    assert.match(out, mintedLine(id));
+    assert.doesNotMatch(out, /backup\.keyless/);
+    assert.ok(at.s3.objects.has(keyObject(id)));
+    const next = await spawnServe(serveEnv(at));
+    assert.ok(next.up, next.stderr());
+    assert.doesNotMatch(await next.stop(), /backup\.keyless|keys-newer|refused/);
+  });
+
+  test("A3 (the #661 re-check): an accounts.sqlite that isn't a database, beside a bucket with no control key: its own refusal, NEW_BUCKET neither offered nor taken, nothing put", async () => {
+    const at = await onBucket({ dataRoot: join(tmp.root, "junk"), port: await freePort() });
+    mkdirSync(join(at.dataRoot, "control"), { recursive: true });
+    writeFileSync(join(at.dataRoot, "control", "accounts.sqlite"), "not a database, copied in by hand");
+    for (const extra of [{}, { NEW_BUCKET: newBucketOf(at.s3) }] as Record<string, string>[]) {
+      const run = await spawnServe(serveEnv(at, extra));
+      assert.equal(run.up, false);
+      const said = await run.stop();
+      assert.match(said, /\[hosted\] refused: control\/accounts\.sqlite is on this volume but isn't a database this server can read/);
+      assert.doesNotMatch(said, /NEW_BUCKET|BACKUPS=off|did not start/);
+      assert.equal(at.s3.objects.size, 0);
+    }
+    assert.equal(readFileSync(join(at.dataRoot, "control", "accounts.sqlite"), "utf8"), "not a database, copied in by hand");
   });
 });
