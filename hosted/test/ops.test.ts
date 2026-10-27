@@ -21,6 +21,7 @@
  * drill is a runbook step (docs/hosted/RUNBOOK.md).
  */
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -36,9 +37,10 @@ import { Accounts } from "../src/accounts.js";
 import { Backups, CONTROL_KEY_ID, KEYLESS_REASONS, LitestreamSidecar, keyObject, litestreamRunner, replicaPrefix, tombstoneObject } from "../src/backup.js";
 import { memoryMailer, r2ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper, KeyStore, litestreamKey } from "../src/keys.js";
-import { controlAside, controlAsideAtStart, eventLine, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag } from "../src/main.js";
+import { controlAside, controlAsideAtStart, eventLine, newBucketValue, overrideGuard, prepareVolume, restoreCommand, startOverCommand, storeTag } from "../src/main.js";
 import { RESTORED_MARKER, tenantDir } from "../src/tenants.js";
-import { freePort, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, tool } from "./helpers.js";
+import { scriptArgs } from "../../src/adapters/runtime.js";
+import { MAIN, freePort, rpc, s3StandIn as sharedS3StandIn, spawnServe, tempRoot, tool } from "./helpers.js";
 import type { S3StandIn, Stored } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
@@ -75,8 +77,8 @@ async function s3StandIn(opts: { tls?: boolean } = {}): Promise<S3StandIn> {
  * sidecar's environment is PATH and the R2 credentials only, so the wrapper
  * names it.
  */
-function standinBinary(ca: string | null = null): string {
-  const bin = join(tmp.root, "litestream");
+function standinBinary(ca: string | null = null, name = "litestream"): string {
+  const bin = join(tmp.root, name);
   writeFileSync(bin, `#!/bin/sh\n${ca === null ? "" : `NODE_EXTRA_CA_CERTS="${ca}" `}exec "${process.execPath}" "${STANDIN}" "$@"\n`);
   chmodSync(bin, 0o755);
   return bin;
@@ -166,6 +168,20 @@ async function replicated(objects: Map<string, Stored>, prefixes: string[], ms =
   const until = Date.now() + ms;
   while (!prefixes.every((p) => [...objects.keys()].some((k) => k.startsWith(p)))) {
     if (Date.now() > until) throw new Error(`not replicated: ${prefixes.join(", ")}`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+/**
+ * Until an object under `prefix` holds `text` (the stand-in puts the database
+ * and its -wal whole, unencrypted in the bytes; SSE-C is a header): the write
+ * that made it has reached the bucket, not only some earlier one.
+ */
+async function replicatedText(objects: Map<string, Stored>, prefix: string, text: string, ms = 10_000): Promise<void> {
+  const needle = Buffer.from(text, "utf8");
+  const until = Date.now() + ms;
+  while (![...objects.entries()].some(([k, v]) => k.startsWith(prefix) && v.body.includes(needle))) {
+    if (Date.now() > until) throw new Error(`not replicated: "${text}" under ${prefix}`);
     await new Promise((r) => setTimeout(r, 50));
   }
 }
@@ -280,7 +296,8 @@ describe("the restore drill, through the door", () => {
     const who = await connect(a, "byhand@example.com");
     const woke = await tool(`${a.origin}/mcp`, "wake", {}, bearer(who.access));
     await tool(`${a.origin}/mcp`, "remember", { session: String(woke["session"]), text: "By hand: the spare key is under the blue pot." }, bearer(who.access));
-    await replicated(s3.objects, [replicaPrefix(who.storeId)]);
+    // Not just any object under the prefix (wake had already put one; the hosted-bun flake): the remember's own bytes.
+    await replicatedText(s3.objects, replicaPrefix(who.storeId), "the spare key is under the blue pot");
     await a.close();
 
     const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
@@ -999,8 +1016,14 @@ describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", 
     assert.deepEqual(readFileSync(join(dataRoot, "control", "accounts.sqlite")), before);
     assert.equal(existsSync(join(dataRoot, "control.aside-1")), false);
     assert.equal(existsSync(overrideGuard(dataRoot, "1")), false);
-    // What serve does next: the volume check passes, the server starts on the real control databases.
-    assert.equal((await prepareVolume(dataRoot, backup, null)).refusal, undefined);
+    // What serve does next (R7): a volume that ran with BACKUPS=off beside a bucket with no control key is refused unless NEW_BUCKET names it; then it starts on the real control databases.
+    assert.match(String((await prepareVolume(dataRoot, backup, null)).refusal), /has never been backed up: it ran with BACKUPS=off/);
+    assert.match(String((await prepareVolume(dataRoot, backup, null, { newBucket: "bkt" })).refusal), /doesn't count/, "the bucket's name alone isn't the value (the #661 review)");
+    const vouched = await prepareVolume(dataRoot, backup, null, { newBucket: newBucketValue(backup) });
+    assert.equal(vouched.refusal, undefined);
+    assert.equal(vouched.firstBackup, true);
+    assert.match(String(vouched.note), /^NEW_BUCKET=127\.0\.0\.1:\d+\/bkt: this volume ran without backups \(BACKUPS=off\)/);
+    assert.deepEqual(readFileSync(join(dataRoot, "control", "accounts.sqlite")), before);
     const b = await rig({ dataRoot, port: off.port, backup });
     assert.equal((await rpc(`${b.origin}/mcp`, "tools/call", { name: "wake", arguments: {} }, bearer(who.access))).status, 200);
   });
@@ -1070,29 +1093,35 @@ describe("R3: CONTROL_ASIDE is one-shot; backup.ensure.failed reaches the log", 
 // child trusts the stand-in's certificate by NODE_EXTRA_CA_CERTS, the Litestream
 // stand-in through its wrapper). The volume is built in this process first.
 
+/** NEW_BUCKET's value for an https stand-in (R7: R2_ENDPOINT's host and the bucket). */
+const newBucketOf = (s3: S3StandIn): string => `${new URL(s3.tlsBase!).host}/bkt`;
+
+/** `main.ts serve`'s environment against an https stand-in, exactly (R5, R7). */
+const serveEnv = (o: { s3: S3StandIn; ring: Map<string, Buffer>; dataRoot: string; port: number; bin: string }, extra: Record<string, string> = {}): Record<string, string> => ({
+  PATH: process.env["PATH"] ?? "/usr/bin:/bin",
+  HOME: tmp.root,
+  COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
+  HOSTED_DATA_ROOT: o.dataRoot,
+  PUBLIC_ORIGIN: `http://127.0.0.1:${String(o.port)}`,
+  PORT: String(o.port),
+  MAIL: "log",
+  HOSTED_KEKS: `v1:${o.ring.get("v1")!.toString("base64")}`,
+  R2_ENDPOINT: o.s3.tlsBase!,
+  R2_BUCKET: "bkt",
+  R2_ACCESS_KEY_ID: CREDS.LITESTREAM_ACCESS_KEY_ID,
+  R2_SECRET_ACCESS_KEY: CREDS.LITESTREAM_SECRET_ACCESS_KEY,
+  NODE_EXTRA_CA_CERTS: o.s3.ca!,
+  LITESTREAM_BIN: o.bin,
+  ...extra,
+});
+
+const keysAt = (dataRoot: string, ring: Map<string, Buffer>): KeyStore => {
+  const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
+  closers.push(() => keys.close());
+  return keys;
+};
+
 describe("R5: a store that served with no key anywhere gets one at start-up, only when nothing can be buried", () => {
-  const serveEnv = (o: { s3: S3StandIn; ring: Map<string, Buffer>; dataRoot: string; port: number; bin: string }, extra: Record<string, string> = {}): Record<string, string> => ({
-    PATH: process.env["PATH"] ?? "/usr/bin:/bin",
-    HOME: tmp.root,
-    COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1",
-    HOSTED_DATA_ROOT: o.dataRoot,
-    PUBLIC_ORIGIN: `http://127.0.0.1:${String(o.port)}`,
-    PORT: String(o.port),
-    MAIL: "log",
-    HOSTED_KEKS: `v1:${o.ring.get("v1")!.toString("base64")}`,
-    R2_ENDPOINT: o.s3.tlsBase!,
-    R2_BUCKET: "bkt",
-    R2_ACCESS_KEY_ID: CREDS.LITESTREAM_ACCESS_KEY_ID,
-    R2_SECRET_ACCESS_KEY: CREDS.LITESTREAM_SECRET_ACCESS_KEY,
-    NODE_EXTRA_CA_CERTS: o.s3.ca!,
-    LITESTREAM_BIN: o.bin,
-    ...extra,
-  });
-  const keysAt = (dataRoot: string, ring: Map<string, Buffer>): KeyStore => {
-    const keys = new KeyStore({ path: join(dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(ring, "v1") });
-    closers.push(() => keys.close());
-    return keys;
-  };
   const dropReplica = (s3: S3StandIn, id: string): void => {
     for (const k of [...s3.objects.keys()]) if (k.startsWith(replicaPrefix(id))) s3.objects.delete(k);
   };
@@ -1279,18 +1308,18 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
   });
 
-  test("(f) a bucket that had no control key before this start (a new or a different one): no key at that start; the next start against it, proven, makes one", async () => {
+  test("(f) a bucket that had no control key before this start (a new one, NEW_BUCKET said on purpose; R7): no key at that start; the next start against it, proven, makes one", async () => {
     const lived = await keylessStore();
     const id = lived.who.storeId;
-    // R2_BUCKET pointed at an empty bucket (an empty stand-in, its own certificate).
+    // R2_BUCKET pointed at an empty bucket (an empty stand-in, its own certificate), on purpose (R7: refused without NEW_BUCKET).
     const empty = await s3StandIn({ tls: true });
     const bin = standinBinary(empty.ca);
     const at = { ...lived, s3: empty, bin };
-    const run = await spawnServe(serveEnv(at));
+    const run = await spawnServe(serveEnv(at, { NEW_BUCKET: newBucketOf(empty) }));
     assert.ok(run.up, run.stderr());
     const out = await run.stop();
     assert.match(out, keylessLine(id, "bucket-unproven"));
-    assert.match(out, /If R2_BUCKET is wrong, fix it before anything else/);
+    assert.match(out, /If R2_BUCKET or R2_ENDPOINT is wrong after all, fix it before anything else/);
     assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), null);
     assert.ok(empty.objects.has(keyObject(CONTROL_KEY_ID)), "that start put this volume's control key there");
     assert.equal(empty.objects.has(keyObject(id)), false);
@@ -1337,18 +1366,16 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     await right.delete("keys/nothing-here.wrapped"); // NoSuchKey: already gone, fine
   });
 
-  test("keys.sqlite lost, then a start against a wrong empty bucket: back on the right bucket the refusal names the control key, and the RUNBOOK's way back works", async () => {
+  test("a control key here that isn't the bucket's (a wrong-bucket start by a build before R7, after keys.sqlite was lost): the refusal names the control key, and the RUNBOOK's way back works", async () => {
     const lived = await livedStore({ tls: true });
     const id = lived.who.storeId;
     const keyBefore = lived.s3.objects.get(keyObject(id))!.body.toString("utf8");
-    // The wrong-bucket start's outcome (#653's existing behaviour): this volume made itself a new control key.
+    // What that start left: keys.sqlite rebuilt with a new control key (R7 refuses such a start now; T3 below).
     rmSync(join(lived.dataRoot, "keys"), { recursive: true, force: true });
-    const empty = await s3StandIn({ tls: true });
-    const wrongStart = await spawnServe(serveEnv({ ...lived, s3: empty, bin: standinBinary(empty.ca) }));
-    assert.ok(wrongStart.up, wrongStart.stderr());
-    await wrongStart.stop();
-    assert.ok(empty.objects.has(keyObject(CONTROL_KEY_ID)));
-    // R2_BUCKET fixed: the start refuses, naming the control key and the way back.
+    const rebuilt = new KeyStore({ path: join(lived.dataRoot, "keys", "keys.sqlite"), wrapper: new EnvKeyWrapper(lived.ring, "v1") });
+    await rebuilt.create(CONTROL_KEY_ID);
+    rebuilt.close();
+    // On the right bucket: the start refuses, naming the control key and the way back.
     const bin = standinBinary(lived.s3.ca);
     const refused = await spawnServe(serveEnv({ ...lived, bin }));
     assert.equal(refused.up, false);
@@ -1377,5 +1404,318 @@ describe("R5: a store that served with no key anywhere gets one at start-up, onl
     // Said before its key object's upload, so it promises nothing the start might not reach (the #658 review).
     assert.match(eventLine("backup.key.minted", tag), /It has a key now; backed up once this start is serving/);
     assert.doesNotMatch(eventLine("backup.key.minted", tag), /from this start/);
+  });
+});
+
+// ── R7: a volume that lived, beside a bucket with no control key ─────────────
+//
+// Through `main.ts serve` as its own process, against the https stand-in. A
+// "wrong bucket" is a second, empty stand-in (its own certificate): what a
+// wrong R2_BUCKET or R2_ENDPOINT that exists looks like to the start.
+// NEW_BUCKET's value is `<the stand-in's host>/bkt` (`newBucketOf`).
+
+describe("R7: a volume that lived refuses a bucket with no control key, unless NEW_BUCKET names it", () => {
+  const door = (port: number): string => `http://127.0.0.1:${String(port)}/mcp`;
+  // Its own stand-in binary (trusting its own certificate), so the lived volume's `bin` still reaches the right bucket.
+  const wrongBucket = async (): Promise<{ s3: S3StandIn; bin: string }> => {
+    const s3 = await s3StandIn({ tls: true });
+    return { s3, bin: standinBinary(s3.ca, `litestream-${randomBytes(4).toString("hex")}`) };
+  };
+  /** `main.ts <command>` as a process, NOT blocking this one (the stand-ins answer from here). */
+  const command = (env: Record<string, string>, ...args: string[]): Promise<{ status: number | null; stdout: string; stderr: string }> =>
+    new Promise((resolve) => {
+      const child = spawn(process.execPath, [...scriptArgs(MAIN), ...args], { env, stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d: Buffer) => (stdout += d.toString("utf8")));
+      child.stderr.on("data", (d: Buffer) => (stderr += d.toString("utf8")));
+      child.once("close", (status) => resolve({ status, stdout, stderr }));
+    });
+  const keylessLine = (id: string, reason: string): RegExp => new RegExp(`backup\\.keyless storeTag=${storeTag(id)} reason=${reason}:`);
+  const mintedLine = (id: string): RegExp => new RegExp(`backup\\.key\\.minted storeTag=${storeTag(id)}`);
+
+  /** A volume that ran with BACKUPS=off: one person, one store, one memory. `before` runs on its app before it closes. */
+  async function offVolume(email: string, before?: (r: Rig, who: Awaited<ReturnType<typeof connect>>) => Promise<unknown>): Promise<{ dataRoot: string; port: number; who: Awaited<ReturnType<typeof connect>> }> {
+    const dataRoot = join(tmp.root, `off-${randomBytes(3).toString("hex")}`);
+    const off = (await rig({ dataRoot })) as Rig & { port: number; close: () => Promise<void> };
+    const who = await connect(off, email);
+    const session = String((await tool(`${off.origin}/mcp`, "wake", {}, bearer(who.access)))["session"]);
+    await tool(`${off.origin}/mcp`, "remember", { session, text: "Off: the bread starter lives on the top shelf." }, bearer(who.access));
+    if (before !== undefined) await before(off, who);
+    await off.close();
+    assert.equal(existsSync(join(dataRoot, "keys")), false);
+    return { dataRoot, port: off.port, who };
+  }
+  const onBucket = async (o: { dataRoot: string; port: number }): Promise<{ s3: S3StandIn; bin: string; ring: Map<string, Buffer>; dataRoot: string; port: number }> => {
+    const s3 = await s3StandIn({ tls: true });
+    return { s3, bin: standinBinary(s3.ca, `litestream-${randomBytes(4).toString("hex")}`), ring: new Map([["v1", randomBytes(32)]]), dataRoot: o.dataRoot, port: o.port };
+  };
+
+  test("T2 (keys intact, a wrong empty bucket): refused at the first start, nothing made or put anywhere; start-over and restore --all --force refused too; R2_BUCKET fixed, it starts clean", async () => {
+    const lived = await livedStore({ tls: true });
+    const controlBefore = keysAt(lived.dataRoot, lived.ring).wrapped(CONTROL_KEY_ID);
+    assert.notEqual(controlBefore, null);
+    const wrong = await wrongBucket();
+    const value = newBucketOf(wrong.s3);
+    const run = await spawnServe(serveEnv({ ...lived, ...wrong }));
+    assert.equal(run.up, false);
+    const said = await run.stop();
+    assert.ok(said.includes(`[hosted] refused: this volume has been backed up (its control key is in keys/keys.sqlite), but the bucket R2_ENDPOINT and R2_BUCKET name ("${value}") has no control key: R2_BUCKET or R2_ENDPOINT is most likely wrong. Fix it and deploy again.`), said);
+    assert.ok(said.includes(`Only if this is a new, empty bucket on purpose (a move to a new bucket), set NEW_BUCKET=${value} (R2_ENDPOINT's host and R2_BUCKET) for one deploy, then unset it`), said);
+    assert.doesNotMatch(said, /did not start|serving/);
+    assert.equal(wrong.s3.objects.size, 0, "nothing reached the wrong bucket: no control key, no replica");
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(CONTROL_KEY_ID), controlBefore);
+    // The same rule stands in front of start-over (which against the wrong bucket would find "no replica") and restore (the #661 review).
+    const over = await command(serveEnv({ ...lived, ...wrong }), "start-over", lived.who.storeId);
+    assert.equal(over.status, 1);
+    assert.match(over.stderr, /refused: this volume has been backed up \(its control key is in keys\/keys\.sqlite\)/);
+    assert.doesNotMatch(over.stdout, /starts over/);
+    const forced = await command(serveEnv({ ...lived, ...wrong }), "restore", "--all", "--force");
+    assert.equal(forced.status, 1);
+    assert.match(forced.stderr, /refused: this volume has been backed up \(its control key is in keys\/keys\.sqlite\)/);
+    assert.equal(wrong.s3.objects.size, 0, "restore put nothing there");
+    // R2_BUCKET fixed: the start is the one it would have been.
+    const fixed = await spawnServe(serveEnv(lived));
+    assert.ok(fixed.up, fixed.stderr());
+    assert.equal((await rpc(door(lived.port), "tools/call", { name: "wake", arguments: {} }, bearer(lived.who.access))).status, 200);
+    const out = await fixed.stop();
+    assert.doesNotMatch(out, /refused|NEW_BUCKET|different key|backup\.keyless/);
+  });
+
+  test("T3 (keys.sqlite lost, a wrong empty bucket): refused at the first start, NEW_BUCKET doesn't count and isn't offered; R2_BUCKET fixed, CONTROL_ASIDE + RESTORE_ON_BOOT bring it back with no keys/ to remove", async () => {
+    const lived = await livedStore({ tls: true });
+    const id = lived.who.storeId;
+    const keyBefore = lived.s3.objects.get(keyObject(id))!.body.toString("utf8");
+    rmSync(join(lived.dataRoot, "keys"), { recursive: true, force: true });
+    const wrong = await wrongBucket();
+    for (const extra of [{}, { NEW_BUCKET: newBucketOf(wrong.s3) }] as Record<string, string>[]) {
+      const run = await spawnServe(serveEnv({ ...lived, ...wrong }, extra));
+      assert.equal(run.up, false);
+      const said = await run.stop();
+      assert.match(said, /\[hosted\] refused: this volume has been backed up \(a backup key file is here\) but has lost keys\/keys\.sqlite, and the bucket R2_ENDPOINT and R2_BUCKET name \("[^"]+"\) has no control key: R2_BUCKET or R2_ENDPOINT is most likely wrong\./);
+      assert.match(said, /the right bucket then asks for RESTORE_ON_BOOT=1 \(with CONTROL_ASIDE=<new label> when control databases are here\)/);
+      assert.match(said, /If the old bucket is gone, tell the coordinator/);
+      assert.doesNotMatch(said, /NEW_BUCKET/, "never a paste-ready NEW_BUCKET for a volume whose keys are in the old bucket only");
+      assert.equal(wrong.s3.objects.size, 0, "nothing reached the wrong bucket");
+      assert.equal(existsSync(join(lived.dataRoot, "keys")), false, "no new control key was made here");
+    }
+    // R2_BUCKET fixed: refused for the control key (#653's rule), whose way back now needs no `rm -rf keys/`.
+    const fixed = await spawnServe(serveEnv(lived));
+    assert.equal(fixed.up, false);
+    assert.match(await fixed.stop(), /refused: this volume has accounts\.sqlite and oauth\.sqlite but not the key that wrote the bucket's backups/);
+    const back = await spawnServe(serveEnv(lived, { CONTROL_ASIDE: "1", RESTORE_ON_BOOT: "1" }));
+    assert.ok(back.up, back.stderr());
+    assert.match(back.stderr(), /CONTROL_ASIDE=1: moved control\/ to control\.aside-1/);
+    assert.match(back.stderr(), /restored the control databases: 2 restored/);
+    assert.equal((await rpc(door(lived.port), "tools/call", { name: "wake", arguments: {} }, bearer(lived.who.access))).status, 200);
+    const out = await back.stop();
+    assert.doesNotMatch(out, /different key|backup\.keyless/);
+    assert.equal(keysAt(lived.dataRoot, lived.ring).wrapped(id), keyBefore, "the store's key is the bucket's, adopted");
+  });
+
+  test("keys/ and control/ both gone, the stores' key files left (the #661 review): a lived, backed-up volume, refused beside a wrong empty bucket; BACKUPS=off is refused for invite too", async () => {
+    const lived = await livedStore({ tls: true });
+    rmSync(join(lived.dataRoot, "keys"), { recursive: true, force: true });
+    rmSync(join(lived.dataRoot, "control"), { recursive: true, force: true });
+    const wrong = await wrongBucket();
+    const run = await spawnServe(serveEnv({ ...lived, ...wrong }));
+    assert.equal(run.up, false);
+    assert.match(await run.stop(), /refused: this volume has been backed up \(a backup key file is here\) but has lost keys\/keys\.sqlite/);
+    assert.equal(wrong.s3.objects.size, 0);
+    const off = await command({ PATH: process.env["PATH"] ?? "/usr/bin:/bin", HOME: tmp.root, COUNTERPARTS_REQUIRE_EXPLICIT_DIR: "1", HOSTED_DATA_ROOT: lived.dataRoot, PUBLIC_ORIGIN: "http://127.0.0.1:1", MAIL: "log", BACKUPS: "off" }, "invite");
+    assert.equal(off.status, 1);
+    assert.match(off.stderr, /BACKUPS=off on a volume that has been backed up \(keys\/keys\.sqlite, control\/litestream\.key or a store's litestream\.key is here\)/);
+    assert.doesNotMatch(off.stdout, /cpi_/);
+    assert.equal(existsSync(join(lived.dataRoot, "control")), false, "the invite made no control database");
+  });
+
+  test("the opt-in: NEW_BUCKET=<endpoint host>/<bucket> starts a lived volume on a new bucket, which gets its control key and its stores; the bucket's name alone, another host or another name doesn't count; left set, it changes nothing", async () => {
+    const lived = await livedStore({ tls: true });
+    const id = lived.who.storeId;
+    const keys = keysAt(lived.dataRoot, lived.ring);
+    const fresh = await wrongBucket(); // the new bucket, on purpose
+    const at = { ...lived, ...fresh };
+    const value = newBucketOf(fresh.s3);
+    for (const almost of ["bkt", "other-account.r2.cloudflarestorage.com/bkt", `${new URL(fresh.s3.tlsBase!).host}/bkt-new`]) {
+      const typo = await spawnServe(serveEnv(at, { NEW_BUCKET: almost }));
+      assert.equal(typo.up, false);
+      assert.ok((await typo.stop()).includes(`(NEW_BUCKET is set, but not to "${value}", so it doesn't count.)`), almost);
+    }
+    assert.equal(fresh.s3.objects.size, 0);
+    const run = await spawnServe(serveEnv(at, { NEW_BUCKET: value }));
+    assert.ok(run.up, run.stderr());
+    assert.ok(run.stderr().includes(`[hosted] NEW_BUCKET=${value}: this volume was backed up to another bucket, and starts on this one, which has no control key, on purpose.`), run.stderr());
+    await replicated(fresh.s3.objects, [keyObject(CONTROL_KEY_ID), keyObject(id), replicaPrefix(id), "control/accounts.sqlite/"]);
+    assert.equal(fresh.s3.objects.get(keyObject(CONTROL_KEY_ID))!.body.toString("utf8"), keys.wrapped(CONTROL_KEY_ID), "this volume's control key, not a new one");
+    assert.equal(fresh.s3.objects.get(keyObject(id))!.body.toString("utf8"), keys.wrapped(id));
+    assert.equal((await rpc(door(lived.port), "tools/call", { name: "wake", arguments: {} }, bearer(lived.who.access))).status, 200);
+    await run.stop();
+    const next = await spawnServe(serveEnv(at));
+    assert.ok(next.up, next.stderr());
+    assert.doesNotMatch(await next.stop(), /refused|NEW_BUCKET/);
+    const left = await spawnServe(serveEnv(at, { NEW_BUCKET: value }));
+    assert.ok(left.up, left.stderr());
+    assert.match(await left.stop(), /NEW_BUCKET is set, but the bucket already has the control key: it changed nothing\. Unset NEW_BUCKET\./);
+  });
+
+  test("BACKUPS=off → on: refused without NEW_BUCKET; with it, the control databases and every store that lived under off are backed up from that start", async () => {
+    const off = await offVolume("was-off@example.com");
+    const at = await onBucket(off);
+    const value = newBucketOf(at.s3);
+    const refused = await spawnServe(serveEnv(at));
+    assert.equal(refused.up, false);
+    assert.ok((await refused.stop()).includes(`[hosted] refused: this volume has people or stores but has never been backed up: it ran with BACKUPS=off. The bucket R2_ENDPOINT and R2_BUCKET name ("${value}") has no control key. To turn backups on into this bucket, set NEW_BUCKET=${value}`));
+    assert.equal(at.s3.objects.size, 0);
+    assert.equal(existsSync(join(off.dataRoot, "keys")), false);
+    const on = await spawnServe(serveEnv(at, { NEW_BUCKET: value }));
+    assert.ok(on.up, on.stderr());
+    assert.match(on.stderr(), /NEW_BUCKET=\S+: this volume ran without backups \(BACKUPS=off\)/);
+    assert.match(on.stderr(), mintedLine(off.who.storeId));
+    assert.doesNotMatch(on.stderr(), /backup\.keyless/);
+    await replicated(at.s3.objects, [keyObject(CONTROL_KEY_ID), keyObject(off.who.storeId), replicaPrefix(off.who.storeId), "control/accounts.sqlite/", "control/oauth.sqlite/"]);
+    const back = await tool(door(off.port), "wake", {}, bearer(off.who.access));
+    const found = await rpc(door(off.port), "tools/call", { name: "recall", arguments: { session: String(back["session"]), question: "bread starter shelf", mode: "facts" } }, bearer(off.who.access));
+    assert.match(JSON.stringify(found.body), /bread starter lives on the top shelf/);
+    await on.stop();
+    const next = await spawnServe(serveEnv(at));
+    assert.ok(next.up, next.stderr());
+    assert.doesNotMatch(await next.stop(), /refused|backup\.keyless|backup\.key\.minted|NEW_BUCKET/);
+  });
+
+  test("P1 (the #661 review): off → on cut short by the control key's PUT; without NEW_BUCKET the refusal says so (never \"backed up\"); with it the start finishes, and the store is backed up", async () => {
+    const off = await offVolume("cut-short@example.com");
+    const at = await onBucket(off);
+    const value = newBucketOf(at.s3);
+    at.s3.fault = ({ method, key }) => (method === "PUT" && key === keyObject(CONTROL_KEY_ID) ? 500 : null);
+    const cut = await spawnServe(serveEnv(at, { NEW_BUCKET: value }));
+    assert.equal(cut.up, false);
+    assert.match(await cut.stop(), /did not start: object store PUT answered 500/);
+    at.s3.fault = null;
+    assert.equal(at.s3.objects.has(keyObject(CONTROL_KEY_ID)), false);
+    const again = await spawnServe(serveEnv(at));
+    assert.equal(again.up, false);
+    const said = await again.stop();
+    assert.ok(said.includes(`refused: a start that turned backups on (NEW_BUCKET) was cut short before this volume's control key reached the bucket, and the bucket R2_ENDPOINT and R2_BUCKET name ("${value}") has no control key. If that is the bucket you are turning backups on into, set NEW_BUCKET=${value}`), said);
+    assert.doesNotMatch(said, /has been backed up|most likely wrong/);
+    const finish = await spawnServe(serveEnv(at, { NEW_BUCKET: value }));
+    assert.ok(finish.up, finish.stderr());
+    assert.match(finish.stderr(), /NEW_BUCKET=\S+: finishing a start that turned backups on and was cut short/);
+    assert.match(finish.stderr(), mintedLine(off.who.storeId));
+    await replicated(at.s3.objects, [keyObject(CONTROL_KEY_ID), keyObject(off.who.storeId), replicaPrefix(off.who.storeId)]);
+    await finish.stop();
+    const next = await spawnServe(serveEnv(at));
+    assert.ok(next.up, next.stderr());
+    assert.doesNotMatch(await next.stop(), /refused|backup\.keyless|backup\.key\.minted/);
+  });
+
+  test("P1b (the #661 review): a store's replica LIST fails at the off → on start: bucket-unreadable then; the next start, without NEW_BUCKET, gives it its key (never keys-newer)", async () => {
+    const off = await offVolume("list-fails@example.com");
+    const id = off.who.storeId;
+    const at = await onBucket(off);
+    at.s3.fault = ({ prefix }) => (prefix === replicaPrefix(id) ? 500 : null);
+    const on = await spawnServe(serveEnv(at, { NEW_BUCKET: newBucketOf(at.s3) }));
+    assert.ok(on.up, on.stderr());
+    assert.match(await on.stop(), keylessLine(id, "bucket-unreadable"));
+    at.s3.fault = null;
+    assert.equal(at.s3.objects.has(keyObject(id)), false);
+    const next = await spawnServe(serveEnv(at));
+    assert.ok(next.up, next.stderr());
+    const out = await next.stop();
+    assert.match(out, mintedLine(id));
+    assert.doesNotMatch(out, /keys-newer|refused/);
+    assert.ok(at.s3.objects.has(keyObject(id)));
+  });
+
+  test("P5 (the #661 review): a store whose delete is pending at the off → on start is left keyless (locked); after Keep, the next start gives it its key", async () => {
+    const off = await offVolume("pending@example.com", (r, who) => r.app.scheduleDelete(who.personId));
+    const id = off.who.storeId;
+    const at = await onBucket(off);
+    const on = await spawnServe(serveEnv(at, { NEW_BUCKET: newBucketOf(at.s3) }));
+    assert.ok(on.up, on.stderr());
+    assert.match(await on.stop(), keylessLine(id, "locked"));
+    assert.equal(at.s3.objects.has(keyObject(id)), false);
+    // Keep (the person's own button, through the app).
+    const k = (await rig({ dataRoot: off.dataRoot, backup: backupOptions(at.s3, at.ring, null), start: false })) as Rig & { port: number; close: () => Promise<void> };
+    assert.equal(k.app.keepAccount(off.who.personId), true);
+    await k.close();
+    const next = await spawnServe(serveEnv(at));
+    assert.ok(next.up, next.stderr());
+    const out = await next.stop();
+    assert.match(out, mintedLine(id));
+    assert.doesNotMatch(out, /keys-newer/);
+    assert.ok(at.s3.objects.has(keyObject(id)));
+  });
+
+  test("a first deploy starts with no variable, also after a first start cut short (P6: the control key's GET failed; P2: a read-only token's PUT) and after an invite made before it; NEW_BUCKET set there changes nothing", async () => {
+    // P6: the start's second GET of the control key (ensureAll's; prepareVolume's is the first) answers 500 once.
+    const p6 = await onBucket({ dataRoot: join(tmp.root, "p6"), port: await freePort() });
+    let gets = 0;
+    p6.s3.fault = ({ method, key }) => (method === "GET" && key === keyObject(CONTROL_KEY_ID) && ++gets === 2 ? 500 : null);
+    const cut = await spawnServe(serveEnv(p6));
+    assert.equal(cut.up, false);
+    assert.match(await cut.stop(), /did not start: object store GET answered 500/);
+    assert.ok(existsSync(join(p6.dataRoot, "keys", "keys.sqlite")) && existsSync(join(p6.dataRoot, "control", "accounts.sqlite")), "what it left");
+    p6.s3.fault = null;
+    const p6Again = await spawnServe(serveEnv(p6));
+    assert.ok(p6Again.up, p6Again.stderr());
+    assert.doesNotMatch(await p6Again.stop(), /refused/);
+    assert.ok(p6.s3.objects.has(keyObject(CONTROL_KEY_ID)));
+    // P2: a read-only token: the control key is made here, its PUT is refused.
+    const p2 = await onBucket({ dataRoot: join(tmp.root, "p2"), port: await freePort() });
+    p2.s3.fault = ({ method }) => (method === "PUT" ? 403 : null);
+    const ro = await spawnServe(serveEnv(p2));
+    assert.equal(ro.up, false);
+    assert.match(await ro.stop(), /did not start: object store PUT answered 403/);
+    assert.notEqual(keysAt(p2.dataRoot, p2.ring).wrapped(CONTROL_KEY_ID), null, "the control key was made here");
+    p2.s3.fault = null;
+    const p2Again = await spawnServe(serveEnv(p2));
+    assert.ok(p2Again.up, p2Again.stderr());
+    assert.doesNotMatch(await p2Again.stop(), /refused|most likely wrong/);
+    // An invite before the first start, then the first start; NEW_BUCKET set on it changes nothing.
+    const early = await onBucket({ dataRoot: join(tmp.root, "early"), port: await freePort() });
+    const invite = await command(serveEnv(early), "invite");
+    assert.equal(invite.status, 0, invite.stderr);
+    assert.match(invite.stdout.trim(), /^cpi_/);
+    const first = await spawnServe(serveEnv(early, { NEW_BUCKET: newBucketOf(early.s3) }));
+    assert.ok(first.up, first.stderr());
+    await replicated(early.s3.objects, [keyObject(CONTROL_KEY_ID), "control/accounts.sqlite/"]);
+    const said = await first.stop();
+    assert.match(said, /NEW_BUCKET is set, but this volume has no person and no store yet, so it starts as a new server without it: it changed nothing/);
+    assert.doesNotMatch(said, /refused/);
+    const after = await command(serveEnv(early), "invite");
+    assert.equal(after.status, 0, after.stderr);
+  });
+
+  test("P7 (the #661 re-check): a store with no opened mark at the off → on start (a database from before opened_at) is healed before the turn-on fact, so it is given its key", async () => {
+    const off = await offVolume("unmarked@example.com");
+    const id = off.who.storeId;
+    const db = openDb(join(off.dataRoot, "control", "accounts.sqlite"), { wal: true });
+    db.run("UPDATE stores SET opened_at = NULL WHERE id = ?", id);
+    db.close();
+    const at = await onBucket(off);
+    const on = await spawnServe(serveEnv(at, { NEW_BUCKET: newBucketOf(at.s3) }));
+    assert.ok(on.up, on.stderr());
+    const out = await on.stop();
+    assert.match(out, mintedLine(id));
+    assert.doesNotMatch(out, /backup\.keyless/);
+    assert.ok(at.s3.objects.has(keyObject(id)));
+    const next = await spawnServe(serveEnv(at));
+    assert.ok(next.up, next.stderr());
+    assert.doesNotMatch(await next.stop(), /backup\.keyless|keys-newer|refused/);
+  });
+
+  test("A3 (the #661 re-check): an accounts.sqlite that isn't a database, beside a bucket with no control key: its own refusal, NEW_BUCKET neither offered nor taken, nothing put", async () => {
+    const at = await onBucket({ dataRoot: join(tmp.root, "junk"), port: await freePort() });
+    mkdirSync(join(at.dataRoot, "control"), { recursive: true });
+    writeFileSync(join(at.dataRoot, "control", "accounts.sqlite"), "not a database, copied in by hand");
+    for (const extra of [{}, { NEW_BUCKET: newBucketOf(at.s3) }] as Record<string, string>[]) {
+      const run = await spawnServe(serveEnv(at, extra));
+      assert.equal(run.up, false);
+      const said = await run.stop();
+      assert.match(said, /\[hosted\] refused: control\/accounts\.sqlite is on this volume but isn't a database this server can read/);
+      assert.doesNotMatch(said, /NEW_BUCKET|BACKUPS=off|did not start/);
+      assert.equal(at.s3.objects.size, 0);
+    }
+    assert.equal(readFileSync(join(at.dataRoot, "control", "accounts.sqlite"), "utf8"), "not a database, copied in by hand");
   });
 });

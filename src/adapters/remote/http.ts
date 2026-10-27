@@ -55,7 +55,7 @@ import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { ERROR_CODES, failure, parseLine } from "../mcp/protocol.js";
-import type { Request, Response } from "../mcp/protocol.js";
+import type { Id, Request, Response } from "../mcp/protocol.js";
 
 /** The one address this server binds. */
 export const LOOPBACK = "127.0.0.1";
@@ -132,10 +132,13 @@ export interface McpPostOptions {
   readonly gate?: () => Refusal | null;
   /**
    * Asked when a message's call throws: a refusal answers the WHOLE request
-   * with its status and headers (any answers already made in a batch are
-   * dropped) instead of the message's JSON-RPC "internal error". The hosted
-   * door uses it for a store locked, or a token revoked, while the message
-   * waited its turn. Absent, or null for this error ⇒ "internal error".
+   * with its status and headers, instead of the message's JSON-RPC "internal
+   * error", while no message of it has run. In a batch where one already ran,
+   * the answers made are kept: that message and each one refused after it
+   * carries its own `REFUSED_ERROR` (with the status in `data`), and HTTP stays
+   * 200, so a client never sends again a write that was made. The hosted door
+   * uses it for a store locked, or a token revoked, while the message waited its
+   * turn. Absent, or null for this error ⇒ "internal error".
    */
   readonly refusal?: (err: unknown) => Refusal | null;
 }
@@ -146,12 +149,27 @@ export interface Refusal {
   readonly headers?: Record<string, string>;
 }
 
-/** Carries a `refusal` out of one message to the request's answer. */
+/**
+ * The JSON-RPC error a message refused inside a batch carries, once another
+ * message of the batch has run (`McpPostOptions.refusal`): implementation-defined
+ * (-32000 to -32099), and never "internal error". `data.status` is the HTTP
+ * status the whole request would have had; `data.retryAfter` its Retry-After.
+ *
+ * A code no MCP client gives a meaning to (the #661 review: -32001 is the TS
+ * SDK's RequestTimeout). The SDK 1.32.2 defines -32000 ConnectionClosed,
+ * -32001 RequestTimeout, -32042 UrlElicitationRequired and the JSON-RPC ones,
+ * and uses -32099; the MCP spec names -32002 (resource not found).
+ */
+export const REFUSED_ERROR = -32050;
+
+/** Carries a `refusal` out of one message (and that message's id) to the request's answer. */
 class Refused extends Error {
   readonly refusal: Refusal;
-  constructor(refusal: Refusal) {
+  readonly id: Id | undefined;
+  constructor(refusal: Refusal, id: Id | undefined) {
     super("refused");
     this.refusal = refusal;
+    this.id = id;
   }
 }
 
@@ -241,7 +259,7 @@ function json(res: ServerResponse, status: number, body: unknown, headers: Recor
 }
 
 /** One message through the server, and its call-log record. */
-async function one(raw: unknown, connection: string | null, target: McpTarget, opts: McpPostOptions, now: () => number): Promise<Response | null> {
+async function one(raw: unknown, connection: string | null, target: McpTarget, opts: McpPostOptions, now: () => number, ran: { any: boolean }): Promise<Response | null> {
   const started = now();
   const parsed = parseLine(JSON.stringify(raw));
   if (!parsed.ok) {
@@ -253,12 +271,14 @@ async function one(raw: unknown, connection: string | null, target: McpTarget, o
   let response: Response | null;
   try {
     response = await target.serial(() => target.server.handle(request));
+    ran.any = true;
   } catch (err) {
     const refused = opts.refusal?.(err) ?? null;
     if (refused !== null) {
       tell(() => opts.onCall?.({ at: new Date(started).toISOString(), method: code(request.method, 64) ?? "other", connection, ok: false, reason: String(refused.status), ms: now() - started }));
-      throw new Refused(refused);
+      throw new Refused(refused, request.id);
     }
+    ran.any = true; // it reached the server, and may have written before it threw
     // The message stays on this machine: it could name a path on disk.
     response = request.id === undefined ? null : failure(request.id, ERROR_CODES.INTERNAL_ERROR, "internal error");
   }
@@ -375,9 +395,22 @@ export function handleMcpPost(req: IncomingMessage, res: ServerResponse, target:
       const initializing = messages.some((m) => m !== null && typeof m === "object" && (m as Record<string, unknown>)["method"] === "initialize");
       const connection = initializing ? randomUUID() : (carried ?? null);
       const responses: Response[] = [];
+      // Whether any message reached the server. Until one has, a refusal
+      // answers the whole request (the client signs in again and sends it all).
+      // After, the answers made are kept and each refused message carries its
+      // own error: a whole-request 401 there would hide a write that was made,
+      // and a client sending the batch again would make it twice.
+      const ran = { any: false };
       try {
         for (const message of messages) {
-          const response = await one(message, connection, target, opts, now);
+          let response: Response | null;
+          try {
+            response = await one(message, connection, target, opts, now, ran);
+          } catch (err) {
+            if (!(err instanceof Refused) || !ran.any) throw err;
+            const retryAfter = err.refusal.headers?.["Retry-After"];
+            response = err.id === undefined ? null : failure(err.id, REFUSED_ERROR, `refused (HTTP ${String(err.refusal.status)}): this message did not run`, { status: err.refusal.status, ...(retryAfter === undefined ? {} : { retryAfter }) });
+          }
           if (response !== null) responses.push(response);
         }
       } catch (err) {

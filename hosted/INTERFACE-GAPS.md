@@ -140,3 +140,14 @@
     `ensureStore`: a store set to be deleted with no key here and none in the bucket is counted keyless with the
     reason `locked` (audited and logged through `onKeyless`, like R5's other reasons) and never reaches
     `mintRefusal` or the mint. A mint added anywhere else needs the same check.
+
+## A lived volume beside a bucket with no control key (R7, 10-27)
+
+40. **`BACKUPS=off` → on, and `keys.sqlite` lost before every store has its key.** The turn-on fact
+    (`backups-turned-on`) lives in `keys.sqlite`, so a turn-on cut short, or a store left keyless at it (a failed
+    check, a pending delete), heals at a later start (the #661 review). If `keys.sqlite` is then lost before those
+    stores have their keys, the fact goes with it and they are `keys-newer` for good, like R5's own two-failures case
+    (§33). A way out would be the same operator `--rekey`.
+41. **A lost `keys/keys.sqlite` moved to a new bucket on purpose** is refused (`NEW_BUCKET` doesn't count once a key
+    file says the volume was backed up): its stores' keys are in the old bucket only. Today's answer is "go back to
+    the old bucket"; with the old bucket gone too there is none, as in §33.

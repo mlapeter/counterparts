@@ -28,7 +28,7 @@ import type { McpServer } from "../src/adapters/mcp/index.js";
 import { CLAUDE_AI_INSTRUCTIONS, DESKTOP_INSTRUCTIONS } from "../src/adapters/mcp/server-words.js";
 import { readSession } from "../src/adapters/sessions.js";
 import type { SpawnPlan } from "../src/adapters/spawn.js";
-import { LOOPBACK, MAX_BATCH, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
+import { LOOPBACK, MAX_BATCH, REFUSED_ERROR, handleMcpPost, newSecret, serialQueue, serveHttp } from "../src/adapters/remote/http.js";
 import type { CallRecord, McpTarget, RunningHttp } from "../src/adapters/remote/http.js";
 import { openCallLog, summarizeCalls, summarizeChats } from "../src/adapters/remote/call-log.js";
 import { livePathRefusal, liveStoreRefusal, readLaunch } from "../src/adapters/remote/bin/serve-http.js";
@@ -375,6 +375,54 @@ describe("the POST handler, mounted behind another door's router (OL2 step 1: th
     await Promise.all([rpc(url, "ping", undefined, { "x-target": "a" }), rpc(url, "ping", undefined, { "x-target": "a" }), rpc(url, "ping", undefined, { "x-target": "b" })]);
     expect(seen.a.most).toBe(1);
     expect(order[0]).toBe("b");
+  });
+});
+
+describe("the refusal hook inside a batch (R7's rider)", () => {
+  test("whole-request while nothing ran; once a message ran, its answer is kept and each refused one carries REFUSED_ERROR", async () => {
+    class Shut extends Error {}
+    let shutAfter = 0; // handle calls served before the store "locks"
+    let handled = 0;
+    const target: McpTarget = {
+      server: {
+        async handle(request: { id?: string | number }) {
+          if (handled >= shutAfter) throw new Shut("locked");
+          handled += 1;
+          return { jsonrpc: "2.0", id: request.id ?? 0, result: { ran: handled } };
+        },
+      } as unknown as McpTarget["server"],
+      serial: serialQueue(),
+    };
+    const server = createServer((req, res) => handleMcpPost(req, res, target, { refusal: (err) => (err instanceof Shut ? { status: 503, headers: { "Retry-After": "30" } } : null) }));
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    closers.push(() => new Promise<void>((r) => server.close(() => r())));
+    const url = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}/`;
+    const post = (body: unknown): Promise<Response> => fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const ping = (id?: number): Record<string, unknown> => ({ jsonrpc: "2.0", method: "ping", ...(id === undefined ? {} : { id }) });
+
+    // Nothing ran (an invalid message never reaches the server): the whole request, with its headers.
+    const whole = await post([{ jsonrpc: "2.0", id: 9 }, ping(1), ping(2)]);
+    expect(whole.status).toBe(503);
+    expect(whole.headers.get("retry-after")).toBe("30");
+
+    // The first ran: kept; the refused ones carry their own error; a refused notification answers nothing.
+    shutAfter = 1;
+    const split = await post([ping(1), ping(2), ping(), ping(4)]);
+    expect(split.status).toBe(200);
+    const body = (await split.json()) as Record<string, unknown>[];
+    expect(body).toEqual([
+      { jsonrpc: "2.0", id: 1, result: { ran: 1 } },
+      { jsonrpc: "2.0", id: 2, error: { code: REFUSED_ERROR, message: "refused (HTTP 503): this message did not run", data: { status: 503, retryAfter: "30" } } },
+      { jsonrpc: "2.0", id: 4, error: { code: REFUSED_ERROR, message: "refused (HTTP 503): this message did not run", data: { status: 503, retryAfter: "30" } } },
+    ]);
+    // A code no MCP client gives a meaning to: not JSON-RPC's, not the TS SDK's (ConnectionClosed, RequestTimeout,
+    // UrlElicitationRequired, -32099), not the spec's resource-not-found.
+    expect(REFUSED_ERROR).toBe(-32050);
+    for (const taken of [-32700, -32600, -32601, -32602, -32603, -32000, -32001, -32002, -32042, -32099]) expect(REFUSED_ERROR).not.toBe(taken);
+
+    // A single message is unchanged: the whole request.
+    const single = await post(ping(5));
+    expect(single.status).toBe(503);
   });
 });
 

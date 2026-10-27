@@ -57,7 +57,7 @@ export const replicaPrefix = (storeId: string): string => `tenants/${storeId}/`;
 
 /** The refusal when the bucket's control key is another DEK than this volume's. */
 export const CONTROL_KEY_DIFFERS =
-  "the bucket's control key is a different key from this volume's (keys/keys.sqlite): a start against another bucket (a wrong R2_BUCKET) made this volume a new one. The way back: remove keys/ from the volume (rm -rf /data/keys on Railway), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).";
+  "the bucket's control key is a different key from this volume's (keys/keys.sqlite): a start against another bucket (a wrong R2_BUCKET or R2_ENDPOINT, after keys/keys.sqlite was lost: by a build before R7, or before anyone had signed up) made this volume a new one. The way back: remove keys/ from the volume (rm -rf /data/keys on Railway), then deploy once with CONTROL_ASIDE=<new label> and RESTORE_ON_BOOT=1 (docs/hosted/RUNBOOK.md, If a start refuses).";
 
 /** A store that was opened before has no key on this volume and none in the bucket. */
 export class StoreKeyMissing extends Error {
@@ -258,6 +258,9 @@ export class Backups {
     // proven the same DEK as this volume's (a different one throws).
     const bucketProven = (await this.opts.objects.get(keyObject(CONTROL_KEY_ID))) !== null;
     await this.ensureStore(CONTROL_KEY_ID, { reload: false });
+    // The control key is in this bucket now (adopted, proven or put): a later
+    // start beside a bucket without it is no longer "a turn-on cut short" (R7).
+    this.opts.keys.recordFact("control-key-in-bucket");
     let keyless = 0;
     let minted = 0;
     for (const id of this.opts.liveStores()) {
@@ -308,6 +311,13 @@ export class Backups {
    * Every key a store can have is made or adopted in `keys.sqlite`, and every
    * replica of it is written under one: so with (a)–(f2), no copy of it anywhere
    * is under a key that is gone, and a new key buries nothing.
+   *
+   * A STORE OPENED BEFORE BACKUPS WERE TURNED ON (R7; `keys.sqlite`'s
+   * `backups-turned-on`, written by the NEW_BUCKET start of a volume that ran
+   * with BACKUPS=off) has (f) and (f2) waived, at that start and every later
+   * one: it never had a key anywhere, and both checks are newer than it by
+   * construction. (c), (d) and (e) still hold it back. The fact lives in
+   * `keys.sqlite`, so a volume that lost that file loses the waiver with it.
    */
   private async mintRefusal(storeId: string, bucketProven: boolean): Promise<KeylessReason | null> {
     if (this.opts.keys.wrapped(storeId) !== null) throw new Error("a store with a key here reached the mint"); // (a): ensureStore's invariant
@@ -318,9 +328,13 @@ export class Backups {
     } catch {
       return "bucket-unreadable";
     }
+    const opened = this.opts.openedAt?.(storeId) ?? null;
+    const turnedOn = this.opts.keys.fact("backups-turned-on");
+    // `<=`: the start's own heal marks a store from before `opened_at` just before the fact, maybe in the same
+    // millisecond (the #661 re-check, P7); nothing else opens a store then (the server doesn't listen yet).
+    if (turnedOn !== null && opened !== null && opened <= turnedOn) return null;
     if (!bucketProven) return "bucket-unproven";
     const keysMade = this.opts.keys.createdAt(CONTROL_KEY_ID);
-    const opened = this.opts.openedAt?.(storeId) ?? null;
     if (keysMade === null || opened === null || keysMade >= opened) return "keys-newer"; // equal refuses too (the #658 review)
     return null;
   }

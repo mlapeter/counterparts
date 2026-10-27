@@ -176,7 +176,10 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       door re-runs `authenticate` inside the store's queue before each call, so a delete then a Keep (the lock gone,
       the grant not) or a disconnect, landing while a body arrived or a call waited, never serves the old token. Any
       such refusal answers the whole request `401` (`503` if the check itself throws), never a `200` "internal
-      error" (`McpPostOptions.refusal`).
+      error" (`McpPostOptions.refusal`), while no message of the request has run. In a batch where one already ran,
+      its answers are kept: HTTP stays `200`, and each refused message carries its own JSON-RPC error
+      (`REFUSED_ERROR`, -32050, with `data.status` and `data.retryAfter`), so a client never sends a made write
+      again.
     - **The erase is never early and never forgotten.** `delete_after` is in the replicated control database. The finish
       timer (every ten minutes) and start-up begin the erase of a pending delete only once its deadline has passed, in
       one statement that a keep can't race; then the sequence below runs, and is retried until it ends.
@@ -228,7 +231,9 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       The safety comes from the replica check, the key-age check, and `config()` listing only stores with a key: a
       store this `keys.sqlite` never held a key for was never replicated by this volume, anywhere. The control-key
       check does NOT prove the bucket is this volume's (a wrong bucket passes it at its second start); it only
-      keeps the first start against a new bucket from minting.
+      keeps the first start against a new bucket from minting. Since R7 a lived volume reaches a bucket with no
+      control key only through `NEW_BUCKET` (§31). Stores opened before backups were turned on (`keys.sqlite`'s
+      `backups-turned-on`) have (f) and the key-age check waived.
 
       Each mint is audited (`backup.key.minted`) and logged by `storeTag`, and its key file is rewritten whatever
       was there. Otherwise the store is left out of the backups, counted (`keyless`), audited and logged by tag
@@ -263,11 +268,40 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     - a volume with the key and a control database missing (a control restore cut short) restores that one alone,
       or refuses.
 
-    Starting anyway would make empty control databases and replicate them over the real ones. A new server with an
-    empty bucket starts as before. The same rule stands in front of every control restore (`restoreControl`: the CLI's
-    `restore control` and `--all` too). The control key is adopted only when no control file here is kept.
+    Starting anyway would make empty control databases and replicate them over the real ones. The same rule stands in
+    front of every control restore (`restoreControl`: the CLI's `restore control` and `--all` too). The control key is
+    adopted only when no control file here is kept.
+    - **A volume that lived beside a bucket with NO control key is refused** (R7, `main.ts#emptyBucket`). Lived means
+      a person or a store in the accounts database (any state), or a store's dir. An accounts database that isn't
+      one has its own refusal, with no `NEW_BUCKET`. Starting would make the volume a control key in that bucket and back the control databases up there:
+      with a wrong `R2_BUCKET` or `R2_ENDPOINT`, every control write from then on goes to the wrong bucket. The
+      refusal names the case it thinks it is, from what the volume holds, in this order:
+      - `backups-turned-on` in `keys.sqlite` without `control-key-in-bucket`: a `NEW_BUCKET` start turning backups on
+        was cut short. `NEW_BUCKET` again finishes it;
+      - the control key is here: `R2_BUCKET` or `R2_ENDPOINT` is most likely wrong. `NEW_BUCKET` moves it on purpose;
+      - a key file (`control/litestream.key` or any `tenants/<id>/litestream.key`) but no control key (`keys.sqlite`
+        lost): most likely wrong too, and the right bucket then asks for `RESTORE_ON_BOOT` (with `CONTROL_ASIDE` when
+        control databases are here), with no `keys/` to remove. **`NEW_BUCKET` never counts here and isn't offered**:
+        the stores' keys are only in the old bucket;
+      - none of those: a `BACKUPS=off` volume. `NEW_BUCKET` turns backups on.
+    - **A volume with nothing to lose starts as a new server** (no person, no store), whatever a first start cut short
+      left: an empty or full `keys.sqlite` (a GET or a read-only PUT that failed), a control key file, an invite made
+      before the first start.
+    - **`NEW_BUCKET=<R2_ENDPOINT's host>/<R2_BUCKET>` is the opt-in.** Bound to both, so one left set never vouches for
+      another bucket, by name or by account; any other value doesn't count, and the refusal says so. Used, it logs a
+      line; set and not needed, it logs that it changed nothing.
+    - **Turning backups on is recorded in `keys.sqlite`** (`backups-turned-on`, written at the start of the
+      `NEW_BUCKET` start before anything is made or put), and every store opened before it has R5's (f) and (f2)
+      waived, at that start and every later one (`Backups#mintRefusal`); (c), (d) and (e) still hold. The start's
+      `opened_at` heal runs before the fact, so a store from before that column counts as opened before it. So a turn-on cut
+      short anywhere, a replica check that failed, or a delete pending then and kept later, all end with the store
+      backed up. The fact goes with `keys.sqlite`: a volume that lost it is treated as one whose keys may be elsewhere.
+      `control-key-in-bucket` is recorded once `ensureAll` has the control key in the bucket.
+    - The rule stands in front of `invite`, `rewrap`, `start-over` and `restore` too (a `start-over` against a wrong,
+      empty bucket would find "no replica"; a `restore --all --force` would put the control key there).
     - `invite` needs the backups named or `BACKUPS=off` said, so it never skips this check by accident.
-    - `BACKUPS=off` is refused on a volume that has been backed up (`keys/keys.sqlite` or `control/litestream.key`).
+    - `BACKUPS=off` is refused on a volume that has been backed up (`keys/keys.sqlite`, `control/litestream.key` or a
+      store's `litestream.key`), for `serve` and for `invite`, `rewrap` and `start-over`.
     - `CONTROL_ASIDE=<label>` (`main.ts#controlAsideAtStart`, `serve` only, never with `BACKUPS=off`) moves `control/`
       to `control.aside-<label>` before anything opens it, ONLY on a volume `foreignControlRefusal` refuses (on any
       other, nothing moves, no guard is written, and the start goes on), and AT MOST ONCE PER LABEL: the guard

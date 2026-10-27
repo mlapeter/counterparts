@@ -28,6 +28,7 @@ import type { ObjectStore } from "../src/egress.js";
 import { EnvKeyWrapper } from "../src/keys.js";
 import { StoreLocked, tenantDir } from "../src/tenants.js";
 import { openDb } from "../../src/core/store/db.js";
+import { REFUSED_ERROR } from "../../src/adapters/remote/http.js";
 import { rpc, tempRoot, tool } from "./helpers.js";
 
 const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
@@ -795,5 +796,61 @@ describe("the #659 review", () => {
     const got = await q.release();
     assert.equal(got.status, 401);
     assert.doesNotMatch(JSON.stringify(got.body), /jade frog/);
+  });
+});
+
+describe("the #659 re-check rider: a refusal inside a batch", () => {
+  test("a batch [remember, recall] whose recall is refused after the remember ran (a disconnect between them): 200, the remember's answer kept, only the recall carries the refusal", async () => {
+    const r = await rig({ finishEveryMs: 60 * 60 * 1000 });
+    const me = await signUp(r, "batch@example.com");
+    const c = await connect(r, me.browser);
+    const session = String((await tool(`${r.origin}/mcp`, "wake", {}, bearer(c.access)))["session"]);
+    // Hold the store's queue, so the batch's first message waits its turn behind A.
+    let openA: () => void = () => undefined;
+    const heldA = r.app.tenants.withTenant(me.storeId, {}, (t) => t.serial(() => new Promise<void>((res) => (openA = res))));
+    await new Promise((res) => setTimeout(res, 50));
+    const batch = [
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "remember", arguments: { session, text: "The batch wrote this: the spare oars hang in the boathouse rafters." } } },
+      { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "recall", arguments: { session, question: "spare oars boathouse", mode: "facts" } } },
+    ];
+    const answer = fetch(`${r.origin}/mcp`, { method: "POST", headers: { ...bearer(c.access), "content-type": "application/json", accept: "application/json, text/event-stream" }, body: JSON.stringify(batch), signal: AbortSignal.timeout(60_000) });
+    await new Promise((res) => setTimeout(res, 150)); // the body is in; its first message is queued behind A
+    // B, queued behind the first message: the second is handed to the queue only once the first has answered, so it waits behind B.
+    let openB: () => void = () => undefined;
+    let bStarted: () => void = () => undefined;
+    const started = new Promise<void>((res) => (bStarted = res));
+    const heldB = r.app.tenants.withTenant(me.storeId, {}, (t) =>
+      t.serial(
+        () =>
+          new Promise<void>((res) => {
+            bStarted();
+            openB = res;
+          }),
+      ),
+    );
+    openA();
+    await heldA;
+    await started; // the remember has run
+    const grant = r.app.oauth.store.grantsOf(me.personId)[0]!.id;
+    const csrf = csrfOf(await (await me.browser.go("/account")).text());
+    await me.browser.form("/account/disconnect", { csrf, id: grant });
+    assert.equal(r.app.oauth.store.grantsOf(me.personId).length, 0);
+    openB();
+    await heldB;
+    const res = await answer;
+    assert.equal(res.status, 200, "made answers are kept: never a whole-request 401 once a message ran");
+    const body = (await res.json()) as Record<string, unknown>[];
+    assert.equal(body.length, 2);
+    assert.equal(body[0]!["id"], 1);
+    const remembered = body[0]!["result"] as Record<string, unknown>;
+    assert.notEqual(remembered["isError"], true);
+    assert.equal(body[1]!["id"], 2);
+    assert.deepEqual(body[1]!["error"], { code: REFUSED_ERROR, message: "refused (HTTP 401): this message did not run", data: { status: 401 } });
+    assert.doesNotMatch(JSON.stringify(body), /spare oars/, "the recall never ran");
+    // The remember was written: a new connection finds it.
+    const again = await connect(r, me.browser);
+    const s2 = String((await tool(`${r.origin}/mcp`, "wake", {}, bearer(again.access)))["session"]);
+    const found = await rpc(`${r.origin}/mcp`, "tools/call", { name: "recall", arguments: { session: s2, question: "spare oars boathouse", mode: "facts" } }, bearer(again.access));
+    assert.match(JSON.stringify(found.body), /spare oars hang in the boathouse rafters/);
   });
 });

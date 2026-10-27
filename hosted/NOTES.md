@@ -243,10 +243,11 @@ command minted, and the RUNBOOK's "tell the coordinator" led nowhere.
 - **A 404 NoSuchBucket now throws** in `r2ObjectStore.get` and `.delete`, so a wrong `R2_BUCKET` is never read as "no
   such object" or "already deleted". Before, a typo'd bucket read as empty until the first PUT failed.
 - **The control key's mismatch says so** (the #658 review). A volume that lost `keys.sqlite` and started against a
-  wrong, empty bucket makes itself a new control key (#653's behaviour, kept). Back on the right bucket, the start
+  wrong, empty bucket made itself a new control key (#653's behaviour). Back on the right bucket, the start
   used to refuse with "a different key for that store is already here"; it now names the control key and the way
   back (remove `keys/`, one deploy with `CONTROL_ASIDE` and `RESTORE_ON_BOOT`), and a test runs that way back
-  through serve. Refusing a lived volume beside a bucket with no control key is R7, separate.
+  through serve. Since R7 (below) that wrong-bucket start is refused, so this path is reached only when
+  `NEW_BUCKET` was set on a wrong bucket.
 - **The lines are fixed words by tag** (`main.ts#eventLine`): `backup.key.minted storeTag=…`, or `backup.keyless
   storeTag=… reason=…` with one of six reasons (`backup.ts#KEYLESS_REASONS`), above the count lines. Each is audited
   (`backup.key.minted`, or `backup.keyless` with the reason in the detail). The mint is audited and logged once the key
@@ -329,7 +330,86 @@ Each fix has a test in `test/delete.test.ts` ("the #659 review") or `test/ops.te
 - **LOW: a queued call refused by the lock answered 200 with JSON-RPC "internal error".** `one()` in
   `remote/http.ts` caught `StoreLocked`. `McpPostOptions.refusal` now lets the door turn a call's error into an HTTP
   answer for the whole request (`401` for a locked store or a revoked token, `503` when the re-check throws). In a
-  batch, answers already made are dropped with it: the client re-authenticates and sends again.
+  batch, answers already made were dropped with it (changed by R7's rider, below).
 - All four cases (slow body + Keep, slow body + disconnect, queued + lock, queued + delete and Keep) fail on Node 24
   without the change and pass with it, on both runtimes.
 - **start-over refuses a store set to be deleted** (operator only; it read `liveStoreIds`, which includes pending).
+
+## R7: a lived volume beside a bucket with no control key (10-27)
+
+From the #658 review (its T2/T3). `prepareVolume` let any volume start beside a bucket with no control key, and the
+start then made the volume a control key in that bucket and replicated the control databases there. On a volume that
+had lived, that is a wrong `R2_BUCKET` (or a lost `keys.sqlite` beside one): the control writes made in that window
+went to the wrong bucket, and fixing `R2_BUCKET` then refused "a different key" with a manual way back (`rm -rf
+/data/keys`, `CONTROL_ASIDE`, `RESTORE_ON_BOOT`) that lost those writes. #658's (f)/(f2) kept it from minting STORE
+keys there, but the control key itself was made. The guarantee is CONTRACT §31.
+
+- **Refused now, unless `NEW_BUCKET` names the bucket.** Lived = a person or a store (the #661 review's HIGH 2,
+  below; the brief's `localKey || present.length > 0` gave false refusals). A volume with nothing to lose starts with
+  no variable.
+- **The refusal names its case from what the volume holds** (`main.ts#emptyBucket`): a turn-on cut short; the control
+  key here (T2: the bucket is most likely wrong); a key file without it (T3: `keys.sqlite` lost, and the bucket most
+  likely wrong); none (a `BACKUPS=off` volume). A key file (`control/litestream.key` or a store's) tells T3 from off
+  because a `BACKUPS=off` run never writes one (the M2 refusal leans on the same files).
+- **T3 fixed now needs no `rm -rf /data/keys`.** No control key is made at the refused start, so the right bucket
+  refuses for the control key as #653 designed, and `CONTROL_ASIDE` + `RESTORE_ON_BOOT` bring the control databases
+  back. A test runs it through serve.
+- **Chosen: `NEW_BUCKET=<R2_ENDPOINT's host>/<R2_BUCKET>`, not `=1`.** Bound to both, so one left set never vouches for
+  a different bucket or account (the dangerous later mistake is exactly a changed `R2_BUCKET`), and the refusal prints
+  the line to paste. No guard file like `CONTROL_ASIDE`'s: once used, the bucket has the control key and the variable
+  changes nothing (each start says so until it is unset).
+- **Found: `BACKUPS=off` → on left every store unbacked for good, before R7 too.** The stores lived (`opened_at`) with
+  no key anywhere, so R5's mint refused them: `bucket-unproven` at the first start, then `keys-newer` at every start
+  after (the control key is newer than every store by construction). Now the turn-on is a fact in `keys.sqlite`
+  (below), and every store opened before it has (f) and (f2) waived; (c), (d) and (e) still check the bucket. Such a
+  store never had a key to lose, and both checks exist to doubt exactly what the operator said.
+
+### The #661 review (high), and its fixes
+
+Each has a test in `test/ops.test.ts`'s R7 block, through a spawned serve with `s3.fault`.
+
+- **HIGH 1: the waiver lasted one start, and "never backed up" was read from files a start makes before anything
+  reaches the bucket.** An off → on start cut short by the control key's PUT (P1) was then refused as "has been backed
+  up … most likely wrong", and with `NEW_BUCKET` again its store went `bucket-unproven`, then `keys-newer` for good;
+  likewise a replica LIST that failed at that start (P1b), and a store whose delete was pending then and kept later
+  (P5). Now `app.start` records `backups-turned-on` in `keys.sqlite` before anything else, the waiver is read from it
+  at every start for the stores opened before it, and `ensureAll` records `control-key-in-bucket`; a turn-on fact
+  without that one is "a turn-on cut short", which `NEW_BUCKET` finishes. In `keys.sqlite`, so a volume that lost it
+  loses the waiver too (T3 stays safe). Sabotage-checked: without the waiver the four off → on tests fail.
+- **HIGH 2: a first deploy could be refused with false text.** A first start whose second GET failed (P6) or whose
+  token was read-only (P2) left `keys.sqlite` (and a control key) and control databases, and the next start was
+  refused as T3 or T2. Now a volume with no person and no store starts as a new server whatever it holds; that also
+  ends the invite-before-the-first-start refusal. `keys.sqlite` existing no longer counts as a backup trace in R7.
+- **LOW 3:** `NEW_BUCKET` binds `R2_ENDPOINT`'s host too (a move between Cloudflare accounts keeps the bucket's name).
+- **LOW 4:** T3 never takes `NEW_BUCKET`, and its refusal doesn't print one.
+- **LOW 5:** a store's `litestream.key` counts as a backup trace (T3, and M2's `BACKUPS=off` refusal), and M2 now
+  also stands in front of `invite`, `rewrap` and `start-over`.
+- **LOW 6:** `restore` stands behind the R7 check (`emptyBucketGate`): `restore --all --force` beside a wrong, empty
+  bucket put the control key there.
+- **LOW 7 (the rider):** `REFUSED_ERROR` is -32050; -32001 is the TS SDK's `RequestTimeout`.
+
+### The #661 re-check (approved), and three small items
+
+- **P7:** a store with no `opened_at` at the turn-on (an image upgrade and `NEW_BUCKET` in one deploy) was marked by
+  the start's heal AFTER `backups-turned-on`, so it was never "opened before" and stayed `keys-newer`. The heal now
+  runs first, and the waiver compares `<=` (the two writes can share a millisecond; nothing opens a store before the
+  server listens).
+- **A3:** an `accounts.sqlite` that isn't a database got the BACKUPS=off text, and `NEW_BUCKET` there would only have
+  crashed in `Accounts`. It has its own refusal now, without `NEW_BUCKET`.
+- **The hosted-bun flake** ("restore by hand", `ops.test.ts`): it waited for any object under the store's prefix, which
+  `wake` had already put. It now waits for the remembered words in the replica's bytes (`replicatedText`).
+
+### R7's rider: a refusal inside a batch keeps the answers made (the #659 re-check, LOW)
+
+- **A batch's refusal replaced the whole answer, including messages that had run.** `[remember, recall]` with a
+  disconnect landing between them answered `401`, but the remember was written: a client sending the batch again
+  writes twice (worse with `503` and `Retry-After`, which says "send again").
+- **Now** (`remote/http.ts#handleMcpPost`): until a message of the request has reached the server, a refusal still
+  answers the whole request (`401`/`503`, with its headers). Once one has, the answers made are kept, HTTP is `200`,
+  and the refused message and each one refused after it carries `REFUSED_ERROR` (-32050, "refused (HTTP 401): this
+  message did not run", `data: { status, retryAfter? }`). A message that threw anything else counts as run (it may
+  have written). Single messages, all claude.ai sends (MCP 2025-06-18 has no batches), are unchanged.
+- **The test builds the window for real** (`test/delete.test.ts`, the rider block): the store's queue is held, the
+  batch queued, a second hold queued behind its first message, the disconnect made once the remember ran, then the
+  recall re-checks its token. It fails on Node 24 without the change.
+

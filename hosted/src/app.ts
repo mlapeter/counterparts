@@ -91,6 +91,13 @@ export interface StartOptions {
    * point, before anything opens them: `restoreControl`).
    */
   readonly restore?: LitestreamRun;
+  /**
+   * NEW_BUCKET on a volume that ran with BACKUPS=off (R7;
+   * `main.ts#prepareVolume`): `keys.sqlite` records `backups-turned-on` before
+   * anything else at this start, and every store opened before it has R5's (f)
+   * and (f2) waived, now and at every later start (`Backups#mintRefusal`).
+   */
+  readonly firstBackup?: boolean;
 }
 
 export interface StartReport {
@@ -439,6 +446,16 @@ export function createApp(opts: AppOptions): App {
       const asideSwept = sweepAside(opts.dataRoot, tenants.root, (opts.now ?? Date.now)());
       // No sidecar until the restores are done (`Backups.hold`; the #653 review, L2).
       backups?.hold();
+      // Every live store whose database is here has lived: mark it (a database
+      // from before `opened_at`, or a mark whose write failed, heals here).
+      // BEFORE the turn-on fact below (the #661 re-check, P7): a store marked
+      // after it would never count as opened before backups were turned on.
+      // Local, the accounts database only.
+      const dbOf = (id: string): string => join(tenantDir(tenants.root, id), "store", DATABASE_FILE);
+      for (const id of accounts.liveStoreIds()) if (existsSync(dbOf(id))) accounts.markOpened(id);
+      // Turning backups on (R7): recorded before anything is made or put, so a
+      // start cut short anywhere after it is still known as one.
+      if (startOpts.firstBackup === true) keys?.recordFact("backups-turned-on");
       let tombstoned = 0;
       let leftovers = 0;
       if (backups !== null) {
@@ -474,10 +491,6 @@ export function createApp(opts: AppOptions): App {
           }
         }
       }
-      // Every live store whose database is here has lived: mark it (a database
-      // from before `opened_at`, or a mark whose write failed, heals here).
-      const dbOf = (id: string): string => join(tenantDir(tenants.root, id), "store", DATABASE_FILE);
-      for (const id of accounts.liveStoreIds()) if (existsSync(dbOf(id))) accounts.markOpened(id);
       let restored = 0;
       let restoreFailed = 0;
       let keyless = 0;
