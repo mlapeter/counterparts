@@ -312,6 +312,10 @@ Deploy → Custom Start Command, deploy once, read the log, then **clear it**. T
     do: it is erased at its deadline, and if its person keeps it, the next start checks it like any other.
 - **`did not start: the object store says the bucket (R2_BUCKET) doesn't exist`**: `R2_BUCKET` names a bucket R2
   doesn't have. Fix the variable.
+- **`delete.mail.failed storeTag=<tag>`** (not a refusal): a person deleted their account and its confirmation email
+  (R9) didn't send. The delete stands and their page said so; nothing retries the email. If it repeats, check Resend
+  (`RESEND_API_KEY`, `MAIL_FROM`'s domain); sign-in links would be failing too. `storeTag=none` is possible: the
+  account had no store left to name.
 
 ### The drill with the real binary (do it once, soon after the first deploy)
 

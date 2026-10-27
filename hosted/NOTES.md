@@ -413,3 +413,39 @@ Each has a test in `test/ops.test.ts`'s R7 block, through a spawned serve with `
   batch queued, a second hold queued behind its first message, the disconnect made once the remember ran, then the
   recall re-checks its token. It fails on Node 24 without the change.
 
+
+## R9: a confirmation email at a delete (10-27)
+
+Mike's "yes send email" (INTERFACE-GAPS §34, now closed). The guarantees are CONTRACT §27's last bullet.
+
+- **The send lives in the page handler, not in `app.ts`.** `deleteAccount` is also the timer's erase
+  (`finishPendingDeletes`), and the brief wants no email there; the handler is the one place a person's own delete
+  happens, and it already holds the person (address and zone) from before the delete. A second delete never reaches the
+  send (the pending page's redirect), and `scheduleDelete` returning `null` (two tabs) sends nothing either.
+- **The address is read before the delete.** `markDeleted` purges the identity, so a send after it reads nothing. The
+  test checks the address is gone from the accounts row and the email went to it anyway.
+- **A pending person's `storeId` is null** (`Person.storeId` is the ACTIVE store). The failure's log tag takes
+  `storesToDelete(personId)[0]` instead, read before the delete, so a delete-now from the pending page still logs a tag.
+- **Not awaited, like the sign-in link.** Resend's 10 s timeout would otherwise hold the done page. A mailer that
+  throws synchronously is caught too (the test's mailer does). So the done pages say "an email with this is on its way
+  to you", the same promise `SENT_WORDS` makes, true or not of the send; that is the only page change.
+- **Delete everything now cut short (the `202` page)** sends the `202` page's words ("being deleted … keep retrying"),
+  not "erased". The timer finishes it later and sends nothing more, so this is the only email that delete gets.
+- **The 24-hour email adds one line the pages don't have:** "If it wasn't you, sign in and keep your account before
+  then." It is the case the email exists for.
+- `main.ts`'s `MAIL=log` line names the email by its subject (it said "a sign-in email" for every one).
+
+### The #662 review (high), and its fixes
+
+- **The tests only failed the mailer at once; `resendMailer` only fails later** (a non-ok answer, or its 10 s
+  timeout). A test now drives the real `resendMailer` with a `fetchFn` that answers `502` after 250 ms, behind a
+  delete-now: the page and the purge are done before it fails, and the audit row and the event still appear, with
+  neither the address nor the error text.
+- **A delete-now that failed before the erase began got the "being deleted" email and the `202` page** (any failure
+  of `deleteAccount` read as "cut short", including a database error at `markDeleting`, when nothing had changed).
+  After a failure the handler now reads the person's state: `suspended` or `deleted` is the `202` and its email;
+  anything else (or a read that throws) sends nothing and answers `503` "Nothing changed. Try again", still signed in.
+- The audit write in both mail-failure handlers (sign-in and delete) is wrapped, so a late failure on a closed or busy
+  database is never an unhandled rejection.
+- The 24 h email gained the pending page's "Until then your memory isn't read, shown or used", after the deadline
+  sentence so "then" has its antecedent. DESIGN §5.2 says the mail provider sees the address and keeps its own logs.

@@ -77,7 +77,8 @@ function mailerFrom(env: Record<string, string | undefined>): Mailer | string {
     return {
       async send(mail) {
         await mem.send(mail);
-        process.stderr.write(`[hosted] (MAIL=log) a sign-in email for ${mail.to}:\n${mail.text}\n`);
+        // Named by its subject: a sign-in link, or one of a delete's emails (R9).
+        process.stderr.write(`[hosted] (MAIL=log) an email for ${mail.to}, "${mail.subject}":\n${mail.text}\n`);
       },
     };
   }
@@ -220,12 +221,14 @@ export async function restoreCommand(dataRoot: string, backup: AppBackupOptions,
 
 /**
  * `serve`'s log line for an app event: limit refusals, stores waiting on a
- * restore, a new store's failed backup set-up (R3). The event and the hashed
+ * restore, a new store's failed backup set-up (R3), a delete's email that
+ * didn't send (R9). The event and the hashed
  * store tag, nothing else: never an id, an address or an error's text.
  */
 export function eventLine(name: string, store: string): string {
   // `storeTag=` is `storeTag` (SHA-256, the restore CLI's tag); `store=` is server.ts's per-process HMAC tag.
   if (name === "backup.ensure.failed") return `[hosted] ${name} storeTag=${store}: this store is NOT backed up yet (its key or its place in litestream.yml failed; the audit has it). The next restart retries it, and gives it a key if the bucket holds nothing of it\n`;
+  if (name === "delete.mail.failed") return `[hosted] ${name} storeTag=${store}: a delete's email (R9) didn't send. The delete stands; the person saw its page. The audit has it\n`;
   if (name === "backup.key.minted") return `[hosted] ${name} storeTag=${store}: this store served with no backup key, here or in the bucket, and the bucket holds nothing of it. It has a key now; backed up once this start is serving\n`;
   if (name.startsWith("backup.keyless.")) {
     const reason = name.slice("backup.keyless.".length) as KeylessReason;

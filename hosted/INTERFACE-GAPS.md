@@ -117,10 +117,10 @@
 
 ## The 24-hour delete (R6, 10-27)
 
-34. **No confirmation email for a delete, a keep or an erase.** None was built for the delete before R6 (DESIGN §7.1
-    said one goes out), so none was added (the brief: only if one existed). Recommended next: one email at the delete,
-    naming the deadline and the way to keep it. It is the only notice a person gets if someone else's hand used their
-    signed-in browser, and the 24 hours are what make it worth sending.
+34. **Closed 2026-10-27 (R9, on Mike's "yes send email"): a confirmation email at a delete.** One at the delete,
+    naming the deadline in the person's zone and the way to keep it, and one at delete everything now (CONTRACT §27).
+    A keep and the timer's erase still send none, by design. The send isn't retried: a provider that is down at the
+    delete means no email (audited and logged as `delete.mail.failed`), and the delete stands.
 35. **No re-authentication for delete everything now** beyond the signed-in session and the typed address. From the
     pending page the session is always a fresh email link (the delete ended every other). From an active account it is
     whatever session the browser has (up to 30 days old).
