@@ -250,7 +250,9 @@ describe("through the real night runner, a stand-in claude", () => {
     expect(out.detail).toContain("[redacted]");
     const c = opened();
     expect(c.store.getMeta("dream.night") ?? "").toContain("[redacted]");
-    expect(events.some((e) => JSON.stringify(e).includes("[redacted]"))).toBe(true);
+    // The process log saw the run (it carries its state and reason, not the line).
+    expect(events.some((e) => e.name === NIGHT_RUN_EVENT)).toBe(true);
+    expect(JSON.parse(c.store.eventLog({ name: NIGHT_RUN_EVENT, order: "desc", limit: 1 })[0]?.payload ?? "{}").detail).toContain("[redacted]");
     const everywhere = [JSON.stringify(out), c.store.getMeta("dream.night") ?? "", ...c.store.eventLog({ limit: 200 }).map((r) => r.payload ?? ""), JSON.stringify(events)].join("\n");
     expect(everywhere).toContain("[redacted]");
     expect(everywhere).not.toContain(KEY);
