@@ -93,6 +93,7 @@ import { hostDelivery } from "../src/adapters/claude-code/bin/hook.js";
 import {
   EXIT,
   HOST_EVENTS,
+  HOSTED_DENY_URL,
   MCP_SERVER_NAME,
   STORE_STARTED_KEY,
   readHost,
@@ -263,7 +264,7 @@ function consoleWith(): { io: Io; out: string[]; err: string[] } {
  * and a `-s user` MCP registration in `<home>/.claude.json` under `mcpServers`.
  */
 function installHostSteps(
-  over: { events?: readonly string[]; mcp?: boolean; stale?: boolean } = {},
+  over: { events?: readonly string[]; mcp?: boolean; stale?: boolean; deny?: boolean } = {},
 ): void {
   // A REAL FILE at the path the block names — because since 2026-09-20 a block
   // pointing at a checkout that is not there is graded as a fault, not as an
@@ -277,7 +278,9 @@ function installHostSteps(
     hooks[event] = [{ hooks: [{ type: "command", command: `/bin/bun ${target}` }] }];
   }
   mkdirSync(join(root, ".claude"), { recursive: true });
-  writeFileSync(join(root, ".claude", "settings.json"), JSON.stringify({ hooks }));
+  // `connect` writes the deniedMcpServers entry beside the hooks (R1).
+  const denied = over.deny === false ? {} : { deniedMcpServers: [{ serverUrl: HOSTED_DENY_URL }] };
+  writeFileSync(join(root, ".claude", "settings.json"), JSON.stringify({ hooks, ...denied }));
   if (over.mcp !== false) {
     writeFileSync(
       join(root, ".claude.json"),

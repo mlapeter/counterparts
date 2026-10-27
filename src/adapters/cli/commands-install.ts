@@ -449,7 +449,8 @@ function printHostSteps(io: Io, resolved: string, custom: string | undefined, ho
   io.out("Two steps left, and they are the HOST'S files, so they are printed, not applied.");
   io.out("Nothing below has been written and no host configuration was read.");
   io.out("");
-  io.out("  1. Merge this into ~/.claude/settings.json (one script, five events):");
+  io.out("  1. Merge this into ~/.claude/settings.json (one script on five events, and one");
+  io.out("     deniedMcpServers entry that keeps Counterparts Online out of Claude Code):");
   io.out("");
   for (const line of settingsBlock(hookCommand(custom)).split("\n")) io.out(`     ${line}`);
   io.out("");
