@@ -97,6 +97,7 @@ import { expandHome, hookCommandLive, isOurHookCommand, npmWiring, readOurHook }
 import { noteNpmLive, removeNpmLive } from "../npm-live.js";
 import { PACKAGE_ROOT, PLUGIN_DATA_ENV, PLUGIN_ROOT_ENV } from "../plugin.js";
 import { claudeCodeEnvMarker } from "../hosts.js";
+import { withHostUmask } from "../private-umask.js";
 import { parseScriptInvocation, readsHostUserConfig, scriptArgs, shellTokens } from "../runtime.js";
 import { installedBuild, installedVersion, readServerRecords, sameBuild, serverBelieved } from "../sessions.js";
 import type { BuildStamp, ServerRecordRead } from "../sessions.js";
@@ -1014,7 +1015,9 @@ export function realSpawner(env: Record<string, string | undefined>): Spawner {
     // ARGUMENTS, NEVER A SHELL STRING. The store path and the config path come
     // from a file on disk and can hold anything at all; a shell would interpret
     // it. `spawnSync` with an array passes each one through whole.
-    const res = spawnSync(CLAUDE_BIN, [...args], {
+    // Under the umask this process was started with: `claude` writes its own
+    // files, and they keep the modes they always had (`private-umask.ts`).
+    const res = withHostUmask(() => spawnSync(CLAUDE_BIN, [...args], {
       encoding: "utf8",
       timeout: CLAUDE_TIMEOUT_MS,
       windowsHide: true,
@@ -1022,7 +1025,7 @@ export function realSpawner(env: Record<string, string | undefined>): Spawner {
       // a `spawnSync` with no `env` resolves the binary against the REAL
       // environment, so a caller's PATH would be ignored.
       env: env as NodeJS.ProcessEnv,
-    });
+    }));
     if (res.error !== undefined && res.error !== null) {
       const code = (res.error as NodeJS.ErrnoException).code ?? "";
       return {

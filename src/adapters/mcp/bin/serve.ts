@@ -69,6 +69,7 @@ import { installedVersion } from "../../sessions.js";
 import { PLUGIN_ROOT_ENV, ensureFirstRun, installRoute, mcpGate, pluginOrigin, runningAsPlugin } from "../../plugin.js";
 import { DATA_DIR_ENV, describeGuardRefusal } from "../../../core/store/index.js";
 import { BINARY, scriptArgs } from "../../runtime.js";
+import { usePrivateUmask } from "../../private-umask.js";
 import type { Binary } from "../../runtime.js";
 import { OBSERVER_ENV, observerFromEnv, unreadableStanceLine } from "../../stance-env.js";
 
@@ -523,6 +524,7 @@ export function isEntryPoint(argv1: string | undefined, url: string, binary: Bin
 /** Run the server until stdin closes — what this file does as a script, and
  *  what the single binary's `mcp` mode calls. */
 export function start(): void {
+  usePrivateUmask();
   void main().then(
     // `process.exitCode` is 1 when the launch refused a named configuration it
     // could not honour; every other path ends 0.

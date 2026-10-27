@@ -16,6 +16,8 @@
  */
 import { spawn } from "node:child_process";
 
+import { withHostUmask } from "../private-umask.js";
+
 /**
  * The host CLI a windowless child runs — always this one, resolved on the
  * child's PATH. It was once overridable by `pageWriter.command` in the
@@ -109,7 +111,9 @@ export async function startChild(plan: ChildPlan, abort?: AbortSignal): Promise<
     };
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(plan.command, [...plan.args], {
+      // Under the umask this process was started with (`private-umask.ts`):
+      // the child is another program, writing its own files.
+      child = withHostUmask(() => spawn(plan.command, [...plan.args], {
         // DETACHED ONLY SO THERE IS A PROCESS GROUP TO KILL. The caller still
         // awaits this child — `unref` is deliberately not called — so a child
         // whose outcome nobody can record is still impossible. What `detached`
@@ -123,7 +127,7 @@ export async function startChild(plan: ChildPlan, abort?: AbortSignal): Promise<
         stdio: ["pipe", plan.captureOutput === true ? "pipe" : "ignore", "ignore"],
         env: { ...plan.env },
         ...(plan.cwd === undefined ? {} : { cwd: plan.cwd }),
-      });
+      }));
     } catch (err) {
       // A runtime that refuses synchronously rather than by `error` (a command
       // that is not there, on some runtimes): the same answer, now.

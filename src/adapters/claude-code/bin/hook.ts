@@ -59,6 +59,7 @@ import {
 import type { SaysSoHook, StandDownFault } from "../standdown.js";
 import { readTranscript } from "../transcript.js";
 import { BINARY, entryScript, scriptArgs } from "../../runtime.js";
+import { usePrivateUmask } from "../../private-umask.js";
 import type { Binary } from "../../runtime.js";
 import { noteNpmLive, npmWiringForGate } from "../../npm-live.js";
 import {
@@ -1096,6 +1097,7 @@ export function isEntryPoint(argv1: string | undefined, url: string, binary: Bin
 /** Run the hook and exit — what this file does as a script, and what the
  *  single binary's `hook` mode calls. */
 export function start(): void {
+  usePrivateUmask();
   void main().then(
     () => process.exit(process.exitCode === 2 ? 2 : 0),
     (err: unknown) => {
