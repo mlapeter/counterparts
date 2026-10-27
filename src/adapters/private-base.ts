@@ -123,8 +123,6 @@ export function installBasePaths(configPath: string, storeDir: string, home: str
       foreign += 1;
       continue;
     }
-    // A configured snapshots dir that sits here is ours to name, not ours whole.
-    if (kind === "snapshots" && snapshotsDir !== null) continue;
     const path = join(base, name);
     try {
       const st = lstatSync(path);

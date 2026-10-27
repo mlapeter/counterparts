@@ -41,7 +41,11 @@ export interface OwnedNames {
   readonly config: string;
   readonly scopes: string;
   /** Null when `snapshots.dir` points at a directory the OWNER chose, which
-   *  this command leaves alone exactly as `start-fresh` does. */
+   *  this command leaves alone exactly as `start-fresh` does — wherever it is,
+   *  this directory included (round 4 of #657: `snapshots.dir` set to a
+   *  project's `docs/` made `uninstall --delete-memories` list that folder as
+   *  ours, and `private-base` would have made it private whole). Only the
+   *  `<dir>/snapshots` this package lays out beside its store is ours. */
   readonly snapshots: string | null;
   /** Null when `dataDir` is not directly inside the configuration directory. */
   readonly store: string | null;
@@ -54,12 +58,11 @@ export function ownedNames(
 ): OwnedNames {
   const dir = resolve(dirname(configPath));
   const configured = config.snapshots?.dir;
+  const ownDefault = storeDir === null ? null : defaultSnapshotsDir(storeDir);
   const snaps =
-    storeDir === null
-      ? null
-      : configured !== undefined && configured.trim().length > 0
-        ? resolve(configured)
-        : defaultSnapshotsDir(storeDir);
+    configured === undefined || configured.trim().length === 0 || (ownDefault !== null && resolve(configured) === ownDefault)
+      ? ownDefault
+      : null;
   return {
     config: basename(resolve(configPath)),
     scopes: SCOPES_FILE_NAME,

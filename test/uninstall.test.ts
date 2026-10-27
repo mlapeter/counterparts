@@ -70,6 +70,7 @@ import {
   memories,
   ownedKind,
   ownedNames,
+  notTouched,
   planLines,
   planUninstall,
   storeRefusal,
@@ -2514,4 +2515,19 @@ test("a rollback-aside store in the base is named and counted as memory in the d
   expect(text(lines)).toContain("That is 2 memory stores: yours, and 1 whole memory store `rollback` set aside.");
   const park = planUninstall({ configPath: configPath(), config, home, verb: "park" });
   expect(text(planLines(park, "park", home, ".parked"))).toContain("memory stores rollback set aside");
+});
+
+test("a snapshots.dir the owner pointed inside the config's own directory is never listed as ours", async () => {
+  const project = join(home, "code", "app");
+  mkdirSync(join(project, "docs"), { recursive: true });
+  writeFileSync(join(project, "docs", "letter.txt"), "dear\n");
+  const store = join(project, "store");
+  Store.open({ dir: store }).close();
+  const cfgPath = join(project, "counterparts.json");
+  const config = { dataDir: store, snapshots: { dir: join(project, "docs") } };
+  writeFileSync(cfgPath, JSON.stringify(config));
+  const del = planUninstall({ configPath: cfgPath, config, home, verb: "delete" });
+  expect(del.entries.map((e) => e.path)).not.toContain(join(project, "docs"));
+  expect(del.targets.some((t) => t === join(project, "docs") || t === project)).toBe(false);
+  expect(notTouched(del, config, home, {}).map((n) => n.path)).toContain(join(project, "docs"));
 });

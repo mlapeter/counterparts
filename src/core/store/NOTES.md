@@ -2410,4 +2410,11 @@ the files other modules write inside a 0700 store.
 - **bun's `chmodSync` drops sticky and setgid** (measured, bun 1.3.10: `0o1700` reads back
   `0o700`), so a path carrying a special bit is never chmodded and never counts as open;
   tests set those bits through `/bin/chmod`, since the earlier "sticky base" test had in
-  fact been testing a plain 777.
+  fact been testing a plain 777. doctor still grades such a path by its mode (amber is the
+  truth), though its hint that the next session will close it is then not true for that path.
+- **The same class in `uninstall`.** `ownedNames` called a configured `snapshots.dir` ours
+  whenever it sat directly in the config's directory, so a project config with
+  `snapshots.dir` = `<project>/docs` listed `docs/` for `--delete-memories` (a home base is
+  refused outright, so `~/Documents` was not reachable that way). Now only the
+  `<dir>/snapshots` this package lays out is ours; any configured one is the owner's, and
+  `notTouched` names it. One rule for both callers again.

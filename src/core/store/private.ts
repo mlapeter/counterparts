@@ -38,7 +38,9 @@
  *     (`adapters/private-base.ts`), which know it from the configuration
  *     sitting in it. BEST-EFFORT: a chmod the filesystem will not take (exFAT,
  *     some network drives) is skipped and counted, never a refusal. "Once" is
- *     stats, not a stored flag: an already-tight store costs two `stat` calls,
+ *     stats, not a stored flag: an already-tight store costs two `stat` calls
+ *     (and, with a named snapshots directory, a `readdir` of it and an `lstat`
+ *     per entry),
  *     and an open writes nothing at open.
  *   - **A path carrying a setuid, setgid or sticky bit is never chmodded** and
  *     never counts as open: bun's `chmodSync` drops those bits (measured, bun
