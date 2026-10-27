@@ -100,7 +100,7 @@ const LOCKED_WORDS = "Your account and memory are locked, every connected AI is 
 const ERASED_WORDS = "Your memory, its backups and its key are erased, and your account is closed. Your account email is purged from our encrypted account backups within 24 hours.";
 const ERASING_WORDS =
   "Your account is closed. Part of the deletion didn't finish just now, so the server will keep retrying on its own until everything is gone. You don't need to do anything. Your account email is purged from our encrypted account backups within 24 hours of the deletion finishing.";
-const MAIL_ON_ITS_WAY = "An email saying this is on its way to you.";
+const MAIL_ON_ITS_WAY = "An email with this is on its way to you.";
 
 /**
  * THE DELETE EMAILS (R9, Mike 2026-10-27): one at a delete (24 hours), one at

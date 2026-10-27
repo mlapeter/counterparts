@@ -427,8 +427,8 @@ Mike's "yes send email" (INTERFACE-GAPS §34, now closed). The guarantees are CO
 - **A pending person's `storeId` is null** (`Person.storeId` is the ACTIVE store). The failure's log tag takes
   `storesToDelete(personId)[0]` instead, read before the delete, so a delete-now from the pending page still logs a tag.
 - **Not awaited, like the sign-in link.** Resend's 10 s timeout would otherwise hold the done page. A mailer that
-  throws synchronously is caught too (the test's mailer does). So the done pages say "an email saying this is on its
-  way to you", the same promise `SENT_WORDS` makes, true or not of the send; that is the only page change.
+  throws synchronously is caught too (the test's mailer does). So the done pages say "an email with this is on its way
+  to you", the same promise `SENT_WORDS` makes, true or not of the send; that is the only page change.
 - **Delete everything now cut short (the `202` page)** sends the `202` page's words ("being deleted … keep retrying"),
   not "erased". The timer finishes it later and sends nothing more, so this is the only email that delete gets.
 - **The 24-hour email adds one line the pages don't have:** "If it wasn't you, sign in and keep your account before

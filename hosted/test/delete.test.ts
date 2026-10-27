@@ -899,7 +899,7 @@ describe("R9: the delete emails", () => {
 
     const done = await deleteLater(me.browser, "mailed@example.com");
     assert.equal(done.status, 200);
-    assert.match(await done.text(), /An email saying this is on its way to you/);
+    assert.match(await done.text(), /An email with this is on its way to you/);
     assert.equal(deleteMails(r).length, 1);
     const m = deleteMails(r)[0]!;
     assert.equal(m.to, "mailed@example.com");
@@ -948,7 +948,7 @@ describe("R9: the delete emails", () => {
     const page = await (await me.browser.go("/account")).text();
     const gone = await me.browser.form("/account/delete", { csrf: csrfOf(page), when: "now", confirm: "gone@example.com" });
     assert.equal(gone.status, 200);
-    assert.match(await gone.text(), /An email saying this is on its way to you/);
+    assert.match(await gone.text(), /An email with this is on its way to you/);
     assert.equal(r.app.accounts.person(me.personId)!.email, null, "the address is purged");
     await assertErased(r, me.storeId);
     assert.equal(deleteMails(r).length, 1);
