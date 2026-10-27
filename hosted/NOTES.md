@@ -235,7 +235,8 @@ account, and "delete everything now" beside it. Built on master 087c3b85; the gu
   naming an account `findAccount` no longer finds made its consent check throw (`oidc.grant` undefined): a 500 on
   `/oauth/authorize` in that browser. `revokeAccount` now deletes the person's library sessions too, so that browser is
   asked to sign in and lands on the pending page. The same 500 would have hit a suspended person's browser before
-  (suspension revokes nothing, INTERFACE-GAPS §18); it isn't fixed for suspension here.
+  (suspension revokes nothing, INTERFACE-GAPS §18); it isn't fixed for suspension here. The delete is a scan of the
+  `Session` rows with `json_extract` (no index on a session's account): fine for a beta of twenty.
 - **The tests drive the real timer.** `AppOptions.finishEveryMs` (ten minutes by default) runs it every few
   milliseconds, and `AppOptions.now` now reaches `Accounts` and the pages too, so an injected clock stands in for the
   24 hours (`test/delete.test.ts`).

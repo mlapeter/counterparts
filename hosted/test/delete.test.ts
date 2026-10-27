@@ -292,6 +292,10 @@ describe("delete, the default: locked at once, kept within 24 hours", () => {
     await assert.rejects(r.app.tenants.withTenant(me.storeId, {}, async () => undefined), StoreLocked);
     // The store is kept as it was: files, key, backups.
     await assertKept(r, me.storeId);
+    // An operator can't change a pending person either way: keeping is the person's.
+    assert.equal(r.app.accounts.setState(me.personId, "active"), false);
+    assert.equal(r.app.accounts.setState(me.personId, "suspended"), false);
+    assert.equal(r.app.accounts.person(me.personId)!.state, "pending-delete");
 
     // Signing in (by a new link: every session ended) shows the pending page, and only it.
     assert.equal((await signIn(r, me.browser, "kept@example.com", "")).headers.get("location"), "/account");
