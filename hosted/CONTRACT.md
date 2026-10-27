@@ -169,8 +169,58 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
     queue, sent only to the signed-in person behind CSRF, and the scratch copy (on the data volume, under `scratch/`, swept at
     start-up) is removed after sending.
 
+### Operations (OL2b: `src/limits.ts`, `src/backup.ts#restore`, `src/main.ts`, `Dockerfile`, `docs/hosted/RUNBOOK.md`)
+
+29. **The bucket's key is the store's key.** `keys.sqlite` is never replicated, so a new volume has no keys while its
+    backups in R2 are encrypted under the keys in `keys/<id>.wrapped`.
+    - `ensureStore` adopts a key object the bucket has (`KeyStore.adopt`: it must open under the ring for that store
+      id). It makes a new DEK only when neither side has one.
+    - When both sides have a key, the bucket's must be the same DEK (a rewrap's new wrapping) before the local one
+      is put over it. A different DEK is refused at start-up and left alone.
+    - So a volume that lost `keys.sqlite` can never mint a key over its own backup (OL2b found that path).
+30. **Restore** (`main.ts restore <storeId|control|--all>`, or `RESTORE_ON_BOOT=1` at a start):
+    - the key object is adopted first;
+    - then `litestream restore -config … -o <file>.restoring -if-replica-exists <file>`, because SSE-C needs the
+      configuration and a replica URL can't carry it;
+    - then the file is moved into place.
+
+    It refuses:
+    - a file already in place, without `--force`;
+    - an id the bucket has no key object for (no key is made for it);
+    - a ring that can't open the key object (nothing is written).
+
+    The control databases come back before anything opens them. A restored store's `cache/` (box 3, never backed up)
+    is dropped, and its next open runs `rebuildCache()`, or recall would find nothing.
+31. **An empty volume beside a bucket that has backups refuses to start** (`main.ts#prepareVolume`) unless
+    `RESTORE_ON_BOOT=1`. Starting would make empty control databases and replicate them over the real ones. A new
+    server with an empty bucket starts as before.
+32. **A store that lived and lost its files waits for a restore.** `stores.opened_at` (in the replicated control
+    database) records the first open. A store opened before whose dir is missing is refused (`StoreNeedsRestore` →
+    `/mcp` `503`, `Retry-After: 300`), and is never re-created empty: an empty store would be replicated over its
+    own backup.
+33. **`/readyz`** answers `200` only when start-up finished, the control databases answer, the key ring opened every
+    key, and (with backups on) the sidecar is up or reloading. Otherwise it answers `503`. The body is the check
+    names and their words (`ok`, `off`, `down`, `starting`): no id, no key, no message. `/healthz` stays liveness
+    only.
+34. **`/mcp` limits, per account, loose to start** (`limits.ts`):
+    - `tools/call`: 120 a minute and 1,500 an hour;
+    - 8 POSTs in flight at once;
+    - 1 GiB per store (`stores.quota_bytes` wins when set).
+
+    A refused call is a tool refusal the model can relay: `isError`, a `reason` (`rate-limited`, `store-full`),
+    plain words, and `retryAfterSeconds` when it is a rate limit. Over the size quota, `recall`, `status`, `wake`,
+    `scope` and reading the self page keep working. The in-flight cap is a `429` with `Retry-After`. Each refusal
+    is logged as its event and the hashed store tag, nothing else.
+35. **The DCR sweep.** A registered (non-https) client that registered more than 30 days ago and that nobody ever
+    allowed (`client_use`, written at its first grant) is dropped, along with its registration tokens. It runs at
+    start-up and every 10 minutes. A client allowed once is kept, even after a disconnect. CIMD clients are the
+    library's cache, and are not touched.
+36. **The image** (`hosted/Dockerfile`):
+    - Node 24.22.1 and bun 1.3.10 (for the two lockfiles' installs), pinned by tag and digest;
+    - Litestream 0.5.17, pinned by version and by the release's own sha256 for amd64 and arm64, checked in the build;
+    - it runs as `node`, and the entry point is `main.ts serve`.
+
 ## What it drops, for now
 
-- Restore, the Dockerfile and the rest of operations: the ops step (`INTERFACE-GAPS.md`).
-- Rate limits on `/mcp` and size quotas: the ops step.
+- Replication lag in `/readyz`, alerts, and the Fly fallback (`INTERFACE-GAPS.md`).
 - The 2026-07-28 stateless revision: later, behind a version switch (DESIGN §3).

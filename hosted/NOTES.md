@@ -83,3 +83,43 @@ Status on 2026-10-26, late:
   pending deletes before `ensureAll`, and `Tenants.retire` refuses any later open.
 - **Litestream v0.5 dropped its own encryption.** SSE-C is per replica, and `dir` mode shares one key. So each store
   gets its own `path:` entry, and each wrapped DEK is one write-once R2 object rather than a replicated keys database.
+
+## OL2b: the ops pieces (feat/hosted-ops, 2026-10-26; `NOTES-OL2b.md` folded in here)
+
+Built on master 6699b892 (the merged OL2 stack). What it covers: restore and the drill, `/readyz`, `/mcp` limits, the
+DCR sweep, the Dockerfile, and `docs/hosted/RUNBOOK.md`. The guarantees are CONTRACT §29–§36; what is left is
+INTERFACE-GAPS §4–§11.
+
+### Found while building
+
+- **`ensureStore` would have minted a new key over the bucket's key object.** That happens on any volume that lost
+  `keys.sqlite`, and `keys.sqlite` is deliberately not replicated. The new key was then put over
+  `keys/<id>.wrapped`, and the whole backup became unreadable. It runs at every start, for every live store. Now it
+  adopts the bucket's key, and refuses a different DEK.
+- **A restored store answers recall with nothing.** The word index and the vectors live in `cache/` (box 3), which is
+  never backed up. The core doesn't rebuild a missing cache on open. So restore drops `cache/` and leaves
+  `restored.marker`, and the next open runs `rebuildCache()` with the shared embedder.
+- **A store whose dir is missing used to be treated as a new install** (`tenants.ts`'s `fresh`). It was given a new
+  empty store, and the sidecar then replicated that store over the real backup. Now `stores.opened_at` marks a
+  store that lived, and such a store waits for a restore (`503`).
+- **An empty volume beside a full bucket** would have started with empty control databases and replicated them over
+  the real ones. Start-up refuses that unless `RESTORE_ON_BOOT=1`.
+
+### Learned
+
+- **Litestream 0.5.17, read from its source** (the classifier refused running the binary on the Mac):
+  - `restore` takes `-config` or a replica URL, never both, so an SSE-C restore needs the store in a configuration;
+  - `sse-customer-key-path` takes the base64 of 32 bytes (what `keys.ts#litestreamKey` writes);
+  - there's a shutdown sync on SIGTERM;
+  - path-style is the default when an endpoint is set;
+  - `addr:` serves metrics, the way to replication lag later.
+- **A Litestream child killed before it has loaded has no SIGTERM handler**, so it makes no final sync. The drill
+  waits for the first upload before it stops the server. In production a child lives for hours, so this doesn't
+  bite.
+- **`minio/minio` is gone from Docker Hub.** A real-S3 drill needs R2 itself (a second bucket), or another image.
+- **The image builds and serves.** `docker build -f hosted/Dockerfile .` verified the Litestream sha256 and ran
+  `litestream version` (0.5.17, arm64). A `BACKUPS=off` run answered `/readyz` 200, `/mcp` 401 with the resource
+  metadata, made an invite, and was `healthy`. A run against an unreachable bucket refused to start, now naming
+  `R2_ENDPOINT`.
+- **Test rigs:** under bun, an aborted mid-body POST keeps its ref (§16). The in-flight test finishes its held body
+  instead of aborting it.
