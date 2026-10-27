@@ -18,10 +18,10 @@
  */
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { childErrorText, oneLine, scrubSecrets, signedOutShaped } from "../src/adapters/claude-code/child-error.js";
+import { childErrorText, childFailure, oneLine, scrubSecrets, signedOutShaped } from "../src/adapters/claude-code/child-error.js";
 import { startChild } from "../src/adapters/claude-code/child.js";
 import type { ChildPlan } from "../src/adapters/claude-code/child.js";
 import { nightRunFindings } from "../src/adapters/claude-code/doctor.js";
@@ -188,9 +188,63 @@ describe("the line itself: read from what the child said, one line, bounded, scr
     expect(long.startsWith("first second red word")).toBe(true);
   });
 
-  test("a lost sign-in, loosely", () => {
+  test("a lost sign-in, loosely — but not a bare 401 or a bare OAuth (review of #656)", () => {
     for (const s of ["api_error: Not logged in · Please run /login", "API Error: 401 Unauthorized", "authentication_error: invalid x-api-key", "Invalid API key · Please run /login", "OAuth token has expired", "error: token revoked"]) expect(signedOutShaped(s)).toBe(true);
-    for (const s of ["error: unknown option '--tools'", "Overloaded", "exit 1", "error_max_turns", null]) expect(signedOutShaped(s)).toBe(false);
+    for (const s of ["error: unknown option '--tools'", "Overloaded", "exit 1", "error_max_turns", null, "the memory text mentions the OAuth flow", "retry after 401 seconds", "error: 401 rows were read"]) expect(signedOutShaped(s)).toBe(false);
+  });
+
+  test("signed out is read only from the host's own words: an api_error result, a 401 status, or STDERR — never another result's text (review of #656)", () => {
+    const api = childFailure({ code: 1, timedOut: false, output: NOT_LOGGED_IN.join("\n") });
+    expect(api).toEqual({ line: "api_error: Not logged in · Please run /login", signedOut: true });
+    const status = childFailure({ code: 1, timedOut: false, output: JSON.stringify({ type: "result", subtype: "error_during_execution", is_error: true, api_error_status: 401, result: "Request failed" }) });
+    expect(status?.signedOut).toBe(true);
+    // A result that is not the host's API error: its text may be the model's — never read, never signed out.
+    const prose = JSON.stringify({ type: "result", subtype: "error_max_turns", is_error: true, result: "Mike said he was not logged in at the clinic; I remembered the OAuth flow he set up." });
+    const turns = childFailure({ code: 1, timedOut: false, output: prose, stderr: "warn: slow\nError: Reached max turns (40)\n" });
+    expect(turns).toEqual({ line: "error_max_turns — Error: Reached max turns (40)", signedOut: false });
+    expect(childFailure({ code: 1, timedOut: false, output: prose })).toEqual({ line: "error_max_turns", signedOut: false });
+    // An api_error whose words are not a sign-in.
+    expect(childFailure({ code: 1, timedOut: false, output: JSON.stringify({ type: "result", subtype: "success", is_error: true, terminal_reason: "api_error", result: "API Error: 529 Overloaded" }) })).toEqual({ line: "api_error: API Error: 529 Overloaded", signedOut: false });
+    // STDERR alone: its words decide.
+    expect(childFailure({ code: 1, timedOut: false, stderr: "Error: Invalid API key · Please run /login\n" })?.signedOut).toBe(true);
+    expect(childFailure({ code: 1, timedOut: false, stderr: "retry after 401 seconds\n" })?.signedOut).toBe(false);
+  });
+
+  test("STDERR: the last line that reads as an error, else the last; OSC and ANSI out; home paths to ~", () => {
+    expect(childErrorText({ code: 1, timedOut: false, stderr: "Error: permission denied for the hook\nbye\n" })).toBe("Error: permission denied for the hook");
+    expect(childErrorText({ code: 1, timedOut: false, stderr: "starting\nbye\n" })).toBe("bye");
+    const osc = "\u001b]0;claude — title\u0007\u001b]8;;https://example.com\u001b\\link\u001b]8;;\u001b\\ \u001b[31merror: failed at /Users/someone/proj/x.ts\u001b[0m";
+    const line = childErrorText({ code: 1, timedOut: false, stderr: osc });
+    expect(line).toBe("link error: failed at ~/proj/x.ts");
+    expect(childErrorText({ code: 1, timedOut: false, stderr: `error: cannot read ${homedir()}/.claude/settings.json` })).toBe("error: cannot read ~/.claude/settings.json");
+    expect(childErrorText({ code: 1, timedOut: false, stderr: "error: cannot read /home/alice/notes" })).toBe("error: cannot read ~/notes");
+  });
+
+  test("scrubbed: JSON and quoted values, labels with no separator, Basic auth, every cookie, pw=, and digitless prefixed keys (review of #656)", () => {
+    const cases: [string, string][] = [
+      ['{"token":"v1secretvalue"}', "v1secretvalue"],
+      ['{"access_token": "abcDEFghi"}', "abcDEFghi"],
+      ['{"password":"hunter22"}', "hunter22"],
+      ["{'api_key': 'quotedsecret'}", "quotedsecret"],
+      ["x-api-key abc123def456", "abc123def456"],
+      ["api key abc123def456", "abc123def456"],
+      ["authorization=Basic dXNlcjpwYXNz", "dXNlcjpwYXNz"],
+      ["Authorization: Basic dXNlcjpwYXNz", "Basic"],
+      ["cookie: sid=abc; theme=dark; csrf=xyz", "theme=dark"],
+      ["cookie: sid=abc; theme=dark; csrf=xyz", "csrf=xyz"],
+      ["login pw=opensesame", "opensesame"],
+      ["ghp_abcdefghijklmnopqrstuvwxyzABCD", "ghp_abcdefghijklmnopqrstuvwxyzABCD"],
+      ["xoxb-abcdefghij-klmnopqrst", "xoxb-abcdefghij-klmnopqrst"],
+      ["AKIAABCDEFGHIJKLMNOP", "AKIAABCDEFGHIJKLMNOP"],
+    ];
+    for (const [text, secret] of cases) {
+      const out = scrubSecrets(text);
+      expect(out, text).not.toContain(secret);
+      expect(out, text).toContain("[redacted]");
+    }
+    // Words stay words.
+    expect(scrubSecrets("Invalid API key provided")).toBe("Invalid API key provided");
+    expect(scrubSecrets("Invalid API key · Please run /login")).toBe("Invalid API key · Please run /login");
   });
 
   test("the real starter keeps the tail of STDERR, every child", async () => {
@@ -284,6 +338,34 @@ describe("through the real night runner, a stand-in claude", () => {
     expect(proc.exitCode).toBe(0);
     expect(opened().dreams.nightRun()).toMatchObject({ run: "nrn_r4e2e", state: "could-not-start", reason: "signed-out", detail: "api_error: Not logged in · Please run /login" });
   }, 30_000);
+});
+
+describe("signed out only when nothing began (review of #656)", () => {
+  test("a dream child that began a dream, then lost its sign-in: not `signed-out` — the line is kept, and the next session resumes rather than asks", async () => {
+    const today = lived();
+    const events: CounterpartEvent[] = [];
+    const out = await runNight(
+      nightOf("claude", events, {
+        date: today,
+        // The real seat and child reader; the child itself begins a dream in the store, then fails signed out.
+        start: async () => {
+          const c = openNightCounterpart(config());
+          try {
+            const d = c.dreams.begin({ session: "s1" });
+            if (!d.ok) throw new Error(d.reason);
+          } finally {
+            c.close();
+          }
+          return { code: 1, timedOut: false, error: null, output: NOT_LOGGED_IN.join("\n") };
+        },
+      }),
+    );
+    expect(out.reason).not.toBe("signed-out");
+    expect(out).toMatchObject({ state: "failed", reason: "exit", code: 1, detail: "api_error: Not logged in · Please run /login" });
+    const c = opened();
+    expect(c.dreams.setSetting("auto", { by: "owner" }).ok).toBe(true);
+    expect(c.dreams.offer({ at: today, session: "s2" })?.notice ?? "").not.toContain("signed out");
+  });
 });
 
 describe("the write-up runner, failing mid-batch", () => {

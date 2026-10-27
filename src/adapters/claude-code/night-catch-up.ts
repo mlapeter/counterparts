@@ -464,6 +464,8 @@ export interface CatchUpReport {
    *  said (`child-error.ts`); null when it did not fail, or said nothing, and
    *  on rows from before. */
   readonly detail: string | null;
+  /** That line reads as a lost sign-in, from the host's own words (`child-error.ts#ChildFailure`). Absent otherwise. */
+  readonly signedOut?: true;
   /** Children started (2026-10-11). */
   readonly batches: number;
   /** What stopped the run while something was still owed: the parts ceiling
@@ -557,7 +559,7 @@ export interface CatchUpInput {
 }
 
 /** One child, started and waited on: what became of it. */
-async function runChild(input: CatchUpInput, plan: CatchUpPlan, prompt: string): Promise<{ state: CatchUpReport["state"]; code: number | null; detail: string | null }> {
+async function runChild(input: CatchUpInput, plan: CatchUpPlan, prompt: string): Promise<{ state: CatchUpReport["state"]; code: number | null; detail: string | null; signedOut?: true }> {
   // THE ASK (2026-10-20): the batch's prompt, filed under its runner, with
   // the write-up's own turns and watchdog.
   const ask = seatAsk("catch-up", {
@@ -573,7 +575,8 @@ async function runChild(input: CatchUpInput, plan: CatchUpPlan, prompt: string):
     const state = !answer.started ? "could-not-start" : answer.timedOut ? "timed-out" : answer.code === 0 ? "done" : "failed";
     // What a failed child said, where the seat reports it (Claude Code's: `NightAnswer.failure`).
     const said = (answer as { failure?: unknown }).failure;
-    return { state, code: answer.code, detail: state === "failed" && typeof said === "string" && said.length > 0 ? said : null };
+    const failed = state === "failed" && typeof said === "string" && said.length > 0;
+    return { state, code: answer.code, detail: failed ? said : null, ...(failed && (answer as { signedOut?: unknown }).signedOut === true ? { signedOut: true as const } : {}) };
   } catch {
     return { state: "could-not-start", code: null, detail: null };
   }
@@ -594,6 +597,7 @@ export async function runCatchUp(input: CatchUpInput): Promise<CatchUpReport | n
   let state: CatchUpReport["state"] = "done";
   let code: number | null = null;
   let detail: string | null = null;
+  let signedOut = false;
   let parts = 0;
   let passed = 0;
   let unread = 0;
@@ -668,6 +672,7 @@ export async function runCatchUp(input: CatchUpInput): Promise<CatchUpReport | n
     const child = await runChild(input, plan, prompt);
     code = child.code;
     detail = child.detail;
+    signedOut = child.signedOut === true;
     let m: ReturnType<typeof measure> | null = null;
     try {
       const c = input.open();
@@ -719,6 +724,7 @@ export async function runCatchUp(input: CatchUpInput): Promise<CatchUpReport | n
     ms: endedAt - startedAt,
     code,
     detail,
+    ...(signedOut ? { signedOut: true as const } : {}),
     batches,
     limit,
     ...over,
@@ -757,6 +763,7 @@ function record(input: CatchUpInput, report: CatchUpReport, open?: Counterpart):
     ms: report.ms,
     code: report.code,
     ...(report.detail === null ? {} : { detail: report.detail }),
+    ...(report.signedOut === true ? { signedOut: true } : {}),
     batches: report.batches,
     limit: report.limit,
   };
@@ -813,6 +820,7 @@ export function catchUpOf(
         ms: n("ms"),
         code: typeof p["code"] === "number" ? (p["code"] as number) : null,
         detail: typeof p["detail"] === "string" && p["detail"].length > 0 ? p["detail"] : null,
+        ...(p["signedOut"] === true ? { signedOut: true as const } : {}),
         partsLeft: typeof p["partsLeft"] === "number" ? (p["partsLeft"] as number) : null,
         batches: typeof p["batches"] === "number" ? (p["batches"] as number) : 1,
         limit: p["limit"] === "parts" || p["limit"] === "time" ? p["limit"] : null,

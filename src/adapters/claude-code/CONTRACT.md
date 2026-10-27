@@ -839,13 +839,21 @@ children's output (the host's cut, below, is read from the host's own transcript
 non-zero, one line of what the host said goes on the row's `detail` (`exit`, `quick-exit`,
 `signed-out`, and `partial` by `exit`), on that child's line (`NightChildRun.detail`), on the
 `dream.night` event (`detail`, `childDetails`), and on the write-up row (`detail`; the night
-row's is `catch-up: <line>`): the child's own `stream-json` error result (only a result that
-is an error; never a successful one's prose) when its output is kept, else the last line of
-its STDERR (every child pipes STDERR now; its last `STDERR_TAIL_BYTES` kept). At most 300
-characters, one line, and scrubbed by shape before it is stored or logged: the value after a
-credential label (`…token`, `…key`, `secret`, `password`, `authorization`, `cookie` with `:`
-or `=`), the word after `Bearer`, `sk-…`, and any run of 20+ key-ish characters with a digit
-in it become `[redacted]`. No flag is added to the child, and nothing is retried.
+row's is `catch-up: <line>`). Where it comes from, when the child's output is kept: a result
+that is the host's API error (`terminal_reason: "api_error"`, an `api_error_status`, or
+`subtype: "success"` with `is_error`) gives its reason, status and text; any other error result
+gives only its subtype and status, with the STDERR line beside them — its text may be the
+model's. Else the STDERR line: the last that reads as an error (`error|denied|invalid|failed|
+not logged`), else the last (every child pipes STDERR now; its last `STDERR_TAIL_BYTES` kept).
+At most 300 characters, one line, ANSI and OSC sequences out, home paths as `~`, and scrubbed
+by shape before it is stored or logged (`child-error.ts#scrubSecrets`): `Authorization` with
+its scheme and value, all of a `Cookie:`, the word after `Bearer`, the value after a credential
+label (`…token`, `…key`, `api key`, `secret`, `password`, `pw`, …) bare, JSON or quoted with `:`
+or `=` — and with only a space when the value has a digit or is 16+ long — the prefixes `sk-`,
+`ghp_`/`github_pat_`, `xox?-`, `AKIA`, and any run of 20+ key-ish characters with a digit in it
+become `[redacted]`. `signed-out` is read only from the host's own words (an API-error result,
+a 401 status, or the STDERR line), never a bare "401" or "OAuth", and only when the run began
+nothing. No flag is added to the child, and nothing is retried.
 
 **[M] The child is locked down (owner decision B).** `--permission-mode default`;
 `--allowedTools` exactly `mcp__counterparts__dream`, `…reflect`, `…self_page`, `…recall`;

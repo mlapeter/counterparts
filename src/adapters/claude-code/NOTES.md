@@ -2733,3 +2733,12 @@ It was a lost sign-in: the owner switched Claude Code accounts mid-run.
   It now uses the failing child's own `ms`.
 - **STDERR is piped for every child**, so the exit-then-grace end (once only for children
   whose STDOUT was kept) now holds for all: a helper holding the pipe cannot hold the run.
+- **Review of #656 narrowed both readings.** A result's text is read only when it is the
+  host's API error. `max_turns` and `error_during_execution` results can carry the model's
+  words (memory text), so for those only the subtype and status are kept. `signed-out` is
+  read only from the host's own words: no bare "401" ("retry after 401 seconds") and no
+  bare "OAuth" ("the OAuth flow"). It is also gated on nothing having begun, because
+  `fellBack` asks on any `could-not-start`, and a dream that began is resumed instead. The
+  scrub gained JSON, quoted and space-separated labels, Basic auth, whole cookies, `pw=`
+  and the digitless prefixed keys (`ghp_`, `xox?-`, `AKIA`). STDERR prefers its last
+  error-shaped line. OSC sequences are stripped, and home paths become `~`.
