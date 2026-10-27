@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
+import { createServer as createNetServer } from "node:net";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -56,8 +57,12 @@ describe("the entry point", () => {
     const invite = spawnSync(process.execPath, [...scriptArgs(MAIN), "invite", "--note", "test"], { env, encoding: "utf8", timeout: 30_000 });
     assert.equal(invite.status, 0, invite.stderr);
     assert.match(invite.stdout.trim(), /^cpi_[A-Za-z0-9_-]{43}$/);
-    // PORT=0 is refused (a real port is required); pick one.
-    const port = 40000 + Math.floor(Math.random() * 20000);
+    // PORT=0 is refused (a real port is required); take one the system says is free
+    // (a random pick collided with another test file's listener under Node's parallel runner).
+    const probe = createNetServer();
+    await new Promise<void>((r) => probe.listen(0, "127.0.0.1", () => r()));
+    const port = (probe.address() as { port: number }).port;
+    await new Promise<void>((r) => probe.close(() => r()));
     const child = spawn(process.execPath, [...scriptArgs(MAIN), "serve"], { env: { ...env, PUBLIC_ORIGIN: `http://127.0.0.1:${String(port)}`, PORT: String(port) }, stdio: ["ignore", "ignore", "pipe"] });
     try {
       let err = "";
