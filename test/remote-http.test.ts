@@ -415,7 +415,10 @@ describe("the refusal hook inside a batch (R7's rider)", () => {
       { jsonrpc: "2.0", id: 2, error: { code: REFUSED_ERROR, message: "refused (HTTP 503): this message did not run", data: { status: 503, retryAfter: "30" } } },
       { jsonrpc: "2.0", id: 4, error: { code: REFUSED_ERROR, message: "refused (HTTP 503): this message did not run", data: { status: 503, retryAfter: "30" } } },
     ]);
-    expect(REFUSED_ERROR).not.toBe(-32603);
+    // A code no MCP client gives a meaning to: not JSON-RPC's, not the TS SDK's (ConnectionClosed, RequestTimeout,
+    // UrlElicitationRequired, -32099), not the spec's resource-not-found.
+    expect(REFUSED_ERROR).toBe(-32050);
+    for (const taken of [-32700, -32600, -32601, -32602, -32603, -32000, -32001, -32002, -32042, -32099]) expect(REFUSED_ERROR).not.toBe(taken);
 
     // A single message is unchanged: the whole request.
     const single = await post(ping(5));

@@ -375,7 +375,7 @@ keys there, but the control key itself was made. The guarantee is CONTRACT §31.
   writes twice (worse with `503` and `Retry-After`, which says "send again").
 - **Now** (`remote/http.ts#handleMcpPost`): until a message of the request has reached the server, a refusal still
   answers the whole request (`401`/`503`, with its headers). Once one has, the answers made are kept, HTTP is `200`,
-  and the refused message and each one refused after it carries `REFUSED_ERROR` (-32001, "refused (HTTP 401): this
+  and the refused message and each one refused after it carries `REFUSED_ERROR` (-32050, "refused (HTTP 401): this
   message did not run", `data: { status, retryAfter? }`). A message that threw anything else counts as run (it may
   have written). Single messages, all claude.ai sends (MCP 2025-06-18 has no batches), are unchanged.
 - **The test builds the window for real** (`test/delete.test.ts`, the rider block): the store's queue is held, the

@@ -154,8 +154,13 @@ export interface Refusal {
  * message of the batch has run (`McpPostOptions.refusal`): implementation-defined
  * (-32000 to -32099), and never "internal error". `data.status` is the HTTP
  * status the whole request would have had; `data.retryAfter` its Retry-After.
+ *
+ * A code no MCP client gives a meaning to (the #661 review: -32001 is the TS
+ * SDK's RequestTimeout). The SDK 1.32.2 defines -32000 ConnectionClosed,
+ * -32001 RequestTimeout, -32042 UrlElicitationRequired and the JSON-RPC ones,
+ * and uses -32099; the MCP spec names -32002 (resource not found).
  */
-export const REFUSED_ERROR = -32001;
+export const REFUSED_ERROR = -32050;
 
 /** Carries a `refusal` out of one message (and that message's id) to the request's answer. */
 class Refused extends Error {

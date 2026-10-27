@@ -47,7 +47,7 @@ on the owner's machine through a tunnel he starts.
    error into an HTTP answer for the whole request (the hosted door's 401 for a store
    locked or a token revoked while the call waited), while no message of it has run. In a
    batch where one already ran (R7's rider), the answers made are kept, HTTP is 200, and
-   each refused message carries `REFUSED_ERROR` (-32001, the status in `data`), so a
+   each refused message carries `REFUSED_ERROR` (-32050, the status in `data`), so a
    client never sends a made write again. The local door uses neither.
 5. Bodies over 1 MB are `413`; a body that is not JSON is `400` with JSON-RPC's parse error; a batch of more than `MAX_BATCH` (32) messages is `400`, refused whole before any message runs.
 6. Inbound only: it opens no connection and resolves no host (pinned in

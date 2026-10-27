@@ -178,7 +178,7 @@ process, behind our own accounts and OAuth: one person, one store, one door at `
       such refusal answers the whole request `401` (`503` if the check itself throws), never a `200` "internal
       error" (`McpPostOptions.refusal`), while no message of the request has run. In a batch where one already ran,
       its answers are kept: HTTP stays `200`, and each refused message carries its own JSON-RPC error
-      (`REFUSED_ERROR`, -32001, with `data.status` and `data.retryAfter`), so a client never sends a made write
+      (`REFUSED_ERROR`, -32050, with `data.status` and `data.retryAfter`), so a client never sends a made write
       again.
     - **The erase is never early and never forgotten.** `delete_after` is in the replicated control database. The finish
       timer (every ten minutes) and start-up begin the erase of a pending delete only once its deadline has passed, in
